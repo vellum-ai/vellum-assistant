@@ -41,6 +41,8 @@ export interface ChannelIngress {
   paths: IngressPath[];
   /** True while a decision is in flight. */
   deciding: boolean;
+  /** True while the state is still being read, before any of it is known. */
+  loading: boolean;
   /**
    * Whether this gateway can be asked at all. False only for the two answers
    * that mean "no decision exists here": a build predating the endpoint, and a
@@ -110,6 +112,7 @@ export function useChannelIngress(
         approvalGoverned: route.signer !== "vellum",
       })) ?? [],
     deciding: approval.isPending || revocation.isPending,
+    loading: query.isPending,
     available: !surfaceAbsent,
     approve: () => {
       if (entry?.digest) {

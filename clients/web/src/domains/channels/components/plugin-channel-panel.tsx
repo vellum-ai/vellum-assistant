@@ -5,6 +5,7 @@ import { Tag } from "@vellumai/design-library/components/tag";
 
 import {
   useChannelIngress,
+  type ChannelIngress,
   type IngressPath,
 } from "@/domains/channels/hooks/use-channel-ingress";
 import { PluginChannelIcon } from "@/utils/channel-presentation";
@@ -18,13 +19,15 @@ export interface PluginChannelPanelProps {
 /**
  * Detail panel for a channel a plugin brings.
  *
- * Two things belong here and nothing else. The ingress approval, because a
- * plugin channel's routes are refused until a guardian grants them and this is
- * where someone would look for that. And a way through to the plugin, because
- * the built-in adapters each render a credential form this client knows the
- * shape of and a plugin's does not exist here: guessing one would be worse
- * than sending the guardian to the plugin, which owns its own setup surface
- * and its own idea of what "connected" means.
+ * Two things belong here. The ingress approval, because a plugin channel's
+ * routes are refused until a guardian grants them and this is where someone
+ * would look for that. And a way through to the plugin, because the built-in
+ * adapters each render a credential form this client knows the shape of and a
+ * plugin's does not exist here: guessing one would be worse than sending the
+ * guardian to the plugin, which owns its own setup surface and its own idea of
+ * what "connected" means. The link sits last, under the decision, because the
+ * decision is what this page can settle and the plugin page is where someone
+ * goes next.
  *
  * The description is the plugin manifest's, and a manifest need not carry one,
  * so it is omitted rather than filled with copy this client invented.
@@ -59,28 +62,61 @@ export function PluginChannelPanel({
         </p>
       ) : null}
 
-      {/* Hidden when the gateway cannot answer: one predating the endpoint, or
-          a viewer who is not this assistant's guardian. Neither has a decision
-          to offer, and an error banner would report a failure the viewer
-          cannot act on. A 5xx or a network failure is not that case and keeps
-          the control, which reports the failure and retries. */}
-      {ingress.available && ingress.state !== "none" ? (
-        <IngressDecision channel={channel} ingress={ingress} />
-      ) : null}
+      <IngressSection channel={channel} ingress={ingress} />
 
       <Button
         onClick={() => navigate(`/assistant/plugins/${channel.plugin}`)}
         variant="outlined"
       >
-        Open {channel.label} settings
+        Open plugin page
       </Button>
     </div>
   );
 }
 
-interface IngressDecisionProps {
+interface IngressSectionProps {
   channel: PluginChannelSummary;
-  ingress: ReturnType<typeof useChannelIngress>;
+  ingress: ChannelIngress;
+}
+
+/**
+ * Where the ingress approval always shows up, whatever there is to say.
+ *
+ * A plugin channel is a channel someone reaches from outside, so "can anyone
+ * reach it" is the question this panel exists to answer. Rendering the section
+ * only when there is a decision to make would leave the other cases looking
+ * like the feature is missing, when what is missing is the answer: a plugin
+ * that declares no routes, a gateway that cannot be asked, a request still in
+ * flight. Each says which it is.
+ */
+function IngressSection({ channel, ingress }: IngressSectionProps) {
+  if (ingress.loading) {
+    return <Note>Checking who can reach {channel.label}…</Note>;
+  }
+
+  if (!ingress.available) {
+    // A gateway predating the endpoint, or a viewer who is not the guardian.
+    return (
+      <Note>
+        This assistant cannot tell you whether {channel.label} accepts inbound
+        messages. Only its guardian can approve ingress.
+      </Note>
+    );
+  }
+
+  if (ingress.state === "none") {
+    // Every plugin channel declares ingress, so reaching this means the
+    // gateway has not seen the declaration: a plugin installed since it last
+    // scanned, or a manifest it rejected.
+    return (
+      <Note>
+        The gateway sees no ingress declaration for {channel.label}, so there is
+        nothing to approve yet.
+      </Note>
+    );
+  }
+
+  return <IngressDecision channel={channel} ingress={ingress} />;
 }
 
 /**
@@ -96,7 +132,7 @@ interface IngressDecisionProps {
  * public ingress is closed while it is open, and because revoking will not
  * close them either.
  */
-function IngressDecision({ channel, ingress }: IngressDecisionProps) {
+function IngressDecision({ channel, ingress }: IngressSectionProps) {
   const approved = ingress.state === "approved";
   const governed = ingress.paths.filter((entry) => entry.approvalGoverned);
   const ungoverned = ingress.paths.filter((entry) => !entry.approvalGoverned);
@@ -109,27 +145,21 @@ function IngressDecision({ channel, ingress }: IngressDecisionProps) {
 
       {governed.length > 0 ? (
         <>
-          <p
-            className="max-w-[420px] text-body-small-default"
-            style={{ color: "var(--content-secondary)" }}
-          >
+          <Note>
             {approved
               ? `${channel.label} receives messages at these addresses:`
               : `${channel.label} asks to receive messages at these addresses. Until you approve, deliveries to them are refused:`}
-          </p>
+          </Note>
           <PathList paths={governed} />
         </>
       ) : null}
 
       {ungoverned.length > 0 ? (
         <>
-          <p
-            className="max-w-[420px] text-body-small-default"
-            style={{ color: "var(--content-secondary)" }}
-          >
+          <Note>
             These addresses are open whatever you decide, because only Vellum
             can reach them:
-          </p>
+          </Note>
           <PathList paths={ungoverned} />
         </>
       ) : null}
@@ -151,6 +181,17 @@ function IngressDecision({ channel, ingress }: IngressDecisionProps) {
         </p>
       ) : null}
     </div>
+  );
+}
+
+function Note({ children }: { children: React.ReactNode }) {
+  return (
+    <p
+      className="max-w-[420px] text-body-small-default"
+      style={{ color: "var(--content-secondary)" }}
+    >
+      {children}
+    </p>
   );
 }
 
