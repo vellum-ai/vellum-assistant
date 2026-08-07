@@ -934,7 +934,6 @@ export function ChatLayout({
           assistantVersion={assistantVersion}
           activeConversationId={activeConversationId}
           triggerVariant={args.variant === "overlay" ? "pill" : "item"}
-          collapsed={args.collapsed}
         />
       }
       // The overlay subtree mounts mid edge-swipe while still off-screen;

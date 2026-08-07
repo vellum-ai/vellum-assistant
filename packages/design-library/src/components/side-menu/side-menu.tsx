@@ -90,6 +90,21 @@ function isCollapsingRail(ctx: SideMenuContextValue): boolean {
   return ctx.variant === "rail" && ctx.collapsed;
 }
 
+/**
+ * Whether a rail entry should render in its collapsed form, for the entries
+ * this package does not draw itself.
+ *
+ * A caller supplying its own trigger through a slot needs the same answer
+ * `SideMenu.Item` gets, and it has to be the delayed one: the lag is what
+ * keeps a label from painting into a rail that is still narrowing around it.
+ * Reading it here rather than accepting it as a prop is what keeps the slot's
+ * content from disagreeing with the menu it sits in, since the two cannot then
+ * be derived from different sources.
+ */
+function useSideMenuCollapsed(): boolean {
+  return isCollapsedRail(useSideMenuContext());
+}
+
 // ---------------------------------------------------------------------------
 // Root
 // ---------------------------------------------------------------------------
@@ -908,4 +923,5 @@ export {
   SideMenuSection,
   SideMenuSeparator,
   SideMenuSubList,
+  useSideMenuCollapsed,
 };
