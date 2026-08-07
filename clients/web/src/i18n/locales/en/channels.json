@@ -37,6 +37,7 @@
     "approvedAddresses": "{channel} receives messages at these addresses:",
     "pendingAddresses": "{channel} asks to receive messages at these addresses. Until you approve, deliveries to them are refused:",
     "ungovernedAddresses": "These addresses are open whatever you decide, because only Vellum can reach them:",
+    "deliversInbound": "What arrives here becomes a message to your assistant, not just a callback {channel} receives. Who gets through is still decided by who you allow to message it.",
     "revokeIngress": "Revoke ingress",
     "approveIngress": "Approve ingress"
   },

@@ -388,6 +388,7 @@
                                 "description": { "type": "string" },
                                 "credential": { "type": "string" },
                                 "served": { "type": "boolean" },
+                                "deliversInbound": { "type": "boolean" },
                                 "verification": {
                                   "type": "object",
                                   "properties": {
@@ -406,7 +407,8 @@
                                 "handshake",
                                 "description",
                                 "credential",
-                                "served"
+                                "served",
+                                "deliversInbound"
                               ],
                               "additionalProperties": false
                             }

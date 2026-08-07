@@ -181,6 +181,10 @@ export const INTERFACE_IDS = [
   // device/service callbacks). Non-interactive — permission prompts route
   // through the guardian system, not an interactive client — and non-host-proxy.
   "route",
+  // Turns a plugin-brought channel delivered through the gateway. One id for
+  // every plugin, matching the `plugin` channel; which plugin it was is in
+  // `sourceMetadata.plugin`.
+  "plugin",
 ] as const;
 
 export type InterfaceId = (typeof INTERFACE_IDS)[number];

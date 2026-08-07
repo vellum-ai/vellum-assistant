@@ -151,12 +151,18 @@ function IngressSection({ channel, ingress }: IngressSectionProps) {
  * apart, because folding them into the refusal would tell a guardian that
  * public ingress is closed while it is open, and because revoking will not
  * close them either.
+ *
+ * Whether any of them starts conversations is said outright. Opening an
+ * address a plugin receives callbacks on and letting that address put messages
+ * in front of the assistant are different decisions, and this is the only
+ * place the second one is ever made.
  */
 function IngressDecision({ channel, ingress }: IngressSectionProps) {
   const { t } = useTranslation("channels");
   const approved = ingress.status === "approved";
   const governed = ingress.paths.filter((entry) => entry.approvalGoverned);
   const ungoverned = ingress.paths.filter((entry) => !entry.approvalGoverned);
+  const delivers = governed.some((entry) => entry.deliversInbound);
 
   return (
     <div className="flex flex-col items-center gap-3">
@@ -178,6 +184,13 @@ function IngressDecision({ channel, ingress }: IngressSectionProps) {
                 })}
           </Note>
           <PathList paths={governed} />
+          {delivers ? (
+            <Note>
+              {t("pluginChannelPanel.deliversInbound", {
+                channel: channel.label,
+              })}
+            </Note>
+          ) : null}
         </>
       ) : null}
 
