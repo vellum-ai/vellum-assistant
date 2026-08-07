@@ -108,8 +108,8 @@ export function useSuppressCreditBannersForByok(
   // connection is provably dispatchable. A failed read here just leaves the
   // proof absent, which the classification treats as unknown (banners up).
   // Both endpoints are version-gated: assistants older than the gates never
-  // receive the requests, the proof stays absent, and the feature is quietly
-  // off (banners behave as before this gate existed).
+  // receive the requests, the proof stays absent, and every balance banner
+  // shows unsuppressed.
   const supportsInferenceProfiles = useSupportsInferenceProfiles();
   const supportsDefaultProviderStatus = useSupportsDefaultProviderSettings();
   const profilesQuery = useQuery({
