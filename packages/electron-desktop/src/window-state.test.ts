@@ -286,7 +286,7 @@ describe("track persistence gating", () => {
 });
 
 describe("readOnboardingActive default", () => {
-  test("absent flag defaults to false — open large, not onboarding", () => {
+  test("absent flag defaults to false: open large, not onboarding", () => {
     // Erring large is recoverable (onboarding self-shrinks via the hook);
     // erring small would strand the out-of-RootLayout /account/* screens.
     savedOnboardingActive = undefined;
