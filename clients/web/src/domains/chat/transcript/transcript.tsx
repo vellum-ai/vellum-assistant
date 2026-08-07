@@ -49,6 +49,13 @@ export interface TranscriptProps {
   onSummarizeUpToHere?: (messageId: string) => void;
   /** Callback for "Retry" from the latest assistant message's hover actions. */
   onRetryLatestTurn?: () => void;
+  /** Resend an unsent row under its original identity. */
+  onRetryFailedSend?: (
+    clientMessageId: string,
+    options?: { bypassSecretCheck?: boolean },
+  ) => void;
+  /** Drop an unsent row. */
+  onDiscardFailedSend?: (clientMessageId: string) => void;
   /** Callback for "Inspect" from a message's hover actions. */
   onInspectMessage?: (messageId: string) => void;
 
@@ -282,6 +289,8 @@ export const Transcript = forwardRef<TranscriptHandle, TranscriptProps>(
       onForkConversation: rest.onForkConversation,
       onSummarizeUpToHere: rest.onSummarizeUpToHere,
       onRetryLatestTurn: rest.onRetryLatestTurn,
+      onRetryFailedSend: rest.onRetryFailedSend,
+      onDiscardFailedSend: rest.onDiscardFailedSend,
       onInspectMessage: rest.onInspectMessage,
       renderOnboardingChoice: rest.renderOnboardingChoice,
       assistantDisplayName: rest.assistantDisplayName,

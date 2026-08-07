@@ -269,6 +269,8 @@ export function ActiveChatView() {
   // -------------------------------------------------------------------------
   const {
     sendMessage,
+    retryFailedSend,
+    discardFailedSend,
     handleStopGenerating,
     queuedMessages,
     handleCancelQueuedMessage,
@@ -550,6 +552,8 @@ export function ActiveChatView() {
     onRetryLatestTurn: supportsRetryTurn
       ? handleRetryLatestTurnRequested
       : undefined,
+    onRetryFailedSend: retryFailedSend,
+    onDiscardFailedSend: discardFailedSend,
     handleInspectMessage: showLlmInspector ? handleInspectMessage : undefined,
 
     // History pagination

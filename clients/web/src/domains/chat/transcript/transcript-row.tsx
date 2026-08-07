@@ -16,6 +16,7 @@ import { PendingContactRequestRow } from "@/domains/chat/transcript/pending-cont
 import { PendingSecretRow } from "@/domains/chat/transcript/pending-secret-row";
 import { SystemCardRow } from "@/domains/chat/transcript/system-card-row";
 import { TranscriptMessageBody } from "@/domains/chat/transcript/transcript-message-body";
+import { UnsentMessageActions } from "@/domains/chat/transcript/unsent-message-actions";
 import { isInteractiveClickTarget } from "@/domains/chat/transcript/transcript-message-body-shared";
 import { useCoarsePointerReveal } from "@/domains/chat/transcript/use-coarse-pointer-reveal";
 import { isPointerCoarse } from "@/utils/pointer";
@@ -44,6 +45,13 @@ export interface TranscriptRowProps {
   onForkConversation?: (messageId: string) => void;
   onSummarizeUpToHere?: (messageId: string) => void;
   onRetryLatestTurn?: () => void;
+  /** Resend an unsent row under its original identity. */
+  onRetryFailedSend?: (
+    clientMessageId: string,
+    options?: { bypassSecretCheck?: boolean },
+  ) => void;
+  /** Drop an unsent row. */
+  onDiscardFailedSend?: (clientMessageId: string) => void;
   onInspectMessage?: (messageId: string) => void;
   /** Render-prop for `kind: "onboardingChoice"` items. Onboarding depends on
    *  props from the parent (sendMessage, didOnboarding, etc.) and has a
@@ -168,6 +176,8 @@ export const TranscriptRow = memo(function TranscriptRow({
   onForkConversation,
   onSummarizeUpToHere,
   onRetryLatestTurn,
+  onRetryFailedSend,
+  onDiscardFailedSend,
   onInspectMessage,
   renderOnboardingChoice,
   onOpenRuleEditor,
@@ -193,6 +203,47 @@ export const TranscriptRow = memo(function TranscriptRow({
       if (item.message.isSystemCard) {
         return (
           <SystemCardRow message={item.message} assistantId={assistantId} />
+        );
+      }
+      if (item.message.sendFailed) {
+        const failedId = item.message.clientMessageId ?? item.message.id;
+        return (
+          <div className="opacity-60">
+            <TranscriptMessageBody
+              message={item.message}
+              conversationId={conversationId}
+              assistantDisplayName={assistantDisplayName}
+              onSurfaceAction={onSurfaceAction}
+              onForkConversation={onForkConversation}
+              onSummarizeUpToHere={onSummarizeUpToHere}
+              onRetryLatestTurn={onRetryLatestTurn}
+              onInspectMessage={onInspectMessage}
+              onOpenRuleEditor={onOpenRuleEditor}
+              unknownNudgeToolCallIds={unknownNudgeToolCallIds}
+              onDismissUnknownNudge={onDismissUnknownNudge}
+              onConfirmationSubmit={onConfirmationSubmit}
+              onAllowAndCreateRule={onAllowAndCreateRule}
+              onOpenApp={onOpenApp}
+              onOpenDocument={onOpenDocument}
+              assistantId={assistantId}
+              onSubagentClick={onSubagentClick}
+              onStopSubagent={onStopSubagent}
+              onWorkflowClick={onWorkflowClick}
+              onStopWorkflow={onStopWorkflow}
+              isStreaming={isStreaming}
+              isLatestMessage={isLatestMessage}
+            />
+            <UnsentMessageActions
+              onRetry={() => onRetryFailedSend?.(failedId)}
+              onDiscard={() => onDiscardFailedSend?.(failedId)}
+              blockedForSecret={
+                item.message.sendFailed.code === "secret_blocked"
+              }
+              onSendAnyway={() =>
+                onRetryFailedSend?.(failedId, { bypassSecretCheck: true })
+              }
+            />
+          </div>
         );
       }
       return (
