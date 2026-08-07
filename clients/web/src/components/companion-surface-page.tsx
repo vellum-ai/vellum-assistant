@@ -238,7 +238,7 @@ export function CompanionSurfacePage() {
   //
   // **The composer still outranks dictation, and cannot hide one.** A session
   // is never handed to this surface while the composer is open
-  // (`canHostDictation` in `companion-window.ts`) — it goes to the top-center
+  // (`canHostDictation` in `companion-window.ts`). It goes to the top-center
   // overlay instead, so the draft survives and the recording is still visible
   // somewhere. And once a session is running the pill draws the dictation body,
   // so there is no Type control on screen to open a composer over it.

@@ -320,7 +320,7 @@ describe("createRoutedDictationDeps", () => {
     deps.showOverlay();
     deps.forwardState(RECORDING);
 
-    // Two begins, one per session — not a third from the stale `done`.
+    // Two begins, one per session, not a third from the stale `done`.
     expect(host.begin).toHaveBeenCalledTimes(2);
   });
 

@@ -390,6 +390,23 @@ export function CompanionSurface({
   const contentRef = useRef<HTMLDivElement | null>(null);
   const [contentWidth, setContentWidth] = useState<number | null>(null);
 
+  /**
+   * What the dictation body currently says, as one value to re-measure on.
+   *
+   * A dictation is the only body whose content grows while its phase holds
+   * still: the words arrive one interim at a time. The observer below catches a
+   * box that changes size, but the pill's width is derived from the measurement
+   * it produces, so a measurement that does not re-run leaves the line clipped
+   * at whatever the first frame needed. Keying on the text closes that loop
+   * without depending on which of the two mechanisms notices first.
+   */
+  const dictationBody =
+    dictation === undefined
+      ? ""
+      : dictation.kind === "recording"
+        ? dictation.transcription
+        : dictation.kind;
+
   // The body is measured while it is still clipped, so the pill knows how wide
   // to grow before it starts growing. `scrollWidth` reports the content's own
   // width regardless of how little the collapsed pill is giving it.
@@ -407,7 +424,7 @@ export function CompanionSurface({
     return () => {
       observer.disconnect();
     };
-  }, [phase]);
+  }, [phase, dictationBody]);
 
   // The avatar's 44pt box sits flush, because its image is already inset by
   // `INNER_GAP` inside it. Only the trailing end needs the gap added, since the
