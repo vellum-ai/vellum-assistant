@@ -333,6 +333,50 @@ describe("AssistantSideMenu · All view", () => {
   });
 });
 
+describe("AssistantSideMenu · drawer inset", () => {
+  /* The rail is surfaceless - the cards and pills carry the surface - so the
+     panel padding `SideMenu` gives a bordered rail would be a second inset
+     stacked on the page layout's own, reading as bare space around the whole
+     drawer. The overlay is a full-bleed sheet and keeps it. */
+  test("the rail hands its horizontal inset to the cards, not the panel", () => {
+    for (const collapsed of [false, true]) {
+      const container = parse(
+        renderMenu({
+          conversations: [makeConversation({ conversationId: "r1" })],
+          collapsed,
+        }),
+      );
+      const nav = container.querySelector<HTMLElement>("nav");
+      const body = container.querySelector<HTMLElement>(
+        '[data-slot="side-menu-body"]',
+      );
+      if (!nav || !body) {
+        throw new Error("expected the side menu root and body");
+      }
+
+      expect(nav.className).toContain("p-0");
+      /* The scrollport's bleed cancelled a root inset that is now gone; left
+         in place it would overhang the rail and clip the cards. */
+      expect(body.className).not.toContain("-mx-4");
+    }
+  });
+
+  test("the overlay keeps the sheet's own padding", () => {
+    const container = parse(
+      renderMenu({
+        conversations: [makeConversation({ conversationId: "r1" })],
+        variant: "overlay",
+      }),
+    );
+    const nav = container.querySelector<HTMLElement>("nav");
+    if (!nav) {
+      throw new Error("expected the side menu root");
+    }
+
+    expect(nav.className).not.toContain("p-0");
+  });
+});
+
 describe("AssistantSideMenu · scrollport top inset", () => {
   // The rail's scrollport carries no top padding of its own; the overlay
   // needs one though, because its first body child is the assistant cluster
