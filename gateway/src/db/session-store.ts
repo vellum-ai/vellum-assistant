@@ -272,6 +272,13 @@ export function findLatestSessionByStatuses(
     // be verifying at once, so the tie breaks on insert order: rowid rises
     // with every insert, making "latest" mean the row written last rather
     // than whichever the planner reached first.
+    //
+    // SQLite qualifies rowid monotonicity in two ways, neither of which
+    // reaches this ordering. A rowid may be reused after the highest-numbered
+    // row is deleted, but reuse only ever hands back the largest value, so a
+    // reused row still sorts newest. `VACUUM` may renumber a table whose
+    // primary key is not INTEGER, which this one is not, but it renumbers in
+    // existing rowid order, so relative order survives.
     .orderBy(desc(channelVerificationSessions.createdAt), desc(sql`rowid`))
     .get();
 
