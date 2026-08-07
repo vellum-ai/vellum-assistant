@@ -70,8 +70,9 @@ export function VoicePickerSurface({
             // out of the card instead of scrolling the voices.
             listClassName="max-h-[22rem]"
           />
-          {/* Every other managed-voice surface discloses the cost; this one is
-              now the path users are steered toward. */}
+          {/* Managed voices bill credits, and every surface that offers them
+              says so. This one is reached without opening Settings, so it
+              carries the disclosure too. */}
           <p className={NOTE_CLASS}>{MANAGED_VOICE_CREDITS_NOTE}</p>
         </div>
       ) : isByok ? (
