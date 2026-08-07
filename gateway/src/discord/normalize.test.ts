@@ -62,17 +62,28 @@ describe("DiscordMessageCreateSchema", () => {
   });
 
   test("collapses malformed optional fields instead of rejecting", () => {
+    // `guild_id` is deliberately absent from this list: it gates admission, so
+    // it collapses to a sentinel rather than to undefined. See the
+    // fail-closed test below.
     const message = parse(
       messagePayload({
-        guild_id: 42,
         mentions: "not-an-array",
         author: { id: "user-1", username: 7 },
       }),
     );
-    expect(message.guild_id).toBeUndefined();
     expect(message.mentions).toBeUndefined();
     expect(message.author?.id).toBe("user-1");
     expect(message.author?.username).toBeUndefined();
+  });
+
+  test("a malformed guild id fails closed, not to absent", () => {
+    // Absence marks a DM, and a DM is admitted with no allow-list entry and
+    // no mention. Collapsing a parse failure to undefined would hand a guild
+    // message both exemptions, so it collapses to a truthy sentinel instead
+    // and stays on the guild path. Same reasoning as the bot indicators.
+    const message = parse(messagePayload({ guild_id: 42 }));
+    expect(message.guild_id).toBeDefined();
+    expect(message.guild_id).not.toBeUndefined();
   });
 
   test("malformed bot indicators fail closed, not to human", () => {
