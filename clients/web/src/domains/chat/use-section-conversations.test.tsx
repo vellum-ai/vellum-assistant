@@ -51,6 +51,9 @@ mock.module(
   }),
 );
 
+/* Chats consults a second, later gate. Left at the real implementation so
+   these tests exercise the same version comparison the app does; the identity
+   store seeded per test is what opens or closes both. */
 mock.module("@/assistant/lifecycle-store", () => ({
   useAssistantLifecycleStore: (selector: (s: unknown) => unknown) =>
     selector({ assistantState: { kind: "active" } }),
@@ -281,6 +284,54 @@ describe("useSectionConversations", () => {
       "server-1",
       "server-2",
     ]);
+  });
+
+  /* Chats is the ungrouped remainder AND native, so it carries both axes with
+     `vellum` as the channel. Without `system:all` it would also collect rows
+     the user filed into custom groups. */
+  test("Chats asks for the ungrouped native rows", () => {
+    openGate();
+    renderHook(() =>
+      useSectionConversations("asst-1", {
+        type: "recents",
+        key: "recents",
+        label: "Chats",
+        all: DERIVED,
+      }),
+    );
+
+    expect(sentFilters.at(-1)).toEqual({
+      groupId: "system:all",
+      originChannel: "vellum",
+    });
+  });
+
+  /* Below the native-origin gate the daemon compiles `vellum` to a strict
+     equality, which matches only explicitly stamped rows and returns a
+     fraction of the section. That reads as a quiet account rather than a
+     broken filter, so Chats must not ask at all.
+
+     The version below sits BETWEEN the two floors deliberately: it clears the
+     group-filter gate, so Pinned and the custom groups are fetching happily,
+     and only Chats holds back. A version below both would pass this test
+     without exercising this gate. */
+  test("Chats stays on its derived rows below the native-origin gate", () => {
+    useAssistantIdentityStore
+      .getState()
+      .setIdentity("test-asst", "0.11.2-dev.202608060000.abc1234", "asst-1");
+    serverRows = FROM_SERVER;
+
+    const { result } = renderHook(() =>
+      useSectionConversations("asst-1", {
+        type: "recents",
+        key: "recents",
+        label: "Chats",
+        all: DERIVED,
+      }),
+    );
+
+    expect(result.current.map((c) => c.conversationId)).toEqual(["derived-1"]);
+    expect(lastEnabled).toBe(false);
   });
 
   test("renders the server's order as-is", () => {

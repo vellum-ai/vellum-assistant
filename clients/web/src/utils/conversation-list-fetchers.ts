@@ -592,6 +592,16 @@ export const SYSTEM_PINNED_GROUP_ID = "system:pinned";
 export const SYSTEM_ALL_GROUP_ID = "system:all";
 
 /**
+ * The `originChannel` value for a conversation started in Vellum rather than
+ * arriving from an external channel, and so the filter the Chats section
+ * asks for.
+ *
+ * Typed against the generated union, so removing it from the schema fails
+ * the build here rather than sending a value the daemon rejects.
+ */
+export const NATIVE_ORIGIN_CHANNEL: NonNullable<OriginChannel> = "vellum";
+
+/**
  * Fetch every active conversation matching one section's filter: Pinned, a
  * custom group, the ungrouped remainder, or a channel within it.
  *
