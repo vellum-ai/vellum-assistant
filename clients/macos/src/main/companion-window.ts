@@ -18,11 +18,15 @@ import {
   dispatchToMain,
   ensureVisible as ensureMainWindowVisible,
 } from "./main-window";
+import { writeCompanionHidden } from "./window-state";
 
 /**
- * The always-present companion surface (LUM-3086): the assistant's avatar
- * floating from app launch, expanding on hover into a pill with the voice and
- * type-chat options, and holding that expansion for as long as a call runs.
+ * The companion surface (LUM-3086): the assistant's avatar floating from app
+ * launch, expanding on hover into a pill with the voice and type-chat options,
+ * and holding that expansion for as long as a call runs. It stays on screen
+ * for the app's whole run unless the user hides it via the tray's "Show
+ * Floating Companion" item, a choice that persists across launches
+ * (`readCompanionHidden` in `window-state.ts`).
  *
  * **It is also the desktop's live-voice session surface**, the counterpart to
  * the iOS Dynamic Island and Lock Screen activity. Main holds the session
@@ -399,9 +403,22 @@ export const installCompanionWindow = (): void => {
   // The route loads lazily after the window is created, so a state pushed
   // before its subscription registers is dropped. It pulls this once mounted.
   handle("vellum:companion:getState", z.tuple([]), () => currentState());
+
+  // Registered once here rather than per window: `refreshGrowth` no-ops
+  // while no surface exists, and the surface can be closed and reopened from
+  // the tray, which must not stack duplicate listeners. A display added,
+  // removed or rearranged moves the edges the direction is measured against
+  // without the window itself moving at all.
+  screen.on("display-metrics-changed", refreshGrowth);
+  screen.on("display-added", refreshGrowth);
+  screen.on("display-removed", refreshGrowth);
 };
 
 export const openCompanionWindow = (): void => {
+  if (getFloatingWindow(COMPANION_KIND) !== null) {
+    return;
+  }
+
   const win = createFloatingWindow({
     kind: COMPANION_KIND,
     route: COMPANION_ROUTE,
@@ -439,9 +456,28 @@ export const openCompanionWindow = (): void => {
 
   refreshGrowth();
   win.on("move", refreshGrowth);
-  // A display added, removed or rearranged moves the edges the direction is
-  // measured against without the window itself moving at all.
-  screen.on("display-metrics-changed", refreshGrowth);
-  screen.on("display-added", refreshGrowth);
-  screen.on("display-removed", refreshGrowth);
+};
+
+const closeCompanionWindow = (): void => {
+  getFloatingWindow(COMPANION_KIND)?.close();
+};
+
+/**
+ * Show or hide the surface, persisting the choice so a hidden surface stays
+ * hidden on the next launch.
+ *
+ * Hiding closes the window outright rather than making it invisible: the
+ * canvas is a click-through mouse-event forwarder, and a hidden-but-alive
+ * window would keep that machinery running for nothing. The live-voice
+ * session state is unaffected either way, since main holds it (see `call`),
+ * so a call running while the surface is hidden appears mid-call, clock
+ * intact, when the surface is shown again.
+ */
+export const setCompanionSurfaceVisible = (visible: boolean): void => {
+  writeCompanionHidden(!visible);
+  if (visible) {
+    openCompanionWindow();
+  } else {
+    closeCompanionWindow();
+  }
 };

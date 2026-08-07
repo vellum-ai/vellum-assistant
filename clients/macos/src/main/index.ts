@@ -101,6 +101,7 @@ import {
 import { installConnectivityIpc, installStatusIpc } from "./status";
 import { installTextInsertionIpc } from "./textInsertion";
 import { installTray } from "./tray";
+import { readCompanionHidden } from "./window-state";
 import { installWebContentsSecurity } from "./windows";
 
 // Dev-only: override the workspace `name` (`@vellumai/macos`) so the
@@ -519,9 +520,12 @@ app
     installMainWindow();
 
     // After the main window, so the surface opens over a running app rather
-    // than being the first thing on screen at launch. It is always present
-    // from here on: the app being frontmost is not one of its states.
-    openCompanionWindow();
+    // than being the first thing on screen at launch. Present from here on,
+    // unless the user has hidden it from the tray: the app being frontmost is
+    // not one of its states.
+    if (!readCompanionHidden()) {
+      openCompanionWindow();
+    }
 
     // Runs after the main window so the recovery dialog has a window to sit in
     // front of, and so a user who declines lands on a working app rather than
