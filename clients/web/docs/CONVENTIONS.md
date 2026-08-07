@@ -24,21 +24,20 @@ Framework — each adding features
 [at the cost of architectural control](https://reactrouter.com/start/modes).
 We chose **Data mode** deliberately:
 
-| Concern                      | Why Data mode wins                                                                                                                                                                                        |
-| ---------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Open-source distribution** | Standard Vite SPA build (`bun run build` → static `dist/` → serve anywhere). No server runtime, no deployment adapter, no `@react-router/dev` plugin required for consumers.                              |
-| **No framework tax**         | The whole reason for leaving Next.js was to stop paying framework overhead we don't use. Framework mode is another framework layer — Data mode is just a library.                                         |
-| **No SSR needed**            | Framework mode's primary differentiator is SSR/SSG. This app requires auth (no SEO benefit), runs behind Caddy, and has a Django API backend.                                                             |
-| **Build pipeline control**   | Framework mode replaces `@vitejs/plugin-react` with its own Vite plugin. Data mode keeps a standard Vite setup — full control over Tailwind v4 integration, design library resolution, path aliases, etc. |
-| **Monorepo flexibility**     | Framework mode imposes file structure opinions (`app/`, `routes.ts`, `root.tsx`, `entry.client.tsx`). Data mode lets us keep our own directory layout.                                                    |
-| **Incremental migration**    | Add routes to `createBrowserRouter` one at a time — no Route Module API restructuring required.                                                                                                           |
+| Concern | Why Data mode wins |
+|---------|-------------------|
+| **Open-source distribution** | Standard Vite SPA build (`bun run build` → static `dist/` → serve anywhere). No server runtime, no deployment adapter, no `@react-router/dev` plugin required for consumers. |
+| **No framework tax** | The whole reason for leaving Next.js was to stop paying framework overhead we don't use. Framework mode is another framework layer — Data mode is just a library. |
+| **No SSR needed** | Framework mode's primary differentiator is SSR/SSG. This app requires auth (no SEO benefit), runs behind Caddy, and has a Django API backend. |
+| **Build pipeline control** | Framework mode replaces `@vitejs/plugin-react` with its own Vite plugin. Data mode keeps a standard Vite setup — full control over Tailwind v4 integration, design library resolution, path aliases, etc. |
+| **Monorepo flexibility** | Framework mode imposes file structure opinions (`app/`, `routes.ts`, `root.tsx`, `entry.client.tsx`). Data mode lets us keep our own directory layout. |
+| **Incremental migration** | Add routes to `createBrowserRouter` one at a time — no Route Module API restructuring required. |
 
 **What we "lose":** type-safe `href` (compile-time link validation). Everything
 else — loaders, actions, code splitting (via `lazy` route property), nested
 routes — works in Data mode.
 
 References:
-
 - [React Router — Picking a Mode](https://reactrouter.com/start/modes)
 - [React Router — Custom Framework (Data Mode)](https://reactrouter.com/start/data/custom)
 - [React Router — Framework Adoption from RouterProvider](https://github.com/remix-run/react-router/blob/main/docs/upgrading/router-provider.md) — shows what migrating TO Framework mode entails
@@ -100,7 +99,6 @@ way. Without it the header center is empty, which is especially
 noticeable on mobile where the sidebar is hidden.
 
 References:
-
 - [React — Thinking in React](https://react.dev/learn/thinking-in-react)
 - [React Router — Layout Routes](https://reactrouter.com/start/framework/routing#layout-routes)
 
@@ -163,7 +161,6 @@ sliceable in Sentry. Component-level `LazyBoundary` tags its captures
 analogously (`"lazy-component"` / `"component-render"`).
 
 References:
-
 - [React Router — Route Object (`Component`)](https://reactrouter.com/start/data/route-object#component)
 - [React Router — Lazy Loading (Data Mode)](https://reactrouter.com/start/data/custom#3-lazy-loading)
 - [React Router — `lazy` property](https://reactrouter.com/start/data/route-object#lazy)
@@ -197,10 +194,7 @@ daemon transient errors (503 startup, 502 bad-gateway, 401 auth-race,
 data-integrity, programming errors) to Sentry:
 
 ```ts
-captureError(err, {
-  context: "useActiveConversation.refreshRow",
-  bestEffort: true,
-});
+captureError(err, { context: "useActiveConversation.refreshRow", bestEffort: true });
 ```
 
 **Do not use bare `Sentry.captureException`.** The only exceptions are
@@ -210,12 +204,12 @@ manipulation: `RouteErrorBoundary`, `RouterProvider.onError`, and
 
 ### Sentry telemetry: when to use what
 
-| Tool                                             | Creates Sentry issue?                 | Use when                                                                                                                                 |
-| ------------------------------------------------ | ------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
-| `captureError(err, opts)`                        | Yes                                   | Catching a real error that indicates a bug or degraded UX.                                                                               |
-| `Sentry.captureMessage(msg)`                     | Yes                                   | A non-error event where **every occurrence is individually actionable** (e.g., silent SSE event loss that left a user's turn stuck).     |
-| `Sentry.addBreadcrumb(...)`                      | No — attaches to the next error event | Recording context that's useful for debugging nearby errors but isn't actionable on its own (e.g., watchdog fired, reconnect attempted). |
-| `recordDiagnostic` / `recordLifecycleDiagnostic` | No                                    | Local diagnostics ring shipped via support bundles.                                                                                      |
+| Tool | Creates Sentry issue? | Use when |
+|------|-----------------------|----------|
+| `captureError(err, opts)` | Yes | Catching a real error that indicates a bug or degraded UX. |
+| `Sentry.captureMessage(msg)` | Yes | A non-error event where **every occurrence is individually actionable** (e.g., silent SSE event loss that left a user's turn stuck). |
+| `Sentry.addBreadcrumb(...)` | No — attaches to the next error event | Recording context that's useful for debugging nearby errors but isn't actionable on its own (e.g., watchdog fired, reconnect attempted). |
+| `recordDiagnostic` / `recordLifecycleDiagnostic` | No | Local diagnostics ring shipped via support bundles. |
 
 **Default to breadcrumb.** A `captureMessage` call that fires on normal
 operation (e.g., every iOS background/foreground cycle, every legacy URL
@@ -229,7 +223,6 @@ ticket if the count spiked — e.g., SSE terminal-event loss
 stuck turn.
 
 References:
-
 - [Sentry — Breadcrumbs](https://docs.sentry.io/platforms/javascript/enriching-events/breadcrumbs/)
 - [Sentry — `captureMessage`](https://docs.sentry.io/platforms/javascript/usage/#capturing-messages)
 
@@ -316,7 +309,6 @@ DDD-influenced architecture and signals that each folder
 represents a bounded context.
 
 References:
-
 - [Bulletproof React — Project Structure](https://github.com/alan2207/bulletproof-react/blob/master/docs/project-structure.md)
 - [React Router — Feature Folders](https://reactrouter.com/how-to/file-route-conventions)
 
@@ -397,7 +389,6 @@ describe a similar one-feature/multi-feature rule that this
 codebase's convention is in the same spirit as.
 
 Examples of correct splits:
-
 - `messages/` vs `chat/`: messages are created, streamed,
   delta-updated, and compacted — different lifecycle from conversation
   routing, sidebar state, and session coordination.
@@ -411,9 +402,9 @@ Examples of correct splits:
 
 The daemon uses two identifiers for conversations:
 
-| Identifier        | Format           | Source table                         | Example               |
-| ----------------- | ---------------- | ------------------------------------ | --------------------- |
-| `conversationId`  | UUID             | `conversations` (all DB versions)    | `a1b2c3d4-e5f6-...`   |
+| Identifier | Format | Source table | Example |
+|---|---|---|---|
+| `conversationId` | UUID | `conversations` (all DB versions) | `a1b2c3d4-e5f6-...` |
 | `conversationKey` | Arbitrary string | `conversation_keys` (migration 101+) | `default:slack:C0123` |
 
 For **web-originated** conversations, the key happens to equal the UUID —
@@ -436,9 +427,7 @@ conversations (Slack, email, Telegram) have keys like
 
    ```ts
    // Correct
-   query: {
-     conversationId;
-   }
+   query: { conversationId }
    ```
 
 2. **URL route params carry UUIDs.** The route param is currently named
@@ -484,28 +473,28 @@ live at `hooks/` and `stores/` because the assistant identity is
 consumed by chat, intelligence, library, contacts — no single domain
 owns it.
 
-| Folder        | Purpose                                                                                                                                                                                                                                | Example contents                                                                                                                                                                                                                                      |
-| ------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `assistant/`  | Core business-domain code for the assistant itself — the central concept every feature composes around. Every domain may depend on it; it depends on no domain. New top-level business-concept folders require explicit team approval. | `api.ts`, `lifecycle.ts`, `types.ts`, `llm-model-catalog.ts`                                                                                                                                                                                          |
-| `stores/`     | App-level Zustand stores (cross-domain state)                                                                                                                                                                                          | `viewer-store.ts`, `sse-connected-store.ts`, `assistant-feature-flag-store.ts`                                                                                                                                                                        |
-| `hooks/`      | Cross-domain React hooks                                                                                                                                                                                                               | `use-is-mobile.ts`, `use-visible-viewport.ts`, `use-feature-flag-bus-sync.ts`                                                                                                                                                                         |
-| `utils/`      | Pure utility functions (no side effects, no third-party SDKs)                                                                                                                                                                          | `format.ts`, `browser.ts`, `network-status.ts`, `stable-id.ts`                                                                                                                                                                                        |
-| `types/`      | Cross-domain shared type definitions with no clear owning module. Types consumed by a single module live with that module. Types produced by a module live in the module that produces them — consumers use `import type`.             | `window.d.ts`, `event-types.ts`, `conversation-types.ts`                                                                                                                                                                                              |
-| `lib/`        | Third-party SDK wrappers and app-internal infrastructure (registries, transports, interceptors). Side effects, module-level state, or lifecycle ownership. See [`lib/` vs `utils/`](#lib-vs-utils--where-does-my-code-go) below.       | `sentry/` (error reporting), `auth/` (allauth + CSRF), `feature-flags/` (catalog + registry), `sync/` (state sync), `streaming/` (SSE transport), `event-bus.ts` (pub/sub registry), `diagnostics.ts` (session ring buffer), `api-client.ts` (HeyAPI) |
-| `runtime/`    | Framework adapters and native platform bridges                                                                                                                                                                                         | `route-adapter.ts`, `native-auth.ts`, `native-deep-link.ts`, `app-bridge.ts`                                                                                                                                                                          |
-| `components/` | Cross-domain shared UI                                                                                                                                                                                                                 | `error-boundary.tsx`, `sign-in-gate.tsx`, `providers.tsx`                                                                                                                                                                                             |
+| Folder | Purpose | Example contents |
+|---|---|---|
+| `assistant/` | Core business-domain code for the assistant itself — the central concept every feature composes around. Every domain may depend on it; it depends on no domain. New top-level business-concept folders require explicit team approval. | `api.ts`, `lifecycle.ts`, `types.ts`, `llm-model-catalog.ts` |
+| `stores/` | App-level Zustand stores (cross-domain state) | `viewer-store.ts`, `sse-connected-store.ts`, `assistant-feature-flag-store.ts` |
+| `hooks/` | Cross-domain React hooks | `use-is-mobile.ts`, `use-visible-viewport.ts`, `use-feature-flag-bus-sync.ts` |
+| `utils/` | Pure utility functions (no side effects, no third-party SDKs) | `format.ts`, `browser.ts`, `network-status.ts`, `stable-id.ts` |
+| `types/` | Cross-domain shared type definitions with no clear owning module. Types consumed by a single module live with that module. Types produced by a module live in the module that produces them — consumers use `import type`. | `window.d.ts`, `event-types.ts`, `conversation-types.ts` |
+| `lib/` | Third-party SDK wrappers and app-internal infrastructure (registries, transports, interceptors). Side effects, module-level state, or lifecycle ownership. See [`lib/` vs `utils/`](#lib-vs-utils--where-does-my-code-go) below. | `sentry/` (error reporting), `auth/` (allauth + CSRF), `feature-flags/` (catalog + registry), `sync/` (state sync), `streaming/` (SSE transport), `event-bus.ts` (pub/sub registry), `diagnostics.ts` (session ring buffer), `api-client.ts` (HeyAPI) |
+| `runtime/` | Framework adapters and native platform bridges | `route-adapter.ts`, `native-auth.ts`, `native-deep-link.ts`, `app-bridge.ts` |
+| `components/` | Cross-domain shared UI | `error-boundary.tsx`, `sign-in-gate.tsx`, `providers.tsx` |
 
 | `generated/` | Auto-generated code (HeyAPI, catalogs) | `api/`, `catalogs/` |
 
 #### `lib/` vs `utils/` — where does my code go?
 
-|                                 | `lib/`                                                                                                                                                                                           | `utils/`                                             |
-| ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------- |
-| **Purpose**                     | Infrastructure with side effects or lifecycle — third-party SDK wrappers AND app-internal primitives (registries, transports, interceptors, middlewares)                                         | Pure helper functions with no side effects           |
-| **Side effects?**               | Yes — module-level state, listener registration, SDK init, interceptors, or pub/sub registries                                                                                                   | No — pure input→output, no global state, no I/O      |
-| **Third-party SDK dependency?** | Optional — third-party wrappers (`@sentry/react`, `@heyapi/client-fetch`) AND first-party infrastructure (`event-bus.ts`, `chunk-errors.ts`, `local-mode.ts`) both belong here                   | No — only standard library / language utilities      |
-| **Subdirectories?**             | When a single integration warrants multiple files (`lib/sentry/`, `lib/auth/`, `lib/sync/`); single-file infrastructure stays at the `lib/` top level (`lib/diagnostics.ts`, `lib/event-bus.ts`) | Flat — individual utility files at the top level     |
-| **Examples**                    | `lib/sentry/sentry-init.ts`, `lib/auth/allauth-client.ts`, `lib/api-client.ts`, `lib/event-bus.ts`, `lib/diagnostics.ts`, `lib/chunk-errors.ts`                                                  | `utils/format.ts`, `utils/browser.ts`, `utils/cn.ts` |
+| | `lib/` | `utils/` |
+|---|---|---|
+| **Purpose** | Infrastructure with side effects or lifecycle — third-party SDK wrappers AND app-internal primitives (registries, transports, interceptors, middlewares) | Pure helper functions with no side effects |
+| **Side effects?** | Yes — module-level state, listener registration, SDK init, interceptors, or pub/sub registries | No — pure input→output, no global state, no I/O |
+| **Third-party SDK dependency?** | Optional — third-party wrappers (`@sentry/react`, `@heyapi/client-fetch`) AND first-party infrastructure (`event-bus.ts`, `chunk-errors.ts`, `local-mode.ts`) both belong here | No — only standard library / language utilities |
+| **Subdirectories?** | When a single integration warrants multiple files (`lib/sentry/`, `lib/auth/`, `lib/sync/`); single-file infrastructure stays at the `lib/` top level (`lib/diagnostics.ts`, `lib/event-bus.ts`) | Flat — individual utility files at the top level |
+| **Examples** | `lib/sentry/sentry-init.ts`, `lib/auth/allauth-client.ts`, `lib/api-client.ts`, `lib/event-bus.ts`, `lib/diagnostics.ts`, `lib/chunk-errors.ts` | `utils/format.ts`, `utils/browser.ts`, `utils/cn.ts` |
 
 If the code holds state at module scope, registers global listeners,
 configures an SDK, manages a session, or runs at startup, it belongs
@@ -518,8 +507,8 @@ Reference: [Bulletproof React — `lib/` directory](https://github.com/alan2207/
 
 Both contain infrastructure code, but they serve different purposes:
 
-- **`lib/`** — third-party SDK wrappers (Sentry, HeyAPI, allauth) _and_ app-internal infrastructure (event bus, diagnostics buffer, chunk-error recovery). The common thread: side effects, module-level state, or lifecycle ownership.
-- **`runtime/`** — adapts the app to its _host environment_ (Capacitor native bridges, route adapters, platform detection). These handle differences between web, iOS, and macOS without third-party SDK dependencies.
+- **`lib/`** — third-party SDK wrappers (Sentry, HeyAPI, allauth) *and* app-internal infrastructure (event bus, diagnostics buffer, chunk-error recovery). The common thread: side effects, module-level state, or lifecycle ownership.
+- **`runtime/`** — adapts the app to its *host environment* (Capacitor native bridges, route adapters, platform detection). These handle differences between web, iOS, and macOS without third-party SDK dependencies.
 
 If the code bridges to the native platform / framework runtime →
 `runtime/`. Otherwise — whether it wraps a third-party SDK or owns
@@ -571,6 +560,7 @@ Quick summary:
 - **No `window.online` / `window.offline` listeners** in components or stores. Subscribe to `bus.app.online` / `bus.app.offline`.
 - **No polling** for state the daemon could push. Emit a typed event over `/v1/events` and subscribe via the bus.
 
+
 ## Component patterns
 
 ### Components render UI; hooks perform side effects
@@ -582,20 +572,12 @@ component.
 ```ts
 // Good — hook for side-effect-only logic
 function useKeyboardShortcuts() {
-  useEffect(() => {
-    /* subscribe */ return () => {
-      /* cleanup */
-    };
-  }, []);
+  useEffect(() => { /* subscribe */ return () => { /* cleanup */ }; }, []);
 }
 
 // Avoid — component that renders nothing
 function KeyboardShortcuts() {
-  useEffect(() => {
-    /* subscribe */ return () => {
-      /* cleanup */
-    };
-  }, []);
+  useEffect(() => { /* subscribe */ return () => { /* cleanup */ }; }, []);
   return null;
 }
 ```
@@ -609,7 +591,6 @@ orchestrators: compose domain hooks, build a shared context object,
 delegate work. They should not contain business logic inline.
 
 Signs a hook needs decomposition:
-
 - A single `useCallback` with a switch/if-else over many cases
   -> extract cases into domain handler functions
 - Multiple unrelated `useEffect` blocks -> split into focused hooks
@@ -684,14 +665,13 @@ workaround until
 ships as stable.
 
 References:
-
 - [React — useRef caveats: "Do not write or read ref.current during rendering"](https://react.dev/reference/react/useRef#caveats)
 - [React — useCallback: preventing an Effect from firing too often](https://react.dev/reference/react/useCallback#preventing-an-effect-from-firing-too-often)
 
 ### Keep decorative animation out of the commit stream
 
 A timer or `requestAnimationFrame` loop that only changes how something
-_looks_ — a wobble, a pulse, a shimmer, a cursor blink — must not drive
+*looks* — a wobble, a pulse, a shimmer, a cursor blink — must not drive
 React state. Prefer CSS, and when the value has to be computed in JS,
 write it to the node through a ref instead:
 
@@ -804,7 +784,6 @@ that wire domains to the framework — not in the domain modules
 themselves.
 
 References:
-
 - [React Router v7 — Data Loading](https://reactrouter.com/how-to/data-loading)
 - [React — Separating Events from Effects](https://react.dev/learn/separating-events-from-effects)
 
@@ -818,25 +797,20 @@ Middleware runs **before** the route component renders — no flash of
 protected content, no `useEffect`-based redirects.
 
 ```ts
-createBrowserRouter(
-  [
-    // Public — no middleware
-    { path: "/account/login", Component: LoginPage },
+createBrowserRouter([
+  // Public — no middleware
+  { path: "/account/login", Component: LoginPage },
 
-    // Protected — auth middleware gates access
-    {
-      path: "/assistant",
-      middleware: [authMiddleware],
-      Component: RootLayout,
-      children: [
-        /* ... */
-      ],
-    },
-  ],
+  // Protected — auth middleware gates access
   {
-    future: { v8_middleware: true },
+    path: "/assistant",
+    middleware: [authMiddleware],
+    Component: RootLayout,
+    children: [/* ... */],
   },
-);
+], {
+  future: { v8_middleware: true },
+});
 ```
 
 The auth middleware reads from the Zustand auth store (via
@@ -857,7 +831,6 @@ the URL is the source of truth. Custom in-memory navigation state
 by routes as views are ported.
 
 References:
-
 - [React Router — Nested Routes](https://reactrouter.com/start/framework/routing#nested-routes)
 - [React Router — useSearchParams](https://reactrouter.com/hooks/use-search-params)
 
@@ -928,7 +901,6 @@ variant patterns, file organization), see
 [`packages/design-library/README.md`](../../../packages/design-library/README.md).
 
 References:
-
 - [Node.js — Package exports](https://nodejs.org/api/packages.html#exports)
 - [Bun — Workspaces](https://bun.sh/docs/install/workspaces)
 - [React — Passing Props to a Component](https://react.dev/learn/passing-props-to-a-component)
@@ -979,7 +951,6 @@ bun run dev                       # predev regenerates automatically
 ```
 
 Plugins (configured in `openapi-ts.config.ts`):
-
 - `@hey-api/client-fetch` — Fetch-based HTTP client, bundled inline
   in the generated output ([no runtime dep needed](https://github.com/hey-api/openapi-ts/pull/790))
 - `@tanstack/react-query` — generates query factories (`xxxOptions()`),
@@ -990,7 +961,6 @@ Plugins (configured in `openapi-ts.config.ts`):
   (included by default, does not need explicit config)
 
 References:
-
 - [HeyAPI — Configuration](https://heyapi.dev/openapi-ts/configuration)
 - [HeyAPI — TanStack Query plugin](https://heyapi.dev/openapi-ts/plugins/tanstack-query)
 
@@ -998,13 +968,13 @@ References:
 
 The TanStack Query plugin generates several layers per endpoint:
 
-| Generated artifact                   | Example                                       | Use when                                                                                        |
-| ------------------------------------ | --------------------------------------------- | ----------------------------------------------------------------------------------------------- |
-| **Query factory** (`xxxOptions`)     | `assistantsListOptions()`                     | Queries — spread into `useQuery()` with any TQ options (`enabled`, `select`, `staleTime`, etc.) |
-| **Mutation hook** (`useXxxMutation`) | `useAssistantsDoctorSessionsCreateMutation()` | Mutations — accepts all TQ mutation options (`onSuccess`, `onError`, `onMutate`, `onSettled`)   |
-| **Mutation factory** (`xxxMutation`) | `assistantsDoctorSessionsCreateMutation()`    | Outside React — `queryClient.executeMutation()`, or when you need the raw options object        |
-| **Cache helper** (`setXxxQueryData`) | `setAssistantsListQueryData()`                | Typed optimistic writes to the query cache                                                      |
-| **Query key** (`xxxQueryKey`)        | `assistantsListQueryKey()`                    | Cache invalidation, `queryClient.invalidateQueries()`                                           |
+| Generated artifact | Example | Use when |
+|---|---|---|
+| **Query factory** (`xxxOptions`) | `assistantsListOptions()` | Queries — spread into `useQuery()` with any TQ options (`enabled`, `select`, `staleTime`, etc.) |
+| **Mutation hook** (`useXxxMutation`) | `useAssistantsDoctorSessionsCreateMutation()` | Mutations — accepts all TQ mutation options (`onSuccess`, `onError`, `onMutate`, `onSettled`) |
+| **Mutation factory** (`xxxMutation`) | `assistantsDoctorSessionsCreateMutation()` | Outside React — `queryClient.executeMutation()`, or when you need the raw options object |
+| **Cache helper** (`setXxxQueryData`) | `setAssistantsListQueryData()` | Typed optimistic writes to the query cache |
+| **Query key** (`xxxQueryKey`) | `assistantsListQueryKey()` | Cache invalidation, `queryClient.invalidateQueries()` |
 
 **Queries use the factory pattern.** The generated `useXxxQuery()`
 hooks only accept SDK parameters (`path`, `query`, `body`) — they do
@@ -1182,30 +1152,30 @@ wrapping the SPA.
 The web app can run in three auth/hosting configurations that affect
 which UI surfaces are available:
 
-| Signal                 | Where                      | What it means                                                                                                                                                                        |
-| ---------------------- | -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `isLocalClient()`      | `src/lib/local-mode.ts`    | `true` when `VITE_PLATFORM_MODE` is unset — the app is running against a local/self-hosted daemon, not the Vellum platform                                                           |
-| `hasPlatformSession`   | `src/stores/auth-store.ts` | `true` when the user has a valid session with the Vellum platform (set asynchronously after probing the allauth session endpoint)                                                    |
-| `isPlatformDisabled()` | `src/lib/local-mode.ts`    | Env var / config setting (`VITE_VELLUM_DISABLE_PLATFORM` or `__VELLUM_CONFIG__.disablePlatform`). When `true` in local mode, the API interceptor no-ops all platform client requests |
+| Signal | Where | What it means |
+|--------|-------|---------------|
+| `isLocalClient()` | `src/lib/local-mode.ts` | `true` when `VITE_PLATFORM_MODE` is unset — the app is running against a local/self-hosted daemon, not the Vellum platform |
+| `hasPlatformSession` | `src/stores/auth-store.ts` | `true` when the user has a valid session with the Vellum platform (set asynchronously after probing the allauth session endpoint) |
+| `isPlatformDisabled()` | `src/lib/local-mode.ts` | Env var / config setting (`VITE_VELLUM_DISABLE_PLATFORM` or `__VELLUM_CONFIG__.disablePlatform`). When `true` in local mode, the API interceptor no-ops all platform client requests |
 
 ### The five user states
 
 1. **Platform-hosted + logged in** — full access to everything
-2. **Platform-hosted + NOT logged in** — session expired; platform-dependent UI is _disabled_ with a "log in" prompt
+2. **Platform-hosted + NOT logged in** — session expired; platform-dependent UI is *disabled* with a "log in" prompt
 3. **Self-hosted + platform features ON + logged in** — full access
-4. **Self-hosted + platform features ON + NOT logged in** — platform-dependent UI is _disabled_
-5. **Self-hosted + platform features OFF** — platform-dependent UI is _gated_ (hidden entirely)
+4. **Self-hosted + platform features ON + NOT logged in** — platform-dependent UI is *disabled*
+5. **Self-hosted + platform features OFF** — platform-dependent UI is *gated* (hidden entirely)
 
 ### `usePlatformGate()` hook
 
 `src/hooks/use-platform-gate.ts` encapsulates the decision tree and
 returns one of three states:
 
-| Return value | Meaning                                      | When                                                             |
-| ------------ | -------------------------------------------- | ---------------------------------------------------------------- |
-| `"full"`     | Feature is fully functional                  | `hasPlatformSession` is `true`                                   |
+| Return value | Meaning | When |
+|-------------|---------|------|
+| `"full"` | Feature is fully functional | `hasPlatformSession` is `true` |
 | `"disabled"` | Show the UI but disable it (prompt re-login) | `hasPlatformSession` is `false`, platform features still enabled |
-| `"gated"`    | Hide the UI entirely                         | Local mode AND `VITE_VELLUM_DISABLE_PLATFORM` is set             |
+| `"gated"` | Hide the UI entirely | Local mode AND `VITE_VELLUM_DISABLE_PLATFORM` is set |
 
 Use this hook for any UI surface that depends on the Vellum platform
 API. The three actions map to concrete UI patterns:
@@ -1237,10 +1207,10 @@ if (gate === "disabled") return <PlatformLoginNotice />;
 ```
 
 **Whole-page gates redirect, section-level gates render null.** When a
-_page_ is fully platform-hosted-only (notifications, billing, etc.),
+*page* is fully platform-hosted-only (notifications, billing, etc.),
 return `<Navigate replace />` to a reasonable sibling route — a
 bookmark or shared link to that page should land somewhere sensible
-on a self-hosted assistant. When a _section component_ inside a mixed
+on a self-hosted assistant. When a *section component* inside a mixed
 page (e.g. `AccessConsentSetting` inside `privacy-page.tsx`) is
 gated, return `null` and let the parent page render the rest.
 
@@ -1258,7 +1228,6 @@ app running in local mode?" Two cases this matters for:
 
 The reactive source is `useAssistantLifecycleStore.assistantState`. The
 gate fires `"gated"` when the lifecycle state is either:
-
 - `{ kind: "self_hosted" }` (API resolved with `is_local: true`), or
 - `{ kind: "active", isLocal: true }` (gateway-auth short-circuit fired
   in local mode).
@@ -1266,7 +1235,7 @@ gate fires `"gated"` when the lifecycle state is either:
 Truth table when `platformHostedOnly` is `true`:
 
 | Active assistant            | Platform session | Result       |
-| --------------------------- | ---------------- | ------------ |
+|-----------------------------|------------------|--------------|
 | platform-hosted             | yes              | `"full"`     |
 | platform-hosted             | no               | `"disabled"` |
 | self-hosted                 | any              | `"gated"`    |
@@ -1280,8 +1249,8 @@ platform-hosted?"
 
 #### Gating network fetches: pair the gate with `useActiveAssistantIsPlatformHosted`
 
-The truth table above shows `"full"` for _none resolved + platform
-session_ on purpose: settings routes are NOT mounted under
+The truth table above shows `"full"` for *none resolved + platform
+session* on purpose: settings routes are NOT mounted under
 `<ActiveAssistantGate>`, so a fresh deep-link to a platform-hosted-only
 page renders with the lifecycle still in `{ kind: "loading" }`. We
 want the UI to render normally (no flicker), but we do NOT want to
@@ -1322,7 +1291,7 @@ two predicates, doing two different jobs:
    (`retired`, `error`, `awaiting_version_selection`, `self_hosted`).
 2. **`isResolving` is narrow** on `useActiveAssistantLifecycleIsLoading()`
    — it covers ONLY the genuine `kind: "loading"` window. This is the
-   indicator used for _loading UX_: spinners, hide-during-race popovers,
+   indicator used for *loading UX*: spinners, hide-during-race popovers,
    deferred-action auto-close. Resolved-non-hosted states are not
    "still loading" — they're decided, and the surface should fall
    through to its empty / error state, not stick on a spinner.
@@ -1527,7 +1496,7 @@ renders correctly given the data it actually receives in production.
   color the component receives as a prop): the line is whether the value
   styles the story or is the fixture.
 - **Pin a viewport when the component is responsive.** Components with
-  `max-md:` variants key off the _viewport_, so at a narrow window a
+  `max-md:` variants key off the *viewport*, so at a narrow window a
   story silently renders the mobile treatment while still passing a
   desktop variant. Set `globals: { viewport: { value: ... } }` on the
   meta (viewport is built into Storybook core, no addon needed). Note
@@ -1536,7 +1505,6 @@ renders correctly given the data it actually receives in production.
   runs roughly 300px narrower than the browser window.
 
 References:
-
 - [Storybook - Writing stories](https://storybook.js.org/docs/writing-stories)
 - [Storybook - Decorators](https://storybook.js.org/docs/writing-stories/decorators)
 - [Storybook - Viewport](https://storybook.js.org/docs/essentials/viewport)

@@ -59,19 +59,16 @@ export function SidebarSectionItem({
 }: SidebarSectionItemProps) {
   const conversations = useSectionConversations(assistantId, section);
 
-  /* A curated section with no members renders nothing, and waits for its
-     first conversation. Decided here rather than in `use-sidebar-state`
-     because this is the only place that knows the section's real contents:
-     the hook upstream sees only what the foreground page happened to carry.
+  /* Every section handed to this component renders. Whether a section exists
+     at all is `use-sidebar-state`'s answer, and it has to stay the only one:
+     `curatedSectionCount` and the move-up/move-down nudges count entries in
+     that list, so a section that is present but returns `null` here draws the
+     curated rule over nothing and offers a move that swaps with something
+     off screen.
 
-     Chats and the channel sections are excluded: Chats is the remainder and
-     has to stay reachable even while empty, and a channel section only exists
-     because it already has conversations. */
-  const hidesWhenEmpty = section.type === "pinned" || section.type === "group";
+     One predicate for membership and visibility, or the two drift and this
+     recurs at the next section type. */
   const groupMenu = buildGroupMenu(conversations);
-  if (hidesWhenEmpty && conversations.length === 0) {
-    return null;
-  }
   return (
     <ConversationNavSection
       value={section.key}

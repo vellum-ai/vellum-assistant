@@ -299,22 +299,20 @@ export function useSidebarState({
   // while channel sections come and go with traffic. In the flat view the
   // sections stop at the curated layer: everything else renders as one list
   // below them.
-  /* Which sections exist is still derived from the loaded list, while what is
-     *in* them now comes from each section's own query.
+  /* This list decides which sections exist, and it is the only thing that
+     does. A section's *contents* come from its own query, but every entry
+     here renders: `curatedSectionCount` and the move-up/move-down nudges
+     count these entries, so an entry that renders nothing draws the curated
+     rule over an empty tier and offers a move that swaps with something off
+     screen. One predicate for membership and visibility, or the two drift.
 
-     That split is deliberate and temporary. Listing a section unconditionally
-     and letting it hide itself when its query is empty reads like the cleaner
-     answer, but `sections` is counted elsewhere: an always-present Pinned puts
-     the curated/governed divider on screen with nothing curated, and makes a
-     lone section draggable with nothing to reorder against. Emptiness has to
-     be known before the list is built, and this hook cannot know it for N
-     groups without mounting N queries.
-
-     It is correct today because the foreground list still drains in full, so
-     these buckets hold every member. It stops being correct the moment that
-     list is windowed (LUM-2444) - which is the same change that deletes
-     `groupConversations`, so section existence needs a server-side answer at
-     exactly that point and not before. */
+     Membership comes from the loaded list, which is accurate while that list
+     drains in full. It stops being accurate under a windowed list
+     (LUM-2444), the same change that removes `groupConversations`, so
+     section existence needs a server-side source at that point. A section
+     cannot answer this for itself in the meantime: emptiness has to be known
+     before the list is built, and this hook cannot mount N queries for N
+     groups. */
   const defaultSections = useMemo((): SidebarSection[] => {
     const list: SidebarSection[] = [];
     if (grouped.pinned.length > 0) {

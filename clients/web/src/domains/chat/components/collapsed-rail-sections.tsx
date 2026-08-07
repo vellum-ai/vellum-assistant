@@ -48,15 +48,6 @@ function CollapsedRailSectionIcon({
   attentionConversationIds?: Set<string>;
 }) {
   const conversations = useSectionConversations(assistantId, section);
-
-  /* Matches the expanded card: an empty curated section is absent from the
-     rail too, rather than sitting there as a muted tile that opens nothing. */
-  if (
-    conversations.length === 0 &&
-    (section.type === "pinned" || section.type === "group")
-  ) {
-    return null;
-  }
   return (
     <CollapsedGroupIcon
       icon={sectionIcon(section)}

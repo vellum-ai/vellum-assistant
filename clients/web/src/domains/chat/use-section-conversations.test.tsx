@@ -2,9 +2,8 @@
  * The rules that decide whether a section renders its own fetched rows or the
  * rows derived from the foreground page.
  *
- * These moved here from `use-sidebar-state.test.tsx` along with the query
- * itself: the sidebar hook no longer fetches, so this is where the gate and
- * the pending fallback are decided.
+ * The gate and the fallback live with the query, which is here, so this is
+ * where they are covered.
  */
 
 import { cleanup, renderHook } from "@testing-library/react";

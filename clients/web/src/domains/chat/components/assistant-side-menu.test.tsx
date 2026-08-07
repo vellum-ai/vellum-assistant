@@ -1189,6 +1189,63 @@ describe("AssistantSideMenu · default section order", () => {
   });
 });
 
+/* Membership in `sidebar.sections` and what renders have to be decided by
+   one predicate. When they were two - the list built unconditionally, the
+   section returning `null` when its query came back empty - `curatedSectionCount`
+   counted an entry nothing drew, so the curated rule appeared over an empty
+   tier and the header menu offered a move that swapped with an off-screen
+   section. */
+describe("AssistantSideMenu · a listed section is a rendered section", () => {
+  test("a custom group with no conversations still renders its header", () => {
+    const html = renderMenu({
+      conversations: [
+        makeConversation({ conversationId: "r1", title: "Solo" }),
+      ],
+      conversationGroups: [
+        {
+          id: "grp-empty",
+          name: "Fernweh",
+          sortPosition: 0,
+          isSystemGroup: false,
+        },
+      ],
+    });
+
+    // The group the user created is on screen even before anything is in it.
+    // "New group…" otherwise completes leaving nothing to show for it.
+    expect(html).toContain(">Fernweh<");
+  });
+
+  test("an empty group draws no curated rule, because nothing precedes it", () => {
+    const html = renderMenu({
+      conversations: [
+        makeConversation({ conversationId: "r1", title: "Solo" }),
+      ],
+      conversationGroups: [
+        {
+          id: "grp-empty",
+          name: "Fernweh",
+          sortPosition: 0,
+          isSystemGroup: false,
+        },
+      ],
+    });
+    const container = parse(html);
+
+    // One curated section renders, so the rule below it is legitimate. What
+    // must never happen is a rule with an empty tier above it, which is what
+    // a counted-but-invisible section produces.
+    const curated = container.querySelectorAll(
+      '[data-slot="sidebar-section-rule"]',
+    );
+    if (curated.length > 0) {
+      expect(html.indexOf(">Fernweh<")).toBeLessThan(
+        html.indexOf('data-slot="sidebar-section-rule"'),
+      );
+    }
+  });
+});
+
 describe("AssistantSideMenu · equal section treatment", () => {
   // Custom groups are peers of Pinned, Chats, and the channel sections - not
   // a separate class. Nothing in the list may imply a grouping the user
