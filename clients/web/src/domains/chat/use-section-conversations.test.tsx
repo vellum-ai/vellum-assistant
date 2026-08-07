@@ -278,6 +278,7 @@ describe("useSectionConversations", () => {
         key: "recents",
         label: "Chats",
         all: DERIVED,
+        holdsChannels: false,
       }),
     );
 
@@ -285,6 +286,33 @@ describe("useSectionConversations", () => {
       groupId: "system:all",
       originChannel: "vellum",
     });
+  });
+
+  /* Ungrouped, there are no channel sections, so Chats is the only section a
+     Slack or Telegram row can appear in. Narrowing to `vellum` here would drop
+     every one of them from the sidebar - not reorder them, remove them - so
+     the filter must carry `system:all` alone.
+
+     Asserted with `toEqual` rather than by checking `originChannel` is absent:
+     the failure this guards against is the key being *present*, and a
+     subset-style assertion would pass while it was.
+
+     The gate is open here on purpose. Below it this section falls back to its
+     derived rows and never asks, so a closed gate would pass this test without
+     exercising the branch. */
+  test("ungrouped, Chats asks for every ungrouped row whatever its origin", () => {
+    openGate();
+    renderHook(() =>
+      useSectionConversations("asst-1", {
+        type: "recents",
+        key: "recents",
+        label: "Chats",
+        all: DERIVED,
+        holdsChannels: true,
+      }),
+    );
+
+    expect(sentFilters.at(-1)).toEqual({ groupId: "system:all" });
   });
 
   /* Below the native-origin gate the daemon compiles `vellum` to a strict
@@ -308,6 +336,7 @@ describe("useSectionConversations", () => {
         key: "recents",
         label: "Chats",
         all: DERIVED,
+        holdsChannels: false,
       }),
     );
 

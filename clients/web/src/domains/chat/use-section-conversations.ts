@@ -90,6 +90,14 @@ function sectionFilter(
         ? { groupId: SYSTEM_ALL_GROUP_ID, originChannel: section.channelId }
         : null;
     case "recents":
+      /* Ungrouped, Chats is every ungrouped conversation whatever its origin,
+         so it must not narrow to the native channel - there are no channel
+         sections to hold the rest, and narrowing would drop them from the
+         sidebar entirely. Grouped, the channel sections own theirs and this
+         one takes only what is left. */
+      if (section.holdsChannels) {
+        return { groupId: SYSTEM_ALL_GROUP_ID };
+      }
       return supportsNativeOrigin
         ? {
             groupId: SYSTEM_ALL_GROUP_ID,

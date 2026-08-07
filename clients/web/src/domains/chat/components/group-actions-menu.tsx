@@ -196,7 +196,7 @@ export function renderGroupMenuItems({
           leftIcon={<Layers size={14} />}
           onSelect={onToggleGroupByChannel}
         >
-          {isGroupedByChannel ? "Ungroup by channel" : "Group by channel"}
+          {isGroupedByChannel ? "Ungroup" : "Group by channel"}
         </Primitive.Item>
       ) : null}
     </>
@@ -304,9 +304,7 @@ export function renderGroupMenuItemsAsPanelItems({
         ? buildPanelMenuItem({
             key: "toggle-group-by-channel",
             icon: Layers,
-            label: isGroupedByChannel
-              ? "Ungroup by channel"
-              : "Group by channel",
+            label: isGroupedByChannel ? "Ungroup" : "Group by channel",
             run: onToggleGroupByChannel,
             onClose,
           })

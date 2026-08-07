@@ -114,7 +114,12 @@ interface SidebarSectionBase {
  */
 export type SidebarSection =
   | (SidebarSectionBase & { type: "pinned" })
-  | (SidebarSectionBase & { type: "recents" })
+  /* `holdsChannels` is what the view switch means for this section: with
+     channel grouping off there are no channel sections, so Chats holds those
+     conversations too. Carried on the section rather than read from the view
+     mode where the query is built, so the section states its own contents and
+     its fetch cannot disagree with its derived fallback. */
+  | (SidebarSectionBase & { type: "recents"; holdsChannels: boolean })
   | (SidebarSectionBase & { type: "channel"; channelId: string })
   | (SidebarSectionBase & { type: "group"; group: CustomGroup });
 
@@ -324,6 +329,7 @@ export function useSidebarState({
       key: "recents",
       label: RECENTS_SECTION_LABEL,
       all: grouped.recents,
+      holdsChannels: viewMode !== "grouped",
     });
     if (viewMode === "grouped") {
       for (const section of grouped.channelSections) {
