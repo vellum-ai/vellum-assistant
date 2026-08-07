@@ -26,10 +26,7 @@ module.exports = {
     output: "dist",
   },
   // Requires `bun run build:web` first so resources/web-dist exists.
-  extraResources: [
-    { from: "resources/web-dist", to: "web-dist" },
-    { from: "resources/tray.ico", to: "tray.ico" },
-  ],
+  extraResources: [{ from: "resources/web-dist", to: "web-dist" }],
   win: {
     target: [
       {

@@ -1,5 +1,4 @@
 import { isElectron } from "@/runtime/is-electron";
-import { detectElectronHostOS } from "@/runtime/platform-detection";
 
 /**
  * Per-capability wrapper for the Electron host's Dock integration. Matches
@@ -28,8 +27,4 @@ export function setDockBadge(count: number): void {
     return;
   }
   window.vellum?.dock.setBadge(count);
-}
-
-export function getUnreadBadgeSurface(): string {
-  return detectElectronHostOS() === "windows" ? "taskbar icon" : "Dock icon";
 }

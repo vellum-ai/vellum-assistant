@@ -15,15 +15,12 @@ it serves a bundled `resources/web-dist` over a privileged `app://` protocol.
 - Sender-validated IPC seam (`packages/electron-desktop/src/ipc.ts`) with a
   Windows adapter in `src/main/ipc.client.ts` and a minimal bridge:
   `window.vellum.app` (version info, open website), `window.vellum.commands`,
-  presence, connectivity, identity, avatar, unread badge, and power-event
-  capabilities, plus the `__VELLUM_CONFIG__` / `__VELLUM_FLAG_OVERRIDES__`
-  globals. Remaining namespaces the renderer dereferences unguarded
-  (`deepLinks`, `menu`, `localMode`, `mainWindow.setOnboarding`) ship as
-  documented no-op stubs; other capabilities degrade to web behavior until
-  ported.
-- Notification-area tray with live assistant status, window recovery,
-  assistant and conversation actions, restart, and explicit quit. Unread and
-  attention state appear on the Windows taskbar.
+  `mainWindow.ensureVisible`, plus the `__VELLUM_CONFIG__` /
+  `__VELLUM_FLAG_OVERRIDES__` globals. Namespaces the renderer dereferences
+  unguarded when `platform` is `"electron"` (`power`, `deepLinks`, `dock`,
+  `menu`, `localMode`, `mainWindow.setOnboarding`) ship as documented no-op
+  stubs; the rest are feature-detected by the renderer's runtime wrappers and
+  degrade to web behavior until ported.
 - Packaged static serving of the renderer from `src/main/index.ts`, with
   path-traversal protection from `@vellumai/electron-utils/app-protocol`,
   single-instance lock, per-environment `userData` separation, and
@@ -36,8 +33,8 @@ it serves a bundled `resources/web-dist` over a privileged `app://` protocol.
   `/_allauth/*`, `/accounts/*`) request forwarding. Packaged builds can't
   reach local gateways or the cloud platform until this lands; dev runs are
   unaffected because the Vite dev server proxies both.
-- Native auth / OAuth sign-in chain, deep links (`vellum://`), notifications,
-  auto-update, CSP, hotkeys, local-mode IPC (hatch/wake/
+- Native auth / OAuth sign-in chain, deep links (`vellum://`), tray,
+  notifications, auto-update, CSP, hotkeys, local-mode IPC (hatch/wake/
   retire), window-state persistence, device id, frameless title bar.
 
 ## Development

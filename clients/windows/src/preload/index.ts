@@ -35,8 +35,9 @@ const coreBridge: Pick<
   | "hostOS"
   | "app"
   | "commands"
+  | "power"
   | "deepLinks"
-  | "menu"
+  | "dock"
   | "mainWindow"
   | "localMode"
 > = {
@@ -59,15 +60,21 @@ const coreBridge: Pick<
       };
     },
   },
+  // Stub: no power events until `clients/macos/src/main/power-events.ts` is
+  // ported. The subscription never fires; the unsubscribe is a no-op.
+  power: {
+    onEvent: noopUnsubscribe,
+  },
   // Stub: deep links need `vellum://` protocol registration plus
   // second-instance argv parsing (`clients/macos/src/main/deep-links.ts`).
   deepLinks: {
     drain: () => Promise.resolve([]),
     onLink: noopUnsubscribe,
   },
-  // Stub: no application menu yet (`clients/macos/src/main/menu.ts`).
-  menu: {
-    setPlatformSession: () => Promise.resolve(),
+  // Stub: the Windows analogue is a taskbar overlay icon
+  // (`win.setOverlayIcon`), not a dock badge.
+  dock: {
+    setBadge: () => undefined,
   },
   mainWindow: {
     ensureVisible: (): Promise<void> =>
@@ -91,22 +98,15 @@ const coreBridge: Pick<
     wake: () => Promise.resolve({ ok: false, error: NOT_AVAILABLE }),
     upgrade: () => Promise.resolve({ ok: false, error: NOT_AVAILABLE }),
     status: () =>
-      Promise.resolve({
-        ok: false as const,
-        status: 501,
-        error: NOT_AVAILABLE,
-      }),
+      Promise.resolve({ ok: false as const, status: 501, error: NOT_AVAILABLE }),
     retire: () => Promise.resolve({ ok: false, error: NOT_AVAILABLE }),
     sleep: () => Promise.resolve({ ok: false, error: NOT_AVAILABLE }),
-    unpair: () => Promise.resolve({ ok: false as const, error: NOT_AVAILABLE }),
+    unpair: () =>
+      Promise.resolve({ ok: false as const, error: NOT_AVAILABLE }),
     connectImport: () =>
       Promise.resolve({ ok: false as const, error: NOT_AVAILABLE }),
     guardianToken: () =>
-      Promise.resolve({
-        ok: false as const,
-        status: 501,
-        error: NOT_AVAILABLE,
-      }),
+      Promise.resolve({ ok: false as const, status: 501, error: NOT_AVAILABLE }),
   },
 };
 
