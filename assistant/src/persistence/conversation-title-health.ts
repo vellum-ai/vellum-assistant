@@ -4,16 +4,16 @@
  * The title pipeline is fire-and-forget: the `user-prompt-submit` hook defers
  * the call to a later macrotask so it never claims a provider slot ahead of
  * the user-visible response, and the queue wrapper `void`s the promise. So a
- * title failure can never be observed during the turn that caused it — by the
+ * title failure can never be observed during the turn that caused it. By the
  * time the model refuses, that turn's prompt is long gone.
  *
  * A latch bridges that gap. A refusal the title service has already classified
- * as permanent (`model_unavailable` — the resolved model is one the connection
- * will not serve) is recorded here, and the next turn that would spend a title
- * call reads it back synchronously. Observation rather than prediction: no
- * probe on the prompt-submit path, and no false positives, because the fault
- * being reported is one that actually happened. The cost is a one-turn lag —
- * the first failure is silent.
+ * as permanent (`model_unavailable`, meaning the resolved model is one the
+ * connection will not serve) is recorded here, and the next turn that would
+ * spend a title call reads it back synchronously. Observation rather than
+ * prediction: no probe on the prompt-submit path, and no false positives,
+ * because the fault being reported is one that actually happened. The cost is
+ * a one-turn lag, so the first failure is silent.
  *
  * Deliberately in-memory. The fault is a property of the running daemon's
  * resolved configuration, so a restart re-derives it on the next title call
@@ -57,7 +57,7 @@ export function recordTitleModelFault(next: TitleModelFault): void {
     return;
   }
   fault = next;
-  // A different fault is a different explanation — every conversation is
+  // A different fault is a different explanation, so every conversation is
   // eligible to hear the new one.
   notifiedConversations = new Set();
 }
@@ -93,7 +93,7 @@ export function claimTitleModelFaultNotice(
   return fault;
 }
 
-/** Test seam — drops both the fault and the per-conversation notice ledger. */
+/** Test seam: drops both the fault and the per-conversation notice ledger. */
 export function resetTitleModelFaultForTests(): void {
   clearTitleModelFault();
 }

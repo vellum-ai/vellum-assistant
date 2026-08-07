@@ -634,7 +634,7 @@ describe("conversation-title-service", () => {
 
     test("a refusal is latched with the routing that caused it", async () => {
       // The turn that triggered this call is long gone by the time the model
-      // refuses — the latch is the only way the failure reaches anyone.
+      // refuses, so the latch is the only way the failure reaches anyone.
       const refusal = new ProviderError("unsupported model", "openai", 400);
       refusal.attachRouteAttribution({
         connectionName: "openai-codex",

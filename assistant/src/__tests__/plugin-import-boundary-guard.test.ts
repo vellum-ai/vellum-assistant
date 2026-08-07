@@ -258,6 +258,9 @@ const BASELINE: Record<string, readonly string[]> = {
     "../../../../config/loader.js",
     "../../../../persistence/conversation-crud.js",
     "../../../../persistence/conversation-title-service.js",
+    "../../../persistence/conversation-title-service.js",
+    "../../types.js",
+    "../injector-order.js",
   ],
   "turn-context": [
     "../../../daemon/conversation-runtime-assembly.js",

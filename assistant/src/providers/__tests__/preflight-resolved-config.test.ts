@@ -277,7 +277,7 @@ describe("preflightResolvedConfig", () => {
 
     test("an unreachable credential store still reports the incompatibility", async () => {
       // The model verdict does not depend on the credential probe, whose
-      // `indeterminate` result returns early — reaching it first would report
+      // `indeterminate` result returns early. Reaching it first would report
       // this misconfiguration as healthy.
       cesUnreachable = true;
       const err = await preflightError(pinned("gpt-5.4-nano"));

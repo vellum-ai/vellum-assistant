@@ -522,7 +522,7 @@ export async function preflightResolvedConfig(
   }
 
   // A subscription connection hard-routes to the Codex endpoint, which
-  // rejects every model outside its allowlist with HTTP 400 — a fault no
+  // rejects every model outside its allowlist with HTTP 400, a fault no
   // credential can fix. Judged before the credential probe below, which
   // returns early on an unreachable store and would otherwise hide it.
   if (!isConnectionCompatibleWithModel(connection, resolved.model)) {

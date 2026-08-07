@@ -3,7 +3,7 @@
  *
  * Titling is fire-and-forget, so a failure cannot be reported during the turn
  * that caused it. This injector is the other half of that: it carries an
- * already-observed fault into a later turn. What matters is the gating — the
+ * already-observed fault into a later turn. What matters is the gating: the
  * notice must reach a turn that would genuinely have been titled, exactly
  * once, and must stop entirely once titling works.
  */
