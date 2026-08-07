@@ -7,7 +7,8 @@ export const mcpHelp: CliCommandHelp = {
   description: "Manage MCP (Model Context Protocol) servers",
   helpText: `
 MCP servers extend the assistant's capabilities with external tools. Servers
-are configured in the assistant's config.json under the mcp.servers key. Each
+are configured in the assistant's config.json under the mcp.servers key, or
+declared by an installed plugin in its root mcp.json. Each
 server uses one of three transport types:
 
   stdio             Local process communicating over stdin/stdout
@@ -28,13 +29,17 @@ Examples:
       description: "List configured MCP servers and their status",
       options: [{ flags: "--json", description: "Output as JSON" }],
       helpText: `
-Shows each configured MCP server with its current status and configuration:
+Shows each MCP server with its current status and configuration. Servers come
+from two places: the mcp.servers key in config.json, and the root mcp.json of
+any installed plugin that declares one.
 
-  Name         The server identifier used in config.json
+  Name         The server identifier
   Status       Health check result:
                  ✓  Connected and responding
                  ✗  Error or disabled
                  !  Needs authentication (OAuth required)
+  Source       Shown only for plugin-declared servers, naming the plugin.
+               Servers from config.json print no Source line.
   Transport    stdio, sse, or streamable-http
   URL/Command  The server URL (sse/streamable-http) or command (stdio)
   Risk         Default risk level: low, medium, or high

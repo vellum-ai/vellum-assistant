@@ -30,6 +30,7 @@ import {
   deleteMcpOAuthCredentials,
   hasMcpOAuthTokens,
 } from "../../mcp/mcp-oauth-provider.js";
+import { readPluginMcpServers } from "../../plugins/plugin-mcp-servers.js";
 import { getMcpToolsByServer } from "../../tools/registry.js";
 import { getLogger } from "../../util/logger.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
@@ -224,6 +225,15 @@ interface McpServerEntry {
   authHeaderName?: string;
   allowedTools?: string[];
   blockedTools?: string[];
+  /**
+   * Where the definition came from: `config.json` or a plugin's `mcp.json`.
+   * A plugin server is read-only from the CLI's perspective — `mcp remove`
+   * and `mcp update` act on config, so the caller needs to be able to tell
+   * the two apart.
+   */
+  source: "config" | "plugin";
+  /** Plugin that declared this server. Present only when `source` is `plugin`. */
+  pluginName?: string;
 }
 
 function detectAuthType(headers: Record<string, string>): "bearer" | "api-key" {
@@ -240,62 +250,109 @@ async function handleMcpList(_args: {
   const raw = loadRawConfig();
   const mcpConfig = raw.mcp as Partial<McpConfig> | undefined;
   const servers = mcpConfig?.servers ?? {};
-  const entries = Object.entries(servers) as [string, McpServerConfig][];
+  const configEntries = (
+    Object.entries(servers) as [string, McpServerConfig][]
+  ).filter(([, config]) => config && typeof config === "object");
+
+  // Plugins declare servers in their own `mcp.json`. Reading them here (and
+  // not only at connect time) is what lets `assistant mcp list` show the
+  // full picture: a server a plugin brought along is otherwise invisible
+  // until something tries to use it.
+  const { servers: pluginServers, issues: pluginIssues } =
+    readPluginMcpServers();
+  for (const issue of pluginIssues) {
+    log.warn(
+      {
+        plugin: issue.pluginName,
+        ...(issue.serverKey && { serverKey: issue.serverKey }),
+      },
+      `Plugin MCP declaration problem: ${issue.message}`,
+    );
+  }
+
+  // An explicit `config.json` entry outranks a plugin's declaration of the
+  // same id — the user's own configuration is the more specific statement,
+  // and it is the one they can edit.
+  const configIds = new Set(configEntries.map(([id]) => id));
+  const entries: [string, McpServerConfig, "config" | "plugin", string?][] = [
+    ...configEntries.map(
+      ([id, config]) =>
+        [id, config, "config"] as [string, McpServerConfig, "config"],
+    ),
+    ...pluginServers
+      .filter((server) => {
+        if (!configIds.has(server.id)) {
+          return true;
+        }
+        log.warn(
+          { plugin: server.pluginName, serverId: server.id },
+          "Plugin MCP server shadowed by a config.json server of the same id; skipping",
+        );
+        return false;
+      })
+      .map(
+        (server) =>
+          [server.id, server.config, "plugin", server.pluginName] as [
+            string,
+            McpServerConfig,
+            "plugin",
+            string,
+          ],
+      ),
+  ];
 
   const results: McpServerEntry[] = await Promise.all(
-    entries
-      .filter(([, config]) => config && typeof config === "object")
-      .map(async ([id, config]) => {
-        const enabled = config.enabled !== false;
-        let status: string;
-        if (!enabled) {
-          status = "disabled";
-        } else {
-          status = await checkMachineReadableHealth(id, config);
-        }
-        const hasOAuth =
-          config.transport.type !== "stdio"
-            ? await hasMcpOAuthTokens(id)
-            : false;
+    entries.map(async ([id, config, source, pluginName]) => {
+      const enabled = config.enabled !== false;
+      let status: string;
+      if (!enabled) {
+        status = "disabled";
+      } else {
+        status = await checkMachineReadableHealth(id, config);
+      }
+      const hasOAuth =
+        config.transport.type !== "stdio" ? await hasMcpOAuthTokens(id) : false;
 
-        // Check credential store for stored static auth headers
-        const storedHeaders = await getMcpHeaders(id);
-        // Also check legacy config-level headers
-        const configHeaders =
-          config.transport.type !== "stdio"
-            ? config.transport.headers
-            : undefined;
-        const effectiveHeaders = storedHeaders ?? configHeaders;
-        const hasStaticAuth =
-          !!effectiveHeaders && Object.keys(effectiveHeaders).length > 0;
-        const authType: "none" | "bearer" | "api-key" = hasStaticAuth
-          ? detectAuthType(effectiveHeaders!)
-          : "none";
-        const authHeaderName =
-          authType === "api-key" && effectiveHeaders
-            ? Object.keys(effectiveHeaders).find(
-                (k) => k.toLowerCase() !== "authorization",
-              )
-            : undefined;
+      // Check credential store for stored static auth headers
+      const storedHeaders = await getMcpHeaders(id);
+      // Also check legacy config-level headers
+      const configHeaders =
+        config.transport.type !== "stdio"
+          ? config.transport.headers
+          : undefined;
+      const effectiveHeaders = storedHeaders ?? configHeaders;
+      const hasStaticAuth =
+        !!effectiveHeaders && Object.keys(effectiveHeaders).length > 0;
+      const authType: "none" | "bearer" | "api-key" = hasStaticAuth
+        ? detectAuthType(effectiveHeaders!)
+        : "none";
+      const authHeaderName =
+        authType === "api-key" && effectiveHeaders
+          ? Object.keys(effectiveHeaders).find(
+              (k) => k.toLowerCase() !== "authorization",
+            )
+          : undefined;
 
-        // Strip headers from transport — never return secrets
-        const { headers: _stripped, ...safeTransport } =
-          config.transport as Record<string, unknown>;
+      // Strip headers from transport — never return secrets
+      const { headers: _stripped, ...safeTransport } =
+        config.transport as Record<string, unknown>;
 
-        return {
-          id,
-          status,
-          transport: safeTransport as McpServerEntry["transport"],
-          enabled,
-          defaultRiskLevel: config.defaultRiskLevel ?? "high",
-          hasOAuth,
-          hasStaticAuth,
-          authType,
-          ...(authHeaderName && { authHeaderName }),
-          ...(config.allowedTools && { allowedTools: config.allowedTools }),
-          ...(config.blockedTools && { blockedTools: config.blockedTools }),
-        };
-      }),
+      return {
+        id,
+        status,
+        transport: safeTransport as McpServerEntry["transport"],
+        enabled,
+        defaultRiskLevel: config.defaultRiskLevel ?? "high",
+        hasOAuth,
+        hasStaticAuth,
+        authType,
+        ...(authHeaderName && { authHeaderName }),
+        ...(config.allowedTools && { allowedTools: config.allowedTools }),
+        ...(config.blockedTools && { blockedTools: config.blockedTools }),
+        source,
+        ...(pluginName && { pluginName }),
+      };
+    }),
   );
 
   return { servers: results };
