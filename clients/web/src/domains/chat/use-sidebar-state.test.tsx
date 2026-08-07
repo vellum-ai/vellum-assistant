@@ -1,6 +1,7 @@
 import { act, cleanup, renderHook } from "@testing-library/react";
 import { afterEach, describe, expect, mock, test } from "bun:test";
 
+import type * as ConversationQueries from "@/hooks/conversation-queries";
 import type { Conversation } from "@/types/conversation-types";
 import { useSidebarLayoutStore } from "@/domains/chat/sidebar-layout-store";
 
@@ -11,16 +12,25 @@ import { useSidebarLayoutStore } from "@/domains/chat/sidebar-layout-store";
    section fetches its own rows where it renders (`useSectionConversations`),
    so what remains here is the section *list* and the derived fallback rows,
    which is what these tests exercise. */
-mock.module("@/hooks/conversation-queries", () => ({
-  useBackgroundConversationListQuery: () => ({
-    conversations: [],
-    isPending: false,
+mock.module(
+  "@/hooks/conversation-queries",
+  (): Partial<typeof ConversationQueries> => ({
+    useBackgroundConversationListQuery: () => ({
+      conversations: [],
+      isLoading: false,
+      isPending: false,
+      isError: false,
+      refetch: () => {},
+    }),
+    useScheduledConversationListQuery: () => ({
+      conversations: [],
+      isLoading: false,
+      isPending: false,
+      isError: false,
+      refetch: () => {},
+    }),
   }),
-  useScheduledConversationListQuery: () => ({
-    conversations: [],
-    isPending: false,
-  }),
-}));
+);
 
 const { useSidebarState } = await import("@/domains/chat/use-sidebar-state");
 

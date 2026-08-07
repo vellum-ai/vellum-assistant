@@ -10,6 +10,7 @@
 import { cleanup, renderHook } from "@testing-library/react";
 import { afterEach, describe, expect, mock, test } from "bun:test";
 
+import type * as ConversationQueries from "@/hooks/conversation-queries";
 import type { SidebarSection } from "@/domains/chat/use-sidebar-state";
 import type { Conversation } from "@/types/conversation-types";
 import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
@@ -29,23 +30,27 @@ let sentFilters: Array<{ groupId?: string; originChannel?: string }> = [];
 /** Whether the query was enabled, so a closed gate is distinguishable. */
 let lastEnabled = false;
 
-mock.module("@/hooks/conversation-queries", () => ({
-  useSectionConversationListQuery: (
-    _assistantId: string | null,
-    filter: { groupId?: string; originChannel?: string },
-    enabled: boolean,
-  ) => {
-    sentFilters.push(filter);
-    lastEnabled = enabled;
-    return {
-      conversations: enabled && serverHasData ? serverRows : [],
-      isLoading: serverPending,
-      isPending: serverPending,
-      isError: serverErrored,
-      hasData: enabled && serverHasData && !serverPending,
-    };
-  },
-}));
+/* Typed against the real module, so a stub that stops matching the hook it
+   replaces fails the build instead of the test suite passing for the wrong
+   reason. `hasData` is the case in point: unstubbed it reads `undefined`,
+   every section falls back to its derived rows, and these tests would go
+   green because nothing is filtered rather than because it is. */
+mock.module(
+  "@/hooks/conversation-queries",
+  (): Partial<typeof ConversationQueries> => ({
+    useSectionConversationListQuery: (_assistantId, filter, enabled = true) => {
+      sentFilters.push(filter);
+      lastEnabled = enabled;
+      return {
+        conversations: enabled && serverHasData ? serverRows : [],
+        isLoading: serverPending,
+        isPending: serverPending,
+        isError: serverErrored,
+        hasData: enabled && serverHasData && !serverPending,
+      };
+    },
+  }),
+);
 
 mock.module("@/assistant/lifecycle-store", () => ({
   useAssistantLifecycleStore: (selector: (s: unknown) => unknown) =>

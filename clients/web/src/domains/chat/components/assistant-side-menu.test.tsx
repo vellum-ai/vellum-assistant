@@ -71,29 +71,38 @@ function rowsMatching(filter: {
   });
 }
 
-mock.module("@/hooks/conversation-queries", () => ({
-  useBackgroundConversationListQuery: () => ({
-    conversations: [],
-    isPending: false,
+mock.module(
+  "@/hooks/conversation-queries",
+  (): Partial<typeof ConversationQueries> => ({
+    useBackgroundConversationListQuery: () => ({
+      conversations: [],
+      isLoading: false,
+      isPending: false,
+      isError: false,
+      refetch: () => {},
+    }),
+    useScheduledConversationListQuery: () => ({
+      conversations: [],
+      isLoading: false,
+      isPending: false,
+      isError: false,
+      refetch: () => {},
+    }),
+    useSectionConversationListQuery: (
+      _assistantId: string | null,
+      filter: { groupId?: string; originChannel?: string },
+    ) => ({
+      conversations: rowsMatching(filter),
+      isLoading: false,
+      isPending: false,
+      isError: false,
+      // A resolved query. Omitting this reads as falsy, which would send every
+      // section back to its derived rows and pass these tests for the wrong
+      // reason: green because nothing is filtered, not because it is.
+      hasData: true,
+    }),
   }),
-  useScheduledConversationListQuery: () => ({
-    conversations: [],
-    isPending: false,
-  }),
-  useSectionConversationListQuery: (
-    _assistantId: string | null,
-    filter: { groupId?: string; originChannel?: string },
-  ) => ({
-    conversations: rowsMatching(filter),
-    isLoading: false,
-    isPending: false,
-    isError: false,
-    // A resolved query. Omitting this reads as falsy, which would send every
-    // section back to its derived rows and pass these tests for the wrong
-    // reason: green because nothing is filtered, not because it is.
-    hasData: true,
-  }),
-}));
+);
 
 // The assistant nav item reads the avatar through React Query; stub it so
 // static SSR rendering resolves without a QueryClient.
@@ -107,6 +116,7 @@ mock.module("@/hooks/use-assistant-avatar", () => ({
   }),
 }));
 
+import type * as ConversationQueries from "@/hooks/conversation-queries";
 import type {
   Conversation,
   ConversationGroup,
