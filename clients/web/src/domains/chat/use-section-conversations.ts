@@ -91,10 +91,10 @@ function isOriginChannel(
 /**
  * The conversations to render for `section`.
  *
- * Falls back to the derived rows in three cases, all of which have to paint
+ * Falls back to the derived rows in four cases, all of which have to paint
  * something rather than an empty section:
  *
- * 1. **The section has no filter yet** (Chats, channels).
+ * 1. **The section has no filter yet** (Chats).
  * 2. **The gate is closed.** An assistant that predates the `groupId` filter
  *    ignores the unrecognized parameter and answers 200 with the *entire*
  *    conversation list, which would render in full inside one section. The
@@ -105,8 +105,15 @@ function isOriginChannel(
  *    switching on the gate alone would make the section vanish on every cold
  *    load until a multi-page drain finished. The derived rows are a subset
  *    (whatever the foreground page happened to contain), so the section
- *    paints immediately and fills in. `isPending` is false once data has
- *    landed, so a later refetch never falls back.
+ *    paints immediately and fills in.
+ * 4. **The first fetch failed.** Same requirement as (3) and easy to miss for
+ *    the opposite reason: a failed query is not pending, so branching on
+ *    `isPending` alone lets the empty result through and the section is
+ *    dropped. A section whose request failed shows what it can, not nothing.
+ *
+ * Note the asymmetry between (3)/(4) and a failed *refetch*, which does NOT
+ * fall back: React Query keeps the last successful data, so those rows are
+ * still the section's real membership and still beat the derived subset.
  *
  * The server's order is rendered as-is. Every section is recency-ordered now
  * that nothing writes `display_order` (LUM-3108).
@@ -125,11 +132,27 @@ export function useSectionConversations(
   const filter = useMemo(() => sectionFilter(section), [section]);
 
   const enabled = filter !== null && isAssistantActive && supportsGroupFilter;
-  const { conversations, isPending } = useSectionConversationListQuery(
+  const { conversations, hasData } = useSectionConversationListQuery(
     assistantId,
     filter ?? NO_FILTER,
     enabled,
   );
 
-  return enabled && !isPending ? conversations : section.all;
+  /* `hasData`, not `!isPending`, and not `!isError` either.
+
+     `!isPending` alone drops a failed first fetch into the empty result: the
+     status is `error`, not `pending`, so the section renders zero rows and
+     the hide-when-empty rule then removes it outright. One failed request
+     would take Pinned, every custom group, and every channel section off both
+     the sidebar and the rail while their conversations still existed.
+
+     `!isError` overcorrects the other way. React Query keeps the last
+     successful data when a later refetch fails, so an errored query is often
+     still holding the section's real rows, and discarding them for the
+     derived subset would shrink the section on any transient blip.
+
+     "Has something to show" is the question, and it is false in exactly the
+     three cases that need the fallback: never fetched, still pending, or
+     failed before ever succeeding. */
+  return enabled && hasData ? conversations : section.all;
 }

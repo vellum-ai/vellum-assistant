@@ -17,6 +17,13 @@ import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
 /** What the section query answers with, per test. */
 let serverRows: Conversation[] = [];
 let serverPending = false;
+let serverErrored = false;
+/**
+ * Whether the query is holding data from an earlier success. Mirrors React
+ * Query, which keeps the last successful data when a refetch fails, so
+ * `serverErrored` and `serverHasData` are independent on purpose.
+ */
+let serverHasData = true;
 /** Filters the hook actually sent, so tests can assert the query is scoped. */
 let sentFilters: Array<{ groupId?: string; originChannel?: string }> = [];
 /** Whether the query was enabled, so a closed gate is distinguishable. */
@@ -31,9 +38,11 @@ mock.module("@/hooks/conversation-queries", () => ({
     sentFilters.push(filter);
     lastEnabled = enabled;
     return {
-      conversations: enabled ? serverRows : [],
+      conversations: enabled && serverHasData ? serverRows : [],
       isLoading: serverPending,
       isPending: serverPending,
+      isError: serverErrored,
+      hasData: enabled && serverHasData && !serverPending,
     };
   },
 }));
@@ -79,6 +88,8 @@ afterEach(() => {
   useAssistantIdentityStore.getState().clearIdentity();
   serverRows = [];
   serverPending = false;
+  serverErrored = false;
+  serverHasData = true;
   sentFilters = [];
   lastEnabled = false;
 });
@@ -216,6 +227,56 @@ describe("useSectionConversations", () => {
 
     expect(result.current.map((c) => c.conversationId)).toEqual(["derived-1"]);
     expect(lastEnabled).toBe(false);
+  });
+
+  /* A failed first fetch is NOT pending, so branching on `isPending` alone
+     lets the empty result through - and the hide-when-empty rule then removes
+     the section from the sidebar and the rail entirely. One failed request
+     would take Pinned, every custom group and every channel off screen while
+     their conversations still existed. */
+  test("keeps painting the derived rows when the first fetch fails", () => {
+    openGate();
+    serverErrored = true;
+    serverHasData = false;
+
+    const { result } = renderHook(() =>
+      useSectionConversations("asst-1", pinnedSection()),
+    );
+
+    expect(result.current.map((c) => c.conversationId)).toEqual(["derived-1"]);
+  });
+
+  test("a failed fetch leaves a custom group its rows rather than none", () => {
+    openGate();
+    serverErrored = true;
+    serverHasData = false;
+
+    const { result } = renderHook(() =>
+      useSectionConversations("asst-1", groupSection()),
+    );
+
+    expect(result.current).not.toHaveLength(0);
+  });
+
+  /* The other half of the rule, and the reason the guard is `hasData` rather
+     than `!isError`: React Query keeps the last successful data when a
+     refetch fails, so those rows are still the section's real membership.
+     Falling back here would shrink a section to the derived subset on any
+     transient blip. */
+  test("keeps the fetched rows when a later refetch fails", () => {
+    openGate();
+    serverErrored = true;
+    serverHasData = true;
+    serverRows = FROM_SERVER;
+
+    const { result } = renderHook(() =>
+      useSectionConversations("asst-1", pinnedSection()),
+    );
+
+    expect(result.current.map((c) => c.conversationId)).toEqual([
+      "server-1",
+      "server-2",
+    ]);
   });
 
   test("renders the server's order as-is", () => {

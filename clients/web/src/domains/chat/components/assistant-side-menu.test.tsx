@@ -82,11 +82,16 @@ mock.module("@/hooks/conversation-queries", () => ({
   }),
   useSectionConversationListQuery: (
     _assistantId: string | null,
-    filter: { groupId?: string },
+    filter: { groupId?: string; originChannel?: string },
   ) => ({
     conversations: rowsMatching(filter),
     isLoading: false,
     isPending: false,
+    isError: false,
+    // A resolved query. Omitting this reads as falsy, which would send every
+    // section back to its derived rows and pass these tests for the wrong
+    // reason: green because nothing is filtered, not because it is.
+    hasData: true,
   }),
 }));
 
