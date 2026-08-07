@@ -12,6 +12,7 @@
  *
  * Reference: https://www.i18next.com/overview/typescript
  */
+import type account from "@/i18n/locales/en/account.json";
 import type chat from "@/i18n/locales/en/chat.json";
 import type common from "@/i18n/locales/en/common.json";
 import type schedules from "@/i18n/locales/en/schedules.json";
@@ -23,6 +24,7 @@ declare module "i18next" {
       common: typeof common;
       chat: typeof chat;
       schedules: typeof schedules;
+      account: typeof account;
     };
     returnNull: false;
   }
