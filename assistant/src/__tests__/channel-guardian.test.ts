@@ -1640,32 +1640,42 @@ describe("outbound verification sessions", () => {
 
   // ── Auto-revoke of prior sessions ──
 
-  test("creating a new outbound session auto-revokes prior pending/awaiting sessions", async () => {
+  test("a second code for the same number revokes the first", async () => {
     const { sessionId: firstId } = await createOutboundSession({
       channel: "phone",
-      expectedPhoneE164: "+15551234567",
-      destinationAddress: "+15551234567",
+      expectedPhoneE164: "+15555550101",
+      destinationAddress: "+15555550101",
     });
-
-    const first = await serviceFindActiveSession("phone");
-    expect(first).not.toBeNull();
-    expect(first!.id).toBe(firstId);
-
-    // Create a second session — first should be revoked
     const { sessionId: secondId } = await createOutboundSession({
       channel: "phone",
-      expectedPhoneE164: "+15559876543",
-      destinationAddress: "+15559876543",
+      expectedPhoneE164: "+15555550101",
+      destinationAddress: "+15555550101",
     });
 
-    const second = await serviceFindActiveSession("phone");
-    expect(second).not.toBeNull();
-    expect(second!.id).toBe(secondId);
+    // Read by id rather than through the unfiltered lookup: two live
+    // sessions minted in the same millisecond have no defined order, and
+    // what matters here is each row's status, not which one is "latest".
+    expect(getSessionById(firstId)!.status).toBe("revoked");
+    expect(getSessionById(secondId)!.status).toBe("awaiting_response");
+  });
 
-    // First session should no longer be findable as active
-    const firstRow = getSessionById(firstId);
-    expect(firstRow).not.toBeNull();
-    expect(firstRow!.status).toBe("revoked");
+  test("a code for a different number leaves the first alone", async () => {
+    // Two numbers are two people. Verifying one must not silently kill the
+    // other's code, which they would learn about only by trying to use it
+    // and being told it is "invalid or has expired".
+    const { sessionId: firstId } = await createOutboundSession({
+      channel: "phone",
+      expectedPhoneE164: "+15555550101",
+      destinationAddress: "+15555550101",
+    });
+    const { sessionId: secondId } = await createOutboundSession({
+      channel: "phone",
+      expectedPhoneE164: "+15555550102",
+      destinationAddress: "+15555550102",
+    });
+
+    expect(getSessionById(firstId)!.status).toBe("awaiting_response");
+    expect(getSessionById(secondId)!.status).toBe("awaiting_response");
   });
 
   // ── findActiveSession returns correct session ──
