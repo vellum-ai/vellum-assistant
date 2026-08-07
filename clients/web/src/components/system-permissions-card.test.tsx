@@ -14,7 +14,10 @@ import type {
   SystemPermissionsState,
 } from "@/runtime/system-permissions";
 
-let state: SystemPermissionsState;
+let state: SystemPermissionsState | null;
+let supported = true;
+let unreadBadgeSurface = "Dock icon";
+let unreadBadgesSupported = true;
 
 const openSystemPermissionSettings = mock(async () => null);
 const requestSystemPermission = mock(async () => null);
@@ -59,7 +62,7 @@ mock.module("@/runtime/system-permissions", () => ({
     state,
     loading: false,
     error: null,
-    supported: true,
+    supported,
     refresh,
   }),
   openSystemPermissionSettings,
@@ -67,13 +70,18 @@ mock.module("@/runtime/system-permissions", () => ({
 }));
 
 mock.module("@/runtime/dock", () => ({
+  getUnreadBadgeSurface: () => unreadBadgeSurface,
   setDockBadge,
+  supportsUnreadBadges: () => unreadBadgesSupported,
 }));
 
 const { SystemPermissionsCard } = await import("./system-permissions-card");
 
 beforeEach(() => {
   state = makeState();
+  supported = true;
+  unreadBadgeSurface = "Dock icon";
+  unreadBadgesSupported = true;
   localStorage.clear();
   openSystemPermissionSettings.mockClear();
   requestSystemPermission.mockClear();
@@ -87,6 +95,22 @@ afterEach(() => {
 });
 
 describe("SystemPermissionsCard", () => {
+  test("shows the taskbar badge control without a permissions bridge", () => {
+    state = null;
+    supported = false;
+    unreadBadgeSurface = "taskbar icon";
+
+    render(<SystemPermissionsCard />);
+
+    expect(
+      screen.getByRole("switch", { name: "Notification Badges" }),
+    ).toBeTruthy();
+    expect(
+      screen.getByText(/unseen conversation counts on the taskbar icon/),
+    ).toBeTruthy();
+    expect(screen.queryByRole("switch", { name: "Accessibility" })).toBeNull();
+  });
+
   test("does not mirror Notification Badges from the Notifications permission", () => {
     state = makeState({ notifications: "granted" });
     localStorage.setItem("device:dock_badges_enabled", "false");

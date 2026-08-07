@@ -21,7 +21,7 @@ const onMock = mock(
     registrations.push({ channel, schema, fn });
   },
 );
-mock.module("./ipc", () => ({ on: onMock }));
+mock.module("./presence-runtime", () => ({ on: onMock }));
 
 const {
   getAvatarPng,

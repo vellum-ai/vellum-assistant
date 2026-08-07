@@ -49,7 +49,9 @@ const STATUS_FALLBACK_COLOR: Record<AssistantStatus, Rgb> = {
 // dropped — the dot's opacity is driven by the pulse, not the color.
 const parseHexRgb = (hex: string): Rgb | null => {
   const match = /^#([0-9a-fA-F]{6})([0-9a-fA-F]{2})?$/.exec(hex);
-  if (!match) return null;
+  if (!match) {
+    return null;
+  }
   const n = parseInt(match[1]!, 16);
   return { r: (n >> 16) & 0xff, g: (n >> 8) & 0xff, b: n & 0xff };
 };
@@ -65,7 +67,9 @@ export const statusColor = (status: AssistantStatus): Rgb => {
   try {
     const hex = systemPreferences.getSystemColor(STATUS_SYSTEM_COLOR[status]);
     const rgb = parseHexRgb(hex);
-    if (rgb) return rgb;
+    if (rgb) {
+      return rgb;
+    }
   } catch {
     // getSystemColor is macOS-only and throws before app-ready; fall through.
   }
@@ -120,7 +124,9 @@ const blendPixel = (
   color: Rgb,
   coverage: number,
 ): void => {
-  if (coverage <= 0) return;
+  if (coverage <= 0) {
+    return;
+  }
   const a = Math.min(1, Math.max(0, coverage));
   bitmap[offset + 0] = Math.round(color.b * a + bitmap[offset + 0]! * (1 - a));
   bitmap[offset + 1] = Math.round(color.g * a + bitmap[offset + 1]! * (1 - a));
@@ -156,13 +162,20 @@ export const compositeStatusDot = (
       // Outer AA edge of the whole dot, and the inner filled disk. The ring
       // is the annulus between them.
       const outerCoverage = Math.min(1, Math.max(0, radius - dist + 0.5));
-      if (outerCoverage <= 0) continue;
+      if (outerCoverage <= 0) {
+        continue;
+      }
       const fillCoverage = Math.min(1, Math.max(0, innerEdge - dist + 0.5));
       const ringCoverage = Math.max(0, outerCoverage - fillCoverage);
 
       const offset = (y * sizePx + x) * 4;
       // Ring first (sits under the fill's AA seam), then the colored fill.
-      blendPixel(bitmap, offset, RING_COLOR, ringCoverage * RING_ALPHA * opacity);
+      blendPixel(
+        bitmap,
+        offset,
+        RING_COLOR,
+        ringCoverage * RING_ALPHA * opacity,
+      );
       blendPixel(bitmap, offset, color, fillCoverage * opacity);
     }
   }
@@ -170,6 +183,15 @@ export const compositeStatusDot = (
 };
 
 let cachedGlyphBitmap: Buffer | null = null;
+let fallbackGlyph: NativeImage | null = null;
+
+export const configureStatusIconFallback = (
+  image: NativeImage | null,
+): void => {
+  fallbackGlyph = image;
+  cachedGlyphBitmap = null;
+  invalidateIconCache();
+};
 
 /**
  * Decode the embedded brand glyph and resize it to the icon canvas once,
@@ -178,14 +200,16 @@ let cachedGlyphBitmap: Buffer | null = null;
  * falls back to the 1x asset if the 2x rendition is unavailable.
  */
 const glyphBitmap = (): Buffer => {
-  if (cachedGlyphBitmap) return Buffer.from(cachedGlyphBitmap);
+  if (cachedGlyphBitmap) {
+    return Buffer.from(cachedGlyphBitmap);
+  }
   const source =
     MENU_BAR_GLYPH_PNG_2X_BASE64.length > 0
       ? MENU_BAR_GLYPH_PNG_2X_BASE64
       : MENU_BAR_GLYPH_PNG_1X_BASE64;
-  const glyph = nativeImage
-    .createFromBuffer(Buffer.from(source, "base64"))
-    .resize({ width: CANVAS_PX, height: CANVAS_PX, quality: "best" });
+  const glyph = (
+    fallbackGlyph ?? nativeImage.createFromBuffer(Buffer.from(source, "base64"))
+  ).resize({ width: CANVAS_PX, height: CANVAS_PX, quality: "best" });
   cachedGlyphBitmap = glyph.toBitmap();
   return Buffer.from(cachedGlyphBitmap);
 };
@@ -244,7 +268,9 @@ const frameCache = new Map<AssistantStatus, NativeImage[]>();
 
 export const statusFrames = (status: AssistantStatus): NativeImage[] => {
   const cached = frameCache.get(status);
-  if (cached) return cached;
+  if (cached) {
+    return cached;
+  }
   const frames = shouldPulse(status)
     ? pulseOpacityFrames(PULSE_FRAME_COUNT).map((opacity) =>
         buildStatusIcon(status, opacity),
