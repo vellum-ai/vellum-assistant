@@ -61,6 +61,11 @@ export function SidebarSectionCard({
       noPadding
       className={cn(
         "p-2",
+        /* The card is the drag handle, so it says so. Every interactive thing
+           inside it sets its own `cursor-pointer`, which wins wherever one is
+           actually under the pointer - so the grab cursor shows on the card's
+           own surface and nowhere else. */
+        drag && "cursor-grab active:cursor-grabbing",
         drag?.dragging && "opacity-50",
         drag?.dropEdge === "before" &&
           "shadow-[inset_0_2px_0_0_var(--primary-base)]",
