@@ -1,0 +1,526 @@
+import { useEffect, useRef } from "react";
+
+import {
+  buildRibbonWave,
+  mulberry32,
+  type RibbonPoint,
+} from "@/domains/onboarding/avatar-wave-ribbon";
+import type { CharacterComponents } from "@/types/avatar";
+import { useBundledAvatarComponents } from "@/utils/use-bundled-avatar-components";
+
+/**
+ * A crowd of characters flowing down a ribbon, drawn on one canvas and
+ * simulated per frame: they lean away from the cursor, a quick swipe knocks
+ * nearby ones loose to sail off and bounce around, and everything springs
+ * back home once it settles.
+ *
+ * Purely decorative. The canvas never takes pointer events, and the cursor
+ * is tracked on `window` so the characters still react while the pointer is
+ * over the content sitting beside them.
+ */
+
+/**
+ * Design-space box the ribbon is authored in. The canvas scales this to
+ * cover its container, so the crowd keeps its shape at any panel size.
+ */
+const DESIGN_W = 620;
+const DESIGN_H = 900;
+
+const SEED = 20260807;
+
+/** Keeps the widening tail from producing one absurdly large character. */
+const MAX_AVATAR_SIZE = 190;
+
+/**
+ * The ribbon enters cut off by the top edge, bulges toward the outer side,
+ * and pours back out through the bottom, growing the whole way.
+ */
+const RIBBON: RibbonPoint[] = [
+  { x: 140, y: -60, w: 100, s: 40 },
+  { x: 270, y: 80, w: 130, s: 54 },
+  { x: 400, y: 230, w: 160, s: 70 },
+  { x: 460, y: 400, w: 190, s: 88 },
+  { x: 420, y: 570, w: 220, s: 108 },
+  { x: 310, y: 720, w: 250, s: 128 },
+  { x: 200, y: 860, w: 275, s: 148 },
+  { x: 150, y: 990, w: 300, s: 168 },
+];
+
+const REPEL_RADIUS = 170;
+const REPEL_PUSH = 70;
+/** Kick impulse per frame per unit of cursor velocity. */
+const FLING = 2;
+/** Speed at which a character detaches and sails off, immune from there on. */
+const BALLISTIC_ON = 5;
+const MAX_SPEED = 17;
+const FLIGHT_FRICTION = 0.972;
+const BOUNCE = 0.84;
+/** Displacement past which a merely-nudged character also goes immune. */
+const DISTURB_DIST = 70;
+const STIFF_BACK = 0.06;
+const DAMP_BACK = 0.85;
+const STIFF_HOVER = 0.12;
+const DAMP_HOVER = 0.74;
+/** Cursor speed is clamped before it becomes an impulse. */
+const MAX_CURSOR_SPEED = 8;
+
+const REVEAL_MS = 550;
+/**
+ * Gap between one character's entrance and the next. Derived from size so
+ * the small characters at the head of the ribbon pour in quickly and the
+ * large ones at the tail arrive with a beat between them.
+ */
+const POUR_GAP_MIN_MS = 12;
+const POUR_GAP_MAX_MS = 55;
+const POUR_GAP_NUMERATOR = 1900;
+
+/**
+ * The simulation is tuned in 60fps frames, so every integration step scales
+ * by how long the real frame took. Without this the wave springs and flies
+ * at double speed on a 120Hz display. Capped so returning to a backgrounded
+ * tab resumes rather than teleporting everything.
+ */
+const FRAME_MS = 1000 / 60;
+const MAX_FRAME_SCALE = 3;
+
+/** Idle decay so a stationary cursor stops flinging on its last reading. */
+const CURSOR_VELOCITY_DECAY = 0.9;
+
+/** Sprites are rasterized per size bucket so a resize reuses most of them. */
+const SPRITE_SIZE_BUCKET = 8;
+
+interface LiveItem {
+  /** Home position and drawn size, in canvas pixels. */
+  hx: number;
+  hy: number;
+  px: number;
+  rotate: number;
+  phase: number;
+  pourDelay: number;
+  /** Offset from home, velocity, and disturbance mode. */
+  dx: number;
+  dy: number;
+  vx: number;
+  vy: number;
+  disturbed: boolean;
+  flying: boolean;
+  fade: number;
+  sprite: HTMLCanvasElement | null;
+}
+
+/**
+ * Draw one character to an offscreen canvas at its final size. Rasterizing
+ * once per character keeps the per-frame cost to a `drawImage` each, which
+ * is what lets the whole crowd run at frame rate.
+ */
+function renderSprite(
+  components: CharacterComponents,
+  bodyIdx: number,
+  eyeIdx: number,
+  colorIdx: number,
+  px: number,
+): HTMLCanvasElement | null {
+  const body = components.bodyShapes[bodyIdx];
+  const eye = components.eyeStyles[eyeIdx];
+  const color = components.colors[colorIdx];
+  if (!body || !eye || !color) {
+    return null;
+  }
+
+  const dpr = Math.min(2, window.devicePixelRatio || 1);
+  const sprite = document.createElement("canvas");
+  sprite.width = Math.max(2, Math.ceil(px * dpr));
+  sprite.height = sprite.width;
+  const ctx = sprite.getContext("2d");
+  if (!ctx) {
+    return null;
+  }
+  ctx.scale(dpr, dpr);
+
+  const bodyBox = body.viewBox;
+  const bodyScale = Math.min(px / bodyBox.width, px / bodyBox.height);
+  const bodyTx = (px - bodyBox.width * bodyScale) / 2;
+  const bodyTy = (px - bodyBox.height * bodyScale) / 2;
+  ctx.save();
+  ctx.translate(bodyTx, bodyTy);
+  ctx.scale(bodyScale, bodyScale);
+  ctx.fillStyle = color.hex;
+  ctx.fill(new Path2D(body.svgPath));
+  ctx.restore();
+
+  const override = components.faceCenterOverrides.find(
+    (o) => o.bodyShape === body.id && o.eyeStyle === eye.id,
+  );
+  const faceCenter = override ? override.faceCenter : body.faceCenter;
+  const eyeBox = eye.sourceViewBox;
+  const remapScale = Math.min(
+    bodyBox.width / eyeBox.width,
+    bodyBox.height / eyeBox.height,
+  );
+  ctx.save();
+  ctx.translate(
+    bodyScale * (faceCenter.x - eye.eyeCenter.x * remapScale) + bodyTx,
+    bodyScale * (faceCenter.y - eye.eyeCenter.y * remapScale) + bodyTy,
+  );
+  ctx.scale(bodyScale * remapScale, bodyScale * remapScale);
+  for (const path of eye.paths) {
+    ctx.fillStyle = path.color;
+    ctx.fill(new Path2D(path.svgPath));
+  }
+  ctx.restore();
+
+  return sprite;
+}
+
+interface AvatarWaveProps {
+  className?: string;
+}
+
+export function AvatarWave({ className = "" }: AvatarWaveProps) {
+  const components = useBundledAvatarComponents();
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas || !components) {
+      return;
+    }
+    const ctx = canvas.getContext("2d");
+    if (!ctx) {
+      return;
+    }
+    const reduce = window.matchMedia(
+      "(prefers-reduced-motion: reduce)",
+    ).matches;
+
+    let width = 0;
+    let height = 0;
+    let items: LiveItem[] = [];
+    let pourStart = 0;
+    let lastFrame = 0;
+    const cursor = { x: 0, y: 0, vx: 0, vy: 0, active: false };
+    let lastMove: { x: number; y: number; t: number } | null = null;
+    const spriteCache = new Map<string, HTMLCanvasElement | null>();
+
+    const spriteFor = (
+      bodyIdx: number,
+      eyeIdx: number,
+      colorIdx: number,
+      px: number,
+    ): HTMLCanvasElement | null => {
+      const bucket =
+        Math.max(1, Math.round(px / SPRITE_SIZE_BUCKET)) * SPRITE_SIZE_BUCKET;
+      const key = `${bodyIdx}-${eyeIdx}-${colorIdx}-${bucket}`;
+      const hit = spriteCache.get(key);
+      if (hit !== undefined) {
+        return hit;
+      }
+      const made = renderSprite(components, bodyIdx, eyeIdx, colorIdx, bucket);
+      spriteCache.set(key, made);
+      return made;
+    };
+
+    const layout = () => {
+      const rect = canvas.getBoundingClientRect();
+      if (rect.width === 0 || rect.height === 0) {
+        return;
+      }
+      if (
+        Math.abs(rect.width - width) < 1 &&
+        Math.abs(rect.height - height) < 1
+      ) {
+        return;
+      }
+      width = rect.width;
+      height = rect.height;
+
+      const dpr = Math.min(2, window.devicePixelRatio || 1);
+      canvas.width = Math.round(width * dpr);
+      canvas.height = Math.round(height * dpr);
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+      // Cover the panel so the ribbon always reaches both edges.
+      const scale = Math.max(width / DESIGN_W, height / DESIGN_H);
+      const offsetX = (width - DESIGN_W * scale) / 2;
+      const offsetY = (height - DESIGN_H * scale) / 2;
+
+      const rng = mulberry32(SEED + 1);
+      let lastColor = -1;
+      let pourDelay = 0;
+      items = buildRibbonWave(RIBBON, SEED, MAX_AVATAR_SIZE).map(
+        (placed): LiveItem => {
+          let colorIdx = Math.floor(rng() * components.colors.length);
+          if (colorIdx === lastColor) {
+            colorIdx = (colorIdx + 1) % components.colors.length;
+          }
+          lastColor = colorIdx;
+          const bodyIdx = Math.floor(rng() * components.bodyShapes.length);
+          const eyeIdx = Math.floor(rng() * components.eyeStyles.length);
+          const px = placed.size * scale;
+          const item: LiveItem = {
+            hx: offsetX + placed.x * scale,
+            hy: offsetY + placed.y * scale,
+            px,
+            rotate: (placed.rotate * Math.PI) / 180,
+            phase: rng() * Math.PI * 2,
+            pourDelay,
+            dx: 0,
+            dy: 0,
+            vx: 0,
+            vy: 0,
+            disturbed: false,
+            flying: false,
+            fade: 1,
+            sprite: spriteFor(bodyIdx, eyeIdx, colorIdx, px),
+          };
+          pourDelay += Math.min(
+            POUR_GAP_MAX_MS,
+            Math.max(POUR_GAP_MIN_MS, POUR_GAP_NUMERATOR / placed.size),
+          );
+          return item;
+        },
+      );
+      if (pourStart === 0) {
+        pourStart = performance.now();
+      }
+    };
+
+    const step = (item: LiveItem, frames: number) => {
+      const posX = item.hx + item.dx;
+      const posY = item.hy + item.dy;
+
+      if (item.flying) {
+        const friction = Math.pow(FLIGHT_FRICTION, frames);
+        item.vx *= friction;
+        item.vy *= friction;
+        item.dx += item.vx * frames;
+        item.dy += item.vy * frames;
+
+        const half = item.px / 2;
+        const minX = half;
+        const maxX = width - half;
+        const minY = half;
+        const maxY = height - half;
+        const cx = item.hx + item.dx;
+        const cy = item.hy + item.dy;
+        if (maxX > minX) {
+          if (cx < minX) {
+            item.dx = minX - item.hx;
+            item.vx = Math.abs(item.vx) * BOUNCE;
+          } else if (cx > maxX) {
+            item.dx = maxX - item.hx;
+            item.vx = -Math.abs(item.vx) * BOUNCE;
+          }
+        }
+        if (maxY > minY) {
+          if (cy < minY) {
+            item.dy = minY - item.hy;
+            item.vy = Math.abs(item.vy) * BOUNCE;
+          } else if (cy > maxY) {
+            item.dy = maxY - item.hy;
+            item.vy = -Math.abs(item.vy) * BOUNCE;
+          }
+        }
+        if (Math.hypot(item.vx, item.vy) < 0.7) {
+          item.flying = false;
+        }
+        return;
+      }
+
+      if (item.disturbed) {
+        // Immune to the cursor until it has settled back home.
+        const damp = Math.pow(DAMP_BACK, frames);
+        item.vx = (item.vx - item.dx * STIFF_BACK * frames) * damp;
+        item.dx += item.vx * frames;
+        item.vy = (item.vy - item.dy * STIFF_BACK * frames) * damp;
+        item.dy += item.vy * frames;
+        if (
+          Math.hypot(item.dx, item.dy) < 2 &&
+          Math.hypot(item.vx, item.vy) < 0.25
+        ) {
+          item.disturbed = false;
+        }
+        return;
+      }
+
+      let targetX = 0;
+      let targetY = 0;
+      if (cursor.active) {
+        const awayX = posX - cursor.x;
+        const awayY = posY - cursor.y;
+        const dist = Math.hypot(awayX, awayY) || 1;
+        if (dist < REPEL_RADIUS) {
+          const falloff = 1 - dist / REPEL_RADIUS;
+          targetX = (awayX / dist) * Math.pow(falloff, 1.4) * REPEL_PUSH;
+          targetY = (awayY / dist) * Math.pow(falloff, 1.4) * REPEL_PUSH;
+          item.vx += cursor.vx * falloff * FLING * frames;
+          item.vy += cursor.vy * falloff * FLING * frames;
+          const speed = Math.hypot(item.vx, item.vy);
+          if (speed > MAX_SPEED) {
+            item.vx = (item.vx / speed) * MAX_SPEED;
+            item.vy = (item.vy / speed) * MAX_SPEED;
+          }
+          if (speed > BALLISTIC_ON) {
+            item.flying = true;
+            item.disturbed = true;
+            return;
+          }
+        }
+      }
+
+      const displacing = targetX !== 0 || targetY !== 0;
+      const stiff = (displacing ? STIFF_HOVER : STIFF_BACK) * frames;
+      const damp = Math.pow(displacing ? DAMP_HOVER : DAMP_BACK, frames);
+      item.vx = (item.vx + (targetX - item.dx) * stiff) * damp;
+      item.dx += item.vx * frames;
+      item.vy = (item.vy + (targetY - item.dy) * stiff) * damp;
+      item.dy += item.vy * frames;
+      if (Math.hypot(item.dx, item.dy) > DISTURB_DIST) {
+        item.disturbed = true;
+      }
+    };
+
+    const draw = (now: number) => {
+      const frames = lastFrame
+        ? Math.min(MAX_FRAME_SCALE, (now - lastFrame) / FRAME_MS)
+        : 1;
+      lastFrame = now;
+      if (!reduce) {
+        // The cursor's velocity only updates on movement, so bleed it off
+        // here; otherwise a pointer that stops inside the field keeps
+        // flinging characters with its last reading forever.
+        const decay = Math.pow(CURSOR_VELOCITY_DECAY, frames);
+        cursor.vx *= decay;
+        cursor.vy *= decay;
+      }
+
+      ctx.clearRect(0, 0, width, height);
+      for (const item of items) {
+        const sprite = item.sprite;
+        if (!sprite) {
+          continue;
+        }
+
+        let revealScale = 1;
+        let revealAlpha = 1;
+        let revealDrop = 0;
+        if (!reduce) {
+          const elapsed = now - pourStart - item.pourDelay;
+          if (elapsed < 0) {
+            continue;
+          }
+          const p = Math.min(1, elapsed / REVEAL_MS);
+          if (p < 1) {
+            const eased =
+              1 + 2.2 * Math.pow(p - 1, 3) + 1.2 * Math.pow(p - 1, 2);
+            revealScale =
+              0.3 + 0.7 * Math.min(1.04, eased + 0.04 * Math.sin(p * Math.PI));
+            revealAlpha = Math.min(1, p * 2.2);
+            revealDrop = (1 - p) * -60;
+          }
+          step(item, frames);
+          const away = Math.hypot(item.dx, item.dy);
+          const targetFade = item.flying ? 0.88 : away > 20 ? 0.92 : 1;
+          item.fade += (targetFade - item.fade) * Math.min(1, 0.08 * frames);
+        }
+
+        const bob = reduce ? 0 : Math.sin(now * 0.001 + item.phase) * 1.4;
+        const wobble = reduce
+          ? 0
+          : Math.sin(now * 0.0008 + item.phase * 2) * 0.025;
+        const size = item.px * revealScale;
+
+        ctx.save();
+        ctx.translate(
+          item.hx + item.dx,
+          item.hy + item.dy + bob + revealDrop,
+        );
+        ctx.rotate(item.rotate + wobble);
+        ctx.globalAlpha = item.fade * revealAlpha;
+        ctx.drawImage(sprite, -size / 2, -size / 2, size, size);
+        ctx.restore();
+      }
+    };
+
+    layout();
+
+    const resizeObserver = new ResizeObserver(() => {
+      layout();
+      if (reduce) {
+        draw(performance.now());
+      }
+    });
+    resizeObserver.observe(canvas);
+
+    let raf = 0;
+    if (reduce) {
+      draw(performance.now());
+    } else {
+      const tick = (now: number) => {
+        draw(now);
+        raf = requestAnimationFrame(tick);
+      };
+      raf = requestAnimationFrame(tick);
+    }
+
+    const setCursor = (clientX: number, clientY: number) => {
+      const now = performance.now();
+      if (lastMove) {
+        const dt = Math.max(1, now - lastMove.t);
+        let vx = cursor.vx * 0.5 + ((clientX - lastMove.x) / dt) * 0.5;
+        let vy = cursor.vy * 0.5 + ((clientY - lastMove.y) / dt) * 0.5;
+        const speed = Math.hypot(vx, vy);
+        if (speed > MAX_CURSOR_SPEED) {
+          vx = (vx / speed) * MAX_CURSOR_SPEED;
+          vy = (vy / speed) * MAX_CURSOR_SPEED;
+        }
+        cursor.vx = vx;
+        cursor.vy = vy;
+      }
+      lastMove = { x: clientX, y: clientY, t: now };
+      const rect = canvas.getBoundingClientRect();
+      cursor.x = clientX - rect.left;
+      cursor.y = clientY - rect.top;
+      cursor.active = true;
+    };
+    const onMove = (e: MouseEvent) => setCursor(e.clientX, e.clientY);
+    const onTouchMove = (e: TouchEvent) => {
+      const touch = e.touches[0];
+      if (touch) {
+        setCursor(touch.clientX, touch.clientY);
+      }
+    };
+    const onLeave = () => {
+      cursor.active = false;
+      cursor.vx = 0;
+      cursor.vy = 0;
+      lastMove = null;
+    };
+
+    if (!reduce) {
+      window.addEventListener("mousemove", onMove, { passive: true });
+      window.addEventListener("mouseout", onLeave);
+      window.addEventListener("touchmove", onTouchMove, { passive: true });
+      window.addEventListener("touchend", onLeave);
+      window.addEventListener("touchcancel", onLeave);
+    }
+
+    return () => {
+      cancelAnimationFrame(raf);
+      resizeObserver.disconnect();
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseout", onLeave);
+      window.removeEventListener("touchmove", onTouchMove);
+      window.removeEventListener("touchend", onLeave);
+      window.removeEventListener("touchcancel", onLeave);
+    };
+  }, [components]);
+
+  return (
+    <canvas
+      ref={canvasRef}
+      aria-hidden="true"
+      className={`pointer-events-none block h-full w-full ${className}`}
+    />
+  );
+}
