@@ -145,7 +145,7 @@ export async function syncManualTokenConnection(
       );
       if (botTokenResult.unreachable || webhookSecretResult.unreachable) {
         log.warn(
-          "Skipping telegram manual-token reconciliation — credential backend unreachable",
+          "Skipping telegram manual-token reconciliation: credential backend unreachable",
         );
         return;
       }
@@ -166,7 +166,7 @@ export async function syncManualTokenConnection(
       );
       if (botTokenResult.unreachable || appTokenResult.unreachable) {
         log.warn(
-          "Skipping slack_channel manual-token reconciliation — credential backend unreachable",
+          "Skipping slack_channel manual-token reconciliation: credential backend unreachable",
         );
         return;
       }
@@ -184,7 +184,7 @@ export async function syncManualTokenConnection(
       );
       if (botTokenResult.unreachable) {
         log.warn(
-          "Skipping discord_channel manual-token reconciliation — credential backend unreachable",
+          "Skipping discord_channel manual-token reconciliation: credential backend unreachable",
         );
         return;
       }
@@ -202,7 +202,7 @@ export async function syncManualTokenConnection(
       );
       if (tokenResult.unreachable) {
         log.warn(
-          "Skipping sanity manual-token reconciliation — credential backend unreachable",
+          "Skipping sanity manual-token reconciliation: credential backend unreachable",
         );
         return;
       }
