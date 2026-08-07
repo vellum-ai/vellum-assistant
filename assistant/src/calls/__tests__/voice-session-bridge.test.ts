@@ -76,6 +76,7 @@ import { assistantEventHub } from "../../runtime/assistant-event-hub.js";
 import { CALL_OPENING_MARKER } from "../voice-control-protocol.js";
 import {
   cutFrontDoorContentAtVerdict,
+  preSpeechLanguageRuleFragment,
   startVoiceTurn,
   TOOL_RESULT_PREVIEW_MAX_CHARS,
   type VoiceTurnOptions,
@@ -498,24 +499,24 @@ describe("startVoiceTurn hiddenSyntheticPrompt", () => {
   });
 });
 
+// The turn installs its resolved control prompt, then cleanup resets it to
+// null, so capture every applied value and read the installed (non-null) one.
+function captureInstalledPrompt(): () => string | undefined {
+  const fake = makeFakeConversation({ processing: false });
+  fakeConversation = fake.conversation;
+  const applied: Array<string | null> = [];
+  fake.conversation.setVoiceCallControlPrompt = (prompt) => {
+    applied.push(prompt);
+  };
+  return () => applied.find((p): p is string => typeof p === "string");
+}
+
 describe("startVoiceTurn triage-and-escalate control prompt", () => {
   // Live-voice supplies its own voiceControlPrompt, bypassing
   // buildVoiceCallControlPrompt where the routing-leg rule is normally injected.
   // The rule must still be appended, or the front-door model never learns the
   // verdict protocol and can't hold or hand off.
   const LIVE_VOICE_PROMPT = "You are speaking in a local live voice session.";
-
-  // The turn installs its resolved control prompt, then cleanup resets it to
-  // null — so capture every applied value and read the installed (non-null) one.
-  function captureInstalledPrompt(): () => string | undefined {
-    const fake = makeFakeConversation({ processing: false });
-    fakeConversation = fake.conversation;
-    const applied: Array<string | null> = [];
-    fake.conversation.setVoiceCallControlPrompt = (prompt) => {
-      applied.push(prompt);
-    };
-    return () => applied.find((p): p is string => typeof p === "string");
-  }
 
   test("appends the front-door decision rule to a caller-supplied prompt", async () => {
     const installed = captureInstalledPrompt();
@@ -557,6 +558,74 @@ describe("startVoiceTurn triage-and-escalate control prompt", () => {
       voiceControlPrompt: LIVE_VOICE_PROMPT,
     });
     expect(installed()).toBe(LIVE_VOICE_PROMPT);
+  });
+});
+
+describe("default call protocol numbered rules", () => {
+  // With no caller-supplied voiceControlPrompt the bridge builds the numbered
+  // CALL PROTOCOL RULES itself. Pin the speak-the-caller's-language rule and
+  // keep the numbering gapless so no rule silently shadows another.
+  test("teaches speaking the caller's language as its own numbered rule", async () => {
+    const installed = captureInstalledPrompt();
+    await startVoiceTurn(makeTurnOptions());
+    expect(installed()).toContain(
+      "12. Speak the caller's language: reply in the language of the caller's most recent actual speech, and follow them if they switch languages mid-call. Synthetic user turns (parenthetical markers like the call-connected and verification-completed notices) are not caller speech and never set the language. Before the caller has spoken, such as on the opening greeting turn, use the language the Task context implies, if any; otherwise default to English.",
+    );
+  });
+
+  test("the language rule excludes synthetic turns and covers pre-speech turns", async () => {
+    // Outbound calls open with the English "(call connected ...)" sentinel as
+    // the latest user-role turn, and the verification-complete sentinel does
+    // the same mid-call. Neither is caller speech, so neither may pull a
+    // Spanish or Japanese Task into an English opener.
+    const installed = captureInstalledPrompt();
+    await startVoiceTurn(makeTurnOptions());
+    const prompt = installed()!;
+    expect(prompt).toContain("most recent actual speech");
+    expect(prompt).toContain("not caller speech and never set the language");
+    expect(prompt).toContain(
+      "use the language the Task context implies, if any; otherwise default to English",
+    );
+  });
+
+  test("a monolingual listening language becomes the pre-speech fallback", () => {
+    // An assistant pinned to services.stt.language = "es" on a provider that
+    // honors the pin (deepgram, vellum) is already transcribing Spanish, so
+    // the opener must not default to English. The default test config runs
+    // the auto-detect branch ("multi"), so the pinned branch is covered at
+    // the fragment level.
+    expect(preSpeechLanguageRuleFragment("es", "deepgram")).toContain(
+      'configured listening language ("es")',
+    );
+    expect(preSpeechLanguageRuleFragment("es", "vellum")).toContain(
+      "default to English only when neither gives a language",
+    );
+    for (const autoDetect of ["multi", "", "  ", undefined]) {
+      expect(preSpeechLanguageRuleFragment(autoDetect, "deepgram")).toBe(
+        "use the language the Task context implies, if any; otherwise default to English",
+      );
+    }
+  });
+
+  test("a language pin on an auto-detecting provider keeps the English fallback", () => {
+    // google-gemini and openai-whisper ignore services.stt.language entirely
+    // (languageSelection: "auto"), so a persisted "es" pin must not force a
+    // Spanish greeting the transcriber will not honor.
+    for (const provider of ["google-gemini", "openai-whisper", undefined]) {
+      expect(preSpeechLanguageRuleFragment("es", provider)).toBe(
+        "use the language the Task context implies, if any; otherwise default to English",
+      );
+    }
+  });
+
+  test("rule numbers stay sequential from 0, including the routing rule", async () => {
+    const installed = captureInstalledPrompt();
+    await startVoiceTurn({ ...makeTurnOptions(), routingLeg: "escalated" });
+    const numbers = [...installed()!.matchAll(/^(\d+)\. /gm)].map((match) =>
+      Number(match[1]),
+    );
+    expect(numbers.length).toBeGreaterThan(12);
+    expect(numbers).toEqual(numbers.map((_, index) => index));
   });
 });
 

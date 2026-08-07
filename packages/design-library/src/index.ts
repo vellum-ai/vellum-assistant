@@ -237,6 +237,11 @@ export {
 export { cn } from "./utils/cn";
 export { initInputModality } from "./utils/input-modality";
 export {
+  PANEL_ITEM_WASH,
+  panelItemWashStyle,
+  type PanelItemWash,
+} from "./utils/panel-item-tint";
+export {
   PortalContainerProvider,
   usePortalContainer,
   type PortalContainerProviderProps,

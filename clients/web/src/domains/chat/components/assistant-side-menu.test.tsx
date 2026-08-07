@@ -162,6 +162,7 @@ function renderMenu(props: {
   includeFooterAction?: boolean;
   includeTipCard?: boolean;
   isLoadingConversations?: boolean;
+  onWidthChange?: (width: number) => void;
 }): string {
   setSectionRows(props.conversations);
   const includeFooterAction = props.includeFooterAction ?? true;
@@ -174,6 +175,8 @@ function renderMenu(props: {
       isLoadingConversations: props.isLoadingConversations,
       conversationGroups: props.conversationGroups,
       activeConversationId: props.activeConversationId,
+      width: props.onWidthChange ? 280 : undefined,
+      onWidthChange: props.onWidthChange,
       onSelectConversation: () => {},
       footerAction: includeFooterAction
         ? createElement("span", null, "Preferences")
@@ -330,6 +333,68 @@ describe("AssistantSideMenu · All view", () => {
 
     expect(html).toContain('aria-label="Chats"');
     expect(html).toContain('aria-label="Pinned"');
+  });
+});
+
+describe("AssistantSideMenu · drawer inset", () => {
+  /* The rail is surfaceless - the cards and pills carry the surface - so the
+     panel padding `SideMenu` gives a bordered rail would be a second inset
+     stacked on the page layout's own, reading as bare space around the whole
+     drawer. The overlay is a full-bleed sheet and keeps it. */
+  test("the rail hands its horizontal inset to the cards, not the panel", () => {
+    for (const collapsed of [false, true]) {
+      const container = parse(
+        renderMenu({
+          conversations: [makeConversation({ conversationId: "r1" })],
+          collapsed,
+        }),
+      );
+      const nav = container.querySelector<HTMLElement>("nav");
+      const body = container.querySelector<HTMLElement>(
+        '[data-slot="side-menu-body"]',
+      );
+      if (!nav || !body) {
+        throw new Error("expected the side menu root and body");
+      }
+
+      expect(nav.className).toContain("p-0");
+      /* A bleeding scrollport would overhang a rail with no inset of its own
+         and clip the cards against it. */
+      expect(body.className).not.toContain("-mx-4");
+    }
+  });
+
+  /* The handle occupies the rail's last 6px, and a section card is its own
+     drag handle, so a card running under it would resize the rail on a grab
+     meant to reorder the section. */
+  test("a resizable rail holds the handle's strip clear of the cards", () => {
+    const container = parse(
+      renderMenu({
+        conversations: [makeConversation({ conversationId: "r1" })],
+        onWidthChange: () => {},
+      }),
+    );
+    const nav = container.querySelector<HTMLElement>("nav");
+    if (!nav) {
+      throw new Error("expected the side menu root");
+    }
+
+    expect(nav.className).toContain("pr-[6px]");
+  });
+
+  test("the overlay keeps the sheet's own padding", () => {
+    const container = parse(
+      renderMenu({
+        conversations: [makeConversation({ conversationId: "r1" })],
+        variant: "overlay",
+      }),
+    );
+    const nav = container.querySelector<HTMLElement>("nav");
+    if (!nav) {
+      throw new Error("expected the side menu root");
+    }
+
+    expect(nav.className).not.toContain("p-0");
   });
 });
 

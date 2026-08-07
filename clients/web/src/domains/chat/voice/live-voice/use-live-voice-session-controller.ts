@@ -71,6 +71,7 @@ function useNativeAudioSessionLifecycle(): void {
   useEffect(() => {
     let wantsAudioFocus = false;
     let hasAudioFocus = false;
+    let activationInFlight = false;
     let reconcilingAudioFocus = false;
     let reconcileRequested = false;
     let activationAttempts = 0;
@@ -90,7 +91,9 @@ function useNativeAudioSessionLifecycle(): void {
               return;
             }
             activationAttempts += 1;
+            activationInFlight = true;
             hasAudioFocus = await activateVoiceAudioSession();
+            activationInFlight = false;
             if (!hasAudioFocus) {
               return;
             }
@@ -108,12 +111,15 @@ function useNativeAudioSessionLifecycle(): void {
     };
 
     const syncAudioFocus = (): void => {
-      const settledState = useLiveVoiceStore.getState().state;
+      const settledSession = useLiveVoiceStore.getState();
+      const settledState = settledSession.state;
       const stateChanged = settledState !== lastSettledState;
       lastSettledState = settledState;
-      const nextWantsAudioFocus = isLiveVoiceSessionActive(
-        settledState,
-      );
+      const nextWantsAudioFocus =
+        isLiveVoiceSessionActive(settledState) &&
+        (settledSession.microphoneActive ||
+          hasAudioFocus ||
+          activationInFlight);
       activationAttempts = nextWantsAudioFocus ? activationAttempts : 0;
       if (
         nextWantsAudioFocus === wantsAudioFocus &&
