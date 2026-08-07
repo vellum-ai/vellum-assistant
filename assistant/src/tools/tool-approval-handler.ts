@@ -39,6 +39,7 @@ import { computeToolApprovalDigest } from "../security/tool-approval-digest.js";
 import { recordToolDenied, recordToolError } from "../telemetry/tool-audit.js";
 import { getLogger } from "../util/logger.js";
 import { resolveExecutionTarget } from "./execution-target.js";
+import { safeTimeoutMs } from "./execution-timeout.js";
 import { channelCoordinatesFromToolContext } from "./policy-context.js";
 import { getAllTools, getTool, getToolOwner } from "./registry.js";
 import { isSideEffectTool } from "./side-effects.js";
@@ -144,9 +145,9 @@ export const TC_GRANT_WAIT_MAX_MS = 60_000;
  * already has the prompt on screen, while the guardian is notified
  * out-of-band and has to context-switch before deciding.
  *
- * Falls back to {@link TC_GRANT_WAIT_MAX_MS} when the config is unreadable or
- * carries a non-positive value, so a bad read can never collapse the window to
- * zero and auto-deny every escalation.
+ * Falls back to {@link TC_GRANT_WAIT_MAX_MS} rather than the tool-execution
+ * default on a non-positive value, so a bad config can never collapse the
+ * window to zero and auto-deny every escalation.
  *
  * Exported because the grant resolver sizes its `inline_wait_active` staleness
  * threshold off this same budget: if the two drift, an approval arriving while
@@ -154,15 +155,10 @@ export const TC_GRANT_WAIT_MAX_MS = 60_000;
  * told to retry a call that is about to resume on its own.
  */
 export function resolveInlineGrantWaitMs(): number {
-  try {
-    const seconds = getConfig().timeouts.permissionTimeoutSec;
-    if (Number.isFinite(seconds) && seconds > 0) {
-      return seconds * 1000;
-    }
-  } catch {
-    // Unreadable config falls through to the compiled-in default.
-  }
-  return TC_GRANT_WAIT_MAX_MS;
+  return safeTimeoutMs(
+    getConfig().timeouts.permissionTimeoutSec,
+    TC_GRANT_WAIT_MAX_MS,
+  );
 }
 
 /**
