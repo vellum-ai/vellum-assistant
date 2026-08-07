@@ -15,6 +15,7 @@ import {
   subscribeCompanionState,
 } from "@/runtime/companion-surface";
 import { sendVoiceActivityControl } from "@/runtime/desktop-voice-activity";
+import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
 import type {
   CompanionCharacter,
   CompanionGrowth,
@@ -87,6 +88,30 @@ export function CompanionSurfacePage() {
   // moves, and a click once it lifts without having moved.
   const pressOriginRef = useRef<{ x: number; y: number } | null>(null);
   const draggedRef = useRef(false);
+
+  /**
+   * Whether Type is offered, which is the whole of the gate: Talk and the call
+   * state are outside it.
+   *
+   * **The value is decided before this window paints, and never changes.** The
+   * store answers from the registry default with local and env overrides
+   * layered on, which are all read synchronously as it initialises. What it
+   * cannot answer with is a server evaluation: `useClientFeatureFlagSync` runs
+   * in `RootLayout` against an authenticated client-flag endpoint, and this
+   * route is standalone by design, so nothing in this window ever fetches one.
+   *
+   * That is also why there is no `hydrated` gate here. Gating on it is what a
+   * flag-gated route in the app does, because there the real value is moments
+   * away and acting on the default would flash the wrong surface. Here nothing
+   * will ever settle it, so waiting would hide Type permanently.
+   *
+   * The two ways to turn it on are therefore both local, and both read when
+   * this window loads: `vellum:ff:companionType` in localStorage, which the
+   * Feature Flags settings panel writes and this same-origin window sees on its
+   * next load, or `VELLUM_FLAG_COMPANION_TYPE=1` in the app's environment,
+   * which the preload hands to every renderer.
+   */
+  const canType = useClientFeatureFlagStore.use.companionType();
 
   useEffect(() => {
     const apply = (state: CompanionSurfaceState) => {
@@ -298,6 +323,7 @@ export function CompanionSurfacePage() {
         onType={() => {
           setTyping(true);
         }}
+        canType={canType}
         // Out through main and into whichever renderer holds a conversation to
         // put it in. **The card stays open**, because this is where the answer
         // arrives: the turns mirror pushes the sent message back within the

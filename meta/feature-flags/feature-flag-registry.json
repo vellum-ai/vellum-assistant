@@ -102,6 +102,14 @@
       "defaultEnabled": false
     },
     {
+      "id": "companion-type",
+      "scope": "client",
+      "key": "companion-type",
+      "label": "Companion Surface Type",
+      "description": "Show the Type control on the macOS companion surface, which opens a composer on the pill. The surface is a standalone unauthenticated route that never fetches flag values, so this resolves from the registry default plus local and env overrides only",
+      "defaultEnabled": false
+    },
+    {
       "id": "expand-completed-steps",
       "scope": "client",
       "key": "expand-completed-steps",
