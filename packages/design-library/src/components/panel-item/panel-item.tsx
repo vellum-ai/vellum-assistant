@@ -52,11 +52,11 @@ import { MarqueeText } from "./marquee-text";
  * ### `shape`
  *
  * - `"row"` (default): a full-width 6px-radius row, for lists and nav trees.
- * - `"pill"`: a capsule that hugs its content and carries a resting
- *   `--surface-lift` surface, for navigation chips that sit inline rather
- *   than filling a column. Everything else (hover, active, badge, trailing
- *   action, link/button semantics) is unchanged, which is the point: a pill
- *   is a differently-shaped row, not a different component.
+ * - `"pill"`: a capsule carrying a resting `--surface-lift` surface, for
+ *   entries that read as objects you keep rather than rows in a list.
+ *   Radius and surface only: the width, hover, active, badge, trailing
+ *   action, and link/button semantics are all the row's, which is the point:
+ *   a pill is a differently-shaped row, not a different component.
  *
  * ### `activeVariant`
  *
@@ -210,15 +210,18 @@ const PILL_HOVER_CLASS =
   "[@media(hover:hover)]:hover:bg-[var(--panel-item-hover,var(--surface-active))]";
 
 /**
- * {@link PanelItemProps.shape} `"pill"`: a capsule that sizes to its content
- * and carries a resting surface, so it reads as a chip sitting in a column
- * rather than a row filling one. Radius, width, and surface only, so hover,
- * active, and every slot behave exactly as they do on a row.
+ * {@link PanelItemProps.shape} `"pill"`: a capsule carrying a resting surface,
+ * so it reads as an object you keep rather than a row in a list. Radius and
+ * surface only, so width, hover, active, and every slot behave exactly as they
+ * do on a row.
  *
- * `w-fit` rather than `w-auto`: the root is a block-level flex container, and
- * `width: auto` on one fills its containing block, so a pill would stretch to
- * row width in every ordinary layout. `width: fit-content` shrink-wraps while
- * leaving `display: flex` alone, which the row's internal layout depends on.
+ * It shrink-wrapped its content (`w-fit`) until LUM-3131. Every caller is an
+ * entry in a sidebar column, where hugging made each entry a different width
+ * from its neighbours and from the section cards beside them, and where it
+ * silently broke the assistant's eye patrol: that animation measures its row
+ * to place the eyes, so a row only as wide as the assistant's name put them
+ * on top of that name. Nothing wanted the intrinsic width, so the shape no
+ * longer has one. A caller that needs one can still pass `w-fit`.
  */
 /**
  * A pill reads three optional custom properties, each falling back to the
@@ -235,7 +238,7 @@ const PILL_HOVER_CLASS =
  * whole treatment collapses to the default when nothing declares them.
  */
 const PILL_SHAPE_CLASSES = [
-  "w-fit rounded-full",
+  "rounded-full",
   "bg-[var(--panel-item-bg,var(--surface-lift))]",
   "text-[color:var(--panel-item-fg,inherit)]",
 ].join(" ");

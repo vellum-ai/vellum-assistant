@@ -34,7 +34,6 @@ import { cn, PanelItem } from "@vellumai/design-library";
 import {
   SIDEBAR_CHIP_GAP,
   SIDEBAR_CHIP_SIZE as CHIP_SIZE,
-  SIDEBAR_ROW_PADDING_X as ROW_PADDING_X,
 } from "@/components/sidebar-nav-geometry";
 import { useAssistantAvatar } from "@/hooks/use-assistant-avatar";
 import { useIsMobile } from "@/hooks/use-is-mobile";
@@ -55,6 +54,13 @@ const COLLAPSED_ASSISTANT_TILE = 30;
 /** Patrol stop on the right side: grown, cut off by the bottom edge. */
 const SIDE_SCALE = 2.1;
 const SIDE_RIGHT_MARGIN = 14;
+/**
+ * `PanelItem`'s own horizontal padding (`p-[8px]`), which the pill lays down
+ * before the leading slot. The patrol needs the pill's real box, not
+ * `SIDEBAR_ROW_PADDING_X`: that constant is the sidebar's shared label axis,
+ * and the two have not been the same number since the row became a pill.
+ */
+const PILL_PADDING_X = 8;
 
 const sleep = (ms: number): Promise<void> =>
   new Promise((resolve) => setTimeout(resolve, ms));
@@ -95,9 +101,10 @@ export function AssistantNavItem({
   const navTourActive = useInChatOnboardingStore.use.navTourActive();
   const eyesControls = useAnimationControls();
   /* Whichever element is currently the assistant row - the collapsed tile or
-   the expanded pill. The patrol measures it to keep the sprite inside, and
-   the pill is `w-fit`, so its width tracks the assistant's name and cannot be
-   assumed. */
+   the expanded pill. The patrol measures it to keep the sprite inside: the
+   pill fills the sidebar column, which the user can drag-resize, so its width
+   cannot be assumed. A pill that hugged its label instead would put the side
+   stop on top of that label, which is what LUM-3131 was. */
   const rowRef = useRef<HTMLElement | null>(null);
   const [blinking, setBlinking] = useState(false);
 
@@ -178,7 +185,7 @@ export function AssistantNavItem({
       }
       // x is relative to the sprite's home in the icon slot (row padding
       // plus its centering offset inside the chip-width slot).
-      const homeLeft = ROW_PADDING_X + (CHIP_SIZE - eyesWidth) / 2;
+      const homeLeft = PILL_PADDING_X + (CHIP_SIZE - eyesWidth) / 2;
       const sideX = Math.max(
         0,
         width - SIDE_RIGHT_MARGIN - eyesWidth * SIDE_SCALE - homeLeft,
@@ -463,6 +470,12 @@ export function AssistantNavItem({
       <PanelItem
         ref={rowRef as Ref<HTMLDivElement>}
         shape="pill"
+        /* `overflow-hidden` is what sells the patrol: the dive reads as the
+           eyes sinking through the row's bottom fold only while the row clips
+           them, and without it the sprite simply floats below the pill in
+           full view. The bespoke row this replaced carried it; the pill shape
+           does not, since a row in a list has nothing to clip. */
+        className="overflow-hidden"
         leadingSlot={eyesSlot}
         label={label}
         active={active}
