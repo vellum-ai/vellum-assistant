@@ -71,7 +71,7 @@ describe("SurfaceRouter error boundary", () => {
   });
 });
 
-describe("SurfaceRouter — voice picker", () => {
+describe("SurfaceRouter: voice picker", () => {
   test("routes surfaceType \"voice_picker\" to the inline picker", () => {
     const { getByTestId, container } = render(
       <SurfaceRouter
