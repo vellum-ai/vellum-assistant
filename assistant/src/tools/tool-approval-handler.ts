@@ -147,8 +147,13 @@ export const TC_GRANT_WAIT_MAX_MS = 60_000;
  * Falls back to {@link TC_GRANT_WAIT_MAX_MS} when the config is unreadable or
  * carries a non-positive value, so a bad read can never collapse the window to
  * zero and auto-deny every escalation.
+ *
+ * Exported because the grant resolver sizes its `inline_wait_active` staleness
+ * threshold off this same budget: if the two drift, an approval arriving while
+ * a waiter is still live gets misread as a dead waiter and the requester is
+ * told to retry a call that is about to resume on its own.
  */
-function resolveInlineGrantWaitMs(): number {
+export function resolveInlineGrantWaitMs(): number {
   try {
     const seconds = getConfig().timeouts.permissionTimeoutSec;
     if (Number.isFinite(seconds) && seconds > 0) {
