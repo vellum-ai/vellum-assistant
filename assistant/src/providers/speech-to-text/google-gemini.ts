@@ -2,7 +2,11 @@ import { GoogleGenAI } from "@google/genai";
 
 import type { SttTranscribeResult } from "../../stt/types.js";
 
-const DEFAULT_MODEL = "gemini-2.5-flash";
+/**
+ * Exported so `scripts/check-model-pins.ts` probes the live value rather than
+ * a copy that can drift out of step with it.
+ */
+export const DEFAULT_MODEL = "gemini-2.5-flash";
 const DEFAULT_TIMEOUT_MS = 60_000;
 
 const TRANSCRIPTION_PROMPT =

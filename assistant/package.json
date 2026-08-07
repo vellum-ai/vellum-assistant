@@ -22,6 +22,7 @@
     "lint": "eslint",
     "lint:unused": "knip --include files,dependencies,unlisted",
     "lint:circular": "bun run scripts/check-circular-deps.ts",
+    "check:model-pins": "bun run scripts/check-model-pins.ts",
     "lint:unused:production": "knip --production --include exports",
     "pretypecheck": "cd .. && bun run meta/sync-bundled-copies.ts",
     "typecheck": "bunx tsc --noEmit",
