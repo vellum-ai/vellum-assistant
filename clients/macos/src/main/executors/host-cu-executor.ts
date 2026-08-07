@@ -11,7 +11,7 @@
 
 import { z } from "zod";
 
-import type { HostProxyExecutor } from "../host-proxy-router";
+import type { HostProxyExecutor } from "@vellumai/electron-desktop/host-proxy/router";
 import { getSharedCuHelper } from "../sidecar/shared-cu-helper";
 import {
   HostHelperProxyExecutor,
