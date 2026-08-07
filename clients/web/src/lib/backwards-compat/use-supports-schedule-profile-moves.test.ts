@@ -34,7 +34,7 @@ afterEach(() => {
 });
 
 // The exhaustive semver truth-table lives in `utils.test.ts`. Here we verify
-// each side of the 0.12.0 boundary (the first release carrying
+// each side of the boundary (the first builds carrying
 // `POST /schedules/reassign-profile` and the `inference_profile` list filter)
 // plus the conservative-on-unknown policy. `false` means the profile-delete
 // flow skips the schedule scan and the reassign call entirely.
@@ -43,20 +43,22 @@ describe("useSupportsScheduleProfileMoves", () => {
     expect(readGate(null)).toBe(false);
   });
 
-  test("reads false below 0.12.0", () => {
+  test("reads false for releases and dev builds predating the routes", () => {
     expect(readGate("0.11.2")).toBe(false);
+    expect(readGate("0.11.2-dev.202608052300.aaaaaaa")).toBe(false);
     expect(readGate("0.11.0")).toBe(false);
     expect(readGate("0.10.8")).toBe(false);
   });
 
-  test("reads true for assistants on 0.12.0+", () => {
-    expect(readGate("0.12.0")).toBe(true);
-    expect(readGate("0.12.1")).toBe(true);
-    expect(readGate("1.0.0")).toBe(true);
+  test("reads true for dev builds cut after the routes merged", () => {
+    expect(readGate("0.11.2-dev.202608060200.bbbbbbb")).toBe(true);
   });
 
-  test("reads true for RC builds of the cutover release", () => {
-    expect(readGate("0.12.0-rc.1")).toBe(true);
+  test("reads true for 0.11.3+, the first release carrying the routes", () => {
+    expect(readGate("0.11.3")).toBe(true);
+    expect(readGate("0.11.3-staging.1")).toBe(true);
+    expect(readGate("0.12.0")).toBe(true);
+    expect(readGate("1.0.0")).toBe(true);
   });
 
   test("reads false for unparseable versions", () => {

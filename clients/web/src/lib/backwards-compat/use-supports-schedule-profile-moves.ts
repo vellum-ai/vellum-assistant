@@ -21,11 +21,14 @@
  * profile being deleted, and the reassign the user then confirms 404s, so a
  * user with any schedules could not delete a profile.
  *
- * MIN_VERSION names the next scheduled cut from main (0.12.0), the first
- * release carrying the reassign route and the profile-filtered list. A
- * hotfix release branches from the latest release tag instead, so a hotfix
- * claiming this number would NOT carry them; if that happens, retarget to
- * the next scheduled cut.
+ * MIN_VERSION pins the merge of the reassign route and the profile-filtered
+ * list (c5f1ec7bb6) in dev-build form: any dev build cut from main after
+ * that merge carries them and compares newer, while dev builds from before
+ * it compare older. The first release carrying them is 0.11.3, whose base
+ * version exceeds 0.11.2, so 0.11.3+ staging and stable builds pass too.
+ * Stable 0.11.2 predates the routes and correctly fails: a plain release
+ * version never satisfies a dev-form minimum sharing its base, because dev
+ * builds sort ahead of the same-base stable (see `versionSupports`).
  *
  * Both entry points are scoped to the assistant that owns the surface. The
  * identity store is not safe to pair across an assistant switch: it holds the
@@ -42,7 +45,7 @@ import {
   whenAssistantVersionKnownFor,
 } from "./utils";
 
-export const MIN_VERSION = "0.12.0";
+export const MIN_VERSION = "0.11.2-dev.202608060014.c5f1ec7";
 
 /**
  * Render-path gate. Subscribes to the identity store, so a surface that
