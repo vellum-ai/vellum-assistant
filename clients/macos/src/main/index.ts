@@ -78,8 +78,7 @@ import {
   getWatchedLockfileSnapshot,
   installLockfileWatcher,
 } from "./lockfile-watcher";
-import { installHostProxyBridge } from "./host-proxy-router";
-import "./executors/host-bash-executor"; // side-effect: registers host_bash executor
+import { installHostProxyBridge } from "./host-proxy-adapter";
 import log from "./logger";
 import {
   ensureVisible as ensureMainWindowVisible,

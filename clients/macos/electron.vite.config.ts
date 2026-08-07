@@ -28,6 +28,7 @@ const DEPS_TO_INLINE = [
   "conf",
   "@vellumai/electron-utils",
   "@vellumai/electron-desktop",
+  "@vellumai/host-proxy",
   "@vellumai/ipc-contract",
   "@vellumai/local-mode",
   "@vellumai/environments",

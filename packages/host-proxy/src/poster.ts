@@ -15,10 +15,7 @@
  * via the optional refreshAuth callback and retries once.
  */
 
-import { getDeviceId } from "./device-id";
-// Type-only, so this stays erased at compile time and the poster picks up no
-// runtime dependency on electron from the presence module.
-import type { PresenceState } from "./presence";
+export type PresenceState = "active" | "idle" | "away";
 
 // ---------------------------------------------------------------------------
 // Payload interfaces — match the daemon route request bodies
@@ -113,6 +110,8 @@ export interface HostProxyPosterOptions {
   endpointBase: string;
   /** Called on every request to build auth headers. */
   authHeaders: () => Record<string, string>;
+  /** Platform identity headers included on every request. */
+  clientHeaders?: () => Record<string, string>;
   /**
    * Called when a request gets a 401. Resolves to a fresh token (which the
    * authHeaders builder must observe) or null; on success the request is
@@ -140,12 +139,14 @@ function computeTimeout(bodyBytes: number): number {
 export class HostProxyPoster {
   private readonly endpointBase: string;
   private readonly authHeaders: () => Record<string, string>;
+  private readonly clientHeaders: () => Record<string, string>;
   private readonly refreshAuth: (() => Promise<string | null>) | null;
   private readonly fetchFn: FetchFn;
 
   constructor(opts: HostProxyPosterOptions) {
     this.endpointBase = opts.endpointBase;
     this.authHeaders = opts.authHeaders;
+    this.clientHeaders = opts.clientHeaders ?? (() => ({}));
     this.refreshAuth = opts.refreshAuth ?? null;
     this.fetchFn = opts.fetch ?? globalThis.fetch;
   }
@@ -235,13 +236,13 @@ export class HostProxyPoster {
   ): Promise<boolean> {
     const url = `${this.endpointBase}/transfers/${encodeURIComponent(transferId)}/content`;
     const timeout = computeTimeout(data.length);
-    const ok = await this.requestWithAuthRetry(() => {
+    const ok = await this.requestWithAuthRetry<boolean>(() => {
       const headers = this.commonHeaders();
       headers["Content-Type"] = "application/octet-stream";
       headers["X-Transfer-SHA256"] = sha256;
       return this.attemptWithTimeout(
         url,
-        { method: "PUT", headers, body: data },
+        { method: "PUT", headers, body: data as unknown as RequestInit["body"] },
         timeout,
         async (res) => res.ok,
       );
@@ -256,7 +257,7 @@ export class HostProxyPoster {
   private commonHeaders(): Record<string, string> {
     return {
       ...this.authHeaders(),
-      "X-Vellum-Client-Id": getDeviceId(),
+      ...this.clientHeaders(),
     };
   }
 
