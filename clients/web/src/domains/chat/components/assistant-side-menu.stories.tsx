@@ -25,6 +25,7 @@ import { PreferencesMenu } from "@/domains/chat/components/preferences-menu";
 import { useSidebarLayoutStore } from "@/domains/chat/sidebar-layout-store";
 import { useAuthStore } from "@/stores/auth-store";
 import { usePinnedAppsStore } from "@/stores/pinned-apps-store";
+import { savePinnedApps } from "@/utils/app-pin-storage";
 import {
   saveViewMode,
   type SidebarViewMode,
@@ -97,9 +98,14 @@ const LONG_CONVERSATIONS: Conversation[] = [
 ];
 
 /* Two, because one pinned app cannot show whether the cluster spaces its
-   entries the way the sections below it do. */
+   entries the way the sections below it do.
+
+   One coloured and one not, because the pair is what shows the wash reading as
+   a tint of the pill it sits on rather than as a different component, and what
+   shows the two of them still reading as quieter than the assistant identity
+   pill above them. */
 const PINNED_APPS = [
-  { appId: "app-ops", pinnedOrder: 0, name: "Vex Ops" },
+  { appId: "app-ops", pinnedOrder: 0, name: "Vex Ops", color: "teal" },
   { appId: "app-inbox", pinnedOrder: 1, name: "Inbox Triage" },
 ];
 
@@ -146,6 +152,12 @@ const GROUPS: ConversationGroup[] = [
 function seedViewMode(assistantId: string, mode: SidebarViewMode): void {
   saveViewMode(assistantId, mode);
   useSidebarLayoutStore.setState({ assistantId: null });
+  /* Persisted as well as set, because the store mirrors storage rather than
+     owning the pins: every pin action writes through and then re-reads. Seeded
+     in memory alone, the list is a state the app cannot actually be in, and
+     the first Unpin or colour pick re-reads an empty key and clears both
+     entries in front of whoever is reviewing the story. */
+  savePinnedApps(PINNED_APPS);
   usePinnedAppsStore.setState({
     pinnedApps: PINNED_APPS,
     pinnedAppIds: new Set(PINNED_APPS.map((app) => app.appId)),

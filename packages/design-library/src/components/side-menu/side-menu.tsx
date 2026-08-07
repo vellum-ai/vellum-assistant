@@ -509,6 +509,12 @@ export interface SideMenuItemProps {
    * colour as well as form. A caller reaching for a round row somewhere other
    * than the rail wants neither.
    *
+   * Its surface reads the same `--panel-item-bg` / `--panel-item-hover` /
+   * `--panel-item-active` properties `PanelItem`'s pill does, each falling
+   * back to the untinted token. So a caller that tints the expanded pill tints
+   * the collapsed tile with the same one declaration, and a caller that tints
+   * nothing sees no difference.
+   *
    * Ignored when expanded, where the row spans the rail's full width and a
    * full round would draw a pill rather than a circle.
    *
@@ -669,8 +675,13 @@ function SideMenuItem({
   const geometryClasses = isTile
     ? /* The tile carries the same resting surface as the card or pill it
          stands in for when the rail is expanded, so collapsing changes the
-         shape of a thing and not whether it has a surface at all. */
-      "size-[30px] mx-auto rounded-full bg-[var(--surface-lift)]"
+         shape of a thing and not whether it has a surface at all.
+
+         Which is why it reads the same tint properties `PanelItem`'s pill
+         does, through the same fallback: a caller that tints the expanded pill
+         tints this with one declaration, and one that tints nothing reaches
+         `--surface-lift`. */
+      "size-[30px] mx-auto rounded-full bg-[var(--panel-item-bg,var(--surface-lift))]"
     : // `w-full` matters for the `<button>` render path: buttons keep
       // fit-content sizing even as flex containers, so without it a
       // button-backed item shrink-wraps while anchor-backed items fill the rail.
@@ -686,7 +697,18 @@ function SideMenuItem({
   const stateClasses = disabled
     ? "cursor-default text-[color:var(--content-disabled)]"
     : active
-      ? "cursor-pointer bg-[var(--surface-active)] text-[color:var(--content-emphasised)]"
+      ? cn(
+          "cursor-pointer text-[color:var(--content-emphasised)]",
+          /* A tinted tile stays tinted while it is the current page. Without
+             reading the tint here, this rule and the resting one are different
+             declarations of the same property, the active one wins, and the
+             tile drops its colour at exactly the moment it is selected. Only
+             the tile, because it is the only shape carrying a surface to
+             tint. Untinted callers reach `--surface-active`. */
+          isTile
+            ? "bg-[var(--panel-item-active,var(--panel-item-bg,var(--surface-active)))]"
+            : "bg-[var(--surface-active)]",
+        )
       : cn(
           "cursor-pointer",
           /* Which hover surface is right depends on what the shape rests on.
@@ -697,7 +719,7 @@ function SideMenuItem({
              step up from lifted. A row rests transparent, where the overlay
              is exactly what it was built for. */
           isTile
-            ? "hover:bg-[var(--surface-active)]"
+            ? "hover:bg-[var(--panel-item-hover,var(--surface-active))]"
             : "hover:bg-[var(--surface-hover)]",
           emphasized
             ? "text-[color:var(--content-emphasised)]"
