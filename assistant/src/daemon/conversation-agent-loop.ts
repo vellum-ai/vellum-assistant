@@ -384,14 +384,19 @@ export async function runAgentLoopImpl(
   // without going through processMessage/drainQueue. This ensures the system
   // prompt callback always reads a valid snapshot rather than undefined.
   //
-  // Every turn entry point (`processMessage` and both queue drains) captures
-  // the acting trust at turn start and passes it here. Awaits sit between that
-  // capture and this line, and the conversation slot is writable throughout
-  // (live-voice hydration, pointer elevation, the voice bridge), so re-reading
-  // it would run the turn as whoever wrote last rather than as the actor the
-  // turn belongs to. The `?? ctx.trustContext` fallback serves only the direct
-  // callers that never capture a turn: subagent manager, voice bridge,
-  // regenerate.
+  // The invariant: a turn runs under the trust captured when that turn
+  // started, never under whatever the slot holds when the loop happens to
+  // open. Awaits sit between capture and this line, and the slot is writable
+  // throughout by paths that do not own the turn (channel ingress for another
+  // actor, live-voice hydration, pointer elevation, the voice bridge).
+  //
+  // Callers that own a turn are expected to capture at turn start and pass
+  // `turnTrustContext`. This has not been swept across all 13 call sites, so
+  // the fallback below is load-bearing for two different populations: callers
+  // that legitimately have no turn to capture (subagent manager, voice
+  // bridge, regenerate), and callers that should pass it and do not yet.
+  // Treat a caller reaching the fallback as unverified, not as correct.
+  // LUM-3148 removes the ambiguity by making trust ride the turn.
   ctx.currentTurnTrustContext = options?.turnTrustContext ?? ctx.trustContext;
   ctx.currentTurnChannelCapabilities = ctx.channelCapabilities;
 

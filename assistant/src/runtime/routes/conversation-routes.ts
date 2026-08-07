@@ -1915,6 +1915,15 @@ export async function handleSendMessage(
     conversation.setTrustContext({ trustClass: "guardian", sourceChannel });
   }
 
+  // The trust this request's turn runs under, captured here rather than read
+  // back at the agent loop below. Every branch above has just written it and
+  // nothing awaits in between, so this is the resolved sender. Between here
+  // and the loop the conversation slot is writable by paths that do not own
+  // this turn (channel ingress for another actor, live-voice hydration,
+  // pointer elevation, the voice bridge), and the loop would otherwise
+  // re-read it and run this turn as whoever wrote last.
+  const turnTrustContext = conversation.trustContext;
+
   const isInteractive = isInteractiveInterface(sourceInterface);
   // Translate the dev-bypass actor principal to the real guardian principal
   // before the same-actor host-proxy gate so web/iOS turns match the macOS
@@ -2691,6 +2700,7 @@ export async function handleSendMessage(
       onEvent: broadcastMessage,
       isInteractive,
       isUserMessage: true,
+      turnTrustContext,
       ...(body.hidden === true ? { isHiddenPrompt: true } : {}),
     })
     .catch((err) => {
