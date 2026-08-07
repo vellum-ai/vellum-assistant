@@ -679,6 +679,14 @@ export interface PersistMessageOptions {
   displayContent?: string;
   clientMessageId?: string;
   /**
+   * Trust to attribute the stored row to. Queue drains pass the sender's
+   * captured trust so persisted provenance names the same actor the turn
+   * executes as; the conversation slot may by then hold someone else.
+   * Defaults to the conversation's trust, which is correct for callers
+   * persisting a message the current actor just sent.
+   */
+  trustContext?: TrustContext;
+  /**
    * Persist the row without indexing it (no memory segments, embeddings, or
    * lexical-index entry). For machine-authored prompts that must not enter
    * memory or search; see `ProcessMessageOptions.skipUserMessageIndexing`.
@@ -854,7 +862,9 @@ export async function persistQueuedMessageBody(
       extractTurnChannelContext(metadata) ?? ctx.getTurnChannelContext();
     const turnIfCtx =
       extractTurnInterfaceContext(metadata) ?? ctx.getTurnInterfaceContext();
-    const provenance = provenanceFromTrustContext(ctx.trustContext);
+    const provenance = provenanceFromTrustContext(
+      options.trustContext ?? ctx.trustContext,
+    );
     const imageSourcePaths = extractImageSourcePaths(attachments);
 
     // Strip the transient `slackInbound` carrier key from the persisted

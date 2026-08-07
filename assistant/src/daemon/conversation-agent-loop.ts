@@ -366,6 +366,13 @@ export async function runAgentLoopImpl(
      * scheduled execute turn attributes its LLM spend to that firing.
      */
     cronRunId?: string | null;
+    /**
+     * Trust this turn runs under. Queue drains pass the trust captured from
+     * the sender at enqueue; without it the initialization below would reset
+     * the turn to the conversation slot, which holds whichever actor sent
+     * most recently rather than the one this turn belongs to.
+     */
+    turnTrustContext?: TrustContext;
   },
 ): Promise<void> {
   if (!ctx.abortController) {
@@ -376,9 +383,12 @@ export async function runAgentLoopImpl(
   // voice-session-bridge, regenerate, etc.) that invoke runAgentLoop directly
   // without going through processMessage/drainQueue. This ensures the system
   // prompt callback always reads a valid snapshot rather than undefined.
-  // processMessage/drainQueue set these fields before calling runAgentLoop;
-  // those existing assignments remain correct and are merely redundant here.
-  ctx.currentTurnTrustContext = ctx.trustContext;
+  //
+  // A queue drain runs a message whose sender may not be the conversation's
+  // most recent one, so it passes that sender's trust explicitly. Falling back
+  // to the slot here would undo the drain's stamp and hand the turn back to
+  // whoever sent last.
+  ctx.currentTurnTrustContext = options?.turnTrustContext ?? ctx.trustContext;
   ctx.currentTurnChannelCapabilities = ctx.channelCapabilities;
 
   // Re-resolve the system prompt under the snapshots just set and push it into

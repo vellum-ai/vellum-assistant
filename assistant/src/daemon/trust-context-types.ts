@@ -73,13 +73,17 @@ export interface TrustContext {
  * privilege, for callers that may only run work under one of them (batched
  * turns being the case that matters).
  *
- * Compares the fields the tool-approval path keys on: the privilege
- * (`trustClass`), the channel a grant is scoped to (`sourceChannel`), and who
- * the actor is (`requesterExternalUserId`, `requesterChatId`). Deliberately
- * conservative: an absent field never matches a present one, so unknown
- * identities are treated as distinct. Answering "different" when they match
- * only costs a batching opportunity; answering "same" when they differ runs
- * one actor's work under another's privileges.
+ * Compares the privilege (`trustClass`), the channel a grant is scoped to
+ * (`sourceChannel`), and every field that can carry who the actor is. The
+ * identity fields are covered exhaustively rather than by picking the usual
+ * ones: an ingress that populates only `requesterIdentifier` or
+ * `requesterContactId` would otherwise leave two distinct senders comparing
+ * equal on a pair of undefineds, which is the exact case this guards.
+ *
+ * Deliberately conservative: an absent field never matches a present one, so
+ * unknown identities are treated as distinct. Answering "different" when they
+ * match only costs a batching opportunity; answering "same" when they differ
+ * runs one actor's work under another's privileges.
  */
 export function sameTrustIdentity(
   a: TrustContext | undefined,
@@ -95,6 +99,10 @@ export function sameTrustIdentity(
     a.trustClass === b.trustClass &&
     a.sourceChannel === b.sourceChannel &&
     a.requesterExternalUserId === b.requesterExternalUserId &&
-    a.requesterChatId === b.requesterChatId
+    a.requesterChatId === b.requesterChatId &&
+    a.requesterIdentifier === b.requesterIdentifier &&
+    a.requesterContactId === b.requesterContactId &&
+    a.guardianExternalUserId === b.guardianExternalUserId &&
+    a.guardianPrincipalId === b.guardianPrincipalId
   );
 }
