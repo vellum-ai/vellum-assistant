@@ -143,8 +143,11 @@ adds and forgets entries, and switches between them without leaving the app.
 
 The server url is baked into the Capacitor config at `onCreate`, so switching
 writes the preference and recreates the activity rather than navigating the
-WebView. Forgetting the active server clears the slot and lands back on Vellum
-Cloud, which is also what the chooser's "Vellum Cloud" card does.
+WebView. `switchToPath` additionally lands on a route relative to the app entry,
+carrying it across the recreate; the pairing page's Cancel uses it so abandoning
+a pairing both leaves the origin and reaches the hub chooser in one step.
+Forgetting the active server clears the slot and lands back on Vellum Cloud,
+which is also what the chooser's "Vellum Cloud" card does.
 
 The shell loads `<server>/assistant` rather than the bare base: the ingress
 redirects a bare `/` to an absolute `/assistant/`, which would drop a hosting

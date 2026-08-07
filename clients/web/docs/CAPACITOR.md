@@ -235,6 +235,7 @@ The bridge contract:
 | `add({url, name?})` | `{ ok }` | Deduped by canonical url. A nameless re-add keeps the stored label |
 | `remove({url})` | `{ ok }` | Forgetting the active url also clears the active slot, so the shell returns to the baked origin |
 | `switchTo({url?})` | `{ ok }` | Swaps the active slot and reloads in place. An absent or empty `url` returns to the baked origin |
+| `switchToPath({url?, path})` | `{ ok }` | `switchTo` that also lands on `path`, relative to the assistant app entry. Rejects a `path` that could leave the entry (absolute, rooted, dot-segmented, or carrying a fragment) |
 
 Only genuinely invalid caller input rejects (an `add` or `switchTo` url that
 fails `SelfHostedServer.validate`). Empty state resolves with an empty list and
@@ -257,8 +258,15 @@ takes https only, so they are dropped on the way in and never reach the chooser.
 **Only the reload mechanism differs by shell.** iOS points the existing
 `WKWebView` at the new origin. Android bakes the origin into the Capacitor
 config at `onCreate`, so `switchTo` writes the preference and recreates the
-activity, whose fresh `onCreate` re-reads it. Both resolve the call before the
-reload tears the web context down, so an awaiting caller always settles.
+activity, whose fresh `onCreate` re-reads it; a `switchToPath` route rides a
+static across that recreate and loads once the bridge is up. Both resolve the
+call before the reload tears the web context down, so an awaiting caller always
+settles.
+
+`switchToPath` exists so abandoning a flow on one origin is atomic. The pairing
+page's Cancel is the caller: it has to both leave the origin and land on the
+hub's chooser, and doing that as a plain navigation would leave the half-paired
+origin in the active slot, so the next launch would return to it.
 
 **Switching is per surface, and every surface has a working answer.**
 

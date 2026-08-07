@@ -123,6 +123,34 @@ public class SelfHostedServerTest {
     }
 
     @Test
+    public void acceptsOnlyRoutesThatStayUnderTheAppEntry() {
+        assertEquals("select-assistant?noAutoSkip=1", SelfHostedServer.routePath("select-assistant?noAutoSkip=1"));
+        assertEquals("settings/general", SelfHostedServer.routePath("  settings/general  "));
+
+        assertNull(SelfHostedServer.routePath(null));
+        assertNull(SelfHostedServer.routePath(""));
+        assertNull(SelfHostedServer.routePath("/select-assistant"));
+        assertNull(SelfHostedServer.routePath("//other.example.com/select-assistant"));
+        assertNull(SelfHostedServer.routePath("https://other.example.com/select-assistant"));
+        assertNull(SelfHostedServer.routePath("select-assistant#device_code=secret"));
+        assertNull(SelfHostedServer.routePath("../../escape"));
+        assertNull(SelfHostedServer.routePath("tenant/%2e%2e/escape"));
+    }
+
+    @Test
+    public void hangsRoutesOffTheAppEntrySoHostingPrefixesSurvive() {
+        assertEquals(
+            "https://example.com/assistant-123/assistant/select-assistant?noAutoSkip=1",
+            SelfHostedServer
+                .appRoute(
+                    SelfHostedServer.appEntry(SelfHostedServer.validate("https://example.com/assistant-123")),
+                    SelfHostedServer.routePath("select-assistant?noAutoSkip=1")
+                )
+                .toASCIIString()
+        );
+    }
+
+    @Test
     public void remembersServersDedupedByCanonicalUrl() {
         FakeStore store = new FakeStore();
 

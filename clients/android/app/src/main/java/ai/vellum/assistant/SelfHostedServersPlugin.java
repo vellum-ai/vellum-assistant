@@ -72,7 +72,7 @@ public class SelfHostedServersPlugin extends Plugin {
         // otherwise never settle.
         call.resolve(ok());
         if (removedActive) {
-            reloadConfiguredOrigin();
+            reloadConfiguredOrigin(null);
         }
     }
 
@@ -83,27 +83,53 @@ public class SelfHostedServersPlugin extends Plugin {
      */
     @PluginMethod
     public void switchTo(PluginCall call) {
-        String raw = call.getString("url");
-        String trimmed = raw == null ? "" : raw.trim();
-        if (trimmed.isEmpty()) {
-            SelfHostedServer.clear(getContext());
-        } else {
-            URI server = SelfHostedServer.validate(trimmed);
-            if (server == null) {
-                call.reject("invalid url");
-                return;
-            }
-            if (!SelfHostedServer.store(getContext(), server)) {
-                // The active slot did not take the write, so the reload below
-                // would land back on the current origin. Report the failure
-                // instead and let the caller navigate.
-                call.reject("unable to save the server");
-                return;
-            }
-            SelfHostedServer.append(getContext(), server, null);
+        if (applyOrigin(call)) {
+            call.resolve(ok());
+            reloadConfiguredOrigin(null);
         }
-        call.resolve(ok());
-        reloadConfiguredOrigin();
+    }
+
+    /**
+     * {@link #switchTo} that also lands on a route relative to the assistant app
+     * entry, so abandoning a flow on one origin arrives somewhere specific on
+     * another rather than at the entry's own redirect.
+     */
+    @PluginMethod
+    public void switchToPath(PluginCall call) {
+        String route = SelfHostedServer.routePath(call.getString("path"));
+        if (route == null) {
+            call.reject("invalid path");
+            return;
+        }
+        if (applyOrigin(call)) {
+            call.resolve(ok());
+            reloadConfiguredOrigin(route);
+        }
+    }
+
+    /**
+     * Point the active slot at the call's url, or clear it when the url is
+     * absent or empty. Answers whether the caller should go on to reload;
+     * rejects the call itself when it should not, so the shell never recreates
+     * onto an origin it failed to record.
+     */
+    private boolean applyOrigin(PluginCall call) {
+        String raw = call.getString("url");
+        if (raw == null || raw.trim().isEmpty()) {
+            SelfHostedServer.clear(getContext());
+            return true;
+        }
+        URI server = SelfHostedServer.validate(raw.trim());
+        if (server == null) {
+            call.reject("invalid url");
+            return false;
+        }
+        if (!SelfHostedServer.store(getContext(), server)) {
+            call.reject("unable to save the server");
+            return false;
+        }
+        SelfHostedServer.append(getContext(), server, null);
+        return true;
     }
 
     /**
@@ -119,12 +145,12 @@ public class SelfHostedServersPlugin extends Plugin {
         );
     }
 
-    private void reloadConfiguredOrigin() {
+    private void reloadConfiguredOrigin(String route) {
         Activity activity = getActivity();
         if (!(activity instanceof MainActivity)) {
             return;
         }
-        activity.runOnUiThread(((MainActivity) activity)::applyConfiguredOrigin);
+        activity.runOnUiThread(() -> ((MainActivity) activity).applyConfiguredOrigin(route));
     }
 
     private static JSObject ok() {

@@ -177,6 +177,48 @@ final class SelfHostedServer {
         }
     }
 
+    /**
+     * A route relative to the app entry, as {@code path[?query]}, or null when
+     * the candidate could steer the shell off the entry: an absolute or
+     * scheme-relative url, an empty or rooted path, a dot segment, or a
+     * fragment. Validated at the bridge boundary so an invalid route rejects
+     * before anything is stored.
+     */
+    static String routePath(String raw) {
+        if (raw == null) {
+            return null;
+        }
+        final URI relative;
+        try {
+            relative = new URI(raw.trim());
+        } catch (URISyntaxException exception) {
+            return null;
+        }
+        String path = relative.getRawPath();
+        if (
+            relative.isAbsolute() ||
+            relative.getHost() != null ||
+            relative.getRawFragment() != null ||
+            path == null ||
+            path.isEmpty() ||
+            path.startsWith("/") ||
+            containsDotSegment(path) ||
+            containsEncodedDotSegment(path)
+        ) {
+            return null;
+        }
+        return relative.getRawQuery() == null ? path : path + "?" + relative.getRawQuery();
+    }
+
+    /** Hang a {@link #routePath} off an app entry. */
+    static URI appRoute(URI entry, String routePath) {
+        try {
+            return new URI(entry.toASCIIString() + "/" + routePath);
+        } catch (URISyntaxException exception) {
+            return entry;
+        }
+    }
+
     /** {@link #validate} for an already-parsed url, which re-canonicalizes it. */
     private static URI canonical(URI server) {
         return validate(server == null ? null : server.toASCIIString());
