@@ -75,16 +75,14 @@ export function channelDeliversToUserId(channel: string): boolean {
  * looks like it. That one asks whether a message reaches one person; this asks
  * whether a code handshake can COMPLETE there, which additionally needs the
  * reply to be heard. The copy this gates says "reply with it here", so a
- * channel that can send into a DM but not receive from one strands the
- * requester holding a code they can never spend, which is worse than the
- * courier path it replaced.
+ * channel that can send into a DM but not receive from one would strand the
+ * requester holding a code they can never spend.
  *
- * Discord is absent for exactly that reason: its DM ingress lane is not open
- * yet (`gateway/src/discord/admit.ts` drops a message with no guild), so its
- * codes stay on the courier path until it is.
+ * Discord qualifies on both halves: its `dm`-marked route reaches the person,
+ * and `gateway/src/discord/admit.ts` admits DMs so the reply is heard.
  */
 export function channelCanCompleteCodeHandshakeInDm(channel: string): boolean {
-  return channel === "slack";
+  return channel === "slack" || channel === "discord";
 }
 
 /**

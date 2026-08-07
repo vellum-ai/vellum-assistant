@@ -289,11 +289,11 @@ describe("Discord access-request decisions stay out of the guild channel", () =>
     expect(deliveredChatIds()).not.toContain(GUILD_CHANNEL);
   });
 
-  test("the requester is not handed a code they cannot reply to", async () => {
-    // Discord's DM ingress lane is not open on this branch, so a code DM'd
-    // with "reply with it here" would strand the requester holding a secret
-    // they can never spend. Until the lane lands they get the courier notice
-    // and the guardian relays the code.
+  test("the requester gets the code itself, now that a DM reply is heard", async () => {
+    // The DM ingress lane lands with this change, so a code sent with "reply
+    // with it here" can actually be answered. Before the lane existed the
+    // requester got a courier notice instead, because a code they could not
+    // spend is worse than one the guardian relays.
     const req = makeDiscordAccessRequest();
 
     const result = await applyGuardianDecision({
@@ -305,11 +305,15 @@ describe("Discord access-request decisions stay out of the guild channel", () =>
     expect(result.applied).toBe(true);
     const secret = sim.state.mintedSecret;
 
-    const requesterDelivery = deliverReplyCalls.find(
-      (c) => c.payload.chatId === REQUESTER,
+    const codeToRequester = deliverReplyCalls.find(
+      (c) =>
+        c.payload.chatId === REQUESTER &&
+        String(c.payload.text ?? "").includes(secret),
     );
-    expect(requesterDelivery).toBeDefined();
-    expect(String(requesterDelivery?.payload.text ?? "")).not.toContain(secret);
+    expect(codeToRequester).toBeDefined();
+    // Still only ever on the DM route.
+    expect(isDmRoute(codeToRequester?.url ?? "")).toBe(true);
+    expect(deliveredChatIds()).not.toContain(GUILD_CHANNEL);
   });
 
   test("a denial still records the guardian-facing lifecycle signal", async () => {
