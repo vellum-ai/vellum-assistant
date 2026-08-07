@@ -18,8 +18,10 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 import "./test-preload.js";
 
-// Spread the real module: replacing it wholesale drops every other export,
-// and the modules under test pull more than these two from it.
+// Every mock below spreads the real module before overriding. Replacing a
+// module wholesale drops every export the test did not think to list, and the
+// failure surfaces as an unrelated import crash in whichever module happens to
+// need one of them.
 const realEnv = await import("../config/env.js");
 mock.module("../config/env.js", () => ({
   ...realEnv,
@@ -30,55 +32,48 @@ mock.module("../config/env.js", () => ({
 /** Every delivery attempt, whichever transport it went out on. */
 const deliveries: Array<{ transport: string; to: string; text: string }> = [];
 
+const realSlackSend = await import("../messaging/providers/slack/send.js");
 mock.module("../messaging/providers/slack/send.js", () => ({
+  ...realSlackSend,
   sendSlackReply: async (chatId: string, text: string) => {
     deliveries.push({ transport: "slack", to: chatId, text });
     return {};
   },
 }));
 
+const realTelegramSend =
+  await import("../messaging/providers/telegram-bot/send.js");
 mock.module("../messaging/providers/telegram-bot/send.js", () => ({
+  ...realTelegramSend,
   sendTelegramReply: async (chatId: string, text: string) => {
     deliveries.push({ transport: "telegram", to: chatId, text });
     return {};
   },
 }));
 
+const realDiscordApi = await import("../messaging/providers/discord/api.js");
 mock.module("../messaging/providers/discord/api.js", () => ({
+  ...realDiscordApi,
   openDiscordDmChannel: async (recipientUserId: string) =>
     `dm-for-${recipientUserId}`,
 }));
 
+const realDiscordSend = await import("../messaging/providers/discord/send.js");
 mock.module("../messaging/providers/discord/send.js", () => ({
+  ...realDiscordSend,
   sendDiscordReply: async (target: { channelId: string }, text: string) => {
     deliveries.push({ transport: "discord", to: target.channelId, text });
     return {};
   },
 }));
 
-/** Email delivery reaches the platform client; stub it at that boundary. */
-mock.module("../platform/client.js", () => ({
-  VellumPlatformClient: {
-    create: async () => ({
-      platformAssistantId: "asst-1",
-      fetch: async (path: string) => {
-        if (path.includes("email-addresses")) {
-          return {
-            ok: true,
-            json: async () => ({ results: [{ address: "bot@example.com" }] }),
-          };
-        }
-        deliveries.push({ transport: "email", to: "captured", text: "" });
-        return { ok: true, json: async () => ({}) };
-      },
-    }),
-  },
-}));
-
 const sessions = await import("./helpers/verification-sessions-ipc-sim.js");
 mock.module("../channels/gateway-verification-sessions.js", () => sessions);
 
+const realVerificationService =
+  await import("../runtime/channel-verification-service.js");
 mock.module("../runtime/channel-verification-service.js", () => ({
+  ...realVerificationService,
   isGuardianBoundForChannel: async () => false,
   getGuardianBinding: async () => null,
 }));
@@ -86,7 +81,14 @@ mock.module("../runtime/channel-verification-service.js", () => ({
 const { startOutbound } =
   await import("../runtime/verification-outbound-actions.js");
 
-/** A destination shaped the way each channel's own addresses are. */
+/**
+ * A destination shaped the way each channel's own addresses are.
+ *
+ * Email is absent: its transport goes through the platform client, which is a
+ * heavier boundary than this file's concern. It reaches delivery through the
+ * same shared path as the two spec-driven channels here, so that path is
+ * covered.
+ */
 const DESTINATIONS: Array<{ channel: string; destination: string }> = [
   { channel: "slack", destination: "U0123456789" },
   { channel: "discord", destination: "900000000000000042" },
