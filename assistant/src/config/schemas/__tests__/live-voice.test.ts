@@ -44,6 +44,9 @@ describe("LiveVoiceVadConfigSchema", () => {
       silenceThresholdMs: 1200,
       maxTurnDurationMs: 30_000,
       bargeInMinSpeechMs: 250,
+      echoBargeInMargin: 1.5,
+      echoEmaHalfLifeMs: 400,
+      echoDrainSlackMs: 300,
     });
   });
 
@@ -84,6 +87,35 @@ describe("LiveVoiceVadConfigSchema", () => {
       silenceThresholdMs: 800.5,
     });
     expect(result.success).toBe(false);
+  });
+
+  test("accepts echo gate overrides", () => {
+    const parsed = LiveVoiceVadConfigSchema.parse({
+      echoBargeInMargin: 2.25,
+      echoEmaHalfLifeMs: 250,
+      echoDrainSlackMs: 500,
+    });
+    expect(parsed.echoBargeInMargin).toBe(2.25);
+    expect(parsed.echoEmaHalfLifeMs).toBe(250);
+    expect(parsed.echoDrainSlackMs).toBe(500);
+  });
+
+  test("rejects an echo margin that cannot exceed its reference", () => {
+    expect(
+      LiveVoiceVadConfigSchema.safeParse({ echoBargeInMargin: 1 }).success,
+    ).toBe(false);
+  });
+
+  test("rejects invalid echo timing values", () => {
+    expect(
+      LiveVoiceVadConfigSchema.safeParse({ echoEmaHalfLifeMs: 0 }).success,
+    ).toBe(false);
+    expect(
+      LiveVoiceVadConfigSchema.safeParse({ echoEmaHalfLifeMs: 250.5 }).success,
+    ).toBe(false);
+    expect(
+      LiveVoiceVadConfigSchema.safeParse({ echoDrainSlackMs: -1 }).success,
+    ).toBe(false);
   });
 });
 
@@ -282,6 +314,9 @@ describe("LiveVoiceConfigSchema", () => {
         silenceThresholdMs: 1200,
         maxTurnDurationMs: 30_000,
         bargeInMinSpeechMs: 250,
+        echoBargeInMargin: 1.5,
+        echoEmaHalfLifeMs: 400,
+        echoDrainSlackMs: 300,
       },
       frontModel: FRONT_MODEL_DEFAULTS,
       // Off by default: Flux turn detection is opt-in, so the front-door hold

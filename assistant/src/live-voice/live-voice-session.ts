@@ -58,7 +58,11 @@ import {
   dominantLanguageTag,
   voteDominantLanguage,
 } from "../stt/language-metadata.js";
-import { detectPcm16SpeechActivity } from "../stt/speech-energy.js";
+import {
+  DEFAULT_SPEECH_ENERGY_THRESHOLD,
+  pcm16MaxNormalizedCorrelation,
+  pcm16MeanAmplitude,
+} from "../stt/speech-energy.js";
 import type {
   StreamingTranscriber,
   SttProviderId,
@@ -134,6 +138,13 @@ type LiveVoiceSessionState =
   | "failed"
   | "closed";
 
+type VadEnergyClassification = "speech" | "silence" | "echo";
+
+interface VadClassifiedChunk {
+  readonly chunk: Buffer;
+  readonly classification: VadEnergyClassification;
+}
+
 // Cap on audio buffered while a server-VAD utterance waits for its
 // transcriber (PCM16 mono seconds; oldest chunks are dropped past the cap).
 const SERVER_VAD_PENDING_AUDIO_MAX_SECONDS = 10;
@@ -161,6 +172,25 @@ const FINALIZE_GRACE_MS = 1_000;
 // our own TTS bleeding through imperfect echo cancellation from the caller,
 // and would report a user turn nobody took.
 const DEFAULT_BARGE_IN_MIN_SPEECH_MS = 250;
+// The playback echo gate learns microphone energy while assistant audio is
+// expected at the speaker. Input must rise above the learned level by this
+// margin to count as user speech.
+const DEFAULT_ECHO_BARGE_IN_MARGIN = 1.5;
+const DEFAULT_ECHO_EMA_HALF_LIFE_MS = 400;
+// Before learning a microphone power baseline, compare a short input window
+// with the PCM sent to the speaker. This keeps a user's first interruption
+// from becoming its own echo threshold.
+const ECHO_CORRELATION_PROBE_MS = 100;
+const ECHO_CORRELATION_MIN_MS = 50;
+const ECHO_CORRELATION_THRESHOLD = 0.65;
+const ECHO_REFERENCE_MAX_MS = 10_000;
+// Echo should reach the microphone near playback onset. If no signal arrives
+// within this much input audio, the gate returns to the fixed base threshold.
+// The same interval expires a learned reference after a real silent gap.
+const ECHO_ONSET_ELIGIBILITY_MS = 300;
+// Client buffering makes audible playback trail the server's send-time
+// estimate. Keep the echo window open briefly past that estimate.
+const DEFAULT_ECHO_DRAIN_SLACK_MS = 300;
 // Mirrors MediaTurnDetector's DEFAULT_SILENCE_THRESHOLD_MS: the session
 // tracks the effective trailing-silence threshold (the detector keeps its own
 // copy private) so the endpoint decider can report the pause length.
@@ -297,6 +327,17 @@ export interface LiveVoiceSessionOptions {
    * defaults to `DEFAULT_BARGE_IN_MIN_SPEECH_MS`.
    */
   bargeInMinSpeechMs?: number;
+  /**
+   * Multiplier over the learned playback echo level that input must exceed
+   * to count as speech while assistant audio is playing. Values at or below
+   * 1 disable adaptation for internal fixed-gate callers; workspace config
+   * requires a value greater than 1.
+   */
+  echoBargeInMargin?: number;
+  /** Half-life in milliseconds for the learned playback echo level. */
+  echoEmaHalfLifeMs?: number;
+  /** Extra time after the playback estimate during which echo is expected. */
+  echoDrainSlackMs?: number;
   /**
    * Overrides the bounded wait for the shared transcriber's finalize
    * flush in persistent mode (test hook). Defaults to `FINALIZE_GRACE_MS`.
@@ -1087,9 +1128,29 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
   private failureCode: LiveVoiceProtocolErrorCode | null = null;
   // Non-null iff the start frame requested turnDetection "server_vad".
   private readonly turnDetector: MediaTurnDetector | null;
-  // Energy gate for server-VAD speech classification; undefined defers to
-  // DEFAULT_SPEECH_ENERGY_THRESHOLD.
+  // Base energy gate for server-VAD speech classification. During estimated
+  // playback, classifyVadEnergy raises this above the learned echo level.
   private readonly speechEnergyThreshold: number | undefined;
+  private readonly echoBargeInMargin: number;
+  private readonly echoEmaHalfLifeMs: number;
+  private readonly echoDrainSlackMs: number;
+  // Learned microphone energy attributable to assistant playback.
+  private echoEnergyEma = 0;
+  // Signal-bearing microphone audio held until it can be compared with the
+  // assistant PCM. A nonmatch is replayed through VAD in original order.
+  private echoProbeChunks: Buffer[] = [];
+  // Recent raw assistant PCM from the current playback burst.
+  private echoReferenceAudio = Buffer.alloc(0);
+  private echoWindowTotalAudioMs = 0;
+  // Consecutive sub-base input expires a reference that can no longer
+  // describe audible playback.
+  private echoSubBaseRunMs = 0;
+  // Once onset eligibility lapses, later user speech cannot seed a new echo
+  // reference in the same playback window.
+  private echoOnsetLapsed = false;
+  // A live speech run that predates playback belongs to the user and bypasses
+  // echo warm-up until that run genuinely resets.
+  private echoWindowGuardCarryover = false;
   // Mutable so a mid-session `update_config` frame can retune "interrupt
   // sensitivity" live (see applyConfigUpdate).
   private bargeInMinSpeechMs: number;
@@ -1286,6 +1347,12 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       context.startFrame.bargeInMinSpeechMs ??
       options.bargeInMinSpeechMs ??
       DEFAULT_BARGE_IN_MIN_SPEECH_MS;
+    this.echoBargeInMargin =
+      options.echoBargeInMargin ?? DEFAULT_ECHO_BARGE_IN_MARGIN;
+    this.echoEmaHalfLifeMs =
+      options.echoEmaHalfLifeMs ?? DEFAULT_ECHO_EMA_HALF_LIFE_MS;
+    this.echoDrainSlackMs =
+      options.echoDrainSlackMs ?? DEFAULT_ECHO_DRAIN_SLACK_MS;
     this.finalizeGraceMs = options.finalizeGraceMs ?? FINALIZE_GRACE_MS;
     this.frontDecider = options.frontDecider ?? null;
     this.frontModelConfig = LiveVoiceFrontModelConfigSchema.parse(
@@ -1796,14 +1863,28 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       return;
     }
 
-    const hasSpeech = detectPcm16SpeechActivity(
-      chunk,
-      this.speechEnergyThreshold,
-    );
+    for (const classified of this.classifyVadEnergy(chunk)) {
+      await this.handleClassifiedVadAudio(detector, classified);
+    }
+  }
+
+  private async handleClassifiedVadAudio(
+    detector: MediaTurnDetector,
+    classified: VadClassifiedChunk,
+  ): Promise<void> {
+    const { chunk, classification: energyClassification } = classified;
+    const hasSpeech = energyClassification === "speech";
     detector.onMediaChunk(hasSpeech);
-    this.trackBargeInGuard(hasSpeech, chunk);
+    this.trackBargeInGuard(energyClassification, chunk);
     if (hasSpeech) {
       this.localSpeechStopAtMs = Date.now();
+    }
+
+    // Playback echo is neither user audio nor useful pre-roll. Dropping it
+    // prevents the assistant's reply from reaching transcription as a ghost
+    // follow-up turn.
+    if (energyClassification === "echo") {
+      return;
     }
 
     // Idle mic: hold silent chunks in the bounded pre-roll instead of
@@ -1880,6 +1961,193 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       await this.routeVadAudio(utterance, preRollChunk);
     }
     await this.routeVadAudio(utterance, chunk);
+  }
+
+  /**
+   * Classify microphone energy while keeping assistant playback echo out of
+   * barge-in, turn detection, pre-roll, and transcription.
+   *
+   * A short onset probe must correlate with PCM sent to the speaker before its
+   * microphone power can seed the adaptive threshold. Nonmatching probe audio
+   * is replayed through VAD in original order, so a user who talks at playback
+   * onset is neither learned as echo nor lost. Once seeded, the EMA follows
+   * confirmed echo while speech above the learned margin remains frozen out.
+   */
+  private classifyVadEnergy(chunk: Buffer): VadClassifiedChunk[] {
+    const baseThreshold =
+      this.speechEnergyThreshold ?? DEFAULT_SPEECH_ENERGY_THRESHOLD;
+    const meanAmplitude = pcm16MeanAmplitude(chunk);
+    if (
+      this.echoBargeInMargin <= 1 ||
+      !this.isAssistantPlaybackEchoPossible()
+    ) {
+      this.resetEchoReference();
+      return [
+        this.classifyAtFixedThreshold(chunk, baseThreshold, meanAmplitude),
+      ];
+    }
+
+    if (this.echoWindowTotalAudioMs === 0) {
+      this.echoWindowGuardCarryover =
+        this.pendingBargeIn !== null && this.pendingBargeIn.speechMs > 0;
+    } else if (this.pendingBargeIn === null) {
+      this.echoWindowGuardCarryover = false;
+    }
+
+    const chunkMs = pcm16DurationMs(
+      chunk.byteLength,
+      this.context.startFrame.audio.sampleRate,
+    );
+    const onsetWasEligible =
+      !this.echoOnsetLapsed &&
+      this.echoWindowTotalAudioMs < ECHO_ONSET_ELIGIBILITY_MS;
+    this.echoWindowTotalAudioMs += chunkMs;
+
+    if (this.echoProbeChunks.length > 0) {
+      this.echoProbeChunks.push(Buffer.from(chunk));
+      return this.resolveEchoProbe(baseThreshold);
+    }
+
+    if (meanAmplitude <= baseThreshold) {
+      this.echoSubBaseRunMs += chunkMs;
+      if (this.echoSubBaseRunMs >= ECHO_ONSET_ELIGIBILITY_MS) {
+        this.echoEnergyEma = 0;
+        this.echoOnsetLapsed = true;
+      }
+      return [{ chunk, classification: "silence" }];
+    }
+
+    this.echoSubBaseRunMs = 0;
+    if (
+      this.echoEnergyEma === 0 &&
+      onsetWasEligible &&
+      !this.echoWindowGuardCarryover
+    ) {
+      this.echoProbeChunks.push(Buffer.from(chunk));
+      return this.resolveEchoProbe(baseThreshold);
+    }
+
+    if (this.echoEnergyEma === 0) {
+      this.echoOnsetLapsed = true;
+      return [{ chunk, classification: "speech" }];
+    }
+
+    const speechThreshold = Math.max(
+      baseThreshold,
+      this.echoBargeInMargin * this.echoEnergyEma,
+    );
+    if (meanAmplitude > speechThreshold) {
+      const guardHasSpeech =
+        this.pendingBargeIn !== null && this.pendingBargeIn.speechMs > 0;
+      if (!guardHasSpeech && this.echoMatchesAssistant(chunk)) {
+        this.updateEchoEnergy(meanAmplitude, chunkMs);
+        return [{ chunk, classification: "echo" }];
+      }
+      return [{ chunk, classification: "speech" }];
+    }
+
+    this.updateEchoEnergy(meanAmplitude, chunkMs);
+    return [{ chunk, classification: "echo" }];
+  }
+
+  private resolveEchoProbe(baseThreshold: number): VadClassifiedChunk[] {
+    const probe = Buffer.concat(this.echoProbeChunks);
+    const probeAudioMs = pcm16DurationMs(
+      probe.byteLength,
+      this.context.startFrame.audio.sampleRate,
+    );
+    if (
+      probeAudioMs >= ECHO_CORRELATION_MIN_MS &&
+      this.echoMatchesAssistant(probe)
+    ) {
+      this.echoEnergyEma = Math.max(baseThreshold, pcm16MeanAmplitude(probe));
+      const chunks = this.echoProbeChunks.splice(0);
+      return chunks.map((chunk) => ({ chunk, classification: "echo" }));
+    }
+    if (probeAudioMs < ECHO_CORRELATION_PROBE_MS) {
+      return [];
+    }
+
+    this.echoOnsetLapsed = true;
+    const chunks = this.echoProbeChunks.splice(0);
+    return chunks.map((chunk) =>
+      this.classifyAtFixedThreshold(chunk, baseThreshold),
+    );
+  }
+
+  private echoMatchesAssistant(chunk: Buffer): boolean {
+    const sampleRate = this.context.startFrame.audio.sampleRate;
+    const minimumBytes = Math.ceil(
+      (sampleRate * ECHO_CORRELATION_MIN_MS * 2) / 1_000,
+    );
+    if (
+      chunk.byteLength < minimumBytes ||
+      this.echoReferenceAudio.byteLength < minimumBytes
+    ) {
+      return false;
+    }
+    const probeByteLength = Math.min(
+      chunk.byteLength,
+      Math.ceil((sampleRate * ECHO_CORRELATION_PROBE_MS * 2) / 1_000),
+    );
+    return (
+      pcm16MaxNormalizedCorrelation(
+        chunk.subarray(0, probeByteLength),
+        this.echoReferenceAudio,
+      ) >= ECHO_CORRELATION_THRESHOLD
+    );
+  }
+
+  private updateEchoEnergy(meanAmplitude: number, chunkMs: number): void {
+    const alpha = 1 - 0.5 ** (chunkMs / this.echoEmaHalfLifeMs);
+    this.echoEnergyEma =
+      alpha * meanAmplitude + (1 - alpha) * this.echoEnergyEma;
+  }
+
+  private classifyAtFixedThreshold(
+    chunk: Buffer,
+    baseThreshold: number,
+    meanAmplitude = pcm16MeanAmplitude(chunk),
+  ): VadClassifiedChunk {
+    return {
+      chunk,
+      classification: meanAmplitude > baseThreshold ? "speech" : "silence",
+    };
+  }
+
+  private isAssistantPlaybackEchoPossible(): boolean {
+    return (
+      Date.now() < this.assistantPlaybackTailUntilMs + this.echoDrainSlackMs
+    );
+  }
+
+  private resetEchoReference(): void {
+    this.echoEnergyEma = 0;
+    this.echoProbeChunks = [];
+    this.echoReferenceAudio = Buffer.alloc(0);
+    this.echoWindowTotalAudioMs = 0;
+    this.echoSubBaseRunMs = 0;
+    this.echoOnsetLapsed = false;
+    this.echoWindowGuardCarryover = false;
+  }
+
+  private appendEchoReference(chunk: LiveVoiceTtsAudioChunk): void {
+    if (
+      chunk.contentType.split(";", 1)[0]?.trim().toLowerCase() !==
+        "audio/pcm" ||
+      chunk.sampleRate !== this.context.startFrame.audio.sampleRate
+    ) {
+      return;
+    }
+    const audio = Buffer.from(chunk.dataBase64, "base64");
+    const maxBytes = Math.ceil(
+      (chunk.sampleRate * ECHO_REFERENCE_MAX_MS * 2) / 1_000,
+    );
+    const combined = Buffer.concat([this.echoReferenceAudio, audio]);
+    this.echoReferenceAudio =
+      combined.byteLength > maxBytes
+        ? combined.subarray(combined.byteLength - maxBytes)
+        : combined;
   }
 
   private async routeVadAudio(
@@ -2032,7 +2300,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     // The client can still be draining audible playback after tts_done
     // (the turn is already cleared server-side) — that tail deserves the
     // same guard, or a noise blip clips the reply's last words.
-    const drainingPlayback = Date.now() < this.assistantPlaybackTailUntilMs;
+    const drainingPlayback = this.isAssistantPlaybackEchoPossible();
 
     if ((bargeableTurn || drainingPlayback) && this.bargeInMinSpeechMs > 0) {
       // Onset audio keeps flowing into the cycle/pre-roll while the guard
@@ -2054,13 +2322,14 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     }
   }
 
-  // Advances the sustained-speech barge-in guard by one server-VAD chunk:
-  // above-gate speech accumulates toward bargeInMinSpeechMs while brief
-  // sub-threshold gaps are tolerated (a single continuous silence longer than
-  // BARGE_IN_GAP_TOLERANCE_MS, or cumulative tolerated silence past the
-  // duty-cycle ceiling, zeroes the run), and once met the deferred
-  // speech_started + barge-in fire.
-  private trackBargeInGuard(hasSpeech: boolean, chunk: Buffer): void {
+  // Advance the sustained-speech barge-in guard by one server-VAD chunk.
+  // Speech accumulates toward bargeInMinSpeechMs, short true-silence gaps are
+  // tolerated, and classified playback echo resets the run immediately.
+  // Longer or mostly silent runs reset through the existing gap limits.
+  private trackBargeInGuard(
+    classification: VadEnergyClassification,
+    chunk: Buffer,
+  ): void {
     const guard = this.pendingBargeIn;
     if (!guard) {
       return;
@@ -2069,7 +2338,11 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       chunk.byteLength,
       this.context.startFrame.audio.sampleRate,
     );
-    if (!hasSpeech) {
+    if (classification === "echo") {
+      this.resetBargeInGuardRun();
+      return;
+    }
+    if (classification === "silence") {
       guard.silenceMs += chunkMs;
       guard.toleratedSilenceMs += chunkMs;
       // Strictly greater on the per-gap check: a gap of exactly
@@ -2083,9 +2356,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
         guard.toleratedSilenceMs >
           this.bargeInMinSpeechMs * BARGE_IN_MAX_TOLERATED_SILENCE_RATIO
       ) {
-        guard.speechMs = 0;
-        guard.silenceMs = 0;
-        guard.toleratedSilenceMs = 0;
+        this.resetBargeInGuardRun();
       }
       return;
     }
@@ -2100,6 +2371,21 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     const { turn } = guard;
     if (turn && turn === this.activeAssistantTurn && !turn.finalized) {
       this.bargeIn(turn);
+    }
+  }
+
+  private resetBargeInGuardRun(): void {
+    const guard = this.pendingBargeIn;
+    if (!guard) {
+      return;
+    }
+    guard.speechMs = 0;
+    guard.silenceMs = 0;
+    guard.toleratedSilenceMs = 0;
+    if (this.echoWindowGuardCarryover) {
+      this.echoWindowGuardCarryover = false;
+      this.echoEnergyEma = 0;
+      this.echoProbeChunks = [];
     }
   }
 
@@ -5731,6 +6017,10 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
         chunk.sampleRate,
       );
       const now = Date.now();
+      if (!this.isAssistantPlaybackEchoPossible()) {
+        this.resetEchoReference();
+      }
+      this.appendEchoReference(chunk);
       this.assistantPlaybackTailUntilMs =
         Math.max(now, this.assistantPlaybackTailUntilMs) + chunkMs;
       const turnAfterSend = this.activeAssistantTurn;
@@ -6267,6 +6557,11 @@ export function createLiveVoiceSession(
       options.speechEnergyThreshold ?? vadConfig?.speechEnergyThreshold,
     bargeInMinSpeechMs:
       options.bargeInMinSpeechMs ?? vadConfig?.bargeInMinSpeechMs,
+    echoBargeInMargin:
+      options.echoBargeInMargin ?? vadConfig?.echoBargeInMargin,
+    echoEmaHalfLifeMs:
+      options.echoEmaHalfLifeMs ?? vadConfig?.echoEmaHalfLifeMs,
+    echoDrainSlackMs: options.echoDrainSlackMs ?? vadConfig?.echoDrainSlackMs,
     frontModelConfig,
     // Absent config leaves the schema defaults, which keep Flux turn
     // detection off.
