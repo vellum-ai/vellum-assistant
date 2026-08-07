@@ -175,7 +175,7 @@ const ROW_BASE_CLASSES = [
 ].join(" ");
 
 const INTERACTIVE_CLASSES = [
-  "[@media(hover:hover)]:hover:bg-[var(--surface-hover)]",
+  "[@media(hover:hover)]:hover:bg-[var(--panel-item-hover,var(--surface-hover))]",
   "keyboard-focus:ring-2 keyboard-focus:ring-[var(--ring)]",
   "cursor-pointer select-none",
 ].join(" ");
@@ -191,9 +191,24 @@ const INTERACTIVE_CLASSES = [
  * row width in every ordinary layout. `width: fit-content` shrink-wraps while
  * leaving `display: flex` alone, which the row's internal layout depends on.
  */
+/**
+ * A pill reads three optional custom properties, each falling back to the
+ * untinted surface, so a caller can tint one without this component taking a
+ * colour prop or a caller reaching in with `style` overrides:
+ *
+ * - `--panel-item-bg` — resting surface
+ * - `--panel-item-hover` — hover surface
+ * - `--panel-item-fg` — foreground paired with the above for contrast
+ *
+ * Follows the recipe the identity page already uses for avatar-tinted
+ * surfaces (`--card-bg` / `--card-hover` / `--card-flood-fg`): declare the
+ * colours on an ancestor, consume them here through a fallback, and the
+ * whole treatment collapses to the default when nothing declares them.
+ */
 const PILL_SHAPE_CLASSES = [
   "w-fit rounded-full",
-  "bg-[var(--surface-lift)]",
+  "bg-[var(--panel-item-bg,var(--surface-lift))]",
+  "text-[color:var(--panel-item-fg,inherit)]",
 ].join(" ");
 
 const ACTIVE_DEFAULT_CLASSES = [

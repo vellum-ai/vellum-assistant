@@ -11,9 +11,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 
 import { PanelItem } from "./panel-item";
 
-function renderRow(
-  trailingAction = createElement("button", {}, "⋯"),
-): string {
+function renderRow(trailingAction = createElement("button", {}, "⋯")): string {
   return renderToStaticMarkup(
     createElement(PanelItem, {
       label: "Row",
@@ -95,10 +93,7 @@ describe("PanelItem badge", () => {
 });
 
 describe("PanelItem shape", () => {
-  function renderShaped(
-    shape?: "row" | "pill",
-    className?: string,
-  ): string {
+  function renderShaped(shape?: "row" | "pill", className?: string): string {
     return renderToStaticMarkup(
       createElement(PanelItem, {
         label: "Row",
@@ -138,16 +133,31 @@ describe("PanelItem shape", () => {
 
   test("pill keeps the row's interaction treatment", () => {
     const html = renderShaped("pill");
-    expect(html).toContain("[@media(hover:hover)]:hover:bg-[var(--surface-hover)]");
+    expect(html).toContain(
+      "[@media(hover:hover)]:hover:bg-[var(--panel-item-hover,var(--surface-hover))]",
+    );
     expect(html).toContain("aria-[current=page]:bg-[var(--surface-active)]");
   });
 
-  /* Consumers override the shape's surface (e.g. the assistant pill's tint),
-     so their className has to win over PILL_SHAPE_CLASSES. */
+  /* Consumers override the shape's surface, so their className has to win
+     over PILL_SHAPE_CLASSES. */
   test("a consumer className overrides the pill surface", () => {
     const html = renderShaped("pill", "bg-[var(--surface-active)]");
     expect(html).toContain("bg-[var(--surface-active)]");
-    expect(html).not.toContain("bg-[var(--surface-lift)]");
+    expect(html).not.toContain("bg-[var(--panel-item-bg,var(--surface-lift))]");
+  });
+
+  /* A tinted pill (the assistant identity, New Chat) declares colours as
+     custom properties on an ancestor rather than passing this component a
+     colour or overriding its classes. Every reference carries the untinted
+     value as its fallback, so a pill with nothing declaring them is
+     unchanged - which is what keeps this additive for existing consumers. */
+  test("the pill reads tint custom properties, falling back to the plain surface", () => {
+    const html = renderShaped("pill");
+    expect(html).toContain("bg-[var(--panel-item-bg,var(--surface-lift))]");
+    expect(html).toContain("text-[color:var(--panel-item-fg,inherit)]");
+    expect(html).toContain(
+      "[@media(hover:hover)]:hover:bg-[var(--panel-item-hover,var(--surface-hover))]",
+    );
   });
 });
-
