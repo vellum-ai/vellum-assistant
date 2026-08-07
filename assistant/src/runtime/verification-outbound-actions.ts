@@ -37,6 +37,7 @@ import { isGuardianBoundForChannel } from "./channel-verification-service.js";
 import {
   composeVerificationText,
   GUARDIAN_VERIFY_TEMPLATE_KEYS,
+  type TextVerifyTemplateKey,
 } from "./verification-templates.js";
 
 const log = getLogger("verification-outbound-actions");
@@ -114,7 +115,7 @@ interface CancelOutboundParams {
  * Maps 1:1 with the fields in ChannelVerificationSessionResponse minus the
  * `type` discriminant.
  */
-interface OutboundActionResult {
+export interface OutboundActionResult {
   success: boolean;
   error?: string;
   message?: string;
@@ -128,21 +129,6 @@ interface OutboundActionResult {
   pendingBootstrap?: boolean;
   /** Echoed back so consumers know which conversation to target for pointers. */
   originConversationId?: string;
-  /** Internal: Slack DM delivery payload for the caller to dispatch.
-   *  The shared startOutbound/resendOutbound functions no longer fire the
-   *  delivery themselves because CLI subprocesses are sandboxed and cannot
-   *  reach the gateway.  The daemon HTTP route handler calls
-   *  deliverVerificationSlack() after receiving this payload. */
-  _pendingSlackDm?: { userId: string; text: string; assistantId: string };
-  /** Internal: Discord DM delivery payload for the caller to dispatch (same pattern as Slack). */
-  _pendingDiscordDm?: { userId: string; text: string; assistantId: string };
-  /** Internal: email delivery payload for the caller to dispatch (same pattern as Slack). */
-  _pendingEmail?: {
-    to: string;
-    text: string;
-    subject: string;
-    assistantId: string;
-  };
 }
 
 // ---------------------------------------------------------------------------
@@ -247,24 +233,12 @@ export async function startOutbound(
       params.rebind,
       originConversationId,
     );
-  } else if (channel === "slack") {
-    return await startOutboundSlack(
-      params.destination,
-      assistantId,
-      channel,
-      params.rebind,
-      originConversationId,
-    );
-  } else if (channel === "discord") {
-    return await startOutboundDiscord(
-      params.destination,
-      assistantId,
-      channel,
-      params.rebind,
-      originConversationId,
-    );
-  } else if (channel === "email") {
-    return await startOutboundEmail(
+  }
+
+  const spec = TEXT_CHANNEL_VERIFICATION[channel];
+  if (spec) {
+    return await startOutboundTextChannel(
+      spec,
       params.destination,
       assistantId,
       channel,
@@ -653,116 +627,176 @@ export function deliverVerificationEmail(
   })();
 }
 
-async function startOutboundSlack(
-  destination: string | undefined,
-  assistantId: string,
-  channel: ChannelId,
-  rebind?: boolean,
-  originConversationId?: string,
-): Promise<OutboundActionResult> {
-  if (!destination) {
-    return {
-      success: false,
-      error: "missing_destination",
-      message: "A Slack user ID is required for outbound Slack verification.",
-      channel,
-    };
-  }
+/**
+ * The per-channel differences between the text-channel verification starts.
+ *
+ * Slack, Discord and email run the identical sequence: refuse without a
+ * destination, refuse when a guardian is already bound, check the destination
+ * rate window, mint a session, compose from a template, stamp the delivery,
+ * send. Only these fields differed, so only these fields are written per
+ * channel; the sequence itself lives once in `startOutboundTextChannel`.
+ *
+ * Telegram and voice are deliberately absent. Telegram forks on whether the
+ * destination is a chat id or a handle, and a handle mints a bootstrap session
+ * with no code at all; voice normalizes a phone number and places a call
+ * rather than composing a message. Folding either in would mean a spec field
+ * that only one channel ever sets, which is the shape this replaces.
+ */
+interface TextChannelVerificationSpec {
+  /** Rejection copy when the caller supplied no destination. */
+  missingDestination: string;
+  /** Rejection copy when the destination's rate window is exhausted. */
+  rateLimited: string;
+  /** Canonical form of the destination, for rate-limit keying and delivery. */
+  normalizeDestination?: (destination: string) => string;
+  /**
+   * Identity the consume path will require.
+   *
+   * `expectedChatId` is preserved where a channel already set it, but it does
+   * no work: `checkIdentityMatch` requires the `expectedExternalUserId` match
+   * whenever both are set, and the resend path resolves its destination from
+   * `destinationAddress` first. See LUM-3110 for the wider question of session
+   * fields that record something nothing reads.
+   */
+  sessionIdentity: (destination: string) => {
+    expectedExternalUserId: string;
+    expectedChatId?: string;
+  };
+  challengeTemplateKey: TextVerifyTemplateKey;
+  resendTemplateKey: TextVerifyTemplateKey;
+  /** Fire-and-forget delivery. Throwing is the transport's business, not this file's. */
+  deliver: (destination: string, text: string, assistantId: string) => void;
+}
 
-  const alreadyBound = await isGuardianBoundForChannel(channel);
-  if (alreadyBound && !rebind) {
-    return {
-      success: false,
-      error: "already_bound",
-      message:
-        "A guardian is already bound for this channel. Set rebind: true to replace.",
-      channel,
-    };
-  }
+const TEXT_CHANNEL_VERIFICATION: Partial<
+  Record<ChannelId, TextChannelVerificationSpec>
+> = {
+  slack: {
+    missingDestination:
+      "A Slack user ID is required for outbound Slack verification.",
+    rateLimited:
+      "Too many verification attempts to this Slack user. Please try again later.",
+    sessionIdentity: (destination) => ({
+      expectedExternalUserId: destination,
+      expectedChatId: destination,
+    }),
+    challengeTemplateKey: GUARDIAN_VERIFY_TEMPLATE_KEYS.SLACK_CHALLENGE_REQUEST,
+    resendTemplateKey: GUARDIAN_VERIFY_TEMPLATE_KEYS.SLACK_RESEND,
+    deliver: deliverVerificationSlack,
+  },
+  discord: {
+    missingDestination:
+      "A Discord user ID is required for outbound Discord verification.",
+    rateLimited:
+      "Too many verification attempts to this Discord user. Please try again later.",
+    // A Discord user snowflake is the session's only expected identity. There
+    // is no chat id to record: the DM channel does not exist until it is
+    // opened, and the guild channel the requester was seen in is a room rather
+    // than a person, so binding to it would accept the code from anyone
+    // standing in it.
+    sessionIdentity: (destination) => ({
+      expectedExternalUserId: destination,
+    }),
+    challengeTemplateKey:
+      GUARDIAN_VERIFY_TEMPLATE_KEYS.DISCORD_CHALLENGE_REQUEST,
+    resendTemplateKey: GUARDIAN_VERIFY_TEMPLATE_KEYS.DISCORD_RESEND,
+    deliver: deliverVerificationDiscord,
+  },
+  email: {
+    missingDestination:
+      "An email address is required for outbound email verification.",
+    rateLimited:
+      "Too many verification attempts to this email address. Please try again later.",
+    normalizeDestination: (destination) => destination.trim().toLowerCase(),
+    sessionIdentity: (destination) => ({
+      expectedExternalUserId: destination,
+      expectedChatId: destination,
+    }),
+    challengeTemplateKey: GUARDIAN_VERIFY_TEMPLATE_KEYS.EMAIL_CHALLENGE_REQUEST,
+    resendTemplateKey: GUARDIAN_VERIFY_TEMPLATE_KEYS.EMAIL_RESEND,
+    deliver: (to, text, assistantId) =>
+      deliverVerificationEmail(
+        to,
+        text,
+        EMAIL_VERIFICATION_SUBJECT,
+        assistantId,
+      ),
+  },
+};
 
-  const recentSendCount = await countRecentSendsToDestination(
+/**
+ * Mint a session, compose the message, stamp the delivery, and send it.
+ *
+ * Shared by the start and resend paths, which differ only in the template and
+ * in how the send counters advance.
+ */
+interface MintedSend {
+  sessionId: string;
+  secret: string;
+  expiresAt: number;
+  nextResendAt: number;
+}
+
+async function mintAndSend(params: {
+  spec: TextChannelVerificationSpec;
+  channel: ChannelId;
+  destination: string;
+  templateKey: TextVerifyTemplateKey;
+  sendCount: number;
+  assistantId: string;
+}): Promise<MintedSend> {
+  const { spec, channel, destination, templateKey, sendCount, assistantId } =
+    params;
+
+  const session = await createOutboundSession({
     channel,
-    destination,
-    DESTINATION_RATE_WINDOW_MS,
-  );
-  if (recentSendCount >= MAX_SENDS_PER_DESTINATION_WINDOW) {
-    return {
-      success: false,
-      error: "rate_limited",
-      message:
-        "Too many verification attempts to this Slack user. Please try again later.",
-      channel,
-    };
-  }
-
-  const sessionResult = await createOutboundSession({
-    channel,
-    expectedExternalUserId: destination,
-    expectedChatId: destination,
+    ...spec.sessionIdentity(destination),
     identityBindingStatus: "bound",
     destinationAddress: destination,
     verificationPurpose: "guardian",
   });
 
-  const slackBody = composeVerificationText(
-    GUARDIAN_VERIFY_TEMPLATE_KEYS.SLACK_CHALLENGE_REQUEST,
-    {
-      code: sessionResult.secret,
-      expiresInMinutes: Math.floor(SESSION_TTL_SECONDS / 60),
-    },
-  );
+  const body = composeVerificationText(templateKey, {
+    code: session.secret,
+    expiresInMinutes: Math.floor(SESSION_TTL_SECONDS / 60),
+  });
 
   const now = Date.now();
   const nextResendAt = now + RESEND_COOLDOWN_MS;
-  const sendCount = 1;
-
-  await updateSessionDelivery(
-    sessionResult.sessionId,
-    now,
-    sendCount,
-    nextResendAt,
-  );
+  await updateSessionDelivery(session.sessionId, now, sendCount, nextResendAt);
+  spec.deliver(destination, body, assistantId);
 
   return {
-    success: true,
-    verificationSessionId: sessionResult.sessionId,
-    secret: sessionResult.secret,
-    expiresAt: sessionResult.expiresAt,
+    sessionId: session.sessionId,
+    secret: session.secret,
+    expiresAt: session.expiresAt,
     nextResendAt,
-    sendCount,
-    channel,
-    originConversationId,
-    _pendingSlackDm: { userId: destination, text: slackBody, assistantId },
   };
 }
 
 /**
- * Start outbound guardian verification over a Discord DM.
- *
- * `destination` is a Discord user snowflake, and it is the session's only
- * expected identity. There is no `expectedChatId` to record: the DM channel
- * the answer will arrive on does not exist until the DM is opened, and the
- * guild channel the requester was seen in is a room rather than an identity,
- * so binding to it would accept the code from anyone standing in it. Binding
- * the user alone means only that account can spend the code, wherever it
- * answers from.
+ * Start outbound guardian verification on a channel that reaches its
+ * destination with one text message.
  */
-async function startOutboundDiscord(
-  destination: string | undefined,
+async function startOutboundTextChannel(
+  spec: TextChannelVerificationSpec,
+  rawDestination: string | undefined,
   assistantId: string,
   channel: ChannelId,
   rebind?: boolean,
   originConversationId?: string,
 ): Promise<OutboundActionResult> {
-  if (!destination) {
+  if (!rawDestination) {
     return {
       success: false,
       error: "missing_destination",
-      message:
-        "A Discord user ID is required for outbound Discord verification.",
+      message: spec.missingDestination,
       channel,
     };
   }
+  const destination = spec.normalizeDestination
+    ? spec.normalizeDestination(rawDestination)
+    : rawDestination;
 
   const alreadyBound = await isGuardianBoundForChannel(channel);
   if (alreadyBound && !rebind) {
@@ -784,139 +818,29 @@ async function startOutboundDiscord(
     return {
       success: false,
       error: "rate_limited",
-      message:
-        "Too many verification attempts to this Discord user. Please try again later.",
+      message: spec.rateLimited,
       channel,
     };
   }
 
-  const sessionResult = await createOutboundSession({
+  const sent = await mintAndSend({
+    spec,
     channel,
-    expectedExternalUserId: destination,
-    identityBindingStatus: "bound",
-    destinationAddress: destination,
-    verificationPurpose: "guardian",
+    destination,
+    templateKey: spec.challengeTemplateKey,
+    sendCount: 1,
+    assistantId,
   });
-
-  const discordBody = composeVerificationText(
-    GUARDIAN_VERIFY_TEMPLATE_KEYS.DISCORD_CHALLENGE_REQUEST,
-    {
-      code: sessionResult.secret,
-      expiresInMinutes: Math.floor(SESSION_TTL_SECONDS / 60),
-    },
-  );
-
-  const now = Date.now();
-  const nextResendAt = now + RESEND_COOLDOWN_MS;
-  const sendCount = 1;
-
-  await updateSessionDelivery(
-    sessionResult.sessionId,
-    now,
-    sendCount,
-    nextResendAt,
-  );
 
   return {
     success: true,
-    verificationSessionId: sessionResult.sessionId,
-    secret: sessionResult.secret,
-    expiresAt: sessionResult.expiresAt,
-    nextResendAt,
-    sendCount,
+    verificationSessionId: sent.sessionId,
+    secret: sent.secret,
+    expiresAt: sent.expiresAt,
+    nextResendAt: sent.nextResendAt,
+    sendCount: 1,
     channel,
     originConversationId,
-    _pendingDiscordDm: { userId: destination, text: discordBody, assistantId },
-  };
-}
-
-async function startOutboundEmail(
-  destination: string | undefined,
-  assistantId: string,
-  channel: ChannelId,
-  rebind?: boolean,
-  originConversationId?: string,
-): Promise<OutboundActionResult> {
-  if (!destination) {
-    return {
-      success: false,
-      error: "missing_destination",
-      message: "An email address is required for outbound email verification.",
-      channel,
-    };
-  }
-
-  const normalizedEmail = destination.trim().toLowerCase();
-
-  const alreadyBound = await isGuardianBoundForChannel(channel);
-  if (alreadyBound && !rebind) {
-    return {
-      success: false,
-      error: "already_bound",
-      message:
-        "A guardian is already bound for this channel. Set rebind: true to replace.",
-      channel,
-    };
-  }
-
-  const recentSendCount = await countRecentSendsToDestination(
-    channel,
-    normalizedEmail,
-    DESTINATION_RATE_WINDOW_MS,
-  );
-  if (recentSendCount >= MAX_SENDS_PER_DESTINATION_WINDOW) {
-    return {
-      success: false,
-      error: "rate_limited",
-      message:
-        "Too many verification attempts to this email address. Please try again later.",
-      channel,
-    };
-  }
-
-  const sessionResult = await createOutboundSession({
-    channel,
-    expectedExternalUserId: normalizedEmail,
-    expectedChatId: normalizedEmail,
-    identityBindingStatus: "bound",
-    destinationAddress: normalizedEmail,
-    verificationPurpose: "guardian",
-  });
-
-  const emailBody = composeVerificationText(
-    GUARDIAN_VERIFY_TEMPLATE_KEYS.EMAIL_CHALLENGE_REQUEST,
-    {
-      code: sessionResult.secret,
-      expiresInMinutes: Math.floor(SESSION_TTL_SECONDS / 60),
-    },
-  );
-
-  const now = Date.now();
-  const nextResendAt = now + RESEND_COOLDOWN_MS;
-  const sendCount = 1;
-
-  await updateSessionDelivery(
-    sessionResult.sessionId,
-    now,
-    sendCount,
-    nextResendAt,
-  );
-
-  return {
-    success: true,
-    verificationSessionId: sessionResult.sessionId,
-    secret: sessionResult.secret,
-    expiresAt: sessionResult.expiresAt,
-    nextResendAt,
-    sendCount,
-    channel,
-    originConversationId,
-    _pendingEmail: {
-      to: normalizedEmail,
-      text: emailBody,
-      subject: EMAIL_VERIFICATION_SUBJECT,
-      assistantId,
-    },
   };
 }
 
@@ -1078,130 +1002,28 @@ export async function resendOutbound(
       channel,
       originConversationId,
     };
-  } else if (channel === "slack") {
-    const newSession = await createOutboundSession({
-      channel,
-      expectedExternalUserId: destination,
-      expectedChatId: destination,
-      identityBindingStatus: "bound",
-      destinationAddress: destination,
-      verificationPurpose: "guardian",
-    });
+  }
 
-    const slackBody = composeVerificationText(
-      GUARDIAN_VERIFY_TEMPLATE_KEYS.SLACK_RESEND,
-      {
-        code: newSession.secret,
-        expiresInMinutes: Math.floor(SESSION_TTL_SECONDS / 60),
-      },
-    );
-
-    const now = Date.now();
+  const spec = TEXT_CHANNEL_VERIFICATION[channel];
+  if (spec) {
     const newSendCount = currentSendCount + 1;
-    const nextResendAt = now + RESEND_COOLDOWN_MS;
-
-    await updateSessionDelivery(
-      newSession.sessionId,
-      now,
-      newSendCount,
-      nextResendAt,
-    );
+    const sent = await mintAndSend({
+      spec,
+      channel,
+      destination,
+      templateKey: spec.resendTemplateKey,
+      sendCount: newSendCount,
+      assistantId,
+    });
 
     return {
       success: true,
-      verificationSessionId: newSession.sessionId,
-      secret: newSession.secret,
-      nextResendAt,
+      verificationSessionId: sent.sessionId,
+      secret: sent.secret,
+      nextResendAt: sent.nextResendAt,
       sendCount: newSendCount,
       channel,
       originConversationId,
-      _pendingSlackDm: { userId: destination, text: slackBody, assistantId },
-    };
-  } else if (channel === "discord") {
-    const newSession = await createOutboundSession({
-      channel,
-      expectedExternalUserId: destination,
-      identityBindingStatus: "bound",
-      destinationAddress: destination,
-      verificationPurpose: "guardian",
-    });
-
-    const discordBody = composeVerificationText(
-      GUARDIAN_VERIFY_TEMPLATE_KEYS.DISCORD_RESEND,
-      {
-        code: newSession.secret,
-        expiresInMinutes: Math.floor(SESSION_TTL_SECONDS / 60),
-      },
-    );
-
-    const now = Date.now();
-    const newSendCount = currentSendCount + 1;
-    const nextResendAt = now + RESEND_COOLDOWN_MS;
-
-    await updateSessionDelivery(
-      newSession.sessionId,
-      now,
-      newSendCount,
-      nextResendAt,
-    );
-
-    return {
-      success: true,
-      verificationSessionId: newSession.sessionId,
-      secret: newSession.secret,
-      nextResendAt,
-      sendCount: newSendCount,
-      channel,
-      originConversationId,
-      _pendingDiscordDm: {
-        userId: destination,
-        text: discordBody,
-        assistantId,
-      },
-    };
-  } else if (channel === "email") {
-    const newSession = await createOutboundSession({
-      channel,
-      expectedExternalUserId: destination,
-      expectedChatId: destination,
-      identityBindingStatus: "bound",
-      destinationAddress: destination,
-      verificationPurpose: "guardian",
-    });
-
-    const emailBody = composeVerificationText(
-      GUARDIAN_VERIFY_TEMPLATE_KEYS.EMAIL_RESEND,
-      {
-        code: newSession.secret,
-        expiresInMinutes: Math.floor(SESSION_TTL_SECONDS / 60),
-      },
-    );
-
-    const now = Date.now();
-    const newSendCount = currentSendCount + 1;
-    const nextResendAt = now + RESEND_COOLDOWN_MS;
-
-    await updateSessionDelivery(
-      newSession.sessionId,
-      now,
-      newSendCount,
-      nextResendAt,
-    );
-
-    return {
-      success: true,
-      verificationSessionId: newSession.sessionId,
-      secret: newSession.secret,
-      nextResendAt,
-      sendCount: newSendCount,
-      channel,
-      originConversationId,
-      _pendingEmail: {
-        to: destination,
-        text: emailBody,
-        subject: EMAIL_VERIFICATION_SUBJECT,
-        assistantId,
-      },
     };
   }
 

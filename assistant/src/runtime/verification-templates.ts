@@ -56,8 +56,8 @@ export const GUARDIAN_VERIFY_TEMPLATE_KEYS = {
   CHANNEL_BOOTSTRAP_BOUND: "guardian_verify.channel.bootstrap_bound",
 } as const;
 
-/** Template keys for Telegram/Slack/email text-based verification messages. */
-type TextVerifyTemplateKey =
+/** Template keys for Telegram/Slack/Discord/email text-based verification messages. */
+export type TextVerifyTemplateKey =
   | typeof GUARDIAN_VERIFY_TEMPLATE_KEYS.ALREADY_VERIFIED
   | typeof GUARDIAN_VERIFY_TEMPLATE_KEYS.TELEGRAM_CHALLENGE_REQUEST
   | typeof GUARDIAN_VERIFY_TEMPLATE_KEYS.TELEGRAM_RESEND
