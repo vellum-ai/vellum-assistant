@@ -4,9 +4,8 @@ import { useNavigate } from "react-router";
 
 import { useQueryClient } from "@tanstack/react-query";
 
-import { organizationsBillingSummaryRetrieveOptions } from "@/generated/api/@tanstack/react-query.gen";
 import { useBusSubscription } from "@/hooks/use-bus-subscription";
-import { t } from "@/i18n";
+import { notifyCheckoutSuccess } from "@/lib/billing/checkout-success";
 import {
   isLiveVoiceSessionActive,
   restoreVoiceRoom,
@@ -20,7 +19,6 @@ import { usePendingDeepLinkStore } from "@/stores/pending-deep-link-store";
 import { useViewerStore } from "@/stores/viewer-store";
 import { navigateToConversation } from "@/utils/conversation-navigation";
 import { routes } from "@/utils/routes";
-import { toast } from "@vellumai/design-library/components/toast";
 
 /**
  * Global deep-link consumer — mounted at `RootLayout` so it's alive
@@ -210,16 +208,11 @@ export function useGlobalDeepLinkConsumer(): void {
       void ensureMainWindowVisible();
       if (flow === "top_up") {
         if (status === "success") {
-          // Same toast + refetch the web return path shows
-          // (`BillingStatusHandler`), with no forced navigation: a top-up
-          // has no onboarding wizard to open, so the user stays wherever
-          // they were.
-          toast.success(t("settings:billingStatusHandler.successToast"), {
-            id: "billing-status",
-          });
-          void queryClient.invalidateQueries({
-            queryKey: organizationsBillingSummaryRetrieveOptions().queryKey,
-          });
+          // The same toast + refetch the web return path shows, shared with
+          // `BillingStatusHandler` so the two cannot drift, with no forced
+          // navigation: a top-up has no onboarding wizard to open, so the
+          // user stays wherever they were.
+          notifyCheckoutSuccess(queryClient);
           return;
         }
         // `billing_status=cancel` funnels into `BillingStatusHandler`, the

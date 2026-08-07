@@ -25,9 +25,9 @@ import { useAssistantDomains } from "@/domains/settings/billing/pro-onboarding/u
 import {
   organizationsBillingSubscriptionOnboardingRetrieveOptions,
   organizationsBillingSubscriptionRetrieveOptions,
-  organizationsBillingSummaryRetrieveOptions,
 } from "@/generated/api/@tanstack/react-query.gen";
 import { useIsOrgReady } from "@/hooks/use-is-org-ready";
+import { notifyCheckoutSuccess } from "@/lib/billing/checkout-success";
 import { useTranslation } from "@/i18n";
 import {
   useActiveAssistantIsPlatformHosted,
@@ -67,12 +67,10 @@ function BillingStatusHandler({
     }
 
     if (billingStatus === "success") {
-      toast.success(t("billingStatusHandler.successToast"), {
-        id: "billing-status",
-      });
-      queryClient.invalidateQueries({
-        queryKey: organizationsBillingSummaryRetrieveOptions().queryKey,
-      });
+      // Shared with the native `flow=top_up` deep-link return
+      // (`useGlobalDeepLinkConsumer`) so the copy and refresh semantics
+      // cannot drift.
+      notifyCheckoutSuccess(queryClient);
     } else if (billingStatus === "cancel") {
       toast.info(
         searchParams.get("billing_context") === "upgrade"

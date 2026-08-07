@@ -8,6 +8,7 @@ import {
   organizationsBillingSummaryRetrieveOptions,
   organizationsBillingTopUpsCheckoutSessionCreateMutation,
 } from "@/generated/api/@tanstack/react-query.gen";
+import { useBusSubscription } from "@/hooks/use-bus-subscription";
 import { ANDROID_BILLING_MESSAGE } from "@/lib/billing/android-consumption-only";
 import { checkoutReturnTarget } from "@/lib/billing/checkout-return-target";
 import { openUrl, openUrlFinishedListener } from "@/runtime/browser";
@@ -101,6 +102,25 @@ function AddCreditsModalContent({ open, onOpenChange }: AddCreditsModalProps) {
       );
     });
   }, [onOpenChange, queryClient]);
+
+  // The outcome-carrying return: the `flow=top_up` checkout-complete deep
+  // link. On Electron this is the ONLY return signal (`browserFinished`
+  // above is Capacitor-only, and Stripe runs in the system browser), so
+  // without it the stale modal would sit over the success toast or the
+  // billing page's cancel-triggered bonus-offer flow, its Continue button
+  // still armed to start a second checkout. Same tidy-up on either outcome;
+  // the outcome handling itself (toast / navigation) stays with
+  // `useGlobalDeepLinkConsumer`. On Capacitor this overlaps the
+  // `browserFinished` cleanup, which is idempotent.
+  useBusSubscription("deeplink.billingCheckoutComplete", ({ flow }) => {
+    if (flow !== "top_up") {
+      return;
+    }
+    onOpenChange(false);
+    void queryClient.invalidateQueries(
+      organizationsBillingSummaryRetrieveOptions(),
+    );
+  });
 
   const handleAddFunds = () => {
     if (checkoutMutation.isPending) {
