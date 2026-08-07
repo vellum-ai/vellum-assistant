@@ -1,18 +1,13 @@
 /**
- * Pure helpers for normalizing and ranking detected-language tags emitted
+ * Pure helpers for tallying and ranking detected-language tags emitted
  * by streaming STT providers (e.g. Deepgram nova-3 `multi` per-word tags).
  *
- * Dependency-free leaf so provider adapters and event consumers can share
- * one notion of a normalized language tag without coupling to each other.
+ * Tag normalization is `baseLanguageSubtag` (util/language-subtag.ts);
+ * these helpers layer vote-counting on top of it so provider adapters and
+ * event consumers share one notion of a dominant language.
  */
 
-/**
- * Normalize a BCP-47 language tag to its lowercase base subtag:
- * "en-US" -> "en", "PT-br" -> "pt". Returns "" for blank input.
- */
-export function normalizeLanguageTag(tag: string): string {
-  return tag.trim().toLowerCase().split("-")[0] ?? "";
-}
+import { baseLanguageSubtag } from "../util/language-subtag.js";
 
 /**
  * Cast one vote into a language tally for a transcript chunk's dominant
@@ -25,8 +20,8 @@ export function voteDominantLanguage(
   tally: Map<string, number>,
   languages: readonly string[] | undefined,
 ): void {
-  const dominant = normalizeLanguageTag(languages?.[0] ?? "");
-  if (dominant) {
+  const dominant = baseLanguageSubtag(languages?.[0]);
+  if (dominant !== undefined) {
     tally.set(dominant, (tally.get(dominant) ?? 0) + 1);
   }
 }
@@ -60,8 +55,8 @@ export function rankLanguages(tags: Iterable<string>): string[] {
   // leaves tied tags in first-appearance order.
   const counts = new Map<string, number>();
   for (const tag of tags) {
-    const normalized = normalizeLanguageTag(tag);
-    if (!normalized) {
+    const normalized = baseLanguageSubtag(tag);
+    if (normalized === undefined) {
       continue;
     }
     counts.set(normalized, (counts.get(normalized) ?? 0) + 1);

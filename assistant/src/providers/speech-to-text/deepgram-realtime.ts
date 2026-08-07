@@ -29,14 +29,12 @@
  * - All timers and listeners are cleaned up on close to prevent leaks.
  */
 
-import {
-  normalizeLanguageTag,
-  rankLanguages,
-} from "../../stt/language-metadata.js";
+import { rankLanguages } from "../../stt/language-metadata.js";
 import type {
   StreamingTranscriber,
   SttStreamServerEvent,
 } from "../../stt/types.js";
+import { baseLanguageSubtag } from "../../util/language-subtag.js";
 import { getLogger } from "../../util/logger.js";
 
 const log = getLogger("deepgram-realtime");
@@ -366,7 +364,7 @@ export class DeepgramRealtimeTranscriber implements StreamingTranscriber {
 
   /**
    * Raw detected-language tags for the withheld segments, accumulated
-   * alongside {@link pendingFinalSegments} and ranked into `language` /
+   * alongside {@link pendingFinalSegments} and ranked into the event's
    * `languages` when the utterance flushes. Cleared wherever the pending
    * segments are cleared. Only populated when
    * {@link utteranceBoundaryFinals} is enabled.
@@ -779,10 +777,10 @@ export class DeepgramRealtimeTranscriber implements StreamingTranscriber {
    * the top alternative when present.
    *
    * Code-switching models (nova-3 with `language=multi`) tag detected
-   * languages per word and per container. When present, these become
-   * dominance-ranked `language` / `languages` fields on the emitted
-   * events (see {@link extractLanguages}). Both fields are omitted when
-   * the frame carries no language metadata.
+   * languages per word and per container. When present, these become the
+   * dominance-ranked `languages` field on the emitted events (see
+   * {@link extractLanguages}). The field is omitted when the frame
+   * carries no language metadata.
    *
    * We emit:
    * - `partial` for `is_final: false` frames (if interim results enabled).
@@ -825,7 +823,6 @@ export class DeepgramRealtimeTranscriber implements StreamingTranscriber {
         ? alternative.confidence
         : undefined;
     const languages = extractLanguages(frame.channel, alternative);
-    const language = languages[0];
 
     if (frame.is_final) {
       if (this.utteranceBoundaryFinals) {
@@ -855,7 +852,7 @@ export class DeepgramRealtimeTranscriber implements StreamingTranscriber {
           text,
           ...(speakerLabel !== undefined ? { speakerLabel } : {}),
           ...(confidence !== undefined ? { confidence } : {}),
-          ...(language !== undefined ? { language, languages } : {}),
+          ...(languages.length > 0 ? { languages } : {}),
           // Mark the finalize flush so consumers can attribute it to the
           // utterance that requested the flush rather than new speech.
           ...(fromFinalize ? { fromFinalize: true } : {}),
@@ -868,7 +865,7 @@ export class DeepgramRealtimeTranscriber implements StreamingTranscriber {
         text,
         ...(speakerLabel !== undefined ? { speakerLabel } : {}),
         ...(confidence !== undefined ? { confidence } : {}),
-        ...(language !== undefined ? { language, languages } : {}),
+        ...(languages.length > 0 ? { languages } : {}),
       });
     }
 
@@ -968,7 +965,7 @@ export class DeepgramRealtimeTranscriber implements StreamingTranscriber {
   /**
    * Emit a single aggregated `final` for the withheld `is_final` segments
    * of the current utterance, carrying the dominance-ranked detected
-   * languages accumulated alongside them (fields omitted when no segment
+   * languages accumulated alongside them (field omitted when no segment
    * carried language metadata). No-op when nothing is pending, so
    * boundary signals over silence emit nothing.
    */
@@ -986,7 +983,7 @@ export class DeepgramRealtimeTranscriber implements StreamingTranscriber {
     this.emitEvent({
       type: "final",
       text,
-      ...(languages.length > 0 ? { language: languages[0], languages } : {}),
+      ...(languages.length > 0 ? { languages } : {}),
     });
   }
 
@@ -1316,8 +1313,10 @@ function extractLanguages(
   const deduped = new Set(
     container
       .filter((tag): tag is string => typeof tag === "string")
-      .map(normalizeLanguageTag)
-      .filter((tag) => tag !== ""),
+      .flatMap((tag) => {
+        const base = baseLanguageSubtag(tag);
+        return base !== undefined ? [base] : [];
+      }),
   );
   return [...deduped];
 }

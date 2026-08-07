@@ -45,8 +45,8 @@ import {
 import { isInstalledStaticSkillLoad } from "../permissions/checker.js";
 import { ensureConversationExists } from "../persistence/conversation-crud.js";
 import {
-  getProviderEntry,
   listProviderIds,
+  pinnedListeningLanguage,
   supportsBoundary,
 } from "../providers/speech-to-text/provider-catalog.js";
 import type { ResolveStreamingTranscriberOptions } from "../providers/speech-to-text/resolve.js";
@@ -54,7 +54,6 @@ import { broadcastMessage } from "../runtime/assistant-event-hub.js";
 import { publishConversationListAndMetadataChanged } from "../runtime/sync/resource-sync-events.js";
 import {
   dominantLanguageTag,
-  normalizeLanguageTag,
   voteDominantLanguage,
 } from "../stt/language-metadata.js";
 import { detectPcm16SpeechActivity } from "../stt/speech-energy.js";
@@ -108,7 +107,10 @@ import type {
   LiveVoiceTtsOptions,
   LiveVoiceTtsResult,
 } from "./live-voice-tts.js";
-import { pickProgressPhrase } from "./progress-phrases.js";
+import {
+  approvalPendingPhraseFor,
+  pickProgressPhrase,
+} from "./progress-phrases.js";
 import {
   type LiveVoiceClientAttachImageFrame,
   type LiveVoiceClientFrame,
@@ -376,7 +378,7 @@ interface UtteranceCycle {
   // text replays the boundary immediately — the hold was judged on stale
   // text, so waiting out the extension only adds silence.
   heldSpeculativeContent: string | null;
-  // Count per normalized detected-language tag (see normalizeLanguageTag)
+  // Count per detected-language base subtag (see voteDominantLanguage)
   // across this cycle's final transcript events. Resolves the turn's spoken
   // language (see turnLanguageFor); empty when the provider tags nothing.
   languageTally: Map<string, number>;
@@ -712,12 +714,6 @@ function createControlMarkerHoldback(
 // barge-in, the interruption merge note is appended to it (see
 // buildInterruptionMergeNote) so the model reconciles the interrupted request
 // with the new utterance.
-// Spoken once when a turn starts waiting on the user's decision. Fixed rather
-// than generated: this is a statement about the system's state, not about the
-// work, and it has to be true every time. Kept in the shape of the progress
-// phrases it displaces (short, neutral, no claim about tools).
-const APPROVAL_PENDING_PHRASE = "I need your okay for that one. Take a look.";
-
 const LIVE_VOICE_CONTROL_PROMPT_BASE =
   "You are speaking in a local live voice session. Keep replies brief and conversational. Speech is the main channel: say the answer, and do not narrate a surface instead of answering. You can also put something on screen when it genuinely helps (a form, a list to pick from, a progress card for long work); the call overlay minimizes by itself once you finish speaking, so the user sees it without doing anything. Never tell the user you cannot show them something. Reply in the language the caller is speaking; if they switch languages, switch with them. ";
 
@@ -2566,8 +2562,9 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     // Spoken, because opening the room is only a cue for someone looking at
     // the screen, and the case this exists for is a phone the user has put
     // down. One line, not narration: the turn is not working, it is waiting,
-    // and it says which.
-    this.enqueueFillerPhrase(turn, APPROVAL_PENDING_PHRASE);
+    // and it says which — in the turn's spoken language, like every other
+    // filler phrase.
+    this.enqueueFillerPhrase(turn, approvalPendingPhraseFor(turn.language));
   }
 
   /** Clear the wait once a decision lands, so the turn narrates normally again. */
@@ -3464,10 +3461,12 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     await this.startAssistantTurnIfReady();
   }
 
-  // Record a partial event's detected languages (normalized, deduped,
-  // order preserved) so speculative dispatch has a detection before the
-  // first tagged final. Partials revise each other, so this overwrites
-  // rather than tallies, and a tag-less partial keeps the previous value.
+  // Record a partial event's detected languages so speculative dispatch
+  // has a detection before the first tagged final. The event contract
+  // (stt/types.ts) guarantees the tags arrive as normalized base subtags
+  // in dominance order, so they are stored as-is. Partials revise each
+  // other, so this overwrites rather than tallies, and a tag-less partial
+  // keeps the previous value.
   private capturePartialLanguages(
     utterance: UtteranceCycle,
     languages: readonly string[] | undefined,
@@ -3475,14 +3474,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     if (!languages || languages.length === 0) {
       return;
     }
-    const normalized = [
-      ...new Set(
-        languages.map(normalizeLanguageTag).filter((tag) => tag.length > 0),
-      ),
-    ];
-    if (normalized.length > 0) {
-      utterance.latestPartialLanguages = normalized;
-    }
+    utterance.latestPartialLanguages = languages;
   }
 
   /**
@@ -3507,29 +3499,19 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       return partialDominant;
     }
     // A persisted pin only counts when the provider that actually
-    // transcribed honors manual language selection: auto-detecting
-    // providers (gemini, whisper) ignore the setting entirely, so treating
-    // it as the caller's language would force every turn into a stale pin.
-    // The DIALED transcriber's providerId is authoritative, because the
-    // resolver silently falls back to managed vellum (which honors the pin)
-    // when a BYOK provider has no credential; the configured provider is
-    // only the last resort when no transcriber reference survives. Same
-    // gate as the telephony pre-speech rule (voice-session-bridge.ts).
+    // transcribed honors manual language selection (the shared
+    // pinnedListeningLanguage gate). The DIALED transcriber's providerId
+    // is authoritative, because the resolver silently falls back to
+    // managed vellum (which honors the pin) when a BYOK provider has no
+    // credential; the configured provider is only the last resort when no
+    // transcriber reference survives.
     const { language: configured, provider: sttProvider } =
       getConfig().services.stt;
     const dialedProvider =
       utterance.dialedSttProvider ??
       this.sharedTranscriber?.providerId ??
       (sttProvider as SttProviderId);
-    const providerHonorsLanguagePin =
-      getProviderEntry(dialedProvider)?.languageSelection === "manual";
-    if (providerHonorsLanguagePin && configured && configured !== "multi") {
-      const normalized = normalizeLanguageTag(configured);
-      if (normalized) {
-        return normalized;
-      }
-    }
-    return undefined;
+    return pinnedListeningLanguage(dialedProvider, configured);
   }
 
   // Providers emit `error` mid-stream and may keep streaming; `closed` /

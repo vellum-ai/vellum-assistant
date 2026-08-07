@@ -30,7 +30,6 @@ import {
   resolveCallTtsProvider,
   resolveSynthesisFormats,
 } from "./resolve-call-tts-provider.js";
-import { resolveTelephonySynthesisLanguage } from "./telephony-synthesis-language.js";
 
 const log = getLogger("call-speech-output");
 
@@ -129,15 +128,16 @@ async function synthesizeAndPlay(
       },
     });
 
-    // No STT session is reachable from the deterministic prompt path, so
-    // only the pin-based language resolves here.
-    const language = resolveTelephonySynthesisLanguage();
+    // No language hint: this path speaks fixed English copy (verification
+    // codes, guardian prompts), so a pin-based hint would tell an
+    // enforcing provider to render English text in the pinned language.
+    // Conversational synthesis (call-controller, media-stream-output)
+    // carries the hint instead.
     const result = await synthesizeAndEmit({
       provider,
       text,
       useCase: "phone-call",
       outputFormat,
-      ...(language !== undefined ? { language } : {}),
       signal,
       onChunk: sink.onChunk,
       onFirstAudio: sink.onFirstAudio,

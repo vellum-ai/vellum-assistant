@@ -1,4 +1,4 @@
-import { baseLanguageSubtag } from "../util/language-subtag.js";
+import { localizedOrDefault } from "../util/language-subtag.js";
 
 // Static fallbacks for an idle-triggered progress narration whose LLM
 // phrasing failed — the one case where prolonged silence is actively harmful.
@@ -73,10 +73,48 @@ export const PROGRESS_FALLBACK_PHRASES_BY_LANGUAGE: Readonly<
 // `language` selects the per-language list by its lowercased base subtag
 // (e.g. "pt-BR" -> "pt"); unknown or absent languages fall back to English.
 export function pickProgressPhrase(counter: number, language?: string): string {
-  const base = baseLanguageSubtag(language);
-  const phrases =
-    (base !== undefined
-      ? PROGRESS_FALLBACK_PHRASES_BY_LANGUAGE[base]
-      : undefined) ?? PROGRESS_FALLBACK_PHRASES;
+  const phrases = localizedOrDefault(
+    PROGRESS_FALLBACK_PHRASES_BY_LANGUAGE,
+    language,
+    PROGRESS_FALLBACK_PHRASES,
+  );
   return phrases[counter % phrases.length];
+}
+
+// Spoken once when a turn starts waiting on the user's approval decision.
+// Fixed rather than generated: this is a statement about the system's
+// state, not about the work, and it has to be true every time. Kept in the
+// shape of the progress phrases it displaces (short, neutral, no claim
+// about tools).
+export const APPROVAL_PENDING_PHRASE =
+  "I need your okay for that one. Take a look.";
+
+// Per-language spellings of the approval-pending phrase, keyed by lowercased
+// BCP 47 base subtag, covering the Deepgram code-switching roster
+// (DEEPGRAM_MULTI_LANGUAGE_CODES in providers/speech-to-text/deepgram.ts).
+// Same invariants as the progress phrases: persona-neutral, no claims about
+// running tools or tasks.
+export const APPROVAL_PENDING_PHRASE_BY_LANGUAGE: Readonly<
+  Record<string, string>
+> = {
+  en: APPROVAL_PENDING_PHRASE,
+  es: "Necesito tu visto bueno para eso. Échale un vistazo.",
+  fr: "J'ai besoin de ton accord pour ça. Jette un œil.",
+  de: "Dafür brauche ich dein Okay. Schau mal drauf.",
+  hi: "इसके लिए मुझे आपकी मंज़ूरी चाहिए। एक नज़र डाल लीजिए।",
+  ru: "Для этого мне нужно твоё согласие. Взгляни, пожалуйста.",
+  pt: "Preciso do seu ok para isso. Dê uma olhada.",
+  ja: "これには許可が必要です。ご確認ください。",
+  it: "Mi serve il tuo via libera per questo. Dai un'occhiata.",
+  nl: "Hiervoor heb ik je akkoord nodig. Kijk even mee.",
+};
+
+// The approval-pending phrase in the turn's spoken language, defaulting to
+// English for unknown or absent languages.
+export function approvalPendingPhraseFor(language?: string): string {
+  return localizedOrDefault(
+    APPROVAL_PENDING_PHRASE_BY_LANGUAGE,
+    language,
+    APPROVAL_PENDING_PHRASE,
+  );
 }

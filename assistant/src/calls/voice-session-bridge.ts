@@ -34,14 +34,13 @@ import {
   recordConversationPersistedSeq,
   updateMessageContent,
 } from "../persistence/conversation-crud.js";
-import { getProviderEntry } from "../providers/speech-to-text/provider-catalog.js";
+import { pinnedListeningLanguage } from "../providers/speech-to-text/provider-catalog.js";
 import type { ContentBlock } from "../providers/types.js";
 import { broadcastMessage } from "../runtime/assistant-event-hub.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
 import { getCurrentSeq } from "../runtime/assistant-stream-state.js";
 import { publishConversationMessagesChanged } from "../runtime/sync/resource-sync-events.js";
 import { computeToolApprovalDigest } from "../security/tool-approval-digest.js";
-import type { SttProviderId } from "../stt/types.js";
 import { getAllTools } from "../tools/registry.js";
 import { sensitiveToolReach } from "../tools/tool-approval-handler.js";
 import { createAbortReason } from "../util/abort-reasons.js";
@@ -440,25 +439,19 @@ export const VOICE_NO_SETUP_FLOWS_RULE =
  * media-stream-stt-session.ts and providers/speech-to-text/resolve.ts), so it
  * outranks the English default; "multi" and unset mean auto-detect, where
  * English remains the fallback. The pin only counts when the active provider
- * honors manual language selection: auto-detecting providers (gemini,
- * whisper) ignore a persisted language entirely, so greeting in it would
- * contradict what the transcriber actually hears. Exported for tests: the
- * default test config exercises only the auto-detect branch.
+ * honors manual language selection (see pinnedListeningLanguage):
+ * auto-detecting providers (gemini, whisper) ignore a persisted language
+ * entirely, so greeting in it would contradict what the transcriber
+ * actually hears. Exported for tests: the default test config exercises
+ * only the auto-detect branch.
  */
 export function preSpeechLanguageRuleFragment(
   sttLanguage: string | undefined,
   sttProvider?: string,
 ): string {
-  const providerHonorsLanguagePin =
-    sttProvider !== undefined &&
-    getProviderEntry(sttProvider as SttProviderId)?.languageSelection ===
-      "manual";
   const configuredListeningLanguage =
-    providerHonorsLanguagePin &&
-    sttLanguage &&
-    sttLanguage.trim() !== "" &&
-    sttLanguage.trim() !== "multi"
-      ? sttLanguage.trim()
+    sttProvider !== undefined
+      ? pinnedListeningLanguage(sttProvider, sttLanguage)
       : undefined;
   return configuredListeningLanguage
     ? `use the language the Task context implies, if any; otherwise open in the assistant's configured listening language ("${configuredListeningLanguage}"), and default to English only when neither gives a language`

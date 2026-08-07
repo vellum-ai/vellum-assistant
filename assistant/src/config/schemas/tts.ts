@@ -44,7 +44,7 @@ function languageVoicesSchema(providerId: string, valuesDescription: string) {
     .transform((map) => {
       const normalized = new Map<string, string>();
       for (const [key, voice] of Object.entries(map)) {
-        const subtag = baseLanguageSubtag(key)?.trim();
+        const subtag = baseLanguageSubtag(key);
         if (!subtag || normalized.has(subtag)) {
           continue;
         }

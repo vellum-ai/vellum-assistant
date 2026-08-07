@@ -12,9 +12,8 @@
  */
 
 import { getConfig } from "../config/loader.js";
-import { getProviderEntry } from "../providers/speech-to-text/provider-catalog.js";
-import { normalizeLanguageTag } from "../stt/language-metadata.js";
-import type { SttProviderId } from "../stt/types.js";
+import { pinnedListeningLanguage } from "../providers/speech-to-text/provider-catalog.js";
+import { baseLanguageSubtag } from "../util/language-subtag.js";
 
 /**
  * Resolve the language hint for telephony synthesis as a lowercase base
@@ -27,11 +26,9 @@ import type { SttProviderId } from "../stt/types.js";
 export function resolveTelephonySynthesisLanguage(
   detectedLanguage?: string,
 ): string | undefined {
-  if (detectedLanguage !== undefined) {
-    const normalized = normalizeLanguageTag(detectedLanguage);
-    if (normalized) {
-      return normalized;
-    }
+  const detected = baseLanguageSubtag(detectedLanguage);
+  if (detected !== undefined) {
+    return detected;
   }
 
   let stt: { provider: string; language?: string };
@@ -42,18 +39,5 @@ export function resolveTelephonySynthesisLanguage(
     return undefined;
   }
 
-  // A persisted pin only counts when the configured provider honors manual
-  // language selection: auto-detecting providers (gemini, whisper) ignore
-  // the setting entirely, so treating it as the caller's language would
-  // force every call into a stale pin. Same gate as the pre-speech prompt
-  // rule (voice-session-bridge.ts) and live voice's turnLanguageFor.
-  const providerHonorsLanguagePin =
-    getProviderEntry(stt.provider as SttProviderId)?.languageSelection ===
-    "manual";
-  const configured = stt.language?.trim();
-  if (!providerHonorsLanguagePin || !configured || configured === "multi") {
-    return undefined;
-  }
-  const normalized = normalizeLanguageTag(configured);
-  return normalized || undefined;
+  return pinnedListeningLanguage(stt.provider, stt.language);
 }
