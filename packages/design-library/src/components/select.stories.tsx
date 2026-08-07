@@ -52,14 +52,15 @@ const meta: Meta<typeof Select> = {
           "Use `Menu` instead when the list contains **actions** (Rename, Duplicate, Delete).",
           "Both visually drop down, but they are different controls with different semantics.",
           "",
-          "**This replaces `Dropdown`.** The two render identically; this one is a thin",
-          "wrapper over Radix Select rather than hand-rolled positioning, keyboard",
-          "navigation, outside-click and focus management.",
+          "A thin wrapper over Radix Select, so positioning, keyboard navigation,",
+          "outside-click and focus management come from the primitive.",
           "",
-          "Two behaviour differences when migrating from `Dropdown`: re-selecting the",
-          "value that is already selected does **not** call `onChange` (this reports",
-          "changes, `Dropdown` fired on every click), and an option may not carry an",
-          "empty-string `value`. See the `Dropdown` page and LUM-2959.",
+          "Two things to know. Re-selecting the value already selected does **not**",
+          "call `onChange`: this reports changes, not clicks, so a displayed value",
+          "derived from a fallback rather than held as state cannot be re-picked to",
+          "any effect. And an option may not carry an empty-string `value`, which",
+          'Radix reserves to mean "cleared" and will discard. Use `null` with',
+          '`onSelectNone` for a row meaning "no value chosen".',
         ].join("\n"),
       },
     },
@@ -258,8 +259,8 @@ export const InsideTransformedAncestor: Story = {
 };
 
 /**
- * A trigger low in the viewport opens upward. `Dropdown` always opens
- * downward, so the same trigger puts its menu below the fold.
+ * A trigger low in the viewport opens upward rather than pushing its menu
+ * below the fold.
  */
 export const OpensUpwardWhenLow: Story = {
   args: { value: "apple", "aria-label": "Fruit" },
