@@ -23,8 +23,6 @@ export interface AvatarData {
   customImageUrl: string | null;
 }
 
-const activeBlobUrls = new Map<string, string>();
-
 /**
  * Resolve the avatar render mode from the authoritative `/avatar/state`
  * manifest (assistants on `MIN_VERSION`+). Throws on a null state so React
@@ -113,16 +111,22 @@ export function useAssistantAvatar(assistantId: string | null) {
         throw new Error("Failed to fetch character components");
       }
 
-      const prev = activeBlobUrls.get(id);
-      if (prev && prev !== imageUrl) {
-        URL.revokeObjectURL(prev);
-      }
-      if (imageUrl) {
-        activeBlobUrls.set(id, imageUrl);
-      } else {
-        activeBlobUrls.delete(id);
-      }
+      /* An uploaded avatar arrives as bytes from an authenticated endpoint, so
+         `fetchAvatarImageUrl` hands it over as an object url. That url is
+         deliberately never revoked.
 
+         This cache is what gives the same string to every avatar on screen: the
+         sidebar's identity row, the chat avatars, the voice room, the identity
+         page. Nothing here can know when the last of them has stopped
+         rendering it, and the entry is keyed by assistant *and* by the
+         manifest-support flag, which resolves asynchronously, so one assistant
+         can hold two entries carrying the same url. Revoking on behalf of one
+         of them paints a broken image in every surface still showing it.
+
+         The cost of keeping them is bounded. `staleTime: Infinity` means one
+         url per image-avatar assistant per page load, plus one more if the
+         manifest flag flips, and the browser reclaims them all on unload.
+         Revisit if anything ever refetches this query on a timer. */
       return { components, traits, customImageUrl: imageUrl };
     },
     enabled: Boolean(assistantId),

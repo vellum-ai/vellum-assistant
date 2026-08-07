@@ -106,6 +106,44 @@ afterEach(() => {
 });
 
 describe("useAssistantAvatar", () => {
+  /* Asserted as "never", not "at the right time", because there is no right
+     time: this cache hands the same url to every avatar on screen and one
+     assistant can hold two entries while the manifest flag resolves, so any
+     revoke here can land on a url another surface is still rendering.
+
+     Driven through a real refetch that changes the image, which is the case
+     that used to revoke. Spying on the global is the only way to see it: a
+     revoked url still reads as a string, so the returned value cannot tell you
+     whether it is alive. */
+  test("never revokes an object url the cache still hands out", async () => {
+    const revoke = mock(() => {});
+    const original = URL.revokeObjectURL;
+    URL.revokeObjectURL = revoke as unknown as typeof URL.revokeObjectURL;
+    try {
+      fetchAvatarState.mockResolvedValue(imageState);
+      fetchAvatarImageUrl.mockResolvedValue("blob:first");
+      const wrapper = createWrapper();
+      const { result } = renderHook(() => useAssistantAvatar("test-asst"), {
+        wrapper,
+      });
+      await waitFor(() => {
+        expect(result.current.customImageUrl).toBe("blob:first");
+      });
+
+      // The avatar changes, so the next fetch produces a different url for the
+      // same assistant: the replacement that used to trigger a revoke.
+      fetchAvatarImageUrl.mockResolvedValue("blob:second");
+      result.current.invalidate();
+      await waitFor(() => {
+        expect(result.current.customImageUrl).toBe("blob:second");
+      });
+
+      expect(revoke).not.toHaveBeenCalled();
+    } finally {
+      URL.revokeObjectURL = original;
+    }
+  });
+
   test("character kind exposes manifest traits and skips the image fetch", async () => {
     fetchAvatarState.mockResolvedValueOnce(characterState);
 
