@@ -79,7 +79,18 @@ export const DiscordThreadSchema = DiscordChannelSchema;
 export const DiscordMessageCreateSchema = z.object({
   id: idString(),
   channel_id: idString(),
-  guild_id: optionalString(),
+  /**
+   * Guild indicator. Fails CLOSED, like the bot indicators below and unlike
+   * the tolerant fields around them.
+   *
+   * Absence is load-bearing here: it is the only thing that marks a message as
+   * a DM, and a DM is admitted without an allow-list entry and without a
+   * mention. Collapsing a malformed value to `undefined` would therefore turn
+   * a parse failure into a guild message admitted as private, skipping both
+   * controls that stand between a public server and the assistant. The
+   * sentinel keeps it on the guild path, where it must still clear them.
+   */
+  guild_id: z.string().optional().catch("malformed-guild-id"),
   /** Empty (not absent) on non-exempt messages without MESSAGE_CONTENT. */
   content: z.string().catch(""),
   author: z

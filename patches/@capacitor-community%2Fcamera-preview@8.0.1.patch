@@ -1,0 +1,58 @@
+diff --git a/Package.swift b/Package.swift
+index 50e325e84c01305ac5b7a909856b56662eeb6ea7..a7a049147a7d182d60c1e84f291c036b32e05cf2 100644
+--- a/Package.swift
++++ b/Package.swift
+@@ -10,7 +10,7 @@ let package = Package(
+             targets: ["CameraPreviewPlugin"])
+     ],
+     dependencies: [
+-        .package(url: "https://github.com/ionic-team/capacitor-swift-pm.git", from: "8.0.2")
++        .package(url: "https://github.com/ionic-team/capacitor-swift-pm.git", exact: "8.3.4")
+     ],
+     targets: [
+         .target(
+diff --git a/android/src/main/java/com/ahm/capacitor/camera/preview/CameraPreview.java b/android/src/main/java/com/ahm/capacitor/camera/preview/CameraPreview.java
+index 854aeee57dc88c115e6e294af1a5a8866d10d30c..cf23806dec64d1023d3d06e8f87a94ad859e44f2 100644
+--- a/android/src/main/java/com/ahm/capacitor/camera/preview/CameraPreview.java
++++ b/android/src/main/java/com/ahm/capacitor/camera/preview/CameraPreview.java
+@@ -126,7 +126,10 @@ public class CameraPreview extends Plugin implements CameraActivity.CameraPrevie
+ 
+                         if (containerView != null) {
+                             ((ViewGroup) getBridge().getWebView().getParent()).removeView(containerView);
+-                            getBridge().getWebView().setBackgroundColor(Color.WHITE);
++                            // The web app paints its own theme. Keeping the
++                            // WebView transparent avoids a white flash when a
++                            // dark room closes the native preview.
++                            getBridge().getWebView().setBackgroundColor(Color.TRANSPARENT);
+                             FragmentManager fragmentManager = getActivity().getFragmentManager();
+                             FragmentTransaction fragmentTransaction = fragmentManager.beginTransaction();
+                             if (fragment != null) {
+diff --git a/ios/Sources/CameraPreviewPlugin/CameraPreviewPlugin.swift b/ios/Sources/CameraPreviewPlugin/CameraPreviewPlugin.swift
+index aa18ca78d0d73ceceeae4eee2d23a83a802bab03..42eb0bd7f8619da07f32d12ab9c5989c389d4ac7 100644
+--- a/ios/Sources/CameraPreviewPlugin/CameraPreviewPlugin.swift
++++ b/ios/Sources/CameraPreviewPlugin/CameraPreviewPlugin.swift
+@@ -171,7 +171,10 @@ public class CameraPreview: CAPPlugin, CAPBridgedPlugin {
+                     previewView.removeFromSuperview()
+                     self.previewView = nil
+                 }
+-                self.webView?.isOpaque = true
++                // Vellum's WKWebView stays non-opaque so its native safe-area
++                // backdrop can track the active web theme after the preview is
++                // removed.
++                self.webView?.isOpaque = false
+                 call.resolve()
+             } else {
+                 call.reject("camera already stopped")
+@@ -207,9 +210,10 @@ public class CameraPreview: CAPPlugin, CAPBridgedPlugin {
+                     return
+                 }
+                 let imageData: Data?
++                let compression = CGFloat(quality ?? 85) / 100.0
+                 if self.cameraController.currentCameraPosition == .front {
+                     let flippedImage = image.withHorizontallyFlippedOrientation()
+-                    imageData = flippedImage.jpegData(compressionQuality: CGFloat(quality!/100))
++                    imageData = flippedImage.jpegData(compressionQuality: compression)
+                 } else {
+-                    imageData = image.jpegData(compressionQuality: CGFloat(quality!/100))
++                    imageData = image.jpegData(compressionQuality: compression)
+                 }

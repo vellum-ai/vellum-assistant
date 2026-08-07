@@ -1,12 +1,8 @@
-import {
-  SIDEBAR_CHIP_GAP,
-  SIDEBAR_ROW_PADDING_X,
-  SIDEBAR_SECTION_TITLE_TEXT_CLASSES,
-} from "@/components/sidebar-nav-geometry";
+import { SIDEBAR_STACK_GAP } from "@/components/sidebar-nav-geometry";
 import { AssistantNavItem } from "@/domains/chat/components/assistant-nav-item";
 import { PinnedAppNavItem } from "@/domains/chat/components/pinned-app-nav-item";
 import { usePinnedAppsStore } from "@/stores/pinned-apps-store";
-import { cn, SideMenu } from "@vellumai/design-library";
+import { cn } from "@vellumai/design-library";
 
 export interface SideMenuBuiltInNavProps {
   assistantId: string | null;
@@ -24,10 +20,14 @@ export interface SideMenuBuiltInNavProps {
 
 /**
  * The sidebar's built-in navigation block: the assistant cluster with the
- * New Chat row beneath it, then the pinned-apps list, separated by a
- * divider. On the rail this lives in the non-scrolling header; on the
- * overlay it renders at the top of the body so the whole menu scrolls as
- * one surface (Figma 6764:6745).
+ * New Chat row beneath it, then the pinned-apps list. On the rail this lives
+ * in the non-scrolling header; on the overlay it renders at the top of the
+ * body so the whole menu scrolls as one surface (Figma 6764:6745).
+ *
+ * The block carries neither a heading over the pinned apps nor a rule under
+ * them, in either state. Every entry here is a pill (a circle on the rail) on
+ * the page background, and a shape like that is already delimited - a label
+ * and a rule on top of it divide a group that reads as grouped without them.
  */
 export function SideMenuBuiltInNav({
   assistantId,
@@ -42,21 +42,25 @@ export function SideMenuBuiltInNav({
   onClose,
 }: SideMenuBuiltInNavProps) {
   const pinnedApps = usePinnedAppsStore.use.pinnedApps();
-  const isCollapsedRail = collapsed && variant === "rail";
 
+  /* One column at a single gap, rather than each cluster spacing itself.
+     `SideMenu.Header` puts its own gap between its children, so a margin
+     here would add to that and the block would space its two clusters at
+     16px while spacing the pinned apps inside one of them at 4px. Wrapping
+     makes the whole block one header child, so this gap is the only one
+     between any two entries. */
   return (
-    <>
+    <div className={cn("flex flex-col", SIDEBAR_STACK_GAP)}>
       {/* The assistant cluster: the avatar-colored assistant row with the
           New Chat row (avatar-tinted, plus + label; icon-only tile on the
           collapsed rail) beneath it, so the identity leads and the action
-          hangs off it. No divider when
-          expanded; breathing room below instead. On the collapsed rail
-          the separator provides the section break, so the margin drops
-          and the header's own gap (8px) plus the separator's margin keeps
-          the divider ~12px off the cluster (Figma 7257:135812). The
+          hangs off it. No divider when expanded: the wrapper's gap is the
+          only thing between this cluster and the pinned apps. On the
+          rail this cluster is a column of circles like the sections below
+          it, spaced by the same gap. The
           overlay drawer skips the New Chat row: its floating New Chat
           pill already owns that action in the thumb zone. */}
-      <div className={isCollapsedRail ? undefined : "mb-2"}>
+      <div>
         <AssistantNavItem
           assistantId={assistantId}
           label={assistantName || "Your Assistant"}
@@ -81,65 +85,25 @@ export function SideMenuBuiltInNav({
         />
       </div>
       {pinnedApps.length > 0 ? (
-        <>
-          {/* Not the accordion's "Conversations"/"Pinned" title component: this
-              block lives outside `CollapsibleNavSection.Root` entirely (in
-              the non-scrolling rail header, or the overlay's top-of-body),
-              so it's just the same label styling, non-interactive. */}
-          {!isCollapsedRail ? (
-            <div
-              // Same title treatment as "Pinned"/"Conversations" (collapsible-
-              // nav-section.tsx's non-collapsible branch): the mobile
-              // text/height/padding classes below aren't decorative, they
-              // match that component's, so the two read as one style.
-              //
-              // The trailing -mb-1/-mb-[10px] shaves off the parent's own
-              // gap (8px on the rail, 16px on the overlay): additive since
-              // flex `gap` doesn't collapse with margins, so this works in
-              // both contexts. Mobile (always the overlay) shaves more,
-              // halving the 16px gap to Lucky Dip below instead of the
-              // 12px this leaves elsewhere.
-              className={cn(
-                "flex h-[30px] max-md:h-auto items-center rounded-[6px] py-[6px] max-md:pt-3 max-md:pb-1.5 -mb-1 max-md:-mb-[10px]",
-                SIDEBAR_SECTION_TITLE_TEXT_CLASSES,
-              )}
-              style={{
-                paddingLeft: SIDEBAR_ROW_PADDING_X,
-                paddingRight: SIDEBAR_ROW_PADDING_X,
-                gap: SIDEBAR_CHIP_GAP,
-              }}
-            >
-              Pinned Apps
-            </div>
-          ) : null}
-          <div className="flex flex-col gap-[4px]">
-            {pinnedApps.map((app) => (
-              <PinnedAppNavItem
-                key={app.appId}
-                app={app}
-                collapsed={collapsed}
-                active={activeAppId === app.appId}
-                onOpen={
-                  onOpenApp
-                    ? (appId) => {
-                        onOpenApp(appId);
-                        onClose?.();
-                      }
-                    : undefined
-                }
-              />
-            ))}
-          </div>
-          <SideMenu.Separator />
-        </>
+        <div className={cn("flex flex-col", SIDEBAR_STACK_GAP)}>
+          {pinnedApps.map((app) => (
+            <PinnedAppNavItem
+              key={app.appId}
+              app={app}
+              collapsed={collapsed}
+              active={activeAppId === app.appId}
+              onOpen={
+                onOpenApp
+                  ? (appId) => {
+                      onOpenApp(appId);
+                      onClose?.();
+                    }
+                  : undefined
+              }
+            />
+          ))}
+        </div>
       ) : null}
-      {/* The collapsed rail separates the cluster from the group icons below
-          it (Figma 7257:135826). Only when there are no pinned apps: that
-          block already closed with a separator, and a second one here would
-          stack two rules with nothing between them. */}
-      {isCollapsedRail && pinnedApps.length === 0 ? (
-        <SideMenu.Separator />
-      ) : null}
-    </>
+    </div>
   );
 }

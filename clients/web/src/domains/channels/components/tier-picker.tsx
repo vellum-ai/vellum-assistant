@@ -8,6 +8,7 @@ import {
   CHANNEL_TIER_VALUES,
   channelTierBehavesAs,
 } from "@/domains/channels/slack-channel-overrides";
+import { useTranslation } from "@/i18n";
 import type { RiskThreshold } from "@/utils/threshold-presets";
 
 /**
@@ -78,6 +79,7 @@ export function TierPicker({
   onReset,
   "aria-label": ariaLabel,
 }: TierPickerProps) {
+  const { t } = useTranslation("channels");
   const effectiveTier = channelTierBehavesAs(tier ?? defaultTier ?? undefined);
   const shownDefault = channelTierBehavesAs(defaultTier ?? undefined) ?? null;
   const options: SelectOption<TierOptionValue>[] = CHANNEL_TIER_VALUES.map(
@@ -87,7 +89,9 @@ export function TierPicker({
       icon: <TierDot color={CAPABILITY_TIER_META[value].dotColor} />,
       suffix:
         value === shownDefault ? (
-          <span className="text-[color:var(--content-tertiary)]">default</span>
+          <span className="text-[color:var(--content-tertiary)]">
+            {t("tierPicker.defaultSuffix")}
+          </span>
         ) : undefined,
       tooltip: CAPABILITY_TIER_META[value].sublabel,
     }),
@@ -123,7 +127,7 @@ export function TierPicker({
       value={effectiveTier ?? ""}
       onChange={handleChange}
       options={options}
-      placeholder="Default"
+      placeholder={t("tierPicker.defaultPlaceholder")}
       disabled={disabled}
       size="compact"
       menuAlign="end"

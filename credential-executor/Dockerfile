@@ -56,6 +56,7 @@ COPY --from=builder --chown=ces:ces /app /app
 COPY --chown=ces:ces packages/service-contracts /app/packages/service-contracts
 COPY --chown=ces:ces packages/credential-storage /app/packages/credential-storage
 COPY --chown=ces:ces packages/egress-proxy /app/packages/egress-proxy
+COPY --chown=ces:ces packages/ipc-server-utils /app/packages/ipc-server-utils
 COPY --chown=ces:ces credential-executor ./
 
 # Pre-create /ces-data so the non-root ces user can write to it

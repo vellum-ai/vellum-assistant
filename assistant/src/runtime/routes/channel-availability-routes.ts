@@ -4,11 +4,11 @@
  * GET /v1/channels/available — return the channels this assistant can
  * surface to clients (Contacts / GuardianChannels views, etc.) along with
  * their display metadata (label, subtitle, icon, verification capability,
- * setup-message copy). Today this is a fixed base list plus `email` when
- * an inbox is registered; eventually the list will be driven by
- * plugins/skills the assistant has loaded. Clients should treat the
- * response as authoritative and stop carrying their own per-channel
- * switches.
+ * setup-message copy). A fixed base list, plus `email` when an inbox is
+ * registered, plus the channels installed plugins bring by declaring
+ * ingress. One list, because a plugin channel is a channel; each row's
+ * `source` says who contributes it. Clients should treat the response as
+ * authoritative and stop carrying their own per-channel switches.
  *
  * Distinct from `/v1/channels/readiness` (which answers "is this channel
  * configured and working?"). Availability answers "could this channel be
@@ -18,8 +18,9 @@
 import { z } from "zod";
 
 import { isA2AEnabled } from "../../a2a/feature-gate.js";
+import { discoverPluginChannels } from "../../channels/plugin-channel-declarations.js";
 import {
-  CHANNEL_IDS,
+  type AvailableChannel,
   CHANNEL_METADATA,
   type ChannelId,
   type ChannelInfo,
@@ -73,7 +74,7 @@ async function hasRegisteredInbox(): Promise<boolean> {
 
 async function handleGetChannelAvailability(
   _args: RouteHandlerArgs,
-): Promise<{ channels: ChannelInfo[] }> {
+): Promise<{ channels: AvailableChannel[] }> {
   const ids: ChannelId[] = [...BASE_AVAILABLE_CHANNELS];
   if (await hasRegisteredInbox()) {
     ids.push("email");
@@ -86,14 +87,26 @@ async function handleGetChannelAvailability(
   // contains channels that BASE_AVAILABLE_CHANNELS / the email branch
   // explicitly chose, so the lookup is always defined — filter to satisfy
   // the type system without a non-null assertion.
-  const channels = ids
+  const builtIn: AvailableChannel[] = ids
     .map((id) => CHANNEL_METADATA[id])
-    .filter((info): info is ChannelInfo => info !== undefined);
-  return { channels };
+    .filter((info): info is ChannelInfo => info !== undefined)
+    .map((info) => ({ ...info, source: "default" as const }));
+  // One list, because a plugin channel is a channel: what differs is who
+  // contributes it, which is what `source` says. Built-ins lead, so a client
+  // rendering in order gets a stable list that plugin installs append to.
+  return { channels: [...builtIn, ...(await discoverPluginChannels())] };
 }
 
 const channelInfoSchema = z.object({
-  id: z.enum(CHANNEL_IDS),
+  // A string rather than the channel enum: a plugin channel's id is its
+  // plugin name, and `source` is what says which kind a row is.
+  id: z.string(),
+  source: z
+    .string()
+    .describe(
+      "`default` for a channel the assistant ships, `plugin:<name>` for one " +
+        "an installed plugin brings",
+    ),
   label: z.string(),
   subtitle: z.string(),
   icon: z.string(),
@@ -117,14 +130,19 @@ export const ROUTES: RouteDefinition[] = [
     description:
       "Return the channels this assistant can surface to clients, with " +
       "display metadata (label, icon, verification capability, setup " +
-      "copy). Today this is a fixed base list plus `email` when an inbox " +
-      "is registered; will become plugin/skill-driven in future.",
+      "copy). A fixed base list plus `email` when an inbox is registered, " +
+      "plus the channels installed plugins bring by declaring ingress " +
+      "routes. Each carries a `source` saying which of those it is.",
     tags: ["channels"],
     handler: handleGetChannelAvailability,
     responseBody: z.object({
       channels: z
         .array(channelInfoSchema)
-        .describe("Available channels in display order"),
+        .describe(
+          "Available channels in display order: the ones the assistant " +
+            "ships, then the ones installed plugins bring by declaring " +
+            "ingress routes. `source` distinguishes them.",
+        ),
     }),
   },
 ];

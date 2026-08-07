@@ -7,7 +7,6 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 import { makeMockLogger } from "../../__tests__/helpers/mock-logger.js";
 import { setConfig } from "../../__tests__/helpers/set-config.js";
-import type { InflightContentWriter } from "../inflight-message-content.js";
 
 // The finalize module's import graph reaches the memory indexer; keep it inert
 // so no embedding backend is touched.
@@ -78,17 +77,16 @@ async function runTail(overrides: {
   replyDeliveredInAppOnly?: boolean;
 }): Promise<void> {
   await runDeferredTurnTail({
-    ctx: { conversationId: CONVERSATION_ID, messages: [] },
+    conversationId: CONVERSATION_ID,
     state: {
       deferredFinalizeEffects: overrides.deferredFinalizeEffects ?? [],
       lastAssistantMessageId:
         "lastAssistantMessageId" in overrides
           ? overrides.lastAssistantMessageId
           : ASSISTANT_MESSAGE_ID,
-      inflightWriters: new Map<string, InflightContentWriter>(),
     },
     rlog,
-    generationCompletedAt: Date.now(),
+    criticalSectionMs: 0,
     turnCompleted: overrides.turnCompleted,
     userMessageId:
       "userMessageId" in overrides ? overrides.userMessageId : USER_MESSAGE_ID,

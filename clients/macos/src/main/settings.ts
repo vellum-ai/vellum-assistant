@@ -92,19 +92,6 @@ export const writeSetting = <K extends keyof AppSettings>(
 };
 
 /**
- * Read the user's override for a single hotkey command, or `null` when none is
- * set. An explicit empty string is a real value — it means the user disabled
- * the binding — and is returned as-is; only an absent key yields `null`, in
- * which case the caller falls back to the compiled default. Shared by
- * `commands.ts` (menu accelerators) and `global-shortcuts.ts` (system-wide
- * shortcuts) so the override-resolution rule lives in one place.
- */
-export const readHotkeyOverride = (key: string): string | null => {
-  const override = readSetting("hotkeys")?.[key];
-  return typeof override === "string" ? override : null;
-};
-
-/**
  * Subscribe to changes on a specific settings key. Fires when the value
  * changes (deep equality check by electron-store). Returns an unsubscribe
  * function.

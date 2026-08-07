@@ -114,9 +114,6 @@ const { configGetQueryKey } = await import(
 const { ProfilesSection } = await import(
   "@/domains/settings/ai/profiles-section"
 );
-const { MIN_VERSION } = await import(
-  "@/lib/backwards-compat/use-supports-schedule-profile-moves"
-);
 const { useAssistantIdentityStore } = await import(
   "@/stores/assistant-identity-store"
 );
@@ -236,13 +233,9 @@ function confirmButton(): HTMLButtonElement {
 }
 
 beforeEach(() => {
-  // The schedule scan and the reassign are version-gated; every test below
-  // except the old-assistant ones runs against an assistant that has them.
-  // The gate is scoped to the assistant the identity was fetched for, so the
-  // third argument has to be the id the section renders for.
   useAssistantIdentityStore
     .getState()
-    .setIdentity("Test", MIN_VERSION, "asst-1");
+    .setIdentity("Test", "0.12.0", "asst-1");
   configPatchBodies = [];
   reassignBodies = [];
   reassignFails = false;
@@ -459,6 +452,49 @@ describe("profile delete flow - replacement preselection", () => {
       "Other Custom",
     ]);
   });
+
+  test("managed profiles that are not the default are offered too", async () => {
+    profilesState["quality"] = {
+      label: "Quality",
+      source: "managed",
+      invariant: true,
+      provider: "anthropic",
+      model: "claude-opus-4-8",
+    };
+    schedulesByProfile["my-custom"] = [
+      { name: "Morning digest", isDeferred: false },
+    ];
+    renderSection();
+    await clickDelete("My Custom");
+    await waitForDialog();
+
+    expect(await replacementOptionLabels()).toEqual([
+      "Balanced",
+      "Other Custom",
+      "Quality",
+    ]);
+  });
+
+  test("deleting the default preselects the user's own profile over managed ones", async () => {
+    profilesState["quality"] = {
+      label: "Quality",
+      source: "managed",
+      invariant: true,
+      provider: "anthropic",
+      model: "claude-opus-4-8",
+    };
+    activeProfileState = "my-custom";
+    renderSection();
+    await clickDelete("My Custom");
+    await waitForDialog();
+
+    expect(await replacementOptionLabels()).toEqual([
+      "Balanced",
+      "Other Custom",
+      "Quality",
+    ]);
+    expect(selectedReplacementLabel()).toBe("Other Custom");
+  });
 });
 
 describe("profile delete flow - disabled replacements", () => {
@@ -584,84 +620,3 @@ describe("profile delete flow - reassign then delete", () => {
   });
 });
 
-// An assistant older than the reassign route answers the profile-filtered
-// list with everything it has and 404s the move. Scanning there would show
-// every schedule as a reference and then strand the delete behind a call that
-// cannot succeed, so the flow falls back to what it did before schedules
-// carried a profile pin.
-describe("profile delete flow - assistant without the schedule routes", () => {
-  beforeEach(() => {
-    useAssistantIdentityStore
-      .getState()
-      .setIdentity("Test", "0.11.2", "asst-1");
-  });
-
-  test("an unreferenced profile deletes without scanning schedules", async () => {
-    schedulesByProfile["my-custom"] = [
-      { name: "Morning digest", isDeferred: false },
-    ];
-    renderSection();
-    await clickDelete("My Custom");
-
-    await waitFor(() => {
-      expect(configPatchBodies.length).toBe(1);
-    });
-    expect(scheduleQueries).toEqual([]);
-    expect(reassignBodies).toEqual([]);
-    expect(document.body.textContent).not.toContain(
-      "Choose a Replacement Profile",
-    );
-  });
-
-  test("a referenced profile still reassigns its config references", async () => {
-    activeProfileState = "my-custom";
-    renderSection();
-    await clickDelete("My Custom");
-    await waitForDialog();
-
-    expect(document.body.textContent).toContain("is your default profile");
-    expect(document.body.textContent).not.toContain("runs 1 schedule");
-
-    fireEvent.click(confirmButton());
-    await waitFor(() => {
-      expect(configPatchBodies.length).toBe(2);
-    });
-    // No reassign call: the route does not exist on this assistant.
-    expect(reassignBodies).toEqual([]);
-    expect(scheduleQueries).toEqual([]);
-  });
-});
-
-// Mid-switch the identity store still holds the assistant the user just left.
-// The version gate is scoped to the assistant this section renders for, so a
-// new-enough *other* assistant must not answer for it: the flow waits for
-// asst-1's own identity and then obeys that version.
-describe("profile delete flow - identity fetched for another assistant", () => {
-  test("waits for this assistant's version instead of the outgoing one's", async () => {
-    useAssistantIdentityStore
-      .getState()
-      .setIdentity("Other", MIN_VERSION, "asst-2");
-    schedulesByProfile["my-custom"] = [
-      { name: "Morning digest", isDeferred: false },
-    ];
-    renderSection();
-    await clickDelete("My Custom");
-
-    // asst-2's 0.12.0 is on the store and would have authorized the scan.
-    expect(scheduleQueries).toEqual([]);
-    expect(configPatchBodies).toEqual([]);
-
-    // asst-1's own identity lands, and it predates the routes.
-    act(() => {
-      useAssistantIdentityStore
-        .getState()
-        .setIdentity("Test", "0.11.2", "asst-1");
-    });
-
-    await waitFor(() => {
-      expect(configPatchBodies.length).toBe(1);
-    });
-    expect(scheduleQueries).toEqual([]);
-    expect(reassignBodies).toEqual([]);
-  });
-});

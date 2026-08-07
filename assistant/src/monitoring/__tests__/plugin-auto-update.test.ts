@@ -10,6 +10,11 @@
  *     stamp survives restarts;
  *   - only plugins that can actually move reach the daemon — up-to-date and
  *     disabled installs cost it nothing;
+ *   - only curated marketplace installs are swept: a plugin installed straight
+ *     from a GitHub URL, or one whose recorded source disagrees with the
+ *     catalog entry claiming its name, is left for a human to upgrade, and
+ *     every request the daemon does get carries `marketplaceOnly` so it
+ *     enforces that boundary against its own inspection;
  *   - one plugin's refusal does not stop the sweep, an unreachable daemon
  *     abandons it without stamping (so it retries), and a timed-out upgrade
  *     abandons it *with* a stamp (so the retry cannot race the handler that
@@ -56,6 +61,25 @@ afterAll(() => {
 let inspectStatus = new Map<string, string>();
 let inspectThrowsFor = new Set<string>();
 
+/** GitHub coordinates, as both the provenance sidecar and the catalog carry them. */
+interface Coordinates {
+  /** `owner/repo`. */
+  readonly repo: string;
+  /** Repo-relative plugin root; absent = repo root. */
+  readonly path?: string;
+}
+
+/**
+ * Provenance `inspectPlugin` reports per plugin name: where the installed copy
+ * says it came from, and where the catalog entry claiming that name points.
+ * Absent for a plugin that declares neither, which is what an older install
+ * with no sidecar looks like.
+ */
+let inspectProvenance = new Map<
+  string,
+  { readonly source?: Coordinates; readonly marketplace?: Coordinates }
+>();
+
 type UpgradeReply = {
   ok: boolean;
   result?: { outcome?: string; toCommit?: string };
@@ -68,6 +92,8 @@ let upgradeReply: (name: string) => UpgradeReply = () => ({
   result: { outcome: "upgraded", toCommit: "abc1234" },
 });
 const upgradeCalls: Array<{ name: string; strategy: unknown }> = [];
+/** Full request bodies, for the assertions that care about more than strategy. */
+const upgradeBodies: Array<Record<string, unknown>> = [];
 
 const realInspect = await import("../../cli/lib/inspect-plugin.js");
 const realIpcClient = await import("../../ipc/cli-client.js");
@@ -78,7 +104,20 @@ mock.module("../../cli/lib/inspect-plugin.js", () => ({
     if (inspectThrowsFor.has(name)) {
       throw new Error("marketplace unreachable");
     }
-    return { name, status: inspectStatus.get(name) ?? "up-to-date" };
+    const provenance = inspectProvenance.get(name);
+    const source = provenance?.source;
+    const marketplace = provenance?.marketplace;
+    const [owner = "", repo = ""] = source?.repo.split("/") ?? [];
+    return {
+      name,
+      status: inspectStatus.get(name) ?? "up-to-date",
+      local: source
+        ? { source: { kind: "github", owner, repo, path: source.path } }
+        : null,
+      remote: marketplace
+        ? { repo: marketplace.repo, path: marketplace.path ?? "" }
+        : null,
+    };
   },
 }));
 
@@ -86,12 +125,16 @@ mock.module("../../ipc/cli-client.js", () => ({
   ...realIpcClient,
   cliIpcCall: async (
     _method: string,
-    params: { pathParams: { name: string }; body: { strategy: unknown } },
+    params: {
+      pathParams: { name: string };
+      body: Record<string, unknown>;
+    },
   ) => {
     upgradeCalls.push({
       name: params.pathParams.name,
       strategy: params.body.strategy,
     });
+    upgradeBodies.push(params.body);
     return upgradeReply(params.pathParams.name);
   },
 }));
@@ -110,7 +153,14 @@ function writeConfig(pluginUpdates: Record<string, unknown>): void {
 /** Materialize an installed plugin and declare what inspect says about it. */
 function installPlugin(
   name: string,
-  opts: { status?: string; disabled?: boolean } = {},
+  opts: {
+    status?: string;
+    disabled?: boolean;
+    /** Coordinates the install's provenance sidecar records. */
+    source?: Coordinates;
+    /** Coordinates the catalog entry claiming this name points at. */
+    marketplace?: Coordinates;
+  } = {},
 ): void {
   const dir = join(PLUGINS_DIR, name);
   mkdirSync(dir, { recursive: true });
@@ -122,6 +172,12 @@ function installPlugin(
     writeFileSync(join(dir, ".disabled"), "");
   }
   inspectStatus.set(name, opts.status ?? "update-available");
+  if (opts.source || opts.marketplace) {
+    inspectProvenance.set(name, {
+      source: opts.source,
+      marketplace: opts.marketplace,
+    });
+  }
 }
 
 /** Backdate the stamp so the sweep is (or is not) due again. */
@@ -134,11 +190,13 @@ function stampAgedBy(ms: number): void {
 beforeEach(() => {
   inspectStatus = new Map();
   inspectThrowsFor = new Set();
+  inspectProvenance = new Map();
   upgradeReply = () => ({
     ok: true,
     result: { outcome: "upgraded", toCommit: "abc1234" },
   });
   upgradeCalls.length = 0;
+  upgradeBodies.length = 0;
   rmSync(STAMP, { force: true });
   rmSync(PLUGINS_DIR, { recursive: true, force: true });
   mkdirSync(PLUGINS_DIR, { recursive: true });
@@ -201,6 +259,111 @@ describe("plugin auto-update sweep", () => {
     await runPluginAutoUpdateSweepIfDue();
 
     expect(upgradeCalls.map((c) => c.name)).toEqual(["beta"]);
+  });
+
+  test("a plugin installed straight from a GitHub URL is never swept", async () => {
+    writeConfig({ mode: "auto" });
+    // No catalog entry claims the name, so its only upgrade target is whatever
+    // the recorded upstream ref points at right now. Nobody reviewed that.
+    installPlugin("alpha", { status: "not-in-marketplace" });
+    installPlugin("beta", { status: "update-available" });
+
+    const result = await runPluginAutoUpdateSweepIfDue();
+
+    expect(upgradeCalls.map((c) => c.name)).toEqual(["beta"]);
+    expect(result.skippedUntrusted).toEqual(["alpha"]);
+    expect(result.failed).toEqual([]);
+  });
+
+  test("every request asks the daemon to enforce the curated boundary itself", async () => {
+    writeConfig({ mode: "auto" });
+    installPlugin("alpha", { status: "update-available" });
+    installPlugin("beta", { status: "unknown-provenance" });
+
+    await runPluginAutoUpdateSweepIfDue();
+
+    // The daemon re-inspects before it moves anything, so a catalog entry that
+    // disappears after the inspection above would flip it to the direct path.
+    // `marketplaceOnly` makes the daemon refuse instead of following the
+    // install's mutable ref.
+    expect(upgradeBodies).toEqual([
+      { strategy: "theirs", marketplaceOnly: true },
+      { strategy: "theirs", marketplaceOnly: true },
+    ]);
+  });
+
+  test("a whole workspace of untrusted installs stamps instead of retrying every minute", async () => {
+    writeConfig({ mode: "auto" });
+    installPlugin("alpha", { status: "not-in-marketplace" });
+
+    const result = await runPluginAutoUpdateSweepIfDue();
+
+    expect(result.skipped).toBe("no-candidates");
+    expect(result.skippedUntrusted).toEqual(["alpha"]);
+    expect(upgradeCalls).toEqual([]);
+    expect(await runPluginAutoUpdateSweepIfDue()).toMatchObject({
+      skipped: "not-due",
+    });
+  });
+
+  test("an install whose source disagrees with the catalog is left alone", async () => {
+    writeConfig({ mode: "auto" });
+    // A direct install sitting on a curated plugin's name: only the name lines
+    // up, so the sweep must not swap it for the catalog's code.
+    installPlugin("alpha", {
+      status: "update-available",
+      source: { repo: "someone-else/alpha" },
+      marketplace: { repo: "vellum-ai/alpha" },
+    });
+
+    const result = await runPluginAutoUpdateSweepIfDue();
+
+    expect(upgradeCalls).toEqual([]);
+    expect(result.skippedUntrusted).toEqual(["alpha"]);
+  });
+
+  test("an install from the catalog's own repo is upgraded", async () => {
+    writeConfig({ mode: "auto" });
+    installPlugin("alpha", {
+      status: "update-available",
+      source: { repo: "vellum-ai/plugins", path: "alpha" },
+      marketplace: { repo: "vellum-ai/plugins", path: "alpha" },
+    });
+
+    const result = await runPluginAutoUpdateSweepIfDue();
+
+    expect(upgradeCalls.map((c) => c.name)).toEqual(["alpha"]);
+    expect(result.skippedUntrusted).toEqual([]);
+  });
+
+  test("a matching repo with a different plugin root is left alone", async () => {
+    writeConfig({ mode: "auto" });
+    // Same monorepo, different directory: not the plugin the catalog pins.
+    installPlugin("alpha", {
+      status: "update-available",
+      source: { repo: "vellum-ai/plugins", path: "experimental/alpha" },
+      marketplace: { repo: "vellum-ai/plugins", path: "alpha" },
+    });
+
+    const result = await runPluginAutoUpdateSweepIfDue();
+
+    expect(upgradeCalls).toEqual([]);
+    expect(result.skippedUntrusted).toEqual(["alpha"]);
+  });
+
+  test("an install with no recorded source is still re-pinned to the curated commit", async () => {
+    writeConfig({ mode: "auto" });
+    // An older or manually-copied copy: nothing about it contradicts the
+    // catalog, and the upgrade is what gives it provenance.
+    installPlugin("alpha", {
+      status: "unknown-provenance",
+      marketplace: { repo: "vellum-ai/alpha" },
+    });
+
+    const result = await runPluginAutoUpdateSweepIfDue();
+
+    expect(upgradeCalls.map((c) => c.name)).toEqual(["alpha"]);
+    expect(result.upgraded).toEqual(["alpha"]);
   });
 
   test("a disabled plugin is left alone", async () => {

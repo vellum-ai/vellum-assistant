@@ -24,6 +24,7 @@ import {
   findLatestSessionByStatuses,
 } from "../db/session-store.js";
 import { getLogger } from "../logger.js";
+import { checkIdentityMatch } from "../verification/identity-match.js";
 import {
   getRateLimit,
   recordInvalidAttempt,
@@ -134,61 +135,23 @@ export async function validateVerificationCode(
     };
   }
 
-  // Identity check for bound outbound sessions
-  const hasExpectedIdentity =
-    session.expectedExternalUserId != null ||
-    session.expectedChatId != null ||
-    session.expectedPhoneE164 != null;
-
-  if (hasExpectedIdentity && session.identityBindingStatus === "bound") {
-    let identityMatch = false;
-
-    if (session.expectedPhoneE164 != null) {
-      if (
-        fromNumber === session.expectedPhoneE164 ||
-        fromNumber === session.expectedExternalUserId
-      ) {
-        identityMatch = true;
-      }
-    }
-
-    if (!identityMatch && session.expectedChatId != null) {
-      if (session.expectedExternalUserId != null) {
-        if (fromNumber === session.expectedExternalUserId) {
-          identityMatch = true;
-        }
-      } else if (fromNumber === session.expectedChatId) {
-        identityMatch = true;
-      }
-    }
-
-    if (
-      !identityMatch &&
-      session.expectedPhoneE164 == null &&
-      session.expectedChatId == null &&
-      session.expectedExternalUserId != null
-    ) {
-      if (fromNumber === session.expectedExternalUserId) {
-        identityMatch = true;
-      }
-    }
-
-    if (!identityMatch) {
-      await recordInvalidAttempt("phone", fromNumber, fromNumber);
-      if (attempt + 1 >= MAX_ATTEMPTS) {
-        return {
-          success: false,
-          failureMessage: "Verification failed. Goodbye.",
-          exhausted: true,
-        };
-      }
-      const remaining = MAX_ATTEMPTS - attempt - 1;
+  // Identity check for bound outbound sessions. Voice has a single
+  // identifier for the caller, so it stands in for both actor axes.
+  if (!checkIdentityMatch(session, fromNumber, fromNumber)) {
+    await recordInvalidAttempt("phone", fromNumber, fromNumber);
+    if (attempt + 1 >= MAX_ATTEMPTS) {
       return {
         success: false,
-        failureMessage: `Incorrect code. You have ${remaining} ${remaining === 1 ? "attempt" : "attempts"} remaining. Please try again.`,
-        exhausted: false,
+        failureMessage: "Verification failed. Goodbye.",
+        exhausted: true,
       };
     }
+    const remaining = MAX_ATTEMPTS - attempt - 1;
+    return {
+      success: false,
+      failureMessage: `Incorrect code. You have ${remaining} ${remaining === 1 ? "attempt" : "attempts"} remaining. Please try again.`,
+      exhausted: false,
+    };
   }
 
   // Success — consume via the store's status-guarded UPDATE. A non-consumed

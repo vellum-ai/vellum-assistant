@@ -86,10 +86,17 @@ Note: Discord app secrets don't have a known prefix that triggers channel scanne
 
 Follow the `vellum-oauth-integrations` workflow to register the OAuth app, connect, and verify.
 
-Scopes to request: `identify guilds guilds.members.read messages.read`
+Scopes to request: `identify guilds guilds.members.read`
+
+This reaches the user's server list and their profile, not the contents of any
+channel. Discord's `messages.read` grants nothing to a server-side app (its
+docs scope it to a local RPC client), so asking for it only adds a permission
+to the consent screen.
 
 Send the returned auth URL to the user. Tell them to click **Authorize** on the Discord consent page.
 
 After authorization:
 
-> **Discord is connected!** You can now ask me to check your Discord servers, read messages, and look up server members.
+> **Discord is connected!** You can now ask me to check which Discord servers you are in and look up server members.
+>
+> This does not let me read your messages, and it is separate from putting a bot in a server so people can talk to me there.

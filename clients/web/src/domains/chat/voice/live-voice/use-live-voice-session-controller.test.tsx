@@ -107,7 +107,9 @@ const { useLiveVoiceStore } =
 // Harness
 // ---------------------------------------------------------------------------
 
-function renderPersistentController() {
+function renderPersistentController(
+  configureCapture?: (capture: FakeCapture) => void,
+) {
   // One client/capture pair per started session, like the real factories.
   const clients: FakeClient[] = [];
   const captures: FakeCapture[] = [];
@@ -126,6 +128,7 @@ function renderPersistentController() {
       createPlayer: () => player as unknown as LiveVoiceAudioPlayer,
       createCapture: (options) => {
         const capture = new FakeCapture(options);
+        configureCapture?.(capture);
         captures.push(capture);
         return capture as unknown as LiveVoiceAudioCapture;
       },
@@ -416,6 +419,71 @@ describe("native audio session", () => {
       await Promise.resolve();
     });
     expect(deactivateVoiceAudioSession).toHaveBeenCalledTimes(1);
+  });
+
+  test("Android starts background voice only after microphone capture succeeds", async () => {
+    onNativeAndroid = true;
+    const h = renderPersistentController((capture) => {
+      capture.deferStart = true;
+    });
+
+    await act(async () => {
+      useLiveVoiceStore.getState().starter?.start("assistant-1", "conv-1");
+      await Promise.resolve();
+    });
+    expect(useLiveVoiceStore.getState().state).toBe("connecting");
+    expect(activateVoiceAudioSession).not.toHaveBeenCalled();
+
+    await act(async () => {
+      h.lastCapture().resolveStart();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(activateVoiceAudioSession).toHaveBeenCalledTimes(1);
+  });
+
+  test("Android keeps background voice active while reconnecting", async () => {
+    onNativeAndroid = true;
+    const h = renderPersistentController();
+    await startListeningViaStarter(h);
+
+    await act(async () => {
+      useLiveVoiceStore.getState().setMicrophoneActive(false);
+      useLiveVoiceStore.getState().setState("connecting");
+      await Promise.resolve();
+    });
+
+    expect(activateVoiceAudioSession).toHaveBeenCalledTimes(1);
+    expect(deactivateVoiceAudioSession).not.toHaveBeenCalled();
+  });
+
+  test("Android preserves a pending background activation across reconnects", async () => {
+    onNativeAndroid = true;
+    let finishActivation: ((activated: boolean) => void) | undefined;
+    activateVoiceAudioSession.mockImplementation(
+      () =>
+        new Promise<boolean>((resolve) => {
+          finishActivation = resolve;
+        }),
+    );
+    renderPersistentController();
+
+    await act(async () => {
+      useLiveVoiceStore.getState().starter?.start("assistant-1", "conv-1");
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(activateVoiceAudioSession).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      useLiveVoiceStore.getState().setMicrophoneActive(false);
+      useLiveVoiceStore.getState().setState("connecting");
+      await Promise.resolve();
+      finishActivation?.(true);
+      await Promise.resolve();
+    });
+
+    expect(deactivateVoiceAudioSession).not.toHaveBeenCalled();
   });
 
   test("Android caps denied focus retries per session", async () => {

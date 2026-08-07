@@ -980,7 +980,12 @@ async function initiateVerificationChallenge(params: {
     try {
       [existingChallenge, existingSession] = await Promise.all([
         getPendingSession(sourceChannel),
-        findActiveSession(sourceChannel),
+        // Scoped to this sender. Reading the channel's latest and comparing
+        // its `expectedExternalUserId` misses their session whenever somebody
+        // else started more recently.
+        findActiveSession(sourceChannel, {
+          expectedExternalUserId: senderUserId,
+        }),
       ]);
     } catch (err) {
       log.warn(
@@ -992,8 +997,7 @@ async function initiateVerificationChallenge(params: {
     const senderHasPending =
       (existingChallenge &&
         existingChallenge.expectedExternalUserId === senderUserId) ||
-      (existingSession &&
-        existingSession.expectedExternalUserId === senderUserId);
+      existingSession != null;
     if (senderHasPending) {
       log.debug(
         {

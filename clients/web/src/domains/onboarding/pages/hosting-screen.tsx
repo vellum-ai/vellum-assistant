@@ -113,9 +113,9 @@ export function HostingScreen() {
   };
 
   return (
-    <OnboardingLayout>
+    <OnboardingLayout showAvatarWave>
       <div
-        className={`mx-auto flex w-full max-w-xl flex-col items-center ${electron ? "min-h-full px-8 pt-21 pb-4 electron-prechat-type" : "min-h-screen px-6 pb-40 pt-6"} text-[var(--content-default)]`}
+        className={`mx-auto flex w-full max-w-xl flex-col items-center ${electron ? "min-h-full px-8 pt-21 pb-4 electron-prechat-type" : "min-h-screen px-6 pb-40 pt-6 md:min-h-full md:pb-6"} text-[var(--content-default)]`}
       >
         {/* The main block floats in the space above the creature footer;
             electron keeps its compact top-aligned flow. */}

@@ -13,7 +13,7 @@ mock.module("../config/env.js", () => ({
 }));
 
 import {
-  batchSetDisplayOrders,
+  batchSetConversationPlacement,
   createConversation,
   updateConversationTitle,
 } from "../persistence/conversation-crud.js";
@@ -100,9 +100,7 @@ describe("conversation lineage in HTTP reads", () => {
 
   test("GET /v1/conversations/:id includes pin metadata when present", async () => {
     const conversation = createConversation("Pinned conversation");
-    batchSetDisplayOrders([
-      { id: conversation.id, displayOrder: 7, isPinned: true },
-    ]);
+    batchSetConversationPlacement([{ id: conversation.id, isPinned: true }]);
     await startServer();
 
     const response = await fetch(url(`/conversations/${conversation.id}`));
@@ -115,7 +113,6 @@ describe("conversation lineage in HTTP reads", () => {
     expect(body.conversation).toMatchObject({
       id: conversation.id,
       title: conversation.title ?? "Untitled",
-      displayOrder: 7,
       isPinned: true,
     });
   });

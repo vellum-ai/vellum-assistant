@@ -503,7 +503,8 @@ describe("emitAssistantReplyNotification", () => {
   });
 
   // Blank lines and list indentation would otherwise spend the preview's
-  // length budget on whitespace.
+  // length budget on whitespace. The bullets go with them: a lock screen
+  // renders the marker as literal punctuation, not as a list.
   test("collapses whitespace runs in the preview", async () => {
     assistantRow = makeAssistantRow([
       { type: "text", text: "  Here:\n\n  - item\n  - other  " },
@@ -512,8 +513,210 @@ describe("emitAssistantReplyNotification", () => {
     await run();
 
     expect(emitCalls[0].contextPayload.requestedMessage).toBe(
-      "Here: - item - other",
+      "Here: item other",
     );
+  });
+
+  // A lock screen renders no markdown, so syntax that survives to the APNs
+  // payload reads as punctuation soup. See `stripMarkdownForPreview`.
+  describe("markdown flattening", () => {
+    test("previews a media-only reply as its attachments", async () => {
+      assistantRow = makeAssistantRow([
+        {
+          type: "text",
+          text: [
+            "![vellum scene](vellum://workspace/clients/web/public/cut.mp4)",
+            "![hero animation](vellum://workspace/repos/hero.mp4)",
+          ].join(" "),
+        },
+      ] as ContentBlock[]);
+      assistantAttachments = [
+        { originalFilename: "cut.mp4" },
+        { originalFilename: "hero.mp4" },
+      ];
+
+      await run();
+
+      expect(emitCalls[0].contextPayload.requestedMessage).toBe(
+        "Sent 2 attachments",
+      );
+    });
+
+    test("keeps the prose when a reply mixes text and media", async () => {
+      assistantRow = makeAssistantRow([
+        {
+          type: "text",
+          text: "Here is the scene: ![vellum scene](vellum://workspace/a.mp4)",
+        },
+      ] as ContentBlock[]);
+
+      await run();
+
+      expect(emitCalls[0].contextPayload.requestedMessage).toBe(
+        "Here is the scene:",
+      );
+      // The text branch produced a preview, so the fallback never ran.
+      expect(attachmentLookups).toEqual([]);
+    });
+
+    test("previews a fenced code reply as its code", async () => {
+      assistantRow = makeAssistantRow([
+        { type: "text", text: "Fixed it:\n```ts\nconst a = 1;\n```" },
+      ] as ContentBlock[]);
+
+      await run();
+
+      expect(emitCalls[0].contextPayload.requestedMessage).toBe(
+        "Fixed it: const a = 1;",
+      );
+    });
+
+    test("previews a table reply as its cells", async () => {
+      assistantRow = makeAssistantRow([
+        {
+          type: "text",
+          text: "## Keys\n\n| Env | Key |\n|---|---|\n| dev | 4Y4L |",
+        },
+      ] as ContentBlock[]);
+
+      await run();
+
+      expect(emitCalls[0].contextPayload.requestedMessage).toBe(
+        "Keys Env Key dev 4Y4L",
+      );
+    });
+
+    // Remote embeds are as valid as `vellum://` ones per the system prompt, but
+    // they register nothing in the attachment store, so the alt text is the
+    // only thing left to name them by. Going silent here would be worse than
+    // the raw markdown this change removes.
+    test("names a remote embed by its alt text", async () => {
+      assistantRow = makeAssistantRow([
+        {
+          type: "text",
+          text: "![the Q3 chart](https://cdn.example.com/q3.png)",
+        },
+      ] as ContentBlock[]);
+
+      await run();
+
+      expect(emitCalls).toHaveLength(1);
+      expect(emitCalls[0].contextPayload.requestedMessage).toBe(
+        "Sent the Q3 chart",
+      );
+    });
+
+    test("counts several remote embeds", async () => {
+      assistantRow = makeAssistantRow([
+        {
+          type: "text",
+          text: "![one](https://e.com/1.png) ![two](https://e.com/2.png)",
+        },
+      ] as ContentBlock[]);
+
+      await run();
+
+      expect(emitCalls[0].contextPayload.requestedMessage).toBe(
+        "Sent 2 attachments",
+      );
+    });
+
+    test("falls back to generic copy for a remote embed with no alt", async () => {
+      assistantRow = makeAssistantRow([
+        { type: "text", text: "![](https://cdn.example.com/q3.png)" },
+      ] as ContentBlock[]);
+
+      await run();
+
+      expect(emitCalls[0].contextPayload.requestedMessage).toBe(
+        "Sent an attachment",
+      );
+    });
+
+    // A `vellum://` embed becomes an attachment row and a remote one does not,
+    // so the two sources have to be counted together, and the tracked embed
+    // must not be counted twice.
+    test("counts local and remote media together", async () => {
+      assistantRow = makeAssistantRow([
+        {
+          type: "text",
+          text: "![local](vellum://workspace/a.mp4) ![remote](https://e.com/b.png)",
+        },
+      ] as ContentBlock[]);
+      assistantAttachments = [{ originalFilename: "a.mp4" }];
+
+      await run();
+
+      expect(emitCalls[0].contextPayload.requestedMessage).toBe(
+        "Sent 2 attachments",
+      );
+    });
+
+    // `resolveAssistantAttachments` skips a file that is missing, oversized,
+    // unreadable, or denied at the host-read approval, so a `vellum://` embed
+    // can leave no row. Its alt is then the only label the reply has.
+    test("names a tracked embed whose attachment never resolved", async () => {
+      assistantRow = makeAssistantRow([
+        { type: "text", text: "![the diagram](vellum://workspace/gone.png)" },
+      ] as ContentBlock[]);
+      assistantAttachments = [];
+
+      await run();
+
+      expect(emitCalls).toHaveLength(1);
+      expect(emitCalls[0].contextPayload.requestedMessage).toBe(
+        "Sent the diagram",
+      );
+    });
+
+    test("counts only the tracked embeds that failed to resolve", async () => {
+      assistantRow = makeAssistantRow([
+        {
+          type: "text",
+          text: "![one](vellum://workspace/1.png) ![two](vellum://workspace/2.png)",
+        },
+      ] as ContentBlock[]);
+      assistantAttachments = [{ originalFilename: "1.png" }];
+
+      await run();
+
+      expect(emitCalls[0].contextPayload.requestedMessage).toBe(
+        "Sent 2 attachments",
+      );
+    });
+
+    test("does not double count an embed that became an attachment", async () => {
+      assistantRow = makeAssistantRow([
+        { type: "text", text: "![local](vellum://workspace/a.mp4)" },
+      ] as ContentBlock[]);
+      assistantAttachments = [{ originalFilename: "a.mp4" }];
+
+      await run();
+
+      expect(emitCalls[0].contextPayload.requestedMessage).toBe("Sent a.mp4");
+    });
+
+    test("prefers the attachment row over the alt text when both exist", async () => {
+      assistantRow = makeAssistantRow([
+        { type: "text", text: "![scene](vellum://workspace/cut.mp4)" },
+      ] as ContentBlock[]);
+      assistantAttachments = [{ originalFilename: "cut.mp4" }];
+
+      await run();
+
+      expect(emitCalls[0].contextPayload.requestedMessage).toBe("Sent cut.mp4");
+    });
+
+    test("stays silent when a reply has no text, attachments, or embeds", async () => {
+      assistantRow = makeAssistantRow([
+        { type: "text", text: "## \n\n---" },
+      ] as ContentBlock[]);
+
+      await run();
+
+      expect(emitCalls).toHaveLength(0);
+      expect(attachmentLookups).toEqual([ASSISTANT_MESSAGE_ID]);
+    });
   });
 
   // Each case asserts the shared classifier's verdict alongside the silence, so
