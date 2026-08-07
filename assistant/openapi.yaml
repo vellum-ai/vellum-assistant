@@ -15022,8 +15022,9 @@ paths:
       operationId: inference_send_post
       summary: Send a message to the configured LLM
       description:
-        Send a user message to the configured LLM provider and return the model response. Optionally specify a
-        system prompt, model override, named profile, or max tokens.
+        Send a user message to the configured LLM provider and return the model response. Supply either message for
+        a single user turn or messages for a conversation transcript, never both. Optionally specify a system prompt,
+        model override, named profile, or max tokens.
       tags:
         - inference
       requestBody:
@@ -15036,6 +15037,24 @@ paths:
                 message:
                   type: string
                   minLength: 1
+                messages:
+                  minItems: 1
+                  maxItems: 200
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      role:
+                        type: string
+                        enum:
+                          - user
+                          - assistant
+                      content:
+                        type: string
+                        minLength: 1
+                    required:
+                      - role
+                      - content
                 systemPrompt:
                   type: string
                 model:
@@ -15046,8 +15065,6 @@ paths:
                   type: integer
                   exclusiveMinimum: 0
                   maximum: 9007199254740991
-              required:
-                - message
       responses:
         "200":
           description: Successful response

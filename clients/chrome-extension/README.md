@@ -66,6 +66,14 @@ For automated publishing, the `release.yml` GitHub Actions workflow builds, pack
 
 That's it. The extension auto-reconnects on browser restarts, network drops, and assistant restarts. Click **Pause** to intentionally stop the relay.
 
+## Deslop
+
+The popup's **Deslop** button turns the current page into an inspect-element-style picker: hovering highlights the block under the cursor, clicking sends its text to your assistant with a plain-language rewrite prompt, and the response replaces the block's content in place. Rewritten blocks get a faint tint and a wand badge in their top-right corner. Press **Esc** to exit the picker; it stays active after a rewrite so you can clean up several blocks in one pass.
+
+Once Deslop has run on a page, highlighting any text raises a small menu above the selection with **Voice (v)** and **Chat (c)**; pressing a bare `v` or `c` picks the option without reaching for the mouse (voice is not built yet and says so). **Chat** opens a panel anchored to the highlight where you can ask questions about the highlighted text and follow up in a thread. The chat thread shares context with every rewrite made on that page, so you can rewrite a few blocks and then ask about them; the shared thread lives as long as the page does and resets on navigation.
+
+Rewrites go through the assistant's one-shot LLM endpoint (`POST /v1/inference/send`): via the local gateway for self-hosted assistants, or the platform's runtime proxy for cloud assistants. Deslop only works on regular `http(s)` pages (not `chrome://` pages or the Chrome Web Store).
+
 ## Environment Selector
 
 The popup's **Advanced** section includes an **Environment** dropdown that lets you switch between `local`, `dev`, `staging`, and `production` without rebuilding the extension. This controls which cloud API and web URLs are used for sign-in, pairing, and relay connections.
