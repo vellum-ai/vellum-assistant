@@ -12,6 +12,22 @@ export function baseLanguageSubtag(language?: string): string | undefined {
 }
 
 /**
+ * Whether the table carries its own entry for the language, keyed by
+ * lowercased base subtag. False for unset languages and for prototype keys
+ * ("constructor", "toString") rather than table entries. When this is
+ * false, {@link localizedOrDefault} returns the fallback, so callers whose
+ * fallback is English text can label the result as English (e.g. for a TTS
+ * language hint) instead of the requested language.
+ */
+export function hasLocalizedEntry(
+  table: Readonly<Record<string, unknown>>,
+  language: string | undefined,
+): boolean {
+  const base = baseLanguageSubtag(language);
+  return base !== undefined && Object.hasOwn(table, base);
+}
+
+/**
  * Look up a per-language value in a plain-record table keyed by lowercase
  * base subtags, falling back when the language is unset, unknown, or a
  * prototype key ("constructor", "toString") rather than a table entry.
@@ -21,9 +37,7 @@ export function localizedOrDefault<T>(
   language: string | undefined,
   fallback: T,
 ): T {
-  const base = baseLanguageSubtag(language);
-  if (base === undefined || !Object.hasOwn(table, base)) {
-    return fallback;
-  }
-  return table[base] as T;
+  return hasLocalizedEntry(table, language)
+    ? (table[baseLanguageSubtag(language)!] as T)
+    : fallback;
 }

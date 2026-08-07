@@ -5,6 +5,7 @@ import type {
   VoiceTurnCallbacks,
   VoiceTurnOptions,
 } from "../../calls/voice-session-bridge.js";
+import { loadRawConfig, saveRawConfig } from "../../config/loader.js";
 import type {
   LiveVoiceFrontModelConfig,
   LiveVoiceProgressConfig,
@@ -123,10 +124,13 @@ function createRecordingTtsStreamer(
 ): {
   streamTtsAudio: LiveVoiceTtsStreamer;
   ttsTexts: string[];
+  ttsCalls: LiveVoiceTtsOptions[];
 } {
   const ttsTexts: string[] = [];
+  const ttsCalls: LiveVoiceTtsOptions[] = [];
   const streamTtsAudio = mock(async (options: LiveVoiceTtsOptions) => {
     ttsTexts.push(options.text);
+    ttsCalls.push(options);
     await gateTtsText?.(options.text);
     return {
       provider: "fish-audio" as const,
@@ -136,7 +140,7 @@ function createRecordingTtsStreamer(
       bytes: Buffer.byteLength(options.text),
     };
   });
-  return { streamTtsAudio, ttsTexts };
+  return { streamTtsAudio, ttsTexts, ttsCalls };
 }
 
 function makeProgressDecider(
@@ -180,7 +184,7 @@ function createProgressHarness(options: {
   sttStopEvents?: SttStreamServerEvent[];
 }) {
   const { startVoiceTurn, getCallbacks } = createCapturingTurnStarter();
-  const { streamTtsAudio, ttsTexts } = createRecordingTtsStreamer(
+  const { streamTtsAudio, ttsTexts, ttsCalls } = createRecordingTtsStreamer(
     options.gateTtsText,
   );
   const { context, frames } = createContext();
@@ -196,7 +200,7 @@ function createProgressHarness(options: {
     emitMetrics: options.emitMetrics ?? false,
   });
 
-  return { frames, session, getCallbacks, ttsTexts };
+  return { frames, session, getCallbacks, ttsTexts, ttsCalls };
 }
 
 async function startReleasedTurn(
@@ -528,6 +532,55 @@ describe("LiveVoiceSession progress narration", () => {
     expect(inputs[0]?.languageHint).toBe("hi");
 
     emitMessageComplete(getCallbacks);
+  });
+
+  test("an out-of-roster pinned turn speaks the English fallback with an 'en' hint while model speech keeps the pin", async () => {
+    // "ar" is an accepted monolingual services.stt.language pin but has no
+    // entry in the localized phrase tables, so the idle fallback is English
+    // text. The filler segment must carry an "en" hint rather than the
+    // turn's "ar" (an enforcing TTS provider would otherwise render English
+    // words as Arabic). Model speech stays on the turn's language.
+    const originalRaw = loadRawConfig();
+    const rawServices = (originalRaw.services ?? {}) as Record<string, unknown>;
+    saveRawConfig({
+      ...originalRaw,
+      services: {
+        ...rawServices,
+        stt: {
+          ...((rawServices.stt ?? {}) as Record<string, unknown>),
+          provider: "deepgram",
+          language: "ar",
+        },
+      },
+    });
+    const generateProgressText = mock(async () => null);
+    const { session, getCallbacks, ttsTexts, ttsCalls } = createProgressHarness(
+      {
+        frontModelConfig: progressConfig({
+          idleIntervalMs: 40,
+          minGapMs: 60_000,
+        }),
+        frontDecider: makeProgressDecider(generateProgressText),
+      },
+    );
+
+    try {
+      await startReleasedTurn(session, getCallbacks);
+      await waitFor(() => ttsTexts.length === 1);
+
+      expect(ttsTexts[0]).toBe(EXPECTED_PROGRESS_FALLBACK);
+      expect(ttsCalls[0]?.language).toBe("en");
+
+      emitTextDelta(getCallbacks, "Okay.");
+      emitMessageComplete(getCallbacks);
+      await waitFor(() => ttsCalls.length >= 2);
+
+      expect(ttsCalls[1]?.text).toBe("Okay.");
+      expect(ttsCalls[1]?.language).toBe("ar");
+    } finally {
+      await session.close("websocket_close");
+      saveRawConfig(originalRaw);
+    }
   });
 
   test("the tool-start ack passes the turn's language hint to the decider", async () => {

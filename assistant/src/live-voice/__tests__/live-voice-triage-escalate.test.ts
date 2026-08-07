@@ -368,6 +368,51 @@ describe("live-voice triage-and-escalate routing", () => {
     expect(ttsCalls.every((call) => call.language === "hi")).toBe(true);
   });
 
+  test("escalating an out-of-roster-language turn hints the English fallback bridge as 'en'", async () => {
+    // "ar" is outside the localized bridge table, so the canned fallback is
+    // English text; its synthesis request must carry an "en" hint rather
+    // than the turn's "ar", while the escalated leg's model speech keeps
+    // the turn language.
+    const { starter } = scriptedStartVoiceTurn({
+      frontDoor: ["[1]"],
+      escalated: ["The thorough answer."],
+    });
+    const ttsCalls: LiveVoiceTtsOptions[] = [];
+    const streamTtsAudio = mock(async (options: LiveVoiceTtsOptions) => {
+      ttsCalls.push(options);
+      return {
+        provider: "fish-audio" as const,
+        contentType: "audio/pcm",
+        sampleRate: 24_000,
+        chunks: 0,
+        bytes: 0,
+      };
+    });
+    const { frames, session } = createHarness(starter, {
+      transcriber: new MockStreamingTranscriber([
+        { type: "final", text: "مرحبا", languages: ["ar"] },
+        { type: "closed" },
+      ]),
+      streamTtsAudio,
+    });
+
+    await driveTurn(session);
+    await waitFor(() => starter.mock.calls.length >= 2);
+    await waitFor(() => frames.some((frame) => frame.type === "tts_done"));
+
+    expect(starter.mock.calls[1]?.[0]?.spokenEscalationBridge).toBe(
+      FALLBACK_ESCALATION_BRIDGE,
+    );
+    const bridgeCall = ttsCalls.find(
+      (call) => call.text === sanitizeForTts(FALLBACK_ESCALATION_BRIDGE).trim(),
+    );
+    expect(bridgeCall?.language).toBe("en");
+    const answerCall = ttsCalls.find((call) =>
+      call.text.includes("The thorough answer"),
+    );
+    expect(answerCall?.language).toBe("ar");
+  });
+
   test("barge-in during the escalated leg aborts it", async () => {
     const { starter, escalatedAbort } = scriptedStartVoiceTurn({
       frontDoor: ["[1] ", "Let me think about that."],

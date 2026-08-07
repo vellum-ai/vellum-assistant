@@ -675,7 +675,9 @@ export class CallController {
         // lock-hold wait budget, so surface a brief natural re-prompt (never a
         // technical-error message) and re-arm listening. last=true doubles as
         // the end-of-turn marker.
-        this.transport.sendTextToken("Sorry, could you say that again?", true);
+        this.transport.sendTextToken("Sorry, could you say that again?", true, {
+          systemCopy: true,
+        });
         this.state = "idle";
         this.resetSilenceTimer();
         this.flushPendingInstructions();
@@ -685,6 +687,7 @@ export class CallController {
       this.transport.sendTextToken(
         "I'm sorry, I encountered a technical issue. Could you repeat that?",
         true,
+        { systemCopy: true },
       );
       this.state = "idle";
       this.resetSilenceTimer();
@@ -1818,6 +1821,7 @@ export class CallController {
         this.transport.sendTextToken(
           "Just to let you know, we're running low on time for this call.",
           true,
+          { systemCopy: true },
         );
       }, warningMs);
     }
@@ -1830,6 +1834,7 @@ export class CallController {
       this.transport.sendTextToken(
         "I'm sorry, but we've reached the maximum time for this call. Thank you for your time. Goodbye!",
         true,
+        { systemCopy: true },
       );
       // Give TTS a moment to play, then end
       this.durationEndTimer = setTimeout(() => {
@@ -1892,7 +1897,9 @@ export class CallController {
         { callSessionId: this.callSessionId },
         "Silence timeout triggered",
       );
-      this.transport.sendTextToken("Are you still there?", true);
+      this.transport.sendTextToken("Are you still there?", true, {
+        systemCopy: true,
+      });
     }, getSilenceTimeoutMs());
   }
 }

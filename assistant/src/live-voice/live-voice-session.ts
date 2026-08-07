@@ -25,6 +25,7 @@ import {
   classifyFrontDoorLeading,
   ESCALATE_VERDICT_TOKEN,
   ESCALATION_CONTINUATION_CONTENT,
+  FALLBACK_ESCALATION_BRIDGE_BY_LANGUAGE,
   fallbackEscalationBridgeFor,
   isEscalationBridgeComplete,
   MIN_SPOKEN_BRIDGE_CHARS,
@@ -68,6 +69,7 @@ import { liveVoiceEndScreen } from "../telemetry/live-voice-funnel.js";
 import { getToolOwner } from "../tools/registry.js";
 import { extractSpeakableSegments } from "../tts/speakable-segments.js";
 import { createAbortReason } from "../util/abort-reasons.js";
+import { hasLocalizedEntry } from "../util/language-subtag.js";
 import { getLogger } from "../util/logger.js";
 import {
   activityLabelForTool,
@@ -108,8 +110,10 @@ import type {
   LiveVoiceTtsResult,
 } from "./live-voice-tts.js";
 import {
+  APPROVAL_PENDING_PHRASE_BY_LANGUAGE,
   approvalPendingPhraseFor,
   pickProgressPhrase,
+  PROGRESS_FALLBACK_PHRASES_BY_LANGUAGE,
 } from "./progress-phrases.js";
 import {
   type LiveVoiceClientAttachImageFrame,
@@ -425,6 +429,11 @@ type UtteranceStartResult =
 // client in job-list order.
 interface TtsSegmentJob {
   readonly text: string;
+  // Per-segment language-hint override, preferred over the turn's language.
+  // Set on fixed phrases whose localized table lacks the turn's language:
+  // the English fallback text carries "en" so an enforcing provider never
+  // renders English words as ar/ko/ta. Undefined means the turn language.
+  readonly language: string | undefined;
   // The provider stream was started (the job holds an open-job slot).
   started: boolean;
   // Emission finished; the slot is free for the next queued segment.
@@ -2564,7 +2573,11 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     // down. One line, not narration: the turn is not working, it is waiting,
     // and it says which, in the turn's spoken language, like every other
     // filler phrase.
-    this.enqueueFillerPhrase(turn, approvalPendingPhraseFor(turn.language));
+    this.enqueueFillerPhrase(
+      turn,
+      approvalPendingPhraseFor(turn.language),
+      this.fixedPhraseLanguage(turn, APPROVAL_PENDING_PHRASE_BY_LANGUAGE),
+    );
   }
 
   /** Clear the wait once a decision lands, so the turn narrates normally again. */
@@ -4431,12 +4444,25 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
         { type: "assistant_text_delta", text: spokenBridge },
         () => !activeTurn.abortController.signal.aborted && !this.isClosed,
       );
+      this.bufferAssistantTextForTts(activeTurn.token, `${spokenBridge} `);
+      // Force-flush now: on the TTS path an unpunctuated bridge would
+      // otherwise sit buffered until a sentence boundary and leave the
+      // caller in silence during the escalated model's call.
+      this.flushTtsBuffer(activeTurn.token, true);
+    } else {
+      // The canned bridge is a fixed localized-table phrase, enqueued
+      // directly (it is already one complete sentence) so the segment can
+      // carry the "en" override when the table lacks the turn's language.
+      const speakable = sanitizeForTts(spokenBridge).trim();
+      if (speakable.length > 0) {
+        this.enqueueTtsSegment(activeTurn.token, speakable, {
+          language: this.fixedPhraseLanguage(
+            activeTurn,
+            FALLBACK_ESCALATION_BRIDGE_BY_LANGUAGE,
+          ),
+        });
+      }
     }
-    this.bufferAssistantTextForTts(activeTurn.token, `${spokenBridge} `);
-    // Force-flush now: on the TTS path an unpunctuated bridge would otherwise
-    // sit buffered until a sentence boundary and leave the caller in silence
-    // during the escalated model's call.
-    this.flushTtsBuffer(activeTurn.token, true);
 
     // No overrideProfile: the escalated leg runs on the call-site default —
     // the exact profile an un-routed voice turn would use (see
@@ -4829,13 +4855,20 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
         return;
       }
       let raw = generated;
+      // Decider text is generated in the turn's language; only the static
+      // fallback comes from a localized table and may need the "en" override.
+      let fillerLanguage: string | undefined;
       if (raw === null) {
         if (trigger !== "idle") {
           return;
         }
         raw = pickProgressPhrase(this.progressPhraseCounter++, turn.language);
+        fillerLanguage = this.fixedPhraseLanguage(
+          turn,
+          PROGRESS_FALLBACK_PHRASES_BY_LANGUAGE,
+        );
       }
-      if (!this.enqueueFillerPhrase(turn, raw)) {
+      if (!this.enqueueFillerPhrase(turn, raw, fillerLanguage)) {
         return;
       }
       progress.opsSinceNarration = 0;
@@ -4935,18 +4968,40 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
   // Sanitize and enqueue one filler sentence (spoken ack or progress
   // narration) on the turn's ordered TTS queue — the shared tail of every
   // filler path. Returns whether a phrase actually enqueued; per-kind metric
-  // marks and bookkeeping are the caller's.
-  private enqueueFillerPhrase(turn: ActiveAssistantTurn, raw: string): boolean {
+  // marks and bookkeeping are the caller's. `language` is a per-segment
+  // hint override (see fixedPhraseLanguage); omit it for generated text,
+  // which is already in the turn's language.
+  private enqueueFillerPhrase(
+    turn: ActiveAssistantTurn,
+    raw: string,
+    language?: string,
+  ): boolean {
     const phrase = sanitizeForTts(raw).trim();
     if (phrase.length === 0) {
       return false;
     }
     this.enqueueTtsSegment(turn.token, phrase, {
       countsAsFirstSegment: false,
+      ...(language !== undefined ? { language } : {}),
     });
     // A spoken filler holds the floor, so narration's minGapMs spaces from it.
     turn.progress.lastFloorHolderAtMs = Date.now();
     return true;
+  }
+
+  // The TTS hint override for a fixed phrase picked from a localized table:
+  // "en" when the turn has a language the table does not cover (the picker
+  // fell back to English text, which must not be synthesized under an
+  // ar/ko/ta hint), undefined otherwise (the segment rides the turn's
+  // language, or no hint at all when the language is unknown).
+  private fixedPhraseLanguage(
+    turn: ActiveAssistantTurn,
+    table: Readonly<Record<string, unknown>>,
+  ): string | undefined {
+    return turn.language !== undefined &&
+      !hasLocalizedEntry(table, turn.language)
+      ? "en"
+      : undefined;
   }
 
   private bufferAssistantTextForTts(token: symbol, text: string): void {
@@ -5069,7 +5124,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
   private enqueueTtsSegment(
     token: symbol,
     segment: string,
-    options: { countsAsFirstSegment?: boolean } = {},
+    options: { countsAsFirstSegment?: boolean; language?: string } = {},
   ): void {
     const activeTurn = this.activeAssistantTurn;
     if (activeTurn?.token !== token || !this.streamTtsAudio) {
@@ -5083,6 +5138,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     }
     const job: TtsSegmentJob = {
       text: segment,
+      language: options.language,
       started: false,
       settled: false,
       emitting: false,
@@ -5122,13 +5178,14 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
         return;
       }
       job.started = true;
+      // The segment's own language override (fixed English fallback text)
+      // wins over the turn's language.
+      const language = job.language ?? activeTurn.language;
       let synthesis: Promise<void>;
       try {
         synthesis = streamTtsAudio({
           text: job.text,
-          ...(activeTurn.language !== undefined
-            ? { language: activeTurn.language }
-            : {}),
+          ...(language !== undefined ? { language } : {}),
           signal: activeTurn.abortController.signal,
           outputFormat: "pcm",
           sampleRate: this.context.startFrame.audio.sampleRate,

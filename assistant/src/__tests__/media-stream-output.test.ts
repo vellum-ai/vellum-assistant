@@ -1242,6 +1242,28 @@ describe("MediaStreamOutput", () => {
       expect(request.language).toBe("es");
     });
 
+    test("fixed system copy synthesizes without the caller-language hint while model text keeps it", async () => {
+      const { ws } = createMockWs();
+      const output = makeOutput(ws, "stream-lang");
+      output.setSynthesisLanguageResolver(() => "ja");
+      mockSynthesize.mockResolvedValue({
+        audio: makeWavBuffer([1000, 2000, 3000, 4000]),
+        contentType: "audio/wav",
+      });
+
+      output.sendTextToken("Model reply.", true);
+      output.sendTextToken("Are you still there?", true, { systemCopy: true });
+      await drain(() => mockSynthesize.mock.calls.length >= 2);
+
+      const requests = mockSynthesize.mock.calls.map(
+        (call) => call[0] as { text: string; language?: string },
+      );
+      expect(requests[0]?.text).toBe("Model reply.");
+      expect(requests[0]?.language).toBe("ja");
+      expect(requests[1]?.text).toBe("Are you still there?");
+      expect(requests[1]?.language).toBeUndefined();
+    });
+
     test("no language when nothing resolves (default multilingual pin)", async () => {
       const { ws } = createMockWs();
       const output = makeOutput(ws, "stream-lang");
