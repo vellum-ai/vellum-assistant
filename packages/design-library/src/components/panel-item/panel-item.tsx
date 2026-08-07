@@ -153,6 +153,16 @@ interface PanelItemProps {
    * Radix `Slot`. When true, pass exactly one child element; PanelItem's own
    * `href` and `onSelect` props are ignored.
    */
+  /**
+   * This row is a control whose activation a parent owns - a popover or
+   * bottom-sheet trigger cloning it via `asChild`. Renders the same
+   * interactive shell `onSelect` does (role, tab stop, focus ring, pointer)
+   * without taking a handler, because the parent supplies `onClick` and
+   * `onKeyDown` itself. Without it the row renders as an inert `<div>`: the
+   * parent's handlers still land, so it works by mouse, and silently loses
+   * keyboard and screen-reader access.
+   */
+  trigger?: boolean;
   asChild?: boolean;
   /** Children. Required when `asChild` is true; ignored otherwise. */
   children?: ReactNode;
@@ -164,7 +174,11 @@ interface PanelItemProps {
 // ---------------------------------------------------------------------------
 
 const ROW_BASE_CLASSES = [
-  "group relative",
+  /* Named as well as bare: slot content targets this row with
+     `group-hover/panel-item:`, which an unnamed group does not match, and
+     existing callers still rely on plain `group-hover:`. Both markers, so
+     neither form silently stops working. */
+  "group/panel-item group relative",
   "flex h-8 max-md:h-auto w-full items-center justify-between",
   "rounded-[6px] p-[8px] max-md:py-3 gap-[4px]",
   "text-left text-body-medium-lighter max-md:text-body-large-default",
@@ -226,8 +240,14 @@ const PILL_SHAPE_CLASSES = [
   "text-[color:var(--panel-item-fg,inherit)]",
 ].join(" ");
 
+/* The active surface reads the same tint properties the resting one does, so
+   a tinted pill stays tinted while active. Without that, this rule and the
+   resting `--panel-item-bg` are different variants - tailwind-merge keeps
+   both, and the aria one wins whenever it applies, dropping the tint at
+   exactly the moment the row is the current page. Untinted callers reach
+   `--surface-active` as before. */
 const ACTIVE_DEFAULT_CLASSES = [
-  "aria-[current=page]:bg-[var(--surface-active)]",
+  "aria-[current=page]:bg-[var(--panel-item-active,var(--panel-item-bg,var(--surface-active)))]",
   "aria-[current=page]:text-[var(--content-emphasised)]",
 ].join(" ");
 
@@ -318,6 +338,7 @@ function PanelItem({
   marqueeOnHover = false,
   className,
   "aria-label": ariaLabel,
+  trigger = false,
   asChild = false,
   children,
   ref,
@@ -397,7 +418,7 @@ function PanelItem({
     activeVariant === "branded"
       ? ACTIVE_BRANDED_CLASSES
       : ACTIVE_DEFAULT_CLASSES;
-  const isInteractive = asChild || !!href || !!onSelect;
+  const isInteractive = asChild || !!href || !!onSelect || trigger;
   const rowClasses = cn(
     ROW_BASE_CLASSES,
     isInteractive && INTERACTIVE_CLASSES,
@@ -465,7 +486,7 @@ function PanelItem({
   // screen-reader semantics are preserved via `role="button"` + `tabIndex`.
   // `disabled` is honored via `aria-disabled` + skipped activation +
   // `tabIndex={-1}`, matching native `<button disabled>` behavior.
-  if (onSelect) {
+  if (onSelect || trigger) {
     const {
       onClick: rowOnClick,
       onKeyDown: rowOnKeyDown,
@@ -479,7 +500,7 @@ function PanelItem({
       }
       rowOnClick?.(event);
       if (!event.defaultPrevented) {
-        onSelect();
+        onSelect?.();
       }
     };
 
@@ -488,6 +509,10 @@ function PanelItem({
       rowOnKeyDown?.(event);
       if (event.defaultPrevented) return;
       if (event.key === "Enter" || event.key === " ") {
+        /* A trigger has no handler of its own; the parent's `onKeyDown` above
+           has already run and is what opens it. Preventing default here would
+           swallow the space key for it. */
+        if (!onSelect) return;
         event.preventDefault();
         onSelect();
       }

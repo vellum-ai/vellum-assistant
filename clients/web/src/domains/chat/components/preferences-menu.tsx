@@ -94,6 +94,9 @@ export function PreferencesMenu({
          overlay's floating action button. */
       <PanelItem
         shape="pill"
+        /* The popover owns the click, so this row takes no handler of its
+           own and needs telling that it is still a control. */
+        trigger
         icon={CircleUser}
         label={PREFERENCES_LABEL}
         expandChevron={isOpen ? ChevronDown : ChevronUp}
