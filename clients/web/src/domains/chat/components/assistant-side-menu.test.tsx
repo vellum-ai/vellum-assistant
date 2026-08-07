@@ -162,6 +162,7 @@ function renderMenu(props: {
   includeFooterAction?: boolean;
   includeTipCard?: boolean;
   isLoadingConversations?: boolean;
+  onWidthChange?: (width: number) => void;
 }): string {
   setSectionRows(props.conversations);
   const includeFooterAction = props.includeFooterAction ?? true;
@@ -174,6 +175,8 @@ function renderMenu(props: {
       isLoadingConversations: props.isLoadingConversations,
       conversationGroups: props.conversationGroups,
       activeConversationId: props.activeConversationId,
+      width: props.onWidthChange ? 280 : undefined,
+      onWidthChange: props.onWidthChange,
       onSelectConversation: () => {},
       footerAction: includeFooterAction
         ? createElement("span", null, "Preferences")
@@ -355,10 +358,28 @@ describe("AssistantSideMenu · drawer inset", () => {
       }
 
       expect(nav.className).toContain("p-0");
-      /* The scrollport's bleed cancelled a root inset that is now gone; left
-         in place it would overhang the rail and clip the cards. */
+      /* A bleeding scrollport would overhang a rail with no inset of its own
+         and clip the cards against it. */
       expect(body.className).not.toContain("-mx-4");
     }
+  });
+
+  /* The handle occupies the rail's last 6px, and a section card is its own
+     drag handle, so a card running under it would resize the rail on a grab
+     meant to reorder the section. */
+  test("a resizable rail holds the handle's strip clear of the cards", () => {
+    const container = parse(
+      renderMenu({
+        conversations: [makeConversation({ conversationId: "r1" })],
+        onWidthChange: () => {},
+      }),
+    );
+    const nav = container.querySelector<HTMLElement>("nav");
+    if (!nav) {
+      throw new Error("expected the side menu root");
+    }
+
+    expect(nav.className).toContain("pr-[6px]");
   });
 
   test("the overlay keeps the sheet's own padding", () => {

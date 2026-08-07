@@ -219,6 +219,8 @@ export function AssistantSideMenu({
   });
 
   const isCollapsedRail = collapsed && variant === "rail";
+  /* Mirrors `SideMenu`'s own condition for mounting the resize handle. */
+  const isResizable = variant === "rail" && !collapsed && onWidthChange != null;
 
   /* Gated on an empty list, not on the loading flag alone: a refetch over a
      populated sidebar keeps drawing the rows it already has rather than
@@ -416,16 +418,21 @@ export function AssistantSideMenu({
         variant={variant}
         width={width}
         onWidthChange={onWidthChange}
-        /* The cards carry the surface now, so the panel behind them is the
-           page background rather than a second one. The rail's own padding
-           goes with the surface: it was the panel's internal inset, and with
-           no panel it stacks on the page layout's padding as bare space
-           around the drawer. The overlay keeps the component's padding - it
-           is a full-bleed sheet whose inset is all that keeps content off
-           the screen edges. */
+        /* The cards and pills carry the surface, so the panel behind them is
+           the page background and the rail carries no chrome of its own: no
+           border, no fill, and no padding, which leaves the page layout's
+           own padding as the drawer's only inset and lets the cards span the
+           rail's full width. The overlay keeps the component's padding - it
+           is a full-bleed sheet whose inset is all that keeps content off the
+           screen edges.
+
+           The resize handle sits in the rail's last 6px, and the cards are
+           their own drag handles for section reordering, so the scrollport
+           holds that strip clear: overlapped, a grab on a card's right edge
+           resizes the rail instead of picking the section up. */
         className={cn(
           "relative h-full border-0 bg-transparent",
-          variant === "rail" && "p-0",
+          variant === "rail" && (isResizable ? "p-0 pr-[6px]" : "p-0"),
         )}
       >
         <SideMenu.Header>
