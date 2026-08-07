@@ -54,8 +54,12 @@ import { ROUTES } from "../runtime/routes/index.js";
 import type {
   RouteDefinition,
   RouteHandlerArgs,
+  StreamingRouteResponse,
 } from "../runtime/routes/types.js";
-import { RouteResponse } from "../runtime/routes/types.js";
+import {
+  isStreamingRouteResponse,
+  RouteResponse,
+} from "../runtime/routes/types.js";
 import { getLogger } from "../util/logger.js";
 import { CONTACTS_INFO_IPC_METHODS } from "./routes/contacts-info-ipc-routes.js";
 import { CONTACTS_MIRROR_IPC_METHODS } from "./routes/contacts-mirror-ipc-routes.js";
@@ -102,33 +106,12 @@ export type IpcResponse = {
 };
 
 /**
- * Wrapper returned by route handlers that produce a streaming response.
- * The IPC server detects this and pipes the ReadableStream as chunked
- * binary frames instead of serializing to JSON.
- */
-export interface IpcStreamingResponse {
-  stream: ReadableStream<Uint8Array>;
-  headers: Record<string, string>;
-}
-
-/**
  * Wrapper returned by route handlers that produce a single binary response.
  * Sent as a JSON envelope with content-length followed by one binary frame.
  */
 export interface IpcBinaryResponse {
   binary: Uint8Array;
   headers: Record<string, string>;
-}
-
-function isIpcStreamingResponse(value: unknown): value is IpcStreamingResponse {
-  return (
-    value != null &&
-    typeof value === "object" &&
-    "stream" in value &&
-    (value as IpcStreamingResponse).stream instanceof ReadableStream &&
-    "headers" in value &&
-    typeof (value as IpcStreamingResponse).headers === "object"
-  );
 }
 
 function isIpcBinaryResponse(value: unknown): value is IpcBinaryResponse {
@@ -150,7 +133,7 @@ function isIpcBinaryResponse(value: unknown): value is IpcBinaryResponse {
  * These cannot be carried as a JSON `result` field, so over the IPC
  * transport they are reported as a structured error rather than silently
  * JSON-serialized into garbage. Distinct from the `IpcBinaryResponse` /
- * `IpcStreamingResponse` wrappers, which are explicit binary envelopes the
+ * `StreamingRouteResponse` wrappers, which are explicit binary envelopes the
  * framing protocol does transmit.
  */
 function isNonJsonIpcResult(value: unknown): boolean {
@@ -418,7 +401,7 @@ export class AssistantIpcServer {
           .then((value) => {
             // For streaming responses, keep the AbortController alive until the
             // stream ends — sendStreamingResponse deletes it on completion/error.
-            if (!isIpcStreamingResponse(value)) {
+            if (!isStreamingRouteResponse(value)) {
               this.abortControllers.delete(req.id);
             }
             this.sendResult(socket, reader, req.id, value);
@@ -433,7 +416,7 @@ export class AssistantIpcServer {
             );
           });
       } else {
-        if (!isIpcStreamingResponse(result)) {
+        if (!isStreamingRouteResponse(result)) {
           this.abortControllers.delete(req.id);
         }
         this.sendResult(socket, reader, req.id, result);
@@ -496,7 +479,7 @@ export class AssistantIpcServer {
 
   /**
    * Route a handler result to the appropriate send path:
-   * - IpcStreamingResponse → chunked binary frames
+   * - StreamingRouteResponse → chunked binary frames
    * - IpcBinaryResponse → single binary frame with content-length
    * - A raw binary/stream result (RouteResponse, Uint8Array, ...) → structured
    *   BINARY_UNSUPPORTED_OVER_IPC error (the transport can't carry it as JSON)
@@ -508,7 +491,7 @@ export class AssistantIpcServer {
     requestId: string,
     value: unknown,
   ): void {
-    if (isIpcStreamingResponse(value)) {
+    if (isStreamingRouteResponse(value)) {
       this.sendStreamingResponse(socket, reader, requestId, value);
     } else if (isIpcBinaryResponse(value)) {
       const envelope: IpcResponse = {
@@ -551,7 +534,7 @@ export class AssistantIpcServer {
     socket: Socket,
     reader: IpcFrameReader,
     requestId: string,
-    response: IpcStreamingResponse,
+    response: StreamingRouteResponse,
   ): void {
     if (socket.destroyed) {
       this.abortControllers.get(requestId)?.abort();
@@ -613,7 +596,7 @@ export class AssistantIpcServer {
     socket: Socket,
     reader: IpcFrameReader,
     requestId: string,
-    response: IpcStreamingResponse,
+    response: StreamingRouteResponse,
   ): void {
     const chunks: Uint8Array[] = [];
     const streamReader = response.stream.getReader();
