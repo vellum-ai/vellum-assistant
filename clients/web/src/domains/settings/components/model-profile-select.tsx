@@ -4,6 +4,8 @@ import { Select } from "@vellumai/design-library/components/select";
 
 import { useProfileOptions } from "@/domains/settings/hooks/use-profile-options";
 
+import type { SelectVariant } from "@vellumai/design-library/components/select";
+
 export interface ModelProfileSelectProps {
   assistantId: string;
   value: string | null;
@@ -26,6 +28,8 @@ export interface ModelProfileSelectProps {
    * pin names a profile that has since been deleted.
    */
   placeholder?: string;
+  /** Trigger chrome. `"ghost"` suits a run of otherwise read-only rows. */
+  variant?: SelectVariant;
 }
 
 export function ModelProfileSelect({
@@ -37,6 +41,7 @@ export function ModelProfileSelect({
   className,
   includeDefaultOption = true,
   placeholder,
+  variant,
 }: ModelProfileSelectProps) {
   const options = useProfileOptions(assistantId, value)
     .filter((option) => includeDefaultOption || option.value != null)
@@ -62,6 +67,7 @@ export function ModelProfileSelect({
       disabled={disabled || isSaving}
       placeholder={placeholder}
       className={className}
+      variant={variant}
       aria-label="Model profile"
     />
   );

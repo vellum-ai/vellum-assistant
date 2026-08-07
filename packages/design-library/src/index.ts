@@ -155,6 +155,7 @@ export {
   type SelectProps,
   type SelectMenuAlign,
   type SelectSize,
+  type SelectVariant,
 } from "./components/select";
 export {
   PanelItem,
