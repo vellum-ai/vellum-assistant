@@ -14,6 +14,7 @@ import type {
   ConversationStreamingMode,
   SttBoundaryId,
   SttProviderId,
+  SttTurnDetectionMode,
   TelephonySttMode,
 } from "../../stt/types.js";
 
@@ -87,6 +88,14 @@ interface SttProviderEntry {
   readonly conversationStreamingMode: ConversationStreamingMode;
 
   /**
+   * Whether the provider decides end-of-turn itself, in-band with the audio
+   * it transcribes, or leaves the boundary to the session's local silence
+   * timer. A live-voice session reads this to decide whether to arm its
+   * provider turn-end path; it never names a provider directly.
+   */
+  readonly turnDetection: SttTurnDetectionMode;
+
+  /**
    * Whether the provider can attribute transcribed speech to distinct
    * speakers (speaker diarization). When `true`, callers may opt in to
    * per-utterance speaker labels via the provider's streaming/batch
@@ -158,6 +167,7 @@ const CATALOG: ReadonlyMap<SttProviderId, SttProviderEntry> = new Map<
       ]),
       telephonyMode: "realtime-ws",
       conversationStreamingMode: "realtime-ws",
+      turnDetection: "none",
       supportsDiarization: true,
       languageSelection: "manual",
       credentialsGuide: DEEPGRAM_CREDENTIALS_GUIDE,
@@ -183,6 +193,9 @@ const CATALOG: ReadonlyMap<SttProviderId, SttProviderEntry> = new Map<
       // calls at all.
       telephonyMode: "none",
       conversationStreamingMode: "realtime-ws",
+      // Flux emits turn lifecycle events on its transcript stream and numbers
+      // them, so a live-voice session may let them commit the turn.
+      turnDetection: "provider",
       supportsDiarization: false,
       // "no picker", not native detection: the Flux model is English-only and
       // takes no language parameter, so audio in another language transcribes
@@ -208,6 +221,7 @@ const CATALOG: ReadonlyMap<SttProviderId, SttProviderEntry> = new Map<
       ]),
       telephonyMode: "batch-only",
       conversationStreamingMode: "realtime-ws",
+      turnDetection: "none",
       supportsDiarization: false,
       languageSelection: "auto",
       credentialsGuide: {
@@ -234,6 +248,7 @@ const CATALOG: ReadonlyMap<SttProviderId, SttProviderEntry> = new Map<
       ]),
       telephonyMode: "batch-only",
       conversationStreamingMode: "incremental-batch",
+      turnDetection: "none",
       supportsDiarization: false,
       languageSelection: "auto",
       credentialsGuide: {
@@ -260,6 +275,7 @@ const CATALOG: ReadonlyMap<SttProviderId, SttProviderEntry> = new Map<
       ]),
       telephonyMode: "realtime-ws",
       conversationStreamingMode: "realtime-ws",
+      turnDetection: "none",
       supportsDiarization: false,
       // The relay dials Deepgram nova-3 server-side, which takes an explicit
       // language parameter.
@@ -282,6 +298,7 @@ const CATALOG: ReadonlyMap<SttProviderId, SttProviderEntry> = new Map<
       ]),
       telephonyMode: "batch-only",
       conversationStreamingMode: "realtime-ws",
+      turnDetection: "none",
       supportsDiarization: true,
       languageSelection: "manual",
       credentialsGuide: {
@@ -374,6 +391,19 @@ export function batchBoundaryGapReason(id: SttProviderId): string {
  */
 export function supportsDiarization(id: SttProviderId): boolean {
   return CATALOG.get(id)?.supportsDiarization ?? false;
+}
+
+/**
+ * Check whether a provider decides end-of-turn itself.
+ *
+ * Returns `false` for unknown provider IDs, which keeps an unrecognized
+ * provider on the local silence boundary rather than waiting for turn events
+ * that will never arrive. A live-voice session reads this instead of naming a
+ * provider, so a new turn-detecting provider is a catalog entry rather than a
+ * session change.
+ */
+export function supportsProviderTurnDetection(id: SttProviderId): boolean {
+  return CATALOG.get(id)?.turnDetection === "provider";
 }
 
 /**

@@ -377,7 +377,7 @@ describe("LiveVoiceSession Flux end-of-turn", () => {
     await waitFor(() => turnCalls.length === 1);
 
     const metricsFrame = await waitForTurnMetrics(frames);
-    expect(metricsFrame.endpointDecisionSource).toBe("flux");
+    expect(metricsFrame.endpointDecisionSource).toBe("provider");
     expect(metricsFrame.endpointHoldCount).toBe(0);
 
     await session.close("client_end");
@@ -606,7 +606,7 @@ describe("LiveVoiceSession Flux end-of-turn", () => {
     expect(frames.some((frame) => frame.type === "utterance_end")).toBe(true);
 
     const metricsFrame = await waitForTurnMetrics(frames);
-    expect(metricsFrame.endpointDecisionSource).toBe("flux");
+    expect(metricsFrame.endpointDecisionSource).toBe("provider");
 
     await session.close("client_end");
   });

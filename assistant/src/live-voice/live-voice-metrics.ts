@@ -31,8 +31,8 @@ export type LiveVoiceMetricsEvent =
 export type VoiceEndpointAction = "release" | "hold";
 
 // Which decider produced the endpoint outcome: the speculative front-door
-// leg, or the Flux turn-detection stream.
-export type VoiceEndpointSource = "front-door" | "flux";
+// leg, or the STT provider's own turn-detection stream.
+export type VoiceEndpointSource = "front-door" | "provider";
 
 const DEFAULT_ENDPOINT_SOURCE: VoiceEndpointSource = "front-door";
 

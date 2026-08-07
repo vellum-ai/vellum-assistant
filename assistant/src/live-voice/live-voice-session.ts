@@ -48,6 +48,7 @@ import { ensureConversationExists } from "../persistence/conversation-crud.js";
 import {
   listProviderIds,
   supportsBoundary,
+  supportsProviderTurnDetection,
 } from "../providers/speech-to-text/provider-catalog.js";
 import type { ResolveStreamingTranscriberOptions } from "../providers/speech-to-text/resolve.js";
 import { broadcastMessage } from "../runtime/assistant-event-hub.js";
@@ -55,6 +56,7 @@ import { publishConversationListAndMetadataChanged } from "../runtime/sync/resou
 import { detectPcm16SpeechActivity } from "../stt/speech-energy.js";
 import type {
   StreamingTranscriber,
+  SttProviderId,
   SttStreamServerErrorEvent,
   SttStreamServerEvent,
 } from "../stt/types.js";
@@ -170,12 +172,12 @@ const BARGE_IN_GAP_TOLERANCE_MS = 200;
 // (1 / (1 + ratio) ≈ 20%): once the run is mostly silence it resets, so genuine
 // choppy speech still lands but periodic noise cannot accumulate into one.
 const BARGE_IN_MAX_TOLERATED_SILENCE_RATIO = 4;
-// Slack added to `liveVoice.flux.eotTimeoutMs` before the session stops
-// waiting for an end-of-turn event that is not coming and falls the utterance
-// back onto the silence-boundary path. Flux force-ends its own turn at
-// `eotTimeoutMs` of silence, so anything past that plus a frame's network and
-// parse hop means the stream is gone, not slow.
-const FLUX_TURN_END_FALLBACK_MARGIN_MS = 1_000;
+// Slack added to the configured end-of-turn timeout before the session stops
+// waiting for an event that is not coming and falls the utterance back onto
+// the silence-boundary path. A turn-detecting provider force-ends its own turn
+// at that timeout, so anything past it plus a frame's network and parse hop
+// means the stream is gone, not slow.
+const PROVIDER_TURN_END_FALLBACK_MARGIN_MS = 1_000;
 // At most this many TTS segment jobs are open (provider stream started,
 // frames not yet fully emitted) per turn: the emitting job plus one
 // prefetching job. The prefetch buffers its chunks in memory until promoted;
@@ -389,18 +391,19 @@ interface UtteranceCycle {
   // The provider's end-of-turn never arrived for this cycle, so it fell back
   // to the silence-boundary path and stays there: a late event must not
   // commit a boundary the fallback already owns.
-  fluxTurnEndTimedOut: boolean;
+  providerTurnEndTimedOut: boolean;
   // `vadSpeechGeneration` as of the local silence boundary that handed this
-  // cycle to Flux, or null while no boundary has fired yet (Flux routinely
-  // beats the trailing-silence countdown, and that fast commit is the point).
+  // cycle to the provider, or null while no boundary has fired yet (a turn
+  // model routinely beats the trailing-silence countdown, and that fast commit
+  // is the point).
   // The staleness signal of last resort: it stands in for the provider's own
-  // turn numbering when the provider sends none (see isStaleFluxTurnEnd).
-  fluxBoundaryGeneration: number | null;
+  // turn numbering when the provider sends none (see isStaleProviderTurnEnd).
+  turnBoundaryGeneration: number | null;
   // Index of the newest provider turn opened in this cycle, from the turn
   // model's own numbering, or null when the provider does not number its
   // turns. An end-of-turn closing an older index describes a turn the
-  // provider has already superseded (see isStaleFluxTurnEnd).
-  fluxOpenTurnIndex: number | null;
+  // provider has already superseded (see isStaleProviderTurnEnd).
+  openProviderTurnIndex: number | null;
   // The transcript the most recent hold verdict judged (unified front-door).
   // A final segment arriving during the extension window that extends this
   // text replays the boundary immediately — the hold was judged on stale
@@ -875,9 +878,9 @@ function createUtteranceCycle(): UtteranceCycle {
     finalTranscriptSegments: [],
     latestPartialText: null,
     endpointExtensionCount: 0,
-    fluxTurnEndTimedOut: false,
-    fluxBoundaryGeneration: null,
-    fluxOpenTurnIndex: null,
+    providerTurnEndTimedOut: false,
+    turnBoundaryGeneration: null,
+    openProviderTurnIndex: null,
     heldSpeculativeContent: null,
     turnId: null,
     userMessageId: null,
@@ -1164,24 +1167,25 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
   /**
    * Per-session latch: the provider's committed end-of-turn owns the turn
    * boundary instead of the silence boundary's front-door hold verdict. Set
-   * when the config flag is on AND the resolved streaming provider is
-   * `deepgram-flux` AND the session runs server VAD. Push-to-talk is excluded
-   * deliberately: there the client's release IS the boundary, and answering
-   * while the caller still holds the button is not turn detection, it is a
-   * bug. False leaves every other code path exactly as it is with no Flux in
-   * the picture.
+   * when the config flag is on AND the resolved streaming provider declares
+   * `turnDetection: "provider"` in the STT catalog AND the session runs server
+   * VAD. Push-to-talk is excluded deliberately: there the client's release IS
+   * the boundary, and answering while the caller still holds the button is not
+   * turn detection, it is a bug. False leaves every other code path exactly as
+   * it is, with no provider turn detection in the picture.
    */
-  private fluxTurnEndActive = false;
+  private providerTurnEndActive = false;
   // Wall-clock of the newest above-gate audio chunk, tracked in every
   // server-VAD session. It is the local VAD's speech-stop mark: the one anchor
   // the reported end-of-turn latency is measured from whichever decider
-  // commits the turn, and the anchor for the Flux fallback deadline. Null in
-  // push-to-talk, where no local VAD runs.
+  // commits the turn, and the anchor for the provider fallback deadline. Null
+  // in push-to-talk, where no local VAD runs.
   private localSpeechStopAtMs: number | null = null;
-  // Fail-open deadline for a Flux end-of-turn that never arrives. On expiry
-  // the utterance falls back to the silence-boundary path, so a dead Flux
-  // stream degrades to today's behavior instead of a hung turn.
-  private fluxTurnEndTimer: ReturnType<typeof setTimeout> | null = null;
+  // Fail-open deadline for a provider end-of-turn that never arrives. On
+  // expiry the utterance falls back to the silence-boundary path, so a dead
+  // provider stream degrades to the silence-path behavior instead of a hung
+  // turn.
+  private providerTurnEndTimer: ReturnType<typeof setTimeout> | null = null;
   // Effective trailing-silence threshold, mirroring the detector's private
   // copy (constructor seed + update_config), reported to the endpoint decider.
   private silenceThresholdMs: number;
@@ -1425,7 +1429,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     this.liveActivityReporter.end();
     this.turnDetector?.dispose();
     this.clearEndpointExtensionTimer();
-    this.clearFluxTurnEndTimer();
+    this.clearProviderTurnEndTimer();
     // There is no longer anyone on the call to speak to, so a queued
     // announcement cannot be spoken — but the answer behind it is finished
     // work the user asked for, so it takes the same conversation route a
@@ -1488,13 +1492,14 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       // waiting on this resolve, so the caller can speak and close an entire
       // silence boundary while the provider handshake is still in flight. A
       // latch still on its default `false` at that boundary hands the first
-      // turn of the session to the old silence path and then ignores the
-      // Flux end-of-turn that follows, which is invisible from the outside:
-      // the session looks like a Flux session while its opening turn is not
-      // one. The resolved provider reconciles this guess below.
-      this.setFluxTurnEndActive(
+      // turn of the session to the silence path and then ignores the
+      // provider end-of-turn that follows, which is invisible from the
+      // outside: the session looks like a turn-detecting session while its
+      // opening turn is not one. The resolved provider reconciles this guess
+      // below.
+      this.setProviderTurnEndActive(
         this.fluxConfig.turnEnd.enabled &&
-          stt.provider === "deepgram-flux" &&
+          supportsProviderTurnDetection(stt.provider as SttProviderId) &&
           this.turnDetector !== null,
       );
       const transcriber = await this.resolveTranscriber({
@@ -1510,7 +1515,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       if (!transcriber) {
         // No stream answered, so no end-of-turn ever will: the guess above
         // must not outlive the dial that disproved it.
-        this.setFluxTurnEndActive(false);
+        this.setProviderTurnEndActive(false);
         return {
           status: "unavailable",
           message: unavailableTranscriberMessage(),
@@ -1523,9 +1528,9 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       // change under a live session, so this normally confirms the guess; it
       // clears it when the dial fell back to another provider or resolved
       // one the config did not name.
-      this.setFluxTurnEndActive(
+      this.setProviderTurnEndActive(
         this.fluxConfig.turnEnd.enabled &&
-          transcriber.providerId === "deepgram-flux" &&
+          supportsProviderTurnDetection(transcriber.providerId) &&
           this.turnDetector !== null,
       );
       if (
@@ -1563,7 +1568,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       }
       // The dial threw, so the pre-dial guess is disproved the same way the
       // unavailable case disproves it: nothing will send an end-of-turn.
-      this.setFluxTurnEndActive(false);
+      this.setProviderTurnEndActive(false);
       return {
         status: "error",
         message: `Live voice transcription could not be started: ${errorMessage(
@@ -1691,7 +1696,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
 
     this.state = "failed";
     this.clearEndpointExtensionTimer();
-    this.clearFluxTurnEndTimer();
+    this.clearProviderTurnEndTimer();
     await this.sendFrame({
       type: "error",
       code:
@@ -1969,7 +1974,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     this.clearEndpointExtensionTimer();
     // ...and so is a fallback deadline armed for the boundary the caller just
     // spoke through. The next silence boundary arms a fresh one.
-    this.clearFluxTurnEndTimer();
+    this.clearProviderTurnEndTimer();
 
     // Speech resumed while a speculative leg was awaiting its verdict: the
     // pause was mid-thought after all. Discard silently (no frames were ever
@@ -2856,10 +2861,10 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       this.pendingBargeIn = null;
       if (reason === "max-duration") {
         // A max-duration boundary always releases: drop any pending hold
-        // replay (or Flux fallback deadline) so it cannot re-fire a boundary
-        // this one already owns.
+        // replay (or provider fallback deadline) so it cannot re-fire a
+        // boundary this one already owns.
         this.clearEndpointExtensionTimer();
-        this.clearFluxTurnEndTimer();
+        this.clearProviderTurnEndTimer();
       }
       const utterance = this.currentUtterance;
       if (!utterance || utterance.released || utterance.completed) {
@@ -2881,17 +2886,18 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       // release (ptt_release forced the boundary) is the user saying "answer
       // now" — never second-guess it.
       if (reason === "silence" && !manualRelease) {
-        // Flux owns this boundary: its end-of-turn commits the utterance, so
-        // the silence timer only arms the fail-open deadline. An utterance
-        // whose deadline already elapsed falls through to the hold path
-        // below, which is the whole point of the fallback.
-        if (this.fluxTurnEndActive && !utterance.fluxTurnEndTimedOut) {
+        // The provider owns this boundary: its end-of-turn commits the
+        // utterance, so the silence timer only arms the fail-open deadline. An
+        // utterance whose deadline already elapsed falls through to the hold
+        // path below, which is the whole point of the fallback.
+        if (this.providerTurnEndActive && !utterance.providerTurnEndTimedOut) {
           // Stamp the speech run this boundary closed. This is the staleness
           // signal of last resort, used only for a provider that does not
-          // number its turns: where Flux's own turn index is on the wire it
-          // answers the question directly (see isStaleFluxTurnEnd).
-          utterance.fluxBoundaryGeneration = this.vadSpeechGeneration;
-          this.armFluxTurnEndFallbackTimer(utterance);
+          // number its turns: where the provider's own turn index is on the
+          // wire it answers the question directly (see
+          // isStaleProviderTurnEnd).
+          utterance.turnBoundaryGeneration = this.vadSpeechGeneration;
+          this.armProviderTurnEndFallbackTimer(utterance);
           return;
         }
         if (await this.launchSpeculativeAssistantTurn(utterance)) {
@@ -2924,23 +2930,24 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     }, this.frontModelConfig.endpointExtensionMs);
   }
 
-  // Arms the fail-open deadline for a Flux end-of-turn. Flux force-ends its
-  // own turn after `eotTimeoutMs` of silence, so once that budget plus a
-  // margin has passed since the caller stopped speaking, no end-of-turn is
-  // coming and the utterance replays this boundary on the silence path.
+  // Arms the fail-open deadline for a provider end-of-turn. A turn-detecting
+  // provider force-ends its own turn after `eotTimeoutMs` of silence, so once
+  // that budget plus a margin has passed since the caller stopped speaking, no
+  // end-of-turn is coming and the utterance replays this boundary on the
+  // silence path.
   // `waitMsOverride` collapses that wait when the caller already knows no
-  // end-of-turn is coming (see setFluxTurnEndActive).
-  private armFluxTurnEndFallbackTimer(
+  // end-of-turn is coming (see setProviderTurnEndActive).
+  private armProviderTurnEndFallbackTimer(
     utterance: UtteranceCycle,
     waitMsOverride?: number,
   ): void {
-    this.clearFluxTurnEndTimer();
+    this.clearProviderTurnEndTimer();
     const budgetMs =
-      this.fluxConfig.eotTimeoutMs + FLUX_TURN_END_FALLBACK_MARGIN_MS;
+      this.fluxConfig.eotTimeoutMs + PROVIDER_TURN_END_FALLBACK_MARGIN_MS;
     const waitMs =
       waitMsOverride ?? Math.max(0, budgetMs - this.msSinceLocalSpeechStop());
-    this.fluxTurnEndTimer = setTimeout(() => {
-      this.fluxTurnEndTimer = null;
+    this.providerTurnEndTimer = setTimeout(() => {
+      this.providerTurnEndTimer = null;
       if (
         this.currentUtterance !== utterance ||
         utterance.released ||
@@ -2952,23 +2959,23 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       ) {
         return;
       }
-      utterance.fluxTurnEndTimedOut = true;
+      utterance.providerTurnEndTimedOut = true;
       log.warn(
         { budgetMs, waitMs },
-        "No Flux end-of-turn is coming; falling back to the silence boundary for this utterance",
+        "No provider end-of-turn is coming; falling back to the silence boundary for this utterance",
       );
       this.handleVadUtteranceEnd("silence");
     }, waitMs);
   }
 
   /**
-   * Flips the Flux end-of-turn latch, unwinding an optimistic arm.
+   * Flips the provider end-of-turn latch, unwinding an optimistic arm.
    *
    * `beginUtterance` arms the latch from the configured provider before the
-   * dial resolves, so a silence boundary can already have deferred to Flux by
-   * the time the resolved provider says otherwise. That deferred boundary is
-   * parked on the fail-open deadline, a whole Flux end-of-turn budget away,
-   * waiting for an event that will now never arrive. Collapse the wait to
+   * dial resolves, so a silence boundary can already have deferred to the
+   * provider by the time the resolved one says otherwise. That deferred
+   * boundary is parked on the fail-open deadline, a whole end-of-turn budget
+   * away, waiting for an event that will now never arrive. Collapse the wait to
    * zero rather than burn the budget: the deadline body re-checks the cycle
    * and replays the silence boundary, which with the latch down takes the
    * ordinary hold path. Replaying through the deadline instead of calling
@@ -2978,38 +2985,38 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
    * A cleared latch with no deadline armed needs no unwind: either no
    * boundary ever deferred, or the caller resumed speaking and
    * `handleVadSpeechStart` already dropped the deadline, leaving the detector
-   * owning the next boundary. The cycle's `fluxBoundaryGeneration` stamp is
-   * left as it is: `isStaleFluxTurnEnd` is only ever consulted from
-   * `handleFluxTurnEnd`, which returns immediately once the latch is down.
+   * owning the next boundary. The cycle's `turnBoundaryGeneration` stamp is
+   * left as it is: `isStaleProviderTurnEnd` is only ever consulted from
+   * `handleProviderTurnEnd`, which returns immediately once the latch is down.
    */
-  private setFluxTurnEndActive(active: boolean): void {
-    if (active === this.fluxTurnEndActive) {
+  private setProviderTurnEndActive(active: boolean): void {
+    if (active === this.providerTurnEndActive) {
       return;
     }
-    this.fluxTurnEndActive = active;
-    if (active || this.fluxTurnEndTimer === null) {
+    this.providerTurnEndActive = active;
+    if (active || this.providerTurnEndTimer === null) {
       return;
     }
     const utterance = this.currentUtterance;
-    this.clearFluxTurnEndTimer();
+    this.clearProviderTurnEndTimer();
     if (utterance && !utterance.released && !utterance.completed) {
-      this.armFluxTurnEndFallbackTimer(utterance, 0);
+      this.armProviderTurnEndFallbackTimer(utterance, 0);
     }
   }
 
   /**
    * Record the provider turn a cycle is currently inside. Providers without
    * turn numbering send no index, which leaves the cycle on the local speech
-   * generation as its only staleness signal (see isStaleFluxTurnEnd).
+   * generation as its only staleness signal (see isStaleProviderTurnEnd).
    */
-  private recordFluxTurnStart(
+  private recordProviderTurnStart(
     utterance: UtteranceCycle,
     turnIndex: number | undefined,
   ): void {
     if (turnIndex === undefined) {
       return;
     }
-    utterance.fluxOpenTurnIndex = turnIndex;
+    utterance.openProviderTurnIndex = turnIndex;
   }
 
   /**
@@ -3019,13 +3026,13 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
    * still routing the resumed speech into this same cycle, cutting off the
    * next words or folding them into the wrong turn.
    *
-   * Flux's own turn numbering answers this directly and is preferred
-   * wherever it is available: the cycle records the newest turn Flux has
-   * opened, so an end-of-turn for an older index closes a turn Flux itself
-   * has already superseded. An end-of-turn for the turn still in progress is
-   * never stale, however many times the caller drew breath inside it: the
-   * mid-thought pause is exactly the case Flux's turn model exists to judge,
-   * and its verdict covers the resumed speech too.
+   * The provider's own turn numbering answers this directly and is preferred
+   * wherever it is available: the cycle records the newest turn the provider
+   * has opened, so an end-of-turn for an older index closes a turn the
+   * provider itself has already superseded. An end-of-turn for the turn still
+   * in progress is never stale, however many times the caller drew breath
+   * inside it: the mid-thought pause is exactly the case a provider's turn
+   * model exists to judge, and its verdict covers the resumed speech too.
    *
    * With no turn numbering the local speech generation is the only signal
    * left. The silence boundary stamps the cycle with the generation it
@@ -3035,23 +3042,23 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
    * feature exists for, which the turn index would have committed. Before
    * any boundary has fired the stamp is null and nothing is stale.
    */
-  private isStaleFluxTurnEnd(
+  private isStaleProviderTurnEnd(
     utterance: UtteranceCycle,
     turnIndex: number | undefined,
   ): boolean {
-    if (turnIndex !== undefined && utterance.fluxOpenTurnIndex !== null) {
-      return turnIndex < utterance.fluxOpenTurnIndex;
+    if (turnIndex !== undefined && utterance.openProviderTurnIndex !== null) {
+      return turnIndex < utterance.openProviderTurnIndex;
     }
     return (
-      utterance.fluxBoundaryGeneration !== null &&
-      utterance.fluxBoundaryGeneration !== this.vadSpeechGeneration
+      utterance.turnBoundaryGeneration !== null &&
+      utterance.turnBoundaryGeneration !== this.vadSpeechGeneration
     );
   }
 
-  private clearFluxTurnEndTimer(): void {
-    if (this.fluxTurnEndTimer !== null) {
-      clearTimeout(this.fluxTurnEndTimer);
-      this.fluxTurnEndTimer = null;
+  private clearProviderTurnEndTimer(): void {
+    if (this.providerTurnEndTimer !== null) {
+      clearTimeout(this.providerTurnEndTimer);
+      this.providerTurnEndTimer = null;
     }
   }
 
@@ -3066,7 +3073,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
   }
 
   /**
-   * Flux committed an end of turn: the caller has finished, so the utterance
+   * The provider committed an end of turn: the caller has finished, so the utterance
    * commits now instead of waiting out the trailing-silence timer and asking
    * the front door whether the pause was mid-thought. This runs the ordinary
    * post-release path (utterance_end, then release), so the front-door leg it
@@ -3075,33 +3082,33 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
    * the caller has finished. The escalate verdict and the spoken ack /
    * progress phrasing are untouched; only the hold verdict is bypassed.
    */
-  private async handleFluxTurnEnd(
+  private async handleProviderTurnEnd(
     utterance: UtteranceCycle,
     turnIndex: number | undefined,
   ): Promise<void> {
     if (
-      !this.fluxTurnEndActive ||
+      !this.providerTurnEndActive ||
       this.currentUtterance !== utterance ||
       utterance.released ||
       utterance.completed ||
       utterance.assistantTurnStarted ||
       // The fallback already took this utterance back to the silence path.
-      utterance.fluxTurnEndTimedOut
+      utterance.providerTurnEndTimedOut
     ) {
       return;
     }
-    if (this.isStaleFluxTurnEnd(utterance, turnIndex)) {
+    if (this.isStaleProviderTurnEnd(utterance, turnIndex)) {
       // At `info`, not `debug`: a drop is rare and is the only signal of the
       // one known latency-outlier mode, so an operator measuring the two
       // paths has to be able to see it at the default log level.
       log.info(
         {
           turnIndex,
-          openTurnIndex: utterance.fluxOpenTurnIndex,
-          boundaryGeneration: utterance.fluxBoundaryGeneration,
+          openTurnIndex: utterance.openProviderTurnIndex,
+          boundaryGeneration: utterance.turnBoundaryGeneration,
           speechGeneration: this.vadSpeechGeneration,
         },
-        "Dropping a stale Flux end-of-turn: the caller resumed speaking past the boundary it closed",
+        "Dropping a stale provider end-of-turn: the caller resumed speaking past the boundary it closed",
       );
       // The cycle stays open and local VAD keeps routing the resumed speech
       // into it. The detector's next silence boundary re-stamps the
@@ -3111,23 +3118,23 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       // idle, so the deadline handleVadSpeechStart cleared can never strand
       // the cycle with nothing left to close it.
       if (this.turnDetector?.isActive !== true) {
-        utterance.fluxBoundaryGeneration = this.vadSpeechGeneration;
-        this.armFluxTurnEndFallbackTimer(utterance);
+        utterance.turnBoundaryGeneration = this.vadSpeechGeneration;
+        this.armProviderTurnEndFallbackTimer(utterance);
       }
       return;
     }
-    this.clearFluxTurnEndTimer();
+    this.clearProviderTurnEndTimer();
     this.markEndpointDecision(
       utterance,
       "release",
       this.msSinceLocalSpeechStop(),
-      "flux",
+      "provider",
     );
     await this.sendFrame({ type: "utterance_end", reason: "silence" });
     await this.releaseUtterance();
     // Leave the local detector idle, which is where every other commit path
-    // leaves it. Flux can close a turn while the trailing-silence countdown
-    // is still running, and barge-in fires from the detector's next speech
+    // leaves it. A provider can close a turn while the trailing-silence
+    // countdown is still running, and barge-in fires from the detector's speech
     // ONSET: a detector left mid-turn reports no onset, so the caller could
     // not interrupt the reply they just triggered. The forced boundary
     // reaches an already-released utterance and returns.
@@ -3346,7 +3353,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       !utterance.completed
     ) {
       this.clearEndpointExtensionTimer();
-      this.clearFluxTurnEndTimer();
+      this.clearProviderTurnEndTimer();
       await this.sendFrame({ type: "utterance_end", reason: "silence" });
     }
     await this.releaseUtterance();
@@ -3551,8 +3558,8 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
         // because a provider roundtrip cannot beat a local energy gate on an
         // interrupt during playback (see DEFAULT_BARGE_IN_MIN_SPEECH_MS). The
         // index is recorded so a later end-of-turn can be told apart from one
-        // this turn superseded (see isStaleFluxTurnEnd).
-        this.recordFluxTurnStart(utterance, event.turnIndex);
+        // this turn superseded (see isStaleProviderTurnEnd).
+        this.recordProviderTurnStart(utterance, event.turnIndex);
         return;
       case "eager-turn-end":
       case "turn-resumed":
@@ -3562,7 +3569,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
         // follow-up.
         return;
       case "turn-end":
-        await this.handleFluxTurnEnd(utterance, event.turnIndex);
+        await this.handleProviderTurnEnd(utterance, event.turnIndex);
         return;
       case "error":
         await this.sendTranscriberErrorFrame(event);
@@ -3692,10 +3699,10 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
         // because a provider roundtrip cannot beat a local energy gate on an
         // interrupt during playback (see DEFAULT_BARGE_IN_MIN_SPEECH_MS). The
         // index is recorded so a later end-of-turn can be told apart from one
-        // this turn superseded (see isStaleFluxTurnEnd).
+        // this turn superseded (see isStaleProviderTurnEnd).
         const target = this.pendingTranscriptCycle();
         if (target) {
-          this.recordFluxTurnStart(target, event.turnIndex);
+          this.recordProviderTurnStart(target, event.turnIndex);
         }
         return;
       }
@@ -3711,7 +3718,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
         // transcript owns the turn the provider just closed.
         const target = this.pendingTranscriptCycle();
         if (target) {
-          await this.handleFluxTurnEnd(target, event.turnIndex);
+          await this.handleProviderTurnEnd(target, event.turnIndex);
         }
         return;
       }
@@ -3835,9 +3842,9 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     this.takeVadPreRoll();
     this.vadPendingTurnEnd = null;
     // ...and abandons any semantic-endpointing hold still awaiting replay,
-    // along with any Flux end-of-turn the session was still waiting on.
+    // along with any provider end-of-turn the session was still waiting on.
     this.clearEndpointExtensionTimer();
-    this.clearFluxTurnEndTimer();
+    this.clearProviderTurnEndTimer();
     // A client interrupt is a hard reset: any barge-in merge context waiting for
     // the next turn is now stale (the interrupted utterance may be discarded
     // without ever reaching finalizePendingUtterance).
@@ -5661,7 +5668,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     action: VoiceEndpointAction,
     latencyMs: number,
     // Absent means the front door decided, which is what the collector
-    // defaults to; the Flux path names itself so one metrics frame can
+    // defaults to; the provider path names itself so one metrics frame can
     // compare the two.
     source?: VoiceEndpointSource,
   ): void {
@@ -5679,7 +5686,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
   /**
    * The turn's end-of-turn latency, stamped at the moment it commits. Called
    * from `releaseUtterance`, which every committed turn passes through
-   * whichever decider released it, so the front-door and Flux samples span
+   * whichever decider released it, so the front-door and provider samples span
    * the same thing from the same anchor over the same population. That is
    * what `endpointDecisionMaxLatencyMs` cannot offer, and why this exists
    * alongside it.
@@ -6091,7 +6098,7 @@ export function createLiveVoiceSession(
     bargeInMinSpeechMs:
       options.bargeInMinSpeechMs ?? vadConfig?.bargeInMinSpeechMs,
     frontModelConfig,
-    // Absent config leaves the schema defaults, which keep Flux turn
+    // Absent config leaves the schema defaults, which keep provider turn
     // detection off.
     fluxConfig: options.fluxConfig ?? liveVoiceConfig?.flux,
     // Eager construction is safe even when the `liveVoice.frontModel` config

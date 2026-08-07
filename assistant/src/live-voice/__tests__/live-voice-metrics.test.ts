@@ -376,19 +376,19 @@ describe("LiveVoiceMetricsCollector", () => {
     collector.markEndpointDecision("turn-src-flux", {
       action: "hold",
       latencyMs: 40,
-      source: "flux",
+      source: "provider",
     });
     collector.markEndpointDecision("turn-src-flux", {
       action: "release",
       latencyMs: 120,
-      source: "flux",
+      source: "provider",
     });
     const completed = collector.completeTurn();
 
     expect(completed).toMatchObject({
       endpointHoldCount: 1,
       endpointDecisionMaxLatencyMs: 120,
-      endpointDecisionSource: "flux",
+      endpointDecisionSource: "provider",
     });
     expect(
       getLiveVoiceMetricsAggregateFields(
@@ -398,7 +398,7 @@ describe("LiveVoiceMetricsCollector", () => {
     ).toMatchObject({
       endpointHoldCount: 1,
       endpointDecisionMaxLatencyMs: 120,
-      endpointDecisionSource: "flux",
+      endpointDecisionSource: "provider",
     });
   });
 
