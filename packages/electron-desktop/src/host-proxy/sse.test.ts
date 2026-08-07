@@ -1,13 +1,14 @@
-import { afterEach, describe, expect, mock, test } from "bun:test";
+import { afterEach, describe, expect, test } from "bun:test";
 
-// Stub device-id so we don't touch the filesystem.
 const MOCK_DEVICE_ID = "test-device-00000000-0000-0000-0000-000000000000";
-mock.module("./device-id", () => ({
-  getDeviceId: () => MOCK_DEVICE_ID,
-}));
+const clientHeaders = () => ({
+  "X-Vellum-Client-Id": MOCK_DEVICE_ID,
+  "X-Vellum-Interface-Id": "macos",
+  "X-Vellum-Machine-Name": "Example Mac",
+});
 
-const { HostProxySseClient } = await import("./host-proxy-sse");
-type HostProxySseMessage = import("./host-proxy-sse").HostProxySseMessage;
+const { HostProxySseClient } = await import("./sse");
+type HostProxySseMessage = import("./sse").HostProxySseMessage;
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -440,6 +441,7 @@ describe("HostProxySseClient", () => {
     client = new HostProxySseClient({
       eventsUrl: "http://127.0.0.1:8080/v1/events",
       authHeaders: () => ({ Authorization: "Bearer my-token" }),
+      clientHeaders,
       fetch: fakeFetch,
     });
     client.connect();
@@ -475,6 +477,7 @@ describe("HostProxySseClient", () => {
     client = new HostProxySseClient({
       eventsUrl: "https://platform.vellum.ai/v1/assistants/asst-123/events",
       authHeaders: () => ({ "X-Session-Token": "session-tok-abc" }),
+      clientHeaders,
       fetch: fakeFetch,
     });
     client.connect();

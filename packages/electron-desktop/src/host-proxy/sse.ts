@@ -10,15 +10,13 @@
  * — the caller provides the full events URL and an auth-headers builder.
  */
 
-import { hostname } from "node:os";
-
-import { getDeviceId } from "./device-id";
-
 export interface HostProxySseOptions {
   /** Full URL for the events endpoint. */
   eventsUrl: string;
   /** Called on every connect attempt to build auth headers. */
   authHeaders: () => Record<string, string>;
+  /** Platform identity headers included on every connect attempt. */
+  clientHeaders?: () => Record<string, string>;
   /** Injectable fetch for testing. Defaults to globalThis.fetch. */
   fetch?: typeof globalThis.fetch;
   /** Override idle timeout for testing. */
@@ -50,6 +48,7 @@ const IDLE_CHECK_INTERVAL_MS = 10_000;
 export class HostProxySseClient {
   private readonly eventsUrl: string;
   private readonly authHeaders: () => Record<string, string>;
+  private readonly clientHeaders: () => Record<string, string>;
   private readonly fetchFn: typeof globalThis.fetch;
   private readonly idleTimeoutMs: number;
   private readonly idleCheckIntervalMs: number;
@@ -68,6 +67,7 @@ export class HostProxySseClient {
   constructor(options: HostProxySseOptions) {
     this.eventsUrl = options.eventsUrl;
     this.authHeaders = options.authHeaders;
+    this.clientHeaders = options.clientHeaders ?? (() => ({}));
     this.fetchFn = options.fetch ?? globalThis.fetch;
     this.idleTimeoutMs = options.idleTimeoutMs ?? IDLE_TIMEOUT_MS;
     this.idleCheckIntervalMs = options.idleCheckIntervalMs ?? IDLE_CHECK_INTERVAL_MS;
@@ -113,9 +113,7 @@ export class HostProxySseClient {
 
     const headers: Record<string, string> = {
       Accept: "text/event-stream, application/json",
-      "X-Vellum-Client-Id": getDeviceId(),
-      "X-Vellum-Interface-Id": "macos",
-      "X-Vellum-Machine-Name": hostname(),
+      ...this.clientHeaders(),
       ...this.authHeaders(),
     };
 

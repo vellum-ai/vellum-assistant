@@ -9,6 +9,7 @@
     "./accelerator": "./src/accelerator.ts",
     "./app-origin": "./src/app-origin.ts",
     "./capability-registry": "./src/capability-registry.ts",
+    "./deep-links": "./src/deep-links.ts",
     "./commands": "./src/commands.ts",
     "./devtools": "./src/devtools.ts",
     "./diagnostics": "./src/diagnostics.ts",
@@ -18,8 +19,13 @@
     "./file-open-preload": "./src/file-open-preload.ts",
     "./global-shortcuts": "./src/global-shortcuts.ts",
     "./hotkeys": "./src/hotkeys.ts",
+    "./host-proxy/poster": "./src/host-proxy/poster.ts",
+    "./host-proxy/router": "./src/host-proxy/router.ts",
+    "./host-proxy/sse": "./src/host-proxy/sse.ts",
     "./image-context-menu": "./src/image-context-menu.ts",
     "./ipc": "./src/ipc.ts",
+    "./login-item": "./src/login-item.ts",
+    "./preload": "./src/preload.ts",
     "./redact": "./src/redact.ts",
     "./sentry": "./src/sentry.ts",
     "./settings": "./src/settings.ts",
@@ -32,7 +38,8 @@
   },
   "dependencies": {
     "@vellumai/electron-utils": "workspace:*",
-    "@vellumai/ipc-contract": "workspace:*"
+    "@vellumai/ipc-contract": "workspace:*",
+    "@vellumai/local-mode": "workspace:*"
   },
   "peerDependencies": {
     "@sentry/electron": ">=7.13.0",

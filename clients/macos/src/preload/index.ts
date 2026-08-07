@@ -54,6 +54,10 @@ import {
   FEEDBACK_DIAGNOSTICS,
   FEEDBACK_LOGS,
 } from "@vellumai/ipc-contract";
+import {
+  createDeepLinksBridge,
+  createLaunchAtLoginBridge,
+} from "@vellumai/electron-desktop/preload";
 
 export type {
   AppVersionInfo,
@@ -160,12 +164,7 @@ const bridge: VellumBridge = {
       };
     },
   },
-  launchAtLogin: {
-    get: (): Promise<boolean> =>
-      ipcRenderer.invoke("vellum:launchAtLogin:get") as Promise<boolean>,
-    set: (enabled: boolean): Promise<void> =>
-      ipcRenderer.invoke("vellum:launchAtLogin:set", enabled) as Promise<void>,
-  },
+  launchAtLogin: createLaunchAtLoginBridge(ipcRenderer),
   featureFlags: {
     set: (flags: Record<string, boolean>): void => {
       ipcRenderer.send(FEATURE_FLAGS_SET, flags);
@@ -412,25 +411,7 @@ const bridge: VellumBridge = {
       };
     },
   },
-  deepLinks: {
-    drain: (): Promise<DeepLink[]> =>
-      ipcRenderer.invoke("vellum:deepLinks:drain") as Promise<DeepLink[]>,
-    onLink: (callback) => {
-      const handler = (_event: IpcRendererEvent, payload: DeepLink) => {
-        callback(payload);
-      };
-      ipcRenderer.on("vellum:deepLinks:event", handler);
-      // Tell main we're listening so it switches from "buffer" mode
-      // to "broadcast only" mode. Without this, every live link
-      // would also enter the buffer and be replayed on a future
-      // drain (renderer reload, logout-relogin).
-      ipcRenderer.send("vellum:deepLinks:subscribe");
-      return () => {
-        ipcRenderer.off("vellum:deepLinks:event", handler);
-        ipcRenderer.send("vellum:deepLinks:unsubscribe");
-      };
-    },
-  },
+  deepLinks: createDeepLinksBridge(ipcRenderer),
   fileOpen: fileOpenBridge.fileOpen,
   paths: fileOpenBridge.paths,
   feedback: {
