@@ -7,6 +7,9 @@
  * overwritten, never user-provided custom titles.
  */
 
+import { resolveCallSiteConfig } from "../config/llm-resolver.js";
+import { getConfigReadOnly } from "../config/loader.js";
+import { isSubscriptionRouteRejection } from "../providers/connection-model-compat.js";
 import {
   createTimeout,
   extractAllText,
@@ -16,6 +19,7 @@ import {
 } from "../providers/provider-send-message.js";
 import type { Provider, ToolDefinition } from "../providers/types.js";
 import { publishConversationTitleChanged } from "../runtime/sync/resource-sync-events.js";
+import type { ProviderError } from "../util/errors.js";
 import { getLogger } from "../util/logger.js";
 import { Mutex } from "../util/mutex.js";
 import {
@@ -278,8 +282,9 @@ export function queueGenerateConversationTitle(
       await generateAndPersistConversationTitle(params);
     })
     .catch((err) => {
-      log.warn(
-        retryableFallbackLogFields(params, "generation_error", err),
+      logTitleGenerationFailure(
+        params,
+        err,
         "Conversation title generation used retryable fallback",
       );
       // Replace loading placeholder with a retryable fallback.
@@ -393,8 +398,13 @@ export function queueRegenerateConversationTitle(
       await regenerateConversationTitle(params);
     })
     .catch((err) => {
-      log.warn(
-        { err, conversationId: params.conversationId },
+      // The retry pass is where a permanent fault turns into a permanent
+      // "Untitled Conversation" — it is the last chance to upgrade a
+      // placeholder, and it writes nothing when it fails. Classify it the
+      // same way so that outcome is reported, not just noted.
+      logTitleGenerationFailure(
+        { conversationId: params.conversationId },
+        err,
         "Failed to regenerate conversation title (non-fatal)",
       );
     });
@@ -551,12 +561,18 @@ function titleGenerationLogFields(params: GenerateTitleParams) {
   };
 }
 
-type TitleGenerationFallbackReason =
+export type TitleGenerationFallbackReason =
   | "no_provider"
   | "empty_output"
-  | "generation_error";
+  | "generation_error"
+  /**
+   * The call site resolved to a model its connection will not serve. Unlike
+   * the other three this never clears on its own — every future conversation
+   * falls back too, until the configuration changes.
+   */
+  | "model_unavailable";
 
-function retryableFallbackLogFields(
+function titleFallbackLogFields(
   params: GenerateTitleParams,
   reason: TitleGenerationFallbackReason,
   err?: unknown,
@@ -577,9 +593,87 @@ function logRetryableFallback(
   reason: TitleGenerationFallbackReason,
 ): void {
   log.warn(
-    retryableFallbackLogFields(params, reason),
+    titleFallbackLogFields(params, reason),
     "Conversation title generation used retryable fallback",
   );
+}
+
+/**
+ * The `conversationTitle` call site's resolved routing, for a failure log.
+ * Read from config rather than off the error: the error names the connection
+ * that refused the call but never the model that was asked for, and the model
+ * is the half of that pair a reader most often has to change.
+ *
+ * Best-effort — a config read that throws must not displace the failure being
+ * reported.
+ */
+function resolvedTitleRouting(): Record<string, unknown> {
+  try {
+    const resolved = resolveCallSiteConfig(
+      "conversationTitle",
+      getConfigReadOnly().llm,
+    );
+    return { provider: resolved.provider, model: resolved.model };
+  } catch {
+    return {};
+  }
+}
+
+const MODEL_UNAVAILABLE_MESSAGE =
+  "Conversation titles cannot be generated: the conversationTitle call site resolves to a model its connection refuses. Conversations stay untitled until that model or connection changes — GET /v1/inference/callsites/conversationTitle explains the resolution.";
+
+/**
+ * Decide what a title-generation failure was and gather the evidence for it.
+ *
+ * A connection refusing the resolved model is a configuration fault — it will
+ * silently untitle every conversation from here on — so it carries both halves
+ * of the routing and the response that proves it. Everything else is a blip
+ * the next conversation may not hit.
+ *
+ * Separate from the logging so the classification is assertable on its own:
+ * the reason and its fields are the whole point of the report, and reading
+ * them back out of a log line tests the logger more than the decision.
+ */
+export function classifyTitleGenerationFailure(
+  params: GenerateTitleParams,
+  err: unknown,
+): { reason: TitleGenerationFallbackReason; fields: Record<string, unknown> } {
+  if (!isSubscriptionRouteRejection(err)) {
+    return {
+      reason: "generation_error",
+      fields: titleFallbackLogFields(params, "generation_error", err),
+    };
+  }
+  const providerError = err as ProviderError;
+  return {
+    reason: "model_unavailable",
+    fields: {
+      ...titleFallbackLogFields(params, "model_unavailable", err),
+      ...resolvedTitleRouting(),
+      connectionName: providerError.routeAttribution?.connectionName,
+      credentialSource: providerError.routeAttribution?.credentialSource,
+      httpStatus: providerError.statusCode,
+    },
+  };
+}
+
+/**
+ * Report a title-generation failure at a severity matching whether it can
+ * clear on its own. A retryable one stays at `warn` under the caller's own
+ * `retryableMessage` — the two queues do different things with a failure, and
+ * each describes what it actually did.
+ */
+function logTitleGenerationFailure(
+  params: GenerateTitleParams,
+  err: unknown,
+  retryableMessage: string,
+): void {
+  const { reason, fields } = classifyTitleGenerationFailure(params, err);
+  if (reason === "model_unavailable") {
+    log.error(fields, MODEL_UNAVAILABLE_MESSAGE);
+    return;
+  }
+  log.warn(fields, retryableMessage);
 }
 
 function deriveFallbackTitle(context?: TitleContext): string | null {

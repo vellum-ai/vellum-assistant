@@ -8,17 +8,26 @@
  * endpoint, which rejects non-Codex models with HTTP 400. The gate skips such
  * a connection during auto-resolution unless the model is Codex-compatible.
  *
- * Two layers are covered:
+ * Three layers are covered:
  *   1. `isConnectionCompatibleWithModel` — the pure predicate.
  *   2. `getConfiguredProvider` — the auto-resolution path that uses the
  *      predicate as an additional `.find()` filter, plus the pinned-connection
  *      path which bypasses the gate entirely.
+ *   3. `isSubscriptionRouteRejection` — the after-the-fact counterpart, for
+ *      callers holding the failure that a bypassed gate produced.
  */
 
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 import { setConfig } from "../../__tests__/helpers/set-config.js";
-import { isConnectionCompatibleWithModel } from "../connection-model-compat.js";
+import {
+  type ProviderCredentialSource,
+  ProviderError,
+} from "../../util/errors.js";
+import {
+  isConnectionCompatibleWithModel,
+  isSubscriptionRouteRejection,
+} from "../connection-model-compat.js";
 import type { Auth } from "../inference/auth.js";
 
 // ---------------------------------------------------------------------------
@@ -65,6 +74,49 @@ describe("isConnectionCompatibleWithModel", () => {
   test("undefined model applies no gating (compatible)", () => {
     const conn = { auth: oauthAuth };
     expect(isConnectionCompatibleWithModel(conn, undefined)).toBe(true);
+  });
+});
+
+describe("isSubscriptionRouteRejection", () => {
+  const rejection = (
+    statusCode: number,
+    credentialSource?: ProviderCredentialSource,
+  ) => {
+    const err = new ProviderError("rejected", "openai", statusCode);
+    if (credentialSource) {
+      err.attachRouteAttribution({ credentialSource });
+    }
+    return err;
+  };
+
+  test("a 400 on the subscription route is a rejection", () => {
+    expect(
+      isSubscriptionRouteRejection(rejection(400, "oauth-subscription")),
+    ).toBe(true);
+  });
+
+  test("other statuses on the subscription route stay retryable", () => {
+    // Rate limits and outages clear on their own; only the 400 is the
+    // endpoint refusing the request as configured.
+    expect(
+      isSubscriptionRouteRejection(rejection(429, "oauth-subscription")),
+    ).toBe(false);
+    expect(
+      isSubscriptionRouteRejection(rejection(500, "oauth-subscription")),
+    ).toBe(false);
+  });
+
+  test("a 400 on any other credential source is not this fault", () => {
+    expect(isSubscriptionRouteRejection(rejection(400, "byok"))).toBe(false);
+    expect(isSubscriptionRouteRejection(rejection(400, "vellum-managed"))).toBe(
+      false,
+    );
+    expect(isSubscriptionRouteRejection(rejection(400))).toBe(false);
+  });
+
+  test("non-provider errors are not rejections", () => {
+    expect(isSubscriptionRouteRejection(new Error("boom"))).toBe(false);
+    expect(isSubscriptionRouteRejection(undefined)).toBe(false);
   });
 });
 

@@ -238,6 +238,71 @@ describe("preflightResolvedConfig", () => {
     expect(err?.reason).toBe("model_incompatible");
   });
 
+  describe("a pinned subscription connection is judged on the model, not just its credential", () => {
+    // The routing-identity cases above cover the "chatgpt" pseudo-provider.
+    // This is the other shape: an ordinary provider="openai" config whose
+    // provider_connection names a subscription row. Dispatch bypasses the
+    // auto-resolution gate for a pinned connection, so preflight is the only
+    // place the incompatibility can be caught before the endpoint 400s.
+    beforeEach(() => {
+      connectionsByName["openai-codex"] = {
+        name: "openai-codex",
+        provider: "openai",
+        auth: {
+          type: "oauth_subscription",
+          credential: "credential/openai-codex/access_token",
+        },
+      };
+      secureKeys["credential/openai-codex/access_token"] = "tok";
+    });
+
+    const pinned = (model: string) =>
+      resolved({
+        provider: "openai",
+        provider_connection: "openai-codex",
+        model,
+      });
+
+    test("a non-Codex model throws model_incompatible naming the model", async () => {
+      const err = await preflightError(pinned("gpt-5.4-nano"));
+      expect(err?.reason).toBe("model_incompatible");
+      expect(err?.model).toBe("gpt-5.4-nano");
+      expect(err?.message).toContain("gpt-5.4-nano");
+      expect(err?.message).toContain("ChatGPT subscription");
+    });
+
+    test("a Codex model passes silently", async () => {
+      expect(await preflightError(pinned("gpt-5.4"))).toBeUndefined();
+    });
+
+    test("an unreachable credential store still reports the incompatibility", async () => {
+      // The model verdict does not depend on the credential probe, whose
+      // `indeterminate` result returns early — reaching it first would report
+      // this misconfiguration as healthy.
+      cesUnreachable = true;
+      const err = await preflightError(pinned("gpt-5.4-nano"));
+      expect(err?.reason).toBe("model_incompatible");
+    });
+
+    test("an api_key connection is never gated on the model", async () => {
+      connectionsByName["openai-key"] = {
+        name: "openai-key",
+        provider: "openai",
+        auth: { type: "api_key", credential: "credential/openai/api_key" },
+      };
+      secureKeys["credential/openai/api_key"] = "sk-openai";
+      expect(
+        await preflightError(
+          resolved({
+            provider: "openai",
+            provider_connection: "openai-key",
+            model: "gpt-5.4-nano",
+          }),
+        ),
+      ).toBeUndefined();
+    });
+  });
+
   test("the vellum managed connection serves managed-routable providers when logged in", async () => {
     connectionsByName = {
       vellum: {

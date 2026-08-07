@@ -100,11 +100,13 @@ mock.module("../runtime/sync/resource-sync-events.js", () => ({
 import {
   AUTO_TITLE_DETERMINISTIC,
   AUTO_TITLE_LLM,
+  classifyTitleGenerationFailure,
   generateAndPersistConversationTitle,
   queueGenerateConversationTitle,
   regenerateConversationTitle,
   titleMutex,
 } from "../persistence/conversation-title-service.js";
+import { ProviderError } from "../util/errors.js";
 
 describe("conversation-title-service", () => {
   beforeEach(() => {
@@ -564,5 +566,59 @@ describe("conversation-title-service", () => {
       mockUpdateConversationTitle.mock.calls as unknown as string[][]
     ).find((c) => c[0] === "conv-2" && c[1] === "Recovery Title");
     expect(secondUpdate).toBeTruthy();
+  });
+
+  describe("classifies a failure by whether it can clear on its own", () => {
+    /** A subscription connection refusing the resolved model: HTTP 400. */
+    function subscriptionRejection(): ProviderError {
+      const err = new ProviderError("unsupported model", "openai", 400);
+      err.attachRouteAttribution({
+        connectionName: "openai-codex",
+        credentialSource: "oauth-subscription",
+      });
+      return err;
+    }
+
+    test("a connection refusing the model reports the routing that caused it", () => {
+      const { reason, fields } = classifyTitleGenerationFailure(
+        { conversationId: "conv-1" },
+        subscriptionRejection(),
+      );
+
+      expect(reason).toBe("model_unavailable");
+      // Without the connection, the status, and which credential surface
+      // refused it, the report names a symptom instead of a cause.
+      expect(fields.connectionName).toBe("openai-codex");
+      expect(fields.credentialSource).toBe("oauth-subscription");
+      expect(fields.httpStatus).toBe(400);
+      expect(fields.conversationId).toBe("conv-1");
+    });
+
+    test("a transient failure stays retryable", () => {
+      const { reason } = classifyTitleGenerationFailure(
+        { conversationId: "conv-1" },
+        new Error("provider timeout"),
+      );
+      expect(reason).toBe("generation_error");
+    });
+
+    test("a rejection on any other credential source stays retryable", () => {
+      // Only the subscription route turns a 400 into a permanent fault. An
+      // API key answering 400 is a different failure and must not be reported
+      // as one the user has to reconfigure.
+      const byok = new ProviderError("bad request", "openai", 400);
+      byok.attachRouteAttribution({ credentialSource: "byok" });
+
+      const { reason } = classifyTitleGenerationFailure(
+        { conversationId: "conv-1" },
+        byok,
+      );
+      expect(reason).toBe("generation_error");
+    });
+
+    // Classification changes only how a failure is reported, never what the
+    // conversation is left showing: the fallback write on a thrown call is
+    // covered by "queue continues processing after a failed call" above, and
+    // a refusal takes that same path.
   });
 });
