@@ -1,0 +1,25 @@
+{
+  "projectId": "80c08f0d-078f-437b-ae69-a2d5d26f29a5",
+  "pkg": "@vellumai/design-library",
+  "globalName": "VellumDS",
+  "shape": "storybook",
+  "entry": "packages/design-library/src/index.ts",
+  "storybookConfigDir": "packages/design-library/.storybook",
+  "storybookStatic": ".design-sync/sb-reference",
+  "buildCmd": "sh .design-sync/prepare-build.sh",
+  "cssEntry": "dist/ds-styles.css",
+  "titleMap": {
+    "Toast": "Toaster"
+  },
+  "overrides": {
+    "Collapsible": { "cardMode": "column" },
+    "Input": { "cardMode": "column" },
+    "MarkdownMessage": { "cardMode": "column" },
+    "SegmentControl": { "cardMode": "column" },
+    "Select": { "cardMode": "column" },
+    "StatSquare": { "cardMode": "column" },
+    "Tabs": { "cardMode": "column" },
+    "VirtualList": { "cardMode": "column" },
+    "Tooltip": { "cardMode": "single", "primaryStory": "Default" }
+  }
+}

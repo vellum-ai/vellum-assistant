@@ -18,6 +18,9 @@
     "./utils/*": "./src/utils/*.ts",
     "./utils/portal-container": "./src/utils/portal-container.tsx"
   },
+  "publishConfig": {
+    "types": "dist/index.d.ts"
+  },
   "trustedDependencies": ["@playwright/browser-chromium"],
   "scripts": {
     "storybook": "storybook dev -p 6006",

@@ -146,3 +146,13 @@ meta/npm-shrinkwrap.json
 
 # Eval run artifacts — local only, never committed
 evals/
+
+# design-sync (claude.ai/design import) — build artifacts and verification state
+.design-sync/sb-reference/
+.design-sync/learnings/
+.design-sync/.cache/
+.design-sync/node_modules
+.design-sync/*.log
+.design-sync/upload-all.txt
+.ds-sync/
+ds-bundle/
