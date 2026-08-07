@@ -147,25 +147,29 @@ are disabled, and token values are never written to logs or crash metadata.
 The `VoiceAudioSession` plugin requests transient voice-communication audio focus while a live voice session is active. Calls and competing media produce the same interruption payload used by iOS.
 Wired and Bluetooth changes are nonfatal, duckable audio does not end voice, and focus is released when voice ends or the activity closes so interrupted media can resume.
 
-Microphone capture and the voice socket remain in the foreground WebView. No microphone foreground service is used.
-Physical-device background validation has not been completed, so app switching and screen locking are not supported as background voice behavior.
+The same lifecycle starts `VoiceModeService` while the app is visible and the
+microphone permission is active. This microphone foreground service keeps the
+WebView-owned capture, playback, and voice socket running when the screen locks
+or the user switches apps. It stops with audio focus when voice ends, fails, or
+the activity is torn down.
 
 ## Voice Status and Launch Surfaces
 
-`VoiceLiveActivity` mirrors the active web voice session into one stable ongoing
-notification. Connecting, listening, transcribing/thinking, and speaking update
-that notification in place. Ending, failure, app reset, activity teardown, and
-process recovery remove it. Tapping it sends the shared
+`VoiceLiveActivity` mirrors the active web voice session into the foreground
+service's one stable ongoing notification. Connecting, listening,
+transcribing/thinking, and speaking update that notification in place. Ending,
+failure, app reset, activity teardown, and process recovery remove it. Tapping
+it sends the shared
 `<scheme>://voice?mode=resume` command, whose web consumer restores the room for
 the conversation that owns the live session. It never creates a second voice
 session.
 
 On Android 16, the notification requests promoted Live Update treatment only
 when the system reports that promoted notifications are enabled and the built
-notification is eligible. Every supported Android version uses the standard
-ongoing notification as the baseline. Notification permission is never
-requested by the plugin, so voice continues normally when status notifications
-are unavailable.
+notification is eligible. Every supported Android version uses the required
+foreground-service notification as the baseline. Notification permission is
+never requested by the plugin, so voice continues normally when Android hides
+the notification from the notification drawer.
 
 The launcher exposes New chat and Start voice shortcuts. Users may also add the
 Start voice Quick Settings tile. The tile exists only while Android invokes its
@@ -182,7 +186,8 @@ Assistant surfaces are intentionally not advertised.
 
 Physical-device validation is still required for Android 16 promotion,
 notification permission changes, launcher shortcut ingestion, Quick Settings
-tile addition, lock-screen notification taps, and warm/cold voice launches.
+tile addition, background voice, lock-screen notification taps, and warm/cold
+voice launches.
 
 ## Native notifications
 
@@ -213,6 +218,7 @@ clients/
     │       │   ├── VoiceAudioSessionPlugin.java
     │       │   ├── VoiceDeepLink.java
     │       │   ├── VoiceLiveActivityPlugin.java
+    │       │   ├── VoiceModeService.java
     │       │   ├── VoiceQuickSettingsTileService.java
     │       │   └── WorkOSAuth.java
     │       └── res/              # Vellum icon, splash, colors, file paths
