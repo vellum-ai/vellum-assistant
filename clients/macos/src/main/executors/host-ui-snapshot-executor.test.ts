@@ -19,8 +19,8 @@ mock.module("electron-log/main", () => {
 
 import { createHostUiSnapshotExecutor } from "./host-ui-snapshot-executor";
 import type { StagedCaptureFn } from "./host-ui-snapshot-executor";
-import type { HostProxyPoster } from "@vellumai/host-proxy/poster";
-import type { HostProxySseMessage } from "@vellumai/host-proxy/sse";
+import type { HostProxyPoster } from "@vellumai/electron-desktop/host-proxy/poster";
+import type { HostProxySseMessage } from "@vellumai/electron-desktop/host-proxy/sse";
 
 const tick = () => new Promise((resolve) => setTimeout(resolve, 0));
 

@@ -4,7 +4,7 @@ import {
   createHostProxyClientHeaders,
   installHostProxyBridge as installSharedHostProxyBridge,
   type HostProxyRuntime,
-} from "@vellumai/host-proxy/router";
+} from "@vellumai/electron-desktop/host-proxy/router";
 import {
   getGuardianAccessToken,
   resolveConfigDir,

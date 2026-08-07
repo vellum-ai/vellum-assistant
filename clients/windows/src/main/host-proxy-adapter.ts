@@ -3,7 +3,7 @@ import { hostname } from "node:os";
 import {
   createHostProxyClientHeaders,
   type HostProxyRuntime,
-} from "@vellumai/host-proxy/router";
+} from "@vellumai/electron-desktop/host-proxy/router";
 
 export type WindowsHostProxySources = Omit<
   HostProxyRuntime,

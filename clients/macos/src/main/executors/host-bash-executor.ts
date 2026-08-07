@@ -8,9 +8,9 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import { homedir } from "node:os";
 
-import type { HostProxyExecutor } from "@vellumai/host-proxy/router";
-import type { HostProxySseMessage } from "@vellumai/host-proxy/sse";
-import type { HostProxyPoster } from "@vellumai/host-proxy/poster";
+import type { HostProxyExecutor } from "@vellumai/electron-desktop/host-proxy/router";
+import type { HostProxySseMessage } from "@vellumai/electron-desktop/host-proxy/sse";
+import type { HostProxyPoster } from "@vellumai/electron-desktop/host-proxy/poster";
 import log from "../logger";
 
 const DEFAULT_TIMEOUT_SECONDS = 120;

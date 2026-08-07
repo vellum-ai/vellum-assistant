@@ -10,9 +10,9 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import type { Stats } from "node:fs";
 
-import type { HostProxyExecutor } from "@vellumai/host-proxy/router";
-import type { HostProxyPoster } from "@vellumai/host-proxy/poster";
-import type { HostProxySseMessage } from "@vellumai/host-proxy/sse";
+import type { HostProxyExecutor } from "@vellumai/electron-desktop/host-proxy/router";
+import type { HostProxyPoster } from "@vellumai/electron-desktop/host-proxy/poster";
+import type { HostProxySseMessage } from "@vellumai/electron-desktop/host-proxy/sse";
 import log from "../logger";
 
 // ---------------------------------------------------------------------------
