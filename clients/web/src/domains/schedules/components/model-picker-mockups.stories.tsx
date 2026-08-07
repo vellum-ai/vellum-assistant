@@ -62,7 +62,12 @@ function PanelFrame({ children }: { children: ReactNode }) {
   return (
     <div className="w-[420px] rounded-xl border border-[var(--border-base)] bg-[var(--surface-base)]">
       <div className="border-b border-[var(--border-base)] px-4 py-3">
-        <Typography variant="title-small">Drink water reminder</Typography>
+        <Typography
+          variant="title-small"
+          className="text-[var(--content-default)]"
+        >
+          Drink water reminder
+        </Typography>
       </div>
       <div className="space-y-6 p-4">
         <p className="text-body-medium-lighter text-[var(--content-secondary)]">
