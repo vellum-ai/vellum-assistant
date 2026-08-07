@@ -6,6 +6,12 @@
  * composition and store wiring (open, unpin, collapsed omission) rather than
  * Radix ContextMenu internals. `onSelect` is surfaced as an `onClick` so
  * happy-dom can drive it.
+ *
+ * `PanelItem` is deliberately *not* mocked. The expanded row is a real pill
+ * now, and its role, accessible name and active marker are what the assertions
+ * below turn on, so a stand-in would be asserting the stand-in's own markers.
+ * The collapsed rail still renders `SideMenu.Item`, which is why the mock is
+ * still here.
  */
 
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
@@ -94,8 +100,13 @@ describe("PinnedAppNavItem", () => {
       />,
     );
 
-    const row = screen.getByTestId("app-row");
-    expect(row.textContent).toBe("My App");
+    /* Queried by accessible name, not by test id: the pill carries the app's
+       icon as an emoji next to the label, and the emoji is `aria-hidden`
+       precisely so the row announces "My App" rather than "🚀 My App". An
+       exact-name match is what holds that - it fails if the emoji ever leaks
+       into the name. */
+    const row = screen.getByRole("button", { name: "My App" });
+    expect(row.textContent).toContain("My App");
 
     fireEvent.click(row);
     expect(onOpen).toHaveBeenCalledTimes(1);
@@ -141,10 +152,25 @@ describe("PinnedAppNavItem", () => {
     expect(screen.queryByRole("button", { name: "Unpin My App" })).toBeNull();
   });
 
-  test("marks the row active when active is true", () => {
+  /* `aria-current="page"` rather than a `data-active` attribute: the pill's
+     active state is the one assistive tech reads, and it is what the pill's
+     own active styling is keyed off (`aria-[current=page]:` classes), so
+     asserting it covers both. Both states, because an attribute that is always
+     set marks every row as the current one. */
+  test("marks the row as the current page only while active", () => {
     render(<PinnedAppNavItem app={APP} active collapsed={false} />);
-    expect(screen.getByTestId("app-row").getAttribute("data-active")).toBe(
-      "true",
-    );
+    expect(
+      screen
+        .getByRole("button", { name: "My App" })
+        .getAttribute("aria-current"),
+    ).toBe("page");
+
+    cleanup();
+    render(<PinnedAppNavItem app={APP} active={false} collapsed={false} />);
+    expect(
+      screen
+        .getByRole("button", { name: "My App" })
+        .getAttribute("aria-current"),
+    ).toBeNull();
   });
 });

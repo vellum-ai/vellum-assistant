@@ -288,12 +288,21 @@ describe("useSidebarState all view", () => {
     expect(flatIds).not.toContain("g1");
   });
 
-  test("renders only the curated sections above the list", () => {
+  /* Chats is a section in this view too, not a bare list under the curated
+     ones. It used to be absent here, which is what made All view a different
+     shape from Grouped rather than the same shape with the channel sections
+     folded in: nothing owned the chat list, so it had no card, no header and
+     no menu, and the menu is where the switch back to Grouped lives.
+
+     What All view *doesn't* have is channel sections, which is the whole
+     difference between the two views. */
+  test("gives the flat list its own Chats section, with no channel sections", () => {
     const { result } = renderSidebar();
 
     expect(result.current.sections.map((s) => s.key)).toEqual([
       "pinned",
       "grp-a",
+      "recents",
     ]);
   });
 
@@ -367,7 +376,14 @@ describe("useSidebarState section order", () => {
     ]);
   });
 
-  test("a channel section settles back below the custom groups", () => {
+  /* A channel section may sit above a custom group. This used to be pulled
+     back: sections were split into a curated tier (Pinned, the custom groups)
+     and a governed one (Chats, the channels), and no order could cross the
+     boundary, because the view switch was drawn on it. The switch moved into
+     the sections' own menus, so the boundary has nothing left to protect, and
+     the tier split was the last thing making a custom group a different kind
+     of object from the chat list. */
+  test("a channel section may be ordered above a custom group", () => {
     const { result } = renderSidebar();
 
     act(() =>
@@ -375,53 +391,52 @@ describe("useSidebarState section order", () => {
     );
 
     expect(result.current.sections.map((s) => s.key)).toEqual([
-      "grp-a",
       "channel:slack",
+      "grp-a",
       "recents",
     ]);
     // What renders is what persists, so the stored preference never describes
     // a layout the sidebar refuses to draw.
     expect(useSidebarLayoutStore.getState().sectionOrder).toEqual([
-      "grp-a",
       "channel:slack",
+      "grp-a",
       "recents",
     ]);
   });
 
-  test("a nudge that the channel floor would undo is not offered", () => {
+  /* The ends of the list are the only thing left that refuses a nudge, and
+     they refuse it by not offering it: `canMoveSection` is what the menu reads
+     to decide whether to render the item at all, so a move it reports as
+     unavailable is one the user is never shown (see `sectionMenu` in
+     `assistant-side-menu.tsx`). Asserting the report and the no-op together,
+     since a nudge that quietly does nothing while still being offered is the
+     same dead action from the user's side. */
+  test("onMoveSection nudges one slot and stops at the ends of the list", () => {
     const { result } = renderSidebar();
 
-    // Slack sits last, below Chats, which it may pass...
+    // Slack starts last, and can walk all the way to the top now.
+    act(() => result.current.onMoveSection("channel:slack", -1));
+    expect(result.current.sections.map((s) => s.key)).toEqual([
+      "grp-a",
+      "channel:slack",
+      "recents",
+    ]);
+
     expect(result.current.canMoveSection("channel:slack", -1)).toBe(true);
     act(() => result.current.onMoveSection("channel:slack", -1));
     expect(result.current.sections.map((s) => s.key)).toEqual([
-      "grp-a",
       "channel:slack",
+      "grp-a",
       "recents",
     ]);
 
-    // ...but not the custom group above it.
-    expect(result.current.canMoveSection("channel:slack", -1)).toBe(false);
-  });
-
-  test("onMoveSection nudges within a tier and stops at its boundary", () => {
-    const { result } = renderSidebar();
-
-    // Slack and Chats are both governed by the switch, so they swap freely.
-    act(() => result.current.onMoveSection("channel:slack", -1));
-    expect(result.current.sections.map((s) => s.key)).toEqual([
-      "grp-a",
-      "channel:slack",
-      "recents",
-    ]);
-
-    // The next nudge would cross into the curated tier - refused, and
-    // nothing is persisted.
+    // At the top there is nothing left to pass, so the move is not offered and
+    // a call anyway changes nothing.
     expect(result.current.canMoveSection("channel:slack", -1)).toBe(false);
     act(() => result.current.onMoveSection("channel:slack", -1));
     expect(result.current.sections.map((s) => s.key)).toEqual([
-      "grp-a",
       "channel:slack",
+      "grp-a",
       "recents",
     ]);
   });

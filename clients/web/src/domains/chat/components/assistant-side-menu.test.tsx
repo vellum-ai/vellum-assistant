@@ -320,42 +320,10 @@ describe("AssistantSideMenu · All view", () => {
     expect(html).toContain('data-slot="virtual-list"');
   });
 
-  test("offers the grouping dropdown behind the Conversations actions menu", async () => {
-    // "Conversations" is the persistent header carrying the dropdown, in
-    // every view mode, including this describe block's flat All view (see
-    // its own `beforeEach`).
-    const { container } = render(
-      createElement(AssistantSideMenu, {
-        assistantId: "asst-1",
-        collapsed: false,
-        variant: "rail",
-        conversations,
-        onSelectConversation: () => {},
-      }),
-    );
-    try {
-      const trigger = container.querySelector<HTMLElement>(
-        '[aria-label="Conversations actions"]',
-      );
-      expect(trigger).not.toBeNull();
-      act(() => {
-        trigger?.click();
-      });
-      await waitFor(() => {
-        expect(document.body.textContent).toContain("Group by");
-      });
-      // A dropdown, not tabs: only the selected option ("None", this
-      // block's flat view mode) shows on the closed trigger; "Channel"
-      // waits in the menu.
-      const select = document.body.querySelector<HTMLElement>(
-        '[data-slot="select-trigger"]',
-      );
-      expect(select).not.toBeNull();
-      expect(select?.textContent).toContain("None");
-    } finally {
-      cleanup();
-    }
-  });
+  // The grouping toggle used to be asserted here, because the "Conversations"
+  // header that carried it was on screen in every view. It now belongs to the
+  // Chats section's own menu, so it is asserted against both views together;
+  // see the "channel grouping toggle" block below.
 
   test("the collapsed rail reaches the flat list through a Chats icon", () => {
     const html = renderMenu({ conversations, collapsed: true });
@@ -985,6 +953,152 @@ describe("AssistantSideMenu · section header menus", () => {
   });
 });
 
+/**
+ * The channel-grouping toggle, which no longer has a home of its own.
+ *
+ * It used to sit behind a persistent "Conversations" header, so it was on
+ * screen in every view and "can the user reach it?" was never a question. That
+ * header is gone: the toggle now rides in the menu of the sections the switch
+ * reshapes, which makes reachability a property of one section's menu in one
+ * view, and something that can silently stop being true.
+ *
+ * It stopped being true twice on this PR, each time caught in review rather
+ * than here: unreachable in All view, and later present on the header's
+ * right-click menu but missing from the "…" popover and the mobile sheet,
+ * which are built by a second function. So both views and both surfaces are
+ * asserted, and by activation rather than presence: an item that is rendered
+ * but wired to nothing is not reachable either (LUM-3120).
+ *
+ * The mobile sheet renders the popover's item set verbatim (one
+ * `renderGroupMenuItemsAsPanelItems` call inside `GroupActionsMenu`), and
+ * `group-actions-menu.test.tsx` holds that surface to the same items, so the
+ * popover standing in for it here is not a gap.
+ */
+describe("AssistantSideMenu · channel grouping toggle", () => {
+  const conversations = [
+    makeConversation({ conversationId: "r1", title: "Recent one" }),
+    makeConversation({
+      conversationId: "s1",
+      title: "Slack one",
+      originChannel: "slack",
+    }),
+  ];
+
+  /**
+   * The label names the view the toggle *leaves for*, so asserting it also
+   * asserts the section knows which view it is in. A toggle stuck on one label
+   * is the failure this catches: it would still be present and still fire, but
+   * would only ever describe one direction.
+   */
+  const LEAVES_FOR: Record<string, string> = {
+    all: "Group by channel",
+    grouped: "Ungroup",
+  };
+
+  const OTHER_VIEW: Record<string, string> = { all: "grouped", grouped: "all" };
+
+  function renderInView(viewMode: string) {
+    localStorage.setItem("vellum:sidebar-view-mode:asst-1", viewMode);
+    // The layout store is a module singleton keyed by assistant; clearing the
+    // id makes the next render re-read the view from localStorage.
+    useSidebarLayoutStore.setState({ assistantId: null });
+    setSectionRows(conversations);
+    return render(
+      createElement(AssistantSideMenu, {
+        assistantId: "asst-1",
+        collapsed: false,
+        variant: "rail" as const,
+        conversations,
+        onSelectConversation: () => {},
+      }),
+    );
+  }
+
+  function chatsHeader(container: HTMLElement): HTMLElement {
+    const header = Array.from(
+      container.querySelectorAll<HTMLElement>(
+        '[data-slot="collapsible-nav-section-header"]',
+      ),
+    ).find((h) => h.textContent?.includes("Chats"));
+    if (!header) {
+      throw new Error("No Chats section header, so no menu to reach it from");
+    }
+    return header;
+  }
+
+  test.each(["all", "grouped"])(
+    "right-clicking the Chats header reaches the toggle in %s view",
+    async (viewMode) => {
+      const { container } = renderInView(viewMode);
+      try {
+        act(() => {
+          chatsHeader(container).dispatchEvent(
+            new MouseEvent("contextmenu", { bubbles: true, button: 2 }),
+          );
+        });
+
+        let item: HTMLElement | undefined;
+        await waitFor(() => {
+          item = Array.from(
+            document.querySelectorAll<HTMLElement>('[role="menuitem"]'),
+          ).find((el) => el.textContent?.includes(LEAVES_FOR[viewMode]!));
+          expect(item).toBeDefined();
+        });
+
+        act(() => {
+          item!.click();
+        });
+        // The switch is a persisted per-assistant preference, so the stored
+        // value is where "it actually did something" is observable.
+        expect(localStorage.getItem("vellum:sidebar-view-mode:asst-1")).toBe(
+          OTHER_VIEW[viewMode],
+        );
+      } finally {
+        cleanup();
+      }
+    },
+  );
+
+  test.each(["all", "grouped"])(
+    "the Chats header's … menu reaches the toggle in %s view",
+    async (viewMode) => {
+      const { container } = renderInView(viewMode);
+      try {
+        /* The second surface, and the one that regressed: the popover and the
+           mobile sheet are built from a different function than the
+           right-click menu, so a new item added to one is not added to the
+           other. Reached through the real trigger rather than by rendering
+           the menu directly, because "the section has a … button at all" is
+           part of what has to hold. */
+        const trigger = container.querySelector<HTMLElement>(
+          '[aria-label="Chats actions"]',
+        );
+        expect(trigger).not.toBeNull();
+        act(() => {
+          trigger?.click();
+        });
+
+        let row: HTMLElement | undefined;
+        await waitFor(() => {
+          row = Array.from(
+            document.querySelectorAll<HTMLElement>('[role="button"]'),
+          ).find((el) => el.textContent?.trim() === LEAVES_FOR[viewMode]);
+          expect(row).toBeDefined();
+        });
+
+        act(() => {
+          row!.click();
+        });
+        expect(localStorage.getItem("vellum:sidebar-view-mode:asst-1")).toBe(
+          OTHER_VIEW[viewMode],
+        );
+      } finally {
+        cleanup();
+      }
+    },
+  );
+});
+
 // ---------------------------------------------------------------------------
 // Section layout (LUM-2909)
 // ---------------------------------------------------------------------------
@@ -1028,6 +1142,24 @@ function sectionElements(container: HTMLElement): HTMLElement[] {
   );
 }
 
+/**
+ * Each section's own card.
+ *
+ * The card is a section's outer box: it draws the surface, and it is the drag
+ * handle and the drop target. So anything about where a section sits in the
+ * stack, or what state a drag has put it in, is a fact about the card rather
+ * than about the section element inside it.
+ */
+function sectionCards(container: HTMLElement): HTMLElement[] {
+  return sectionElements(container).map((section) => {
+    const card = section.closest<HTMLElement>('[data-slot="card"]');
+    if (!card) {
+      throw new Error("A section rendered outside a card");
+    }
+    return card;
+  });
+}
+
 function sectionLabels(container: HTMLElement): (string | undefined)[] {
   return sectionElements(container).map((s) =>
     s
@@ -1062,9 +1194,15 @@ describe("AssistantSideMenu · section spacing", () => {
        adjacent sections landing at different distances depending on which
        tier they were in is exactly what `SIDEBAR_STACK_GAP` exists to stop.
        Asserting the shared parent as well as the gap, since a single gap
-       value proves nothing if the sections are still split across tiers. */
-    const sections = sectionElements(container);
-    const parents = new Set(sections.map((s) => s.parentElement));
+       value proves nothing if the sections are still split across tiers.
+
+       The sections are cards now, so they are the cards' siblings that share
+       a parent, not the sections'. Reading the gap off the section elements'
+       immediate parent would find each section's own card wrapper: four
+       parents, and a gap declared on none of them. */
+    const cards = sectionCards(container);
+    expect(cards).toHaveLength(4);
+    const parents = new Set(cards.map((card) => card.parentElement));
     expect(parents.size).toBe(1);
     expect([...parents][0]?.className).toContain(SIDEBAR_STACK_GAP);
   });
@@ -1306,32 +1444,6 @@ describe("AssistantSideMenu · equal section treatment", () => {
 });
 
 describe("AssistantSideMenu · section reordering", () => {
-  test("a section drags from its card, not its header", () => {
-    const container = parse(
-      renderMenu({
-        conversations: LAYOUT_CONVERSATIONS,
-        conversationGroups: LAYOUT_GROUPS,
-      }),
-    );
-
-    /* The card is the handle: a section is a card, so grabbing one should
-       pick the whole object up. With the handle on the header the drag image
-       was a lone header strip, which reads as a conversation row rather than
-       as the section being moved.
-
-       Every section, with no exception - "Conversations" used to be a
-       wrapper that never dragged, and it is gone. */
-    const sections = sectionElements(container);
-    expect(sections).toHaveLength(4);
-    for (const section of sections) {
-      expect(section.closest('[draggable="true"]')).not.toBeNull();
-      const header = section.querySelector<HTMLElement>(
-        '[data-slot="collapsible-nav-section-header"]',
-      );
-      expect(header?.getAttribute("draggable")).not.toBe("true");
-    }
-  });
-
   test("a lone section isn't draggable - there's nothing to reorder against", () => {
     const container = parse(
       renderMenu({
@@ -1347,15 +1459,23 @@ describe("AssistantSideMenu · section reordering", () => {
     expect(sections[0]?.closest('[draggable="true"]')).toBeNull();
   });
 
-  /* Regression guard, for a bug the handlers' position used to cause and no
-     longer does. They first sat on the section root, where `dragleave`
-     bubbling up from the section's own conversation rows cleared the
-     indicator every time the pointer crossed one, so dragging over an
-     expanded section showed no drop target at all. They are back on the root
-     (the card) and it is safe, because `use-drag-reorder` now ignores a
-     `dragleave` whose `relatedTarget` is inside `currentTarget` - the guard,
-     not the position, is what holds this. */
-  test("dragging over a section marks it as the drop target", async () => {
+  /* The card is the drag unit: the handle, the thing that dims while it moves,
+     and the edge the insertion line lands on. One test for all three, because
+     they are one fact. A section is a card now, so grabbing one should pick
+     the whole object up; with the handle on the header the drag image was a
+     lone header strip, reading as a conversation row rather than as the
+     section being moved, and the insertion line was drawn on a box that was
+     not the one being inserted against.
+
+     Also a regression guard, for a bug the handlers' position used to cause
+     and no longer does. They first sat on the section root, where `dragleave`
+     bubbling up from the section's own conversation rows cleared the indicator
+     every time the pointer crossed one, so dragging over an expanded section
+     showed no drop target at all. They are back on a root with children (the
+     card) and it is safe, because `use-drag-reorder` ignores a `dragleave`
+     whose `relatedTarget` is inside `currentTarget` (`use-drag-reorder.ts`,
+     `onDragLeave`) - the guard, not the position, is what holds this. */
+  test("the card is the drag handle, the drag image and the drop edge", async () => {
     const { container } = render(
       createElement(AssistantSideMenu, {
         assistantId: "asst-1",
@@ -1373,6 +1493,25 @@ describe("AssistantSideMenu · section reordering", () => {
             '[data-slot="collapsible-nav-section-header"]',
           ),
         ).find((h) => h.textContent?.includes(label))!;
+      const cardFor = (label: string) =>
+        headerFor(label).closest<HTMLElement>('[data-slot="card"]')!;
+
+      /* The handle, before any drag starts. Every section, with no exception:
+         "Conversations" used to be a wrapper that never dragged, and it is
+         gone. The header must not also be draggable, or the two handles fight
+         over the same gesture and the drag image is whichever won. */
+      const cards = sectionCards(container);
+      expect(cards).toHaveLength(4);
+      for (const card of cards) {
+        expect(card.getAttribute("draggable")).toBe("true");
+        expect(
+          card
+            .querySelector<HTMLElement>(
+              '[data-slot="collapsible-nav-section-header"]',
+            )
+            ?.getAttribute("draggable"),
+        ).not.toBe("true");
+      }
 
       // Minimal DataTransfer stand-in: `onDragStart` only sets an effect and
       // a payload (Firefox needs the latter to begin a drag at all).
@@ -1389,25 +1528,31 @@ describe("AssistantSideMenu · section reordering", () => {
         });
       };
 
+      // Dispatched on the header, which is where the pointer actually is: the
+      // events have to reach the card by bubbling, so this covers the wiring
+      // rather than only the handler.
       fire(headerFor("Alpha"), "dragstart");
       fire(headerFor("Chats"), "dragover");
 
-      const chatsSection = headerFor("Chats").closest(
-        '[data-slot="collapsible-nav-section-section"]',
-      );
-      // A zero-height rect in the test DOM puts the pointer past the midpoint,
-      // so the insertion line lands on the trailing edge.
-      expect(chatsSection?.className).toContain("inset_0_-2px");
+      /* A zero-height rect in the test DOM puts the pointer past the midpoint,
+         so the insertion line lands on the trailing edge. On the card, and on
+         the card only: the section box inside it is inset from the card's own
+         edge, so a line drawn there reads as landing *inside* the section
+         rather than after it. */
+      expect(cardFor("Chats").className).toContain("inset_0_-2px");
+      expect(
+        headerFor("Chats").closest<HTMLElement>(
+          '[data-slot="collapsible-nav-section-section"]',
+        )?.className,
+      ).not.toContain("inset_0_-2px");
 
-      // The dragged section dims - deferred one tick past `dragstart` on
+      // The dragged card dims - deferred one tick past `dragstart` on
       // purpose, because re-rendering the dragged node inside the dragstart
       // dispatch cancels the drag in Chromium.
       await waitFor(() => {
-        const dimmed = Array.from(
-          container.querySelectorAll(
-            '[data-slot="collapsible-nav-section-section"]',
-          ),
-        ).filter((el) => el.className.includes("opacity-50"));
+        const dimmed = sectionCards(container).filter((card) =>
+          card.className.includes("opacity-50"),
+        );
         expect(dimmed).toHaveLength(1);
         expect(dimmed[0]?.textContent).toContain("Alpha");
       });
@@ -1416,16 +1561,24 @@ describe("AssistantSideMenu · section reordering", () => {
     }
   });
 
-  // Drag events fire on neither touch nor the keyboard, so the header menu
-  // carries the same reordering.
-  // The layout is Pinned, Alpha, Chats, Slack: two curated sections then two
-  // governed ones. A section is offered only the moves that stay inside its
-  // own tier, so the pair at the boundary (Alpha, Chats) each offer one
-  // direction just like the pair at the ends (Pinned, Slack).
+  /* Drag events fire on neither touch nor the keyboard, so the header menu
+     carries the same reordering.
+
+     The layout is Pinned, Alpha, Chats, Slack, and the only thing that
+     constrains a move now is the end of the list: the ends offer one direction
+     and everything between them offers both. Alpha and Chats used to offer one
+     each as well, because they straddled a curated/governed tier boundary that
+     no move could cross - the constraint that made a custom group and the chat
+     list different kinds of thing. It is gone, so any section can sit
+     anywhere, and the menu says so.
+
+     Absence is the disabled state here: a section at an end is offered no move
+     in that direction rather than a greyed-out one, so these lists are
+     exhaustive on purpose. */
   test.each([
     ["Pinned", ["Move Section Down"]],
-    ["Alpha", ["Move Section Up"]],
-    ["Chats", ["Move Section Down"]],
+    ["Alpha", ["Move Section Up", "Move Section Down"]],
+    ["Chats", ["Move Section Up", "Move Section Down"]],
     ["Slack", ["Move Section Up"]],
   ])(
     "%s offers the move actions its position allows",
