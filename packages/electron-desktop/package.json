@@ -15,6 +15,9 @@
     "./file-open-preload": "./src/file-open-preload.ts",
     "./global-shortcuts": "./src/global-shortcuts.ts",
     "./hotkeys": "./src/hotkeys.ts",
+    "./host-proxy/poster": "./src/host-proxy/poster.ts",
+    "./host-proxy/router": "./src/host-proxy/router.ts",
+    "./host-proxy/sse": "./src/host-proxy/sse.ts",
     "./image-context-menu": "./src/image-context-menu.ts",
     "./ipc": "./src/ipc.ts",
     "./text-context-menu": "./src/text-context-menu.ts",
@@ -26,7 +29,8 @@
   },
   "dependencies": {
     "@vellumai/electron-utils": "workspace:*",
-    "@vellumai/ipc-contract": "workspace:*"
+    "@vellumai/ipc-contract": "workspace:*",
+    "@vellumai/local-mode": "workspace:*"
   },
   "peerDependencies": {
     "electron": ">=42.2.0",
