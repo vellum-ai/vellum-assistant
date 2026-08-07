@@ -53,6 +53,11 @@ interface SelfHostedServersPlugin {
   remove(options: { url: string }): Promise<{ ok: boolean }>;
   /** An absent `url` returns the shell to its baked Vellum Cloud origin. */
   switchTo(options: { url?: string }): Promise<{ ok: boolean }>;
+  /** Switches origin and loads a route relative to the assistant app entry. */
+  switchToPath(options: {
+    url?: string;
+    path: string;
+  }): Promise<{ ok: boolean }>;
 }
 
 /**
@@ -242,6 +247,29 @@ export async function nativeSwitchToOrigin(
     return true;
   } catch (err) {
     console.debug("[self-hosted-servers] switchTo unavailable:", err);
+    return false;
+  }
+}
+
+/**
+ * Switch the shell to an origin and load a route atomically. A separate bridge
+ * method preserves the skew fallback when an older shell lacks path support.
+ */
+export async function nativeSwitchToOriginPath(
+  url: string | null,
+  path: string,
+): Promise<boolean> {
+  if (!isNativeMobile()) {
+    return false;
+  }
+  try {
+    await SelfHostedServers.switchToPath({
+      ...(url === null ? {} : { url }),
+      path,
+    });
+    return true;
+  } catch (err) {
+    console.debug("[self-hosted-servers] switchToPath unavailable:", err);
     return false;
   }
 }

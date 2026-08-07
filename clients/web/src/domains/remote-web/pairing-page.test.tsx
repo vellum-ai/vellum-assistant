@@ -15,7 +15,9 @@ let injectedAssistantName: string | undefined;
 let injectedHubUrl: string | undefined;
 let nativePlatform = false;
 let nativePlatformName: "ios" | "android" = "ios";
-const nativeSwitchToOriginMock = mock(async (_url: string | null) => false);
+const nativeSwitchToOriginPathMock = mock(
+  async (_url: string | null, _path: string) => false,
+);
 
 mock.module("@/lib/local-mode", () => ({
   isRemoteGatewayMode: () => remoteGatewayMode,
@@ -28,7 +30,7 @@ mock.module("@/runtime/native-auth", () => ({
 }));
 
 mock.module("@/runtime/self-hosted-servers", () => ({
-  nativeSwitchToOrigin: nativeSwitchToOriginMock,
+  nativeSwitchToOriginPath: nativeSwitchToOriginPathMock,
 }));
 
 mock.module("@capacitor/core", () => ({
@@ -142,8 +144,8 @@ afterEach(() => {
   exchangeRemoteWebPairingTokenMock.mockClear();
   createRemoteWebPairingChallengeMock.mockClear();
   activateRemoteGatewaySessionMock.mockClear();
-  nativeSwitchToOriginMock.mockReset();
-  nativeSwitchToOriginMock.mockImplementation(async () => false);
+  nativeSwitchToOriginPathMock.mockReset();
+  nativeSwitchToOriginPathMock.mockImplementation(async () => false);
 });
 
 describe("RemoteWebPairingPage", () => {
@@ -223,7 +225,7 @@ describe("RemoteWebPairingPage", () => {
     remoteGatewayMode = true;
     injectedHubUrl = "https://hub.example.com/assistant";
     nativePlatform = true;
-    nativeSwitchToOriginMock.mockResolvedValueOnce(true);
+    nativeSwitchToOriginPathMock.mockResolvedValueOnce(true);
     const assignMock = mock((_url: string) => {});
     const originalAssign = window.location.assign;
     Object.defineProperty(window.location, "assign", {
@@ -244,9 +246,52 @@ describe("RemoteWebPairingPage", () => {
       fireEvent.click(screen.getByText("Cancel"));
 
       await waitFor(() => {
-        expect(nativeSwitchToOriginMock).toHaveBeenCalledWith(null);
+        expect(nativeSwitchToOriginPathMock).toHaveBeenCalledWith(
+          null,
+          "select-assistant?noAutoSkip=1",
+        );
       });
       expect(assignMock).not.toHaveBeenCalled();
+    } finally {
+      Object.defineProperty(window.location, "assign", {
+        value: originalAssign,
+        configurable: true,
+      });
+    }
+  });
+
+  test("cancel falls back when the native shell lacks path switching", async () => {
+    remoteGatewayMode = true;
+    injectedHubUrl = "https://hub.example.com/assistant";
+    nativePlatform = true;
+    const assignMock = mock((_url: string) => {});
+    const originalAssign = window.location.assign;
+    Object.defineProperty(window.location, "assign", {
+      value: assignMock,
+      configurable: true,
+    });
+
+    try {
+      render(
+        <MemoryRouter
+          initialEntries={["/assistant/pair?deviceCode=device-1&userCode=ABCD"]}
+        >
+          <RemoteWebPairingPage />
+        </MemoryRouter>,
+      );
+
+      expect(await screen.findByText("Waiting for approval")).not.toBeNull();
+      fireEvent.click(screen.getByText("Cancel"));
+
+      await waitFor(() => {
+        expect(nativeSwitchToOriginPathMock).toHaveBeenCalledWith(
+          null,
+          "select-assistant?noAutoSkip=1",
+        );
+        expect(assignMock.mock.calls[0]?.[0]).toBe(
+          "https://hub.example.com/assistant/select-assistant?noAutoSkip=1",
+        );
+      });
     } finally {
       Object.defineProperty(window.location, "assign", {
         value: originalAssign,
