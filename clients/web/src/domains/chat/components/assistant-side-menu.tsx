@@ -552,13 +552,17 @@ export function AssistantSideMenu({
             onHeightChange={setOverlayBottomColumnHeight}
           />
         ) : footerAction || tipCard ? (
-          // `pt-0`, and a flush separator, so the conversation list runs right
-          // up to the rule instead of trailing off into dead space.
-          <SideMenu.Footer className="pt-0">
-            {/* Tip card first, divider between it and the footer action. The
-               collapsed rail drops both (per design). */}
+          /* No rule over the footer. Every entry in this sidebar is a pill on
+             the page background, and a shape like that is already delimited:
+             a line above the last one divides a group that reads as grouped
+             without it. The footer's own top padding is the whole separation.
+
+             It still sticks to the bottom on `mt-auto` and the list above it
+             still scrolls in `SideMenu.Body`, both unchanged: what goes is the
+             rule, not the footer's place in the column. */
+          <SideMenu.Footer>
+            {/* The collapsed rail drops the tip card (per design). */}
             {isCollapsedRail ? null : tipCard}
-            {isCollapsedRail ? null : <SideMenu.Separator className="my-0" />}
             {footerAction}
           </SideMenu.Footer>
         ) : null}
