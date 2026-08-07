@@ -25,6 +25,7 @@ import { PreferencesMenu } from "@/domains/chat/components/preferences-menu";
 import { useSidebarLayoutStore } from "@/domains/chat/sidebar-layout-store";
 import { useAuthStore } from "@/stores/auth-store";
 import { usePinnedAppsStore } from "@/stores/pinned-apps-store";
+import { savePinnedApps } from "@/utils/app-pin-storage";
 import {
   saveViewMode,
   type SidebarViewMode,
@@ -97,9 +98,14 @@ const LONG_CONVERSATIONS: Conversation[] = [
 ];
 
 /* Two, because one pinned app cannot show whether the cluster spaces its
-   entries the way the sections below it do. */
+   entries the way the sections below it do.
+
+   One coloured and one not, because the pair is what shows the wash reading as
+   a tint of the pill it sits on rather than as a different component, and what
+   shows the two of them still reading as quieter than the assistant identity
+   pill above them. */
 const PINNED_APPS = [
-  { appId: "app-ops", pinnedOrder: 0, name: "Vex Ops" },
+  { appId: "app-ops", pinnedOrder: 0, name: "Vex Ops", color: "teal" },
   { appId: "app-inbox", pinnedOrder: 1, name: "Inbox Triage" },
 ];
 
@@ -146,6 +152,12 @@ const GROUPS: ConversationGroup[] = [
 function seedViewMode(assistantId: string, mode: SidebarViewMode): void {
   saveViewMode(assistantId, mode);
   useSidebarLayoutStore.setState({ assistantId: null });
+  /* Persisted as well as set, because the store mirrors storage rather than
+     owning the pins: every pin action writes through and then re-reads. Seeded
+     in memory alone, the list is a state the app cannot actually be in, and
+     the first Unpin or colour pick re-reads an empty key and clears both
+     entries in front of whoever is reviewing the story. */
+  savePinnedApps(PINNED_APPS);
   usePinnedAppsStore.setState({
     pinnedApps: PINNED_APPS,
     pinnedAppIds: new Set(PINNED_APPS.map((app) => app.appId)),
@@ -157,16 +169,17 @@ function seedViewMode(assistantId: string, mode: SidebarViewMode): void {
 }
 
 /**
- * The identity row reads its avatar through React Query rather than through a
- * prop, so a story that seeds nothing gets the row's no-avatar fallback: a
- * Brain glyph on a plain pill. That is the row behaving correctly on the data
- * it has, and it is why the eyes, the avatar tint and the uploaded-image
- * treatment were all unreviewable here.
+ * Seeds the cache the identity row's avatar hook reads.
  *
- * Seeding the cache the hook reads is enough to fix that. The story owns its
- * own client so the seed cannot leak between stories, and both spellings of
- * the key carry it: the hook appends its manifest-support flag, and a story
- * cannot know which way that resolves.
+ * That row takes an assistant id and fetches its own avatar rather than being
+ * handed one, so a story seeding nothing renders the row's no-avatar fallback:
+ * a Brain glyph on a plain pill. The row is correct on the data it has, which
+ * puts the eyes, the avatar tint and the uploaded-image treatment out of reach
+ * of any story that does not seed.
+ *
+ * Each story owns its client, so a seed cannot leak into its neighbours, and
+ * both spellings of the key carry it: the hook appends its manifest-support
+ * flag and a story cannot know which way that resolves.
  */
 function seededAvatarClient(
   assistantId: string,
@@ -383,9 +396,9 @@ export const UploadedImageAvatarCollapsed: Story = {
 };
 
 /**
- * The character-avatar treatment, which no story reached before: the eyes in
- * the leading slot, the pill painted in the avatar's colour, and the name
- * flipped for contrast against it. The eyes blink where they sit.
+ * The character-avatar treatment: the eyes in the leading slot, the pill
+ * painted in the avatar's colour, and the name flipped for contrast against
+ * it. The eyes blink where they sit.
  */
 export const CharacterAvatar: Story = {
   name: "Identity row · character avatar",

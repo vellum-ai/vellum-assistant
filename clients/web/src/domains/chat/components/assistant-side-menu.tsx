@@ -140,7 +140,6 @@ function SearchButton() {
  *
  *   Header
  *     • Your Assistant → Intelligence view, with New Chat beneath it
- *     • ───────────────
  *   Body · one section list, in the user's own order (default shown)
  *     • Pinned ▾       - when non-empty
  *     • Group ▾        - one collapsible section per custom group
@@ -152,8 +151,7 @@ function SearchButton() {
  *       in Chats instead, so which section a conversation appears in changes
  *       but whether it appears does not
  *   Footer
- *     • caller-provided tip card (SidebarTipCard) — hidden on the collapsed rail
- *     • ───────────────
+ *     • caller-provided tip card (SidebarTipCard), hidden on the collapsed rail
  *     • caller-provided action (PreferencesMenu)
  *
  * This component does **not** know that order. `useSidebarState` hands it one
@@ -552,13 +550,15 @@ export function AssistantSideMenu({
             onHeightChange={setOverlayBottomColumnHeight}
           />
         ) : footerAction || tipCard ? (
-          // `pt-0`, and a flush separator, so the conversation list runs right
-          // up to the rule instead of trailing off into dead space.
-          <SideMenu.Footer className="pt-0">
-            {/* Tip card first, divider between it and the footer action. The
-               collapsed rail drops both (per design). */}
+          /* Every entry in this sidebar is a pill on the page background, and
+             a shape like that is already delimited: a line above the last one
+             would divide a column that reads as grouped without it. The
+             footer's own top padding is the whole separation, and `mt-auto`
+             on `SideMenu.Footer` is what holds it at the bottom while the
+             list scrolls in `SideMenu.Body` above it. */
+          <SideMenu.Footer>
+            {/* The collapsed rail drops the tip card (per design). */}
             {isCollapsedRail ? null : tipCard}
-            {isCollapsedRail ? null : <SideMenu.Separator className="my-0" />}
             {footerAction}
           </SideMenu.Footer>
         ) : null}

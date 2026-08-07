@@ -126,6 +126,50 @@ describe("togglePin unpin branch", () => {
   });
 });
 
+describe("setColor", () => {
+  test("reflects the colour in state and storage", () => {
+    pin(makeApp({ id: "a1", name: "First" }));
+
+    usePinnedAppsStore.getState().setColor("a1", "teal");
+
+    expect(usePinnedAppsStore.getState().pinnedApps[0]!.color).toBe("teal");
+    expect(loadPinnedApps()[0]!.color).toBe("teal");
+  });
+
+  test("clearing drops the colour in state and storage", () => {
+    pin(makeApp({ id: "a1", name: "First" }));
+    usePinnedAppsStore.getState().setColor("a1", "teal");
+
+    usePinnedAppsStore.getState().setColor("a1", null);
+
+    expect(usePinnedAppsStore.getState().pinnedApps[0]!.color).toBeUndefined();
+    expect(loadPinnedApps()[0]!.color).toBeUndefined();
+  });
+
+  /* A store slice the sidebar renders from: a colour change has to produce a
+     new array, or subscribers keep the reference they already have and the
+     pill never repaints. */
+  test("publishes a new pinnedApps reference so subscribers re-render", () => {
+    pin(makeApp({ id: "a1", name: "First" }));
+    const before = usePinnedAppsStore.getState().pinnedApps;
+
+    usePinnedAppsStore.getState().setColor("a1", "teal");
+
+    expect(usePinnedAppsStore.getState().pinnedApps).not.toBe(before);
+  });
+
+  test("is a no-op for an id that is not pinned", () => {
+    pin(makeApp({ id: "a1", name: "First" }));
+
+    usePinnedAppsStore.getState().setColor("ghost", "teal");
+
+    expect(
+      usePinnedAppsStore.getState().pinnedApps.map((a) => a.appId),
+    ).toEqual(["a1"]);
+    expect(loadPinnedApps().map((a) => a.appId)).toEqual(["a1"]);
+  });
+});
+
 describe("isPinned", () => {
   test("tracks pin/unpin transitions", () => {
     expect(usePinnedAppsStore.getState().isPinned("a1")).toBe(false);
