@@ -8,7 +8,7 @@
  */
 
 import type { Database } from "bun:sqlite";
-import { and, count, desc, eq, gt, gte, inArray } from "drizzle-orm";
+import { and, count, desc, eq, gt, gte, inArray, sql } from "drizzle-orm";
 
 import { bindsSameIdentity, boundIdentity } from "@vellumai/gateway-client";
 import type {
@@ -267,7 +267,12 @@ export function findLatestSessionByStatuses(
           : []),
       ),
     )
-    .orderBy(desc(channelVerificationSessions.createdAt))
+    // `created_at` is a millisecond stamp, so two sessions minted in the same
+    // tick tie on it and SQLite is free to return either. Several people
+    // verifying at once is the normal case now, so break the tie on insert
+    // order: rowid rises with every insert, making "latest" mean the one
+    // actually written last rather than whichever the planner reached first.
+    .orderBy(desc(channelVerificationSessions.createdAt), desc(sql`rowid`))
     .get();
 
   return row ? rowToSession(row) : null;
