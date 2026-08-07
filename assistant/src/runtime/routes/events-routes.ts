@@ -52,6 +52,7 @@ import {
   ServiceUnavailableError,
 } from "./errors.js";
 import { parseBody } from "./parse-body.js";
+import { startActorPrincipalHeal } from "./sse-actor-principal-heal.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
 const log = getLogger("events-routes");
@@ -460,23 +461,21 @@ export function handleSubscribeAssistantEvents(
   // Without this, the subscription would carry no principal for its whole
   // lifetime and every host-proxy result would 403. Fire-and-forget so the
   // stream is not delayed; keyed by connectionId so a reconnect race cannot
-  // patch the subscription that replaced this one.
+  // patch the subscription that replaced this one. The lookup goes over the
+  // gateway IPC and can fail transiently, so it retries on a bounded backoff
+  // rather than leaving the subscription principal-less until the user
+  // manually reconnects — see `sse-actor-principal-heal.ts`.
   if (
     clientId &&
     interfaceId &&
     actorPrincipalId == null &&
     rawActorPrincipalId?.trim() === "dev-bypass"
   ) {
-    void resolveActorPrincipalIdForLocalGuardian("dev-bypass")
-      .then((resolved) => {
-        if (resolved) {
-          hub.fillClientActorPrincipalId(sub.connectionId, resolved);
-        }
-      })
-      .catch(() => {
-        // Best-effort: an unreachable gateway leaves the record unhealed;
-        // the next reconnect retries.
-      });
+    startActorPrincipalHeal({
+      hub,
+      connectionId: sub.connectionId,
+      resolve: () => resolveActorPrincipalIdForLocalGuardian("dev-bypass"),
+    });
   }
 
   const stream = new ReadableStream<Uint8Array>(

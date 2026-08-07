@@ -57,6 +57,23 @@ async function flushMicrotasks(): Promise<void> {
   await new Promise((resolve) => setTimeout(resolve, 0));
 }
 
+/**
+ * Poll until `predicate` holds, for assertions that depend on the heal's
+ * retry backoff timer rather than on promise settling alone.
+ */
+async function waitFor(
+  predicate: () => boolean,
+  timeoutMs = 3_000,
+): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (!predicate()) {
+    if (Date.now() >= deadline) {
+      throw new Error("waitFor timed out");
+    }
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+}
+
 // ── Real imports (after mocks) ────────────────────────────────────────────
 
 import { AssistantEventHub } from "../runtime/assistant-event-hub.js";
@@ -259,6 +276,82 @@ describe("events SSE registration — dev-bypass actor translation", () => {
 
     ac1.abort();
     ac2.abort();
+  });
+
+  test("retries the heal after a failed lookup instead of giving up for the connection's lifetime", async () => {
+    // The gateway IPC returns null on any transport failure, so the first
+    // lookup can miss even when a guardian is bound. Before the retry, that
+    // one miss left the subscription principal-less until the user manually
+    // reconnected — every host-proxy result it submitted 403'd in between.
+    fakeHttpAuthDisabled = true;
+    fakeGuardianPrincipalId = undefined; // cold cache: sync resolution misses
+
+    const ac = new AbortController();
+    const hub = new AssistantEventHub();
+
+    handleSubscribeAssistantEvents(
+      {
+        headers: {
+          "x-vellum-client-id": "retry-client-001",
+          "x-vellum-interface-id": "chrome-extension",
+          "x-vellum-actor-principal-id": "dev-bypass",
+        },
+        abortSignal: ac.signal,
+      },
+      { hub },
+    );
+
+    // First attempt fails (gateway not reachable yet).
+    expect(pendingAsyncResolutions).toHaveLength(1);
+    pendingAsyncResolutions.shift()!(undefined);
+    await flushMicrotasks();
+    expect(
+      hub.getActorPrincipalIdForClient("retry-client-001"),
+    ).toBeUndefined();
+
+    // The retry fires on the backoff and succeeds this time.
+    await waitFor(() => pendingAsyncResolutions.length === 1);
+    pendingAsyncResolutions.shift()!("guardian-real-id");
+    await flushMicrotasks();
+
+    expect(hub.getActorPrincipalIdForClient("retry-client-001")).toBe(
+      "guardian-real-id",
+    );
+
+    ac.abort();
+  });
+
+  test("needsActorPrincipalHeal reports only live, principal-less client subscriptions", () => {
+    const hub = new AssistantEventHub();
+    const bare = hub.subscribe({
+      type: "client",
+      clientId: "needs-heal-001",
+      interfaceId: "chrome-extension",
+      capabilities: [],
+      callback: () => {},
+    });
+    const withPrincipal = hub.subscribe({
+      type: "client",
+      clientId: "needs-heal-002",
+      interfaceId: "macos",
+      capabilities: [],
+      actorPrincipalId: "guardian-real-id",
+      callback: () => {},
+    });
+    const process = hub.subscribe({ type: "process", callback: () => {} });
+
+    expect(hub.needsActorPrincipalHeal(bare.connectionId)).toBe(true);
+    expect(hub.needsActorPrincipalHeal(withPrincipal.connectionId)).toBe(false);
+    expect(hub.needsActorPrincipalHeal(process.connectionId)).toBe(false);
+    expect(hub.needsActorPrincipalHeal("conn-does-not-exist")).toBe(false);
+
+    // A disposed connection stops needing a heal, which is what ends the
+    // retry loop when a client disconnects mid-backoff.
+    bare.dispose();
+    expect(hub.needsActorPrincipalHeal(bare.connectionId)).toBe(false);
+
+    withPrincipal.dispose();
+    process.dispose();
   });
 
   test("fillClientActorPrincipalId never overwrites a present principal", () => {

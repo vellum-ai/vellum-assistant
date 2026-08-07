@@ -424,6 +424,7 @@ async function dispatchHostBrowserResult(
           resp.status,
           body,
         );
+        maybeReconnectOnActorBindingRejection(resp.status, body);
       }
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -487,6 +488,58 @@ async function dispatchHostBrowserResult(
  * operations ring buffer (the {@link recordCallbackFailure} helper
  * applies its own cap as the second line of defense).
  */
+/**
+ * The daemon's same-actor gate rejects a host-proxy result when the actor
+ * that opened this client's SSE stream and the actor submitting the result
+ * don't line up — most often because the stream registered before the
+ * daemon could resolve its actor identity, so the binding is missing rather
+ * than genuinely mismatched. That binding is established at subscribe time,
+ * so the only thing that clears it from this side is a fresh registration:
+ * exactly the "disconnect and reconnect and it works again" workaround.
+ *
+ * Doing it automatically keeps a single unlucky subscribe from silently
+ * breaking every browser action until the user notices and reconnects by
+ * hand. A cooldown keeps a persistent rejection (e.g. the stream really is
+ * bound to a different user) from turning into a reconnect loop — after the
+ * one attempt, the failure is left to surface as it did before.
+ */
+const ACTOR_BINDING_RECONNECT_COOLDOWN_MS = 60_000;
+let lastActorBindingReconnectAt = 0;
+
+function isActorBindingRejection(status: number, body: string): boolean {
+  return status === 403 && /Submitting actor does not match/i.test(body);
+}
+
+function maybeReconnectOnActorBindingRejection(
+  status: number,
+  body: string,
+): void {
+  if (!isActorBindingRejection(status, body)) return;
+  if (!shouldConnect) return;
+
+  const now = Date.now();
+  if (now - lastActorBindingReconnectAt < ACTOR_BINDING_RECONNECT_COOLDOWN_MS) {
+    return;
+  }
+  lastActorBindingReconnectAt = now;
+
+  console.warn(
+    "[vellum] host-browser-result rejected by the actor binding check; re-registering the SSE connection",
+  );
+  appendEvent("outbound", "actor_binding_reconnect", {
+    summary: "re-registering after a 403 from the actor binding check",
+    isError: true,
+  });
+
+  disconnect();
+  void connect({ interactive: false }).catch((err) => {
+    console.warn(
+      "[vellum] reconnect after actor-binding rejection failed",
+      err,
+    );
+  });
+}
+
 async function safeReadBody(resp: Response): Promise<string> {
   try {
     const text = await resp.text();
