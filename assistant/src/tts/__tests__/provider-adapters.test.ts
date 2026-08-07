@@ -570,6 +570,24 @@ describe("ElevenLabs TTS provider adapter", () => {
     expect(body.language_code).toBe("hi");
   });
 
+  test("maps the tl subtag to the fil code the v2.5 roster spells Filipino with", async () => {
+    let capturedBody = "";
+
+    globalThis.fetch = mock(
+      async (_input: RequestInfo | URL, init?: RequestInit) => {
+        capturedBody = init?.body as string;
+        return new Response(streamOf(new Uint8Array([0x01])), { status: 200 });
+      },
+    ) as unknown as typeof globalThis.fetch;
+
+    const provider = createElevenLabsProvider();
+    await provider.synthesizeStream!(makeRequest({ language: "tl" }), () => {});
+
+    const body = JSON.parse(capturedBody);
+    expect(body.model_id).toBe("eleven_flash_v2_5");
+    expect(body.language_code).toBe("fil");
+  });
+
   test("omits language_code for a language the v2.5 models do not support", async () => {
     let capturedBody = "";
 

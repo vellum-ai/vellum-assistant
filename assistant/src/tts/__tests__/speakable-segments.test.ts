@@ -458,6 +458,19 @@ describe("extractSpeakableSegments", () => {
       expect(remainder).toBe("次");
     });
 
+    test("a bracket inside an inline code span does not suppress the sentence boundary", () => {
+      const { segments, remainder } = extractSpeakableSegments(
+        "Use `const items = [` to start. Then close it later on.",
+        false,
+      );
+
+      expect(segments).toEqual([
+        "Use `const items = [` to start.",
+        "Then close it later on.",
+      ]);
+      expect(remainder).toBe("");
+    });
+
     test("a stray bracket splits at the suppressed boundary once a newline cancels it", () => {
       const { segments, remainder } = extractSpeakableSegments(
         "これは[メモ。次です。\nそして",
