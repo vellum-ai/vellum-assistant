@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+import path from "node:path";
 
 type Listener = (...args: unknown[]) => void;
 
@@ -10,7 +11,9 @@ const makeSender = (): {
   return {
     sender: {
       once: (event, handler) => {
-        if (event === "destroyed") destroyedHandler = handler;
+        if (event === "destroyed") {
+          destroyedHandler = handler;
+        }
       },
     },
     fireDestroyed: () => destroyedHandler?.(),
@@ -18,13 +21,15 @@ const makeSender = (): {
 };
 
 const subscribeWith = (s: ReturnType<typeof makeSender>) =>
-  ipcOnListeners
-    .get("vellum:fileOpen:subscribe")
-    ?.({ sender: s.sender, senderFrame: allowedSenderFrame });
+  ipcOnListeners.get("vellum:fileOpen:subscribe")?.({
+    sender: s.sender,
+    senderFrame: allowedSenderFrame,
+  });
 const unsubscribeWith = (s: ReturnType<typeof makeSender>) =>
-  ipcOnListeners
-    .get("vellum:fileOpen:unsubscribe")
-    ?.({ sender: s.sender, senderFrame: allowedSenderFrame });
+  ipcOnListeners.get("vellum:fileOpen:unsubscribe")?.({
+    sender: s.sender,
+    senderFrame: allowedSenderFrame,
+  });
 
 const appListeners = new Map<string, Listener>();
 const appOnMock = mock((event: string, listener: Listener) => {
@@ -53,17 +58,28 @@ mock.module("electron", () => ({
 }));
 
 const ensureMainWindowVisibleMock = mock(async () => undefined);
-mock.module("./main-window", () => ({
-  ensureVisible: ensureMainWindowVisibleMock,
-}));
 
+const { createIpcRegistrar } = await import("./ipc");
+const { isAllowedOrigin } = await import("./app-origin");
 const {
   __resetForTesting,
+  configureFileOpen,
+  extractVellumFilePathsFromArgv,
   handleFileOpen,
   installFileOpen,
   onFileOpen,
 } = await import("./file-open");
-const { resolveAllowedOrigin } = await import("./app-origin");
+
+const resolveAllowedOrigin = () => ({ protocol: "app:", host: "vellum.ai" });
+const { handle, on } = createIpcRegistrar(
+  resolveAllowedOrigin,
+  isAllowedOrigin,
+);
+configureFileOpen({
+  ensureMainWindowVisible: ensureMainWindowVisibleMock,
+  handle,
+  on,
+});
 
 const { protocol: allowedProtocol, host: allowedHost } = resolveAllowedOrigin();
 const allowedSenderFrame = { origin: `${allowedProtocol}//${allowedHost}` };
@@ -95,6 +111,40 @@ beforeEach(() => {
 
 afterEach(() => {
   windows = [];
+});
+
+describe("extractVellumFilePathsFromArgv", () => {
+  test("canonicalizes Unicode paths and removes duplicate argv entries", () => {
+    const relativePath = "exports/例.vellum";
+
+    expect(
+      extractVellumFilePathsFromArgv([
+        "Vellum.exe",
+        relativePath,
+        path.resolve(relativePath),
+      ]),
+    ).toEqual([path.resolve(relativePath)]);
+  });
+
+  test("ignores missing paths and invalid extensions", () => {
+    expect(
+      extractVellumFilePathsFromArgv([
+        "",
+        "--open",
+        "notes.txt",
+        "archive.vellum.bak",
+      ]),
+    ).toEqual([]);
+  });
+
+  test("resolves relative paths from the launching working directory", () => {
+    expect(
+      extractVellumFilePathsFromArgv(
+        ["Vellum.exe", "exports/example.vellum"],
+        "/launching-directory",
+      ),
+    ).toEqual(["/launching-directory/exports/example.vellum"]);
+  });
 });
 
 describe("handleFileOpen", () => {
