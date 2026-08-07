@@ -6,6 +6,7 @@ import { getGatewayDb, initGatewayDb, resetGatewayDb } from "../connection.js";
 import { channelVerificationSessions } from "../schema.js";
 import {
   bindSessionIdentity,
+  claimBootstrapSession,
   consumeSession,
   countRecentSendsToDestination,
   createInboundSession,
@@ -228,19 +229,55 @@ describe("createOutboundSession", () => {
 
     expect(getRow("bound")?.status).toBe("awaiting_response");
   });
+});
 
-  test("supersedeSessionId revokes the named session regardless of actor", () => {
-    // The bootstrap claim. Without this a redeemed deep-link token stays
-    // pending_bootstrap and is claimable a second time, because the claim
-    // guard passes on exactly that status.
-    insertRaw({ id: "bootstrap", status: "pending_bootstrap" });
+// ---------------------------------------------------------------------------
+// claimBootstrapSession
+// ---------------------------------------------------------------------------
 
-    createOutbound({
-      expectedExternalUserId: "u-1",
-      supersedeSessionId: "bootstrap",
+describe("claimBootstrapSession", () => {
+  test("the first claim wins and the row is revoked", () => {
+    insertRaw({
+      id: "bootstrap",
+      channel: "telegram",
+      status: "pending_bootstrap",
     });
 
+    expect(claimBootstrapSession("bootstrap", "telegram")).toBe(true);
     expect(getRow("bootstrap")?.status).toBe("revoked");
+  });
+
+  test("a second claim loses, so one deep link mints once", () => {
+    // The property the bootstrap handoff rests on. A blind revoke would
+    // report success here and let both claimants mint.
+    insertRaw({
+      id: "bootstrap",
+      channel: "telegram",
+      status: "pending_bootstrap",
+    });
+    claimBootstrapSession("bootstrap", "telegram");
+
+    expect(claimBootstrapSession("bootstrap", "telegram")).toBe(false);
+  });
+
+  test("a claim on another channel's row loses and leaves it alone", () => {
+    insertRaw({
+      id: "bootstrap",
+      channel: "telegram",
+      status: "pending_bootstrap",
+    });
+
+    expect(claimBootstrapSession("bootstrap", "slack")).toBe(false);
+    expect(getRow("bootstrap")?.status).toBe("pending_bootstrap");
+  });
+
+  test("a row that is not pending_bootstrap cannot be claimed", () => {
+    // Guards the reverse mistake: an unguarded claim would revoke a live
+    // awaiting_response code belonging to someone mid-verification.
+    insertRaw({ id: "live", channel: "telegram", status: "awaiting_response" });
+
+    expect(claimBootstrapSession("live", "telegram")).toBe(false);
+    expect(getRow("live")?.status).toBe("awaiting_response");
   });
 });
 

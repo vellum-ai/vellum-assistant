@@ -267,18 +267,6 @@ export function createOutboundSessionGuarded(
     ...createParams
   } = params;
 
-  let sourceSession: VerificationSessionWire | undefined;
-  if (requireSourceSessionPending !== undefined) {
-    sourceSession = sessions.get(requireSourceSessionPending);
-    if (
-      !sourceSession ||
-      sourceSession.channel !== params.channel ||
-      sourceSession.status !== "pending_bootstrap"
-    ) {
-      return { conflict: true, reason: "source_session_not_pending" };
-    }
-  }
-
   if (ifNoneActiveForExternalUserId !== undefined) {
     // Scoped, like the gateway. Reading the channel's latest and comparing
     // misses this sender's session whenever somebody else started later.
@@ -290,12 +278,21 @@ export function createOutboundSessionGuarded(
     }
   }
 
-  // Claim the named source row, so a second claim of the same deep-link
-  // token conflicts. The identity-scoped revoke cannot do this: a bootstrap
-  // row carries whichever identity was bound onto it last.
-  if (sourceSession) {
-    sourceSession.status = "revoked";
-    sourceSession.updatedAt = Date.now();
+  // Claim the named source row. Winning the claim IS the guard, so a second
+  // claim of the same deep-link token conflicts. The identity-scoped revoke
+  // cannot do this: a bootstrap row carries whichever identity was bound onto
+  // it last.
+  if (requireSourceSessionPending !== undefined) {
+    const source = sessions.get(requireSourceSessionPending);
+    if (
+      !source ||
+      source.channel !== params.channel ||
+      source.status !== "pending_bootstrap"
+    ) {
+      return { conflict: true, reason: "source_session_not_pending" };
+    }
+    source.status = "revoked";
+    source.updatedAt = Date.now();
   }
 
   return createOutboundSession(createParams);

@@ -41,12 +41,12 @@ import type {
   VerificationPurpose,
 } from "../db/session-store.js";
 import {
+  claimBootstrapSession,
   consumeSession,
   createInboundSession,
   createOutboundSession as storeCreateOutboundSession,
   findActiveSession,
   findPendingSessionByHash,
-  getSessionById,
   updateSessionStatus,
 } from "../db/session-store.js";
 import { getLogger } from "../logger.js";
@@ -140,8 +140,6 @@ export function createOutboundSession(params: {
   verificationPurpose?: VerificationPurpose;
   bootstrapTokenHash?: string;
   sessionId?: string;
-  /** A specific session this mint claims and therefore supersedes. */
-  supersedeSessionId?: string;
 }): CreateOutboundSessionResult {
   const isUnbound = params.identityBindingStatus === "pending_bootstrap";
   const secret = isUnbound
@@ -166,7 +164,6 @@ export function createOutboundSession(params: {
     maxAttempts: params.maxAttempts,
     verificationPurpose: params.verificationPurpose,
     bootstrapTokenHash: params.bootstrapTokenHash,
-    supersedeSessionId: params.supersedeSessionId,
   });
 
   return {
@@ -194,12 +191,12 @@ export type GuardedCreateOutboundSessionResult =
  * mints; the rest get a machine-readable conflict instead of revoking the
  * winner's freshly minted code.
  *
- * - `requireSourceSessionPending`: the bootstrap handoff claim. The source
- *   session must still be `pending_bootstrap`, and the mint revokes it by id
- *   in the same section, so a second claim of the same deep-link token
- *   conflicts. Naming the row is what makes the claim single-use: the
- *   supersede-by-identity below cannot do it, because a bootstrap row carries
- *   whichever identity was bound onto it last.
+ * - `requireSourceSessionPending`: the bootstrap handoff claim, a single
+ *   status-guarded UPDATE (`claimBootstrapSession`) rather than a read
+ *   followed by a write. Winning the UPDATE is the guard, so a second claim
+ *   of the same deep-link token conflicts. The claim names the row: an
+ *   identity-matched revoke cannot make it single-use, because a bootstrap
+ *   row carries whichever identity was bound onto it last.
  * - `ifNoneActiveForExternalUserId`: sender-scoped create-if-absent.
  *   Conflicts only when the channel's active session is bound to the same
  *   expectedExternalUserId. A different sender's session is neither a
@@ -211,17 +208,6 @@ export function createOutboundSessionGuarded(
     ifNoneActiveForExternalUserId?: string;
   },
 ): GuardedCreateOutboundSessionResult {
-  if (params.requireSourceSessionPending !== undefined) {
-    const source = getSessionById(params.requireSourceSessionPending);
-    if (
-      !source ||
-      source.channel !== params.channel ||
-      source.status !== "pending_bootstrap"
-    ) {
-      return { conflict: true, reason: "source_session_not_pending" };
-    }
-  }
-
   if (params.ifNoneActiveForExternalUserId !== undefined) {
     // Scoped to the actor rather than reading the channel's latest and
     // comparing: a channel can carry several live sessions, so the latest is
@@ -235,11 +221,16 @@ export function createOutboundSessionGuarded(
     }
   }
 
-  return createOutboundSession(
-    params.requireSourceSessionPending
-      ? { ...params, supersedeSessionId: params.requireSourceSessionPending }
-      : params,
-  );
+  // Claimed after the other guard, so a mint that is going to conflict
+  // anyway does not burn a bootstrap token on its way out.
+  if (
+    params.requireSourceSessionPending !== undefined &&
+    !claimBootstrapSession(params.requireSourceSessionPending, params.channel)
+  ) {
+    return { conflict: true, reason: "source_session_not_pending" };
+  }
+
+  return createOutboundSession(params);
 }
 
 // ---------------------------------------------------------------------------

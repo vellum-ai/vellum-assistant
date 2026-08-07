@@ -339,6 +339,33 @@ export function consumeSession(
   return changes > 0 ? { consumed: true, consumedAt } : { consumed: false };
 }
 
+/**
+ * Claim a `pending_bootstrap` session for the mint that redeemed its deep
+ * link, revoking it so the token cannot be spent twice. Status-guarded like
+ * {@link consumeSession}: only the first claimant wins, and a later attempt
+ * on an already-claimed row reports `false` instead of quietly succeeding.
+ *
+ * The claim has to name the row rather than match it by identity. A bootstrap
+ * row carries whichever identity was bound onto it last, so two people
+ * redeeming the same link leave it bound to the second one, and an
+ * identity-matched revoke would miss it for the first.
+ */
+export function claimBootstrapSession(id: string, channel: string): boolean {
+  const raw = (getGatewayDb() as unknown as { $client: Database }).$client;
+  return (
+    raw
+      .prepare(
+        `UPDATE channel_verification_sessions
+       SET status = 'revoked',
+           updated_at = ?
+       WHERE id = ?
+         AND channel = ?
+         AND status = 'pending_bootstrap'`,
+      )
+      .run(Date.now(), id, channel).changes > 0
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Outbound verification sessions (identity-bound)
 // ---------------------------------------------------------------------------
@@ -354,7 +381,7 @@ export function consumeSession(
  * codes.
  *
  * Returns null when the mint carries no identity at all, which is a bootstrap
- * session; those supersede by `supersedeSessionId` instead.
+ * session; those are claimed by `claimBootstrapSession` instead.
  */
 function sameBoundIdentity(params: {
   expectedExternalUserId?: string | null;
@@ -410,13 +437,8 @@ function sameBoundIdentity(params: {
  * inbound challenge.
  *
  * A session with no expected identity supersedes nothing by actor: a bootstrap
- * session has no actor until its deep link is redeemed.
- *
- * `supersedeSessionId` covers that last case: a mint claiming a bootstrap
- * session names it, and it is revoked here so the claim happens in the same
- * synchronous section as the insert. Without it a redeemed deep-link token
- * would stay `pending_bootstrap` and be claimable a second time, because the
- * claim guard passes on exactly that status.
+ * session has no actor until its deep link is redeemed. Those are claimed by
+ * `claimBootstrapSession` before the mint, not superseded by identity here.
  */
 export function createOutboundSession(params: {
   id: string;
@@ -434,18 +456,9 @@ export function createOutboundSession(params: {
   maxAttempts?: number;
   verificationPurpose?: VerificationPurpose;
   bootstrapTokenHash?: string | null;
-  /** A specific session this mint claims and therefore supersedes. */
-  supersedeSessionId?: string;
 }): VerificationSession {
   const db = getGatewayDb();
   const now = Date.now();
-
-  if (params.supersedeSessionId) {
-    db.update(channelVerificationSessions)
-      .set({ status: "revoked", updatedAt: now })
-      .where(eq(channelVerificationSessions.id, params.supersedeSessionId))
-      .run();
-  }
 
   const sameActor = sameBoundIdentity(params);
   if (sameActor) {
