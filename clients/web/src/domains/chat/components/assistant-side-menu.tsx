@@ -552,14 +552,12 @@ export function AssistantSideMenu({
             onHeightChange={setOverlayBottomColumnHeight}
           />
         ) : footerAction || tipCard ? (
-          /* No rule over the footer. Every entry in this sidebar is a pill on
-             the page background, and a shape like that is already delimited:
-             a line above the last one divides a group that reads as grouped
-             without it. The footer's own top padding is the whole separation.
-
-             It still sticks to the bottom on `mt-auto` and the list above it
-             still scrolls in `SideMenu.Body`, both unchanged: what goes is the
-             rule, not the footer's place in the column. */
+          /* Every entry in this sidebar is a pill on the page background, and
+             a shape like that is already delimited: a line above the last one
+             would divide a column that reads as grouped without it. The
+             footer's own top padding is the whole separation, and `mt-auto`
+             on `SideMenu.Footer` is what holds it at the bottom while the
+             list scrolls in `SideMenu.Body` above it. */
           <SideMenu.Footer>
             {/* The collapsed rail drops the tip card (per design). */}
             {isCollapsedRail ? null : tipCard}
