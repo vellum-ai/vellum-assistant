@@ -91,5 +91,21 @@
     "authTokenPlaceholder": "Twilio auth token",
     "saving": "Saving…",
     "save": "Save"
+  },
+  "channelMeta": {
+    "slack": {
+      "label": "Slack",
+      "disconnectMessage": "This clears the stored Slack bot and app tokens for this assistant. You can reconnect later."
+    },
+    "telegram": {
+      "label": "Telegram",
+      "disconnectMessage": "This clears the stored Telegram bot token for this assistant. You can reconnect later.",
+      "disconnectedPitch": "Connect a Telegram bot so {assistant} can send and receive messages on Telegram."
+    },
+    "phone": {
+      "label": "Phone Calling",
+      "disconnectMessage": "This clears the stored Twilio credentials for this assistant. You can reconnect later.",
+      "disconnectedPitch": "Connect your Twilio account so {assistant} can make and answer phone calls."
+    }
   }
 }
