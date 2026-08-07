@@ -262,16 +262,21 @@ const meta: Meta<typeof AssistantSideMenu> = {
   title: "Chat/AssistantSideMenu",
   component: AssistantSideMenu,
   parameters: { layout: "fullscreen" },
-  /* `--surface-base` is the app backdrop the sidebar sits on; `SideMenu`
-     paints its own `--surface-overlay`, so the wrapper must not paint over
-     it. The sidebar's own type and row metrics switch at `md`, so view these
-     stories at a desktop viewport to see what desktop users see. */
+  /* The wrapper restates `chat-layout`'s desktop shell - `gap-4 p-4` on the
+     `--surface-base` page background, a shrink-wrapped aside, and a content
+     pane beside it - so the drawer's spacing against the window edges and
+     the main pane is the app's, not a story-only frame. A story that mounts
+     the rail alone cannot show an inset stacking bug: the rail's own padding
+     reads fine until the page layout's padding sits outside it. The sidebar's
+     type and row metrics switch at `md`, so view these stories at a desktop
+     viewport to see what desktop users see. */
   decorators: [
     (Story) => (
-      <div className="flex h-screen bg-[var(--surface-base)]">
-        <div className="w-[280px] shrink-0">
+      <div className="flex h-screen gap-4 bg-[var(--surface-base)] p-4">
+        <aside className="w-fit shrink-0 overflow-hidden">
           <Story />
-        </div>
+        </aside>
+        <main className="min-w-0 flex-1 rounded-[12px] border border-[var(--border-base)] bg-[var(--surface-overlay)]" />
       </div>
     ),
   ],
