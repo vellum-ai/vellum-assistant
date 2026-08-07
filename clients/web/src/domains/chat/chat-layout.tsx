@@ -13,7 +13,7 @@ import {
   useNavigate,
   useNavigationType,
 } from "react-router";
-import { SIDE_MENU_COLLAPSED_WIDTH } from "@vellumai/design-library";
+import { SIDE_MENU_TILE_SIZE } from "@vellumai/design-library";
 
 import { useAssistantLifecycleStore } from "@/assistant/lifecycle-store";
 import {
@@ -400,9 +400,12 @@ export function ChatLayout({
       // measured width still reads expanded while it is already collapsing
       // to the rail width. No fill, so the wrapper returns to shrink-wrapping
       // the nav the moment the animation ends.
-      const targetWidth = effectiveCollapsed
-        ? SIDE_MENU_COLLAPSED_WIDTH
-        : sidebarWidth;
+      //
+      // A collapsed rail is one tile wide here: this layout renders the nav
+      // without the design library's own padding and border (the page draws
+      // that chrome), and the collapsed rail sizes its tile as content, so
+      // nothing is added around it.
+      const targetWidth = effectiveCollapsed ? SIDE_MENU_TILE_SIZE : sidebarWidth;
       railFocusAnimationsRef.current = [
         aside.animate(
           [

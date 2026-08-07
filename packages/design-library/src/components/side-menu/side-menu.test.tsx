@@ -46,7 +46,7 @@ describe("SideMenu root", () => {
     expect(html).toContain("bg-[var(--surface-overlay)]");
   });
 
-  test("collapsed rail shrinks the width", () => {
+  test("collapsed rail is one tile of content plus its own chrome", () => {
     const html = renderToStaticMarkup(
       createElement(
         SideMenu,
@@ -54,24 +54,24 @@ describe("SideMenu root", () => {
         createElement(SideMenu.Body, { key: "body" }, null),
       ),
     );
-    expect(html).toContain("w-[var(--side-menu-collapsed-width)]");
-    expect(html).toContain(
-      `--side-menu-collapsed-width:${SIDE_MENU_COLLAPSED_WIDTH}px`,
-    );
+    /* `box-content` is the whole point of the pairing: it makes the padding
+       and border the rail actually renders decide the outer width, so a
+       caller that turns that chrome off gets a rail exactly one tile wide
+       rather than one carrying room for padding it never draws. Room the
+       tile does not fill is room it centres in, and every glyph then steps
+       inward when the rail collapses. */
+    expect(html).toContain("box-content");
+    expect(html).toContain("w-[var(--side-menu-tile-size)]");
+    expect(html).toContain(`--side-menu-tile-size:${SIDE_MENU_TILE_SIZE}px`);
     expect(html).not.toContain("w-[230px]");
   });
 
-  /* A tile stands in for the pill or card the rail collapses, so it holds
-     `PanelItem`'s height and the rail insets it by the padding that pill holds
-     its own glyph at. Those are what the width has to be built from: a wider
-     rail leaves the tile centred somewhere the expanded glyph never sat, and
-     collapsing then slides every icon sideways.
-
-     The border counts too, because the rail is `border-box`. Leaving it out
-     costs the tile the 2px the edge takes, and a tile with no room to sit in
-     stops centring: `auto` margins collapse to zero on negative free space,
-     which start-aligns those tiles while `self-center` ones stay centred. */
-  test("collapsed width holds one tile, its inset, and the rail's border", () => {
+  /* The JS constant is for callers that need the collapsed width as a number
+     and keep the rail's default chrome. It has to agree with what that chrome
+     renders, border included: the rail is a `border-box` element, so a number
+     counting only the tile and its padding spends 2px of itself on the edge
+     and comes up short of the tile it is supposed to hold. */
+  test("collapsed width holds one tile, its padding, and the rail's border", () => {
     expect(SIDE_MENU_TILE_SIZE).toBe(32);
     expect(SIDE_MENU_COLLAPSED_INSET).toBe(8);
     expect(SIDE_MENU_BORDER_WIDTH).toBe(1);
