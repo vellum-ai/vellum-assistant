@@ -7,6 +7,7 @@ import {
   useRef,
   useState,
   type ComponentProps,
+  type CSSProperties,
   type MouseEvent,
   type PointerEvent,
   type ReactNode,
@@ -22,7 +23,7 @@ import { cn } from "../../utils/cn";
  *
  * Two variants:
  * - `rail` (default) — desktop, docked left. Supports a `collapsed` state
- *   that shrinks the rail to an icon-only 48 px column. When collapsed,
+ *   that shrinks the rail to a column one icon tile wide. When collapsed,
  *   section titles, sublists, labels, badges, and trailing icons are
  *   suppressed via a shared context so consumers never conditionally render
  *   child content themselves.
@@ -110,9 +111,51 @@ function useSideMenuCollapsed(): boolean {
 // ---------------------------------------------------------------------------
 
 export const SIDE_MENU_DEFAULT_WIDTH = 230;
-export const SIDE_MENU_COLLAPSED_WIDTH = 48;
 export const SIDE_MENU_MIN_WIDTH = 220;
 export const SIDE_MENU_MAX_WIDTH = 400;
+
+/**
+ * The circle a card or pill becomes when the rail collapses: a tile
+ * `SideMenu.Item`, a section trigger, and whatever a caller mounts through a
+ * slot. It is `PanelItem`'s and `Button`'s height, because a tile is one of
+ * those shapes with its label taken away, and holding that height is what
+ * keeps its glyph on the axis the expanded pill puts it on.
+ *
+ * A list row keeps its own denser height: the rail collapses cards and pills
+ * into tiles, and a conversation row is neither.
+ *
+ * Exported so a caller drawing its own tile sizes it from here rather than
+ * from a matching literal, which is the only way the column stays one width.
+ */
+export const SIDE_MENU_TILE_SIZE = 32;
+
+/**
+ * The collapsed rail's horizontal inset, which is also the inset `PanelItem`
+ * holds its leading icon at (`p-[8px]`). Sharing the number is what puts a
+ * tile's glyph on the same axis as the expanded pill's, so collapsing shrinks
+ * a pill into a circle in place instead of sliding it inward.
+ */
+export const SIDE_MENU_COLLAPSED_INSET = 8;
+
+/**
+ * Wide enough for one tile and its inset, and derived rather than declared:
+ * a literal here is a third number that has to agree with the other two, and
+ * the failure when it drifts is a rail that moves its icons on collapse.
+ */
+export const SIDE_MENU_COLLAPSED_WIDTH =
+  SIDE_MENU_TILE_SIZE + SIDE_MENU_COLLAPSED_INSET * 2;
+
+/**
+ * The geometry above, published to CSS so the classes below can read it. The
+ * alternative is Tailwind arbitrary values holding the same pixels a second
+ * time, which cannot be checked against the constants and is what lets the
+ * rail and its tiles disagree.
+ */
+const RAIL_GEOMETRY_VARS = {
+  "--side-menu-tile-size": `${SIDE_MENU_TILE_SIZE}px`,
+  "--side-menu-collapsed-inset": `${SIDE_MENU_COLLAPSED_INSET}px`,
+  "--side-menu-collapsed-width": `${SIDE_MENU_COLLAPSED_WIDTH}px`,
+} as CSSProperties;
 
 export interface SideMenuProps extends ComponentProps<"nav"> {
   /** Ignored when `variant="overlay"`. */
@@ -160,11 +203,13 @@ const ROOT_RAIL_EXPANDED_CLASSES = [
   ROOT_RAIL_PADDING,
 ].join(" ");
 
+/* The collapsed rail insets by exactly what a pill insets its icon by, so the
+ * tile it shrinks into keeps that icon on its axis. */
 const ROOT_RAIL_COLLAPSED_CLASSES = [
   ROOT_RAIL_BORDER_CLASSES,
-  "w-[48px]",
+  "w-[var(--side-menu-collapsed-width)]",
   "rounded-[12px]",
-  ROOT_RAIL_PADDING,
+  "pt-4 px-[var(--side-menu-collapsed-inset)] pb-2",
 ].join(" ");
 
 const ROOT_RAIL_RESIZABLE_CLASSES = [
@@ -292,8 +337,8 @@ function SideMenuRoot({
 
   const widthStyle =
     resizable && !effectiveCollapsed && width != null
-      ? { ...style, width }
-      : style;
+      ? { ...RAIL_GEOMETRY_VARS, ...style, width }
+      : { ...RAIL_GEOMETRY_VARS, ...style };
 
   return (
     <SideMenuContext
@@ -696,7 +741,7 @@ function SideMenuItem({
          does, through the same fallback: a caller that tints the expanded pill
          tints this with one declaration, and one that tints nothing reaches
          `--surface-lift`. */
-      "size-[30px] mx-auto rounded-full bg-[var(--panel-item-bg,var(--surface-lift))]"
+      "size-[var(--side-menu-tile-size)] mx-auto rounded-full bg-[var(--panel-item-bg,var(--surface-lift))]"
     : // `w-full` matters for the `<button>` render path: buttons keep
       // fit-content sizing even as flex containers, so without it a
       // button-backed item shrink-wraps while anchor-backed items fill the rail.

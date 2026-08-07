@@ -10,7 +10,13 @@ import { Globe } from "lucide-react";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 
-import { SideMenu, useSideMenuCollapsed } from "./side-menu";
+import {
+  SIDE_MENU_COLLAPSED_INSET,
+  SIDE_MENU_COLLAPSED_WIDTH,
+  SIDE_MENU_TILE_SIZE,
+  SideMenu,
+  useSideMenuCollapsed,
+} from "./side-menu";
 
 describe("SideMenu root", () => {
   test("renders a <nav> with the provided aria-label and data-slot", () => {
@@ -47,8 +53,24 @@ describe("SideMenu root", () => {
         createElement(SideMenu.Body, { key: "body" }, null),
       ),
     );
-    expect(html).toContain("w-[48px]");
+    expect(html).toContain("w-[var(--side-menu-collapsed-width)]");
+    expect(html).toContain(
+      `--side-menu-collapsed-width:${SIDE_MENU_COLLAPSED_WIDTH}px`,
+    );
     expect(html).not.toContain("w-[230px]");
+  });
+
+  /* A tile stands in for the pill or card the rail collapses, so it holds
+     `PanelItem`'s height and the rail insets it by the padding that pill holds
+     its own glyph at. Those two are what the width has to be built from: a
+     wider rail leaves the tile centred somewhere the expanded glyph never sat,
+     and collapsing then slides every icon sideways. */
+  test("collapsed width is one tile plus the inset a pill holds its glyph at", () => {
+    expect(SIDE_MENU_TILE_SIZE).toBe(32);
+    expect(SIDE_MENU_COLLAPSED_INSET).toBe(8);
+    expect(SIDE_MENU_COLLAPSED_WIDTH).toBe(
+      SIDE_MENU_TILE_SIZE + SIDE_MENU_COLLAPSED_INSET * 2,
+    );
   });
 
   test("overlay variant is full-bleed with no radius", () => {
@@ -497,7 +519,7 @@ describe("SideMenu.Item collapsed shape", () => {
        it one: a height plus `aspect-square` derives the width instead, and a
        derived width is `auto`, which `align-items: stretch` then overrides
        back to the container's. */
-    expect(html).toContain("size-[30px]");
+    expect(html).toContain("size-[var(--side-menu-tile-size)]");
     expect(html).not.toContain("aspect-square");
   });
 
@@ -525,7 +547,7 @@ describe("SideMenu.Item collapsed shape", () => {
     expect(html).toContain("w-full");
     expect(html).toContain("max-md:h-auto");
     expect(html).toContain("max-md:py-3");
-    expect(html).not.toContain("size-[30px]");
+    expect(html).not.toContain("size-[var(--side-menu-tile-size)]");
   });
 
   test("default shape keeps the 6px row radius", () => {
