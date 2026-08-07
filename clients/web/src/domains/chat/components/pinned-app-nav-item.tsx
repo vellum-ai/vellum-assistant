@@ -69,26 +69,24 @@ export function PinnedAppNavItem({
   const item = (
     <PanelItem
       shape="pill"
-      /* An app's icon is an emoji string on its manifest, which is why this
-         is `leadingSlot` rather than `icon`: `icon` takes a Lucide component.
-         Unmojified apps fall back to the Rocket glyph. Matches the emoji
-         box `SideMenu.Item` renders for the same value. */
-      {...(typeof app.icon === "string"
-        ? {
-            leadingSlot: (
-              <span
-                aria-hidden
-                className="inline-flex h-[14px] w-[14px] shrink-0 items-center justify-center text-[14px] leading-none"
-              >
-                {app.icon}
-              </span>
-            ),
-          }
-        : { icon: app.icon ?? Rocket })}
+      /* An app's icon is an emoji string on its manifest, so it goes in
+         `leadingSlot`; `icon` takes a Lucide component, which is the fallback
+         for an app with no emoji. Exactly one of the two is ever set. The
+         emoji box matches the one `SideMenu.Item` renders for the same value. */
+      icon={typeof app.icon === "string" ? undefined : (app.icon ?? Rocket)}
+      leadingSlot={
+        typeof app.icon === "string" ? (
+          <span
+            aria-hidden
+            className="inline-flex h-[14px] w-[14px] shrink-0 items-center justify-center text-[14px] leading-none"
+          >
+            {app.icon}
+          </span>
+        ) : undefined
+      }
       label={app.name}
       active={active}
       onSelect={onOpen ? () => onOpen(app.appId) : undefined}
-      className="text-[color:var(--content-default)]"
       trailingAction={
         <button
           type="button"
