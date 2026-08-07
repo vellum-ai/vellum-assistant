@@ -2,7 +2,7 @@
  * Tests for the presentational `CreditBundlePicker`.
  *
  * Renders via `@testing-library/react` (happy-dom registered in test-setup.ts)
- * and drives the design-library Dropdown — a custom combobox, not a native
+ * and drives the design-library Select — a custom combobox, not a native
  * <select> — by clicking the trigger to open the listbox, then clicking the
  * option whose visible label matches. No jest-dom matchers; we assert with
  * plain bun `expect` against query results.
@@ -64,7 +64,7 @@ const TIERS: CreditTier[] = [
   },
 ];
 
-function openDropdown(): void {
+function openSelect(): void {
   const trigger = document.querySelector<HTMLButtonElement>(
     'button[role="combobox"][aria-label="Credit bundle"]',
   );
@@ -115,7 +115,7 @@ describe("CreditBundlePicker", () => {
         onCreditTierChange={() => {}}
       />,
     );
-    openDropdown();
+    openSelect();
 
     expect(optionLabels()).toEqual([
       "No credit bundle — $0/mo",
@@ -136,7 +136,7 @@ describe("CreditBundlePicker", () => {
         onCreditTierChange={onCreditTierChange}
       />,
     );
-    openDropdown();
+    openSelect();
     clickOption("50 credits — $50/mo");
 
     expect(onCreditTierChange).toHaveBeenCalledTimes(1);
@@ -152,7 +152,7 @@ describe("CreditBundlePicker", () => {
         onCreditTierChange={onCreditTierChange}
       />,
     );
-    openDropdown();
+    openSelect();
     clickOption("No credit bundle — $0/mo");
 
     expect(onCreditTierChange).toHaveBeenCalledTimes(1);

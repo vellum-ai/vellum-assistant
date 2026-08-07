@@ -36,7 +36,7 @@ import { useBusSubscription } from "@/hooks/use-bus-subscription";
 import { groupsGetQueryKey } from "@/generated/daemon/@tanstack/react-query.gen";
 import {
   archivedConversationsQueryKey,
-  originChannelListPrefix,
+  sectionListPrefix,
   unreadConversationCountQueryKey,
 } from "@/utils/conversation-list-fetchers";
 import { getClientId } from "@/lib/telemetry/client-identity";
@@ -206,7 +206,7 @@ function scheduleConversationListRefetch(
       queryKey: archivedConversationsQueryKey(assistantId),
     });
     void queryClient.invalidateQueries({
-      queryKey: originChannelListPrefix(assistantId),
+      queryKey: sectionListPrefix(assistantId),
     });
     void queryClient.invalidateQueries({
       queryKey: groupsGetQueryKey({

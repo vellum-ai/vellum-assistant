@@ -87,12 +87,16 @@ export function isPersonalMemoryAllowed(
 
 /**
  * Map a channel-native chat type (Telegram `private`/`group`/`supergroup`,
- * Slack `im`/`mpim`/`channel`) onto the permission-matrix conversation-type
- * axis. Slack's gateway normalizer forwards every non-DM as `"channel"`
- * without distinguishing public from private, so `"channel"` maps to
- * undefined — a permissive public-channel cell must not silently govern
- * private channels. The channel-type tier starts matching for Slack non-DMs
- * once the gateway forwards the distinct type.
+ * Slack `im`/`mpim`/`channel`, Discord `dm`/`channel`) onto the
+ * permission-matrix conversation-type axis. Slack and Discord both forward
+ * every non-DM as `"channel"` without distinguishing public from private, so
+ * `"channel"` maps to undefined: a permissive public-channel cell must not
+ * silently govern private channels. The channel-type tier starts matching for
+ * their non-DMs once the gateway forwards the distinct type.
+ *
+ * Every DM-capable channel must have an arm here. A missing one is silent:
+ * the cell stays settable, because the adapter validates, and simply never
+ * matches, so the guardian sets a rule for DMs and it does nothing.
  */
 export function mapChatTypeToConversationType(
   chatType?: string,
@@ -100,6 +104,10 @@ export function mapChatTypeToConversationType(
   switch (chatType) {
     case "im": // Slack DM
     case "private": // Telegram DM
+    // Discord has no string vocabulary for this: its API distinguishes a DM by
+    // a numeric channel type, and the absence of a guild. The normalizer names
+    // it for the axis rather than inventing a native-looking word.
+    case "dm":
       return "dm";
     // "mpim" is Slack's multi-party DM. The gateway normalizer currently
     // collapses mpim into "channel", so this arm matches nothing from Slack

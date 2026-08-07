@@ -6,7 +6,7 @@ title: Sandbox Mode
 
 In **Sandbox Mode**, the assistant runs tmux sessions inside its own sandbox environment. The user can attach to any of these sessions live via the Vellum terminal UI.
 
-This is the **default mode** for Claude Code orchestration tasks and any work that doesn't require access to the user's host machine. For tmux operational details (quoting, scrollback, naming, etc.) see [tmux-best-practices.md](tmux-best-practices.md).
+This is the **default mode** for any work that doesn't require access to the user's host machine. Claude Code and Codex are the exception: they run through the ACP skill, not through a tmux session. For tmux operational details (quoting, scrollback, naming, etc.) see [tmux-best-practices.md](tmux-best-practices.md).
 
 ## How It Works
 
@@ -45,6 +45,6 @@ tmux capture-pane -t frontend -p -S -50
 
 ## When to Use Sandbox Mode
 
-- Claude Code orchestration (running builds, tests, dev servers while the conversation continues)
+- Long-running processes (builds, tests, dev servers) that continue while the conversation moves on
 - Tasks where the assistant needs to start a process and poll it over multiple turns
 - Any work that doesn't need access to files, tools, or services that only exist on the user's host

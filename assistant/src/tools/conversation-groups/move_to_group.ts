@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 import {
-  batchSetDisplayOrders,
+  batchSetConversationPlacement,
   getConversation,
   getDisplayMetaForConversations,
 } from "../../persistence/conversation-crud.js";
@@ -73,15 +73,7 @@ export async function executeConversationMoveToGroup(
     };
   }
 
-  // Preserve the conversation's manual sort slot across the move; only the
-  // group assignment changes.
-  batchSetDisplayOrders([
-    {
-      id: conversationId,
-      displayOrder: meta?.displayOrder ?? null,
-      groupId: group.id,
-    },
-  ]);
+  batchSetConversationPlacement([{ id: conversationId, groupId: group.id }]);
   publishConversationListAndMetadataChanged("reordered", [conversationId]);
 
   const notes: string[] = [];

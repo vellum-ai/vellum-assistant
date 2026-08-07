@@ -7,6 +7,26 @@ import {
 } from "@/components/companion-surface";
 import { BUNDLED_COMPONENTS } from "@/utils/avatar-bundled-components";
 import { composeSvg } from "@/utils/avatar-svg-compositor";
+import type { VoiceActivityState } from "@vellumai/ipc-contract";
+
+/**
+ * A session for the demo reel to draw. `startedAt` is restamped on every run,
+ * so it is the one field the player overrides.
+ *
+ * Listening and unmuted with nothing waiting on a decision: the ordinary middle
+ * of a call, which is what the reel is showing.
+ */
+const DEMO_CALL: VoiceActivityState = {
+  phase: "listening",
+  label: "Listening",
+  accentHex: "",
+  muted: false,
+  outputMuted: false,
+  detail: "",
+  approvalRequestId: "",
+  assistantName: "Ziggy",
+  startedAt: 0,
+};
 
 /**
  * A real assistant avatar, composed from the same bundled character components
@@ -17,6 +37,20 @@ import { composeSvg } from "@/utils/avatar-svg-compositor";
 const EXAMPLE_AVATAR = `data:image/svg+xml;utf8,${encodeURIComponent(
   composeSvg(BUNDLED_COMPONENTS, "burst", "curious", "teal", 128),
 )}`;
+
+/**
+ * The same creature as traits rather than pixels, which is how the real
+ * surface receives it: composed live so it blinks, twitches and breathes, and
+ * holds a focused pose while the turn is the assistant's.
+ *
+ * Clear `character` in the controls to see the custom-image fallback, which is
+ * a still and does none of that.
+ */
+const EXAMPLE_CHARACTER = {
+  bodyShape: "burst",
+  eyeStyle: "curious",
+  color: "teal",
+};
 
 /**
  * The surface floats over other applications, so every story sits on a
@@ -51,9 +85,9 @@ const meta: Meta<StoryArgs> = {
       control: "inline-radio",
       options: ["dark", "light", "busy"],
     },
-    anchor: {
+    growth: {
       control: "inline-radio",
-      options: ["center", "left", "right"],
+      options: ["right", "left"],
     },
     accentHex: { control: "color" },
     glow: { control: "boolean" },
@@ -63,6 +97,7 @@ const meta: Meta<StoryArgs> = {
     glow: true,
     backdrop: "dark",
     avatarSrc: EXAMPLE_AVATAR,
+    character: EXAMPLE_CHARACTER,
   },
   decorators: [
     (Story, context) => {
@@ -97,14 +132,79 @@ export const Resting: Story = {
   args: { phase: "resting" },
 };
 
-/** Expanded with the app idle: the two ways in. */
+/**
+ * Expanded with the app idle: the two ways in.
+ *
+ * `hovered` is what the creature answers: the eyes widen while the hand is
+ * over the surface. It is a separate arg from `phase` because a call holds the
+ * pill open regardless of the pointer, and the mascot should still notice a
+ * hand arriving mid-call.
+ */
 export const Hover: Story = {
-  args: { phase: "hover" },
+  args: { phase: "hover", hovered: true },
 };
 
 /** Expanded mid-call: the session's own controls, at pill scale. */
 export const InCall: Story = {
   args: { phase: "call" },
+};
+
+/**
+ * Mid-call with a turn stopped on a confirmation.
+ *
+ * The decision takes the control row rather than crowding in beside it, which
+ * is the same trade the iOS Lock Screen card makes: the turn is going nowhere
+ * until this is answered, so it is the only thing here worth pressing. The
+ * activity line says what is being asked; the pill is not the place to render a
+ * tool call's arguments, and the app is a click away for that.
+ *
+ * This is the widest the surface ever gets, so it is what `MAX_PILL_WIDTH` in
+ * `companion-window.ts` sizes the canvas to hold.
+ */
+export const PendingApproval: Story = {
+  args: {
+    phase: "call",
+    call: {
+      ...DEMO_CALL,
+      phase: "thinking",
+      label: "Thinking…",
+      detail: "Read package.json",
+      approvalRequestId: "req-1",
+      startedAt: Date.now() - 14_000,
+    },
+  },
+};
+
+/**
+ * The assistant's turn, which is what the mascot expresses.
+ *
+ * Compare with `InCall` above: same row, but the creature stops blinking and
+ * holds the focused, morphing pose it uses in chat while a reply streams. The
+ * words name the finer phase; the mascot says whose turn it is.
+ */
+export const InCallAssistantTurn: Story = {
+  args: {
+    phase: "call",
+    call: {
+      ...DEMO_CALL,
+      phase: "thinking",
+      label: "Thinking\u2026",
+      startedAt: Date.now() - 9_000,
+    },
+  },
+};
+
+/** Mid-call with both mutes on, which is what the two buttons swap to. */
+export const InCallMuted: Story = {
+  args: {
+    phase: "call",
+    call: {
+      ...DEMO_CALL,
+      muted: true,
+      outputMuted: true,
+      startedAt: Date.now() - 14_000,
+    },
+  },
 };
 
 /**
@@ -144,18 +244,14 @@ export const TypingEmpty: Story = {
 };
 
 /**
- * The circle parked hard against a screen edge, where bloom cannot bloom.
+ * The circle parked hard against the left edge, which changes nothing.
  *
- * It wants 72px of clearance either side expanded and 126px in a call, and
- * there is none to the left, so `anchor: "left"` pins that edge and grows the
- * body rightward instead. The avatar stays exactly where the user put it.
- *
- * **Set `anchor` to `center` to see why this exists.** Unclamped, the pill
- * grows straight past the edge and takes the avatar with it, so the surface
- * disappears off the side of the screen at the moment it is reached for.
+ * Growth runs rightward, away from the edge, so this is simply the default
+ * shape in a tight spot. It is here as the counterpart to the right edge, where
+ * the direction does have to flip.
  */
 export const AgainstTheLeftEdge: Story = {
-  args: { phase: "hover", anchor: "left" },
+  args: { phase: "hover", growth: "right" },
   decorators: [
     (Story) => (
       // A 44px column at the stage's left edge: the avatar's own footprint,
@@ -167,9 +263,17 @@ export const AgainstTheLeftEdge: Story = {
   ],
 };
 
-/** The mirror case, where the body has to grow leftward instead. */
+/**
+ * The case that needs the flip: the circle parked against the right edge, where
+ * the body has nowhere to run.
+ *
+ * **Set `growth` to `right` to see why this exists.** Unclamped, the body runs
+ * straight off the display and takes the controls the user was reaching for
+ * with it. The avatar itself stays exactly where it is either way, which is the
+ * property the flip protects.
+ */
 export const AgainstTheRightEdge: Story = {
-  args: { phase: "call", anchor: "right" },
+  args: { phase: "call", growth: "left" },
   decorators: [
     (Story) => (
       <div className="absolute top-0 right-0 h-full w-11">
@@ -224,6 +328,7 @@ function HoverDrivenSurface(args: StoryArgs) {
       <CompanionSurface
         {...args}
         phase={phase}
+        hovered={hovered}
         avatarSrc={uploaded ?? args.avatarSrc}
         onHoverStart={() => {
           setHovered(true);
@@ -424,7 +529,11 @@ function DemoReelPlayer(args: StoryArgs) {
           spotlight={active?.spotlight}
           // Restamped whenever the call step is entered, so the clock starts
           // from zero on every run rather than from whenever the page loaded.
-          callStartedAt={phase === "call" ? callStartedAt : undefined}
+          call={
+            phase === "call" && callStartedAt !== undefined
+              ? { ...DEMO_CALL, startedAt: callStartedAt }
+              : undefined
+          }
           // No turns: Type opens on the empty composer, which is the same
           // elongated single line as the states either side of it. Opening onto
           // a card of history would make this the one step that changes the

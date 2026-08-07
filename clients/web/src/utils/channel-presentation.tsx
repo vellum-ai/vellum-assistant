@@ -22,6 +22,8 @@ import {
   MessageSquare,
   Phone,
   Send,
+  Smartphone,
+  Video,
   type LucideIcon,
 } from "lucide-react";
 
@@ -100,6 +102,48 @@ export function ChannelIcon({
   className?: string;
 }) {
   return createElement(getChannelIcon(channelId), {
+    className,
+    "aria-hidden": true,
+  });
+}
+
+/**
+ * Lucide icons a plugin channel may name in its `channels/channel.json`.
+ *
+ * A fixed map rather than a lookup over the whole `lucide-react` namespace:
+ * resolving by name dynamically means importing every icon lucide ships, and
+ * a settings rail is not worth that bundle. The declared name still travels
+ * in the API for clients that can resolve it without the same cost.
+ *
+ * An unrecognised name falls back rather than failing. A plugin whose icon is
+ * missing here renders as a generic channel, which is a smaller problem than
+ * a blank row, and the fix is one entry.
+ */
+const PLUGIN_CHANNEL_ICONS: Record<string, LucideIcon> = {
+  bot: Bot,
+  hash: Hash,
+  mail: Mail,
+  "message-circle": MessageCircle,
+  "message-square": MessageSquare,
+  phone: Phone,
+  send: Send,
+  smartphone: Smartphone,
+  video: Video,
+};
+
+/**
+ * Renders a plugin channel's declared glyph. Same static-component treatment
+ * as {@link ChannelIcon}: the component is chosen from a module-level map
+ * rather than constructed during render.
+ */
+export function PluginChannelIcon({
+  icon,
+  className,
+}: {
+  icon: string | null | undefined;
+  className?: string;
+}) {
+  return createElement((icon && PLUGIN_CHANNEL_ICONS[icon]) || MessageSquare, {
     className,
     "aria-hidden": true,
   });

@@ -178,6 +178,7 @@ mock.module("@/generated/daemon/sdk.gen", () => ({
   conversationsByIdInferenceprofilePut: inferenceprofilePut,
 }));
 
+import { ComposerCompactProvider } from "@/domains/chat/components/chat-composer/composer-compact";
 import { ComposerSettingsMenu } from "@/domains/chat/components/composer-settings-menu";
 // Real store (not mocked) — the component reads the draft conversation id and
 // the pending-profile stash from it.
@@ -625,5 +626,62 @@ describe("Profile activation rejected by the daemon", () => {
         "Failed to switch profile. Please try again.",
       );
     });
+  });
+});
+
+describe("compact composer collapse", () => {
+  function renderCompact(segments: "both" | "access" | "profile") {
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: { retry: false },
+        mutations: { retry: false },
+      },
+    });
+    return render(
+      createElement(
+        QueryClientProvider,
+        { client: queryClient },
+        createElement(ComposerCompactProvider, {
+          compact: true,
+          children: createElement(ComposerSettingsMenu, {
+            assistantId: "assistant-1",
+            conversationId: "conv-1",
+            segments,
+          }),
+        }),
+      ),
+    );
+  }
+
+  test("folds both segments into one hamburger trigger", async () => {
+    // The composer mounts only the access-segment instance when compact, so
+    // that instance has to carry the model profile too, or the picker is
+    // unreachable on a narrow window.
+    renderCompact("access");
+
+    const trigger = await screen.findByLabelText(
+      "Assistant access and model profile",
+    );
+    expect(trigger).toBeTruthy();
+    // No labelled split triggers alongside it.
+    expect(screen.queryByLabelText("Model profile")).toBeNull();
+
+    await waitFor(() => {
+      expect(screen.getByText("Smart")).toBeTruthy();
+    });
+    // Access presets live in the same menu, under their own section label.
+    expect(screen.getByText("Assistant Access")).toBeTruthy();
+    expect(screen.getByText("Model Profile")).toBeTruthy();
+  });
+
+  test("stays split when the composer is wide", async () => {
+    renderMenu();
+
+    await waitFor(() => {
+      expect(screen.getByLabelText("Model profile")).toBeTruthy();
+    });
+    expect(
+      screen.queryByLabelText("Assistant access and model profile"),
+    ).toBeNull();
   });
 });

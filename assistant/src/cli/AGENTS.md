@@ -123,10 +123,13 @@ registerFooCommand(program);
    _synchronously_ at command registration (so it can't be a lazy
    `import()`) may stay hoisted behind a scoped
    `// eslint-disable-next-line cli/no-daemon-internals` with a comment
-   explaining why. The only current case is `browser/operation-meta`, in
+   explaining why. The current cases are `browser/operation-meta`, in
    `commands/browser.ts` (it drives synchronous subcommand generation and
    deliberately pulls no Playwright graph) and `commands/browser.help.ts`
-   (which derives the declarative help from the same contract).
+   (which derives the declarative help from the same contract); and
+   `providers/speech-to-text/provider-catalog`, in `commands/stt.help.ts`
+   (a literal map behind type-only imports, which the help text reads to
+   name the providers that serve the batch transcription boundary).
 
 2. **Lazy-import daemon functionality inside the action.** Running daemon
    logic in-process is encouraged where it avoids an IPC round-trip (which

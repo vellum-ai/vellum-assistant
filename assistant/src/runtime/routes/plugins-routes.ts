@@ -85,6 +85,7 @@ import {
 } from "../../cli/lib/uninstall-plugin.js";
 import {
   PluginMergeBaselineError,
+  PluginNotCuratedError,
   PluginNotUpgradableError,
   upgradePlugin,
 } from "../../cli/lib/upgrade-plugin.js";
@@ -605,6 +606,12 @@ const pluginUpgradeRequestSchema = z.object({
     .optional()
     .describe(
       "How to reconcile local edits with the pin. `overwrite` (default) discards local edits and re-installs the pin; `ours`/`theirs` three-way merge, resolving conflicting hunks toward the local edit or the pin respectively; `assistant` is not yet supported.",
+    ),
+  marketplaceOnly: z
+    .boolean()
+    .optional()
+    .describe(
+      "Refuse the upgrade (409) when the marketplace does not claim this plugin, instead of advancing it to whatever its recorded GitHub ref now resolves to. Set by unattended callers such as the automatic update sweep, for which running code no curator reviewed is never an acceptable outcome. Defaults to false.",
     ),
 });
 
@@ -1465,6 +1472,11 @@ async function handleUpgradePlugin({
     typeof body.strategy === "string"
       ? (body.strategy as PluginUpgradeStrategy)
       : undefined;
+  // Enforced here, not just by whoever decided to call: `upgradePlugin` fetches
+  // the catalog itself, so an entry that vanishes between a caller's own check
+  // and this handler would otherwise reroute a curated upgrade onto the
+  // install's mutable recorded ref.
+  const marketplaceOnly = body.marketplaceOnly === true;
 
   // Like install, the upgrade target ref is the curated marketplace pin
   // (resolved inside `upgradePlugin` via `inspectPlugin`), never a
@@ -1498,7 +1510,7 @@ async function handleUpgradePlugin({
     // upgraded revision adds is surfaced to the user by the schedule
     // reconciler's `schedule.declared` notification when it arms.
     const result = await upgradePlugin(
-      { name, dryRun, strategy },
+      { name, dryRun, strategy, marketplaceOnly },
       {
         fetch: globalThis.fetch.bind(globalThis),
         // Tear the old version down BEFORE the staged tree replaces its
@@ -1566,6 +1578,12 @@ async function handleUpgradePlugin({
     // 409 marks the request as well-formed but not actionable in the current
     // state.
     if (err instanceof PluginNotUpgradableError) {
+      throw new ConflictError(err.message);
+    }
+    // A `marketplaceOnly` caller asked about an install the catalog does not
+    // claim. Retrying changes nothing; only a human upgrading it deliberately
+    // (without the flag) can move it, so 409 rather than a retryable 503.
+    if (err instanceof PluginNotCuratedError) {
       throw new ConflictError(err.message);
     }
     // A rate-limited or temporarily-down source (the plugin repo or the
@@ -2039,7 +2057,7 @@ export const ROUTES: RouteDefinition[] = [
     },
     summary: "Upgrade a plugin to its source's current revision",
     description:
-      'Move an installed plugin to its source\'s current revision, re-materializing it under `<workspaceDir>/plugins/<name>/`. A marketplace plugin advances to the curated pin; a plugin installed directly from a GitHub URL (untrusted, not in the marketplace) advances to whatever its recorded ref now resolves to — a pinned SHA is immutable (a no-op), a branch/tag/HEAD moves as upstream does — re-materialized verbatim with no curated adapter overlay, exactly as the original untrusted install was. The target ref is never taken from the request (no caller-supplied ref), mirroring `plugins install`\'s curation boundary. A no-op (`outcome: "already-up-to-date"`) when the installed commit already equals the target; pass `dryRun` to preview the move (`outcome: "would-upgrade"`) without touching the install. Installs lacking provenance are re-pinned to the current SHA. The upgraded code is picked up live on the next read (no restart required). `strategy` controls how local edits are reconciled: `overwrite` (default) discards them and re-installs the target wholesale; `ours`/`theirs`/`assistant` perform a three-way merge against the re-materialized install commit, carrying non-conflicting edits from both sides forward and resolving conflicting hunks toward the local edit (`ours`) or the target (`theirs`), or writing git conflict markers into the file and reporting them in `conflicts`/`binaryConflicts` for the assistant to resolve (`assistant`). A merge strategy whose install-time baseline cannot be reconstructed returns 409. Mirrors the CLI\'s `assistant plugins upgrade <name> [--strategy <s>]`.',
+      'Move an installed plugin to its source\'s current revision, re-materializing it under `<workspaceDir>/plugins/<name>/`. A marketplace plugin advances to the curated pin; a plugin installed directly from a GitHub URL (untrusted, not in the marketplace) advances to whatever its recorded ref now resolves to — a pinned SHA is immutable (a no-op), a branch/tag/HEAD moves as upstream does — re-materialized verbatim with no curated adapter overlay, exactly as the original untrusted install was. The target ref is never taken from the request (no caller-supplied ref), mirroring `plugins install`\'s curation boundary. A no-op (`outcome: "already-up-to-date"`) when the installed commit already equals the target; pass `dryRun` to preview the move (`outcome: "would-upgrade"`) without touching the install. Installs lacking provenance are re-pinned to the current SHA. The upgraded code is picked up live on the next read (no restart required). `strategy` controls how local edits are reconciled: `overwrite` (default) discards them and re-installs the target wholesale; `ours`/`theirs`/`assistant` perform a three-way merge against the re-materialized install commit, carrying non-conflicting edits from both sides forward and resolving conflicting hunks toward the local edit (`ours`) or the target (`theirs`), or writing git conflict markers into the file and reporting them in `conflicts`/`binaryConflicts` for the assistant to resolve (`assistant`). A merge strategy whose install-time baseline cannot be reconstructed returns 409. Pass `marketplaceOnly` to refuse the untrusted direct path outright (409), which is what the unattended auto-update sweep does. Mirrors the CLI\'s `assistant plugins upgrade <name> [--strategy <s>]`.',
     tags: ["plugins"],
     pathParams: [
       {
@@ -2062,7 +2080,7 @@ export const ROUTES: RouteDefinition[] = [
       },
       "409": {
         description:
-          "The install has neither a marketplace entry nor a recorded GitHub source to advance to, or a merge strategy was requested whose install-time baseline cannot be reconstructed.",
+          "The install has neither a marketplace entry nor a recorded GitHub source to advance to, a `marketplaceOnly` upgrade was requested for an install the marketplace does not claim, or a merge strategy was requested whose install-time baseline cannot be reconstructed.",
       },
       "503": {
         description:

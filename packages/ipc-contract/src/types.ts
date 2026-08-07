@@ -66,6 +66,26 @@ export type VellumCommand =
    * running is a no-op, because the running session is the one the user is in.
    */
   | { kind: "startVoice" }
+  /**
+   * Send what the user typed on the companion surface, the way its Type option
+   * asks.
+   *
+   * **The surface has its own thread.** Opening the composer starts a
+   * conversation and every follow-up continues it, rather than sending into
+   * whatever the app happens to have selected: the user reached past the app to
+   * a floating avatar, so they are starting something, not resuming a thread
+   * they cannot see. `startsConversation` marks the first message of a
+   * composer's life; the rest land in the conversation that one created, which
+   * is the app's active one by then.
+   *
+   * Like `startVoice`, this does not raise the app. The user reached for a
+   * floating surface precisely because they are working somewhere else.
+   */
+  | {
+      kind: "companionSubmit";
+      message: string;
+      startsConversation: boolean;
+    }
   | { kind: "cancelDictation" }
   | { kind: "replayOnboarding" }
   | { kind: "replayHatchFailure" }
@@ -275,8 +295,8 @@ export interface VoiceActivityContent {
   phase: VoiceActivityPhase;
   /**
    * User-facing phase copy, passed through from the web layer verbatim
-   * (`liveVoiceSurfaceLabel`), so the panel shows exactly what the voice room
-   * shows. Main and the panel own no phase wording of their own. The wording
+   * (`liveVoiceSurfaceLabel`), so the surface shows exactly what the voice room
+   * shows. Main and the surface own no phase wording of their own. The wording
    * deploys continuously with the web bundle while the shell ships on release
    * cadence, so a `switch` over `phase` on this side would fossilize.
    */
@@ -290,7 +310,7 @@ export interface VoiceActivityContent {
   detail: string;
   /**
    * The confirmation the turn is waiting on, or `""` when it is waiting on
-   * none. Non-empty is what puts Approve/Deny on the panel, and the id travels
+   * none. Non-empty is what puts Approve/Deny on the surface, and the id travels
    * with them so a decision answers the request the user was shown.
    */
   approvalRequestId: string;
@@ -301,7 +321,7 @@ export interface VoiceActivityStart extends VoiceActivityContent {
   assistantName: string;
   /**
    * The assistant's avatar as a base64 PNG or JPEG. Omitted when there is
-   * none, which the panel renders as its accent glyph instead.
+   * none, which the surface renders as its accent glyph instead.
    *
    * Sent once at `start` and never re-sent: it cannot change while a session
    * runs, and it is the one field in this payload big enough for re-sending to
@@ -311,29 +331,23 @@ export interface VoiceActivityStart extends VoiceActivityContent {
 }
 
 /**
- * What the panel's own renderer receives: everything the session sent, plus
+ * What the surface's own renderer receives: everything the session sent, plus
  * `startedAt`, which main stamps.
  *
- * `startedAt` is main's rather than the sender's because the panel is a
+ * `startedAt` is main's rather than the sender's because the surface is a
  * separate renderer that can load, reload, or be recreated mid-session, and an
  * elapsed clock anchored in either renderer would restart when that happened.
  */
 export interface VoiceActivityState extends VoiceActivityStart {
-  /** Epoch ms when main opened this surface. */
+  /** Epoch ms when main first saw this session. */
   startedAt: number;
-  /**
-   * Whether the window is shrunk to its chip. Main owns it because the window
-   * has to be resized around it, and the page must never draw a chip into a
-   * window still the size of the expanded panel.
-   */
-  collapsed: boolean;
 }
 
 /**
- * What a panel button asks of the session.
+ * What a control on the session surface asks of the session.
  *
  * Each mute is **absolute: the state the button's own label promised**, not
- * a toggle. The panel renders content that can be a beat old, so a toggle
+ * a toggle. The surface renders content that can be a beat old, so a toggle
  * resolved against live session state is self-consistent and still wrong for
  * the user: a button reading "Mute assistant" over an already-muted session
  * would unmute it. Sending what the button said makes that press a no-op,
@@ -558,20 +572,108 @@ export type LocalAssistantStatusResult =
 // ---------------------------------------------------------------------------
 
 /**
- * Which way the companion pill may grow, against the avatar's resting spot.
+ * Which way the companion pill grows out of the avatar, which holds its place.
  *
- * `center` blooms both ways and is the shape the surface is designed around.
- * The other two are what it degrades to when a screen edge is closer than the
- * clearance bloom needs. Main decides: it owns the window position and is the
- * only side that knows which display the surface is on.
+ * `right` is the shape the surface is designed around; `left` is what it
+ * degrades to when the right edge of the display is closer than the pill's
+ * widest state needs. Main decides: it owns the window position and is the only
+ * side that knows which display the surface is on.
+ *
+ * The avatar does not move either way. That is the whole point of naming a
+ * *direction* rather than an anchor: the mascot is the fixed thing the user
+ * aims at, and the pill is what changes shape around it.
  */
-export const COMPANION_ANCHORS = ["center", "left", "right"] as const;
+export const COMPANION_GROWTHS = ["right", "left"] as const;
 
-export type CompanionAnchor = (typeof COMPANION_ANCHORS)[number];
+export type CompanionGrowth = (typeof COMPANION_GROWTHS)[number];
+
+/**
+ * The assistant's character, as the three trait ids it is composed from.
+ *
+ * Structurally the fields of the web layer's `CharacterTraits` that
+ * `composeSvg` actually consumes, restated here rather than imported: that type
+ * is generated from the daemon's OpenAPI schema, and the contract package must
+ * not depend on it.
+ *
+ * Traits rather than pixels, because the surface renders the *live* character
+ * from them: an avatar that blinks and breathes cannot be shipped as a still.
+ * Absent for an assistant whose avatar is a custom uploaded image, which has no
+ * traits to compose from and stays a still.
+ */
+export interface CompanionCharacter {
+  bodyShape: string;
+  eyeStyle: string;
+  color: string;
+}
+
+/**
+ * One side of one exchange, condensed for the companion surface's card.
+ *
+ * Text and a side, and nothing else: no ids, no attachments, no tool calls, no
+ * surfaces. The card is a glance at where the conversation got to, so anything
+ * richer crossing this bridge would be an invitation to render a transcript on
+ * a surface floating over someone else's work.
+ */
+export interface CompanionTurn {
+  role: "user" | "assistant";
+  text: string;
+}
+
+/**
+ * What the app's own window knows that the surface cannot.
+ *
+ * The surface is a renderer with no assistant and no conversation in it, so
+ * both facts are published by the window that has them. One payload rather than
+ * two channels: they describe the same assistant at the same moment, and a
+ * surface drawing one assistant's name over another's words is exactly the skew
+ * two independently-pushed facts would produce.
+ */
+export interface CompanionContext {
+  /**
+   * The assistant's display name, already resolved: the surface renders it
+   * verbatim rather than deciding what an unnamed assistant is called.
+   */
+  assistantName: string;
+  /** The conversation's tail, most recent last. */
+  turns: CompanionTurn[];
+}
 
 /** What main tells the companion renderer. */
 export interface CompanionSurfaceState {
-  anchor: CompanionAnchor;
+  growth: CompanionGrowth;
+  /**
+   * The assistant's display name, for the composer's placeholder.
+   *
+   * Empty until the app's window publishes one, which the surface reads as
+   * "not known yet" and covers with its own fallback wording.
+   */
+  assistantName: string;
+  /**
+   * The tail of the conversation the surface belongs to, most recent last, or
+   * empty when there is none to show.
+   *
+   * Published by the renderer that owns the conversation and held here for the
+   * same reason the session is: the surface's own renderer can reload, and a
+   * card that came back blank would read as the conversation having been lost.
+   * It is what lets an exchange started from Type be read without going back to
+   * the app at all.
+   */
+  turns: CompanionTurn[];
+  /**
+   * The character to render live, or `undefined` when there is none to
+   * compose. See {@link CompanionCharacter}; `avatarBase64` is the fallback.
+   */
+  character?: CompanionCharacter;
+  /**
+   * The live-voice session the surface is showing, or `null` when none is
+   * running.
+   *
+   * This is what makes the companion the desktop's session surface rather than
+   * a launcher for one: while it is set the pill holds its expanded call state
+   * whether or not the pointer is anywhere near it, because a live microphone
+   * that only shows itself on hover is a live microphone the user cannot see.
+   */
+  call: VoiceActivityState | null;
   /**
    * The assistant's avatar as a base64 PNG, or `undefined` when there is none.
    *

@@ -1,6 +1,7 @@
 import { useEffect } from "react";
 import { useSearchParams } from "react-router";
 
+import { useTranslation } from "@/i18n";
 import { oauthCompletionStorageKey } from "@/lib/auth/oauth-popup";
 import {
   buildOAuthCompleteDeepLink,
@@ -193,6 +194,7 @@ function formatProviderName(provider: string): string {
 // ── Page ─────────────────────────────────────────────────────────────────────
 
 export function OAuthPopupCompletePage() {
+  const { t } = useTranslation("account");
   const [searchParams] = useSearchParams();
   const requestId = searchParams.get("requestId");
   const oauthStatus = searchParams.get("oauth_status");
@@ -272,7 +274,7 @@ export function OAuthPopupCompletePage() {
               opacity: 0.7,
             }}
           >
-            Error: {oauthCode}
+            {t("oauthComplete.errorCode", { code: oauthCode })}
           </p>
         )}
       </div>

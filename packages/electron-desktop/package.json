@@ -14,6 +14,8 @@
     "./devtools": "./src/devtools.ts",
     "./dictation-overlay-window": "./src/dictation-overlay-window.ts",
     "./floating-window": "./src/floating-window.ts",
+    "./file-open": "./src/file-open.ts",
+    "./file-open-preload": "./src/file-open-preload.ts",
     "./global-shortcuts": "./src/global-shortcuts.ts",
     "./hotkeys": "./src/hotkeys.ts",
     "./image-context-menu": "./src/image-context-menu.ts",

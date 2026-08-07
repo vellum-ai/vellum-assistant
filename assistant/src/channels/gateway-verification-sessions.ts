@@ -122,7 +122,8 @@ export async function createOutboundSession(
 
 /**
  * Guarded variant of `createOutboundSession` for callers passing an atomic
- * claim guard (`requireSourceSessionPending` / `ifNoneActive`). The gateway
+ * claim guard (`requireSourceSessionPending` /
+ * `ifNoneActiveForExternalUserId`). The gateway
  * evaluates the guard in the same synchronous section as the mint; a failed
  * guard returns a conflict marker instead of revoking the concurrent
  * winner's session. Throws when the gateway is unreachable (fail-closed).
@@ -160,10 +161,14 @@ export async function getPendingSession(
  */
 export async function findActiveSession(
   channel: string,
+  filter: {
+    expectedExternalUserId?: string;
+    verificationPurpose?: "guardian" | "trusted_contact";
+  } = {},
 ): Promise<VerificationSessionWire | null> {
   return callGateway(
     VERIFICATION_SESSIONS_IPC_METHODS.findActive,
-    { channel },
+    { channel, ...filter },
     SessionLookupIpcResponseSchema,
   );
 }

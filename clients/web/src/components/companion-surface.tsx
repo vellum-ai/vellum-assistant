@@ -1,9 +1,12 @@
 import {
   ArrowUp,
   AudioLines,
+  Check,
   Keyboard,
   Mic,
+  MicOff,
   Volume2,
+  VolumeX,
   X,
 } from "lucide-react";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
@@ -14,25 +17,33 @@ import type {
   Ref,
 } from "react";
 
+import type {
+  CompanionCharacter,
+  CompanionTurn,
+  VoiceActivityControlAction,
+  VoiceActivityState,
+} from "@vellumai/ipc-contract";
+
+import { AnimatedAvatar } from "@/components/avatar/animated-avatar";
+import { BUNDLED_COMPONENTS } from "@/utils/avatar-bundled-components";
+
 /**
  * The macOS companion surface (LUM-3086): the assistant's avatar floating from
  * app launch, expanding into a pill that carries the voice and type-chat
  * options, and expanding the same way while a call runs.
  *
- * **Bloom.** The body grows both ways from an avatar that holds its place,
- * which reads as the surface breathing rather than sliding. Anchoring is
- * therefore a position (`left: 50%` plus a negative margin) rather than a
- * transform, so the avatar stays put while the body widens around it.
+ * **The mascot is the fixed point.** The body unfurls out of an avatar that
+ * holds one x-position in every state, so the surface reads as one object
+ * changing shape rather than a series of different objects, and the eye and the
+ * cursor always have the same target to aim at. Placement is therefore a
+ * position (`left: 50%` plus the avatar's own half-width) rather than a
+ * transform, and only `width` animates.
  *
- * **Bloom needs clearance on both sides**, `(width - 44) / 2` of it: 72px
- * expanded and 126px in a call. A circle parked against a screen edge does not
- * have it, and unclamped the pill grows straight past the edge, taking the
- * avatar with it rather than merely the far control. So the surface flips
- * instead of clipping, the way a menu does, through {@link anchor}.
- *
- * Pleasingly, the flips are the three expansions that lost to bloom: anchoring
- * left is unfurl-right, anchoring right is slide-left. They were not wasted,
- * they are what bloom degrades into when the screen runs out.
+ * **Growth needs clearance on the side it runs into**, `width - 44` of it: 144px
+ * expanded and 316px in a call. A circle parked against the right edge does not
+ * have it, and unclamped the body would run straight off the display with the
+ * controls the user was reaching for. So the surface flips and grows the other
+ * way instead, the way a menu does, through {@link growth}.
  *
  * **Presentational only.** Phase comes from the caller, so this renders
  * identically in Storybook and in the Electron panel. Hover is a phase rather
@@ -55,10 +66,7 @@ import type {
  *
  * Open, and reproducible from the stories:
  *
- * 1. **The microphone glyph means two things in a call**, "listening" and
- *    "mute", forty pixels apart. The shipped voice panel has the same
- *    collision, so it is worth solving once rather than twice.
- * 2. **Nothing marks a live call while resting.** The circle looks identical
+ * 1. **Nothing marks a live call while resting.** The circle looks identical
  *    whether or not the microphone is open, which is the state this surface
  *    exists to make visible.
  */
@@ -75,24 +83,42 @@ export type CompanionSurfacePhase =
   | "typing";
 
 /**
- * Which way the pill is allowed to grow, positioned against the avatar's
- * resting footprint.
+ * Which way the pill grows out of the avatar, which holds its place.
  *
- * `center` blooms both ways and is the shape this is designed around. The other
- * two are what it degrades to when a screen edge is too close for the 126px a
- * call needs, and the main process is what decides: it owns the window's
- * position and is the only side that knows which display it is on.
+ * `right` is the shape this is designed around; `left` is what it degrades to
+ * when the right edge of the display is too close for the pill's widest state.
+ * The main process decides: it owns the window's position and is the only side
+ * that knows which display it is on.
  */
-export type CompanionSurfaceAnchor = "center" | "left" | "right";
+export type CompanionSurfaceGrowth = "right" | "left";
 
 /** Fallback accent, used until the assistant's own avatar colour is known. */
 const DEFAULT_ACCENT = "#5eead4";
+
+/**
+ * The phases that are the assistant's turn rather than the user's.
+ *
+ * What the mascot expresses is whose turn it is, which is the distinction a
+ * glance actually needs: the creature is either waiting on you or working. The
+ * finer phase is in the words beside it, where the reading is deliberate.
+ *
+ * `connecting` and `ending` are neither turn, and read better as the ordinary
+ * idle creature than as one straining.
+ */
+const ASSISTANT_TURN_PHASES = new Set(["transcribing", "thinking", "speaking"]);
 
 // The avatar is a fixed 44px disc in every state; only the body around it
 // changes. That is what makes this one surface expanding rather than three
 // surfaces that happen to share a colour, and it is the property to protect as
 // the states gain content.
 const AVATAR_BOX = 44;
+
+/**
+ * The avatar artwork inside that box, which is inset by {@link INNER_GAP} on
+ * every side. Both the still and the composed creature draw at this size, so
+ * nothing moves when one replaces the other.
+ */
+const AVATAR_IMAGE = 28;
 
 /**
  * The clearance every round thing inside the pill keeps from its edge.
@@ -142,20 +168,24 @@ const FALLBACK_WIDTHS: Record<CompanionSurfacePhase, number> = {
 const CARD_WIDTH = 360;
 
 /**
- * Lines each turn gets before it is cut off.
+ * The tallest the conversation gets before it scrolls.
  *
- * The card is a glance at the conversation, not the conversation. The assistant
- * gets one more line than the user because the user already knows what they
- * said.
+ * The card is still a card, not a chat window: it holds a readable stretch of
+ * the exchange and the rest is scrolled to, so a long reply can be read in
+ * place without the surface growing until it runs off the top of the display.
+ * Whatever this is, `MAX_CARD_HEIGHT` in `companion-window.ts` has to be sized
+ * to hold it plus the composer row.
  */
-const USER_LINE_CLAMP = 2;
-const ASSISTANT_LINE_CLAMP = 4;
+const TURNS_MAX_HEIGHT = 220;
 
-/** One side of one exchange, condensed for the card. */
-export interface CompanionTurn {
-  role: "user" | "assistant";
-  text: string;
-}
+/**
+ * One side of one exchange, condensed for the card.
+ *
+ * The contract's type rather than one of this component's own: the same rows
+ * are published by the app's window and pushed through main to get here, and a
+ * second declaration is how the two ends come to disagree about what a turn is.
+ */
+export type { CompanionTurn };
 
 export interface CompanionSurfaceProps {
   phase: CompanionSurfacePhase;
@@ -174,8 +204,33 @@ export interface CompanionSurfaceProps {
    * The assistant's avatar. Any image source: the Electron payload carries it
    * as base64, which the caller turns into a data URL. Falls back to a disc in
    * the accent colour while it is still resolving.
+   *
+   * Only used when there is no {@link character} to compose, since a still
+   * cannot blink.
    */
   avatarSrc?: string;
+  /**
+   * The traits to compose the live creature from.
+   *
+   * **This is the surface's status channel.** The mascot is the one thing on
+   * the pill present in every state, so it is what carries how the assistant
+   * *is*: it blinks and breathes at rest, and holds a focused, morphing pose
+   * while the turn is the assistant's. That is also what frees the mic and
+   * speaker glyphs to mean nothing but their controls.
+   *
+   * Absent for an assistant whose avatar is a custom uploaded image, which
+   * falls back to {@link avatarSrc} and does not animate.
+   */
+  character?: CompanionCharacter;
+  /**
+   * Whether the pointer is on the surface, which the creature answers by
+   * widening its eyes.
+   *
+   * Passed rather than derived from `phase`, because a call holds the pill open
+   * regardless of the pointer and the mascot should still notice a hand
+   * arriving over it mid-call.
+   */
+  hovered?: boolean;
   /**
    * Expand. Wired to the avatar alone, never to the surface: at rest the two
    * are the same box, but arming from anything larger than what is drawn would
@@ -190,8 +245,8 @@ export interface CompanionSurfaceProps {
    * the two agree exactly when it matters.
    */
   onHoverEnd?: () => void;
-  /** Which way the pill may grow. See {@link CompanionSurfaceAnchor}. */
-  anchor?: CompanionSurfaceAnchor;
+  /** Which way the pill grows. See {@link CompanionSurfaceGrowth}. */
+  growth?: CompanionSurfaceGrowth;
   /**
    * The pill's own element.
    *
@@ -221,10 +276,50 @@ export interface CompanionSurfaceProps {
    */
   onTalk?: () => void;
   /**
-   * When the call started, for the elapsed clock. Absent leaves the clock at a
-   * fixed sample, which is what the static stories want.
+   * Open the composer, which is what Type does. The caller owns the phase, so
+   * this reports the press rather than switching to `typing` here: in the
+   * Electron host the same press also has to lend the window the keyboard.
    */
-  callStartedAt?: number;
+  onType?: () => void;
+  /**
+   * Send what was typed. The text is the composer's own until it leaves, so
+   * this is the only thing the caller ever sees of it.
+   */
+  onSubmit?: (message: string) => void;
+  /**
+   * Close the composer without sending, which is what Escape asks for.
+   */
+  onCancelTyping?: () => void;
+  /**
+   * Press the avatar: go back to Vellum, on the conversation the surface
+   * belongs to.
+   *
+   * Wired to the avatar rather than the pill because the pill's body is
+   * controls, and to a press that did not turn into a drag: the whole surface
+   * is a drag handle, and the avatar is the part of it a user is most likely to
+   * grab. The caller owns that distinction, since it is the side holding the
+   * pointer.
+   */
+  onAvatarClick?: () => void;
+  /**
+   * The running session, when `phase` is `call`.
+   *
+   * Absent renders the call state from fixed sample values, which is what the
+   * static stories want: there is no session behind them.
+   */
+  call?: VoiceActivityState;
+  /**
+   * Act on the running session: mute, unmute, end, or answer the confirmation
+   * it is waiting on.
+   *
+   * **Each action is the absolute state the button's own label promised, never
+   * a toggle.** The surface can be drawing content a beat behind the session,
+   * so a toggle resolved against live state would be self-consistent and still
+   * wrong for the user: a button reading "Mute assistant" over an already-muted
+   * session would unmute it. Sending what the button said makes a stale press a
+   * no-op the next push corrects.
+   */
+  onControl?: (action: VoiceActivityControlAction, requestId?: string) => void;
 }
 
 export function CompanionSurface({
@@ -234,14 +329,21 @@ export function CompanionSurface({
   glow = true,
   accentHex = DEFAULT_ACCENT,
   avatarSrc,
+  character,
+  hovered = false,
   onHoverStart,
   onHoverEnd,
-  anchor = "center",
+  growth = "right",
   rootRef,
   onSurfaceMouseDown,
   spotlight,
   onTalk,
-  callStartedAt,
+  onType,
+  onSubmit,
+  onCancelTyping,
+  onAvatarClick,
+  call,
+  onControl,
 }: CompanionSurfaceProps) {
   const expanded = phase !== "resting";
   const typing = phase === "typing";
@@ -277,22 +379,20 @@ export function CompanionSurface({
         ? 0
         : (contentWidth ?? FALLBACK_WIDTHS[phase] - AVATAR_BOX) + INNER_GAP);
 
-  // **Every anchor keeps the avatar on the same spot.** The host positions this
-  // window around the avatar, not around the pill, so the avatar's resting box
-  // is always the centre of the canvas and only the direction the body grows in
-  // may change. Pinning the pill to a canvas edge instead throws the avatar
-  // half a canvas away from where the host put it, which at the default
-  // bottom-right launch position is off the screen entirely.
+  // **The avatar never moves.** It is pinned to the centre of the canvas, which
+  // is the spot the host positions this window around, and the body runs off
+  // one side of it. Growing from the pill's centre instead would slide the
+  // mascot to a different x-position in every state, so the surface would read
+  // as a series of different objects rather than one object changing shape, and
+  // the user's eye and cursor would have no fixed target to aim at.
   //
-  // So each anchor fixes the avatar's own edge to the centre and lets the body
-  // run the other way: right-anchored also reverses the row, because the body
-  // has to end up on the avatar's left.
+  // Each direction therefore fixes the avatar's own edge to the centre and lets
+  // the body run the other way. Growing left also reverses the row, because the
+  // body has to end up on the avatar's left.
   const placement: CSSProperties =
-    anchor === "left"
-      ? { left: "50%", marginLeft: -(AVATAR_BOX / 2) }
-      : anchor === "right"
-        ? { right: "50%", marginRight: -(AVATAR_BOX / 2) }
-        : { left: "50%", marginLeft: -(width / 2) };
+    growth === "left"
+      ? { right: "50%", marginRight: -(AVATAR_BOX / 2) }
+      : { left: "50%", marginLeft: -(AVATAR_BOX / 2) };
 
   const style: CSSProperties = {
     width,
@@ -316,7 +416,7 @@ export function CompanionSurface({
     // press, so everything that is not a button can be grabbed, which at rest
     // means the avatar and when expanded means the pill around the controls.
     <div
-      className={`absolute top-1/2 cursor-grab transition-[width,margin-left,margin-right] duration-300 will-change-[width,margin-left,margin-right] active:cursor-grabbing ${
+      className={`absolute top-1/2 cursor-grab transition-[width] duration-300 will-change-[width] active:cursor-grabbing ${
         typing
           ? "flex flex-col rounded-[22px]"
           : "flex h-11 items-center rounded-full"
@@ -324,7 +424,7 @@ export function CompanionSurface({
         // The avatar is the row's first child, so growing leftward means
         // reversing the row rather than repositioning it. The card is a column
         // and grows upward instead, so it never wants this.
-        anchor === "right" && !typing ? "flex-row-reverse" : ""
+        growth === "left" && !typing ? "flex-row-reverse" : ""
       }`}
       style={style}
       onMouseLeave={onHoverEnd}
@@ -354,10 +454,22 @@ export function CompanionSurface({
           glow={glow && !expanded}
           accentHex={accentHex}
           avatarSrc={avatarSrc}
+          character={character}
+          attentive={hovered}
+          // The assistant's own turn. The creature stops blinking and holds a
+          // focused, morphing pose, which is the same treatment the chat avatar
+          // uses while a reply is streaming: one vocabulary for "it is working"
+          // wherever the user meets it.
+          busy={call !== undefined && ASSISTANT_TURN_PHASES.has(call.phase)}
           onMouseEnter={onHoverStart}
+          onClick={onAvatarClick}
         />
         {typing ? (
-          <Composer assistantName={assistantName} />
+          <Composer
+            assistantName={assistantName}
+            onSubmit={onSubmit}
+            onCancel={onCancelTyping}
+          />
         ) : (
           <div
             className="relative flex min-w-0 items-center gap-1 overflow-hidden transition-opacity duration-200"
@@ -376,9 +488,9 @@ export function CompanionSurface({
             }}
           >
             {phase === "call" ? (
-              <CallBody startedAt={callStartedAt} />
+              <CallBody call={call} onControl={onControl} />
             ) : (
-              <IdleBody spotlight={spotlight} onTalk={onTalk} />
+              <IdleBody spotlight={spotlight} onTalk={onTalk} onType={onType} />
             )}
           </div>
         )}
@@ -388,43 +500,59 @@ export function CompanionSurface({
 }
 
 /**
- * The tail of the conversation, stacked above the composer.
+ * The conversation, stacked above the composer.
  *
- * Deliberately not a transcript. Two turns at most and a few lines each,
- * because a surface floating over someone else's work is a glance at where the
- * conversation got to, and the app is where the thread actually lives. Anything
- * longer would be a chat window that happens to be always on top.
+ * **Scrolled, not clipped.** An exchange the user has on this surface is one
+ * they should be able to read on it, so the turns get a viewport of their own
+ * and the older ones are scrolled back to rather than truncated. It is still
+ * not a transcript: what crosses the bridge is a bounded tail (see the mirror's
+ * `TAIL`), and the app is where the whole thread lives.
+ *
+ * **Pinned to the newest.** The view is anchored at the bottom on every change,
+ * because the reason to look at this card is what just arrived, and a streaming
+ * reply that scrolled out of sight as it was written would be unreadable
+ * exactly when it mattered.
  */
 function RecentTurns({ turns }: { turns: CompanionTurn[] }) {
-  // Oldest first, so the newest sits nearest the composer as it does in the app.
-  const recent = turns.slice(-2);
+  const scrollRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    const element = scrollRef.current;
+    if (!element) {
+      return;
+    }
+    element.scrollTop = element.scrollHeight;
+  }, [turns]);
+
   return (
-    <div className="relative flex flex-col gap-1.5 px-3 pt-3 pb-1">
+    <div
+      ref={scrollRef}
+      className="relative flex flex-col gap-1.5 overflow-y-auto px-3 pt-3 pb-1"
+      style={{ maxHeight: TURNS_MAX_HEIGHT }}
+    >
       {/* Sides, as the transcript does it: the user's turn is a bubble pushed
           right and capped at 80%, the assistant's is plain text filling the
           width. Matching `transcript-message-body.tsx` matters more than it
           looks, because this is a condensed read of the same conversation and a
           reader should not have to work out who said what a second time in a
           second idiom. */}
-      {recent.map((turn, index) => {
+      {turns.map((turn, index) => {
         const isUser = turn.role === "user";
         return (
           <div
             key={`${turn.role}-${index}`}
-            className={`flex ${isUser ? "justify-end" : "justify-start"}`}
+            className={`flex shrink-0 ${isUser ? "justify-end" : "justify-start"}`}
           >
+            {/* Whole, not clamped. Clamping belonged to a card that showed the
+                last two turns and nothing else; now that the conversation
+                scrolls, a cut-off reply would be text the user can see the top
+                of and has no way to reach the rest of. */}
             <p
-              className={`text-[12px] leading-[1.45] ${
+              className={`text-[12px] leading-[1.45] whitespace-pre-wrap ${
                 isUser
                   ? "max-w-[80%] rounded-lg bg-white/[0.08] px-2.5 py-1.5 text-white/75"
                   : "text-white/85"
               }`}
-              style={{
-                display: "-webkit-box",
-                WebkitBoxOrient: "vertical",
-                WebkitLineClamp: isUser ? USER_LINE_CLAMP : ASSISTANT_LINE_CLAMP,
-                overflow: "hidden",
-              }}
             >
               {turn.text}
             </p>
@@ -443,12 +571,61 @@ function RecentTurns({ turns }: { turns: CompanionTurn[] }) {
  * is: empty, focused, or full of text, it is the same elongated single line as
  * the voice states. Growth happens above it, never to it.
  */
-function Composer({ assistantName }: { assistantName: string }) {
+function Composer({
+  assistantName,
+  onSubmit,
+  onCancel,
+}: {
+  assistantName: string;
+  onSubmit?: (message: string) => void;
+  onCancel?: () => void;
+}) {
+  // The draft is the composer's own and never leaves except as a submitted
+  // message. Holding it in the page instead would re-render the whole surface,
+  // and the creature animating inside it, on every keystroke.
+  const [draft, setDraft] = useState("");
+  const inputRef = useRef<HTMLInputElement | null>(null);
+  const message = draft.trim();
+
+  // The caret goes where the press just asked for one. This component mounts
+  // with the card, so focusing on mount is the whole of it: pressing Type is
+  // pressing "let me type", and a field the user has to click a second time to
+  // use is a field that failed to do what it was asked.
+  useEffect(() => {
+    inputRef.current?.focus();
+  }, []);
+
+  const send = () => {
+    if (message === "") {
+      return;
+    }
+    setDraft("");
+    onSubmit?.(message);
+  };
+
   return (
     <div className="relative flex min-w-0 flex-1 items-center gap-1 pr-2">
       <input
+        ref={inputRef}
         type="text"
+        value={draft}
         placeholder={`Message ${assistantName}`}
+        onChange={(event) => {
+          setDraft(event.target.value);
+        }}
+        // Enter sends and Escape backs out, which is the whole keyboard here:
+        // the field is one line, so there is no newline to protect.
+        onKeyDown={(event) => {
+          if (event.key === "Enter") {
+            event.preventDefault();
+            send();
+            return;
+          }
+          if (event.key === "Escape") {
+            event.preventDefault();
+            onCancel?.();
+          }
+        }}
         // A press in the field is not a drag, and the field wants the caret
         // that press would otherwise be stolen from.
         onMouseDown={(event) => {
@@ -456,15 +633,28 @@ function Composer({ assistantName }: { assistantName: string }) {
         }}
         className="min-w-0 flex-1 bg-transparent text-[12px] text-white/85 placeholder:text-white/40 focus:outline-none"
       />
+      {/* **The way out, and the way on, in one control.** With nothing typed
+          there is nothing to send, so the trailing control is the way back to
+          the pill; the moment there are words it becomes the way to send them.
+          A card whose only control was a dead send arrow would be a state the
+          user could enter and not leave, and a second permanent button for
+          "never mind" would spend a third of the row on the thing the user
+          wants least. */}
       <button
         type="button"
-        aria-label="Send"
+        aria-label={message === "" ? "Go back" : "Send"}
+        title={message === "" ? "Go back" : "Send"}
+        onClick={message === "" ? onCancel : send}
         onMouseDown={(event) => {
           event.stopPropagation();
         }}
         className="grid size-7 shrink-0 place-items-center rounded-full bg-white/10 text-white/85 transition-colors hover:bg-white/20"
       >
-        <ArrowUp className="size-3.5" aria-hidden />
+        {message === "" ? (
+          <X className="size-3.5" aria-hidden />
+        ) : (
+          <ArrowUp className="size-3.5" aria-hidden />
+        )}
       </button>
     </div>
   );
@@ -482,17 +672,30 @@ function Avatar({
   glow,
   accentHex,
   avatarSrc,
+  character,
+  busy = false,
+  attentive = false,
   onMouseEnter,
+  onClick,
 }: {
   glow: boolean;
   accentHex: string;
   avatarSrc?: string;
+  character?: CompanionCharacter;
+  busy?: boolean;
+  attentive?: boolean;
   onMouseEnter?: () => void;
+  onClick?: () => void;
 }) {
   return (
+    // A div rather than a button even when it is pressable: it is the drag
+    // handle for the whole surface, and the press that starts a drag must not
+    // read as activating a control. `onClick` fires only for presses the caller
+    // decided were not drags.
     <div
       className="relative grid size-11 shrink-0 place-items-center"
       onMouseEnter={onMouseEnter}
+      onClick={onClick}
     >
       {glow && (
         <span
@@ -501,8 +704,21 @@ function Avatar({
           aria-hidden
         />
       )}
-      {avatarSrc === undefined ? (
-        // Until the avatar resolves, a disc in its colour. Same 28px, so
+      {character !== undefined ? (
+        // The live creature, composed here rather than shipped as pixels. It
+        // blinks, twitches and breathes on its own, which is the whole reason
+        // the traits cross the bridge instead of a still.
+        <div className="relative drop-shadow-[0_1px_3px_rgba(0,0,0,0.55)]">
+          <AnimatedAvatar
+            components={BUNDLED_COMPONENTS}
+            traits={character}
+            size={AVATAR_IMAGE}
+            isAssistantBusy={busy}
+            attentive={attentive}
+          />
+        </div>
+      ) : avatarSrc === undefined ? (
+        // Until the avatar resolves, a disc in its colour. Same size, so
         // nothing about the geometry moves when the image lands.
         <span
           className="relative size-7 rounded-full drop-shadow-[0_1px_3px_rgba(0,0,0,0.55)]"
@@ -510,6 +726,8 @@ function Avatar({
           aria-hidden
         />
       ) : (
+        // A custom uploaded image, which has no traits to compose and so no
+        // eyes to animate.
         <img
           src={avatarSrc}
           alt=""
@@ -530,9 +748,11 @@ function Avatar({
 function IdleBody({
   spotlight,
   onTalk,
+  onType,
 }: {
   spotlight?: "talk" | "type";
   onTalk?: () => void;
+  onType?: () => void;
 }) {
   return (
     <>
@@ -548,35 +768,158 @@ function IdleBody({
         label="Type"
         showLabel
         active={spotlight === "type"}
+        onClick={onType}
       />
     </>
   );
 }
 
-/** Expanded, mid-call: the session's own controls, at pill scale. */
-function CallBody({ startedAt }: { startedAt?: number }) {
+/**
+ * Expanded, mid-call: what the session is doing, and the controls that act on
+ * it.
+ *
+ * **This is the desktop's whole live-voice surface**, so it carries what the
+ * iOS Lock Screen card carries: the phase as a glyph and as the session's own
+ * wording, elapsed time, and the session's controls. It has one line where that
+ * card has several, which is what the choices below are about.
+ *
+ * **No phase copy of its own.** Every word here is `label` or `detail`, passed
+ * through from the session's store, because the phase wording deploys
+ * continuously with the web bundle while this surface's shell ships on release
+ * cadence. A surface that re-words its own phases is how the two come to
+ * disagree.
+ *
+ * **And no phase glyph.** One belonged here until it collided: a microphone
+ * meaning "listening" sat forty pixels from a microphone meaning "mute", and a
+ * speaker meaning "speaking" from a speaker meaning "mute the assistant".
+ * Adjacent identical glyphs meaning different things is a coin flip, so status
+ * moved to the mascot, which is the one element on the pill that is not a
+ * control and cannot be mistaken for one.
+ */
+function CallBody({
+  call,
+  onControl,
+}: {
+  call?: VoiceActivityState;
+  onControl?: (action: VoiceActivityControlAction, requestId?: string) => void;
+}) {
+  // The confirmation takes the row rather than crowding into it. The turn is
+  // stopped until it is answered, so it is the only thing here worth pressing,
+  // and a pill that tried to carry five controls would make each of them a
+  // smaller target than the decision deserves.
+  if (call !== undefined && call.approvalRequestId !== "") {
+    return (
+      <ApprovalBody
+        detail={call.detail}
+        requestId={call.approvalRequestId}
+        onControl={onControl}
+      />
+    );
+  }
+
+  // The activity line when the turn has one, the phase otherwise. `detail` is
+  // the more specific of the two ("Reading a file" against "Thinking…") and is
+  // empty for most of a call, so this reads as the surface saying more exactly
+  // when there is more to say. The mascot carries the state either way.
+  const line = call === undefined ? "Listening" : call.detail || call.label;
+  const muted = call?.muted ?? false;
+  const outputMuted = call?.outputMuted ?? false;
+
   return (
     <>
-      {/* Sized to its content, not shrunk to fit. The pill now measures this
-          row to decide how wide to be, so a label that collapses under pressure
-          would measure its own collapsed self: the width and the truncation
-          would chase each other down. The cap is what keeps a pathological
-          label from growing the pill without bound. */}
-      <span className="ml-1 flex shrink-0 items-center gap-1.5">
-        <Mic className="size-3.5 shrink-0 text-[var(--accent)]" aria-hidden />
-        <span className="max-w-[140px] truncate text-[12px] text-white/85">
-          Listening
-        </span>
+      {/* Sized to its content, not shrunk to fit. The pill measures this row to
+          decide how wide to be, so a label that collapses under pressure would
+          measure its own collapsed self: the width and the truncation would
+          chase each other down. The cap is what keeps a pathological label from
+          growing the pill without bound. */}
+      <span className="ml-1 max-w-[120px] shrink-0 truncate text-[12px] text-white/85">
+        {line}
       </span>
       <span className="ml-1 shrink-0 font-mono text-[11px] tabular-nums text-white/60">
-        <Elapsed startedAt={startedAt} />
+        <Elapsed startedAt={call?.startedAt} />
       </span>
-      <PillButton icon={<Mic className="size-4" />} label="Mute microphone" />
-      <PillButton icon={<Volume2 className="size-4" />} label="Mute assistant" />
+      <PillButton
+        icon={
+          muted ? <MicOff className="size-4" /> : <Mic className="size-4" />
+        }
+        label={muted ? "Unmute microphone" : "Mute microphone"}
+        onClick={() => {
+          onControl?.(muted ? "unmuteMicrophone" : "muteMicrophone");
+        }}
+      />
+      <PillButton
+        icon={
+          outputMuted ? (
+            <VolumeX className="size-4" />
+          ) : (
+            <Volume2 className="size-4" />
+          )
+        }
+        label={outputMuted ? "Unmute assistant" : "Mute assistant"}
+        onClick={() => {
+          onControl?.(
+            outputMuted ? "unmuteAssistantAudio" : "muteAssistantAudio",
+          );
+        }}
+      />
+      {/* The room's own end control, at pill scale: the same glyph at the same
+          weight in the same destructive tone. Ending a call is the one
+          irreversible thing on this surface, so it looks identical wherever the
+          user meets it. */}
       <PillButton
         icon={<X className="size-4" strokeWidth={2.5} />}
         label="End session"
         tone="negative"
+        onClick={() => {
+          onControl?.("endSession");
+        }}
+      />
+    </>
+  );
+}
+
+/**
+ * Answer the confirmation the turn is blocked on.
+ *
+ * The request id travels with the press so the session answers the question the
+ * user was actually shown: between the push that drew these buttons and the
+ * press that answers them the request can be decided in the app, time out, or
+ * be superseded, and the next one to arrive would be a different question
+ * wearing the same buttons.
+ */
+function ApprovalBody({
+  detail,
+  requestId,
+  onControl,
+}: {
+  detail: string;
+  requestId: string;
+  onControl?: (action: VoiceActivityControlAction, requestId?: string) => void;
+}) {
+  return (
+    <>
+      {detail !== "" && (
+        <span className="ml-1 max-w-[120px] shrink-0 truncate text-[12px] text-white/85">
+          {detail}
+        </span>
+      )}
+      <PillButton
+        icon={<Check className="size-4" />}
+        label="Allow"
+        showLabel
+        tone="positive"
+        onClick={() => {
+          onControl?.("approveRequest", requestId);
+        }}
+      />
+      <PillButton
+        icon={<X className="size-4" />}
+        label="Deny"
+        showLabel
+        tone="negative"
+        onClick={() => {
+          onControl?.("denyRequest", requestId);
+        }}
       />
     </>
   );
@@ -587,7 +930,7 @@ function CallBody({ startedAt }: { startedAt?: number }) {
  *
  * Ticks from a timestamp the caller owns rather than one of its own, because
  * the session started before this component mounted and will outlive it: the
- * panel that renders this can reload mid-call. With no timestamp it holds a
+ * surface that renders this can reload mid-call. With no timestamp it holds a
  * fixed sample, which is what a static story wants.
  */
 function Elapsed({ startedAt }: { startedAt?: number }) {
@@ -631,7 +974,7 @@ function PillButton({
 }: {
   icon: ReactNode;
   label: string;
-  tone?: "negative";
+  tone?: "positive" | "negative";
   showLabel?: boolean;
   /** Held down, for a control whose surface is currently open. */
   active?: boolean;
@@ -650,7 +993,13 @@ function PillButton({
       }}
       className={`flex h-7 shrink-0 items-center gap-1.5 rounded-full px-2 text-[12px] transition-colors hover:bg-white/15 ${
         active ? "bg-white/15" : ""
-      } ${tone === "negative" ? "text-[#ff6b6b]" : "text-white/85"}`}
+      } ${
+        tone === "negative"
+          ? "text-[#ff6b6b]"
+          : tone === "positive"
+            ? "text-[#5ee08a]"
+            : "text-white/85"
+      }`}
     >
       {icon}
       {showLabel && <span>{label}</span>}
