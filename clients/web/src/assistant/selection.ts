@@ -15,7 +15,6 @@
 import { isGatewayAuthMode } from "@/lib/auth/gateway-session";
 import {
   getActiveAssistant,
-  isLocalClient,
   setActiveLockfileAssistant,
 } from "@/lib/local-mode";
 import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
@@ -70,8 +69,8 @@ export function resolveSelectedAssistantId(
  * Reactive, flag-gated read of the selection, shared by every consumer that
  * must agree with the lifecycle on which assistant is selected. Honors the
  * stored selection when the multi-platform-assistant flag is on, or when the
- * assistant-switcher flag is on for a local client (its Switch Assistant
- * chooser stores the same selection, and the switcher is local-client-only).
+ * assistant-switcher flag is on (its chooser stores the same selection and
+ * runs on local clients and the platform hub alike).
  * Gateway-auth mode and a missing org id return null, as does a closed gate:
  * callers apply their own fallback. The org id comes from the same derivation
  * the `Vellum-Organization-Id` header uses (the resolved selection, or the
@@ -90,9 +89,11 @@ export function useGatedSelectedAssistantId(): string | null {
   useResolvedAssistantsStore.use.selectedAssistantId();
   useResolvedAssistantsStore.use.assistants();
   useResolvedAssistantsStore.use.assistantsHydrated();
+  // assistant-switcher opens the gate on every surface that hosts the
+  // chooser (local clients and the platform hub); gateway-auth mode always
+  // resolves null regardless.
   const gateOpen =
-    (multiAssistantEnabled || (assistantSwitcherEnabled && isLocalClient())) &&
-    !isGatewayAuthMode();
+    (multiAssistantEnabled || assistantSwitcherEnabled) && !isGatewayAuthMode();
   return gateOpen && organizationId
     ? resolveSelectedAssistantId(organizationId)
     : null;

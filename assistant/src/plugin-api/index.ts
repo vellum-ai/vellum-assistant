@@ -345,21 +345,26 @@ export { synthesizeText, TtsSynthesisError } from "../tts/synthesize-text.js";
 export type { TtsSynthesisResult } from "../tts/types.js";
 // Streaming speech-to-text — open a live transcription session against the
 // assistant's globally configured STT provider stack. The plugin feeds audio
-// chunks via `sendAudio` and receives partial/final transcript events through
-// the `start(onEvent)` callback, closing with `stop`. `SttStreamServerEvent`
-// and its variants type the events handed to `onEvent`; `SttErrorCategory`
-// classifies `error` events; `SttProviderId` names the resolved session's
-// provider.
+// chunks via `sendAudio` and receives transcript and turn-boundary events
+// through the `start(onEvent)` callback, closing with `stop`.
+// `SttStreamServerEvent` types the events handed to `onEvent`; every member of
+// that union is exported alongside it so a plugin can name each variant in an
+// exhaustive switch. `SttErrorCategory` classifies `error` events;
+// `SttProviderId` names the resolved session's provider.
 export type {
   StreamingTranscriber,
   SttErrorCategory,
   SttProviderId,
   SttStreamServerClosedEvent,
+  SttStreamServerEagerTurnEndEvent,
   SttStreamServerErrorEvent,
   SttStreamServerEvent,
   SttStreamServerFinalEvent,
   SttStreamServerFinalizedEvent,
   SttStreamServerPartialEvent,
+  SttStreamServerTurnEndEvent,
+  SttStreamServerTurnResumedEvent,
+  SttStreamServerTurnStartEvent,
 } from "../stt/types.js";
 export { openTranscriptionSession } from "./transcription-session.js";
 // Conversation agent-loop turn — run a full conversation turn (persist user

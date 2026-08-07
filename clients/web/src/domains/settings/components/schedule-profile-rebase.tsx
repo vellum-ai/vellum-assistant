@@ -4,7 +4,6 @@ import { useMemo, useState } from "react";
 import { reassignScheduleInferenceProfile } from "@/domains/settings/api/schedules";
 import { canScheduleStillRun } from "@/domains/settings/utils/schedule-formatters";
 import { useCallSiteDefaultProfile } from "@/hooks/use-call-site-default-profile";
-import { useSupportsScheduleProfileMoves } from "@/lib/backwards-compat/use-supports-schedule-profile-moves";
 import { captureError } from "@/lib/sentry/capture-error";
 import { ConfirmDialog } from "@vellumai/design-library/components/confirm-dialog";
 import { toast } from "@vellumai/design-library/components/toast";
@@ -35,10 +34,7 @@ export interface ScheduleProfileRebase {
    * offer a move that reports back a smaller number than it promised.
    */
   offDefaultCount: number;
-  /**
-   * Whether to offer the action at all: something has to move, and the
-   * assistant has to be able to serve the move.
-   */
+  /** Whether to offer the action at all: something has to move. */
   canRebase: boolean;
   requestRebase: () => void;
   dialogProps: ScheduleProfileRebaseDialogProps;
@@ -54,10 +50,6 @@ export interface ScheduleProfileRebase {
  * hatch, and it reassigns server-side in one call rather than fanning out a
  * PATCH per row, so the set that moves is the set the daemon sees, including
  * the deferred reminders the list does not show.
- *
- * The move needs an assistant carrying the reassign route, which the same gate
- * the profile-delete flow uses reports. An older one rejects a request with no
- * `from` outright, so the action stays hidden rather than failing on click.
  */
 export function useScheduleProfileRebase(
   assistantId: string,
@@ -65,7 +57,6 @@ export function useScheduleProfileRebase(
   onRebased: () => void,
 ): ScheduleProfileRebase {
   const defaultProfile = useCallSiteDefaultProfile(assistantId, "mainAgent");
-  const supportsProfileMoves = useSupportsScheduleProfileMoves(assistantId);
   const [confirmOpen, setConfirmOpen] = useState(false);
 
   const offDefaultCount = useMemo(() => {
@@ -102,10 +93,10 @@ export function useScheduleProfileRebase(
   return {
     defaultProfileLabel: label,
     offDefaultCount,
-    canRebase: supportsProfileMoves && offDefaultCount > 0,
+    canRebase: offDefaultCount > 0,
     requestRebase: () => setConfirmOpen(true),
     dialogProps: {
-      open: confirmOpen && supportsProfileMoves && defaultProfile.key != null,
+      open: confirmOpen && defaultProfile.key != null,
       profileLabel: label,
       offDefaultCount,
       isPending: rebase.isPending,

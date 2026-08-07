@@ -53,8 +53,8 @@ mock.module("@sentry/react", () => ({
 
 const { useGlobalDeepLinkConsumer } =
   await import("./use-global-deep-link-consumer");
-const { drainPendingVoiceStartDeepLink } =
-  await import("@/domains/chat/voice/live-voice/start-voice-deep-link");
+const { drainPendingVoiceStart } =
+  await import("@/domains/chat/voice/live-voice/start-voice-request");
 const { useIsVoiceRoomVisible } = await import(
   "@/domains/chat/voice/voice-room/use-is-voice-room-visible"
 );
@@ -280,7 +280,7 @@ describe("deeplink.startVoice", () => {
     const starter = mock((_a: string, _c: string | null) => undefined);
     useLiveVoiceStore.getState().setStarter(asStarter(starter));
     await act(async () => {
-      await drainPendingVoiceStartDeepLink();
+      await drainPendingVoiceStart();
     });
 
     expect(starter).toHaveBeenCalledWith("assistant-1", null);

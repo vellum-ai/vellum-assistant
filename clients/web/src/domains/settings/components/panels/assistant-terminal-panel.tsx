@@ -11,7 +11,7 @@ import {
 } from "@/hooks/use-platform-gate";
 import { captureError } from "@/lib/sentry/capture-error";
 import { toast } from "@vellumai/design-library";
-import { Dropdown } from "@vellumai/design-library/components/dropdown";
+import { Select } from "@vellumai/design-library/components/select";
 
 type TerminalService = "assistant" | "gateway" | "credential-executor";
 
@@ -112,7 +112,7 @@ export function AssistantTerminalPanel() {
           </div>
         </div>
         {assistantId && (
-          <Dropdown
+          <Select
             options={TERMINAL_SERVICE_OPTIONS}
             value={service}
             onChange={setService}

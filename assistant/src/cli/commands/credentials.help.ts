@@ -292,6 +292,13 @@ encrypted vault with the specified metadata.
 
 Requires the assistant to be running with at least one connected client.
 
+This command BLOCKS until the user answers the prompt, so it returns only once
+the prompt has already closed. Tell the user what to paste BEFORE running it.
+Anything said afterwards reaches them after the input is gone, and pointing
+them at a closed prompt makes them re-submit a value that was already received.
+The --label and --description text renders inside the prompt itself, so put the
+instructions there rather than in a follow-up message.
+
 Examples:
   $ assistant credentials prompt --service sentry --field auth_token \\
       --label "Sentry Auth Token" --placeholder "sntrys_..." \\

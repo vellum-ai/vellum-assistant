@@ -90,12 +90,12 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
     /// ready.
     private var pendingConnectPairURL: URL?
 
-    /// Handle `<scheme>://connect?url=<https-base>&code=<device-code>` — the
-    /// custom-scheme QR path that pairs the shell to a self-hosted assistant. The
-    /// `url` parameter is the server base (host, optionally with a path prefix
-    /// like `/assistant-123` for Velay-style hosting); it is both persisted and
-    /// the value the pair-page URL is derived from, so there is one source of
-    /// truth.
+    /// Handle `<scheme>://connect?url=<https-base>&code=<device-code>` (with an
+    /// optional `name=<label>`), the custom-scheme QR path that pairs the shell
+    /// to a self-hosted assistant. The `url` parameter is the server base (host,
+    /// optionally with a path prefix like `/assistant-123` for Velay-style
+    /// hosting); it is both persisted and the value the pair-page URL is derived
+    /// from, so there is one source of truth.
     ///
     /// One handler serves both entry points: a warm open via
     /// `application(_:open:)` and a cold launch via `launchOptions[.url]`. The
@@ -120,6 +120,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
         }
 
         SelfHostedServer.store(connect.base)
+        SelfHostedServer.append(url: connect.base, name: connect.name)
         pendingConnectPairURL = connect.pairURL
         deliverPendingConnectNavigation()
         return true
@@ -140,10 +141,15 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
         webView.load(URLRequest(url: pairURL))
     }
 
-    /// Parse `<scheme>://connect?url=&code=` into the validated https server base
-    /// and the pair-page URL to load. Returns `nil` for a malformed or non-https
-    /// link.
-    private static func parseConnectDeepLink(_ url: URL) -> (base: URL, pairURL: URL)? {
+    /// Parse `<scheme>://connect?url=&code=` into the validated https server
+    /// base, the pair-page URL to load, and the optional `name` label for the
+    /// remembered-server list. Returns `nil` for a malformed or non-https link.
+    ///
+    /// `name` alone tolerates form encoding: a raw `+` (a space from a sender
+    /// that form-encoded the query) decodes to a space, while an encoded
+    /// `%2B` stays a literal plus. `url` and `code` are machine-generated and
+    /// never form-encoded, so they take the strict percent decode.
+    private static func parseConnectDeepLink(_ url: URL) -> (base: URL, pairURL: URL, name: String?)? {
         guard let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
               let serverParam = components.queryItems?.first(where: { $0.name == "url" })?.value,
               let code = components.queryItems?.first(where: { $0.name == "code" })?.value,
@@ -153,7 +159,11 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
         else {
             return nil
         }
-        return (base, pairURL)
+        let name = components.percentEncodedQueryItems?
+            .first(where: { $0.name == "name" })?.value?
+            .replacingOccurrences(of: "+", with: "%20")
+            .removingPercentEncoding
+        return (base, pairURL, name)
     }
 
     /// Build the standalone SPA pairing route that completes the pre-approved

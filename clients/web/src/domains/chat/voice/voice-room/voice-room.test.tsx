@@ -1568,6 +1568,47 @@ describe("VoiceRoom: camera", () => {
     expect(viewfinder()?.className).toContain("z-[2]");
   });
 
+  test("the controls take a scrim once they sit over the feed", async () => {
+    stubMediaDevices(async () => fakeStream());
+    seedCameraCapableAssistant();
+    startOwnedSession("listening");
+    render(<VoiceRoom />);
+
+    // Closed: the room's own flat color is behind them, and the controls wear
+    // the tone-derived hairline treatment.
+    expect(cameraToggle()!.className).not.toContain("bg-black");
+
+    await act(async () => {
+      fireEvent.click(cameraToggle()!);
+    });
+
+    // Open: the background is now arbitrary camera video, where a border-only
+    // control disappears against dark clothing. Every control on the surface
+    // has to carry its own fill, the end button included.
+    const scrimmed = [
+      "Close camera",
+      "Mute microphone",
+      "Mute assistant",
+      "Flip camera",
+      "Minimize voice room",
+    ];
+    for (const name of scrimmed) {
+      expect(screen.getByRole("button", { name }).className).toContain(
+        "bg-black/45",
+      );
+    }
+    const end = screen.getByRole("button", { name: "End voice session" });
+    expect(end.className).toContain("bg-red-600/55");
+
+    // The shutter is white so it reads on a dark frame, which leaves it
+    // invisible on a bright one unless it carries a dark backing of its own.
+    // It is the only control on the surface with no neutral scrim to fall
+    // back on, so it is asserted separately rather than in the loop above.
+    const shutter = screen.getByTestId("voice-room-shutter");
+    expect(shutter.className).toContain("bg-black/30");
+    expect(shutter.className).toContain("shadow-");
+  });
+
   test("a failed flip falls back to the camera the user already had", async () => {
     // A phone that cannot hold two captures at once: the first camera opens,
     // the flip's request fails, and reopening the original succeeds.

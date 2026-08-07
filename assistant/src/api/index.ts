@@ -138,6 +138,13 @@ export {
   CALL_SITE_SYNTHETIC_AGENT_ERROR_MESSAGE,
 } from "./constants/call-sites.js";
 export {
+  DOCUMENT_EDIT_TOOL_NAMES,
+  DOCUMENT_MUTATION_TOOL_NAMES,
+  DOCUMENT_MUTATION_TOOLS,
+  type DocumentMutationTool,
+  REOPENABLE_DOCUMENT_MUTATION_TOOL_NAMES,
+} from "./constants/document-tools.js";
+export {
   SSE_REPLAY_RING_AGE_LIMIT_MS,
   SSE_REPLAY_RING_COUNT_LIMIT,
 } from "./constants/sse-replay.js";

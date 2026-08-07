@@ -98,3 +98,42 @@ describe("Select field props", () => {
     expect(html).not.toContain("<label");
   });
 });
+
+describe("nullable selection", () => {
+  test("a null option renders as a real row", () => {
+    // Radix addresses items by string, so the row needs a token. It is
+    // internal: nothing outside this component names it, and no value has to
+    // be reserved anywhere to avoid it.
+    const html = renderToStaticMarkup(
+      <Select
+        aria-label="Profile"
+        value={null}
+        onChange={() => {}}
+        options={[
+          { value: null, label: "Default" },
+          { value: "fast", label: "Fast" },
+        ]}
+      />,
+    );
+    // A closed Select renders only its trigger, so this asserts the real
+    // thing: `value={null}` resolves to the null row and shows its label.
+    expect(attr(html, "span", "title")).toBe("Default");
+  });
+
+  test("a value that looks like the internal token is still its own option", () => {
+    // The token is derived from the values present, so a real value can never
+    // be mistaken for the null row however it is spelled.
+    const html = renderToStaticMarkup(
+      <Select
+        aria-label="Profile"
+        value={"\u0000none" as string}
+        onChange={() => {}}
+        options={[
+          { value: null, label: "Default" },
+          { value: "\u0000none", label: "Literally the token" },
+        ]}
+      />,
+    );
+    expect(attr(html, "span", "title")).toBe("Literally the token");
+  });
+});

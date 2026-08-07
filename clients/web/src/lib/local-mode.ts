@@ -77,6 +77,8 @@ function getInjectedConfig(): {
   disablePlatform?: boolean;
   mode?: string;
   platformUrl?: string;
+  assistantName?: string;
+  hubUrl?: string;
 } {
   return (
     (
@@ -85,6 +87,8 @@ function getInjectedConfig(): {
           disablePlatform?: boolean;
           mode?: string;
           platformUrl?: string;
+          assistantName?: string;
+          hubUrl?: string;
         };
       }
     ).__VELLUM_CONFIG__ ?? {}
@@ -93,6 +97,28 @@ function getInjectedConfig(): {
 
 export function isRemoteGatewayMode(): boolean {
   return getInjectedConfig().mode === "remote-gateway";
+}
+
+function nonEmptyString(value: string | undefined): string | undefined {
+  return typeof value === "string" && value.trim() !== "" ? value : undefined;
+}
+
+/**
+ * Display name of the serving assistant, when the served remote-gateway config
+ * carries one. Older served configs omit it, so callers must tolerate
+ * `undefined`.
+ */
+export function getRemoteGatewayAssistantName(): string | undefined {
+  return nonEmptyString(getInjectedConfig().assistantName);
+}
+
+/**
+ * The cloud hub SPA's assistant-root URL (`<origin>/assistant`), when the
+ * served remote-gateway config carries one. Older served configs omit it, so
+ * callers must tolerate `undefined`.
+ */
+export function getRemoteGatewayHubUrl(): string | undefined {
+  return nonEmptyString(getInjectedConfig().hubUrl);
 }
 
 function getRemoteGatewayLockfile(): Lockfile {

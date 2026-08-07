@@ -13,7 +13,7 @@ import { openUrl, openUrlFinishedListener } from "@/runtime/browser";
 import { useIsNativeAndroid } from "@/runtime/platform-detection";
 import { routes } from "@/utils/routes";
 import { Button } from "@vellumai/design-library/components/button";
-import { Dropdown } from "@vellumai/design-library/components/dropdown";
+import { Select } from "@vellumai/design-library/components/select";
 import { Modal } from "@vellumai/design-library/components/modal";
 
 const DEFAULT_TOP_UP_AMOUNTS: [string, ...string[]] = [
@@ -60,10 +60,7 @@ interface AddCreditsModalProps {
   onOpenChange: (open: boolean) => void;
 }
 
-function AddCreditsModalContent({
-  open,
-  onOpenChange,
-}: AddCreditsModalProps) {
+function AddCreditsModalContent({ open, onOpenChange }: AddCreditsModalProps) {
   const queryClient = useQueryClient();
   const { pathname } = useLocation();
   const [searchParams] = useSearchParams();
@@ -144,7 +141,7 @@ function AddCreditsModalContent({
               >
                 Amount
               </label>
-              <Dropdown
+              <Select
                 id="add-credits-amount"
                 value={amount}
                 onChange={(value) => {

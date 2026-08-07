@@ -15,6 +15,7 @@ import {
   StartupFailure,
 } from "@/components/startup-failure";
 import { WindowDragRegion } from "@/components/window-drag-region";
+import { initI18n } from "@/i18n";
 import { isChunkLoadError } from "@/lib/chunk-errors";
 import { setupClientFlagScopeSync } from "@/lib/feature-flags/client-flag-scope";
 import { installConsentRefreshListeners } from "@/lib/consent/consent-refresh";
@@ -52,6 +53,17 @@ async function boot() {
   markBoot("safe_area_ready");
   void initNativeKeyboard();
   initSentry();
+  // Awaited before the first render so no component observes an uninitialized
+  // i18next and no raw key path is ever painted. English is bundled in this
+  // entry chunk, so the floor is reachable with no network; `initI18n` reports
+  // and degrades to it when another locale's chunk cannot be fetched. The
+  // guard here covers the rest: no i18n failure is worth a blank screen, and
+  // rendering English beats rendering nothing.
+  try {
+    await initI18n();
+  } catch (error) {
+    captureError(error, { context: "init_i18n" });
+  }
   try {
     await restorePendingNativeLogin();
   } catch (error) {

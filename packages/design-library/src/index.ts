@@ -156,15 +156,6 @@ export {
   type SelectMenuAlign,
   type SelectSize,
 } from "./components/select";
-/** @deprecated Use `Select`. */
-export {
-  Dropdown,
-  resolveDropdownMenuPosition,
-  type DropdownOption,
-  type DropdownProps,
-  type DropdownMenuPosition,
-  type DropdownMenuAlign,
-} from "./components/dropdown";
 export {
   PanelItem,
   ROW_BASE_CLASSES as panelItemRowBaseClasses,

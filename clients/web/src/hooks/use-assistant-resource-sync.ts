@@ -2,7 +2,7 @@
  * Bus consumer for assistant-level resource cache invalidation.
  *
  * Routes `sync_changed` tags (avatar, identity, config, sounds, schedules,
- * apps, plugins) and discrete SSE events (`home_feed_updated`,
+ * apps, documents, plugins) and discrete SSE events (`home_feed_updated`,
  * `relationship_state_updated`, `identity_changed`, `avatar_updated`) into
  * TanStack Query cache invalidations.
  *
@@ -140,6 +140,15 @@ export function useAssistantResourceSync(
                   isGeneratedQueryKey(query.queryKey, "appsGet"),
               });
               break;
+            case SYNC_TAGS.documentsList:
+              // The assets pill keys by `query.conversationId` and the Library
+              // by the assistant path alone, so match on the operation id to
+              // cover both key shapes.
+              void queryClient.invalidateQueries({
+                predicate: (query) =>
+                  isGeneratedQueryKey(query.queryKey, "documentsGet"),
+              });
+              break;
             case SYNC_TAGS.pluginsList:
               invalidatePluginQueries(queryClient, assistantId);
               break;
@@ -222,6 +231,9 @@ export function useAssistantResourceSync(
     });
     void queryClient.invalidateQueries({
       predicate: (query) => isGeneratedQueryKey(query.queryKey, "appsGet"),
+    });
+    void queryClient.invalidateQueries({
+      predicate: (query) => isGeneratedQueryKey(query.queryKey, "documentsGet"),
     });
     invalidatePluginQueries(queryClient, assistantId);
     void queryClient.invalidateQueries({

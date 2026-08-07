@@ -143,6 +143,7 @@ import {
 } from "./http/routes/channel-admission-policy.js";
 import {
   createChannelIngressApproveHandler,
+  createChannelIngressListHandler,
   createChannelIngressRevokeHandler,
 } from "./http/routes/channel-ingress.js";
 import { createPluginWebhookHandler } from "./http/routes/plugin-webhook.js";
@@ -617,6 +618,7 @@ async function main() {
     createChannelAdmissionPolicySetHandler();
   const handleChannelAdmissionPolicyDelete =
     createChannelAdmissionPolicyDeleteHandler();
+  const handleChannelIngressList = createChannelIngressListHandler();
   const handleChannelIngressApprove = createChannelIngressApproveHandler();
   const handleChannelIngressRevoke = createChannelIngressRevokeHandler();
   const handlePluginWebhook = createPluginWebhookHandler({
@@ -1594,8 +1596,16 @@ async function main() {
     // is the decision the assistant must not make for itself; and there are no
     // assistant-scoped variants, because the guardian reaches these directly
     // rather than through the platform proxy. Deliberately absent from the IPC
-    // surface for the same reason as the auth choice. POST verb paths — a
-    // grant has no id of its own until a guardian creates one.
+    // surface for the same reason as the auth choice. Approve and revoke are
+    // POST verb paths because a grant has no id of its own until a guardian
+    // creates one. The listing is guardian-only for a different reason: it says
+    // which declarations are waiting, which the public surface will not.
+    {
+      path: /^\/v1\/channel-ingress\/?$/,
+      method: "GET",
+      auth: "edge-guardian",
+      handler: () => handleChannelIngressList(),
+    },
     {
       path: /^\/v1\/channel-ingress\/([^/]+)\/approve\/?$/,
       method: "POST",
@@ -1604,6 +1614,33 @@ async function main() {
     },
     {
       path: /^\/v1\/channel-ingress\/([^/]+)\/revoke\/?$/,
+      method: "POST",
+      auth: "edge-guardian",
+      handler: (req, params) => handleChannelIngressRevoke(req, params[0]!),
+    },
+
+    // ── Channel ingress: assistant-scoped variants ──
+    // Same handlers, same guardian auth, reached through the prefix a client
+    // built on the platform's addressing produces. Approvals are
+    // gateway-global, so the assistant id is matched and discarded, the same
+    // precedent as channel-permission-overrides below. These exist because the
+    // web client's generated gateway SDK only speaks the prefixed form; the
+    // guardian decision they carry is unchanged, since `edge-guardian` is what
+    // decides who may call them and it applies to both spellings.
+    {
+      path: /^\/v1\/assistants\/[^/]+\/channel-ingress\/?$/,
+      method: "GET",
+      auth: "edge-guardian",
+      handler: () => handleChannelIngressList(),
+    },
+    {
+      path: /^\/v1\/assistants\/[^/]+\/channel-ingress\/([^/]+)\/approve\/?$/,
+      method: "POST",
+      auth: "edge-guardian",
+      handler: (req, params) => handleChannelIngressApprove(req, params[0]!),
+    },
+    {
+      path: /^\/v1\/assistants\/[^/]+\/channel-ingress\/([^/]+)\/revoke\/?$/,
       method: "POST",
       auth: "edge-guardian",
       handler: (req, params) => handleChannelIngressRevoke(req, params[0]!),
@@ -2561,15 +2598,35 @@ async function main() {
 
         // Seed a contact channel for the actor (dual-write, fire-and-forget)
         // so later verification flows have a record to upgrade.
+        //
+        // `externalChatId` is recorded only for a DM, where the conversation
+        // address is a private one-to-one channel. A guild channel is a room
+        // the actor happens to be standing in, and storing it as their
+        // delivery address is how a private notice ends up posted in public.
         void upsertContactChannel({
           sourceChannel: "discord",
           externalUserId: event.actor.actorExternalId,
+          ...(event.source.chatType === "dm"
+            ? { externalChatId: event.message.conversationExternalId }
+            : {}),
           displayName: event.actor.displayName,
           username: event.actor.username,
         }).catch(() => {});
 
-        // Read-only slice: no replyCallbackUrl until the send path exists.
-        handleInbound(config, event).catch((err) => {
+        // Where the assistant posts its reply. The daemon owns Discord egress
+        // directly (`messaging/providers/discord`), so this callback is
+        // resolved to that transport rather than proxied back through here.
+        //
+        // `threadId` carries the thread's own snowflake when the message came
+        // from one: the event's conversation address is the *parent* channel
+        // for a threaded message, and a Discord thread is itself a channel, so
+        // without this param the reply would land outside the thread.
+        const threadId = event.source.threadId;
+        const replyCallbackUrl = threadId
+          ? `${config.gatewayInternalBaseUrl}/deliver/discord?${new URLSearchParams({ threadId })}`
+          : `${config.gatewayInternalBaseUrl}/deliver/discord`;
+
+        handleInbound(config, event, { replyCallbackUrl }).catch((err) => {
           log.error(
             {
               err,

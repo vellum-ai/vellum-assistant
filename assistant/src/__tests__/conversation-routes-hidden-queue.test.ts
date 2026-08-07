@@ -164,7 +164,11 @@ function makeConversationWithPendingConfirmation(
       promoteToHead: (requestId: string) => ({ requestId }),
     },
     pendingSteerRepair: false,
-    setTrustContext: () => {},
+    // Stores rather than discarding, so a test can observe which trust the
+    // route resolved and move the slot afterwards.
+    setTrustContext(this: { trustContext: unknown }, ctx: unknown) {
+      this.trustContext = ctx;
+    },
     updateClient: () => {},
     emitConfirmationStateChanged: () => {},
     emitActivityState: () => {},
@@ -352,5 +356,64 @@ describe("hidden sends to an idle conversation with a pending confirmation", () 
     expect(res.status).toBe(202);
     expect(spies.denyAllCount()).toBe(1);
     expect(spies.agentLoopOptions()?.isHiddenPrompt).toBeUndefined();
+  });
+});
+
+describe("POST /messages turn trust", () => {
+  test("the idle send path runs its turn under the trust resolved for the request", async () => {
+    // The idle web path does not go through `processMessage`; it persists and
+    // calls `runAgentLoop` directly. Without the captured trust travelling
+    // with that call, the loop re-reads the conversation slot when it opens,
+    // and the slot is writable in between by paths that do not own this turn
+    // (channel ingress for another actor, live-voice hydration, pointer
+    // elevation, the voice bridge).
+    //
+    // The defect here is at the call site, not inside the loop, so observing
+    // the options the route passes is sufficient. The re-read *inside* the
+    // loop is covered separately against a real Conversation, since a stub
+    // like this one cannot see it.
+    const spies = makeConversationWithPendingConfirmation(false);
+    setConversation(CONV_ID, spies.conversation);
+
+    const conversation = spies.conversation as unknown as {
+      trustContext: unknown;
+      persistUserMessage: () => Promise<{ id: string; deduplicated: boolean }>;
+    };
+
+    // Another actor writes the slot inside the window, after the route
+    // resolves this request's trust and before the loop call.
+    let slotMoved = false;
+    conversation.persistUserMessage = async () => {
+      conversation.trustContext = {
+        trustClass: "trusted_contact",
+        sourceChannel: "slack",
+        requesterExternalUserId: "U-other-actor",
+      };
+      slotMoved = true;
+      return { id: "persisted-user-id", deduplicated: false };
+    };
+
+    const res = await callHandler(
+      (args) => handleSendMessage(args, makeDeps(spies.conversation)),
+      makeRequest({ content: "run a command" }),
+      undefined,
+      202,
+    );
+
+    expect(res.status).toBe(202);
+    // Guard the test itself: if the injection stopped running the assertion
+    // below would pass for the wrong reason.
+    expect(slotMoved).toBe(true);
+    expect(
+      (conversation.trustContext as { trustClass?: string } | undefined)
+        ?.trustClass,
+    ).toBe("trusted_contact");
+
+    // The turn carries the trust this request resolved, not the moved slot.
+    const turnTrust = spies.agentLoopOptions()?.turnTrustContext as
+      | { trustClass?: string }
+      | undefined;
+    expect(turnTrust).toBeDefined();
+    expect(turnTrust?.trustClass).toBe("guardian");
   });
 });

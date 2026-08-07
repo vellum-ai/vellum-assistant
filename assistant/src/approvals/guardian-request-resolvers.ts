@@ -54,9 +54,15 @@ import {
   readBatchMetadata,
   resolvePendingQuestion,
 } from "../runtime/question-resolution.js";
-import { TC_GRANT_WAIT_MAX_MS } from "../tools/tool-approval-handler.js";
+import { resolveInlineGrantWaitMs } from "../tools/tool-approval-handler.js";
 import { getLogger } from "../util/logger.js";
-import { resolveDeliverCallbackUrlForChannel } from "./guardian-channel-delivery.js";
+import {
+  channelCanAddressOneReaderInBand,
+  channelCanCompleteCodeHandshakeInDm,
+  channelDeliversToUserId,
+  resolveDeliverCallbackUrlForChannel,
+  resolveRequesterDeliveryTarget,
+} from "./guardian-channel-delivery.js";
 
 const log = getLogger("guardian-request-resolvers");
 
@@ -97,14 +103,15 @@ function stripThreadTsParam(replyCallbackUrl: string): string {
 }
 
 /**
- * Deliver the verification code straight to the requester's Slack DM so the
+ * Deliver the verification code straight to the requester's DM so the
  * guardian is never an out-of-band courier for the secret.
  *
- * Slack is the only channel with a guaranteed private path to the requester:
- * posting to their user ID (`U…`) opens a 1:1 DM. The `threadTs` query param is
- * dropped because it points at the guardian's channel thread and would raise
- * `thread_not_found` in the DM. The code is sent as a durable (non-ephemeral)
- * message the requester can refer back to when verifying.
+ * Used on the channels with a guaranteed private path to a requester's user
+ * id: Slack, where posting to a `U…` id opens a 1:1 DM, and Discord, whose
+ * `dm`-marked route resolves a user snowflake to a DM channel. The `threadTs`
+ * query param is dropped because it points at the guardian's channel thread
+ * and would raise `thread_not_found` in the DM. The code is sent as a durable
+ * (non-ephemeral) message the requester can refer back to when verifying.
  *
  * The verification session is identity-bound to the requester, so delivering
  * the code to them directly does not widen who can consume it — it only removes
@@ -112,7 +119,7 @@ function stripThreadTsParam(replyCallbackUrl: string): string {
  *
  * Returns whether the code was delivered.
  */
-async function deliverVerificationCodeToSlackRequester(params: {
+async function deliverVerificationCodeToRequester(params: {
   replyCallbackUrl: string;
   requesterExternalUserId: string;
   verificationCode: string;
@@ -133,11 +140,39 @@ async function deliverVerificationCodeToSlackRequester(params: {
   } catch (err) {
     log.error(
       { err, requesterExternalUserId: params.requesterExternalUserId },
-      "Failed to auto-deliver verification code to Slack requester",
+      "Failed to auto-deliver verification code to requester",
     );
     return false;
   }
 }
+
+/**
+ * The guardian-facing verification-code message.
+ *
+ * Delivered on up to three routes (in band, a guardian DM follow-up, and a
+ * guardian DM when their channel has no in-band route), so the wording lives
+ * here rather than being retyped at each one.
+ */
+function guardianVerificationCodeText(
+  requesterLabel: string,
+  secret: string,
+): string {
+  return (
+    `You approved access for ${requesterLabel}. ` +
+    `Give them this verification code: \`${secret}\`. ` +
+    `The code expires in 10 minutes.`
+  );
+}
+
+/** Requester-facing approval notice when the guardian relays the code. */
+const APPROVED_COURIER_NOTICE =
+  "Your access request has been approved! " +
+  "Please enter the 6-digit verification code you receive from the guardian.";
+
+/** Requester-facing notice when the code could not be handed to the guardian. */
+const APPROVED_CODE_UNDELIVERED_NOTICE =
+  "Your access request was approved, but we were unable to " +
+  "deliver the verification code. Please try again later.";
 
 /**
  * Build a requester-facing channel notice (approval/denial/courier text).
@@ -695,9 +730,15 @@ function deriveAccessRequestDecision(
  * Deliver a requester-facing decision notice. On-channel decisions reply via
  * the channel delivery context (ephemeral on Slack shared channels);
  * off-channel (desktop) decisions post via the channel's deliver URL — on
- * Slack routed to the requester's user ID so the notice opens a DM instead
- * of posting into a shared channel. Delivery failures are logged, never
+ * Slack and Discord routed to the requester's user ID so the notice opens a DM
+ * instead of posting into a shared channel. Delivery failures are logged, never
  * thrown: the notice is best-effort and must not fail the decision.
+ *
+ * Discord takes the deliver-URL route in both cases, because its in-band route
+ * cannot be kept to one reader (see `channelCanAddressOneReaderInBand`).
+ * Posting a decision back in-band there would announce "your access request
+ * was declined" to a whole community channel, so Discord has one route to a
+ * requester and it is a DM.
  */
 async function deliverRequesterNotice(params: {
   channel: NotificationSourceChannel;
@@ -713,10 +754,18 @@ async function deliverRequesterNotice(params: {
     requesterChatId,
     requesterExternalUserId,
     assistantId,
-    channelDeliveryContext,
     desktopDeliverUrl,
     text,
   } = params;
+
+  // Re-applied rather than assumed. The access-request resolver already drops
+  // the context for these channels, because its verification-code branch needs
+  // the same rule and never reaches this helper; repeating it here keeps the
+  // helper correct for any caller that has not, at the cost of one idempotent
+  // check.
+  const channelDeliveryContext = channelCanAddressOneReaderInBand(channel)
+    ? params.channelDeliveryContext
+    : undefined;
 
   if (channelDeliveryContext) {
     try {
@@ -740,10 +789,11 @@ async function deliverRequesterNotice(params: {
   }
 
   if (desktopDeliverUrl && requesterChatId) {
-    const targetChatId =
-      channel === "slack" && requesterExternalUserId
-        ? requesterExternalUserId
-        : requesterChatId;
+    const targetChatId = resolveRequesterDeliveryTarget({
+      channel,
+      requesterChatId,
+      requesterExternalUserId,
+    });
     try {
       await deliverChannelReply(desktopDeliverUrl, {
         chatId: targetChatId,
@@ -775,6 +825,13 @@ async function notifyRequesterOfDenial(params: {
   assistantId: string;
   channelDeliveryContext: ChannelDeliveryContext | undefined;
   desktopDeliverUrl: string | null;
+  /**
+   * Whether the guardian decided on a channel at all, as distinct from whether
+   * a route to the requester survived suppression. The lifecycle signal keys
+   * on the former; passing the suppressed context would drop the guardian's
+   * record of every Discord denial.
+   */
+  decidedOnChannel: boolean;
   deniedPayload: TrustedContactDecisionPayload;
   requestId: string;
   conversationId: string | null;
@@ -793,6 +850,7 @@ async function notifyRequesterOfDenial(params: {
     assistantId,
     channelDeliveryContext,
     desktopDeliverUrl,
+    decidedOnChannel,
     deniedPayload,
     requestId,
     conversationId,
@@ -820,7 +878,7 @@ async function notifyRequesterOfDenial(params: {
   // conversation for the same decision. The approve path holds the same
   // one-signal invariant via `verification_sent` standing in for
   // `guardian_decision`.
-  if (channelDeliveryContext) {
+  if (decidedOnChannel) {
     void emitNotificationSignal({
       sourceEventName: "ingress.trusted_contact.guardian_decision",
       sourceChannel: channel,
@@ -981,6 +1039,17 @@ const accessRequestResolver: GuardianRequestResolver = {
     // Non-voice approvals: mint an identity-bound verification session so the
     // requester can verify their identity. The raw secret transits back on
     // the decide response for daemon-owned delivery.
+    //
+    // The session is addressed to the requester, not to the room the request
+    // arrived in. On the channels that reach a person by user id, that room is
+    // one other people can read, so recording it as the destination describes
+    // somewhere the code is never sent. `expectedChatId` keeps the room, which
+    // is where the conversation is, and it is not a credential: whenever both
+    // identity fields are set, `checkIdentityMatch` requires the user match.
+    const destinationAddress = channelDeliversToUserId(channel)
+      ? requesterExternalUserId || requesterChatId
+      : requesterChatId;
+
     return {
       ok: true,
       aclOutcome: {
@@ -989,7 +1058,7 @@ const accessRequestResolver: GuardianRequestResolver = {
         expectedExternalUserId: requesterExternalUserId,
         expectedChatId: requesterChatId,
         identityBindingStatus: "bound",
-        destinationAddress: requesterChatId,
+        destinationAddress,
         verificationPurpose: "trusted_contact",
       },
       persistFailureReason: "verification_session_mint_failed",
@@ -997,7 +1066,7 @@ const accessRequestResolver: GuardianRequestResolver = {
   },
 
   async resolve(ctx: ResolverContext): Promise<ResolverResult> {
-    const { request, decision, channelDeliveryContext } = ctx;
+    const { request, decision } = ctx;
     const {
       channel,
       requesterExternalUserId,
@@ -1008,6 +1077,34 @@ const accessRequestResolver: GuardianRequestResolver = {
     const decidedByExternalUserId = ctx.actor.actorExternalUserId ?? "";
     const assistantId = DAEMON_INTERNAL_ASSISTANT_ID;
     const desktopDeliverUrl = resolveDeliverCallbackUrlForChannel(channel);
+
+    // The reply context serves two readers on two different channels, so it is
+    // suppressed per reader rather than wholesale.
+    //
+    // `requesterInBandContext` governs the requester-facing notice, which is
+    // addressed into the REQUEST's channel: on Discord that is a guild channel
+    // nobody can be singled out in, so it is dropped and the notice takes the
+    // DM route the desktop path uses.
+    //
+    // `guardianInBandContext` governs the guardian's own copy of a verification
+    // code, which is addressed into the channel the GUARDIAN replied on. A
+    // Telegram guardian deciding a Discord request still has a private chat of
+    // their own, and dropping their route because the requester's is public
+    // would leave them with no confirmation and no code.
+    const requesterInBandContext = channelCanAddressOneReaderInBand(channel)
+      ? ctx.channelDeliveryContext
+      : undefined;
+    const guardianInBandContext = channelCanAddressOneReaderInBand(
+      ctx.actor.channel,
+    )
+      ? ctx.channelDeliveryContext
+      : undefined;
+    // Where the guardian's own copy goes when their channel has no in-band
+    // route. Resolved from THEIR channel, never the requester's, or the code
+    // is handed to the wrong transport.
+    const guardianDmUrl = resolveDeliverCallbackUrlForChannel(
+      ctx.actor.channel,
+    );
 
     // Guardian-facing label prefers the contact display name over the raw ID.
     const requesterLabel =
@@ -1050,7 +1147,8 @@ const accessRequestResolver: GuardianRequestResolver = {
         requesterChatId,
         requesterExternalUserId,
         assistantId,
-        channelDeliveryContext,
+        channelDeliveryContext: requesterInBandContext,
+        decidedOnChannel: ctx.channelDeliveryContext !== undefined,
         desktopDeliverUrl,
         deniedPayload,
         requestId: request.id,
@@ -1091,7 +1189,8 @@ const accessRequestResolver: GuardianRequestResolver = {
         requesterChatId,
         requesterExternalUserId,
         assistantId,
-        channelDeliveryContext,
+        channelDeliveryContext: requesterInBandContext,
+        decidedOnChannel: ctx.channelDeliveryContext !== undefined,
         desktopDeliverUrl,
         deniedPayload,
         requestId: request.id,
@@ -1145,7 +1244,7 @@ const accessRequestResolver: GuardianRequestResolver = {
           requesterChatId,
           requesterExternalUserId,
           assistantId,
-          channelDeliveryContext,
+          channelDeliveryContext: requesterInBandContext,
           desktopDeliverUrl,
           text: "Your access request has been approved. You can message the assistant here.",
         });
@@ -1187,39 +1286,46 @@ const accessRequestResolver: GuardianRequestResolver = {
       "Access request resolver: minted verification session",
     );
 
-    // Deliver the verification code to the guardian and notify the requester
-    // when channel delivery context is available (channel message path).
+    // Two readers, decided separately. The guardian's copy of the code is
+    // addressed on the channel THEY replied on; the requester's notice on the
+    // channel the request came from. Those can differ (a Telegram guardian
+    // deciding a Discord request), and the old single `if (channelDelivery
+    // Context)` treated them as one, so suppressing a route for either reader
+    // silently suppressed it for both.
     let requesterNotified = false;
-    if (channelDeliveryContext) {
-      let codeDelivered = true;
+    let codeDelivered = false;
+    const codeText = guardianVerificationCodeText(
+      requesterLabel,
+      session.secret,
+    );
 
-      // Deliver verification code to guardian
-      const codeText =
-        `You approved access for ${requesterLabel}. ` +
-        `Give them this verification code: \`${session.secret}\`. ` +
-        `The code expires in 10 minutes.`;
+    if (guardianInBandContext) {
+      codeDelivered = true;
       try {
         const codePayload: Parameters<typeof deliverChannelReply>[1] = {
-          chatId: channelDeliveryContext.guardianChatId,
+          chatId: guardianInBandContext.guardianChatId,
           text: codeText,
           assistantId,
         };
         // On Slack shared channels, deliver the verification code as ephemeral
         // so only the guardian sees the secret — not all channel members.
         if (
-          shouldUseEphemeral(channel, channelDeliveryContext.guardianChatId) &&
+          shouldUseEphemeral(
+            ctx.actor.channel,
+            guardianInBandContext.guardianChatId,
+          ) &&
           ctx.actor.actorExternalUserId
         ) {
           codePayload.ephemeral = true;
           codePayload.user = ctx.actor.actorExternalUserId;
         }
         await deliverChannelReply(
-          channelDeliveryContext.replyCallbackUrl,
+          guardianInBandContext.replyCallbackUrl,
           codePayload,
         );
       } catch (err) {
         log.error(
-          { err, guardianChatId: channelDeliveryContext.guardianChatId },
+          { err, guardianChatId: guardianInBandContext.guardianChatId },
           "Failed to deliver verification code to guardian",
         );
         codeDelivered = false;
@@ -1231,12 +1337,12 @@ const accessRequestResolver: GuardianRequestResolver = {
       const guardianUserId = ctx.actor.actorExternalUserId;
       if (
         codeDelivered &&
-        channel === "slack" &&
+        ctx.actor.channel === "slack" &&
         guardianUserId &&
-        !channelDeliveryContext.guardianChatId.startsWith("D")
+        !guardianInBandContext.guardianChatId.startsWith("D")
       ) {
         const dmCallbackUrl = stripThreadTsParam(
-          channelDeliveryContext.replyCallbackUrl,
+          guardianInBandContext.replyCallbackUrl,
         );
 
         try {
@@ -1253,21 +1359,43 @@ const accessRequestResolver: GuardianRequestResolver = {
           );
         }
       }
+    } else if (ctx.actor.channel === "vellum") {
+      // A desktop guardian receives the code inline via `guardianReplyText`.
+      codeDelivered = true;
+    } else if (guardianDmUrl && decidedByExternalUserId) {
+      // A channel guardian whose own channel has no in-band route. Without
+      // this they approve and are never given the code they are meant to pass
+      // on, because the inline reply text only reaches a desktop actor.
+      try {
+        await deliverChannelReply(guardianDmUrl, {
+          chatId: decidedByExternalUserId,
+          text: codeText,
+          assistantId,
+        });
+        codeDelivered = true;
+      } catch (err) {
+        log.error(
+          { err, decidedByExternalUserId },
+          "Failed to deliver verification code to guardian DM",
+        );
+      }
+    }
 
-      const requesterCallbackUrl =
-        channel === "slack" && requesterExternalUserId
-          ? stripThreadTsParam(channelDeliveryContext.replyCallbackUrl)
-          : channelDeliveryContext.replyCallbackUrl;
+    // The requester. `requesterInBandContext` is the route back along their own
+    // inbound message; `desktopDeliverUrl` is the callback-less route to them.
+    const requesterReplyUrl =
+      requesterInBandContext?.replyCallbackUrl ?? desktopDeliverUrl;
 
+    if (requesterReplyUrl && requesterChatId) {
       if (codeDelivered) {
-        // On Slack, deliver the code straight to the requester's DM so the
-        // guardian doesn't have to relay it. Other channels (and a failed Slack
-        // delivery) fall back to the courier notice — there is no guaranteed
-        // private path to the requester elsewhere (e.g. group chats).
+        // Where the channel can complete a code handshake in a DM, send the
+        // code straight to the requester. Everywhere else the guardian relays
+        // it and the requester gets a courier notice.
         const requesterCodeDelivered =
-          channel === "slack" && requesterExternalUserId
-            ? await deliverVerificationCodeToSlackRequester({
-                replyCallbackUrl: channelDeliveryContext.replyCallbackUrl,
+          channelCanCompleteCodeHandshakeInDm(channel) &&
+          requesterExternalUserId
+            ? await deliverVerificationCodeToRequester({
+                replyCallbackUrl: requesterReplyUrl,
                 requesterExternalUserId,
                 verificationCode: session.secret,
                 assistantId,
@@ -1279,16 +1407,24 @@ const accessRequestResolver: GuardianRequestResolver = {
         } else {
           try {
             await deliverChannelReply(
-              requesterCallbackUrl,
-              buildRequesterChannelNotice({
-                channel,
-                requesterChatId,
-                requesterExternalUserId,
-                text:
-                  "Your access request has been approved! " +
-                  "Please enter the 6-digit verification code you receive from the guardian.",
-                assistantId,
-              }),
+              requesterReplyUrl,
+              requesterInBandContext
+                ? buildRequesterChannelNotice({
+                    channel,
+                    requesterChatId,
+                    requesterExternalUserId,
+                    text: APPROVED_COURIER_NOTICE,
+                    assistantId,
+                  })
+                : {
+                    chatId: resolveRequesterDeliveryTarget({
+                      channel,
+                      requesterChatId,
+                      requesterExternalUserId,
+                    }),
+                    text: APPROVED_COURIER_NOTICE,
+                    assistantId,
+                  },
             );
             requesterNotified = true;
           } catch (err) {
@@ -1301,16 +1437,24 @@ const accessRequestResolver: GuardianRequestResolver = {
       } else {
         try {
           await deliverChannelReply(
-            requesterCallbackUrl,
-            buildRequesterChannelNotice({
-              channel,
-              requesterChatId,
-              requesterExternalUserId,
-              text:
-                "Your access request was approved, but we were unable to " +
-                "deliver the verification code. Please try again later.",
-              assistantId,
-            }),
+            requesterReplyUrl,
+            requesterInBandContext
+              ? buildRequesterChannelNotice({
+                  channel,
+                  requesterChatId,
+                  requesterExternalUserId,
+                  text: APPROVED_CODE_UNDELIVERED_NOTICE,
+                  assistantId,
+                })
+              : {
+                  chatId: resolveRequesterDeliveryTarget({
+                    channel,
+                    requesterChatId,
+                    requesterExternalUserId,
+                  }),
+                  text: APPROVED_CODE_UNDELIVERED_NOTICE,
+                  assistantId,
+                },
           );
         } catch (err) {
           log.error(
@@ -1319,69 +1463,9 @@ const accessRequestResolver: GuardianRequestResolver = {
           );
         }
       }
+    }
 
-      // Record the verification_sent lifecycle transition (delivery suppressed).
-      if (codeDelivered) {
-        emitVerificationSentSignal(
-          {
-            sourceChannel: channel,
-            requesterExternalUserId,
-            requesterChatId,
-            requesterDisplayName,
-            decidedByDisplayName,
-            verificationSessionId: session.sessionId,
-          },
-          request.sourceConversationId,
-        );
-      }
-    } else {
-      // Guardian decided off-channel (e.g. desktop). The guardian receives the
-      // verification code inline via `guardianReplyText` regardless of the
-      // requester's channel, so the lifecycle transition is recorded for every
-      // off-channel approve — including channels with no deliverable callback
-      // (e.g. email), where the requester cannot be auto-notified here.
-      if (desktopDeliverUrl && requesterChatId) {
-        // The requester is on a deliverable channel. On Slack, DM the code
-        // directly (parity with the on-channel path); otherwise fall back to
-        // the courier notice.
-        const requesterCodeDelivered =
-          channel === "slack" && requesterExternalUserId
-            ? await deliverVerificationCodeToSlackRequester({
-                replyCallbackUrl: desktopDeliverUrl,
-                requesterExternalUserId,
-                verificationCode: session.secret,
-                assistantId,
-              })
-            : false;
-
-        if (requesterCodeDelivered) {
-          requesterNotified = true;
-        } else {
-          // For Slack, route to DM via requesterExternalUserId (user ID)
-          // instead of requesterChatId (channel ID) to avoid posting in public
-          // channels.
-          const targetChatId =
-            channel === "slack" && requesterExternalUserId
-              ? requesterExternalUserId
-              : requesterChatId;
-          try {
-            await deliverChannelReply(desktopDeliverUrl, {
-              chatId: targetChatId,
-              text:
-                "Your access request has been approved! " +
-                "Please enter the 6-digit verification code you receive from the guardian.",
-              assistantId,
-            });
-            requesterNotified = true;
-          } catch (err) {
-            log.error(
-              { err, requesterChatId },
-              "Failed to notify requester of access request approval (desktop decision path)",
-            );
-          }
-        }
-      }
-
+    if (codeDelivered) {
       // Record the verification_sent lifecycle transition for every off-channel
       // approve. The session is minted and the guardian has the code via
       // `guardianReplyText` regardless of whether (or how) the requester was
@@ -1503,7 +1587,10 @@ const toolGrantRequestResolver: GuardianRequestResolver = {
     // outlive the actual waiter if the daemon crashes or restarts during
     // the wait. To avoid permanently suppressing the retry notification, we
     // treat the marker as stale if the encoded start timestamp is older than
-    // the maximum wait budget plus a 30s buffer.
+    // the maximum wait budget plus a 30s buffer. The budget is read from the
+    // same resolver the waiter itself uses, so a config change moves both
+    // together; sizing this off a constant would let it fall below the real
+    // wait and declare a live waiter dead.
     const INLINE_WAIT_STALENESS_BUFFER_MS = 30_000;
     const freshRequest = await getGuardianRequestOrNull(request.id);
     const followupState = freshRequest?.followupState ?? "";
@@ -1520,7 +1607,7 @@ const toolGrantRequestResolver: GuardianRequestResolver = {
         ? Date.now() - waitStartMs
         : Infinity; // Treat unparseable timestamps as stale for safety.
       const stalenessThresholdMs =
-        TC_GRANT_WAIT_MAX_MS + INLINE_WAIT_STALENESS_BUFFER_MS;
+        resolveInlineGrantWaitMs() + INLINE_WAIT_STALENESS_BUFFER_MS;
       if (markerAgeMs > stalenessThresholdMs) {
         log.warn(
           {

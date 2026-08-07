@@ -46,6 +46,7 @@ interface TestHarness {
 
 interface BuildOptions {
   intervalMs?: number;
+  socketPathOverride?: string;
   createServerOverride?: () => Server;
   /** Override `getServer` to simulate races. */
   getServerOverride?: () => Server | null;
@@ -75,7 +76,7 @@ function buildHarness(opts: BuildOptions): TestHarness {
   };
 
   const watchdog = new SocketWatchdog({
-    socketPath,
+    socketPath: opts.socketPathOverride ?? socketPath,
     intervalMs: opts.intervalMs ?? 0,
     getServer: opts.getServerOverride ?? (() => serverRef.current),
     createServer: opts.createServerOverride ?? defaultFactory,
@@ -188,6 +189,19 @@ describe("SocketWatchdog", () => {
     const rebound = await harness.watchdog.rebindIfMissing();
     expect(rebound).toBe(false);
     expect(harness.rebinds).toHaveLength(0);
+  });
+
+  test("named pipes skip filesystem watchdog behavior", async () => {
+    const server = createServer();
+    harness = buildHarness({
+      socketPathOverride: "\\\\.\\pipe\\vellum-assistant-test",
+      getServerOverride: () => server,
+      createServerOverride: () => {
+        throw new Error("must not rebind");
+      },
+    });
+    harness.spawnedServers.push(server);
+    expect(await harness.watchdog.rebindIfMissing()).toBe(false);
   });
 
   test("rebindIfMissing recreates the listener when the path is gone", async () => {

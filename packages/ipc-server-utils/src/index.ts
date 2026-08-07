@@ -4,6 +4,8 @@ export {
   type SocketWatchdogOptions,
   type SocketWatchdogLogger,
 } from "./socket-watchdog.js";
+export { isNamedPipePath, removeIpcEndpointFile, resolveIpcEndpoint } from "./endpoint.js";
+export { ipcListenOptions } from "./listen-options.js";
 export {
   IpcFrameReader,
   writeLegacyMessage,

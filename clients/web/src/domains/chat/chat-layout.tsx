@@ -592,7 +592,6 @@ export function ChatLayout({
     handleMoveToGroup,
     handleRemoveFromGroup,
     handleRenameConversation,
-    handleReorderConversations,
     handleMarkAllReadInGroup,
     handleArchiveAllInGroup,
   } = useConversationActions({
@@ -914,7 +913,6 @@ export function ChatLayout({
       activeAppId={activeAppId ?? undefined}
       onOpenApp={handleOpenAppFromSidebar}
       onPinConversation={handleTogglePinConversation}
-      onReorderConversations={handleReorderConversations}
       onRenameConversation={handleRenameConversation}
       onArchiveConversation={handleArchiveConversation}
       onUnarchiveConversation={handleUnarchiveConversation}
@@ -936,6 +934,7 @@ export function ChatLayout({
           assistantVersion={assistantVersion}
           activeConversationId={activeConversationId}
           triggerVariant={args.variant === "overlay" ? "pill" : "item"}
+          collapsed={args.collapsed}
         />
       }
       // The overlay subtree mounts mid edge-swipe while still off-screen;

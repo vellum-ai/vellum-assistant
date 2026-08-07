@@ -22,6 +22,7 @@ import type { ReactNode } from "react";
 import { SideMenu } from "@vellumai/design-library";
 
 import { CollapsibleNavSection } from "./collapsible-nav-section";
+import { SectionActionsButton } from "./section-actions-button";
 
 interface NavSectionStoryArgs {
   label: string;
@@ -85,15 +86,6 @@ function SideMenuFrame({ children }: { children: ReactNode }) {
   );
 }
 
-/** A count chip, the one trailing affordance these sections use. */
-function CountBadge({ children }: { children: ReactNode }) {
-  return (
-    <span className="text-body-small-default text-[var(--content-tertiary)]">
-      {children}
-    </span>
-  );
-}
-
 export const Default: Story = {
   args: {
     label: "Recents",
@@ -112,7 +104,9 @@ export const Default: Story = {
           value="section"
           icon={showIcon ? Clock : undefined}
           label={label}
-          trailing={showTrailing ? <CountBadge>12</CountBadge> : undefined}
+          trailing={
+            showTrailing ? <SectionActionsButton label={label} /> : undefined
+          }
         >
           <SideMenu.SubList>
             <SideMenu.Item label="New conversation" />
@@ -147,7 +141,7 @@ export const MultipleSections: Story = {
           value="pinned"
           icon={Pin}
           label="Pinned"
-          trailing={<CountBadge>3</CountBadge>}
+          trailing={<SectionActionsButton label="Pinned" />}
         >
           <SideMenu.SubList>
             <SideMenu.Item label="Daily standup" />
@@ -196,7 +190,9 @@ export const NoIcon: Story = {
         <CollapsibleNavSection.Section
           value={label}
           label={label}
-          trailing={showTrailing ? <CountBadge>5</CountBadge> : undefined}
+          trailing={
+            showTrailing ? <SectionActionsButton label={label} /> : undefined
+          }
         >
           <SideMenu.SubList>
             {/* `icon` and `indent` are the shipped way to align rows with and

@@ -510,6 +510,17 @@ export class MediaStreamSttSession {
     switch (event.type) {
       case "partial":
         return;
+      case "finalized":
+        return;
+      case "turn-start":
+      case "eager-turn-end":
+      case "turn-resumed":
+      case "turn-end":
+        // The local VAD and the provider's boundary finals own turn
+        // taking. Listed case-by-case rather than under `default` so the
+        // exhaustiveness check flags this site when turn detection is
+        // wired in.
+        return;
       case "final": {
         const durationMs = Math.round(this.utteranceAudioMs);
         this.utteranceAudioMs = 0;
@@ -536,6 +547,10 @@ export class MediaStreamSttSession {
           this.enterBatchMode();
         }
         return;
+      default: {
+        const _exhaustive: never = event;
+        return;
+      }
     }
   }
 

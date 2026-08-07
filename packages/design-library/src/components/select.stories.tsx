@@ -8,8 +8,7 @@ import { Select, type SelectOption } from "./select";
 import { Modal } from "./modal";
 import { Tag } from "./tag";
 
-// Deliberately the same fixtures as `dropdown.stories.tsx`, so the two entries
-// can be flipped between in the sidebar to compare them directly.
+// Shared option fixtures for the stories below.
 const fruits: SelectOption<string>[] = [
   { value: "apple", label: "Apple" },
   { value: "banana", label: "Banana" },
@@ -52,14 +51,15 @@ const meta: Meta<typeof Select> = {
           "Use `Menu` instead when the list contains **actions** (Rename, Duplicate, Delete).",
           "Both visually drop down, but they are different controls with different semantics.",
           "",
-          "**This replaces `Dropdown`.** The two render identically; this one is a thin",
-          "wrapper over Radix Select rather than hand-rolled positioning, keyboard",
-          "navigation, outside-click and focus management.",
+          "A thin wrapper over Radix Select, so positioning, keyboard navigation,",
+          "outside-click and focus management come from the primitive.",
           "",
-          "Two behaviour differences when migrating from `Dropdown`: re-selecting the",
-          "value that is already selected does **not** call `onChange` (this reports",
-          "changes, `Dropdown` fired on every click), and an option may not carry an",
-          "empty-string `value`. See the `Dropdown` page and LUM-2959.",
+          "Two things to know. Re-selecting the value already selected does **not**",
+          "call `onChange`: this reports changes, not clicks, so a displayed value",
+          "derived from a fallback rather than held as state cannot be re-picked to",
+          "any effect. And an option may not carry an empty-string `value`, which",
+          'Radix reserves to mean "cleared" and will discard. Use `null` with',
+          '`onSelectNone` for a row meaning "no value chosen".',
         ].join("\n"),
       },
     },
@@ -79,6 +79,7 @@ const meta: Meta<typeof Select> = {
     "aria-label": { control: "text" },
     options: { control: false },
     onChange: { control: false },
+    onSelectNone: { control: false },
   },
   // Shared by every presentational story: `Select` is controlled, so the value
   // is driven from the arg and written back, keeping the canvas and the
@@ -91,6 +92,7 @@ const meta: Meta<typeof Select> = {
           {...args}
           value={value}
           onChange={(next) => updateArgs({ value: next })}
+          onSelectNone={() => updateArgs({ value: null })}
         />
       </div>
     );
@@ -104,6 +106,45 @@ export const Default: Story = {};
 
 export const WithPlaceholder: Story = {
   args: { value: "", placeholder: "Select a fruit…" },
+};
+
+export const WithLabel: Story = {
+  args: { label: "Fruit" },
+};
+
+export const WithHelperText: Story = {
+  args: { label: "Fruit", helperText: "Picked fresh this morning." },
+};
+
+export const WithError: Story = {
+  args: { label: "Fruit", value: "", errorText: "Choose a fruit" },
+};
+
+/** An error supersedes helper text, so one message shows rather than two. */
+export const ErrorReplacesHelperText: Story = {
+  args: {
+    label: "Fruit",
+    value: "",
+    helperText: "Picked fresh this morning.",
+    errorText: "Choose a fruit",
+  },
+};
+
+/**
+ * A selectable "no value" row, which is not the same as nothing being
+ * selected. The row carries `null`, and picking it calls `onSelectNone`
+ * rather than `onChange`, so `onChange` keeps promising a narrowed value.
+ */
+export const NullableSelection: Story = {
+  args: {
+    label: "Fruit",
+    value: null,
+    options: [
+      { value: null, label: "No preference" },
+      { value: "apple", label: "Apple" },
+      { value: "banana", label: "Banana" },
+    ],
+  },
 };
 
 export const WithIcons: Story = {
@@ -159,6 +200,7 @@ export const WithSuffix: Story = {
           {...args}
           value={value}
           onChange={(next) => updateArgs({ value: next })}
+          onSelectNone={() => updateArgs({ value: null })}
         />
       </div>
     );
@@ -175,6 +217,7 @@ export const Compact: Story = {
           {...args}
           value={value}
           onChange={(next) => updateArgs({ value: next })}
+          onSelectNone={() => updateArgs({ value: null })}
         />
       </div>
     );
@@ -215,8 +258,8 @@ export const InsideTransformedAncestor: Story = {
 };
 
 /**
- * A trigger low in the viewport opens upward. `Dropdown` always opens
- * downward, so the same trigger puts its menu below the fold.
+ * A trigger low in the viewport opens upward rather than pushing its menu
+ * below the fold.
  */
 export const OpensUpwardWhenLow: Story = {
   args: { value: "apple", "aria-label": "Fruit" },
@@ -272,16 +315,12 @@ export const OpensUpwardWhenLow: Story = {
  * a caller resets, leaving the previous choice on screen.
  */
 export const ClearedByParent: Story = {
-  args: { value: "",
-    placeholder: "Select a fruit…",
-    "aria-label": "Fruit",
-  },
+  args: { value: "", placeholder: "Select a fruit…", "aria-label": "Fruit" },
   render: function ClearableSelect(args) {
     const [value, setValue] = useState<string>("");
     return (
       <div className="flex w-64 flex-col gap-2">
-        <Select {...args} options={fruits} value={value}
-          onChange={setValue} />
+        <Select {...args} options={fruits} value={value} onChange={setValue} />
         <button type="button" data-testid="clear" onClick={() => setValue("")}>
           Clear
         </button>
@@ -295,7 +334,9 @@ export const ClearedByParent: Story = {
     await step("user picks an option", async () => {
       await userEvent.click(trigger);
       const cherry = [
-        ...document.querySelectorAll<HTMLElement>('[data-slot="select-option"]'),
+        ...document.querySelectorAll<HTMLElement>(
+          '[data-slot="select-option"]',
+        ),
       ].find((o) => o.textContent?.includes("Cherry"));
       await expect(cherry).toBeDefined();
       await userEvent.click(cherry!);
@@ -375,7 +416,9 @@ export const InsideModal: Story = {
 
     await step("choosing an option does not dismiss the modal", async () => {
       const cherry = [
-        ...document.querySelectorAll<HTMLElement>('[data-slot="select-option"]'),
+        ...document.querySelectorAll<HTMLElement>(
+          '[data-slot="select-option"]',
+        ),
       ].find((o) => o.textContent?.includes("Cherry"));
       await userEvent.click(cherry!);
       await expect(trigger!.textContent).toContain("Cherry");

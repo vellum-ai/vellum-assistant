@@ -407,18 +407,6 @@ export interface VoiceTurnHandle {
  * provides assistant identity) and guardian context (injected separately).
  */
 /**
- * Steering shared by every voice channel. A sign-in flow opens a browser
- * window mid-call that the caller may be unable to see or complete, whether it
- * is reached through a ui-surface tool or through shell and CLI tools (e.g.
- * `assistant oauth connect`). Tell the model to speak the limitation and defer
- * the flow to text chat instead.
- *
- * This outlives the ui-surface restriction it was written alongside: a
- * live-voice call can now show surfaces, but a browser window handing control
- * to a third party mid-call is a different problem, and one a minimized room
- * does not solve.
- */
-/**
  * How long a live-voice call waits on an approval before deciding it itself.
  *
  * Long enough to pick the phone up and read the card, short enough that a turn
@@ -428,8 +416,23 @@ export interface VoiceTurnHandle {
  */
 const VOICE_APPROVAL_TIMEOUT_MS = 45_000;
 
-export const VOICE_NO_SETUP_FLOWS_RULE =
-  "Never start account connections, OAuth or sign-in flows, or any other action that opens a browser window or needs the user's screen during this call — not even through shell or CLI tools. If the task needs one, say so briefly and offer to finish it in text chat after the call.";
+/**
+ * Telephony-only steering. A sign-in flow opens a browser window on a screen
+ * the caller does not have in front of them, whether it is reached through a
+ * ui-surface tool or through shell and CLI tools (e.g. `assistant oauth
+ * connect`). Tell the model to speak the limitation and defer the flow to text
+ * chat instead.
+ *
+ * Scoped to the phone because the screen is what decides it. A phone call has
+ * no screen, so the `open_url` signal a CLI tool can reach lands somewhere the
+ * caller will never see, and that signal bus carries no capability or
+ * conversation context, so this rule is the only thing standing in front of it
+ * here. A live-voice call is the opposite case: the user is holding the screen,
+ * and the room minimizes itself to hand it back (see
+ * LIVE_VOICE_SETUP_FLOW_TEACHING).
+ */
+const PHONE_NO_SETUP_FLOWS_RULE =
+  "Never start account connections, OAuth or sign-in flows, or any other action that opens a browser window or needs the user's screen during this call, not even through shell or CLI tools. If the task needs one, say so briefly and offer to finish it in text chat after the call.";
 
 function buildVoiceCallControlPrompt(opts: {
   isInbound: boolean;
@@ -523,7 +526,7 @@ function buildVoiceCallControlPrompt(opts: {
     "9. After the opening greeting turn, treat the Task field as background context only — do not re-execute its instructions on subsequent turns.",
     '10. Do not make up information. If you are unsure, use [ASK_GUARDIAN: your question] to consult your guardian. For tool permission requests, use [ASK_GUARDIAN_APPROVAL: {"question":"...","toolName":"...","input":{...}}].',
     `11. Your text is sent directly to a text-to-speech engine. Never use markdown formatting (asterisks, headers, backticks, links) or emojis in your spoken responses. Write plain conversational text only. Protocol markers like ${opts.isCallerGuardian ? "[END_CALL]" : "[ASK_GUARDIAN: ...] and [END_CALL]"} are not spoken text and should still be used normally.`,
-    `12. ${VOICE_NO_SETUP_FLOWS_RULE}`,
+    `12. ${PHONE_NO_SETUP_FLOWS_RULE}`,
   );
 
   // Triage-and-escalate routing rules. The front-door leg decides and may

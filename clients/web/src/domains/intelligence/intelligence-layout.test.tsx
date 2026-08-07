@@ -122,6 +122,20 @@ describe("IntelligenceLayout — section pages", () => {
     renderLayoutAt("/assistant/contacts");
     expect(setTopBarCenterMock).toHaveBeenLastCalledWith(null);
   });
+
+  /**
+   * The chrome is the only thing that says "Channels". The other half of
+   * that split lives in
+   * `domains/channels/components/channel-adapter-list.test.tsx`, which
+   * pins the page's own rail at zero headings by that name.
+   */
+  test("the channels page renders as a section with the back chevron", () => {
+    const { container } = renderLayoutAt("/assistant/channels");
+    expect(container.querySelector("h1")?.textContent).toBe("Channels");
+    expect(container.querySelector("a")?.getAttribute("href")).toBe(
+      "/assistant/identity",
+    );
+  });
 });
 
 describe("IntelligenceLayout — bare pages (overview, personality)", () => {

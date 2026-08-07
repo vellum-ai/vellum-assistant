@@ -3512,6 +3512,23 @@ export function buildSchema(): Record<string, unknown> {
           },
         },
       },
+      "/v1/channel-ingress": {
+        get: {
+          summary: "List ingress declarations and their approval state",
+          description:
+            "Guardian-only gateway endpoint listing every ingress declaration the gateway can see, each with the digest a guardian would approve, the public paths it would open, the credential its signatures are verified against, and whether each route is served right now. Servability is not implied by approval state: a vellum-signed route is served out of a pending declaration. This is the only way to learn that a declaration is waiting, because on the public surface a route held back by approval answers 404 exactly like one nobody declared. Declarations that failed validation are reported separately with their reason.",
+          operationId: "channelIngressList",
+          security: [{ BearerAuth: [] }],
+          responses: {
+            "200": { description: "Ingress declarations and approval state" },
+            "401": {
+              description: "Unauthorized: missing or invalid bearer token",
+            },
+            "403": { description: "Forbidden: caller is not the guardian" },
+            "500": { description: "Internal server error" },
+          },
+        },
+      },
       "/v1/channel-ingress/{source}/approve": {
         post: {
           summary: "Approve an ingress declaration",

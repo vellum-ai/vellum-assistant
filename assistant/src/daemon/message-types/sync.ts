@@ -15,6 +15,7 @@ export const SYNC_TAGS = {
   assistantSchedules: "assistant:self:schedules",
   assistantTheme: "assistant:self:theme",
   appsList: "apps:list",
+  documentsList: "documents:list",
   pluginsList: "plugins:list",
   conversationsList: "conversations:list",
   featureFlagsClient: "feature-flags:client",
