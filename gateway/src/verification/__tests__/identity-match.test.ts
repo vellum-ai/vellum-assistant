@@ -197,3 +197,103 @@ describe("the supersede scope and the consume path agree", () => {
     });
   }
 });
+
+describe("invariants across every session shape", () => {
+  // Example-based cases test the shapes someone thought of. These sweep the
+  // whole space, because the bugs this file guards have twice been a shape
+  // nobody had in mind: a mint identified by a field the rule did not check,
+  // and an empty identity read as no identity at all.
+  const VALUES = [null, "A", "B", ""];
+  const ACTORS = ["A", "B", ""];
+
+  function everyShape(
+    visit: (
+      session: {
+        expectedPhoneE164: string | null;
+        expectedExternalUserId: string | null;
+        expectedChatId: string | null;
+        identityBindingStatus: string;
+      },
+      actorUserId: string,
+      actorChatId: string,
+    ) => void,
+  ): void {
+    for (const p of VALUES) {
+      for (const u of VALUES) {
+        for (const c of VALUES) {
+          for (const au of ACTORS) {
+            for (const ac of ACTORS) {
+              visit(
+                {
+                  expectedPhoneE164: p,
+                  expectedExternalUserId: u,
+                  expectedChatId: c,
+                  identityBindingStatus: "bound",
+                },
+                au,
+                ac,
+              );
+            }
+          }
+        }
+      }
+    }
+  }
+
+  test("a session naming a person is never satisfied by a different person", () => {
+    // Generalized #10593: sharing a chat, or a phone column, must never
+    // stand in for being the person the session names. Asserted for every
+    // combination of the other fields rather than the ones we remembered.
+    const violations: string[] = [];
+    everyShape((s, actorUserId, actorChatId) => {
+      if (s.expectedPhoneE164 !== null) return;
+      if (s.expectedExternalUserId === null) return;
+      if (actorUserId === s.expectedExternalUserId) return;
+      if (checkIdentityMatch(s, actorUserId, actorChatId)) {
+        violations.push(
+          `${JSON.stringify(s)} admitted user=${actorUserId} chat=${actorChatId}`,
+        );
+      }
+    });
+    expect(violations).toEqual([]);
+  });
+
+  test("a bound session is never satisfied by an actor matching nothing on it", () => {
+    // The fail-open shape: something about the session makes the check
+    // decide there is nothing to check, and any holder of the code gets in.
+    const violations: string[] = [];
+    everyShape((s, actorUserId, actorChatId) => {
+      const values = [
+        s.expectedPhoneE164,
+        s.expectedExternalUserId,
+        s.expectedChatId,
+      ].filter((v): v is string => v !== null);
+      if (values.length === 0) return;
+      if (values.includes(actorUserId) || values.includes(actorChatId)) return;
+      if (checkIdentityMatch(s, actorUserId, actorChatId)) {
+        violations.push(
+          `${JSON.stringify(s)} admitted user=${actorUserId} chat=${actorChatId}`,
+        );
+      }
+    });
+    expect(violations).toEqual([]);
+  });
+
+  test("whoever is admitted matches the identity the supersede scopes on", () => {
+    // The two sides cannot part company: the actor the consume path lets in
+    // is the one whose earlier codes a fresh mint kills.
+    const violations: string[] = [];
+    everyShape((s, actorUserId, actorChatId) => {
+      if (!checkIdentityMatch(s, actorUserId, actorChatId)) return;
+      const identity = boundIdentity(s);
+      if (identity === null) return;
+      const presented = identity.field === "chatId" ? actorChatId : actorUserId;
+      if (presented !== identity.value) {
+        violations.push(
+          `${JSON.stringify(s)} admitted ${presented} but scopes on ${identity.field}=${identity.value}`,
+        );
+      }
+    });
+    expect(violations).toEqual([]);
+  });
+});
