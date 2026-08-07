@@ -187,6 +187,40 @@ describe("normalizeDiscordMessage", () => {
     expect(event?.source.threadId).toBe("thread-1");
   });
 
+  test("a DM is its own conversation and is marked as one", () => {
+    // `chatType` is what tells the seeding path that this conversation address
+    // is private. A guild channel wrongly marked "dm" would be recorded as the
+    // actor's delivery address and later receive their private notices.
+    const raw = messagePayload({
+      guild_id: undefined,
+      channel_id: "dm-channel-1",
+      content: "123456",
+      mentions: [],
+    });
+    const event = normalizeDiscordMessage(parse(raw), { raw });
+    expect(event?.source.chatType).toBe("dm");
+    expect(event?.message.conversationExternalId).toBe("dm-channel-1");
+    expect(event?.source.threadId).toBeUndefined();
+    expect(event?.actor.actorExternalId).toBe("user-1");
+  });
+
+  test("a guild message is never marked as a DM", () => {
+    const raw = messagePayload();
+    const event = normalizeDiscordMessage(parse(raw), { raw });
+    expect(event?.source.chatType).toBe("channel");
+  });
+
+  test("a thread message is never marked as a DM", () => {
+    // A thread carries its parent's guild, so the DM test must key on the
+    // guild rather than on the absence of a parent channel.
+    const raw = messagePayload({ channel_id: "thread-1" });
+    const event = normalizeDiscordMessage(parse(raw), {
+      parentChannelId: "channel-1",
+      raw,
+    });
+    expect(event?.source.chatType).toBe("channel");
+  });
+
   test("preserves the raw payload verbatim", () => {
     const raw = messagePayload({ unmodeled_field: { nested: true } });
     const event = normalizeDiscordMessage(parse(raw), { raw });

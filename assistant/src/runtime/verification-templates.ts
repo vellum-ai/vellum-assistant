@@ -1,5 +1,5 @@
 /**
- * Template-only copy for outbound guardian verification messages (Telegram, Slack, email, and voice).
+ * Template-only copy for outbound guardian verification messages (Telegram, Slack, Discord, email, and voice).
  *
  * All outbound verification messages are composed from these templates
  * to prevent free-form caller/user text injection. Only typed variables
@@ -26,6 +26,16 @@ export const GUARDIAN_VERIFY_TEMPLATE_KEYS = {
     "guardian_verify.slack.trusted_contact_challenge",
   /** Resend Slack DM verification for inbound trusted contact (includes the code). */
   SLACK_TRUSTED_CONTACT_RESEND: "guardian_verify.slack.trusted_contact_resend",
+  /** Initial outbound Discord DM verification prompt. */
+  DISCORD_CHALLENGE_REQUEST: "guardian_verify.discord.challenge_request",
+  /** Resend Discord DM verification prompt. */
+  DISCORD_RESEND: "guardian_verify.discord.resend",
+  /** Discord DM verification for inbound trusted contact (includes the code). */
+  DISCORD_TRUSTED_CONTACT_CHALLENGE:
+    "guardian_verify.discord.trusted_contact_challenge",
+  /** Resend Discord DM verification for inbound trusted contact (includes the code). */
+  DISCORD_TRUSTED_CONTACT_RESEND:
+    "guardian_verify.discord.trusted_contact_resend",
   /** Initial outbound email verification prompt (includes the code). */
   EMAIL_CHALLENGE_REQUEST: "guardian_verify.email.challenge_request",
   /** Resend email verification prompt (includes the code). */
@@ -55,6 +65,10 @@ type TextVerifyTemplateKey =
   | typeof GUARDIAN_VERIFY_TEMPLATE_KEYS.SLACK_RESEND
   | typeof GUARDIAN_VERIFY_TEMPLATE_KEYS.SLACK_TRUSTED_CONTACT_CHALLENGE
   | typeof GUARDIAN_VERIFY_TEMPLATE_KEYS.SLACK_TRUSTED_CONTACT_RESEND
+  | typeof GUARDIAN_VERIFY_TEMPLATE_KEYS.DISCORD_CHALLENGE_REQUEST
+  | typeof GUARDIAN_VERIFY_TEMPLATE_KEYS.DISCORD_RESEND
+  | typeof GUARDIAN_VERIFY_TEMPLATE_KEYS.DISCORD_TRUSTED_CONTACT_CHALLENGE
+  | typeof GUARDIAN_VERIFY_TEMPLATE_KEYS.DISCORD_TRUSTED_CONTACT_RESEND
   | typeof GUARDIAN_VERIFY_TEMPLATE_KEYS.EMAIL_CHALLENGE_REQUEST
   | typeof GUARDIAN_VERIFY_TEMPLATE_KEYS.EMAIL_RESEND;
 
@@ -122,6 +136,22 @@ const templates: Record<
     return `Vellum assistant verification: your code is ${vars.code}. Reply with this code to verify your identity. It expires in ${vars.expiresInMinutes} minutes. (resent)`;
   },
 
+  [GUARDIAN_VERIFY_TEMPLATE_KEYS.DISCORD_CHALLENGE_REQUEST]: (_vars) => {
+    return "Vellum assistant guardian verification requested. Reply with the 6-digit code you were given.";
+  },
+
+  [GUARDIAN_VERIFY_TEMPLATE_KEYS.DISCORD_RESEND]: (_vars) => {
+    return "Vellum assistant guardian verification requested. Reply with the 6-digit code you were given. (resent)";
+  },
+
+  [GUARDIAN_VERIFY_TEMPLATE_KEYS.DISCORD_TRUSTED_CONTACT_CHALLENGE]: (vars) => {
+    return `Vellum assistant verification: your code is ${vars.code}. Reply with this code to verify your identity. It expires in ${vars.expiresInMinutes} minutes.`;
+  },
+
+  [GUARDIAN_VERIFY_TEMPLATE_KEYS.DISCORD_TRUSTED_CONTACT_RESEND]: (vars) => {
+    return `Vellum assistant verification: your code is ${vars.code}. Reply with this code to verify your identity. It expires in ${vars.expiresInMinutes} minutes. (resent)`;
+  },
+
   [GUARDIAN_VERIFY_TEMPLATE_KEYS.EMAIL_CHALLENGE_REQUEST]: (vars) => {
     return `Vellum assistant guardian verification requested.\n\nYour verification code is: ${vars.code}\n\nReply to this email with only the 6-digit code above to complete verification. This code expires in ${vars.expiresInMinutes} minutes.`;
   },
@@ -136,6 +166,18 @@ const templates: Record<
  * Returns plain string content suitable for Slack delivery.
  */
 export function composeVerificationSlack(
+  templateKey: TextVerifyTemplateKey,
+  vars: GuardianVerifyTemplateVars,
+): string {
+  const composer = templates[templateKey];
+  return composer(vars);
+}
+
+/**
+ * Compose an outbound verification Discord DM from a template key and typed variables.
+ * Returns plain string content suitable for Discord delivery.
+ */
+export function composeVerificationDiscord(
   templateKey: TextVerifyTemplateKey,
   vars: GuardianVerifyTemplateVars,
 ): string {
