@@ -107,7 +107,13 @@ export function CompanionSurfacePage() {
       );
       setCharacter(state.character);
       setCall(state.call);
-      setDictation(state.dictation);
+      // `?? null` despite the contract naming this field required: a shell that
+      // predates it sends a payload without it, and the phase below asks
+      // `!== null`, so an absent field would read as a running session and park
+      // a recording pill on the surface that nothing can clear. The same skew
+      // contract the runtime wrapper describes, at the one read that can be
+      // wrong about it.
+      setDictation(state.dictation ?? null);
       setTurns(state.turns);
       setAssistantName(state.assistantName);
     };
