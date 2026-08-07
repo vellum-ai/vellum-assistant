@@ -211,7 +211,6 @@ export const CreateOutboundSessionIpcParamsSchema = z.object({
   requireSourceSessionPending: z.string().min(1).optional(),
   // Mint only if the channel has no active (pending_bootstrap /
   // awaiting_response, non-expired) session.
-  ifNoneActive: z.boolean().optional(),
   // Sender-scoped variant: mint unless the channel's active session is bound
   // to this expectedExternalUserId (a different sender may supersede).
   ifNoneActiveForExternalUserId: z.string().min(1).optional(),
@@ -240,7 +239,8 @@ export type CreateOutboundSessionIpcResponse = z.infer<
 
 /**
  * Conflict marker returned by `verification_sessions_create_outbound` when a
- * claim guard (`requireSourceSessionPending` / `ifNoneActive`) fails. Only
+ * claim guard (`requireSourceSessionPending` /
+ * `ifNoneActiveForExternalUserId`) fails. Only
  * reachable when a guard was passed — legacy callers never see this shape.
  */
 export const CreateOutboundSessionConflictSchema = z.object({
@@ -277,7 +277,17 @@ export type GetPendingSessionIpcParams = z.infer<
  * Request for `verification_sessions_find_active` (statuses
  * `pending_bootstrap`/`awaiting_response`, newest first).
  */
-export const FindActiveSessionIpcParamsSchema = ChannelOnlyIpcParamsSchema;
+export const FindActiveSessionIpcParamsSchema =
+  ChannelOnlyIpcParamsSchema.extend({
+    /**
+     * Narrows the lookup to one session. A channel can carry several live
+     * sessions at once, one per person verifying plus the guardian's own flow,
+     * so a caller that means a particular one has to say which. Omitted, the
+     * lookup returns whoever started most recently.
+     */
+    expectedExternalUserId: z.string().min(1).optional(),
+    verificationPurpose: VerificationPurposeSchema.optional(),
+  });
 
 export type FindActiveSessionIpcParams = z.infer<
   typeof FindActiveSessionIpcParamsSchema

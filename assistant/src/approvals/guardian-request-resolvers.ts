@@ -59,6 +59,7 @@ import { getLogger } from "../util/logger.js";
 import {
   channelCanAddressOneReaderInBand,
   channelCanCompleteCodeHandshakeInDm,
+  channelDeliversToUserId,
   resolveDeliverCallbackUrlForChannel,
   resolveRequesterDeliveryTarget,
 } from "./guardian-channel-delivery.js";
@@ -1038,6 +1039,17 @@ const accessRequestResolver: GuardianRequestResolver = {
     // Non-voice approvals: mint an identity-bound verification session so the
     // requester can verify their identity. The raw secret transits back on
     // the decide response for daemon-owned delivery.
+    //
+    // The session is addressed to the requester, not to the room the request
+    // arrived in. On the channels that reach a person by user id, that room is
+    // one other people can read, so recording it as the destination describes
+    // somewhere the code is never sent. `expectedChatId` keeps the room, which
+    // is where the conversation is, and it is not a credential: whenever both
+    // identity fields are set, `checkIdentityMatch` requires the user match.
+    const destinationAddress = channelDeliversToUserId(channel)
+      ? requesterExternalUserId || requesterChatId
+      : requesterChatId;
+
     return {
       ok: true,
       aclOutcome: {
@@ -1046,7 +1058,7 @@ const accessRequestResolver: GuardianRequestResolver = {
         expectedExternalUserId: requesterExternalUserId,
         expectedChatId: requesterChatId,
         identityBindingStatus: "bound",
-        destinationAddress: requesterChatId,
+        destinationAddress,
         verificationPurpose: "trusted_contact",
       },
       persistFailureReason: "verification_session_mint_failed",
@@ -1090,7 +1102,9 @@ const accessRequestResolver: GuardianRequestResolver = {
     // Where the guardian's own copy goes when their channel has no in-band
     // route. Resolved from THEIR channel, never the requester's, or the code
     // is handed to the wrong transport.
-    const guardianDmUrl = resolveDeliverCallbackUrlForChannel(ctx.actor.channel);
+    const guardianDmUrl = resolveDeliverCallbackUrlForChannel(
+      ctx.actor.channel,
+    );
 
     // Guardian-facing label prefers the contact display name over the raw ID.
     const requesterLabel =
@@ -1280,7 +1294,10 @@ const accessRequestResolver: GuardianRequestResolver = {
     // silently suppressed it for both.
     let requesterNotified = false;
     let codeDelivered = false;
-    const codeText = guardianVerificationCodeText(requesterLabel, session.secret);
+    const codeText = guardianVerificationCodeText(
+      requesterLabel,
+      session.secret,
+    );
 
     if (guardianInBandContext) {
       codeDelivered = true;
@@ -1375,7 +1392,8 @@ const accessRequestResolver: GuardianRequestResolver = {
         // code straight to the requester. Everywhere else the guardian relays
         // it and the requester gets a courier notice.
         const requesterCodeDelivered =
-          channelCanCompleteCodeHandshakeInDm(channel) && requesterExternalUserId
+          channelCanCompleteCodeHandshakeInDm(channel) &&
+          requesterExternalUserId
             ? await deliverVerificationCodeToRequester({
                 replyCallbackUrl: requesterReplyUrl,
                 requesterExternalUserId,

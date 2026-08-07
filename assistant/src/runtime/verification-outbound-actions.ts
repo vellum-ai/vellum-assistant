@@ -875,7 +875,13 @@ export async function resendOutbound(
   const channel = params.channel;
   const originConversationId = params.originConversationId;
 
-  const session = await findActiveSession(channel);
+  // Scoped to the guardian's own flow. A channel can carry a live session per
+  // person verifying, so an unscoped lookup returns whoever started most
+  // recently, which on a busy channel is a requester rather than the guardian
+  // this resend is for.
+  const session = await findActiveSession(channel, {
+    verificationPurpose: "guardian",
+  });
   if (!session) {
     return {
       success: false,
@@ -1064,7 +1070,11 @@ export async function cancelOutbound(
 ): Promise<OutboundActionResult> {
   const channel = params.channel;
 
-  const session = await findActiveSession(channel);
+  // Scoped the same way as resend: cancelling the guardian's verification must
+  // not revoke a requester's live session.
+  const session = await findActiveSession(channel, {
+    verificationPurpose: "guardian",
+  });
   if (!session) {
     return {
       success: false,

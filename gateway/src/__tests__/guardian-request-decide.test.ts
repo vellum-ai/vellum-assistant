@@ -69,13 +69,12 @@ const {
   guardianRequestDeliveries,
   guardianRequests,
 } = await import("../db/schema.js");
-const { createGuardianRequest } = await import("../db/guardian-request-store.js");
-const { decideGuardianRequest } = await import(
-  "../approvals/guardian-request-service.js"
-);
-const { createOutboundSession } = await import(
-  "../verification/session-service.js"
-);
+const { createGuardianRequest } =
+  await import("../db/guardian-request-store.js");
+const { decideGuardianRequest } =
+  await import("../approvals/guardian-request-service.js");
+const { createOutboundSession } =
+  await import("../verification/session-service.js");
 
 // ---------------------------------------------------------------------------
 // Fixtures
@@ -254,7 +253,10 @@ describe("decide — per-outcome success", () => {
 
     const channels = channelRows();
     expect(channels).toHaveLength(1);
-    expect(channels[0]).toMatchObject({ status: "unverified", policy: "allow" });
+    expect(channels[0]).toMatchObject({
+      status: "unverified",
+      policy: "allow",
+    });
 
     const contact = getGatewayDb()
       .select()
@@ -452,7 +454,7 @@ describe("decide — ATL-463 crash-window closure", () => {
   });
 
   test("a conflicted outbound-session mint rolls the approval back", async () => {
-    // A guarded mint (ifNoneActive) against a channel that already has an
+    // A guarded mint against a channel that already has an
     // active session conflicts — the approval must not commit codeless.
     const existing = createOutboundSession({
       channel: CHANNEL,
@@ -471,7 +473,6 @@ describe("decide — ATL-463 crash-window closure", () => {
           channel: CHANNEL,
           expectedExternalUserId: SENDER,
           verificationPurpose: "trusted_contact",
-          ifNoneActive: true,
         },
       }),
     ).rejects.toThrow("outbound session mint conflicted");

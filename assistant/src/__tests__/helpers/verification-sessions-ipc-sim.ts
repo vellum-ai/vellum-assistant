@@ -220,13 +220,11 @@ export type SimGuardedCreateOutboundResult =
 export function createOutboundSessionGuarded(
   params: SimCreateOutboundParams & {
     requireSourceSessionPending?: string;
-    ifNoneActive?: boolean;
     ifNoneActiveForExternalUserId?: string;
   },
 ): SimGuardedCreateOutboundResult {
   const {
     requireSourceSessionPending,
-    ifNoneActive,
     ifNoneActiveForExternalUserId,
     ...createParams
   } = params;
@@ -240,10 +238,6 @@ export function createOutboundSessionGuarded(
     ) {
       return { conflict: true, reason: "source_session_not_pending" };
     }
-  }
-
-  if (ifNoneActive && findActiveSession(params.channel) !== null) {
-    return { conflict: true, reason: "active_session_exists" };
   }
 
   if (ifNoneActiveForExternalUserId !== undefined) {
@@ -309,6 +303,10 @@ export function getPendingSession(
 
 export function findActiveSession(
   channel: string,
+  filter: {
+    expectedExternalUserId?: string;
+    verificationPurpose?: "guardian" | "trusted_contact";
+  } = {},
 ): VerificationSessionWire | null {
   const now = Date.now();
   return (
@@ -318,7 +316,11 @@ export function findActiveSession(
           s.channel === channel &&
           (s.status === "pending_bootstrap" ||
             s.status === "awaiting_response") &&
-          s.expiresAt > now,
+          s.expiresAt > now &&
+          (!filter.expectedExternalUserId ||
+            s.expectedExternalUserId === filter.expectedExternalUserId) &&
+          (!filter.verificationPurpose ||
+            s.verificationPurpose === filter.verificationPurpose),
       )
       .sort(newestFirst)[0] ?? null
   );

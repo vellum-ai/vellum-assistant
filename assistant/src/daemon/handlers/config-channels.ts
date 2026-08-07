@@ -209,7 +209,10 @@ export async function getVerificationStatus(
   // restart and detect bootstrap completion.
   const [pendingSession, activeOutboundSession] = await Promise.all([
     getPendingSession(resolvedChannel),
-    findActiveSession(resolvedChannel),
+    // The guardian's own session. A channel can carry one per person
+    // verifying, so an unscoped read would report a requester's session as
+    // the guardian's pending verification.
+    findActiveSession(resolvedChannel, { verificationPurpose: "guardian" }),
   ]);
   const hasPendingChallenge = pendingSession != null;
   const outboundFields: Record<string, unknown> = {};

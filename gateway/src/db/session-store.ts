@@ -43,6 +43,28 @@ const INTERCEPTABLE_STATUSES: SessionStatus[] = [
   "awaiting_response",
 ];
 
+/**
+ * Outbound statuses a fresh outbound session for the same actor supersedes.
+ *
+ * Deliberately excludes `pending`: that is an inbound challenge, superseded by
+ * `createInboundSession` and no business of an outbound mint.
+ */
+const OUTBOUND_LIVE_STATUSES: SessionStatus[] = [
+  "pending_bootstrap",
+  "awaiting_response",
+];
+
+/**
+ * Narrows a session lookup to the one the caller means.
+ *
+ * Both axes exist because a channel can carry several live sessions at once:
+ * one per person verifying, plus the guardian's own flow.
+ */
+export interface SessionFilter {
+  expectedExternalUserId?: string;
+  verificationPurpose?: VerificationPurpose;
+}
+
 const INTERCEPTABLE_STATUSES_SQL = INTERCEPTABLE_STATUSES.map(
   (s) => `'${s}'`,
 ).join(", ");
@@ -205,10 +227,15 @@ export function findPendingSessionForChannel(
 
 /**
  * Latest non-expired session for a channel in one of the given statuses.
+ *
+ * Several people can be verifying on a channel at once, and a guardian's own
+ * flow runs alongside theirs, so a caller that means "the session I am working
+ * on" has to say which. Unfiltered, it gets whoever started most recently.
  */
 export function findLatestSessionByStatuses(
   channel: string,
   statuses: SessionStatus[],
+  filter: SessionFilter = {},
 ): VerificationSession | null {
   const db = getGatewayDb();
 
@@ -220,6 +247,22 @@ export function findLatestSessionByStatuses(
         eq(channelVerificationSessions.channel, channel),
         inArray(channelVerificationSessions.status, statuses),
         gt(channelVerificationSessions.expiresAt, Date.now()),
+        ...(filter.expectedExternalUserId
+          ? [
+              eq(
+                channelVerificationSessions.expectedExternalUserId,
+                filter.expectedExternalUserId,
+              ),
+            ]
+          : []),
+        ...(filter.verificationPurpose
+          ? [
+              eq(
+                channelVerificationSessions.verificationPurpose,
+                filter.verificationPurpose,
+              ),
+            ]
+          : []),
       ),
     )
     .orderBy(desc(channelVerificationSessions.createdAt))
@@ -292,8 +335,26 @@ export function consumeSession(
 
 /**
  * Create an outbound verification session with expected-identity binding.
- * Auto-revokes prior pending/pending_bootstrap/awaiting_response sessions
- * for the same channel to close the replay window.
+ *
+ * Supersedes the actor's own prior outbound sessions, so only their latest
+ * code is live and an intercepted earlier one is useless.
+ *
+ * The supersede is scoped to the actor rather than the channel, because that
+ * is the scope the replay window has. Two people's codes have no replay
+ * relationship: `checkIdentityMatch` binds each to its own
+ * `expectedExternalUserId`, so A's code cannot be spent against B's session. A
+ * channel-wide revoke would take a stranger's live code away for no security
+ * benefit, and on a channel where several people can verify at once that is
+ * ordinary traffic rather than an edge case.
+ *
+ * Inbound (`pending`) sessions are left alone. They have their own supersede
+ * in `createInboundSession`, and an outbound mint has nothing to say about an
+ * inbound challenge.
+ *
+ * A session with no `expectedExternalUserId` supersedes nothing. Bootstrap
+ * sessions have no actor until the deep link is redeemed and are claimed
+ * atomically by `requireSourceSessionPending` instead; inbound sessions are
+ * not this function's business.
  */
 export function createOutboundSession(params: {
   id: string;
@@ -315,15 +376,21 @@ export function createOutboundSession(params: {
   const db = getGatewayDb();
   const now = Date.now();
 
-  db.update(channelVerificationSessions)
-    .set({ status: "revoked", updatedAt: now })
-    .where(
-      and(
-        eq(channelVerificationSessions.channel, params.channel),
-        inArray(channelVerificationSessions.status, INTERCEPTABLE_STATUSES),
-      ),
-    )
-    .run();
+  if (params.expectedExternalUserId) {
+    db.update(channelVerificationSessions)
+      .set({ status: "revoked", updatedAt: now })
+      .where(
+        and(
+          eq(channelVerificationSessions.channel, params.channel),
+          inArray(channelVerificationSessions.status, OUTBOUND_LIVE_STATUSES),
+          eq(
+            channelVerificationSessions.expectedExternalUserId,
+            params.expectedExternalUserId,
+          ),
+        ),
+      )
+      .run();
+  }
 
   const row = {
     id: params.id,
@@ -370,12 +437,18 @@ export function getSessionById(id: string): VerificationSession | null {
 /**
  * Find the most recent pending_bootstrap or awaiting_response session
  * for a given channel.
+ *
+ * Pass a filter when the caller means a particular session: an actor for one
+ * person's, a purpose to tell a guardian's own flow apart from a requester's.
+ * Unfiltered this returns whoever started most recently, which is right for a
+ * caller asking "is anything in flight here" and wrong for one about to
+ * resend, cancel, or report state back.
  */
-export function findActiveSession(channel: string): VerificationSession | null {
-  return findLatestSessionByStatuses(channel, [
-    "pending_bootstrap",
-    "awaiting_response",
-  ]);
+export function findActiveSession(
+  channel: string,
+  filter: SessionFilter = {},
+): VerificationSession | null {
+  return findLatestSessionByStatuses(channel, OUTBOUND_LIVE_STATUSES, filter);
 }
 
 /**

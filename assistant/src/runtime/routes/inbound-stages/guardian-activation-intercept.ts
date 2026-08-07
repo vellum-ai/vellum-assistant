@@ -133,7 +133,11 @@ export async function handleGuardianActivationIntercept(
   // normal pipeline handle the message.
   let existingSession: VerificationSessionWire | null;
   try {
-    existingSession = await findActiveSession(sourceChannel);
+    // This sender's own session. The channel may carry others, and what the
+    // guard below needs to know is whether THIS activation is a duplicate.
+    existingSession = await findActiveSession(sourceChannel, {
+      expectedExternalUserId: rawSenderId,
+    });
   } catch (err) {
     log.warn(
       { err, sourceChannel },
@@ -173,10 +177,12 @@ export async function handleGuardianActivationIntercept(
   }
 
   // ── Create verification session ──
-  // When the read above saw no active session, ifNoneActive makes the create
-  // a gateway-side create-if-absent: a concurrent activation that minted in
-  // between conflicts here instead of revoking that first code. A supersede
-  // (stale session from a different sender) deliberately omits the guard.
+  // When the read above saw no session for this sender, the sender-scoped
+  // create-if-absent makes the mint atomic: a concurrent activation from the
+  // same sender that minted in between conflicts here instead of revoking that
+  // first code. Scoped to the sender rather than the channel, because another
+  // person verifying at the same time is ordinary and must not block this.
+  // Superseding this sender's own stale session deliberately omits the guard.
   let sessionResult: Awaited<
     ReturnType<typeof createOutboundSessionConditional>
   >;
@@ -188,7 +194,9 @@ export async function handleGuardianActivationIntercept(
       identityBindingStatus: "bound",
       destinationAddress: conversationExternalId,
       verificationPurpose: "guardian",
-      ...(existingSession ? {} : { ifNoneActive: true }),
+      ...(existingSession
+        ? {}
+        : { ifNoneActiveForExternalUserId: rawSenderId }),
     });
   } catch (err) {
     log.warn(

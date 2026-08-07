@@ -194,8 +194,6 @@ export type GuardedCreateOutboundSessionResult =
  * - `requireSourceSessionPending`: the bootstrap handoff claim. The source
  *   session must still be `pending_bootstrap` (a prior mint revokes it, so a
  *   second claim of the same deep-link token conflicts).
- * - `ifNoneActive`: create-if-absent. Conflicts when the channel already has
- *   an active (pending_bootstrap / awaiting_response, non-expired) session.
  * - `ifNoneActiveForExternalUserId`: sender-scoped create-if-absent.
  *   Conflicts only when the channel's active session is bound to the same
  *   expectedExternalUserId — a different sender's session may be superseded
@@ -204,7 +202,6 @@ export type GuardedCreateOutboundSessionResult =
 export function createOutboundSessionGuarded(
   params: Parameters<typeof createOutboundSession>[0] & {
     requireSourceSessionPending?: string;
-    ifNoneActive?: boolean;
     ifNoneActiveForExternalUserId?: string;
   },
 ): GuardedCreateOutboundSessionResult {
@@ -219,16 +216,15 @@ export function createOutboundSessionGuarded(
     }
   }
 
-  if (params.ifNoneActive && findActiveSession(params.channel) !== null) {
-    return { conflict: true, reason: "active_session_exists" };
-  }
-
   if (params.ifNoneActiveForExternalUserId !== undefined) {
-    const active = findActiveSession(params.channel);
-    if (
-      active !== null &&
-      active.expectedExternalUserId === params.ifNoneActiveForExternalUserId
-    ) {
+    // Scoped to the actor rather than reading the channel's latest and
+    // comparing: a channel can carry several live sessions, so the latest is
+    // often somebody else's, and this guard would then miss the very session
+    // it exists to find.
+    const active = findActiveSession(params.channel, {
+      expectedExternalUserId: params.ifNoneActiveForExternalUserId,
+    });
+    if (active !== null) {
       return { conflict: true, reason: "active_session_exists" };
     }
   }

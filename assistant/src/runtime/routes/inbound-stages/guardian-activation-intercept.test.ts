@@ -122,8 +122,9 @@ describe("handleGuardianActivationIntercept", () => {
       identityBindingStatus: "bound",
       destinationAddress: "chat-123",
       verificationPurpose: "guardian",
-      // No session was read: the create is a gateway-side create-if-absent.
-      ifNoneActive: true,
+      // No session was read for this sender, so the create is a
+      // sender-scoped create-if-absent.
+      ifNoneActiveForExternalUserId: "user-42",
     });
 
     // Verify deliverChannelReply was called with the welcome/verify message
@@ -259,10 +260,11 @@ describe("handleGuardianActivationIntercept", () => {
     const body = result!;
     expect(body).toEqual({ accepted: true, guardianActivation: true });
     expect(gatewaySessions.calls.create).toHaveLength(1);
-    // Deliberate supersede: the create-if-absent guard is omitted so the
-    // stale session gets revoked.
+    // Deliberate supersede of this sender's own stale session: the
+    // create-if-absent guard is omitted so it gets revoked.
     expect(
-      (gatewaySessions.calls.create[0] as Record<string, unknown>).ifNoneActive,
+      (gatewaySessions.calls.create[0] as Record<string, unknown>)
+        .ifNoneActiveForExternalUserId,
     ).toBeUndefined();
     expect(emitNotificationSignalCalls).toHaveLength(1);
   });
