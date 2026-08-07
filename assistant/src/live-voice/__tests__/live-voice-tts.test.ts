@@ -24,8 +24,11 @@ mock.module("../../security/secure-keys.js", () => ({
   getProviderKeyAsync: async () => "test-api-key",
 }));
 
-const { LiveVoiceTtsError, streamLiveVoiceTtsAudio } =
-  await import("../live-voice-tts.js");
+const {
+  LiveVoiceTtsError,
+  resolveLanguageVoiceOverride,
+  streamLiveVoiceTtsAudio,
+} = await import("../live-voice-tts.js");
 
 beforeEach(() => {
   config = makeConfig();
@@ -494,6 +497,76 @@ describe("streamLiveVoiceTtsAudio", () => {
     }
   });
 
+  test("applies the configured per-language voice for a language-known turn", async () => {
+    config = makeConfig({
+      provider: "elevenlabs",
+      elevenlabsLanguageVoices: { hi: "voice-hindi", ja: "voice-japanese" },
+    });
+    const { requests, probeRequests } = installCapturingElevenLabsStub();
+
+    await streamLiveVoiceTtsAudio({
+      config,
+      text: "namaste",
+      language: "hi",
+      onAudioChunk: () => {},
+    });
+
+    expect(requests[0]?.voiceId).toBe("voice-hindi");
+    expect(probeRequests[0]?.voiceId).toBe("voice-hindi");
+  });
+
+  test("skips the override when the map has no entry for the turn language", async () => {
+    config = makeConfig({
+      provider: "elevenlabs",
+      elevenlabsLanguageVoices: { hi: "voice-hindi" },
+    });
+    const { requests } = installCapturingElevenLabsStub();
+
+    await streamLiveVoiceTtsAudio({
+      config,
+      text: "hola",
+      language: "es",
+      onAudioChunk: () => {},
+    });
+
+    expect(requests[0]?.voiceId).toBeUndefined();
+  });
+
+  test("an explicit request voiceId outranks the per-language map", async () => {
+    config = makeConfig({
+      provider: "elevenlabs",
+      elevenlabsLanguageVoices: { hi: "voice-hindi" },
+    });
+    const { requests, probeRequests } = installCapturingElevenLabsStub();
+
+    await streamLiveVoiceTtsAudio({
+      config,
+      text: "namaste",
+      language: "hi",
+      voiceId: "voice-explicit",
+      onAudioChunk: () => {},
+    });
+
+    expect(requests[0]?.voiceId).toBe("voice-explicit");
+    expect(probeRequests[0]?.voiceId).toBe("voice-explicit");
+  });
+
+  test("performs no lookup when the turn has no language", async () => {
+    config = makeConfig({
+      provider: "elevenlabs",
+      elevenlabsLanguageVoices: { hi: "voice-hindi" },
+    });
+    const { requests } = installCapturingElevenLabsStub();
+
+    await streamLiveVoiceTtsAudio({
+      config,
+      text: "hello",
+      onAudioChunk: () => {},
+    });
+
+    expect(requests[0]?.voiceId).toBeUndefined();
+  });
+
   test("keeps live voice TTS behind the registry instead of direct provider SDKs", () => {
     const source = readFileSync(
       new URL("../live-voice-tts.ts", import.meta.url),
@@ -508,11 +581,83 @@ describe("streamLiveVoiceTtsAudio", () => {
   });
 });
 
+describe("resolveLanguageVoiceOverride", () => {
+  test("keys the lookup by the language's lowercase base subtag", () => {
+    const map = { hi: "voice-hindi" };
+    expect(resolveLanguageVoiceOverride(map, "hi")).toBe("voice-hindi");
+    expect(resolveLanguageVoiceOverride(map, "hi-IN")).toBe("voice-hindi");
+    expect(resolveLanguageVoiceOverride(map, "HI")).toBe("voice-hindi");
+  });
+
+  test("returns undefined without a language", () => {
+    expect(
+      resolveLanguageVoiceOverride({ hi: "voice-hindi" }, undefined),
+    ).toBeUndefined();
+    expect(
+      resolveLanguageVoiceOverride({ hi: "voice-hindi" }, ""),
+    ).toBeUndefined();
+  });
+
+  test("returns undefined for a missing map, a missing entry, or a blank voice", () => {
+    expect(resolveLanguageVoiceOverride(undefined, "hi")).toBeUndefined();
+    expect(
+      resolveLanguageVoiceOverride({ ja: "voice-japanese" }, "hi"),
+    ).toBeUndefined();
+    expect(resolveLanguageVoiceOverride({ hi: "  " }, "hi")).toBeUndefined();
+    expect(resolveLanguageVoiceOverride({}, "constructor")).toBeUndefined();
+  });
+
+  test("trims the resolved voice identifier", () => {
+    expect(resolveLanguageVoiceOverride({ hi: " voice-hindi " }, "hi")).toBe(
+      "voice-hindi",
+    );
+  });
+});
+
+/**
+ * Install an ElevenLabs-id streaming stub that records the sample-rate probe
+ * and synthesis requests.
+ */
+function installCapturingElevenLabsStub(): {
+  requests: TtsSynthesisRequest[];
+  probeRequests: TtsSynthesisRequest[];
+} {
+  const requests: TtsSynthesisRequest[] = [];
+  const probeRequests: TtsSynthesisRequest[] = [];
+  _setTtsProviderForTests({
+    id: "elevenlabs",
+    capabilities: {
+      supportsStreaming: true,
+      supportedFormats: ["mp3", "pcm"],
+    },
+    resolveOutputSampleRateHz: (request) => {
+      probeRequests.push(request);
+      return 24_000;
+    },
+    async synthesize(): Promise<TtsSynthesisResult> {
+      throw new Error("buffered synthesis should not be used");
+    },
+    async synthesizeStream(
+      request: TtsSynthesisRequest,
+      onChunk: (chunk: Uint8Array) => void,
+    ): Promise<TtsSynthesisResult> {
+      requests.push(request);
+      onChunk(Buffer.from("pcm-one!"));
+      return {
+        audio: Buffer.from("pcm-one!"),
+        contentType: "audio/pcm",
+      };
+    },
+  });
+  return { requests, probeRequests };
+}
+
 function makeConfig(
   overrides: {
     provider?: string;
     format?: "mp3" | "wav" | "opus";
     sampleRate?: number;
+    elevenlabsLanguageVoices?: Record<string, string>;
   } = {},
 ): LiveVoiceTtsConfig {
   return {
@@ -535,6 +680,7 @@ function makeConfig(
             stability: 0.5,
             similarityBoost: 0.75,
             conversationTimeoutSeconds: 30,
+            languageVoices: overrides.elevenlabsLanguageVoices,
           },
           deepgram: {
             model: "aura-asteria-en",
