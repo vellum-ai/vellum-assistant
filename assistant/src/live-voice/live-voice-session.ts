@@ -2562,7 +2562,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     // Spoken, because opening the room is only a cue for someone looking at
     // the screen, and the case this exists for is a phone the user has put
     // down. One line, not narration: the turn is not working, it is waiting,
-    // and it says which — in the turn's spoken language, like every other
+    // and it says which, in the turn's spoken language, like every other
     // filler phrase.
     this.enqueueFillerPhrase(turn, approvalPendingPhraseFor(turn.language));
   }
