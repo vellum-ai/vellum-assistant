@@ -22,6 +22,7 @@
  * as (custom image / not loaded).
  */
 
+import { SIDEBAR_STACK_GAP } from "@/components/sidebar-nav-geometry";
 import { Brain, Plus } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { motion, useAnimationControls, useReducedMotion } from "motion/react";
@@ -238,7 +239,7 @@ export function AssistantNavItem({
     // the same CHIP_SIZE slot the plus chip and the eyes use, so both
     // rows' labels stay on one axis.
     return (
-      <div className="flex flex-col gap-[8px]">
+      <div className={cn("flex flex-col", SIDEBAR_STACK_GAP)}>
         {collapsed ? (
           <button
             type="button"
@@ -419,7 +420,7 @@ export function AssistantNavItem({
   );
 
   return (
-    <div className="flex flex-col gap-[8px]">
+    <div className={cn("flex flex-col", SIDEBAR_STACK_GAP)}>
       {assistantRow}
       {newConversationRow}
     </div>

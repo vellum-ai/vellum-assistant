@@ -9,7 +9,10 @@
  * and the channel-`Grouped` one.
  *
  * The view lives in the sidebar's layout store, keyed per assistant, so each
- * story seeds its own assistant id before mounting.
+ * story seeds its own assistant id before mounting. Pinned apps come from a
+ * store too rather than from a prop, so they are seeded the same way - without
+ * that, the stories render every part of the rail except the pinned-app
+ * cluster, which is how its pill conversion went unreviewed.
  */
 
 import type { Meta, StoryObj } from "@storybook/react-vite";
@@ -17,6 +20,7 @@ import type { Meta, StoryObj } from "@storybook/react-vite";
 import { AssistantSideMenu } from "@/domains/chat/components/assistant-side-menu";
 import { PreferencesMenu } from "@/domains/chat/components/preferences-menu";
 import { useSidebarLayoutStore } from "@/domains/chat/sidebar-layout-store";
+import { usePinnedAppsStore } from "@/stores/pinned-apps-store";
 import {
   saveViewMode,
   type SidebarViewMode,
@@ -88,6 +92,13 @@ const LONG_CONVERSATIONS: Conversation[] = [
   ),
 ];
 
+/* Two, because one pinned app cannot show whether the cluster spaces its
+   entries the way the sections below it do. */
+const PINNED_APPS = [
+  { appId: "app-ops", pinnedOrder: 0, name: "Vex Ops" },
+  { appId: "app-inbox", pinnedOrder: 1, name: "Inbox Triage" },
+];
+
 const GROUPS: ConversationGroup[] = [
   {
     id: "grp-reviews",
@@ -114,6 +125,10 @@ const GROUPS: ConversationGroup[] = [
 function seedViewMode(assistantId: string, mode: SidebarViewMode): void {
   saveViewMode(assistantId, mode);
   useSidebarLayoutStore.setState({ assistantId: null });
+  usePinnedAppsStore.setState({
+    pinnedApps: PINNED_APPS,
+    pinnedAppIds: new Set(PINNED_APPS.map((app) => app.appId)),
+  });
 }
 
 const SHARED_ARGS = {
@@ -124,6 +139,12 @@ const SHARED_ARGS = {
   conversationGroups: GROUPS,
   activeConversationId: "r1",
   onSelectConversation: () => {},
+  /* `PanelItem` only takes on button semantics, hover and a pointer cursor
+     when it is given a handler. Without these two the assistant row and the
+     pinned apps render inert, which reads as a styling bug in the pill and
+     is not one. */
+  onOpenIntelligence: () => {},
+  onOpenApp: () => {},
   onStartNewConversation: () => {},
   onRenameGroup: () => {},
   onDeleteGroup: () => {},

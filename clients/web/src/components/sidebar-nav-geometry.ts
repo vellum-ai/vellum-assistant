@@ -47,6 +47,18 @@ export const SIDEBAR_SECTION_MAX_HEIGHT = 300;
  * sidebar body scrolls, so an oversized section degrades to body scrolling
  * the same way a long section list does today.
  */
+/**
+ * The gap between any two stacked entries in the sidebar: the built-in nav's
+ * pills, the section cards, and the scrollport that holds them.
+ *
+ * One constant rather than a `gap-*` at each container, because those
+ * containers nest - the body holds the section root which holds the cards -
+ * and a different value at any level reads as a different value between two
+ * adjacent things. Chasing which of the three was winning is what made this
+ * spacing hard to change; naming it once makes every user of it greppable.
+ */
+export const SIDEBAR_STACK_GAP = "gap-2";
+
 export const SIDEBAR_SECTION_RESIZE_MIN_HEIGHT = 64;
 export const SIDEBAR_SECTION_RESIZE_MAX_HEIGHT = 600;
 

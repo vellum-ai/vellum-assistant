@@ -9,6 +9,7 @@ import {
 import { useCommandPaletteStore } from "@/stores/command-palette-store";
 
 import { CollapsibleNavSection } from "@/components/collapsible-nav-section";
+import { SIDEBAR_STACK_GAP } from "@/components/sidebar-nav-geometry";
 import {
   getGroupIndicatorState,
   GroupIndicatorDot,
@@ -36,7 +37,7 @@ import {
 import { copyIdToClipboard } from "@/domains/chat/utils/copy-id-to-clipboard";
 import { NATIVE_MOBILE_BARE_ICON_BUTTON } from "@/domains/chat/utils/native-mobile-button-constants";
 import type { Conversation } from "@/types/conversation-types";
-import { Button, SideMenu } from "@vellumai/design-library";
+import { Button, cn, SideMenu } from "@vellumai/design-library";
 
 export interface AssistantSideMenuProps extends UseSidebarStateParams {
   assistantName?: string | null;
@@ -453,18 +454,20 @@ export function AssistantSideMenu({
               ? /* pb-24 is a coarse floating-column reserve until the measured
                  inline padding below is applied. The native-mobile pt-14
                  clears the 40px floating icon row plus a 16px gap. */
-                `-mx-4 gap-4 px-4 pb-24 native-mobile:pt-14 ${NATIVE_MOBILE_LIST_TOP_FADE}`
+                `-mx-4 ${SIDEBAR_STACK_GAP} px-4 pb-24 native-mobile:pt-14 ${NATIVE_MOBILE_LIST_TOP_FADE}`
               : /* The collapsed rail tucks the group icons up under the
                  cluster separator (~12px to the first icon tile) so they
                  read as the next section, not a distant island. */
                 isCollapsedRail
-                ? "gap-4 pt-2"
+                ? `${SIDEBAR_STACK_GAP} pt-2`
                 : /* The scrollport spans the full rail so its scrollbar rides
                      the outer edge instead of cutting through the content, and
                      takes over the horizontal inset the root would have given
-                     it, so rows sit exactly where they did. No top inset: the
-                     first section sits flush against the header. */
-                  "-mx-4 gap-4 px-4"
+                     it, so rows sit exactly where they did. The top inset is
+                     the same stack gap: the header no longer closes with a
+                     rule, so without it the first card butts against the last
+                     pill while every other pair is spaced. */
+                  `-mx-4 ${SIDEBAR_STACK_GAP} px-4 pt-2`
           }
           style={
             variant === "overlay" && overlayBottomColumnHeight > 0
@@ -482,10 +485,15 @@ export function AssistantSideMenu({
           {/* The overlay puts the assistant cluster at the top of the
               scrollport rather than in a fixed header, so it owns the inset
               that keeps it clear of the floating close and search glyphs.
-              `gap-4` restates the body's own gap, which wrapping these into
-              one flex item would otherwise drop. */}
+              Restates the body's own gap, which wrapping these into one
+              flex item would otherwise drop. */}
           {variant === "overlay" ? (
-            <div className="flex flex-col gap-4 pt-3 max-md:pt-4">
+            <div
+              className={cn(
+                "flex flex-col pt-3 max-md:pt-4",
+                SIDEBAR_STACK_GAP,
+              )}
+            >
               {builtInNav}
             </div>
           ) : null}
@@ -516,7 +524,7 @@ export function AssistantSideMenu({
                   action. */}
                 <CollapsibleNavSection.Root
                   type="multiple"
-                  className="gap-3"
+                  className={SIDEBAR_STACK_GAP}
                   value={sidebar.effectiveOpenSections}
                   onValueChange={sidebar.onOpenSectionsChange}
                 >
