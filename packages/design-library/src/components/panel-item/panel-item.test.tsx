@@ -113,26 +113,22 @@ describe("PanelItem shape", () => {
 
   /* Two failure modes in one assertion.
 
-     The row's radius must be *replaced*, not merely joined by the pill's:
-     emitting both leaves the winner to stylesheet order, which is how a
-     capsule silently renders as a 6px row.
+     The row's radius and width must be *replaced*, not merely joined by the
+     pill's: emitting both leaves the winner to stylesheet order, which is how
+     a capsule silently renders as a 6px row.
 
-     Its width must not be. Every caller is a sidebar column entry that wants
-     the row's own width, and the one hosting the assistant's eye patrol is
-     measured by that animation to place the eyes, so a pill sized to its label
-     would put them on top of that label. Any intrinsic width reaching the root
-     breaks both, so none of the three spellings may appear: `w-fit` sets one
-     outright, and `w-auto` / `max-w-fit` resolve to one on a block-level flex
-     container. A story cannot stand in for this check: a parent that
-     shrink-wraps its children hides the difference entirely. */
-  test("pill replaces the row's radius and keeps its full width", () => {
+     And the replacement must be an intrinsic width. The root is a block-level
+     flex container, so `width: auto` resolves to the containing block and the
+     pill stretches to row width in any ordinary layout. A story cannot stand
+     in for this check: a parent that shrink-wraps its children supplies the
+     behavior externally and hides the defect. */
+  test("pill replaces the row's radius and width with an intrinsic width", () => {
     const html = renderShaped("pill");
     expect(html).toContain("rounded-full");
+    expect(html).toContain("w-fit");
     expect(html).not.toContain("rounded-[6px]");
-    expect(html).toContain("w-full");
-    expect(html).not.toContain("w-fit");
+    expect(html).not.toContain("w-full");
     expect(html).not.toContain("w-auto");
-    expect(html).not.toContain("max-w-fit");
   });
 
   /* The other half of the split. Without it, collapsing both shapes back onto

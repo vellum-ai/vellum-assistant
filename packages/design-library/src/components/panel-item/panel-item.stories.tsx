@@ -7,12 +7,12 @@ import { PanelItem } from "./panel-item";
  * The navigation row primitive: sidebars, settings nav, admin trees.
  *
  * `shape` is the only geometry switch. A pill is the same row with a capsule
- * radius and a resting surface, so width, hover, active state, badges, and
- * trailing actions behave identically either way.
+ * radius, content-hugging width, and a resting surface, so hover, active
+ * state, badges, and trailing actions behave identically either way.
  *
  * Rows are pinned to a narrow column here because that is the context they
- * ship in: both shapes fill it, and the radius and surface are what separate
- * them.
+ * ship in, and because a full-width row and a content-hugging pill only read
+ * differently when there is a column edge to sit against.
  */
 const meta: Meta<typeof PanelItem> = {
   title: "Components/PanelItem",
@@ -78,20 +78,15 @@ export const Default: Story = {
 };
 
 /**
- * The two shapes in the same column, which is the comparison that matters:
- * both fill the 248px width, and the radius and resting surface are the whole
- * difference between them.
+ * The two shapes in the same stretching column, which is the comparison that
+ * matters: the parent here does nothing to shrink its children, so a row fills
+ * the 248px column and a pill sizes to its label on its own.
  */
 export const Shapes: Story = {
   parameters: { controls: { disable: true } },
   render: () => (
     <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}>
-      <PanelItem
-        shape="row"
-        icon={LayoutGrid}
-        label="Row"
-        onSelect={() => {}}
-      />
+      <PanelItem shape="row" icon={LayoutGrid} label="Row" onSelect={() => {}} />
       <PanelItem
         shape="pill"
         icon={LayoutGrid}
@@ -103,9 +98,11 @@ export const Shapes: Story = {
 };
 
 /**
- * A pill carries selected state exactly as a row does, at the same width: this
- * is the sidebar's own cluster, where every entry lines up with its neighbours
- * and with the section cards beside them.
+ * A pill carries selected state exactly as a row does.
+ *
+ * The column deliberately stretches its children rather than setting
+ * `align-items: flex-start`: a shrink-wrapping parent would size these pills
+ * from the outside and hide whether the shape does it itself.
  */
 export const PillStates: Story = {
   parameters: { controls: { disable: true } },
@@ -117,12 +114,7 @@ export const PillStates: Story = {
         gap: "0.5rem",
       }}
     >
-      <PanelItem
-        shape="pill"
-        icon={Plus}
-        label="New Chat"
-        onSelect={() => {}}
-      />
+      <PanelItem shape="pill" icon={Plus} label="New Chat" onSelect={() => {}} />
       <PanelItem
         shape="pill"
         icon={LayoutGrid}

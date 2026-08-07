@@ -52,11 +52,11 @@ import { MarqueeText } from "./marquee-text";
  * ### `shape`
  *
  * - `"row"` (default): a full-width 6px-radius row, for lists and nav trees.
- * - `"pill"`: a capsule carrying a resting `--surface-lift` surface, for
- *   entries that read as objects you keep rather than rows in a list.
- *   Radius and surface only: the width, hover, active, badge, trailing
- *   action, and link/button semantics are all the row's, which is the point:
- *   a pill is a differently-shaped row, not a different component.
+ * - `"pill"`: a capsule that hugs its content and carries a resting
+ *   `--surface-lift` surface, for navigation chips that sit inline rather
+ *   than filling a column. Everything else (hover, active, badge, trailing
+ *   action, link/button semantics) is unchanged, which is the point: a pill
+ *   is a differently-shaped row, not a different component.
  *
  * ### `activeVariant`
  *
@@ -115,7 +115,7 @@ interface PanelItemProps {
   /**
    * Row geometry.
    * - `"row"` fills its container at a 6px radius.
-   * - `"pill"` fills it as a capsule on `--surface-lift`.
+   * - `"pill"` hugs its content as a capsule on `--surface-lift`.
    * @default "row"
    */
   shape?: "row" | "pill";
@@ -210,18 +210,15 @@ const PILL_HOVER_CLASS =
   "[@media(hover:hover)]:hover:bg-[var(--panel-item-hover,var(--surface-active))]";
 
 /**
- * {@link PanelItemProps.shape} `"pill"`: a capsule carrying a resting surface,
- * so it reads as an object you keep rather than a row in a list. Radius and
- * surface only, so width, hover, active, and every slot behave exactly as they
- * do on a row.
+ * {@link PanelItemProps.shape} `"pill"`: a capsule that sizes to its content
+ * and carries a resting surface, so it reads as a chip sitting in a column
+ * rather than a row filling one. Radius, width, and surface only, so hover,
+ * active, and every slot behave exactly as they do on a row.
  *
- * The shape sets no width. A pill takes the row's `w-full`, so it lines up
- * with its neighbours down a sidebar column, which is what every caller is.
- * Two things rest on that: the column reads as one set of entries instead of a
- * ragged edge per label, and a pill hosting the assistant's eye patrol is
- * measured by that animation to place the eyes, so a pill sized to the
- * assistant's name would put them on top of that name. A caller that needs to
- * hug its content passes `w-fit`.
+ * `w-fit` rather than `w-auto`: the root is a block-level flex container, and
+ * `width: auto` on one fills its containing block, so a pill would stretch to
+ * row width in every ordinary layout. `width: fit-content` shrink-wraps while
+ * leaving `display: flex` alone, which the row's internal layout depends on.
  */
 /**
  * A pill reads three optional custom properties, each falling back to the
@@ -238,7 +235,7 @@ const PILL_HOVER_CLASS =
  * whole treatment collapses to the default when nothing declares them.
  */
 const PILL_SHAPE_CLASSES = [
-  "rounded-full",
+  "w-fit rounded-full",
   "bg-[var(--panel-item-bg,var(--surface-lift))]",
   "text-[color:var(--panel-item-fg,inherit)]",
 ].join(" ");

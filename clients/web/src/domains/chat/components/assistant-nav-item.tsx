@@ -13,6 +13,13 @@
  * patrols they idle-blink in place (and pulse a touch on the collapsed
  * rail). They never leave the assistant row.
  *
+ * The side stop needs a row with slack in it. The eyes grow to twice their
+ * size to take it, so on a row sized to its own content they surface over the
+ * name rather than beside it; the patrol measures the name and dives straight
+ * home instead when that is what it would do. The pill this renders as hugs
+ * its label, so in practice the expanded rail patrols without the side stop
+ * and the collapsed rail keeps its pulse.
+ *
  * The assistant name is never bolded and always renders white on the
  * avatar-colored row — except on light avatar colors (yellow), where it
  * flips dark for contrast.
@@ -63,6 +70,13 @@ const SIDE_SCALE = 2.1;
  * what this stop wants, so the constant reads as a floor and not a measurement.
  */
 const SIDE_RIGHT_MARGIN = 14;
+/**
+ * Gap the grown eyes keep from the end of the name before the side stop is
+ * worth doing. Below it they read as sitting on the text rather than beside
+ * it, and the patrol dives home instead. A pill sized to its own label has no
+ * such gap at any name length, so the side stop belongs to rows with slack.
+ */
+const SIDE_LABEL_CLEARANCE = 8;
 /**
  * `PanelItem`'s own horizontal padding (`p-[8px]`), which the pill lays down
  * before the leading slot. The patrol reads the pill's real box rather than
@@ -115,6 +129,10 @@ export function AssistantNavItem({
    cannot be assumed. It must keep that full width, since a pill sized to its
    own label puts the side stop on top of that label. */
   const rowRef = useRef<HTMLElement | null>(null);
+  /* The name itself, so the patrol can ask where its text actually ends. The
+     label's own box is `flex-1` inside the row and stretches to it whatever
+     the name's length, which answers a different question. */
+  const labelRef = useRef<HTMLSpanElement | null>(null);
   const [blinking, setBlinking] = useState(false);
 
   const rowHeight = isMobile ? MOBILE_ROW_HEIGHT : ROW_HEIGHT;
@@ -172,6 +190,35 @@ export function AssistantNavItem({
         ? Promise.resolve()
         : eyesControls.start({ ...to, transition }).catch(() => {});
 
+    /**
+     * Is there room at the row's right edge for the grown eyes to surface
+     * beside the name rather than over it, given the sprite's unscaled box
+     * would sit at `spriteLeft`?
+     *
+     * The sprite scales about its own centre, so half the growth goes leftward
+     * and its rendered left edge is `eyesWidth * (SIDE_SCALE - 1) / 2` ahead of
+     * that box. The name is measured with a range: an ellipsised label lays its
+     * text out past the box it is clipped to, so the text ends at whichever of
+     * the two comes first.
+     */
+    const sideStopClearsLabel = (spriteLeft: number): boolean => {
+      const row = rowRef.current;
+      const label = labelRef.current;
+      if (!row || !label) {
+        return false;
+      }
+      const range = document.createRange();
+      range.selectNodeContents(label);
+      const rowBox = row.getBoundingClientRect();
+      const labelEnd =
+        Math.min(
+          range.getBoundingClientRect().right,
+          rowBox.right - PILL_PADDING_X,
+        ) - rowBox.left;
+      const grownLeft = spriteLeft - (eyesWidth * (SIDE_SCALE - 1)) / 2;
+      return grownLeft - labelEnd >= SIDE_LABEL_CLEARANCE;
+    };
+
     /** How far down the eyes dive to fully exit the row's bottom edge. */
     const diveY = rowHeight - 4;
     /** Side-patrol stop: the grown eyes flush with the bottom edge. */
@@ -199,6 +246,13 @@ export function AssistantNavItem({
         0,
         width - SIDE_RIGHT_MARGIN - eyesWidth * SIDE_SCALE - homeLeft,
       );
+      if (!sideStopClearsLabel(homeLeft + sideX)) {
+        /* The row has no lane for the grown eyes, so they surface on top of
+           the name instead of beside it. Dive and come back rather than
+           perch somewhere unreadable. */
+        await move({ y: 0 }, spring(320, 18));
+        return;
+      }
       eyesControls.set({ x: sideX, y: diveY, scale: SIDE_SCALE });
       await move({ y: sidePeekY }, spring(360, 16));
       await blink();
@@ -486,7 +540,11 @@ export function AssistantNavItem({
            to clip on a row in a list. */
         className="overflow-hidden"
         leadingSlot={eyesSlot}
-        label={label}
+        /* Wrapped so the patrol can measure where the name's text ends. A
+           node label opts out of `PanelItem`'s string-only `aria-label`
+           derivation, so the row states its own. */
+        label={<span ref={labelRef}>{label}</span>}
+        aria-label={label}
         active={active}
         onSelect={onSelect}
         data-tour-id="assistant-page"
