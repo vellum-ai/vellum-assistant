@@ -187,6 +187,18 @@ const STT_LANGUAGE_ALIASES: Record<
   "code-switching": "multi",
 };
 
+/**
+ * Same steer `navigate_settings_tab` puts on the Voice tab, applied to the
+ * strongest competing affordance: this tool's description coaches the model to
+ * read the managed catalog and set `tts_voice_id` itself, which is exactly the
+ * "assistant names voices in prose" outcome the inline picker exists to
+ * replace. Managed only, because that is the catalog the picker renders. The
+ * write still happens and the result stays non-error; this only redirects the
+ * next request.
+ */
+const MANAGED_VOICE_PICKER_HINT =
+  'Next time the user wants to change or hear a voice, prefer `ui_show { surface_type: "voice_picker", data: {} }`, which lets them hear and pick from the managed catalog in the conversation. Set the id here only when the user named a specific voice.';
+
 function validateSetting(
   setting: string,
   value: unknown,
@@ -530,10 +542,14 @@ export async function run(
     AUTO_DETECT_STT_PROVIDERS.has(activeSttProviderId)
       ? ` Note: the configured STT provider (${activeSttProviderId}) auto-detects the spoken language natively and ignores this setting.`
       : "";
+  const pickerNote =
+    setting === "tts_voice_id" && activeTtsProviderId === "vellum"
+      ? ` ${MANAGED_VOICE_PICKER_HINT}`
+      : "";
   return {
     content: `${friendlyName} updated to ${JSON.stringify(
       validation.coerced,
-    )}.${broadcastNote}${autoDetectNote}`,
+    )}.${broadcastNote}${autoDetectNote}${pickerNote}`,
     isError: false,
   };
 }
