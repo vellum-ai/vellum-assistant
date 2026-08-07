@@ -270,7 +270,20 @@ function CollapsibleNavSectionSection({
           }}
         >
           {iconSlot}
-          <span className="min-w-0 flex-1 truncate">{label}</span>
+          {/* The dot rides with the label rather than at the header's right
+              edge. `flex-1` lives on this wrapper, not the label, so the
+              label truncates and the dot sits immediately after the text
+              instead of being pushed to the far edge by the label's own
+              growth. Only while collapsed: an open section's rows carry the
+              same state and a header dot would double it. */}
+          <span className="flex min-w-0 flex-1 items-center gap-1">
+            <span className="min-w-0 truncate">{label}</span>
+            {collapsedIndicator ? (
+              <span className="flex shrink-0 items-center group-data-[state=open]/section:hidden">
+                {collapsedIndicator}
+              </span>
+            ) : null}
+          </span>
         </Collapsible.Trigger>
       ) : (
         // Non-collapsible: no chevron, no toggle affordance, just the icon
@@ -294,38 +307,20 @@ function CollapsibleNavSectionSection({
           <span className="min-w-0 flex-1 truncate">{label}</span>
         </div>
       )}
-      {collapsible || trailing || collapsedIndicator ? (
+      {collapsible || trailing ? (
         <span className="flex shrink-0 items-center gap-1 pr-[6px] max-md:pr-2">
-          {collapsedIndicator ? (
-            /* Shares the "…" position, so the header's right edge carries one
-               thing at a time: the dot at rest, the menu once hovered. Only
-               while collapsed, since an open section's rows show the same
-               state and a header dot would double it. */
-            <span
-              data-slot="collapsible-nav-section-indicator"
-              className={cn(
-                "flex shrink-0 items-center",
-                "group-hover/header:hidden",
-                "group-data-[state=open]/section:hidden",
-              )}
-            >
-              {collapsedIndicator}
-            </span>
-          ) : null}
           {trailing ? (
             <span
               data-slot="collapsible-nav-section-trailing"
               /* `empty:hidden` so a trailing component that renders nothing
-                 (a menu with no wired actions) doesn't leave a padded box
-                 behind.
+                 doesn't leave a padded box behind.
 
-                 Revealed on hover so a row of resting section headers stays
-                 quiet. It also stays up while its own menu is open
-                 (`aria-expanded`), or the control would vanish the moment it
-                 was clicked, and while anything inside holds focus, so it is
-                 reachable by keyboard. Touch has no hover, and the header's
-                 long-press sheet is the equivalent affordance there, so
-                 below `md` it simply stays visible. */
+                 Revealed on hover so a column of resting headers stays quiet.
+                 It stays up while its own menu is open (`aria-expanded`), or
+                 the control would vanish the moment it was clicked, and while
+                 anything inside holds focus, so it is keyboard reachable.
+                 Touch has no hover and the header's long-press sheet is the
+                 equivalent there, so below `md` it simply stays visible. */
               className={cn(
                 "flex items-center shrink-0 empty:hidden",
                 "opacity-0 transition-opacity",
