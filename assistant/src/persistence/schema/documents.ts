@@ -22,13 +22,13 @@ export const documents = sqliteTable(
     wordCount: integer("word_count").notNull().default(0),
     createdAt: integer("created_at").notNull(),
     updatedAt: integer("updated_at").notNull(),
-    // Workspace-relative path of the markdown file this document is bound to.
-    // NULL for documents with no file behind them.
+    // Vestigial: the column and its index are part of the physical table
+    // (migration 360), but no code reads or writes them. Historical rows may
+    // hold paths; new rows stay NULL.
     workspacePath: text("workspace_path"),
   },
   (table) => [
-    // Partial so the many file-less documents stay unconstrained while a given
-    // file resolves to exactly one document.
+    // Partial, so the NULL rows stay unconstrained.
     uniqueIndex("idx_documents_workspace_path")
       .on(table.workspacePath)
       .where(sql`workspace_path IS NOT NULL`),

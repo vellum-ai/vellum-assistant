@@ -10,7 +10,6 @@ const {
   isDocumentOpen,
   isWorkspaceFileOpen,
   openLocalFile,
-  opensInDocumentDrawer,
   previewKindFor,
   toggleLocalFile,
   useIsDocumentOpen,
@@ -18,27 +17,19 @@ const {
 } = await import("@/domains/chat/components/local-file/open-local-file");
 const { useViewerStore } = await import("@/stores/viewer-store");
 
-const loadWorkspaceFileDocument = mock(
-  async (
-    _assistantId: string,
-    _workspacePath: string,
-    _conversationId: string,
-  ) => {},
-);
 const openWorkspaceFilePreview = mock(
   (_workspacePath: string, _previewKind: WorkspaceFilePreviewKind) => {},
 );
 const closeDocument = mock(() => {});
 
-/** The store shape a drawer showing the document for `workspacePath` would have. */
-function openDrawerState(workspacePath: string) {
+/** The store shape a drawer showing a document surface would have. */
+function openDocumentState() {
   return {
     mainView: "document" as const,
     openedDocumentState: {
       source: "document" as const,
       surfaceId: "surf-file",
       conversationId: "conv-1",
-      workspacePath,
       documentName: "notes.md",
       content: "# notes",
     },
@@ -60,31 +51,13 @@ function openPreviewState(workspacePath: string) {
 
 beforeEach(() => {
   openWorkspaceFile.mockClear();
-  loadWorkspaceFileDocument.mockClear();
   openWorkspaceFilePreview.mockClear();
   closeDocument.mockClear();
   useViewerStore.setState({
     mainView: "chat",
     openedDocumentState: null,
-    loadWorkspaceFileDocument,
     openWorkspaceFilePreview,
     closeDocument,
-  });
-});
-
-describe("opensInDocumentDrawer", () => {
-  test("markdown extensions open in the drawer", () => {
-    expect(opensInDocumentDrawer("notes.md")).toBe(true);
-    expect(opensInDocumentDrawer("NOTES.MD")).toBe(true);
-    expect(opensInDocumentDrawer("readme.markdown")).toBe(true);
-  });
-
-  test("other text formats do not, since the editor would rewrite them", () => {
-    expect(opensInDocumentDrawer("data.csv")).toBe(false);
-    expect(opensInDocumentDrawer("notes.txt")).toBe(false);
-    expect(opensInDocumentDrawer("index.mdx")).toBe(false);
-    expect(opensInDocumentDrawer("Makefile")).toBe(false);
-    expect(opensInDocumentDrawer(".md")).toBe(false);
   });
 });
 
@@ -93,6 +66,12 @@ describe("previewKindFor", () => {
     expect(previewKindFor("rows.csv")).toBe("csv");
     expect(previewKindFor("ROWS.CSV")).toBe("csv");
     expect(previewKindFor("rows.tsv")).toBe("csv");
+  });
+
+  test("markdown reads through its own formatted preview", () => {
+    expect(previewKindFor("notes.md")).toBe("markdown");
+    expect(previewKindFor("NOTES.MD")).toBe("markdown");
+    expect(previewKindFor("readme.markdown")).toBe("markdown");
   });
 
   test("plain-text formats share one reader", () => {
@@ -116,43 +95,26 @@ describe("previewKindFor", () => {
   });
 
   test("formats with no reader of their own report none", () => {
-    expect(previewKindFor("notes.md")).toBeNull();
+    expect(previewKindFor("index.mdx")).toBeNull();
     expect(previewKindFor("report.doc")).toBeNull();
     expect(previewKindFor("report.docx")).toBeNull();
     expect(previewKindFor("deck.pptx")).toBeNull();
     expect(previewKindFor("bundle.zip")).toBeNull();
     expect(previewKindFor("Makefile")).toBeNull();
     expect(previewKindFor(".csv")).toBeNull();
+    expect(previewKindFor(".md")).toBeNull();
   });
 });
 
 describe("openLocalFile", () => {
-  test("a markdown file opens as the document bound to it", () => {
-    openLocalFile("drafts/notes.md", "notes.md", "asst-1", "conv-1");
-
-    expect(loadWorkspaceFileDocument).toHaveBeenCalledTimes(1);
-    expect(loadWorkspaceFileDocument.mock.calls[0]).toEqual([
-      "asst-1",
-      "drafts/notes.md",
-      "conv-1",
-    ]);
-    expect(openWorkspaceFile).not.toHaveBeenCalled();
-  });
-
-  test("markdown with no conversation to bind to navigates instead", () => {
+  test("a markdown file opens read-only in the drawer", () => {
     openLocalFile("drafts/notes.md", "notes.md", "asst-1");
-    openLocalFile("drafts/notes.md", "notes.md", "asst-1", null);
-
-    expect(loadWorkspaceFileDocument).not.toHaveBeenCalled();
-    expect(openWorkspaceFilePreview).not.toHaveBeenCalled();
-    expect(openWorkspaceFile).toHaveBeenCalledTimes(2);
-    expect(openWorkspaceFile.mock.calls[0]![0]).toBe("drafts/notes.md");
-  });
-
-  test("a non-markdown file needs no conversation", () => {
-    openLocalFile("data/rows.csv", "rows.csv", "asst-1");
 
     expect(openWorkspaceFilePreview).toHaveBeenCalledTimes(1);
+    expect(openWorkspaceFilePreview.mock.calls[0]).toEqual([
+      "drafts/notes.md",
+      "markdown",
+    ]);
     expect(openWorkspaceFile).not.toHaveBeenCalled();
   });
 
@@ -164,12 +126,12 @@ describe("openLocalFile", () => {
       "data/rows.csv",
       "csv",
     ]);
-    expect(loadWorkspaceFileDocument).not.toHaveBeenCalled();
     expect(openWorkspaceFile).not.toHaveBeenCalled();
   });
 
   test("every other extension lands in the drawer, in its own reader", () => {
     const cases: [string, WorkspaceFilePreviewKind][] = [
+      ["notes.md", "markdown"],
       ["run.txt", "text"],
       ["run.log", "text"],
       ["config.json", "text"],
@@ -205,14 +167,13 @@ describe("openLocalFile", () => {
       ["docs/report.docx", "unsupported"],
       ["decks/plan.pptx", "unsupported"],
     ]);
-    expect(loadWorkspaceFileDocument).not.toHaveBeenCalled();
     expect(openWorkspaceFile).not.toHaveBeenCalled();
   });
 
   test("without an assistant, markdown falls back to the workspace browser", () => {
-    openLocalFile("drafts/notes.md", "notes.md", undefined, "conv-1");
+    openLocalFile("drafts/notes.md", "notes.md");
 
-    expect(loadWorkspaceFileDocument).not.toHaveBeenCalled();
+    expect(openWorkspaceFilePreview).not.toHaveBeenCalled();
     expect(openWorkspaceFile).toHaveBeenCalledTimes(1);
     expect(openWorkspaceFile.mock.calls[0]![0]).toBe("drafts/notes.md");
   });
@@ -235,7 +196,7 @@ describe("openLocalFile", () => {
 });
 
 describe("usesDocumentDrawer", () => {
-  test("every file type opens the drawer with an assistant and a conversation", () => {
+  test("every file type opens the drawer with an assistant", () => {
     for (const filename of [
       "notes.md",
       "rows.csv",
@@ -247,7 +208,7 @@ describe("usesDocumentDrawer", () => {
       "bundle.zip",
       "Makefile",
     ]) {
-      expect(usesDocumentDrawer(filename, "asst-1", "conv-1")).toBe(true);
+      expect(usesDocumentDrawer(filename, "asst-1")).toBe(true);
     }
   });
 
@@ -256,17 +217,10 @@ describe("usesDocumentDrawer", () => {
       expect(usesDocumentDrawer(filename)).toBe(false);
     }
   });
-
-  test("only markdown needs a conversation, since only it opens a document", () => {
-    expect(usesDocumentDrawer("notes.md", "asst-1")).toBe(false);
-    expect(usesDocumentDrawer("readme.markdown", "asst-1", null)).toBe(false);
-    expect(usesDocumentDrawer("rows.csv", "asst-1")).toBe(true);
-    expect(usesDocumentDrawer("bundle.zip", "asst-1")).toBe(true);
-  });
 });
 
 describe("isWorkspaceFileOpen", () => {
-  const opened = openDrawerState("drafts/notes.md").openedDocumentState;
+  const opened = openPreviewState("drafts/notes.md").openedDocumentState;
 
   test("matches the file the drawer is showing", () => {
     expect(isWorkspaceFileOpen("document", opened, "drafts/notes.md")).toBe(
@@ -284,31 +238,11 @@ describe("isWorkspaceFileOpen", () => {
     expect(isWorkspaceFileOpen("chat", opened, "drafts/notes.md")).toBe(false);
   });
 
-  test("does not match a document with no file behind it", () => {
+  test("does not match a document surface, which has no file behind it", () => {
     expect(
       isWorkspaceFileOpen(
         "document",
-        {
-          source: "document",
-          surfaceId: "surface-1",
-          conversationId: "conv-1",
-          documentName: "notes.md",
-          content: "",
-        },
-        "drafts/notes.md",
-      ),
-    ).toBe(false);
-    expect(
-      isWorkspaceFileOpen(
-        "document",
-        {
-          source: "document",
-          surfaceId: "surface-1",
-          conversationId: "conv-1",
-          documentName: "notes.md",
-          content: "",
-          workspacePath: null,
-        },
+        openDocumentState().openedDocumentState,
         "drafts/notes.md",
       ),
     ).toBe(false);
@@ -332,7 +266,7 @@ describe("isWorkspaceFileOpen", () => {
 });
 
 describe("isDocumentOpen", () => {
-  const drawer = openDrawerState("drafts/notes.md");
+  const drawer = openDocumentState();
   const preview = openPreviewState("data/rows.csv");
 
   /** What the reactive hook reports for the store state currently set. */
@@ -392,52 +326,46 @@ describe("isDocumentOpen", () => {
 });
 
 describe("toggleLocalFile", () => {
-  test("a closed markdown file opens in the document drawer", () => {
-    toggleLocalFile("drafts/notes.md", "notes.md", "asst-1", "conv-1");
+  test("a closed markdown file opens in the drawer", () => {
+    toggleLocalFile("drafts/notes.md", "notes.md", "asst-1");
 
-    expect(loadWorkspaceFileDocument).toHaveBeenCalledTimes(1);
+    expect(openWorkspaceFilePreview.mock.calls[0]).toEqual([
+      "drafts/notes.md",
+      "markdown",
+    ]);
     expect(closeDocument).not.toHaveBeenCalled();
   });
 
-  test("an open file-backed document closes the drawer", () => {
-    useViewerStore.setState(openDrawerState("drafts/notes.md"));
+  test("an open markdown preview closes the drawer", () => {
+    useViewerStore.setState(openPreviewState("drafts/notes.md"));
 
-    toggleLocalFile("drafts/notes.md", "notes.md", "asst-1", "conv-1");
+    toggleLocalFile("drafts/notes.md", "notes.md", "asst-1");
 
     expect(closeDocument).toHaveBeenCalledTimes(1);
-    expect(loadWorkspaceFileDocument).not.toHaveBeenCalled();
+    expect(openWorkspaceFilePreview).not.toHaveBeenCalled();
     expect(openWorkspaceFile).not.toHaveBeenCalled();
   });
 
   test("a different open file still opens rather than closing", () => {
-    useViewerStore.setState(openDrawerState("drafts/other.md"));
+    useViewerStore.setState(openPreviewState("drafts/other.md"));
 
-    toggleLocalFile("drafts/notes.md", "notes.md", "asst-1", "conv-1");
+    toggleLocalFile("drafts/notes.md", "notes.md", "asst-1");
 
-    expect(loadWorkspaceFileDocument).toHaveBeenCalledTimes(1);
+    expect(openWorkspaceFilePreview).toHaveBeenCalledTimes(1);
     expect(closeDocument).not.toHaveBeenCalled();
   });
 
-  test("a document with no file behind it leaves every path untoggled", () => {
-    useViewerStore.setState({
-      mainView: "document",
-      openedDocumentState: {
-        source: "document",
-        surfaceId: "surf-1",
-        conversationId: "conv-1",
-        documentName: "Plan",
-        content: "# Plan",
-      },
-    });
+  test("a document surface leaves every path untoggled", () => {
+    useViewerStore.setState(openDocumentState());
 
-    toggleLocalFile("drafts/notes.md", "notes.md", "asst-1", "conv-1");
+    toggleLocalFile("drafts/notes.md", "notes.md", "asst-1");
 
     expect(closeDocument).not.toHaveBeenCalled();
-    expect(loadWorkspaceFileDocument).toHaveBeenCalledTimes(1);
+    expect(openWorkspaceFilePreview).toHaveBeenCalledTimes(1);
   });
 
   test("a navigating file has nothing to toggle", () => {
-    useViewerStore.setState(openDrawerState("logs/run.txt"));
+    useViewerStore.setState(openPreviewState("logs/run.txt"));
 
     toggleLocalFile("logs/run.txt", "run.txt");
 
@@ -456,14 +384,14 @@ describe("toggleLocalFile", () => {
       },
     });
 
-    toggleLocalFile("archives/bundle.zip", "bundle.zip", "asst-1", "conv-1");
+    toggleLocalFile("archives/bundle.zip", "bundle.zip", "asst-1");
 
     expect(closeDocument).toHaveBeenCalledTimes(1);
     expect(openWorkspaceFilePreview).not.toHaveBeenCalled();
   });
 
   test("a closed previewable file opens the preview", () => {
-    toggleLocalFile("data/rows.csv", "rows.csv", "asst-1", "conv-1");
+    toggleLocalFile("data/rows.csv", "rows.csv", "asst-1");
 
     expect(openWorkspaceFilePreview).toHaveBeenCalledTimes(1);
     expect(closeDocument).not.toHaveBeenCalled();
@@ -472,7 +400,7 @@ describe("toggleLocalFile", () => {
   test("an open preview closes the drawer", () => {
     useViewerStore.setState(openPreviewState("data/rows.csv"));
 
-    toggleLocalFile("data/rows.csv", "rows.csv", "asst-1", "conv-1");
+    toggleLocalFile("data/rows.csv", "rows.csv", "asst-1");
 
     expect(closeDocument).toHaveBeenCalledTimes(1);
     expect(openWorkspaceFilePreview).not.toHaveBeenCalled();
@@ -482,7 +410,7 @@ describe("toggleLocalFile", () => {
   test("a different open preview still opens rather than closing", () => {
     useViewerStore.setState(openPreviewState("data/other.csv"));
 
-    toggleLocalFile("data/rows.csv", "rows.csv", "asst-1", "conv-1");
+    toggleLocalFile("data/rows.csv", "rows.csv", "asst-1");
 
     expect(openWorkspaceFilePreview).toHaveBeenCalledTimes(1);
     expect(closeDocument).not.toHaveBeenCalled();

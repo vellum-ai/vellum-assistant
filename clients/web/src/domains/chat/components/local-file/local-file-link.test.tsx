@@ -20,15 +20,7 @@ const { LocalFileLink } = await import(
   "@/domains/chat/components/local-file/local-file-link"
 );
 const { useViewerStore } = await import("@/stores/viewer-store");
-const { useConversationStore } = await import("@/stores/conversation-store");
 
-const loadWorkspaceFileDocument = mock(
-  async (
-    _assistantId: string,
-    _workspacePath: string,
-    _conversationId: string,
-  ) => {},
-);
 const openWorkspaceFilePreview = mock(
   (_workspacePath: string, _previewKind: WorkspaceFilePreviewKind) => {},
 );
@@ -36,15 +28,10 @@ const openWorkspaceFilePreview = mock(
 beforeEach(() => {
   openWorkspaceFile.mockClear();
   toastError.mockClear();
-  loadWorkspaceFileDocument.mockClear();
   openWorkspaceFilePreview.mockClear();
-  // Markdown opens as a document bound to the open conversation, so the link
-  // needs one to reach the drawer at all.
-  useConversationStore.setState({ activeConversationId: "conv-1" });
   useViewerStore.setState({
     mainView: "chat",
     openedDocumentState: null,
-    loadWorkspaceFileDocument,
     openWorkspaceFilePreview,
   });
 });
@@ -114,7 +101,6 @@ describe("LocalFileLink", () => {
       "text",
     ]);
     expect(openWorkspaceFile).not.toHaveBeenCalled();
-    expect(loadWorkspaceFileDocument).not.toHaveBeenCalled();
   });
 
   test("clicking a file already open in the drawer closes it", () => {
@@ -186,7 +172,7 @@ describe("LocalFileLink", () => {
     expect(openWorkspaceFile).not.toHaveBeenCalled();
   });
 
-  test("clicking a markdown file opens the document bound to it", () => {
+  test("clicking a markdown file opens its read-only preview", () => {
     render(
       <LocalFileLink
         href="/workspace/drafts/notes.md"
@@ -199,27 +185,24 @@ describe("LocalFileLink", () => {
 
     fireEvent.click(screen.getByRole("link"));
 
-    expect(loadWorkspaceFileDocument).toHaveBeenCalledTimes(1);
-    expect(loadWorkspaceFileDocument.mock.calls[0]).toEqual([
-      "asst-1",
+    expect(openWorkspaceFilePreview).toHaveBeenCalledTimes(1);
+    expect(openWorkspaceFilePreview.mock.calls[0]).toEqual([
       "drafts/notes.md",
-      "conv-1",
+      "markdown",
     ]);
     expect(openWorkspaceFile).not.toHaveBeenCalled();
   });
 
-  test("clicking the file-backed document already open closes it", () => {
+  test("clicking the markdown file already open closes it", () => {
     const closeDocument = mock(() => {});
     useViewerStore.setState({
       closeDocument,
       mainView: "document",
       openedDocumentState: {
-        source: "document",
-        surfaceId: "surf-file",
-        conversationId: "conv-1",
+        source: "workspace-file-preview",
         workspacePath: "drafts/notes.md",
         documentName: "notes.md",
-        content: "# notes",
+        previewKind: "markdown",
       },
     });
     render(
@@ -235,28 +218,7 @@ describe("LocalFileLink", () => {
     fireEvent.click(screen.getByRole("link"));
 
     expect(closeDocument).toHaveBeenCalledTimes(1);
-    expect(loadWorkspaceFileDocument).not.toHaveBeenCalled();
-  });
-
-  test("a markdown file with no open conversation falls back to the workspace", () => {
-    useConversationStore.setState({ activeConversationId: null });
-
-    render(
-      <LocalFileLink
-        href="/workspace/drafts/notes.md"
-        workspacePath="drafts/notes.md"
-        assistantId="asst-1"
-      >
-        my notes
-      </LocalFileLink>,
-    );
-
-    fireEvent.click(screen.getByRole("link"));
-
-    expect(loadWorkspaceFileDocument).not.toHaveBeenCalled();
     expect(openWorkspaceFilePreview).not.toHaveBeenCalled();
-    expect(openWorkspaceFile).toHaveBeenCalledTimes(1);
-    expect(openWorkspaceFile.mock.calls[0]![0]).toBe("drafts/notes.md");
   });
 
   test("a markdown file without an assistant falls back to the workspace", () => {
@@ -268,7 +230,7 @@ describe("LocalFileLink", () => {
 
     fireEvent.click(screen.getByRole("link"));
 
-    expect(loadWorkspaceFileDocument).not.toHaveBeenCalled();
+    expect(openWorkspaceFilePreview).not.toHaveBeenCalled();
     expect(openWorkspaceFile).toHaveBeenCalledTimes(1);
     expect(openWorkspaceFile.mock.calls[0]![0]).toBe("notes.md");
   });

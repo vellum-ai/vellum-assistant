@@ -48,7 +48,6 @@ function documentSurface(
     wordCount: 2,
     createdAt: 1,
     updatedAt: 2,
-    workspacePath: null,
     ...overrides,
   };
 }
