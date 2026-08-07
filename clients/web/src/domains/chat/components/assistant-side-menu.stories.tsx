@@ -10,9 +10,8 @@
  *
  * The view lives in the sidebar's layout store, keyed per assistant, so each
  * story seeds its own assistant id before mounting. Pinned apps come from a
- * store too rather than from a prop, so they are seeded the same way - without
- * that, the stories render every part of the rail except the pinned-app
- * cluster, which is how its pill conversion went unreviewed.
+ * store too rather than from a prop, so they are seeded the same way: a story
+ * that does not seed it renders the rail without its pinned-app cluster.
  */
 
 import type { Meta, StoryObj } from "@storybook/react-vite";

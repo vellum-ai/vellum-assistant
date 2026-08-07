@@ -49,9 +49,8 @@ const ROW_HEIGHT = 30;
 const MOBILE_ROW_HEIGHT = 44;
 /** Collapsed-rail assistant tile height (Figma 7257:135820). */
 /* Matches the circle `SideMenu.Item` and the section triggers render on the
-   rail. Every tile there is the same 30px circle, so one step runs the whole
-   column; at 32 these two sat 2px taller and the cluster drifted out of the
-   rhythm the sections below it keep. */
+   rail: every tile there is the same 30px circle, so one step runs the whole
+   column. Diverging from it drifts this cluster against the sections. */
 const COLLAPSED_ASSISTANT_TILE = 30;
 /** Patrol stop on the right side: grown, cut off by the bottom edge. */
 const SIDE_SCALE = 2.1;

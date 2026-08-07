@@ -53,9 +53,8 @@ export const SIDEBAR_SECTION_MAX_HEIGHT = 300;
  *
  * One constant rather than a `gap-*` at each container, because those
  * containers nest - the body holds the section root which holds the cards -
- * and a different value at any level reads as a different value between two
- * adjacent things. Chasing which of the three was winning is what made this
- * spacing hard to change; naming it once makes every user of it greppable.
+ * so a different value at any level surfaces as a different gap between two
+ * adjacent entries, and which container wins is not locally visible.
  */
 export const SIDEBAR_STACK_GAP = "gap-2";
 

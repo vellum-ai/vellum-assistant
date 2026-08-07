@@ -37,7 +37,7 @@ import {
 import { copyIdToClipboard } from "@/domains/chat/utils/copy-id-to-clipboard";
 import { NATIVE_MOBILE_BARE_ICON_BUTTON } from "@/domains/chat/utils/native-mobile-button-constants";
 import type { Conversation } from "@/types/conversation-types";
-import { Button, cn, SideMenu } from "@vellumai/design-library";
+import { Button, Card, cn, SideMenu } from "@vellumai/design-library";
 
 export interface AssistantSideMenuProps extends UseSidebarStateParams {
   assistantName?: string | null;
@@ -535,14 +535,20 @@ export function AssistantSideMenu({
                     Group by toggle, which is why removing the persistent
                     "Conversations" header loses nothing. */}
                   {sidebar.sections.map(renderSection)}
-                  {/* The `all` view's flat list has no section of its own:
-                    it is everything the cards above did not claim, rendered
-                    as one windowed list. */}
+                  {/* The `all` view's flat list has no header of its own: it
+                    is everything the cards above did not claim, rendered as
+                    one windowed list. It still gets a card, because the card
+                    is what a group of conversations looks like here - without
+                    one it reads as loose rows spilling past the last
+                    section. Same treatment as `SidebarSectionCard`, minus the
+                    drag affordances a headerless list has nothing to grab. */}
                   {sidebar.viewMode === "all" && bodyElement ? (
-                    <ConversationRowList
-                      items={sidebar.flatList}
-                      scrollParent={bodyElement}
-                    />
+                    <Card.Root bordered={false} noPadding className="p-2">
+                      <ConversationRowList
+                        items={sidebar.flatList}
+                        scrollParent={bodyElement}
+                      />
+                    </Card.Root>
                   ) : null}
                 </CollapsibleNavSection.Root>
               </SidebarListContextMenu>

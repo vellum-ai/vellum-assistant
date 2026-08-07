@@ -1314,11 +1314,13 @@ describe("AssistantSideMenu · equal section treatment", () => {
     ).toHaveLength(0);
   });
 
-  // The built-in nav block above the list closes with a separator once the
-  // user pins an app; the collapsed rail adds its own to break the cluster
-  // off from the group icons. Only one of the two may render, or the rail
-  // shows two rules with nothing between them.
-  test("the collapsed rail's header carries one separator, pinned apps or not", () => {
+  // The rail is one column of identical circles on one step - identity, New
+  // Chat, the pinned apps and the section tiles alike - so it carries no rule
+  // anywhere in it. A separator here would divide two halves of a column that
+  // is uniform by construction, and the expanded rail dropped its own for the
+  // same reason. Asserted against both pinned-app states because the rule
+  // used to be conditional on them.
+  test("the collapsed rail's header carries no separator, pinned apps or not", () => {
     for (const pinnedApps of [
       [] as PinnedAppEntry[],
       [{ appId: "app-1", pinnedOrder: 0, name: "Vex Ops" }],
@@ -1345,7 +1347,7 @@ describe("AssistantSideMenu · equal section treatment", () => {
 
       expect(
         header.querySelectorAll('[data-slot="side-menu-separator"]'),
-      ).toHaveLength(1);
+      ).toHaveLength(0);
     }
 
     usePinnedAppsStore.setState({ pinnedApps: [], pinnedAppIds: new Set() });
