@@ -44,8 +44,9 @@ mock.module("@/lib/backwards-compat/channel-access-controls", () => ({
   useSupportsChannelAccessControls: () => supportsAccessControls,
 }));
 
-const { useChannelPermissionOverrides } =
-  await import("./use-channel-permission-overrides");
+const { useChannelPermissionOverrides } = await import(
+  "./use-channel-permission-overrides"
+);
 
 /**
  * An HTTP failure carrying `status` directly, the shape `ApiError` and the

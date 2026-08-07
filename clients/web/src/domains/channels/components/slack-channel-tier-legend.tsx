@@ -62,9 +62,7 @@ export interface SlackChannelTierLegendProps {
  * the usual default reads first; the picker menu keeps preset order, which is
  * fine because each key entry names its level.
  */
-export function SlackChannelTierLegend({
-  defaultTier,
-}: SlackChannelTierLegendProps) {
+export function SlackChannelTierLegend({ defaultTier }: SlackChannelTierLegendProps) {
   const shownDefault = channelTierBehavesAs(defaultTier ?? undefined) ?? null;
   const legendTiers = [...CHANNEL_TIER_VALUES].reverse();
   return (
