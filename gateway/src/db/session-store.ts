@@ -389,7 +389,13 @@ function revokeSameIdentityOutbound(
 
   const db = getGatewayDb();
   const live = db
-    .select()
+    .select({
+      id: channelVerificationSessions.id,
+      expectedExternalUserId:
+        channelVerificationSessions.expectedExternalUserId,
+      expectedChatId: channelVerificationSessions.expectedChatId,
+      expectedPhoneE164: channelVerificationSessions.expectedPhoneE164,
+    })
     .from(channelVerificationSessions)
     .where(
       and(
