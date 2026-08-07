@@ -22,6 +22,7 @@
     "./image-mask": "./src/image-mask.ts",
     "./image-context-menu": "./src/image-context-menu.ts",
     "./ipc": "./src/ipc.ts",
+    "./lockfile-watcher": "./src/lockfile-watcher.ts",
     "./power-events": "./src/power-events.ts",
     "./presence-runtime": "./src/presence-runtime.ts",
     "./status": "./src/status.ts",
