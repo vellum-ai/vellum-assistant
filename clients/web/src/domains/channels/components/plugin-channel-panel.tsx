@@ -8,6 +8,7 @@ import {
   type ChannelIngress,
   type IngressPath,
 } from "@/domains/channels/hooks/use-channel-ingress";
+import { useTranslation } from "@/i18n";
 import { PluginChannelIcon } from "@/utils/channel-presentation";
 import type { PluginChannelSummary } from "@/types/channel-types";
 
@@ -36,6 +37,7 @@ export function PluginChannelPanel({
   channel,
   assistantId,
 }: PluginChannelPanelProps) {
+  const { t } = useTranslation("channels");
   const navigate = useNavigate();
   const ingress = useChannelIngress(assistantId, channel.plugin);
 
@@ -68,7 +70,7 @@ export function PluginChannelPanel({
         onClick={() => navigate(`/assistant/plugins/${channel.plugin}`)}
         variant="outlined"
       >
-        Open plugin page
+        {t("pluginChannelPanel.openPluginPage")}
       </Button>
     </div>
   );
@@ -84,39 +86,57 @@ interface IngressSectionProps {
  *
  * A plugin channel is a channel someone reaches from outside, so "can anyone
  * reach it" is the question this panel exists to answer. Rendering the section
- * only when there is a decision to make would leave the other cases looking
- * like the feature is missing, when what is missing is the answer: a plugin
- * that declares no routes, a gateway that cannot be asked, a request still in
- * flight. Each says which it is.
+ * only when there is a decision to make would leave every other case looking
+ * like the feature is missing, when what is missing is the answer.
+ *
+ * The switch is exhaustive over {@link IngressStatus} rather than a chain of
+ * guards, so a state that is not a settled answer cannot fall through into one
+ * that reads like one.
  */
 function IngressSection({ channel, ingress }: IngressSectionProps) {
-  if (ingress.loading) {
-    return <Note>Checking who can reach {channel.label}…</Note>;
-  }
+  const { t } = useTranslation("channels");
+  switch (ingress.status) {
+    case "loading":
+      return (
+        <Note>
+          {t("pluginChannelPanel.ingressLoading", { channel: channel.label })}
+        </Note>
+      );
 
-  if (!ingress.available) {
-    // A gateway predating the endpoint, or a viewer who is not the guardian.
-    return (
-      <Note>
-        This assistant cannot tell you whether {channel.label} accepts inbound
-        messages. Only its guardian can approve ingress.
-      </Note>
-    );
-  }
+    case "unsupported":
+      // Says nothing about who is viewing: this gateway has no such endpoint,
+      // which is equally true for the guardian.
+      return <Note>{t("pluginChannelPanel.ingressUnsupported")}</Note>;
 
-  if (ingress.state === "none") {
-    // Every plugin channel declares ingress, so reaching this means the
-    // gateway has not seen the declaration: a plugin installed since it last
-    // scanned, or a manifest it rejected.
-    return (
-      <Note>
-        The gateway sees no ingress declaration for {channel.label}, so there is
-        nothing to approve yet.
-      </Note>
-    );
-  }
+    case "forbidden":
+      return <Note>{t("pluginChannelPanel.ingressForbidden")}</Note>;
 
-  return <IngressDecision channel={channel} ingress={ingress} />;
+    case "unreadable":
+      // Transient, and the query is retrying. Reporting it beats presenting a
+      // failed read as a settled answer about what the gateway declares.
+      return (
+        <Note>
+          {t("pluginChannelPanel.ingressUnreadable", {
+            channel: channel.label,
+          })}
+          {ingress.error ? ` ${ingress.error}` : ""}
+        </Note>
+      );
+
+    case "none":
+      // Every plugin channel declares ingress, so reaching this means the
+      // gateway has not seen the declaration: a plugin installed since it last
+      // scanned, or a manifest it rejected.
+      return (
+        <Note>
+          {t("pluginChannelPanel.ingressNone", { channel: channel.label })}
+        </Note>
+      );
+
+    case "pending":
+    case "approved":
+      return <IngressDecision channel={channel} ingress={ingress} />;
+  }
 }
 
 /**
@@ -133,22 +153,29 @@ function IngressSection({ channel, ingress }: IngressSectionProps) {
  * close them either.
  */
 function IngressDecision({ channel, ingress }: IngressSectionProps) {
-  const approved = ingress.state === "approved";
+  const { t } = useTranslation("channels");
+  const approved = ingress.status === "approved";
   const governed = ingress.paths.filter((entry) => entry.approvalGoverned);
   const ungoverned = ingress.paths.filter((entry) => !entry.approvalGoverned);
 
   return (
     <div className="flex flex-col items-center gap-3">
       <Tag tone={approved ? "positive" : "neutral"}>
-        {approved ? "Ingress approved" : "Ingress awaiting approval"}
+        {approved
+          ? t("pluginChannelPanel.ingressApprovedTag")
+          : t("pluginChannelPanel.ingressPendingTag")}
       </Tag>
 
       {governed.length > 0 ? (
         <>
           <Note>
             {approved
-              ? `${channel.label} receives messages at these addresses:`
-              : `${channel.label} asks to receive messages at these addresses. Until you approve, deliveries to them are refused:`}
+              ? t("pluginChannelPanel.approvedAddresses", {
+                  channel: channel.label,
+                })
+              : t("pluginChannelPanel.pendingAddresses", {
+                  channel: channel.label,
+                })}
           </Note>
           <PathList paths={governed} />
         </>
@@ -156,10 +183,7 @@ function IngressDecision({ channel, ingress }: IngressSectionProps) {
 
       {ungoverned.length > 0 ? (
         <>
-          <Note>
-            These addresses are open whatever you decide, because only Vellum
-            can reach them:
-          </Note>
+          <Note>{t("pluginChannelPanel.ungovernedAddresses")}</Note>
           <PathList paths={ungoverned} />
         </>
       ) : null}
@@ -169,7 +193,9 @@ function IngressDecision({ channel, ingress }: IngressSectionProps) {
         disabled={ingress.deciding}
         variant={approved ? "outlined" : "primary"}
       >
-        {approved ? "Revoke ingress" : "Approve ingress"}
+        {approved
+          ? t("pluginChannelPanel.revokeIngress")
+          : t("pluginChannelPanel.approveIngress")}
       </Button>
 
       {ingress.error ? (

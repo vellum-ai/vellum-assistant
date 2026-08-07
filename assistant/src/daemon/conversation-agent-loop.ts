@@ -384,10 +384,19 @@ export async function runAgentLoopImpl(
   // without going through processMessage/drainQueue. This ensures the system
   // prompt callback always reads a valid snapshot rather than undefined.
   //
-  // A queue drain runs a message whose sender may not be the conversation's
-  // most recent one, so it passes that sender's trust explicitly. Falling back
-  // to the slot here would undo the drain's stamp and hand the turn back to
-  // whoever sent last.
+  // The invariant: a turn runs under the trust captured when that turn
+  // started, never under whatever the slot holds when the loop happens to
+  // open. Awaits sit between capture and this line, and the slot is writable
+  // throughout by paths that do not own the turn (channel ingress for another
+  // actor, live-voice hydration, pointer elevation, the voice bridge).
+  //
+  // Callers that own a turn are expected to capture at turn start and pass
+  // `turnTrustContext`. This has not been swept across all 13 call sites, so
+  // the fallback below is load-bearing for two different populations: callers
+  // that legitimately have no turn to capture (subagent manager, voice
+  // bridge, regenerate), and callers that should pass it and do not yet.
+  // Treat a caller reaching the fallback as unverified, not as correct.
+  // LUM-3148 removes the ambiguity by making trust ride the turn.
   ctx.currentTurnTrustContext = options?.turnTrustContext ?? ctx.trustContext;
   ctx.currentTurnChannelCapabilities = ctx.channelCapabilities;
 

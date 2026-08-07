@@ -5,6 +5,7 @@ import { Card } from "@vellumai/design-library/components/card";
 import { ListRow } from "@vellumai/design-library/components/list-row";
 import { Typography } from "@vellumai/design-library/components/typography";
 
+import { Trans, useTranslation } from "@/i18n";
 import { SlackChannelTierLegend } from "@/domains/channels/components/slack-channel-tier-legend";
 import { TierPicker } from "@/domains/channels/components/tier-picker";
 import type { ChannelDefaultBucket } from "@/domains/channels/slack-channel-overrides";
@@ -75,11 +76,12 @@ export function SlackChannelTypeDefaults({
   onBucketChange,
   onBucketReset,
 }: SlackChannelTypeDefaultsProps) {
+  const { t } = useTranslation("channels");
   return (
     <Card.Root>
       <Card.Header>
         <div className="flex flex-col gap-1">
-          Default access
+          {t("slackChannelTypeDefaults.heading")}
           {/* body-small-lighter: this subtitle wraps to two lines, and
               body-small-default is a line-height-1 single-line label style. */}
           <Typography
@@ -87,15 +89,19 @@ export function SlackChannelTypeDefaults({
             variant="body-small-lighter"
             className="text-[color:var(--content-tertiary)]"
           >
-            How much {assistantName} does on its own, by conversation type.
-            Individual channels can override this below, and{" "}
-            <Link
-              to={routes.settings.privacy}
-              className="text-[var(--content-link)] underline hover:text-[var(--content-link-hover)]"
-            >
-              Trust Rules
-            </Link>{" "}
-            fine-tune when it asks.
+            <Trans
+              i18nKey="slackChannelTypeDefaults.subtitle"
+              ns="channels"
+              values={{ assistant: assistantName }}
+              components={{
+                trustRules: (
+                  <Link
+                    to={routes.settings.privacy}
+                    className="text-[var(--content-link)] underline hover:text-[var(--content-link-hover)]"
+                  />
+                ),
+              }}
+            />
           </Typography>
         </div>
       </Card.Header>
@@ -126,7 +132,9 @@ export function SlackChannelTypeDefaults({
                     disabled={loading || error || pendingBuckets.has(bucket)}
                     onTierChange={(tier) => onBucketChange(bucket, tier)}
                     onReset={() => onBucketReset(bucket)}
-                    aria-label={`Default Assistant Access for ${title}`}
+                    aria-label={t("slackChannelTypeDefaults.bucketAria", {
+                      bucket: title,
+                    })}
                   />
                 </div>
               }

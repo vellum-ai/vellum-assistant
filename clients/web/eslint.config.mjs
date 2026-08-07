@@ -194,6 +194,8 @@ const i18nEnforcedPaths = [
   "src/domains/chat/components/conversation-assets-pill.tsx",
   "src/domains/chat/components/pinned-app-color-swatches.tsx",
   "src/domains/schedules/**/*.{ts,tsx}",
+  "src/domains/account/**/*.{ts,tsx}",
+  "src/domains/channels/**/*.{ts,tsx}",
 ];
 
 const eslintConfig = defineConfig([

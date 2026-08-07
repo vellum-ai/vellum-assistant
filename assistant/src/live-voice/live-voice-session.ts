@@ -17,7 +17,6 @@ import type {
 import {
   getConversationTurnTeardown,
   resolveProcessingWaitMs,
-  VOICE_NO_SETUP_FLOWS_RULE,
   waitForPriorTurnTeardown,
 } from "../calls/voice-session-bridge.js";
 import {
@@ -744,6 +743,20 @@ const LIVE_VOICE_CONTROL_PROMPT_BASE =
 const LIVE_VOICE_SCREEN_REVEAL_TEACHING =
   "The call renders as a full-screen overlay covering the app. Whenever you put something on screen, the overlay minimizes by itself as soon as you finish speaking, and the user is looking at what you made. So speak as if you are showing it to them right now (for example, close with something like: take a look), and never say you cannot show it, that this is a voice call, or that they should check it later. Never emit bracketed markers of any kind. ";
 
+// The setup-flow case, spelled out because it is the one the model gets wrong
+// on its own: connecting an account reads as something a call cannot do, so it
+// declines and offers to do it later in text, which is the exact thing the base
+// prompt above forbids.
+//
+// It can do it. The connect card is a ui surface like any other, so showing it
+// minimizes the room on the same latch (`revealsUiSurface`), and the user is at
+// the screen the browser window opens on. Appended alongside the screen-reveal
+// teaching, to the same legs, for the same reason: the front-door leg is
+// toolless, so a setup flow is not its to run, and its capability digest
+// already tells it to escalate anything needing a tool rather than refuse.
+const LIVE_VOICE_SETUP_FLOW_TEACHING =
+  "This includes connecting accounts. If a task needs an account connected or a sign-in completed, put the connection up on screen and let the user do it now. Do not decline it, and do not defer it to text chat. Say what you are connecting and that it is in front of them. ";
+
 // System-level guidance appended to a barge-in turn's control prompt so the
 // model treats the new utterance as a continuation of the request it was cut
 // off answering, rather than a fresh follow-up. Reaches the model only; it is
@@ -800,21 +813,21 @@ function buildLiveDeliveryNote(request: string, answer: string): string {
   return `The user interrupted you earlier, and in the background you finished ${what}. The call is still live and nobody is speaking, so tell them briefly that it is done and give them the result. Do not re-run any tool calls; the work is already complete, and do not repeat it verbatim if it no longer fits. What you produced was:\n\n${answer}`;
 }
 
-// Assemble a leg's model-facing control prompt: the base live-voice rules,
-// the screen-reveal teaching (withheld from the front-door leg, see
-// LIVE_VOICE_SCREEN_REVEAL_TEACHING), the shared no-setup-flows rule, plus
-// any pending barge-in merge context, completed-continuation context, and/or
-// the announcement instruction. A turn can carry several (a barge-in follow-up
-// that also has a continuation result waiting); the notes are model-only and
-// never render as user bubbles.
+// Assemble a leg's model-facing control prompt: the base live-voice rules, the
+// screen-reveal and setup-flow teaching (both withheld from the front-door leg,
+// see LIVE_VOICE_SCREEN_REVEAL_TEACHING), plus any pending barge-in merge
+// context, completed-continuation context, and/or the announcement instruction.
+// A turn can carry several (a barge-in follow-up that also has a continuation
+// result waiting); the notes are model-only and never render as user bubbles.
 function buildVoiceControlPrompt(
   turn: ActiveAssistantTurn,
   leg: { frontDoor?: boolean },
 ): string {
   let prompt =
     LIVE_VOICE_CONTROL_PROMPT_BASE +
-    (leg.frontDoor === true ? "" : LIVE_VOICE_SCREEN_REVEAL_TEACHING) +
-    VOICE_NO_SETUP_FLOWS_RULE;
+    (leg.frontDoor === true
+      ? ""
+      : LIVE_VOICE_SCREEN_REVEAL_TEACHING + LIVE_VOICE_SETUP_FLOW_TEACHING);
   if (turn.interruptedRequest) {
     prompt = `${prompt}\n\n${buildInterruptionMergeNote(turn.interruptedRequest)}`;
   }

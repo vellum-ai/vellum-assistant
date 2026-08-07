@@ -213,14 +213,16 @@ describe("PreferencesMenu", () => {
      its glyph, the same affordance the pinned apps and section tiles reduce
      to.
 
-     Mounted inside a collapsed `SideMenu` because `shape="tile"` reads the
-     rail's state from that context; outside one it is an ordinary row, so a
-     bare render would assert nothing about the rail. */
+     The collapsed `SideMenu` is the whole input: the trigger reads the rail's
+     state from that context and takes no prop for it, so this renders the
+     component the way the sidebar does and cannot pass a value the menu
+     disagrees with. Outside a rail it is an ordinary row, so a bare render
+     would assert nothing. */
   function collapsedRailMarkup(): string {
     return renderToStaticMarkup(
       <SideMenu ariaLabel="Assistant navigation" variant="rail" collapsed>
         <SideMenu.Footer>
-          <PreferencesMenu collapsed />
+          <PreferencesMenu />
         </SideMenu.Footer>
       </SideMenu>,
     );

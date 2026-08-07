@@ -14,7 +14,10 @@ import { cleanup, render } from "@testing-library/react";
 import { MemoryRouter } from "react-router";
 
 import { PluginChannelPanel } from "@/domains/channels/components/plugin-channel-panel";
-import { isSurfaceAbsent } from "@/domains/channels/hooks/use-channel-ingress";
+import {
+  classifyIngressFailure,
+  reportableError,
+} from "@/domains/channels/hooks/use-channel-ingress";
 import { assistantChannelIngressListQueryKey } from "@/generated/gateway/@tanstack/react-query.gen";
 import type { PluginChannelSummary } from "@/types/channel-types";
 
@@ -208,20 +211,58 @@ describe("PluginChannelPanel", () => {
   });
 });
 
-describe("isSurfaceAbsent", () => {
-  test("treats a missing endpoint and a non-guardian viewer as no surface", () => {
-    // A gateway predating the endpoint 404s; a viewer who is not the bound
-    // guardian gets 401/403. Neither has a decision to offer.
-    for (const status of [401, 403, 404, 501]) {
-      expect(isSurfaceAbsent({ status })).toBe(true);
-    }
+describe("classifyIngressFailure", () => {
+  test("tells a gateway with no such endpoint from a viewer who may not ask", () => {
+    // The copy differs, and conflating them tells a guardian that only the
+    // guardian may approve, which is false when they already are one.
+    expect(classifyIngressFailure({ status: 404 })).toBe("unsupported");
+    expect(classifyIngressFailure({ status: 501 })).toBe("unsupported");
+    expect(classifyIngressFailure({ status: 403 })).toBe("forbidden");
+    expect(classifyIngressFailure({ status: 401 })).toBe("forbidden");
   });
 
-  test("keeps the surface for an outage, which is reportable and retryable", () => {
-    // Hiding the approval on a 5xx or a dropped connection would tell a
-    // guardian there is nothing to decide, and nothing would bring it back.
-    expect(isSurfaceAbsent({ status: 500 })).toBe(false);
-    expect(isSurfaceAbsent({ status: 502 })).toBe(false);
-    expect(isSurfaceAbsent(new Error("network down"))).toBe(false);
+  test("treats anything else as a failed read rather than an answer", () => {
+    // A 5xx or a dropped connection is transient. Reporting it as "no
+    // declaration" would present an outage as a settled result.
+    expect(classifyIngressFailure({ status: 500 })).toBe("unreadable");
+    expect(classifyIngressFailure({ status: 502 })).toBe("unreadable");
+    expect(classifyIngressFailure(new Error("network down"))).toBe(
+      "unreadable",
+    );
+  });
+});
+
+describe("reportableError", () => {
+  test("reports the read failure when the read is what failed", () => {
+    // A refused decision outlives its request, so a rejected approval is still
+    // present when a later refetch fails. Pairing "could not read the ingress
+    // approval" with a digest-mismatch sentence explains nothing.
+    const decision = new Error("Digest does not match");
+    const read = new Error("Bad gateway");
+
+    expect(reportableError("unreadable", read, decision)).toBe("Bad gateway");
+  });
+
+  test("reports the refused decision everywhere else", () => {
+    const decision = new Error("Digest does not match");
+
+    expect(reportableError("pending", undefined, decision)).toBe(
+      "Digest does not match",
+    );
+    expect(reportableError("approved", undefined, decision)).toBe(
+      "Digest does not match",
+    );
+  });
+
+  test("says nothing when nothing failed", () => {
+    expect(reportableError("approved", undefined, undefined)).toBeNull();
+  });
+
+  test("falls back to a sentence for a failure carrying no message", () => {
+    // The generated client can reject with a plain object, which would
+    // otherwise render as an empty line under the button.
+    expect(reportableError("unreadable", { status: 500 }, undefined)).toBe(
+      "Something went wrong",
+    );
   });
 });

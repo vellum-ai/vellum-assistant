@@ -22,7 +22,30 @@ import {
 } from "@/generated/gateway/@tanstack/react-query.gen";
 import { httpStatusFromError, shouldRetryQuery } from "@/utils/query-retry";
 
-export type IngressState = "approved" | "pending" | "none";
+/**
+ * What there is to say about a plugin channel's ingress, as one value.
+ *
+ * A single discriminant rather than a set of booleans a caller has to test in
+ * the right order. Every reading is exactly one of these, so a panel cannot
+ * report "no declaration" while a request is in flight or has failed, which is
+ * the mistake the flags invited.
+ *
+ * - `loading`     still reading, nothing known yet
+ * - `unsupported` this gateway has no ingress-approval endpoint
+ * - `forbidden`   this viewer is not the assistant's guardian
+ * - `unreadable`  the read failed; transient, and retried
+ * - `none`        the gateway sees no declaration for this plugin
+ * - `pending`     declared, awaiting a guardian
+ * - `approved`    granted
+ */
+export type IngressStatus =
+  | "loading"
+  | "unsupported"
+  | "forbidden"
+  | "unreadable"
+  | "none"
+  | "pending"
+  | "approved";
 
 /** One declared address, and whether the approval decides anything for it. */
 export interface IngressPath {
@@ -36,40 +59,69 @@ export interface IngressPath {
 }
 
 export interface ChannelIngress {
-  /** `none` when the gateway reports no declaration for this plugin at all. */
-  state: IngressState;
+  status: IngressStatus;
   paths: IngressPath[];
   /** True while a decision is in flight. */
   deciding: boolean;
-  /** True while the state is still being read, before any of it is known. */
-  loading: boolean;
-  /**
-   * Whether this gateway can be asked at all. False only for the two answers
-   * that mean "no decision exists here": a build predating the endpoint, and a
-   * viewer who is not this assistant's guardian.
-   */
-  available: boolean;
   approve: () => void;
   revoke: () => void;
-  /** A failure worth showing, as opposed to one that means "not available". */
+  /** A failure worth showing: a refused decision, or a failed read. */
   error: string | null;
 }
 
-/**
- * Statuses that mean the surface does not exist for this caller, rather than
- * that a request failed.
- *
- * A gateway predating the endpoint answers 404, and a viewer who is not the
- * bound guardian gets 401/403. Neither has a decision to offer, so the control
- * is absent rather than broken. Everything else, a 5xx or a network failure,
- * stays visible and reports itself: silently removing the approval on a blip
- * would tell a guardian there is nothing to decide.
- */
-const SURFACE_ABSENT_STATUSES = new Set([401, 403, 404, 501]);
+/** A gateway with no such endpoint. */
+const UNSUPPORTED_STATUSES = new Set([404, 501]);
 
-export function isSurfaceAbsent(error: unknown): boolean {
+/** A caller who is not this assistant's guardian. */
+const FORBIDDEN_STATUSES = new Set([401, 403]);
+
+/**
+ * Why a read failed, in the terms the panel reports.
+ *
+ * The two are told apart rather than folded together, because the copy for
+ * them differs and getting it wrong misinforms: "only the guardian can approve
+ * this" is false when the viewer *is* the guardian and the gateway simply has
+ * no such endpoint. Anything else is transient, so it reports itself and
+ * retries instead of reading as a settled answer.
+ */
+export function classifyIngressFailure(
+  error: unknown,
+): "unsupported" | "forbidden" | "unreadable" {
   const status = httpStatusFromError(error);
-  return status !== undefined && SURFACE_ABSENT_STATUSES.has(status);
+  if (status !== undefined && UNSUPPORTED_STATUSES.has(status)) {
+    return "unsupported";
+  }
+  if (status !== undefined && FORBIDDEN_STATUSES.has(status)) {
+    return "forbidden";
+  }
+  return "unreadable";
+}
+
+/**
+ * The failure the panel should report, given what it is about to say.
+ *
+ * A refused decision outlives the request that produced it: TanStack keeps a
+ * mutation's error until it is reset or retried, so a rejected approval is
+ * still hanging around when a later refetch fails. Preferring it there would
+ * pair "could not read the ingress approval" with an unrelated sentence about
+ * a digest mismatch. The read failure is the one that explains the state being
+ * shown, so it wins whenever the state is the read failing; everywhere else
+ * the decision is the only thing that can have gone wrong.
+ *
+ * Returns the text to show, or null when nothing failed.
+ */
+export function reportableError(
+  status: IngressStatus,
+  queryError: unknown,
+  decisionError: unknown,
+): string | null {
+  const failure = status === "unreadable" ? queryError : decisionError;
+  if (!failure) {
+    return null;
+  }
+  return failure instanceof Error && failure.message
+    ? failure.message
+    : "Something went wrong";
 }
 
 export function useChannelIngress(
@@ -100,20 +152,32 @@ export function useChannelIngress(
   });
 
   const entry = query.data?.sources?.find((source) => source.source === plugin);
-  const surfaceAbsent = query.isError && isSurfaceAbsent(query.error);
-  const failure =
-    approval.error ?? revocation.error ?? (surfaceAbsent ? null : query.error);
+
+  // Ordered so an unfinished or failed read can never be reported as a
+  // settled answer about what the gateway declares.
+  let status: IngressStatus;
+  if (query.isError) {
+    status = classifyIngressFailure(query.error);
+  } else if (query.isPending) {
+    status = "loading";
+  } else {
+    status = entry ? entry.state : "none";
+  }
+
+  const failure = reportableError(
+    status,
+    query.error,
+    approval.error ?? revocation.error,
+  );
 
   return {
-    state: entry ? entry.state : "none",
+    status,
     paths:
       entry?.routes?.map((route) => ({
         path: route.publicPath,
         approvalGoverned: route.signer !== "vellum",
       })) ?? [],
     deciding: approval.isPending || revocation.isPending,
-    loading: query.isPending,
-    available: !surfaceAbsent,
     approve: () => {
       if (entry?.digest) {
         approval.mutate({
@@ -123,6 +187,6 @@ export function useChannelIngress(
       }
     },
     revoke: () => revocation.mutate({ path: { ...path, source: plugin } }),
-    error: failure ? (failure.message ?? "Something went wrong") : null,
+    error: failure,
   };
 }
