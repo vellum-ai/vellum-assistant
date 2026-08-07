@@ -33,13 +33,12 @@ mock.module("electron", () => ({
   },
 }));
 
-mock.module("./logger", () => ({ default: { warn: () => {}, error: () => {} } }));
-
 const {
   getSessionToken,
   saveSessionToken,
   clearSessionToken,
   onSessionTokenChange,
+  setSessionTokenLogger,
   __resetForTesting,
 } = await import("./session-token-store");
 
@@ -49,6 +48,7 @@ beforeEach(() => {
   userDataDir = mkdtempSync(path.join(os.tmpdir(), "vellum-session-token-"));
   encryptionAvailable = true;
   __resetForTesting();
+  setSessionTokenLogger({ warn: () => undefined });
 });
 
 afterEach(() => {

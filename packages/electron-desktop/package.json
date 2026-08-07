@@ -12,6 +12,7 @@
     "./deep-links": "./src/deep-links.ts",
     "./commands": "./src/commands.ts",
     "./devtools": "./src/devtools.ts",
+    "./device-id": "./src/device-id.ts",
     "./file-open": "./src/file-open.ts",
     "./file-open-preload": "./src/file-open-preload.ts",
     "./global-shortcuts": "./src/global-shortcuts.ts",
@@ -22,8 +23,11 @@
     "./image-context-menu": "./src/image-context-menu.ts",
     "./ipc": "./src/ipc.ts",
     "./login-item": "./src/login-item.ts",
+    "./native-auth": "./src/native-auth.ts",
     "./preload": "./src/preload.ts",
+    "./session-token-store": "./src/session-token-store.ts",
     "./text-context-menu": "./src/text-context-menu.ts",
+    "./workos-pkce": "./src/workos-pkce.ts",
     "./windows": "./src/windows.ts"
   },
   "scripts": {

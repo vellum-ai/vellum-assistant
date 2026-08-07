@@ -20,7 +20,7 @@ import { resolveAllowedOrigin } from "./app-origin";
 import { writeCliLocator } from "./cli-installer";
 import { provisionCliForWrapper } from "./cli-path-installer";
 import { installCsp } from "./csp";
-import { getDeviceId } from "./device-id";
+import { getDeviceId } from "@vellumai/electron-desktop/device-id";
 import { handleSync } from "./ipc";
 import { registerVellumAppProtocol } from "./vellumapp-protocol";
 import {
@@ -86,7 +86,7 @@ import {
   relocateToApplicationsFolder,
 } from "./move-to-applications";
 import { markRelocationSkipped } from "./install-location";
-import { installNativeAuth } from "./native-auth";
+import { installNativeAuth } from "./native-auth.client";
 import { installConnectivityProbe } from "./connectivity-probe";
 import { installNotifications } from "./notifications";
 import { installPermissionHandler } from "./permissions";
@@ -137,7 +137,7 @@ const isDev = !app.isPackaged;
 // Dev-only: skip the real macOS Keychain for Chromium's `os_crypt` /
 // Electron `safeStorage`. Without this, the first `safeStorage` call —
 // e.g. persisting the session token after sign-in via
-// `./session-token-store` — makes Chromium prompt for the login
+// `./session-token-store.client` makes Chromium prompt for the login
 // keychain password ("Vellum Electron Safe Storage"). Denying that
 // prompt surfaces as `keychain_password_mac.mm ... userCanceledErr
 // (-128)` and silently drops token persistence. `--use-mock-keychain`
