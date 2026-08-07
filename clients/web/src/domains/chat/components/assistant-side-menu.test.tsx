@@ -478,22 +478,35 @@ describe("AssistantSideMenu · tipCard slot", () => {
     makeConversation({ conversationId: "a", title: "Alpha" }),
   ];
 
-  test("renders the rail footer as tip card, then divider, then footer action", () => {
+  test("renders the rail footer as tip card, then footer action", () => {
     const html = renderMenu({ conversations, includeTipCard: true });
 
     const footerIndex = html.indexOf('data-slot="side-menu-footer"');
     const tipIndex = html.indexOf("TipSentinel");
-    const separatorIndex = html.indexOf(
-      'data-slot="side-menu-separator"',
-      tipIndex,
-    );
     const actionIndex = html.indexOf("Preferences");
     expect(footerIndex).toBeGreaterThanOrEqual(0);
     expect(tipIndex).toBeGreaterThan(footerIndex);
-    // The divider sits BETWEEN the tip card and the footer action, never
-    // above the tip.
-    expect(separatorIndex).toBeGreaterThan(tipIndex);
-    expect(actionIndex).toBeGreaterThan(separatorIndex);
+    expect(actionIndex).toBeGreaterThan(tipIndex);
+  });
+
+  /* The footer carries no rule, in either direction: not over the tip card
+     and not between it and the action. Scoped to the footer rather than the
+     whole tree so a separator elsewhere in the sidebar cannot mask a rule
+     reappearing here. */
+  test("the rail footer carries no separator", () => {
+    const container = parse(
+      renderMenu({ conversations, includeTipCard: true }),
+    );
+
+    const footer = container.querySelector<HTMLElement>(
+      '[data-slot="side-menu-footer"]',
+    );
+    if (!footer) {
+      throw new Error("expected the rail footer");
+    }
+    expect(
+      footer.querySelectorAll('[data-slot="side-menu-separator"]'),
+    ).toHaveLength(0);
   });
 
   test("hides the tip card on the collapsed rail", () => {
