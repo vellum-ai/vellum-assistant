@@ -1,0 +1,117 @@
+/**
+ * Tests for `IntegrationIcon`.
+ *
+ * The contract under test is the *order* the component resolves a logo in:
+ * a bundled asset we ship, then the provider's seeded `logoUrl` (a
+ * third-party icon CDN), then an initials avatar. The order matters because
+ * the CDN drops brands without warning. Simple Icons removed every Microsoft
+ * icon in v13 and currently has no Slack icon, so
+ * `cdn.simpleicons.org/microsoftoutlook` 404s while the seed data still
+ * points at it (LUM-3137). Preferring the seeded URL turned Outlook into an
+ * "OU" avatar even though `outlook.png` was sitting in `public/`.
+ *
+ * Rendered via `@testing-library/react` (happy-dom, see
+ * `clients/web/test-setup.ts`). happy-dom does not fetch `img` sources, so a
+ * failing load is simulated with `fireEvent.error`.
+ */
+
+import { afterEach, describe, expect, test } from "bun:test";
+
+import { cleanup, fireEvent, render } from "@testing-library/react";
+
+import { IntegrationIcon } from "./integration-icon";
+
+const DEAD_CDN_URL = "https://cdn.simpleicons.org/microsoftoutlook";
+
+afterEach(cleanup);
+
+function renderIcon(props: {
+  providerKey: string;
+  displayName: string | null;
+  logoUrl: string | null;
+}) {
+  return render(<IntegrationIcon {...props} />);
+}
+
+describe("IntegrationIcon", () => {
+  test("prefers the bundled asset over the seeded CDN logoUrl", () => {
+    const { container } = renderIcon({
+      providerKey: "outlook",
+      displayName: "Outlook / Microsoft",
+      logoUrl: DEAD_CDN_URL,
+    });
+
+    const img = container.querySelector("img");
+    expect(img).not.toBeNull();
+    expect(img!.getAttribute("src")).toEndWith(
+      "/images/integrations/outlook.png",
+    );
+    // The regression this guards: rendering the CDN URL, or degrading to the
+    // initials avatar because the CDN URL 404s.
+    expect(container.textContent).not.toContain("OU");
+  });
+
+  test("maps the manual-token Slack channel provider to the Slack asset", () => {
+    const { container } = renderIcon({
+      providerKey: "slack_channel",
+      displayName: "Slack Channel",
+      logoUrl: "https://cdn.simpleicons.org/slack",
+    });
+
+    expect(container.querySelector("img")!.getAttribute("src")).toEndWith(
+      "/images/integrations/slack.svg",
+    );
+  });
+
+  test("uses the seeded logoUrl for a provider with no bundled asset", () => {
+    const { container } = renderIcon({
+      providerKey: "todoist",
+      displayName: "Todoist",
+      logoUrl: "https://cdn.simpleicons.org/todoist",
+    });
+
+    expect(container.querySelector("img")!.getAttribute("src")).toBe(
+      "https://cdn.simpleicons.org/todoist",
+    );
+  });
+
+  test("falls through to the seeded logoUrl when the bundled asset fails", () => {
+    const { container } = renderIcon({
+      providerKey: "outlook",
+      displayName: "Outlook / Microsoft",
+      logoUrl: DEAD_CDN_URL,
+    });
+
+    fireEvent.error(container.querySelector("img")!);
+
+    // Not the initials avatar: one failing source must not burn the others.
+    const img = container.querySelector("img");
+    expect(img).not.toBeNull();
+    expect(img!.getAttribute("src")).toBe(DEAD_CDN_URL);
+  });
+
+  test("falls back to an initials avatar only once every source has failed", () => {
+    const { container } = renderIcon({
+      providerKey: "outlook",
+      displayName: "Outlook / Microsoft",
+      logoUrl: DEAD_CDN_URL,
+    });
+
+    fireEvent.error(container.querySelector("img")!);
+    fireEvent.error(container.querySelector("img")!);
+
+    expect(container.querySelector("img")).toBeNull();
+    expect(container.textContent).toBe("OU");
+  });
+
+  test("renders the initials avatar when there is no logo at all", () => {
+    const { container } = renderIcon({
+      providerKey: "acme",
+      displayName: "Acme Corp",
+      logoUrl: null,
+    });
+
+    expect(container.querySelector("img")).toBeNull();
+    expect(container.textContent).toBe("AC");
+  });
+});
