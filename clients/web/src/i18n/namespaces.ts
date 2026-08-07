@@ -34,7 +34,7 @@
  * checked at compile time, so a half-finished addition fails `tsc` rather than
  * rendering raw key paths at runtime.
  */
-export const NAMESPACES = ["common", "chat"] as const;
+export const NAMESPACES = ["common", "chat", "schedules"] as const;
 
 export type Namespace = (typeof NAMESPACES)[number];
 

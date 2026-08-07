@@ -2,6 +2,7 @@ import { useInfiniteQuery } from "@tanstack/react-query";
 import { Loader2, Play, Settings, X } from "lucide-react";
 import { useNavigate } from "react-router";
 
+import { useTranslation } from "@/i18n";
 import { SCHEDULE_RUNS_PAGE_SIZE } from "@/domains/settings/api/schedules";
 import { ModelProfileRow } from "@/domains/settings/components/model-profile-row";
 import { RecentRunsCard } from "@/domains/settings/components/recent-runs-card";
@@ -77,6 +78,7 @@ export function SystemTaskDetailPanel({
   isMobile,
   onClose,
 }: SystemTaskDetailPanelProps) {
+  const { t } = useTranslation("schedules");
   const navigate = useNavigate();
   const { heartbeatConfig, consolidationConfig, retrospectiveConfig } =
     systemTasks;
@@ -219,8 +221,8 @@ export function SystemTaskDetailPanel({
           variant="ghost"
           iconOnly={<X />}
           onClick={onClose}
-          aria-label="Close schedule details"
-          tooltip="Close"
+          aria-label={t("scheduleDetail.closeAria")}
+          tooltip={t("scheduleDetail.close")}
           className="shrink-0"
         />
       </div>
@@ -228,23 +230,25 @@ export function SystemTaskDetailPanel({
       {/* Scrollable body */}
       <div className="flex-1 space-y-6 overflow-y-auto px-[var(--app-spacing-lg)] py-[var(--app-spacing-lg)]">
         <section>
-          <SectionLabel>Details</SectionLabel>
+          <SectionLabel>{t("scheduleDetail.details")}</SectionLabel>
           <div className="space-y-2 rounded-lg border border-[var(--border-base)] bg-[var(--surface-lift)] px-4 py-3 text-body-medium-lighter">
             <ModelProfileRow
               assistantId={assistantId}
               defaultCallSite={SYSTEM_TASK_PROFILE_CALL_SITES[kind]}
-              fallbackLabel="Default (system task model)"
+              fallbackLabel={t("systemTaskDetail.fallbackModelProfile")}
               respectCallSiteOverride
             />
             <div className="flex items-center justify-between gap-4">
-              <span className="text-[var(--content-secondary)]">Status</span>
+              <span className="text-[var(--content-secondary)]">
+                {t("scheduleDetail.status")}
+              </span>
               <span className="flex items-center gap-2 text-[var(--content-default)]">
                 <span>{statusValue}</span>
                 {!isMemoryManaged ? (
                   <Toggle
                     checked={enabled}
                     onChange={systemTasks.toggleHeartbeat}
-                    aria-label={`Toggle ${name}`}
+                    aria-label={t("scheduleDetail.toggleAria", { name })}
                   />
                 ) : null}
               </span>
@@ -252,7 +256,7 @@ export function SystemTaskDetailPanel({
             {!isRetrospective ? (
               <div className="flex items-center justify-between gap-4">
                 <span className="text-[var(--content-secondary)]">
-                  Next run
+                  {t("scheduleDetail.nextRun")}
                 </span>
                 <span className="text-[var(--content-default)]">
                   {formatTimestamp(nextRunAt)}
@@ -260,7 +264,9 @@ export function SystemTaskDetailPanel({
               </div>
             ) : null}
             <div className="flex items-center justify-between gap-4">
-              <span className="text-[var(--content-secondary)]">Last run</span>
+              <span className="text-[var(--content-secondary)]">
+                {t("scheduleDetail.lastRun")}
+              </span>
               <span className="text-[var(--content-default)]">
                 {formatTimestamp(lastRunAtDisplay)}
               </span>
@@ -280,8 +286,8 @@ export function SystemTaskDetailPanel({
                     }
                   >
                     {isRetrospectiveSwitchedOff
-                      ? "Open Memory settings"
-                      : "Turn on Memory"}
+                      ? t("systemTaskDetail.openMemorySettings")
+                      : t("systemTaskDetail.turnOnMemory")}
                   </Button>
                 ) : undefined
               }
@@ -311,7 +317,7 @@ export function SystemTaskDetailPanel({
                 navigate(`${routes.settings.developer}?tab=memory`)
               }
             >
-              Memory settings
+              {t("systemTaskDetail.memorySettings")}
             </Button>
           ) : null}
           {onRunNow ? (
@@ -327,7 +333,7 @@ export function SystemTaskDetailPanel({
               onClick={onRunNow}
               disabled={runNowDisabled}
             >
-              {isRunning ? "Running…" : "Run now"}
+              {isRunning ? t("scheduleDetail.running") : t("scheduleDetail.runNow")}
             </Button>
           ) : null}
         </div>
