@@ -42,16 +42,13 @@ import {
   type TelephonySttCapability,
 } from "../providers/speech-to-text/resolve.js";
 import { normalizeSttError } from "../stt/daemon-batch-transcriber.js";
-import {
-  dominantLanguageTag,
-  voteDominantLanguage,
-} from "../stt/language-metadata.js";
 import { DEFAULT_SPEECH_ENERGY_THRESHOLD } from "../stt/speech-energy.js";
 import type {
   StreamingTranscriber,
   SttCallContextHints,
   SttStreamServerEvent,
 } from "../stt/types.js";
+import { baseLanguageSubtag } from "../util/language-subtag.js";
 import { getLogger } from "../util/logger.js";
 import {
   mulawToLinear,
@@ -225,14 +222,17 @@ export class MediaStreamSttSession {
   private utteranceAudioMs = 0;
 
   /**
-   * Count per normalized detected-language tag across the session's
-   * committed streaming finals. Only finals that carry transcript text
-   * vote, mirroring live voice's utterance tally: silence finals can
-   * carry container-level tags describing no emitted words, and counting
-   * those would let silence outvote real speech. Batch transcription
-   * reports no language tags, so the tally stays empty there.
+   * The dominant detected-language base subtag of the latest committed
+   * streaming final that carried language tags. Overwritten per
+   * utterance, matching live voice's per-utterance resolution, so a
+   * caller who switches languages retargets synthesis on their next
+   * utterance instead of having to outvote the session's history. Only
+   * finals that carry transcript text update it: silence finals can
+   * carry container-level tags describing no emitted words. Untagged
+   * finals keep the previous value; batch transcription reports no
+   * language tags, so it stays unset there.
    */
-  private languageTally = new Map<string, number>();
+  private latestUtteranceLanguage: string | undefined;
 
   constructor(
     config: MediaStreamSttSessionConfig = {},
@@ -319,13 +319,12 @@ export class MediaStreamSttSession {
   }
 
   /**
-   * The caller's dominant detected language across this session's
-   * committed streaming finals, as a lowercase base subtag. Undefined
-   * when no tagged final has committed (batch mode, non-tagging
-   * providers, silence).
+   * The caller's detected language as of the latest tagged streaming
+   * final, as a lowercase base subtag. Undefined until a tagged final
+   * commits (batch mode, non-tagging providers, silence).
    */
-  dominantLanguage(): string | undefined {
-    return dominantLanguageTag(this.languageTally);
+  currentLanguage(): string | undefined {
+    return this.latestUtteranceLanguage;
   }
 
   // ── Event handlers ─────────────────────────────────────────────────
@@ -539,7 +538,12 @@ export class MediaStreamSttSession {
         this.utteranceAudioMs = 0;
         const text = event.text.trim();
         if (text.length > 0) {
-          voteDominantLanguage(this.languageTally, event.languages);
+          // `languages` is dominance-ranked, so the first entry is the
+          // utterance's dominant tag.
+          const dominant = baseLanguageSubtag(event.languages?.[0]);
+          if (dominant !== undefined) {
+            this.latestUtteranceLanguage = dominant;
+          }
           this.callbacks.onTranscriptFinal?.(text, durationMs);
         }
         return;

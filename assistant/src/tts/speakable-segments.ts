@@ -222,7 +222,9 @@ function findSpeakableBoundary(
       index += 1;
       continue;
     }
-    if (char === "[" && !inLinkLabel) {
+    // A `[` inside an open inline span is literal text (e.g. inline code
+    // containing an array literal), never a link-label opener.
+    if (char === "[" && !inLinkLabel && !inOpenSpan) {
       inLinkLabel = true;
     }
 

@@ -224,6 +224,14 @@ const ELEVENLABS_V2_5_LANGUAGE_CODES = new Set([
   "vi",
 ]);
 
+/**
+ * Repo language subtags whose ElevenLabs `language_code` spelling differs:
+ * the STT rosters tag Tagalog with the ISO 639-1 code `tl`, while the
+ * ElevenLabs roster lists Filipino under the ISO 639-2 code `fil`. Aliases
+ * are applied before the roster check above.
+ */
+const ELEVENLABS_LANGUAGE_CODE_ALIASES = new Map([["tl", "fil"]]);
+
 /** ElevenLabs `pcm_*` rates available on every subscription tier. */
 const UNRESTRICTED_PCM_SAMPLE_RATES_HZ = [16_000, 22_050, 24_000] as const;
 
@@ -317,12 +325,13 @@ async function performTtsRequest(
       speed: config.speed,
     },
   };
-  if (
-    request.language &&
-    LANGUAGE_ENFORCEMENT_MODEL_IDS.has(modelId) &&
-    ELEVENLABS_V2_5_LANGUAGE_CODES.has(request.language)
-  ) {
-    body.language_code = request.language;
+  if (request.language && LANGUAGE_ENFORCEMENT_MODEL_IDS.has(modelId)) {
+    const languageCode =
+      ELEVENLABS_LANGUAGE_CODE_ALIASES.get(request.language) ??
+      request.language;
+    if (ELEVENLABS_V2_5_LANGUAGE_CODES.has(languageCode)) {
+      body.language_code = languageCode;
+    }
   }
 
   log.info(

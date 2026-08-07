@@ -8,7 +8,7 @@ import type {
   TtsSynthesisRequest,
   TtsUseCase,
 } from "../tts/types.js";
-import { baseLanguageSubtag } from "../util/language-subtag.js";
+import { localizedOrDefault } from "../util/language-subtag.js";
 import { getLogger } from "../util/logger.js";
 
 const log = getLogger("live-voice-tts");
@@ -85,11 +85,15 @@ export function resolveLanguageVoiceOverride(
   languageVoices: Readonly<Record<string, string>> | undefined,
   language: string | undefined,
 ): string | undefined {
-  const base = baseLanguageSubtag(language);
-  if (!base || !languageVoices || !Object.hasOwn(languageVoices, base)) {
+  if (!languageVoices) {
     return undefined;
   }
-  return languageVoices[base]?.trim() || undefined;
+  const voice = localizedOrDefault<string | undefined>(
+    languageVoices,
+    language,
+    undefined,
+  );
+  return voice?.trim() || undefined;
 }
 
 export async function streamLiveVoiceTtsAudio(

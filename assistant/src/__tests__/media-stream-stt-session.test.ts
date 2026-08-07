@@ -897,45 +897,54 @@ describe("MediaStreamSttSession", () => {
       session.dispose();
     });
 
-    // ── Detected-language tally ─────────────────────────────────────
+    // ── Detected language (latest tagged utterance) ─────────────────
 
-    test("tallies committed finals' dominant language and reports the session dominant", async () => {
+    test("a language switch retargets on the first final in the new language", async () => {
       const { session, fake } = await startStreamingSession();
 
-      expect(session.dominantLanguage()).toBeUndefined();
+      expect(session.currentLanguage()).toBeUndefined();
 
       fake.emit({ type: "final", text: "hola", languages: ["es", "en"] });
-      fake.emit({ type: "final", text: "hello", languages: ["en"] });
       fake.emit({ type: "final", text: "buenos dias", languages: ["es"] });
+      expect(session.currentLanguage()).toBe("es");
 
-      // Two dominant-tag votes for "es" beat one for "en"; the secondary
-      // "en" tag on the first final casts no vote.
-      expect(session.dominantLanguage()).toBe("es");
+      // The first ja-tagged utterance wins immediately: the caller does
+      // not have to outvote the session's es history. The secondary "es"
+      // tag does not dilute the utterance's dominant tag.
+      fake.emit({ type: "final", text: "konnichiwa", languages: ["ja", "es"] });
+      expect(session.currentLanguage()).toBe("ja");
 
       session.dispose();
     });
 
-    test("regional variants tally toward their base subtag", async () => {
+    test("regional variants normalize to their base subtag", async () => {
       const { session, fake } = await startStreamingSession();
 
       fake.emit({ type: "final", text: "tudo bem", languages: ["pt-BR"] });
 
-      expect(session.dominantLanguage()).toBe("pt");
+      expect(session.currentLanguage()).toBe("pt");
 
       session.dispose();
     });
 
-    test("empty and untagged finals never vote", async () => {
+    test("empty and untagged finals keep the previous value", async () => {
       const { session, fake } = await startStreamingSession();
 
       // A silence final can carry container-level tags describing no
-      // emitted words; it must not vote.
+      // emitted words; it must not update the language.
       fake.emit({ type: "final", text: "   ", languages: ["fr"] });
-      expect(session.dominantLanguage()).toBeUndefined();
+      expect(session.currentLanguage()).toBeUndefined();
 
-      // A committed final without tags casts no vote either.
+      fake.emit({ type: "final", text: "hola", languages: ["es"] });
+      expect(session.currentLanguage()).toBe("es");
+
+      // A committed final without tags keeps the previous value.
       fake.emit({ type: "final", text: "hello" });
-      expect(session.dominantLanguage()).toBeUndefined();
+      expect(session.currentLanguage()).toBe("es");
+
+      // So does a tagged silence final after a language is established.
+      fake.emit({ type: "final", text: "   ", languages: ["fr"] });
+      expect(session.currentLanguage()).toBe("es");
 
       session.dispose();
     });
