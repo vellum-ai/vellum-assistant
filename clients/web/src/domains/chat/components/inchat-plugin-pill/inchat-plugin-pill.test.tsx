@@ -9,10 +9,10 @@ import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 
 import { routes } from "@/utils/routes";
 
-const isMobileRef = { value: false };
-mock.module("@/hooks/use-is-mobile", () => ({
-  useIsMobile: () => isMobileRef.value,
-  MOBILE_MEDIA_QUERY: "(max-width: 767px)",
+const isTouchMobileRef = { value: false };
+mock.module("@/hooks/use-touch-mobile", () => ({
+  useTouchMobile: () => isTouchMobileRef.value,
+  TOUCH_MOBILE_MEDIA_QUERY: "(max-width: 767px) and (pointer: coarse)",
 }));
 
 const navigateSpy = mock((_href: string) => {});
@@ -62,7 +62,7 @@ function renderPill() {
 }
 
 beforeEach(() => {
-  isMobileRef.value = false;
+  isTouchMobileRef.value = false;
   navigateSpy.mockClear();
   effectiveRef.value = {
     plugins: [],

@@ -25,7 +25,7 @@ import {
 import { resolveCategoryIcon } from "@/domains/intelligence/skills/category-icon-map";
 import type { CategoryInfo } from "@/domains/intelligence/skills/use-skill-categories";
 import type { SuperpowerFilter } from "@/domains/intelligence/superpowers/types";
-import { useIsMobile } from "@/hooks/use-is-mobile";
+import { useTouchMobile } from "@/hooks/use-touch-mobile";
 import {
   BottomSheet,
   Button,
@@ -71,7 +71,7 @@ interface FilterBarProps {
   filter: SuperpowerFilter;
   onFilterChange: (f: SuperpowerFilter) => void;
   isSearching: boolean;
-  /** Available categories — surfaced inside the mobile filter sheet. */
+  /** Available categories, surfaced inside the filter sheet. */
   categories: CategoryInfo[];
   /** Currently selected category slug, or `null` for "All". */
   category: string | null;
@@ -153,15 +153,15 @@ interface FilterControlProps {
 }
 
 /**
- * Filter affordance for the My Superpowers page. On mobile the outlined
- * filter button opens a bottom sheet exposing Status, Type, Source, AND
- * Categories (the category sidebar is desktop-only, so the sheet is mobile's
- * sole category surface). On desktop the same button opens a compact popover
- * with Status + Type + Source; the always-visible sidebar owns category
- * selection there.
+ * Filter affordance for the My Superpowers page. On touch the outlined filter
+ * button opens a bottom sheet exposing Status, Type, Source, AND Categories
+ * (the category sidebar only renders on roomy viewports, so the sheet is the
+ * sole category surface there). Otherwise the same button opens a compact
+ * popover with Status + Type + Source, and the always-visible sidebar owns
+ * category selection.
  */
 function FilterControl(props: FilterControlProps) {
-  const isMobile = useIsMobile();
+  const isTouchMobile = useTouchMobile();
   const [open, setOpen] = useState(false);
 
   const trigger = (
@@ -170,13 +170,13 @@ function FilterControl(props: FilterControlProps) {
       variant="outlined"
       iconOnly={<Filter aria-hidden />}
       aria-label="Filter superpowers"
-      aria-haspopup={isMobile ? "dialog" : "listbox"}
+      aria-haspopup={isTouchMobile ? "dialog" : "listbox"}
       aria-expanded={open}
       tintColor="var(--primary-base)"
     />
   );
 
-  if (isMobile) {
+  if (isTouchMobile) {
     return (
       <FilterSheet
         {...props}
@@ -244,7 +244,7 @@ interface FilterSheetProps extends FilterControlProps {
 }
 
 /**
- * Mobile bottom sheet. Status/Type/Source and Categories are independent axes
+ * Touch bottom sheet. Status/Type/Source and Categories are independent axes
  * that both stay applied, so selecting a row updates the results live behind
  * the sheet without closing it — the user dials in both, then taps Done (or
  * outside) to dismiss.
@@ -355,7 +355,7 @@ function FilterSheet({
   );
 }
 
-/** Section grouping inside the mobile filter sheet. */
+/** Section grouping inside the filter sheet. */
 function SheetSection({
   label,
   children,

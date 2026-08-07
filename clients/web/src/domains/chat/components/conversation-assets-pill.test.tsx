@@ -19,11 +19,11 @@ import * as motionReact from "motion/react";
 
 import type { DocumentSummary } from "@/types/document-types";
 
-const isMobileRef = { value: false };
+const isTouchMobileRef = { value: false };
 
-mock.module("@/hooks/use-is-mobile", () => ({
-  useIsMobile: () => isMobileRef.value,
-  MOBILE_MEDIA_QUERY: "(max-width: 767px)",
+mock.module("@/hooks/use-touch-mobile", () => ({
+  useTouchMobile: () => isTouchMobileRef.value,
+  TOUCH_MOBILE_MEDIA_QUERY: "(max-width: 767px) and (pointer: coarse)",
 }));
 
 // `useReducedMotion` reads a cached media-query singleton, so a per-test
@@ -143,7 +143,7 @@ beforeEach(() => {
 
 afterEach(() => {
   cleanup();
-  isMobileRef.value = false;
+  isTouchMobileRef.value = false;
   reducedMotion = false;
   useUnseenDocumentChangesStore.setState({ changedDocuments: {} });
 });
@@ -183,7 +183,7 @@ describe("desktop pill", () => {
 
 describe("mobile trigger", () => {
   beforeEach(() => {
-    isMobileRef.value = true;
+    isTouchMobileRef.value = true;
   });
 
   test("shows the dot and names the state when a change is unseen", () => {
@@ -236,7 +236,7 @@ describe("conversation switch while the disclosure is open", () => {
   });
 
   test("closes the sheet and keeps the incoming dot on mobile", () => {
-    isMobileRef.value = true;
+    isTouchMobileRef.value = true;
     markUnseen(OTHER_CONVERSATION_ID, OTHER_SURFACE_ID);
     const { switchConversation } = renderPill();
 

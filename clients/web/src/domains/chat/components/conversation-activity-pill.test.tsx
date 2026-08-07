@@ -25,6 +25,13 @@ mock.module("@/hooks/use-is-mobile", () => ({
   MOBILE_MEDIA_QUERY: "(max-width: 767px)",
 }));
 
+const isTouchMobileRef = { value: false };
+
+mock.module("@/hooks/use-touch-mobile", () => ({
+  useTouchMobile: () => isTouchMobileRef.value,
+  TOUCH_MOBILE_MEDIA_QUERY: "(max-width: 767px) and (pointer: coarse)",
+}));
+
 const {
   ConversationActivityPill,
   ACTIVITY_PILL_TESTID,
@@ -58,6 +65,7 @@ afterEach(() => {
   useSubagentStore.getState().reset();
   useAcpRunStore.getState().reset();
   isMobileRef.value = false;
+  isTouchMobileRef.value = false;
 });
 
 /**
@@ -327,6 +335,7 @@ describe("ConversationActivityPill: detail demand", () => {
 describe("ConversationActivityPill: mobile", () => {
   test("uses the icon-only trigger and opens the bottom sheet", () => {
     isMobileRef.value = true;
+    isTouchMobileRef.value = true;
     spawnRunningSubagent("sa-live");
 
     renderPill();

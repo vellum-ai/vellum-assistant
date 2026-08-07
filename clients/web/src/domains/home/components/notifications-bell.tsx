@@ -9,7 +9,7 @@ import {
   useConversationListQuery,
   useScheduledConversationListQuery,
 } from "@/hooks/conversation-queries";
-import { useIsMobile } from "@/hooks/use-is-mobile";
+import { useTouchMobile } from "@/hooks/use-touch-mobile";
 import { useSupportsBulkFeedStatus } from "@/lib/backwards-compat/bulk-feed-status";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { mergeConversationLists } from "@/utils/conversation-cache";
@@ -100,7 +100,7 @@ const MOBILE_PANEL_CONTENT_HEIGHT = "60dvh";
 export function NotificationsBell() {
   const [isOpen, setIsOpen] = useState(false);
   const [selectedItemId, setSelectedItemId] = useState<string | null>(null);
-  const isMobile = useIsMobile();
+  const isTouchMobile = useTouchMobile();
   const navigate = useNavigate();
   const assistantId = useResolvedAssistantsStore.use.activeAssistantId();
   const feedQuery = useHomeFeedQuery(assistantId);
@@ -313,11 +313,13 @@ export function NotificationsBell() {
     />
   );
 
-  const contentHeight = isMobile
+  const contentHeight = isTouchMobile
     ? MOBILE_PANEL_CONTENT_HEIGHT
     : PANEL_CONTENT_HEIGHT;
-  const contentMaxHeight = isMobile ? undefined : PANEL_VIEWPORT_MAX_HEIGHT;
-  const listMaxHeight = isMobile
+  const contentMaxHeight = isTouchMobile
+    ? undefined
+    : PANEL_VIEWPORT_MAX_HEIGHT;
+  const listMaxHeight = isTouchMobile
     ? MOBILE_PANEL_CONTENT_HEIGHT
     : PANEL_LIST_MAX_HEIGHT;
 
@@ -427,7 +429,7 @@ export function NotificationsBell() {
     </div>
   );
 
-  if (isMobile) {
+  if (isTouchMobile) {
     return (
       <BottomSheet.Root open={isOpen} onOpenChange={handleOpenChange}>
         <BottomSheet.Trigger asChild>{trigger}</BottomSheet.Trigger>

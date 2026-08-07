@@ -1149,6 +1149,10 @@ wrapping the SPA.
 
 ## Platform gating
 
+"Platform" here means the Vellum platform (hosting and auth), not the device
+platform. For surfaces that differ across desktop, iOS, and Android, see
+[`PLATFORM_ADAPTATION.md`](./PLATFORM_ADAPTATION.md).
+
 The web app can run in three auth/hosting configurations that affect
 which UI surfaces are available:
 

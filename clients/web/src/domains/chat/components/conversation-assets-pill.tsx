@@ -33,7 +33,7 @@ import {
   useUnseenDocumentChangesStore,
 } from "@/domains/chat/unseen-document-changes-store";
 import { useAppDelete } from "@/hooks/use-app-delete";
-import { useIsMobile } from "@/hooks/use-is-mobile";
+import { useTouchMobile } from "@/hooks/use-touch-mobile";
 import { useTranslation } from "@/i18n";
 import type { AppSummary } from "@/types/app-types";
 import type { DocumentSummary } from "@/types/document-types";
@@ -147,7 +147,7 @@ export function ConversationAssetsPill({
     setOpen(false);
   }, [conversationId]);
 
-  const isMobile = useIsMobile();
+  const isTouchMobile = useTouchMobile();
   const { t } = useTranslation("chat");
   const reduceMotion = useReducedMotion();
   const hasUnseenChanges = useHasUnseenDocumentChanges(conversationId);
@@ -209,7 +209,7 @@ export function ConversationAssetsPill({
     <span
       className={cn(
         "relative flex",
-        !isMobile && "size-full [&_svg]:size-full",
+        !isTouchMobile && "size-full [&_svg]:size-full",
       )}
       aria-hidden
     >
@@ -237,14 +237,12 @@ export function ConversationAssetsPill({
           <AppAssetActions
             assistantId={assistantId}
             app={asset.app}
-            isMobile={isMobile}
             onRequestDelete={appDelete.requestDelete}
           />
         ) : asset.type === "document" && asset.doc ? (
           <DocumentAssetActions
             assistantId={assistantId}
             doc={asset.doc}
-            isMobile={isMobile}
             onOpen={() => handleSelect(asset)}
           />
         ) : undefined
@@ -252,7 +250,7 @@ export function ConversationAssetsPill({
     />
   ));
 
-  if (isMobile) {
+  if (isTouchMobile) {
     return (
       <>
         <BottomSheet.Root open={open} onOpenChange={handleOpenChange}>
