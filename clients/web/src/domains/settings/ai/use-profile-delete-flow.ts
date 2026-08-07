@@ -22,7 +22,6 @@ import type {
   ConfigGetResponse,
   ConfigPatchRequest,
 } from "@/generated/daemon/types.gen";
-import { resolveSupportsScheduleProfileMoves } from "@/lib/backwards-compat/use-supports-schedule-profile-moves";
 import { captureError } from "@/lib/sentry/capture-error";
 import { badRequestMessage } from "@/utils/api-errors";
 
@@ -208,42 +207,31 @@ export function useProfileDeleteFlow(
     let scheduleNames: string[] = [];
     let deferredReminderCount = 0;
     let scheduleLookupFailed = false;
-    // An assistant that predates the schedule-move routes answers the filtered
-    // list with every schedule it has and 404s the reassign, so scanning there
-    // would both misreport the references and strand the delete. Skip straight
-    // to the pre-schedule behavior instead. Scoped to `assistantId`: the
-    // identity store still carries the outgoing assistant's version for a beat
-    // after a switch, and this page's delete is aimed at `assistantId`, not at
-    // whichever identity happens to be hydrated.
-    const supportsScheduleMoves =
-      await resolveSupportsScheduleProfileMoves(assistantId);
-    if (supportsScheduleMoves) {
-      try {
-        const data = await queryClient.fetchQuery({
-          ...schedulesGetOptions({
-            path: { assistant_id: assistantId },
-            // include_all so the count the user is shown is the count the
-            // reassign actually moves: deferred reminders are hidden from the
-            // list by default but are moved like any other row.
-            query: { inference_profile: name, include_all: "true" },
-          }),
-          retry: false,
-          staleTime: 0,
-        });
-        const rows = data.schedules ?? [];
-        // Deferred reminders all carry the same generated name, so they are
-        // counted rather than listed; the user's own schedules are named.
-        scheduleNames = rows.filter((s) => !s.isDeferred).map((s) => s.name);
-        deferredReminderCount = rows.filter((s) => s.isDeferred).length;
-      } catch (err) {
-        // An unknown schedule list is not a reason to delete blind: fall
-        // through to the dialog so the user is told the check did not complete
-        // and the reassign still runs against whatever is pinned.
-        captureError(err, {
-          context: "settings-ai-profile-delete-schedule-scan",
-        });
-        scheduleLookupFailed = true;
-      }
+    try {
+      const data = await queryClient.fetchQuery({
+        ...schedulesGetOptions({
+          path: { assistant_id: assistantId },
+          // include_all so the count the user is shown is the count the
+          // reassign actually moves: deferred reminders are hidden from the
+          // list by default but are moved like any other row.
+          query: { inference_profile: name, include_all: "true" },
+        }),
+        retry: false,
+        staleTime: 0,
+      });
+      const rows = data.schedules ?? [];
+      // Deferred reminders all carry the same generated name, so they are
+      // counted rather than listed; the user's own schedules are named.
+      scheduleNames = rows.filter((s) => !s.isDeferred).map((s) => s.name);
+      deferredReminderCount = rows.filter((s) => s.isDeferred).length;
+    } catch (err) {
+      // An unknown schedule list is not a reason to delete blind: fall
+      // through to the dialog so the user is told the check did not complete
+      // and the reassign still runs against whatever is pinned.
+      captureError(err, {
+        context: "settings-ai-profile-delete-schedule-scan",
+      });
+      scheduleLookupFailed = true;
     }
 
     const hasReferences =
