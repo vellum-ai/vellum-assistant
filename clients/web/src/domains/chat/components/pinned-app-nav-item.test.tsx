@@ -270,7 +270,7 @@ describe("PinnedAppNavItem", () => {
     seedPin(APP);
 
     render(<PinnedAppNavItem app={APP} active={false} collapsed={false} />);
-    fireEvent.click(screen.getByRole("button", { name: "Teal" }));
+    fireEvent.click(screen.getByRole("menuitemradio", { name: "Teal" }));
 
     expect(usePinnedAppsStore.getState().pinnedApps[0]!.color).toBe("teal");
   });
@@ -282,7 +282,7 @@ describe("PinnedAppNavItem", () => {
     render(
       <PinnedAppNavItem app={TEAL_APP} active={false} collapsed={false} />,
     );
-    fireEvent.click(screen.getByRole("button", { name: "No color" }));
+    fireEvent.click(screen.getByRole("menuitemradio", { name: "No color" }));
 
     expect(usePinnedAppsStore.getState().pinnedApps[0]!.color).toBeUndefined();
   });
@@ -296,17 +296,19 @@ describe("PinnedAppNavItem", () => {
       <PinnedAppNavItem app={TEAL_APP} active={false} collapsed={false} />,
     );
 
-    const teal = screen.getByRole("button", { name: "Teal" });
-    expect(teal.getAttribute("role")).toBe("menuitemradio");
-    expect(teal.getAttribute("aria-checked")).toBe("true");
     expect(
       screen
-        .getByRole("button", { name: "Green" })
+        .getByRole("menuitemradio", { name: "Teal" })
+        .getAttribute("aria-checked"),
+    ).toBe("true");
+    expect(
+      screen
+        .getByRole("menuitemradio", { name: "Green" })
         .getAttribute("aria-checked"),
     ).toBe("false");
     expect(
       screen
-        .getByRole("button", { name: "No color" })
+        .getByRole("menuitemradio", { name: "No color" })
         .getAttribute("aria-checked"),
     ).toBe("false");
   });
@@ -316,7 +318,7 @@ describe("PinnedAppNavItem", () => {
 
     expect(
       screen
-        .getByRole("button", { name: "No color" })
+        .getByRole("menuitemradio", { name: "No color" })
         .getAttribute("aria-checked"),
     ).toBe("true");
   });
@@ -328,14 +330,14 @@ describe("PinnedAppNavItem", () => {
       <PinnedAppNavItem app={TEAL_APP} active={false} collapsed={false} />,
     );
 
-    expect(screen.getByRole("button", { name: "Teal" })).toBeTruthy();
-    expect(screen.queryByRole("button", { name: "teal" })).toBeNull();
+    expect(screen.getByRole("menuitemradio", { name: "Teal" })).toBeTruthy();
+    expect(screen.queryByRole("menuitemradio", { name: "teal" })).toBeNull();
   });
 
   test("collapsed rail: the colour row is omitted with the rest of the menu", () => {
     render(<PinnedAppNavItem app={TEAL_APP} active={false} collapsed />);
 
-    expect(screen.queryByRole("button", { name: "Teal" })).toBeNull();
+    expect(screen.queryByRole("menuitemradio", { name: "Teal" })).toBeNull();
   });
 
   /* `aria-current="page"` rather than a `data-active` attribute: the pill's
