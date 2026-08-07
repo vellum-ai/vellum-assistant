@@ -11,7 +11,6 @@ import { cn } from "@vellumai/design-library/utils/cn";
 
 import {
   SIDEBAR_CHIP_GAP,
-  SIDEBAR_CHIP_SIZE,
   SIDEBAR_ROW_PADDING_X,
   SIDEBAR_SECTION_INDENT,
   SIDEBAR_SECTION_TITLE_TEXT_CLASSES,
@@ -158,10 +157,8 @@ export interface CollapsibleNavSectionDrag {
   dropEdge: "before" | "after" | null;
 }
 
-export interface CollapsibleNavSectionSectionProps extends Omit<
-  CollapsibleItemProps,
-  "children"
-> {
+export interface CollapsibleNavSectionSectionProps
+  extends Omit<CollapsibleItemProps, "children"> {
   value: string;
   icon?: LucideIcon;
   label: string;
@@ -219,8 +216,11 @@ function CollapsibleNavSectionSection({
   const iconSlot = Icon ? (
     <span
       data-slot="collapsible-nav-section-icon"
-      className="relative inline-flex h-[14px] shrink-0 items-center justify-center"
-      style={{ width: SIDEBAR_CHIP_SIZE }}
+      /* Hugs the glyph. A chip-width box with the glyph centred in it padded
+         the icon away from both edges, so the header read as indented from
+         the row surfaces below it. Centring is the collapsed rail's need,
+         and the rail draws its own tiles. */
+      className="relative inline-flex h-[14px] w-[14px] shrink-0 items-center justify-center"
     >
       <Icon size={12} aria-hidden className="text-[var(--content-tertiary)]" />
     </span>
@@ -271,11 +271,6 @@ function CollapsibleNavSectionSection({
         >
           {iconSlot}
           <span className="min-w-0 flex-1 truncate">{label}</span>
-          {collapsedIndicator ? (
-            <span className="ml-1 flex shrink-0 items-center group-data-[state=open]/section:hidden">
-              {collapsedIndicator}
-            </span>
-          ) : null}
         </Collapsible.Trigger>
       ) : (
         // Non-collapsible: no chevron, no toggle affordance, just the icon
@@ -299,36 +294,22 @@ function CollapsibleNavSectionSection({
           <span className="min-w-0 flex-1 truncate">{label}</span>
         </div>
       )}
-      {collapsible || trailing ? (
+      {collapsible || trailing || collapsedIndicator ? (
         <span className="flex shrink-0 items-center gap-1 pr-[6px] max-md:pr-2">
-          {collapsible ? (
-            // Decorative disclosure indicator with the title trigger's own
-            // hover box, left of the "…". Not a trigger itself: the section
-            // has exactly one accessible toggle (the title), so the chevron
-            // stays out of the accessibility tree and forwards pointer
-            // clicks to that trigger instead. A second Radix trigger here
-            // would duplicate the item's trigger id and announce every
-            // section twice.
+          {collapsedIndicator ? (
+            /* Shares the "…" position, so the header's right edge carries one
+               thing at a time: the dot at rest, the menu once hovered. Only
+               while collapsed, since an open section's rows show the same
+               state and a header dot would double it. */
             <span
-              data-slot="collapsible-nav-section-chevron"
-              aria-hidden
-              onClick={(event) => {
-                event.stopPropagation();
-                titleTriggerRef.current?.click();
-              }}
-              className="flex h-5 w-5 shrink-0 cursor-pointer items-center justify-center rounded-[4px] hover:bg-[var(--surface-hover)] max-md:h-[30px] max-md:w-[30px]"
+              data-slot="collapsible-nav-section-indicator"
+              className={cn(
+                "flex shrink-0 items-center",
+                "group-hover/header:hidden",
+                "group-data-[state=open]/section:hidden",
+              )}
             >
-              <ChevronDown
-                size={12}
-                aria-hidden
-                className={cn(
-                  "shrink-0 transition-[opacity,transform]",
-                  "text-[var(--content-tertiary)]",
-                  "opacity-0 group-hover/header:opacity-100",
-                  "max-md:opacity-100 max-md:h-[18px] max-md:w-[18px]",
-                  "group-data-[state=open]/section:rotate-180",
-                )}
-              />
+              {collapsedIndicator}
             </span>
           ) : null}
           {trailing ? (
@@ -355,6 +336,37 @@ function CollapsibleNavSectionSection({
               onClick={(event) => event.stopPropagation()}
             >
               {trailing}
+            </span>
+          ) : null}
+          {collapsible ? (
+            // Decorative disclosure indicator with the title trigger's own
+            // hover box, outermost so the "…" sits inside it and the
+            // header's right edge stays the same glyph whichever is
+            // showing. Not a trigger itself: the section
+            // has exactly one accessible toggle (the title), so the chevron
+            // stays out of the accessibility tree and forwards pointer
+            // clicks to that trigger instead. A second Radix trigger here
+            // would duplicate the item's trigger id and announce every
+            // section twice.
+            <span
+              data-slot="collapsible-nav-section-chevron"
+              aria-hidden
+              onClick={(event) => {
+                event.stopPropagation();
+                titleTriggerRef.current?.click();
+              }}
+              className="flex h-5 w-5 shrink-0 cursor-pointer items-center justify-center rounded-[4px] hover:bg-[var(--surface-hover)] max-md:h-[30px] max-md:w-[30px]"
+            >
+              <ChevronDown
+                size={12}
+                aria-hidden
+                className={cn(
+                  "shrink-0 transition-transform",
+                  "text-[var(--content-tertiary)]",
+                  "max-md:h-[18px] max-md:w-[18px]",
+                  "group-data-[state=open]/section:rotate-180",
+                )}
+              />
             </span>
           ) : null}
         </span>

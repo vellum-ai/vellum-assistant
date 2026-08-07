@@ -18,13 +18,14 @@
  */
 
 import {
-    Archive,
-    ArrowDown,
-    ArrowUp,
-    CircleCheck,
-    Copy,
-    Pencil,
-    Trash2,
+  Archive,
+  ArrowDown,
+  ArrowUp,
+  CircleCheck,
+  Copy,
+  Layers,
+  Pencil,
+  Trash2,
 } from "lucide-react";
 import { type ReactNode, useState } from "react";
 
@@ -75,6 +76,16 @@ export interface GroupMenuItemsProps {
    */
   onMoveUp?: () => void;
   onMoveDown?: () => void;
+  /**
+   * Switch the sidebar between one flat chat list and one section per origin
+   * channel. Offered by the sections the switch actually changes (Chats and
+   * the channel sections), which is why it sits beside their bulk actions
+   * rather than in a sidebar-wide header: the section carrying the toggle is
+   * the section it reshapes.
+   */
+  onToggleGroupByChannel?: () => void;
+  /** Whether channel grouping is on, which decides the toggle's label. */
+  isGroupedByChannel?: boolean;
 }
 
 /**
@@ -87,6 +98,7 @@ export function hasAnyGroupMenuAction({
   onRename,
   onDelete,
   onCopyGroupId,
+  onToggleGroupByChannel,
   onMoveUp,
   onMoveDown,
 }: GroupMenuItemsProps): boolean {
@@ -96,6 +108,7 @@ export function hasAnyGroupMenuAction({
     onRename != null ||
     onDelete != null ||
     onCopyGroupId != null ||
+    onToggleGroupByChannel != null ||
     onMoveUp != null ||
     onMoveDown != null
   );
@@ -110,12 +123,17 @@ export function renderGroupMenuItems({
   onRename,
   onDelete,
   onCopyGroupId,
+  onToggleGroupByChannel,
+  isGroupedByChannel = false,
   onMoveUp,
   onMoveDown,
 }: GroupMenuItemsProps & { Primitive: GroupMenuPrimitive }): ReactNode {
   const hasBulkActions = onMarkAllRead != null || onArchiveAll != null;
   const hasIndividualActions =
-    onRename != null || onDelete != null || onCopyGroupId != null;
+    onRename != null ||
+    onDelete != null ||
+    onCopyGroupId != null ||
+    onToggleGroupByChannel != null;
   const hasMoveActions = onMoveUp != null || onMoveDown != null;
 
   return (
@@ -129,7 +147,10 @@ export function renderGroupMenuItems({
         </Primitive.Item>
       ) : null}
       {onMoveDown ? (
-        <Primitive.Item leftIcon={<ArrowDown size={14} />} onSelect={onMoveDown}>
+        <Primitive.Item
+          leftIcon={<ArrowDown size={14} />}
+          onSelect={onMoveDown}
+        >
           Move Section Down
         </Primitive.Item>
       ) : null}
@@ -168,6 +189,14 @@ export function renderGroupMenuItems({
       {onCopyGroupId ? (
         <Primitive.Item leftIcon={<Copy size={14} />} onSelect={onCopyGroupId}>
           Copy group ID
+        </Primitive.Item>
+      ) : null}
+      {onToggleGroupByChannel ? (
+        <Primitive.Item
+          leftIcon={<Layers size={14} />}
+          onSelect={onToggleGroupByChannel}
+        >
+          {isGroupedByChannel ? "Ungroup by channel" : "Group by channel"}
         </Primitive.Item>
       ) : null}
     </>

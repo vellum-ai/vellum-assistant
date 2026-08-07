@@ -23,7 +23,7 @@
 import type { ReactNode } from "react";
 
 import type { CollapsibleNavSectionDrag } from "@/components/collapsible-nav-section";
-import { ConversationNavSection } from "@/domains/chat/components/conversation-nav-section";
+import { SidebarSectionCard } from "@/domains/chat/components/sidebar-section-card";
 import {
   GroupActionsMenu,
   type GroupMenuItemsProps,
@@ -70,17 +70,15 @@ export function SidebarSectionItem({
      recurs at the next section type. */
   const groupMenu = buildGroupMenu(conversations);
   return (
-    <ConversationNavSection
+    <SidebarSectionCard
       value={section.key}
       icon={sectionIcon(section)}
       label={section.label}
       /* The "…" button and the header's right-click menu both render from
-         `groupMenu`; only the curated sections carry the button. */
-      trailing={
-        section.type === "group" || section.type === "pinned" ? (
-          <GroupActionsMenu label={section.label} {...groupMenu} />
-        ) : undefined
-      }
+         `groupMenu`. Every section carries it: a section's actions should not
+         depend on which kind it is, and Chats and the channels have their own
+         (the channel-grouping toggle) on top of the bulk ones. */
+      trailing={<GroupActionsMenu label={section.label} {...groupMenu} />}
       groupMenu={groupMenu}
       collapsedIndicator={collapsedIndicator?.(conversations)}
       drag={drag}

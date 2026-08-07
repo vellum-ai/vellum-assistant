@@ -5,7 +5,7 @@ import { usePinnedAppsStore } from "@/stores/pinned-apps-store";
 import type { PinnedAppEntry } from "@/utils/app-pin-storage";
 import { isPointerCoarse } from "@/utils/pointer";
 import type { SwipeAction } from "@/hooks/use-swipe-to-reveal";
-import { ContextMenu, SideMenu } from "@vellumai/design-library";
+import { ContextMenu, PanelItem, SideMenu } from "@vellumai/design-library";
 
 export interface PinnedAppNavItemProps {
   app: PinnedAppEntry;
@@ -61,33 +61,53 @@ export function PinnedAppNavItem({
     return sideMenuItem;
   }
 
+  /* A pill, so a pinned app reads as its own object rather than as a row in
+     a list. The unpin rides in `trailingAction`, which is why this is a
+     `PanelItem` and the collapsed branch above is not: `SideMenu.Item` has no
+     trailing slot, so the same button previously had to be a sibling
+     absolutely positioned over the row's right edge. */
   const item = (
-    <div className="group/pinned-app relative">
-      <SideMenu.Item
-        icon={app.icon ?? Rocket}
-        label={app.name}
-        active={active}
-        onSelect={onOpen ? () => onOpen(app.appId) : undefined}
-        className="pr-8 text-[color:var(--content-default)]"
-      />
-      <button
-        type="button"
-        aria-label={`Unpin ${app.name}`}
-        onClick={(event) => {
-          event.stopPropagation();
-          unpin(app.appId);
-        }}
-        // Desktop-only affordance: touch has no hover to reveal it first, so
-        // without this a tap in this invisible 20px corner would unpin the
-        // app instead of opening the row. Touch already has the swipe/
-        // long-press path for unpin (see `trailingActions` below).
-        // `focus-visible:pointer-events-auto` keeps it reachable for
-        // switch-control/keyboard nav on a touch device.
-        className="absolute top-1/2 right-[6px] flex h-5 w-5 -translate-y-1/2 items-center justify-center rounded-[4px] text-[var(--content-tertiary)] opacity-0 transition-opacity hover:bg-[var(--surface-hover)] hover:text-[var(--content-secondary)] group-hover/pinned-app:opacity-100 focus-visible:opacity-100 pointer-coarse:pointer-events-none pointer-coarse:focus-visible:pointer-events-auto"
-      >
-        <PinOff size={12} aria-hidden />
-      </button>
-    </div>
+    <PanelItem
+      shape="pill"
+      /* An app's icon is an emoji string on its manifest, which is why this
+         is `leadingSlot` rather than `icon`: `icon` takes a Lucide component.
+         Unmojified apps fall back to the Rocket glyph. Matches the emoji
+         box `SideMenu.Item` renders for the same value. */
+      {...(typeof app.icon === "string"
+        ? {
+            leadingSlot: (
+              <span
+                aria-hidden
+                className="inline-flex h-[14px] w-[14px] shrink-0 items-center justify-center text-[14px] leading-none"
+              >
+                {app.icon}
+              </span>
+            ),
+          }
+        : { icon: app.icon ?? Rocket })}
+      label={app.name}
+      active={active}
+      onSelect={onOpen ? () => onOpen(app.appId) : undefined}
+      className="text-[color:var(--content-default)]"
+      trailingAction={
+        <button
+          type="button"
+          aria-label={`Unpin ${app.name}`}
+          onClick={(event) => {
+            event.stopPropagation();
+            unpin(app.appId);
+          }}
+          /* Desktop-only affordance: touch has no hover to reveal it first,
+             so without this a tap in this corner would unpin the app instead
+             of opening it. Touch has the swipe and long-press paths below.
+             `focus-visible:pointer-events-auto` keeps it reachable for
+             keyboard and switch-control on a touch device. */
+          className="flex h-5 w-5 items-center justify-center rounded-[4px] text-[var(--content-tertiary)] opacity-0 transition-opacity hover:bg-[var(--surface-hover)] hover:text-[var(--content-secondary)] group-hover/panel-item:opacity-100 focus-visible:opacity-100 pointer-coarse:pointer-events-none pointer-coarse:focus-visible:pointer-events-auto"
+        >
+          <PinOff size={12} aria-hidden />
+        </button>
+      }
+    />
   );
 
   const trailingActions: SwipeAction[] = isPointerCoarse()

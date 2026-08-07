@@ -21,19 +21,18 @@
  * comment on `defaultSections` for why it cannot simply move down with the
  * contents, and for the point at which it has to go.
  *
- * Two views share all of that. In `all` (the default) the sections stop at
- * the curated layer - Pinned and the custom groups - and everything else
- * renders as {@link SidebarState.flatList}, one recency-sorted list the
- * sidebar virtualizes. In `grouped`, Chats and one section per origin channel
- * follow the curated layer, and the flat list goes unused.
+ * Two views share all of that. In `all` (the default) the sections are Pinned
+ * and the custom groups, and everything else renders as
+ * {@link SidebarState.flatList}, one recency-sorted list the sidebar
+ * virtualizes. In `grouped`, Chats and one section per origin channel join
+ * them, and the flat list goes unused.
  *
  * The headline output is {@link SidebarState.sections}: one flat, ordered
  * list of every renderable section (Pinned, Chats, each channel, each custom
- * group) as a discriminated union. The sidebar walks that list in order -
- * it does not know which section types exist or where they "belong", which
- * is what lets the user reorder them at all. The one constraint is the view
- * switch: Pinned and the custom groups always lead it, Chats and the channel
- * sections always follow, and sections reorder freely within their own tier.
+ * group) as a discriminated union. The sidebar walks that list in order and
+ * does not know which section types exist or where they "belong", which is
+ * what lets the user put any section anywhere. There is no tier: a section's
+ * kind decides what it contains, never where it can sit.
  *
  * Memoizes grouping per `conversations` reference so parent re-renders
  * that don't change the conversation list skip the grouping work.
@@ -55,16 +54,13 @@ import {
 import { useSidebarLayoutStore } from "@/domains/chat/sidebar-layout-store";
 import {
   channelSectionKey,
-  isChannelSectionKey,
   isKnownCategoryKey,
   isKnownPrimaryKey,
 } from "@/domains/chat/utils/sidebar-group-collapse-storage";
 import {
-  enforceCuratedLead,
   mergeSectionOrder,
   moveSectionKey,
   nextStoredOrder,
-  type SectionOrderClass,
 } from "@/domains/chat/utils/sidebar-section-order";
 import {
   saveViewMode,
@@ -94,18 +90,6 @@ const EMPTY_KEYS: string[] = [];
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
-
-/**
- * Which side of the view switch a section sits on. Chats and the channel
- * sections are what the switch changes, so they sit under it; Pinned and the
- * custom groups are untouched by it and lead.
- */
-function classifySectionKey(key: string): SectionOrderClass {
-  if (key === "recents" || isChannelSectionKey(key)) {
-    return "governed";
-  }
-  return "curated";
-}
 
 // ---------------------------------------------------------------------------
 // Sections
@@ -148,19 +132,12 @@ export interface SidebarState {
   flatList: Conversation[];
 
   /**
-   * Every section in the user's chosen order - the list the sidebar renders
-   * above the flat list. Sections the user has never touched fall back to the
-   * default order (Pinned, custom groups, then - in `grouped` view - Chats
-   * and the channel sections).
+   * Every section in the user's chosen order. Sections the user has never
+   * moved fall back to the default order (Pinned, custom groups, then - in
+   * `grouped` view - Chats and the channel sections), which is a starting
+   * arrangement rather than a constraint.
    */
   sections: SidebarSection[];
-  /**
-   * How many leading entries of {@link SidebarState.sections} are the curated
-   * layer. The view switch renders at that offset, which is the tier boundary
-   * `enforceCuratedLead` guarantees - so the sidebar places it without
-   * re-deriving what "curated" means.
-   */
-  curatedSectionCount: number;
   /**
    * Persist a new section order. Takes the full ordered key list of the
    * sections currently on screen.
@@ -174,8 +151,8 @@ export interface SidebarState {
   onMoveSection: (key: string, delta: -1 | 1) => void;
   /**
    * Whether {@link SidebarState.onMoveSection} would actually move anything -
-   * false at the ends of the list, and for a move that would carry a section
-   * across the view switch into the other tier.
+   * false only at the ends of the list, so the menu never offers a nudge that
+   * does nothing.
    */
   canMoveSection: (key: string, delta: -1 | 1) => boolean;
 
@@ -365,27 +342,12 @@ export function useSidebarState({
         ? defaultKeys
         : mergeSectionOrder(defaultKeys, sectionOrder);
     const byKey = new Map(defaultSections.map((s) => [s.key, s]));
-    return enforceCuratedLead(ordered, classifySectionKey).map(
-      (key) => byKey.get(key)!,
-    );
+    return ordered.map((key) => byKey.get(key)!);
   }, [defaultSections, sectionOrder]);
-
-  const curatedSectionCount = useMemo(
-    () =>
-      sections.filter(
-        (section) => classifySectionKey(section.key) === "curated",
-      ).length,
-    [sections],
-  );
 
   const onReorderSections = useCallback(
     (orderedKeys: string[]) => {
-      setSectionOrder(
-        nextStoredOrder(
-          sectionOrder,
-          enforceCuratedLead(orderedKeys, classifySectionKey),
-        ),
-      );
+      setSectionOrder(nextStoredOrder(sectionOrder, orderedKeys));
     },
     [sectionOrder, setSectionOrder],
   );
@@ -400,8 +362,7 @@ export function useSidebarState({
       if (!moved) {
         return null;
       }
-      const settled = enforceCuratedLead(moved, classifySectionKey);
-      return settled.join("\0") === current.join("\0") ? null : settled;
+      return moved.join("\0") === current.join("\0") ? null : moved;
     },
     [sections],
   );
@@ -488,7 +449,6 @@ export function useSidebarState({
     onViewModeChange: setViewMode,
     flatList: grouped.recents,
     sections,
-    curatedSectionCount,
     onReorderSections,
     onMoveSection,
     canMoveSection,
