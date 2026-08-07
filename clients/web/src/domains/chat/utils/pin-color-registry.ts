@@ -19,13 +19,50 @@ import type { CSSProperties } from "react";
 
 import { BUNDLED_COMPONENTS } from "@/utils/avatar-bundled-components";
 
+/**
+ * The name each colour is announced by, as a catalog key rather than the
+ * stored id: a user hears a colour name, and "teal" is an internal identifier
+ * that happens to be an English word.
+ *
+ * Being a map rather than a lookup on the palette is what makes it total. A
+ * colour added to the palette and not named here is a compile error at every
+ * use, in the manner of `sidebar-section-icon.ts`, instead of a swatch that
+ * announces its own id.
+ */
+const COLOR_NAME_KEYS = {
+  green: "pinnedAppColorSwatches.colors.green",
+  orange: "pinnedAppColorSwatches.colors.orange",
+  pink: "pinnedAppColorSwatches.colors.pink",
+  purple: "pinnedAppColorSwatches.colors.purple",
+  teal: "pinnedAppColorSwatches.colors.teal",
+  yellow: "pinnedAppColorSwatches.colors.yellow",
+} as const;
+
+export type PinColorId = keyof typeof COLOR_NAME_KEYS;
+
 export interface PinColor {
-  id: string;
+  id: PinColorId;
   hex: string;
 }
 
-/** Picker choices, in display order. */
-export const PIN_COLORS: readonly PinColor[] = BUNDLED_COMPONENTS.colors;
+/** Catalog key for a colour's name. */
+export function pinColorNameKey(
+  id: PinColorId,
+): (typeof COLOR_NAME_KEYS)[PinColorId] {
+  return COLOR_NAME_KEYS[id];
+}
+
+/**
+ * Picker choices, in the palette's own order.
+ *
+ * A palette colour this client has no name for is left out rather than shown
+ * under its id: a swatch nobody can hear the name of is worse than one fewer
+ * choice, and the omission is loud enough to fix because the colour simply
+ * does not appear.
+ */
+export const PIN_COLORS: readonly PinColor[] = BUNDLED_COMPONENTS.colors.filter(
+  (color): color is PinColor => color.id in COLOR_NAME_KEYS,
+);
 
 /**
  * How much of the colour reaches the pill. A wash rather than the solid fill

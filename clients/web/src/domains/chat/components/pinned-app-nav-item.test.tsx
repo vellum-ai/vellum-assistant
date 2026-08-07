@@ -270,7 +270,7 @@ describe("PinnedAppNavItem", () => {
     seedPin(APP);
 
     render(<PinnedAppNavItem app={APP} active={false} collapsed={false} />);
-    fireEvent.click(screen.getByRole("button", { name: "teal" }));
+    fireEvent.click(screen.getByRole("button", { name: "Teal" }));
 
     expect(usePinnedAppsStore.getState().pinnedApps[0]!.color).toBe("teal");
   });
@@ -282,28 +282,60 @@ describe("PinnedAppNavItem", () => {
     render(
       <PinnedAppNavItem app={TEAL_APP} active={false} collapsed={false} />,
     );
-    fireEvent.click(screen.getByRole("button", { name: "No color, selected" }));
+    fireEvent.click(screen.getByRole("button", { name: "No color" }));
 
     expect(usePinnedAppsStore.getState().pinnedApps[0]!.color).toBeUndefined();
   });
 
-  /* The ring marking the current colour is invisible to a screen reader, so
-     the selected swatch has to say so in its name. */
-  test("names the pin's current colour as the selected swatch", () => {
+  /* Selection is carried by `aria-checked` on a radio, so a screen reader
+     announces it in the user's own language instead of this component gluing
+     a word onto the colour's name. Both states asserted, because a swatch that
+     is always checked marks every colour as the current one. */
+  test("marks the pin's current colour as the checked swatch", () => {
     render(
       <PinnedAppNavItem app={TEAL_APP} active={false} collapsed={false} />,
     );
 
-    expect(screen.getByRole("button", { name: "teal, selected" })).toBeTruthy();
+    const teal = screen.getByRole("button", { name: "Teal" });
+    expect(teal.getAttribute("role")).toBe("menuitemradio");
+    expect(teal.getAttribute("aria-checked")).toBe("true");
     expect(
-      screen.queryByRole("button", { name: "No color, selected" }),
-    ).toBeNull();
+      screen
+        .getByRole("button", { name: "Green" })
+        .getAttribute("aria-checked"),
+    ).toBe("false");
+    expect(
+      screen
+        .getByRole("button", { name: "No color" })
+        .getAttribute("aria-checked"),
+    ).toBe("false");
+  });
+
+  test("an uncoloured pin checks the No color swatch", () => {
+    render(<PinnedAppNavItem app={APP} active={false} collapsed={false} />);
+
+    expect(
+      screen
+        .getByRole("button", { name: "No color" })
+        .getAttribute("aria-checked"),
+    ).toBe("true");
+  });
+
+  /* Named from the catalog, not from the stored id. Asserting the English
+     copy is what fails if the label ever falls back to announcing `teal`. */
+  test("announces a translated colour name rather than the stored id", () => {
+    render(
+      <PinnedAppNavItem app={TEAL_APP} active={false} collapsed={false} />,
+    );
+
+    expect(screen.getByRole("button", { name: "Teal" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "teal" })).toBeNull();
   });
 
   test("collapsed rail: the colour row is omitted with the rest of the menu", () => {
     render(<PinnedAppNavItem app={TEAL_APP} active={false} collapsed />);
 
-    expect(screen.queryByRole("button", { name: "teal, selected" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Teal" })).toBeNull();
   });
 
   /* `aria-current="page"` rather than a `data-active` attribute: the pill's
