@@ -235,6 +235,13 @@ export function CompanionSurfacePage() {
   // by itself in seconds, and the surface came to the cursor to show it: an
   // avatar that moved across the screen and then drew something else entirely
   // would be the wrong half of what just happened.
+  //
+  // **The composer still outranks dictation, and cannot hide one.** A session
+  // is never handed to this surface while the composer is open
+  // (`canHostDictation` in `companion-window.ts`) — it goes to the top-center
+  // overlay instead, so the draft survives and the recording is still visible
+  // somewhere. And once a session is running the pill draws the dictation body,
+  // so there is no Type control on screen to open a composer over it.
   const phase: CompanionSurfacePhase = typing
     ? "typing"
     : dictation !== null

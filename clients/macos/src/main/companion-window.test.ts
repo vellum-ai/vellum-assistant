@@ -24,6 +24,7 @@ const {
   shouldShowCompanionSurface,
   canvasOriginForAvatarCentre,
   parkedOriginForSnap,
+  canHostDictation,
 } = await import("./companion-window");
 
 /** A session as the mirror publishes one, before main stamps its clock. */
@@ -153,6 +154,30 @@ describe("shouldShowCompanionSurface", () => {
   // wrote last time, and a fresh install has none.
   test("stays away when nothing is known yet", () => {
     expect(shouldShowCompanionSurface(false, false)).toBe(false);
+  });
+});
+
+/**
+ * Whether the surface takes a dictation session or leaves it to the overlay.
+ *
+ * Taking one suppresses the top-center overlay, so declining has to be the
+ * answer whenever the surface could not actually draw the session: the user
+ * would otherwise dictate with no transcription and no stop control anywhere.
+ */
+describe("canHostDictation", () => {
+  test("takes the session while on screen and idle", () => {
+    expect(canHostDictation(true, false)).toBe(true);
+  });
+
+  test("declines while off screen, which is what the overlay is for", () => {
+    expect(canHostDictation(false, false)).toBe(false);
+  });
+
+  // The composer holds a half-typed message that closing would throw away, and
+  // the pill draws one thing at a time. Hosting here would suppress the overlay
+  // and then render the card over the session it just took.
+  test("declines while the composer is open, draft intact", () => {
+    expect(canHostDictation(true, true)).toBe(false);
   });
 });
 

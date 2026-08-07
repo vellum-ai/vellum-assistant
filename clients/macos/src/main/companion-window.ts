@@ -54,6 +54,27 @@ export const shouldShowCompanionSurface = (
 ): boolean => enabled && !hidden;
 
 /**
+ * Whether the surface may take a dictation session, rather than leaving it to
+ * the top-center overlay.
+ *
+ * **An open composer declines the session.** Taking one suppresses the overlay,
+ * and this surface can only draw one thing at a time: the composer holds a
+ * half-typed message of the user's that closing would throw away, so a hosted
+ * session would have nowhere to appear and the user would dictate with no
+ * transcription and no stop control anywhere on screen. Declining leaves the
+ * draft alone and puts the session on the overlay, which is exactly the
+ * fallback it exists to be.
+ *
+ * A session cannot be overtaken by a composer opened later: while one is
+ * running the pill draws the dictation body, so the Type control that opens the
+ * composer is not on screen to press.
+ */
+export const canHostDictation = (
+  onScreen: boolean,
+  composing: boolean,
+): boolean => onScreen && !composing;
+
+/**
  * The companion surface (LUM-3086): the assistant's avatar floating from app
  * launch, expanding on hover into a pill with the voice and type-chat options,
  * and holding that expansion for as long as a call runs. It stays on screen
@@ -199,6 +220,15 @@ let dictation: DictationOverlayState | null = null;
  * must not be a way to quietly lose that.
  */
 let parkedOrigin: Origin | null = null;
+
+/**
+ * Whether the surface's composer is open, as its renderer last reported.
+ *
+ * Tracked because it decides more than the keyboard: a surface with a draft in
+ * it declines a dictation session rather than covering the draft or swallowing
+ * the session. See {@link canHostDictation}.
+ */
+let composing = false;
 
 /**
  * The state the renderer sees, rebuilt on demand.
@@ -415,8 +445,9 @@ const moveCanvasTo = (origin: Origin): void => {
  * one place on screen.
  */
 export const companionDictationHost = {
-  /** Whether the surface is on screen to be handed a session at all. */
-  canHost: (): boolean => getFloatingWindow(COMPANION_KIND) !== null,
+  /** Whether the surface will take a session. See {@link canHostDictation}. */
+  canHost: (): boolean =>
+    canHostDictation(getFloatingWindow(COMPANION_KIND) !== null, composing),
 
   /**
    * Begin: come to the cursor, and hold the spot to go back to.
@@ -609,12 +640,15 @@ export const installCompanionWindow = (): void => {
    * the instant the composer closes rather than the next time the user clicks
    * into the app they are working in.
    */
-  on("vellum:companion:setComposing", z.tuple([z.boolean()]), ([composing]) => {
+  on("vellum:companion:setComposing", z.tuple([z.boolean()]), ([next]) => {
+    // Recorded before the window check, because whether the surface will take a
+    // dictation session is a fact about the draft rather than about the window.
+    composing = next;
     const win = getFloatingWindow(COMPANION_KIND);
     if (!win || win.isDestroyed()) {
       return;
     }
-    if (composing) {
+    if (next) {
       win.setFocusable(true);
       win.focus();
       return;
@@ -789,6 +823,9 @@ const closeCompanionWindow = (): void => {
   // computed for the display the cursor is actually on.
   parkedOrigin = null;
   dictation = null;
+  // A window that is gone has no composer open in it. The renderer reports this
+  // on unmount too, but a destroyed window may never get to.
+  composing = false;
 };
 
 /**
