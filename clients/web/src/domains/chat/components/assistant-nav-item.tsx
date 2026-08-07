@@ -24,10 +24,9 @@
 
 import { Brain, Plus } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { CSSProperties } from "react";
 import { motion, useAnimationControls, useReducedMotion } from "motion/react";
 
-import { cn } from "@vellumai/design-library";
+import { cn, PanelItem } from "@vellumai/design-library";
 
 import {
   SIDEBAR_CHIP_GAP,
@@ -216,63 +215,19 @@ export function AssistantNavItem({
       components.colors.find((c) => c.id === traits.color)?.hex) ||
     null;
 
-  // The row wears the identity page's feature-card wash: 14% of the
-  // avatar color mixed into the lifted surface, the Personality card's
-  // recipe (see `identity-overview.tsx` `--card-feature-bg`) — falling
-  // back to the plain hover treatment when there's no character avatar.
-  // While the tour owns the nav the wash drains away like the assistant
-  // row's color.
+  /* An untinted pill. It sat on a 14% wash of the avatar colour, which put
+     two tinted surfaces next to each other with only the identity pill
+     needing to carry the assistant's colour. Plain reads better beside it,
+     and it drops the one place a leading icon and its label wanted different
+     colours. */
   const newConversationRow = showNewConversation ? (
-    <button
-      type="button"
-      onClick={onNewConversation}
-      title="New Chat"
+    <PanelItem
+      shape="pill"
+      icon={Plus}
+      label="New Chat"
+      onSelect={onNewConversation}
       data-tour-id="new-chat"
-      className={cn(
-        "group relative flex w-full cursor-pointer items-center overflow-hidden select-none",
-        collapsed ? "rounded-[6px]" : "rounded-[8px]",
-        "outline-none keyboard-focus:ring-2 keyboard-focus:ring-[var(--ring)]",
-        "transition-colors duration-150 active:scale-[0.98]",
-        hex && !navTourActive
-          ? "bg-[color-mix(in_srgb,var(--assistant-tint)_14%,var(--surface-lift))] hover:bg-[color-mix(in_srgb,var(--assistant-tint)_36%,var(--surface-lift))]"
-          : "hover:bg-[var(--surface-hover)]",
-        collapsed && "justify-center",
-      )}
-      style={
-        {
-          height: collapsed ? COLLAPSED_ASSISTANT_ROW_HEIGHT : rowHeight,
-          gap: SIDEBAR_CHIP_GAP,
-          paddingLeft: collapsed ? 0 : ROW_PADDING_X,
-          paddingRight: collapsed ? 0 : ROW_PADDING_X,
-          ...(hex ? { "--assistant-tint": hex } : null),
-        } as CSSProperties
-      }
-    >
-      <span
-        aria-hidden="true"
-        className="flex shrink-0 items-center justify-center"
-        style={{ width: CHIP_SIZE, height: CHIP_SIZE }}
-      >
-        {/* 14px, not the section headers' 12px — the plus glyph carries
-            less ink than the pin/chat icons, so it needs the extra 2px to
-            read as the same size. */}
-        <Plus
-          className="h-3.5 w-3.5"
-          style={{
-            color: "var(--assistant-tint, var(--content-secondary))",
-          }}
-        />
-      </span>
-      {!collapsed && (
-        <span
-          className={`min-w-0 flex-1 truncate text-left text-[color:var(--content-default)] ${
-            isMobile ? "text-body-large-default" : "text-body-medium-lighter"
-          }`}
-        >
-          New Chat
-        </span>
-      )}
-    </button>
+    />
   ) : null;
 
   if (!hex) {
