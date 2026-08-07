@@ -397,16 +397,19 @@
     {
       "id": "headless-claude-code",
       "name": "headless-claude-code",
-      "description": "Reference guide for running Claude Code in headless, container, and CI environments — covers auth strategies, interactive mode pitfalls, tmux orchestration, root user workarounds, and git auth without SSH agents or keychains",
+      "description": "Reference guide for running Claude Code in third-party headless, container, and CI environments. Covers auth strategies, interactive mode pitfalls, tmux orchestration, root user workarounds, and git auth without SSH agents or keychains",
       "metadata": {
         "emoji": "🖥️",
         "vellum": {
           "category": "development",
-          "display-name": "Headless Claude Code"
+          "display-name": "Headless Claude Code",
+          "avoid-when": [
+            "Setting up or authenticating Claude Code inside a Vellum assistant: the ACP skill owns that path"
+          ]
         }
       },
       "compatibility": "Any environment running Claude Code headlessly",
-      "updatedAt": "2026-06-03T03:10:07.000Z"
+      "updatedAt": "2026-08-07T12:58:27.000Z"
     },
     {
       "id": "inbox-cleanup",
@@ -756,7 +759,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-08-06T13:51:52.000Z"
+      "updatedAt": "2026-08-07T12:35:44.000Z"
     },
     {
       "id": "public-ingress",
@@ -1172,7 +1175,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-08-07T06:54:09.000Z"
+      "updatedAt": "2026-08-07T07:15:43.000Z"
     },
     {
       "id": "vellum-skills-catalog",
@@ -1216,7 +1219,7 @@
     {
       "id": "vellum-terminal-sessions",
       "name": "vellum-terminal-sessions",
-      "description": "Manage persistent terminal sessions via tmux. Create, read, write to, list, and close named shell sessions. Use when the user asks about running terminal processes, wants help orchestrating CLI tasks, or asks you to monitor or interact with long-running commands. Also use when the user mentions tmux sessions.",
+      "description": "Manage persistent tmux terminal sessions: create, read, write to, list, and close named shell sessions. For Claude Code or Codex, use the ACP skill instead.",
       "metadata": {
         "emoji": "🖥️",
         "author": "vellum-ai",
@@ -1226,19 +1229,19 @@
           "display-name": "Terminal Sessions",
           "activation-hints": [
             "User asks about their running terminal sessions or processes",
-            "User wants to monitor a long-running command",
-            "User wants the assistant to run something in a persistent shell",
+            "User wants to monitor a long-running command or run something in a persistent shell",
             "User mentions tmux or terminal management",
-            "User wants to orchestrate multiple CLI agents (e.g. Claude Code sessions)"
+            "User wants to orchestrate multiple CLI processes in parallel"
           ],
           "avoid-when": [
+            "Setting up, authenticating, or running Claude Code or Codex: the ACP skill owns those agents",
             "A simple one-shot command that host_bash handles fine",
             "The user is asking about shell scripting in general, not session management"
           ]
         }
       },
       "compatibility": "Sandbox mode works without any host dependencies. Host mode requires tmux installed on the user's machine. Works on macOS and Linux.",
-      "updatedAt": "2026-06-03T03:10:07.000Z"
+      "updatedAt": "2026-08-07T12:58:27.000Z"
     },
     {
       "id": "vellum-workspace-theme",
