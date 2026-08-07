@@ -191,6 +191,7 @@ export {
   SideMenuSection,
   SideMenuSeparator,
   SideMenuSubList,
+  useSideMenuCollapsed,
   SIDE_MENU_DEFAULT_WIDTH,
   SIDE_MENU_COLLAPSED_WIDTH,
   SIDE_MENU_MIN_WIDTH,

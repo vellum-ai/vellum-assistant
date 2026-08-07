@@ -15,6 +15,7 @@ import {
   PanelItem,
   Popover,
   SideMenu,
+  useSideMenuCollapsed,
 } from "@vellumai/design-library";
 
 import { LazyBoundary } from "@/components/lazy-boundary";
@@ -55,12 +56,6 @@ export interface PreferencesMenuProps {
    * `pill` is a floating rounded button for the mobile overlay's action row.
    */
   triggerVariant?: "item" | "pill";
-  /**
-   * The rail is collapsed, so the `item` trigger reduces to the icon-only
-   * tile every other rail entry reduces to. Ignored by the `pill` variant,
-   * which only ever renders on the mobile overlay.
-   */
-  collapsed?: boolean;
 }
 
 export function PreferencesMenu({
@@ -68,8 +63,13 @@ export function PreferencesMenu({
   assistantVersion,
   activeConversationId,
   triggerVariant = "item",
-  collapsed = false,
 }: PreferencesMenuProps) {
+  /* From the menu rather than a prop: this trigger has to reduce to a tile at
+     the same moment every other rail entry does, and a threaded prop is that
+     one fact derived twice, free to disagree with the menu rendering around
+     it. The `pill` variant ignores it, and only renders on the overlay, where
+     it reads false regardless. */
+  const collapsed = useSideMenuCollapsed();
   const isAuthenticated = useIsAuthenticated();
   const isMobile = useIsMobile();
   const [isOpen, setIsOpen] = useState(false);

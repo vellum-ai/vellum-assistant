@@ -327,7 +327,7 @@ export const CollapsedRail: Story = {
     ...SHARED_ARGS,
     assistantId: "asst-collapsed",
     collapsed: true,
-    footerAction: <PreferencesMenu assistantId="asst-story" collapsed />,
+    footerAction: <PreferencesMenu assistantId="asst-story" />,
   },
 };
 
@@ -342,7 +342,7 @@ export const CollapsedRailAllView: Story = {
     ...SHARED_ARGS,
     assistantId: "asst-collapsed-all",
     collapsed: true,
-    footerAction: <PreferencesMenu assistantId="asst-story" collapsed />,
+    footerAction: <PreferencesMenu assistantId="asst-story" />,
   },
 };
 
@@ -390,7 +390,7 @@ export const UploadedImageAvatarCollapsed: Story = {
     assistantId: "asst-image",
     assistantName: "Haze II",
     collapsed: true,
-    footerAction: <PreferencesMenu assistantId="asst-story" collapsed />,
+    footerAction: <PreferencesMenu assistantId="asst-story" />,
   },
 };
 

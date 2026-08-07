@@ -47,6 +47,17 @@ import { eyeStyleBaseWidth } from "@/utils/assistant-eyes";
 import { contrastForeground } from "@/utils/avatar-tone";
 import { pathBBox, unionBBox } from "@/utils/eye-bbox";
 
+/**
+ * Taller than the pills below it: this row is the assistant, not an entry in a
+ * list, and at their shared height it reads as the first of several chips
+ * rather than the thing they hang off. Height only, so the label stays on the
+ * axis it shares with New Chat.
+ *
+ * One constant for both branches below, because an assistant with no character
+ * avatar is still the assistant: colour is the only thing that differs.
+ */
+const IDENTITY_PILL_CLASSES = "h-10";
+
 /** Collapsed-rail assistant tile height (Figma 7257:135820). */
 /* Matches the circle `SideMenu.Item` and the section triggers render on the
    rail: every tile there is the same 30px circle, so one step runs the whole
@@ -334,10 +345,12 @@ export function AssistantNavItem({
           </button>
         ) : (
           /* No character avatar, so nothing declares the tint properties and
-             the pill wears its plain surface. Same component as the tinted
-             one below: the colour is the only difference between them. */
+             the pill wears its plain surface. Same component and same
+             geometry as the tinted one below: the colour is the only
+             difference between them. */
           <PanelItem
             shape="pill"
+            className={IDENTITY_PILL_CLASSES}
             icon={Brain}
             leadingSlot={avatarImage ?? undefined}
             label={label}
@@ -475,6 +488,7 @@ export function AssistantNavItem({
     <span style={tintStyle}>
       <PanelItem
         shape="pill"
+        className={IDENTITY_PILL_CLASSES}
         leadingSlot={eyesSlot}
         label={label}
         active={active}
