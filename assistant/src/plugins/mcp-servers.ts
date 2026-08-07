@@ -13,18 +13,25 @@
  *
  * This module reads those files and projects each entry onto the
  * assistant's own `McpServerConfig` shape, so a plugin-declared server can
- * flow through the same surfaces as one configured in `config.json`.
+ * flow through the same surfaces as one configured in the workspace
+ * `config.json`.
  *
  * Failure isolation follows the spec: an invalid top-level `mcp.json`
  * disables MCP for that plugin only, and an invalid individual server
- * disables only that entry. Neither ever throws — a malformed file in one
- * plugin must not remove another plugin's servers from a listing.
+ * disables only that entry. Neither ever throws, because a malformed file
+ * in one plugin must not remove another plugin's servers from a listing.
  *
  * Authentication is deliberately absent. Agent Plugins 1.0.0 defines no
  * portable OAuth or credential-reference fields; authentication is
  * client-managed, and any `headers` in the file are literal package data.
  * A plugin therefore cannot ship a credential, and the assistant's own
  * credential store stays the only place secrets live.
+ *
+ * Consumers must not resolve a plugin server's id against the
+ * `mcp:<serverId>:*` credential namespace. Those keys belong to
+ * workspace-configured servers, and a plugin controls both its server key
+ * and its URL, so honoring them for a plugin-declared server would send a
+ * workspace credential to an endpoint the plugin chose.
  */
 
 import { existsSync, readFileSync } from "node:fs";
@@ -47,11 +54,15 @@ export const PLUGIN_MCP_MANIFEST = "mcp.json";
 
 /**
  * Risk level assigned to a plugin-declared server. `mcp.json` has no risk
- * field — the spec defines none — so the assistant's own default applies.
- * `high` matches `McpServerConfigSchema` and is the safe direction: a
- * plugin cannot lower the approval bar for the tools it introduces.
+ * field, since the spec defines none, so the assistant's own default
+ * applies. `high` matches `McpServerConfigSchema` and is the safe
+ * direction: a plugin cannot lower the approval bar for the tools it
+ * introduces.
  */
 const PLUGIN_SERVER_DEFAULT_RISK = "high" as const;
+
+/** Matches the `maxTools` default in `McpServerConfigSchema`. */
+const PLUGIN_SERVER_DEFAULT_MAX_TOOLS = 20;
 
 // ---------------------------------------------------------------------------
 // Wire schema (Agent Plugins 1.0.0)
@@ -86,7 +97,7 @@ const PluginMcpManifestSchema = z.object({
 
 /** One MCP server declared by one plugin. */
 export interface PluginMcpServer {
-  /** Server id in the assistant's namespace — see {@link buildServerId}. */
+  /** Server id in the assistant's namespace. See {@link buildServerId}. */
   readonly id: string;
   /** Directory name of the plugin that declared it. */
   readonly pluginName: string;
@@ -112,11 +123,11 @@ export interface PluginMcpServersResult {
 /**
  * Server id for a plugin-declared server.
  *
- * Plugin servers share one namespace with `config.json` servers and with
- * each other, so the plugin name is the qualifier. The redundant case is
- * collapsed: a plugin named `unabyss` whose only server key is also
- * `unabyss` yields `unabyss`, not `unabyss__unabyss` — which matters
- * because the id is embedded in every tool name the server contributes
+ * Plugin servers share one namespace with workspace servers and with each
+ * other, so the plugin name is the qualifier. The redundant case is
+ * collapsed: a plugin named `unabyss` whose server key is also `unabyss`
+ * yields `unabyss`, not `unabyss__unabyss`, which matters because the id
+ * is embedded in every tool name the server contributes
  * (`mcp__<id>__<tool>`).
  */
 export function buildServerId(pluginName: string, serverKey: string): string {
@@ -126,7 +137,7 @@ export function buildServerId(pluginName: string, serverKey: string): string {
 /**
  * Expand the two path variables the Agent Plugins spec defines for stdio
  * servers. They interpolate textually in `args`, `env` values, and `cwd`
- * only — never in `command`, a URL, or a header, so a manifest cannot use
+ * only, never in `command`, a URL, or a header, so a manifest cannot use
  * them to build the executable path itself.
  */
 export function interpolatePluginPaths(
@@ -137,6 +148,21 @@ export function interpolatePluginPaths(
   return value
     .replaceAll("${PLUGIN_ROOT}", pluginRoot)
     .replaceAll("${PLUGIN_DATA}", pluginData);
+}
+
+/**
+ * Whether a directory is a plugin the runtime would actually load.
+ *
+ * `listAllPlugins` is an inventory of directories and reports a malformed
+ * entry rather than dropping it, so it happily returns a directory with no
+ * usable `package.json`. The runtime loader rejects those in
+ * `parsePluginManifest`: the manifest must parse and carry a non-empty
+ * `name`. Applying the same gate here keeps `mcp.json` from being honored
+ * for a directory that will never load as a plugin.
+ */
+export function hasLoadableManifest(plugin: AllPluginInfo): boolean {
+  const name = plugin.packageJson?.name;
+  return typeof name === "string" && name.length > 0;
 }
 
 // ---------------------------------------------------------------------------
@@ -163,7 +189,7 @@ export function readPluginMcpServers(
     plugins = listAllPlugins(opts);
   } catch (err) {
     // The plugins directory being unreadable is not a reason to fail a
-    // listing that also has config-defined servers in it.
+    // listing that also has workspace-configured servers in it.
     log.warn({ err }, "Could not enumerate plugins for MCP declarations");
     return { servers: [], issues: [] };
   }
@@ -174,6 +200,14 @@ export function readPluginMcpServers(
     }
     const manifestPath = join(plugin.target, PLUGIN_MCP_MANIFEST);
     if (!existsSync(manifestPath)) {
+      continue;
+    }
+
+    if (!hasLoadableManifest(plugin)) {
+      issues.push({
+        pluginName: plugin.name,
+        message: `${PLUGIN_MCP_MANIFEST} ignored: package.json is missing, unparseable, or has no name, so the runtime will not load this directory as a plugin`,
+      });
       continue;
     }
 
@@ -238,7 +272,7 @@ export function readPluginMcpServers(
           transport: projectTransport(entry.data, plugin.target),
           enabled: true,
           defaultRiskLevel: PLUGIN_SERVER_DEFAULT_RISK,
-          maxTools: 20,
+          maxTools: PLUGIN_SERVER_DEFAULT_MAX_TOOLS,
         },
       });
     }

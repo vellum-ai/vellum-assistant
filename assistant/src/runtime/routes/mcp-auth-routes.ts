@@ -30,7 +30,7 @@ import {
   deleteMcpOAuthCredentials,
   hasMcpOAuthTokens,
 } from "../../mcp/mcp-oauth-provider.js";
-import { readPluginMcpServers } from "../../plugins/plugin-mcp-servers.js";
+import { readPluginMcpServers } from "../../plugins/mcp-servers.js";
 import { getMcpToolsByServer } from "../../tools/registry.js";
 import { getLogger } from "../../util/logger.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
@@ -226,15 +226,30 @@ interface McpServerEntry {
   allowedTools?: string[];
   blockedTools?: string[];
   /**
-   * Where the definition came from: `config.json` or a plugin's `mcp.json`.
-   * A plugin server is read-only from the CLI's perspective — `mcp remove`
-   * and `mcp update` act on config, so the caller needs to be able to tell
-   * the two apart.
+   * Where the definition came from: the workspace `config.json` or a
+   * plugin's `mcp.json`. A plugin server is read-only from the CLI's
+   * perspective, since `mcp remove` and `mcp update` act on the workspace
+   * config, so the caller needs to be able to tell the two apart.
    */
-  source: "config" | "plugin";
+  source: "workspace" | "plugin";
   /** Plugin that declared this server. Present only when `source` is `plugin`. */
   pluginName?: string;
 }
+
+/**
+ * Status reported for a plugin-declared server.
+ *
+ * Plugin servers are listed but not managed: the MCP manager does not
+ * connect them, so none of the health states describe them accurately.
+ * They are also deliberately not health-checked. `McpClient.connect`
+ * resolves `mcp:<serverId>:headers` and `mcp:<serverId>:tokens` from the
+ * credential store, and a plugin controls both its server key and its URL,
+ * so probing one would send workspace-owned credentials to an endpoint the
+ * plugin chose whenever an id happens to match a stored key. Skipping the
+ * probe also avoids spawning a plugin's declared stdio command as a side
+ * effect of listing.
+ */
+const PLUGIN_SERVER_STATUS = "declared";
 
 function detectAuthType(headers: Record<string, string>): "bearer" | "api-key" {
   const authValue = headers["Authorization"] ?? headers["authorization"];
@@ -254,55 +269,8 @@ async function handleMcpList(_args: {
     Object.entries(servers) as [string, McpServerConfig][]
   ).filter(([, config]) => config && typeof config === "object");
 
-  // Plugins declare servers in their own `mcp.json`. Reading them here (and
-  // not only at connect time) is what lets `assistant mcp list` show the
-  // full picture: a server a plugin brought along is otherwise invisible
-  // until something tries to use it.
-  const { servers: pluginServers, issues: pluginIssues } =
-    readPluginMcpServers();
-  for (const issue of pluginIssues) {
-    log.warn(
-      {
-        plugin: issue.pluginName,
-        ...(issue.serverKey && { serverKey: issue.serverKey }),
-      },
-      `Plugin MCP declaration problem: ${issue.message}`,
-    );
-  }
-
-  // An explicit `config.json` entry outranks a plugin's declaration of the
-  // same id — the user's own configuration is the more specific statement,
-  // and it is the one they can edit.
-  const configIds = new Set(configEntries.map(([id]) => id));
-  const entries: [string, McpServerConfig, "config" | "plugin", string?][] = [
-    ...configEntries.map(
-      ([id, config]) =>
-        [id, config, "config"] as [string, McpServerConfig, "config"],
-    ),
-    ...pluginServers
-      .filter((server) => {
-        if (!configIds.has(server.id)) {
-          return true;
-        }
-        log.warn(
-          { plugin: server.pluginName, serverId: server.id },
-          "Plugin MCP server shadowed by a config.json server of the same id; skipping",
-        );
-        return false;
-      })
-      .map(
-        (server) =>
-          [server.id, server.config, "plugin", server.pluginName] as [
-            string,
-            McpServerConfig,
-            "plugin",
-            string,
-          ],
-      ),
-  ];
-
-  const results: McpServerEntry[] = await Promise.all(
-    entries.map(async ([id, config, source, pluginName]) => {
+  const workspaceEntries: McpServerEntry[] = await Promise.all(
+    configEntries.map(async ([id, config]) => {
       const enabled = config.enabled !== false;
       let status: string;
       if (!enabled) {
@@ -333,7 +301,7 @@ async function handleMcpList(_args: {
             )
           : undefined;
 
-      // Strip headers from transport — never return secrets
+      // Strip headers from transport, never return secrets
       const { headers: _stripped, ...safeTransport } =
         config.transport as Record<string, unknown>;
 
@@ -349,13 +317,72 @@ async function handleMcpList(_args: {
         ...(authHeaderName && { authHeaderName }),
         ...(config.allowedTools && { allowedTools: config.allowedTools }),
         ...(config.blockedTools && { blockedTools: config.blockedTools }),
-        source,
-        ...(pluginName && { pluginName }),
+        source: "workspace" as const,
       };
     }),
   );
 
-  return { servers: results };
+  return {
+    servers: [...workspaceEntries, ...listPluginServerEntries(configEntries)],
+  };
+}
+
+/**
+ * Project plugin-declared servers onto listing entries.
+ *
+ * Nothing here touches the credential store or the network: a plugin
+ * server carries no auth state the assistant owns, and its status is fixed
+ * (see {@link PLUGIN_SERVER_STATUS}).
+ */
+function listPluginServerEntries(
+  configEntries: [string, McpServerConfig][],
+): McpServerEntry[] {
+  const { servers, issues } = readPluginMcpServers();
+  for (const issue of issues) {
+    log.warn(
+      {
+        plugin: issue.pluginName,
+        ...(issue.serverKey && { serverKey: issue.serverKey }),
+      },
+      `Plugin MCP declaration problem: ${issue.message}`,
+    );
+  }
+
+  // A workspace entry outranks a plugin's declaration of the same id: the
+  // user's own configuration is the more specific statement, and it is the
+  // one they can edit.
+  const workspaceIds = new Set(configEntries.map(([id]) => id));
+
+  return servers
+    .filter((server) => {
+      if (!workspaceIds.has(server.id)) {
+        return true;
+      }
+      log.warn(
+        { plugin: server.pluginName, serverId: server.id },
+        "Plugin MCP server shadowed by a workspace server of the same id; skipping",
+      );
+      return false;
+    })
+    .map((server) => {
+      const { headers: _stripped, ...safeTransport } = server.config
+        .transport as Record<string, unknown>;
+      return {
+        id: server.id,
+        status: PLUGIN_SERVER_STATUS,
+        transport: safeTransport as McpServerEntry["transport"],
+        enabled: true,
+        defaultRiskLevel: server.config.defaultRiskLevel,
+        // A plugin server has no assistant-owned credentials. Resolving
+        // these against `mcp:<id>:*` would report, and could disclose, a
+        // workspace credential that happens to share the id.
+        hasOAuth: false,
+        hasStaticAuth: false,
+        authType: "none" as const,
+        source: "plugin" as const,
+        pluginName: server.pluginName,
+      };
+    });
 }
 
 // ---------------------------------------------------------------------------

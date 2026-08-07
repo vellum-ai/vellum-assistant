@@ -34,10 +34,14 @@ from two places: the mcp.servers key in config.json, and the root mcp.json of
 any installed plugin that declares one.
 
   Name         The server identifier
-  Status       Health check result:
+  Status       Health check result for workspace servers:
                  ✓  Connected and responding
                  ✗  Error or disabled
                  !  Needs authentication (OAuth required)
+               Plugin-declared servers report "declared" instead. They are
+               listed but not connected by the assistant, and they are not
+               health-checked, so no stored credential can reach a URL a
+               plugin chose.
   Source       Shown only for plugin-declared servers, naming the plugin.
                Servers from config.json print no Source line.
   Transport    stdio, sse, or streamable-http

@@ -24,8 +24,8 @@ interface McpServerEntry {
   defaultRiskLevel: string;
   allowedTools?: string[];
   blockedTools?: string[];
-  /** `config.json` or a plugin's `mcp.json`. Absent on older daemons. */
-  source?: "config" | "plugin";
+  /** Workspace `config.json` or a plugin's `mcp.json`. */
+  source?: "workspace" | "plugin";
   /** Plugin that declared the server, when `source` is `plugin`. */
   pluginName?: string;
 }
@@ -85,8 +85,8 @@ async function pollMcpAuthStatus(
 function printServerEntry(entry: McpServerEntry): void {
   log.info(`  ${entry.id}`);
   log.info(`    Status:    ${entry.status}`);
-  // Only plugin-declared servers name a source. A config server is the
-  // default case and printing "config" on every one of them is noise.
+  // Only plugin-declared servers name a source. A workspace server is the
+  // default case and printing "workspace" on every one of them is noise.
   if (entry.source === "plugin") {
     log.info(`    Source:    plugin (${entry.pluginName ?? "unknown"})`);
   }

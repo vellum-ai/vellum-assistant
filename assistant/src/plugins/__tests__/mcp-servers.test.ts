@@ -15,9 +15,10 @@ import { describe, expect, test } from "bun:test";
 
 import {
   buildServerId,
+  hasLoadableManifest,
   interpolatePluginPaths,
   readPluginMcpServers,
-} from "../plugin-mcp-servers.js";
+} from "../mcp-servers.js";
 
 /** Build a throwaway plugins directory with the given plugin layouts. */
 function makePluginsDir(
@@ -60,6 +61,39 @@ describe("buildServerId", () => {
 
   test("qualifies with the plugin name when the keys differ", () => {
     expect(buildServerId("acme", "deploy")).toEqual("acme__deploy");
+  });
+});
+
+describe("hasLoadableManifest", () => {
+  const base = {
+    name: "x",
+    target: "/p",
+    issues: [],
+    hasIcon: false,
+    source: "user" as const,
+    disabled: false,
+  };
+
+  test("accepts a manifest with a non-empty name, matching the runtime gate", () => {
+    expect(hasLoadableManifest({ ...base, packageJson: { name: "x" } })).toBe(
+      true,
+    );
+  });
+
+  test("rejects an unreadable or unparseable manifest", () => {
+    expect(hasLoadableManifest({ ...base, packageJson: null })).toBe(false);
+  });
+
+  test("rejects a manifest with no name", () => {
+    expect(
+      hasLoadableManifest({ ...base, packageJson: { version: "1.0.0" } }),
+    ).toBe(false);
+  });
+
+  test("rejects an empty name", () => {
+    expect(hasLoadableManifest({ ...base, packageJson: { name: "" } })).toBe(
+      false,
+    );
   });
 });
 
@@ -109,6 +143,47 @@ describe("readPluginMcpServers", () => {
     const dir = makePluginsDir({ unabyss: { mcpJson: VALID_MANIFEST } });
     const { servers } = readPluginMcpServers({ workspacePluginsDir: dir });
     expect(servers[0].config.defaultRiskLevel).toEqual("high");
+  });
+
+  test("ignores a directory whose package.json is missing", () => {
+    // `listAllPlugins` reports a malformed directory rather than dropping
+    // it, but the runtime loader will never load one, so honoring its
+    // mcp.json would advertise a server no plugin stands behind.
+    const root = mkdtempSync(join(tmpdir(), "vellum-plugin-mcp-"));
+    const dir = join(root, "no-manifest");
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, "mcp.json"), VALID_MANIFEST);
+
+    const { servers, issues } = readPluginMcpServers({
+      workspacePluginsDir: root,
+    });
+    expect(servers).toEqual([]);
+    expect(issues[0].message).toContain("package.json");
+  });
+
+  test("ignores a directory whose package.json is unparseable", () => {
+    const dir = makePluginsDir({
+      broken: { mcpJson: VALID_MANIFEST, packageJson: "{ not json" },
+    });
+    const { servers, issues } = readPluginMcpServers({
+      workspacePluginsDir: dir,
+    });
+    expect(servers).toEqual([]);
+    expect(issues[0].message).toContain("package.json");
+  });
+
+  test("ignores a directory whose package.json has no name", () => {
+    const dir = makePluginsDir({
+      nameless: {
+        mcpJson: VALID_MANIFEST,
+        packageJson: JSON.stringify({ version: "1.0.0" }),
+      },
+    });
+    const { servers, issues } = readPluginMcpServers({
+      workspacePluginsDir: dir,
+    });
+    expect(servers).toEqual([]);
+    expect(issues[0].message).toContain("package.json");
   });
 
   test("skips plugins with no mcp.json without complaining", () => {
