@@ -473,6 +473,7 @@ import { migrateAddConversationSubagentKind } from "./migrations/362-add-convers
 import { migrateBackfillScheduleInferenceProfile } from "./migrations/363-backfill-schedule-inference-profile.js";
 import { migrateAddScheduleSourceKey } from "./migrations/364-add-schedule-source-key.js";
 import { migrateAddConversationForkStrategy } from "./migrations/365-add-conversation-fork-strategy.js";
+import { migrateCreateConversationQueuedMessages } from "./migrations/366-create-conversation-queued-messages.js";
 import type { MigrationStep } from "./migrations/run-migrations.js";
 
 export const migrationSteps: MigrationStep[] = [
@@ -1573,4 +1574,11 @@ export const migrationSteps: MigrationStep[] = [
   },
   migrateAddScheduleSourceKey,
   migrateAddConversationForkStrategy,
+  {
+    name: "migrateCreateConversationQueuedMessages",
+    run: migrateCreateConversationQueuedMessages,
+    // The table declares `REFERENCES conversations(id) ON DELETE CASCADE`, so
+    // `conversations` must exist and be checkpointed before it is created.
+    dependsOn: ["migrateCoreTables"],
+  },
 ];
