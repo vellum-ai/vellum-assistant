@@ -48,12 +48,14 @@ test("publishes status, identity, avatar, and unread state", () => {
   contributions.get("status")?.setConnection("thinking");
   contributions.get("identity")?.setName("Example Assistant");
   contributions.get("icon")?.setAvatar(null);
+  contributions.get("icon")?.setCharacter(null);
   contributions.get("dock")?.setBadge(3);
 
   expect(send.mock.calls.map((call) => call[0])).toEqual([
     "vellum:status:connection",
     "vellum:identity:name",
     "vellum:icon:setAvatar",
+    "vellum:icon:setCharacter",
     "vellum:dock:setBadge",
   ]);
 });

@@ -12,6 +12,7 @@ import {
   CONNECTIVITY_STATE,
   DOCK_SET_BADGE,
   ICON_SET_AVATAR,
+  ICON_SET_CHARACTER,
   IDENTITY_NAME,
   POWER_EVENT,
   STATUS_CONNECTION,
@@ -32,6 +33,8 @@ const presence: CapabilityModule<BridgeCapabilityRegistry<VellumBridge>> = {
     });
     bridge.contribute("icon", {
       setAvatar: (png) => ipcRenderer.send(ICON_SET_AVATAR, png),
+      setCharacter: (character) =>
+        ipcRenderer.send(ICON_SET_CHARACTER, character),
     });
     bridge.contribute("dock", {
       setBadge: (count) => ipcRenderer.send(DOCK_SET_BADGE, count),
