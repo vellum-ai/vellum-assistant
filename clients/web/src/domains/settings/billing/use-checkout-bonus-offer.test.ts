@@ -8,6 +8,9 @@
  *    so hand-typed cancel URLs stay quiet
  *  - triggered + server says eligible: the offer shows with the
  *    server-returned amount
+ *  - a second trigger behind the app's 10s default staleTime: the cached
+ *    ineligible answer from a previous probe is not reused; each trigger
+ *    re-asks the server
  *
  * The GET is mocked at the SDK boundary so the real generated query factory
  * stays in the loop, mirroring checkout-bonus-modal.test.tsx.
@@ -42,12 +45,14 @@ mock.module("@/hooks/use-is-org-ready", () => ({
 
 const { useCheckoutBonusOffer } = await import("./use-checkout-bonus-offer");
 
-function setup(triggered: boolean) {
-  const client = new QueryClient({
-    defaultOptions: { queries: { retry: false } },
-  });
+function setup(triggered: boolean, client?: QueryClient) {
+  const queryClient =
+    client ??
+    new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
   const wrapper = ({ children }: { children: ReactNode }) =>
-    createElement(QueryClientProvider, { client }, children);
+    createElement(QueryClientProvider, { client: queryClient }, children);
   return renderHook((props) => useCheckoutBonusOffer(props.triggered), {
     initialProps: { triggered },
     wrapper,
@@ -107,5 +112,28 @@ describe("useCheckoutBonusOffer", () => {
     await waitFor(() => expect(result.current.showOffer).toBe(true));
     expect(result.current.amountUsd).toBe("7.50");
     expect(retrieveCalls).toBe(1);
+  });
+
+  test("repeat trigger: refetches past the app's 10s default staleTime", async () => {
+    // Mirror the app QueryClient (providers.tsx): a 10s default staleTime
+    // would otherwise let a cached ineligible probe answer a real cancel.
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false, staleTime: 10_000 } },
+    });
+
+    eligibilityResponse = { eligible: false, amount_usd: "0.00" };
+    const first = setup(true, client);
+    await waitFor(() => expect(retrieveCalls).toBe(1));
+    await flush();
+    expect(first.result.current.showOffer).toBe(false);
+    first.unmount();
+
+    // A real abandoned checkout lands within the staleness window.
+    eligibilityResponse = { eligible: true, amount_usd: "5.00" };
+    const second = setup(true, client);
+
+    await waitFor(() => expect(second.result.current.showOffer).toBe(true));
+    expect(second.result.current.amountUsd).toBe("5.00");
+    expect(retrieveCalls).toBe(2);
   });
 });

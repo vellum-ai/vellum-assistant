@@ -67,12 +67,9 @@ function BillingStatusHandler({
     }
 
     if (billingStatus === "success") {
-      toast.success(
-        "Payment received! Your credit balance will update shortly.",
-        {
-          id: "billing-status",
-        },
-      );
+      toast.success(t("billingStatusHandler.successToast"), {
+        id: "billing-status",
+      });
       queryClient.invalidateQueries({
         queryKey: organizationsBillingSummaryRetrieveOptions().queryKey,
       });
@@ -80,7 +77,7 @@ function BillingStatusHandler({
       toast.info(
         searchParams.get("billing_context") === "upgrade"
           ? t("billingStatusHandler.upgradeCancelToast")
-          : "Checkout was cancelled. No credits were added.",
+          : t("billingStatusHandler.topUpCancelToast"),
         { id: "billing-status" },
       );
       onCheckoutCancelled();

@@ -1,6 +1,8 @@
 {
   "billingStatusHandler": {
-    "upgradeCancelToast": "Upgrade canceled. No changes to your plan."
+    "successToast": "Payment received! Your credit balance will update shortly.",
+    "upgradeCancelToast": "Upgrade canceled. No changes to your plan.",
+    "topUpCancelToast": "Checkout was cancelled. No credits were added."
   },
   "checkoutBonusModal": {
     "title": "Here's {amount} on us",
