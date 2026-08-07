@@ -113,16 +113,20 @@ const GROUPS: ConversationGroup[] = [
     sortPosition: 1,
     isSystemGroup: false,
   },
-  /* Deliberately given no conversations. An empty section renders in both
-     states - a muted tile on the rail, a headed card when expanded - and it
-     belongs in the shared set rather than in one story, so the collapsed and
-     expanded stories can be read against each other. Seeded in only one of
-     them, any difference between the two might be the data rather than the
-     layout. */
+  /* A custom group the user has not filed anything into yet, given no
+     conversations on purpose: an empty section renders in both states - a
+     muted tile on the rail, a headed card when expanded - and it holds its
+     place either way. In the shared set rather than one story, so the
+     collapsed and expanded stories differ only by `collapsed`.
+
+     Not named "Archive": archived conversations are excluded from the sidebar
+     entirely (`groupConversations` drops anything with `archivedAt`), so a
+     fixture called that reads as a section this component renders and never
+     does. */
   {
-    id: "grp-archive",
-    name: "Archive",
-    icon: "briefcase",
+    id: "grp-reading",
+    name: "Reading List",
+    icon: "bookmark",
     sortPosition: 2,
     isSystemGroup: false,
   },
