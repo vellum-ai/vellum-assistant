@@ -59,7 +59,11 @@ import {
   dominantLanguageTag,
   voteDominantLanguage,
 } from "../stt/language-metadata.js";
-import { detectPcm16SpeechActivity } from "../stt/speech-energy.js";
+import {
+  DEFAULT_SPEECH_ENERGY_THRESHOLD,
+  pcm16MaxNormalizedCorrelation,
+  pcm16MeanAmplitude,
+} from "../stt/speech-energy.js";
 import type {
   StreamingTranscriber,
   SttProviderId,
@@ -1865,9 +1869,6 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     const hasSpeech = energyClassification === "speech";
     detector.onMediaChunk(hasSpeech);
     this.trackBargeInGuard(energyClassification, chunk);
-    if (hasSpeech) {
-      this.localSpeechStopAtMs = Date.now();
-    }
 
     // Playback echo is neither user audio nor useful pre-roll. Dropping it
     // prevents the assistant's reply from reaching transcription as a ghost
