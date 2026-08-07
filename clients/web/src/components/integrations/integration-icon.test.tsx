@@ -4,11 +4,11 @@
  * The contract under test is the *order* the component resolves a logo in:
  * a bundled asset we ship, then the provider's seeded `logoUrl` (a
  * third-party icon CDN), then an initials avatar. The order matters because
- * the CDN drops brands without warning. Simple Icons removed every Microsoft
- * icon in v13 and currently has no Slack icon, so
- * `cdn.simpleicons.org/microsoftoutlook` 404s while the seed data still
- * points at it (LUM-3137). Preferring the seeded URL turned Outlook into an
- * "OU" avatar even though `outlook.png` was sitting in `public/`.
+ * icon libraries drop brands on trademark request. Simple Icons hosts no
+ * Microsoft mark and no Slack mark, so `cdn.simpleicons.org/microsoftoutlook`
+ * 404s while the seed data still points at it, and a remote-first lookup
+ * would strand Outlook on an "OU" avatar with `outlook.png` unused in
+ * `public/`.
  *
  * Rendered via `@testing-library/react` (happy-dom, see
  * `clients/web/test-setup.ts`). happy-dom does not fetch `img` sources, so a
@@ -46,8 +46,8 @@ describe("IntegrationIcon", () => {
     expect(img!.getAttribute("src")).toEndWith(
       "/images/integrations/outlook.png",
     );
-    // The regression this guards: rendering the CDN URL, or degrading to the
-    // initials avatar because the CDN URL 404s.
+    // Both failure shapes must be excluded: drawing the CDN URL, and
+    // degrading to the initials avatar when that URL 404s.
     expect(container.textContent).not.toContain("OU");
   });
 
@@ -64,14 +64,18 @@ describe("IntegrationIcon", () => {
   });
 
   test("uses the seeded logoUrl for a provider with no bundled asset", () => {
+    // A runtime-registered provider, which is the case `logoUrl` exists for.
+    // Deliberately not a real provider key: every seeded provider has a
+    // bundled asset (enforced by `oauth-provider-seed-logos.test.ts`), so any
+    // real key would resolve to the bundled branch instead of this one.
     const { container } = renderIcon({
-      providerKey: "todoist",
-      displayName: "Todoist",
-      logoUrl: "https://cdn.simpleicons.org/todoist",
+      providerKey: "acme_internal_tool",
+      displayName: "Acme Internal Tool",
+      logoUrl: "https://cdn.example.com/acme.svg",
     });
 
     expect(container.querySelector("img")!.getAttribute("src")).toBe(
-      "https://cdn.simpleicons.org/todoist",
+      "https://cdn.example.com/acme.svg",
     );
   });
 

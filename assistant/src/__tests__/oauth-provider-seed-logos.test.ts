@@ -83,10 +83,9 @@ describe("PROVIDER_SEED_DATA logo URLs", () => {
  * The `logoUrl` above is a fallback for providers registered at runtime. Every
  * provider we seed ourselves must draw from an asset we ship, because an icon
  * CDN can drop a brand at any time and the client then degrades to an initials
- * avatar with nothing in CI to notice. That is exactly how Outlook and Slack
- * lost their icons: Simple Icons removed all Microsoft marks in v13 and Slack
- * in v16, and both `logoUrl` values kept passing the prefix check above
- * (LUM-3137).
+ * avatar with nothing in CI to notice: the prefix check above passes just as
+ * happily for a URL that 404s. Simple Icons hosts no Microsoft mark and no
+ * Slack mark, so the seeded URLs for those brands do not resolve there.
  */
 describe("PROVIDER_SEED_DATA bundled logo coverage", () => {
   test("every seeded provider renders from a bundled asset", () => {

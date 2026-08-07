@@ -6,21 +6,19 @@ import { publicAsset } from "@/utils/public-asset";
 /**
  * Logos we ship in `public/`, keyed by canonical provider key.
  *
- * This covers every provider in `PROVIDER_SEED_DATA` (Google is handled
- * separately below, as its mark is multi-colour and ships as a component), so
- * no first-class integration hits the network to draw its icon.
+ * Covers every provider in `PROVIDER_SEED_DATA` (Google is handled separately
+ * below, as its mark is multi-colour and ships as a component), so no
+ * first-class integration hits the network to draw its icon.
  *
  * These take precedence over the provider's seeded `logoUrl`, which points at
- * a third-party icon CDN. A CDN can drop a brand at any time: Simple Icons
- * removed every Microsoft icon in v13 after contact from Microsoft legal, and
- * Slack in v16 pending permission from the trademark owner. When that happens
- * the request 404s and the integration silently degrades to an initials
- * avatar, which is how Outlook and Slack lost their icons (LUM-3137). A
- * bundled asset can't 404, needs no network, and doesn't tell a third party
- * which integrations a user is looking at.
+ * a third-party icon CDN. Icon libraries drop brands on trademark request:
+ * Simple Icons hosts no Microsoft mark and no Slack mark, so those `logoUrl`
+ * values 404 and a remote-first lookup would strand those rows on an initials
+ * avatar. A bundled asset can't 404, needs no network, and doesn't tell a
+ * third party which integrations a user is looking at.
  *
- * `logoUrl` stays as the fallback below because providers registered at
- * runtime (`vellum oauth providers register --logo-url`) aren't in this map.
+ * `logoUrl` remains the fallback below for providers registered at runtime,
+ * which are not in this map.
  *
  * Sources and licences: `ATTRIBUTION.md` beside the assets.
  */
