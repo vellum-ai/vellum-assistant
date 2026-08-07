@@ -29,35 +29,33 @@ import { getOAuthCallbackUrl } from "./public-ingress-urls.js";
  */
 export const OAUTH_CALLBACK_PATH = "webhooks/oauth/callback";
 
-export interface OAuthCallbackUrlOptions {
-  /**
-   * Registration type recorded with the platform. The platform keys a
-   * callback route by type, so a caller that wants its own admin-visible
-   * row passes a distinct one. All types resolve to the same path.
-   */
-  type?: string;
-  /** Human-readable label for the platform's admin display. */
-  sourceIdentifier?: string;
-}
+/**
+ * Registration type recorded with the platform.
+ *
+ * The platform keys a callback route by `(path, type)`, and there is one
+ * OAuth route, so one type describes it. Registering the same path under
+ * several types would produce duplicate admin rows pointing at the same
+ * URL.
+ */
+const OAUTH_REGISTRATION_TYPE = "oauth";
 
 /**
  * Resolve the redirect URI an authorization server should send the user
  * back to.
+ *
+ * Takes no arguments on purpose: every caller shares one route, so there
+ * is nothing to vary. That is what makes the URI stable across callers and
+ * across attempts, which is what an exact-match `redirect_uri` check needs.
  *
  * @throws when no public ingress is configured and the assistant is not
  *   connected to the platform. There is no URL that would work in that
  *   case, and returning a plausible one produces an authorization request
  *   whose callback silently never arrives.
  */
-export async function resolveOauthCallbackUrl(
-  options: OAuthCallbackUrlOptions = {},
-): Promise<string> {
-  const { type = "oauth", sourceIdentifier } = options;
+export async function resolveOauthCallbackUrl(): Promise<string> {
   return resolveCallbackUrl(
     () => getOAuthCallbackUrl(loadConfig()),
     OAUTH_CALLBACK_PATH,
-    type,
-    undefined,
-    sourceIdentifier,
+    OAUTH_REGISTRATION_TYPE,
   );
 }

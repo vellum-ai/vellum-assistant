@@ -421,10 +421,7 @@ export class McpOAuthProvider implements OAuthClientProvider {
     const { resolveOauthCallbackUrl } =
       await import("../inbound/oauth-callback-url.js");
 
-    this._redirectUrl = await resolveOauthCallbackUrl({
-      type: "mcp_oauth",
-      sourceIdentifier: this.serverId,
-    });
+    this._redirectUrl = await resolveOauthCallbackUrl();
 
     const codePromise = new Promise<string>((resolve, reject) => {
       this._codeResolve = resolve;

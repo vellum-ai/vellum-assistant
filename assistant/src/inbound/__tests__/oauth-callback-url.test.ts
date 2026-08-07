@@ -42,47 +42,31 @@ describe("resolveOauthCallbackUrl", () => {
   });
 
   test("registers the shared callback path, not a per-caller one", async () => {
-    await resolveOauthCallbackUrl({ type: "mcp_oauth" });
+    await resolveOauthCallbackUrl();
     const [, callbackPath] = resolveCallbackUrl.mock.calls[0] as unknown[];
     expect(callbackPath).toEqual(OAUTH_CALLBACK_PATH);
     expect(OAUTH_CALLBACK_PATH).toEqual("webhooks/oauth/callback");
   });
 
-  test("two different callers resolve to the same URL and the same path", async () => {
-    const first = await resolveOauthCallbackUrl({ type: "oauth" });
-    const second = await resolveOauthCallbackUrl({
-      type: "mcp_oauth",
-      sourceIdentifier: "unabyss",
-    });
-
+  test("every call resolves to the same URL, path, and registration type", async () => {
+    // The URI a client registers and the URI it later authorizes with are
+    // the same string, which is what an exact-match redirect_uri check
+    // needs. Nothing about the caller can vary it: the function takes no
+    // arguments.
+    const first = await resolveOauthCallbackUrl();
+    const second = await resolveOauthCallbackUrl();
     expect(first).toEqual(second);
-    const [, pathA] = resolveCallbackUrl.mock.calls[0] as unknown[];
-    const [, pathB] = resolveCallbackUrl.mock.calls[1] as unknown[];
+
+    const [, pathA, typeA] = resolveCallbackUrl.mock.calls[0] as unknown[];
+    const [, pathB, typeB] = resolveCallbackUrl.mock.calls[1] as unknown[];
     expect(pathA).toEqual(pathB);
+    expect(typeA).toEqual(typeB);
   });
 
-  test("repeat calls for one caller are byte-identical", async () => {
-    // The registration-time value and the authorization-time value are the
-    // same string, which is what an exact-match redirect_uri check needs.
-    const a = await resolveOauthCallbackUrl({ type: "mcp_oauth" });
-    const b = await resolveOauthCallbackUrl({ type: "mcp_oauth" });
-    expect(a).toEqual(b);
-  });
-
-  test("defaults the registration type to oauth", async () => {
+  test("registers one route type so the platform holds a single admin row", async () => {
     await resolveOauthCallbackUrl();
     const [, , type] = resolveCallbackUrl.mock.calls[0] as unknown[];
     expect(type).toEqual("oauth");
-  });
-
-  test("passes the caller's type and source identifier through for admin display", async () => {
-    await resolveOauthCallbackUrl({
-      type: "mcp_oauth",
-      sourceIdentifier: "unabyss",
-    });
-    const call = resolveCallbackUrl.mock.calls[0] as unknown[];
-    expect(call[2]).toEqual("mcp_oauth");
-    expect(call[4]).toEqual("unabyss");
   });
 
   test("propagates the resolver's failure rather than inventing a URL", async () => {
