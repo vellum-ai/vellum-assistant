@@ -12,6 +12,14 @@ Cut a new release. Releases are a **two-step** process:
 
 The scheduled Tue/Fri 8:52am ET cut performs step 1 automatically; a human performs step 2 after the staging bake is green. A `release/v<X.Y.Z>` branch with no corresponding GitHub Release means a cut was never promoted — re-running step 1 refreshes it from current `main`.
 
+Scheduled cuts default to a patch bump. To make the **next** scheduled tick a minor or major, set the one-shot `NEXT_RELEASE_BUMP` repository variable — no dispatch needed:
+
+```bash
+gh variable set NEXT_RELEASE_BUMP --repo vellum-ai/vellum-assistant --body minor
+```
+
+The scheduled cut consumes the value and resets the variable to `patch`, so exactly one tick is upgraded. Valid values are `patch`, `minor`, `major` (`hotfix` is dispatch-only; anything else fails the scheduled run loudly). Manual dispatches ignore the variable entirely.
+
 The user may pass `$ARGUMENTS` as the bump type for step 1: `patch`, `minor`, `major`, or `hotfix` (patch cut from the latest release tag's commit instead of `main`, pushed `[skip ci]` for manual cherry-picks). Default to `patch`.
 
 ## Steps
