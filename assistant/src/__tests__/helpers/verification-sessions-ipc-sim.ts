@@ -22,6 +22,8 @@
 import { randomBytes, randomUUID } from "node:crypto";
 
 import {
+  bindsSameIdentity,
+  boundIdentity,
   hashVerificationSecret,
   VERIFICATION_SESSIONS_IPC_METHODS,
   type VerificationSessionWire,
@@ -65,29 +67,10 @@ function isInterceptable(s: VerificationSessionWire): boolean {
 const OUTBOUND_LIVE_STATUSES = ["pending_bootstrap", "awaiting_response"];
 
 /**
- * The identity a session redeems on, in `checkIdentityMatch`'s precedence
- * order. Null when the session carries none, which is a bootstrap session.
- */
-function boundIdentity(session: {
-  expectedExternalUserId?: string | null;
-  expectedChatId?: string | null;
-  expectedPhoneE164?: string | null;
-}): string | null {
-  if (session.expectedExternalUserId) {
-    return `user:${session.expectedExternalUserId}`;
-  }
-  if (session.expectedPhoneE164) {
-    return `phone:${session.expectedPhoneE164}`;
-  }
-  if (session.expectedChatId) {
-    return `chat:${session.expectedChatId}`;
-  }
-  return null;
-}
-
-/**
  * Mirrors the gateway store: an outbound mint supersedes only sessions bound
  * to the same identity, leaving other actors and inbound challenges alone.
+ * The identity rule itself comes from the shared contract, so this cannot
+ * drift from what the gateway does.
  */
 function revokeSameActorOutbound(
   channel: string,
@@ -102,7 +85,7 @@ function revokeSameActorOutbound(
     if (
       s.channel === channel &&
       OUTBOUND_LIVE_STATUSES.includes(s.status) &&
-      boundIdentity(s) === identity
+      bindsSameIdentity(boundIdentity(s), identity)
     ) {
       s.status = "revoked";
       s.updatedAt = now;

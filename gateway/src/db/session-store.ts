@@ -8,20 +8,12 @@
  */
 
 import type { Database } from "bun:sqlite";
-import {
-  and,
-  count,
-  desc,
-  eq,
-  gt,
-  gte,
-  inArray,
-  isNull,
-  type SQL,
-} from "drizzle-orm";
+import { and, count, desc, eq, gt, gte, inArray } from "drizzle-orm";
 
+import { bindsSameIdentity, boundIdentity } from "@vellumai/gateway-client";
 import type {
   IdentityBindingStatus,
+  IdentityBoundSession,
   SessionStatus,
   VerificationPurpose,
   VerificationSessionWire,
@@ -371,74 +363,69 @@ export function claimBootstrapSession(id: string, channel: string): boolean {
 // ---------------------------------------------------------------------------
 
 /**
- * Match rows bound to the same identity a new mint is bound to.
+ * Revoke live outbound sessions bound to the same identity as a new mint, so
+ * only the latest code for that identity is redeemable.
  *
- * The key is whichever field `checkIdentityMatch` actually redeems on, in its
- * precedence order, and the match requires the stored row to be keyed the same
- * way. A row carrying both a chat id and a user id redeems only on the user id
- * (`identity-match.ts` treats a shared chat id as insufficient), so it is not
- * matched by a chat-keyed mint: two people in one group chat keep their own
- * codes.
+ * The candidates are read and then filtered through `boundIdentity`, the same
+ * function the consume path redeems on, rather than through a SQL predicate
+ * restating its precedence. A predicate would be a second copy of that rule
+ * that has to be kept in step by hand, and the two drifting apart is a silent
+ * one-time-code bug: a mint that identifies its recipient by a field the
+ * predicate does not check revokes nothing, and every earlier code stays
+ * spendable for its full TTL.
  *
- * Returns null when the mint carries no identity at all, which is a bootstrap
- * session; those are claimed by `claimBootstrapSession` instead.
+ * A mint bound to no identity revokes nothing. That is a bootstrap session,
+ * claimed by `claimBootstrapSession` instead.
  */
-function sameBoundIdentity(params: {
-  expectedExternalUserId?: string | null;
-  expectedChatId?: string | null;
-  expectedPhoneE164?: string | null;
-}): SQL | undefined {
-  if (params.expectedExternalUserId) {
-    return eq(
-      channelVerificationSessions.expectedExternalUserId,
-      params.expectedExternalUserId,
-    );
+function revokeSameIdentityOutbound(
+  channel: string,
+  mint: IdentityBoundSession,
+  now: number,
+): void {
+  const identity = boundIdentity(mint);
+  if (identity === null) {
+    return;
   }
-  if (params.expectedPhoneE164) {
-    return and(
-      eq(
-        channelVerificationSessions.expectedPhoneE164,
-        params.expectedPhoneE164,
+
+  const db = getGatewayDb();
+  const live = db
+    .select()
+    .from(channelVerificationSessions)
+    .where(
+      and(
+        eq(channelVerificationSessions.channel, channel),
+        inArray(channelVerificationSessions.status, OUTBOUND_LIVE_STATUSES),
       ),
-      isNull(channelVerificationSessions.expectedExternalUserId),
-    );
+    )
+    .all();
+
+  const superseded = live
+    .filter((row) => bindsSameIdentity(boundIdentity(row), identity))
+    .map((row) => row.id);
+  if (superseded.length === 0) {
+    return;
   }
-  if (params.expectedChatId) {
-    return and(
-      eq(channelVerificationSessions.expectedChatId, params.expectedChatId),
-      isNull(channelVerificationSessions.expectedExternalUserId),
-      isNull(channelVerificationSessions.expectedPhoneE164),
-    );
-  }
-  return undefined;
+
+  db.update(channelVerificationSessions)
+    .set({ status: "revoked", updatedAt: now })
+    .where(inArray(channelVerificationSessions.id, superseded))
+    .run();
 }
 
 /**
  * Create an outbound verification session with expected-identity binding.
  *
- * Supersedes the actor's own prior outbound sessions, so only their latest
- * code is live and an intercepted earlier one is useless.
- *
- * The supersede is scoped to the actor rather than the channel, because that
- * is the scope the replay window has. Two people's codes have no replay
- * relationship: `checkIdentityMatch` binds each to its own expected identity,
- * so A's code cannot be spent against B's session. A channel-wide revoke would
+ * Supersedes prior outbound sessions bound to the same identity
+ * (`revokeSameIdentityOutbound`), so only that identity's latest code is live
+ * and an intercepted earlier one is useless. The scope is the identity rather
+ * than the channel because that is the scope the replay window has: two
+ * people's codes have no replay relationship, so a channel-wide revoke would
  * take a stranger's live code away for no security benefit, and on a channel
- * where several people can verify at once that is ordinary traffic rather than
- * an edge case.
- *
- * Which field carries that identity is per-channel, so the scope is keyed on
- * whichever one the consume path redeems on (`sameBoundIdentity`). Telegram
- * guardian mints carry only a chat id, and keying on the user id alone would
- * leave every earlier code on that chat live for its full TTL.
+ * where several people verify at once that is ordinary traffic.
  *
  * Inbound (`pending`) sessions are left alone. They have their own supersede
  * in `createInboundSession`, and an outbound mint has nothing to say about an
  * inbound challenge.
- *
- * A session with no expected identity supersedes nothing by actor: a bootstrap
- * session has no actor until its deep link is redeemed. Those are claimed by
- * `claimBootstrapSession` before the mint, not superseded by identity here.
  */
 export function createOutboundSession(params: {
   id: string;
@@ -460,19 +447,7 @@ export function createOutboundSession(params: {
   const db = getGatewayDb();
   const now = Date.now();
 
-  const sameActor = sameBoundIdentity(params);
-  if (sameActor) {
-    db.update(channelVerificationSessions)
-      .set({ status: "revoked", updatedAt: now })
-      .where(
-        and(
-          eq(channelVerificationSessions.channel, params.channel),
-          inArray(channelVerificationSessions.status, OUTBOUND_LIVE_STATUSES),
-          sameActor,
-        ),
-      )
-      .run();
-  }
+  revokeSameIdentityOutbound(params.channel, params, now);
 
   const row = {
     id: params.id,
