@@ -3,9 +3,13 @@ import {
   installLoginItem,
   installLoginItemIpc,
 } from "@vellumai/electron-desktop/login-item";
+import {
+  onSettingChange,
+  readSetting,
+  writeSetting,
+} from "@vellumai/electron-desktop/settings";
 
 import { handle } from "./ipc";
-import { onSettingChange, readSetting, writeSetting } from "./settings";
 
 configureLoginItem({
   handle,

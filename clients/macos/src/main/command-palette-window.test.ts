@@ -227,7 +227,8 @@ mock.module("./main-window", () => ({
   dispatchToMain: dispatchToMainMock,
 }));
 
-mock.module("./settings", () => ({
+mock.module("@vellumai/electron-desktop/settings", () => ({
+  readHotkeyOverride: () => null,
   readSetting: () => null,
   writeSetting: () => {},
   onSettingChange: () => () => {},

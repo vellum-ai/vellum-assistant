@@ -53,9 +53,12 @@ import {
   installEscapeMonitor,
   setDictationRecording,
 } from "./escape-monitor";
-import { installDiagnosticsIpc } from "./diagnostics";
-import { installFeatureFlagsIpc } from "./feature-flags";
-import { installFeedbackIpc } from "./feedback";
+import {
+  initSentryMain,
+  installDiagnosticsIpc,
+  installFeatureFlagsIpc,
+  installFeedbackIpc,
+} from "./desktop-diagnostics";
 import { installGlobalShortcuts } from "./global-shortcuts.client";
 import { installHotkeyHelper } from "./hotkey-helper";
 import { installHotkeysIpc } from "./hotkeys.client";
@@ -172,8 +175,6 @@ if (app.isPackaged) {
     app.setPath("userData", `${base}-${env}`);
   }
 }
-
-import { initSentryMain } from "./sentry";
 
 initSentryMain();
 

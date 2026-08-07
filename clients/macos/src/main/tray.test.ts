@@ -119,7 +119,7 @@ mock.module("./logger", () => ({
 // `writeSetting`/`onSettingChange` (e.g. `hotkeys.ts`). Feature flags are
 // controllable so the assistant-switcher gate can be exercised.
 let featureFlags: Record<string, boolean> | null = null;
-mock.module("./settings", () => ({
+mock.module("@vellumai/electron-desktop/settings", () => ({
   readSetting: (key: string) => (key === "featureFlags" ? featureFlags : null),
   writeSetting: () => {},
   onSettingChange: () => () => {},

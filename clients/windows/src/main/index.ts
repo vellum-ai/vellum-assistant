@@ -8,7 +8,7 @@ import path from "node:path";
 import { resolveAppProtocolPath } from "@vellumai/electron-utils/app-protocol";
 import { resolveLocalConfigFromEnv } from "@vellumai/local-mode";
 
-import { APP_PROTOCOL } from "./app-config";
+import { APP_PROTOCOL, WINDOWS_RELEASE_INFO } from "./app-config";
 import { installMainFeatures } from "./features";
 import { handleSync } from "./ipc.client";
 import log from "./logger";
@@ -47,12 +47,8 @@ const isDev = !app.isPackaged;
 // environment. Append an environment suffix for non-production builds so
 // dev/staging/production installs can run side-by-side; production keeps the
 // original path for backwards compatibility.
-declare const __VELLUM_ENVIRONMENT__: string;
 if (app.isPackaged) {
-  const env =
-    typeof __VELLUM_ENVIRONMENT__ === "string"
-      ? __VELLUM_ENVIRONMENT__
-      : "production";
+  const env = WINDOWS_RELEASE_INFO.releaseChannel;
   if (env !== "production") {
     const base = app.getPath("userData");
     app.setPath("userData", `${base}-${env}`);

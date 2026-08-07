@@ -16,6 +16,18 @@
 export const APP_PROTOCOL = "app";
 export const APP_HOST = "vellum.ai";
 
+declare const __VELLUM_BUILD_SHA__: string;
+declare const __VELLUM_ENVIRONMENT__: string;
+
+export const WINDOWS_RELEASE_INFO = {
+  commitSha:
+    typeof __VELLUM_BUILD_SHA__ === "string" ? __VELLUM_BUILD_SHA__ : "unknown",
+  releaseChannel:
+    typeof __VELLUM_ENVIRONMENT__ === "string"
+      ? __VELLUM_ENVIRONMENT__
+      : "production",
+};
+
 const DEV_SERVER_FALLBACK_URL = "http://localhost:5173/assistant";
 
 /**

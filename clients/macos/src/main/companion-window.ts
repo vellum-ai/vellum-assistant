@@ -12,6 +12,10 @@ import {
   type VellumCommand,
   type VoiceActivityState,
 } from "@vellumai/ipc-contract";
+import {
+  onSettingChange,
+  readSetting,
+} from "@vellumai/electron-desktop/settings";
 
 import { getAvatarPng, getCharacter, onAvatarChange } from "./avatar";
 import { createFloatingWindow, getFloatingWindow } from "./floating-window";
@@ -21,7 +25,6 @@ import {
   dispatchToMain,
   ensureVisible as ensureMainWindowVisible,
 } from "./main-window";
-import { onSettingChange, readSetting } from "./settings";
 import { readCompanionHidden, writeCompanionHidden } from "./window-state";
 
 /**

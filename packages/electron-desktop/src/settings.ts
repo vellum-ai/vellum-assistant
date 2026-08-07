@@ -1,4 +1,4 @@
-import Store, { type Schema } from "electron-store";
+import Store, { type Options, type Schema } from "electron-store";
 
 /**
  * Persisted user preferences shape. The schema below validates writes; reads
@@ -52,15 +52,19 @@ const schema: Schema<AppSettings> = {
 
 let instance: Store<AppSettings> | null = null;
 
+export const createAppSettingsStore = (
+  options: Pick<Options<AppSettings>, "cwd" | "name"> = {},
+): Store<AppSettings> =>
+  new Store<AppSettings>({
+    ...options,
+    schema,
+    clearInvalidConfig: true,
+    rootSchema: { additionalProperties: false },
+  });
+
 const store = (): Store<AppSettings> => {
   if (!instance) {
-    instance = new Store<AppSettings>({
-      schema,
-      // Close the root so a renderer typo (e.g. `set("them", "dark")`) is
-      // rejected at validation time instead of silently persisted as an
-      // unknown top-level key. Per-key shapes are still validated by `schema`.
-      rootSchema: { additionalProperties: false },
-    });
+    instance = createAppSettingsStore();
   }
   return instance;
 };

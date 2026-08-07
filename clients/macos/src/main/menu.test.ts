@@ -72,7 +72,7 @@ mock.module("./main-window", () => ({
 
 // Full `./settings` surface so this mock — which leaks into co-run test files
 // via the global module registry — doesn't break sibling modules.
-mock.module("./settings", () => ({
+mock.module("@vellumai/electron-desktop/settings", () => ({
   readSetting: () => null,
   writeSetting: () => {},
   onSettingChange: () => () => {},
