@@ -84,7 +84,7 @@ function isGatewayInternal(filePath: string): boolean {
 const INTERPOLATED_PORT_ALLOWLIST = new Set([
   "clients/macos/src/main/bundle-flow.ts",
   // Desktop clients connect to local assistants through their loopback gateway.
-  "packages/host-proxy/src/router.ts",
+  "packages/electron-desktop/src/host-proxy/router.ts",
 ]);
 
 /** Shared violation filter: exempt test files, gateway internals, and allowlisted paths. */
