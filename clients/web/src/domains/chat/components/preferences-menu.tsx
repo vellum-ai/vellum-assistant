@@ -14,7 +14,6 @@ import {
   Button,
   PanelItem,
   Popover,
-  SideMenu,
 } from "@vellumai/design-library";
 
 import { LazyBoundary } from "@/components/lazy-boundary";
@@ -89,10 +88,15 @@ export function PreferencesMenu({
         <span className="min-w-0 truncate">{PREFERENCES_LABEL}</span>
       </Button>
     ) : (
-      <SideMenu.Item
+      /* A pill, matching the identity and pinned-app entries it shares the
+         rail with: these are destinations you keep, not rows in a list.
+         Distinct from `triggerVariant="pill"` above, which is the mobile
+         overlay's floating action button. */
+      <PanelItem
+        shape="pill"
         icon={CircleUser}
         label={PREFERENCES_LABEL}
-        trailingIcon={isOpen ? ChevronDown : ChevronUp}
+        expandChevron={isOpen ? ChevronDown : ChevronUp}
         active={isOpen}
         data-tour-id="settings"
       />
