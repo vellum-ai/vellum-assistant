@@ -454,11 +454,11 @@ describe("decide — ATL-463 crash-window closure", () => {
   });
 
   test("a conflicted outbound-session mint rolls the approval back", async () => {
-    // A guarded mint against a channel that already has an
-    // active session conflicts — the approval must not commit codeless.
+    // A guarded mint for a requester who already has a live session
+    // conflicts. The approval must not commit codeless.
     const existing = createOutboundSession({
       channel: CHANNEL,
-      expectedExternalUserId: "someone-else",
+      expectedExternalUserId: SENDER,
       verificationPurpose: "trusted_contact",
     });
     const request = seedRequest();
@@ -473,6 +473,7 @@ describe("decide — ATL-463 crash-window closure", () => {
           channel: CHANNEL,
           expectedExternalUserId: SENDER,
           verificationPurpose: "trusted_contact",
+          ifNoneActiveForExternalUserId: SENDER,
         },
       }),
     ).rejects.toThrow("outbound session mint conflicted");

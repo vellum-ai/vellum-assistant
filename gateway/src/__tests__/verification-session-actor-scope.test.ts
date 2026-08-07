@@ -133,6 +133,66 @@ describe("an outbound mint supersedes only its own actor", () => {
   });
 });
 
+describe("channels that identify the actor by chat id", () => {
+  // Telegram guardian mints carry only `expectedChatId`, and
+  // `checkIdentityMatch` redeems those on a chat-id match. Keying the
+  // supersede on the user id alone would leave every earlier code on the
+  // chat live for its full TTL.
+  function mintChatKeyed(chatId: string) {
+    seq += 1;
+    return createOutboundSession({
+      id: `session-${seq}`,
+      channel: "telegram",
+      challengeHash: `hash-${seq}`,
+      expiresAt: Date.now() + TEN_MINUTES,
+      status: "awaiting_response",
+      expectedChatId: chatId,
+      identityBindingStatus: "bound",
+      destinationAddress: chatId,
+      verificationPurpose: "guardian",
+    });
+  }
+
+  test("a resend to the same chat supersedes the earlier code", () => {
+    const first = mintChatKeyed("123456789");
+    const second = mintChatKeyed("123456789");
+
+    expect(statusOf(first.id)).toBe("revoked");
+    expect(statusOf(second.id)).toBe("awaiting_response");
+    expect(
+      findPendingSessionByHash("telegram", first.challengeHash),
+    ).toBeNull();
+  });
+
+  test("a mint to another chat leaves the first alone", () => {
+    const first = mintChatKeyed("123456789");
+    mintChatKeyed("987654321");
+
+    expect(statusOf(first.id)).toBe("awaiting_response");
+  });
+
+  test("two people in one group chat keep their own codes", () => {
+    // A row carrying both fields redeems only on the user id, so a
+    // chat-keyed match must not reach it.
+    seq += 1;
+    const alice = createOutboundSession({
+      id: `session-${seq}`,
+      channel: "telegram",
+      challengeHash: `hash-${seq}`,
+      expiresAt: Date.now() + TEN_MINUTES,
+      status: "awaiting_response",
+      expectedExternalUserId: ALICE,
+      expectedChatId: "group-1",
+      identityBindingStatus: "bound",
+      verificationPurpose: "guardian",
+    });
+
+    mintChatKeyed("group-1");
+
+    expect(statusOf(alice.id)).toBe("awaiting_response");
+  });
+});
+
 describe("an outbound mint leaves inbound challenges alone", () => {
   test("an inbound challenge survives an unrelated outbound mint", () => {
     // Inbound sessions have their own supersede in `createInboundSession`, and
@@ -167,8 +227,12 @@ describe("findActiveSession", () => {
     const alice = mintOutboundFor(ALICE);
     const bob = mintOutboundFor(BOB);
 
-    expect(findActiveSession(CHANNEL, { expectedExternalUserId: ALICE })?.id).toBe(alice.id);
-    expect(findActiveSession(CHANNEL, { expectedExternalUserId: BOB })?.id).toBe(bob.id);
+    expect(
+      findActiveSession(CHANNEL, { expectedExternalUserId: ALICE })?.id,
+    ).toBe(alice.id);
+    expect(
+      findActiveSession(CHANNEL, { expectedExternalUserId: BOB })?.id,
+    ).toBe(bob.id);
   });
 
   test("unfiltered, returns the most recent regardless of actor", () => {
@@ -182,7 +246,9 @@ describe("findActiveSession", () => {
   test("returns null for an actor with nothing in flight", () => {
     mintOutboundFor(ALICE);
 
-    expect(findActiveSession(CHANNEL, { expectedExternalUserId: BOB })).toBeNull();
+    expect(
+      findActiveSession(CHANNEL, { expectedExternalUserId: BOB }),
+    ).toBeNull();
   });
 });
 

@@ -140,6 +140,8 @@ export function createOutboundSession(params: {
   verificationPurpose?: VerificationPurpose;
   bootstrapTokenHash?: string;
   sessionId?: string;
+  /** A specific session this mint claims and therefore supersedes. */
+  supersedeSessionId?: string;
 }): CreateOutboundSessionResult {
   const isUnbound = params.identityBindingStatus === "pending_bootstrap";
   const secret = isUnbound
@@ -164,6 +166,7 @@ export function createOutboundSession(params: {
     maxAttempts: params.maxAttempts,
     verificationPurpose: params.verificationPurpose,
     bootstrapTokenHash: params.bootstrapTokenHash,
+    supersedeSessionId: params.supersedeSessionId,
   });
 
   return {
@@ -192,12 +195,15 @@ export type GuardedCreateOutboundSessionResult =
  * winner's freshly minted code.
  *
  * - `requireSourceSessionPending`: the bootstrap handoff claim. The source
- *   session must still be `pending_bootstrap` (a prior mint revokes it, so a
- *   second claim of the same deep-link token conflicts).
+ *   session must still be `pending_bootstrap`, and the mint revokes it by id
+ *   in the same section, so a second claim of the same deep-link token
+ *   conflicts. Naming the row is what makes the claim single-use: the
+ *   supersede-by-identity below cannot do it, because a bootstrap row carries
+ *   whichever identity was bound onto it last.
  * - `ifNoneActiveForExternalUserId`: sender-scoped create-if-absent.
  *   Conflicts only when the channel's active session is bound to the same
- *   expectedExternalUserId — a different sender's session may be superseded
- *   (the unguarded revoke-prior semantics apply).
+ *   expectedExternalUserId. A different sender's session is neither a
+ *   conflict nor superseded: it is not this sender's to take.
  */
 export function createOutboundSessionGuarded(
   params: Parameters<typeof createOutboundSession>[0] & {
@@ -229,7 +235,11 @@ export function createOutboundSessionGuarded(
     }
   }
 
-  return createOutboundSession(params);
+  return createOutboundSession(
+    params.requireSourceSessionPending
+      ? { ...params, supersedeSessionId: params.requireSourceSessionPending }
+      : params,
+  );
 }
 
 // ---------------------------------------------------------------------------

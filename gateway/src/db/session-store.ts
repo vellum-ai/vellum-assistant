@@ -8,7 +8,17 @@
  */
 
 import type { Database } from "bun:sqlite";
-import { and, count, desc, eq, gt, gte, inArray } from "drizzle-orm";
+import {
+  and,
+  count,
+  desc,
+  eq,
+  gt,
+  gte,
+  inArray,
+  isNull,
+  type SQL,
+} from "drizzle-orm";
 
 import type {
   IdentityBindingStatus,
@@ -334,6 +344,49 @@ export function consumeSession(
 // ---------------------------------------------------------------------------
 
 /**
+ * Match rows bound to the same identity a new mint is bound to.
+ *
+ * The key is whichever field `checkIdentityMatch` actually redeems on, in its
+ * precedence order, and the match requires the stored row to be keyed the same
+ * way. A row carrying both a chat id and a user id redeems only on the user id
+ * (`identity-match.ts` treats a shared chat id as insufficient), so it is not
+ * matched by a chat-keyed mint: two people in one group chat keep their own
+ * codes.
+ *
+ * Returns null when the mint carries no identity at all, which is a bootstrap
+ * session; those supersede by `supersedeSessionId` instead.
+ */
+function sameBoundIdentity(params: {
+  expectedExternalUserId?: string | null;
+  expectedChatId?: string | null;
+  expectedPhoneE164?: string | null;
+}): SQL | undefined {
+  if (params.expectedExternalUserId) {
+    return eq(
+      channelVerificationSessions.expectedExternalUserId,
+      params.expectedExternalUserId,
+    );
+  }
+  if (params.expectedPhoneE164) {
+    return and(
+      eq(
+        channelVerificationSessions.expectedPhoneE164,
+        params.expectedPhoneE164,
+      ),
+      isNull(channelVerificationSessions.expectedExternalUserId),
+    );
+  }
+  if (params.expectedChatId) {
+    return and(
+      eq(channelVerificationSessions.expectedChatId, params.expectedChatId),
+      isNull(channelVerificationSessions.expectedExternalUserId),
+      isNull(channelVerificationSessions.expectedPhoneE164),
+    );
+  }
+  return undefined;
+}
+
+/**
  * Create an outbound verification session with expected-identity binding.
  *
  * Supersedes the actor's own prior outbound sessions, so only their latest
@@ -341,20 +394,29 @@ export function consumeSession(
  *
  * The supersede is scoped to the actor rather than the channel, because that
  * is the scope the replay window has. Two people's codes have no replay
- * relationship: `checkIdentityMatch` binds each to its own
- * `expectedExternalUserId`, so A's code cannot be spent against B's session. A
- * channel-wide revoke would take a stranger's live code away for no security
- * benefit, and on a channel where several people can verify at once that is
- * ordinary traffic rather than an edge case.
+ * relationship: `checkIdentityMatch` binds each to its own expected identity,
+ * so A's code cannot be spent against B's session. A channel-wide revoke would
+ * take a stranger's live code away for no security benefit, and on a channel
+ * where several people can verify at once that is ordinary traffic rather than
+ * an edge case.
+ *
+ * Which field carries that identity is per-channel, so the scope is keyed on
+ * whichever one the consume path redeems on (`sameBoundIdentity`). Telegram
+ * guardian mints carry only a chat id, and keying on the user id alone would
+ * leave every earlier code on that chat live for its full TTL.
  *
  * Inbound (`pending`) sessions are left alone. They have their own supersede
  * in `createInboundSession`, and an outbound mint has nothing to say about an
  * inbound challenge.
  *
- * A session with no `expectedExternalUserId` supersedes nothing. Bootstrap
- * sessions have no actor until the deep link is redeemed and are claimed
- * atomically by `requireSourceSessionPending` instead; inbound sessions are
- * not this function's business.
+ * A session with no expected identity supersedes nothing by actor: a bootstrap
+ * session has no actor until its deep link is redeemed.
+ *
+ * `supersedeSessionId` covers that last case: a mint claiming a bootstrap
+ * session names it, and it is revoked here so the claim happens in the same
+ * synchronous section as the insert. Without it a redeemed deep-link token
+ * would stay `pending_bootstrap` and be claimable a second time, because the
+ * claim guard passes on exactly that status.
  */
 export function createOutboundSession(params: {
   id: string;
@@ -372,21 +434,28 @@ export function createOutboundSession(params: {
   maxAttempts?: number;
   verificationPurpose?: VerificationPurpose;
   bootstrapTokenHash?: string | null;
+  /** A specific session this mint claims and therefore supersedes. */
+  supersedeSessionId?: string;
 }): VerificationSession {
   const db = getGatewayDb();
   const now = Date.now();
 
-  if (params.expectedExternalUserId) {
+  if (params.supersedeSessionId) {
+    db.update(channelVerificationSessions)
+      .set({ status: "revoked", updatedAt: now })
+      .where(eq(channelVerificationSessions.id, params.supersedeSessionId))
+      .run();
+  }
+
+  const sameActor = sameBoundIdentity(params);
+  if (sameActor) {
     db.update(channelVerificationSessions)
       .set({ status: "revoked", updatedAt: now })
       .where(
         and(
           eq(channelVerificationSessions.channel, params.channel),
           inArray(channelVerificationSessions.status, OUTBOUND_LIVE_STATUSES),
-          eq(
-            channelVerificationSessions.expectedExternalUserId,
-            params.expectedExternalUserId,
-          ),
+          sameActor,
         ),
       )
       .run();

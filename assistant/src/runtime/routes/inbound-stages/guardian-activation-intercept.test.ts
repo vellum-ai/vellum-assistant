@@ -244,7 +244,11 @@ describe("handleGuardianActivationIntercept", () => {
     expect(emitNotificationSignalCalls).toHaveLength(0);
   });
 
-  test("existing active session from different sender allows superseding", async () => {
+  test("someone else verifying does not turn this sender away", async () => {
+    // The read is scoped to the sender, so another person's live session is
+    // invisible here and this activation proceeds as a first one. Without the
+    // scope it would return the stranger's session and this sender would be
+    // told a verification is "already in progress" that is not theirs.
     gatewaySessions.state.activeSession = {
       id: "existing-sess",
       channel: "telegram",
@@ -255,17 +259,14 @@ describe("handleGuardianActivationIntercept", () => {
 
     const result = await handleGuardianActivationIntercept(makeParams());
 
-    // Should proceed and create a new session (superseding the stale one)
-    expect(result).not.toBeNull();
-    const body = result!;
-    expect(body).toEqual({ accepted: true, guardianActivation: true });
+    expect(result).toEqual({ accepted: true, guardianActivation: true });
     expect(gatewaySessions.calls.create).toHaveLength(1);
-    // Deliberate supersede of this sender's own stale session: the
-    // create-if-absent guard is omitted so it gets revoked.
+    // Carrying the guard is what keeps the stranger's code alive: the mint
+    // supersedes by bound identity, and this sender is not that identity.
     expect(
       (gatewaySessions.calls.create[0] as Record<string, unknown>)
         .ifNoneActiveForExternalUserId,
-    ).toBeUndefined();
+    ).toBe("user-42");
     expect(emitNotificationSignalCalls).toHaveLength(1);
   });
 

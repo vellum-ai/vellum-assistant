@@ -234,6 +234,55 @@ describe("verification_sessions_create_outbound", () => {
     ).toHaveLength(rowsBefore);
   });
 
+  test("requireSourceSessionPending: two senders redeeming one deep link, only the first mints", async () => {
+    // Both open the same `gv_` link and their identity binds interleave, so
+    // by the time the first one mints the source row carries the second
+    // one's identity. The claim is single-use because the mint revokes the
+    // row it named, not because that row happens to match the minter.
+    const bootstrap = CreateOutboundSessionIpcResponseSchema.parse(
+      await call(METHODS.createOutbound, {
+        channel: "telegram",
+        identityBindingStatus: "pending_bootstrap",
+        bootstrapTokenHash: hashVerificationSecret("shared-deep-link"),
+      }),
+    );
+
+    await call(METHODS.bindIdentity, {
+      sessionId: bootstrap.sessionId,
+      externalUserId: "tg-user-A",
+      chatId: "tg-chat-A",
+    });
+    await call(METHODS.bindIdentity, {
+      sessionId: bootstrap.sessionId,
+      externalUserId: "tg-user-B",
+      chatId: "tg-chat-B",
+    });
+
+    const first = CreateOutboundSessionIpcResponseSchema.parse(
+      await call(METHODS.createOutbound, {
+        channel: "telegram",
+        expectedExternalUserId: "tg-user-A",
+        expectedChatId: "tg-chat-A",
+        identityBindingStatus: "bound",
+        requireSourceSessionPending: bootstrap.sessionId,
+      }),
+    );
+    expect(getRow(bootstrap.sessionId)?.status).toBe("revoked");
+
+    const second = await call(METHODS.createOutbound, {
+      channel: "telegram",
+      expectedExternalUserId: "tg-user-B",
+      expectedChatId: "tg-chat-B",
+      identityBindingStatus: "bound",
+      requireSourceSessionPending: bootstrap.sessionId,
+    });
+    expect(second).toEqual({
+      conflict: true,
+      reason: "source_session_not_pending",
+    });
+    expect(getRow(first.sessionId)?.status).toBe("awaiting_response");
+  });
+
   test("requireSourceSessionPending: unknown or cross-channel source conflicts", async () => {
     expect(
       await call(METHODS.createOutbound, {

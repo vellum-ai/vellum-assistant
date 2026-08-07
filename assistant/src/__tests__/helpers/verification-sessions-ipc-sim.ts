@@ -62,10 +62,48 @@ function isInterceptable(s: VerificationSessionWire): boolean {
   return (INTERCEPTABLE_STATUSES as readonly string[]).includes(s.status);
 }
 
-function revokeInterceptable(channel: string): void {
+const OUTBOUND_LIVE_STATUSES = ["pending_bootstrap", "awaiting_response"];
+
+/**
+ * The identity a session redeems on, in `checkIdentityMatch`'s precedence
+ * order. Null when the session carries none, which is a bootstrap session.
+ */
+function boundIdentity(session: {
+  expectedExternalUserId?: string | null;
+  expectedChatId?: string | null;
+  expectedPhoneE164?: string | null;
+}): string | null {
+  if (session.expectedExternalUserId) {
+    return `user:${session.expectedExternalUserId}`;
+  }
+  if (session.expectedPhoneE164) {
+    return `phone:${session.expectedPhoneE164}`;
+  }
+  if (session.expectedChatId) {
+    return `chat:${session.expectedChatId}`;
+  }
+  return null;
+}
+
+/**
+ * Mirrors the gateway store: an outbound mint supersedes only sessions bound
+ * to the same identity, leaving other actors and inbound challenges alone.
+ */
+function revokeSameActorOutbound(
+  channel: string,
+  params: SimCreateOutboundParams,
+): void {
+  const identity = boundIdentity(params);
+  if (identity === null) {
+    return;
+  }
   const now = Date.now();
   for (const s of sessions.values()) {
-    if (s.channel === channel && isInterceptable(s)) {
+    if (
+      s.channel === channel &&
+      OUTBOUND_LIVE_STATUSES.includes(s.status) &&
+      boundIdentity(s) === identity
+    ) {
       s.status = "revoked";
       s.updatedAt = now;
     }
@@ -164,7 +202,7 @@ export interface SimCreateOutboundResult {
 export function createOutboundSession(
   params: SimCreateOutboundParams,
 ): SimCreateOutboundResult {
-  revokeInterceptable(params.channel);
+  revokeSameActorOutbound(params.channel, params);
 
   const isUnbound = params.identityBindingStatus === "pending_bootstrap";
   const secret = isUnbound
@@ -229,25 +267,35 @@ export function createOutboundSessionGuarded(
     ...createParams
   } = params;
 
+  let sourceSession: VerificationSessionWire | undefined;
   if (requireSourceSessionPending !== undefined) {
-    const source = sessions.get(requireSourceSessionPending);
+    sourceSession = sessions.get(requireSourceSessionPending);
     if (
-      !source ||
-      source.channel !== params.channel ||
-      source.status !== "pending_bootstrap"
+      !sourceSession ||
+      sourceSession.channel !== params.channel ||
+      sourceSession.status !== "pending_bootstrap"
     ) {
       return { conflict: true, reason: "source_session_not_pending" };
     }
   }
 
   if (ifNoneActiveForExternalUserId !== undefined) {
-    const active = findActiveSession(params.channel);
-    if (
-      active !== null &&
-      active.expectedExternalUserId === ifNoneActiveForExternalUserId
-    ) {
+    // Scoped, like the gateway. Reading the channel's latest and comparing
+    // misses this sender's session whenever somebody else started later.
+    const active = findActiveSession(params.channel, {
+      expectedExternalUserId: ifNoneActiveForExternalUserId,
+    });
+    if (active !== null) {
       return { conflict: true, reason: "active_session_exists" };
     }
+  }
+
+  // Claim the named source row, so a second claim of the same deep-link
+  // token conflicts. The identity-scoped revoke cannot do this: a bootstrap
+  // row carries whichever identity was bound onto it last.
+  if (sourceSession) {
+    sourceSession.status = "revoked";
+    sourceSession.updatedAt = Date.now();
   }
 
   return createOutboundSession(createParams);

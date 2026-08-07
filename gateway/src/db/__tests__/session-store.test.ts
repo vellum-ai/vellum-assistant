@@ -175,23 +175,72 @@ describe("createOutboundSession", () => {
     expect(row?.bootstrapTokenHash).toBe("boot-hash");
   });
 
-  test("revokes prior interceptable sessions on the same channel", () => {
+  test("supersedes the same actor's prior outbound sessions", () => {
     for (const status of [
-      "pending",
       "pending_bootstrap",
       "awaiting_response",
     ] as SessionStatus[]) {
-      insertRaw({ id: `prior-${status}`, status });
+      insertRaw({
+        id: `mine-${status}`,
+        status,
+        expectedExternalUserId: "u-1",
+      });
     }
-    insertRaw({ id: "prior-consumed", status: "consumed" });
+    insertRaw({
+      id: "mine-consumed",
+      status: "consumed",
+      expectedExternalUserId: "u-1",
+    });
 
-    const session = createOutbound();
+    const session = createOutbound({ expectedExternalUserId: "u-1" });
 
-    expect(getRow("prior-pending")?.status).toBe("revoked");
-    expect(getRow("prior-pending_bootstrap")?.status).toBe("revoked");
-    expect(getRow("prior-awaiting_response")?.status).toBe("revoked");
-    expect(getRow("prior-consumed")?.status).toBe("consumed");
+    expect(getRow("mine-pending_bootstrap")?.status).toBe("revoked");
+    expect(getRow("mine-awaiting_response")?.status).toBe("revoked");
+    expect(getRow("mine-consumed")?.status).toBe("consumed");
     expect(getRow(session.id)?.status).toBe("awaiting_response");
+  });
+
+  test("leaves another actor's session and any inbound challenge alone", () => {
+    // The replay window is per identity, so a stranger's live code is not this
+    // mint's to take. Inbound challenges have their own supersede in
+    // createInboundSession and are not this function's business.
+    insertRaw({
+      id: "theirs",
+      status: "awaiting_response",
+      expectedExternalUserId: "u-2",
+    });
+    insertRaw({ id: "inbound", status: "pending" });
+
+    createOutbound({ expectedExternalUserId: "u-1" });
+
+    expect(getRow("theirs")?.status).toBe("awaiting_response");
+    expect(getRow("inbound")?.status).toBe("pending");
+  });
+
+  test("a mint with no actor supersedes nothing by actor", () => {
+    insertRaw({
+      id: "bound",
+      status: "awaiting_response",
+      expectedExternalUserId: "u-1",
+    });
+
+    createOutbound({ status: "pending_bootstrap" });
+
+    expect(getRow("bound")?.status).toBe("awaiting_response");
+  });
+
+  test("supersedeSessionId revokes the named session regardless of actor", () => {
+    // The bootstrap claim. Without this a redeemed deep-link token stays
+    // pending_bootstrap and is claimable a second time, because the claim
+    // guard passes on exactly that status.
+    insertRaw({ id: "bootstrap", status: "pending_bootstrap" });
+
+    createOutbound({
+      expectedExternalUserId: "u-1",
+      supersedeSessionId: "bootstrap",
+    });
+
+    expect(getRow("bootstrap")?.status).toBe("revoked");
   });
 });
 
