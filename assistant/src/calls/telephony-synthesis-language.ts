@@ -13,7 +13,11 @@
  */
 
 import { getConfig } from "../config/loader.js";
+import type { AssistantConfig } from "../config/types.js";
 import { pinnedListeningLanguage } from "../providers/speech-to-text/provider-catalog.js";
+import { resolveLanguageVoiceOverride } from "../tts/language-voices.js";
+import { resolveTtsConfig } from "../tts/tts-config-resolver.js";
+import type { TtsProviderId } from "../tts/types.js";
 import { baseLanguageSubtag } from "../util/language-subtag.js";
 
 /**
@@ -42,4 +46,39 @@ export function resolveTelephonySynthesisLanguage(
   }
 
   return pinnedListeningLanguage(stt.provider, stt.language);
+}
+
+/**
+ * Resolve the per-language voice for a telephony synthesis request from
+ * the synthesizing provider's `services.tts.providers.<id>.languageVoices`
+ * map. Keyed by the provider actually synthesizing, which on the
+ * media-stream transport may be a playability fallback rather than the
+ * configured provider, because voice identifiers are provider-specific.
+ * Returns undefined (provider default voice) when the request carries no
+ * language, config is unavailable, or the provider's map has no entry.
+ */
+export function resolveTelephonyLanguageVoice(
+  providerId: string,
+  language: string | undefined,
+): string | undefined {
+  if (language === undefined) {
+    return undefined;
+  }
+
+  let config: AssistantConfig;
+  try {
+    config = getConfig();
+  } catch {
+    // Config unavailable (early startup, minimal test workspaces): no override.
+    return undefined;
+  }
+
+  const { providerConfig } = resolveTtsConfig(
+    config,
+    providerId as TtsProviderId,
+  );
+  return resolveLanguageVoiceOverride(
+    providerConfig.languageVoices as Record<string, string> | undefined,
+    language,
+  );
 }

@@ -949,6 +949,21 @@ describe("MediaStreamSttSession", () => {
       session.dispose();
     });
 
+    test("falling back to batch mid-call clears the detected language", async () => {
+      const { session, fake } = await startStreamingSession();
+
+      fake.emit({ type: "final", text: "konnichiwa", languages: ["ja"] });
+      expect(session.currentLanguage()).toBe("ja");
+
+      // Provider closes the stream unexpectedly: the session settles on
+      // batch, whose transcripts carry no language metadata. The stale ja
+      // detection must not keep hinting synthesis for English speech.
+      fake.emit({ type: "closed" });
+      expect(session.currentLanguage()).toBeUndefined();
+
+      session.dispose();
+    });
+
     test("local VAD turn end never triggers batch transcription in streaming mode", async () => {
       const onTranscriptFinal = jest.fn();
       const { session } = await startStreamingSession(

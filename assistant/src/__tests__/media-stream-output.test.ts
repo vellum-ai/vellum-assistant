@@ -1307,6 +1307,88 @@ describe("MediaStreamOutput", () => {
   });
 
   // ---------------------------------------------------------------------------
+  // Per-language voice override (languageVoices)
+  // ---------------------------------------------------------------------------
+
+  describe("per-language voice override", () => {
+    afterEach(() => {
+      setConfig("services", {});
+    });
+
+    /** Seed a deepgram languageVoices entry and resolve deepgram as the provider. */
+    function useDeepgramWithHindiVoice(): void {
+      setConfig("services", {
+        tts: {
+          provider: "deepgram",
+          providers: {
+            deepgram: { languageVoices: { hi: "aura-2-hindi-voice" } },
+          },
+        },
+      });
+      useProvider({
+        id: "deepgram",
+        capabilities: { supportsStreaming: false, supportedFormats: ["wav"] },
+        synthesize: mockSynthesize,
+      });
+      mockSynthesize.mockResolvedValue({
+        audio: makeWavBuffer([1000, 2000, 3000, 4000]),
+        contentType: "audio/wav",
+      });
+    }
+
+    test("a configured languageVoices entry for the resolved language rides the request as voiceId", async () => {
+      useDeepgramWithHindiVoice();
+      const { ws } = createMockWs();
+      const output = makeOutput(ws, "stream-voice");
+      output.setSynthesisLanguageResolver(() => "hi");
+
+      output.sendTextToken("Namaste.", true);
+      await drain(() => mockSynthesize.mock.calls.length > 0);
+
+      const request = mockSynthesize.mock.calls[0][0] as {
+        voiceId?: string;
+        language?: string;
+      };
+      expect(request.language).toBe("hi");
+      expect(request.voiceId).toBe("aura-2-hindi-voice");
+    });
+
+    test("no voiceId when the map has no entry for the resolved language", async () => {
+      useDeepgramWithHindiVoice();
+      const { ws } = createMockWs();
+      const output = makeOutput(ws, "stream-voice");
+      output.setSynthesisLanguageResolver(() => "es");
+
+      output.sendTextToken("Hola.", true);
+      await drain(() => mockSynthesize.mock.calls.length > 0);
+
+      const request = mockSynthesize.mock.calls[0][0] as {
+        voiceId?: string;
+        language?: string;
+      };
+      expect(request.language).toBe("es");
+      expect(request.voiceId).toBeUndefined();
+    });
+
+    test("system copy gets neither the language hint nor the language voice", async () => {
+      useDeepgramWithHindiVoice();
+      const { ws } = createMockWs();
+      const output = makeOutput(ws, "stream-voice");
+      output.setSynthesisLanguageResolver(() => "hi");
+
+      output.sendTextToken("Are you still there?", true, { systemCopy: true });
+      await drain(() => mockSynthesize.mock.calls.length > 0);
+
+      const request = mockSynthesize.mock.calls[0][0] as {
+        voiceId?: string;
+        language?: string;
+      };
+      expect(request.language).toBeUndefined();
+      expect(request.voiceId).toBeUndefined();
+    });
+  });
+
+  // ---------------------------------------------------------------------------
   // Streaming PCM synthesis (incremental transcode)
   // ---------------------------------------------------------------------------
 

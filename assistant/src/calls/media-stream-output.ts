@@ -54,7 +54,10 @@ import type {
   MediaStreamSendMediaCommand,
 } from "./media-stream-protocol.js";
 import { resolveCallTtsProvider } from "./resolve-call-tts-provider.js";
-import { resolveTelephonySynthesisLanguage } from "./telephony-synthesis-language.js";
+import {
+  resolveTelephonyLanguageVoice,
+  resolveTelephonySynthesisLanguage,
+} from "./telephony-synthesis-language.js";
 
 const log = getLogger("media-stream-output");
 
@@ -861,9 +864,10 @@ export class MediaStreamOutput implements CallTransport {
    * back to a silent frame if synthesis fails.
    *
    * `systemCopy` items are fixed English copy: they synthesize without a
-   * language hint, so an enforcing provider never renders English text in
-   * the caller's language (same exemption as call-speech-output's
-   * synthesized path). Model text keeps the resolver's hint.
+   * language hint (and therefore without a per-language voice override),
+   * so an enforcing provider never renders English text in the caller's
+   * language (same exemption as call-speech-output's synthesized path).
+   * Model text keeps the resolver's hint.
    */
   private async processSynthesizeItem(
     text: string,
@@ -915,12 +919,16 @@ export class MediaStreamOutput implements CallTransport {
       // return raw PCM; others fall back to their default format and
       // the content-type sniffing below handles the mismatch.
       const language = systemCopy ? undefined : this.resolveSynthesisLanguage();
+      // A language-known segment may select the synthesizing provider's
+      // configured per-language voice; no entry keeps the provider default.
+      const voiceId = resolveTelephonyLanguageVoice(provider.id, language);
       const result = await synthesizeAndEmit({
         provider,
         text,
         useCase: "phone-call",
         outputFormat: "pcm",
         sampleRateHz: STREAMING_PCM_SAMPLE_RATE_HZ,
+        ...(voiceId !== undefined ? { voiceId } : {}),
         ...(language !== undefined ? { language } : {}),
         signal: abortController.signal,
         isCurrent,

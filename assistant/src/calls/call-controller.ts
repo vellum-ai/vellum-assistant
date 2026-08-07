@@ -65,7 +65,10 @@ import {
   resolveSynthesisFormats,
 } from "./resolve-call-tts-provider.js";
 import type { PromptSpeakerContext } from "./speaker-identification.js";
-import { resolveTelephonySynthesisLanguage } from "./telephony-synthesis-language.js";
+import {
+  resolveTelephonyLanguageVoice,
+  resolveTelephonySynthesisLanguage,
+} from "./telephony-synthesis-language.js";
 import { sanitizeForTts } from "./tts-text-sanitizer.js";
 import {
   ASK_GUARDIAN_CAPTURE_REGEX,
@@ -1096,11 +1099,15 @@ export class CallController {
       this.activeSynthesisAbort = abortController;
 
       const language = this.resolveSynthesisLanguage();
+      // A language-known segment may select the synthesizing provider's
+      // configured per-language voice; no entry keeps the provider default.
+      const voiceId = resolveTelephonyLanguageVoice(provider.id, language);
       await synthesizeAndEmit({
         provider,
         text,
         useCase: "phone-call",
         outputFormat,
+        ...(voiceId !== undefined ? { voiceId } : {}),
         ...(language !== undefined ? { language } : {}),
         signal: abortController.signal,
         isCurrent: () => this.isCurrentRun(runVersion),

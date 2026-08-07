@@ -1,3 +1,4 @@
+import { resolveLanguageVoiceOverride } from "../tts/language-voices.js";
 import { createPcmChunkAligner } from "../tts/pcm-chunk-aligner.js";
 import { getTtsProvider } from "../tts/provider-catalog.js";
 import { synthesizeAndEmit } from "../tts/synthesis-stream.js";
@@ -8,7 +9,6 @@ import type {
   TtsSynthesisRequest,
   TtsUseCase,
 } from "../tts/types.js";
-import { localizedOrDefault } from "../util/language-subtag.js";
 import { getLogger } from "../util/logger.js";
 
 const log = getLogger("live-voice-tts");
@@ -74,27 +74,7 @@ interface ResolvedStreamingTtsProvider {
   providerConfig: Record<string, unknown>;
 }
 
-/**
- * Look up a per-language voice override in a provider config's
- * `languageVoices` map. The config schema normalizes map keys to lowercase
- * base subtags at parse time, so this is a single exact lookup on the
- * language's base subtag. Returns undefined when the language is unset,
- * the map has no entry for it, or the entry is blank.
- */
-export function resolveLanguageVoiceOverride(
-  languageVoices: Readonly<Record<string, string>> | undefined,
-  language: string | undefined,
-): string | undefined {
-  if (!languageVoices) {
-    return undefined;
-  }
-  const voice = localizedOrDefault<string | undefined>(
-    languageVoices,
-    language,
-    undefined,
-  );
-  return voice?.trim() || undefined;
-}
+export { resolveLanguageVoiceOverride };
 
 export async function streamLiveVoiceTtsAudio(
   options: LiveVoiceTtsOptions,

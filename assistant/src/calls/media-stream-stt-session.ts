@@ -230,7 +230,8 @@ export class MediaStreamSttSession {
    * finals that carry transcript text update it: silence finals can
    * carry container-level tags describing no emitted words. Untagged
    * finals keep the previous value; batch transcription reports no
-   * language tags, so it stays unset there.
+   * language tags, so it stays unset there and any streaming-detected
+   * value is cleared when the session settles on batch mode.
    */
   private latestUtteranceLanguage: string | undefined;
 
@@ -500,6 +501,10 @@ export class MediaStreamSttSession {
    */
   private enterBatchMode(): void {
     this.mode = "batch";
+    // Batch transcripts carry no language metadata, so a language detected
+    // while streaming would otherwise hint synthesis for the rest of the
+    // call. Clear it so the configured pin (or no hint) takes over.
+    this.latestUtteranceLanguage = undefined;
     this.startupFrames = [];
     this.capabilityPromise ??= resolveTelephonySttCapability();
 
