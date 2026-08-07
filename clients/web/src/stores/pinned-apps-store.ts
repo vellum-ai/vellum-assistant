@@ -80,23 +80,32 @@ function loadState(): PinnedAppsState {
  * Bring the store up to what storage holds, announcing any pin that went away.
  *
  * The one way state advances, whether the write came from this tab or another,
- * so a removed pin is announced once by whoever notices it first. It is safe
- * to call twice because it diffs against live state: the second call sees the
- * list it just produced, finds nothing missing, and says nothing. That is what
+ * so a removed pin is announced once by whoever notices it first. That is what
  * lets an action call it directly and the subscription call it as well,
  * without either depending on the other having run.
  */
 function syncFromStorage(): void {
-  const previousIds = usePinnedAppsStoreBase.getState().pinnedAppIds;
-  const next = loadState();
-  usePinnedAppsStoreBase.setState(next);
+  const previous = usePinnedAppsStoreBase.getState();
+  const pinnedApps = loadPinnedApps();
+
+  /* An unchanged key reads back as the same array, because the accessor caches
+     its parse against the raw string. Stopping here is what makes a redundant
+     call free: publishing anyway would hand every consumer a fresh
+     `pinnedAppIds` Set, and the six that only ask whether one app is pinned
+     would re-render against a set holding exactly what it held before. */
+  if (pinnedApps === previous.pinnedApps) {
+    return;
+  }
+
+  const pinnedAppIds = new Set(pinnedApps.map((a) => a.appId));
+  usePinnedAppsStoreBase.setState({ pinnedApps, pinnedAppIds });
 
   /* An app open in this tab has to close when its pin is cleared, which is
      what `use-active-app-pin-sync` listens for. Driving that from the diff
      rather than from `unpin` means a pin cleared in another tab closes the
      panel too, instead of leaving it open against a pin that is gone. */
-  for (const appId of previousIds) {
-    if (!next.pinnedAppIds.has(appId)) {
+  for (const appId of previous.pinnedAppIds) {
+    if (!pinnedAppIds.has(appId)) {
       for (const listener of unpinListeners) {
         listener(appId);
       }

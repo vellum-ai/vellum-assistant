@@ -267,6 +267,21 @@ describe("storage subscription", () => {
     ).toEqual(["a1", "a2"]);
   });
 
+  /* Six consumers select `pinnedAppIds` to ask whether one app is pinned, and
+     a fresh Set on every notification re-renders all of them against a set
+     holding exactly what it held before. Asserted by reference rather than by
+     contents, which would be equal either way. */
+  test("a notification carrying no change publishes no new state", () => {
+    pin(makeApp({ id: "a1" }));
+    const before = usePinnedAppsStore.getState();
+
+    savePinnedApps(loadPinnedApps());
+
+    const after = usePinnedAppsStore.getState();
+    expect(after.pinnedApps).toBe(before.pinnedApps);
+    expect(after.pinnedAppIds).toBe(before.pinnedAppIds);
+  });
+
   test("ignores a StorageEvent for an unrelated key", () => {
     pin(makeApp({ id: "a1" }));
 
