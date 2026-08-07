@@ -29,10 +29,10 @@ function renderPicker(props: Partial<TierPickerProps> = {}) {
 
 function openMenu(): HTMLElement[] {
   const trigger = document.querySelector<HTMLElement>(
-    '[data-slot="dropdown-trigger"]',
+    '[data-slot="select-trigger"]',
   );
   if (!trigger) {
-    throw new Error("No dropdown trigger rendered");
+    throw new Error("No select trigger rendered");
   }
   fireEvent.click(trigger);
   return Array.from(document.querySelectorAll<HTMLElement>('[role="option"]'));
@@ -52,16 +52,31 @@ afterEach(() => {
 });
 
 describe("TierPicker with a resolved default", () => {
-  test("marks the default level and offers no separate Default entry", () => {
+  test("marks the default level and still offers a Default entry", () => {
     renderPicker({ defaultTier: "low" });
     const options = openMenu();
-    expect(options).toHaveLength(2);
+    expect(options).toHaveLength(3);
     expect(optionLabeled(options, CONSERVATIVE).textContent).toContain(
       "default",
     );
+    // Offered even with the default resolved. Radix reports no selection
+    // when the chosen value already matches the shown one, so this row is
+    // the only way to clear a cell pinned to the default's own level.
     expect(
       options.some((el) => el.textContent?.startsWith("Default")),
-    ).toBeFalse();
+    ).toBeTrue();
+  });
+
+  test("a cell pinned to the default's own level can still be cleared", () => {
+    // The state with no way out otherwise: the trigger shows Conservative
+    // either way, so re-picking it reports nothing.
+    const { onTierChange, onReset } = renderPicker({
+      tier: "low",
+      defaultTier: "low",
+    });
+    fireEvent.click(optionLabeled(openMenu(), "Default"));
+    expect(onReset).toHaveBeenCalledTimes(1);
+    expect(onTierChange).not.toHaveBeenCalled();
   });
 
   test("selecting the default-marked level resets instead of pinning", () => {
@@ -87,8 +102,13 @@ describe("TierPicker with a resolved default", () => {
     expect(optionLabeled(options, CONSERVATIVE).textContent).toContain(
       "default",
     );
+
+    // A selection matching the displayed level is not reported, so neither
+    // callback runs. Nothing is lost here: the cell is already absent, so a
+    // reset would clear nothing. "Default" covers the case where a cell does
+    // exist.
     fireEvent.click(optionLabeled(options, CONSERVATIVE));
-    expect(onReset).toHaveBeenCalledTimes(1);
+    expect(onReset).not.toHaveBeenCalled();
     expect(onTierChange).not.toHaveBeenCalled();
   });
 });
@@ -125,14 +145,15 @@ describe("TierPicker with an unresolved default (defaultTier null)", () => {
     expect(onReset).not.toHaveBeenCalled();
   });
 
-  test("re-selecting the current level pins rather than guessing a reset", () => {
-    // The picker cannot know whether the unresolved default matches the
-    // current level, and clearing the cell on a guess could silently change
-    // effective access once the default resolves. Only the explicit Default
-    // entry resets.
+  test("re-selecting the current level writes nothing", () => {
+    // A selection matching the displayed level is not reported, so neither
+    // callback runs. Re-pinning the same value would change nothing anyway.
+    // Clearing goes through the "Default" entry, which is the only choice
+    // that means "follow the default" without guessing at whether the
+    // unresolved default matches this level.
     const { onTierChange, onReset } = renderPicker({ tier: "low" });
     fireEvent.click(optionLabeled(openMenu(), CONSERVATIVE));
-    expect(onTierChange).toHaveBeenCalledWith("low");
+    expect(onTierChange).not.toHaveBeenCalled();
     expect(onReset).not.toHaveBeenCalled();
   });
 });

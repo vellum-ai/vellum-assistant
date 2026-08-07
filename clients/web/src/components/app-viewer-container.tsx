@@ -3,6 +3,10 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Minimize2 } from "lucide-react";
 
 import { AppNavBar } from "@/components/app-nav-bar";
+import {
+  copyDeployedAppLink,
+  useAppDeployment,
+} from "@/hooks/use-app-deployment";
 import { useSandboxFetchProxy } from "@/hooks/use-sandbox-fetch-proxy";
 import { useAppIframeSandboxDisabled } from "@/lib/app-sandbox-debug-flag";
 import { cn } from "@/utils/misc";
@@ -110,6 +114,17 @@ export function AppViewerContainer({
     onAction,
   });
 
+  // Only asked for when the viewer actually offers a deploy: read-only
+  // (plugin-bundled) apps get no deploy handler and so need no status read.
+  const { deployedUrl } = useAppDeployment(assistantId, appId, {
+    enabled: onDeploy != null,
+  });
+  const handleCopyDeployedLink = useCallback(() => {
+    if (deployedUrl != null) {
+      copyDeployedAppLink(deployedUrl);
+    }
+  }, [deployedUrl]);
+
   return (
     <div
       data-testid="app-viewer-root"
@@ -127,6 +142,8 @@ export function AppViewerContainer({
           isSharing={isSharing}
           onDeploy={onDeploy}
           isDeploying={isDeploying}
+          deployedUrl={deployedUrl}
+          onCopyDeployedLink={handleCopyDeployedLink}
           onToggleFullscreen={enableFullscreen ? toggleFullscreen : undefined}
           onClose={onClose}
         />

@@ -37,9 +37,12 @@ export interface UIContext {
   hasPendingAssistantResponse?: boolean;
   /** The daemon's authoritative per-conversation `processing` flag, carried on
    * the rolling snapshot (`PaginatedHistoryResult.processing`) and refreshed by
-   * every `/messages` reseed. Consumed as an authoritative CLOSE-gate: `false`
-   * means the server considers the turn over, so a `phase` left stuck by a
-   * dropped terminal SSE event stops driving the indicator. `undefined` (older
+   * every `/messages` reseed. Consumed as an authoritative gate in both
+   * directions: `false` means the server considers the turn over, so a `phase`
+   * left stuck by a dropped terminal SSE event stops driving the indicator;
+   * `true` means the daemon still holds this conversation's processing lock, so
+   * {@link isAssistantBusy} reports busy (and the composer offers Stop) even
+   * when this client never observed the turn locally. `undefined` (older
    * daemons, or a cold snapshot) leaves phase-only behavior untouched. */
   snapshotProcessing?: boolean;
 }
@@ -135,6 +138,16 @@ export function shouldShowThinkingIndicator(
  * says the turn is done, even if `phase` is stuck. The
  * `hasPendingAssistantResponse` guard keeps the window right after a send
  * (before the first token) covered.
+ *
+ * Authoritative open-gate: `snapshotProcessing === true` means the daemon still
+ * holds this conversation's processing lock, so further sends are queued rather
+ * than started. That has to read as busy even when no local signal agrees (a
+ * reloaded tab, or a lock the daemon holds past its last SSE event), because
+ * the Stop button is the only escape from a busy daemon and it is gated on this
+ * selector. The state cannot strand: the same flag is revalidated on a timer by
+ * `useConversationHistory` for exactly as long as it is the only thing holding
+ * the UI busy, and the refetched `processing: false` clears it through the
+ * close-gate above.
  */
 export function isAssistantBusy(phase: TurnPhase, ctx: UIContext): boolean {
   if (ctx.snapshotProcessing === false && !ctx.hasPendingAssistantResponse) {
@@ -157,7 +170,8 @@ export function isAssistantBusy(phase: TurnPhase, ctx: UIContext): boolean {
   return (
     isSending(phase) ||
     ctx.hasStreamingAssistantMessage ||
-    ctx.activeConversationIsProcessing === true
+    ctx.activeConversationIsProcessing === true ||
+    ctx.snapshotProcessing === true
   );
 }
 

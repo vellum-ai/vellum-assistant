@@ -10,7 +10,7 @@
  *      send/stop button, disabled attribute).
  */
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
-import { createRef } from "react";
+import { createRef, type ReactNode } from "react";
 import { act, cleanup, fireEvent, render } from "@testing-library/react";
 
 import {
@@ -173,6 +173,16 @@ mock.module("@/domains/chat/voice/live-voice/live-voice-preflight-api", () => ({
 let mockSupportsLiveVoice = true;
 mock.module("@/lib/backwards-compat/use-supports-live-voice", () => ({
   useSupportsLiveVoice: () => mockSupportsLiveVoice,
+}));
+
+// Composer-card width measurement. happy-dom has no layout engine (every box
+// measures 0), so drive the compact signal directly instead of resizing.
+let mockCompactComposer = false;
+mock.module("@/domains/chat/components/chat-composer/composer-compact", () => ({
+  COMPOSER_COMPACT_WIDTH_PX: 520,
+  useIsCompactComposerWidth: () => mockCompactComposer,
+  useComposerCompact: () => mockCompactComposer,
+  ComposerCompactProvider: ({ children }: { children: ReactNode }) => children,
 }));
 
 // Avatar data feeding the voice bar's wave accent. Mocked so the composer
@@ -543,6 +553,7 @@ describe("computeGhostSuffix", () => {
 afterEach(cleanup);
 beforeEach(() => {
   resetLiveVoiceMocks();
+  mockCompactComposer = false;
   // The composer self-sources its draft + attachments from the store; reset
   // them between tests so seeded values can't leak across cases.
   useComposerStore.setState({
@@ -800,6 +811,23 @@ describe("ChatComposer — optional slots", () => {
     });
     expect(html).toContain(">THR<");
     expect(html).toContain(">CTX<");
+  });
+
+  test("modelPickerSlot renders beside the mic while the composer is wide", () => {
+    const html = renderComposer({ modelPickerSlot: <span>PROFILE</span> });
+    expect(html).toContain(">PROFILE<");
+  });
+
+  test("modelPickerSlot is dropped when the composer is compact", () => {
+    // Narrow card: the profile picker folds into the access slot's hamburger
+    // (see `ComposerSettingsMenu`), so mounting it here too would double it up.
+    mockCompactComposer = true;
+    const html = renderComposer({
+      thresholdPickerSlot: <span>THR</span>,
+      modelPickerSlot: <span>PROFILE</span>,
+    });
+    expect(html).toContain(">THR<");
+    expect(html).not.toContain(">PROFILE<");
   });
 
   test("voice button is omitted when voiceInputRef/onVoiceTranscript are not provided (app-editing variant)", () => {

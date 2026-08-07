@@ -22,6 +22,28 @@ body {
   background: var(--surface-base);
 }
 
+/* The Capacitor camera preview is a native layer behind the web view. While it
+ * is active, hide the surrounding app canvas and keep only the voice room's
+ * controls visible over the transparent web view. The eight-digit token also
+ * tells the iOS backdrop bridge to clear safe-area paint around the web view. */
+:root.native-voice-camera-active {
+  --surface-overlay: #00000000;
+  background: transparent;
+}
+
+:root.native-voice-camera-active body,
+:root.native-voice-camera-active #root {
+  background: transparent;
+}
+
+:root.native-voice-camera-active #root {
+  visibility: hidden;
+}
+
+:root.native-voice-camera-active [data-native-voice-camera-chrome] {
+  visibility: visible;
+}
+
 /* Electron prechat onboarding typography — mirror the lighter DM Sans (Swift
  * VFont) weights/sizes so the macOS Electron funnel matches the native Swift
  * client. Scoped via `.electron-prechat-type` (applied ONLY on Electron) so the
@@ -95,7 +117,7 @@ body {
 }
 
 /* Home Activity detail drawer (schedule / heartbeat / notification) sliding
-   in from the right. The panel hosts fixed Dropdown/tooltip layers, so the
+   in from the right. The panel hosts fixed Select/tooltip layers, so the
    fill mode below matters: see the note on the rule. */
 @keyframes drawer-slide-in {
   0% { transform: translateX(16px); opacity: 0; }
@@ -266,6 +288,28 @@ html[data-page-transition="pop"]::view-transition-new(root) {
 .message-highlighted {
   animation: message-highlight-flash 2s ease-out;
   border-radius: var(--radius-lg);
+}
+
+/* Unseen-changes dot attention pulse, applied when the dot appears so a
+ * change landing while the user reads the transcript is noticeable. Bounded
+ * on purpose: this dot lives in a persistent header, where anything looping
+ * forever reads as noise. It needs no fill mode because the last keyframe is
+ * already the resting style. The consumer also holds it static via
+ * useReducedMotion; the media query is defense-in-depth for callers that
+ * don't. */
+@keyframes unseen-dot-pulse {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.35); }
+}
+
+.unseen-dot-pulse {
+  animation: unseen-dot-pulse 0.6s ease-in-out 2;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .unseen-dot-pulse {
+    animation: none;
+  }
 }
 
 /* Streamed word fade — applied by `rehypeStreamWordFade` to each word of the

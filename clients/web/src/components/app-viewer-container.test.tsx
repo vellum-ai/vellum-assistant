@@ -15,6 +15,7 @@
 
 import { afterEach, describe, expect, mock, spyOn, test } from "bun:test";
 
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, cleanup, fireEvent, render } from "@testing-library/react";
 
 let capturedOptions:
@@ -58,15 +59,23 @@ afterEach(() => {
 });
 
 function renderViewer(props?: { enableFullscreen?: boolean; appId?: string }) {
+  // The viewer reads the app's Vercel deployment status through TanStack
+  // Query, so it needs a client in scope even when the read is disabled (no
+  // deploy handler is passed here).
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  });
   return render(
-    <AppViewerContainer
-      appId={props?.appId ?? "app-1"}
-      appName="My App"
-      html="<html><body>hi</body></html>"
-      assistantId="assistant-1"
-      onClose={() => {}}
-      enableFullscreen={props?.enableFullscreen}
-    />,
+    <QueryClientProvider client={queryClient}>
+      <AppViewerContainer
+        appId={props?.appId ?? "app-1"}
+        appName="My App"
+        html="<html><body>hi</body></html>"
+        assistantId="assistant-1"
+        onClose={() => {}}
+        enableFullscreen={props?.enableFullscreen}
+      />
+    </QueryClientProvider>,
   );
 }
 
@@ -150,14 +159,18 @@ describe("AppViewerContainer app actions", () => {
   test("forwards onAction to the sandbox fetch proxy", () => {
     const onAction = () => {};
     render(
-      <AppViewerContainer
-        appId="app-1"
-        appName="My App"
-        html="<html><body>hi</body></html>"
-        assistantId="assistant-1"
-        onClose={() => {}}
-        onAction={onAction}
-      />,
+      <QueryClientProvider
+        client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}
+      >
+        <AppViewerContainer
+          appId="app-1"
+          appName="My App"
+          html="<html><body>hi</body></html>"
+          assistantId="assistant-1"
+          onClose={() => {}}
+          onAction={onAction}
+        />
+      </QueryClientProvider>,
     );
 
     expect(capturedOptions?.onAction).toBe(onAction);

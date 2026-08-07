@@ -17,7 +17,7 @@ import { useIsOrgReady } from "@/hooks/use-is-org-ready";
 import { synthesizeTTS } from "@/lib/tts-synthesize";
 import { getLocalSetting, setLocalSetting } from "@/utils/local-settings";
 import { Button } from "@vellumai/design-library/components/button";
-import { Dropdown } from "@vellumai/design-library/components/dropdown";
+import { Select } from "@vellumai/design-library/components/select";
 import { Input } from "@vellumai/design-library/components/input";
 import { toast } from "@vellumai/design-library/components/toast";
 
@@ -464,7 +464,7 @@ export function TtsProviderForm({
         <label className="block text-body-small-default text-[var(--content-tertiary)]">
           Provider
         </label>
-        <Dropdown
+        <Select
           value={draftProvider}
           onChange={setDraftProvider}
           options={providers.map((p) => ({

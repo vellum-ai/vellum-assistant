@@ -447,13 +447,20 @@ export function executeDocumentUpdate(
     };
   }
 
-  // Fallback if no client is connected
+  // No client is connected to render the edit, but the write landed, so this is
+  // a success. Reporting it as an error would strand a headless turn (a
+  // schedule, SMS, or Telegram channel): post-execution hooks are skipped for
+  // errored tools, so the documents-changed broadcast that tells clients about
+  // the edit would never fire, and the model would be told to retry a write
+  // that already succeeded.
   return {
     content: JSON.stringify({
-      success: false,
-      error: "No client connected to update document",
+      success: true,
+      surface_id: surfaceId,
+      mode,
+      message: "Document content updated (no client connected to render it)",
     }),
-    isError: true,
+    isError: false,
   };
 }
 

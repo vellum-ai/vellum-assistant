@@ -342,6 +342,22 @@ export const routeTree = [
     },
   },
 
+  // Companion surface: the always-present floating avatar, rendered inside a
+  // transparent Electron canvas that never resizes (LUM-3086). Standalone like
+  // the dictation overlay, outside auth middleware and RootLayout, so it paints
+  // as soon as the window opens.
+  {
+    path: "/assistant/floating/companion",
+    ErrorBoundary: RouteErrorBoundary,
+    HydrateFallback: RootHydrateFallback,
+    lazy: {
+      Component: () =>
+        import("@/components/companion-surface-page").then(
+          (m) => m.CompanionSurfacePage,
+        ),
+    },
+  },
+
   // Dictation overlay — live transcription pill rendered inside the
   // Electron dictation overlay BrowserWindow (a floating panel pinned
   // top-center of the screen while push-to-talk dictation is active).
@@ -989,6 +1005,19 @@ export const routeTree = [
                           },
                           {
                             path: "channels",
+                            lazy: {
+                              Component: () =>
+                                import("@/channels-page-route").then(
+                                  (m) => m.ChannelsPageRoute,
+                                ),
+                            },
+                          },
+                          {
+                            // Same page, with the selected channel in the URL
+                            // so a row is linkable and survives a reload.
+                            // `/channels` alone still resolves, landing on the
+                            // first row.
+                            path: "channels/:channelId",
                             lazy: {
                               Component: () =>
                                 import("@/channels-page-route").then(

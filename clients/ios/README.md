@@ -42,13 +42,15 @@ which URL is baked into the build.
   to days. Bundling web assets would gate every web change behind that
   process. With `server.url`, only native shell changes (Swift code,
   entitlements, Capacitor plugin updates) require a store submission.
-- **Thin native surface** — the IPC bridge between the WKWebView and
-  native code is minimal (five plugins: `NativeAuthPlugin`,
+- **Thin native surface** - the IPC bridge between the WKWebView and
+  native code is minimal (six app-local plugins: `NativeAuthPlugin`,
   `NativeBiometricPlugin`, `VoiceAudioSessionPlugin`,
-  `VoiceLiveActivityPlugin`, and `ApnsEnvironmentPlugin`), so version
-  skew risk between the web app and native shell is low. Every plugin
-  call from the web side must still be capability-probed, because a new
-  web bundle always ships ahead of the shell that hosts it. Contrast
+  `VoiceLiveActivityPlugin`, `ApnsEnvironmentPlugin`, and
+  `SelfHostedServersPlugin`, plus the auto-discovered community camera
+  preview dependency), so version skew risk between the web app and native
+  shell is low. Every plugin call from the web side must still have a
+  working missing-plugin fallback because a new web bundle always ships
+  ahead of the shell that hosts it. Contrast
   with the Electron app, where the
   `window.vellum.*` IPC surface is broad and tightly coupled.
 - **WKWebView security model** — unlike Electron's renderer, `WKWebView`
@@ -148,9 +150,10 @@ Apple's reference for the toolbar controls:
 
 ## Debugging
 
-The app has two layers — the **WKWebView contents** (the React app loaded
+The app has two layers: the **WKWebView contents** (the React app loaded
 from the configured server URL) and the **native Swift shell** (Capacitor
-bridge, `MyViewController`, the five native plugins). Each has its own
+bridge, `MyViewController`, the six app-local plugins, and linked package
+plugins such as `CameraPreview`). Each has its own
 debugger.
 
 ### Safari Web Inspector — for the web side (JS / CSS / network / `console.log`)
@@ -198,8 +201,9 @@ For a **physical iPhone**:
 ⌘R runs with `lldb` already attached. Click in the gutter next to any
 line in `AppDelegate.swift`, `MyViewController.swift`,
 `NativeAuthPlugin.swift`, `NativeBiometricPlugin.swift`,
-`VoiceAudioSessionPlugin.swift`, `VoiceLiveActivityPlugin.swift`, or
-`ApnsEnvironmentPlugin.swift` to set a breakpoint.
+`VoiceAudioSessionPlugin.swift`, `VoiceLiveActivityPlugin.swift`,
+`ApnsEnvironmentPlugin.swift`, or `SelfHostedServersPlugin.swift` to set
+a breakpoint.
 
 - **Console / log output**: View → Debug Area → Activate Console (⇧⌘Y),
   or click the bottom-right console toggle. `print()` and `NSLog()` from
@@ -218,12 +222,19 @@ line in `AppDelegate.swift`, `MyViewController.swift`,
 ### Common debugging recipes
 
 - **A native plugin call (`NativeAuth`, `NativeBiometric`,
-  `VoiceAudioSession`, `VoiceLiveActivity`, `ApnsEnvironment`) seems broken**:
+  `VoiceAudioSession`, `VoiceLiveActivity`, `ApnsEnvironment`,
+  `SelfHostedServers`) seems broken**:
   set a Swift breakpoint in the relevant `@objc func` inside the plugin
   file and trigger the action from the web app. If the breakpoint never
   hits, the JS-side `Capacitor.Plugins.NativeAuth` lookup is wrong (check
   `src/runtime/native-auth.ts` / `native-biometric.ts`). If it hits but
   doesn't return, step through and check `call.resolve` / `call.reject`.
+- **The voice-room camera preview is blank or covered**: open the
+  `CameraPreview` package under Xcode's Package Dependencies and breakpoint
+  its `start` method. In Safari Web Inspector, confirm `<html>` carries
+  `native-voice-camera-active` while the preview is open. The camera is a
+  native layer behind the non-opaque web view, so an opaque page background
+  will cover a correctly running capture session.
 - **A streaming/SSE bug only reproduces in the iOS shell**: open Safari
   Web Inspector → Network → filter for `text/event-stream`. You should
   see the connection stay open with `data:` frames arriving. If you see
@@ -376,7 +387,7 @@ who clones fresh. ([Capacitor SPM docs](https://capacitorjs.com/docs/ios/spm))
 
 ```bash
 cd clients/web
-bun add @capacitor/<plugin-name>   # adds to package.json + bun.lock
+bun add --exact @capacitor/<plugin-name>   # adds to package.json + bun.lock
 bun run ios:setup                   # cap sync regenerates Package.swift; xcodegen wires it into the project
 ```
 
@@ -414,6 +425,8 @@ On first build after pulling:
       arrive in one big blob, CapacitorHttp got turned on somewhere)
 - [ ] Photo / file attachments work (exercises the WKWebView file-picker
       bridge)
+- [ ] Voice-room camera opens a sharp native preview on a physical device,
+      flips cameras, captures a photo, and leaves live-voice audio running
 - [ ] Xcode → App target → General → Bundle Identifier reads
       `ai.vocify-inc.vellum-assistant-ios`
 
@@ -699,6 +712,8 @@ clients/
     │   │   ├── VoiceAudioSessionPlugin.swift # AVAudioSession for live voice
     │   │   ├── VoiceLiveActivityPlugin.swift # Dynamic Island for live voice
     │   │   ├── ApnsEnvironmentPlugin.swift # APNs entitlement environment
+    │   │   ├── SelfHostedServer.swift      # Active + remembered self-hosted origins
+    │   │   ├── SelfHostedServersPlugin.swift # Server list / origin switching bridge
     │   │   ├── Intents/              # App Intents + AppShortcutsProvider
     │   │   ├── Shared/               # Compiled into app + widget extension
     │   │   └── Info.plist

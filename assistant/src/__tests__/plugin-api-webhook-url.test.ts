@@ -124,6 +124,36 @@ describe("resolveWebhookUrl", () => {
     }
   });
 
+  test("hands the vendor a URL with no trailing slash", async () => {
+    // The platform appends one, and a provider delivers to the URL it was
+    // given verbatim. The gateway matches the declared path, which never ends
+    // in a slash, so a registration carrying one 404s every delivery.
+    const spy = spyOn(registration, "resolveCallbackUrl").mockResolvedValue(
+      "https://callbacks.vellum.ai/abc/webhooks/plugins/imessage/events-comms/",
+    );
+
+    await expect(
+      resolveWebhookUrl({ plugin: "imessage", path: "events-comms" }),
+    ).resolves.toBe(
+      "https://callbacks.vellum.ai/abc/webhooks/plugins/imessage/events-comms",
+    );
+    spy.mockRestore();
+  });
+
+  test("leaves a URL carrying a query string alone", async () => {
+    // Trimming there would cut into the query rather than the path.
+    const spy = spyOn(registration, "resolveCallbackUrl").mockResolvedValue(
+      "https://example.test/webhooks/plugins/imessage/events-comms?token=abc/",
+    );
+
+    await expect(
+      resolveWebhookUrl({ plugin: "imessage", path: "events-comms" }),
+    ).resolves.toBe(
+      "https://example.test/webhooks/plugins/imessage/events-comms?token=abc/",
+    );
+    spy.mockRestore();
+  });
+
   test("propagates the failure when nothing can answer", async () => {
     // No ingress and no platform connection means there is no URL that works.
     // Returning a plausible one would produce a vendor registration that

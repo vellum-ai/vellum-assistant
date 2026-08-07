@@ -144,17 +144,18 @@ References:
 
 ## Native voice bridge
 
-Live voice is a web feature with native accessories. The session, including mic capture, the velay socket, TTS playback, and every user-facing string, lives entirely under `src/domains/chat/voice/live-voice/`. iOS adds interruption reporting, a Dynamic Island and Lock Screen presence, and App Intents. Android adds foreground audio focus and an ongoing status notification.
+Live voice is a web feature with native accessories. The session, including mic capture, the velay socket, TTS playback, and every user-facing string, lives under `src/domains/chat/voice/live-voice/`. iOS adds interruption reporting, a Dynamic Island and Lock Screen presence, and App Intents. Android adds foreground audio focus, a microphone foreground service, and an ongoing status notification. The voice-room camera is the capture exception: native mobile shells use `@capacitor-community/camera-preview`, while browsers and older shells use a web `MediaStream` fallback.
 
-The shell registers **five** Capacitor plugins in [`MyViewController.capacitorDidLoad()`](../../../clients/ios/App/App/MyViewController.swift) (count them there, not from prose):
+The shell registers **six app-local** Capacitor plugins in [`MyViewController.capacitorDidLoad()`](../../../clients/ios/App/App/MyViewController.swift) (count them there, not from prose). `CameraPreview` is an external SPM/Gradle dependency that Capacitor discovers automatically, so it is not registered in that method.
 
 | Plugin | Web module | What it does |
 | --- | --- | --- |
 | `NativeAuth` | [`src/runtime/native-auth.ts`](../src/runtime/native-auth.ts) | `ASWebAuthenticationSession` OIDC flow |
 | `NativeBiometric` | [`src/runtime/native-biometric.ts`](../src/runtime/native-biometric.ts) | Face ID / Touch ID Keychain |
-| `VoiceAudioSession` | [`src/runtime/native-audio-session.ts`](../src/runtime/native-audio-session.ts) | iOS interruption events and Android foreground audio focus. See the background-audio contract below |
+| `VoiceAudioSession` | [`src/runtime/native-audio-session.ts`](../src/runtime/native-audio-session.ts) | iOS interruption events and Android audio-focus and microphone-service lifecycle. See the background-audio contract below |
 | `VoiceLiveActivity` | [`src/runtime/native-live-activity.ts`](../src/runtime/native-live-activity.ts) | One ActivityKit activity on iOS or ongoing notification on Android |
 | `ApnsEnvironment` | [`src/runtime/apns-environment.ts`](../src/runtime/apns-environment.ts) | The build's real APNs entitlement environment (`development` / `production` / `unknown`), read from the embedded provisioning profile |
+| `SelfHostedServers` | [`src/runtime/self-hosted-servers.ts`](../src/runtime/self-hosted-servers.ts) | List, add, remove, and switch between self-hosted server origins; `switchTo` swaps the shell's configured origin and reloads in place. See the section below |
 
 The two voice plugins are consumed only through `use-live-voice-session-controller.ts` (audio session) and `use-live-activity-mirror.ts` (Live Activity), both mounted at `ChatLayout` scope so their lifetime is exactly the session's.
 
@@ -174,9 +175,21 @@ Three things follow from the rule:
 
 **No capability probes.** Neither voice plugin exposes an `isAvailable`, and neither web module wants one: `startVoiceLiveActivity()` resolving `false` already covers every reason there is no native side: outside a native mobile shell, an older shell, or a disabled platform status surface. A probe that can itself be absent just moves the problem, and it is the only answer a caller could act on anyway.
 
+### Native voice-room camera
+
+[`native-voice-camera.ts`](../src/runtime/native-voice-camera.ts) is the only web module that calls `CameraPreview`. The mobile preview is a native camera layer behind the Capacitor web view, not an HTML media element. Opening it makes the web canvas transparent and keeps the voice-room controls visible in front; closing it restores the active theme through the iOS `--surface-overlay` bridge. The dependency is patched so its cleanup does not force an opaque or white web view over the app's own theme.
+
+The camera call has one hard audio rule: `disableAudio: true` is mandatory. Live voice already owns microphone capture, and the viewfinder must not add an audio input or reconfigure the session underneath it. `enableHighResolution: true` requests the iOS high-resolution photo path, `toBack: true` keeps the HTML controls above the preview, and `storeToFile: false` returns captured JPEG bytes directly to the existing attachment pipeline.
+
+Camera permission is declared in both shells: `NSCameraUsageDescription` on iOS and `android.permission.CAMERA` on Android. Android marks camera hardware optional so devices without a camera remain installable and fail through the existing no-device path.
+
+The skew rule applies to every camera call through `callNativeVoice`. `startNativeVoiceCamera()` resolving `false` is the availability result. Do not add a separate probe. When the plugin is missing from an older installed shell, `voice-camera.ts` falls through to video-only `getUserMedia` with ideal 1920 by 1080 constraints and logs the negotiated non-identifying track settings. Desktop web and Electron use that same fallback. The native path renders no `<video>`, so it has no browser playback state or media-element play affordance.
+
+The iOS Simulator does not provide a real camera feed. A native build verifies linking and compilation, but preview sharpness, camera switching, tap focus, audio continuity, and the permission path require a physical handset.
+
 ### The background-audio contract
 
-**Read § "Full-duplex TTS must render through a MediaStream track" before you touch the iOS implementation.** That section warns against reconfiguring the shared `AVAudioSession` around microphone capture. The iOS `activate` method has no production caller by the decision recorded below. Android's `useNativeAudioSessionLifecycle` caller uses the same bridge method only to request audio focus, without reconfiguring WebView capture.
+**Read § "Full-duplex TTS must render through a MediaStream track" before you touch the iOS implementation.** That section warns against reconfiguring the shared `AVAudioSession` around microphone capture. The iOS `activate` method has no production caller by the decision recorded below. Android's `useNativeAudioSessionLifecycle` caller uses the same bridge method to request audio focus and start a microphone foreground service, without reconfiguring WebView capture.
 
 That history is the reason this is device-only territory. A change here that looks obviously correct and passes in the Simulator is precisely the failure mode that has now shipped twice.
 
@@ -184,7 +197,14 @@ That history is the reason this is device-only territory. A change here that loo
 
 **The iOS rule: the web layer does not activate an audio session.** Settled the hard way, because the pattern broke live voice on a handset twice. First as #39331 (no capture at all, reverted in #39345), then again when it returned in #39306, where a session died roughly 60ms after its WebSocket opened while the Simulator sustained one normally against the same backend. The second failure went unattributed for a day because every #39306 upload was rejected by App Store Connect until #39556, so the plugin had never actually run on a device. `useNativeAudioSessionLifecycle` subscribes to iOS interruptions but never calls iOS `activate`. Do not reintroduce iOS activation without a device test, and note that a green Simulator run is not one.
 
-Android's `useNativeAudioSessionLifecycle` calls `activateVoiceAudioSession()` to request transient audio focus for the foreground WebView. It does not move capture into native code or claim screen-lock or app-switching support.
+Android's `useNativeAudioSessionLifecycle` calls `activateVoiceAudioSession()`
+after WebView microphone capture succeeds. The native plugin requests transient
+audio focus and starts a microphone foreground service while the app is still
+visible. Capture, playback, and the voice socket stay in the WebView, while the
+service keeps that process active across screen locks and app switches. The
+service stays active through voice reconnects, stops with audio focus when the
+session ends, and is released before a new top-level page load replaces the web
+session.
 
 The iOS `VoiceAudioSession` plugin stays in the shell: its interruption reporting listens to `AVAudioSession.sharedInstance()`, so it still hears a phone call or Siri taking the input from WebKit's session, which is unrelated to owning a session ourselves.
 
@@ -208,6 +228,86 @@ References:
 - Apple — [Playing audio in the background](https://developer.apple.com/documentation/avfaudio/audio_session/enabling_background_audio).
 - Apple — [`AVAudioSession.Mode.voiceChat`](https://developer.apple.com/documentation/avfaudio/avaudiosession/mode/voicechat).
 - Apple — [ActivityKit](https://developer.apple.com/documentation/activitykit).
+
+---
+
+## Self-hosted origins (`SelfHostedServers`)
+
+The assistant chooser offers every origin this device knows about. On a native
+mobile shell those origins live natively, not in web storage, because the shell
+is the only thing that can point its `WKWebView` somewhere else without leaving
+the app, and because the same list is written by the native Settings pane and
+the `<scheme>://connect` deep link. The web side is
+[`src/runtime/self-hosted-servers.ts`](../src/runtime/self-hosted-servers.ts);
+the native side is
+[`SelfHostedServersPlugin.swift`](../../../clients/ios/App/App/SelfHostedServersPlugin.swift)
+over [`SelfHostedServer.swift`](../../../clients/ios/App/App/SelfHostedServer.swift).
+
+The bridge contract:
+
+| Method | Resolves | Notes |
+| --- | --- | --- |
+| `list()` | `{ servers: [{name?, url}], activeUrl, bakedUrl }` | `activeUrl` is the configured self-hosted slot (`null` means the shell serves its baked origin); `bakedUrl` is the Vellum Cloud origin the build ships with |
+| `add({url, name?})` | `{ ok }` | Deduped by canonical url. A nameless re-add keeps the stored label |
+| `remove({url})` | `{ ok }` | Forgetting the active url also clears the active slot, so the shell returns to the baked origin |
+| `switchTo({url?})` | `{ ok }` | Swaps the active slot and reloads in place. An absent or empty `url` returns to the baked origin |
+
+Only genuinely invalid caller input rejects (an `add` or `switchTo` url that
+fails `SelfHostedServer.validate`). Empty state resolves with an empty list and
+nulls, so there is no "not configured" error branch to write.
+
+Urls cross the bridge in one canonical form: `SelfHostedServer.canonicalize` and
+the store's `normalizeOriginUrl` implement the same rules (lowercase scheme and
+host, userinfo dropped, trailing slashes stripped, query and fragment dropped,
+path and port preserved), so both sides agree on which strings mean the same
+server. Changing one means changing the other.
+
+**Switching is per surface, and every surface has a working answer.**
+
+- Browser: `switchToOrigin` navigates to the origin's SPA root. A remembered
+  origin is a separate deployment, so this is a full navigation, not a route
+  change.
+- Electron: the same navigation, but it does not land in the app window. The
+  main window's `will-navigate` guard
+  ([`main-window.ts`](../../macos/src/main/main-window.ts)) sends any
+  cross-origin https target to the system browser, so the origin opens there.
+- Native mobile with the plugin: `nativeSwitchToOrigin` hands the url to the
+  shell, which reloads the web view in place. The user never leaves the app,
+  and a "Vellum Cloud" card sourced from `list().bakedUrl` is the way back.
+- Native mobile without the plugin: the same navigation the browser takes. That
+  leaves the app for the system browser, which is degraded but is exactly what
+  the pair-page path already does there.
+
+**Storage follows the same fork.** The chooser calls
+`installNativeRememberedOrigins()` from its flag-gated mount, which swaps the
+remembered-origins store onto a plugin-backed provider on native mobile only.
+The store persists a whole list while the plugin exposes per-entry `add` and
+`remove`, so the provider's `save` diffs the desired list against `list()` and
+issues the delta. A rejected write propagates, because the store treats a failed
+save as a failed mutation and must not publish an entry the shell does not hold.
+
+**The skew rule from the voice section applies verbatim.** The plugin may always
+be absent, so every bridge call is wrapped: a failure logs `console.debug`
+(never `captureError`, since an older App Store shell is an expected state on
+every web deploy) and falls back to the behavior that shell already had, which
+is the localStorage provider for storage and a plain navigation for switching.
+`load()` in particular degrades to localStorage data rather than rejecting: the
+store treats a rejected load as transient and would otherwise stay unhydrated
+and retry forever.
+
+**No availability probe.** There is no `isAvailable` and there must not be one:
+a probe can itself be absent, and the failure of the call the caller wanted to
+make is the same answer one turn earlier. `nativeSwitchToOrigin` resolving
+`false` and `nativeVellumCloudOrigin` resolving `null` already cover every
+reason there is no native side.
+
+The module is a plain static import from both the chooser and
+`switch-origin.ts`: the chooser needs it on mount to install the provider, and
+`registerPlugin` only builds the bridge Proxy, so importing it reaches nothing
+on any surface. Every method call sits behind `isNativeMobile()` or the
+flag-gated install. The inline-destructure rule at the top of this document
+applies to every call: only results cross an `async` boundary, never the plugin
+Proxy.
 
 ---
 
@@ -250,8 +350,9 @@ session around microphone capture. Changing the active session underneath
 WebKit can leave its live capture unit detached from the microphone.
 
 The iOS `VoiceAudioSession` plugin can perform that reconfiguration, but its
-`activate` method has no production caller. Android only requests audio focus;
-it does not change the WebView audio mode or capture path.
+`activate` method has no production caller. Android requests audio focus and
+starts its microphone foreground service, but it does not change the WebView
+audio mode or capture path.
 
 Direct `AudioContext.destination` playback is not supplied to WebKit's capture
 unit as far-end audio for acoustic echo cancellation. On Capacitor iOS, route

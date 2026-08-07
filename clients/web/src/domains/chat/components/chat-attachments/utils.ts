@@ -138,7 +138,9 @@ export function estimateBase64Bytes(base64: string): number {
  * Decode a base64 data URI into a Uint8Array. Returns null if the URI does
  * not contain a recognizable `;base64,` segment.
  */
-export function dataUriToUint8Array(dataUri: string): Uint8Array | null {
+export function dataUriToUint8Array(
+  dataUri: string,
+): Uint8Array<ArrayBuffer> | null {
   const match = dataUri.match(/;base64,(.*)$/);
   if (!match?.[1]) {
     return null;

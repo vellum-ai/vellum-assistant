@@ -16,7 +16,7 @@ import {
 import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
 import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
 import { cn } from "@vellumai/design-library";
-import { Dropdown } from "@vellumai/design-library/components/dropdown";
+import { Select } from "@vellumai/design-library/components/select";
 import { Tag, type TagTone } from "@vellumai/design-library/components/tag";
 import { Toggle } from "@vellumai/design-library/components/toggle";
 
@@ -318,7 +318,8 @@ function StringFlagRow({
     }
   };
 
-  const hasDropdown = knownValues != null && knownValues.includes(flag.value);
+  const hasKnownValues =
+    knownValues != null && knownValues.includes(flag.value);
 
   return (
     <div className="flex items-start gap-3 py-3">
@@ -332,8 +333,8 @@ function StringFlagRow({
         <span className="block text-body-small-default text-[var(--content-tertiary)]">
           {flag.description}
         </span>
-        {hasDropdown ? (
-          <Dropdown
+        {hasKnownValues ? (
+          <Select
             value={flag.value}
             onChange={(next) => {
               setLocalValue(next);

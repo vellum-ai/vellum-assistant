@@ -23,9 +23,9 @@ import type {
 import { handleNativeAnchorClick } from "@/utils/native-anchor";
 import { Button } from "@vellumai/design-library/components/button";
 import {
-  Dropdown,
-  type DropdownOption,
-} from "@vellumai/design-library/components/dropdown";
+  Select,
+  type SelectOption,
+} from "@vellumai/design-library/components/select";
 import { Modal } from "@vellumai/design-library/components/modal";
 
 import {
@@ -205,13 +205,13 @@ export function CustomPlanModal({
   // It carries no price suffix, since it adds nothing to the total.
   const seededBaselineMachine =
     initialSelection != null && initialSelection.machineTier == null;
-  const baselineMachineOption: DropdownOption<MachineChoice> = {
+  const baselineMachineOption: SelectOption<MachineChoice> = {
     value: BASELINE_MACHINE,
     label: BASELINE_MACHINE_LABEL,
     icon: <Computer className="h-4 w-4" aria-hidden />,
     disabled: true,
   };
-  const machineOptions: DropdownOption<MachineChoice>[] = [
+  const machineOptions: SelectOption<MachineChoice>[] = [
     ...(seededBaselineMachine ? [baselineMachineOption] : []),
     ...machineTiers.map((t) => ({
       value: t.tier as MachineChoice,
@@ -221,7 +221,7 @@ export function CustomPlanModal({
       disabled: isTierDisabled(t),
     })),
   ];
-  const storageOptions: DropdownOption<StorageTierEnum>[] =
+  const storageOptions: SelectOption<StorageTierEnum>[] =
     offerableStorageTiers.map((t) => ({
       value: t.tier as StorageTierEnum,
       label: t.label,
@@ -239,7 +239,7 @@ export function CustomPlanModal({
   // current selection it's appended disabled so the dropdown still shows it.
   const heldLegacyCredit = selectedCredit?.legacy ? selectedCredit : null;
 
-  const creditOptions: DropdownOption<CreditChoice>[] = [
+  const creditOptions: SelectOption<CreditChoice>[] = [
     {
       value: NO_EXTRA_CREDITS,
       label: NO_CREDITS_LABEL,
@@ -386,7 +386,7 @@ export function CustomPlanModal({
                   docsUrl={MACHINE_DOCS_URL}
                   docsLabel="Learn more about machine sizes"
                 />
-                <Dropdown<MachineChoice>
+                <Select<MachineChoice>
                   aria-label="Machine size"
                   placeholder="Select a machine size"
                   value={machineTier}
@@ -401,7 +401,7 @@ export function CustomPlanModal({
                   docsUrl={STORAGE_DOCS_URL}
                   docsLabel="Learn more about storage"
                 />
-                <Dropdown<StorageTierEnum>
+                <Select<StorageTierEnum>
                   aria-label="Storage"
                   placeholder="Select storage"
                   value={storageTier}
@@ -416,7 +416,7 @@ export function CustomPlanModal({
                   docsUrl={CREDIT_DOCS_URL}
                   docsLabel="Learn more about credit bundles"
                 />
-                <Dropdown<CreditChoice>
+                <Select<CreditChoice>
                   aria-label="Credit bundle"
                   placeholder="Select a credit bundle"
                   value={creditChoice}

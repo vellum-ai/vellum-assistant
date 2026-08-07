@@ -24,7 +24,6 @@ mock.module("../mcp-oauth-provider.js", () => ({
       _serverId: string,
       _serverUrl: string,
       _interactive: boolean,
-      _callbackTransport: string,
       options: { onAuthorizationUrl?: (url: string) => void } = {},
     ) {
       capturedOnAuthorizationUrl = options.onAuthorizationUrl;

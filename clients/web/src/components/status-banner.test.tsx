@@ -33,6 +33,7 @@ let assistantsMock: Array<{
   id: string;
   isLocal: boolean;
   isPlatformHosted: boolean;
+  isPaired?: boolean;
   organizationId?: string | null;
 }> = [];
 let currentOrganizationIdMock: string | null = "org-1";
@@ -857,6 +858,142 @@ describe("StatusBanner", () => {
       expect(html).toContain("Open the Vellum desktop app");
       expect(html).not.toContain("Wake up");
       expect(html).toContain('data-tone="neutral"');
+    });
+
+    test("shows can't-be-reached copy with no wake action for an unreachable paired assistant", () => {
+      // A paired entry is reached over a tunnel: the remote host isn't
+      // asleep, the link is down, and Wake can't help.
+      localHealthMock = "unreachable";
+      assistantsMock = [
+        {
+          id: "assistant-123",
+          isLocal: false,
+          isPlatformHosted: false,
+          isPaired: true,
+        },
+      ];
+
+      const { container } = render(<StatusBanner />);
+
+      expect(
+        screen.getByText("Your assistant can't be reached"),
+      ).toBeTruthy();
+      expect(
+        screen.getByText(
+          "The connection to the paired assistant's host is down. Check the host machine and its tunnel.",
+        ),
+      ).toBeTruthy();
+      expect(container.innerHTML).toContain("lucide-cloud-off");
+      expect(container.innerHTML).toContain('data-tone="neutral"');
+      expect(screen.queryByText("Your assistant is asleep")).toBeNull();
+      expect(screen.queryByRole("button", { name: "Wake up" })).toBeNull();
+    });
+
+    test("shows can't-be-reached copy with no wake action for a sleeping paired assistant", () => {
+      // A paired entry has no meaningful sleeping/unreachable distinction;
+      // a failed health probe only proves the link is down.
+      localHealthMock = "sleeping";
+      assistantsMock = [
+        {
+          id: "assistant-123",
+          isLocal: false,
+          isPlatformHosted: false,
+          isPaired: true,
+        },
+      ];
+
+      const { container } = render(<StatusBanner />);
+
+      expect(
+        screen.getByText("Your assistant can't be reached"),
+      ).toBeTruthy();
+      expect(container.innerHTML).toContain("lucide-cloud-off");
+      expect(container.innerHTML).toContain('data-tone="neutral"');
+      expect(screen.queryByText("Your assistant is asleep")).toBeNull();
+      expect(screen.queryByRole("button", { name: "Wake up" })).toBeNull();
+    });
+
+    test("prefers can't-be-reached over the runs-locally banner for a paired assistant", () => {
+      // Even where local-mode operations aren't available, a paired entry
+      // must not claim it "runs locally" or suggest `vellum wake`.
+      localHealthMock = "unreachable";
+      isLocalModeHostAvailableMock = false;
+      assistantsMock = [
+        {
+          id: "assistant-123",
+          isLocal: false,
+          isPlatformHosted: false,
+          isPaired: true,
+        },
+      ];
+
+      render(<StatusBanner />);
+
+      expect(
+        screen.getByText("Your assistant can't be reached"),
+      ).toBeTruthy();
+      expect(screen.queryByText("Your assistant runs locally")).toBeNull();
+      expect(screen.queryByRole("button", { name: "Wake up" })).toBeNull();
+    });
+
+    test("keeps can't-be-reached for a paired assistant while a local wake is in flight", async () => {
+      // Wake state is not keyed by assistant: a wake started for a local
+      // assistant must not rewrite an unreachable paired entry to "waking up".
+      localHealthMock = "sleeping";
+      assistantsMock = [
+        {
+          id: "assistant-123",
+          isLocal: true,
+          isPlatformHosted: false,
+          isPaired: false,
+        },
+        {
+          id: "assistant-paired",
+          isLocal: false,
+          isPlatformHosted: false,
+          isPaired: true,
+        },
+      ];
+      wakeLocalAssistantHostMock = mock(
+        () => new Promise<{ ok: true }>(() => {}),
+      );
+
+      const { rerender } = render(<StatusBanner />);
+      fireEvent.click(screen.getByRole("button", { name: "Wake up" }));
+
+      await waitFor(() => {
+        expect(wakeLocalAssistantHostMock).toHaveBeenCalledWith(
+          "assistant-123",
+        );
+      });
+
+      activeAssistantIdMock = "assistant-paired";
+      localHealthMock = "unreachable";
+      rerender(<StatusBanner />);
+
+      expect(
+        screen.getByText("Your assistant can't be reached"),
+      ).toBeTruthy();
+      expect(screen.queryByText("Your assistant is waking up")).toBeNull();
+      expect(screen.queryByRole("button", { name: "Wake up" })).toBeNull();
+    });
+
+    test("keeps the asleep copy and wake action for a non-paired local assistant", () => {
+      localHealthMock = "unreachable";
+      assistantsMock = [
+        {
+          id: "assistant-123",
+          isLocal: true,
+          isPlatformHosted: false,
+          isPaired: false,
+        },
+      ];
+
+      const html = renderToStaticMarkup(<StatusBanner />);
+
+      expect(html).toContain("Your assistant is asleep");
+      expect(html).toContain("Wake up");
+      expect(html).not.toContain("lucide-cloud-off");
     });
 
     test("hides the Wake up button for an assistant vellum wake can't start (e.g. Docker)", () => {

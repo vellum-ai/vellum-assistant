@@ -13,6 +13,10 @@ import { getSecureKeyResultAsync } from "../security/secure-keys.js";
 import { getTelegramBotUsername } from "../telegram/bot-username.js";
 import { getLogger } from "../util/logger.js";
 import {
+  MANUAL_TOKEN_PROVIDERS,
+  manualTokenProvider,
+} from "./manual-token-providers.js";
+import {
   createConnection,
   deleteConnection,
   getConnectionByProvider,
@@ -135,69 +139,30 @@ export async function syncManualTokenConnection(
     resolvedAccountInfo,
   );
 
-  switch (provider) {
-    case "telegram": {
-      const botTokenResult = await getSecureKeyResultAsync(
-        credentialKey("telegram", "bot_token"),
-      );
-      const webhookSecretResult = await getSecureKeyResultAsync(
-        credentialKey("telegram", "webhook_secret"),
-      );
-      if (botTokenResult.unreachable || webhookSecretResult.unreachable) {
-        log.warn(
-          "Skipping telegram manual-token reconciliation — credential backend unreachable",
-        );
-        return;
-      }
-      if (botTokenResult.value && webhookSecretResult.value) {
-        await ensureManualTokenConnection(provider, accountInfoToStore);
-      } else {
-        removeManualTokenConnection(provider);
-      }
-      return;
-    }
+  const spec = manualTokenProvider(provider);
+  if (!spec) {
+    return;
+  }
 
-    case "slack_channel": {
-      const botTokenResult = await getSecureKeyResultAsync(
-        credentialKey("slack_channel", "bot_token"),
-      );
-      const appTokenResult = await getSecureKeyResultAsync(
-        credentialKey("slack_channel", "app_token"),
-      );
-      if (botTokenResult.unreachable || appTokenResult.unreachable) {
-        log.warn(
-          "Skipping slack_channel manual-token reconciliation — credential backend unreachable",
-        );
-        return;
-      }
-      if (botTokenResult.value && appTokenResult.value) {
-        await ensureManualTokenConnection(provider, accountInfoToStore);
-      } else {
-        removeManualTokenConnection(provider);
-      }
-      return;
-    }
+  // Every field must be present and readable. An unreachable backend is not
+  // evidence a credential was removed, so the row is left as it stands rather
+  // than being read as a disconnection.
+  const results = await Promise.all(
+    spec.fields.map((field) =>
+      getSecureKeyResultAsync(credentialKey(provider, field)),
+    ),
+  );
+  if (results.some((r) => r.unreachable)) {
+    log.warn(
+      `Skipping ${provider} manual-token reconciliation: credential backend unreachable`,
+    );
+    return;
+  }
 
-    case "sanity": {
-      const tokenResult = await getSecureKeyResultAsync(
-        credentialKey("sanity", "api_token"),
-      );
-      if (tokenResult.unreachable) {
-        log.warn(
-          "Skipping sanity manual-token reconciliation — credential backend unreachable",
-        );
-        return;
-      }
-      if (tokenResult.value) {
-        await ensureManualTokenConnection(provider, accountInfoToStore);
-      } else {
-        removeManualTokenConnection(provider);
-      }
-      return;
-    }
-
-    default:
-      return;
+  if (results.every((r) => r.value)) {
+    await ensureManualTokenConnection(provider, accountInfoToStore);
+  } else {
+    removeManualTokenConnection(provider);
   }
 }
 
@@ -214,7 +179,7 @@ export async function syncManualTokenConnection(
  * connection row.
  */
 export async function backfillManualTokenConnections(): Promise<void> {
-  await syncManualTokenConnection("telegram");
-  await syncManualTokenConnection("slack_channel");
-  await syncManualTokenConnection("sanity");
+  for (const provider of Object.keys(MANUAL_TOKEN_PROVIDERS)) {
+    await syncManualTokenConnection(provider);
+  }
 }

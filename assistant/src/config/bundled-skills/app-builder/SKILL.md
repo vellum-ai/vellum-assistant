@@ -75,7 +75,7 @@ Every app is multi-file TSX (`formatVersion: 2`). Never write a root-level `inde
 
 ## Responsive & design system
 
-Every app works phone (~360px) to desktop (~1400px+). The `<turn_context>` block carries a `client_os:` field (the OS the user is on): `ios`/`android` → mobile-first (design narrow first, body 17px); `macos`/`web` → desktop-first (multi-column, body 14px); absent → desktop-first unless the request implies phone use ("for my iPhone"). (The sibling `interface:` field is the transport surface — always `web` for the apps — so key layout off `client_os`, not `interface`.)
+Every app works phone (~360px) to desktop (~1400px+). The `<turn_context>` block carries a `client_os:` field (the OS the user is on): `ios`/`android` → mobile-first (design narrow first, body 17px); `macos`/`windows`/`web` → desktop-first (multi-column, body 14px); absent → desktop-first unless the request implies phone use ("for my iPhone"). (The sibling `interface:` field is the transport surface, always `web` for the apps, so key layout off `client_os`, not `interface`.)
 
 **Universal baseline — every build, regardless of client_os:**
 - Viewport meta: `width=device-width, initial-scale=1, viewport-fit=cover`. Never `user-scalable=no` (blocks accessibility zoom).

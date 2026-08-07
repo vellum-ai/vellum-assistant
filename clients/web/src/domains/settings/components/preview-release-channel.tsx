@@ -25,7 +25,7 @@ import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
 import { extractErrorMessage } from "@/utils/api-errors";
 import { Button } from "@vellumai/design-library/components/button";
 import { Collapsible } from "@vellumai/design-library/components/collapsible";
-import { Dropdown } from "@vellumai/design-library/components/dropdown";
+import { Select } from "@vellumai/design-library/components/select";
 import { Modal } from "@vellumai/design-library/components/modal";
 import { Notice } from "@vellumai/design-library/components/notice";
 import { Radio, RadioGroup } from "@vellumai/design-library/components/radio";
@@ -518,7 +518,7 @@ function OptOutModal({
             {mode === "restore_backup" && backups.length > 0 && (
               <label className="flex flex-col gap-1 text-body-medium-default text-[var(--content-secondary)]">
                 Safety backup
-                <Dropdown
+                <Select
                   value={selectedSnapshotName}
                   onChange={onSnapshotChange}
                   disabled={isPending}

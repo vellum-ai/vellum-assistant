@@ -1,12 +1,14 @@
 import { existsSync, readFileSync, statSync } from "node:fs";
-import os from "node:os";
 import http from "node:http";
 import path from "node:path";
 
 import { SEEDS } from "@vellumai/environments";
 
+import { resolveInstanceDir } from "./config";
+import { resolveEnvironmentName } from "./environment";
 import type { LockfileAssistant } from "./lockfile-contract";
 import { getLockfileData } from "./lockfile";
+import { assertSafePathSegment } from "./paths";
 
 const HEALTH_TIMEOUT_MS = 1_500;
 const STARTING_GRACE_MS = 60_000;
@@ -209,7 +211,7 @@ function defaultPorts(env: Record<string, string | undefined>): {
   daemon: number;
   gateway: number;
 } {
-  const envName = env.VELLUM_ENVIRONMENT?.trim() || PRODUCTION_ENVIRONMENT_NAME;
+  const envName = resolveEnvironmentName(env);
   const seed = SEEDS[envName] ?? SEEDS[PRODUCTION_ENVIRONMENT_NAME];
   return {
     daemon: seed?.portsOverride?.daemon ?? DEFAULT_PORTS.daemon,
@@ -221,12 +223,7 @@ function defaultInstanceDir(
   env: Record<string, string | undefined>,
   assistantId: string,
 ): string {
-  const envName = env.VELLUM_ENVIRONMENT?.trim() || PRODUCTION_ENVIRONMENT_NAME;
-  const xdgDataHome =
-    env.XDG_DATA_HOME?.trim() || path.join(os.homedir(), ".local", "share");
-  const dataRoot =
-    envName === PRODUCTION_ENVIRONMENT_NAME ? "vellum" : `vellum-${envName}`;
-  return path.join(xdgDataHome, dataRoot, "assistants", assistantId);
+  return resolveInstanceDir(env, assistantId);
 }
 
 function firstString(...values: unknown[]): string | undefined {
@@ -394,6 +391,11 @@ export async function getLocalAssistantStatus(
   assistantId: string,
   env: Record<string, string | undefined> = process.env,
 ): Promise<LocalAssistantStatusResult> {
+  try {
+    assertSafePathSegment(assistantId, "assistant ID");
+  } catch {
+    return { ok: false, status: 400, error: "Invalid assistant ID" };
+  }
   const result = getLockfileData(lockfilePaths);
   if (!result.ok) {
     return {

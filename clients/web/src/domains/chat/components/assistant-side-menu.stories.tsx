@@ -9,13 +9,23 @@
  * and the channel-`Grouped` one.
  *
  * The view lives in the sidebar's layout store, keyed per assistant, so each
- * story seeds its own assistant id before mounting.
+ * story seeds its own assistant id before mounting. Pinned apps come from a
+ * store too rather than from a prop, so they are seeded the same way: a story
+ * that does not seed it renders the rail without its pinned-app cluster.
  */
 
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { Meta, StoryObj } from "@storybook/react-vite";
 
 import { AssistantSideMenu } from "@/domains/chat/components/assistant-side-menu";
+import { avatarQueryKey } from "@/hooks/use-assistant-avatar";
+import type { AvatarData } from "@/hooks/use-assistant-avatar";
+import { BUNDLED_COMPONENTS } from "@/utils/avatar-bundled-components";
+import { PreferencesMenu } from "@/domains/chat/components/preferences-menu";
 import { useSidebarLayoutStore } from "@/domains/chat/sidebar-layout-store";
+import { useAuthStore } from "@/stores/auth-store";
+import { usePinnedAppsStore } from "@/stores/pinned-apps-store";
+import { savePinnedApps } from "@/utils/app-pin-storage";
 import {
   saveViewMode,
   type SidebarViewMode,
@@ -87,6 +97,18 @@ const LONG_CONVERSATIONS: Conversation[] = [
   ),
 ];
 
+/* Two, because one pinned app cannot show whether the cluster spaces its
+   entries the way the sections below it do.
+
+   One coloured and one not, because the pair is what shows the wash reading as
+   a tint of the pill it sits on rather than as a different component, and what
+   shows the two of them still reading as quieter than the assistant identity
+   pill above them. */
+const PINNED_APPS = [
+  { appId: "app-ops", pinnedOrder: 0, name: "Vex Ops", color: "teal" },
+  { appId: "app-inbox", pinnedOrder: 1, name: "Inbox Triage" },
+];
+
 const GROUPS: ConversationGroup[] = [
   {
     id: "grp-reviews",
@@ -102,6 +124,23 @@ const GROUPS: ConversationGroup[] = [
     sortPosition: 1,
     isSystemGroup: false,
   },
+  /* A custom group the user has not filed anything into yet, given no
+     conversations on purpose: an empty section renders in both states - a
+     muted tile on the rail, a headed card when expanded - and it holds its
+     place either way. In the shared set rather than one story, so the
+     collapsed and expanded stories differ only by `collapsed`.
+
+     Not named "Archive": archived conversations are excluded from the sidebar
+     entirely (`groupConversations` drops anything with `archivedAt`), so a
+     fixture called that reads as a section this component renders and never
+     does. */
+  {
+    id: "grp-reading",
+    name: "Reading List",
+    icon: "bookmark",
+    sortPosition: 2,
+    isSystemGroup: false,
+  },
 ];
 
 /**
@@ -113,20 +152,101 @@ const GROUPS: ConversationGroup[] = [
 function seedViewMode(assistantId: string, mode: SidebarViewMode): void {
   saveViewMode(assistantId, mode);
   useSidebarLayoutStore.setState({ assistantId: null });
+  /* Persisted as well as set, because the store mirrors storage rather than
+     owning the pins: every pin action writes through and then re-reads. Seeded
+     in memory alone, the list is a state the app cannot actually be in, and
+     the first Unpin or colour pick re-reads an empty key and clears both
+     entries in front of whoever is reviewing the story. */
+  savePinnedApps(PINNED_APPS);
+  usePinnedAppsStore.setState({
+    pinnedApps: PINNED_APPS,
+    pinnedAppIds: new Set(PINNED_APPS.map((app) => app.appId)),
+  });
+  /* `PreferencesMenu` renders nothing for a signed-out user and a story has no
+     session of its own, so the sidebar's footer entry only appears in these
+     stories once one is seeded. */
+  useAuthStore.setState({ sessionStatus: "authenticated" });
+}
+
+/**
+ * Seeds the cache the identity row's avatar hook reads.
+ *
+ * That row takes an assistant id and fetches its own avatar rather than being
+ * handed one, so a story seeding nothing renders the row's no-avatar fallback:
+ * a Brain glyph on a plain pill. The row is correct on the data it has, which
+ * puts the eyes, the avatar tint and the uploaded-image treatment out of reach
+ * of any story that does not seed.
+ *
+ * Each story owns its client, so a seed cannot leak into its neighbours, and
+ * both spellings of the key carry it: the hook appends its manifest-support
+ * flag and a story cannot know which way that resolves.
+ */
+function seededAvatarClient(
+  assistantId: string,
+  data: AvatarData,
+): QueryClient {
+  const client = new QueryClient({
+    defaultOptions: { queries: { retry: false, staleTime: Infinity } },
+  });
+  for (const supportsManifest of [true, false]) {
+    client.setQueryData(
+      [...avatarQueryKey(assistantId), supportsManifest],
+      data,
+    );
+  }
+  return client;
+}
+
+/* A stand-in for an uploaded photo, inline so the story needs no network and
+   works offline. Any image URL the daemon serves renders the same way. */
+const UPLOADED_IMAGE =
+  "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='64' height='64'%3E%3Crect width='64' height='64' fill='%23d9713f'/%3E%3Ccircle cx='22' cy='24' r='11' fill='%236b2f1f' opacity='0.6'/%3E%3Cpath d='M2 62c9-17 24-23 37-16 8 4 17 10 25 16z' fill='%232c1710' opacity='0.45'/%3E%3C/svg%3E";
+
+const IMAGE_AVATAR_CLIENT = seededAvatarClient("asst-image", {
+  components: null,
+  traits: null,
+  customImageUrl: UPLOADED_IMAGE,
+});
+
+const CHARACTER_AVATAR_CLIENT = seededAvatarClient("asst-character", {
+  components: BUNDLED_COMPONENTS,
+  traits: { bodyShape: "blob", eyeStyle: "curious", color: "purple" },
+  customImageUrl: null,
+});
+
+function withAvatar(client: QueryClient) {
+  return function AvatarDecorator(Story: () => React.ReactElement) {
+    return (
+      <QueryClientProvider client={client}>
+        <Story />
+      </QueryClientProvider>
+    );
+  };
 }
 
 const SHARED_ARGS = {
   assistantName: "Vex",
   collapsed: false,
   variant: "rail",
+  /* `chat-layout` always hands the expanded rail a width and a width setter,
+     which is what mounts the drag-resize handle at the rail's edge. Omitting
+     them renders a rail the app never shows, and hides the handle's overlap
+     with whatever sits against that edge. */
+  width: 280,
+  onWidthChange: () => {},
   conversations: CONVERSATIONS,
   conversationGroups: GROUPS,
   activeConversationId: "r1",
   onSelectConversation: () => {},
+  /* `PanelItem` only takes on button semantics, hover and a pointer cursor
+     when it is given a handler. Without these two the assistant row and the
+     pinned apps render inert, which reads as a styling bug in the pill and
+     is not one. */
+  onOpenIntelligence: () => {},
+  onOpenApp: () => {},
   onStartNewConversation: () => {},
   onRenameGroup: () => {},
   onDeleteGroup: () => {},
-  onReorderConversations: () => {},
   // Wires the list's right-click "New group…". Omitting it drops the
   // affordance entirely, so the story has to pass it to show the menu.
   onCreateGroup: () => {},
@@ -138,22 +258,34 @@ const SHARED_ARGS = {
   onMarkConversationUnread: () => {},
   onPinConversation: () => {},
   onArchiveConversation: () => {},
+  /* The real `PreferencesMenu`, not a stand-in: it is the sidebar's bottom
+     entry, and without it these stories show every part of the rail except
+     the one at its foot. `chat-layout` passes it the same way. */
+  footerAction: <PreferencesMenu assistantId="asst-story" />,
 } satisfies Partial<Parameters<typeof AssistantSideMenu>[0]>;
 
 const meta: Meta<typeof AssistantSideMenu> = {
   title: "Chat/AssistantSideMenu",
   component: AssistantSideMenu,
   parameters: { layout: "fullscreen" },
-  /* `--surface-base` is the app backdrop the sidebar sits on; `SideMenu`
-     paints its own `--surface-overlay`, so the wrapper must not paint over
-     it. The sidebar's own type and row metrics switch at `md`, so view these
-     stories at a desktop viewport to see what desktop users see. */
+  /* The wrapper is `chat-layout`'s desktop shell, class for class: the
+     `gap-4 p-4` flex row on the `--surface-base` page background, the
+     shrink-wrapped `overflow-hidden` aside the rail sizes, and the
+     transparent `<main>` beside it, which carries no surface of its own -
+     the transcript inside it does. The rail's spacing against the window
+     edges and against the content area is then the app's own, so a story
+     shows the geometry desktop users get rather than a frame invented for
+     the story. `<main>` is left empty: the chat body is a separate domain
+     and mounting it would make these stories depend on it. The sidebar's
+     type and row metrics switch at `md`, so view these at a desktop
+     viewport. */
   decorators: [
     (Story) => (
-      <div className="flex h-screen bg-[var(--surface-base)]">
-        <div className="w-[280px] shrink-0">
+      <div className="flex h-screen gap-4 bg-[var(--surface-base)] p-4">
+        <aside className="w-fit shrink-0 overflow-hidden">
           <Story />
-        </div>
+        </aside>
+        <main className="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden" />
       </div>
     ),
   ],
@@ -194,6 +326,41 @@ export const GroupedView: Story = {
   args: { ...SHARED_ARGS, assistantId: "asst-grouped" },
 };
 
+/* The collapsed rail: one circle per section, each carrying the same
+   indicator its expanded header shows. The rail's geometry only exists at
+   this width, and it is where the last two geometry bugs shipped, so it gets
+   its own surface rather than living as a control on another story.
+
+   "Archive" is seeded with no conversations to draw the empty-section tile:
+   still a circle in the column and still a hover target, so the tooltip
+   explaining why it does nothing stays reachable. It's muted rather than
+   natively disabled for exactly that reason. */
+export const CollapsedRail: Story = {
+  name: "Collapsed rail · grouped view",
+  beforeEach: () => seedViewMode("asst-collapsed", "grouped"),
+  args: {
+    ...SHARED_ARGS,
+    assistantId: "asst-collapsed",
+    collapsed: true,
+    footerAction: <PreferencesMenu assistantId="asst-story" />,
+  },
+};
+
+/* The same rail in the default view, which is the one most users see. The two
+   views put a different section set in the column, and the rail is where a
+   section list going wrong is hardest to spot, so each view gets its own
+   collapsed surface rather than sharing one. */
+export const CollapsedRailAllView: Story = {
+  name: "Collapsed rail · all view",
+  beforeEach: () => seedViewMode("asst-collapsed-all", "all"),
+  args: {
+    ...SHARED_ARGS,
+    assistantId: "asst-collapsed-all",
+    collapsed: true,
+    footerAction: <PreferencesMenu assistantId="asst-story" />,
+  },
+};
+
 /* What a cold load looks like before the conversation list resolves. The list
    is one query that settles only once every page of it is in, so on a busy
    assistant this state holds for seconds, and the placeholders are what keep
@@ -206,5 +373,54 @@ export const LoadingConversations: Story = {
     assistantId: "asst-loading",
     conversations: [],
     isLoadingConversations: true,
+  },
+};
+
+/**
+ * The identity row wearing an uploaded image. One slot, and whichever avatar
+ * the assistant has occupies it: this is the same slot the story below fills
+ * with a character's eyes.
+ *
+ * The pill stays plain rather than tinted. A colour is read from a character's
+ * palette and nothing derives one from an image.
+ */
+export const UploadedImageAvatar: Story = {
+  name: "Identity row · uploaded image avatar",
+  beforeEach: () => seedViewMode("asst-image", "all"),
+  decorators: [withAvatar(IMAGE_AVATAR_CLIENT)],
+  args: {
+    ...SHARED_ARGS,
+    assistantId: "asst-image",
+    assistantName: "Haze II",
+  },
+};
+
+/** The same row on the collapsed rail, where the image fills the tile. */
+export const UploadedImageAvatarCollapsed: Story = {
+  name: "Identity row · uploaded image avatar, collapsed",
+  beforeEach: () => seedViewMode("asst-image", "all"),
+  decorators: [withAvatar(IMAGE_AVATAR_CLIENT)],
+  args: {
+    ...SHARED_ARGS,
+    assistantId: "asst-image",
+    assistantName: "Haze II",
+    collapsed: true,
+    footerAction: <PreferencesMenu assistantId="asst-story" />,
+  },
+};
+
+/**
+ * The character-avatar treatment: the eyes in the leading slot, the pill
+ * painted in the avatar's colour, and the name flipped for contrast against
+ * it. The eyes blink where they sit.
+ */
+export const CharacterAvatar: Story = {
+  name: "Identity row · character avatar",
+  beforeEach: () => seedViewMode("asst-character", "all"),
+  decorators: [withAvatar(CHARACTER_AVATAR_CLIENT)],
+  args: {
+    ...SHARED_ARGS,
+    assistantId: "asst-character",
+    assistantName: "Haze II",
   },
 };

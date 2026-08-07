@@ -136,6 +136,64 @@ describe("resolveConversationLineage", () => {
     expect(segments[2]!.through).toEqual({ createdAt: 400, id: "m4" });
   });
 
+  test("a nested fork tightens ancestor bounds instead of widening them", () => {
+    // C forks B through m2, a row B inherited from A and which sits BEFORE
+    // B's own fork point m4. Carrying B's m4 into A's segment would re-expose
+    // m3 and m4, which C explicitly forked before.
+    const segments = resolveConversationLineage(
+      "c",
+      resolverFor(
+        [referential("c", "b", "m2"), referential("b", "a", "m4"), row("a")],
+        {
+          m2: { createdAt: 200, id: "m2" },
+          m4: { createdAt: 400, id: "m4" },
+        },
+      ),
+    );
+
+    expect(segments).toEqual([
+      { conversationId: "c", through: null },
+      { conversationId: "b", through: { createdAt: 200, id: "m2" } },
+      { conversationId: "a", through: { createdAt: 200, id: "m2" } },
+    ]);
+  });
+
+  test("a nested fork keeps the ancestor's own bound when it is the tighter one", () => {
+    // The mirror case: C forks B through m9, past B's fork point m4, so A's
+    // contribution stays capped at m4 rather than loosening to m9.
+    const segments = resolveConversationLineage(
+      "c",
+      resolverFor(
+        [referential("c", "b", "m9"), referential("b", "a", "m4"), row("a")],
+        {
+          m9: { createdAt: 900, id: "m9" },
+          m4: { createdAt: 400, id: "m4" },
+        },
+      ),
+    );
+
+    expect(segments[2]!.through).toEqual({ createdAt: 400, id: "m4" });
+  });
+
+  test("bounds sharing a millisecond tighten on id", () => {
+    const segments = resolveConversationLineage(
+      "c",
+      resolverFor(
+        [
+          referential("c", "b", "m-aaa"),
+          referential("b", "a", "m-zzz"),
+          row("a"),
+        ],
+        {
+          "m-aaa": { createdAt: 500, id: "m-aaa" },
+          "m-zzz": { createdAt: 500, id: "m-zzz" },
+        },
+      ),
+    );
+
+    expect(segments[2]!.through).toEqual({ createdAt: 500, id: "m-aaa" });
+  });
+
   test("a vanished fork message truncates instead of splicing in all of the parent", () => {
     // Without the bound there is nothing scoping the parent's contribution, so
     // continuing would pull in messages written AFTER the fork was taken.

@@ -34,10 +34,13 @@ Before starting, run the check script:
 bun skills/discord-app-setup/scripts/check-config.ts
 ```
 
-The script outputs JSON: `{ "configured": boolean, "details": string }`.
+The script outputs JSON: `{ "configured": boolean, "details": string, "error"?: string }`.
 
+- If `error` is present, **stop**. The check could not run, so the credential state is unknown, and `configured: false` here does **not** mean "not set up". Do not start the setup walkthrough. It will not fix this, and re-running setup on an app that already has a token forces a needless token reset that breaks any other deployment using it.
+  - `cli_not_found` means the `assistant` command is missing from this environment's PATH. That is an installation problem. Report it as one, quote `details`, and stop.
+  - `cli_failed` or `unparseable_output` means the CLI ran but did not answer usefully. Report `details` verbatim and stop.
 - If `configured` is `true` — Discord is already set up. Offer to verify the connection or reconfigure.
-- If `configured` is `false` — continue to Step 1.
+- If `configured` is `false` with no `error`, the check ran and found no token. Continue to Step 1.
 
 ## Step 1: Create the Discord Application
 
@@ -49,20 +52,25 @@ Wait for the user to confirm they've created the app before proceeding. Discord 
 
 ## Step 2: Configure the Bot User
 
-Discord automatically attaches a Bot user to every new application. The user only needs to enable the privileged intents this assistant requires.
+Discord automatically attaches a Bot user to every new application. This integration needs **no privileged intents**, so the only thing to do here is confirm all three are off.
 
 Direct the user:
 
-> In the left sidebar click **Bot**. Scroll to **Privileged Gateway Intents** and enable:
+> In the left sidebar click **Bot**. Scroll to **Privileged Gateway Intents** and leave all three **OFF**:
 >
-> - ✅ **Message Content Intent** — required to read message text from non-mention messages
-> - ✅ **Server Members Intent** — required to receive `GUILD_MEMBER_*` events
+> - ⬜ **Presence Intent**
+> - ⬜ **Server Members Intent**
+> - ⬜ **Message Content Intent**
 >
-> Leave **Presence Intent** OFF unless the assistant explicitly needs presence updates. Click **Save Changes**.
+> If any are already enabled, turn them off and click **Save Changes**.
 
-> ⚠️ Once the bot is in 100+ servers Discord requires verification + intent whitelisting. Below that threshold you can self-serve.
+Why none are needed: the assistant's Discord client identifies with the non-privileged `GUILDS`, `GUILD_MESSAGES`, and `DIRECT_MESSAGES` intents only. It acts on messages that mention the bot and on DMs sent to it, and Discord exempts four cases from the Message Content restriction: messages that mention your app, DMs with your app, your app's own messages, and the target of a message context-menu command. Every message the assistant reads falls inside that exemption and already arrives with full text. Server Members would deliver `GUILD_MEMBER_*` events that nothing here consumes.
 
-Wait for the user to confirm the intents are saved before proceeding.
+Turning them on would grant access the software never reads, and would opt the app into Discord's privileged-intent review (with annual reapplication) once it is visible to more than 10,000 users.
+
+> ℹ️ Two different Discord thresholds are easy to confuse. **Bot verification** is required past 100 servers. **Privileged-intent review** is required past 10,000 unique users who can see the app. With no privileged intents enabled, the second does not apply to this integration at all.
+
+Wait for the user to confirm the intents are off before proceeding.
 
 ## Step 3: Generate & Collect the Bot Token
 
@@ -70,7 +78,11 @@ Wait for the user to confirm the intents are saved before proceeding.
 
 Direct the user:
 
-> On the same **Bot** page, click **Reset Token** (or **View Token** / **Copy** if this is the first time). Confirm the reset if prompted. Discord will display the token **once** — copy it now and paste it into the secure prompt that appears in your assistant.
+> On the same **Bot** page, click **Reset Token** and confirm. Discord displays the token **once**, right then: copy it now and paste it into the secure prompt that appears in your assistant.
+>
+> There is no **Copy** or **View Token** button for a token that already exists. Once the token has been shown and you leave the page, Reset is the only way to get a usable value again.
+
+> ⚠️ If this application is already connected somewhere else, **Reset Token invalidates the old token immediately** and breaks that deployment. Only reset if you are willing to reconnect anything else using this app.
 
 Run the store script:
 
@@ -110,7 +122,7 @@ bun skills/discord-app-setup/scripts/print-invite-url.ts
 This calls `GET /oauth2/applications/@me` with the stored bot token to discover the application ID, then prints a URL of the form:
 
 ```
-https://discord.com/api/oauth2/authorize?client_id=<APP_ID>&permissions=277025770560&scope=bot+applications.commands
+https://discord.com/oauth2/authorize?client_id=<APP_ID>&permissions=277025770560&scope=bot+applications.commands
 ```
 
 The default permission integer (`277025770560`) covers: View Channels, Send Messages, Send Messages in Threads, Embed Links, Attach Files, Read Message History, Add Reactions, Use External Emojis, and Use Slash Commands. It deliberately **does not** include Administrator, Manage Channels, Manage Roles, Manage Threads, Create Public Threads, Kick/Ban Members, or Mention Everyone — request more only if a downstream feature requires it, and document the reason.
@@ -121,28 +133,50 @@ Direct the user:
 
 Wait for the user to confirm the bot has joined the server before continuing.
 
-## Step 6: Report Success
+## Step 6: Report What Setup Delivered
 
-Summarize with the completed checklist:
+Report exactly what is now true, and what is still required before the bot answers anything. Do **not** claim the bot is live: it appears online in the member list the moment it connects, which reads as "working" even while it ignores every message.
+
+Summarize:
 
 ```
-Setup complete!
+Discord connected.
 ✅ Application created
-✅ Bot configured (Message Content + Server Members intents)
-✅ Token stored
+✅ Privileged intents left off (none are needed)
+✅ Token stored and validated
 ✅ Bot in server: {guild_name}
 
 Connected: {bot_username} (application: {application_name})
-Intents: Message Content, Server Members
+Intents: Guilds, Guild Messages, Direct Messages (no privileged intents)
+
+⚠️ The bot will not respond yet. It only acts in channels you explicitly
+   allow, and that list starts empty.
 ```
+
+Then tell the user how to finish:
+
+> In a server the bot replies only when it is **@mentioned in an allow-listed channel**. The allow-list is empty by default, which means it currently ignores everything there, and being invited to a server is not consent to every channel in it.
+>
+> DMs are separate: the bot can be messaged directly without any allow-list entry, because a DM is already addressed to it alone. Who it answers in a DM is still governed by the channel's admission policy, which admits trusted contacts rather than anyone who shares a server with it.
+>
+> To allow a channel: enable Developer Mode in Discord (**User Settings → Advanced → Developer Mode**), right-click the channel and choose **Copy Channel ID**, then run:
+>
+> ```bash
+> assistant config set discord.allowedChannelIds '["<channel id>"]'
+> ```
+>
+> Pass the full list to allow more than one channel. Once a channel is on the list, mention the bot there and it will reply.
+
+Two things still gate a reply after that, and are worth naming if the bot stays silent: the mention itself (it does not respond to unmentioned messages), and the channel's admission policy, which by default admits trusted contacts rather than anyone in the server.
 
 ## Implementation Rules
 
 - All token collection goes through the assistant's secure credential prompt via `scripts/store-bot-token.ts`. Do NOT ask the user to paste the token in chat.
 - **Do NOT combine multiple steps into a single message.** Each step must be its own turn. Wait for the user to confirm completion before moving on.
-- **Do NOT collect the bot token before Step 3.** The token only matters after the privileged intents are saved — collecting it earlier risks the user having to reset it again if the intents weren't saved correctly.
+- **Do NOT collect the bot token before Step 3.** The token is shown once and cannot be retrieved later, so it must be collected in the same turn the user generates it, with the secure prompt already open.
 - **Do NOT request the `Administrator` permission** on the OAuth invite URL. The default permission integer was chosen with the principle of least privilege — only request more if a downstream feature explicitly requires it, and document why.
-- **Do NOT enable the Presence Intent** unless the assistant has a feature that consumes presence updates. Presence is privacy-sensitive and Discord requires whitelisting at scale.
+- **Do NOT enable any privileged intent.** The client identifies with `GUILDS`, `GUILD_MESSAGES`, and `DIRECT_MESSAGES` only, all three non-privileged, and nothing reads presence, member, or non-mention guild-message events. Enabling one grants access the software never uses and opts the app into Discord's privileged-intent review past 10,000 users.
+- **Do NOT claim the bot can reply once setup finishes.** It goes online, and looks working, while ignoring every message until a channel is on `discord.allowedChannelIds`. Always report that gap (Step 6).
 - **Do NOT instruct the user to set an Interactions Endpoint URL.** Gateway-connected bots receive interactions over the WebSocket — the HTTP endpoint is only needed for HTTP-only interaction handlers.
 - **Do NOT persist the application ID, public key, or bot user metadata** anywhere outside the credential vault. They are derivable from the bot token on demand and persisting them risks staleness after a token reset.
 

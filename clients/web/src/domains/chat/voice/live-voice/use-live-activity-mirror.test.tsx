@@ -1,6 +1,7 @@
 /**
- * Tests for `useLiveActivityMirror` — the iOS Live Activity mirror of a
- * live-voice session.
+ * Tests for `useLiveActivityMirror`, the out-of-app mirror of a live-voice
+ * session, feeding the iOS Live Activity and the macOS floating panel from one
+ * snapshot.
  *
  * The `runtime/native-live-activity` bridge is stubbed at the module boundary
  * (rather than by faking `isNativeIOS`) so the mirror's own lifecycle and
@@ -32,6 +33,10 @@ import type {
   VoiceLiveActivityContent,
   VoiceLiveActivityStart,
 } from "@/runtime/native-live-activity";
+import type {
+  VoiceActivityContent,
+  VoiceActivityStart,
+} from "@/runtime/is-electron";
 import type { CharacterComponents, CharacterTraits } from "@/types/avatar";
 
 // Typed to the real bridge signatures so the recorded payloads stay checked.
@@ -98,6 +103,24 @@ mock.module("@/runtime/native-live-activity", () => ({
   updateVoiceLiveActivity,
   endVoiceLiveActivity,
   subscribeVoiceLiveActivityPushToken,
+}));
+
+// The desktop sink: the Electron floating panel's half of the same mirror.
+// Stubbed at the same boundary as the mobile bridge, and for the same reason:
+// its own off-Electron behavior is the runtime module's to pin, while what
+// matters here is that both sinks are driven from one snapshot.
+const startVoiceActivity = mock(
+  (_state: VoiceActivityStart): void => undefined,
+);
+const updateVoiceActivity = mock(
+  (_content: VoiceActivityContent): void => undefined,
+);
+const endVoiceActivity = mock((): void => undefined);
+
+mock.module("@/runtime/desktop-voice-activity", () => ({
+  startVoiceActivity,
+  updateVoiceActivity,
+  endVoiceActivity,
 }));
 
 mock.module(
@@ -190,6 +213,9 @@ beforeEach(() => {
   subscribeVoiceLiveActivityPushToken.mockClear();
   registerLiveActivityPushToken.mockClear();
   unregisterLiveActivityPushToken.mockClear();
+  startVoiceActivity.mockClear();
+  updateVoiceActivity.mockClear();
+  endVoiceActivity.mockClear();
   emitPushToken = null;
 });
 
@@ -819,5 +845,76 @@ describe("registering the activity for server-driven updates", () => {
     await emitToken("token-abc");
 
     expect(registerLiveActivityPushToken).not.toHaveBeenCalled();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The desktop sink
+// ---------------------------------------------------------------------------
+
+/**
+ * The floating panel is fed by the same mirror as the island, from the same
+ * computed snapshot. These pin the fan-out itself (that both sinks see one
+ * payload, on one schedule) rather than re-testing the content rules above,
+ * which are sink-agnostic by construction.
+ */
+describe("the desktop panel sink", () => {
+  test("start reaches both sinks with the identical payload", async () => {
+    renderMirror();
+
+    await setPhase("connecting");
+
+    expect(startVoiceActivity).toHaveBeenCalledTimes(1);
+    expect(startVoiceActivity.mock.calls.at(-1)?.[0]).toEqual(
+      lastStartPayload() as VoiceActivityStart,
+    );
+  });
+
+  test("updates are pushed to the panel on the island's schedule", async () => {
+    renderMirror();
+    await setPhase("connecting");
+
+    await setPhase("listening");
+
+    expect(updateVoiceActivity).toHaveBeenCalledTimes(1);
+    expect(updateVoiceActivity.mock.calls.at(-1)?.[0]).toEqual(
+      lastUpdatePayload() as VoiceActivityContent,
+    );
+  });
+
+  test("content that would not move the island does not reach the panel either", async () => {
+    renderMirror();
+    await setPhase("connecting");
+    updateVoiceActivity.mockClear();
+
+    // A store write the mirror deliberately ignores: same phase, same label,
+    // same everything a surface renders.
+    await settled(() => {
+      useLiveVoiceStore.getState().setState("connecting");
+    });
+
+    expect(updateVoiceActivity).not.toHaveBeenCalled();
+  });
+
+  test("ending the session dismisses the panel", async () => {
+    renderMirror();
+    await setPhase("listening");
+
+    await setPhase("idle");
+
+    expect(endVoiceActivity).toHaveBeenCalledTimes(1);
+  });
+
+  test("unmounting the mirror dismisses the panel", async () => {
+    const view = renderMirror();
+    await setPhase("listening");
+
+    await act(async () => {
+      view.unmount();
+    });
+
+    // A panel that outlives its mirror floats over the desktop showing a phase
+    // nothing is driving.
+    expect(endVoiceActivity).toHaveBeenCalledTimes(1);
   });
 });

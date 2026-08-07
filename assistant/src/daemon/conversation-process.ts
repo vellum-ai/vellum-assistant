@@ -62,6 +62,7 @@ import { getModelInfo } from "./handlers/config-model.js";
 import { preactivateHostProxySkills } from "./host-proxy-preactivation.js";
 import type { UserMessageAttachment } from "./message-protocol.js";
 import { buildTransportHints } from "./transport-hints.js";
+import { sameTrustIdentity, type TrustContext } from "./trust-context-types.js";
 import { resolveVerificationSessionIntent } from "./verification-session-intent.js";
 
 const log = getLogger("conversation-process");
@@ -286,9 +287,9 @@ async function buildPassthroughBatch(
       break;
     }
     // The batched turn applies only the head's `clientOs`, so messages from a
-    // different OS surface must not coalesce. The web, iOS, and macOS apps all
+    // different OS surface must not coalesce. Browser, mobile, and desktop apps
     // report `interfaceId: "web"`, so the interface check above no longer
-    // separates them — split on the reported OS explicitly.
+    // separates them, so split on the reported OS explicitly.
     if (candidate.transport?.clientOs !== head.transport?.clientOs) {
       break;
     }
@@ -299,6 +300,13 @@ async function buildPassthroughBatch(
       break;
     }
     if (candidate.sourceActorPrincipalId !== head.sourceActorPrincipalId) {
+      break;
+    }
+    // Channel senders carry no principal, so the check above leaves two
+    // different Slack contacts looking identical (`undefined === undefined`).
+    // The batch runs under a single trust context, so split on the sender's
+    // trust identity too or a tail executes with the head's privileges.
+    if (!sameTrustIdentity(candidate.trustContext, head.trustContext)) {
       break;
     }
     if (classifySlash(candidate.content) !== "passthrough") {
@@ -412,11 +420,23 @@ function repairPendingToolUseBlocks(conversation: Conversation): void {
  * we did. The flag is what makes the requeue paths able to distinguish a
  * message clients still believe is running from one they never stopped
  * showing as queued. See {@link requeueDrainedMessages}.
+ *
+ * Queue events come in pairs. A row with no client-visible queued counterpart
+ * ({@link isSuppressedQueuedMessage} — hidden sends and the daemon-injected
+ * subagent/ACP/wake notifications) never produced a `message_queued` ack, so
+ * releasing one produces no dequeue either: an unpaired dequeue would retire a
+ * client's counter entry for a message that is still waiting. Nothing was
+ * announced, so the flag stays false and the requeue paths correctly send
+ * nothing for it. The activity-state transition callers emit alongside this is
+ * unrelated to the queue and always fires: the turn really is starting.
  */
 function announceDequeue(
   conversation: Conversation,
   message: QueuedMessage,
 ): void {
+  if (isSuppressedQueuedMessage(message.metadata)) {
+    return;
+  }
   message.onEvent({
     type: "message_dequeued",
     conversationId: conversation.conversationId,
@@ -662,7 +682,15 @@ export async function kickQueueDrain(
       },
       "drainQueue retry rejected; queued messages remain stranded until the next drain trigger",
     );
-    for (const queued of conversation.queue.snapshot()) {
+    // Only the sends a user is waiting on get the failure notice. A stranded
+    // row with no client-visible queued counterpart (hidden machine signal,
+    // daemon-injected subagent/ACP/wake notification) has no queued bubble to
+    // explain, so a "your queued message" error would describe something the
+    // user never sent.
+    const strandedVisible = conversation.queue
+      .snapshot()
+      .filter((queued) => !isSuppressedQueuedMessage(queued.metadata));
+    for (const queued of strandedVisible) {
       queued.onEvent({
         type: "error",
         conversationId: conversation.conversationId,
@@ -775,7 +803,11 @@ async function drainSingleMessage(
 
   // Snapshot persona context at turn start so later tool turns can't pick up
   // a different actor's context if a concurrent request mutates the live fields.
-  conversation.currentTurnTrustContext = conversation.trustContext;
+  // Trust comes from the queued message, not the live slot: the slot holds
+  // whichever actor sent most recently, which is this sender only when nobody
+  // else sent while this message waited.
+  conversation.currentTurnTrustContext =
+    next.trustContext ?? conversation.trustContext;
   conversation.currentTurnChannelCapabilities =
     conversation.channelCapabilities;
 
@@ -1115,6 +1147,9 @@ async function drainSingleMessage(
       metadata: { ...next.metadata, sentAt: next.sentAt },
       displayContent: next.displayContent,
       clientMessageId: next.clientMessageId,
+      // Attribute the stored row to the sender this turn runs as, not to
+      // whoever happens to occupy the conversation slot at drain time.
+      trustContext: next.trustContext,
       ...(next.transport?.clientOs
         ? { requestClientOs: next.transport.clientOs }
         : {}),
@@ -1238,7 +1273,14 @@ async function drainSingleMessage(
     isUserMessage?: boolean;
     titleText?: string;
     isHiddenPrompt?: boolean;
-  } = { isUserMessage: true };
+    turnTrustContext?: TrustContext;
+  } = {
+    isUserMessage: true,
+    // Carry the sender's trust into the run. The loop re-initializes the
+    // per-turn snapshot on entry, so without this the stamp above is undone
+    // and the turn reverts to the conversation's most recent actor.
+    turnTrustContext: conversation.currentTurnTrustContext,
+  };
   if (next.isInteractive !== undefined) {
     drainLoopOptions.isInteractive = next.isInteractive;
   }
@@ -1363,7 +1405,12 @@ async function drainBatch(
 
   // Snapshot persona context at turn start so later tool turns can't pick up
   // a different actor's context if a concurrent request mutates the live fields.
-  conversation.currentTurnTrustContext = conversation.trustContext;
+  // The head's trust governs the batch, which is sound only because
+  // `buildPassthroughBatch` refuses to coalesce messages from different
+  // actors; without that boundary this would run a tail under the head's
+  // trust.
+  conversation.currentTurnTrustContext =
+    head.trustContext ?? conversation.trustContext;
   conversation.currentTurnChannelCapabilities =
     conversation.channelCapabilities;
 
@@ -1468,6 +1515,9 @@ async function drainBatch(
         metadata: { ...qm.metadata, sentAt: qm.sentAt },
         displayContent: qm.displayContent,
         clientMessageId: qm.clientMessageId,
+        // Same attribution rule as the single-message drain. Batch members
+        // share one sender, so every row here names that sender.
+        trustContext: qm.trustContext,
         ...(qm.transport?.clientOs
           ? { requestClientOs: qm.transport.clientOs }
           : {}),
@@ -1699,8 +1749,12 @@ async function drainBatch(
     titleText?: string;
     isHiddenPrompt?: boolean;
     notifyUserMessageId?: string;
+    turnTrustContext?: TrustContext;
   } = {
     isUserMessage: true,
+    // Same reason as the single-message drain: the loop re-initializes the
+    // per-turn snapshot, so the head's trust has to travel with the call.
+    turnTrustContext: conversation.currentTurnTrustContext,
   };
   if (lastPushEligibleUserMessageId !== undefined) {
     drainLoopOptions.notifyUserMessageId = lastPushEligibleUserMessageId;
@@ -1822,7 +1876,14 @@ export async function processMessage(
   await conversation.ensureActorScopedHistory();
   // Snapshot persona context at turn start so later tool turns can't pick up
   // a different actor's context if a concurrent request mutates the live fields.
-  conversation.currentTurnTrustContext = conversation.trustContext;
+  //
+  // Held in a local as well as on the conversation: the field is writable
+  // out-of-band while this turn is in flight (`agent-wake` stamps it and
+  // restores the prior value in a `finally`), so reading it back at the agent
+  // loop call below would reintroduce the late read this capture exists to
+  // avoid. The local is what the loop runs under.
+  const turnTrustContext = conversation.trustContext;
+  conversation.currentTurnTrustContext = turnTrustContext;
   conversation.currentTurnAuthContext = conversation.authContext;
   conversation.currentTurnSourceActorPrincipalId =
     sourceActorPrincipalId ?? conversation.authContext?.actorPrincipalId;
@@ -2121,7 +2182,10 @@ export async function processMessage(
       throw err;
     } finally {
       conversation.setProcessing(false);
-      await drainQueue(conversation);
+      // `kickQueueDrain` never rejects, so a failed drain in this `finally`
+      // cannot mask the error the try block is unwinding, and its retry plus
+      // sender notification replace a silently stranded queue.
+      await kickQueueDrain(conversation, "loop_complete", "compact_command");
     }
   }
 
@@ -2195,7 +2259,8 @@ export async function processMessage(
       throw err;
     } finally {
       conversation.setProcessing(false);
-      await drainQueue(conversation);
+      // Same never-rejecting drain as the `/compact` branch above.
+      await kickQueueDrain(conversation, "loop_complete", "clean_command");
     }
   }
 
@@ -2287,7 +2352,16 @@ export async function processMessage(
     titleText?: string;
     callSite?: LLMCallSite;
     overrideProfile?: string;
-  } = { isUserMessage: true };
+    turnTrustContext?: TrustContext;
+  } = {
+    isUserMessage: true,
+    // Carry the trust captured at turn start into the run. Several awaits sit
+    // between that capture and the loop opening, and both the conversation
+    // slot and the per-turn field are writable throughout that window, so
+    // reading either here would run this turn as whoever wrote last. The
+    // local captured at turn start is the only value no other writer can move.
+    turnTrustContext,
+  };
   if (isInteractive !== undefined) {
     loopOptions.isInteractive = isInteractive;
   }

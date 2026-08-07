@@ -116,6 +116,13 @@ export interface LineageResolverDeps {
  * parent's contribution, so continuing without it would splice in the parent's
  * ENTIRE history, including messages written after the fork was taken. Cutting
  * the lineage short is the conservative direction.
+ *
+ * Bounds TIGHTEN down the chain rather than being replaced. A fork taken
+ * through an inherited message cuts at a point that lies inside its parent's
+ * own inherited window, and each further ancestor must respect that narrower
+ * cut as well as its own: if B reads A through m4 and C reads B through the
+ * inherited m2, then C sees A only through m2. Carrying B's m4 into A's
+ * segment would re-expose m3 and m4, which C explicitly forked before.
  */
 export function resolveConversationLineage(
   conversationId: string,
@@ -125,6 +132,7 @@ export function resolveConversationLineage(
   const visited = new Set<string>([conversationId]);
 
   let current = deps.loadConversation(conversationId);
+  let tightest: LineageBound | null = null;
   while (current !== null && segments.length < MAX_LINEAGE_DEPTH) {
     if (!isReferentialFork(current)) {
       break;
@@ -141,12 +149,21 @@ export function resolveConversationLineage(
     if (parent === null) {
       break;
     }
-    segments.push({ conversationId: parentId, through: bound });
+    tightest = tightest === null ? bound : earlierBound(tightest, bound);
+    segments.push({ conversationId: parentId, through: tightest });
     visited.add(parentId);
     current = parent;
   }
 
   return segments;
+}
+
+/** The earlier of two bounds in `(createdAt, id)` order. */
+function earlierBound(a: LineageBound, b: LineageBound): LineageBound {
+  if (a.createdAt !== b.createdAt) {
+    return a.createdAt < b.createdAt ? a : b;
+  }
+  return a.id <= b.id ? a : b;
 }
 
 /**

@@ -98,6 +98,7 @@ const storyOAuthClient: ManagedOAuthConnectClient = {
     supports_managed_mode: true,
     managed_service_is_paid: false,
     feature_flag: null,
+    acts_as: "user",
   }),
   connect: async () => {
     await new Promise((resolve) => setTimeout(resolve, 650));

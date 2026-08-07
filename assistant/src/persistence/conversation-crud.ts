@@ -26,7 +26,6 @@ import type { ChannelId, InterfaceId } from "../channels/types.js";
 import { parseChannelId, parseInterfaceId } from "../channels/types.js";
 import { CHANNEL_IDS, isChannelId } from "../channels/types.js";
 import { getConfig } from "../config/loader.js";
-import type { MemoryForkStrategy } from "../config/schemas/memory-retrospective.js";
 import { findDisplayTurnEndIndex } from "../conversations/message-consolidation.js";
 import { findConversation } from "../daemon/conversation-registry.js";
 import { conversationMetadataSyncTag } from "../daemon/message-types/sync.js";
@@ -73,6 +72,7 @@ import {
 import { ensureDisplayOrderMigration } from "./conversation-display-order-migration.js";
 import { ensureGroupMigration } from "./conversation-group-migration.js";
 import {
+  isReferentialFork,
   type LineageBound,
   type LineageConversationRow,
   lineageMessageFilter,
@@ -266,9 +266,10 @@ export const messageMetadataSchema = z
     /**
      * Optional client-side metadata bag attached to user messages at persist
      * time. `os` carries the client-reported OS surface ("web" | "ios" |
-     * "macos" | "android") from the request body's `clientOs` field, stamped
-     * by `persistQueuedMessageBody` — the transport `userMessageInterface` is
-     * "web" for the web, iOS, and macOS apps alike, so this is the only
+     * "macos" | "windows" | "android") from the request body's `clientOs`
+     * field, stamped by `persistQueuedMessageBody`. The transport
+     * `userMessageInterface` is
+     * "web" for the web, mobile, and desktop apps alike, so this is the only
      * per-platform attribution. `browser_family` / `browser_version` /
      * `interface_version` (and an `os` override) come from the sanitized
      * `x-vellum-*` client-metadata headers read by `handleSendMessage`
@@ -1727,13 +1728,6 @@ export async function forkConversationForRetrospective(params: {
   title?: string;
   conversationType?: ConversationCreateType;
   groupId?: string;
-  /**
-   * `"reference"` builds the fork referentially: the inherited window stays on
-   * the source and is read through `forkParentMessageId`, so the fork writes
-   * one conversation row and copies no messages or attachments. Defaults to
-   * `memory.retrospective.forkStrategy`.
-   */
-  forkStrategy?: MemoryForkStrategy;
 }): Promise<ConversationRow> {
   const { conversationId, throughMessageId } = params;
   const db = getDb();
@@ -1810,9 +1804,12 @@ export async function forkConversationForRetrospective(params: {
   const hiddenRowIds = new Set(
     loadOrderIds.slice(0, inheritedCompaction?.compactedMessageCount ?? 0),
   );
+  // Read straight from config rather than taking a caller-supplied strategy:
+  // how a fork is materialized is a workspace-wide storage decision, and a
+  // per-call override would let two callers disagree about it on the same
+  // workspace.
   const isReferential =
-    (params.forkStrategy ?? getConfig().memory.retrospective.forkStrategy) ===
-    "reference";
+    getConfig().memory.retrospective.forkStrategy === "reference";
   // A referential fork copies nothing: its inherited window is read back
   // through `forkParentMessageId` by the lineage resolver.
   const rowsToCopy = isReferential
@@ -1992,22 +1989,30 @@ export async function forkConversationForRetrospective(params: {
  * the corresponding Qdrant vector entries.
  */
 /**
- * Ids of the referential forks whose inherited history lives on this
- * conversation. Deleting it would strip those forks of every message before
- * their fork point, so the delete is refused while any exist.
+ * Whether this conversation reads its inherited history from a parent that no
+ * longer exists.
+ *
+ * Deleting a conversation ORPHANS the referential forks taken from it: the
+ * delete touches only what it names, and each fork keeps the rows it owns
+ * while the lineage walk truncates at the missing parent. Cascading would make
+ * a delete cost time proportional to how many forks were ever taken from a
+ * conversation, and refusing would make most active conversations undeletable,
+ * since a retrospective forks every few minutes. Neither is worth paying on
+ * every delete for a state that renders fine and can be explained.
+ *
+ * Explaining it is what this is for: an orphan otherwise looks like a
+ * conversation that mysteriously starts mid-thought. Costs nothing on ordinary
+ * conversations, which fail `isReferentialFork` before any query runs.
  */
-export function listReferentialForkChildren(conversationId: string): string[] {
-  return getDb()
-    .select({ id: conversations.id })
-    .from(conversations)
-    .where(
-      and(
-        eq(conversations.forkParentConversationId, conversationId),
-        eq(conversations.forkStrategy, REFERENTIAL_FORK_STRATEGY),
-      ),
-    )
-    .all()
-    .map((row) => row.id);
+export function isReferentialHistoryOrphaned(row: {
+  forkStrategy: string | null;
+  forkParentConversationId: string | null;
+  forkParentMessageId: string | null;
+}): boolean {
+  if (!isReferentialFork(row)) {
+    return false;
+  }
+  return getConversation(row.forkParentConversationId as string) === null;
 }
 
 export function deleteConversation(id: string): DeletedMemoryIds {
@@ -2016,20 +2021,6 @@ export function deleteConversation(id: string): DeletedMemoryIds {
     segmentIds: [],
     deletedSummaryIds: [],
   };
-
-  // Block rather than cascade or copy-on-delete. A referential fork reads its
-  // prefix from this conversation, so deleting it silently truncates every
-  // child; cascading would instead delete conversations the caller never named.
-  // Refusing keeps the destructive choice with the caller, and costs one
-  // indexed lookup on a path that is already doing far more work.
-  const referentialChildren = listReferentialForkChildren(id);
-  if (referentialChildren.length > 0) {
-    throw new UserError(
-      `Conversation ${id} cannot be deleted while ${referentialChildren.length} ` +
-        `referential fork(s) read their history from it: ` +
-        `${referentialChildren.join(", ")}. Delete those first.`,
-    );
-  }
 
   // Capture createdAt before the transaction deletes the row — needed to
   // resolve the conversation's disk-view directory path after deletion.
@@ -4218,13 +4209,19 @@ export function getConversationRecentProvenanceTrustClass(
 }
 
 // ---------------------------------------------------------------------------
-// CRUD functions for display_order and is_pinned
+// Conversation placement (group + pin) and display metadata
 // ---------------------------------------------------------------------------
 
-export function batchSetDisplayOrders(
+/**
+ * Move conversations between sections: set the group, and the pin state
+ * derived from it.
+ *
+ * Writes no ordering. Every list is ordered by recency, so a conversation's
+ * placement is which section holds it, not where it sits inside one.
+ */
+export function batchSetConversationPlacement(
   updates: Array<{
     id: string;
-    displayOrder: number | null;
     isPinned?: boolean;
     groupId?: string | null;
   }>,
@@ -4245,7 +4242,7 @@ export function batchSetDisplayOrders(
           safeGroupId = UNGROUPED_GROUP_ID;
         } else if (
           !rawGet<{ id: string }>(
-            "conversation:batchSetDisplayOrders:groupCheck",
+            "conversation:batchSetConversationPlacement:groupCheck",
             "SELECT id FROM conversation_groups WHERE id = ?",
             safeGroupId,
           )
@@ -4279,13 +4276,8 @@ export function batchSetDisplayOrders(
           safeGroupId !== UNGROUPED_GROUP_ID &&
           (safeGroupId === PINNED_GROUP_ID ||
             !safeGroupId.startsWith("system:"));
-        const setClauses = [
-          "display_order = ?",
-          "is_pinned = ?",
-          "group_id = ?",
-        ];
+        const setClauses = ["is_pinned = ?", "group_id = ?"];
         const params: Array<string | number | null> = [
-          update.displayOrder,
           safeGroupId === PINNED_GROUP_ID ? 1 : 0,
           safeGroupId,
         ];
@@ -4300,31 +4292,22 @@ export function batchSetDisplayOrders(
         }
         params.push(update.id);
         rawRun(
-          "conversation:batchSetDisplayOrders:group",
+          "conversation:batchSetConversationPlacement:group",
           `UPDATE conversations SET ${setClauses.join(", ")} WHERE id = ?`,
           ...params,
         );
-      } else if (update.isPinned === undefined) {
-        // Only displayOrder provided — preserve existing pin state and group.
+      } else if (update.isPinned === true) {
         rawRun(
-          "conversation:batchSetDisplayOrders:orderOnly",
-          "UPDATE conversations SET display_order = ? WHERE id = ?",
-          update.displayOrder,
+          "conversation:batchSetConversationPlacement:pin",
+          "UPDATE conversations SET is_pinned = 1, group_id = 'system:pinned' WHERE id = ?",
           update.id,
         );
-      } else if (update.isPinned) {
-        rawRun(
-          "conversation:batchSetDisplayOrders:pin",
-          "UPDATE conversations SET display_order = ?, is_pinned = 1, group_id = 'system:pinned' WHERE id = ?",
-          update.displayOrder,
-          update.id,
-        );
-      } else {
+      } else if (update.isPinned === false) {
         // Restore system group from source/conversationType when unpinning,
         // instead of clearing to NULL (which would lose provenance).
         rawRun(
-          "conversation:batchSetDisplayOrders:unpin",
-          `UPDATE conversations SET display_order = ?, is_pinned = 0,
+          "conversation:batchSetConversationPlacement:unpin",
+          `UPDATE conversations SET is_pinned = 0,
            group_id = CASE WHEN group_id = 'system:pinned' THEN
              CASE
                WHEN source IN ('schedule', 'reminder') THEN 'system:scheduled'
@@ -4334,7 +4317,6 @@ export function batchSetDisplayOrders(
              END
            ELSE group_id END
            WHERE id = ?`,
-          update.displayOrder,
           update.id,
         );
       }

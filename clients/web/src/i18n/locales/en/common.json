@@ -1,0 +1,9 @@
+{
+  "notFound": {
+    "badge": "Error 404",
+    "title": "Page not found",
+    "body": "The page you're looking for doesn't exist or may have moved.",
+    "backToAssistant": "Back to your assistant",
+    "goBack": "Go back"
+  }
+}

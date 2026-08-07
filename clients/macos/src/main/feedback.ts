@@ -4,7 +4,7 @@ import fs from "node:fs/promises";
 import { z } from "zod";
 
 import { handle } from "./ipc";
-import { getVersionInfo } from "./about";
+import { getVersionInfo } from "./about.client";
 import { readSetting } from "./settings";
 import { getLogFilePaths } from "./logger";
 import { redactText, REDACTION_VERSION } from "./redact";

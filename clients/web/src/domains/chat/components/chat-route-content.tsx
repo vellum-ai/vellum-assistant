@@ -75,6 +75,7 @@ import { ChatBody } from "@/domains/chat/components/chat-body";
 import { ChatComposer } from "@/domains/chat/components/chat-composer/chat-composer";
 import { ChatRuleEditorModal } from "@/domains/chat/components/chat-rule-editor-modal";
 import { ComposerNotices } from "@/domains/chat/components/composer-notices";
+import { OrphanedHistoryNotice } from "@/domains/chat/components/orphaned-history-notice";
 import { ComposerSecretNotice } from "@/domains/chat/components/composer-secret-notice";
 import { ComposerSettingsMenu } from "@/domains/chat/components/composer-settings-menu";
 import { ContextWindowIndicator } from "@/domains/chat/components/context-window-indicator";
@@ -1144,6 +1145,23 @@ export function ChatMainPanel({
     onEditQueueTail: handleEditQueueTail,
   });
 
+  // A conversation whose branch parent was deleted renders its own messages
+  // and nothing before them. Composed into the banner slot rather than
+  // replacing it, and kept undefined when there is nothing to show, because
+  // `ChatBody` decides whether to render the banner container from whether
+  // this node exists.
+  const orphanedHistoryBanner =
+    activeConversation?.historyOrphaned === true ? (
+      <OrphanedHistoryNotice />
+    ) : null;
+  const mainBannerWithNotices =
+    orphanedHistoryBanner || mainBannerSlot ? (
+      <>
+        {orphanedHistoryBanner}
+        {mainBannerSlot}
+      </>
+    ) : undefined;
+
   // -------------------------------------------------------------------------
   // Billing composer banner
   // -------------------------------------------------------------------------
@@ -1382,7 +1400,7 @@ export function ChatMainPanel({
       onRetryRefresh={handleRetryRefreshFromPill}
       genericChatError={genericChatBanner}
       onDismissChatError={handleDismissChatError}
-      bannerSlot={isSidePanel ? undefined : mainBannerSlot}
+      bannerSlot={isSidePanel ? undefined : mainBannerWithNotices}
       queuedDrawerSlot={isSidePanel ? undefined : mainQueuedDrawerSlot}
       startersSlot={startersSlot}
       belowFoldSlot={belowFoldSlot}
