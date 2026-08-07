@@ -49,7 +49,6 @@ public final class VoiceModeService extends Service {
 
     static void clearStatus() {
         clearStatusValues();
-        refreshActiveNotification();
     }
 
     static void clearRecoveredNotification(Context context) {

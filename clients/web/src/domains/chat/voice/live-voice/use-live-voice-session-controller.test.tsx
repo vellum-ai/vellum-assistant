@@ -457,6 +457,35 @@ describe("native audio session", () => {
     expect(deactivateVoiceAudioSession).not.toHaveBeenCalled();
   });
 
+  test("Android preserves a pending background activation across reconnects", async () => {
+    onNativeAndroid = true;
+    let finishActivation: ((activated: boolean) => void) | undefined;
+    activateVoiceAudioSession.mockImplementation(
+      () =>
+        new Promise<boolean>((resolve) => {
+          finishActivation = resolve;
+        }),
+    );
+    renderPersistentController();
+
+    await act(async () => {
+      useLiveVoiceStore.getState().starter?.start("assistant-1", "conv-1");
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(activateVoiceAudioSession).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      useLiveVoiceStore.getState().setMicrophoneActive(false);
+      useLiveVoiceStore.getState().setState("connecting");
+      await Promise.resolve();
+      finishActivation?.(true);
+      await Promise.resolve();
+    });
+
+    expect(deactivateVoiceAudioSession).not.toHaveBeenCalled();
+  });
+
   test("Android caps denied focus retries per session", async () => {
     onNativeAndroid = true;
     const outcomes = [false, false, false, true];

@@ -429,6 +429,7 @@ public class MainActivity extends BridgeActivity {
 
         @Override
         public void onPageStarted(WebView view, String url, android.graphics.Bitmap favicon) {
+            VoiceAudioSessionPlugin.releaseForPageLoad(activity);
             activity.scheduleLaunchScreenFallback(LAUNCH_SCREEN_TIMEOUT_MS);
             mainFrameUrl = url;
             mainFrameFailed = false;
@@ -442,6 +443,15 @@ public class MainActivity extends BridgeActivity {
                 activity.finishPendingConnect(url);
                 activity.scheduleLaunchScreenFallback(LAUNCH_SCREEN_LOAD_FALLBACK_MS);
             }
+        }
+
+        @Override
+        public boolean onRenderProcessGone(
+            WebView view,
+            android.webkit.RenderProcessGoneDetail detail
+        ) {
+            VoiceAudioSessionPlugin.releaseForPageLoad(activity);
+            return super.onRenderProcessGone(view, detail);
         }
 
         @Override

@@ -218,6 +218,7 @@ clients/
     │       │   ├── VoiceAudioSessionPlugin.java
     │       │   ├── VoiceDeepLink.java
     │       │   ├── VoiceLiveActivityPlugin.java
+    │       │   ├── VoiceModeService.java
     │       │   ├── VoiceQuickSettingsTileService.java
     │       │   └── WorkOSAuth.java
     │       └── res/              # Vellum icon, splash, colors, file paths
