@@ -36,7 +36,7 @@ export function _resetGroupMigrationForTests(): void {
  * for the first time inside a Drizzle db.transaction() block — SQLite
  * does not support nested transactions. In practice this is safe because
  * the migration is triggered by early startup queries (listConversations,
- * batchSetDisplayOrders) before any transaction-wrapped paths run, and
+ * batchSetConversationPlacement) before any transaction-wrapped paths run, and
  * the `migrated` flag makes subsequent calls no-ops.
  */
 export function ensureGroupMigration(): void {

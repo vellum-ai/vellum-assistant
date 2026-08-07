@@ -8,19 +8,21 @@
  */
 import { describe, expect, mock, test } from "bun:test";
 
-import englishCatalog from "@/i18n/locales/en/common.json";
+import englishChat from "@/i18n/locales/en/chat.json";
+import englishCommon from "@/i18n/locales/en/common.json";
+
+const englishCatalogs = { common: englishCommon, chat: englishChat };
 
 const captureError = mock(
   (_error: unknown, _opts: Record<string, unknown>) => undefined,
 );
-const loadCatalog = mock(async (_locale: string) => englishCatalog);
+const loadCatalogs = mock(async (_locale: string) => englishCatalogs);
 
 mock.module("@/i18n/system-locale", () => ({ systemLocales: () => ["es"] }));
 mock.module("@/lib/sentry/capture-error", () => ({ captureError }));
 mock.module("@/i18n/catalogs", () => ({
-  DEFAULT_NAMESPACE: "common",
-  FALLBACK_CATALOG: englishCatalog,
-  loadCatalog,
+  FALLBACK_CATALOGS: englishCatalogs,
+  loadCatalogs,
 }));
 
 const { initI18n } = await import("@/i18n/i18n");
@@ -35,7 +37,7 @@ describe("initI18n when a catalog chunk is unreachable", () => {
     // `mockImplementationOnce` rather than `mockRejectedValueOnce`: the latter
     // builds the rejected promise when the mock is configured, which Bun sees
     // as an unhandled rejection before `initI18n` ever awaits it.
-    loadCatalog.mockImplementationOnce(async () => {
+    loadCatalogs.mockImplementationOnce(async () => {
       throw new Error("Failed to fetch dynamically imported module");
     });
 

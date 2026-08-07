@@ -23,6 +23,11 @@
 export type SttProviderId =
   | "openai-whisper"
   | "deepgram"
+  /**
+   * Deepgram's Flux conversational speech model. Shares the `deepgram`
+   * credential and is streaming-only: Flux has no batch endpoint.
+   */
+  | "deepgram-flux"
   | "google-gemini"
   | "xai"
   | "vellum";
@@ -245,6 +250,10 @@ export type SttStreamServerEvent =
   | SttStreamServerPartialEvent
   | SttStreamServerFinalEvent
   | SttStreamServerFinalizedEvent
+  | SttStreamServerTurnStartEvent
+  | SttStreamServerEagerTurnEndEvent
+  | SttStreamServerTurnResumedEvent
+  | SttStreamServerTurnEndEvent
   | SttStreamServerErrorEvent
   | SttStreamServerClosedEvent;
 
@@ -296,6 +305,80 @@ export interface SttStreamServerFinalEvent {
  */
 export interface SttStreamServerFinalizedEvent {
   readonly type: "finalized";
+}
+
+// ---------------------------------------------------------------------------
+// Turn-detection events
+//
+// Consumers that ignore these keep committing transcripts from `final`
+// exactly as they do without a turn-detecting provider.
+// ---------------------------------------------------------------------------
+
+/**
+ * The provider's turn model detected the start of a user turn.
+ *
+ * Emitted only by providers with model-integrated turn detection; providers
+ * without it never emit these.
+ */
+export interface SttStreamServerTurnStartEvent {
+  readonly type: "turn-start";
+  /**
+   * Provider's index for the turn being opened, monotonically increasing
+   * within a stream. Undefined when the provider does not number its turns.
+   */
+  readonly turnIndex?: number;
+}
+
+/**
+ * The provider's turn model speculates the user has finished, ahead of its
+ * committed end-of-turn decision. A {@link SttStreamServerTurnResumedEvent}
+ * retracts the speculation; a {@link SttStreamServerTurnEndEvent} confirms it.
+ *
+ * Emitted only by providers with model-integrated turn detection; providers
+ * without it never emit these.
+ */
+export interface SttStreamServerEagerTurnEndEvent {
+  readonly type: "eager-turn-end";
+  /** Transcript text as of the speculated turn end. */
+  readonly text: string;
+}
+
+/**
+ * The user kept speaking after an {@link SttStreamServerEagerTurnEndEvent},
+ * retracting the speculated turn end.
+ *
+ * Emitted only by providers with model-integrated turn detection; providers
+ * without it never emit these.
+ */
+export interface SttStreamServerTurnResumedEvent {
+  readonly type: "turn-resumed";
+}
+
+/**
+ * The provider's turn model committed an end of turn: the user has finished
+ * speaking and a reply can be dispatched.
+ *
+ * Emitted only by providers with model-integrated turn detection; providers
+ * without it never emit these.
+ */
+export interface SttStreamServerTurnEndEvent {
+  readonly type: "turn-end";
+  /** Committed transcript text for the completed turn. */
+  readonly text: string;
+  /**
+   * Provider-emitted end-of-turn confidence in [0, 1]. Undefined when the
+   * provider does not surface a score.
+   */
+  readonly confidence?: number;
+  /**
+   * Provider's index for the turn being closed, matching the
+   * {@link SttStreamServerTurnStartEvent} that opened it. A consumer can
+   * compare it against the newest turn it has seen opened to tell an
+   * end-of-turn for the turn still in progress from one the provider has
+   * already superseded. Undefined when the provider does not number its
+   * turns.
+   */
+  readonly turnIndex?: number;
 }
 
 /** An error occurred during streaming transcription. */

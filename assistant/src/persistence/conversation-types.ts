@@ -315,3 +315,14 @@ export function isReplyPushIneligibleUserMessage(
  */
 export const UNGROUPED_GROUP_ID = "system:all";
 export const PINNED_GROUP_ID = "system:pinned";
+
+/**
+ * The `origin_channel` value for a conversation started in Vellum itself
+ * rather than arriving from an external channel.
+ *
+ * Named because reads have to treat it as "vellum or not yet attributed":
+ * `origin_channel` is deliberately NULL at insert so an inbound message can
+ * claim the conversation for its own channel, and migration 288 settles the
+ * unclaimed ones to this value at daemon startup.
+ */
+export const NATIVE_ORIGIN_CHANNEL = "vellum";

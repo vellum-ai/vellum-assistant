@@ -90,6 +90,18 @@ Trust/guardian decisions must be keyed on `actorExternalId` only — never fall 
 
 Physical DB column names (`externalUserId`, `externalChatId`) are unchanged; the rename is at the API/type layer only.
 
+**Provider words that are not our words.** A Discord **guild** is what Discord's
+own UI calls a **server**; the word survives only in its API (`guild_id`, the
+`guilds` OAuth scope). Use it when naming what the API returns, and use
+"server" in anything a person reads: UI copy, setup instructions, error
+messages, notification text. The same rule covers any provider term its own
+product does not show users.
+
+`guild_id` also carries meaning past naming. Discord ingress reads its absence
+as "this is a DM" (`discord/admit.ts`), so a parse that collapses a malformed
+value to `undefined` would admit a public channel through the DM branch. Read
+the comments there before changing how the field is parsed.
+
 ## Module Organization
 
 Organize gateway code **by concern, not by technical layer** — group by what code _does_, not what it _is_. This mirrors the web client's rule (`clients/web/docs/CONVENTIONS.md` → "Organize by domain, not technical layer"), which is the fuller treatment of the shared principles; the gateway-specific shape:

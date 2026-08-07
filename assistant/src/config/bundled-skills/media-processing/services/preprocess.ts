@@ -19,6 +19,7 @@ import {
   updateProcessingStage,
 } from "../../../../persistence/media-store.js";
 import { resolveBatchTranscriber } from "../../../../providers/speech-to-text/resolve.js";
+import type { BatchTranscriber } from "../../../../stt/types.js";
 import { silentlyWithLog } from "../../../../util/silently.js";
 import {
   FFMPEG_PALETTE_TIMEOUT_MS,
@@ -459,10 +460,19 @@ export async function preprocessForAsset(
     const allFramePaths: string[] = [];
 
     // Resolve the STT transcriber once for all segments to avoid repeated
-    // credential lookups in the per-segment loop.
-    const transcriber = options.includeAudio
-      ? await resolveBatchTranscriber()
-      : null;
+    // credential lookups in the per-segment loop. A resolver failure degrades
+    // to transcript-less segments like an absent provider does, reporting the
+    // reason on the progress stream rather than killing the whole run.
+    let transcriber: BatchTranscriber | null = null;
+    if (options.includeAudio) {
+      try {
+        transcriber = await resolveBatchTranscriber();
+      } catch (err) {
+        onProgress?.(
+          `Audio transcription unavailable: ${(err as Error).message}\n`,
+        );
+      }
+    }
 
     const scaleFilter = `scale='if(gt(iw,ih),-1,${config.shortEdge})':'if(gt(iw,ih),${config.shortEdge},-1)'`;
 

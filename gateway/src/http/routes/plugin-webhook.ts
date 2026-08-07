@@ -17,7 +17,7 @@
  */
 
 import {
-  findServableRoute,
+  findDeclaredRoute,
   type PluginIngressResolution,
 } from "../../channels/plugin-ingress-approvals.js";
 import {
@@ -73,6 +73,19 @@ function signingCredentialKey(
 const METHODS_WITHOUT_BODY = new Set(["GET", "HEAD"]);
 
 /**
+ * The answer for a caller who has not proved who they are.
+ *
+ * Every refusal on a route that is declared but not servable returns exactly
+ * this, whatever went wrong: an oversized body, an unreadable one, a missing
+ * secret, a bad signature. Otherwise the differences between those answers
+ * would tell an unauthenticated prober that a route is declared and waiting,
+ * which is the one thing withholding it is for.
+ */
+function notFound(): Response {
+  return Response.json({ error: "Not Found" }, { status: 404 });
+}
+
+/**
  * Upstream path for a plugin route.
  *
  * The `/v1` prefix is load-bearing: the runtime 404s anything outside it
@@ -98,33 +111,45 @@ export interface PluginWebhookHandlerDeps {
 /**
  * Handle `/webhooks/plugins/:plugin/:path`.
  *
- * The requested path must equal a servable route's declared path, up to one
- * trailing slash. Matching is exact rather than prefix-based: a declaration
- * covers the paths it listed, so serving `<declared>/anything` would hand out
- * reach nobody granted. Exact matching also disposes of traversal, since no
- * `..` segment equals a declared path, and of percent-encoded spellings,
- * which fail closed rather than being decoded into a match.
+ * The requested path must equal a declared route's path, up to one trailing
+ * slash. Matching is exact rather than prefix-based: a declaration covers the
+ * paths it listed, so serving `<declared>/anything` would hand out reach
+ * nobody granted. Exact matching also disposes of traversal, since no `..`
+ * segment equals a declared path, and of percent-encoded spellings, which
+ * fail closed rather than being decoded into a match.
+ *
+ * The approval gate is consulted after the signature, not before. Both orders
+ * refuse the same requests; they differ only in what the caller is told, and
+ * the reason to withhold that is the prober, who cannot sign. A caller who can
+ * sign with this plugin's own secret is the party the route was declared for,
+ * was handed the URL by us, and gets told the route is waiting on approval
+ * rather than being sent to look for a URL that is already correct. Everyone
+ * else gets {@link notFound}, identically, whatever they got wrong.
+ *
+ * The cost is one HMAC on requests to a route that cannot be served, bounded
+ * by the same body cap as everything else here.
  */
 export function createPluginWebhookHandler(deps: PluginWebhookHandlerDeps) {
   const { config, resolve, credentials, fetchImpl } = deps;
 
   return async (req: Request, plugin: string, path: string) => {
-    let route: ReturnType<typeof findServableRoute>;
+    let match: ReturnType<typeof findDeclaredRoute>;
     try {
       // WebSocket routes are declared here but upgraded elsewhere; serving one
       // over plain HTTP would be a different thing than was declared.
-      route = findServableRoute(resolve(), plugin, path, "http");
+      match = findDeclaredRoute(resolve(), plugin, path, "http");
     } catch (err) {
       log.error({ err, plugin }, "Failed to resolve plugin ingress");
       return Response.json({ error: "Internal server error" }, { status: 500 });
     }
 
-    if (!route) {
+    if (!match) {
       // Deliberately quiet: this path is reachable by anyone on the internet,
       // so logging every miss at info would hand out a log-flooding lever.
-      log.debug({ plugin, path }, "No servable HTTP ingress route");
-      return Response.json({ error: "Not Found" }, { status: 404 });
+      log.debug({ plugin, path }, "No declared HTTP ingress route");
+      return notFound();
     }
+    const route = match.route;
 
     // Cap the body on the streamed bytes before anything forwards it. The
     // caller is unauthenticated and Content-Length is attacker-controlled
@@ -133,10 +158,14 @@ export function createPluginWebhookHandler(deps: PluginWebhookHandlerDeps) {
     const body = await readLimitedBodyBytes(req, config.maxWebhookPayloadBytes);
     if (body.status === "too_large") {
       log.warn({ plugin, path }, "Plugin webhook payload too large");
-      return Response.json({ error: "Payload Too Large" }, { status: 413 });
+      return match.servable
+        ? Response.json({ error: "Payload Too Large" }, { status: 413 })
+        : notFound();
     }
     if (body.status === "unreadable") {
-      return Response.json({ error: "Bad Request" }, { status: 400 });
+      return match.servable
+        ? Response.json({ error: "Bad Request" }, { status: 400 })
+        : notFound();
     }
 
     // Signature check before the forward, and fail-closed when no secret is
@@ -148,12 +177,14 @@ export function createPluginWebhookHandler(deps: PluginWebhookHandlerDeps) {
     if (!secret) {
       log.warn(
         { plugin, path, signer: route.signer, secretKey },
-        "Plugin webhook secret is not configured — rejecting request",
+        "Plugin webhook secret is not configured, rejecting request",
       );
-      return Response.json(
-        { error: "Webhook secret not configured" },
-        { status: 409 },
-      );
+      return match.servable
+        ? Response.json(
+            { error: "Webhook secret not configured" },
+            { status: 409 },
+          )
+        : notFound();
     }
 
     // Kept for the log line only. The retry inside verifySecretWithRefresh can
@@ -190,7 +221,31 @@ export function createPluginWebhookHandler(deps: PluginWebhookHandlerDeps) {
         },
         "Plugin webhook signature verification failed",
       );
-      return Response.json({ error: "Forbidden" }, { status: 403 });
+      return match.servable
+        ? Response.json({ error: "Forbidden" }, { status: 403 })
+        : notFound();
+    }
+
+    // Verified, and only now does the gate speak. The caller signed with this
+    // plugin's own secret, so they are the party the route was declared for and
+    // already know it exists; 404ing them here is the answer written for a
+    // prober, and it reads as "wrong URL", which sends whoever is debugging to
+    // the one thing that is not wrong.
+    if (!match.servable) {
+      log.info(
+        { plugin, path, signer: route.signer },
+        "Verified delivery to an ingress route awaiting guardian approval",
+      );
+      return Response.json(
+        {
+          error: "Ingress route awaiting approval",
+          detail:
+            `The route "${path}" is declared by the "${plugin}" plugin but a ` +
+            "guardian has not approved its ingress declaration yet, so the " +
+            "gateway is not serving it. Deliveries are refused, not queued.",
+        },
+        { status: 409 },
+      );
     }
 
     // Forward under the declared path, not the requested spelling: matching

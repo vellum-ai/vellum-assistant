@@ -76,7 +76,8 @@
  * moment it is taken and runs no turn, so shutter-then-speak and
  * speak-then-shutter behave the same and nothing races the sentence in
  * progress. See `voice-camera.ts` for the capture rules (video-only
- * `getUserMedia`, so the call's audio is never renegotiated) and
+ * native Capacitor preview with a browser-stream fallback, both video-only so
+ * the call's audio is never renegotiated) and
  * `use-voice-room-camera.ts` for the send path, which is the composer's own
  * attachment upload.
  *
@@ -165,6 +166,11 @@ import { VoiceAmbientTranscript } from "./voice-ambient-transcript";
 import { VoiceAvatar } from "./voice-avatar";
 import { VoiceMeshWaves } from "./voice-mesh-waves";
 import { VoiceRoomAmbientBackground } from "./voice-room-ambient-background";
+// Every circular icon control in the room is one of these: the corner
+// minimize, the two mutes, the camera toggle, flip camera and end session. See
+// that module for the toning, and for why the design library's `Button` is not
+// the element here.
+import { VoiceRoomControl } from "./voice-room-control";
 import {
   VoiceRespondingRings,
   VoiceRoomColorLook,
@@ -180,35 +186,6 @@ const AVATAR_SIZE = 220;
  * top-right exit and the bottom control row sit on the same rhythm.
  */
 const CORNER_GAP = "1.25rem";
-
-/**
- * Shared treatment for the room's top icon controls, toned to the active look
- * via the `--room-*` vars set on the root (white-on-dark for the void look,
- * tone-derived over an avatar color).
- */
-const ROOM_CONTROL_CLASS =
-  "flex size-12 items-center justify-center rounded-full text-[var(--room-fg-muted)] transition hover:bg-[var(--room-wash)] hover:text-[var(--room-fg)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--room-fg-muted)]";
-
-/** The centred row's circular session controls, same toning. */
-const SESSION_CONTROL_CLASS =
-  "flex size-12 items-center justify-center rounded-full border transition focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--room-fg-muted)]";
-const SESSION_CONTROL_NEUTRAL_CLASS =
-  "border-[var(--room-border)] text-[var(--room-fg-muted)] hover:bg-[var(--room-wash)] hover:text-[var(--room-fg)]";
-
-/**
- * The red treatment worn by a control that is doing something to the call: the
- * two mutes while engaged, and the end control always.
- *
- * Two variants because the room's background is the assistant's avatar color,
- * which can be a light one (yellow). A single red picked against the dark look
- * washes out over that; `isLight` swaps to the darker red the tone helper's
- * foreground colors are chosen against.
- */
-function destructiveControlClass(isLight: boolean | undefined): string {
-  return isLight
-    ? "border-red-700/50 bg-red-600/15 text-red-800 hover:bg-red-600/25"
-    : "border-red-400/50 bg-red-500/20 text-red-300 hover:bg-red-500/30";
-}
 
 /** Placement variant. See the module docstring. */
 export type VoiceRoomVariant = "fullscreen" | "content" | "sheet";
@@ -582,6 +559,7 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
   const body = (
     <motion.div
       ref={roomRef}
+      data-native-voice-camera-chrome
       className={cn(
         "z-50 flex items-center justify-center overflow-hidden",
         // z-50 orders the room's own box against the chat layout for the
@@ -645,7 +623,7 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
           the room reads identically for a custom avatar bar the full-screen
           color + eyes. Both draw the waves only while `listening`, from live mic
           amplitude. */}
-      {look ? (
+      {!camera.native && look ? (
         // Held back until the box is measured. That is one pre-paint commit, so the
         // entrance still plays from the room's first painted frame, but it
         // grows inside a real rectangle rather than a zero-sized one.
@@ -666,7 +644,7 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
             viewport={box}
           />
         ) : null
-      ) : (
+      ) : !camera.native ? (
         <>
           <VoiceRoomAmbientBackground />
           {visual === "listening" ? (
@@ -696,15 +674,13 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
             <VoiceStateCaption visual={visual} />
           ) : null}
         </>
-      )}
+      ) : null}
 
-      {/* The viewfinder, when the camera is open.
+      {/* The browser-fallback viewfinder, when the camera is open.
 
-          Full-bleed over the look rather than beside it: the room is one
-          surface at a time, and a camera squeezed into a corner of the avatar
-          would be too small to aim. The look keeps rendering underneath, so
-          closing the camera reveals it already in the right state rather than
-          replaying its entrance.
+          Capacitor mobile shells render their native camera preview behind the
+          transparent web view and need no media element. Browsers and older
+          shells render this full-bleed `<video>` over the look instead.
 
           `z-[2]` puts it above every layer of both looks (the color field and
           the void avatar sit at `z-0`, the giant eyes and the state caption at
@@ -719,11 +695,10 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
           selfie viewfinder on the platform; the rear one is not, because it
           shows the world and a mirrored world is unusable for aiming.
 
-          Muted + playsInline + autoPlay is the combination WebKit requires to
-          play an inline stream without a user gesture per frame; `aria-hidden`
-          because a live camera feed has nothing to announce and the controls
-          below carry the accessible names. */}
-      {cameraOpen ? (
+          Muted + playsInline + autoPlay lets the fallback stream start inline;
+          `aria-hidden` because a live camera feed has nothing to announce and
+          the controls below carry the accessible names. */}
+      {cameraOpen && !camera.native ? (
         <video
           ref={viewfinderRef}
           data-testid="voice-room-viewfinder"
@@ -820,23 +795,22 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
         }}
         className="absolute z-10 flex items-center gap-1"
       >
-        <Tooltip content="Minimize (session keeps going)">
-          <button
-            type="button"
-            onClick={minimizeVoiceRoom}
-            aria-label="Minimize voice room"
-            className={ROOM_CONTROL_CLASS}
-          >
-            <ChevronDown className="size-5" />
-          </button>
-        </Tooltip>
+        <VoiceRoomControl
+          label="Minimize voice room"
+          tooltip="Minimize (session keeps going)"
+          onClick={minimizeVoiceRoom}
+          bare
+          overMedia={cameraOpen}
+        >
+          <ChevronDown className="size-5" />
+        </VoiceRoomControl>
       </div>
 
       {/* Void look: the avatar springs to center once on entry (the wrapper
           owns the one-time entry spring); per-state expression is the avatar's
           own CSS loop, which cross-fades in place without re-popping. The
           color look has no centered figure — the bottom eyes are the cast. */}
-      {!look ? (
+      {!camera.native && !look ? (
         <motion.div
           className="relative z-0"
           {...voidAvatarMotion(choreography.entrance)}
@@ -931,7 +905,16 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
           {errorMessage ? (
             <p
               role="status"
-              className="rounded-full bg-[var(--room-wash)] px-3 py-1 text-xs text-[var(--room-fg)]"
+              className={cn(
+                "rounded-full px-3 py-1 text-xs",
+                // Same reason the controls get a scrim: a failed send reported
+                // in tone-derived text over the feed is a message nobody can
+                // read. Camera-closed (a denied permission, the case where the
+                // viewfinder never came up) keeps the room's own treatment.
+                cameraOpen
+                  ? "bg-black/45 text-white backdrop-blur-sm"
+                  : "bg-[var(--room-wash)] text-[var(--room-fg)]",
+              )}
             >
               {errorMessage}
             </p>
@@ -999,36 +982,41 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
                   data-testid="voice-room-shutter"
                   className={cn(
                     "flex size-16 items-center justify-center rounded-full border-4 transition",
-                    "border-[var(--room-fg)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--room-fg-muted)]",
+                    // The one control with no camera-open branch: the shutter
+                    // exists only while the viewfinder does, so video is the
+                    // only thing it is ever seen against, and a tone-derived
+                    // color describes a background the feed has covered.
+                    //
+                    // White alone is not enough either, because the frame can
+                    // be any brightness: a white ring on a white wall is as
+                    // invisible as a dark one on a dark shirt. The white sits
+                    // on a dark fill and a dark outer hairline, so one edge or
+                    // the other separates it from the video at both extremes.
+                    "border-white bg-black/30 shadow-[0_0_0_1.5px_rgba(0,0,0,0.4)]",
+                    "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white",
                     // The inner disc shrinks while the photo uploads: the
                     // shutter's own press animation doubling as the progress
                     // signal, so nothing else has to appear over the viewfinder.
-                    sending ? "opacity-60" : "hover:bg-[var(--room-wash)]",
+                    sending ? "opacity-60" : "hover:bg-black/45",
                   )}
                 >
                   <span
                     className={cn(
-                      "rounded-full bg-[var(--room-fg)] transition-all",
+                      "rounded-full bg-white transition-all",
                       sending ? "size-6" : "size-11",
                     )}
                   />
                 </button>
               </Tooltip>
 
-              <Tooltip content="Flip camera">
-                <button
-                  type="button"
-                  onClick={() => void camera.flipCamera()}
-                  aria-label="Flip camera"
-                  className={cn(
-                    "absolute right-8",
-                    SESSION_CONTROL_CLASS,
-                    SESSION_CONTROL_NEUTRAL_CLASS,
-                  )}
-                >
-                  <SwitchCamera className="size-5" />
-                </button>
-              </Tooltip>
+              <VoiceRoomControl
+                label="Flip camera"
+                onClick={() => void camera.flipCamera()}
+                overMedia={cameraOpen}
+                className="absolute right-8"
+              >
+                <SwitchCamera className="size-5" />
+              </VoiceRoomControl>
             </div>
           ) : null}
         </div>
@@ -1041,43 +1029,31 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
         // home-indicator inset is real here in a way the top inset was not.
         style={{ bottom: `max(${CORNER_GAP}, ${SAFE_AREA_BOTTOM})` }}
       >
-        <Tooltip content={muted ? "Unmute microphone" : "Mute microphone"}>
-          <button
-            type="button"
-            onClick={() => setLiveVoiceMuted(!muted)}
-            aria-label={muted ? "Unmute microphone" : "Mute microphone"}
-            aria-pressed={muted}
-            className={cn(
-              SESSION_CONTROL_CLASS,
-              muted
-                ? destructiveControlClass(tone?.isLight)
-                : SESSION_CONTROL_NEUTRAL_CLASS,
-            )}
-          >
-            {muted ? <MicOff className="size-5" /> : <Mic className="size-5" />}
-          </button>
-        </Tooltip>
+        <VoiceRoomControl
+          label={muted ? "Unmute microphone" : "Mute microphone"}
+          onClick={() => setLiveVoiceMuted(!muted)}
+          pressed={muted}
+          tone={muted ? "destructive" : "neutral"}
+          isLight={tone?.isLight}
+          overMedia={cameraOpen}
+        >
+          {muted ? <MicOff className="size-5" /> : <Mic className="size-5" />}
+        </VoiceRoomControl>
 
-        <Tooltip content={outputMuted ? "Unmute assistant" : "Mute assistant"}>
-          <button
-            type="button"
-            onClick={() => setLiveVoiceOutputMuted(!outputMuted)}
-            aria-label={outputMuted ? "Unmute assistant" : "Mute assistant"}
-            aria-pressed={outputMuted}
-            className={cn(
-              SESSION_CONTROL_CLASS,
-              outputMuted
-                ? destructiveControlClass(tone?.isLight)
-                : SESSION_CONTROL_NEUTRAL_CLASS,
-            )}
-          >
-            {outputMuted ? (
-              <VolumeX className="size-5" />
-            ) : (
-              <Volume2 className="size-5" />
-            )}
-          </button>
-        </Tooltip>
+        <VoiceRoomControl
+          label={outputMuted ? "Unmute assistant" : "Mute assistant"}
+          onClick={() => setLiveVoiceOutputMuted(!outputMuted)}
+          pressed={outputMuted}
+          tone={outputMuted ? "destructive" : "neutral"}
+          isLight={tone?.isLight}
+          overMedia={cameraOpen}
+        >
+          {outputMuted ? (
+            <VolumeX className="size-5" />
+          ) : (
+            <Volume2 className="size-5" />
+          )}
+        </VoiceRoomControl>
 
         {/* Show the assistant what you're looking at.
 
@@ -1100,40 +1076,31 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
             to be undismissable to stay compliant, which for a control this
             self-evident would be worse than nothing. */}
         {cameraSupported ? (
-          <Tooltip content={cameraOpen ? "Close camera" : "Show the camera"}>
-            <button
-              type="button"
-              onClick={() => (cameraOpen ? close() : void open())}
-              aria-label={cameraOpen ? "Close camera" : "Show the camera"}
-              aria-pressed={cameraOpen}
-              data-testid="voice-room-camera-toggle"
-              className={cn(
-                SESSION_CONTROL_CLASS,
-                SESSION_CONTROL_NEUTRAL_CLASS,
-              )}
-            >
-              {cameraOpen ? (
-                <CameraOff className="size-5" />
-              ) : (
-                <Camera className="size-5" />
-              )}
-            </button>
-          </Tooltip>
+          <VoiceRoomControl
+            label={cameraOpen ? "Close camera" : "Show the camera"}
+            onClick={() => (cameraOpen ? close() : void open())}
+            pressed={cameraOpen}
+            overMedia={cameraOpen}
+            data-testid="voice-room-camera-toggle"
+          >
+            {cameraOpen ? (
+              <CameraOff className="size-5" />
+            ) : (
+              <Camera className="size-5" />
+            )}
+          </VoiceRoomControl>
         ) : null}
 
-        <Tooltip content="End session">
-          <button
-            type="button"
-            onClick={endLiveVoiceSession}
-            aria-label="End voice session"
-            className={cn(
-              SESSION_CONTROL_CLASS,
-              destructiveControlClass(tone?.isLight),
-            )}
-          >
-            <X className="size-5" strokeWidth={2.5} />
-          </button>
-        </Tooltip>
+        <VoiceRoomControl
+          label="End voice session"
+          tooltip="End session"
+          onClick={endLiveVoiceSession}
+          tone="destructive"
+          isLight={tone?.isLight}
+          overMedia={cameraOpen}
+        >
+          <X className="size-5" strokeWidth={2.5} />
+        </VoiceRoomControl>
       </div>
 
       {/* Screen readers get session-state changes here; the avatar is the

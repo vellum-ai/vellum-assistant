@@ -104,8 +104,9 @@ interface SttProviderEntry {
    *
    * - `"manual"`: the provider accepts an explicit language parameter and
    *   defaults to English when omitted; a language picker is meaningful.
-   * - `"auto"`: the provider detects language natively and accepts no
-   *   language parameter; a picker would be a no-op, so clients must hide it.
+   * - `"auto"`: the provider takes no language parameter, either because it
+   *   detects the language natively or because its model is monolingual; a
+   *   picker would be a no-op, so clients must hide it.
    */
   readonly languageSelection: "manual" | "auto";
 
@@ -116,6 +117,17 @@ interface SttProviderEntry {
 // ---------------------------------------------------------------------------
 // Catalog data
 // ---------------------------------------------------------------------------
+
+/**
+ * Shared by every provider that authenticates against a Deepgram account.
+ * The key is the same one, so the instructions must not drift apart.
+ */
+const DEEPGRAM_CREDENTIALS_GUIDE: SttCredentialsGuide = {
+  description:
+    "Sign in to the Deepgram console, navigate to API Keys, and create a new key.",
+  url: "https://console.deepgram.com/",
+  linkLabel: "Open Deepgram Console",
+};
 
 /**
  * Provider catalog entries, keyed by provider ID.
@@ -148,12 +160,35 @@ const CATALOG: ReadonlyMap<SttProviderId, SttProviderEntry> = new Map<
       conversationStreamingMode: "realtime-ws",
       supportsDiarization: true,
       languageSelection: "manual",
-      credentialsGuide: {
-        description:
-          "Sign in to the Deepgram console, navigate to API Keys, and create a new key.",
-        url: "https://console.deepgram.com/",
-        linkLabel: "Open Deepgram Console",
-      },
+      credentialsGuide: DEEPGRAM_CREDENTIALS_GUIDE,
+    },
+  ],
+  [
+    "deepgram-flux",
+    {
+      id: "deepgram-flux",
+      displayName: "Deepgram Flux",
+      subtitle:
+        "Conversational speech-to-text with model-native turn detection. Uses your Deepgram API key.",
+      setupMode: "api-key",
+      setupHint:
+        "Enter your Deepgram API key. Flux shares the same key as Deepgram.",
+      // Shared with the `deepgram` provider: Flux is a model on the same
+      // account, not a separate credential.
+      credentialProvider: "deepgram",
+      // Streaming only: Flux has no batch endpoint.
+      supportedBoundaries: new Set<SttBoundaryId>(["daemon-streaming"]),
+      // Telephony is out of scope for the spike. Nothing reroutes a call to
+      // another provider, so a Flux-configured assistant does not transcribe
+      // calls at all.
+      telephonyMode: "none",
+      conversationStreamingMode: "realtime-ws",
+      supportsDiarization: false,
+      // "no picker", not native detection: the Flux model is English-only and
+      // takes no language parameter, so audio in another language transcribes
+      // as English rather than being detected.
+      languageSelection: "auto",
+      credentialsGuide: DEEPGRAM_CREDENTIALS_GUIDE,
     },
   ],
   [
@@ -302,6 +337,32 @@ export function supportsBoundary(
   boundary: SttBoundaryId,
 ): boolean {
   return CATALOG.get(id)?.supportedBoundaries.has(boundary) ?? false;
+}
+
+/**
+ * Message explaining why a provider cannot serve the `daemon-batch` boundary.
+ *
+ * Streaming-only providers are selected through the same
+ * `services.stt.provider` key as batch-capable ones, so a batch caller that
+ * reports only "nothing is configured" points the operator at the wrong
+ * problem. This names the provider and, where one exists, the batch-capable
+ * provider on the same credential, so acting on it needs no catalog reading.
+ */
+export function batchBoundaryGapReason(id: SttProviderId): string {
+  const entry = CATALOG.get(id);
+  const label = entry?.displayName ?? id;
+  const alternative = entry
+    ? [...CATALOG.values()].find(
+        (candidate) =>
+          candidate.id !== entry.id &&
+          candidate.credentialProvider === entry.credentialProvider &&
+          candidate.supportedBoundaries.has("daemon-batch"),
+      )
+    : undefined;
+  const remedy = alternative
+    ? `Batch transcription requires the ${alternative.id} provider: set services.stt.provider to "${alternative.id}".`
+    : "Set services.stt.provider to a provider that supports batch transcription.";
+  return `${label} is streaming-only. ${remedy}`;
 }
 
 /**

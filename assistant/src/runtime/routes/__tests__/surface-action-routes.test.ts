@@ -59,6 +59,8 @@ let mockReResolve: { trustClass: string; sourceChannel: string } | null = null;
 mock.module("../../../contacts/guardian-delivery-reader.js", () => ({
   getGuardianDelivery: (_input?: { channelTypes?: string[] }) =>
     Promise.resolve(mockGuardianList),
+  getGuardianDeliveryFresh: (_input?: { channelTypes?: string[] }) =>
+    Promise.resolve(mockGuardianList),
   peekCachedGuardianDelivery: () => mockGuardianList ?? undefined,
   guardianForChannel: (
     list: Array<Record<string, unknown>>,

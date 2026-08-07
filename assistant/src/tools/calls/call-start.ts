@@ -48,11 +48,14 @@ export async function executeCallStart(
 
   const requestedPhone = normalizePhoneNumber(parsed.phone_number);
   if (requestedPhone) {
-    const activeVoiceVerification = await findActiveSession("phone");
-    const verificationDestination =
-      activeVoiceVerification?.destinationAddress ??
-      activeVoiceVerification?.expectedPhoneE164;
-    if (verificationDestination === requestedPhone) {
+    // Scoped to the number being called. Voice sessions bind
+    // `expectedExternalUserId` to the E.164 number, and several can be live
+    // at once, so reading the latest and comparing would miss a verification
+    // for this number whenever another one started more recently.
+    const activeVoiceVerification = await findActiveSession("phone", {
+      expectedExternalUserId: requestedPhone,
+    });
+    if (activeVoiceVerification) {
       return {
         content: [
           "Error: A guardian voice verification call is already active for this number.",
