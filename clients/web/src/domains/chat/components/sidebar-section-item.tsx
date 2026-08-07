@@ -4,20 +4,18 @@
  * This is the single render path for Pinned, Chats, every origin-channel
  * section, and every custom group - which is what keeps their spacing and
  * header treatment identical and lets the user interleave them freely
- * (LUM-2909). Only two things vary by type, and they're both here:
+ * (LUM-2909).
  *
- * - **Whether the header carries a "…" button.** The curated sections (Pinned
- *   and the custom groups) get one, so their actions are reachable without
- *   knowing to right-click. It reveals on hover; the derived sections (Chats,
- *   the channel sections) keep their actions behind the header menu. Chats
- *   nests inside the persistent "Conversations" header in Grouped view (see
- *   `assistant-side-menu.tsx`), which owns the one visible "…" button.
+ * Nothing about the *shell* varies by type. Every section gets the same card,
+ * the same header, the same hover "…", and the same drag wiring, all resolved
+ * before they reach here. What varies is only what goes *in* the menu, and that
+ * is `sectionMenu`'s answer in `assistant-side-menu.tsx`, not this component's:
+ * a custom group adds rename/delete/copy-id, Chats and the channel sections add
+ * the channel-grouping toggle.
  *
- * Everything else - the icon, the collapse behavior, the header menu, and
- * the section drag wiring - is uniform, and comes in already resolved. The
- * row list is the other near-exception: every section caps and scrolls
- * within itself except Pinned, which grows to fit its own rows instead
- * (see `unbounded` on `ConversationRowList`).
+ * The row list is the one real exception: every section caps and scrolls within
+ * itself except Pinned, which grows to fit its own rows instead (see
+ * `unbounded` on `ConversationRowList`).
  */
 
 import type { ReactNode } from "react";
@@ -61,9 +59,8 @@ export function SidebarSectionItem({
 
   /* Every section handed to this component renders. Whether a section exists
      at all is `use-sidebar-state`'s answer, and it has to stay the only one:
-     `curatedSectionCount` and the move-up/move-down nudges count entries in
-     that list, so a section that is present but returns `null` here draws the
-     curated rule over nothing and offers a move that swaps with something
+     the move-up/move-down nudges count entries in that list, so a section that
+     is present but returns `null` here offers a move that swaps with something
      off screen.
 
      One predicate for membership and visibility, or the two drift and this

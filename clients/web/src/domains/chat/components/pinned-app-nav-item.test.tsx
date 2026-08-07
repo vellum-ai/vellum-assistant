@@ -156,9 +156,15 @@ describe("PinnedAppNavItem", () => {
      active state is the one assistive tech reads, and it is what the pill's
      own active styling is keyed off (`aria-[current=page]:` classes), so
      asserting it covers both. Both states, because an attribute that is always
-     set marks every row as the current one. */
+     set marks every row as the current one.
+
+     `onOpen` is supplied because the pill only takes button semantics when it
+     has a handler, and the sidebar always gives it one. Without it this would
+     assert the marker on a shape the sidebar never renders. */
   test("marks the row as the current page only while active", () => {
-    render(<PinnedAppNavItem app={APP} active collapsed={false} />);
+    const props = { app: APP, collapsed: false, onOpen: () => {} };
+
+    render(<PinnedAppNavItem {...props} active />);
     expect(
       screen
         .getByRole("button", { name: "My App" })
@@ -166,7 +172,7 @@ describe("PinnedAppNavItem", () => {
     ).toBe("page");
 
     cleanup();
-    render(<PinnedAppNavItem app={APP} active={false} collapsed={false} />);
+    render(<PinnedAppNavItem {...props} active={false} />);
     expect(
       screen
         .getByRole("button", { name: "My App" })

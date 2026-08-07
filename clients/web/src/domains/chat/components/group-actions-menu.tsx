@@ -9,9 +9,10 @@
  *   for the desktop right-click menu on a section header.
  * - {@link renderGroupMenuItemsAsPanelItems} — the same item set flattened
  *   into `PanelItem` rows for the popover and the mobile bottom sheet.
- * - {@link GroupActionsMenu} — the trailing "…" button on custom-group
- *   headers, which renders the PanelItem set in a Popover (desktop) or a
- *   BottomSheet (mobile).
+ * - {@link GroupActionsMenu} — the trailing "…" button on a section header,
+ *   which renders the PanelItem set in a Popover (desktop) or a BottomSheet
+ *   (mobile). Every section carries one, so a section's actions never depend
+ *   on the user knowing to right-click.
  *
  * `conversation-actions-menu.tsx` splits the per-conversation menu the same
  * way; the `PanelItem` row primitives both use live in `panel-menu-item.tsx`.
@@ -314,30 +315,22 @@ export function renderGroupMenuItemsAsPanelItems({
 }
 
 // ---------------------------------------------------------------------------
-// GroupActionsMenu — the trailing "…" button on a custom group header
+// GroupActionsMenu — the trailing "…" button on a section header
 // ---------------------------------------------------------------------------
 
 export interface GroupActionsMenuProps extends GroupMenuItemsProps {
   /** Group name, used for the trigger's accessible label. */
   label: string;
-  /**
-   * Extra content appended below the shared items, its own divider before it
-   * (only when the shared items are non-empty). Currently used only by the
-   * "Conversations" header, for the List/Groups view-mode toggle: a section
-   * property rather than a bulk action, so it doesn't belong in
-   * {@link GroupMenuItemsProps}.
-   */
-  footer?: ReactNode;
 }
 
 /**
- * Trailing "…" affordance on a custom-group header. Renders the shared group
- * menu items, so this menu and the header's right-click menu always offer the
- * same actions.
+ * Trailing "…" affordance on a section header. Renders the shared group menu
+ * items, so this menu, the header's right-click menu and the mobile long-press
+ * sheet always offer the same actions - the reachability the sidebar's grouping
+ * toggle depends on (LUM-3120).
  */
 export function GroupActionsMenu({
   label,
-  footer,
   ...menuProps
 }: GroupActionsMenuProps) {
   const [open, setOpen] = useState(false);
@@ -345,21 +338,14 @@ export function GroupActionsMenu({
   const closeMenu = () => setOpen(false);
   const hasItems = hasAnyGroupMenuAction(menuProps);
 
-  if (!hasItems && !footer) {
+  if (!hasItems) {
     return null;
   }
 
-  const items = (
-    <>
-      {renderGroupMenuItemsAsPanelItems({ ...menuProps, onClose: closeMenu })}
-      {footer ? (
-        <>
-          {hasItems ? <PanelMenuDivider /> : null}
-          {footer}
-        </>
-      ) : null}
-    </>
-  );
+  const items = renderGroupMenuItemsAsPanelItems({
+    ...menuProps,
+    onClose: closeMenu,
+  });
 
   const trigger = <SectionActionsButton label={label} />;
 
@@ -386,20 +372,6 @@ export function GroupActionsMenu({
         sideOffset={4}
         className="w-48 rounded-lg py-2 px-0"
         onClick={(event) => event.stopPropagation()}
-        // The footer's "Group by" Select portals its menu outside this
-        // popover and moves focus into it; a non-modal popover reads that
-        // as focus leaving and would dismiss, unmounting the select
-        // mid-interaction. Scoped to the select portal so tabbing to any
-        // other control still dismisses normally, as do outside clicks.
-        onFocusOutside={(event) => {
-          const target = event.detail.originalEvent.target;
-          if (
-            target instanceof Element &&
-            target.closest('[data-slot="select-menu"]')
-          ) {
-            event.preventDefault();
-          }
-        }}
       >
         <div className="px-2">{items}</div>
       </Popover.Content>

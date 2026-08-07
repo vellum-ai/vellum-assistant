@@ -13,10 +13,7 @@
 
 import type { Meta, StoryObj } from "@storybook/react-vite";
 
-import { cn } from "@vellumai/design-library";
-
 import { CollapsibleNavSection } from "@/components/collapsible-nav-section";
-import { SIDEBAR_SECTION_TITLE_TEXT_CLASSES } from "@/components/sidebar-nav-geometry";
 import { GroupIndicatorDot } from "@/domains/chat/components/collapsed-group-icon";
 import { ConversationListProvider } from "@/domains/chat/components/conversation-list-context";
 import {
@@ -24,7 +21,6 @@ import {
   type GroupMenuItemsProps,
 } from "@/domains/chat/components/group-actions-menu";
 import { SidebarSectionCard } from "@/domains/chat/components/sidebar-section-card";
-import { SidebarViewModeSelect } from "@/domains/chat/components/sidebar-view-mode-select";
 import type { Conversation } from "@/types/conversation-types";
 
 function conversation(
@@ -75,32 +71,44 @@ const LIST_CONTEXT: React.ComponentProps<
  *
  * These are section actions. A row's actions (pin, archive, move to group,
  * inspect) live on `ConversationRow` and are a different set entirely.
+ *
+ * Three shapes, because the sidebar wires three (`sectionMenu` in
+ * `assistant-side-menu.tsx`). Every section gets the bulk actions and the
+ * reorder nudges; what varies is the one thing a section owns on top of them,
+ * and no section owns two. One fixture shared across all three is how this file
+ * came to offer Chats a Rename it cannot have.
  */
-const GROUP_MENU: GroupMenuItemsProps = {
+const BULK_AND_REORDER: GroupMenuItemsProps = {
   onMarkAllRead: () => {},
   hasUnreadConversations: true,
   onArchiveAll: () => {},
   hasConversations: true,
-  onRename: () => {},
-  onDelete: () => {},
-  onCopyGroupId: () => {},
   onMoveDown: () => {},
 };
 
+/** Pinned owns nothing extra: it is never renamed, and the switch skips it. */
+const PINNED_MENU: GroupMenuItemsProps = BULK_AND_REORDER;
+
+/** A custom group is the only section a user may rename or delete. */
+const CUSTOM_GROUP_MENU: GroupMenuItemsProps = {
+  ...BULK_AND_REORDER,
+  onRename: () => {},
+  onDelete: () => {},
+  onCopyGroupId: () => {},
+};
+
 /**
- * The Chats card additionally carries the view-mode toggle. It is a property
- * of the section rather than a bulk action, so it rides in the menu's footer
- * slot, which is where the deleted sidebar-wide "Conversations" header used
- * to keep it.
+ * Chats and the channel sections carry the channel-grouping toggle, since they
+ * are what the switch reshapes. An item in the menu, labelled for the view it
+ * leaves for ("Group by channel" here, "Ungroup" once grouped) - this is where
+ * the deleted sidebar-wide "Conversations" header's dropdown went, and it is a
+ * menu item now rather than a Select in a footer slot.
  */
-const GROUP_BY_FOOTER = (
-  <div className="px-2 pb-1">
-    <div className={cn("mt-3 mb-2", SIDEBAR_SECTION_TITLE_TEXT_CLASSES)}>
-      Group by
-    </div>
-    <SidebarViewModeSelect value="all" onChange={() => {}} />
-  </div>
-);
+const CHATS_MENU: GroupMenuItemsProps = {
+  ...BULK_AND_REORDER,
+  onToggleGroupByChannel: () => {},
+  isGroupedByChannel: false,
+};
 
 const meta = {
   title: "Chat/SidebarSectionCard",
@@ -153,8 +161,8 @@ export const Pinned: Story = {
     label: "Pinned",
     items: PINNED,
     unbounded: true,
-    groupMenu: GROUP_MENU,
-    trailing: <GroupActionsMenu label="Pinned" {...GROUP_MENU} />,
+    groupMenu: PINNED_MENU,
+    trailing: <GroupActionsMenu label="Pinned" {...PINNED_MENU} />,
   },
   render: (args) => (
     <CollapsibleNavSection.Root type="multiple" defaultValue={["pinned"]}>
@@ -179,8 +187,8 @@ export const CollapsedGroup: Story = {
     label: "Car Chat",
     items: [],
     collapsedIndicator: <GroupIndicatorDot state="unread" />,
-    groupMenu: GROUP_MENU,
-    trailing: <GroupActionsMenu label="Car Chat" {...GROUP_MENU} />,
+    groupMenu: CUSTOM_GROUP_MENU,
+    trailing: <GroupActionsMenu label="Car Chat" {...CUSTOM_GROUP_MENU} />,
   },
   render: (args) => (
     <CollapsibleNavSection.Root type="multiple" defaultValue={[]}>
@@ -207,11 +215,13 @@ export const Chats: Story = {
 /**
  * The two menus, which are not the same menu.
  *
- * The header's actions are the section's: mark all read, archive all,
- * rename, delete, reorder, plus the Group by toggle this card owns now that
- * the sidebar-wide "Conversations" header is gone. They are reachable from
- * the hover "…", from right-clicking the header, and from a long-press on
- * touch, all rendered from one `groupMenu`.
+ * The header's actions are the section's. This is the Chats card, so: mark all
+ * read, archive all, reorder, plus the channel-grouping toggle it owns now that
+ * the sidebar-wide "Conversations" header is gone. No rename or delete - those
+ * belong to a custom group, and the Chats list is not one (see `CollapsedGroup`
+ * for the menu that has them). They are reachable from the hover "…", from
+ * right-clicking the header, and from a long-press on touch, all rendered from
+ * one `groupMenu`.
  *
  * A row's actions are its own (pin, archive, move to group, inspect) and
  * come from `ConversationRow`. Right-click a row here to see the difference.
@@ -221,14 +231,8 @@ export const SectionMenuVersusRowMenu: Story = {
     value: "chats",
     label: "Chats",
     items: CHATS.slice(0, 4),
-    groupMenu: GROUP_MENU,
-    trailing: (
-      <GroupActionsMenu
-        label="Chats"
-        footer={GROUP_BY_FOOTER}
-        {...GROUP_MENU}
-      />
-    ),
+    groupMenu: CHATS_MENU,
+    trailing: <GroupActionsMenu label="Chats" {...CHATS_MENU} />,
   },
   render: (args) => (
     <CollapsibleNavSection.Root type="multiple" defaultValue={["chats"]}>
@@ -250,29 +254,23 @@ export const Composed: Story = {
         label="Pinned"
         items={PINNED}
         unbounded
-        groupMenu={GROUP_MENU}
-        trailing={<GroupActionsMenu label="Pinned" {...GROUP_MENU} />}
+        groupMenu={PINNED_MENU}
+        trailing={<GroupActionsMenu label="Pinned" {...PINNED_MENU} />}
       />
       <SidebarSectionCard
         value="car-chat"
         label="Car Chat"
         items={[]}
         collapsedIndicator={<GroupIndicatorDot state="unread" />}
-        groupMenu={GROUP_MENU}
-        trailing={<GroupActionsMenu label="Car Chat" {...GROUP_MENU} />}
+        groupMenu={CUSTOM_GROUP_MENU}
+        trailing={<GroupActionsMenu label="Car Chat" {...CUSTOM_GROUP_MENU} />}
       />
       <SidebarSectionCard
         value="chats"
         label="Chats"
         items={CHATS}
-        groupMenu={GROUP_MENU}
-        trailing={
-          <GroupActionsMenu
-            label="Chats"
-            footer={GROUP_BY_FOOTER}
-            {...GROUP_MENU}
-          />
-        }
+        groupMenu={CHATS_MENU}
+        trailing={<GroupActionsMenu label="Chats" {...CHATS_MENU} />}
       />
     </CollapsibleNavSection.Root>
   ),

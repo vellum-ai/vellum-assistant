@@ -369,8 +369,8 @@ export function useSidebarState({
   );
 
   // The order `key` would land in after a nudge, or null when the nudge
-  // changes nothing - either end of the list, or a move across the tier
-  // boundary that the curated-lead rule pushes straight back.
+  // changes nothing, which now means only one thing: `key` is already at
+  // that end of the list. Sections reorder freely otherwise.
   const orderAfterMove = useCallback(
     (key: string, delta: -1 | 1): string[] | null => {
       const current = sections.map((s) => s.key);
