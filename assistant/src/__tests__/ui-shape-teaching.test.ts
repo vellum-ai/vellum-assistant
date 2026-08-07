@@ -364,4 +364,20 @@ describe("uiShowTeachingError", () => {
     );
     expect(UI_SHOW_TYPE_DOCS).not.toContain("- voice_picker:");
   });
+
+  test("voice_picker steering reaches the model through the cold index", () => {
+    // Asserted on the built description rather than the doc entry: a cold
+    // type's `shape` reaches the model only through a teaching error, and an
+    // empty payload has no missing-content state to raise one, so steering
+    // parked there would be dead.
+    for (const directive of [
+      "change, hear, or pick a voice",
+      "rather than describing voices in prose",
+      "attach no actions and never set await_action",
+      "during a live voice call answer in speech",
+    ]) {
+      expect(UI_SHOW_TYPE_DOCS).toContain(directive);
+      expect(uiShowTool.description).toContain(directive);
+    }
+  });
 });
