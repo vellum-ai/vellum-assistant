@@ -134,7 +134,9 @@ interface HostTierImportExemption {
  * maintenance, tuning); the `v1/` entries are the legacy PKB engine's
  * remaining host reach (the migration step, semantic search, and PKB file
  * indexing); the `v2/` and `v3/` entries are engine-specific inspector,
- * activation/selection log, and CLI-harness surfaces.
+ * activation/selection log, CLI-harness, and skill-matcher surfaces (both
+ * `src/tools/skills/` entries reach the same `v3/candidate-match` shortlist:
+ * one to offer it to the model, one to enforce it at write time).
  */
 const HOST_TIER_IMPORT_ALLOWLIST: readonly HostTierImportExemption[] = [
   {
@@ -162,6 +164,7 @@ const HOST_TIER_IMPORT_ALLOWLIST: readonly HostTierImportExemption[] = [
   { path: "src/runtime/routes/secret-routes.ts", tiers: ["substrate"] },
   { path: "src/tools/filesystem/write.ts", tiers: ["v1"] },
   { path: "src/tools/skills/find-similar-skills.ts", tiers: ["v3"] },
+  { path: "src/tools/skills/scaffold-managed.ts", tiers: ["v3"] },
 ];
 
 /** The tier config namespaces this guard tracks. */

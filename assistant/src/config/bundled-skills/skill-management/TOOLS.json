@@ -3,7 +3,7 @@
   "tools": [
     {
       "name": "scaffold_managed_skill",
-      "description": "Create or update a managed skill in {workspaceDir}/skills. The skill becomes available for skill_load when a valid top-level SKILL.md is written under the skill directory. Never persist a skill without explicit user consent. Before persisting, test the snippet: write to a temp file with bash and run with `bun run /tmp/vellum-eval/snippet.ts`. Iterate up to 3 attempts, then ask the user. Clean up temp files after. Do not use file_write for temp files outside the working directory. After a skill is written, the next turn may run in a recreated conversation due to file-watcher eviction - continue normally.",
+      "description": "Create or update a managed skill in {workspaceDir}/skills. The skill becomes available for skill_load when a valid top-level SKILL.md is written under the skill directory. When a person is asking you to build a skill, never persist one without their explicit consent; background memory passes that record procedures on their own are the exception and carry their own rules. Before persisting, test the snippet: write to a temp file with bash and run with `bun run /tmp/vellum-eval/snippet.ts`. Iterate up to 3 attempts, then ask the user. Clean up temp files after. Do not use file_write for temp files outside the working directory. After a skill is written, the next turn may run in a recreated conversation due to file-watcher eviction - continue normally.",
       "category": "skills",
       "risk": "high",
       "input_schema": {

@@ -18,7 +18,7 @@ import { deleteSkillCapabilityNode } from "../plugins/defaults/memory/graph/capa
 import { isDeniedBasename } from "../tools/shared/filesystem/path-policy.js";
 import { getLogger } from "../util/logger.js";
 import { getWorkspaceDir, getWorkspaceSkillsDir } from "../util/platform.js";
-import { writeInstallMeta } from "./install-meta.js";
+import { readInstallMeta, writeInstallMeta } from "./install-meta.js";
 
 const log = getLogger("managed-store");
 
@@ -46,6 +46,25 @@ function getManagedSkillsDir(): string {
 }
 
 /** Absolute path of a managed skill's directory (whether or not it exists). */
+/**
+ * A managed skill's recorded author, or `undefined` when the skill has no
+ * install-meta, the meta is unreadable, or it predates author tagging.
+ *
+ * The ownership rule for autonomous skill writes keys on this: only a skill
+ * tagged `"assistant"` may be modified by a background pass. Shared so every
+ * caller applies the same "unverifiable means not ours" reading, and a fix to
+ * one cannot leave another wrong.
+ */
+export function readManagedSkillAuthor(
+  skillId: string,
+): "assistant" | "user" | undefined {
+  try {
+    return readInstallMeta(getManagedSkillDir(skillId))?.author;
+  } catch {
+    return undefined;
+  }
+}
+
 export function getManagedSkillDir(id: string): string {
   return join(getManagedSkillsDir(), id);
 }

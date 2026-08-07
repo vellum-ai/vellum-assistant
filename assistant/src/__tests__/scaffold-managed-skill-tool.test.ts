@@ -52,6 +52,16 @@ mock.module("../notifications/emit-signal.js", () => ({
   },
 }));
 
+// The retrospective dedup path calls the skill matcher, which would otherwise
+// reach a live embedding backend and Qdrant. Default it to an empty shortlist
+// (the same value the real matcher degrades to when its scorer fails), so
+// existing tests exercise the unchanged create path; the dedup tests inject
+// their own shortlist through `deps.findNearest`.
+mock.module("../plugins/defaults/memory/v3/candidate-match.js", () => ({
+  nearestExistingSkills: async () => [],
+  EXISTING_SKILL_THRESHOLD: 0.82,
+}));
+
 // Skill-card enqueue recorder. Snapshot + override (rather than a full module
 // replacement) because other modules in this import graph (e.g. the managed
 // store's capability seeding) import sibling jobs-store exports that must
@@ -94,6 +104,7 @@ function catalogSeam(...entries: { id: string; source: SkillSource }[]) {
 }
 
 import { loadSkillCatalog } from "../config/skills.js";
+import type { nearestExistingSkills } from "../plugins/defaults/memory/v3/candidate-match.js";
 import { readInstallMeta, writeInstallMeta } from "../skills/install-meta.js";
 import { executeScaffoldManagedSkill } from "../tools/skills/scaffold-managed.js";
 import type { ToolContext } from "../tools/types.js";
@@ -1634,5 +1645,354 @@ describe("background skill update notification", () => {
       readFileSync(join(TEST_DIR, "skills", "user-skill", "SKILL.md"), "utf-8"),
     ).toContain("V2.");
     expect(emittedSignals).toHaveLength(0);
+  });
+});
+
+// ── Retrospective dedup against the existing catalog ────────────────────────
+//
+// The retrospective's instructions already tell it to check for an existing
+// skill covering the procedure and act on the answer; these cover the
+// enforcement of that, which is what stops a pass from authoring a
+// near-duplicate under a fresh `skill_id`.
+
+describe("retrospective dedup", () => {
+  /** A matcher seam returning a fixed shortlist. */
+  const matcher = (...hits: Array<{ skillId: string; score: number }>) => ({
+    findNearest: async () => hits,
+  });
+
+  /** Create an assistant-authored managed skill on disk. */
+  async function seedAssistantSkill(id: string, body: string): Promise<void> {
+    await executeScaffoldManagedSkill(
+      {
+        skill_id: id,
+        name: id,
+        description: `seeded ${id}`,
+        body_markdown: body,
+      },
+      makeContext(),
+    );
+    writeInstallMeta(join(TEST_DIR, "skills", id), {
+      origin: "custom",
+      installedAt: new Date().toISOString(),
+      author: "assistant",
+    });
+    watchdogEvents.length = 0;
+    skillCardJobUpserts = [];
+  }
+
+  const skillExists = (id: string) =>
+    existsSync(join(TEST_DIR, "skills", id, "SKILL.md"));
+  const readBody = (id: string) =>
+    readFileSync(join(TEST_DIR, "skills", id, "SKILL.md"), "utf-8");
+  const dedupEvents = () =>
+    watchdogEvents.filter((e) => e.checkName === "skill_dedup");
+
+  const capture = (overrides: Record<string, unknown> = {}) => ({
+    skill_id: "export-weekly-report",
+    name: "Export Weekly Report",
+    description: "export the weekly usage report",
+    body_markdown: "1. Run the export.",
+    ...overrides,
+  });
+
+  test("a confident match on the assistant's own skill updates it instead of creating a sibling", async () => {
+    await seedAssistantSkill("existing-export", "Old body.");
+
+    const result = await executeScaffoldManagedSkill(
+      capture(),
+      makeRetrospectiveContext(),
+      {
+        ...matcher({ skillId: "existing-export", score: 0.95 }),
+        loadCatalog: () => [
+          { id: "existing-export", source: "managed" as SkillSource },
+        ],
+      },
+    );
+
+    expect(result.isError).toBe(false);
+    expect(JSON.parse(result.content).skill_id).toBe("existing-export");
+    // The write landed on the existing skill; no sibling was created.
+    expect(readBody("existing-export")).toContain("Run the export.");
+    expect(skillExists("export-weekly-report")).toBe(false);
+    // A refinement is not a new capability: no counter, no card.
+    expect(
+      watchdogEvents.filter((e) => e.checkName === "skill_authored"),
+    ).toHaveLength(0);
+    expect(skillCardJobUpserts).toHaveLength(0);
+    expect(dedupEvents()).toEqual([
+      { checkName: "skill_dedup", value: 1, detail: { outcome: "updated" } },
+    ]);
+  });
+
+  test("the redirect overwrites without the caller passing overwrite", async () => {
+    await seedAssistantSkill("existing-export", "Old body.");
+
+    const result = await executeScaffoldManagedSkill(
+      capture({ body_markdown: "1. Corrected steps." }),
+      makeRetrospectiveContext(),
+      {
+        ...matcher({ skillId: "existing-export", score: 0.9 }),
+        loadCatalog: () => [
+          { id: "existing-export", source: "managed" as SkillSource },
+        ],
+      },
+    );
+
+    expect(result.isError).toBe(false);
+    expect(readBody("existing-export")).toContain("Corrected steps.");
+    expect(readBody("existing-export")).not.toContain("Old body.");
+  });
+
+  test("a confident match on a bundled skill is refused, mutating nothing", async () => {
+    const result = await executeScaffoldManagedSkill(
+      capture(),
+      makeRetrospectiveContext(),
+      {
+        ...matcher({ skillId: "deep-research", score: 0.93 }),
+        loadCatalog: () => [
+          { id: "deep-research", source: "bundled" as SkillSource },
+        ],
+      },
+    );
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain("already covers this procedure");
+    expect(result.content).toContain("deep-research");
+    // The refusal routes what the pass learned somewhere useful instead of
+    // discarding it: a delta the covering skill lacks belongs in memory.
+    expect(result.content).toContain("remember");
+    expect(skillExists("export-weekly-report")).toBe(false);
+    expect(skillExists("deep-research")).toBe(false);
+    expect(dedupEvents()).toEqual([
+      { checkName: "skill_dedup", value: 1, detail: { outcome: "covered" } },
+    ]);
+  });
+
+  test("a confident match on a user-authored managed skill is refused and leaves it untouched", async () => {
+    await executeScaffoldManagedSkill(
+      {
+        skill_id: "user-owned",
+        name: "User Owned",
+        description: "A person wrote this",
+        body_markdown: "Human body.",
+      },
+      makeContext(),
+    );
+    watchdogEvents.length = 0;
+
+    const result = await executeScaffoldManagedSkill(
+      capture(),
+      makeRetrospectiveContext(),
+      {
+        ...matcher({ skillId: "user-owned", score: 0.94 }),
+        loadCatalog: () => [
+          { id: "user-owned", source: "managed" as SkillSource },
+        ],
+      },
+    );
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain("already covers this procedure");
+    expect(readBody("user-owned")).toContain("Human body.");
+    expect(installMetaFor("user-owned")?.author).toBe("user");
+    expect(skillExists("export-weekly-report")).toBe(false);
+  });
+
+  test("a below-threshold match does not block or redirect the write", async () => {
+    await seedAssistantSkill("existing-export", "Old body.");
+
+    const result = await executeScaffoldManagedSkill(
+      capture(),
+      makeRetrospectiveContext(),
+      {
+        // Above the shortlist floor but below the confident same-skill mark.
+        ...matcher({ skillId: "existing-export", score: 0.7 }),
+        loadCatalog: () => [
+          { id: "existing-export", source: "managed" as SkillSource },
+        ],
+      },
+    );
+
+    expect(result.isError).toBe(false);
+    expect(skillExists("export-weekly-report")).toBe(true);
+    expect(readBody("existing-export")).toContain("Old body.");
+    expect(dedupEvents()).toHaveLength(0);
+  });
+
+  test("an empty shortlist proceeds: a matcher outage never loses the capture", async () => {
+    // `nearestExistingSkills` degrades to an empty shortlist when its scorer
+    // fails, so this is exactly what an embedding/Qdrant outage looks like.
+    const result = await executeScaffoldManagedSkill(
+      capture(),
+      makeRetrospectiveContext(),
+      { ...matcher(), loadCatalog: () => [] },
+    );
+
+    expect(result.isError).toBe(false);
+    expect(skillExists("export-weekly-report")).toBe(true);
+    expect(dedupEvents()).toHaveLength(0);
+  });
+
+  test("a throwing matcher proceeds rather than failing the capture", async () => {
+    const result = await executeScaffoldManagedSkill(
+      capture(),
+      makeRetrospectiveContext(),
+      {
+        findNearest: async () => {
+          throw new Error("qdrant unavailable");
+        },
+        loadCatalog: () => [],
+      },
+    );
+
+    expect(result.isError).toBe(false);
+    expect(skillExists("export-weekly-report")).toBe(true);
+  });
+
+  test("a hit that is not resolvable on disk proceeds (stale corpus entry)", async () => {
+    const result = await executeScaffoldManagedSkill(
+      capture(),
+      makeRetrospectiveContext(),
+      {
+        ...matcher({ skillId: "long-deleted", score: 0.95 }),
+        loadCatalog: () => [],
+      },
+    );
+
+    expect(result.isError).toBe(false);
+    expect(skillExists("export-weekly-report")).toBe(true);
+  });
+
+  test("the highest-scoring confident hit decides the outcome", async () => {
+    await seedAssistantSkill("mine", "Mine.");
+
+    const result = await executeScaffoldManagedSkill(
+      capture(),
+      makeRetrospectiveContext(),
+      {
+        ...matcher(
+          { skillId: "mine", score: 0.97 },
+          { skillId: "theirs-bundled", score: 0.85 },
+        ),
+        loadCatalog: () => [
+          { id: "mine", source: "managed" as SkillSource },
+          { id: "theirs-bundled", source: "bundled" as SkillSource },
+        ],
+      },
+    );
+
+    expect(result.isError).toBe(false);
+    expect(JSON.parse(result.content).skill_id).toBe("mine");
+  });
+
+  test("an explicitly named skill the assistant owns is never retargeted onto a higher-scoring neighbour", async () => {
+    await seedAssistantSkill("intended-target", "Intended, stale.");
+    await seedAssistantSkill("other-skill", "Unrelated content.");
+
+    // The caller names the skill it means to refine, but a DIFFERENT
+    // assistant-authored skill scores higher.
+    const result = await executeScaffoldManagedSkill(
+      capture({
+        skill_id: "intended-target",
+        body_markdown: "1. Refined steps.",
+        overwrite: true,
+      }),
+      makeRetrospectiveContext(),
+      {
+        ...matcher(
+          { skillId: "other-skill", score: 0.93 },
+          { skillId: "intended-target", score: 0.84 },
+        ),
+        loadCatalog: () => [
+          { id: "other-skill", source: "managed" as SkillSource },
+          { id: "intended-target", source: "managed" as SkillSource },
+        ],
+      },
+    );
+
+    expect(result.isError).toBe(false);
+    expect(JSON.parse(result.content).skill_id).toBe("intended-target");
+    // The named skill got the refinement, and the neighbour was not touched.
+    expect(readBody("intended-target")).toContain("Refined steps.");
+    expect(readBody("other-skill")).toContain("Unrelated content.");
+    expect(dedupEvents()).toHaveLength(0);
+  });
+
+  test("an explicitly named skill the assistant owns is not refused by an unowned high scorer", async () => {
+    await seedAssistantSkill("intended-target", "Intended, stale.");
+
+    const result = await executeScaffoldManagedSkill(
+      capture({
+        skill_id: "intended-target",
+        body_markdown: "1. Refined steps.",
+        overwrite: true,
+      }),
+      makeRetrospectiveContext(),
+      {
+        ...matcher({ skillId: "deep-research", score: 0.95 }),
+        loadCatalog: () => [
+          { id: "deep-research", source: "bundled" as SkillSource },
+          { id: "intended-target", source: "managed" as SkillSource },
+        ],
+      },
+    );
+
+    // Refining a skill it already owns was always permitted; a bundled
+    // neighbour scoring well must not take that away.
+    expect(result.isError).toBe(false);
+    expect(readBody("intended-target")).toContain("Refined steps.");
+  });
+
+  test("a plugin skill outside the conversation's plugin scope cannot block a write", async () => {
+    const result = await executeScaffoldManagedSkill(
+      capture(),
+      makeRetrospectiveContext({
+        // The conversation only has `other-plugin` enabled.
+        enabledPluginSet: new Set(["other-plugin"]),
+      }),
+      {
+        // The matcher must never see the out-of-scope skill, so assert on the
+        // catalog it is handed rather than on a hit it should never produce.
+        findNearest: (async (
+          _goal: string,
+          opts?: {
+            loadCatalog?: () => { id: string }[] | Promise<{ id: string }[]>;
+          },
+        ) => {
+          const scoped = (await opts?.loadCatalog?.()) ?? [];
+          expect(scoped.map((s) => s.id)).toEqual(["in-scope-skill"]);
+          return [];
+        }) as typeof nearestExistingSkills,
+        loadCatalog: () => [
+          {
+            id: "out-of-scope-skill",
+            source: "plugin" as SkillSource,
+            owner: { kind: "plugin" as const, id: "disabled-plugin" },
+          },
+          { id: "in-scope-skill", source: "managed" as SkillSource },
+        ],
+      },
+    );
+
+    expect(result.isError).toBe(false);
+    expect(skillExists("export-weekly-report")).toBe(true);
+  });
+
+  test("user-directed scaffolds never consult the matcher", async () => {
+    let consulted = false;
+    const result = await executeScaffoldManagedSkill(capture(), makeContext(), {
+      findNearest: async () => {
+        consulted = true;
+        return [{ skillId: "existing-export", score: 0.99 }];
+      },
+    });
+
+    expect(consulted).toBe(false);
+    expect(result.isError).toBe(false);
+    // Created under the id the person asked for, tagged as theirs.
+    expect(skillExists("export-weekly-report")).toBe(true);
+    expect(installMetaFor("export-weekly-report")?.author).toBe("user");
+    expect(dedupEvents()).toHaveLength(0);
   });
 });
