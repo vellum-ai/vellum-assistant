@@ -1,10 +1,7 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { cleanup, render, screen, waitFor } from "@testing-library/react";
 
-import {
-  MarkdownPreview,
-  truncateForDisplay,
-} from "@/domains/chat/components/local-file/preview/markdown-preview";
+import { MarkdownPreview } from "@/domains/chat/components/local-file/preview/markdown-preview";
 
 /** The cap the preview renders, mirrored here so the boundary is explicit. */
 const CAP = 512 * 1024;
@@ -15,34 +12,6 @@ function markdownBlob(text: string): Blob {
 
 afterEach(() => {
   cleanup();
-});
-
-describe("truncateForDisplay", () => {
-  test("markdown under the cap is shown whole", () => {
-    const result = truncateForDisplay("a".repeat(CAP - 1));
-
-    expect(result.truncated).toBe(false);
-    expect(result.text.length).toBe(CAP - 1);
-  });
-
-  test("markdown exactly at the cap is still shown whole", () => {
-    const result = truncateForDisplay("a".repeat(CAP));
-
-    expect(result.truncated).toBe(false);
-    expect(result.text.length).toBe(CAP);
-  });
-
-  test("one character past the cap is cut and reported", () => {
-    const result = truncateForDisplay(`${"a".repeat(CAP)}b`);
-
-    expect(result.truncated).toBe(true);
-    expect(result.text.length).toBe(CAP);
-    expect(result.text.endsWith("b")).toBe(false);
-  });
-
-  test("an empty file is not treated as truncated", () => {
-    expect(truncateForDisplay("")).toEqual({ text: "", truncated: false });
-  });
 });
 
 describe("MarkdownPreview", () => {

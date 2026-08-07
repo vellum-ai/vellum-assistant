@@ -22,9 +22,9 @@ export const documents = sqliteTable(
     wordCount: integer("word_count").notNull().default(0),
     createdAt: integer("created_at").notNull(),
     updatedAt: integer("updated_at").notNull(),
-    // Vestigial: the column and its index are part of the physical table
-    // (migration 360), but no code reads or writes them. Historical rows may
-    // hold paths; new rows stay NULL.
+    // Unused by the daemon: no code reads or writes the column, and some rows
+    // carry a non-NULL path. It stays in the model because migration 360 puts
+    // it in the physical table and the model must keep describing that table.
     workspacePath: text("workspace_path"),
   },
   (table) => [

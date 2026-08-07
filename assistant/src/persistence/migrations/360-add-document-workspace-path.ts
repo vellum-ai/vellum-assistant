@@ -7,14 +7,11 @@ const COLUMN_DEFINITION = "workspace_path TEXT";
 /**
  * Add `workspace_path` to `documents` and enforce one document per file.
  *
- * The column and its partial unique index are vestigial: no daemon code reads
- * or writes them. Rows written while a client feature populated the column may
- * still hold paths; new rows stay NULL. The migration stays in the chain
- * because migrations are append-only, and the drizzle model in
- * `schema/documents.ts` carries the column so it keeps describing the physical
- * table.
- *
- * Nullable with no backfill: rows without a recorded path stay NULL.
+ * The column and its partial unique index are unused by the daemon: no code
+ * reads or writes them. Some rows carry a non-NULL path; new rows stay NULL.
+ * The migration stays in the chain because migrations are append-only, and the
+ * drizzle model in `schema/documents.ts` carries the column so it keeps
+ * describing the physical table.
  *
  * Idempotent: the column add is guarded with `tableHasColumn` and the index
  * with `IF NOT EXISTS`, so a crash between the two does not break the next
