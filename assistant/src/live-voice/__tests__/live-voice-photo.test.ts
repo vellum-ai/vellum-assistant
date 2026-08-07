@@ -33,7 +33,7 @@ const IMAGE_BASE64 =
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk";
 
 describe("persistLiveVoicePhoto", () => {
-  test("persists and echoes the image without placeholder text", async () => {
+  test("persists and echoes the image with human-readable context", async () => {
     const conversation = createConversation("Live voice photo");
     const { provider } = createMockProvider([textResponse("")]);
     const activeConversation = new Conversation(
@@ -79,15 +79,15 @@ describe("persistLiveVoicePhoto", () => {
       if (!message) {
         throw new Error("Live-voice photo message was not persisted");
       }
-      expect(message.content.some((block) => block.type === "text")).toBe(
-        false,
-      );
+      expect(message.content.filter((block) => block.type === "text")).toEqual([
+        { type: "text", text: "here's a photo:" },
+      ]);
       expect(getAttachmentsForMessage(message.id)).toHaveLength(1);
       expect(
         published.find((event) => event.type === "user_message_echo"),
       ).toMatchObject({
         type: "user_message_echo",
-        text: "",
+        text: "here's a photo:",
         conversationId: conversation.id,
         messageId: message.id,
       });

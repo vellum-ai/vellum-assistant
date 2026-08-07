@@ -49,8 +49,7 @@ const log = getLogger("live-voice-photo");
 const PROCESSING_WAIT_MS = 30_000;
 const PROCESSING_POLL_MS = 100;
 
-/** The image blocks are the complete user-visible message content. */
-const PHOTO_MESSAGE_CONTENT = "";
+const PHOTO_MESSAGE_CONTENT = "here's a photo:";
 
 export interface LiveVoicePhotoResult {
   readonly ok: boolean;
