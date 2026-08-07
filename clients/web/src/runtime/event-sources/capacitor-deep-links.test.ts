@@ -92,7 +92,7 @@ describe("publishCapacitorDeepLinksSource", () => {
       await flushAsyncWork(6);
 
       expect(received).toEqual([
-        { status: "success", sessionId: "cs_test_a1B2" },
+        { status: "success", sessionId: "cs_test_a1B2", flow: "subscription" },
       ]);
     } finally {
       unsubscribeBus();
@@ -170,8 +170,10 @@ describe("publishCapacitorDeepLinksSource", () => {
         url: "vellum-assistant://billing/checkout-complete?status=success&session_id=cs_test_a1B2",
       });
 
+      // No `flow` param: released clients and current Pro links omit it, so
+      // it must default to the subscription flow.
       expect(received).toEqual([
-        { status: "success", sessionId: "cs_test_a1B2" },
+        { status: "success", sessionId: "cs_test_a1B2", flow: "subscription" },
       ]);
     } finally {
       unsubscribeBus();
@@ -195,7 +197,63 @@ describe("publishCapacitorDeepLinksSource", () => {
         url: "vellum-assistant://billing/checkout-complete?status=cancel",
       });
 
-      expect(received).toEqual([{ status: "cancel", sessionId: null }]);
+      expect(received).toEqual([
+        { status: "cancel", sessionId: null, flow: "subscription" },
+      ]);
+    } finally {
+      unsubscribeBus();
+    }
+  });
+
+  test("carries flow=top_up through on both statuses", async () => {
+    const received: unknown[] = [];
+    const unsubscribeBus = subscribe(
+      "deeplink.billingCheckoutComplete",
+      (payload) => {
+        received.push(payload);
+      },
+    );
+
+    try {
+      publishCapacitorDeepLinksSource();
+      await flushAsyncWork();
+
+      urlOpenHandler!({
+        url: "vellum-assistant://billing/checkout-complete?status=success&session_id=cs_test_a1B2&flow=top_up",
+      });
+      urlOpenHandler!({
+        url: "vellum-assistant://billing/checkout-complete?status=cancel&flow=top_up",
+      });
+
+      expect(received).toEqual([
+        { status: "success", sessionId: "cs_test_a1B2", flow: "top_up" },
+        { status: "cancel", sessionId: null, flow: "top_up" },
+      ]);
+    } finally {
+      unsubscribeBus();
+    }
+  });
+
+  test("an unrecognized flow value degrades to the subscription flow", async () => {
+    const received: unknown[] = [];
+    const unsubscribeBus = subscribe(
+      "deeplink.billingCheckoutComplete",
+      (payload) => {
+        received.push(payload);
+      },
+    );
+
+    try {
+      publishCapacitorDeepLinksSource();
+      await flushAsyncWork();
+
+      urlOpenHandler!({
+        url: "vellum-assistant://billing/checkout-complete?status=cancel&flow=bogus",
+      });
+
+      expect(received).toEqual([
+        { status: "cancel", sessionId: null, flow: "subscription" },
+      ]);
     } finally {
       unsubscribeBus();
     }

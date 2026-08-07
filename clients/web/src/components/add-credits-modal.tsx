@@ -9,6 +9,7 @@ import {
   organizationsBillingTopUpsCheckoutSessionCreateMutation,
 } from "@/generated/api/@tanstack/react-query.gen";
 import { ANDROID_BILLING_MESSAGE } from "@/lib/billing/android-consumption-only";
+import { checkoutReturnTarget } from "@/lib/billing/checkout-return-target";
 import { openUrl, openUrlFinishedListener } from "@/runtime/browser";
 import { useIsNativeAndroid } from "@/runtime/platform-detection";
 import { routes } from "@/utils/routes";
@@ -86,10 +87,12 @@ function AddCreditsModalContent({ open, onOpenChange }: AddCreditsModalProps) {
     organizationsBillingTopUpsCheckoutSessionCreateMutation(),
   );
 
-  // On native, SFSafariViewController stays on top of the app — the modal
-  // remains mounted while Stripe checkout runs. When the user finishes (or
-  // cancels), `browserFinished` fires: close the modal and refetch billing
-  // summary so the balance reflects the completed top-up.
+  // On native, SFSafariViewController stays on top of the app: the modal
+  // remains mounted while Stripe checkout runs. `browserFinished` fires when
+  // the sheet closes for any reason, so it carries no success/cancel meaning.
+  // It only tidies up: close the modal and refetch the billing summary so the
+  // balance reflects a completed top-up. Outcome signaling arrives separately
+  // via the `flow=top_up` checkout-complete deep link.
   useEffect(() => {
     return openUrlFinishedListener(() => {
       onOpenChange(false);
@@ -108,14 +111,20 @@ function AddCreditsModalContent({ open, onOpenChange }: AddCreditsModalProps) {
       {
         body: {
           amount,
+          // Ignored when return_target is "native".
           return_path: returnPath,
+          // On Capacitor/Electron, checkout finishes with a custom-scheme
+          // bounce back into the app (`<scheme>://billing/checkout-complete`
+          // carrying `flow=top_up`) instead of a web return URL; see
+          // `checkout-return-target.ts`.
+          return_target: checkoutReturnTarget(),
         },
       },
       {
         onSuccess: (data) => {
           // On native (iOS), open in SFSafariViewController so the user stays
-          // inside the app and Stripe's redirect back to return_path lands in
-          // the in-app browser rather than breaking out to Safari.
+          // inside the app; the native return's custom-scheme bounce dismisses
+          // the sheet and lands back in the app via `appUrlOpen`.
           void openUrl(data.checkout_url);
         },
       },
