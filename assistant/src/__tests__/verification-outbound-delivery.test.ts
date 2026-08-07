@@ -78,7 +78,7 @@ mock.module("../runtime/channel-verification-service.js", () => ({
   getGuardianBinding: async () => null,
 }));
 
-const { startOutbound } =
+const { startOutbound, resendOutbound } =
   await import("../runtime/verification-outbound-actions.js");
 
 /**
@@ -113,6 +113,21 @@ describe("startOutbound delivers from inside the action", () => {
       expect(sent[0].text.length).toBeGreaterThan(0);
     });
   }
+
+  test("resend delivers too, on every channel that starts", async () => {
+    // Start and resend run the same mint-and-send, so this is coverage of that
+    // shared path from its second entry point rather than of resend as a
+    // feature.
+    for (const { channel, destination } of DESTINATIONS) {
+      deliveries.length = 0;
+      await startOutbound({ channel: channel as never, destination });
+      deliveries.length = 0;
+
+      const result = await resendOutbound({ channel: channel as never });
+      expect(result.success).toBe(true);
+      expect(deliveries.filter((d) => d.transport === channel)).toHaveLength(1);
+    }
+  });
 
   test("no channel returns a payload for the caller to send instead", async () => {
     // A `_pending*` field means some channel is minting a session whose

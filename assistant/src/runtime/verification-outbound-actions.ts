@@ -235,7 +235,7 @@ export async function startOutbound(
     );
   }
 
-  const spec = TEXT_CHANNEL_VERIFICATION[channel];
+  const spec = textChannelSpec(channel);
   if (spec) {
     return await startOutboundTextChannel(
       spec,
@@ -725,6 +725,26 @@ const TEXT_CHANNEL_VERIFICATION: Partial<
 };
 
 /**
+ * The spec for a channel, or undefined when it has none.
+ *
+ * An own-property check rather than a bare index read: `channel` reaches here
+ * as a plain string, so `"constructor"`, `"toString"` and `"__proto__"` would
+ * otherwise resolve to inherited values, pass a truthy guard, and throw on the
+ * first spec field instead of falling through to `unsupported_channel`. Same
+ * fail-closed shape as `resolveCapabilities`.
+ */
+function textChannelSpec(
+  channel: ChannelId,
+): TextChannelVerificationSpec | undefined {
+  return Object.prototype.hasOwnProperty.call(
+    TEXT_CHANNEL_VERIFICATION,
+    channel,
+  )
+    ? TEXT_CHANNEL_VERIFICATION[channel]
+    : undefined;
+}
+
+/**
  * Mint a session, compose the message, stamp the delivery, and send it.
  *
  * Shared by the start and resend paths, which differ only in the template and
@@ -1004,7 +1024,7 @@ export async function resendOutbound(
     };
   }
 
-  const spec = TEXT_CHANNEL_VERIFICATION[channel];
+  const spec = textChannelSpec(channel);
   if (spec) {
     const newSendCount = currentSendCount + 1;
     const sent = await mintAndSend({

@@ -10,7 +10,7 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 // ---------------------------------------------------------------------------
-// Mocks — must be set up before importing the module under test
+// Mocks: must be set up before importing the module under test
 // ---------------------------------------------------------------------------
 
 // Stub out transitive dependencies to prevent import errors
@@ -76,7 +76,7 @@ mock.module("../util/logger.js", () => ({
 }));
 
 // ---------------------------------------------------------------------------
-// Import after mocks — dynamic import ensures mock.module() calls above
+// Import after mocks: dynamic import ensures mock.module() calls above
 // are registered before tool-side-effects.ts evaluates its top-level
 // `const log = getLogger(...)`.
 // ---------------------------------------------------------------------------
