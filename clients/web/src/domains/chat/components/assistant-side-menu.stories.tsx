@@ -15,6 +15,7 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 
 import { AssistantSideMenu } from "@/domains/chat/components/assistant-side-menu";
+import { PreferencesMenu } from "@/domains/chat/components/preferences-menu";
 import { useSidebarLayoutStore } from "@/domains/chat/sidebar-layout-store";
 import {
   saveViewMode,
@@ -137,6 +138,10 @@ const SHARED_ARGS = {
   onMarkConversationUnread: () => {},
   onPinConversation: () => {},
   onArchiveConversation: () => {},
+  /* The real `PreferencesMenu`, not a stand-in: it is the sidebar's bottom
+     entry, and without it these stories show every part of the rail except
+     the one at its foot. `chat-layout` passes it the same way. */
+  footerAction: <PreferencesMenu assistantId="asst-story" />,
 } satisfies Partial<Parameters<typeof AssistantSideMenu>[0]>;
 
 const meta: Meta<typeof AssistantSideMenu> = {

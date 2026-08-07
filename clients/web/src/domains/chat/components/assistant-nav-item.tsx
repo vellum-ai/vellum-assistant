@@ -26,6 +26,8 @@ import { Brain, Plus } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { motion, useAnimationControls, useReducedMotion } from "motion/react";
 
+import type { CSSProperties } from "react";
+
 import { cn, PanelItem } from "@vellumai/design-library";
 
 import {
@@ -237,33 +239,23 @@ export function AssistantNavItem({
     // rows' labels stay on one axis.
     return (
       <div className="flex flex-col gap-[8px]">
-        <button
-          type="button"
-          onClick={onSelect}
-          title={label}
-          data-tour-id="assistant-page"
-          aria-current={active ? "page" : undefined}
-          className={cn(
-            "group relative flex w-full cursor-pointer items-center overflow-hidden select-none",
-            collapsed ? "rounded-[6px]" : "rounded-[8px]",
-            "outline-none keyboard-focus:ring-2 keyboard-focus:ring-[var(--ring)]",
-            "transition-colors duration-150 active:scale-[0.98]",
-            active
-              ? "bg-[var(--surface-active)]"
-              : "hover:bg-[var(--surface-hover)]",
-            collapsed && "justify-center",
-          )}
-          style={{
-            height: collapsed ? COLLAPSED_ASSISTANT_ROW_HEIGHT : rowHeight,
-            gap: SIDEBAR_CHIP_GAP,
-            paddingLeft: collapsed ? 0 : ROW_PADDING_X,
-            paddingRight: collapsed ? 0 : ROW_PADDING_X,
-          }}
-        >
-          <span
-            aria-hidden="true"
-            className="flex shrink-0 items-center justify-center"
-            style={{ width: CHIP_SIZE, height: CHIP_SIZE }}
+        {collapsed ? (
+          <button
+            type="button"
+            onClick={onSelect}
+            title={label}
+            data-tour-id="assistant-page"
+            aria-current={active ? "page" : undefined}
+            className={cn(
+              "group relative flex w-full cursor-pointer items-center justify-center overflow-hidden select-none",
+              "rounded-[6px]",
+              "outline-none keyboard-focus:ring-2 keyboard-focus:ring-[var(--ring)]",
+              "transition-colors duration-150 active:scale-[0.98]",
+              active
+                ? "bg-[var(--surface-active)]"
+                : "hover:bg-[var(--surface-hover)]",
+            )}
+            style={{ height: COLLAPSED_ASSISTANT_ROW_HEIGHT }}
           >
             <Brain
               className="h-3.5 w-3.5"
@@ -273,23 +265,20 @@ export function AssistantNavItem({
                   : "var(--content-tertiary)",
               }}
             />
-          </span>
-          {!collapsed && (
-            <span
-              className={cn(
-                "min-w-0 flex-1 truncate text-left",
-                active
-                  ? "text-[color:var(--content-emphasised)]"
-                  : "text-[color:var(--content-secondary)]",
-                isMobile
-                  ? "text-body-large-default"
-                  : "text-body-medium-lighter",
-              )}
-            >
-              {label}
-            </span>
-          )}
-        </button>
+          </button>
+        ) : (
+          /* No character avatar, so nothing declares the tint properties and
+             the pill wears its plain surface. Same component as the tinted
+             one below: the colour is the only difference between them. */
+          <PanelItem
+            shape="pill"
+            icon={Brain}
+            label={label}
+            active={active}
+            onSelect={onSelect}
+            data-tour-id="assistant-page"
+          />
+        )}
         {newConversationRow}
       </div>
     );
@@ -321,7 +310,63 @@ export function AssistantNavItem({
     </svg>
   );
 
-  const assistantRow = (
+  /* The assistant's own colour, declared as the pill's tint properties
+     rather than passed to `PanelItem` or written over its classes. Hover
+     lightens the same hue, which is what the bespoke row did with
+     `brightness-105`. While the tour owns the nav the colour drains away
+     entirely: nothing is declared, so the pill falls back to its plain
+     surface and the tour's flood is the only colour on screen. */
+  const tintStyle =
+    !navTourActive && hex
+      ? ({
+          "--panel-item-bg": hex,
+          "--panel-item-fg": fg,
+          "--panel-item-hover": `color-mix(in srgb, #fff 8%, ${hex})`,
+        } as CSSProperties)
+      : undefined;
+
+  /* The eyes, in the pill's leading slot. Absolutely placed inside a
+     chip-width box, as they were in the row, so a patrol can still carry the
+     sprite across and under the pill rather than being clipped to the glyph. */
+  const eyesSlot = (
+    <span
+      aria-hidden="true"
+      className="pointer-events-none relative flex shrink-0 items-center justify-center"
+      style={{ width: CHIP_SIZE, height: CHIP_SIZE }}
+    >
+      {navTourActive && (
+        <Brain
+          className="h-3.5 w-3.5"
+          style={{
+            color: active
+              ? "var(--content-default)"
+              : "var(--content-tertiary)",
+          }}
+        />
+      )}
+      {!navTourActive && eye && (
+        <motion.span
+          className="absolute"
+          style={{
+            width: eyesWidth,
+            height: eyesHeight,
+            left: (CHIP_SIZE - eyesWidth) / 2,
+            top: (CHIP_SIZE - eyesHeight) / 2,
+            transformOrigin: "50% 100%",
+          }}
+          initial={false}
+          animate={eyesControls}
+        >
+          {eyesSvg}
+        </motion.span>
+      )}
+    </span>
+  );
+
+  const assistantRow = collapsed ? (
+    /* The collapsed rail keeps its own tile: it is a destination reduced to a
+       glyph, not a pill with its label dropped, and it centres the sprite
+       rather than leading with it. */
     <button
       ref={buttonRef}
       type="button"
@@ -330,93 +375,47 @@ export function AssistantNavItem({
       data-tour-id="assistant-page"
       aria-current={active ? "page" : undefined}
       className={cn(
-        "group relative flex w-full cursor-pointer items-center overflow-hidden select-none",
-        collapsed ? "rounded-[6px]" : "rounded-[8px]",
+        "group relative flex w-full cursor-pointer items-center justify-center overflow-hidden select-none",
+        "rounded-[6px]",
         "outline-none keyboard-focus:ring-2 keyboard-focus:ring-[var(--ring)]",
         "transition-[filter,transform,background-color,color] duration-300 active:scale-[0.98]",
         navTourActive
           ? "hover:bg-[var(--surface-hover)]"
           : "hover:brightness-105",
-        collapsed && "justify-center",
       )}
       style={{
-        height: collapsed ? COLLAPSED_ASSISTANT_ROW_HEIGHT : rowHeight,
+        height: COLLAPSED_ASSISTANT_ROW_HEIGHT,
         gap: SIDEBAR_CHIP_GAP,
-        // While the tour owns the nav, the color leaves this row — it
-        // drains to a plain nav item so the tour's flood is the only color
-        // treatment on screen.
         backgroundColor: navTourActive ? "transparent" : hex,
         color: navTourActive ? "var(--content-default)" : fg,
-        paddingLeft: collapsed ? 0 : ROW_PADDING_X,
-        paddingRight: collapsed ? 0 : ROW_PADDING_X,
       }}
     >
-      {collapsed ? (
-        /* Collapsed rail: the eyes alone, centered, idling in place. */
-        !navTourActive &&
-        eye && (
-          <motion.span
-            className="pointer-events-none relative block"
-            style={{
-              width: eyesWidth,
-              height: eyesHeight,
-              transformOrigin: "50% 100%",
-            }}
-            initial={false}
-            animate={eyesControls}
-          >
-            {eyesSvg}
-          </motion.span>
-        )
-      ) : (
-        <>
-          {/* Leading eye slot, chip-width so the eyes center on the New
-              Chat row's plus chip below; the sprite is absolutely placed
-              so patrols can carry it across (and under) the whole row. */}
-          <span
-            aria-hidden="true"
-            className="pointer-events-none relative flex shrink-0 items-center justify-center"
-            style={{ width: CHIP_SIZE, height: rowHeight }}
-          >
-            {/* While the tour owns the nav the eyes leave the row — the
-                Brain stands in, matching the no-avatar row's icon. */}
-            {navTourActive && (
-              <Brain
-                className="h-3.5 w-3.5"
-                style={{
-                  color: active
-                    ? "var(--content-default)"
-                    : "var(--content-tertiary)",
-                }}
-              />
-            )}
-            {!navTourActive && eye && (
-              <motion.span
-                className="absolute"
-                style={{
-                  width: eyesWidth,
-                  height: eyesHeight,
-                  left: (CHIP_SIZE - eyesWidth) / 2,
-                  top: (rowHeight - eyesHeight) / 2,
-                  transformOrigin: "50% 100%",
-                }}
-                initial={false}
-                animate={eyesControls}
-              >
-                {eyesSvg}
-              </motion.span>
-            )}
-          </span>
-          <span
-            className={`min-w-0 flex-1 truncate text-left ${
-              isMobile ? "text-body-large-default" : "text-body-medium-default"
-            }`}
-          >
-            {label}
-          </span>
-        </>
+      {!navTourActive && eye && (
+        <motion.span
+          className="pointer-events-none relative block"
+          style={{
+            width: eyesWidth,
+            height: eyesHeight,
+            transformOrigin: "50% 100%",
+          }}
+          initial={false}
+          animate={eyesControls}
+        >
+          {eyesSvg}
+        </motion.span>
       )}
     </button>
+  ) : (
+    <span style={tintStyle}>
+      <PanelItem
+        shape="pill"
+        leadingSlot={eyesSlot}
+        label={label}
+        active={active}
+        onSelect={onSelect}
+        data-tour-id="assistant-page"
+      />
+    </span>
   );
 
   return (
