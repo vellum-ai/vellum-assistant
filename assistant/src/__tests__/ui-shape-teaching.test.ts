@@ -5,6 +5,7 @@ import { uiShowTool } from "../tools/ui-surface/definitions.js";
 import {
   SURFACE_SHAPE_DOCS,
   SURFACE_TYPE_NAMES,
+  UI_SHOW_TYPE_DOCS,
   uiShowTeachingError,
 } from "../tools/ui-surface/surface-shape-docs.js";
 
@@ -290,6 +291,12 @@ describe("ui_show displayable payloads proxy through", () => {
         surfaceType: "channel_setup",
         input: { surface_type: "channel_setup", data: { channel: "telegram" } },
       },
+      {
+        // The picker reads its own voice and catalog, so an empty payload is
+        // the whole contract and there is no missing-content state to teach.
+        surfaceType: "voice_picker",
+        input: { surface_type: "voice_picker", data: {} },
+      },
     ];
 
   for (const { surfaceType, input } of cases) {
@@ -346,5 +353,15 @@ describe("uiShowTeachingError", () => {
     for (const name of SURFACE_TYPE_NAMES) {
       expect(uiShowTool.description).toContain(name);
     }
+  });
+
+  test("voice_picker is a cold type that accepts an empty payload", () => {
+    expect(
+      uiShowTeachingError({ surface_type: "voice_picker", data: {} }),
+    ).toBeNull();
+    expect(UI_SHOW_TYPE_DOCS).toContain(
+      `voice_picker (${SURFACE_SHAPE_DOCS.voice_picker!.purpose})`,
+    );
+    expect(UI_SHOW_TYPE_DOCS).not.toContain("- voice_picker:");
   });
 });

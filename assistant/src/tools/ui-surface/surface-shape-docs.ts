@@ -211,6 +211,11 @@ export const SURFACE_SHAPE_DOCS: Record<string, SurfaceShapeDoc> = {
         ? null
         : '`data.channel` must be one of "slack", "telegram", "phone"',
   },
+  voice_picker: {
+    purpose: "inline picker for the voice the assistant speaks in",
+    shape:
+      "{}: no payload, the card reads the current voice and the catalog itself. Show it when the user asks to change, hear, or pick a voice, instead of describing voices in prose or sending them to Settings. Selecting a voice applies on the assistant's next spoken turn",
+  },
 };
 
 /** Model-facing surface_type enum, derived so docs and schema cannot drift. */
