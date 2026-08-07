@@ -648,6 +648,82 @@ describe("Conversation message queue", () => {
     await new Promise((r) => setTimeout(r, 10));
   });
 
+  test("a processMessage turn keeps its turn-start trust when the slot moves before the loop opens", async () => {
+    // processMessage is the third turn entry point, and the one a web turn
+    // takes on an idle conversation (the route only enqueues while
+    // isProcessing). It captures trust at turn start, then awaits several
+    // times before the agent loop opens. The conversation slot is writable
+    // throughout that window by paths that do not own this turn: live-voice
+    // hydration stamp-and-restore, pointer elevation, the voice bridge.
+    //
+    // Driving a real Conversation with only AgentLoop.run mocked is what makes
+    // this observable. A double that stubs runAgentLoop itself would skip the
+    // re-read entirely and pass either way.
+    const conversation = makeConversation();
+    await conversation.loadFromDb();
+
+    conversation.setTrustContext({
+      trustClass: "trusted_contact",
+      sourceChannel: "slack",
+      requesterExternalUserId: "U-contact",
+    });
+
+    // Land another actor's slot write inside the window, after the turn-start
+    // capture and before the loop opens. persistUserMessage is awaited there.
+    const originalPersist = conversation.persistUserMessage.bind(conversation);
+    let slotMoved = false;
+    (
+      conversation as unknown as {
+        persistUserMessage: typeof conversation.persistUserMessage;
+      }
+    ).persistUserMessage = async (opts) => {
+      const result = await originalPersist(opts);
+      conversation.setTrustContext({
+        trustClass: "guardian",
+        sourceChannel: "vellum",
+        requesterExternalUserId: "guardian-principal",
+      });
+      // Also move the per-turn field, which is writable out-of-band: a wake
+      // that settles inside this window restores its prior value there
+      // (agent-wake stamps at :1470 and restores in a `finally` at :1554).
+      // Covers both writers, so a fix that reads either one back at the agent
+      // loop call still fails this test.
+      conversation.currentTurnTrustContext = {
+        trustClass: "guardian",
+        sourceChannel: "vellum",
+        requesterExternalUserId: "guardian-principal",
+      };
+      slotMoved = true;
+      return result;
+    };
+
+    const p1 = conversation.processMessage({
+      content: "msg-1",
+      attachments: [],
+      onEvent: () => {},
+      requestId: "req-1",
+    });
+    await waitForPendingRun(1);
+
+    // Guard the test itself: if the injection stopped running, the assertions
+    // below would pass for the wrong reason.
+    expect(slotMoved).toBe(true);
+    expect(conversation.trustContext?.trustClass).toBe("guardian");
+
+    // Read mid-run: this is what tool setup and the guardian-request producers
+    // resolve against while the turn executes.
+    expect(conversation.currentTurnTrustContext?.trustClass).toBe(
+      "trusted_contact",
+    );
+    expect(conversation.currentTurnTrustContext?.requesterExternalUserId).toBe(
+      "U-contact",
+    );
+
+    await resolveRun(0);
+    await p1;
+    await new Promise((r) => setTimeout(r, 10));
+  });
+
   test("[experimental] queued passthrough siblings drain as a single batched run", async () => {
     const conversation = makeConversation();
     await conversation.loadFromDb();
