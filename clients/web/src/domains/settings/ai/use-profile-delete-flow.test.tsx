@@ -459,6 +459,49 @@ describe("profile delete flow - replacement preselection", () => {
       "Other Custom",
     ]);
   });
+
+  test("managed profiles that are not the default are offered too", async () => {
+    profilesState["quality"] = {
+      label: "Quality",
+      source: "managed",
+      invariant: true,
+      provider: "anthropic",
+      model: "claude-opus-4-8",
+    };
+    schedulesByProfile["my-custom"] = [
+      { name: "Morning digest", isDeferred: false },
+    ];
+    renderSection();
+    await clickDelete("My Custom");
+    await waitForDialog();
+
+    expect(await replacementOptionLabels()).toEqual([
+      "Balanced",
+      "Other Custom",
+      "Quality",
+    ]);
+  });
+
+  test("deleting the default preselects the user's own profile over managed ones", async () => {
+    profilesState["quality"] = {
+      label: "Quality",
+      source: "managed",
+      invariant: true,
+      provider: "anthropic",
+      model: "claude-opus-4-8",
+    };
+    activeProfileState = "my-custom";
+    renderSection();
+    await clickDelete("My Custom");
+    await waitForDialog();
+
+    expect(await replacementOptionLabels()).toEqual([
+      "Balanced",
+      "Other Custom",
+      "Quality",
+    ]);
+    expect(selectedReplacementLabel()).toBe("Other Custom");
+  });
 });
 
 describe("profile delete flow - disabled replacements", () => {

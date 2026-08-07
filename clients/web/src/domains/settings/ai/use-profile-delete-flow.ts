@@ -144,13 +144,14 @@ export function useProfileDeleteFlow(
    * Being told why the obvious target is unavailable beats it silently
    * missing.
    *
-   * Among what survives, managed profiles are a poor default when the user
-   * has profiles of their own, but the current default is always offered: it
-   * is the preselection, and it is where a schedule carrying no pin of its
-   * own would run.
+   * Everything that survives is offered, managed profiles included: any
+   * usable profile is a legal destination, and hiding the managed ones
+   * would leave a user whose only other profiles are managed staring at a
+   * list missing the target they want. Preference between them is a
+   * preselection concern, handled in `defaultReplacementFor`.
    */
   function replacementCandidates(deleting: string | null): ProfileWithName[] {
-    const candidates = orderedProfiles.filter((p) => {
+    return orderedProfiles.filter((p) => {
       if (p.name === deleting) {
         return false;
       }
@@ -161,16 +162,17 @@ export function useProfileDeleteFlow(
         requireOwnProviderAndModel,
       });
     });
-    const preferred = candidates.filter(
-      (p) => p.source !== "managed" || p.name === activeProfile,
-    );
-    return preferred.length > 0 ? preferred : candidates;
   }
 
   /**
    * Preselected replacement. When schedules are moving, a disabled profile is
    * not a legal destination, so preselecting one would arm the confirm button
    * with a target the server rejects.
+   *
+   * The current default wins: it is where a schedule carrying no pin of its
+   * own would run. When the current default is what is being deleted, the
+   * user's own profiles are preferred over managed ones, which are a poor
+   * guess at where someone who built their own profiles wants work to land.
    */
   function defaultReplacementFor(
     deleting: string,
@@ -180,7 +182,8 @@ export function useProfileDeleteFlow(
       (p) => !excludeDisabled || p.status !== "disabled",
     );
     const current = candidates.find((p) => p.name === activeProfile);
-    return (current ?? candidates[0])?.name ?? "";
+    const own = candidates.find((p) => p.source !== "managed");
+    return (current ?? own ?? candidates[0])?.name ?? "";
   }
 
   async function deleteNow(name: string) {
