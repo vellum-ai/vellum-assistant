@@ -18,9 +18,14 @@
  * avatar-colored row — except on light avatar colors (yellow), where it
  * flips dark for contrast.
  *
- * Falls back to a plain-toned row (a Brain icon in the same leading slot,
- * so both labels stay aligned) when there's no character avatar to dress
- * as (custom image / not loaded).
+ * The leading slot holds whichever avatar the assistant has: the character's
+ * eyes, or an uploaded image in their place, both at the slot's full width so
+ * the row's geometry does not change between them. An uploaded image wears the
+ * plain pill rather than a tinted one, since a colour is read from a
+ * character's palette and nothing derives one from an image.
+ *
+ * With neither, the row falls back to a plain-toned one with a Brain icon in
+ * that slot, so the cluster's labels stay aligned.
  */
 
 import { SIDEBAR_STACK_GAP } from "@/components/sidebar-nav-geometry";
@@ -80,7 +85,8 @@ export function AssistantNavItem({
   onSelect,
   onNewConversation,
 }: AssistantNavItemProps) {
-  const { components, traits } = useAssistantAvatar(assistantId);
+  const { components, traits, customImageUrl } =
+    useAssistantAvatar(assistantId);
   const reduce = useReducedMotion();
   // While the onboarding tour owns the nav rows (flooding them with its own
   // eyes treatment), this component's eyes and its loop stay completely
@@ -239,6 +245,41 @@ export function AssistantNavItem({
     />
   );
 
+  /* An uploaded image stands in for the character avatar this row otherwise
+     dresses as. It fills the same CHIP_SIZE slot the eyes occupy, so the row
+     reads the same whichever kind of avatar the assistant has, and it is
+     `rounded-full object-cover` as every other surface renders it.
+
+     Not `ChatAvatar`: that would also replace the Brain for assistants with no
+     avatar at all, since it falls back to a generated default character and
+     then to a "V", and it brings a mount spring and the poke sound into a nav
+     row. Only the uploaded-image case wants changing here.
+
+     Suppressed while the tour owns the nav, matching the way the character
+     avatar's colour drains and the Brain stands in for its eyes. */
+  /* One answer to "is there an uploaded image to wear", read by both the
+     expanded slot and the collapsed tile so the two cannot disagree. A url
+     rather than a boolean, so each render site has the value it needs. */
+  const uploadedAvatarUrl = navTourActive ? null : customImageUrl;
+
+  const avatarImage =
+    uploadedAvatarUrl !== null ? (
+      <span
+        aria-hidden="true"
+        className="pointer-events-none flex shrink-0 items-center justify-center"
+        style={{ width: CHIP_SIZE, height: CHIP_SIZE }}
+      >
+        <img
+          src={uploadedAvatarUrl}
+          alt=""
+          width={CHIP_SIZE}
+          height={CHIP_SIZE}
+          className="rounded-full object-cover"
+          style={{ width: CHIP_SIZE, height: CHIP_SIZE }}
+        />
+      </span>
+    ) : null;
+
   if (!hex) {
     // No character avatar (custom image / not loaded): a plain-toned row
     // that keeps the New Chat row's geometry — the Brain icon centers in
@@ -268,14 +309,28 @@ export function AssistantNavItem({
               height: COLLAPSED_ASSISTANT_TILE,
             }}
           >
-            <Brain
-              className="h-3.5 w-3.5"
-              style={{
-                color: active
-                  ? "var(--content-default)"
-                  : "var(--content-tertiary)",
-              }}
-            />
+            {/* The uploaded image fills the tile, as an avatar rather than a
+                glyph sitting on a surface. The tile is already round and
+                clipping, so it needs no rounding of its own. */}
+            {uploadedAvatarUrl !== null ? (
+              <img
+                src={uploadedAvatarUrl}
+                alt=""
+                aria-hidden="true"
+                width={COLLAPSED_ASSISTANT_TILE}
+                height={COLLAPSED_ASSISTANT_TILE}
+                className="h-full w-full object-cover"
+              />
+            ) : (
+              <Brain
+                className="h-3.5 w-3.5"
+                style={{
+                  color: active
+                    ? "var(--content-default)"
+                    : "var(--content-tertiary)",
+                }}
+              />
+            )}
           </button>
         ) : (
           /* No character avatar, so nothing declares the tint properties and
@@ -284,6 +339,7 @@ export function AssistantNavItem({
           <PanelItem
             shape="pill"
             icon={Brain}
+            leadingSlot={avatarImage ?? undefined}
             label={label}
             active={active}
             onSelect={onSelect}
