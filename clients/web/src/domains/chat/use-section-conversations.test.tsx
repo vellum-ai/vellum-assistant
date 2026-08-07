@@ -1,0 +1,193 @@
+/**
+ * The rules that decide whether a section renders its own fetched rows or the
+ * rows derived from the foreground page.
+ *
+ * These moved here from `use-sidebar-state.test.tsx` along with the query
+ * itself: the sidebar hook no longer fetches, so this is where the gate and
+ * the pending fallback are decided.
+ */
+
+import { cleanup, renderHook } from "@testing-library/react";
+import { afterEach, describe, expect, mock, test } from "bun:test";
+
+import type { SidebarSection } from "@/domains/chat/use-sidebar-state";
+import type { Conversation } from "@/types/conversation-types";
+import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
+
+/** What the section query answers with, per test. */
+let serverRows: Conversation[] = [];
+let serverPending = false;
+/** Filters the hook actually sent, so tests can assert the query is scoped. */
+let sentFilters: Array<{ groupId?: string; originChannel?: string }> = [];
+/** Whether the query was enabled, so a closed gate is distinguishable. */
+let lastEnabled = false;
+
+mock.module("@/hooks/conversation-queries", () => ({
+  useSectionConversationListQuery: (
+    _assistantId: string | null,
+    filter: { groupId?: string; originChannel?: string },
+    enabled: boolean,
+  ) => {
+    sentFilters.push(filter);
+    lastEnabled = enabled;
+    return {
+      conversations: enabled ? serverRows : [],
+      isLoading: serverPending,
+      isPending: serverPending,
+    };
+  },
+}));
+
+mock.module("@/assistant/lifecycle-store", () => ({
+  useAssistantLifecycleStore: (selector: (s: unknown) => unknown) =>
+    selector({ assistantState: { kind: "active" } }),
+}));
+
+const { useSectionConversations } = await import(
+  "@/domains/chat/use-section-conversations"
+);
+
+function conv(conversationId: string): Conversation {
+  return { conversationId, hasUnseenLatestAssistantMessage: false };
+}
+
+const DERIVED = [conv("derived-1")];
+const FROM_SERVER = [conv("server-1"), conv("server-2")];
+
+function pinnedSection(all: Conversation[] = DERIVED): SidebarSection {
+  return { type: "pinned", key: "pinned", label: "Pinned", all };
+}
+
+function groupSection(all: Conversation[] = DERIVED): SidebarSection {
+  return {
+    type: "group",
+    key: "grp-work",
+    label: "Work",
+    all,
+    group: { id: "grp-work", name: "Work", icon: null, conversations: all },
+  };
+}
+
+function openGate() {
+  useAssistantIdentityStore
+    .getState()
+    .setIdentity("test-asst", "0.12.0", "asst-1");
+}
+
+afterEach(() => {
+  cleanup();
+  useAssistantIdentityStore.getState().clearIdentity();
+  serverRows = [];
+  serverPending = false;
+  sentFilters = [];
+  lastEnabled = false;
+});
+
+describe("useSectionConversations", () => {
+  test("renders the section's own rows once the query answers", () => {
+    openGate();
+    serverRows = FROM_SERVER;
+
+    const { result } = renderHook(() =>
+      useSectionConversations("asst-1", pinnedSection()),
+    );
+
+    expect(result.current.map((c) => c.conversationId)).toEqual([
+      "server-1",
+      "server-2",
+    ]);
+  });
+
+  test("asks for the section's own group, not the whole list", () => {
+    openGate();
+    renderHook(() => useSectionConversations("asst-1", groupSection()));
+
+    expect(sentFilters.at(-1)).toEqual({ groupId: "grp-work" });
+  });
+
+  test("Pinned asks for the pinned group", () => {
+    openGate();
+    renderHook(() => useSectionConversations("asst-1", pinnedSection()));
+
+    expect(sentFilters.at(-1)).toEqual({ groupId: "system:pinned" });
+  });
+
+  /* An empty section is dropped from the sidebar, so falling through to the
+     empty query result while pending would make the section vanish on every
+     cold load until a multi-page drain finished. */
+  test("keeps painting the derived rows while the query is pending", () => {
+    openGate();
+    serverPending = true;
+    serverRows = FROM_SERVER;
+
+    const { result } = renderHook(() =>
+      useSectionConversations("asst-1", pinnedSection()),
+    );
+
+    expect(result.current.map((c) => c.conversationId)).toEqual(["derived-1"]);
+  });
+
+  /* An assistant predating the filter ignores the unknown parameter and
+     answers 200 with every conversation, which would render in full inside
+     one section. Below the gate the section stays on what it was handed. */
+  test("stays on the derived rows when the gate is closed", () => {
+    serverRows = FROM_SERVER;
+
+    const { result } = renderHook(() =>
+      useSectionConversations("asst-1", pinnedSection()),
+    );
+
+    expect(result.current.map((c) => c.conversationId)).toEqual(["derived-1"]);
+    expect(lastEnabled).toBe(false);
+  });
+
+  /* The gate is assistant-scoped: a version fetched for another assistant
+     must not authorize a filtered fetch for this one. */
+  test("stays on the derived rows when the version belongs to another assistant", () => {
+    useAssistantIdentityStore
+      .getState()
+      .setIdentity("test-asst", "0.12.0", "asst-other");
+    serverRows = FROM_SERVER;
+
+    const { result } = renderHook(() =>
+      useSectionConversations("asst-1", pinnedSection()),
+    );
+
+    expect(result.current.map((c) => c.conversationId)).toEqual(["derived-1"]);
+    expect(lastEnabled).toBe(false);
+  });
+
+  /* Chats and the channel sections have no filter yet. They must not fetch:
+     a groupless request would return the entire list. */
+  test("never fetches for a section with no filter of its own", () => {
+    openGate();
+    serverRows = FROM_SERVER;
+
+    const { result } = renderHook(() =>
+      useSectionConversations("asst-1", {
+        type: "recents",
+        key: "recents",
+        label: "Chats",
+        all: DERIVED,
+      }),
+    );
+
+    expect(result.current.map((c) => c.conversationId)).toEqual(["derived-1"]);
+    expect(lastEnabled).toBe(false);
+  });
+
+  test("renders the server's order as-is", () => {
+    openGate();
+    // Reverse creation order, so any client re-sort would flip this.
+    serverRows = [conv("newer"), conv("older")];
+
+    const { result } = renderHook(() =>
+      useSectionConversations("asst-1", groupSection()),
+    );
+
+    expect(result.current.map((c) => c.conversationId)).toEqual([
+      "newer",
+      "older",
+    ]);
+  });
+});

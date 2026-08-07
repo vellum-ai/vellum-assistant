@@ -341,7 +341,10 @@ export function AssistantSideMenu({
   // the move-up/down pair its position allows (absent when the move would do
   // nothing, which is how the menu avoids offering a dead action), and - for
   // custom groups only - rename/delete/copy-id.
-  const sectionMenu = (section: SidebarSection): GroupMenuItemsProps => {
+  const sectionMenu = (
+    section: SidebarSection,
+    conversations: Conversation[],
+  ): GroupMenuItemsProps => {
     const moveOptions = {
       onMoveUp: sidebar.canMoveSection(section.key, -1)
         ? () => sidebar.onMoveSection(section.key, -1)
@@ -351,9 +354,9 @@ export function AssistantSideMenu({
         : undefined,
     };
     if (section.type !== "group") {
-      return buildGroupMenu(section.label, section.all, moveOptions);
+      return buildGroupMenu(section.label, conversations, moveOptions);
     }
-    return buildGroupMenu(section.label, section.all, {
+    return buildGroupMenu(section.label, conversations, {
       ...moveOptions,
       onRename: onRenameGroup
         ? () => onRenameGroup(section.group.id)
@@ -378,13 +381,19 @@ export function AssistantSideMenu({
     </div>
   );
 
+  /* `groupMenu` and `collapsedIndicator` are passed as functions of the
+     section's conversations, not as built values. The section resolves its own
+     rows from its own query, so the sidebar can say what the bulk actions are
+     without knowing what they act on: "mark all read" then covers every member
+     of the section, not just the ones that reached the foreground page. */
   const renderSection = (section: SidebarSection) => (
     <SidebarSectionItem
       key={section.key}
       section={section}
-      groupMenu={sectionMenu(section)}
+      assistantId={assistantId ?? null}
+      groupMenu={(conversations) => sectionMenu(section, conversations)}
       drag={sectionDragFor(section)}
-      collapsedIndicator={collapsedActivityDot(section.all)}
+      collapsedIndicator={collapsedActivityDot}
     />
   );
 
@@ -520,6 +529,7 @@ export function AssistantSideMenu({
           {isCollapsedRail ? (
             <CollapsedRailSections
               sections={sidebar.sections}
+              assistantId={assistantId ?? null}
               viewMode={sidebar.viewMode}
               flatList={sidebar.flatList}
               processingConversationIds={processingConversationIds}

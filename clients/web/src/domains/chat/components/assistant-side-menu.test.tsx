@@ -26,14 +26,24 @@ mock.module("@/hooks/use-is-mobile", () => ({
 // The sidebar owns its Background/Scheduled lazy queries; stub both so static
 // SSR rendering resolves without a QueryClient. These tests pass the full
 // conversation list through `conversations` and assert the rendered buckets.
-/* Pinned asks the server for its own members, so the mock answers the way the
-   server does: the pinned rows of whatever the test set up. Section rows no
-   longer come from the `conversations` fixture by client-side filtering, which
-   is the coupling being removed. */
-let sectionRows: Conversation[] = [];
+/* Every section asks the server for its own members, so the mock answers the
+   way the server does: filter by `groupId`, which is single-valued per
+   conversation. It MUST honor the filter. A mock that returned one fixed list
+   would hand every section the same rows and quietly pass a sidebar that
+   renders each conversation in every card. */
+let sectionSource: Conversation[] = [];
 
 function setSectionRows(conversations: Conversation[]) {
-  sectionRows = conversations.filter((c) => c.isPinned);
+  sectionSource = conversations;
+}
+
+function rowsMatching(filter: { groupId?: string }): Conversation[] {
+  if (filter.groupId === "system:pinned") {
+    return sectionSource.filter((c) => c.isPinned);
+  }
+  return sectionSource.filter(
+    (c) => !c.isPinned && c.groupId === filter.groupId,
+  );
 }
 
 mock.module("@/hooks/conversation-queries", () => ({
@@ -45,8 +55,11 @@ mock.module("@/hooks/conversation-queries", () => ({
     conversations: [],
     isPending: false,
   }),
-  useSectionConversationListQuery: () => ({
-    conversations: sectionRows,
+  useSectionConversationListQuery: (
+    _assistantId: string | null,
+    filter: { groupId?: string },
+  ) => ({
+    conversations: rowsMatching(filter),
     isLoading: false,
     isPending: false,
   }),
