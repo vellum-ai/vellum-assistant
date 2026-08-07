@@ -1,8 +1,8 @@
 /**
  * The collapsed select-style trigger shared by the speech pickers: the
- * current value plus a chevron, mirroring the design-library Dropdown
+ * current value plus a chevron, mirroring the design-library Select
  * trigger's field styling so a picker field reads as a sibling of a real
- * Dropdown while opening a popover or dialog instead.
+ * Select while opening a popover or dialog instead.
  *
  * Sites: the Text-to-Speech card's voice field (`VoicePickerField`, inside a
  * `Popover.Trigger asChild`, which injects its open/close wiring through the

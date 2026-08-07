@@ -15,6 +15,7 @@ export type LiveVoiceMetricsEvent =
   | "ptt_release"
   | "utterance_end"
   | "endpoint_decision"
+  | "endpoint_commit"
   | "barge_in"
   | "final_transcript"
   | "first_assistant_delta"
@@ -29,10 +30,17 @@ export type LiveVoiceMetricsEvent =
 // front-door leg either holds the utterance open or releases it to the turn.
 export type VoiceEndpointAction = "release" | "hold";
 
+// Which decider produced the endpoint outcome: the speculative front-door
+// leg, or the Flux turn-detection stream.
+export type VoiceEndpointSource = "front-door" | "flux";
+
+const DEFAULT_ENDPOINT_SOURCE: VoiceEndpointSource = "front-door";
+
 // Semantic-endpointing decision on a silence boundary.
 interface LiveVoiceEndpointDecisionMark {
   action: VoiceEndpointAction;
   latencyMs: number;
+  source?: VoiceEndpointSource;
 }
 
 // Which floor-holding ack actually spoke during a turn.
@@ -117,11 +125,17 @@ interface LiveVoiceTurnMetrics {
   cancellationReason: string | null;
   timestamps: LiveVoiceTurnTimestamps;
   durations: LiveVoiceTurnDurations;
+  // End of turn measured from the local VAD speech-stop mark to the commit,
+  // recorded on every committed turn whichever decider owned the boundary.
+  // Absent on a turn that never committed, and in push-to-talk mode, where
+  // there is no local speech-stop mark to anchor to.
+  endpointCommitLatencyMs?: number;
   // Present only when the semantic-endpointing decider was consulted for the
   // turn / when an ack actually spoke / when a progress narration spoke, so
   // turns that never touch the features carry no trace of them.
   endpointHoldCount?: number;
   endpointDecisionMaxLatencyMs?: number;
+  endpointDecisionSource?: VoiceEndpointSource;
   ackSpoken?: LiveVoiceSpokenAckKind;
   progressUpdatesSpoken?: number;
 }
@@ -165,10 +179,13 @@ interface LiveVoiceMetricsAggregateFields {
   ttsFirstAudioMs: number | null;
   roundTripMs: number | null;
   totalMs: number | null;
-  // Optional so metrics frames stay byte-identical when the front-model
-  // features never engaged (see the matching fields on LiveVoiceTurnMetrics).
+  // Optional so metrics frames stay byte-identical when the turn never
+  // committed and when the front-model features never engaged (see the
+  // matching fields on LiveVoiceTurnMetrics).
+  endpointCommitLatencyMs?: number;
   endpointHoldCount?: number;
   endpointDecisionMaxLatencyMs?: number;
+  endpointDecisionSource?: VoiceEndpointSource;
   ackSpoken?: LiveVoiceSpokenAckKind;
   progressUpdatesSpoken?: number;
 }
@@ -187,10 +204,14 @@ interface MutableTurn {
   status: LiveVoiceTurnStatus;
   cancellationReason: string | null;
   timestamps: LiveVoiceTurnTimestamps;
+  // Null means the turn never committed (see LiveVoiceTurnMetrics).
+  endpointCommitLatencyMs: number | null;
   endpointHoldCount: number;
   // Doubles as the "decider was consulted" latch: null means no endpoint
   // decision was ever recorded for the turn.
   endpointDecisionMaxLatencyMs: number | null;
+  // The decider behind the turn's most recent endpoint decision.
+  endpointDecisionSource: VoiceEndpointSource | null;
   ackSpoken: LiveVoiceSpokenAckKind | null;
   progressUpdatesSpoken: number;
 }
@@ -255,8 +276,10 @@ export class LiveVoiceMetricsCollector {
         completedAtMs: null,
         cancelledAtMs: null,
       },
+      endpointCommitLatencyMs: null,
       endpointHoldCount: 0,
       endpointDecisionMaxLatencyMs: null,
+      endpointDecisionSource: null,
       ackSpoken: null,
       progressUpdatesSpoken: 0,
     };
@@ -340,14 +363,24 @@ export class LiveVoiceMetricsCollector {
     if (decision.action === "hold") {
       turn.endpointHoldCount += 1;
     }
-    const latencyMs = Number.isFinite(decision.latencyMs)
-      ? Math.max(0, decision.latencyMs)
-      : 0;
     turn.endpointDecisionMaxLatencyMs = Math.max(
       turn.endpointDecisionMaxLatencyMs ?? 0,
-      latencyMs,
+      normalizeLatencyMs(decision.latencyMs),
     );
+    turn.endpointDecisionSource = decision.source ?? DEFAULT_ENDPOINT_SOURCE;
     return this.emit("endpoint_decision", turn.turnId);
+  }
+
+  // First-wins, since an utterance commits once.
+  markEndpointCommit(
+    turnId: string | undefined,
+    latencyMs: number,
+  ): LiveVoiceMetricsFrame {
+    const turn = this.ensureActiveTurn(turnId);
+    if (turn.endpointCommitLatencyMs === null) {
+      turn.endpointCommitLatencyMs = normalizeLatencyMs(latencyMs);
+    }
+    return this.emit("endpoint_commit", turn.turnId);
   }
 
   markAckSpoken(
@@ -574,35 +607,45 @@ function aggregateFieldsForTurn(
     ttsFirstAudioMs: turn.durations.firstAssistantDeltaToFirstTtsAudioMs,
     roundTripMs: turn.durations.roundTripMs,
     totalMs: turn.durations.totalTurnDurationMs,
-    ...frontModelFields(turn),
+    ...optionalTurnFields(turn),
   };
 }
 
-// Shared optional front-model fields for turn snapshots and aggregate
-// frame fields: absent unless the endpoint decider was consulted / an ack
-// spoke / a progress narration spoke, so turns that never touch the
-// features are unchanged.
-function frontModelFields(
+// Shared optional fields for turn snapshots and aggregate frame fields: the
+// commit latency is absent unless the turn committed against a local
+// speech-stop mark, and the front-model fields are absent unless the endpoint
+// decider was consulted / an ack spoke / a progress narration spoke, so turns
+// that never touch the features are unchanged.
+function optionalTurnFields(
   // Accepts both MutableTurn (null = unset) and snapshot (absent = unset).
   turn: {
+    endpointCommitLatencyMs?: number | null;
     endpointHoldCount?: number | null;
     endpointDecisionMaxLatencyMs?: number | null;
+    endpointDecisionSource?: VoiceEndpointSource | null;
     ackSpoken?: LiveVoiceSpokenAckKind | null;
     progressUpdatesSpoken?: number | null;
   },
 ): Pick<
   LiveVoiceTurnMetrics,
+  | "endpointCommitLatencyMs"
   | "endpointHoldCount"
   | "endpointDecisionMaxLatencyMs"
+  | "endpointDecisionSource"
   | "ackSpoken"
   | "progressUpdatesSpoken"
 > {
   const progressUpdatesSpoken = turn.progressUpdatesSpoken ?? 0;
   return {
+    ...(turn.endpointCommitLatencyMs != null
+      ? { endpointCommitLatencyMs: turn.endpointCommitLatencyMs }
+      : {}),
     ...(turn.endpointDecisionMaxLatencyMs != null
       ? {
           endpointHoldCount: turn.endpointHoldCount ?? 0,
           endpointDecisionMaxLatencyMs: turn.endpointDecisionMaxLatencyMs,
+          endpointDecisionSource:
+            turn.endpointDecisionSource ?? DEFAULT_ENDPOINT_SOURCE,
         }
       : {}),
     ...(turn.ackSpoken != null ? { ackSpoken: turn.ackSpoken } : {}),
@@ -649,8 +692,10 @@ function cloneMutableTurn(turn: MutableTurn): MutableTurn {
     status: turn.status,
     cancellationReason: turn.cancellationReason,
     timestamps: { ...turn.timestamps },
+    endpointCommitLatencyMs: turn.endpointCommitLatencyMs,
     endpointHoldCount: turn.endpointHoldCount,
     endpointDecisionMaxLatencyMs: turn.endpointDecisionMaxLatencyMs,
+    endpointDecisionSource: turn.endpointDecisionSource,
     ackSpoken: turn.ackSpoken,
     progressUpdatesSpoken: turn.progressUpdatesSpoken,
   };
@@ -663,7 +708,7 @@ function snapshotTurn(turn: MutableTurn): LiveVoiceTurnMetrics {
     status: turn.status,
     cancellationReason: turn.cancellationReason,
     timestamps,
-    ...frontModelFields(turn),
+    ...optionalTurnFields(turn),
     durations: {
       firstAudioToFirstPartialMs: duration(
         timestamps.firstAudioAtMs,
@@ -764,6 +809,10 @@ function percentile(
   }
   const index = Math.ceil(sortedValues.length * percentileValue) - 1;
   return sortedValues[Math.min(Math.max(index, 0), sortedValues.length - 1)];
+}
+
+function normalizeLatencyMs(latencyMs: number): number {
+  return Number.isFinite(latencyMs) ? Math.max(0, latencyMs) : 0;
 }
 
 function duration(startMs: number | null, endMs: number | null): number | null {

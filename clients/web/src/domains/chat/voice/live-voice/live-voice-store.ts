@@ -235,6 +235,8 @@ export interface LiveVoiceState {
    * Meaningful only while `state === "speaking"`.
    */
   assistantAudioActive: boolean;
+  /** True once microphone capture has started for the active session. */
+  microphoneActive: boolean;
   /**
    * True while the controller is retrying a dropped connection (attempt > 0),
    * so surfaces can distinguish it from the initial-connect `connecting`.
@@ -388,6 +390,8 @@ export interface LiveVoiceActions {
   setState: (state: LiveVoiceSessionState) => void;
   /** Record whether assistant TTS audio is currently queued/playing. */
   setAssistantAudioActive: (active: boolean) => void;
+  /** Record whether the active session has acquired the microphone. */
+  setMicrophoneActive: (active: boolean) => void;
   /**
    * Record what the current turn is doing, as the daemon worded it, and which
    * confirmation it is blocked on if it is blocked on one.
@@ -558,6 +562,7 @@ export function isLiveVoiceSessionOwnedBy(
 const INITIAL_SESSION_STATE: Omit<LiveVoiceState, "starter"> = {
   state: "idle",
   assistantAudioActive: false,
+  microphoneActive: false,
   activityLabel: "",
   pendingApprovalRequestId: null,
   reconnecting: false,
@@ -589,6 +594,7 @@ const useLiveVoiceStoreBase = create<LiveVoiceStore>()((set) => ({
   setState: (state) => set({ state }),
   setAssistantAudioActive: (assistantAudioActive) =>
     set({ assistantAudioActive }),
+  setMicrophoneActive: (microphoneActive) => set({ microphoneActive }),
   setActivityLabel: (activityLabel, pendingApprovalRequestId = null) =>
     set({ activityLabel, pendingApprovalRequestId }),
   setReconnecting: (reconnecting) => set({ reconnecting }),

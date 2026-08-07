@@ -609,8 +609,8 @@ $ assistant plugins install owner/repo`}</code>
             <li>
               <code>mode</code>: <code>manual</code> (the default) never
               upgrades on its own. <code>auto</code> sweeps your installed
-              plugins hourly and moves each one to its source&apos;s current
-              revision.
+              marketplace plugins hourly and moves each one to the
+              catalog&apos;s current pin.
             </li>
             <li>
               <code>strategy</code>: how an automatic upgrade reconciles your
@@ -628,8 +628,17 @@ $ assistant plugins install owner/repo`}</code>
             </li>
           </ul>
           <p className="mb-4 text-zinc-600 dark:text-zinc-400">
-            Disabled plugins are skipped, and so is anything already on its
-            latest revision &mdash; the sweep checks for drift before it moves
+            Only curated marketplace installs are swept. The catalog pins every
+            entry to a commit a curator reviewed, so an automatic upgrade can
+            only land reviewed code. A plugin you installed straight from a
+            GitHub URL tracks a mutable ref instead (a branch, a tag, or the
+            repo&apos;s default branch), so upgrading it means running whatever
+            upstream pushed since. Those stay put until you upgrade them
+            yourself with <code>assistant plugins upgrade &lt;name&gt;</code>.
+          </p>
+          <p className="mb-4 text-zinc-600 dark:text-zinc-400">
+            Disabled plugins are skipped too, and so is anything already on its
+            latest revision: the sweep checks for drift before it moves
             anything. A plugin that cannot be upgraded (its source is
             unreachable, or it has no upstream to advance to) is skipped and the
             rest of the sweep continues.

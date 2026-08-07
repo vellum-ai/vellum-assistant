@@ -45,13 +45,17 @@ export const DISCORD_INTENTS = {
  * `GUILD_MEMBERS` is absent for the same reason: nothing here reads member
  * events, and it carries the same privileged cost.
  *
- * `DIRECT_MESSAGES` is absent because admission is scoped to an allow-list of
- * guild channels and a DM belongs to no channel on that list, so admitting DMs
- * is a separate policy decision rather than a wider bitmask. Adding it later
- * needs no privileged intent — DMs are inside the content exemption too.
+ * `DIRECT_MESSAGES` is present because the assistant needs a private lane to
+ * one person: a verification code is delivered to a DM and answered there, and
+ * guardian outcome notices go to a DM rather than the room. It is not
+ * privileged, and DMs are inside the content exemption, so it costs nothing
+ * that `MESSAGE_CONTENT` would. Which DMs are acted on is `admit.ts`'s
+ * decision, not this bitmask's.
  */
 export const DISCORD_GATEWAY_INTENTS =
-  DISCORD_INTENTS.GUILDS | DISCORD_INTENTS.GUILD_MESSAGES;
+  DISCORD_INTENTS.GUILDS |
+  DISCORD_INTENTS.GUILD_MESSAGES |
+  DISCORD_INTENTS.DIRECT_MESSAGES;
 
 /** Intents Discord gates behind a portal toggle and, past a size threshold, approval. */
 export const PRIVILEGED_DISCORD_INTENTS = [

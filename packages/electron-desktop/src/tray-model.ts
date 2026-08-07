@@ -39,6 +39,8 @@ export interface TrayModelRuntime {
   accelerator: (
     command: VellumCommand["kind"],
   ) => Pick<MenuItemConstructorOptions, "accelerator">;
+  companionEnabled: () => boolean;
+  companionHidden: () => boolean;
   dispatch: (command: VellumCommand) => void;
   featureEnabled: (flag: string) => boolean;
   getLockfile: () => Lockfile;
@@ -46,6 +48,7 @@ export interface TrayModelRuntime {
   onboardingActive: () => boolean;
   openComponentGallery: () => void;
   removePairedLabel: string;
+  setCompanionVisible: (visible: boolean) => void;
 }
 
 let runtime: TrayModelRuntime | null = null;
@@ -336,6 +339,27 @@ const buildTrayMenu = (
       label: "Show / Hide Main Window",
       click: handlers.toggleMainWindow,
     },
+    // The floating avatar pill (`companion-window.ts`), for whoever the flag
+    // is on for. Off, there is no surface to show or hide, and an item
+    // offering to bring one back would be the only place in the app that
+    // mentions it exists.
+    ...(trayRuntime.companionEnabled()
+      ? [
+          {
+            // A checkbox rather than a toggle-action item: once the surface is
+            // hidden, this menu is the only place left to bring it back from,
+            // so the item has to show which state it is in. Electron flips
+            // `checked` before `click` runs, so the item carries the state
+            // being asked for.
+            label: "Show Floating Companion",
+            type: "checkbox" as const,
+            checked: !trayRuntime.companionHidden(),
+            click: (item: Electron.MenuItem) => {
+              trayRuntime.setCompanionVisible(item.checked);
+            },
+          },
+        ]
+      : []),
     { type: "separator" },
     {
       label: "Settings\u2026",

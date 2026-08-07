@@ -22,6 +22,7 @@ import type {
   BundleScanData,
   CompanionCharacter,
   CompanionGrowth,
+  CompanionContext,
   CompanionSurfaceState,
   ConnectivityState,
   DeepLink,
@@ -67,6 +68,7 @@ export type {
   AssistantStatus,
   BundleScanData,
   CompanionGrowth,
+  CompanionContext,
   CompanionSurfaceState,
   ConnectivityState,
   DeepLink,
@@ -332,6 +334,9 @@ declare global {
         moveBy?(dx: number, dy: number): void;
         startVoice?(): void;
         activate?(): void;
+        setComposing?(composing: boolean): void;
+        submit?(message: string, startsConversation: boolean): void;
+        setContext?(context: CompanionContext): void;
       };
     };
   }

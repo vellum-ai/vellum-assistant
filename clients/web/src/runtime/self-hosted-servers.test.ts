@@ -66,6 +66,14 @@ const switchToMock = mock(async (_options: { url?: string }) => {
   }
   return { ok: true };
 });
+const switchToPathMock = mock(
+  async (_options: { url?: string; path: string }) => {
+    if (bridgeRejects) {
+      throw bridgeFailure("switchToPath");
+    }
+    return { ok: true };
+  },
+);
 
 mock.module("@capacitor/core", () => ({
   registerPlugin: (name: string) =>
@@ -75,6 +83,7 @@ mock.module("@capacitor/core", () => ({
           add: addMock,
           remove: removeMock,
           switchTo: switchToMock,
+          switchToPath: switchToPathMock,
         }
       : {},
 }));
@@ -83,6 +92,7 @@ const {
   installNativeRememberedOrigins,
   nativeRememberedOriginsProvider,
   nativeSwitchToOrigin,
+  nativeSwitchToOriginPath,
   nativeVellumCloudOrigin,
 } = await import("@/runtime/self-hosted-servers");
 
@@ -107,6 +117,7 @@ beforeEach(() => {
   addMock.mockClear();
   removeMock.mockClear();
   switchToMock.mockClear();
+  switchToPathMock.mockClear();
   consoleDebugSpy.mockClear();
   window.localStorage.clear();
 });
@@ -325,6 +336,24 @@ describe("nativeSwitchToOrigin", () => {
   test("a null url asks for the baked origin", async () => {
     expect(await nativeSwitchToOrigin(null)).toBe(true);
     expect(switchToMock).toHaveBeenCalledWith({});
+  });
+
+  test("switches to a relative path atomically", async () => {
+    expect(
+      await nativeSwitchToOriginPath(null, "select-assistant?noAutoSkip=1"),
+    ).toBe(true);
+    expect(switchToPathMock).toHaveBeenCalledWith({
+      path: "select-assistant?noAutoSkip=1",
+    });
+  });
+
+  test("path switching resolves false on an older shell", async () => {
+    bridgeRejects = true;
+
+    expect(
+      await nativeSwitchToOriginPath(null, "select-assistant?noAutoSkip=1"),
+    ).toBe(false);
+    expect(consoleDebugSpy).toHaveBeenCalled();
   });
 
   test("resolves false on an older shell so the caller can fall back", async () => {

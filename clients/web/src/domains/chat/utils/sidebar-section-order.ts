@@ -141,50 +141,16 @@ export function nextStoredOrder(
   // their slot; only long-unseen ones are forgotten.
   const absentKeys = new Set(absent);
   const trimmed = [...result];
-  for (let i = trimmed.length - 1; i >= 0 && trimmed.length > MAX_STORED_KEYS; i -= 1) {
+  for (
+    let i = trimmed.length - 1;
+    i >= 0 && trimmed.length > MAX_STORED_KEYS;
+    i -= 1
+  ) {
     if (absentKeys.has(trimmed[i]!)) {
       trimmed.splice(i, 1);
     }
   }
   return trimmed;
-}
-
-// ---------------------------------------------------------------------------
-// Ordering constraints
-// ---------------------------------------------------------------------------
-
-/**
- * Which side of the view switch a section sits on:
- *
- * - `curated` - Pinned and the custom groups. The user's own organization
- *   layer, which the switch does not affect and which always leads.
- * - `governed` - Chats and the per-channel sections. What the switch actually
- *   changes, so it always follows.
- *
- * Sections reorder freely within their own tier and never cross between them.
- */
-export type SectionOrderClass = "curated" | "governed";
-
-/**
- * `keys` with every `curated` section ahead of every `governed` one,
- * preserving relative order within each tier.
- *
- * The switch renders on the tier boundary, so this is what makes "the switch
- * controls everything below it" structural rather than a convention: no
- * stored order, however it was arrived at, can put a governed section above
- * the curated layer or the switch below a list it governs. Applied to the
- * render order and to what gets persisted, so the stored preference always
- * describes a layout that renders.
- */
-export function enforceCuratedLead(
-  keys: readonly string[],
-  classify: (key: string) => SectionOrderClass,
-): string[] {
-  const curated = keys.filter((key) => classify(key) === "curated");
-  if (curated.length === 0 || curated.length === keys.length) {
-    return [...keys];
-  }
-  return [...curated, ...keys.filter((key) => classify(key) === "governed")];
 }
 
 /**

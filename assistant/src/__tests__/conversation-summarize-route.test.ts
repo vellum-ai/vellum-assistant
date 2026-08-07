@@ -53,7 +53,7 @@ const getConversationMock = mock((id: string) =>
 mock.module("../persistence/conversation-crud.js", () => ({
   addMessage: addMessageMock,
   archiveConversation: () => true,
-  batchSetDisplayOrders: () => {},
+  batchSetConversationPlacement: () => {},
   countConversationsByScheduleJobId: () => 0,
   deleteConversation: () => ({ segmentIds: [], deletedSummaryIds: [] }),
   extractImageSourcePaths: () => undefined,

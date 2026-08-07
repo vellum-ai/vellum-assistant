@@ -192,14 +192,14 @@ describe("createOutboundSessionConditional", () => {
     const result = await client.createOutboundSessionConditional({
       channel: "telegram",
       requireSourceSessionPending: "bootstrap-1",
-      ifNoneActive: true,
+      ifNoneActiveForExternalUserId: "user-1",
     });
 
     expect(ipcCalls[0]?.method).toBe("verification_sessions_create_outbound");
     expect(ipcCalls[0]?.params).toEqual({
       channel: "telegram",
       requireSourceSessionPending: "bootstrap-1",
-      ifNoneActive: true,
+      ifNoneActiveForExternalUserId: "user-1",
     });
     expect(result).toEqual(created);
   });
@@ -209,7 +209,7 @@ describe("createOutboundSessionConditional", () => {
 
     const result = await client.createOutboundSessionConditional({
       channel: "telegram",
-      ifNoneActive: true,
+      ifNoneActiveForExternalUserId: "user-1",
     });
 
     expect(result).toEqual({

@@ -55,13 +55,6 @@ export const CONVERSATION_LIST_VIRTUALIZE_THRESHOLD = 30;
 
 export interface ConversationRowListProps {
   items: Conversation[];
-  /** Drag-reorder section key; omit for non-reorderable lists. */
-  dragSection?: string;
-  /**
-   * Full ordered list for drag math. Defaults to `items` — pass explicitly
-   * only when the visible `items` are a subset.
-   */
-  dragSiblings?: Conversation[];
   /**
    * Scroll against this ancestor rather than bounding the list. Only the flat
    * list passes it: it already fills the sidebar body, so opening a scroller
@@ -81,8 +74,6 @@ export interface ConversationRowListProps {
 
 export function ConversationRowList({
   items,
-  dragSection,
-  dragSiblings,
   scrollParent,
   unbounded,
 }: ConversationRowListProps) {
@@ -90,22 +81,13 @@ export function ConversationRowList({
     <ConversationRow
       key={conversation.conversationId}
       conversation={conversation}
-      dragSection={dragSection}
-      dragSiblings={dragSiblings ?? items}
     />
   );
 
   const rows = <SideMenu.SubList>{items.map(renderRow)}</SideMenu.SubList>;
 
-  // Reorderable sections (Pinned, custom groups) always mount every row: the
-  // drag controller resolves a drop target from the rows themselves, so a
-  // windowed list would have nothing to drop onto past the viewport. They
-  // stay bounded and scrollable either way (unless `unbounded`), and they
-  // are the curated sections, so they are the least likely to run long.
   const windows =
-    !unbounded &&
-    !dragSection &&
-    items.length > CONVERSATION_LIST_VIRTUALIZE_THRESHOLD;
+    !unbounded && items.length > CONVERSATION_LIST_VIRTUALIZE_THRESHOLD;
 
   if (!windows) {
     if (unbounded) {

@@ -288,6 +288,31 @@ describe("stt-routes", () => {
     expect(err.message).toContain("not available");
   });
 
+  test("surfaces a typed resolver error verbatim instead of the generic copy", async () => {
+    // A streaming-only provider IS configured, so the "nothing configured"
+    // and "not available" strings would both send the caller looking for a
+    // problem that does not exist.
+    const reason =
+      'Deepgram Flux is streaming-only. Batch transcription requires the deepgram provider: set services.stt.provider to "deepgram".';
+    mockResolveError = new SttError("provider-error", reason, {
+      userFacing: true,
+    });
+
+    const { handler } = getRoute("stt/transcribe");
+    const err = await expectRouteError(
+      () =>
+        handler(
+          makeArgs({
+            audioBase64: toBase64("audio-data"),
+            mimeType: "audio/wav",
+          }),
+        ),
+      503,
+      "SERVICE_UNAVAILABLE",
+    );
+    expect(err.message).toBe(reason);
+  });
+
   // -- Timeout --------------------------------------------------------------
 
   test("throws 504 when transcription times out", async () => {

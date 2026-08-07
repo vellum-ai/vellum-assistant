@@ -186,6 +186,35 @@ export function findServableRoute(
   path: string,
   kind: IngressRouteKind,
 ): IngressRoute | undefined {
+  const match = findDeclaredRoute(resolution, plugin, path, kind);
+  return match?.servable ? match.route : undefined;
+}
+
+/** A declaration matching the request, and whether the gate opens it. */
+export interface DeclaredRouteMatch {
+  route: IngressRoute;
+  /** True where {@link findServableRoute} would return this route. */
+  servable: boolean;
+}
+
+/**
+ * The declared route at `plugin`/`path`, served or not.
+ *
+ * {@link findServableRoute} answers what the gateway may serve. This answers
+ * what was declared, which is a different question and the one a caller who
+ * can prove who they are is entitled to an answer about: a route awaiting
+ * approval exists, and telling its own signer that it is waiting reveals
+ * nothing they were not already told when they were handed the URL.
+ *
+ * Servability is reported rather than enforced, so nothing may act on a match
+ * without deciding what to do with a `servable: false` one.
+ */
+export function findDeclaredRoute(
+  resolution: PluginIngressResolution,
+  plugin: string,
+  path: string,
+  kind: IngressRouteKind,
+): DeclaredRouteMatch | undefined {
   const requested = path.endsWith("/") ? path.slice(0, -1) : path;
   const matches = (routes: readonly IngressRoute[]) =>
     routes.find((route) => route.kind === kind && route.path === requested);
@@ -193,10 +222,12 @@ export function findServableRoute(
   const approved = resolution.approved.find((d) => d.plugin === plugin);
   const fromApproved = approved && matches(approved.routes);
   if (fromApproved) {
-    return fromApproved;
+    return { route: fromApproved, servable: true };
   }
 
   const pending = resolution.pending.find((d) => d.plugin === plugin);
   const fromPending = pending && matches(pending.routes);
-  return fromPending?.signer === "vellum" ? fromPending : undefined;
+  return fromPending
+    ? { route: fromPending, servable: fromPending.signer === "vellum" }
+    : undefined;
 }

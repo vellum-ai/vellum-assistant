@@ -94,6 +94,8 @@ let watchedLockfile: {
   activeAssistant: string | null;
 } = { assistants: [], activeAssistant: null };
 let featureFlags: Record<string, boolean> | null = null;
+let companionHidden = false;
+const setCompanionSurfaceVisibleMock = mock((_visible: boolean) => undefined);
 
 const dispatchToMainMock = mock((_command: unknown) => undefined);
 
@@ -171,6 +173,8 @@ beforeEach(() => {
   __resetForTesting();
   configureTrayModel({
     accelerator: () => ({}),
+    companionEnabled: () => featureFlags?.["companion-surface"] === true,
+    companionHidden: () => companionHidden,
     dispatch: dispatchToMainMock,
     featureEnabled: (flag) => featureFlags?.[flag] === true,
     getLockfile: () => watchedLockfile as Lockfile,
@@ -178,6 +182,7 @@ beforeEach(() => {
     onboardingActive: () => false,
     openComponentGallery: () => undefined,
     removePairedLabel: "Remove from this Mac\u2026",
+    setCompanionVisible: setCompanionSurfaceVisibleMock,
   });
   trays.length = 0;
   appListeners.clear();
@@ -185,6 +190,8 @@ beforeEach(() => {
   avatarListeners.clear();
   watchedLockfile = { assistants: [], activeAssistant: null };
   featureFlags = null;
+  companionHidden = false;
+  setCompanionSurfaceVisibleMock.mockClear();
   dispatchToMainMock.mockClear();
   buildFromTemplateMock.mockClear();
   statusFramesMock.mockClear();
@@ -284,6 +291,17 @@ describe("installTray", () => {
     }>;
     const labels = template.map((item) => item.label).filter(Boolean);
     expect(labels).toContain("Re-pair Assistant");
+  });
+
+  test("the floating companion item is absent while its flag is off", () => {
+    installTray(handlers);
+    handlerFor(trays[0], "right-click")?.();
+    const template = buildFromTemplateMock.mock.calls[0]?.[0] as Array<{
+      label?: string;
+    }>;
+    expect(template.map((item) => item.label)).not.toContain(
+      "Show Floating Companion",
+    );
   });
 
   test("the Re-pair item is absent when status is not authFailed", () => {
@@ -505,6 +523,47 @@ describe("assistant switcher", () => {
     );
     expect(empty).toBeDefined();
     expect(empty?.enabled).toBe(false);
+  });
+});
+
+describe("floating companion toggle", () => {
+  type MenuItem = {
+    label?: string;
+    type?: string;
+    checked?: boolean;
+    click?: (item: { checked: boolean }) => void;
+  };
+
+  const popCompanionItem = (): MenuItem | undefined => {
+    // The item exists only for someone the surface is on for; these cases are
+    // about what it then does, and the gate itself is covered above.
+    featureFlags = { "companion-surface": true };
+    installTray(handlers);
+    handlerFor(trays[0], "right-click")?.();
+    const calls = buildFromTemplateMock.mock.calls;
+    const template = calls[calls.length - 1]?.[0] as MenuItem[];
+    return template.find((i) => i.label === "Show Floating Companion");
+  };
+
+  test("renders as a checked checkbox while the surface is shown", () => {
+    const item = popCompanionItem();
+    expect(item?.type).toBe("checkbox");
+    expect(item?.checked).toBe(true);
+  });
+
+  test("renders unchecked once the surface has been hidden", () => {
+    companionHidden = true;
+    expect(popCompanionItem()?.checked).toBe(false);
+  });
+
+  test("applies the item's toggled state to the surface", () => {
+    const item = popCompanionItem();
+    // Electron flips `checked` on the item before `click` runs, so the item
+    // carries the state being asked for.
+    item?.click?.({ checked: false });
+    expect(setCompanionSurfaceVisibleMock).toHaveBeenLastCalledWith(false);
+    item?.click?.({ checked: true });
+    expect(setCompanionSurfaceVisibleMock).toHaveBeenLastCalledWith(true);
   });
 });
 

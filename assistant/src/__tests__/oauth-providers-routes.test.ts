@@ -178,6 +178,7 @@ describe("GET /v1/oauth/providers", () => {
       "supports_managed_mode",
       "managed_service_is_paid",
       "feature_flag",
+      "acts_as",
     ];
 
     for (const provider of providers) {
