@@ -64,13 +64,11 @@ export function PreferencesMenu({
   activeConversationId,
   triggerVariant = "item",
 }: PreferencesMenuProps) {
-  /* Read from the menu this sits in rather than taken as a prop. The trigger
-     has to reduce to a tile at the same moment every other rail entry does,
-     and a prop is a second derivation of that one fact: the caller threading
-     it can hold a different value from the menu rendering around it, and the
-     footer then draws a labelled pill into a 48px column. Ignored by the
-     `pill` variant, which only ever renders on the mobile overlay, where the
-     hook reports false anyway. */
+  /* From the menu rather than a prop: this trigger has to reduce to a tile at
+     the same moment every other rail entry does, and a threaded prop is that
+     one fact derived twice, free to disagree with the menu rendering around
+     it. The `pill` variant ignores it, and only renders on the overlay, where
+     it reads false regardless. */
   const collapsed = useSideMenuCollapsed();
   const isAuthenticated = useIsAuthenticated();
   const isMobile = useIsMobile();

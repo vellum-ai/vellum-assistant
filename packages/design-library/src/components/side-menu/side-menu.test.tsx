@@ -10,7 +10,7 @@ import { Globe } from "lucide-react";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 
-import { SideMenu } from "./side-menu";
+import { SideMenu, useSideMenuCollapsed } from "./side-menu";
 
 describe("SideMenu root", () => {
   test("renders a <nav> with the provided aria-label and data-slot", () => {
@@ -675,5 +675,52 @@ describe("SideMenu.Item collapsed accessible name", () => {
     );
     expect(html).not.toContain('aria-label="Pinned"');
     expect(html).toContain(">Pinned<");
+  });
+});
+
+describe("useSideMenuCollapsed", () => {
+  /* Reports what a slot's own trigger has to render as. Exercised through a
+     real `SideMenu` rather than a stubbed context, because the value a caller
+     needs is the one the menu actually publishes. */
+  function Probe() {
+    return createElement("span", null, String(useSideMenuCollapsed()));
+  }
+
+  function probeInside(props: {
+    variant?: "rail" | "overlay";
+    collapsed?: boolean;
+  }): string {
+    return renderToStaticMarkup(
+      createElement(
+        SideMenu,
+        { ariaLabel: "Navigation", ...props },
+        createElement(SideMenu.Footer, null, createElement(Probe, null)),
+      ),
+    );
+  }
+
+  test("true inside a collapsed rail", () => {
+    expect(probeInside({ variant: "rail", collapsed: true })).toContain("true");
+  });
+
+  test("false inside an expanded rail", () => {
+    expect(probeInside({ variant: "rail", collapsed: false })).toContain(
+      "false",
+    );
+  });
+
+  /* The overlay ignores `collapsed` and always shows labels, so a slot must
+     not reduce its trigger to a tile there even when the flag is set. */
+  test("false on the overlay even when collapsed is set", () => {
+    expect(probeInside({ variant: "overlay", collapsed: true })).toContain(
+      "false",
+    );
+  });
+
+  /* Rendered outside any `SideMenu`, which is what a consumer mounted in
+     isolation (a test, a story of the trigger alone) does. The default context
+     answers rather than throwing, so such a caller gets the expanded form. */
+  test("false with no SideMenu above it", () => {
+    expect(renderToStaticMarkup(createElement(Probe, null))).toContain("false");
   });
 });

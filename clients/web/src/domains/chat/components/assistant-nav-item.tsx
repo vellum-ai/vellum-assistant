@@ -48,16 +48,13 @@ import { contrastForeground } from "@/utils/avatar-tone";
 import { pathBBox, unionBBox } from "@/utils/eye-bbox";
 
 /**
- * The identity pill's own geometry, taller than the pills below it.
+ * Taller than the pills below it: this row is the assistant, not an entry in a
+ * list, and at their shared height it reads as the first of several chips
+ * rather than the thing they hang off. Height only, so the label stays on the
+ * axis it shares with New Chat.
  *
- * This row is the assistant rather than an entry in a list, and on the tinted
- * path it is the only row carrying the avatar's colour: at the shared 32px it
- * reads as the first of several chips instead of the thing they hang off. The
- * label keeps its position, so this row and New Chat still start on one axis
- * and only the surface around it grows.
- *
- * Shared by both branches below, because an assistant with no character avatar
- * is still the assistant: the colour is the only thing that should differ.
+ * One constant for both branches below, because an assistant with no character
+ * avatar is still the assistant: colour is the only thing that differs.
  */
 const IDENTITY_PILL_CLASSES = "h-10";
 
