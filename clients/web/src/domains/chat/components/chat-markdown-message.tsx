@@ -52,7 +52,6 @@ import { LocalFileEmbed } from "@/domains/chat/components/local-file/local-file-
 import { LocalFileLink } from "@/domains/chat/components/local-file/local-file-link";
 import { resolveLocalFileTarget } from "@/domains/chat/components/local-file/local-file-target";
 import { toggleLocalFile } from "@/domains/chat/components/local-file/open-local-file";
-import { useConversationStore } from "@/stores/conversation-store";
 
 /** Returns true when `href` is a known `vellum://` attachment link. */
 export function isVellumLink(href: string | undefined): boolean {
@@ -355,26 +354,23 @@ export const ChatMarkdownMessage = memo(function ChatMarkdownMessage({
     assistantId,
     attachments,
   );
-  // Markdown opens as a document bound to the conversation it was opened from,
-  // so the active conversation decides where a click on a code-span path lands.
-  const conversationId = useConversationStore.use.activeConversationId();
 
   /**
    * Click handler for a code span that resolved to a real workspace file. The
    * affordance is a file link, so it lands where an explicit file link lands:
-   * the document drawer, through the same toggle. The modal is the fallback
-   * for the references the drawer cannot reach.
+   * the drawer, through the same toggle. The modal is the fallback for the
+   * references the drawer cannot reach.
    */
   const handleWorkspacePathOpen = useCallback(
     (href: string, linkText: string) => {
       const { workspacePath, filename } = resolveLocalFileTarget(href);
       if (assistantId && workspacePath !== null) {
-        toggleLocalFile(workspacePath, filename, assistantId, conversationId);
+        toggleLocalFile(workspacePath, filename, assistantId);
         return;
       }
       onVellumLinkClick?.(href, linkText);
     },
-    [assistantId, conversationId, onVellumLinkClick],
+    [assistantId, onVellumLinkClick],
   );
 
   const linkComponent = useCallback(

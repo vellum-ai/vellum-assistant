@@ -16,8 +16,7 @@ interface MobileDocumentOverlayProps {
 
 /**
  * Mobile-only full-screen overlay that hosts the document viewer for a surface
- * referenced from chat, or the read-only preview for a workspace file the
- * editor cannot round-trip.
+ * referenced from chat, or the read-only preview for a workspace file.
  *
  * **Mounting constraint**: must render inside `RootLayout`'s
  * `#viewport-overlays` portal, outside the main content wrapper.
@@ -65,7 +64,6 @@ export function MobileDocumentOverlay({
         assistantId={assistantId}
         surfaceId={openedDocumentState.surfaceId}
         conversationId={openedDocumentState.conversationId}
-        workspacePath={openedDocumentState.workspacePath}
         onSubmitFeedback={onSubmitFeedback}
       />
     </div>
