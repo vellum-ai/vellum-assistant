@@ -27,7 +27,7 @@ import { Brain, Plus } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { motion, useAnimationControls, useReducedMotion } from "motion/react";
 
-import type { CSSProperties } from "react";
+import type { CSSProperties, Ref } from "react";
 
 import { cn, PanelItem } from "@vellumai/design-library";
 
@@ -94,7 +94,11 @@ export function AssistantNavItem({
   // suppressed and the assistant row drains to a plain nav item.
   const navTourActive = useInChatOnboardingStore.use.navTourActive();
   const eyesControls = useAnimationControls();
-  const buttonRef = useRef<HTMLButtonElement | null>(null);
+  /* Whichever element is currently the assistant row - the collapsed tile or
+   the expanded pill. The patrol measures it to keep the sprite inside, and
+   the pill is `w-fit`, so its width tracks the assistant's name and cannot be
+   assumed. */
+  const rowRef = useRef<HTMLElement | null>(null);
   const [blinking, setBlinking] = useState(false);
 
   const rowHeight = isMobile ? MOBILE_ROW_HEIGHT : ROW_HEIGHT;
@@ -165,7 +169,13 @@ export function AssistantNavItem({
       if (cancelled) {
         return;
       }
-      const width = buttonRef.current?.offsetWidth ?? 200;
+      const width = rowRef.current?.offsetWidth ?? 0;
+      if (width === 0) {
+        /* Nothing measurable to stay inside, so skip the side stop rather
+           than guess a width and send the sprite past the edge. */
+        await move({ y: 0 }, spring(320, 18));
+        return;
+      }
       // x is relative to the sprite's home in the icon slot (row padding
       // plus its centering offset inside the chip-width slot).
       const homeLeft = ROW_PADDING_X + (CHIP_SIZE - eyesWidth) / 2;
@@ -409,7 +419,7 @@ export function AssistantNavItem({
        glyph, not a pill with its label dropped, and it centres the sprite
        rather than leading with it. */
     <button
-      ref={buttonRef}
+      ref={rowRef as Ref<HTMLButtonElement>}
       type="button"
       onClick={onSelect}
       title={label}
@@ -451,6 +461,7 @@ export function AssistantNavItem({
   ) : (
     <span style={tintStyle}>
       <PanelItem
+        ref={rowRef as Ref<HTMLDivElement>}
         shape="pill"
         leadingSlot={eyesSlot}
         label={label}
