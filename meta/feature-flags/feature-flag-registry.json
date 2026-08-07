@@ -106,7 +106,7 @@
       "scope": "client",
       "key": "companion-type",
       "label": "Companion Surface Type",
-      "description": "Show the Type control on the macOS companion surface, which opens a composer on the pill. The surface is a standalone unauthenticated route that never fetches flag values, so this resolves from the registry default plus local and env overrides only",
+      "description": "Show the Type control on the macOS companion surface, which opens a composer on the pill. The surface's route never fetches flag values of its own, so the evaluated value reaches it from the Electron main process, which reads the flags the app's window syncs into settings",
       "defaultEnabled": false
     },
     {
