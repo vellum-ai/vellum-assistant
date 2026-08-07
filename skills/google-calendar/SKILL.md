@@ -1,6 +1,6 @@
 ---
 name: google-calendar
-description: View, create, and manage Google Calendar events and check availability
+description: View Google Calendar events for any day, create and manage events, and check availability
 compatibility: "Designed for Vellum personal assistants"
 metadata:
   icon: assets/icon.svg
@@ -10,8 +10,10 @@ metadata:
     display-name: "Google Calendar"
     user-invocable: true
     activation-hints:
-      - "check my availability this week"
-      - "find open time slots / when am I free"
+      - "what's on my calendar today — what meetings or appointments do I have"
+      - "plan my day or my week around what's already scheduled"
+      - "what does my day look like / what's my schedule"
+      - "check my availability, find open time slots, when am I free"
       - "cross-calendar free/busy across my connected accounts"
 ---
 

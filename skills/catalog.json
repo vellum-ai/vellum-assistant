@@ -354,7 +354,7 @@
     {
       "id": "google-calendar",
       "name": "google-calendar",
-      "description": "View, create, and manage Google Calendar events and check availability",
+      "description": "View Google Calendar events for any day, create and manage events, and check availability",
       "metadata": {
         "icon": "assets/icon.svg",
         "emoji": "📅",
@@ -363,8 +363,10 @@
           "display-name": "Google Calendar",
           "user-invocable": "true",
           "activation-hints": [
-            "check my availability this week",
-            "find open time slots / when am I free",
+            "what's on my calendar today — what meetings or appointments do I have",
+            "plan my day or my week around what's already scheduled",
+            "what does my day look like / what's my schedule",
+            "check my availability, find open time slots, when am I free",
             "cross-calendar free/busy across my connected accounts"
           ]
         }
@@ -409,7 +411,7 @@
         }
       },
       "compatibility": "Any environment running Claude Code headlessly",
-      "updatedAt": "2026-08-07T12:58:27.000Z"
+      "updatedAt": "2026-08-07T13:48:02.000Z"
     },
     {
       "id": "inbox-cleanup",
@@ -716,7 +718,7 @@
     {
       "id": "outlook-calendar",
       "name": "outlook-calendar",
-      "description": "View, create, and manage Outlook Calendar events and check availability",
+      "description": "View Outlook Calendar events for any day, create and manage events, and check availability",
       "metadata": {
         "icon": "assets/icon.svg",
         "emoji": "📅",
@@ -725,8 +727,10 @@
           "display-name": "Outlook Calendar",
           "user-invocable": "true",
           "activation-hints": [
-            "check my availability this week",
-            "find open time slots / when am I free",
+            "what's on my calendar today — what meetings or appointments do I have",
+            "plan my day or my week around what's already scheduled",
+            "what does my day look like / what's my schedule",
+            "check my availability, find open time slots, when am I free",
             "cross-calendar free/busy across my connected accounts"
           ]
         }
@@ -1241,7 +1245,7 @@
         }
       },
       "compatibility": "Sandbox mode works without any host dependencies. Host mode requires tmux installed on the user's machine. Works on macOS and Linux.",
-      "updatedAt": "2026-08-07T12:58:27.000Z"
+      "updatedAt": "2026-08-07T13:48:02.000Z"
     },
     {
       "id": "vellum-workspace-theme",
