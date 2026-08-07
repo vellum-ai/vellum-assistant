@@ -19,7 +19,7 @@ mock.module("electron-log/main", () => {
   };
 });
 
-const { HostProxyPoster } = await import("@vellumai/host-proxy/poster");
+const { HostProxyPoster } = await import("@vellumai/electron-desktop/host-proxy/poster");
 const { hostBashExecutor, __testing: executorTesting } = await import("./host-bash-executor");
 
 // ---------------------------------------------------------------------------
