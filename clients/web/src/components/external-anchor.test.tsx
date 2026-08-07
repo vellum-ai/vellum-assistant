@@ -70,10 +70,9 @@ describe("ExternalAnchor", () => {
 });
 
 /**
- * The whole reason `ExternalAnchor` exists: the markdown file renderer behind
- * the attachment preview, skill readmes, and the workspace file viewer used to
- * emit a bare `target="_blank"` anchor, so every link in a previewed `.md` was
- * dead on iOS and Android. Drive the real chain rather than the anchor alone.
+ * `FileMarkdown` backs the attachment preview, skill and plugin readmes,
+ * concept notes, and the workspace file viewer. Its links route through
+ * `ExternalAnchor`, so drive the real chain rather than the anchor alone.
  */
 describe("FileMarkdown links", () => {
   test("open through the native browser on a native shell", () => {

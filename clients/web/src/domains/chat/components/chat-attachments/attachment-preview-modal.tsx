@@ -412,7 +412,7 @@ export const AttachmentPreviewModal: FC<AttachmentPreviewModalProps> = ({
       >
         <Typography
           variant="body-small-default"
-          className="w-11 shrink-0 truncate text-white/50"
+          className="pointer-events-auto w-11 shrink-0 truncate text-white/50"
         >
           {formatAttachmentSize(attachment.sizeBytes)}
         </Typography>
@@ -421,7 +421,11 @@ export const AttachmentPreviewModal: FC<AttachmentPreviewModalProps> = ({
           variant="body-medium-lighter"
           className="min-w-0 flex-1 truncate text-center text-white/90"
         >
-          {attachment.filename}
+          {/* The centred label is only as wide as its text, but its flex track
+              spans the whole middle of the bar. Take pointer events on the text
+              itself so it stays selectable and inert, and leave the empty track
+              either side click-through to whatever sits beneath. */}
+          <span className="pointer-events-auto">{attachment.filename}</span>
         </Typography>
         <div className="pointer-events-auto flex shrink-0 items-center gap-2">
           <Button

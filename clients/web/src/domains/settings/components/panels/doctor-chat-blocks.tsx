@@ -21,7 +21,10 @@ import type { MarkdownLinkComponent } from "@vellumai/design-library";
 import { MarkdownMessage } from "@vellumai/design-library";
 import { Button } from "@vellumai/design-library/components/button";
 
-import { ExternalAnchor } from "@/components/external-anchor";
+import {
+  EXTERNAL_LINK_CLASS,
+  ExternalAnchor,
+} from "@/components/external-anchor";
 import { copyToClipboard } from "@/lib/copy-to-clipboard";
 
 import type {
@@ -489,10 +492,7 @@ export function UserMessage({ entry }: { entry: ChatEntry }) {
  * native shells.
  */
 const DoctorLink: MarkdownLinkComponent = ({ href, children }) => (
-  <ExternalAnchor
-    href={href}
-    className="text-[var(--system-positive-strong)] underline hover:opacity-80"
-  >
+  <ExternalAnchor href={href} className={EXTERNAL_LINK_CLASS}>
     {children}
   </ExternalAnchor>
 );
