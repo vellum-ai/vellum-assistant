@@ -670,7 +670,7 @@ function SideMenuItem({
          Which is why it reads the same tint properties `PanelItem`'s pill
          does, through the same fallback: a caller that tints the expanded pill
          tints this with one declaration, and one that tints nothing reaches
-         `--surface-lift` exactly as before. */
+         `--surface-lift`. */
       "size-[30px] mx-auto rounded-full bg-[var(--panel-item-bg,var(--surface-lift))]"
     : // `w-full` matters for the `<button>` render path: buttons keep
       // fit-content sizing even as flex containers, so without it a
@@ -694,7 +694,7 @@ function SideMenuItem({
              declarations of the same property, the active one wins, and the
              tile drops its colour at exactly the moment it is selected. Only
              the tile, because it is the only shape carrying a surface to
-             tint. Untinted callers reach `--surface-active` as before. */
+             tint. Untinted callers reach `--surface-active`. */
           isTile
             ? "bg-[var(--panel-item-active,var(--panel-item-bg,var(--surface-active)))]"
             : "bg-[var(--surface-active)]",

@@ -5,7 +5,9 @@ import { cn, ContextMenu } from "@vellumai/design-library";
 import {
   getPinColorHex,
   PIN_COLORS,
+  pinColorNameKey,
 } from "@/domains/chat/utils/pin-color-registry";
+import { useTranslation } from "@/i18n";
 import { contrastForeground } from "@/utils/avatar-tone";
 
 /**
@@ -18,18 +20,22 @@ import { contrastForeground } from "@/utils/avatar-tone";
  * row is what a long press reaches on touch, so the interaction needs no
  * second path.
  *
- * Each swatch is a real `ContextMenu.Item`. Radix's roving focus only reaches
- * items, so plain buttons here would be unreachable by keyboard; as items the
+ * The swatches are a single-choice set, so they carry `menuitemradio` and
+ * announce their selection through `aria-checked`. That is what a screen
+ * reader reads out in the user's own language, rather than this component
+ * gluing a word onto a colour's name and leaving it in English. They are also
+ * real `ContextMenu.Item`s because Radix's roving focus only reaches items:
+ * plain buttons here would be unreachable by keyboard, while as items the
  * arrow keys walk the swatches in DOM order, along the row and then on to the
- * items below it. The colour rides on an inner dot rather than on the item
- * itself, so the item's own highlight surface stays visible behind it.
+ * items below it.
  *
- * The current colour is marked with a glyph inside its own dot rather than a
- * ring around it. An item lays its children inside a clipping box, so a ring
- * drawn outside the dot loses its top and bottom to the overflow; a glyph
- * within the dot is also the louder marker at this size. It carries the
- * foreground {@link contrastForeground} pairs with that colour, which is what
- * keeps it legible on the light swatches as well as the dark ones.
+ * The colour rides on an inner dot rather than on the item itself, so the
+ * item's own highlight surface stays visible behind it. The current colour is
+ * marked with a glyph inside its own dot rather than a ring around it: an item
+ * lays its children inside a clipping box, so a ring drawn outside the dot
+ * loses its top and bottom to the overflow. The glyph carries the foreground
+ * {@link contrastForeground} pairs with that colour, which keeps it legible on
+ * the light swatches as well as the dark ones.
  */
 export interface PinnedAppColorSwatchesProps {
   /** The pin's current colour id, or `undefined` when it has none. */
@@ -47,6 +53,8 @@ export function PinnedAppColorSwatches({
   value,
   onChange,
 }: PinnedAppColorSwatchesProps) {
+  const { t } = useTranslation("chat");
+
   /* A colour the registry no longer knows resolves to no tint, so the row
      shows "no colour" as the selection, matching what the pill is painting. */
   const selected = getPinColorHex(value) ? value : undefined;
@@ -54,7 +62,9 @@ export function PinnedAppColorSwatches({
   return (
     <div className="flex flex-wrap items-center gap-1 px-1 pb-1">
       <ContextMenu.Item
-        aria-label={selected === undefined ? "No color, selected" : "No color"}
+        role="menuitemradio"
+        aria-checked={selected === undefined}
+        aria-label={t("pinnedAppColorSwatches.noColor")}
         className={SWATCH_ITEM_CLASSES}
         onSelect={() => onChange(null)}
       >
@@ -73,9 +83,9 @@ export function PinnedAppColorSwatches({
       {PIN_COLORS.map((color) => (
         <ContextMenu.Item
           key={color.id}
-          aria-label={
-            selected === color.id ? `${color.id}, selected` : color.id
-          }
+          role="menuitemradio"
+          aria-checked={selected === color.id}
+          aria-label={t(pinColorNameKey(color.id))}
           className={SWATCH_ITEM_CLASSES}
           onSelect={() => onChange(color.id)}
         >
