@@ -19,17 +19,16 @@ function getRawDb(): Database {
 }
 
 /**
- * Every list orders by recency, including the groups that once honored a
- * manual arrangement.
+ * Every conversation list orders by recency, pinned and custom groups
+ * included.
  *
- * `display_order` is still a column and still carries values for anyone who
- * drag-reordered before that affordance was removed, so "nothing writes it"
- * is not enough to make the order consistent: a read that consults it would
- * serve those users a manual arrangement they can no longer change, while
- * every other surface shows recency.
+ * `display_order` is a live column and some rows carry a value in it, so
+ * "nothing writes it" is not enough to make the order consistent: a read that
+ * consulted it would serve those rows in an arrangement no user can change,
+ * while every other surface shows recency.
  *
  * Each test sets `display_order` to contradict recency, so a read that
- * consults it again fails here rather than passing by coincidence.
+ * consults it fails here rather than passing by coincidence.
  */
 describe("conversation list ordering ignores display_order", () => {
   beforeEach(() => {
@@ -38,7 +37,7 @@ describe("conversation list ordering ignores display_order", () => {
     raw.run("DELETE FROM conversation_groups WHERE is_system_group = 0");
   });
 
-  /** Give a row an explicit manual slot and a recency stamp that disagrees. */
+  /** Give a row a `display_order` and a recency stamp that disagree. */
   function arrange(id: string, displayOrder: number, lastMessageAt: number) {
     getRawDb().run(
       "UPDATE conversations SET display_order = ?, last_message_at = ? WHERE id = ?",
@@ -46,11 +45,11 @@ describe("conversation list ordering ignores display_order", () => {
     );
   }
 
-  test("a custom group orders by recency, not by the stored arrangement", () => {
+  test("a custom group orders by recency, ignoring display_order", () => {
     const groupId = createGroup("Briefs").id;
     createConversation({ id: "conv-old", source: "user", groupId });
     createConversation({ id: "conv-new", source: "user", groupId });
-    // The arrangement says old-then-new; recency says the opposite.
+    // `display_order` says old-then-new; recency says the opposite.
     arrange("conv-old", 0, 1_000);
     arrange("conv-new", 1, 9_000);
 
@@ -60,7 +59,7 @@ describe("conversation list ordering ignores display_order", () => {
     ]);
   });
 
-  test("the pinned group orders by recency, not by the stored arrangement", () => {
+  test("the pinned group orders by recency, ignoring display_order", () => {
     createConversation({
       id: "pin-old",
       source: "user",
@@ -80,8 +79,8 @@ describe("conversation list ordering ignores display_order", () => {
   });
 
   /* The page-one pinned injection reads through its own query, so it needs
-     the same guarantee: two orderings for the same section is the state this
-     removal exists to end. */
+     the same guarantee: one section must not have two orderings depending on
+     which read served it. */
   test("listPinnedConversations orders by recency too", () => {
     createConversation({
       id: "pin-old",
