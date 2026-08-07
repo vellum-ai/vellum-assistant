@@ -83,7 +83,8 @@ let StatusBanner: ComponentType<{
   placement?: "web" | "electron";
 }>;
 const setResumeGraceMs = __setResumeGraceMsForTesting;
-const DEFAULT_RESUME_GRACE_MS = 15_000;
+const DEFAULT_RESUME_GRACE_MS = 30_000;
+let setUnreachableSettleMs: (ms: number) => void;
 
 mock.module("@/runtime/native-auth", () => ({
   isNativePlatform: () => isNativePlatformMock,
@@ -210,7 +211,9 @@ mock.module("@vellumai/design-library/components/button", () => ({
 }));
 
 beforeAll(async () => {
-  ({ StatusBanner } = await import("@/components/status-banner"));
+  const mod = await import("@/components/status-banner");
+  StatusBanner = mod.StatusBanner;
+  setUnreachableSettleMs = mod.__setUnreachableSettleMsForTesting;
 });
 
 beforeEach(() => {
@@ -248,12 +251,16 @@ beforeEach(() => {
   isCliWakeableMock = true;
   __resetForTesting();
   setResumeGraceMs(DEFAULT_RESUME_GRACE_MS);
+  // Disable the settle debounce by default so specs assert the settled
+  // (post-debounce) behavior; settle-specific specs opt back in.
+  setUnreachableSettleMs(0);
 });
 
 afterEach(() => {
   cleanup();
   __resetForTesting();
   setResumeGraceMs(DEFAULT_RESUME_GRACE_MS);
+  setUnreachableSettleMs(0);
 });
 
 describe("StatusBanner", () => {
@@ -751,6 +758,86 @@ describe("StatusBanner", () => {
     expect(screen.queryByText("Assistant status is unavailable")).toBeNull();
 
     // AND it surfaces once the grace window expires
+    await waitFor(() => {
+      expect(screen.getByText("Assistant status is unavailable")).toBeTruthy();
+    });
+  });
+
+  test("shows waking instead of unreachable until the reading settles, without a resume signal", async () => {
+    /**
+     * A mobile WebView can be killed and cold-restarted, so a fresh
+     * `unreachable` reading can arrive with no resume signal or preceding
+     * healthy reading to key the other suppressions on. It must still show
+     * the "waking" info treatment until it persists past the settle window.
+     */
+
+    // GIVEN the production settle window and a mounted banner (no resume)
+    setUnreachableSettleMs(30_000);
+    const { rerender } = render(<StatusBanner />);
+
+    // WHEN the first probe reads unreachable
+    operationalStatusQueryMock = {
+      data: { state: "unreachable" },
+      isError: false,
+    };
+    rerender(<StatusBanner />);
+
+    // THEN the banner shows the waking info treatment, not the error banner
+    await waitFor(() => {
+      expect(screen.getByText("Assistant is waking")).toBeTruthy();
+    });
+    expect(screen.queryByText("Assistant is unreachable")).toBeNull();
+    expect(screen.queryByText("Go to Doctor")).toBeNull();
+  });
+
+  test("surfaces the unreachable error after the settle window elapses", async () => {
+    /**
+     * A genuinely unreachable assistant must still surface the real error
+     * banner with the Doctor action once the reading persists past the
+     * settle window.
+     */
+
+    // GIVEN a very short settle window and a mounted banner (no resume)
+    setUnreachableSettleMs(20);
+    const { rerender } = render(<StatusBanner />);
+
+    // WHEN the assistant persists in the unreachable state past the window
+    operationalStatusQueryMock = {
+      data: { state: "unreachable" },
+      isError: false,
+    };
+    rerender(<StatusBanner />);
+
+    // THEN the real unreachable error banner with the Doctor action surfaces
+    await waitFor(() => {
+      expect(screen.getByText("Assistant is unreachable")).toBeTruthy();
+    });
+    expect(screen.getByText("Go to Doctor")).toBeTruthy();
+    expect(screen.queryByText("Assistant is waking")).toBeNull();
+  });
+
+  test("holds back a status-query error until it persists past the settle window", async () => {
+    /**
+     * A status-query error with no resume signal (e.g. the first probe after
+     * a cold restart) is held back until it persists past the settle window,
+     * then surfaces normally.
+     */
+
+    // GIVEN a short settle window and a mounted banner (no resume)
+    setUnreachableSettleMs(20);
+    const { rerender } = render(<StatusBanner />);
+
+    // WHEN the first probe errors
+    operationalStatusQueryMock = {
+      data: null,
+      isError: true,
+    };
+    rerender(<StatusBanner />);
+
+    // THEN the error banner is held back while the reading settles
+    expect(screen.queryByText("Assistant status is unavailable")).toBeNull();
+
+    // AND it surfaces once the settle window elapses
     await waitFor(() => {
       expect(screen.getByText("Assistant status is unavailable")).toBeTruthy();
     });

@@ -14,9 +14,9 @@ import { useEffect, useState } from "react";
 
 import { useBusSubscription } from "@/hooks/use-bus-subscription";
 
-// Long enough to cover a pod wake plus a retry cycle, short enough that a real
-// failure is reported promptly. Matches the status banner's clear window.
-let resumeGraceMs = 15_000;
+// Long enough to cover a pod wake plus a retry cycle even on a throttled
+// mobile WebView, short enough that a real failure is reported promptly.
+let resumeGraceMs = 30_000;
 
 /**
  * Override the resume grace window. Test-only seam so specs can exercise the
