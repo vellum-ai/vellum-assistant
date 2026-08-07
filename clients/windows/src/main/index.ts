@@ -9,6 +9,7 @@ import { resolveAppProtocolPath } from "@vellumai/electron-utils/app-protocol";
 import { resolveLocalConfigFromEnv } from "@vellumai/local-mode";
 
 import { APP_PROTOCOL } from "./app-config";
+import { provisionCliForCurrentUser } from "./cli-path-flow";
 import { installMainFeatures } from "./features";
 import { handleSync } from "./ipc.client";
 import log from "./logger";
@@ -166,6 +167,23 @@ app
   .then(() => {
     if (!isDev) {
       registerAppProtocol();
+    }
+    if (app.isPackaged && process.platform === "win32") {
+      try {
+        const result = provisionCliForCurrentUser({
+          userDataDir: app.getPath("userData"),
+          resourcesDir: process.resourcesPath,
+          localAppData:
+            process.env.LOCALAPPDATA ??
+            path.join(app.getPath("home"), "AppData", "Local"),
+          version: app.getVersion(),
+        });
+        if (["foreign", "shadowed"].includes(result.launcherState)) {
+          log.warn(`[cli] Windows launcher is ${result.launcherState}`);
+        }
+      } catch (error) {
+        log.error("[cli] Failed to provision the Windows CLI:", error);
+      }
     }
     installMainFeatures();
     installMainWindow();
