@@ -7,18 +7,12 @@
  * on the same axis as the eyes, so the two rows' labels align. On the
  * collapsed rail both rows survive as icon-only tiles (Figma 7257:135811).
  *
- * Periodically the eyes go on patrol: they sink out through the row's
- * bottom fold, resurface grown on the right side (cut off by the edge),
- * blink, and dive back under to reappear in the icon slot. Between
- * patrols they idle-blink in place (and pulse a touch on the collapsed
- * rail). They never leave the assistant row.
+ * The eyes hold their place in the leading slot and blink there periodically.
+ * They do not travel: the pill is sized to the assistant's name, so there is
+ * nowhere inside it for a grown sprite to go that is not on top of that name.
  *
- * The side stop needs a row with slack in it. The eyes grow to twice their
- * size to take it, so on a row sized to its own content they surface over the
- * name rather than beside it; the patrol measures the name and dives straight
- * home instead when that is what it would do. The pill this renders as hugs
- * its label, so in practice the expanded rail patrols without the side stop
- * and the collapsed rail keeps its pulse.
+ * The collapsed rail is the exception, and keeps its pulse: its tile centres
+ * the eyes with nothing beside them, so growing has room there.
  *
  * The assistant name is never bolded and always renders white on the
  * avatar-colored row — except on light avatar colors (yellow), where it
@@ -31,10 +25,10 @@
 
 import { SIDEBAR_STACK_GAP } from "@/components/sidebar-nav-geometry";
 import { Brain, Plus } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { motion, useAnimationControls, useReducedMotion } from "motion/react";
 
-import type { CSSProperties, Ref } from "react";
+import type { CSSProperties } from "react";
 
 import { cn, PanelItem } from "@vellumai/design-library";
 
@@ -43,47 +37,18 @@ import {
   SIDEBAR_CHIP_SIZE as CHIP_SIZE,
 } from "@/components/sidebar-nav-geometry";
 import { useAssistantAvatar } from "@/hooks/use-assistant-avatar";
-import { useIsMobile } from "@/hooks/use-is-mobile";
 import { useInChatOnboardingStore } from "@/stores/in-chat-onboarding-store";
 import { eyeStyleBaseWidth } from "@/utils/assistant-eyes";
 import { contrastForeground } from "@/utils/avatar-tone";
 import { pathBBox, unionBBox } from "@/utils/eye-bbox";
 
-/** Standard nav-row height, matching `SideMenu.Item`. */
-const ROW_HEIGHT = 30;
-/** Mobile-overlay row height, matching `SideMenu.Item`'s mobile row. */
-const MOBILE_ROW_HEIGHT = 44;
 /** Collapsed-rail assistant tile height (Figma 7257:135820). */
 /* Matches the circle `SideMenu.Item` and the section triggers render on the
    rail: every tile there is the same 30px circle, so one step runs the whole
    column. Diverging from it drifts this cluster against the sections. */
 const COLLAPSED_ASSISTANT_TILE = 30;
-/** Patrol stop on the right side: grown, cut off by the bottom edge. */
-const SIDE_SCALE = 2.1;
-/**
- * Gap the side stop leaves at the row's right edge, as the placement
- * arithmetic below counts it: from the sprite's unscaled box, extended
- * `SIDE_SCALE` to the right. The sprite scales about its own centre
- * (`transformOrigin: "50% 100%"`), so half that growth goes leftward instead
- * and the rendered gap is wider, by `eyesWidth * (SIDE_SCALE - 1) / 2`. The
- * eyes land short of the pill's rounded cap rather than inside it, which is
- * what this stop wants, so the constant reads as a floor and not a measurement.
- */
-const SIDE_RIGHT_MARGIN = 14;
-/**
- * Gap the grown eyes keep from the end of the name before the side stop is
- * worth doing. Below it they read as sitting on the text rather than beside
- * it, and the patrol dives home instead. A pill sized to its own label has no
- * such gap at any name length, so the side stop belongs to rows with slack.
- */
-const SIDE_LABEL_CLEARANCE = 8;
-/**
- * `PanelItem`'s own horizontal padding (`p-[8px]`), which the pill lays down
- * before the leading slot. The patrol reads the pill's real box rather than
- * `SIDEBAR_ROW_PADDING_X`: that constant is the sidebar's shared label axis
- * (6px) and not this pill's padding, so the two are not interchangeable here.
- */
-const PILL_PADDING_X = 8;
+/** How far the collapsed rail's tile grows the eyes on a pulse. */
+const PULSE_SCALE = 1.35;
 
 const sleep = (ms: number): Promise<void> =>
   new Promise((resolve) => setTimeout(resolve, ms));
@@ -117,25 +82,15 @@ export function AssistantNavItem({
 }: AssistantNavItemProps) {
   const { components, traits } = useAssistantAvatar(assistantId);
   const reduce = useReducedMotion();
-  const isMobile = useIsMobile();
   // While the onboarding tour owns the nav rows (flooding them with its own
-  // eyes treatment), this component's eyes and patrol loop stay completely
+  // eyes treatment), this component's eyes and its loop stay completely
   // suppressed and the assistant row drains to a plain nav item.
   const navTourActive = useInChatOnboardingStore.use.navTourActive();
+  /* Drives the collapsed rail's pulse only. The expanded row's eyes hold still,
+     so nothing there subscribes to these controls and the loop leaves them
+     alone while the rail is open. */
   const eyesControls = useAnimationControls();
-  /* Whichever element is currently the assistant row - the collapsed tile or
-   the expanded pill. The patrol measures it to keep the sprite inside: the
-   pill fills the sidebar column, which the user can drag-resize, so its width
-   cannot be assumed. It must keep that full width, since a pill sized to its
-   own label puts the side stop on top of that label. */
-  const rowRef = useRef<HTMLElement | null>(null);
-  /* The name itself, so the patrol can ask where its text actually ends. The
-     label's own box is `flex-1` inside the row and stretches to it whatever
-     the name's length, which answers a different question. */
-  const labelRef = useRef<HTMLSpanElement | null>(null);
   const [blinking, setBlinking] = useState(false);
-
-  const rowHeight = isMobile ? MOBILE_ROW_HEIGHT : ROW_HEIGHT;
 
   const eye = useMemo<EyeArt | null>(() => {
     if (!components || !traits) {
@@ -160,8 +115,12 @@ export function AssistantNavItem({
 
   useEffect(() => {
     if (navTourActive) {
-      // Snap home so a tour starting mid-patrol doesn't strand the sprite.
-      eyesControls.set({ x: 0, y: 0, scale: 1 });
+      /* Snap back to rest so a tour starting mid-pulse doesn't strand the
+         sprite grown. Guarded, as every controls call here is: only the
+         collapsed tile subscribes to them. */
+      if (collapsed) {
+        eyesControls.set({ scale: 1 });
+      }
       return;
     }
     if (reduce) {
@@ -183,97 +142,28 @@ export function AssistantNavItem({
       damping,
     });
     const move = (
-      to: { x?: number; y?: number; scale?: number },
+      to: { scale?: number },
       transition: Record<string, unknown>,
     ) =>
       cancelled
         ? Promise.resolve()
         : eyesControls.start({ ...to, transition }).catch(() => {});
 
-    /**
-     * Is there room at the row's right edge for the grown eyes to surface
-     * beside the name rather than over it, given the sprite's unscaled box
-     * would sit at `spriteLeft`?
-     *
-     * The sprite scales about its own centre, so half the growth goes leftward
-     * and its rendered left edge is `eyesWidth * (SIDE_SCALE - 1) / 2` ahead of
-     * that box. The name is measured with a range: an ellipsised label lays its
-     * text out past the box it is clipped to, so the text ends at whichever of
-     * the two comes first.
-     */
-    const sideStopClearsLabel = (spriteLeft: number): boolean => {
-      const row = rowRef.current;
-      const label = labelRef.current;
-      if (!row || !label) {
-        return false;
-      }
-      const range = document.createRange();
-      range.selectNodeContents(label);
-      const rowBox = row.getBoundingClientRect();
-      const labelEnd =
-        Math.min(
-          range.getBoundingClientRect().right,
-          rowBox.right - PILL_PADDING_X,
-        ) - rowBox.left;
-      const grownLeft = spriteLeft - (eyesWidth * (SIDE_SCALE - 1)) / 2;
-      return grownLeft - labelEnd >= SIDE_LABEL_CLEARANCE;
-    };
-
-    /** How far down the eyes dive to fully exit the row's bottom edge. */
-    const diveY = rowHeight - 4;
-    /** Side-patrol stop: the grown eyes flush with the bottom edge. */
-    const sidePeekY = rowHeight - 20;
-
-    // The one expanded-rail act: dive out through the bottom fold, pop up
-    // grown on the right side, blink, dive again, and slip back into the
-    // icon slot.
-    const patrol = async () => {
-      await move({ y: diveY }, { duration: 0.3, ease: "easeIn" });
-      if (cancelled) {
-        return;
-      }
-      const width = rowRef.current?.offsetWidth ?? 0;
-      if (width === 0) {
-        /* Nothing measurable to stay inside, so skip the side stop rather
-           than guess a width and send the sprite past the edge. */
-        await move({ y: 0 }, spring(320, 18));
-        return;
-      }
-      // x is relative to the sprite's home in the icon slot (row padding
-      // plus its centering offset inside the chip-width slot).
-      const homeLeft = PILL_PADDING_X + (CHIP_SIZE - eyesWidth) / 2;
-      const sideX = Math.max(
-        0,
-        width - SIDE_RIGHT_MARGIN - eyesWidth * SIDE_SCALE - homeLeft,
-      );
-      if (!sideStopClearsLabel(homeLeft + sideX)) {
-        /* The row has no lane for the grown eyes, so they surface on top of
-           the name instead of beside it. Dive and come back rather than
-           perch somewhere unreadable. */
-        await move({ y: 0 }, spring(320, 18));
-        return;
-      }
-      eyesControls.set({ x: sideX, y: diveY, scale: SIDE_SCALE });
-      await move({ y: sidePeekY }, spring(360, 16));
-      await blink();
-      await sleep(jitter(700, 900));
-      await move({ y: diveY }, { duration: 0.3, ease: "easeIn" });
-      eyesControls.set({ x: 0, y: diveY, scale: 1 });
-      await move({ y: 0 }, spring(320, 18));
-    };
-
-    // Collapsed rail: grow a touch, blink, settle back.
+    // Collapsed rail: grow a touch, blink, settle back. The rail's tile centres
+    // the sprite with nothing beside it, so the pulse has room the expanded
+    // row's leading slot does not.
     const collapsedPulse = async () => {
-      await move({ scale: 1.35 }, spring(300, 14));
+      await move({ scale: PULSE_SCALE }, spring(300, 14));
       await blink();
       await sleep(jitter(250, 350));
       await move({ scale: 1 }, spring(300, 16));
     };
 
     const run = async () => {
-      // A rail toggle can restart the loop mid-patrol — snap the eyes back
-      // to the icon slot before starting over.
-      eyesControls.set({ x: 0, y: 0, scale: 1 });
+      // A rail toggle can restart the loop mid-pulse, so start from rest.
+      if (collapsed) {
+        eyesControls.set({ scale: 1 });
+      }
       while (!cancelled) {
         await sleep(jitter(2800, 3200));
         if (cancelled) {
@@ -281,19 +171,19 @@ export function AssistantNavItem({
         }
         if (collapsed) {
           await collapsedPulse();
-        } else if (Math.random() < 0.55) {
-          await blink(); // resting blink between patrols
         } else {
-          await patrol();
+          await blink();
         }
       }
     };
     void run();
     return () => {
       cancelled = true;
-      eyesControls.stop();
+      if (collapsed) {
+        eyesControls.stop();
+      }
     };
-  }, [reduce, navTourActive, collapsed, eyesControls, rowHeight, eyesWidth]);
+  }, [reduce, navTourActive, collapsed, eyesControls]);
 
   const hex =
     (components &&
@@ -446,9 +336,10 @@ export function AssistantNavItem({
         } as CSSProperties)
       : undefined;
 
-  /* The eyes, in the pill's leading slot. Absolutely placed inside a
-     chip-width box, as they were in the row, so a patrol can still carry the
-     sprite across and under the pill rather than being clipped to the glyph. */
+  /* The eyes, holding still in the pill's leading slot: centred in the same
+     chip-width box the plus glyph and the section icons use, so the cluster's
+     labels stay on one axis. They blink where they sit and go nowhere else,
+     which is what keeps them off the name beside them. */
   const eyesSlot = (
     <span
       aria-hidden="true"
@@ -466,20 +357,17 @@ export function AssistantNavItem({
         />
       )}
       {!navTourActive && eye && (
-        <motion.span
+        <span
           className="absolute"
           style={{
             width: eyesWidth,
             height: eyesHeight,
             left: (CHIP_SIZE - eyesWidth) / 2,
             top: (CHIP_SIZE - eyesHeight) / 2,
-            transformOrigin: "50% 100%",
           }}
-          initial={false}
-          animate={eyesControls}
         >
           {eyesSvg}
-        </motion.span>
+        </span>
       )}
     </span>
   );
@@ -489,7 +377,6 @@ export function AssistantNavItem({
        glyph, not a pill with its label dropped, and it centres the sprite
        rather than leading with it. */
     <button
-      ref={rowRef as Ref<HTMLButtonElement>}
       type="button"
       onClick={onSelect}
       title={label}
@@ -531,20 +418,9 @@ export function AssistantNavItem({
   ) : (
     <span style={tintStyle}>
       <PanelItem
-        ref={rowRef as Ref<HTMLDivElement>}
         shape="pill"
-        /* `overflow-hidden` is what sells the patrol: the dive reads as the
-           eyes sinking through the row's bottom fold only while the row clips
-           them, and unclipped the sprite just floats below the pill in full
-           view. It lives here rather than on the pill shape, which has nothing
-           to clip on a row in a list. */
-        className="overflow-hidden"
         leadingSlot={eyesSlot}
-        /* Wrapped so the patrol can measure where the name's text ends. A
-           node label opts out of `PanelItem`'s string-only `aria-label`
-           derivation, so the row states its own. */
-        label={<span ref={labelRef}>{label}</span>}
-        aria-label={label}
+        label={label}
         active={active}
         onSelect={onSelect}
         data-tour-id="assistant-page"
