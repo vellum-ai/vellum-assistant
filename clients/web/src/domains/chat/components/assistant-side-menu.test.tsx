@@ -18,6 +18,8 @@ import { act, cleanup, render, waitFor } from "@testing-library/react";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 
+import { SIDEBAR_STACK_GAP } from "@/components/sidebar-nav-geometry";
+
 mock.module("@/hooks/use-is-mobile", () => ({
   useIsMobile: () => false,
   MOBILE_MEDIA_QUERY: "(max-width: 767px)",
@@ -1046,31 +1048,25 @@ describe("AssistantSideMenu · section spacing", () => {
       }),
     );
 
-    // "Conversations" is the persistent header for everything that isn't
-    // Pinned or a custom group; Chats and each channel section nest inside
-    // it when grouped by Channels rather than sitting as its top-level
-    // siblings.
+    // Every section is a top-level sibling. There is no persistent
+    // "Conversations" header nesting Chats and the channel sections under a
+    // second tier, so nothing sits at a different depth from anything else.
     expect(sectionLabels(container)).toEqual([
       "Pinned",
       "Alpha",
-      "Conversations",
       "Chats",
       "Slack",
     ]);
 
-    // Two tiers, each sharing its own gap: the root holds Pinned, Alpha, and
-    // Conversations; Conversations' own wrapper holds Chats and Slack.
+    /* One parent for all of them, at one gap. Two tiers meant two gaps, and
+       adjacent sections landing at different distances depending on which
+       tier they were in is exactly what `SIDEBAR_STACK_GAP` exists to stop.
+       Asserting the shared parent as well as the gap, since a single gap
+       value proves nothing if the sections are still split across tiers. */
     const sections = sectionElements(container);
-    const [pinned, alpha, conversations, chats, slack] = sections;
-    const rootParents = new Set(
-      [pinned, alpha, conversations].map((s) => s.parentElement),
-    );
-    expect(rootParents.size).toBe(1);
-    expect([...rootParents][0]?.className).toContain("gap-3");
-
-    const nestedParents = new Set([chats, slack].map((s) => s.parentElement));
-    expect(nestedParents.size).toBe(1);
-    expect([...nestedParents][0]?.className).toContain("gap-3");
+    const parents = new Set(sections.map((s) => s.parentElement));
+    expect(parents.size).toBe(1);
+    expect([...parents][0]?.className).toContain(SIDEBAR_STACK_GAP);
   });
 });
 
@@ -1287,26 +1283,23 @@ describe("AssistantSideMenu · equal section treatment", () => {
       }),
     );
 
+    /* No exception any more. "Conversations" used to be a wrapper that was
+       not itself a section - it did not drag and carried no icon - so this
+       had to carve it out. Every section here is a real member of
+       `sidebar.sections` and answers to the same rules. */
     const sections = sectionElements(container);
-    expect(sections).toHaveLength(5);
+    expect(sections).toHaveLength(4);
 
-    // "Conversations" is the persistent wrapper, not itself a member of
-    // `sidebar.sections`: it doesn't drag and carries no icon (matching
-    // Pinned's icon-less header). Everything else still shares the same
-    // affordances.
-    const labels = sectionLabels(container);
-    const reorderable = sections.filter(
-      (_, index) => labels[index] !== "Conversations",
-    );
-    expect(reorderable).toHaveLength(4);
-
-    for (const section of reorderable) {
+    for (const section of sections) {
+      /* Asked for via `closest` rather than on a named element: the drag
+         handle is the card, and which node carries `draggable` is an
+         implementation detail this should survive. What matters is that the
+         section is draggable at all. */
+      expect(section.closest('[draggable="true"]')).not.toBeNull();
       const header = section.querySelector<HTMLElement>(
         '[data-slot="collapsible-nav-section-header"]',
       );
-      // Draggable header (the reorder handle) and a disclosure chevron, on
-      // all four.
-      expect(header?.getAttribute("draggable")).toBe("true");
+      // A disclosure chevron, on every one.
       expect(header?.querySelector("svg")).not.toBeNull();
     }
   });
