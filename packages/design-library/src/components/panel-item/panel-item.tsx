@@ -115,7 +115,7 @@ interface PanelItemProps {
   /**
    * Row geometry.
    * - `"row"` fills its container at a 6px radius.
-   * - `"pill"` hugs its content as a capsule on `--surface-lift`.
+   * - `"pill"` fills it as a capsule on `--surface-lift`.
    * @default "row"
    */
   shape?: "row" | "pill";
@@ -215,13 +215,13 @@ const PILL_HOVER_CLASS =
  * surface only, so width, hover, active, and every slot behave exactly as they
  * do on a row.
  *
- * It shrink-wrapped its content (`w-fit`) until LUM-3131. Every caller is an
- * entry in a sidebar column, where hugging made each entry a different width
- * from its neighbours and from the section cards beside them, and where it
- * silently broke the assistant's eye patrol: that animation measures its row
- * to place the eyes, so a row only as wide as the assistant's name put them
- * on top of that name. Nothing wanted the intrinsic width, so the shape no
- * longer has one. A caller that needs one can still pass `w-fit`.
+ * The shape sets no width. A pill takes the row's `w-full`, so it lines up
+ * with its neighbours down a sidebar column, which is what every caller is.
+ * Two things rest on that: the column reads as one set of entries instead of a
+ * ragged edge per label, and a pill hosting the assistant's eye patrol is
+ * measured by that animation to place the eyes, so a pill sized to the
+ * assistant's name would put them on top of that name. A caller that needs to
+ * hug its content passes `w-fit`.
  */
 /**
  * A pill reads three optional custom properties, each falling back to the

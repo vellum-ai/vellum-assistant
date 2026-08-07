@@ -80,8 +80,7 @@ export const Default: Story = {
 /**
  * The two shapes in the same column, which is the comparison that matters:
  * both fill the 248px width, and the radius and resting surface are the whole
- * difference between them. A pill hugged its label until LUM-3131; see
- * `PILL_SHAPE_CLASSES` for why nothing wanted that.
+ * difference between them.
  */
 export const Shapes: Story = {
   parameters: { controls: { disable: true } },

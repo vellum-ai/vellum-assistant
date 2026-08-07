@@ -53,12 +53,21 @@ const MOBILE_ROW_HEIGHT = 44;
 const COLLAPSED_ASSISTANT_TILE = 30;
 /** Patrol stop on the right side: grown, cut off by the bottom edge. */
 const SIDE_SCALE = 2.1;
+/**
+ * Gap the side stop leaves at the row's right edge, as the placement
+ * arithmetic below counts it: from the sprite's unscaled box, extended
+ * `SIDE_SCALE` to the right. The sprite scales about its own centre
+ * (`transformOrigin: "50% 100%"`), so half that growth goes leftward instead
+ * and the rendered gap is wider, by `eyesWidth * (SIDE_SCALE - 1) / 2`. The
+ * eyes land short of the pill's rounded cap rather than inside it, which is
+ * what this stop wants, so the constant reads as a floor and not a measurement.
+ */
 const SIDE_RIGHT_MARGIN = 14;
 /**
  * `PanelItem`'s own horizontal padding (`p-[8px]`), which the pill lays down
- * before the leading slot. The patrol needs the pill's real box, not
- * `SIDEBAR_ROW_PADDING_X`: that constant is the sidebar's shared label axis,
- * and the two have not been the same number since the row became a pill.
+ * before the leading slot. The patrol reads the pill's real box rather than
+ * `SIDEBAR_ROW_PADDING_X`: that constant is the sidebar's shared label axis
+ * (6px) and not this pill's padding, so the two are not interchangeable here.
  */
 const PILL_PADDING_X = 8;
 
@@ -103,8 +112,8 @@ export function AssistantNavItem({
   /* Whichever element is currently the assistant row - the collapsed tile or
    the expanded pill. The patrol measures it to keep the sprite inside: the
    pill fills the sidebar column, which the user can drag-resize, so its width
-   cannot be assumed. A pill that hugged its label instead would put the side
-   stop on top of that label, which is what LUM-3131 was. */
+   cannot be assumed. It must keep that full width, since a pill sized to its
+   own label puts the side stop on top of that label. */
   const rowRef = useRef<HTMLElement | null>(null);
   const [blinking, setBlinking] = useState(false);
 
@@ -472,9 +481,9 @@ export function AssistantNavItem({
         shape="pill"
         /* `overflow-hidden` is what sells the patrol: the dive reads as the
            eyes sinking through the row's bottom fold only while the row clips
-           them, and without it the sprite simply floats below the pill in
-           full view. The bespoke row this replaced carried it; the pill shape
-           does not, since a row in a list has nothing to clip. */
+           them, and unclipped the sprite just floats below the pill in full
+           view. It lives here rather than on the pill shape, which has nothing
+           to clip on a row in a list. */
         className="overflow-hidden"
         leadingSlot={eyesSlot}
         label={label}

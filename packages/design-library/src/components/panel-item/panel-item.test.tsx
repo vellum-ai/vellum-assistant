@@ -117,14 +117,14 @@ describe("PanelItem shape", () => {
      emitting both leaves the winner to stylesheet order, which is how a
      capsule silently renders as a 6px row.
 
-     Its width must not be. The pill shrink-wrapped its content until
-     LUM-3131, where a row only as wide as the assistant's name put the eye
-     patrol's animation on top of that name; every caller is a sidebar column
-     entry that wants the row's own width. Any intrinsic width reaching the
-     root is that regression, so none of the three spellings may appear:
-     `w-fit` restores it outright, and `w-auto` / `max-w-fit` resolve to it on
-     a block-level flex container. A story cannot stand in for this check: a
-     parent that shrink-wraps its children hides the difference entirely. */
+     Its width must not be. Every caller is a sidebar column entry that wants
+     the row's own width, and the one hosting the assistant's eye patrol is
+     measured by that animation to place the eyes, so a pill sized to its label
+     would put them on top of that label. Any intrinsic width reaching the root
+     breaks both, so none of the three spellings may appear: `w-fit` sets one
+     outright, and `w-auto` / `max-w-fit` resolve to one on a block-level flex
+     container. A story cannot stand in for this check: a parent that
+     shrink-wraps its children hides the difference entirely. */
   test("pill replaces the row's radius and keeps its full width", () => {
     const html = renderShaped("pill");
     expect(html).toContain("rounded-full");
