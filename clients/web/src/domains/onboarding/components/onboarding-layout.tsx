@@ -2,6 +2,7 @@ import { useState, type ReactNode } from "react";
 
 import { PortalContainerProvider } from "@vellumai/design-library/utils/portal-container";
 import { useIsMobile } from "@/hooks/use-is-mobile";
+import { isElectron } from "@/runtime/is-electron";
 import { AvatarWave } from "./avatar-wave";
 import { CreatureFooter } from "./creature-footer";
 
@@ -49,7 +50,10 @@ export function OnboardingLayout({
   // `hidden md:block` class) keeps the wave's canvas and its animation loop
   // from mounting at all on the layout that would not show them.
   const isMobile = useIsMobile();
-  const withWave = showAvatarWave && !isMobile;
+  // The desktop shell runs its own compact, top-aligned onboarding flow in a
+  // window narrow enough that surrendering half of it to decoration would
+  // crowd the step content.
+  const withWave = showAvatarWave && !isMobile && !isElectron();
 
   const content = (
     <div className="flex-1 overflow-y-auto">

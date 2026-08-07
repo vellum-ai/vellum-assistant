@@ -904,7 +904,7 @@ export function SelectAssistantScreen() {
 /** Full-screen "Connecting…" hold shown while a decision or connect lands. */
 function ConnectingHold() {
   return (
-    <OnboardingLayout>
+    <OnboardingLayout showAvatarWave>
       <div className="mx-auto flex min-h-screen w-full max-w-xl flex-col items-center justify-center px-6 text-[var(--content-default)]">
         <p className="text-body-medium-lighter text-[var(--content-tertiary)]">
           Connecting to your assistant…

@@ -31,7 +31,7 @@ export function WelcomeScreen() {
             the wave settles at half width.
           */}
           <h1
-            className="text-5xl font-normal tracking-tight md:text-4xl lg:text-5xl"
+            className="text-5xl font-normal tracking-tight md:text-4xl lg:text-5xl xl:text-6xl"
             style={{
               fontFamily: "var(--font-serif)",
               animation: "fadeInUp 0.5s ease-out 0.1s both",
@@ -40,7 +40,7 @@ export function WelcomeScreen() {
             Welcome to Vellum
           </h1>
           <p
-            className="mt-3 text-body-medium-lighter text-[var(--content-tertiary)]"
+            className="mt-3 text-body-large-lighter text-[var(--content-tertiary)]"
             style={{ animation: "fadeInUp 0.5s ease-out 0.3s both" }}
           >
             Your own personal intelligence is just a step away.

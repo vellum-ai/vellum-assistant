@@ -29,21 +29,38 @@ const DESIGN_H = 900;
 const SEED = 20260807;
 
 /** Keeps the widening tail from producing one absurdly large character. */
-const MAX_AVATAR_SIZE = 190;
+const MAX_AVATAR_SIZE = 165;
 
 /**
- * The ribbon enters cut off by the top edge, bulges toward the outer side,
- * and pours back out through the bottom, growing the whole way.
+ * The ribbon enters cut off by the top edge as a thin thread of small
+ * characters, switches back across the panel three times, and broadens into
+ * a full crowd that pours off the bottom.
+ *
+ * Two ramps do the work, and they are deliberately different. `s` grows
+ * about tenfold from head to tail, which reads as depth. `w` grows about
+ * thirtyfold, and since a row holds `w / s` characters, that difference is
+ * what turns a two-wide thread at the top into a six-wide crowd at the
+ * bottom. Widening the two together would keep the row count flat however
+ * large the characters got.
+ *
+ * The centerline drifts back toward the middle as `w` overtakes the panel,
+ * so the broad rows bleed off the outer edge rather than being sliced by
+ * the inner one.
  */
 const RIBBON: RibbonPoint[] = [
-  { x: 140, y: -60, w: 100, s: 40 },
-  { x: 270, y: 80, w: 130, s: 54 },
-  { x: 400, y: 230, w: 160, s: 70 },
-  { x: 460, y: 400, w: 190, s: 88 },
-  { x: 420, y: 570, w: 220, s: 108 },
-  { x: 310, y: 720, w: 250, s: 128 },
-  { x: 200, y: 860, w: 275, s: 148 },
-  { x: 150, y: 990, w: 300, s: 168 },
+  { x: 330, y: -70, w: 26, s: 13 },
+  { x: 420, y: 20, w: 40, s: 18 },
+  { x: 482, y: 115, w: 62, s: 25 },
+  { x: 458, y: 215, w: 96, s: 34 },
+  { x: 368, y: 298, w: 140, s: 45 },
+  { x: 258, y: 372, w: 196, s: 57 },
+  { x: 208, y: 462, w: 262, s: 70 },
+  { x: 262, y: 556, w: 340, s: 84 },
+  { x: 352, y: 642, w: 430, s: 98 },
+  { x: 372, y: 730, w: 530, s: 112 },
+  { x: 340, y: 822, w: 620, s: 124 },
+  { x: 360, y: 912, w: 700, s: 132 },
+  { x: 380, y: 1002, w: 760, s: 140 },
 ];
 
 const REPEL_RADIUS = 170;
@@ -66,13 +83,17 @@ const MAX_CURSOR_SPEED = 8;
 
 const REVEAL_MS = 550;
 /**
- * Gap between one character's entrance and the next. Derived from size so
- * the small characters at the head of the ribbon pour in quickly and the
- * large ones at the tail arrive with a beat between them.
+ * Relative gap between one character's entrance and the next: small ones at
+ * the head of the ribbon follow each other quickly, large ones at the tail
+ * arrive with a beat between them. These are weights, not milliseconds —
+ * they are normalized to {@link POUR_TOTAL_MS} so that reshaping the ribbon
+ * changes the wave's look without changing how long it takes to arrive.
  */
-const POUR_GAP_MIN_MS = 12;
-const POUR_GAP_MAX_MS = 55;
+const POUR_GAP_MIN = 12;
+const POUR_GAP_MAX = 55;
 const POUR_GAP_NUMERATOR = 1900;
+/** How long the whole crowd takes to finish pouring in. */
+const POUR_TOTAL_MS = 1600;
 
 /**
  * The simulation is tuned in 60fps frames, so every integration step scales
@@ -239,15 +260,34 @@ export function AvatarWave({ className = "" }: AvatarWaveProps) {
       canvas.height = Math.round(height * dpr);
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
-      // Cover the panel so the ribbon always reaches both edges.
+      // Cover the panel so the ribbon always reaches every edge. Covering
+      // means the design is at least as wide as the panel, so there is
+      // always horizontal overflow to place. Pin it to the inner edge and
+      // let all of that overflow run off the outer one: this panel sits
+      // flush against the side of the window, so overflow there leaves the
+      // screen, while overflow at the inner edge would slice the crowd in
+      // half along the boundary with the content beside it.
+      const offsetX = 0;
       const scale = Math.max(width / DESIGN_W, height / DESIGN_H);
-      const offsetX = (width - DESIGN_W * scale) / 2;
       const offsetY = (height - DESIGN_H * scale) / 2;
+
+      const placements = buildRibbonWave(RIBBON, SEED, MAX_AVATAR_SIZE);
+
+      // Normalize the size-weighted stagger to a fixed total so the crowd
+      // always finishes arriving at the same moment, however many characters
+      // the ribbon happens to pack.
+      const gapWeight = (size: number) =>
+        Math.min(POUR_GAP_MAX, Math.max(POUR_GAP_MIN, POUR_GAP_NUMERATOR / size));
+      const weightTotal = placements.reduce(
+        (sum, placed) => sum + gapWeight(placed.size),
+        0,
+      );
+      const pourRate = weightTotal > 0 ? POUR_TOTAL_MS / weightTotal : 0;
 
       const rng = mulberry32(SEED + 1);
       let lastColor = -1;
       let pourDelay = 0;
-      items = buildRibbonWave(RIBBON, SEED, MAX_AVATAR_SIZE).map(
+      items = placements.map(
         (placed): LiveItem => {
           let colorIdx = Math.floor(rng() * components.colors.length);
           if (colorIdx === lastColor) {
@@ -273,10 +313,7 @@ export function AvatarWave({ className = "" }: AvatarWaveProps) {
             fade: 1,
             sprite: spriteFor(bodyIdx, eyeIdx, colorIdx, px),
           };
-          pourDelay += Math.min(
-            POUR_GAP_MAX_MS,
-            Math.max(POUR_GAP_MIN_MS, POUR_GAP_NUMERATOR / placed.size),
-          );
+          pourDelay += gapWeight(placed.size) * pourRate;
           return item;
         },
       );
