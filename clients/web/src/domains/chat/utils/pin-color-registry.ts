@@ -64,28 +64,28 @@ export const PIN_COLORS: readonly PinColor[] = BUNDLED_COMPONENTS.colors.filter(
   (color): color is PinColor => color.id in COLOR_NAME_KEYS,
 );
 
+const HEX_BY_ID: ReadonlyMap<string, string> = new Map(
+  PIN_COLORS.map((color) => [color.id, color.hex]),
+);
+
 /**
- * How much of the colour reaches the pill. A wash rather than the solid fill
- * the assistant identity pill wears: that pill sits directly above the pinned
- * apps and is the sidebar's only saturated surface, so four solid pills under
- * it would read as its peers rather than as entries below it.
+ * How much of the colour reaches the pill. A wash rather than a solid fill,
+ * because the assistant identity pill sits directly above the pinned apps and
+ * is the sidebar's only saturated surface: solid pills under it read as its
+ * peers rather than as entries below it.
  *
- * The two steps are the tinted analogue of what an untinted pill already does
- * (`--surface-lift` at rest, `--surface-active` for both hover and current
- * page), so a coloured pill keeps the same two-step ladder rather than
- * inventing a third state.
+ * Two steps, the tinted analogue of what an untinted pill already does
+ * (`--surface-lift` at rest, `--surface-active` for hover and current page),
+ * so a coloured pill keeps that ladder instead of inventing a third state.
  */
 const WASH_REST = "15%";
 const WASH_RAISED = "24%";
 
-/** Hex for a stored colour id, or `undefined` when the pin has no colour. */
+/** Hex for a stored colour id, or `undefined` when the registry has no such colour. */
 export function getPinColorHex(
   id: string | null | undefined,
 ): string | undefined {
-  if (!id) {
-    return undefined;
-  }
-  return PIN_COLORS.find((c) => c.id === id)?.hex;
+  return id ? HEX_BY_ID.get(id) : undefined;
 }
 
 /**

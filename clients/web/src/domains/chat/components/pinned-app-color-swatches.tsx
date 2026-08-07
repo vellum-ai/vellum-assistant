@@ -6,6 +6,7 @@ import {
   getPinColorHex,
   PIN_COLORS,
   pinColorNameKey,
+  type PinColorId,
 } from "@/domains/chat/utils/pin-color-registry";
 import { useTranslation } from "@/i18n";
 import { contrastForeground } from "@/utils/avatar-tone";
@@ -38,9 +39,14 @@ import { contrastForeground } from "@/utils/avatar-tone";
  * the light swatches as well as the dark ones.
  */
 export interface PinnedAppColorSwatchesProps {
-  /** The pin's current colour id, or `undefined` when it has none. */
+  /**
+   * The pin's current colour id, or `undefined` when it has none. Widened to
+   * `string` because it arrives from storage, which can hold an id this
+   * registry no longer carries.
+   */
   value: string | undefined;
-  onChange: (color: string | null) => void;
+  /** `null` clears the colour. Only ever an id this registry knows. */
+  onChange: (color: PinColorId | null) => void;
 }
 
 /** A square tile with no label to make room for, at the menu's item rhythm. */
