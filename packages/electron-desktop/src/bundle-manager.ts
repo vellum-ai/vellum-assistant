@@ -5,6 +5,9 @@ import path from "node:path";
 import JSZip from "jszip";
 
 import { resolveRelativePath } from "@vellumai/electron-utils/app-protocol";
+import type { BundleScanData } from "@vellumai/ipc-contract";
+
+export type { BundleScanData } from "@vellumai/ipc-contract";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -23,32 +26,6 @@ export interface BundleMetadata {
   installedAt: string;
   bundleSizeBytes: number;
   capabilities: string[];
-}
-
-export interface BundleScanData {
-  manifest: {
-    format_version: number;
-    name: string;
-    description?: string;
-    icon?: string;
-    entry: string;
-    capabilities: string[];
-    created_by: string;
-    created_at: string;
-  };
-  scanResult: {
-    passed: boolean;
-    blocked: string[];
-    warnings: string[];
-  };
-  signatureResult: {
-    trustTier: "verified" | "signed" | "unsigned" | "tampered";
-    signerKeyId?: string;
-    signerDisplayName?: string;
-    signerAccount?: string;
-    message?: string;
-  };
-  bundleSizeBytes: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -81,7 +58,9 @@ export async function unpackBundle(
   const zip = await JSZip.loadAsync(zipData);
 
   for (const [entryName, entry] of Object.entries(zip.files)) {
-    if (entry.dir) continue;
+    if (entry.dir) {
+      continue;
+    }
 
     const resolved = resolveEntryPath(bundleDir, entryName);
 

@@ -2,7 +2,7 @@
  * Sandboxed renderer window for `.vellum` bundles.
  *
  * Each bundle gets its own `BrowserWindow` backed by a dedicated
- * `persist:bundle-{uuid}` session partition — cookies, localStorage, and
+ * `persist:bundle-{uuid}` session partition. Cookies, localStorage, and
  * cache are isolated per bundle. The window intentionally omits the main
  * preload script so there is no `window.vellum` bridge; the renderer runs
  * in full sandbox mode with only the web-platform APIs available.
@@ -11,12 +11,10 @@
  * origin, and `window.open` is blocked outright, so a bundle cannot
  * reach another bundle's content or escape into arbitrary web pages.
  */
-import { BrowserWindow, app, session } from "electron";
-import path from "node:path";
+import { BrowserWindow, session } from "electron";
 
-import { BUNDLES_DIR_NAME, VELLUMAPP_PROTOCOL } from "./app-config";
+import { getBundlePlatform, VELLUMAPP_PROTOCOL } from "./bundle-platform";
 import { createVellumAppHandler } from "./vellumapp-protocol";
-import { denyAllPermissions } from "./permissions";
 import { hardenedWebPreferences } from "./windows";
 
 const openBundleWindows = new Map<string, BrowserWindow>();
@@ -35,12 +33,12 @@ export const openBundleWindow = (
   const bundleSession = session.fromPartition(`persist:bundle-${uuid}`, {
     cache: true,
   });
-  denyAllPermissions(bundleSession);
+  const platform = getBundlePlatform();
+  platform.denyAllPermissions(bundleSession);
 
-  const bundlesRoot = path.join(app.getPath("userData"), BUNDLES_DIR_NAME);
   bundleSession.protocol.handle(
     VELLUMAPP_PROTOCOL,
-    createVellumAppHandler(bundlesRoot),
+    createVellumAppHandler(platform.bundlesRoot()),
   );
 
   const win = new BrowserWindow({

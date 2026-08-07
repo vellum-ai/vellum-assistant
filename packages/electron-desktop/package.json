@@ -8,6 +8,11 @@
     "./about": "./src/about.ts",
     "./accelerator": "./src/accelerator.ts",
     "./app-origin": "./src/app-origin.ts",
+    "./bundle-confirmation": "./src/bundle-confirmation.ts",
+    "./bundle-flow": "./src/bundle-flow.ts",
+    "./bundle-manager": "./src/bundle-manager.ts",
+    "./bundle-platform": "./src/bundle-platform.ts",
+    "./bundle-window": "./src/bundle-window.ts",
     "./capability-registry": "./src/capability-registry.ts",
     "./deep-links": "./src/deep-links.ts",
     "./commands": "./src/commands.ts",
@@ -24,6 +29,7 @@
     "./login-item": "./src/login-item.ts",
     "./preload": "./src/preload.ts",
     "./text-context-menu": "./src/text-context-menu.ts",
+    "./vellumapp-protocol": "./src/vellumapp-protocol.ts",
     "./windows": "./src/windows.ts"
   },
   "scripts": {
@@ -33,7 +39,8 @@
   "dependencies": {
     "@vellumai/electron-utils": "workspace:*",
     "@vellumai/ipc-contract": "workspace:*",
-    "@vellumai/local-mode": "workspace:*"
+    "@vellumai/local-mode": "workspace:*",
+    "jszip": "3.10.1"
   },
   "peerDependencies": {
     "electron": ">=42.2.0",
