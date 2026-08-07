@@ -330,7 +330,7 @@ describe("executeGatewayForwardPlan", () => {
   });
 
   test("forwards with manual redirects and a half-duplex streamed body", async () => {
-    const body = new ReadableStream<Uint8Array>();
+    const body = new ReadableStream<Uint8Array<ArrayBuffer>>();
     const seen: { url: string; init: RequestInit & { duplex?: "half" } }[] = [];
     const plan = loopbackPlan("POST");
     await executeGatewayForwardPlan(plan, { body }, async (url, init) => {

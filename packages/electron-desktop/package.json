@@ -11,7 +11,9 @@
     "./capability-registry": "./src/capability-registry.ts",
     "./deep-links": "./src/deep-links.ts",
     "./commands": "./src/commands.ts",
+    "./csp": "./src/csp.ts",
     "./devtools": "./src/devtools.ts",
+    "./gateway-forward": "./src/gateway-forward.ts",
     "./file-open": "./src/file-open.ts",
     "./file-open-preload": "./src/file-open-preload.ts",
     "./global-shortcuts": "./src/global-shortcuts.ts",
@@ -22,6 +24,8 @@
     "./image-context-menu": "./src/image-context-menu.ts",
     "./ipc": "./src/ipc.ts",
     "./login-item": "./src/login-item.ts",
+    "./permissions": "./src/permissions.ts",
+    "./platform-forward": "./src/platform-forward.ts",
     "./preload": "./src/preload.ts",
     "./text-context-menu": "./src/text-context-menu.ts",
     "./windows": "./src/windows.ts"
