@@ -144,52 +144,24 @@ describe("PairDeviceCard", () => {
     expect(screen.queryByText("Pair a device")).toBeNull();
   });
 
-  test("holds the action in a loading state until feature flags hydrate", () => {
-    // Before hydration the store still reports registry defaults
-    // (webRemoteIngress false), so the precheck must not run against it yet.
+  test("renders nothing until feature flags hydrate", () => {
+    // Before hydration the store reports registry defaults, not this
+    // assistant's values, so the card waits rather than showing an action it
+    // may have to take away.
     flagsHydrated = false;
-    webRemoteIngressOn = false;
-    const fetchMock = installFetch(() => jsonResponse(challengeBody()));
-    render(<PairDeviceCard />);
-    typeUrl(PUBLIC_URL);
-
-    const button = screen.getByRole("button", {
-      name: "Loading…",
-    }) as HTMLButtonElement;
-    expect(button.disabled).toBe(true);
-
-    // Enter is a second mint path the disabled button doesn't cover, so it must
-    // also no-op until hydration — otherwise the default flag reaches the
-    // precheck and shows a spurious "disabled" error.
-    fireEvent.keyDown(screen.getByLabelText("Public URL"), { key: "Enter" });
-
-    expect(
-      screen.queryByText(
-        "Remote web access is disabled on this assistant, so a scanned code couldn't connect.",
-      ),
-    ).toBeNull();
-    expect(fetchMock).toHaveBeenCalledTimes(0);
+    webRemoteIngressOn = true;
+    const { container } = render(<PairDeviceCard />);
+    expect(container.firstChild).toBeNull();
+    expect(screen.queryByText("Pair a device")).toBeNull();
   });
 
-  test("reports the enable guidance without minting when web-remote-ingress is off", async () => {
+  test("renders nothing when web-remote-ingress is off", () => {
+    // A scanned code could not connect without the ingress, so the card is
+    // absent rather than present and failing on use.
     webRemoteIngressOn = false;
-    const fetchMock = installFetch(() => jsonResponse(challengeBody()));
-    render(<PairDeviceCard />);
-    typeUrl(PUBLIC_URL);
-    fireEvent.click(
-      screen.getByRole("button", { name: "Generate pairing QR" }),
-    );
-
-    await waitFor(() =>
-      expect(
-        screen.getByText(
-          "Remote web access is disabled on this assistant, so a scanned code couldn't connect.",
-        ),
-      ).toBeTruthy(),
-    );
-    expect(screen.getByText(/web-remote-ingress/)).toBeTruthy();
-    // Mirrors the CLI: the flag is checked before minting, so no network call.
-    expect(fetchMock).toHaveBeenCalledTimes(0);
+    const { container } = render(<PairDeviceCard />);
+    expect(container.firstChild).toBeNull();
+    expect(screen.queryByText("Pair a device")).toBeNull();
   });
 
   test("mints + approves, then shows the QR and pair URL", async () => {

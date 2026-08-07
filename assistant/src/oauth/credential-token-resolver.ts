@@ -19,6 +19,7 @@ import {
   getSecureKeyResultAsync,
   type SecureKeyResult,
 } from "../security/secure-keys.js";
+import { manualTokenProvider } from "./manual-token-providers.js";
 
 // ── Types ─────────────────────────────────────────────────────────────
 
@@ -44,16 +45,8 @@ export interface ConnectionAccessTokenResult {
  * rather than assuming the OAuth access-token path.
  */
 function manualTokenAccessCredentialKey(provider: string): string | null {
-  switch (provider) {
-    case "slack_channel":
-      return credentialKey("slack_channel", "bot_token");
-    case "telegram":
-      return credentialKey("telegram", "bot_token");
-    case "sanity":
-      return credentialKey("sanity", "api_token");
-    default:
-      return null;
-  }
+  const spec = manualTokenProvider(provider);
+  return spec ? credentialKey(provider, spec.accessField) : null;
 }
 
 /**

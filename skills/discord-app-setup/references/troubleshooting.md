@@ -25,7 +25,7 @@ The token validates against the REST API but the gateway closes the connection. 
 
 ### "Disallowed intents" gateway close (code 4014)
 
-Discord refused a privileged intent the app is not approved for. This client identifies with `GUILDS` and `GUILD_MESSAGES` only, both non-privileged, so it should never provoke a 4014.
+Discord refused a privileged intent the app is not approved for. This client identifies with `GUILDS`, `GUILD_MESSAGES`, and `DIRECT_MESSAGES` only, all three non-privileged, so it should never provoke a 4014.
 
 Enabling privileged intents is **not** the fix. If you see this code, the IDENTIFY bitmask is not the one this client builds: check that the running gateway version matches the deployed assistant, and report it, rather than turning portal toggles on to satisfy it.
 

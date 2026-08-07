@@ -28,7 +28,9 @@ const { installFeatureFlagsIpc } = await import("./feature-flags");
 
 const registrationFor = (channel: string): Registration => {
   const registration = onRegistrations.find((r) => r.channel === channel);
-  if (!registration) throw new Error(`No handler for ${channel}`);
+  if (!registration) {
+    throw new Error(`No handler for ${channel}`);
+  }
   return registration;
 };
 

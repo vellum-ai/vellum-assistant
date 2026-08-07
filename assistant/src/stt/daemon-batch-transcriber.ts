@@ -13,6 +13,7 @@
  * - xAI (`xai`)
  */
 
+import { batchBoundaryGapReason } from "../providers/speech-to-text/provider-catalog.js";
 import type {
   BatchTranscriber,
   SttProviderId,
@@ -245,6 +246,9 @@ class VellumManagedBatchTranscriber implements BatchTranscriber {
  * language code), and the vellum managed path, whose platform proxy passes
  * it to Deepgram server-side. Whisper and Gemini auto-detect natively and
  * take no language parameter, so it is silently ignored for them.
+ *
+ * Throws an {@link SttError} for a provider with no batch endpoint at all,
+ * which no key can fix and `null` would understate.
  */
 export function createDaemonBatchTranscriber(
   apiKey: string | null | undefined,
@@ -268,6 +272,12 @@ export function createDaemonBatchTranscriber(
       return new GoogleGeminiBatchTranscriber(apiKey);
     case "xai":
       return new XAIBatchTranscriber(apiKey, language);
+    case "deepgram-flux":
+      // Same copy the resolver raises, so a direct factory caller and a
+      // config-driven one report the mismatch identically.
+      throw new SttError("provider-error", batchBoundaryGapReason(providerId), {
+        userFacing: true,
+      });
     default: {
       // Exhaustive check — compile error if a new SttProviderId is added
       // without a corresponding case here.

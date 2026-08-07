@@ -109,6 +109,7 @@ import {
 } from "../../../cli/lib/uninstall-plugin.js";
 import {
   PluginMergeBaselineError,
+  PluginNotCuratedError,
   PluginNotUpgradableError,
   type PluginUpgradeResult,
   type UpgradePluginDeps,
@@ -252,6 +253,7 @@ const upgradeSpy = mock(
 
 mock.module("../../../cli/lib/upgrade-plugin.js", () => ({
   PluginMergeBaselineError,
+  PluginNotCuratedError,
   PluginNotUpgradableError,
   upgradePlugin: upgradeSpy,
 }));
@@ -2127,6 +2129,7 @@ describe("POST /v1/plugins/:name/upgrade", () => {
       name: "level-up",
       dryRun: false,
       strategy: undefined,
+      marketplaceOnly: false,
     });
   });
 
@@ -2148,6 +2151,7 @@ describe("POST /v1/plugins/:name/upgrade", () => {
       name: "level-up",
       dryRun: undefined,
       strategy: "ours",
+      marketplaceOnly: false,
     });
   });
 
@@ -2175,6 +2179,7 @@ describe("POST /v1/plugins/:name/upgrade", () => {
       name: "level-up",
       dryRun: undefined,
       strategy: "assistant",
+      marketplaceOnly: false,
     });
   });
 
@@ -2300,6 +2305,10 @@ describe("POST /v1/plugins/:name/upgrade", () => {
     expect(upgradeSpy.mock.calls[0]?.[0]).toEqual({
       name: "level-up",
       dryRun: undefined,
+      strategy: undefined,
+      // Unlike dryRun, an absent flag here is a definite "no": the untrusted
+      // direct path stays available unless a caller opts out of it.
+      marketplaceOnly: false,
     });
   });
 
@@ -2340,6 +2349,41 @@ describe("POST /v1/plugins/:name/upgrade", () => {
 
     await expect(
       invokeUpgrade({ pathParams: { name: "level-up" } }),
+    ).rejects.toBeInstanceOf(ConflictError);
+  });
+
+  test("marketplaceOnly is forwarded so the lib enforces it, not the caller", async () => {
+    // The lib re-inspects the catalog inside the call, so the flag has to
+    // travel with the request: a caller's own pre-check cannot bind a decision
+    // the lib makes afterwards.
+    upgradeSpy.mockImplementation(async () => upgradeResult());
+
+    await invokeUpgrade({
+      pathParams: { name: "level-up" },
+      body: { marketplaceOnly: true },
+    });
+
+    expect(upgradeSpy.mock.calls[0]?.[0]).toEqual({
+      name: "level-up",
+      dryRun: undefined,
+      strategy: undefined,
+      marketplaceOnly: true,
+    });
+  });
+
+  test("PluginNotCuratedError → ConflictError (409)", async () => {
+    // A marketplaceOnly caller asked about an install the catalog does not
+    // claim. Retrying changes nothing: only a human upgrading it without the
+    // flag can move it.
+    upgradeSpy.mockImplementation(async () => {
+      throw new PluginNotCuratedError("level-up");
+    });
+
+    await expect(
+      invokeUpgrade({
+        pathParams: { name: "level-up" },
+        body: { marketplaceOnly: true },
+      }),
     ).rejects.toBeInstanceOf(ConflictError);
   });
 

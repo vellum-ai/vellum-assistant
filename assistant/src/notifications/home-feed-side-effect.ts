@@ -170,9 +170,12 @@ function deriveFallbackTitle(summary: string): string {
   // fence into a stray backtick). Ordered markers matter most: the seed prompt
   // asks the model for numbered lists, and a leading `1.` also reads as a
   // sentence terminator, which would truncate the title to the first digit.
-  // The leading-space allowance and rule set mirror `flattenToPlainText` in
-  // workspace migration 138, which must stay self-contained and so cannot share
-  // this code. A backfilled title and a freshly written one have to match.
+  //
+  // Deliberately regex-based, unlike the remark-backed
+  // `stripMarkdownForPreview`. The leading-space allowance and rule set mirror
+  // `flattenToPlainText` in workspace migration 138, which must stay
+  // self-contained and so cannot share code with either: a backfilled title and
+  // a freshly written one have to match, which a parser swap would break.
   const deblocked = summary
     .replace(/^\s{0,3}(?:```|~~~).*$/gm, "")
     .replace(/^\s{0,3}#{1,6}\s+/gm, "")

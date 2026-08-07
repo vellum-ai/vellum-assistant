@@ -2,11 +2,10 @@
  * A pinned provider this assistant cannot select must still be shown as the
  * pin, not swapped for a selectable one.
  *
- * Displaying a fallback while storing something else is wrong on its own, but
- * it used to be self-repairing by accident: the deprecated `Dropdown` fired
- * `onChange` for every click, so re-picking the shown provider rewrote the
- * draft to match. Radix `Select` suppresses a change to the value it already
- * holds, which turned the cosmetic lie into a save of the wrong provider.
+ * Displaying a fallback while storing something else would be wrong on its
+ * own, and `Select` gives it teeth: it reports changes rather than clicks, so
+ * re-picking the shown provider is a no-op and the mismatch survives into a
+ * save of the wrong provider.
  */
 
 import { afterEach, describe, expect, mock, test } from "bun:test";

@@ -5,6 +5,10 @@ import {
   type IpcRendererEvent,
 } from "electron";
 
+import {
+  createFileOpenPreloadBridge,
+} from "@vellumai/electron-desktop/file-open-preload";
+
 import type {
   Lockfile,
   LockfileWriteResult,
@@ -13,6 +17,7 @@ import type {
   AppVersionInfo,
   AssistantStatus,
   BundleScanData,
+  CompanionContext,
   CompanionSurfaceState,
   ConnectivityState,
   DeepLink,
@@ -42,7 +47,6 @@ import type {
   VoiceActivityContent,
   VoiceActivityControl,
   VoiceActivityStart,
-  VoiceActivityState,
 } from "@vellumai/ipc-contract";
 import {
   DIAGNOSTICS_SET_SHARE,
@@ -96,6 +100,8 @@ const subscribeDictationEvent =
       ipcRenderer.off(channel, handler);
     };
   };
+
+const fileOpenBridge = createFileOpenPreloadBridge({ ipcRenderer, webUtils });
 
 const bridge: VellumBridge = {
   platform: "electron",
@@ -292,6 +298,9 @@ const bridge: VellumBridge = {
     setAvatar: (png: Uint8Array | null): void => {
       ipcRenderer.send("vellum:icon:setAvatar", png);
     },
+    setCharacter: (character): void => {
+      ipcRenderer.send("vellum:icon:setCharacter", character);
+    },
   },
   dock: {
     setBadge: (count: number): void => {
@@ -422,34 +431,8 @@ const bridge: VellumBridge = {
       };
     },
   },
-  fileOpen: {
-    drain: (): Promise<string[]> =>
-      ipcRenderer.invoke("vellum:fileOpen:drain") as Promise<string[]>,
-    onFile: (callback) => {
-      ipcRenderer.send("vellum:fileOpen:subscribe");
-      const handler = (_event: IpcRendererEvent, filePath: string) => {
-        callback(filePath);
-      };
-      ipcRenderer.on("vellum:fileOpen:event", handler);
-      return () => {
-        ipcRenderer.send("vellum:fileOpen:unsubscribe");
-        ipcRenderer.off("vellum:fileOpen:event", handler);
-      };
-    },
-  },
-  paths: {
-    // Synchronous — `webUtils.getPathForFile` runs entirely inside the
-    // preload's renderer context (no IPC hop), which is required because
-    // `File` objects can't be serialized across the renderer↔main boundary.
-    getPathForFile: (file: File): string | null => {
-      try {
-        const path = webUtils.getPathForFile(file);
-        return path ? path : null;
-      } catch {
-        return null;
-      }
-    },
-  },
+  fileOpen: fileOpenBridge.fileOpen,
+  paths: fileOpenBridge.paths,
   feedback: {
     diagnostics: () =>
       ipcRenderer.invoke(FEEDBACK_DIAGNOSTICS) as Promise<
@@ -581,22 +564,6 @@ const bridge: VellumBridge = {
     end: (): void => {
       ipcRenderer.send("vellum:voiceActivity:end");
     },
-    getState: (): Promise<VoiceActivityState | null> =>
-      ipcRenderer.invoke(
-        "vellum:voiceActivity:getState",
-      ) as Promise<VoiceActivityState | null>,
-    onState: (callback) => {
-      const handler = (
-        _event: IpcRendererEvent,
-        payload: VoiceActivityState | null,
-      ) => {
-        callback(payload);
-      };
-      ipcRenderer.on("vellum:voiceActivity:state", handler);
-      return () => {
-        ipcRenderer.off("vellum:voiceActivity:state", handler);
-      };
-    },
     control: (control: VoiceActivityControl): void => {
       ipcRenderer.send("vellum:voiceActivity:control", control);
     },
@@ -611,15 +578,6 @@ const bridge: VellumBridge = {
       return () => {
         ipcRenderer.off("vellum:voiceActivity:controlEvent", handler);
       };
-    },
-    activate: (): void => {
-      ipcRenderer.send("vellum:voiceActivity:activate");
-    },
-    dismiss: (): void => {
-      ipcRenderer.send("vellum:voiceActivity:dismiss");
-    },
-    setCollapsed: (collapsed: boolean): void => {
-      ipcRenderer.send("vellum:voiceActivity:setCollapsed", collapsed);
     },
   },
   companion: {
@@ -644,6 +602,25 @@ const bridge: VellumBridge = {
     },
     moveBy: (dx: number, dy: number): void => {
       ipcRenderer.send("vellum:companion:moveBy", dx, dy);
+    },
+    startVoice: (): void => {
+      ipcRenderer.send("vellum:companion:startVoice");
+    },
+    activate: (): void => {
+      ipcRenderer.send("vellum:companion:activate");
+    },
+    setComposing: (composing: boolean): void => {
+      ipcRenderer.send("vellum:companion:setComposing", composing);
+    },
+    submit: (message: string, startsConversation: boolean): void => {
+      ipcRenderer.send(
+        "vellum:companion:submit",
+        message,
+        startsConversation,
+      );
+    },
+    setContext: (context: CompanionContext): void => {
+      ipcRenderer.send("vellum:companion:setContext", context);
     },
   },
   popout: {

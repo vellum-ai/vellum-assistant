@@ -440,7 +440,7 @@ describe("HTTP route: handleCreateVerificationSession (guardian path)", () => {
   test("creates inbound challenge when destination is absent", async () => {
     const result = (await handleCreateVerificationSession({
       body: { channel: "phone" },
-    })) as Record<string, unknown>;
+    })) as unknown as Record<string, unknown>;
     expect(result.success).toBe(true);
     expect(result.channel).toBe("phone");
   });
@@ -448,7 +448,7 @@ describe("HTTP route: handleCreateVerificationSession (guardian path)", () => {
   test("returns success for valid voice start", async () => {
     const result = (await handleCreateVerificationSession({
       body: { channel: "phone", destination: "+15559999999" },
-    })) as Record<string, unknown>;
+    })) as unknown as Record<string, unknown>;
     expect(result.success).toBe(true);
     expect(result.verificationSessionId).toBeDefined();
   });
@@ -471,7 +471,7 @@ describe("HTTP route: handleResendVerificationSession (guardian path)", () => {
     // Start a session first
     const startResult = (await handleCreateVerificationSession({
       body: { channel: "phone", destination: "+15556667777" },
-    })) as Record<string, unknown>;
+    })) as unknown as Record<string, unknown>;
     expect(startResult.success).toBe(true);
 
     // Expire the cooldown so resend is allowed
@@ -489,7 +489,7 @@ describe("HTTP route: handleResendVerificationSession (guardian path)", () => {
         channel: "phone",
         originConversationId: "conv-resend-http-origin",
       },
-    })) as Record<string, unknown>;
+    })) as unknown as Record<string, unknown>;
     expect(resendResult.success).toBe(true);
     expect(resendResult.originConversationId).toBe("conv-resend-http-origin");
   });
@@ -505,7 +505,7 @@ describe("HTTP route: handleCancelVerificationSession (guardian path)", () => {
   test("returns success even when no active session exists", async () => {
     const result = (await handleCancelVerificationSession({
       body: { channel: "phone" },
-    })) as Record<string, unknown>;
+    })) as unknown as Record<string, unknown>;
     expect(result.success).toBe(true);
   });
 
@@ -513,13 +513,13 @@ describe("HTTP route: handleCancelVerificationSession (guardian path)", () => {
     // Start a session
     const startResult = (await handleCreateVerificationSession({
       body: { channel: "phone", destination: "+15558887777" },
-    })) as Record<string, unknown>;
+    })) as unknown as Record<string, unknown>;
     expect(startResult.success).toBe(true);
 
     // Cancel it
     const cancelResult = (await handleCancelVerificationSession({
       body: { channel: "phone" },
-    })) as Record<string, unknown>;
+    })) as unknown as Record<string, unknown>;
     expect(cancelResult.success).toBe(true);
   });
 });
@@ -575,7 +575,7 @@ describe("origin conversation linkage", () => {
         destination: "+15557776666",
         originConversationId: "conv-origin-http-test",
       },
-    })) as Record<string, unknown>;
+    })) as unknown as Record<string, unknown>;
     expect(result.success).toBe(true);
     expect(result.originConversationId).toBe("conv-origin-http-test");
   });

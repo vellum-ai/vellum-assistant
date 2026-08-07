@@ -148,7 +148,7 @@ export function ConversationAssetsPill({
   }, [conversationId]);
 
   const isMobile = useIsMobile();
-  const { t } = useTranslation();
+  const { t } = useTranslation("chat");
   const reduceMotion = useReducedMotion();
   const hasUnseenChanges = useHasUnseenDocumentChanges(conversationId);
   const clearConversation =
@@ -267,7 +267,7 @@ export function ConversationAssetsPill({
           </BottomSheet.Trigger>
           <BottomSheet.Content>
             <BottomSheet.Header>
-              <BottomSheet.Title>Assets</BottomSheet.Title>
+              <BottomSheet.Title>{t("conversationAssets.heading")}</BottomSheet.Title>
             </BottomSheet.Header>
             <BottomSheet.Body className="pt-0">{assetItems}</BottomSheet.Body>
           </BottomSheet.Content>
@@ -308,7 +308,7 @@ export function ConversationAssetsPill({
               variant="label-small-default"
               className="text-[var(--content-tertiary)]"
             >
-              Assets
+              {t("conversationAssets.heading")}
             </Typography>
           </div>
           <div className="max-h-[240px] overflow-y-auto px-2 pb-2">

@@ -1,11 +1,13 @@
 import type { z } from "zod";
 
+export type IpcOn = <Args extends unknown[]>(
+  channel: string,
+  schema: z.ZodType<Args>,
+  listener: (args: Args) => void,
+) => void;
+
 export interface DiagnosticsIpc {
-  on: <Args extends unknown[]>(
-    channel: string,
-    schema: z.ZodType<Args>,
-    listener: (args: Args) => void,
-  ) => void;
+  on: IpcOn;
 }
 
 export interface FeedbackIpc {
