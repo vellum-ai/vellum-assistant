@@ -19,22 +19,17 @@
  * `publishEvent`, `runConversationTurn`), which broker process-safe access — so
  * a handler behaves identically in-process and in the route-host subprocess.
  *
- * For backward compatibility, the in-process path still passes a **deprecated**
- * `context` second argument (see `deprecated-route-context.ts`): a thin shim
- * over those same plugin-api calls that records a deprecation-usage telemetry
- * signal so remaining callers can be found and migrated. The route-host path
- * does not supply it. The argument is transitional and removed once telemetry
- * shows no route depends on it.
- *
- * Modules are lazily loaded on first request and cached by file path +
- * mtime. When a file changes on disk, the next request reloads it via
- * Bun's dynamic `import()` with a cache-busting query parameter. A request
- * whose file does not exist 404s — nothing is registered ahead of time.
+ * The dispatcher resolves the handler file, then hands execution to the route
+ * host subprocess ({@link RouteHostClient}): the handler runs off the daemon's
+ * event loop, so one that blocks synchronously pins only the host process and
+ * is reclaimed with a hard kill. A request whose file does not exist 404s
+ * before the host is touched — nothing is registered ahead of time. Handlers
+ * that need to reach daemon state import the relevant `@vellumai/plugin-api`
+ * helpers (e.g. `publishEvent`, `runConversationTurn`).
  */
 
 import { statSync } from "node:fs";
 
-import { isRouteHostEnabled } from "../../routes/control.js";
 import {
   RouteHostClient,
   RouteHostTimeoutError,
@@ -43,75 +38,29 @@ import {
 import { getLogger } from "../../util/logger.js";
 import { httpError } from "../http-errors.js";
 import {
-  buildDeprecatedRouteContext,
-  type UserRouteContext,
-} from "./deprecated-route-context.js";
-import {
   resolveHandlerFile,
   resolveRouteLocation,
 } from "./user-route-resolution.js";
 
 const log = getLogger("user-routes");
 
-// ---------------------------------------------------------------------------
-// Route handler types
-// ---------------------------------------------------------------------------
-
-/** HTTP methods that can be exported from a handler module. */
-const HTTP_METHODS = [
-  "GET",
-  "POST",
-  "PUT",
-  "PATCH",
-  "DELETE",
-  "HEAD",
-  "OPTIONS",
-] as const;
-
-type HttpMethod = (typeof HTTP_METHODS)[number];
-
-/**
- * The function signature that user-defined route handlers must follow. New
- * handlers take just the `Request` and reach daemon state through
- * `@vellumai/plugin-api`. A deprecated `context` second argument is still passed
- * on the in-process path for backward compatibility (see
- * `deprecated-route-context.ts`); handlers that omit the parameter ignore it.
- */
-type RouteHandler = (
-  request: Request,
-  context: UserRouteContext,
-) => Response | Promise<Response>;
-
-/** A loaded handler module with its cached metadata. */
-interface CachedModule {
-  /** The module's exports (keyed by HTTP method name). */
-  handlers: Partial<Record<HttpMethod, RouteHandler>>;
-  /** Optional description exported by the module for display in CLI. */
-  description?: string;
-  /** The file's mtime at the time of loading, in milliseconds. */
-  mtimeMs: number;
-}
-
 /** Default per-request timeout for user-defined route handlers (2 minutes). */
 const DEFAULT_HANDLER_TIMEOUT_MS = 120_000;
 
 export class UserRouteDispatcher {
-  private moduleCache = new Map<string, CachedModule>();
-  private handlerTimeoutMs: number;
+  private readonly handlerTimeoutMs: number;
   /**
    * The route host client. Constructing it is inert — the subprocess spawns
-   * lazily on the client's first `invoke` — so a dispatcher whose host is never
-   * enabled never spawns one.
+   * lazily on the client's first `invoke` — so a dispatcher that never serves a
+   * request never spawns one.
    */
   private readonly routeHostClient: RouteHostClient;
 
-  constructor(options: { handlerTimeoutMs?: number } = {}) {
+  constructor(options?: { handlerTimeoutMs?: number }) {
     this.handlerTimeoutMs =
-      options.handlerTimeoutMs ?? DEFAULT_HANDLER_TIMEOUT_MS;
-    // Both execution paths — in-process ({@link executeHandler}) and the route
-    // host subprocess — must honor the same per-request timeout, so the host
-    // client's hard-kill deadline is driven by the dispatcher's timeout rather
-    // than its own independent default.
+      options?.handlerTimeoutMs ?? DEFAULT_HANDLER_TIMEOUT_MS;
+    // The host client's hard-kill deadline is the dispatcher's per-request
+    // timeout, not the client's own default.
     this.routeHostClient = new RouteHostClient({
       invokeTimeoutMs: this.handlerTimeoutMs,
     });
@@ -142,23 +91,7 @@ export class UserRouteDispatcher {
       );
     }
 
-    if (isRouteHostEnabled()) {
-      return this.dispatchViaHost(filePath, routePath, request);
-    }
-
-    const mod = await this.loadModule(filePath);
-    const method = request.method as HttpMethod;
-    const handler = mod.handlers[method];
-
-    if (!handler) {
-      const allowed = HTTP_METHODS.filter((m) => m in mod.handlers);
-      return new Response(null, {
-        status: 405,
-        headers: { Allow: allowed.join(", ") },
-      });
-    }
-
-    return this.executeHandler(handler, request, routePath);
+    return this.dispatchViaHost(filePath, routePath, request);
   }
 
   /**
@@ -166,7 +99,7 @@ export class UserRouteDispatcher {
    * already resolved `filePath` (and 404'd if missing); here it marshals the
    * request, hands it to the host, and rebuilds a `Response` from the reply.
    * Maps the host's typed failures to HTTP: timeout → 504, host unavailable →
-   * 503, and a handler that threw → 500 (matching the in-thread contract).
+   * 503, and a handler that threw → 500.
    */
   private async dispatchViaHost(
     filePath: string,
@@ -221,90 +154,6 @@ export class UserRouteDispatcher {
           503,
         );
       }
-      log.error({ err, routePath }, "User route handler threw an error");
-      const message =
-        err instanceof Error ? err.message : "Internal server error";
-      return httpError("INTERNAL_ERROR", message, 500);
-    }
-  }
-
-  /**
-   * Load a handler module, using the mtime-based cache when possible.
-   *
-   * On cache miss or stale mtime, the module is re-imported via Bun's
-   * dynamic `import()` with a cache-busting query parameter derived
-   * from the file's current mtime.
-   */
-  private async loadModule(filePath: string): Promise<CachedModule> {
-    const stat = statSync(filePath);
-    const mtimeMs = stat.mtimeMs;
-
-    const cached = this.moduleCache.get(filePath);
-    if (cached && cached.mtimeMs === mtimeMs) {
-      return cached;
-    }
-
-    // Cache-bust Bun's module cache by appending mtime as a query param.
-    const mod = (await import(`${filePath}?t=${mtimeMs}`)) as Record<
-      string,
-      unknown
-    >;
-
-    const handlers: Partial<Record<HttpMethod, RouteHandler>> = {};
-    for (const method of HTTP_METHODS) {
-      if (typeof mod[method] === "function") {
-        handlers[method] = mod[method] as RouteHandler;
-      }
-    }
-
-    const description =
-      typeof mod.description === "string" ? mod.description : undefined;
-
-    const entry: CachedModule = { handlers, description, mtimeMs };
-    this.moduleCache.set(filePath, entry);
-
-    log.info(
-      { filePath, methods: Object.keys(handlers), description },
-      "Loaded user route handler",
-    );
-
-    return entry;
-  }
-
-  /**
-   * Execute a handler function with a per-request timeout and error boundary.
-   */
-  private async executeHandler(
-    handler: RouteHandler,
-    request: Request,
-    routePath: string,
-  ): Promise<Response> {
-    try {
-      const result = await Promise.race([
-        Promise.resolve(
-          handler(request, buildDeprecatedRouteContext(routePath)),
-        ),
-        new Promise<never>((_, reject) =>
-          setTimeout(
-            () => reject(new Error("Handler timed out")),
-            this.handlerTimeoutMs,
-          ),
-        ),
-      ]);
-      return result;
-    } catch (err) {
-      if (err instanceof Error && err.message === "Handler timed out") {
-        log.error(
-          { routePath, timeoutMs: this.handlerTimeoutMs },
-          "User route handler timed out",
-        );
-        return httpError(
-          "SERVICE_UNAVAILABLE",
-          `Route handler for /x/${routePath} timed out after ${this.handlerTimeoutMs}ms`,
-          504,
-        );
-      }
-
       log.error({ err, routePath }, "User route handler threw an error");
       const message =
         err instanceof Error ? err.message : "Internal server error";
