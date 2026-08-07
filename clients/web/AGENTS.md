@@ -14,7 +14,15 @@ Read these before making changes:
 - **[`docs/CAPACITOR.md`](./docs/CAPACITOR.md)** — Capacitor / iOS patterns: lazy plugin imports, native auth, deep links, autogrowing textareas, streaming watchdogs, OS permission UI, capability detection, keyboard-only affordances. Mandatory reading if any code path you're touching might run inside the iOS WKWebView shell.
 - **[`docs/ELECTRON.md`](./docs/ELECTRON.md)** — Electron renderer patterns: `runtime/` wrapper modules for `window.vellum.*`, domain-owned bridge hooks, the three-file dance for new bridge surfaces. Read this if your change touches anything under `src/runtime/` that uses `window.vellum`.
 - **[`docs/I18N.md`](./docs/I18N.md)**: User-facing copy. Which namespace a string belongs to, the `<component>.<slot>` key convention, ICU plurals (never a `? :` on a count), and the `local/no-untranslated-strings` ratchet. Read this before adding or editing any string a user can read, including `aria-label`, `placeholder`, and toast text.
-- **[`docs/BACKWARDS_COMPAT.md`](./docs/BACKWARDS_COMPAT.md)** — How the web app version-gates features against the locally-installed assistant/daemon. The `src/lib/backwards-compat/` registry, `useAssistantSupports()` / `assistantSupports()`, read-vs-write fallback rules, and how to add or test a gate. Read this before adding a feature that depends on a new daemon endpoint, wire field, or event shape.
+- **[`docs/BACKWARDS_COMPAT.md`](./docs/BACKWARDS_COMPAT.md)**: Legacy. Describes the `src/lib/backwards-compat/` registry and the `useAssistantSupports()` / `assistantSupports()` helpers that existing gates still use. New features do not gate on the assistant version (see [No assistant-version gating](#no-assistant-version-gating)), so read this only when removing a gate.
+
+## No assistant-version gating
+
+The web app and the assistant/daemon ship together in the same release, so the bundle in the browser and the assistant it talks to are the same version. Do not gate web features on the connected assistant's version.
+
+- Do not add modules to `src/lib/backwards-compat/`, and do not add `MIN_VERSION` semver checks anywhere else. Call the endpoint, read the wire field, render the feature.
+- The gates already in `src/lib/backwards-compat/` are legacy. When you touch the feature a gate guards, delete the gate instead of extending it.
+- A `MIN_VERSION` is a guess about which release will carry the feature, and a wrong guess fails silently: a gate pinned to a version number that never ships leaves the feature dark in production for every user. Coupled releases make the whole mechanism unnecessary, so the safest gate is no gate.
 
 ## Common pitfalls
 
