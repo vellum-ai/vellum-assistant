@@ -8,9 +8,9 @@
  * cooperative cancellation.
  */
 
-import type { HostProxyExecutor } from "../host-proxy-router";
-import type { HostProxySseMessage } from "../host-proxy-sse";
-import type { HostProxyPoster } from "../host-proxy-poster";
+import type { HostProxyExecutor } from "@vellumai/host-proxy/router";
+import type { HostProxySseMessage } from "@vellumai/host-proxy/sse";
+import type { HostProxyPoster } from "@vellumai/host-proxy/poster";
 import log from "../logger";
 
 // ---------------------------------------------------------------------------

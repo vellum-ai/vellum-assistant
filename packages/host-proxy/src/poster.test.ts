@@ -1,37 +1,9 @@
-import { afterEach, describe, expect, mock, test } from "bun:test";
-import fs from "node:fs";
-import os from "node:os";
-import path from "node:path";
+import { describe, expect, mock, test } from "bun:test";
 
-// ---------------------------------------------------------------------------
-// Stub device-id so we get a deterministic client ID without touching disk.
-// ---------------------------------------------------------------------------
-
-const TEST_DIR = path.join(os.tmpdir(), `host-proxy-poster-test-${process.pid}`);
-const DEVICE_FILE = path.join(TEST_DIR, "device.json");
 const FAKE_DEVICE_ID = "test-device-00000000-0000-0000-0000-000000000000";
+const clientHeaders = () => ({ "X-Vellum-Client-Id": FAKE_DEVICE_ID });
 
-let mockEnvironment = "dev";
-mock.module("@vellumai/local-mode", () => ({
-  resolveConfigDir: () => TEST_DIR,
-  resolveEnvironmentName: () => mockEnvironment,
-}));
-
-// Write a device.json so getDeviceId returns our deterministic value.
-fs.mkdirSync(TEST_DIR, { recursive: true });
-fs.writeFileSync(
-  DEVICE_FILE,
-  JSON.stringify({ deviceId: FAKE_DEVICE_ID }, null, 2) + "\n",
-);
-
-// Import device-id first so the cache is seeded, then import the poster.
-const { resetDeviceIdCache } = await import("./device-id");
-resetDeviceIdCache();
-const { getDeviceId } = await import("./device-id");
-// Prime the cache with our fake ID
-getDeviceId();
-
-const { HostProxyPoster } = await import("./host-proxy-poster");
+const { HostProxyPoster } = await import("./poster");
 
 // ---------------------------------------------------------------------------
 // Test helpers
@@ -112,7 +84,7 @@ function createBinaryMockFetch(status: number | number[], data: Buffer) {
       }
     }
     captured.push({ url, method, headers, body: null, rawBody: null });
-    return new Response(data, {
+    return new Response(data as unknown as RequestInit["body"], {
       status: callStatus,
       headers: { "Content-Type": "application/octet-stream" },
     });
@@ -124,6 +96,7 @@ function makeLocalPoster(fetchFn: typeof globalThis.fetch, port = 9000, token = 
   return new HostProxyPoster({
     endpointBase: `http://127.0.0.1:${port}/v1`,
     authHeaders: () => ({ Authorization: `Bearer ${token}` }),
+    clientHeaders,
     fetch: fetchFn,
   });
 }
@@ -132,6 +105,7 @@ function makeCloudPoster(fetchFn: typeof globalThis.fetch, runtimeUrl = "https:/
   return new HostProxyPoster({
     endpointBase: `${runtimeUrl}/v1/assistants/${assistantId}`,
     authHeaders: () => ({ "X-Session-Token": sessionToken }),
+    clientHeaders,
     fetch: fetchFn,
   });
 }
@@ -139,12 +113,6 @@ function makeCloudPoster(fetchFn: typeof globalThis.fetch, runtimeUrl = "https:/
 // ---------------------------------------------------------------------------
 // Cleanup
 // ---------------------------------------------------------------------------
-
-afterEach(() => {
-  resetDeviceIdCache();
-  // Re-prime the cache for the next test
-  getDeviceId();
-});
 
 // ---------------------------------------------------------------------------
 // Tests

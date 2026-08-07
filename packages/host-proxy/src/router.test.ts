@@ -1,14 +1,6 @@
-import { afterEach, describe, expect, mock, test } from "bun:test";
-
-// ---------------------------------------------------------------------------
-// Stubs — must precede the router import
-// ---------------------------------------------------------------------------
+import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
 const MOCK_DEVICE_ID = "test-device-00000000-0000-0000-0000-000000000000";
-mock.module("./device-id", () => ({
-  getDeviceId: () => MOCK_DEVICE_ID,
-  resetDeviceIdCache: () => {},
-}));
 
 const mockGetGuardianAccessToken = mock(
   async (
@@ -16,48 +8,21 @@ const mockGetGuardianAccessToken = mock(
   ): Promise<{ ok: true; accessToken: string } | { ok: false; status: number; error: string }> =>
     ({ ok: true, accessToken: "test-token" }),
 );
-mock.module("@vellumai/local-mode", () => ({
-  getGuardianAccessToken: mockGetGuardianAccessToken,
-  resolveConfigDir: () => "/tmp/test-config",
-  resolveEnvironmentName: () => "test",
-}));
 
-// Minimal lockfile-watcher stub — capture the listener
-let lockfileListener: ((lockfile: import("@vellumai/local-mode/contract").Lockfile) => void) | null = null;
-mock.module("./lockfile-watcher.client", () => ({
-  onLockfileChange: (listener: typeof lockfileListener) => {
-    lockfileListener = listener;
-    return () => { lockfileListener = null; };
-  },
-  getWatchedLockfile: () => ({ assistants: [], activeAssistant: null }),
-}));
+type Lockfile = import("@vellumai/local-mode/contract").Lockfile;
+let lockfileListener: ((lockfile: Lockfile) => void) | null = null;
 
 // Stub electron-log. `warn` is a tracked mock so tests can assert the
 // router doesn't log for expected firehose traffic.
 const mockLogWarn = mock((..._args: unknown[]) => {});
-mock.module("electron-log/main", () => {
-  const noop = () => {};
-  return {
-    default: {
-      info: noop,
-      warn: mockLogWarn,
-      error: noop,
-      debug: noop,
-      initialize: noop,
-      transports: { file: { maxSize: 0, fileName: "", format: "", getFile: () => ({ path: "" }) } },
-    },
-  };
-});
+const noopLog = (..._args: unknown[]): void => undefined;
 
 // Stub session-token-store
 let mockSessionToken: string | null = "test-session-token";
-mock.module("./session-token-store", () => ({
-  getSessionToken: () => mockSessionToken,
-}));
 
 // Stub the presence monitor, capturing the reporter the router installs so
 // tests can drive reports without a real powerMonitor or poll interval.
-type PresenceState = import("./presence").PresenceState;
+type PresenceState = import("./poster").PresenceState;
 let presenceReporter: ((state: PresenceState) => void) | null = null;
 const mockPresenceTeardown = mock(() => {});
 const mockInstallPresenceMonitor = mock(
@@ -66,26 +31,57 @@ const mockInstallPresenceMonitor = mock(
     return mockPresenceTeardown;
   },
 );
-mock.module("./presence", () => ({
-  installPresenceMonitor: mockInstallPresenceMonitor,
-}));
-
-const { HostProxySseClient } = await import("./host-proxy-sse");
-const { HostProxyPoster } = await import("./host-proxy-poster");
+const { HostProxySseClient } = await import("./sse");
+const { HostProxyPoster } = await import("./poster");
 const {
   installHostProxyBridge,
   setExecutor,
   removeExecutor,
   __testing,
-} = await import("./host-proxy-router");
-
-type Lockfile = import("@vellumai/local-mode/contract").Lockfile;
+} = await import("./router");
+type HostProxyRuntime = import("./router").HostProxyRuntime;
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
-const fakeCliResolver = async () => ({ command: "echo", baseArgs: [] });
+const unavailableExecutor = {
+  handleRequest: () => undefined,
+  handleCancel: () => undefined,
+};
+const testRuntime: HostProxyRuntime = {
+  acquireGuardianToken: async (assistantId) => {
+    const result = await mockGetGuardianAccessToken(assistantId);
+    return result.ok ? result.accessToken : null;
+  },
+  getSessionToken: () => mockSessionToken,
+  getLockfile: () => ({ assistants: [], activeAssistant: null }),
+  onLockfileChange: (listener) => {
+    lockfileListener = listener;
+    return () => {
+      lockfileListener = null;
+    };
+  },
+  installPresenceMonitor: mockInstallPresenceMonitor,
+  sseClientHeaders: () => ({
+    "X-Vellum-Client-Id": MOCK_DEVICE_ID,
+    "X-Vellum-Interface-Id": "macos",
+    "X-Vellum-Machine-Name": "Example Mac",
+  }),
+  posterClientHeaders: () => ({
+    "X-Vellum-Client-Id": MOCK_DEVICE_ID,
+  }),
+  executors: {
+    host_bash: unavailableExecutor,
+    host_file: unavailableExecutor,
+    host_transfer: unavailableExecutor,
+    host_browser: unavailableExecutor,
+    host_cu: unavailableExecutor,
+    host_app_control: unavailableExecutor,
+    host_ui_snapshot: unavailableExecutor,
+  },
+  logger: { info: noopLog, warn: mockLogWarn, error: noopLog },
+};
 
 async function flush(ms = 20): Promise<void> {
   await new Promise((r) => setTimeout(r, ms));
@@ -355,7 +351,7 @@ describe("host-proxy-router", () => {
 
   describe("local lifecycle", () => {
     test("connects when an assistant with a gatewayPort appears", async () => {
-      installHostProxyBridge(fakeCliResolver);
+      installHostProxyBridge(testRuntime);
 
       const lockfile: Lockfile = {
         assistants: [
@@ -378,7 +374,7 @@ describe("host-proxy-router", () => {
     });
 
     test("disconnects when an assistant is retired", async () => {
-      installHostProxyBridge(fakeCliResolver);
+      installHostProxyBridge(testRuntime);
 
       // Appear
       lockfileListener?.({
@@ -397,7 +393,7 @@ describe("host-proxy-router", () => {
     });
 
     test("ignores assistants without resources or runtimeUrl", async () => {
-      installHostProxyBridge(fakeCliResolver);
+      installHostProxyBridge(testRuntime);
 
       lockfileListener?.({
         assistants: [{ assistantId: "no-resources", cloud: "local" }],
@@ -409,7 +405,7 @@ describe("host-proxy-router", () => {
     });
 
     test("does not duplicate connections on repeated lockfile updates", async () => {
-      installHostProxyBridge(fakeCliResolver);
+      installHostProxyBridge(testRuntime);
 
       const lockfile: Lockfile = {
         assistants: [
@@ -429,7 +425,7 @@ describe("host-proxy-router", () => {
     });
 
     test("teardown disconnects all and clears listener", async () => {
-      const teardown = installHostProxyBridge(fakeCliResolver);
+      const teardown = installHostProxyBridge(testRuntime);
 
       lockfileListener?.({
         assistants: [
@@ -442,6 +438,7 @@ describe("host-proxy-router", () => {
 
       teardown();
       expect(__testing.connections.size).toBe(0);
+      expect(__testing.executors.size).toBe(0);
       expect(lockfileListener).toBeNull();
     });
 
@@ -455,7 +452,7 @@ describe("host-proxy-router", () => {
       mockGetGuardianAccessToken.mockImplementation(
         () => new Promise((resolve) => { resolveToken = resolve; }),
       );
-      installHostProxyBridge(fakeCliResolver);
+      installHostProxyBridge(testRuntime);
 
       lockfileListener?.({
         assistants: [
@@ -482,7 +479,7 @@ describe("host-proxy-router", () => {
       mockGetGuardianAccessToken.mockImplementation(
         async () => ({ ok: false, status: 401, error: "expired" }),
       );
-      installHostProxyBridge(fakeCliResolver);
+      installHostProxyBridge(testRuntime);
 
       lockfileListener?.({
         assistants: [
@@ -500,7 +497,7 @@ describe("host-proxy-router", () => {
 
   describe("cloud lifecycle", () => {
     test("connects when a cloud assistant with runtimeUrl appears", async () => {
-      installHostProxyBridge(fakeCliResolver);
+      installHostProxyBridge(testRuntime);
 
       lockfileListener?.({
         assistants: [
@@ -522,7 +519,7 @@ describe("host-proxy-router", () => {
     });
 
     test("stamps organizationId from the lockfile into the fingerprint", async () => {
-      installHostProxyBridge(fakeCliResolver);
+      installHostProxyBridge(testRuntime);
 
       lockfileListener?.({
         assistants: [
@@ -543,7 +540,7 @@ describe("host-proxy-router", () => {
     });
 
     test("reconnects cloud assistant when organizationId changes", async () => {
-      installHostProxyBridge(fakeCliResolver);
+      installHostProxyBridge(testRuntime);
 
       lockfileListener?.({
         assistants: [
@@ -580,7 +577,7 @@ describe("host-proxy-router", () => {
 
     test("skips cloud assistant when no session token is available", async () => {
       mockSessionToken = null;
-      installHostProxyBridge(fakeCliResolver);
+      installHostProxyBridge(testRuntime);
 
       lockfileListener?.({
         assistants: [
@@ -598,7 +595,7 @@ describe("host-proxy-router", () => {
     });
 
     test("disconnects cloud assistant when removed from lockfile", async () => {
-      installHostProxyBridge(fakeCliResolver);
+      installHostProxyBridge(testRuntime);
 
       lockfileListener?.({
         assistants: [
@@ -619,7 +616,7 @@ describe("host-proxy-router", () => {
     });
 
     test("handles mixed local and cloud assistants", async () => {
-      installHostProxyBridge(fakeCliResolver);
+      installHostProxyBridge(testRuntime);
 
       lockfileListener?.({
         assistants: [
@@ -637,7 +634,7 @@ describe("host-proxy-router", () => {
     });
 
     test("reconnects cloud assistant when runtimeUrl changes", async () => {
-      installHostProxyBridge(fakeCliResolver);
+      installHostProxyBridge(testRuntime);
 
       lockfileListener?.({
         assistants: [
@@ -662,7 +659,7 @@ describe("host-proxy-router", () => {
     });
 
     test("ignores non-vellum cloud assistants without resources", async () => {
-      installHostProxyBridge(fakeCliResolver);
+      installHostProxyBridge(testRuntime);
 
       lockfileListener?.({
         assistants: [
@@ -676,7 +673,7 @@ describe("host-proxy-router", () => {
     });
 
     test("cloud entry with a stale gatewayPort is classified as cloud, not loopback", async () => {
-      installHostProxyBridge(fakeCliResolver);
+      installHostProxyBridge(testRuntime);
 
       lockfileListener?.({
         assistants: [
@@ -697,7 +694,7 @@ describe("host-proxy-router", () => {
     });
 
     test("does not duplicate cloud connections on repeated lockfile updates", async () => {
-      installHostProxyBridge(fakeCliResolver);
+      installHostProxyBridge(testRuntime);
 
       const lockfile: Lockfile = {
         assistants: [
@@ -724,7 +721,7 @@ describe("host-proxy-router", () => {
       requests.push(String(input));
       return new Response("ok");
     }) as typeof globalThis.fetch;
-    installHostProxyBridge(fakeCliResolver);
+    installHostProxyBridge(testRuntime);
 
     lockfileListener?.({
       assistants: [
@@ -753,6 +750,10 @@ describe("host-proxy-router", () => {
   // -- Message dispatch ----------------------------------------------------
 
   describe("message dispatch", () => {
+    beforeEach(() => {
+      __testing.setRuntime(testRuntime);
+    });
+
     test("routes request to registered executor", () => {
       const handled: string[] = [];
       setExecutor("host_bash", {
@@ -896,7 +897,7 @@ describe("host-proxy-router", () => {
 
   describe("presence reporting", () => {
     test("installs the monitor even with no assistants connected", () => {
-      installHostProxyBridge(fakeCliResolver);
+      installHostProxyBridge(testRuntime);
 
       expect(mockInstallPresenceMonitor).toHaveBeenCalledTimes(1);
       expect(presenceReporter).not.toBeNull();
@@ -907,7 +908,7 @@ describe("host-proxy-router", () => {
     test("posts presence to every connected assistant", async () => {
       const presencePosts = capturePresencePosts();
 
-      installHostProxyBridge(fakeCliResolver);
+      installHostProxyBridge(testRuntime);
       lockfileListener?.(MIXED_LOCKFILE);
       await flush();
 
@@ -924,7 +925,7 @@ describe("host-proxy-router", () => {
     test("seeds an assistant that connects after the last report", async () => {
       const presencePosts = capturePresencePosts();
 
-      installHostProxyBridge(fakeCliResolver);
+      installHostProxyBridge(testRuntime);
       presenceReporter?.("idle");
       await flush();
       // Nothing was connected when the report fired.
@@ -947,7 +948,7 @@ describe("host-proxy-router", () => {
       const presencePosts = capturePresencePosts();
       const releaseStreams = holdEventStreams();
 
-      installHostProxyBridge(fakeCliResolver);
+      installHostProxyBridge(testRuntime);
       presenceReporter?.("idle");
       await flush();
 
@@ -972,7 +973,7 @@ describe("host-proxy-router", () => {
     test("re-seeds when a dropped SSE stream reconnects", async () => {
       const presencePosts = capturePresencePosts();
 
-      installHostProxyBridge(fakeCliResolver);
+      installHostProxyBridge(testRuntime);
       presenceReporter?.("idle");
       lockfileListener?.({
         assistants: [
@@ -993,7 +994,7 @@ describe("host-proxy-router", () => {
     });
 
     test("skips posts while the SSE stream is down", async () => {
-      installHostProxyBridge(fakeCliResolver);
+      installHostProxyBridge(testRuntime);
       const sse = fakeSse();
       const received = addPresenceConnection("a1", { sse });
 
@@ -1015,7 +1016,7 @@ describe("host-proxy-router", () => {
     test("sends nothing to a new connection before any report", async () => {
       const presencePosts = capturePresencePosts();
 
-      installHostProxyBridge(fakeCliResolver);
+      installHostProxyBridge(testRuntime);
       lockfileListener?.(MIXED_LOCKFILE);
       await flush();
 
@@ -1025,8 +1026,8 @@ describe("host-proxy-router", () => {
     });
 
     test("a second install stops the previous monitor", () => {
-      installHostProxyBridge(fakeCliResolver);
-      const teardown = installHostProxyBridge(fakeCliResolver);
+      installHostProxyBridge(testRuntime);
+      const teardown = installHostProxyBridge(testRuntime);
 
       expect(mockInstallPresenceMonitor).toHaveBeenCalledTimes(2);
       expect(mockPresenceTeardown).toHaveBeenCalledTimes(1);
@@ -1045,7 +1046,7 @@ describe("host-proxy-router", () => {
       // user the app for the sake of a notification optimization.
       let teardown: (() => void) | undefined;
       expect(() => {
-        teardown = installHostProxyBridge(fakeCliResolver);
+        teardown = installHostProxyBridge(testRuntime);
       }).not.toThrow();
 
       expect(__testing.executors.has("host_bash")).toBe(true);
@@ -1062,7 +1063,7 @@ describe("host-proxy-router", () => {
     });
 
     test("keeps reporting to siblings when one poster rejects", async () => {
-      installHostProxyBridge(fakeCliResolver);
+      installHostProxyBridge(testRuntime);
       const unreachable = addPresenceConnection("a1", { reject: true });
       const first = addPresenceConnection("a2");
       const second = addPresenceConnection("a3");
@@ -1076,7 +1077,7 @@ describe("host-proxy-router", () => {
     });
 
     test("posts active on every report, even once the daemon recorded it", async () => {
-      installHostProxyBridge(fakeCliResolver);
+      installHostProxyBridge(testRuntime);
       const received = addPresenceConnection("a1");
 
       // The daemon expires presence after a staleness bound and `active` is
@@ -1093,7 +1094,7 @@ describe("host-proxy-router", () => {
     });
 
     test("posts a repeated non-active state once, then stays silent", async () => {
-      installHostProxyBridge(fakeCliResolver);
+      installHostProxyBridge(testRuntime);
       const daemon: { value: PresencePostOutcome } = { value: true };
       const attempts = addAttemptingPresenceConnection("a1", daemon);
 
@@ -1110,7 +1111,7 @@ describe("host-proxy-router", () => {
     });
 
     test("retries a non-active post that failed on the next report", async () => {
-      installHostProxyBridge(fakeCliResolver);
+      installHostProxyBridge(testRuntime);
       const daemon: { value: PresencePostOutcome } = { value: "throw" };
       const attempts = addAttemptingPresenceConnection("a1", daemon);
 
@@ -1137,7 +1138,7 @@ describe("host-proxy-router", () => {
     });
 
     test("retries a non-active post the daemon answered unrecorded", async () => {
-      installHostProxyBridge(fakeCliResolver);
+      installHostProxyBridge(testRuntime);
       const daemon: { value: PresencePostOutcome } = { value: false };
       const attempts = addAttemptingPresenceConnection("a1", daemon);
 
@@ -1152,7 +1153,7 @@ describe("host-proxy-router", () => {
     });
 
     test("one assistant recording a state does not silence another", async () => {
-      installHostProxyBridge(fakeCliResolver);
+      installHostProxyBridge(testRuntime);
       const recording: { value: PresencePostOutcome } = { value: true };
       const refusing: { value: PresencePostOutcome } = { value: false };
       const first = addAttemptingPresenceConnection("a1", recording);
@@ -1170,7 +1171,7 @@ describe("host-proxy-router", () => {
     });
 
     test("posts a transition even to a state recorded earlier", async () => {
-      installHostProxyBridge(fakeCliResolver);
+      installHostProxyBridge(testRuntime);
       const daemon: { value: PresencePostOutcome } = { value: true };
       const attempts = addAttemptingPresenceConnection("a1", daemon);
 
@@ -1187,7 +1188,7 @@ describe("host-proxy-router", () => {
     });
 
     test("seeds an assistant with a state it has already recorded", async () => {
-      installHostProxyBridge(fakeCliResolver);
+      installHostProxyBridge(testRuntime);
       const daemon: { value: PresencePostOutcome } = { value: true };
       const attempts = addAttemptingPresenceConnection("a1", daemon);
 
@@ -1204,7 +1205,7 @@ describe("host-proxy-router", () => {
     });
 
     test("seeds a joining assistant with a state a sibling already recorded", async () => {
-      installHostProxyBridge(fakeCliResolver);
+      installHostProxyBridge(testRuntime);
       const daemon: { value: PresencePostOutcome } = { value: true };
       const first = addAttemptingPresenceConnection("a1", daemon);
 
@@ -1221,7 +1222,7 @@ describe("host-proxy-router", () => {
     });
 
     test("keeps the recorded state across a reconnect", async () => {
-      installHostProxyBridge(fakeCliResolver);
+      installHostProxyBridge(testRuntime);
       const daemon: { value: PresencePostOutcome } = { value: true };
       addAttemptingPresenceConnection("a1", daemon);
 
@@ -1240,7 +1241,7 @@ describe("host-proxy-router", () => {
     });
 
     test("forgets a recorded state once the assistant leaves the lockfile", async () => {
-      installHostProxyBridge(fakeCliResolver);
+      installHostProxyBridge(testRuntime);
       const daemon: { value: PresencePostOutcome } = { value: true };
       const first = addAttemptingPresenceConnection("a1", daemon);
 
@@ -1261,7 +1262,7 @@ describe("host-proxy-router", () => {
     });
 
     test("forgets recorded states on bridge teardown", async () => {
-      const teardown = installHostProxyBridge(fakeCliResolver);
+      const teardown = installHostProxyBridge(testRuntime);
       const daemon: { value: PresencePostOutcome } = { value: true };
       const first = addAttemptingPresenceConnection("a1", daemon);
 
@@ -1272,7 +1273,7 @@ describe("host-proxy-router", () => {
       teardown();
       expect(__testing.lastRecordedState.size).toBe(0);
 
-      installHostProxyBridge(fakeCliResolver);
+      installHostProxyBridge(testRuntime);
       const second = addAttemptingPresenceConnection("a1", daemon);
       presenceReporter?.("idle");
       await flush();
@@ -1281,7 +1282,7 @@ describe("host-proxy-router", () => {
     });
 
     test("does not skip a repeat while a post is in flight", async () => {
-      installHostProxyBridge(fakeCliResolver);
+      installHostProxyBridge(testRuntime);
       const daemon: { value: PresencePostOutcome } = { value: true };
       const recorded = addAttemptingPresenceConnection("a1", daemon);
 
@@ -1308,7 +1309,7 @@ describe("host-proxy-router", () => {
     });
 
     test("holds a report that arrives while a post is in flight", async () => {
-      installHostProxyBridge(fakeCliResolver);
+      installHostProxyBridge(testRuntime);
       const daemon = addParkedPresenceConnection("a1");
 
       presenceReporter?.("active");
@@ -1327,7 +1328,7 @@ describe("host-proxy-router", () => {
     });
 
     test("collapses reports queued behind one post down to the newest", async () => {
-      installHostProxyBridge(fakeCliResolver);
+      installHostProxyBridge(testRuntime);
       const daemon = addParkedPresenceConnection("a1");
 
       presenceReporter?.("active");
@@ -1349,7 +1350,7 @@ describe("host-proxy-router", () => {
     });
 
     test("stops when the queued state matches the post that just settled", async () => {
-      installHostProxyBridge(fakeCliResolver);
+      installHostProxyBridge(testRuntime);
       const daemon = addParkedPresenceConnection("a1");
 
       presenceReporter?.("active");
@@ -1362,7 +1363,7 @@ describe("host-proxy-router", () => {
     });
 
     test("never leaves a stale active as the daemon's last write", async () => {
-      installHostProxyBridge(fakeCliResolver);
+      installHostProxyBridge(testRuntime);
 
       // The daemon stamps a report when it lands, so landing order is what
       // decides the record. A slow `active` overtaken by a fast `away` is
@@ -1391,7 +1392,7 @@ describe("host-proxy-router", () => {
     });
 
     test("a parked post on one assistant does not delay another", async () => {
-      installHostProxyBridge(fakeCliResolver);
+      installHostProxyBridge(testRuntime);
       const parked = addParkedPresenceConnection("a1");
       const responsive = addPresenceConnection("a2");
 
@@ -1408,7 +1409,7 @@ describe("host-proxy-router", () => {
     });
 
     test("a seed queued behind an in-flight post cannot overtake it", async () => {
-      installHostProxyBridge(fakeCliResolver);
+      installHostProxyBridge(testRuntime);
       const daemon = addParkedPresenceConnection("a1");
 
       presenceReporter?.("active");
@@ -1428,7 +1429,7 @@ describe("host-proxy-router", () => {
     });
 
     test("a reconnect while a post is in flight starts no second post", async () => {
-      installHostProxyBridge(fakeCliResolver);
+      installHostProxyBridge(testRuntime);
       const stale = addParkedPresenceConnection("a1");
 
       presenceReporter?.("active");
@@ -1451,7 +1452,7 @@ describe("host-proxy-router", () => {
     });
 
     test("sends a queued state through the connection that replaced the old one", async () => {
-      installHostProxyBridge(fakeCliResolver);
+      installHostProxyBridge(testRuntime);
       const stale = addParkedPresenceConnection("a1");
 
       presenceReporter?.("active");
@@ -1473,7 +1474,7 @@ describe("host-proxy-router", () => {
     });
 
     test("a stale post cannot outlast the away reported after a reconnect", async () => {
-      installHostProxyBridge(fakeCliResolver);
+      installHostProxyBridge(testRuntime);
 
       // Both generations post under the same client id, so the daemon files
       // them under one record and stamps it on receipt: landing order is what
@@ -1508,7 +1509,7 @@ describe("host-proxy-router", () => {
     });
 
     test("clears the presence queue when the assistant leaves the lockfile", async () => {
-      installHostProxyBridge(fakeCliResolver);
+      installHostProxyBridge(testRuntime);
       const daemon = addParkedPresenceConnection("a1");
 
       presenceReporter?.("active");
@@ -1532,7 +1533,7 @@ describe("host-proxy-router", () => {
     test("keeps the presence queue across a fingerprint-change reconnect", async () => {
       const presencePosts = capturePresencePosts();
 
-      installHostProxyBridge(fakeCliResolver);
+      installHostProxyBridge(testRuntime);
       const stale = addParkedPresenceConnection(
         "cloud-1",
         "cloud:https://platform.vellum.ai:org-a",
@@ -1577,7 +1578,7 @@ describe("host-proxy-router", () => {
     });
 
     test("warns once for a run of failing posts, not once per report", async () => {
-      installHostProxyBridge(fakeCliResolver);
+      installHostProxyBridge(testRuntime);
       const daemon = { reject: true };
       addPresenceConnection("a1", daemon);
 
@@ -1603,7 +1604,7 @@ describe("host-proxy-router", () => {
     });
 
     test("warns when a post is rejected without throwing", async () => {
-      installHostProxyBridge(fakeCliResolver);
+      installHostProxyBridge(testRuntime);
       addPresenceConnection("a1", { ok: false });
 
       mockLogWarn.mockClear();
@@ -1616,7 +1617,7 @@ describe("host-proxy-router", () => {
     });
 
     test("a failing assistant does not silence its siblings", async () => {
-      installHostProxyBridge(fakeCliResolver);
+      installHostProxyBridge(testRuntime);
       addPresenceConnection("a1", { reject: true });
       addPresenceConnection("a2", { ok: false });
 
@@ -1628,7 +1629,7 @@ describe("host-proxy-router", () => {
     });
 
     test("bridge teardown stops presence reporting", async () => {
-      const teardown = installHostProxyBridge(fakeCliResolver);
+      const teardown = installHostProxyBridge(testRuntime);
       const received = addPresenceConnection("a1");
 
       teardown();

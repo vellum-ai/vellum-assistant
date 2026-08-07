@@ -1,0 +1,24 @@
+{
+  "name": "@vellumai/host-proxy",
+  "version": "0.0.1",
+  "private": true,
+  "license": "MIT",
+  "type": "module",
+  "exports": {
+    "./poster": "./src/poster.ts",
+    "./router": "./src/router.ts",
+    "./sse": "./src/sse.ts"
+  },
+  "scripts": {
+    "test": "bun test src/poster.test.ts && bun test src/sse.test.ts && bun test src/router.test.ts",
+    "typecheck": "bunx tsc --noEmit"
+  },
+  "dependencies": {
+    "@vellumai/local-mode": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/bun": "1.3.14",
+    "@types/node": "22.10.5",
+    "typescript": "5.9.3"
+  }
+}
