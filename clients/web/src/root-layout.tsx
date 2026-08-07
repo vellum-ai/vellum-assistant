@@ -55,6 +55,7 @@ import { useViewerStore } from "@/stores/viewer-store";
 import { useAssistantAvatar } from "@/hooks/use-assistant-avatar";
 import { useAvatarAccentVar } from "@/hooks/use-avatar-accent-var";
 import { useDynamicFavicon } from "@/hooks/use-dynamic-favicon";
+import { useCompanionMirror } from "@/domains/chat/hooks/use-companion-mirror";
 import { useElectronIconSync } from "@/hooks/use-electron-icon-sync";
 import { useIslandAvatarSource } from "@/hooks/use-island-avatar-source";
 import { useElectronIdentitySync } from "@/hooks/use-electron-identity-sync";
@@ -206,6 +207,12 @@ export function RootLayout() {
   // here so the browser opens even when no chat stream consumer exists —
   // Settings/Logs routes, or a draft conversation that isn't persisted yet.
   useOpenUrlDirectives();
+  // The assistant's name and the tail of the open conversation, mirrored onto
+  // the macOS companion surface so a message sent from its composer can be
+  // answered there. Mounted here rather than in the chat layout because the
+  // surface is on screen for as long as the app is, including on routes with no
+  // transcript rendered.
+  useCompanionMirror();
 
   const [feedbackOpen, setFeedbackOpen] = useState(false);
   // Id of the assistant a tray "Retire <assistant>…" command targets. The tray
@@ -313,6 +320,37 @@ export function RootLayout() {
       // shows itself.
       void navigate(routes.assistant);
       requestVoiceStart();
+    },
+    companionSubmit: (command) => {
+      if (command.kind !== "companionSubmit") {
+        return;
+      }
+      // **The surface's own thread.** Opening its composer starts a
+      // conversation rather than sending into whatever the app has selected:
+      // the user reached past the app to a floating avatar, so they are
+      // starting something, not adding to a thread they cannot see. Every
+      // follow-up continues that one, which by then is the active conversation
+      // because the first message navigated here.
+      const conversations = useConversationStore.getState();
+      const conversationId = command.startsConversation
+        ? createDraftConversationId()
+        : (conversations.activeConversationId ?? createDraftConversationId());
+      conversations.setActiveConversationId(conversationId);
+      // The `?prompt=` auto-send pathway (`use-auto-send-effects`), with a
+      // relay token so sending the same words twice sends twice instead of
+      // deduping to one. Navigating is also what mounts the chat layout the
+      // send needs, which is why this routes rather than calling a sender.
+      //
+      // The layout is left alone and the window is deliberately not raised,
+      // as with `startVoice`: this command comes from a surface the user
+      // reached for precisely because they are working somewhere else.
+      void navigate(
+        routes.conversationWithPrompt(
+          conversationId,
+          command.message,
+          crypto.randomUUID(),
+        ),
+      );
     },
     replayOnboarding: () => {
       void navigate(`${routes.onboarding.privacy}?preview=true`);

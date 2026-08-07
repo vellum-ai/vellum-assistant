@@ -149,6 +149,9 @@ export const COMPANION_SET_INTERACTIVE = "vellum:companion:setInteractive";
 export const COMPANION_MOVE_BY = "vellum:companion:moveBy";
 export const COMPANION_START_VOICE = "vellum:companion:startVoice";
 export const COMPANION_ACTIVATE = "vellum:companion:activate";
+export const COMPANION_SET_COMPOSING = "vellum:companion:setComposing";
+export const COMPANION_SUBMIT = "vellum:companion:submit";
+export const COMPANION_SET_CONTEXT = "vellum:companion:setContext";
 
 // Popout
 export const POPOUT_OPEN = "vellum:popout:open";

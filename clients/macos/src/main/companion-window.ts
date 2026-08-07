@@ -2,11 +2,14 @@ import { BrowserWindow, screen } from "electron";
 import { z } from "zod";
 
 import {
+  companionContextSchema,
   voiceActivityContentSchema,
   voiceActivityControlSchema,
   voiceActivityStartSchema,
   type CompanionGrowth,
+  type CompanionContext,
   type CompanionSurfaceState,
+  type VellumCommand,
   type VoiceActivityState,
 } from "@vellumai/ipc-contract";
 
@@ -78,11 +81,46 @@ const MAX_REACH = MAX_PILL_WIDTH - AVATAR_BOX / 2;
 /** Room for the pill's shadow, which paints outside its box. */
 const CANVAS_PAD = 24;
 
+/**
+ * The tallest the surface gets, which is the typing card.
+ *
+ * Every other state is a pill exactly {@link AVATAR_BOX} tall. The card stacks
+ * the conversation on top of that row, in a viewport that scrolls once it is
+ * full, so the card has a ceiling rather than growing with the exchange: the
+ * renderer's `TURNS_MAX_HEIGHT` (220) and its padding, over the composer.
+ * Rounded up from what that comes to, because the text is laid out in the
+ * renderer and a canvas a few points short clips the top of the card off.
+ *
+ * Matched to `CompanionSurface`'s card in `companion-surface.tsx`, the way
+ * {@link MAX_PILL_WIDTH} is matched to its widths.
+ */
+const MAX_CARD_HEIGHT = 290;
+
+/**
+ * How far the surface reaches above the avatar's centre.
+ *
+ * The card grows upward out of the composer row, which holds the line the pill
+ * occupied, so the avatar stays exactly where it was when Type was pressed. It
+ * has to: the surface is parked by the Dock, where a card growing downward
+ * grows off the bottom of the screen.
+ */
+const MAX_RISE = MAX_CARD_HEIGHT - AVATAR_BOX / 2;
+
 const CANVAS_WIDTH = MAX_REACH * 2 + CANVAS_PAD * 2;
-const CANVAS_HEIGHT = AVATAR_BOX + CANVAS_PAD * 2;
+
+/**
+ * Sized for the tallest state rather than resized on the phase, the same
+ * bargain the width makes: the avatar is pinned to the centre of this canvas,
+ * so the height it can reach upward is height it also spends downward. A canvas
+ * that grew with the card would move the window under the pointer mid-press and
+ * put the expansion back on the main process, which is what the fixed canvas
+ * exists to avoid.
+ */
+const CANVAS_HEIGHT = (MAX_RISE + CANVAS_PAD) * 2;
 
 /** Gap from the work area's bottom-right on the first ever launch. */
 const DEFAULT_MARGIN = 24;
+
 
 let growth: CompanionGrowth = "right";
 
@@ -95,6 +133,16 @@ let growth: CompanionGrowth = "right";
  * read as "the call dropped and came back".
  */
 let call: VoiceActivityState | null = null;
+
+/**
+ * The assistant and the conversation's tail, as the window holding them last
+ * published.
+ *
+ * Held here for the same reason the session is: the surface's renderer reloads,
+ * and a card that came back empty would read as the exchange the user just had
+ * on it having been thrown away.
+ */
+let context: CompanionContext = { assistantName: "", turns: [] };
 
 /**
  * The state the renderer sees, rebuilt on demand.
@@ -111,6 +159,8 @@ const currentState = (): CompanionSurfaceState => {
     character: character === null ? undefined : character,
     avatarBase64: png === null ? undefined : png.toString("base64"),
     call,
+    assistantName: context.assistantName,
+    turns: context.turns,
   };
 };
 
@@ -244,6 +294,30 @@ const setInteractive = (interactive: boolean): void => {
   win.setIgnoreMouseEvents(true, { forward: true });
 };
 
+/**
+ * Hand a press on the surface to the renderer that can act on it, without
+ * bringing Vellum forward.
+ *
+ * **A window that exists is not raised, and one that does not is created.** A
+ * user reaching for a floating avatar has chosen not to go back to Vellum, and
+ * what they asked for shows itself on this surface, so an existing window is
+ * left exactly where it was. But closing the main window destroys it while this
+ * surface stays on screen, and a command dispatched into that gap lands
+ * nowhere: the press would read as broken. There is no way to act without a
+ * renderer to act in, so that case builds one, which necessarily shows it.
+ */
+const dispatchWithoutRaising = (command: VellumCommand): void => {
+  if (currentMainWindow() !== null) {
+    dispatchToMain(command);
+    return;
+  }
+  // Resolves once the renderer has loaded and the window has shown, so the
+  // command arrives at a page that can receive it.
+  void ensureMainWindowVisible().then(() => {
+    dispatchToMain(command);
+  });
+};
+
 let installed = false;
 
 export const installCompanionWindow = (): void => {
@@ -283,26 +357,77 @@ export const installCompanionWindow = (): void => {
    * window: the session lives where `ChatLayout` is mounted, which is that
    * window and no other, and the press arrives while the user is working in
    * some other app entirely, so "focused" would name the wrong target.
-   *
-   * **A window that exists is not raised, and one that does not is created.**
-   * A user reaching for a floating avatar has chosen not to go back to Vellum,
-   * and the session shows itself on this surface, so an existing window is left
-   * exactly where it was. But closing the main window destroys it while this
-   * surface stays on screen, and a command dispatched into that gap lands
-   * nowhere: Talk would read as broken. There is no way to host a session
-   * without a renderer to host it in, so that case builds one, which
-   * necessarily shows it.
    */
   on("vellum:companion:startVoice", z.tuple([]), () => {
-    if (currentMainWindow() !== null) {
-      dispatchToMain({ kind: "startVoice" });
+    dispatchWithoutRaising({ kind: "startVoice" });
+  });
+
+  /**
+   * Type, sent: the message goes to the same renderer Talk's press goes to, and
+   * lands in the conversation that renderer has open.
+   *
+   * The surface holds no conversation and no transport, only the words. What
+   * comes back is the reply, in the app or as a notification, the same as any
+   * other message the user sends.
+   */
+  on(
+    "vellum:companion:submit",
+    z.tuple([z.string(), z.boolean()]),
+    ([message, startsConversation]) => {
+      dispatchWithoutRaising({
+        kind: "companionSubmit",
+        message,
+        startsConversation,
+      });
+    },
+  );
+
+  /**
+   * The assistant and the conversation's tail, from the window holding them.
+   *
+   * Published rather than fetched, because main has no conversation of its own
+   * and no transport to fetch one with. The turns arrive already condensed to a
+   * side and some text: see `companionContextSchema`.
+   */
+  on(
+    "vellum:companion:setContext",
+    z.tuple([companionContextSchema]),
+    ([next]) => {
+      context = next;
+      pushState();
+    },
+  );
+
+  /**
+   * The composer, opened and closed: the window may hold the keyboard for
+   * exactly that long.
+   *
+   * The counterpart to `setInteractive` above. The window is created
+   * unfocusable so an ordinary press on the pill leaves the keyboard with
+   * whatever app the user is working in, and this is what lends it out.
+   *
+   * **`setFocusable` both ways, and never `blur`.** `blur` is the only call
+   * that makes this window resign key status outright, and on macOS it is
+   * `orderOut` followed by `orderBack`: the surface is taken off screen and put
+   * back at the bottom of its level. That reads exactly as it sounds, as a
+   * flash, and the window comes back without the mouse forwarding that makes it
+   * hit-testable, so the avatar is left sitting there dead. A surface that
+   * breaks itself every time the user backs out of Type is far worse than the
+   * one thing `setFocusable(false)` does not do, which is hand key status back
+   * the instant the composer closes rather than the next time the user clicks
+   * into the app they are working in.
+   */
+  on("vellum:companion:setComposing", z.tuple([z.boolean()]), ([composing]) => {
+    const win = getFloatingWindow(COMPANION_KIND);
+    if (!win || win.isDestroyed()) {
       return;
     }
-    // Resolves once the renderer has loaded and the window has shown, so the
-    // command arrives at a page that can receive it.
-    void ensureMainWindowVisible().then(() => {
-      dispatchToMain({ kind: "startVoice" });
-    });
+    if (composing) {
+      win.setFocusable(true);
+      win.focus();
+      return;
+    }
+    win.setFocusable(false);
   });
 
   /**
@@ -415,14 +540,17 @@ export const openCompanionWindow = (): void => {
       // invisible canvas rect rather than the pill inside it. Same reason the
       // dictation overlay turns it off.
       hasShadow: false,
-      // **Focusable, unlike the dictation overlay.** `type: "panel"` already
-      // makes this non-activating, so clicking it does not bring Vellum
-      // forward. `focusable: false` would go further and stop the window taking
-      // key status at all, which is right for a surface that is only ever
-      // pressed and wrong for this one: it is going to host a text field, and a
-      // window that cannot become key cannot receive a keystroke. The honest
-      // shape is to grant key status only while that field is open, the way
-      // mouse events are already granted only while the pointer is on the pill.
+      // **Unfocusable at rest, like the dictation overlay, but only at rest.**
+      // `type: "panel"` already makes the window non-activating, so clicking it
+      // never brings Vellum forward; this goes further and stops it taking key
+      // status, because a panel that becomes key on any press would hold the
+      // keyboard after a press on Talk and swallow whatever the user typed next
+      // into the app they are actually working in. The surface does host a text
+      // field, and a window that cannot become key cannot receive a keystroke,
+      // so key status is granted for exactly as long as that field is open
+      // (`setComposing`), the way mouse events are granted for exactly as long
+      // as the pointer is on the pill.
+      focusable: false,
       movable: true,
       minimizable: false,
       maximizable: false,

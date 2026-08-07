@@ -13,6 +13,7 @@ import type {
   AppVersionInfo,
   AssistantStatus,
   BundleScanData,
+  CompanionContext,
   CompanionSurfaceState,
   ConnectivityState,
   DeepLink,
@@ -621,6 +622,19 @@ const bridge: VellumBridge = {
     },
     activate: (): void => {
       ipcRenderer.send("vellum:companion:activate");
+    },
+    setComposing: (composing: boolean): void => {
+      ipcRenderer.send("vellum:companion:setComposing", composing);
+    },
+    submit: (message: string, startsConversation: boolean): void => {
+      ipcRenderer.send(
+        "vellum:companion:submit",
+        message,
+        startsConversation,
+      );
+    },
+    setContext: (context: CompanionContext): void => {
+      ipcRenderer.send("vellum:companion:setContext", context);
     },
   },
   popout: {
