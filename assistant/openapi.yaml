@@ -9293,8 +9293,10 @@ paths:
   /v1/conversations/reorder:
     post:
       operationId: conversations_reorder_post
-      summary: Reorder conversations
-      description: Batch-update display order and pin state for conversations.
+      summary: Move conversations between sections
+      description:
+        Batch-update which group holds each conversation, and its pin state. Lists are ordered by recency, so this
+        sets placement, not order.
       tags:
         - conversations
       requestBody:
@@ -9311,8 +9313,6 @@ paths:
                     properties:
                       conversationId:
                         type: string
-                      displayOrder:
-                        type: number
                       isPinned:
                         type: boolean
                       groupId:
