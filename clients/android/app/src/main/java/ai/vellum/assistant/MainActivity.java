@@ -124,6 +124,7 @@ public class MainActivity extends BridgeActivity {
         registerPlugin(VoiceAudioSessionPlugin.class);
         registerPlugin(VoiceLiveActivityPlugin.class);
         registerPlugin(SafePushNotificationsPlugin.class);
+        registerPlugin(SelfHostedServersPlugin.class);
         super.load();
     }
 
@@ -317,6 +318,11 @@ public class MainActivity extends BridgeActivity {
         bridge.getWebView().loadUrl(appLink.toASCIIString());
     }
 
+    /**
+     * Promote a scanned server once its pairing page loads. The list append
+     * waits for the load like the active-slot write does, so an unreachable
+     * origin leaves no card behind in the chooser.
+     */
     private void finishPendingConnect(String loadedUrl) {
         if (
             pendingConnect == null ||
@@ -325,6 +331,7 @@ public class MainActivity extends BridgeActivity {
             return;
         }
         SelfHostedServer.store(this, pendingConnect.server());
+        SelfHostedServer.append(this, pendingConnect.server(), pendingConnect.name());
         pendingConnect = null;
     }
 
@@ -354,20 +361,33 @@ public class MainActivity extends BridgeActivity {
             return;
         }
         String destination = pendingConnect == null
-            ? effectiveServer.toASCIIString()
+            ? SelfHostedServer.appEntry(effectiveServer).toASCIIString()
             : pendingConnect.pairPage().toASCIIString();
         bridge.getWebView().loadUrl(destination);
     }
 
-    private void useVellumCloud() {
+    /**
+     * Reload the shell against the stored server, or the baked Vellum Cloud
+     * origin when the slot is empty. The server url is baked into the Capacitor
+     * config at {@code onCreate}, so applying a new one means recreating the
+     * activity. Backs the {@code SelfHostedServers} plugin's {@code switchTo};
+     * must run on the UI thread.
+     */
+    void applyConfiguredOrigin() {
         VoiceLiveActivityPlugin.clearStatus(this);
-        SelfHostedServer.clear(this);
         pendingConnect = null;
         pendingNewChat = false;
         setRecreationConnect(null);
+        // Cleared before the recreate lands so a teardown failure on the origin
+        // being left cannot raise the unreachable dialog against it.
         effectiveServer = null;
         setIntent(withoutData(getIntent()));
         recreate();
+    }
+
+    private void useVellumCloud() {
+        SelfHostedServer.clear(this);
+        applyConfiguredOrigin();
     }
 
     private void prepareVoiceLaunch(Intent intent) {

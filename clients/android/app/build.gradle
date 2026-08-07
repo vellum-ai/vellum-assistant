@@ -152,6 +152,9 @@ dependencies {
     implementation "com.google.firebase:firebase-messaging:$firebaseMessagingVersion"
     implementation project(':capacitor-android')
     testImplementation "junit:junit:$junitVersion"
+    // The mockable android.jar stubs org.json into throwing, so the remembered
+    // server list's codec needs a real implementation to be unit-testable.
+    testImplementation "org.json:json:$jsonVersion"
     androidTestImplementation "androidx.test.ext:junit:$androidxJunitVersion"
     androidTestImplementation "androidx.test.espresso:espresso-core:$androidxEspressoCoreVersion"
     implementation project(':capacitor-cordova-android-plugins')

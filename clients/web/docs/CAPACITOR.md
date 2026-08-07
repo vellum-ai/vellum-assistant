@@ -216,13 +216,16 @@ References:
 
 The assistant chooser offers every origin this device knows about. On a native
 mobile shell those origins live natively, not in web storage, because the shell
-is the only thing that can point its `WKWebView` somewhere else without leaving
-the app, and because the same list is written by the native Settings pane and
-the `<scheme>://connect` deep link. The web side is
-[`src/runtime/self-hosted-servers.ts`](../src/runtime/self-hosted-servers.ts);
-the native side is
-[`SelfHostedServersPlugin.swift`](../../../clients/ios/App/App/SelfHostedServersPlugin.swift)
-over [`SelfHostedServer.swift`](../../../clients/ios/App/App/SelfHostedServer.swift).
+is the only thing that can point its web view somewhere else without leaving
+the app, and because the same list is written by the `<scheme>://connect` deep
+link (and, on iOS, the native Settings pane). The web side is
+[`src/runtime/self-hosted-servers.ts`](../src/runtime/self-hosted-servers.ts)
+and is shared; both shells implement the same bridge:
+
+| Shell | Plugin | Store |
+| --- | --- | --- |
+| iOS | [`SelfHostedServersPlugin.swift`](../../../clients/ios/App/App/SelfHostedServersPlugin.swift) | [`SelfHostedServer.swift`](../../../clients/ios/App/App/SelfHostedServer.swift) (`UserDefaults`) |
+| Android | [`SelfHostedServersPlugin.java`](../../../clients/android/app/src/main/java/ai/vellum/assistant/SelfHostedServersPlugin.java) | [`SelfHostedServer.java`](../../../clients/android/app/src/main/java/ai/vellum/assistant/SelfHostedServer.java) (`SharedPreferences`) |
 
 The bridge contract:
 
@@ -237,11 +240,25 @@ Only genuinely invalid caller input rejects (an `add` or `switchTo` url that
 fails `SelfHostedServer.validate`). Empty state resolves with an empty list and
 nulls, so there is no "not configured" error branch to write.
 
-Urls cross the bridge in one canonical form: `SelfHostedServer.canonicalize` and
-the store's `normalizeOriginUrl` implement the same rules (lowercase scheme and
-host, userinfo dropped, trailing slashes stripped, query and fragment dropped,
-path and port preserved), so both sides agree on which strings mean the same
-server. Changing one means changing the other.
+Urls cross the bridge in one canonical form: iOS's
+`SelfHostedServer.canonicalize`, Android's `SelfHostedServer.validate`, and the
+store's `normalizeOriginUrl` produce the same string (lowercase scheme and host,
+userinfo stripped, trailing slashes stripped, no query or fragment, the scheme's
+default port collapsed, path preserved), so all three agree on which strings
+mean the same server. Changing one means changing the others.
+
+Two deliberate differences sit behind that shared form. Android *rejects* a
+candidate carrying userinfo, a query, or a fragment where iOS strips it, and
+Android additionally admits `http:` for `localhost`, `127.0.0.1`, and the
+emulator alias `10.0.2.2`. Those cleartext dev entries are the one case where
+the native list holds something the web store will not: `normalizeOriginUrl`
+takes https only, so they are dropped on the way in and never reach the chooser.
+
+**Only the reload mechanism differs by shell.** iOS points the existing
+`WKWebView` at the new origin. Android bakes the origin into the Capacitor
+config at `onCreate`, so `switchTo` writes the preference and recreates the
+activity, whose fresh `onCreate` re-reads it. Both resolve the call before the
+reload tears the web context down, so an awaiting caller always settles.
 
 **Switching is per surface, and every surface has a working answer.**
 

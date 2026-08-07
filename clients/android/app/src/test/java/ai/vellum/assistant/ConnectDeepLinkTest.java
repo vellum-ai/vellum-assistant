@@ -25,6 +25,21 @@ public class ConnectDeepLinkTest {
     }
 
     @Test
+    public void carriesTheOptionalLabelForTheRememberedServerList() {
+        ConnectDeepLink named = ConnectDeepLink.parse(
+            SCHEME + "://connect?url=https%3A%2F%2Fexample.com&code=device-code&name=Studio+Mac",
+            SCHEME
+        );
+        ConnectDeepLink unnamed = ConnectDeepLink.parse(
+            SCHEME + "://connect?url=https%3A%2F%2Fexample.com&code=device-code",
+            SCHEME
+        );
+
+        assertEquals("Studio Mac", named.name());
+        assertNull(unnamed.name());
+    }
+
+    @Test
     public void preservesEscapedSeparatorsInPairingPrefixes() {
         ConnectDeepLink connect = ConnectDeepLink.parse(
             SCHEME + "://connect?url=https%3A%2F%2Fexample.com%2Ftenant%252Fabc&code=device-code",
