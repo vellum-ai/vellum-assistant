@@ -139,6 +139,7 @@ import { backfillHomeFeedTitlesMigration } from "./138-backfill-home-feed-titles
 import { clearRenamedCostProfileLabelMigration } from "./139-clear-renamed-cost-profile-label.js";
 import { repairSeedPinnedMemoryV3LiveMigration } from "./140-repair-seed-pinned-memory-v3-live.js";
 import { sttEnglishDefaultToMultilingualMigration } from "./141-stt-english-default-to-multilingual.js";
+import { consolidateVoiceFrontDoorMigration } from "./142-consolidate-voice-front-door.js";
 import { migrateToWorkspaceVolumeMigration } from "./migrate-to-workspace-volume.js";
 import type { WorkspaceMigration } from "./types.js";
 
@@ -293,4 +294,5 @@ export const WORKSPACE_MIGRATIONS: WorkspaceMigration[] = [
   clearRenamedCostProfileLabelMigration,
   repairSeedPinnedMemoryV3LiveMigration,
   sttEnglishDefaultToMultilingualMigration,
+  consolidateVoiceFrontDoorMigration,
 ];

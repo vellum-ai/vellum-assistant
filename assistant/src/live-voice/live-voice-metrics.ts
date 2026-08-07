@@ -19,7 +19,6 @@ export type LiveVoiceMetricsEvent =
   | "barge_in"
   | "final_transcript"
   | "first_assistant_delta"
-  | "ack_spoken"
   | "progress_spoken"
   | "first_tts_audio"
   | "turn_completed"
@@ -42,9 +41,6 @@ interface LiveVoiceEndpointDecisionMark {
   latencyMs: number;
   source?: VoiceEndpointSource;
 }
-
-// Which floor-holding ack actually spoke during a turn.
-export type LiveVoiceSpokenAckKind = "first_delta" | "tool_use";
 
 type LiveVoiceTurnStatus = "active" | "completed" | "cancelled";
 
@@ -130,13 +126,11 @@ interface LiveVoiceTurnMetrics {
   // Absent on a turn that never committed, and in push-to-talk mode, where
   // there is no local speech-stop mark to anchor to.
   endpointCommitLatencyMs?: number;
-  // Present only when the semantic-endpointing decider was consulted for the
-  // turn / when an ack actually spoke / when a progress narration spoke, so
+  // Present only when endpointing or progress narration engaged, so
   // turns that never touch the features carry no trace of them.
   endpointHoldCount?: number;
   endpointDecisionMaxLatencyMs?: number;
   endpointDecisionSource?: VoiceEndpointSource;
-  ackSpoken?: LiveVoiceSpokenAckKind;
   progressUpdatesSpoken?: number;
 }
 
@@ -186,7 +180,6 @@ interface LiveVoiceMetricsAggregateFields {
   endpointHoldCount?: number;
   endpointDecisionMaxLatencyMs?: number;
   endpointDecisionSource?: VoiceEndpointSource;
-  ackSpoken?: LiveVoiceSpokenAckKind;
   progressUpdatesSpoken?: number;
 }
 
@@ -212,7 +205,6 @@ interface MutableTurn {
   endpointDecisionMaxLatencyMs: number | null;
   // The decider behind the turn's most recent endpoint decision.
   endpointDecisionSource: VoiceEndpointSource | null;
-  ackSpoken: LiveVoiceSpokenAckKind | null;
   progressUpdatesSpoken: number;
 }
 
@@ -280,7 +272,6 @@ export class LiveVoiceMetricsCollector {
       endpointHoldCount: 0,
       endpointDecisionMaxLatencyMs: null,
       endpointDecisionSource: null,
-      ackSpoken: null,
       progressUpdatesSpoken: 0,
     };
     this.applySeedMarks(this.activeTurn, seedMarks);
@@ -381,17 +372,6 @@ export class LiveVoiceMetricsCollector {
       turn.endpointCommitLatencyMs = normalizeLatencyMs(latencyMs);
     }
     return this.emit("endpoint_commit", turn.turnId);
-  }
-
-  markAckSpoken(
-    turnId: string | undefined,
-    kind: LiveVoiceSpokenAckKind,
-  ): LiveVoiceMetricsFrame {
-    const turn = this.ensureActiveTurn(turnId);
-    if (turn.ackSpoken === null) {
-      turn.ackSpoken = kind;
-    }
-    return this.emit("ack_spoken", turn.turnId);
   }
 
   // A counter, not a first-wins mark: every spoken progress narration bumps
@@ -614,7 +594,7 @@ function aggregateFieldsForTurn(
 // Shared optional fields for turn snapshots and aggregate frame fields: the
 // commit latency is absent unless the turn committed against a local
 // speech-stop mark, and the front-model fields are absent unless the endpoint
-// decider was consulted / an ack spoke / a progress narration spoke, so turns
+// decider was consulted or a progress narration spoke, so turns
 // that never touch the features are unchanged.
 function optionalTurnFields(
   // Accepts both MutableTurn (null = unset) and snapshot (absent = unset).
@@ -623,7 +603,6 @@ function optionalTurnFields(
     endpointHoldCount?: number | null;
     endpointDecisionMaxLatencyMs?: number | null;
     endpointDecisionSource?: VoiceEndpointSource | null;
-    ackSpoken?: LiveVoiceSpokenAckKind | null;
     progressUpdatesSpoken?: number | null;
   },
 ): Pick<
@@ -632,7 +611,6 @@ function optionalTurnFields(
   | "endpointHoldCount"
   | "endpointDecisionMaxLatencyMs"
   | "endpointDecisionSource"
-  | "ackSpoken"
   | "progressUpdatesSpoken"
 > {
   const progressUpdatesSpoken = turn.progressUpdatesSpoken ?? 0;
@@ -648,7 +626,6 @@ function optionalTurnFields(
             turn.endpointDecisionSource ?? DEFAULT_ENDPOINT_SOURCE,
         }
       : {}),
-    ...(turn.ackSpoken != null ? { ackSpoken: turn.ackSpoken } : {}),
     ...(progressUpdatesSpoken > 0 ? { progressUpdatesSpoken } : {}),
   };
 }
@@ -696,7 +673,6 @@ function cloneMutableTurn(turn: MutableTurn): MutableTurn {
     endpointHoldCount: turn.endpointHoldCount,
     endpointDecisionMaxLatencyMs: turn.endpointDecisionMaxLatencyMs,
     endpointDecisionSource: turn.endpointDecisionSource,
-    ackSpoken: turn.ackSpoken,
     progressUpdatesSpoken: turn.progressUpdatesSpoken,
   };
 }

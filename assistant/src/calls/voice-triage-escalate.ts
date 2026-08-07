@@ -273,8 +273,8 @@ export function frontDoorDecisionRule(opts?: {
           // Hold requires positive evidence of an unfinished sentence, never
           // mere uncertainty, because the two mistakes cost differently. A
           // false hold is silent: the verdict, the extension window, and the
-          // replay dispatch all elapse with the thinking frame and ack
-          // deferred until commit, roughly tripling felt latency. A false
+          // replay dispatch all elapse before the turn commits, roughly
+          // tripling felt latency. A false
           // release only answers a beat early, which barge-in absorbs.
           `- If the caller's words are visibly unfinished (a trailing conjunction, a dangling clause, a list still being dictated) output ONLY ${HOLD_VERDICT_TOKEN} and stop, no other text. Judge the words themselves: a complete question or statement means they are done, even when it is short or leans on earlier context ("What do you think?", "Why?", "And then?"). Callers may speak any language: those examples are English exemplars only, and completeness is judged by the grammar of the language being spoken. In verb-final languages such as Hindi, Japanese, or Korean the sentence-final verb usually marks completion, so a missing final verb is the unfinished signal, not a missing conjunction. Never hold merely because more could follow.`,
         ]

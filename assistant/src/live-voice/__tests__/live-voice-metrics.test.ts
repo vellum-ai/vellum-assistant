@@ -274,7 +274,7 @@ describe("LiveVoiceMetricsCollector", () => {
     expect(turn.timestamps.utteranceEndAtMs).toBe(2_000);
   });
 
-  test("accumulates endpoint decisions and records the first ack kind", () => {
+  test("accumulates endpoint decisions", () => {
     const clock = makeClock(0);
     const collector = new LiveVoiceMetricsCollector({
       sessionId: "session-ep",
@@ -295,24 +295,18 @@ describe("LiveVoiceMetricsCollector", () => {
       action: "release",
       latencyMs: 210,
     });
-    collector.markAckSpoken("turn-ep", "tool_use");
-    // First ack kind wins — the per-turn budget allows one spoken ack, so a
-    // second mark must not overwrite the recorded kind.
-    collector.markAckSpoken("turn-ep", "first_delta");
     const completed = collector.completeTurn();
 
     expect(completed).toMatchObject({
       turnId: "turn-ep",
       endpointHoldCount: 2,
       endpointDecisionMaxLatencyMs: 210,
-      ackSpoken: "tool_use",
     });
     expect(
       getLiveVoiceMetricsAggregateFields(collector.getSnapshot(), "turn-ep"),
     ).toMatchObject({
       endpointHoldCount: 2,
       endpointDecisionMaxLatencyMs: 210,
-      ackSpoken: "tool_use",
     });
   });
 
@@ -425,7 +419,7 @@ describe("LiveVoiceMetricsCollector", () => {
     ).toMatchObject({ progressUpdatesSpoken: 2 });
   });
 
-  test("omits endpoint, ack, and progress fields for turns that never touch the features", () => {
+  test("omits endpoint and progress fields for turns that never touch the features", () => {
     const clock = makeClock(0);
     const collector = new LiveVoiceMetricsCollector({
       sessionId: "session-off",
