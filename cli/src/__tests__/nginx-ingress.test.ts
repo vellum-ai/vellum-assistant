@@ -708,8 +708,7 @@ const PRODUCTION_HUB_URL = "https://www.vellum.ai/assistant";
  * Mirror of the SPA config fingerprint the edge records in its ingress state
  * (sha256 over the edge template version and the injected config JSON). Pins
  * both the injected config shape and the hash format; assumes the
- * production-pinned environment. Bump `template` alongside
- * `EDGE_TEMPLATE_VERSION` so an upgraded CLI restarts a stale detached edge.
+ * production-pinned environment. `template` tracks `EDGE_TEMPLATE_VERSION`.
  */
 function spaConfigHash(assistantName?: string): string {
   return createHash("sha256")
@@ -1151,6 +1150,51 @@ describe("startRemoteWebIngress", () => {
       includeWebApp: true,
       gatewayPort: 7830,
       remoteWebConfigHash: spaConfigHash("New Name"),
+    });
+  });
+
+  test("restarts an SPA edge recorded against an older template version", async () => {
+    const ws = makeWorkspace();
+    mockNginxInstalled();
+    mockNginxSpawn();
+    mockWebDistPresent();
+    // Same injected config, earlier template: the detached edge serves an
+    // index this build renders differently, so identity must not match.
+    const priorTemplateHash = createHash("sha256")
+      .update(
+        JSON.stringify({
+          template: 1,
+          config: {
+            mode: "remote-gateway",
+            apiBaseUrl: "/v1",
+            platformDisabled: true,
+            disablePlatform: true,
+            hubUrl: PRODUCTION_HUB_URL,
+          },
+        }),
+      )
+      .digest("hex");
+    const pid = mockRunningEdge(ws, {
+      listenPort: 7845,
+      includeWebApp: true,
+      gatewayPort: 7830,
+      remoteWebConfigHash: priorTemplateHash,
+    });
+    const edge = mockKillableNginx(pid);
+
+    const result = await startRemoteWebIngress({
+      workspaceDir: ws,
+      gatewayPort: 7830,
+      listenPort: 7845,
+    });
+
+    expect(result.status).toBe("started");
+    expect(edge.killed()).toBe(true);
+    expect((readConfig(ws).ingress as Record<string, unknown>).nginx).toEqual({
+      listenPort: 7845,
+      includeWebApp: true,
+      gatewayPort: 7830,
+      remoteWebConfigHash: spaConfigHash(),
     });
   });
 

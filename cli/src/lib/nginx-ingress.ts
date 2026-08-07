@@ -189,10 +189,9 @@ function remoteWebIngressConfig(
 }
 
 /**
- * Bump whenever the generated index or nginx template changes. A detached edge
- * survives a CLI upgrade, and the reuse check only compares the injected
- * config, so without this an upgraded CLI would keep an old edge alive and
- * never re-render the index it now builds differently.
+ * Part of edge identity: a detached edge is reused only while its recorded
+ * fingerprint matches, so this must change whenever the generated index or
+ * nginx template does.
  */
 const EDGE_TEMPLATE_VERSION = 2;
 
