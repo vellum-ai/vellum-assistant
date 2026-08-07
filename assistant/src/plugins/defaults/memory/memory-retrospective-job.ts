@@ -57,7 +57,7 @@ import {
 } from "../../../channels/types.js";
 import { isV3TierActive } from "../../../config/memory-v3-gate.js";
 import type { AssistantConfig } from "../../../config/types.js";
-import { getGuardianDelivery } from "../../../contacts/guardian-delivery-reader.js";
+import { warmGuardianBindings } from "../../../contacts/guardian-delivery-reader.js";
 import { extractTurnContextTimestamp } from "../../../context/compactor.js";
 import {
   formatLocalTimestamp,
@@ -479,10 +479,11 @@ export async function runForkBasedRetrospective(
   // parity — the fork always runs execution gate mode below, so the source's
   // full tool surface stays on the wire while the allowlist holds at
   // execution time.
-  // Warm the vellum guardian-delivery cache so the sync slug resolution inside
-  // resolveSourceParityPins (resolveUserSlug(undefined)) hits a fresh key
-  // instead of falling back to "default" on a cold/TTL-expired cache.
-  await getGuardianDelivery({ channelTypes: ["vellum"] });
+  // Warm both guardian-delivery cache keys (vellum + unfiltered) so the sync
+  // slug resolution inside resolveSourceParityPins (resolveUserSlug(undefined)),
+  // including its any-channel fallback, hits fresh keys instead of falling
+  // back to "default" on a cold/TTL-expired cache.
+  await warmGuardianBindings();
   const { personaOverride, toolContextPin } = resolveSourceParityPins(
     sourceConversation,
     newMessages,

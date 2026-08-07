@@ -20,7 +20,9 @@ import type {
   AppVersionInfo,
   AssistantStatus,
   BundleScanData,
-  CompanionAnchor,
+  CompanionCharacter,
+  CompanionGrowth,
+  CompanionContext,
   CompanionSurfaceState,
   ConnectivityState,
   DeepLink,
@@ -65,7 +67,8 @@ export type {
   AppVersionInfo,
   AssistantStatus,
   BundleScanData,
-  CompanionAnchor,
+  CompanionGrowth,
+  CompanionContext,
   CompanionSurfaceState,
   ConnectivityState,
   DeepLink,
@@ -190,6 +193,7 @@ declare global {
       };
       icon?: {
         setAvatar(png: Uint8Array | null): void;
+        setCharacter?(character: CompanionCharacter | null): void;
       };
       dock: {
         setBadge(count: number): void;
@@ -329,6 +333,10 @@ declare global {
         setInteractive?(interactive: boolean): void;
         moveBy?(dx: number, dy: number): void;
         startVoice?(): void;
+        activate?(): void;
+        setComposing?(composing: boolean): void;
+        submit?(message: string, startsConversation: boolean): void;
+        setContext?(context: CompanionContext): void;
       };
     };
   }

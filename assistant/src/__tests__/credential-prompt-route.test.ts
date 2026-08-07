@@ -209,8 +209,8 @@ describe("credentials/prompt route", () => {
   test("stores a non-slack credential to secure storage and reports the value as received", async () => {
     /**
      * The default delivery persists the value to secure storage and runs the
-     * manual-token connection sync. The message must name the outcome — the
-     * value is in hand — so a bare `ok: true` cannot be misread as "the prompt
+     * manual-token connection sync. The message must name the outcome (the
+     * value is in hand) so a bare `ok: true` cannot be misread as "the prompt
      * opened".
      */
     // GIVEN a standard store-delivery prompt for a non-slack credential
@@ -236,15 +236,12 @@ describe("credentials/prompt route", () => {
 
   test("every successful outcome states that the prompt has closed", async () => {
     /**
-     * The prompt blocks until answered, so a caller reads the result only after
-     * the secure input is gone. Without an explicit close signal a model
-     * follows up with "the prompt is open, paste it there" and the user
-     * re-submits into a surface that never reappears — the loop reported in
-     * the Aug 2026 Claude Code auth feedback. Every success path must say so,
-     * not just the plain vault write.
+     * The prompt blocks until answered, so a caller reads the result only once
+     * the secure input is gone. Every success path states the close, not just
+     * the plain vault write, so the result cannot be read as "the prompt is
+     * open, paste it there".
      */
-    const closed =
-      "The secure prompt has closed — do not ask the user to enter this value again.";
+    const closed = "The secure prompt has closed.";
 
     // GIVEN a plain vault write
     const stored = (await promptRoute!.handler({

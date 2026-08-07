@@ -190,6 +190,35 @@ describe("live-voice triage-and-escalate routing", () => {
     expect(escalated?.content).toBe(ESCALATION_CONTINUATION_CONTENT);
   });
 
+  test("no leg is told to refuse setup flows, and the escalated leg is told to run them", async () => {
+    const { starter } = scriptedStartVoiceTurn({
+      frontDoor: ["[1] ", "Let me think about that."],
+      escalated: ["The detailed answer is 42."],
+    });
+    const { frames, session } = createHarness(starter);
+
+    await driveTurn(session);
+    await waitFor(() => starter.mock.calls.length >= 2);
+    await waitFor(() => frames.some((frame) => frame.type === "tts_done"));
+
+    const frontDoorPrompt =
+      starter.mock.calls[0]?.[0]?.voiceControlPrompt ?? "";
+    const escalatedPrompt =
+      starter.mock.calls[1]?.[0]?.voiceControlPrompt ?? "";
+    // The phone's no-setup-flows rule must not leak onto a channel that has a
+    // screen: it contradicts the base prompt's "never tell the user you cannot
+    // show them something".
+    expect(frontDoorPrompt).not.toContain("Never start account connections");
+    expect(escalatedPrompt).not.toContain("Never start account connections");
+    expect(frontDoorPrompt).not.toContain("finish it in text chat");
+    expect(escalatedPrompt).not.toContain("finish it in text chat");
+    // The leg that can actually run one is told to.
+    expect(escalatedPrompt).toContain("This includes connecting accounts");
+    // The toolless fast leg is not: a connection is not its to run, and its
+    // capability digest already routes anything needing a tool here.
+    expect(frontDoorPrompt).not.toContain("This includes connecting accounts");
+  });
+
   test("the screen-reveal teaching reaches the escalated leg's prompt but never the front-door leg's", async () => {
     const { starter } = scriptedStartVoiceTurn({
       frontDoor: ["[1] ", "Let me think about that."],

@@ -18,6 +18,8 @@ import type { OAuthProviderRow } from "./oauth-store.js";
 export type SerializedProvider = ReturnType<typeof serializeProvider> &
   Record<string, unknown>;
 
+import { isChannelBotProvider } from "@vellumai/service-contracts/channels";
+
 /**
  * Lightweight summary projection of an OAuth provider, suitable for API
  * list responses where full detail is not needed. All keys are snake_case
@@ -34,6 +36,16 @@ export interface SerializedProviderSummary {
   supports_managed_mode: boolean;
   managed_service_is_paid: boolean;
   feature_flag: string | null;
+  /**
+   * Which sense of "connected" this provider represents: `assistant` for a bot
+   * credential people reach the assistant through, `user` for a grant letting
+   * it act as the person who authorized it.
+   *
+   * Derived rather than stored, because the provider key does not say: `slack`
+   * and `discord` name the user integration while their bots take a `_channel`
+   * suffix, yet `telegram` is the bot.
+   */
+  acts_as: "user" | "assistant";
 }
 
 /**
@@ -152,5 +164,6 @@ export function serializeProviderSummary(
     supports_managed_mode: !!row.managedServiceConfigKey,
     managed_service_is_paid: !!row.managedServiceIsPaid,
     feature_flag: row.featureFlag ?? null,
+    acts_as: isChannelBotProvider(row.provider) ? "assistant" : "user",
   };
 }

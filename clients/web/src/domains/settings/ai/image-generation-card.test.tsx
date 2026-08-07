@@ -10,7 +10,7 @@
  *   4. Legacy managed-mode daemon configs render as Vellum; an openai
  *      daemon config renders honestly without being clobbered.
  *
- * The design-library Dropdown is real, driven via its combobox trigger like
+ * The design-library Select is real, driven via its combobox trigger like
  * `web-search-card.test.tsx`.
  */
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";

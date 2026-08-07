@@ -80,6 +80,7 @@ afterAll(() => {
 
 import {
   buildIngressNginxConfig,
+  hasIpv6Loopback,
   buildRemoteWebIndexHtml,
   cloudWebHubUrl,
   ensureTunnelEdge,
@@ -170,8 +171,23 @@ describe("buildIngressNginxConfig", () => {
     const listens = conf.match(/listen [^;]+;/g) ?? [];
     expect(listens.length).toBeGreaterThan(0);
     for (const directive of listens) {
-      expect(directive).toContain("127.0.0.1");
+      expect(directive).toMatch(/127\.0\.0\.1|\[::1\]/);
     }
+  });
+
+  test("adds the IPv6 loopback listener only where ::1 exists", () => {
+    // A tunnel agent pointed at "localhost" reaches ::1 first on macOS, so an
+    // IPv4-only bind refuses whichever share of a burst resolves that way.
+    // Emitting it unconditionally would make nginx exit on an IPv6-less host.
+    const withIpv6 = buildIngressNginxConfig({
+      gatewayPort: 7830,
+      listenPort: 7840,
+      ipv6Loopback: true,
+    });
+    expect(withIpv6).toContain("listen 127.0.0.1:7840;");
+    expect(withIpv6).toContain("listen [::1]:7840;");
+
+    expect(conf).not.toContain("[::1]");
   });
 
   test("emits relative redirects so a fronting proxy keeps scheme and port", () => {
@@ -361,6 +377,24 @@ describe("buildRemoteWebIndexHtml", () => {
 
     expect(result).not.toContain("</script><script>alert(1)</script>");
     expect(result).toContain("\\u003c/script\\u003e");
+  });
+
+  test("drops modulepreload hints but keeps the entry script and stylesheet", () => {
+    const html = [
+      "<html><head>",
+      '<link rel="modulepreload" crossorigin href="/assistant/assets/a-1.js">',
+      '<link rel="modulepreload" crossorigin href="/assistant/assets/b-2.js">',
+      '<link rel="stylesheet" crossorigin href="/assistant/assets/main-3.css">',
+      '<script type="module" crossorigin src="/assistant/assets/index-4.js"></script>',
+      "</head><body></body></html>",
+    ].join("\n");
+
+    const result = buildRemoteWebIndexHtml(html, { mode: "remote-gateway" });
+
+    expect(result).not.toContain("modulepreload");
+    expect(result).not.toContain("/assistant/assets/a-1.js");
+    expect(result).toContain('href="/assistant/assets/main-3.css"');
+    expect(result).toContain('src="/assistant/assets/index-4.js"');
   });
 });
 
@@ -672,19 +706,23 @@ const PRODUCTION_HUB_URL = "https://www.vellum.ai/assistant";
 
 /**
  * Mirror of the SPA config fingerprint the edge records in its ingress state
- * (sha256 over the injected config JSON). Pins both the injected config
- * shape and the hash format; assumes the production-pinned environment.
+ * (sha256 over the edge template version and the injected config JSON). Pins
+ * both the injected config shape and the hash format; assumes the
+ * production-pinned environment. `template` tracks `EDGE_TEMPLATE_VERSION`.
  */
 function spaConfigHash(assistantName?: string): string {
   return createHash("sha256")
     .update(
       JSON.stringify({
-        mode: "remote-gateway",
-        apiBaseUrl: "/v1",
-        platformDisabled: true,
-        disablePlatform: true,
-        ...(assistantName ? { assistantName } : {}),
-        hubUrl: PRODUCTION_HUB_URL,
+        template: 2,
+        config: {
+          mode: "remote-gateway",
+          apiBaseUrl: "/v1",
+          platformDisabled: true,
+          disablePlatform: true,
+          ...(assistantName ? { assistantName } : {}),
+          hubUrl: PRODUCTION_HUB_URL,
+        },
       }),
     )
     .digest("hex");
@@ -744,7 +782,11 @@ describe("startRemoteWebIngress", () => {
 
     const conf = realFs.readFileSync(ingressConfPath(ws), "utf-8");
     expect(conf).toBe(
-      buildIngressNginxConfig({ gatewayPort: 7830, listenPort: 7845 }),
+      buildIngressNginxConfig({
+        gatewayPort: 7830,
+        listenPort: 7845,
+        ipv6Loopback: hasIpv6Loopback(),
+      }),
     );
     expect(conf).toContain("location = /auth/token { return 404; }");
     expect(conf).toContain("location = /v1/pair { return 404; }");
@@ -784,6 +826,7 @@ describe("startRemoteWebIngress", () => {
       buildIngressNginxConfig({
         gatewayPort: 7830,
         listenPort: 7845,
+        ipv6Loopback: hasIpv6Loopback(),
         remoteWebIngress: {
           webDistDir,
           indexHtmlPath: join(ws, "data", "ingress", "assistant-index.html"),
@@ -966,7 +1009,11 @@ describe("startRemoteWebIngress", () => {
     expect(spawnMock).toHaveBeenCalledTimes(1);
     const conf = realFs.readFileSync(ingressConfPath(ws), "utf-8");
     expect(conf).toBe(
-      buildIngressNginxConfig({ gatewayPort: 7830, listenPort: 7845 }),
+      buildIngressNginxConfig({
+        gatewayPort: 7830,
+        listenPort: 7845,
+        ipv6Loopback: hasIpv6Loopback(),
+      }),
     );
     expect(conf).toContain("proxy_pass http://127.0.0.1:7830;");
     expect((readConfig(ws).ingress as Record<string, unknown>).nginx).toEqual({
@@ -1000,7 +1047,11 @@ describe("startRemoteWebIngress", () => {
     expect(edge.killed()).toBe(true);
     expect(spawnMock).toHaveBeenCalledTimes(1);
     expect(realFs.readFileSync(ingressConfPath(ws), "utf-8")).toBe(
-      buildIngressNginxConfig({ gatewayPort: 7900, listenPort: 7845 }),
+      buildIngressNginxConfig({
+        gatewayPort: 7900,
+        listenPort: 7845,
+        ipv6Loopback: hasIpv6Loopback(),
+      }),
     );
     expect((readConfig(ws).ingress as Record<string, unknown>).nginx).toEqual({
       listenPort: 7845,
@@ -1102,6 +1153,51 @@ describe("startRemoteWebIngress", () => {
     });
   });
 
+  test("restarts an SPA edge recorded against an older template version", async () => {
+    const ws = makeWorkspace();
+    mockNginxInstalled();
+    mockNginxSpawn();
+    mockWebDistPresent();
+    // Same injected config, earlier template: the detached edge serves an
+    // index this build renders differently, so identity must not match.
+    const priorTemplateHash = createHash("sha256")
+      .update(
+        JSON.stringify({
+          template: 1,
+          config: {
+            mode: "remote-gateway",
+            apiBaseUrl: "/v1",
+            platformDisabled: true,
+            disablePlatform: true,
+            hubUrl: PRODUCTION_HUB_URL,
+          },
+        }),
+      )
+      .digest("hex");
+    const pid = mockRunningEdge(ws, {
+      listenPort: 7845,
+      includeWebApp: true,
+      gatewayPort: 7830,
+      remoteWebConfigHash: priorTemplateHash,
+    });
+    const edge = mockKillableNginx(pid);
+
+    const result = await startRemoteWebIngress({
+      workspaceDir: ws,
+      gatewayPort: 7830,
+      listenPort: 7845,
+    });
+
+    expect(result.status).toBe("started");
+    expect(edge.killed()).toBe(true);
+    expect((readConfig(ws).ingress as Record<string, unknown>).nginx).toEqual({
+      listenPort: 7845,
+      includeWebApp: true,
+      gatewayPort: 7830,
+      remoteWebConfigHash: spaConfigHash(),
+    });
+  });
+
   test("restarts an SPA edge whose state predates the config fingerprint", async () => {
     const ws = makeWorkspace();
     mockNginxInstalled();
@@ -1185,7 +1281,11 @@ describe("startRemoteWebIngress", () => {
     expect(spawnMock).toHaveBeenCalledTimes(1);
     const conf = realFs.readFileSync(ingressConfPath(ws), "utf-8");
     expect(conf).toBe(
-      buildIngressNginxConfig({ gatewayPort: 7830, listenPort: 7845 }),
+      buildIngressNginxConfig({
+        gatewayPort: 7830,
+        listenPort: 7845,
+        ipv6Loopback: hasIpv6Loopback(),
+      }),
     );
     expect((readConfig(ws).ingress as Record<string, unknown>).nginx).toEqual({
       listenPort: 7845,
@@ -1225,7 +1325,11 @@ describe("startRemoteWebIngress", () => {
     expect(spawnMock).toHaveBeenCalledTimes(1);
     const conf = realFs.readFileSync(ingressConfPath(ws), "utf-8");
     expect(conf).toBe(
-      buildIngressNginxConfig({ gatewayPort: 7830, listenPort: 7845 }),
+      buildIngressNginxConfig({
+        gatewayPort: 7830,
+        listenPort: 7845,
+        ipv6Loopback: hasIpv6Loopback(),
+      }),
     );
     expect((readConfig(ws).ingress as Record<string, unknown>).nginx).toEqual({
       listenPort: 7845,
@@ -1721,6 +1825,7 @@ describe("ensureTunnelEdge", () => {
       buildIngressNginxConfig({
         gatewayPort: 7830,
         listenPort: REQUESTED_PORT,
+        ipv6Loopback: hasIpv6Loopback(),
       }),
     );
   });
@@ -1751,6 +1856,7 @@ describe("ensureTunnelEdge", () => {
       buildIngressNginxConfig({
         gatewayPort: 7830,
         listenPort: REQUESTED_PORT,
+        ipv6Loopback: hasIpv6Loopback(),
       }),
     );
   });

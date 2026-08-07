@@ -6,11 +6,18 @@ const TIMEOUT_SENTINEL = Symbol("tool-timeout");
 /**
  * Convert a config-provided seconds value to a safe milliseconds value,
  * falling back to the default if the input is NaN, non-finite, zero, or negative.
+ *
+ * `fallbackMs` lets callers governed by a different budget (e.g. the inline
+ * grant wait) keep their own floor instead of inheriting the tool-execution
+ * default.
  */
-export function safeTimeoutMs(sec: unknown): number {
+export function safeTimeoutMs(
+  sec: unknown,
+  fallbackMs: number = DEFAULT_TOOL_EXECUTION_TIMEOUT_SEC * 1000,
+): number {
   const n = Number(sec);
   if (!Number.isFinite(n) || n <= 0) {
-    return DEFAULT_TOOL_EXECUTION_TIMEOUT_SEC * 1000;
+    return fallbackMs;
   }
   return n * 1000;
 }

@@ -55,6 +55,16 @@ export interface StorageAccessor<T> {
   /** The declared scope. */
   scope: StorageScope;
   /**
+   * Call `onChange` whenever this key changes, in this tab or another, and
+   * return an unsubscribe. The imperative form of {@link StorageAccessor.useValue},
+   * for the readers that are not components: a module-level store that mirrors
+   * a key has to follow it, or it only ever learns about its own writes.
+   *
+   * Prefer this to reaching for `watchSetting` with {@link StorageAccessor.key},
+   * which spreads the key to callers that would then have to keep it in step.
+   */
+  subscribe: (onChange: () => void) => () => void;
+  /**
    * React hook that subscribes to storage changes via `useSyncExternalStore`.
    * Concurrent-rendering-safe, no initial null→value flicker.
    */
@@ -327,7 +337,7 @@ export function createStorageAccessor<T>(
     return useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot);
   }
 
-  return { load, save, remove, key, scope, useValue };
+  return { load, save, remove, key, scope, subscribe, useValue };
 }
 
 // ---------------------------------------------------------------------------

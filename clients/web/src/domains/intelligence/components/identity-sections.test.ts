@@ -3,8 +3,8 @@
  * on backend capability. Whatever the backend reports, the list is the same,
  * so an assistant that can't draw the memory concept graph still gets a
  * Memory card leading into the tab that explains it. The one subtraction is
- * the native mobile shell, which omits the sections whose UI is not ready
- * for a phone.
+ * the native mobile shell, which omits the two sections that are desk work
+ * (Memory and Workspace) and keeps everything a phone user needs to reach.
  */
 import { describe, expect, test } from "bun:test";
 
@@ -35,18 +35,27 @@ describe("buildIdentitySections", () => {
     expect(keys()).toContain("memory");
   });
 
-  test("always includes Channels off native mobile", () => {
-    expect(keys()).toContain("channels");
-  });
-
-  test("native mobile drops Memory, Workspace, Contacts and Channels", () => {
+  test("native mobile drops Memory and Workspace, and nothing else", () => {
     expect(keys(true)).toEqual([
       "personality",
       "schedules",
       "superpowers",
       "library",
+      "contacts",
+      "channels",
     ]);
   });
+
+  // Checking who the assistant knows and where it listens is mobile work,
+  // so the native mobile filter must never drop Contacts or Channels
+  // (LUM-3136).
+  test.each(["contacts", "channels"])(
+    "keeps %s on every platform, phone included",
+    (key) => {
+      expect(keys(true)).toContain(key);
+      expect(keys(false)).toContain(key);
+    },
+  );
 
   test("native mobile keeps the remaining sections in their desktop order", () => {
     const nativeMobile = keys(true);

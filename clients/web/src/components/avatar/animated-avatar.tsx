@@ -17,6 +17,16 @@ interface AnimatedAvatarProps {
   size: number;
   isAssistantBusy?: boolean;
   /**
+   * Widen the eyes: the creature has noticed something.
+   *
+   * A surface with a pointer over it uses this so the mascot answers the hand
+   * reaching for it. Deliberately the eyes alone and not the body, because
+   * "noticing" is what eyes do and a body that grew on hover would read as a
+   * button rather than a creature. Composes with the blink, which wins for its
+   * 150ms.
+   */
+  attentive?: boolean;
+  /**
    * Continuous idle "breathing" scale pulse. On by default; pass `false` to
    * keep the avatar still while leaving blink/twitch (and streaming morph)
    * intact — e.g. the scattered onboarding edge characters.
@@ -124,6 +134,7 @@ export function AnimatedAvatar({
   traits,
   size,
   isAssistantBusy = false,
+  attentive = false,
   breathe = true,
 }: AnimatedAvatarProps) {
   const reduce = useReducedMotion();
@@ -375,7 +386,13 @@ export function AnimatedAvatar({
 
       <g
         style={{
-          transform: effectiveBlinking ? "scaleY(0.1)" : "scaleY(1)",
+          // Blink first: a squish that a widening cancelled would read as the
+          // creature failing to blink rather than as it paying attention.
+          transform: effectiveBlinking
+            ? "scaleY(0.1)"
+            : attentive
+              ? "scale(1.12, 1.22)"
+              : "scaleY(1)",
           transformOrigin: `${eyeCenterOutputX}px ${eyeCenterOutputY}px`,
           transition: "transform 0.15s ease-in-out",
         }}
