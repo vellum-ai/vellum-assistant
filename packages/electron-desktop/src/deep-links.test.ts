@@ -31,13 +31,9 @@ const makeSender = (): {
   };
 };
 const subscribeWith = (s: ReturnType<typeof makeSender>) =>
-  ipcOnListeners
-    .get("vellum:deepLinks:subscribe")
-    ?.({ sender: s.sender, senderFrame: allowedSenderFrame });
+  ipcOnListeners.get("vellum:deepLinks:subscribe")?.({ sender: s.sender });
 const unsubscribeWith = (s: ReturnType<typeof makeSender>) =>
-  ipcOnListeners
-    .get("vellum:deepLinks:unsubscribe")
-    ?.({ sender: s.sender, senderFrame: allowedSenderFrame });
+  ipcOnListeners.get("vellum:deepLinks:unsubscribe")?.({ sender: s.sender });
 const appListeners = new Map<string, Listener>();
 const appOnMock = mock((event: string, listener: Listener) => {
   appListeners.set(event, listener);
@@ -66,17 +62,11 @@ mock.module("electron", () => ({
   BrowserWindow: { getAllWindows: () => windows },
 }));
 
-// `./main-window` is called from `handleDeepLink` to bring the main
-// window forward for actionable kinds. Stub so we can assert on the
-// call without standing up the full lifecycle module (which
-// transitively imports electron-store).
 const ensureMainWindowVisibleMock = mock(async () => undefined);
-mock.module("./main-window", () => ({
-  ensureVisible: ensureMainWindowVisibleMock,
-}));
 
 const {
   __resetForTesting,
+  configureDeepLinks,
   extractDeepLinkFromArgv,
   handleDeepLink,
   installDeepLinks,
@@ -84,22 +74,34 @@ const {
   resolveAcceptedSchemes,
   resolveRegisteredSchemes,
 } = await import("./deep-links");
-const { resolveAllowedOrigin } = await import("./app-origin");
 const { resolveEnvironmentName } = await import("@vellumai/local-mode");
 
-// The IPC wrappers reject any sender whose frame origin isn't the
-// build's renderer origin. These tests drive the registered handlers
-// directly, so they must present a frame at that origin; deriving it
-// from the guard's own resolver keeps the fake sender correct without
-// hard-coding either the dev or packaged origin here.
-const { protocol: allowedProtocol, host: allowedHost } = resolveAllowedOrigin();
-const allowedSenderFrame = { origin: `${allowedProtocol}//${allowedHost}` };
-const allowedEvent = { senderFrame: allowedSenderFrame };
+const allowedEvent = {};
 
 const makeWindow = (destroyed = false) => ({
   isDestroyed: () => destroyed,
   webContents: { send: mock(() => undefined) },
 });
+
+const configureTestRuntime = (initialArgv: readonly string[] = []): void => {
+  configureDeepLinks({
+    ensureVisible: ensureMainWindowVisibleMock,
+    handle: (channel, schema, fn) => {
+      ipcHandleMock(channel, (event, ...args) =>
+        fn(schema.parse(args), event as never),
+      );
+    },
+    initialArgv,
+    on: (channel, schema, fn) => {
+      ipcOnListeners.set(channel, (event, ...args) => {
+        const parsed = schema.safeParse(args);
+        if (parsed.success) {
+          fn(parsed.data, event as never);
+        }
+      });
+    },
+  });
+};
 
 beforeEach(() => {
   __resetForTesting();
@@ -112,6 +114,7 @@ beforeEach(() => {
   ensureMainWindowVisibleMock.mockClear();
   windows = [];
   appIsReady = true;
+  configureTestRuntime();
 });
 
 afterEach(() => {
@@ -362,8 +365,9 @@ describe("parseVellumUrl", () => {
     // device code entirely. This guards the auth/callback precedent:
     // nothing the module does with a connect URL may write the raw URL's
     // secret material to a log stream.
-    const consoleSpies = (["log", "warn", "error", "info", "debug"] as const)
-      .map((method) => spyOn(console, method));
+    const consoleSpies = (
+      ["log", "warn", "error", "info", "debug"] as const
+    ).map((method) => spyOn(console, method));
     try {
       handleDeepLink(
         "vellum://connect?url=https%3A%2F%2Fh.example&code=SECRET-CODE&bundle=U0VDUkVUYnVuZGxl",
@@ -408,12 +412,49 @@ describe("extractDeepLinkFromArgv", () => {
   });
 
   test("returns null when no deep-link arg is present", () => {
-    expect(extractDeepLinkFromArgv(["/usr/local/bin/electron", "--foo"]))
-      .toBeNull();
+    expect(
+      extractDeepLinkFromArgv(["/usr/local/bin/electron", "--foo"]),
+    ).toBeNull();
+  });
+
+  test.each([
+    "vellum://send?message=hello",
+    "vellum://thread/thread-123",
+    "vellum://billing/checkout-complete?status=cancel",
+  ])("extracts supported Windows launch URL %s", (url) => {
+    expect(extractDeepLinkFromArgv(["Vellum.exe", url])).toBe(url);
   });
 });
 
 describe("installDeepLinks", () => {
+  test("delivers a cold-start argv link exactly once", () => {
+    configureTestRuntime(["Vellum.exe", "vellum://send?message=cold"]);
+    installDeepLinks();
+
+    const drain = ipcHandleMock.mock.calls.find(
+      (call) => call[0] === "vellum:deepLinks:drain",
+    )?.[1] as (event: unknown) => unknown[];
+    expect(drain(allowedEvent)).toEqual([{ kind: "send", message: "cold" }]);
+    expect(drain(allowedEvent)).toEqual([]);
+  });
+
+  test("delivers a second-instance argv link exactly once", () => {
+    installDeepLinks();
+    appListeners.get("second-instance")?.({}, [
+      "Vellum.exe",
+      "vellum://thread/warm",
+      "vellum://thread/ignored",
+    ]);
+
+    const drain = ipcHandleMock.mock.calls.find(
+      (call) => call[0] === "vellum:deepLinks:drain",
+    )?.[1] as (event: unknown) => unknown[];
+    expect(drain(allowedEvent)).toEqual([
+      { kind: "openThread", threadId: "warm" },
+    ]);
+    expect(drain(allowedEvent)).toEqual([]);
+  });
+
   test("registers only the env-appropriate schemes and is idempotent across repeated calls", () => {
     installDeepLinks();
     const firstCallCount = setAsDefaultProtocolClientMock.mock.calls.length;
@@ -422,10 +463,14 @@ describe("installDeepLinks", () => {
     installDeepLinks();
 
     const schemes = setAsDefaultProtocolClientMock.mock.calls.map((c) => c[0]);
-    const expected = resolveRegisteredSchemes(resolveEnvironmentName(process.env));
+    const expected = resolveRegisteredSchemes(
+      resolveEnvironmentName(process.env),
+    );
     expect(schemes).toEqual(expected);
     // Idempotent — repeated calls don't register again.
-    expect(setAsDefaultProtocolClientMock).toHaveBeenCalledTimes(firstCallCount);
+    expect(setAsDefaultProtocolClientMock).toHaveBeenCalledTimes(
+      firstCallCount,
+    );
   });
 
   test("subscribes to will-finish-launching and registers an open-url listener under it", () => {
@@ -482,7 +527,9 @@ describe("installDeepLinks", () => {
     // Renderer mounts: subscribes, drains.
     const s1 = makeSender();
     subscribeWith(s1);
-    expect(drainHandler(allowedEvent)).toEqual([{ kind: "send", message: "backlog" }]);
+    expect(drainHandler(allowedEvent)).toEqual([
+      { kind: "send", message: "backlog" },
+    ]);
 
     // Live link arrives while subscribed — broadcasts only.
     handleDeepLink("vellum://thread/live");

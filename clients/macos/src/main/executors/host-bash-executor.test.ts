@@ -4,12 +4,6 @@ import { afterEach, describe, expect, mock, test } from "bun:test";
 // Stubs — must precede executor import
 // ---------------------------------------------------------------------------
 
-const MOCK_DEVICE_ID = "test-device-00000000-0000-0000-0000-000000000000";
-mock.module("../device-id", () => ({
-  getDeviceId: () => MOCK_DEVICE_ID,
-  resetDeviceIdCache: () => {},
-}));
-
 // Stub electron-log
 mock.module("electron-log/main", () => {
   const noop = () => {};
@@ -25,18 +19,7 @@ mock.module("electron-log/main", () => {
   };
 });
 
-// Stub lockfile-watcher (required by host-proxy-router)
-mock.module("../lockfile-watcher", () => ({
-  onLockfileChange: () => () => {},
-}));
-
-// Stub @vellumai/local-mode (required by host-proxy-router)
-mock.module("@vellumai/local-mode", () => ({
-  getGuardianAccessToken: async () => ({ ok: true, accessToken: "test-token" }),
-  resolveConfigDir: () => "/tmp/test-config",
-}));
-
-const { HostProxyPoster } = await import("../host-proxy-poster");
+const { HostProxyPoster } = await import("@vellumai/electron-desktop/host-proxy/poster");
 const { hostBashExecutor, __testing: executorTesting } = await import("./host-bash-executor");
 
 // ---------------------------------------------------------------------------

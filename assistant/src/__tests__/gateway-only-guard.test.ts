@@ -83,11 +83,8 @@ function isGatewayInternal(filePath: string): boolean {
 /** Additional files allowed for the interpolated-port check only (use gateway port, not runtime). */
 const INTERPOLATED_PORT_ALLOWLIST = new Set([
   "clients/macos/src/main/bundle-flow.ts",
-  // Electron main bridges the host proxy to a local assistant's gateway
-  // (gatewayPort) over loopback with a Guardian-minted gateway token — same
-  // class as bundle-flow.ts. Added with #34049 (host proxy for cloud/managed
-  // assistants); the allowlist entry was missed there.
-  "clients/macos/src/main/host-proxy-router.ts",
+  // Desktop clients connect to local assistants through their loopback gateway.
+  "packages/electron-desktop/src/host-proxy/router.ts",
 ]);
 
 /** Shared violation filter: exempt test files, gateway internals, and allowlisted paths. */

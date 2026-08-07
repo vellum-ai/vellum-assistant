@@ -499,6 +499,7 @@
       "dependencies": {
         "@vellumai/electron-utils": "workspace:*",
         "@vellumai/ipc-contract": "workspace:*",
+        "@vellumai/local-mode": "workspace:*",
         "jszip": "3.10.1",
       },
       "devDependencies": {
