@@ -983,17 +983,22 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
                   data-testid="voice-room-shutter"
                   className={cn(
                     "flex size-16 items-center justify-center rounded-full border-4 transition",
-                    // White rather than the tone's foreground, and the one
-                    // control here that never needs a camera-open branch: the
-                    // shutter exists only while the viewfinder does, so video
-                    // is the only thing it is ever seen against. A light avatar
-                    // tone (yellow) resolves `--room-fg` to a dark color, which
-                    // would put a dark ring over dark clothing.
-                    "border-white focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white",
+                    // The one control with no camera-open branch: the shutter
+                    // exists only while the viewfinder does, so video is the
+                    // only thing it is ever seen against, and a tone-derived
+                    // color describes a background the feed has covered.
+                    //
+                    // White alone is not enough either, because the frame can
+                    // be any brightness: a white ring on a white wall is as
+                    // invisible as a dark one on a dark shirt. The white sits
+                    // on a dark fill and a dark outer hairline, so one edge or
+                    // the other separates it from the video at both extremes.
+                    "border-white bg-black/30 shadow-[0_0_0_1.5px_rgba(0,0,0,0.4)]",
+                    "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white",
                     // The inner disc shrinks while the photo uploads: the
                     // shutter's own press animation doubling as the progress
                     // signal, so nothing else has to appear over the viewfinder.
-                    sending ? "opacity-60" : "hover:bg-white/20",
+                    sending ? "opacity-60" : "hover:bg-black/45",
                   )}
                 >
                   <span

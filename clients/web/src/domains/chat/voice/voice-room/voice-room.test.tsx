@@ -1599,6 +1599,14 @@ describe("VoiceRoom: camera", () => {
     }
     const end = screen.getByRole("button", { name: "End voice session" });
     expect(end.className).toContain("bg-red-600/55");
+
+    // The shutter is white so it reads on a dark frame, which leaves it
+    // invisible on a bright one unless it carries a dark backing of its own.
+    // It is the only control on the surface with no neutral scrim to fall
+    // back on, so it is asserted separately rather than in the loop above.
+    const shutter = screen.getByTestId("voice-room-shutter");
+    expect(shutter.className).toContain("bg-black/30");
+    expect(shutter.className).toContain("shadow-");
   });
 
   test("a failed flip falls back to the camera the user already had", async () => {
