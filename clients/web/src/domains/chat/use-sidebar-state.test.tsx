@@ -458,11 +458,10 @@ describe("useSidebarState section order", () => {
   });
 });
 
-/* Pinned is listed unconditionally now. Emptiness is the section's own
-   answer, resolved from its own query where it renders, because this hook
-   only sees the rows the foreground page happened to carry. */
+/* Which sections exist still comes from the loaded list; what is in them
+   comes from each section's own query. These cover the former. */
 describe("useSidebarState curated sections", () => {
-  test("lists Pinned even when no loaded conversation is pinned", () => {
+  test("omits Pinned when no loaded conversation is pinned", () => {
     const { result } = renderHook(() =>
       useSidebarState({
         assistantId: "asst-1",
@@ -472,7 +471,7 @@ describe("useSidebarState curated sections", () => {
 
     expect(
       result.current.sections.find((s) => s.type === "pinned"),
-    ).toBeDefined();
+    ).toBeUndefined();
   });
 
   test("lists a custom group even when no loaded conversation is in it", () => {

@@ -137,6 +137,32 @@ type ConversationListQuery = NonNullable<ConversationsGetData["query"]>;
 export type OriginChannel = ConversationListQuery["originChannel"];
 
 /**
+ * The same set as {@link OriginChannel}, at runtime.
+ *
+ * A sidebar channel section is keyed by whatever `origin_channel` its rows
+ * carried, which is a plain string, so sending it as a query parameter needs a
+ * membership check first. `_Exhaustive` fails to compile if the generated
+ * union gains a channel this list is missing, so a schema change surfaces here
+ * rather than as a section that silently stops filtering.
+ */
+export const ORIGIN_CHANNELS = [
+  "telegram",
+  "phone",
+  "vellum",
+  "whatsapp",
+  "slack",
+  "email",
+  "platform",
+  "a2a",
+  "discord",
+] as const satisfies readonly NonNullable<OriginChannel>[];
+
+type _Exhaustive =
+  NonNullable<OriginChannel> extends (typeof ORIGIN_CHANNELS)[number]
+    ? true
+    : never;
+
+/**
  * Group filter accepted by `GET /v1/conversations?groupId=`. Derived from the
  * generated query type rather than restated, so a schema change surfaces
  * here as a type error.

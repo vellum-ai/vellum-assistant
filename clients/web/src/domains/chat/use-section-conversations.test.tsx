@@ -112,6 +112,48 @@ describe("useSectionConversations", () => {
     expect(sentFilters.at(-1)).toEqual({ groupId: "system:pinned" });
   });
 
+  /* A channel section constrains BOTH axes. `origin_channel` is a separate
+     column from `group_id`, so without `system:all` a Slack conversation the
+     user filed into a custom group would match that group's card AND Slack's,
+     breaking "a conversation appears in exactly one section". */
+  test("a channel asks for its channel AND the ungrouped bucket", () => {
+    openGate();
+    renderHook(() =>
+      useSectionConversations("asst-1", {
+        type: "channel",
+        key: "channel:slack",
+        label: "Slack",
+        all: DERIVED,
+        channelId: "slack",
+      }),
+    );
+
+    expect(sentFilters.at(-1)).toEqual({
+      groupId: "system:all",
+      originChannel: "slack",
+    });
+  });
+
+  /* A channel id the generated query parameter does not accept must not be
+     sent; the section stays on its derived rows instead. */
+  test("never fetches for a channel the query parameter does not accept", () => {
+    openGate();
+    serverRows = FROM_SERVER;
+
+    const { result } = renderHook(() =>
+      useSectionConversations("asst-1", {
+        type: "channel",
+        key: "channel:carrier-pigeon",
+        label: "Carrier Pigeon",
+        all: DERIVED,
+        channelId: "carrier-pigeon",
+      }),
+    );
+
+    expect(result.current.map((c) => c.conversationId)).toEqual(["derived-1"]);
+    expect(lastEnabled).toBe(false);
+  });
+
   /* An empty section is dropped from the sidebar, so falling through to the
      empty query result while pending would make the section vanish on every
      cold load until a multi-page drain finished. */

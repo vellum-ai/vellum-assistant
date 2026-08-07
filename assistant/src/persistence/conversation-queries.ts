@@ -16,6 +16,7 @@ import { ensureGroupMigration } from "./conversation-group-migration.js";
 import { searchMessageIdsLexical } from "./conversation-search-lexical.js";
 import {
   type ConversationType,
+  NATIVE_ORIGIN_CHANNEL,
   PINNED_GROUP_ID,
   UNGROUPED_GROUP_ID,
 } from "./conversation-types.js";
@@ -299,6 +300,31 @@ function groupIdClause(groupId: string) {
 }
 
 /**
+ * SQL predicate for {@link ConversationListFilter.originChannel}.
+ *
+ * `'vellum'` additionally matches NULL. `origin_channel` is left NULL at
+ * insert precisely so an inbound message can still claim the conversation for
+ * its channel (`setConversationOriginChannelIfUnset` is guarded on `isNull`),
+ * and migration 288 settles whatever was never claimed to `'vellum'` at daemon
+ * startup. NULL is therefore "not yet attributed", and it is what the
+ * overwhelming majority of rows carry between one boot and the next.
+ *
+ * A strict equality would put those rows in no section at all: not native, not
+ * any channel. Reading NULL as native is the self-correcting error of the two,
+ * since the only rows it can misplace are ones whose inbound message has not
+ * arrived yet, and that message moves them the moment it does.
+ *
+ * Every other channel matches exactly. A row is claimed for a channel only by
+ * that channel, so there is no ambiguity to be tolerant about.
+ */
+function originChannelClause(originChannel: string) {
+  if (originChannel === NATIVE_ORIGIN_CHANNEL) {
+    return sql`(origin_channel IS NULL OR origin_channel = ${NATIVE_ORIGIN_CHANNEL})`;
+  }
+  return eq(conversations.originChannel, originChannel);
+}
+
+/**
  * Order a group's rows the way the user arranged them: by explicit
  * `display_order` first, then by recency. Only meaningful for a real group;
  * the ungrouped bucket is pure recency, since a row that was dragged inside a
@@ -329,7 +355,7 @@ function conversationListWhere(filter: ConversationListFilter) {
   return and(
     conversationTypeClause(conversationType),
     archiveStatusClause(archiveStatus) ?? undefined,
-    originChannel ? eq(conversations.originChannel, originChannel) : undefined,
+    originChannel ? originChannelClause(originChannel) : undefined,
     groupId ? groupIdClause(groupId) : undefined,
   );
 }

@@ -15,10 +15,11 @@
  * Discovery is what stays here, and it never needed the conversation list:
  * Pinned and Chats are fixed, and the custom groups come from the groups API.
  *
- * A consequence worth stating, because it looks like a bug otherwise: an
- * empty section is NOT filtered out here. This hook cannot tell "no members"
- * from "members that did not reach page one", so emptiness is the section's
- * own answer, decided where its query lives.
+ * Which sections exist is still decided here, from the loaded list. That is
+ * the last client-side derivation of conversation data in the sidebar, and it
+ * survives only because the foreground list still drains in full. See the
+ * comment on `defaultSections` for why it cannot simply move down with the
+ * contents, and for the point at which it has to go.
  *
  * Two views share all of that. In `all` (the default) the sections stop at
  * the curated layer - Pinned and the custom groups - and everything else
@@ -298,22 +299,32 @@ export function useSidebarState({
   // while channel sections come and go with traffic. In the flat view the
   // sections stop at the curated layer: everything else renders as one list
   // below them.
-  /* Pinned and the custom groups are listed unconditionally, and each hides
-     itself when its own query comes back empty (`SidebarSectionItem`).
+  /* Which sections exist is still derived from the loaded list, while what is
+     *in* them now comes from each section's own query.
 
-     Emptiness cannot be decided here any more. This hook only sees the rows
-     derived from the foreground page, so gating on those would hide a section
-     whose members all sort deeper than page one - which is the exact bug the
-     per-section queries exist to fix, reintroduced one layer up. The section
-     owns its rows, so it owns the answer to whether it has any. */
+     That split is deliberate and temporary. Listing a section unconditionally
+     and letting it hide itself when its query is empty reads like the cleaner
+     answer, but `sections` is counted elsewhere: an always-present Pinned puts
+     the curated/governed divider on screen with nothing curated, and makes a
+     lone section draggable with nothing to reorder against. Emptiness has to
+     be known before the list is built, and this hook cannot know it for N
+     groups without mounting N queries.
+
+     It is correct today because the foreground list still drains in full, so
+     these buckets hold every member. It stops being correct the moment that
+     list is windowed (LUM-2444) - which is the same change that deletes
+     `groupConversations`, so section existence needs a server-side answer at
+     exactly that point and not before. */
   const defaultSections = useMemo((): SidebarSection[] => {
     const list: SidebarSection[] = [];
-    list.push({
-      type: "pinned",
-      key: "pinned",
-      label: "Pinned",
-      all: grouped.pinned,
-    });
+    if (grouped.pinned.length > 0) {
+      list.push({
+        type: "pinned",
+        key: "pinned",
+        label: "Pinned",
+        all: grouped.pinned,
+      });
+    }
     for (const group of grouped.customGroups) {
       list.push({
         type: "group",

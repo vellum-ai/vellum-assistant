@@ -37,13 +37,38 @@ function setSectionRows(conversations: Conversation[]) {
   sectionSource = conversations;
 }
 
-function rowsMatching(filter: { groupId?: string }): Conversation[] {
+/**
+ * Both filter axes, because a channel section constrains both: `system:all`
+ * for "no group claimed it" AND its own `origin_channel`. Honoring only the
+ * group would hand every channel card the whole ungrouped bucket.
+ */
+function rowsMatching(filter: {
+  groupId?: string;
+  originChannel?: string;
+}): Conversation[] {
   if (filter.groupId === "system:pinned") {
     return sectionSource.filter((c) => c.isPinned);
   }
-  return sectionSource.filter(
-    (c) => !c.isPinned && c.groupId === filter.groupId,
-  );
+  return sectionSource.filter((c) => {
+    if (c.isPinned) {
+      return false;
+    }
+    const inGroup =
+      filter.groupId === "system:all"
+        ? c.groupId == null || c.groupId === "system:all"
+        : c.groupId === filter.groupId;
+    if (!inGroup) {
+      return false;
+    }
+    if (filter.originChannel === undefined) {
+      return true;
+    }
+    // "vellum" also claims rows that were never attributed, matching the
+    // daemon's tolerant predicate.
+    return filter.originChannel === "vellum"
+      ? c.originChannel == null || c.originChannel === "vellum"
+      : c.originChannel === filter.originChannel;
+  });
 }
 
 mock.module("@/hooks/conversation-queries", () => ({

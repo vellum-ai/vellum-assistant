@@ -26,7 +26,10 @@ import { useSectionConversationListQuery } from "@/hooks/conversation-queries";
 import { useSupportsGroupFilter } from "@/lib/backwards-compat/use-supports-group-filter";
 import type { Conversation } from "@/types/conversation-types";
 import {
+  ORIGIN_CHANNELS,
+  SYSTEM_ALL_GROUP_ID,
   SYSTEM_PINNED_GROUP_ID,
+  type OriginChannel,
   type SectionConversationFilter,
 } from "@/utils/conversation-list-fetchers";
 
@@ -40,11 +43,19 @@ const NO_FILTER: SectionConversationFilter = {};
 /**
  * What this section asks the server for, or `null` when it has no filter yet.
  *
- * Pinned and the custom groups are both answered by `groupId` alone, because
- * pinning is stored as group membership. A channel additionally needs
- * `originChannel`, which is why the filter is an object rather than an id -
- * but channels also need a way to know *which* sections exist before they can
- * be wired at all, so they stay on the derived rows for now.
+ * Pinned and the custom groups are answered by `groupId` alone, because
+ * pinning is stored as group membership.
+ *
+ * A channel needs BOTH axes, which is why the filter is an object rather than
+ * an id. `origin_channel` is a separate column from `group_id`, so a Slack
+ * conversation the user filed into a custom group matches Slack's filter as
+ * well as that group's; without `system:all` it would render in both cards and
+ * break "a conversation appears in exactly one section".
+ *
+ * Chats has no filter yet. In Grouped view it is what no channel claimed,
+ * which needs `originChannel: "vellum"` to also match rows that are not yet
+ * attributed - a server predicate that has to land and be released before a
+ * gate can name it.
  */
 function sectionFilter(
   section: SidebarSection,
@@ -54,10 +65,27 @@ function sectionFilter(
       return { groupId: SYSTEM_PINNED_GROUP_ID };
     case "group":
       return { groupId: section.group.id };
-    case "recents":
     case "channel":
+      return isOriginChannel(section.channelId)
+        ? { groupId: SYSTEM_ALL_GROUP_ID, originChannel: section.channelId }
+        : null;
+    case "recents":
       return null;
   }
+}
+
+/**
+ * Whether the daemon's `originChannel` parameter accepts this id.
+ *
+ * A section's `channelId` is whatever `origin_channel` the loaded rows carried,
+ * so it is a plain string; the query parameter is a closed set. An id outside
+ * it (a channel this client's schema predates) keeps that section on its
+ * derived rows rather than sending a value the server would reject.
+ */
+function isOriginChannel(
+  channelId: string,
+): channelId is NonNullable<OriginChannel> {
+  return (ORIGIN_CHANNELS as readonly string[]).includes(channelId);
 }
 
 /**
