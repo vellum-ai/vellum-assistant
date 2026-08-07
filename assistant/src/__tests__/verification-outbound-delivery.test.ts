@@ -2,25 +2,27 @@
  * Every outbound verification start and resend delivers its message, once,
  * from inside the shared action.
  *
- * This used to be true of Telegram and voice only. Slack, Discord and email
- * instead returned a `_pending*` payload for the caller to dispatch, because a
- * CLI subprocess was sandboxed and could not reach the gateway itself. That
- * stopped being true when the CLI moved to a thin IPC wrapper and started
- * going through the same route handler that dispatched and stripped the field,
- * so the indirection had exactly one consumer handing a payload back to
- * itself.
+ * The failure this guards is silent. A channel that mints a session and never
+ * sends looks identical to a healthy one from the outside: the call succeeds,
+ * a session exists, and the user simply never receives a code. Nothing errors
+ * and nothing logs, so the only way to catch it is to assert the delivery
+ * itself rather than the shape of the returned object.
  *
- * The risk in collapsing it is silent: a channel that mints a session and
- * never sends looks identical to a healthy one from the outside, and the user
- * simply never receives a code. So this asserts delivery per channel rather
- * than asserting the shape of the returned object.
+ * A result must also carry no message for a caller to send on its behalf. A
+ * channel whose message leaves in the return value instead of over its
+ * transport is one whose delivery depends on every caller remembering to
+ * dispatch it.
  */
 
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 import "./test-preload.js";
 
+// Spread the real module: replacing it wholesale drops every other export,
+// and the modules under test pull more than these two from it.
+const realEnv = await import("../config/env.js");
 mock.module("../config/env.js", () => ({
+  ...realEnv,
   isHttpAuthDisabled: () => true,
   getGatewayInternalBaseUrl: () => "http://127.0.0.1:7830",
 }));
@@ -111,10 +113,9 @@ describe("startOutbound delivers from inside the action", () => {
   }
 
   test("no channel returns a payload for the caller to send instead", async () => {
-    // The shape this replaced: a result carrying the message so that whoever
-    // called it could deliver. A reintroduced `_pending*` field means some
-    // channel is minting a session it never sends, which no per-channel
-    // delivery assertion above would catch on its own.
+    // A `_pending*` field means some channel is minting a session whose
+    // message it never sends, which no per-channel delivery assertion above
+    // would catch on its own: that channel simply would not appear.
     for (const { channel, destination } of DESTINATIONS) {
       const result = await startOutbound({
         channel: channel as never,

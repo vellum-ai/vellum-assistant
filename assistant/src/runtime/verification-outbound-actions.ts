@@ -633,14 +633,14 @@ export function deliverVerificationEmail(
  * Slack, Discord and email run the identical sequence: refuse without a
  * destination, refuse when a guardian is already bound, check the destination
  * rate window, mint a session, compose from a template, stamp the delivery,
- * send. Only these fields differed, so only these fields are written per
- * channel; the sequence itself lives once in `startOutboundTextChannel`.
+ * send. The spec carries only the per-channel fields; the sequence itself
+ * lives once in `startOutboundTextChannel`.
  *
  * Telegram and voice are deliberately absent. Telegram forks on whether the
  * destination is a chat id or a handle, and a handle mints a bootstrap session
- * with no code at all; voice normalizes a phone number and places a call
+ * carrying no code at all; voice normalizes a phone number and places a call
  * rather than composing a message. Folding either in would mean a spec field
- * that only one channel ever sets, which is the shape this replaces.
+ * that only one channel ever sets.
  */
 interface TextChannelVerificationSpec {
   /** Rejection copy when the caller supplied no destination. */
@@ -652,11 +652,11 @@ interface TextChannelVerificationSpec {
   /**
    * Identity the consume path will require.
    *
-   * `expectedChatId` is preserved where a channel already set it, but it does
-   * no work: `checkIdentityMatch` requires the `expectedExternalUserId` match
-   * whenever both are set, and the resend path resolves its destination from
-   * `destinationAddress` first. See LUM-3110 for the wider question of session
-   * fields that record something nothing reads.
+   * Where a channel sets `expectedChatId`, it does no work: `checkIdentityMatch`
+   * requires the `expectedExternalUserId` match whenever both are set, and the
+   * resend path resolves its destination from `destinationAddress` first. See
+   * LUM-3110 for the wider question of session fields that record something
+   * nothing reads.
    */
   sessionIdentity: (destination: string) => {
     expectedExternalUserId: string;
