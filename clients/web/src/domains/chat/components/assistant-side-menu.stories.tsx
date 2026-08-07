@@ -113,6 +113,19 @@ const GROUPS: ConversationGroup[] = [
     sortPosition: 1,
     isSystemGroup: false,
   },
+  /* Deliberately given no conversations. An empty section renders in both
+     states - a muted tile on the rail, a headed card when expanded - and it
+     belongs in the shared set rather than in one story, so the collapsed and
+     expanded stories can be read against each other. Seeded in only one of
+     them, any difference between the two might be the data rather than the
+     layout. */
+  {
+    id: "grp-archive",
+    name: "Archive",
+    icon: "briefcase",
+    sortPosition: 2,
+    isSystemGroup: false,
+  },
 ];
 
 /**
@@ -234,16 +247,6 @@ export const CollapsedRail: Story = {
     ...SHARED_ARGS,
     assistantId: "asst-collapsed",
     collapsed: true,
-    conversationGroups: [
-      ...GROUPS,
-      {
-        id: "grp-archive",
-        name: "Archive",
-        icon: "briefcase",
-        sortPosition: 2,
-        isSystemGroup: false,
-      },
-    ],
   },
 };
 
