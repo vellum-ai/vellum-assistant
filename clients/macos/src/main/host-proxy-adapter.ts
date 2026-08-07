@@ -20,7 +20,10 @@ import { hostCuExecutor } from "./executors/host-cu-executor";
 import { hostFileExecutor } from "./executors/host-file-executor";
 import { hostTransferExecutor } from "./executors/host-transfer-executor";
 import { hostUiSnapshotExecutor } from "./executors/host-ui-snapshot-executor";
-import { getWatchedLockfile, onLockfileChange } from "./lockfile-watcher";
+import {
+  getWatchedLockfile,
+  onLockfileChange,
+} from "./lockfile-watcher.client";
 import log from "./logger";
 import { installPresenceMonitor } from "./presence";
 import { getSessionToken } from "./session-token-store";

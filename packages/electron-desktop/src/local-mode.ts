@@ -1,6 +1,3 @@
-import { app } from "electron";
-import { existsSync } from "node:fs";
-import path from "node:path";
 import { z } from "zod";
 
 import {
@@ -13,9 +10,6 @@ import {
   getLockfileData,
   getLocalAssistantStatus,
   replacePlatformAssistants,
-  resolveConfigDir,
-  resolveEnvironmentName,
-  resolveLockfilePaths,
   runHatch,
   runRetire,
   runSleep,
@@ -31,15 +25,8 @@ import {
   type WakeOptions,
 } from "@vellumai/local-mode";
 import type { LocalConnectImportResult } from "@vellumai/ipc-contract";
-import { handle } from "./ipc";
-
-import {
-  ensureCliInstalled,
-  getBundledBunPath,
-  getCliBinPath,
-} from "./cli-installer";
-import { refreshLockfileNow } from "./lockfile-watcher";
-import { getSessionToken } from "./session-token-store";
+import { capabilityToken } from "./capability-registry";
+import type { IpcHandle } from "./ipc";
 
 /**
  * Local-mode host bridge: provisions and retires local assistants and reads
@@ -81,32 +68,67 @@ interface UpgradeResult {
   error?: string;
 }
 
-/**
- * Resolve how to invoke the CLI. Precedence:
- *  1. `VELLUM_CLI_PATH` env var override
- *  2. Dev source tree (when `!app.isPackaged`)
- *  3. `ensureCliInstalled()` — early-returns when already installed and
- *     refreshes the PATH-wrapper locator either way
- *
- * Throws when no CLI path can be resolved (e.g. install fails).
- */
-export async function resolveCliInvocation(): Promise<CliInvocation> {
-  const envPath = process.env.VELLUM_CLI_PATH;
-  if (envPath) {
-    return { command: "bun", baseArgs: ["run", envPath] };
-  }
-
-  if (!app.isPackaged) {
-    const repoRoot = path.resolve(app.getAppPath(), "..", "..");
-    const cliEntry = path.join(repoRoot, "cli", "src", "index.ts");
-    if (existsSync(cliEntry)) {
-      return { command: "bun", baseArgs: ["run", cliEntry] };
-    }
-  }
-
-  await ensureCliInstalled();
-  return { command: getBundledBunPath(), baseArgs: ["run", getCliBinPath()] };
+export interface LocalModeCliProvider {
+  resolveInvocation: () => Promise<CliInvocation>;
 }
+
+export interface LocalModeSessionProvider {
+  getToken: () => string | null;
+}
+
+export interface LocalModePlatformPaths {
+  configDir: string;
+  environment: string;
+  lockfilePaths: string[];
+}
+
+export const LOCAL_MODE_CLI = capabilityToken<LocalModeCliProvider>(
+  "desktop.local-mode-cli",
+);
+export const LOCAL_MODE_SESSION = capabilityToken<LocalModeSessionProvider>(
+  "desktop.local-mode-session",
+);
+export const LOCAL_MODE_PATHS = capabilityToken<LocalModePlatformPaths>(
+  "desktop.local-mode-paths",
+);
+
+export interface LocalModeRuntime {
+  cli: LocalModeCliProvider;
+  handle: IpcHandle;
+  paths: LocalModePlatformPaths;
+  refreshLockfile: () => void;
+  session: LocalModeSessionProvider;
+  unavailableError?: string;
+}
+
+let runtime: LocalModeRuntime | null = null;
+
+export const configureLocalMode = (next: LocalModeRuntime): void => {
+  runtime = next;
+};
+
+export const configureUnavailableLocalMode = (
+  handle: IpcHandle,
+  unavailableError: string,
+): void => {
+  configureLocalMode({
+    cli: {
+      resolveInvocation: async () => ({ command: "unused", baseArgs: [] }),
+    },
+    handle,
+    paths: { configDir: "", environment: "", lockfilePaths: [] },
+    refreshLockfile: () => undefined,
+    session: { getToken: () => null },
+    unavailableError,
+  });
+};
+
+const requireRuntime = (): LocalModeRuntime => {
+  if (!runtime) {
+    throw new Error("Local-mode runtime is unavailable");
+  }
+  return runtime;
+};
 
 /**
  * Provision a local assistant for the requested species. Never rejects —
@@ -116,7 +138,7 @@ export async function resolveCliInvocation(): Promise<CliInvocation> {
 async function hatch(species: string, remote?: string): Promise<HatchResult> {
   let invocation: CliInvocation;
   try {
-    invocation = await resolveCliInvocation();
+    invocation = await requireRuntime().cli.resolveInvocation();
   } catch (err) {
     return { ok: false, error: (err as Error).message };
   }
@@ -135,12 +157,12 @@ interface SleepResult {
 async function retire(assistantId: string): Promise<RetireResult> {
   let invocation: CliInvocation;
   try {
-    invocation = await resolveCliInvocation();
+    invocation = await requireRuntime().cli.resolveInvocation();
   } catch (err) {
     return { ok: false, error: (err as Error).message };
   }
   const result = await runRetire(invocation, assistantId, {
-    platformToken: getSessionToken() ?? undefined,
+    platformToken: requireRuntime().session.getToken() ?? undefined,
   });
   return result.ok ? { ok: true } : { ok: false, error: result.error };
 }
@@ -149,7 +171,7 @@ async function retire(assistantId: string): Promise<RetireResult> {
 async function sleep(assistantId: string): Promise<SleepResult> {
   let invocation: CliInvocation;
   try {
-    invocation = await resolveCliInvocation();
+    invocation = await requireRuntime().cli.resolveInvocation();
   } catch (err) {
     return { ok: false, error: (err as Error).message };
   }
@@ -168,7 +190,7 @@ async function wake(
 ): Promise<WakeResult> {
   let invocation: CliInvocation;
   try {
-    invocation = await resolveCliInvocation();
+    invocation = await requireRuntime().cli.resolveInvocation();
   } catch (err) {
     return { ok: false, error: (err as Error).message };
   }
@@ -198,7 +220,7 @@ async function upgrade(
 
   let invocation: CliInvocation;
   try {
-    invocation = await resolveCliInvocation();
+    invocation = await requireRuntime().cli.resolveInvocation();
   } catch (err) {
     upgradingLocalAssistantIds.delete(assistantId);
     return { ok: false, error: (err as Error).message };
@@ -206,7 +228,9 @@ async function upgrade(
 
   try {
     const result = await runUpgrade(invocation, assistantId, options);
-    if (!result.ok) return { ok: false, error: result.error };
+    if (!result.ok) {
+      return { ok: false, error: result.error };
+    }
     return result.version
       ? { ok: true, version: result.version }
       : { ok: true };
@@ -222,7 +246,7 @@ async function getHostGuardianAccessToken(
 ): Promise<TokenResult> {
   let invocation: CliInvocation;
   try {
-    invocation = await resolveCliInvocation();
+    invocation = await requireRuntime().cli.resolveInvocation();
   } catch (err) {
     return { ok: false, status: 500, error: (err as Error).message };
   }
@@ -231,7 +255,7 @@ async function getHostGuardianAccessToken(
     configDir,
     invocation,
     true,
-    { VELLUM_ENVIRONMENT: resolveEnvironmentName(process.env) },
+    { VELLUM_ENVIRONMENT: requireRuntime().paths.environment },
     options,
   );
 }
@@ -243,7 +267,7 @@ export async function getPairedGuardianAccessToken(
 ): Promise<TokenResult> {
   let invocation: CliInvocation;
   try {
-    invocation = await resolveCliInvocation();
+    invocation = await requireRuntime().cli.resolveInvocation();
   } catch (err) {
     return {
       ok: false,
@@ -254,10 +278,10 @@ export async function getPairedGuardianAccessToken(
   return getStoredPairedGuardianAccessToken(
     assistantId,
     runtimeUrl,
-    resolveConfigDir(process.env),
+    requireRuntime().paths.configDir,
     invocation,
     true,
-    { VELLUM_ENVIRONMENT: resolveEnvironmentName(process.env) },
+    { VELLUM_ENVIRONMENT: requireRuntime().paths.environment },
   );
 }
 
@@ -309,15 +333,35 @@ let installed = false;
  * Idempotent so it's safe under main-bundle hot reload in dev.
  */
 export const installLocalMode = (): void => {
-  if (installed) return;
+  if (installed) {
+    return;
+  }
   installed = true;
 
-  const lockfilePaths = resolveLockfilePaths(process.env);
-  const configDir = resolveConfigDir(process.env);
+  const configured = requireRuntime();
+  const { handle } = configured;
+  const unavailableError = configured.unavailableError;
+  const ipc: IpcHandle = (channel, schema, fn) => {
+    handle(channel, schema, (args, event) => {
+      if (!unavailableError) {
+        return fn(args, event);
+      }
+      if (channel === "vellum:localMode:readLockfile") {
+        throw new Error(unavailableError);
+      }
+      const hasStatus = channel.endsWith("Token") || channel.endsWith("status");
+      return hasStatus
+        ? { ok: false, status: 501, error: unavailableError }
+        : { ok: false, error: unavailableError };
+    });
+  };
+
+  const { configDir, lockfilePaths } = configured.paths;
+  const { refreshLockfile } = configured;
 
   // `species` is optional on the wire so an empty/omitted request
   // falls back to the default rather than being rejected.
-  handle(
+  ipc(
     "vellum:localMode:hatch",
     z.tuple([z.string().optional(), z.string().optional()]),
     ([species, remote]) =>
@@ -327,15 +371,17 @@ export const installLocalMode = (): void => {
       ),
   );
 
-  handle("vellum:localMode:readLockfile", z.tuple([]), () => {
+  ipc("vellum:localMode:readLockfile", z.tuple([]), () => {
     const result = getLockfileData(lockfilePaths);
-    if (result.ok) return result.data;
+    if (result.ok) {
+      return result.data;
+    }
     throw new Error(
       result.error ?? `Failed to read lockfile (status ${result.status})`,
     );
   });
 
-  handle(
+  ipc(
     "vellum:localMode:saveLockfileAssistant",
     z.tuple([assistantRecord, z.string().optional()]),
     ([assistant, activeAssistant]): LockfileWriteResult => {
@@ -350,7 +396,7 @@ export const installLocalMode = (): void => {
     },
   );
 
-  handle(
+  ipc(
     "vellum:localMode:replacePlatformAssistants",
     z.tuple([z.array(assistantRecord), z.string().optional()]),
     ([list, organizationId]): LockfileWriteResult => {
@@ -365,12 +411,14 @@ export const installLocalMode = (): void => {
     },
   );
 
-  handle("vellum:localMode:retire", assistantIdArgs, ([assistantId]) => {
-    if (!assistantId) return { ok: false, error: "Missing assistantId" };
+  ipc("vellum:localMode:retire", assistantIdArgs, ([assistantId]) => {
+    if (!assistantId) {
+      return { ok: false, error: "Missing assistantId" };
+    }
     return retire(assistantId);
   });
 
-  handle(
+  ipc(
     "vellum:localMode:unpair",
     assistantIdArgs,
     ([assistantId]): LockfileWriteResult => {
@@ -384,12 +432,12 @@ export const installLocalMode = (): void => {
       // The paired-gateway forward resolves its allowlist from the watcher's
       // snapshot; refresh it now so the unpaired entry is rejected in the
       // same tick instead of after the next poll.
-      refreshLockfileNow();
+      refreshLockfile();
       return { ok: true, lockfile: result.lockfile };
     },
   );
 
-  handle(
+  ipc(
     "vellum:localMode:connectImport",
     connectImportArgs,
     ([bundle, name]): LocalConnectImportResult => {
@@ -397,7 +445,7 @@ export const installLocalMode = (): void => {
       if (!result.ok) {
         return { ok: false, error: result.error };
       }
-      refreshLockfileNow();
+      refreshLockfile();
       return {
         ok: true,
         assistantId: result.assistantId,
@@ -406,22 +454,28 @@ export const installLocalMode = (): void => {
     },
   );
 
-  handle("vellum:localMode:sleep", assistantIdArgs, ([assistantId]) => {
-    if (!assistantId) return { ok: false, error: "Missing assistantId" };
+  ipc("vellum:localMode:sleep", assistantIdArgs, ([assistantId]) => {
+    if (!assistantId) {
+      return { ok: false, error: "Missing assistantId" };
+    }
     return sleep(assistantId);
   });
 
-  handle("vellum:localMode:wake", wakeArgs, ([assistantId, options]) => {
-    if (!assistantId) return { ok: false, error: "Missing assistantId" };
+  ipc("vellum:localMode:wake", wakeArgs, ([assistantId, options]) => {
+    if (!assistantId) {
+      return { ok: false, error: "Missing assistantId" };
+    }
     return wake(assistantId, options);
   });
 
-  handle("vellum:localMode:upgrade", upgradeArgs, ([assistantId, options]) => {
-    if (!assistantId) return { ok: false, error: "Missing assistantId" };
+  ipc("vellum:localMode:upgrade", upgradeArgs, ([assistantId, options]) => {
+    if (!assistantId) {
+      return { ok: false, error: "Missing assistantId" };
+    }
     return upgrade(lockfilePaths, assistantId, options);
   });
 
-  handle("vellum:localMode:status", assistantIdArgs, ([assistantId]) => {
+  ipc("vellum:localMode:status", assistantIdArgs, ([assistantId]) => {
     if (!assistantId) {
       return { ok: false, status: 400, error: "Missing assistantId" };
     }
@@ -431,7 +485,7 @@ export const installLocalMode = (): void => {
     return getLocalAssistantStatus(lockfilePaths, assistantId);
   });
 
-  handle(
+  ipc(
     "vellum:localMode:guardianToken",
     assistantIdArgs,
     async ([assistantId]): Promise<TokenResult> => {

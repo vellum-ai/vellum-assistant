@@ -22,6 +22,9 @@
     "./image-context-menu": "./src/image-context-menu.ts",
     "./ipc": "./src/ipc.ts",
     "./login-item": "./src/login-item.ts",
+    "./local-mode": "./src/local-mode.ts",
+    "./local-mode-bridge": "./src/local-mode-bridge.ts",
+    "./lockfile-watcher": "./src/lockfile-watcher.ts",
     "./preload": "./src/preload.ts",
     "./text-context-menu": "./src/text-context-menu.ts",
     "./windows": "./src/windows.ts"

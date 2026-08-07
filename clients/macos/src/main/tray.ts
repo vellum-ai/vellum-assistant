@@ -21,7 +21,7 @@ import {
   setCompanionSurfaceVisible,
 } from "./companion-window";
 import { getName, onNameChange } from "./identity";
-import { getWatchedLockfile } from "./lockfile-watcher";
+import { getWatchedLockfile } from "./lockfile-watcher.client";
 import { dispatchToMain } from "./main-window";
 import { menuIcon } from "./menu-icon";
 import { readSetting } from "./settings";

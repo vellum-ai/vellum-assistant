@@ -1,15 +1,19 @@
-import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  mock,
+  spyOn,
+  test,
+} from "bun:test";
 import fs from "node:fs";
 
 import type { Lockfile } from "@vellumai/local-mode/contract";
 
-// Stub @vellumai/local-mode so we control the resolved paths.
 const CANONICAL_PATH = "/tmp/test-lockfile.json";
 const LEGACY_PATH = "/tmp/test-lockfile-legacy.json";
 let mockPaths = [CANONICAL_PATH];
-mock.module("@vellumai/local-mode", () => ({
-  resolveLockfilePaths: () => mockPaths,
-}));
 
 // Passthrough the real parseLockfile — stubbing the @vellumai/local-mode
 // entry above doesn't touch the /contract subpath it lives in.
@@ -19,6 +23,7 @@ mock.module("@vellumai/local-mode/contract", () => ({
 }));
 
 const {
+  configureLockfileWatcher,
   installLockfileWatcher,
   getWatchedLockfile,
   onLockfileChange,
@@ -50,6 +55,7 @@ const removeLockfile = (): void => {
 beforeEach(() => {
   __resetForTesting();
   mockPaths = [CANONICAL_PATH];
+  configureLockfileWatcher(() => mockPaths);
   removeLockfile();
 });
 
@@ -98,6 +104,22 @@ describe("lockfile-watcher", () => {
       expect(cached.assistants).toHaveLength(0);
       expect(cached.activeAssistant).toBeNull();
 
+      teardown();
+    });
+
+    test("retries an initial read after temporary access denial", async () => {
+      writeLockfile(SAMPLE_LOCKFILE);
+      const readSpy = spyOn(fs, "readFileSync").mockImplementationOnce(() => {
+        throw Object.assign(new Error("access denied"), { code: "EACCES" });
+      });
+
+      const teardown = installLockfileWatcher();
+      expect(getWatchedLockfile().assistants).toHaveLength(0);
+
+      await new Promise((resolve) => setTimeout(resolve, 750));
+
+      expect(getWatchedLockfile()).toEqual(SAMPLE_LOCKFILE);
+      readSpy.mockRestore();
       teardown();
     });
 
@@ -251,7 +273,9 @@ describe("lockfile-watcher", () => {
       // WHEN a write creates the canonical file (simulating a CLI write)
       await new Promise((resolve) => setTimeout(resolve, 50));
       const updated: Lockfile = {
-        assistants: [{ assistantId: "ast-new", name: "NewAssistant", cloud: "local" }],
+        assistants: [
+          { assistantId: "ast-new", name: "NewAssistant", cloud: "local" },
+        ],
         activeAssistant: "ast-new",
       };
       writeLockfile(updated, CANONICAL_PATH);
@@ -313,6 +337,28 @@ describe("lockfile-watcher", () => {
       expect(getWatchedLockfile().assistants).toHaveLength(2);
       expect(listener).not.toHaveBeenCalled();
 
+      teardown();
+    });
+
+    test("keeps the last good snapshot during temporary access denial", async () => {
+      writeLockfile(SAMPLE_LOCKFILE);
+      const teardown = installLockfileWatcher();
+      const listener = mock((_lockfile: Lockfile) => undefined);
+      onLockfileChange(listener);
+
+      const readSpy = spyOn(fs, "readFileSync").mockImplementationOnce(() => {
+        throw Object.assign(new Error("access denied"), { code: "EACCES" });
+      });
+      const now = new Date();
+      fs.utimesSync(CANONICAL_PATH, now, new Date(now.getTime() + 1000));
+      await new Promise((resolve) => setTimeout(resolve, 750));
+
+      expect(getWatchedLockfile()).toEqual(SAMPLE_LOCKFILE);
+      expect(listener).not.toHaveBeenCalled();
+      await new Promise((resolve) => setTimeout(resolve, 500));
+      expect(listener).toHaveBeenCalledTimes(1);
+
+      readSpy.mockRestore();
       teardown();
     });
 

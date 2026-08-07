@@ -67,12 +67,12 @@ import {
   getPairedGuardianAccessToken,
   installLocalMode,
   resolveCliInvocation,
-} from "./local-mode";
+} from "./local-mode.client";
 import { installLoginItem, installLoginItemIpc } from "./login-item.client";
 import {
   getWatchedLockfileSnapshot,
   installLockfileWatcher,
-} from "./lockfile-watcher";
+} from "./lockfile-watcher.client";
 import { installHostProxyBridge } from "./host-proxy-adapter";
 import log from "./logger";
 import {
