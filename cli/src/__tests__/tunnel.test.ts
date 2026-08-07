@@ -964,7 +964,7 @@ describe("ngrok --domain spawn args", () => {
     expect(cmd).toBe("ngrok");
     expect(args).toEqual([
       "http",
-      "7831",
+      "127.0.0.1:7831",
       "--log=stdout",
       "--domain=foo.ngrok.app",
     ]);
@@ -1209,7 +1209,7 @@ describe("ngrok --domain spawn args", () => {
     expect(cmd).toBe("ngrok");
     expect(args).toEqual([
       "http",
-      "7830",
+      "127.0.0.1:7830",
       "--log=stdout",
       "--domain=foo.ngrok.app",
     ]);
@@ -1248,7 +1248,7 @@ describe("ngrok --domain spawn args", () => {
     const [, args] = spawnMock.mock.calls[0] as unknown as [string, string[]];
     expect(args).toEqual([
       "http",
-      "7831",
+      "127.0.0.1:7831",
       "--log=stdout",
       "--domain=foo.ngrok.app",
     ]);

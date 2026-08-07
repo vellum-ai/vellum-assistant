@@ -1396,7 +1396,7 @@ describe("memoryRetrospectiveJob", () => {
     await memoryRetrospectiveJob(makeJob(), stubConfig);
 
     const instructionText = persistedInstructionText();
-    expect(instructionText).toContain("<​/already_remembered>");
+    expect(instructionText).toContain("<\u200B/already_remembered>");
   });
 
   test("honors memory.retrospective.promptPath override when set", async () => {

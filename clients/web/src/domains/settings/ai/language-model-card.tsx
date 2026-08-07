@@ -136,7 +136,6 @@ export function LanguageModelCard({
             action={
               <Button
                 variant="outlined"
-                size="compact"
                 onClick={() => onOpenPanel({ kind: "overrides" })}
               >
                 Manage

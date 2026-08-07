@@ -31,6 +31,7 @@
     "test:ci": "bun scripts/run-tests.ts"
   },
   "dependencies": {
+    "@capacitor-community/camera-preview": "8.0.1",
     "@capacitor/android": "8.3.4",
     "@capacitor/app": "8.1.0",
     "@capacitor/browser": "8.0.3",

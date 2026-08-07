@@ -6,6 +6,7 @@ import { z } from "zod";
  */
 export const VALID_STT_PROVIDERS = [
   "deepgram",
+  "deepgram-flux",
   "google-gemini",
   "openai-whisper",
   "xai",

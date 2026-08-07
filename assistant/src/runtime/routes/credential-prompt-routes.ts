@@ -55,14 +55,11 @@ const CredentialPromptParams = z.object({
  *
  * The prompt blocks until the user answers, so by the time a caller reads the
  * result the secure input is already gone from the UI. A bare `ok: true` reads
- * as "the prompt opened successfully", which leads a model to follow up with
- * "the prompt is open, paste your value there" — pointing the user at a surface
- * that has already closed. The user, having just submitted, re-answers a prompt
- * that never reappears, and the flow loops. State the close explicitly so the
- * only available reading is the correct one.
+ * as "the prompt opened successfully", which invites a follow-up telling the
+ * user to paste into a surface that has already closed. Stating the close
+ * leaves only the correct reading.
  */
-const PROMPT_CLOSED_NOTICE =
-  "The secure prompt has closed — do not ask the user to enter this value again.";
+const PROMPT_CLOSED_NOTICE = "The secure prompt has closed.";
 
 export type CredentialPromptResult = {
   ok: boolean;

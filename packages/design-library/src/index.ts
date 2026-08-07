@@ -156,15 +156,6 @@ export {
   type SelectMenuAlign,
   type SelectSize,
 } from "./components/select";
-/** @deprecated Use `Select`. */
-export {
-  Dropdown,
-  resolveDropdownMenuPosition,
-  type DropdownOption,
-  type DropdownProps,
-  type DropdownMenuPosition,
-  type DropdownMenuAlign,
-} from "./components/dropdown";
 export {
   PanelItem,
   ROW_BASE_CLASSES as panelItemRowBaseClasses,
@@ -200,6 +191,7 @@ export {
   SideMenuSection,
   SideMenuSeparator,
   SideMenuSubList,
+  useSideMenuCollapsed,
   SIDE_MENU_DEFAULT_WIDTH,
   SIDE_MENU_COLLAPSED_WIDTH,
   SIDE_MENU_MIN_WIDTH,

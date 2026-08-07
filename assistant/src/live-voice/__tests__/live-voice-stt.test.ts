@@ -221,6 +221,20 @@ describe("LiveVoiceSession STT", () => {
     ]);
   });
 
+  test("ignores model-integrated turn-detection events", async () => {
+    const { frames, session, transcriber } = createSessionWithTranscriber();
+
+    await session.start();
+    transcriber.emit({ type: "turn-start" });
+    transcriber.emit({ type: "eager-turn-end", text: "eager" });
+    transcriber.emit({ type: "turn-resumed" });
+    transcriber.emit({ type: "turn-end", text: "committed", confidence: 0.9 });
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    expect(frames.map((frame) => frame.type)).toEqual(["ready"]);
+    expect(session.finalTranscriptText).toBe("");
+  });
+
   test("marks transient transcriber errors recoverable while the session continues", async () => {
     const { frames, session, transcriber } = createSessionWithTranscriber();
 

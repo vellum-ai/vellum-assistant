@@ -466,6 +466,29 @@ export class AssistantEventHub {
   }
 
   /**
+   * Whether the connection identified by `connectionId` is still an active
+   * client subscription that carries no `actorPrincipalId`.
+   *
+   * Drives the retrying SSE self-heal (`sse-actor-principal-heal.ts`): the loop
+   * re-checks before each attempt so it stops as soon as the connection closes,
+   * is replaced by a reconnect, or gets a principal from any path. Returns
+   * `false` for an unknown, inactive, or process-type connection.
+   */
+  needsActorPrincipalHeal(connectionId: string): boolean {
+    for (const entry of this.subscribers) {
+      if (entry.connectionId !== connectionId) {
+        continue;
+      }
+      return (
+        entry.active &&
+        entry.type === "client" &&
+        entry.actorPrincipalId == null
+      );
+    }
+    return false;
+  }
+
+  /**
    * Fill a missing `actorPrincipalId` on a live client subscription.
    *
    * Used by the SSE dev-bypass self-heal: when the guardian-delivery cache is

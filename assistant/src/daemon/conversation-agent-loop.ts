@@ -366,6 +366,13 @@ export async function runAgentLoopImpl(
      * scheduled execute turn attributes its LLM spend to that firing.
      */
     cronRunId?: string | null;
+    /**
+     * Trust this turn runs under. Queue drains pass the trust captured from
+     * the sender at enqueue; without it the initialization below would reset
+     * the turn to the conversation slot, which holds whichever actor sent
+     * most recently rather than the one this turn belongs to.
+     */
+    turnTrustContext?: TrustContext;
   },
 ): Promise<void> {
   if (!ctx.abortController) {
@@ -376,9 +383,21 @@ export async function runAgentLoopImpl(
   // voice-session-bridge, regenerate, etc.) that invoke runAgentLoop directly
   // without going through processMessage/drainQueue. This ensures the system
   // prompt callback always reads a valid snapshot rather than undefined.
-  // processMessage/drainQueue set these fields before calling runAgentLoop;
-  // those existing assignments remain correct and are merely redundant here.
-  ctx.currentTurnTrustContext = ctx.trustContext;
+  //
+  // The invariant: a turn runs under the trust captured when that turn
+  // started, never under whatever the slot holds when the loop happens to
+  // open. Awaits sit between capture and this line, and the slot is writable
+  // throughout by paths that do not own the turn (channel ingress for another
+  // actor, live-voice hydration, pointer elevation, the voice bridge).
+  //
+  // Callers that own a turn are expected to capture at turn start and pass
+  // `turnTrustContext`. This has not been swept across all 13 call sites, so
+  // the fallback below is load-bearing for two different populations: callers
+  // that legitimately have no turn to capture (subagent manager, voice
+  // bridge, regenerate), and callers that should pass it and do not yet.
+  // Treat a caller reaching the fallback as unverified, not as correct.
+  // LUM-3148 removes the ambiguity by making trust ride the turn.
+  ctx.currentTurnTrustContext = options?.turnTrustContext ?? ctx.trustContext;
   ctx.currentTurnChannelCapabilities = ctx.channelCapabilities;
 
   // Re-resolve the system prompt under the snapshots just set and push it into

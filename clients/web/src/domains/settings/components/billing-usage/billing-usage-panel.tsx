@@ -12,7 +12,6 @@ import { Typography } from "@vellumai/design-library/components/typography";
 
 import {
   DEFAULT_PRESET_DAYS,
-  type DateRange,
   DateRangeSelect,
   computeRangeInTimezone,
 } from "@/components/charts/date-range-select";
@@ -75,10 +74,6 @@ export function BillingUsagePanel() {
     [presetDays, tz],
   );
 
-  const handleRangeChange = (_range: DateRange, nextPresetDays: number) => {
-    setPresetDays(nextPresetDays);
-  };
-
   const [drilldown, setDrilldown] = useState<{
     usageSource: BillingUsageSourceFilter;
     llmDimension?: LlmUsageDimension;
@@ -130,17 +125,8 @@ export function BillingUsagePanel() {
               Overview of your spending habits.
             </Typography>
           </div>
-          {/*
-           * Compact 32px controls per Figma. The shared `Dropdown` and
-           * `SegmentControl` primitives don't expose a size prop, so we
-           * override the inner button heights with arbitrary descendant
-           * variants here rather than mutating the shared primitives.
-           * - Dropdown's trigger is `<button role="combobox">` (h-9 → h-8).
-           * - SegmentControl's inner items are `<button role="radio">`
-           *   wrapped by a 2px-padded container, so h-7 inner = 32px outer.
-           */}
-          <div className="flex flex-wrap items-center justify-end gap-2 [&_[role=combobox]]:h-8 [&_[role=radio]]:h-7">
-            <DateRangeSelect value={dateRange} onChange={handleRangeChange} />
+          <div className="flex flex-wrap items-center justify-end gap-2">
+            <DateRangeSelect value={presetDays} onChange={setPresetDays} />
             <div className="w-44">
               <SegmentControl
                 items={METRIC_ITEMS}

@@ -1418,6 +1418,33 @@ the `Vellum-Organization-Id` header and uses bearer auth instead.
   files. Files pass individually but may fail in a full `bun test` run.
   CI uses `bun run test:ci` (each file in its own subprocess) to
   guarantee isolation.
+- **Type a `mock.module()` factory against the module it replaces.**
+  An untyped factory is an object literal nobody checks, so when the real
+  module grows a field the stub silently keeps returning the old shape.
+  The consumer reads `undefined`, and `undefined` is falsy, so it flips
+  branches rather than throwing and the suite stays green while testing
+  behavior the app no longer has.
+
+  ```ts
+  import type * as ConversationQueries from "@/hooks/conversation-queries";
+
+  mock.module(
+    "@/hooks/conversation-queries",
+    (): Partial<typeof ConversationQueries> => ({
+      useSectionConversationListQuery: () => ({ ... }),
+    }),
+  );
+  ```
+
+  `Partial<>` keeps you free to stub only the exports you need, while
+  still checking the shape of the ones you do stub. This is not
+  hypothetical: a section hook gained a `hasData` field, three mocks kept
+  returning the old shape, and every section silently fell back to its
+  derived rows, and the tests passed because nothing was being filtered
+  rather than because it was. Typing the factories also surfaced four
+  older stubs that had been missing `isLoading` / `isError` / `refetch`
+  the whole time.
+
 - **Run tests:**
   ```bash
   bun test src/path/to/file.test.ts  # single file (fast)

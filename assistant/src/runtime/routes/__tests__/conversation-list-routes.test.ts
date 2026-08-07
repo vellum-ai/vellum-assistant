@@ -329,19 +329,34 @@ describe("GET /v1/conversations with groupId", () => {
     ]);
   });
 
-  test("a group-scoped page is ordered by the user's arrangement", async () => {
-    // Pinned and custom groups are drag-reorderable, so display order wins
-    // over recency inside a group.
-    seedPinned("third", 2);
-    seedPinned("first", 0);
-    seedPinned("second", 1);
+  test("a group-scoped page is ordered by recency, not by display_order", async () => {
+    /* `display_order` still holds values for anyone who arranged rows by hand
+       before that affordance was removed, so the column is set here to the
+       REVERSE of the expected result: a read that consults it again fails
+       rather than passing by coincidence. Seeded oldest-first so insertion
+       order cannot be mistaken for the assertion either. */
+    const oldest = seedPinned("oldest", 0);
+    const middle = seedPinned("middle", 1);
+    const newest = seedPinned("newest", 2);
+    for (const [id, at] of [
+      [oldest, 1_000],
+      [middle, 5_000],
+      [newest, 9_000],
+    ] as const) {
+      rawRun(
+        "test:setLastMessageAt",
+        "UPDATE conversations SET last_message_at = ? WHERE id = ?",
+        at,
+        id,
+      );
+    }
 
     const result = (await invoke({ groupId: "system:pinned" })) as ListResponse;
 
     expect(result.conversations.map((c) => c.title)).toEqual([
-      "first",
-      "second",
-      "third",
+      "newest",
+      "middle",
+      "oldest",
     ]);
   });
 
@@ -434,10 +449,9 @@ describe("GET /v1/conversations with groupId", () => {
     expect(custom.conversations.map((c) => c.title)).toEqual(["car-1"]);
   });
 
-  test("system buckets other than Pinned sort by recency, not stale display order", async () => {
-    // `display_order` persists through moves, so honouring it for
-    // system:background would order that section differently depending on
-    // whether it was fetched by conversationType or by groupId.
+  test("a surfaced background row sorts by recency, not stale display order", async () => {
+    // `display_order` persists through moves, so a row that carries one from
+    // an earlier group must not have it resurface as a sort key here.
     const older = createConversation({
       title: "older",
       conversationType: "background",

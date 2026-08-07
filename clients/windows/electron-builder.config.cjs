@@ -27,6 +27,13 @@ module.exports = {
   },
   // Requires `bun run build:web` first so resources/web-dist exists.
   extraResources: [{ from: "resources/web-dist", to: "web-dist" }],
+  fileAssociations: [
+    {
+      ext: "vellum",
+      name: "Vellum Bundle",
+      description: "Vellum App Bundle",
+    },
+  ],
   win: {
     target: [
       {

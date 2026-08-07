@@ -71,10 +71,11 @@ Native clients fetch this metadata at launch via `GET /v1/stt/providers`. No sep
 | ---------------- | -------------------- | ------------- |
 | `openai-whisper` | `openai`             | shared        |
 | `deepgram`       | `deepgram`           | exclusive     |
+| `deepgram-flux`  | `deepgram`           | shared        |
 | `google-gemini`  | `gemini`             | shared        |
 | `xai`            | `xai`                | exclusive     |
 
-When the provider ID differs from the credential provider name (e.g. `google-gemini` maps to `gemini`), the key is **shared** with other services that use the same credential.
+When the provider ID differs from the credential provider name (e.g. `google-gemini` maps to `gemini`), the key is **shared** with other services that use the same credential. Two STT providers may also name the same credential: `deepgram-flux` is a model on the same Deepgram account as `deepgram`, so it reads that key rather than introducing one of its own. Reuse an existing `credentialProvider` whenever the new provider authenticates against an account the catalog already covers, and keep the `credentialsGuide` text identical across them (`DEEPGRAM_CREDENTIALS_GUIDE` is shared by both entries for that reason).
 
 ### Client settings key behavior
 

@@ -11,6 +11,7 @@
 import { isHttpAuthDisabled } from "../config/env.js";
 import {
   getGuardianDelivery,
+  getGuardianDeliveryFresh,
   guardianForChannel,
   peekCachedGuardianDelivery,
 } from "../contacts/guardian-delivery-reader.js";
@@ -52,11 +53,19 @@ export function buildLocalAuthContext(conversationId: string): AuthContext {
  * Returns `undefined` when no vellum guardian binding exists (e.g. fresh
  * install before bootstrap, or the gateway is unreachable). Callers should
  * treat that case as "not yet available" and proceed without a principalId.
+ *
+ * `forceRefresh` bypasses the reader's TTL cache. A successful read that finds
+ * no binding is itself cached, and gateway-side binding writes do not
+ * invalidate the daemon's cache, so a caller that polls for a binding it
+ * expects to appear (the SSE actor-principal heal) must force the read or it
+ * re-reads the same empty answer until the TTL lapses.
  */
-export async function findLocalGuardianPrincipalId(): Promise<
-  string | undefined
-> {
-  const list = await getGuardianDelivery({ channelTypes: ["vellum"] });
+export async function findLocalGuardianPrincipalId(options?: {
+  forceRefresh?: boolean;
+}): Promise<string | undefined> {
+  const list = options?.forceRefresh
+    ? await getGuardianDeliveryFresh({ channelTypes: ["vellum"] })
+    : await getGuardianDelivery({ channelTypes: ["vellum"] });
   if (!list) {
     return undefined;
   }
@@ -136,15 +145,19 @@ export function findLocalGuardianPrincipalIdFromStore(): string | undefined {
  * `undefined` when dev-bypass is set but no guardian binding has been created
  * yet (e.g. fresh install before bootstrap); callers must treat this the
  * same as a missing principal.
+ *
+ * `forceRefresh` bypasses the guardian-delivery cache, for callers that poll
+ * for a binding they expect to appear. See {@link findLocalGuardianPrincipalId}.
  */
 export async function resolveActorPrincipalIdForLocalGuardian(
   rawHeader: string | undefined,
+  options?: { forceRefresh?: boolean },
 ): Promise<string | undefined> {
   if (rawHeader !== "dev-bypass" || !isHttpAuthDisabled()) {
     return rawHeader;
   }
 
-  const guardianPrincipalId = await findLocalGuardianPrincipalId();
+  const guardianPrincipalId = await findLocalGuardianPrincipalId(options);
   if (guardianPrincipalId) {
     return guardianPrincipalId;
   }

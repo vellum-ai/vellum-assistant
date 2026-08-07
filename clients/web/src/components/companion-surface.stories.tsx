@@ -7,6 +7,26 @@ import {
 } from "@/components/companion-surface";
 import { BUNDLED_COMPONENTS } from "@/utils/avatar-bundled-components";
 import { composeSvg } from "@/utils/avatar-svg-compositor";
+import type { VoiceActivityState } from "@vellumai/ipc-contract";
+
+/**
+ * A session for the demo reel to draw. `startedAt` is restamped on every run,
+ * so it is the one field the player overrides.
+ *
+ * Listening and unmuted with nothing waiting on a decision: the ordinary middle
+ * of a call, which is what the reel is showing.
+ */
+const DEMO_CALL: VoiceActivityState = {
+  phase: "listening",
+  label: "Listening",
+  accentHex: "",
+  muted: false,
+  outputMuted: false,
+  detail: "",
+  approvalRequestId: "",
+  assistantName: "Ziggy",
+  startedAt: 0,
+};
 
 /**
  * A real assistant avatar, composed from the same bundled character components
@@ -17,6 +37,20 @@ import { composeSvg } from "@/utils/avatar-svg-compositor";
 const EXAMPLE_AVATAR = `data:image/svg+xml;utf8,${encodeURIComponent(
   composeSvg(BUNDLED_COMPONENTS, "burst", "curious", "teal", 128),
 )}`;
+
+/**
+ * The same creature as traits rather than pixels, which is how the real
+ * surface receives it: composed live so it blinks, twitches and breathes, and
+ * holds a focused pose while the turn is the assistant's.
+ *
+ * Clear `character` in the controls to see the custom-image fallback, which is
+ * a still and does none of that.
+ */
+const EXAMPLE_CHARACTER = {
+  bodyShape: "burst",
+  eyeStyle: "curious",
+  color: "teal",
+};
 
 /**
  * The surface floats over other applications, so every story sits on a
@@ -51,9 +85,9 @@ const meta: Meta<StoryArgs> = {
       control: "inline-radio",
       options: ["dark", "light", "busy"],
     },
-    anchor: {
+    growth: {
       control: "inline-radio",
-      options: ["center", "left", "right"],
+      options: ["right", "left"],
     },
     accentHex: { control: "color" },
     glow: { control: "boolean" },
@@ -63,6 +97,7 @@ const meta: Meta<StoryArgs> = {
     glow: true,
     backdrop: "dark",
     avatarSrc: EXAMPLE_AVATAR,
+    character: EXAMPLE_CHARACTER,
   },
   decorators: [
     (Story, context) => {
@@ -77,7 +112,8 @@ const meta: Meta<StoryArgs> = {
         <div
           className="relative h-[340px] w-[560px] overflow-hidden rounded-xl"
           style={{
-            background: BACKDROPS[(context.args as StoryArgs).backdrop ?? "dark"],
+            background:
+              BACKDROPS[(context.args as StoryArgs).backdrop ?? "dark"],
           }}
         >
           <Story />
@@ -96,14 +132,79 @@ export const Resting: Story = {
   args: { phase: "resting" },
 };
 
-/** Expanded with the app idle: the two ways in. */
+/**
+ * Expanded with the app idle: the two ways in.
+ *
+ * `hovered` is what the creature answers: the eyes widen while the hand is
+ * over the surface. It is a separate arg from `phase` because a call holds the
+ * pill open regardless of the pointer, and the mascot should still notice a
+ * hand arriving mid-call.
+ */
 export const Hover: Story = {
-  args: { phase: "hover" },
+  args: { phase: "hover", hovered: true },
 };
 
 /** Expanded mid-call: the session's own controls, at pill scale. */
 export const InCall: Story = {
   args: { phase: "call" },
+};
+
+/**
+ * Mid-call with a turn stopped on a confirmation.
+ *
+ * The decision takes the control row rather than crowding in beside it, which
+ * is the same trade the iOS Lock Screen card makes: the turn is going nowhere
+ * until this is answered, so it is the only thing here worth pressing. The
+ * activity line says what is being asked; the pill is not the place to render a
+ * tool call's arguments, and the app is a click away for that.
+ *
+ * This is the widest the surface ever gets, so it is what `MAX_PILL_WIDTH` in
+ * `companion-window.ts` sizes the canvas to hold.
+ */
+export const PendingApproval: Story = {
+  args: {
+    phase: "call",
+    call: {
+      ...DEMO_CALL,
+      phase: "thinking",
+      label: "Thinking…",
+      detail: "Read package.json",
+      approvalRequestId: "req-1",
+      startedAt: Date.now() - 14_000,
+    },
+  },
+};
+
+/**
+ * The assistant's turn, which is what the mascot expresses.
+ *
+ * Compare with `InCall` above: same row, but the creature stops blinking and
+ * holds the focused, morphing pose it uses in chat while a reply streams. The
+ * words name the finer phase; the mascot says whose turn it is.
+ */
+export const InCallAssistantTurn: Story = {
+  args: {
+    phase: "call",
+    call: {
+      ...DEMO_CALL,
+      phase: "thinking",
+      label: "Thinking\u2026",
+      startedAt: Date.now() - 9_000,
+    },
+  },
+};
+
+/** Mid-call with both mutes on, which is what the two buttons swap to. */
+export const InCallMuted: Story = {
+  args: {
+    phase: "call",
+    call: {
+      ...DEMO_CALL,
+      muted: true,
+      outputMuted: true,
+      startedAt: Date.now() - 14_000,
+    },
+  },
 };
 
 /**
@@ -143,18 +244,14 @@ export const TypingEmpty: Story = {
 };
 
 /**
- * The circle parked hard against a screen edge, where bloom cannot bloom.
+ * The circle parked hard against the left edge, which changes nothing.
  *
- * It wants 72px of clearance either side expanded and 126px in a call, and
- * there is none to the left, so `anchor: "left"` pins that edge and grows the
- * body rightward instead. The avatar stays exactly where the user put it.
- *
- * **Set `anchor` to `center` to see why this exists.** Unclamped, the pill
- * grows straight past the edge and takes the avatar with it, so the surface
- * disappears off the side of the screen at the moment it is reached for.
+ * Growth runs rightward, away from the edge, so this is simply the default
+ * shape in a tight spot. It is here as the counterpart to the right edge, where
+ * the direction does have to flip.
  */
 export const AgainstTheLeftEdge: Story = {
-  args: { phase: "hover", anchor: "left" },
+  args: { phase: "hover", growth: "right" },
   decorators: [
     (Story) => (
       // A 44px column at the stage's left edge: the avatar's own footprint,
@@ -166,9 +263,17 @@ export const AgainstTheLeftEdge: Story = {
   ],
 };
 
-/** The mirror case, where the body has to grow leftward instead. */
+/**
+ * The case that needs the flip: the circle parked against the right edge, where
+ * the body has nowhere to run.
+ *
+ * **Set `growth` to `right` to see why this exists.** Unclamped, the body runs
+ * straight off the display and takes the controls the user was reaching for
+ * with it. The avatar itself stays exactly where it is either way, which is the
+ * property the flip protects.
+ */
 export const AgainstTheRightEdge: Story = {
-  args: { phase: "call", anchor: "right" },
+  args: { phase: "call", growth: "left" },
   decorators: [
     (Story) => (
       <div className="absolute top-0 right-0 h-full w-11">
@@ -223,6 +328,7 @@ function HoverDrivenSurface(args: StoryArgs) {
       <CompanionSurface
         {...args}
         phase={phase}
+        hovered={hovered}
         avatarSrc={uploaded ?? args.avatarSrc}
         onHoverStart={() => {
           setHovered(true);
@@ -273,69 +379,66 @@ function HoverDrivenSurface(args: StoryArgs) {
  */
 export const DemoReel: Story = {
   args: {
-    phase: "call",
+    phase: "resting",
   },
 
   parameters: { layout: "fullscreen" },
   render: (args) => <DemoReelPlayer {...args} />,
 };
 
-/** One app's moment: a backdrop, a state, and how long it holds. */
-const DEMO_BEATS: {
+/**
+ * The script, in order, one line per thing the viewer should notice.
+ *
+ * It reads as a single gesture rather than a tour: the companion is there, you
+ * reach for it, you could type, you could talk instead, a call runs, and it
+ * settles back to being there. It ends where it began on purpose, so the clip
+ * loops without a seam.
+ *
+ * Holds are uneven because identical intervals read as a slideshow on a timer,
+ * which is the opposite of the claim being made.
+ */
+const DEMO_STEPS: {
   phase: CompanionSurfacePhase;
+  spotlight?: "talk" | "type";
   hold: number;
-  app: string;
 }[] = [
-  { phase: "resting", hold: 2000, app: "Browser: it is just there" },
-  { phase: "hover", hold: 2000, app: "Notes: Talk or Type" },
-  { phase: "call", hold: 2000, app: "Slack: listening" },
-  { phase: "typing", hold: 2200, app: "Editor: say something" },
+  { phase: "resting", hold: 2000 },
+  { phase: "hover", spotlight: "type", hold: 1500 },
+  { phase: "typing", hold: 2400 },
+  { phase: "hover", spotlight: "talk", hold: 1500 },
+  { phase: "call", hold: 3600 },
+  { phase: "resting", hold: 2000 },
 ];
 
-/** The payoff: the same states again, faster than the apps behind them. */
-const DEMO_FINALE: CompanionSurfacePhase[] = [
-  "resting",
-  "hover",
-  "call",
-  "typing",
-  "hover",
-  "call",
-  "resting",
-];
-const FINALE_HOLD = 480;
-
-const DEMO_TURNS = [
-  {
-    role: "user" as const,
-    text: "can you pull the deploy logs from this morning",
-  },
-  {
-    role: "assistant" as const,
-    text: "Found them. The 09:14 deploy rolled back on its own after the health check failed twice, and the second attempt at 09:31 went through clean.",
-  },
-];
+/**
+ * How far the surface's state trails the app behind it.
+ *
+ * Switching both on the same frame reads as one cut, as though the surface were
+ * part of the app that just appeared. Letting the backdrop land first and the
+ * surface follow a beat later reads as what is being claimed: the computer
+ * changed, and the companion carried on and responded in its own time.
+ */
+const PHASE_LAG = 620;
 
 function DemoReelPlayer(args: StoryArgs) {
   const [shots, setShots] = useState<string[]>([]);
   const [step, setStep] = useState<number | null>(null);
+  // Trails `step`. The backdrop is switched by `step` directly; the surface
+  // waits out the lag before catching up, so the two never cut together.
+  const [phaseStep, setPhaseStep] = useState(0);
+  const [callStartedAt, setCallStartedAt] = useState<number | undefined>();
 
   // The whole timeline up front, so playback is one timer walking an array
   // rather than two phases with their own bookkeeping. Built once: it is a
   // function of module constants, and rebuilding it every render would restart
   // the timer that depends on it.
   const timeline = useMemo(
-    () => [
-      ...DEMO_BEATS.map((beat, index) => ({
-        phase: beat.phase,
-        hold: beat.hold,
+    () =>
+      DEMO_STEPS.map((step, index) => ({
+        ...step,
+        lag: PHASE_LAG,
         shot: index,
       })),
-      ...DEMO_FINALE.map((phase, index) => ({
-        phase,
-        hold: FINALE_HOLD,
-        shot: index,
-      })),
-    ],
     [],
   );
 
@@ -350,6 +453,21 @@ function DemoReelPlayer(args: StoryArgs) {
     const timer = setTimeout(() => {
       setStep(step + 1);
     }, timeline[step].hold);
+    return () => {
+      clearTimeout(timer);
+    };
+  }, [step, timeline]);
+
+  useEffect(() => {
+    if (step === null || step >= timeline.length) {
+      return;
+    }
+    const timer = setTimeout(() => {
+      setPhaseStep(step);
+      if (timeline[step].phase === "call") {
+        setCallStartedAt(Date.now());
+      }
+    }, timeline[step].lag);
     return () => {
       clearTimeout(timer);
     };
@@ -375,7 +493,9 @@ function DemoReelPlayer(args: StoryArgs) {
 
   const playing = step !== null && step < timeline.length;
   const current = playing ? timeline[step] : null;
-  const phase = current?.phase ?? "resting";
+  // The surface reads from the trailing index, the backdrop from the live one.
+  const active = playing ? timeline[phaseStep] : null;
+  const phase = active?.phase ?? "resting";
   // Screenshots cycle rather than run out, so three apps still carry four beats.
   const shotIndex =
     shots.length === 0 ? -1 : (current?.shot ?? 0) % shots.length;
@@ -392,17 +512,34 @@ function DemoReelPlayer(args: StoryArgs) {
         />
       ))}
       {shots.length === 0 && (
-        <div className="absolute inset-0 grid place-items-center text-[13px] text-white/40">
+        // Held off centre, which is where the surface now sits.
+        <div className="absolute inset-x-0 top-[30%] text-center text-[13px] text-white/40">
           Add screenshots below, then play.
         </div>
       )}
 
-      {/* Parked where the real one parks: near the Dock, bottom right. */}
-      <div className="absolute right-[12%] bottom-[14%] size-11">
+      {/* Centred rather than parked in a corner. The real surface lives near
+          the Dock, but a corner puts it at the edge of frame where a viewer's
+          eye is not, and the whole point of the clip is that the thing in the
+          middle stays while everything around it moves. */}
+      <div className="absolute top-1/2 left-1/2 size-11 -translate-x-1/2 -translate-y-1/2">
         <CompanionSurface
           {...args}
           phase={phase}
-          turns={DEMO_TURNS}
+          spotlight={active?.spotlight}
+          // Restamped whenever the call step is entered, so the clock starts
+          // from zero on every run rather than from whenever the page loaded.
+          call={
+            phase === "call" && callStartedAt !== undefined
+              ? { ...DEMO_CALL, startedAt: callStartedAt }
+              : undefined
+          }
+          // No turns: Type opens on the empty composer, which is the same
+          // elongated single line as the states either side of it. Opening onto
+          // a card of history would make this the one step that changes the
+          // surface's shape, and the beat is about where you would type, not
+          // about what was said earlier.
+          turns={[]}
           assistantName={args.assistantName ?? "Ziggy"}
         />
       </div>
@@ -424,14 +561,15 @@ function DemoReelPlayer(args: StoryArgs) {
             className="rounded-md bg-white/10 px-2 py-1 disabled:opacity-40"
             disabled={shots.length === 0}
             onClick={() => {
+              setPhaseStep(0);
               setStep(0);
             }}
           >
             Play
           </button>
           <span className="text-white/40">
-            {shots.length} loaded, {DEMO_BEATS.map((b) => b.app).join(" / ")},
-            then the fast pass
+            {shots.length} loaded. Idle, Type, typing, Talk, a running call,
+            idle.
           </span>
         </div>
       )}

@@ -11,6 +11,7 @@ on:
       - 'packages/electron-utils/**'
       - 'packages/electron-desktop/**'
       - 'packages/native-sidecar/**'
+      - 'packages/host-proxy/**'
       - 'packages/local-mode/**'
       - 'packages/environments/**'
       - '.github/workflows/pr-macos.yaml'
