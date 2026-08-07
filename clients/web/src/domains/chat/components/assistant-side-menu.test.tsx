@@ -1306,7 +1306,7 @@ describe("AssistantSideMenu · equal section treatment", () => {
 });
 
 describe("AssistantSideMenu · section reordering", () => {
-  test("section headers are drag handles", () => {
+  test("a section drags from its card, not its header", () => {
     const container = parse(
       renderMenu({
         conversations: LAYOUT_CONVERSATIONS,
@@ -1314,22 +1314,22 @@ describe("AssistantSideMenu · section reordering", () => {
       }),
     );
 
-    // "Conversations" is the persistent wrapper (not a member of
-    // `sidebar.sections`), so it never drags; everything else does.
-    const labels = sectionLabels(container);
-    const headers = Array.from(
-      container.querySelectorAll<HTMLElement>(
+    /* The card is the handle: a section is a card, so grabbing one should
+       pick the whole object up. With the handle on the header the drag image
+       was a lone header strip, which reads as a conversation row rather than
+       as the section being moved.
+
+       Every section, with no exception - "Conversations" used to be a
+       wrapper that never dragged, and it is gone. */
+    const sections = sectionElements(container);
+    expect(sections).toHaveLength(4);
+    for (const section of sections) {
+      expect(section.closest('[draggable="true"]')).not.toBeNull();
+      const header = section.querySelector<HTMLElement>(
         '[data-slot="collapsible-nav-section-header"]',
-      ),
-    );
-    expect(headers).toHaveLength(5);
-    const draggable = headers.filter(
-      (_, index) => labels[index] !== "Conversations",
-    );
-    expect(draggable).toHaveLength(4);
-    expect(draggable.every((h) => h.getAttribute("draggable") === "true")).toBe(
-      true,
-    );
+      );
+      expect(header?.getAttribute("draggable")).not.toBe("true");
+    }
   });
 
   test("a lone section isn't draggable - there's nothing to reorder against", () => {
@@ -1339,27 +1339,23 @@ describe("AssistantSideMenu · section reordering", () => {
       }),
     );
 
-    // "Conversations" (always present) plus the lone nested "Chats"
-    // section: neither drags. Conversations isn't a member of
-    // `sidebar.sections` to begin with, and Chats has nothing to reorder
-    // against.
-    const headers = Array.from(
-      container.querySelectorAll<HTMLElement>(
-        '[data-slot="collapsible-nav-section-header"]',
-      ),
-    );
-    expect(headers).toHaveLength(2);
-    expect(headers.every((h) => h.getAttribute("draggable") !== "true")).toBe(
-      true,
-    );
+    /* One section now: "Chats". The persistent "Conversations" wrapper that
+       used to sit above it is gone, so this is the whole list, and a list of
+       one has nothing to reorder against. */
+    const sections = sectionElements(container);
+    expect(sections).toHaveLength(1);
+    expect(sections[0]?.closest('[draggable="true"]')).toBeNull();
   });
 
-  // Regression guard. The handlers first sat on the section root, where
-  // `dragleave` bubbling up from the section's own conversation rows cleared
-  // the indicator every time the pointer crossed one - so dragging over an
-  // expanded section showed no drop target at all. Keeping them on the header
-  // is what fixes it, and only an event-level test can tell the difference.
-  test("dragging over a section header marks it as the drop target", async () => {
+  /* Regression guard, for a bug the handlers' position used to cause and no
+     longer does. They first sat on the section root, where `dragleave`
+     bubbling up from the section's own conversation rows cleared the
+     indicator every time the pointer crossed one, so dragging over an
+     expanded section showed no drop target at all. They are back on the root
+     (the card) and it is safe, because `use-drag-reorder` now ignores a
+     `dragleave` whose `relatedTarget` is inside `currentTarget` - the guard,
+     not the position, is what holds this. */
+  test("dragging over a section marks it as the drop target", async () => {
     const { container } = render(
       createElement(AssistantSideMenu, {
         assistantId: "asst-1",
