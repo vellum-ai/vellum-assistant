@@ -208,7 +208,7 @@ describe("CollapsedGroupIcon", () => {
     );
     // The rail is a column of circles, so the tile asks for the circle
     // geometry rather than drawing its own radius.
-    expect(html).toContain('data-shape="circle"');
+    expect(html).toContain('data-shape="tile"');
     // The dot goes through `indicator`, the collapsed overlay slot, not
     // through `badge` (which a collapsed row suppresses) and not as a sibling
     // of the tile (which would put it outside the circle's box).
@@ -293,7 +293,7 @@ describe("CollapsedGroupIcon disabled state", () => {
     // Still labelled for assistive tech, and still a circle like its
     // populated neighbours rather than falling back to a rounded square.
     expect(html).toContain('aria-label="Pinned"');
-    expect(html).toContain('data-shape="circle"');
+    expect(html).toContain('data-shape="tile"');
   });
 
   test("hover tooltip explains the group is empty rather than repeating the label", () => {

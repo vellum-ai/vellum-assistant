@@ -481,16 +481,16 @@ function renderCollapsedItem(props: Record<string, unknown>): string {
 }
 
 describe("SideMenu.Item collapsed shape", () => {
-  test('shape="circle" fully rounds the collapsed tile', () => {
-    const html = renderCollapsedItem({ label: "Pinned", shape: "circle" });
+  test('shape="tile" fully rounds the collapsed tile', () => {
+    const html = renderCollapsedItem({ label: "Pinned", shape: "tile" });
     expect(html).toContain("rounded-full");
     // The 6px row radius is replaced, not stacked underneath it, so the
     // rendered radius can't depend on which class tailwind-merge kept.
     expect(html).not.toContain("rounded-[6px]");
   });
 
-  test('shape="circle" squares the tile, so it is round and not oval', () => {
-    const html = renderCollapsedItem({ label: "Pinned", shape: "circle" });
+  test('shape="tile" squares the tile, so it is round and not oval', () => {
+    const html = renderCollapsedItem({ label: "Pinned", shape: "tile" });
     /* A full radius on a `w-full` row is an ellipse, not a circle: the rail
        column is a little wider than the row is tall. The radius alone is not
        the shape, so assert the square too. A definite `size-*` is what makes
@@ -502,7 +502,7 @@ describe("SideMenu.Item collapsed shape", () => {
   });
 
   test("a tile is built as its own shape, not as a row with patches", () => {
-    const html = renderCollapsedItem({ label: "Pinned", shape: "circle" });
+    const html = renderCollapsedItem({ label: "Pinned", shape: "tile" });
     /* The row classes a tile does not want are absent, rather than present
        and countered. Absence is the property worth asserting: countering them
        with `w-auto` / `max-md:h-[30px]` / `max-md:py-[6px]` renders the same
@@ -546,7 +546,7 @@ describe("SideMenu.Item collapsed shape", () => {
             key: "i",
             icon: Globe,
             label: "Pinned",
-            shape: "circle",
+            shape: "tile",
           }),
         ),
       ),

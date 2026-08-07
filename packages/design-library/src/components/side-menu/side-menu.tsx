@@ -487,18 +487,24 @@ export interface SideMenuItemProps {
   tooltip?: string;
   badge?: ReactNode;
   /**
-   * Collapsed-rail tile geometry, for rails whose section icons read as a
-   * column of circles. `"circle"` squares the tile to its own row height and
-   * centers it in the rail column, then rounds it fully. The squaring is part
-   * of the shape, not an extra: a collapsed row is `w-full` of a column
-   * slightly wider than it is tall, so rounding it alone draws an ellipse.
+   * `"tile"` renders the collapsed-rail affordance: the whole treatment a row
+   * reduces to when the rail collapses, not a geometry switch. It squares to
+   * its own row height, centers in the rail column, rounds fully, and carries
+   * the resting surface the expanded card or pill wore - collapsing changes
+   * the shape of a thing, not whether it has a surface. The squaring is part
+   * of it, not an extra: a collapsed row is `w-full` of a column slightly
+   * wider than it is tall, so rounding it alone draws an ellipse.
+   *
+   * Named for what it is rather than for its outline, because it decides
+   * colour as well as form. A caller reaching for a round row somewhere other
+   * than the rail wants neither.
    *
    * Ignored when expanded, where the row spans the rail's full width and a
    * full round would draw a pill rather than a circle.
    *
    * @default "default"
    */
-  shape?: "default" | "circle";
+  shape?: "default" | "tile";
   /**
    * Overlay drawn on top of a collapsed tile, such as an activity dot on the
    * icon's corner. The row is the positioning context, so the caller places
@@ -628,7 +634,7 @@ function SideMenuItem({
   ...rest
 }: SideMenuItemProps & SharedAnchorProps & SharedButtonProps) {
   const ctx = useSideMenuContext();
-  /* A circle tile is a collapsed-rail affordance by definition, and its call
+  /* A tile is a collapsed-rail affordance by definition, and its call
      sites mount it on the rail's immediate `collapsed` state. Following the
      delayed flag like an ordinary row would leave it rendering as a
      full-width labelled row inside the 48px column for the whole 150ms
@@ -636,7 +642,7 @@ function SideMenuItem({
      label to linger over, which is the only thing the delay buys. Keying it
      off the immediate flag flips every collapsed-only path at one instant. */
   const collapsed =
-    shape === "circle" ? isCollapsingRail(ctx) : isCollapsedRail(ctx);
+    shape === "tile" ? isCollapsingRail(ctx) : isCollapsedRail(ctx);
 
   /* An item is drawn either as a row or as a tile, and the two want opposite
      things, so they are alternatives rather than one layered over the other.
@@ -649,7 +655,7 @@ function SideMenuItem({
      then needs its own counter-class, which leaves the geometry resting on
      tailwind-merge order rather than on intent. Branching states each shape
      once, so there is nothing to counter. */
-  const isTile = collapsed && shape === "circle";
+  const isTile = collapsed && shape === "tile";
   const geometryClasses = isTile
     ? /* The tile carries the same resting surface as the card or pill it
          stands in for when the rail is expanded, so collapsing changes the

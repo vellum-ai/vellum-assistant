@@ -50,8 +50,8 @@ export function PinnedAppNavItem({
       // apps still get a leading icon in the rail.
       icon={app.icon ?? Rocket}
       label={app.name}
-      /* Every tile on the collapsed rail is a circle. */
-      shape="circle"
+      /* The collapsed-rail affordance, surface included. */
+      shape="tile"
       showCollapsedTooltip
       active={active}
       onSelect={onOpen ? () => onOpen(app.appId) : undefined}

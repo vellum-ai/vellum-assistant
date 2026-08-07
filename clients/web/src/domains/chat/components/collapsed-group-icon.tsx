@@ -144,7 +144,7 @@ export function CollapsedGroupIcon({
         icon={Icon}
         label={label}
         tooltip="No conversations"
-        shape="circle"
+        shape="tile"
         disabled
       />
     );
@@ -157,7 +157,7 @@ export function CollapsedGroupIcon({
           icon={Icon}
           label={label}
           showCollapsedTooltip
-          shape="circle"
+          shape="tile"
           active={open}
           // `active` is the open-flyout surface here, not a location. This
           // tile opens a popover over the rail rather than navigating, so it
