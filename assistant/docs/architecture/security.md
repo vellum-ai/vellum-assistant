@@ -67,12 +67,9 @@ Missing optional fields act as wildcards. A rule with no `executionTarget` match
 
 Risk classification is **gateway-owned**. The classifiers live in `gateway/src/risk/`, and the gateway is the sole entry point for classification: the assistant has no local classifier to fall back on.
 
-`classifyRisk()` in `assistant/src/permissions/checker.ts` is the assistant-side entry point. It is asynchronous and delegates to the gateway over IPC (`classify_risk`), returning the risk level plus the metadata the permission check needs: command candidates, action keys, sandbox auto-approve verdict, and allowlist options.
+`classifyRisk()` in `assistant/src/permissions/checker.ts` is the assistant-side entry point. It is asynchronous and delegates to the gateway over IPC (`classify_risk`), returning the risk level plus the metadata the permission check needs: command candidates, action keys, sandbox auto-approve verdict, and allowlist options. It caches results locally.
 
-Two properties of that call matter when reading the flow above:
-
-- **No local fallback.** If the gateway is unreachable or returns an invalid response, `classifyRisk()` throws. There is no local classifier to fall back on, so the tool does not execute. Note that this is an error, not a deny decision: it is recorded through the tool-error path rather than as a permission denial, so it does not appear in the audit trail as a blocked invocation.
-- **Cached per resolved invocation.** Results are cached on the tool name, a hash of the input, the working directory, the manifest override, and, for file tools, the symlink-resolved target paths. Folding resolved paths into the key is deliberate: file risk depends on filesystem state, so a retargeted symlink yields a different key rather than a stale hit. On a hit carrying sandbox path arguments the symlink escape check is re-run as well.
+This section describes **ownership**: which side of the daemon/gateway boundary decides a risk level. It deliberately does not specify what happens when classification fails or when a cached result goes stale. Both are open questions in the code rather than settled design, so pinning them here would turn current behaviour into contract before anyone has decided it should be.
 
 The risk level assigned to each tool invocation:
 
