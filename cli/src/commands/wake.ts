@@ -126,6 +126,7 @@ export async function wake(): Promise<void> {
   let daemonRunning = false;
   let daemonUnready = false;
   let daemonMigrationsFailed = false;
+  let daemonStuck = false;
   const daemonState = await resolveProcessState(
     pidFile,
     resources.daemonPort,
@@ -143,9 +144,14 @@ export async function wake(): Promise<void> {
       daemonRunning = true;
       daemonUnready = daemonState.status !== "healthy";
       daemonMigrationsFailed = daemonState.status === "migration_failed";
+      daemonStuck = daemonState.status === "stuck";
       if (watch) {
         console.log(
           `Assistant running (pid ${daemonState.pid}) — watch mode not available (no source files). Keeping existing process.`,
+        );
+      } else if (daemonStuck) {
+        console.log(
+          `Assistant running (pid ${daemonState.pid}) but is not responding and could not be stopped.`,
         );
       } else if (daemonMigrationsFailed) {
         console.log(

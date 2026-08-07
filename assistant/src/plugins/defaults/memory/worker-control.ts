@@ -52,6 +52,7 @@ export async function spawnMemoryWorkerProcess(
     return await spawnWorkerProcess({
       pidPath: getMemoryWorkerPidPath(),
       entry: new URL("./worker.ts", import.meta.url),
+      packagedEntry: "memory",
       workerLabel: "Memory worker",
       options: opts,
     });

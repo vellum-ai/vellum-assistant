@@ -1,6 +1,6 @@
 import { execFileSync } from "node:child_process";
 import {
-  copyFileSync,
+  cpSync,
   existsSync,
   mkdirSync,
   readFileSync,
@@ -10,15 +10,20 @@ import {
 } from "node:fs";
 import path from "node:path";
 
+import { CLI_RUNTIME_ENTRIES } from "./cli-installer";
+
 export type CliLauncherState =
   "missing" | "foreign" | "installed" | "shadowed" | "stale";
 
-type LauncherOwnership = { sourcePath: string; version: string };
+type LauncherOwnership = {
+  ownerId?: string;
+  sourcePath: string;
+  version: string;
+};
 
 export interface CliLauncherPaths {
   binDir: string;
   executable: string;
-  bunExecutable: string;
   ownership: string;
 }
 
@@ -44,7 +49,6 @@ export function resolveCliLauncherPaths(
   return {
     binDir,
     executable: path.join(binDir, "vellum.exe"),
-    bunExecutable: path.join(binDir, "bun.exe"),
     ownership: path.join(binDir, ".vellum-owned.json"),
   };
 }
@@ -55,7 +59,8 @@ function readOwnership(paths: CliLauncherPaths): LauncherOwnership | undefined {
       readFileSync(paths.ownership, "utf8"),
     ) as LauncherOwnership;
     return typeof ownership.sourcePath === "string" &&
-      typeof ownership.version === "string"
+      typeof ownership.version === "string" &&
+      (ownership.ownerId === undefined || typeof ownership.ownerId === "string")
       ? ownership
       : undefined;
   } catch {
@@ -68,13 +73,18 @@ export function getCliLauncherState(
   sourcePath?: string,
   userPath?: string,
 ): CliLauncherState {
-  const vellumExists = existsSync(paths.executable);
-  const bunExists = existsSync(paths.bunExecutable);
+  const runtimeExists = CLI_RUNTIME_ENTRIES.every((name) =>
+    existsSync(path.join(paths.binDir, name)),
+  );
   const ownership = readOwnership(paths);
   if (!ownership) {
-    return vellumExists || bunExists ? "foreign" : "missing";
+    return CLI_RUNTIME_ENTRIES.some((name) =>
+      existsSync(path.join(paths.binDir, name)),
+    )
+      ? "foreign"
+      : "missing";
   }
-  if (!vellumExists || !bunExists) {
+  if (!runtimeExists) {
     return "stale";
   }
   if (
@@ -152,6 +162,7 @@ export function installCliLauncher(
   version: string,
   paths: CliLauncherPaths,
   run: RegistryRunner = systemRegistryRunner,
+  ownerId?: string,
 ): CliLauncherState {
   const initialState = getCliLauncherState(paths, sourcePath);
   if (initialState === "foreign") {
@@ -159,13 +170,12 @@ export function installCliLauncher(
   }
   mkdirSync(paths.binDir, { recursive: true });
   const files: Array<{ source?: string; contents?: string; target: string }> = [
-    { source: sourcePath, target: paths.executable },
+    ...CLI_RUNTIME_ENTRIES.map((name) => ({
+      source: path.join(path.dirname(sourcePath), name),
+      target: path.join(paths.binDir, name),
+    })),
     {
-      source: path.join(path.dirname(sourcePath), "bun.exe"),
-      target: paths.bunExecutable,
-    },
-    {
-      contents: `${JSON.stringify({ sourcePath, version })}\n`,
+      contents: `${JSON.stringify({ ownerId, sourcePath, version })}\n`,
       target: paths.ownership,
     },
   ];
@@ -175,15 +185,15 @@ export function installCliLauncher(
     backup: `${file.target}.${process.pid}.backup`,
   }));
   for (const file of pending) {
-    rmSync(file.staging, { force: true });
-    rmSync(file.backup, { force: true });
+    rmSync(file.staging, { recursive: true, force: true });
+    rmSync(file.backup, { recursive: true, force: true });
   }
   if (pending.some((file) => file.source && !existsSync(file.source))) {
     throw new Error("The provisioned Windows CLI runtime is incomplete.");
   }
   for (const file of pending) {
     if (file.source) {
-      copyFileSync(file.source, file.staging);
+      cpSync(file.source, file.staging, { recursive: true });
     } else {
       writeFileSync(file.staging, file.contents ?? "", "utf8");
     }
@@ -199,13 +209,13 @@ export function installCliLauncher(
     }
     ensureUserPath(paths.binDir, run);
     for (const file of pending) {
-      rmSync(file.backup, { force: true });
+      rmSync(file.backup, { recursive: true, force: true });
     }
     return getCliLauncherState(paths, sourcePath, readUserPath(run));
   } catch (error) {
     for (const file of replaced.reverse()) {
-      rmSync(file.staging, { force: true });
-      rmSync(file.target, { force: true });
+      rmSync(file.staging, { recursive: true, force: true });
+      rmSync(file.target, { recursive: true, force: true });
       if (existsSync(file.backup)) {
         renameSync(file.backup, file.target);
       }
@@ -217,20 +227,67 @@ export function installCliLauncher(
 export function uninstallCliLauncher(
   paths: CliLauncherPaths,
   run: RegistryRunner = systemRegistryRunner,
+  expectedOwnerId?: string,
 ): boolean {
-  if (!readOwnership(paths)) {
+  const ownership = readOwnership(paths);
+  if (
+    !ownership ||
+    (expectedOwnerId &&
+      (!ownership.ownerId ||
+        !sameWindowsPath(ownership.ownerId, expectedOwnerId)))
+  ) {
     return false;
   }
   const userPath = readUserPath(run);
   if (userPath === undefined) {
     throw new Error("Unable to read the Windows user PATH.");
   }
+  const pending = CLI_RUNTIME_ENTRIES.filter((name) =>
+    existsSync(path.join(paths.binDir, name)),
+  ).map((name) => ({
+    target: path.join(paths.binDir, name),
+    staging: path.join(paths.binDir, `.${name}.${process.pid}.uninstalling`),
+  }));
+  const moved: typeof pending = [];
+  const restoreMoved = (): void => {
+    for (const file of moved.reverse()) {
+      if (!existsSync(file.target) && existsSync(file.staging)) {
+        try {
+          renameSync(file.staging, file.target);
+        } catch {}
+      }
+    }
+  };
+  try {
+    for (const file of pending) {
+      if (existsSync(file.staging)) {
+        restoreMoved();
+        return false;
+      }
+      renameSync(file.target, file.staging);
+      moved.push(file);
+    }
+  } catch {
+    restoreMoved();
+    return false;
+  }
   const entries = userPath
     .split(";")
     .filter((entry) => entry && !sameWindowsPath(entry, paths.binDir));
-  writeUserPath(entries.join(";"), run);
-  rmSync(paths.executable, { force: true });
-  rmSync(paths.bunExecutable, { force: true });
+  try {
+    writeUserPath(entries.join(";"), run);
+  } catch (error) {
+    restoreMoved();
+    throw error;
+  }
+  for (const file of moved) {
+    try {
+      rmSync(file.staging, { recursive: true, force: true });
+    } catch {}
+  }
+  if (moved.some((file) => existsSync(file.staging))) {
+    return false;
+  }
   rmSync(paths.ownership, { force: true });
   return true;
 }

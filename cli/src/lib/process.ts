@@ -81,6 +81,23 @@ function readWindowsCommandLine(pid: number): string {
   );
 }
 
+export function isVellumWindowsProcess(
+  imageName: string,
+  commandLine = "",
+): boolean {
+  if (/^qdrant\.exe$/i.test(imageName)) {
+    return isVellumCommandLine(commandLine);
+  }
+  if (
+    /^(?:vellum|vellum-cli|vellum-daemon|vellum-gateway|credential-executor)\.exe$/i.test(
+      imageName,
+    )
+  ) {
+    return true;
+  }
+  return /^bun\.exe$/i.test(imageName) && isVellumCommandLine(commandLine);
+}
+
 export function isVellumProcess(
   pid: number,
   hostPlatform: NodeJS.Platform = platform(),
@@ -88,17 +105,10 @@ export function isVellumProcess(
   try {
     if (hostPlatform === "win32") {
       const imageName = readWindowsProcesses(pid)[0]?.imageName ?? "";
-      if (
-        /^(?:vellum|vellum-cli|vellum-daemon|vellum-gateway|credential-executor|qdrant)\.exe$/i.test(
-          imageName,
-        )
-      ) {
-        return true;
-      }
-      if (!/^bun\.exe$/i.test(imageName)) {
-        return false;
-      }
-      return isVellumCommandLine(readWindowsCommandLine(pid));
+      const commandLine = /^(?:bun|qdrant)\.exe$/i.test(imageName)
+        ? readWindowsCommandLine(pid)
+        : "";
+      return isVellumWindowsProcess(imageName, commandLine);
     }
     const output = execFileSync("ps", ["-p", String(pid), "-o", "command="], {
       encoding: "utf-8",
@@ -172,6 +182,7 @@ export async function isProcessHealthy(
  * - `"migration_failed"` — process is alive and healthy, but its DB migrations
  *   failed: a terminal state that never recovers without a restart. The
  *   process is kept alive (same keep-alive rule as `"unready"`).
+ * - `"stuck"`: process is unresponsive and could not be terminated.
  * - `"needs_start"` — process was dead, hung (and killed), or a stale PID
  *   was cleaned up. Caller should start a fresh process.
  */
@@ -179,6 +190,7 @@ export type ProcessState =
   | { status: "healthy"; pid: number }
   | { status: "unready"; pid: number }
   | { status: "migration_failed"; pid: number }
+  | { status: "stuck"; pid: number }
   | { status: "needs_start"; pid: number | null };
 
 /**
@@ -223,7 +235,10 @@ export async function resolveProcessState(
         console.log(
           `${label} process alive (pid ${result.pid}) but not responding — killing and restarting...`,
         );
-        await stopProcess(result.pid, label);
+        const stopped = await stopProcess(result.pid, label);
+        if (!stopped && isProcessAlive(pidFile).alive) {
+          return { status: "stuck", pid: result.pid };
+        }
       } else {
         console.log(
           `Stale PID file (pid ${result.pid} is not a Vellum process) — cleaning up...`,
@@ -267,6 +282,12 @@ export async function stopProcess(
   label: string,
   timeoutMs: number = 2000,
   hostPlatform: NodeJS.Platform = platform(),
+  runTaskkill: (args: string[], timeout: number) => void = (args, timeout) => {
+    execFileSync("taskkill.exe", args, {
+      timeout,
+      stdio: "ignore",
+    });
+  },
 ): Promise<boolean> {
   try {
     process.kill(pid, 0);
@@ -275,19 +296,19 @@ export async function stopProcess(
   }
 
   console.log(`Stopping ${label} (pid ${pid})...`);
+  let waitForGracefulExit = true;
   if (hostPlatform === "win32") {
     try {
-      execFileSync("taskkill.exe", ["/PID", String(pid), "/T"], {
-        timeout: timeoutMs,
-        stdio: "ignore",
-      });
-    } catch {}
+      runTaskkill(["/PID", String(pid), "/T"], timeoutMs);
+    } catch {
+      waitForGracefulExit = false;
+    }
   } else {
     process.kill(pid, "SIGTERM");
   }
 
   const deadline = Date.now() + timeoutMs;
-  while (Date.now() < deadline) {
+  while (waitForGracefulExit && Date.now() < deadline) {
     try {
       process.kill(pid, 0);
       await new Promise((r) => setTimeout(r, 100));
@@ -298,20 +319,25 @@ export async function stopProcess(
 
   try {
     process.kill(pid, 0);
-    if (hostPlatform === "win32") {
-      console.log(`${label} did not exit, terminating its process tree...`);
-      execFileSync("taskkill.exe", ["/PID", String(pid), "/T", "/F"], {
-        timeout: timeoutMs,
-        stdio: "ignore",
-      });
-    } else {
-      console.log(`${label} did not exit after SIGTERM, sending SIGKILL...`);
-      process.kill(pid, "SIGKILL");
-    }
   } catch {
-    // Already dead
+    return true;
   }
-
+  if (hostPlatform === "win32") {
+    console.log(`${label} did not exit, terminating its process tree...`);
+    try {
+      runTaskkill(["/PID", String(pid), "/T", "/F"], timeoutMs);
+    } catch {
+      return false;
+    }
+    try {
+      process.kill(pid, 0);
+      return false;
+    } catch {
+      return true;
+    }
+  }
+  console.log(`${label} did not exit after SIGTERM, sending SIGKILL...`);
+  process.kill(pid, "SIGKILL");
   return true;
 }
 
@@ -336,6 +362,12 @@ export async function stopProcessByPidFile(
   label: string,
   extraCleanupFiles?: string[],
   timeoutMs?: number,
+  stop: (
+    pid: number,
+    label: string,
+    timeoutMs?: number,
+  ) => Promise<boolean> = stopProcess,
+  ownsProcess: (pid: number) => boolean = isVellumProcess,
 ): Promise<boolean> {
   const { alive, pid } = isProcessAlive(pidFile);
 
@@ -347,7 +379,7 @@ export async function stopProcessByPidFile(
   // Verify the PID actually belongs to a vellum process before killing.
   // If the PID file is stale and the OS reused the PID, skip the kill
   // and clean up the stale files instead.
-  if (!isVellumProcess(pid)) {
+  if (!ownsProcess(pid)) {
     console.log(
       `PID ${pid} is not a vellum process — cleaning up stale ${label} PID file.`,
     );
@@ -355,8 +387,10 @@ export async function stopProcessByPidFile(
     return false;
   }
 
-  const stopped = await stopProcess(pid, label, timeoutMs);
-  removeFiles(pidFile, extraCleanupFiles);
+  const stopped = await stop(pid, label, timeoutMs);
+  if (stopped || !isProcessAlive(pidFile).alive) {
+    removeFiles(pidFile, extraCleanupFiles);
+  }
   return stopped;
 }
 

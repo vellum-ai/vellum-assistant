@@ -45,6 +45,7 @@ export async function spawnMonitoringWorkerProcess(
     return await spawnWorkerProcess({
       pidPath: getMonitoringPidPath(),
       entry: new URL("./worker.ts", import.meta.url),
+      packagedEntry: "monitoring",
       workerLabel: "Resource monitor",
       options: opts,
     });
