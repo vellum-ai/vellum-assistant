@@ -71,14 +71,6 @@ const HEX_BY_ID: ReadonlyMap<string, string> = new Map(
   PIN_COLORS.map((color) => [color.id, color.hex]),
 );
 
-/**
- * How much of the colour reaches the pill. A wash rather than a solid fill,
- * because the assistant identity pill sits directly above the pinned apps and
- * is the sidebar's only saturated surface: solid pills under it read as its
- * peers rather than as entries below it.
- */
-const PIN_WASH = { rest: 15, raised: 24 } as const;
-
 /** Hex for a stored colour id, or `undefined` when the registry has no such colour. */
 export function getPinColorHex(
   id: string | null | undefined,
@@ -91,6 +83,10 @@ export function getPinColorHex(
  * has no (or an unrecognised) colour. In that case neither the pill nor the
  * collapsed rail's tile sees a declaration and both fall back to their plain
  * surface.
+ *
+ * A wash rather than a solid fill, because the assistant identity pill sits
+ * directly above the pinned apps and is the sidebar's only saturated surface:
+ * solid pills under it read as its peers rather than as entries below it.
  */
 export function pinTintStyle(
   id: string | null | undefined,
@@ -99,5 +95,5 @@ export function pinTintStyle(
   if (!hex) {
     return undefined;
   }
-  return panelItemWashStyle(hex, PIN_WASH);
+  return panelItemWashStyle(hex);
 }

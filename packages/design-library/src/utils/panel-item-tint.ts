@@ -18,6 +18,13 @@ export interface PanelItemWash {
 }
 
 /**
+ * The standard steps, and enough colour to tell tinted rows apart without any
+ * of them competing with a solidly filled row above them. One pair for every
+ * tinted row in a column, so neighbours are washed to the same depth.
+ */
+export const PANEL_ITEM_WASH: PanelItemWash = { rest: 15, raised: 24 };
+
+/**
  * A wash of `hex` over `--surface-lift` at two steps: the tinted analogue of
  * what an untinted row already does (`--surface-lift` at rest,
  * `--surface-active` for hover and current page), so a tinted row keeps that
@@ -31,7 +38,7 @@ export interface PanelItemWash {
  */
 export function panelItemWashStyle(
   hex: string,
-  { rest, raised }: PanelItemWash,
+  { rest, raised }: PanelItemWash = PANEL_ITEM_WASH,
 ): CSSProperties {
   const raisedMix = `color-mix(in srgb, ${hex} ${raised}%, var(--surface-lift))`;
   return {

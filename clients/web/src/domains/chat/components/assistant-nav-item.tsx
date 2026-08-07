@@ -66,13 +66,6 @@ const COLLAPSED_ASSISTANT_TILE = 30;
 /** How far the collapsed rail's tile grows the eyes on a pulse. */
 const PULSE_SCALE = 1.35;
 
-/**
- * How much of the assistant's colour reaches the New Chat row. Deeper on
- * hover than the pinned apps below it: those carry a colour to be told apart
- * by, while this one is an action, and the step is what answers the pointer.
- */
-const NEW_CHAT_WASH = { rest: 14, raised: 36 } as const;
-
 const sleep = (ms: number): Promise<void> =>
   new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -215,21 +208,19 @@ export function AssistantNavItem({
       components.colors.find((c) => c.id === traits.color)?.hex) ||
     null;
 
-  /* A wash of the assistant's colour under the identity pill's solid fill,
-     built by the same helper the pinned apps' colours use so every tinted row
-     in the column mixes its hue the same way. Without a character avatar there
-     is no hue to mix and nothing is declared, leaving the plain surface both
-     the pill and the tile fall back to; while the tour owns the nav the wash
-     drains with the identity pill's fill.
+  /* A wash of the assistant's colour under the identity pill's solid fill, at
+     the same depth the pinned apps below it wear, so the column's tinted rows
+     agree. Without a character avatar there is no hue to mix and nothing is
+     declared, leaving the plain surface both the pill and the tile fall back
+     to; while the tour owns the nav the wash drains with the identity pill's
+     fill.
 
      Collapsed, the row becomes the same square glyph tile the identity above
      it uses rather than a pill with its label dropped: a pill is sized by its
      content, so on a 48px rail one keeping its label overflows the rail
      entirely. */
   const newConversationTint =
-    !navTourActive && hex
-      ? panelItemWashStyle(hex, NEW_CHAT_WASH)
-      : undefined;
+    !navTourActive && hex ? panelItemWashStyle(hex) : undefined;
   const newConversationRow = !showNewConversation ? null : collapsed ? (
     <button
       type="button"
