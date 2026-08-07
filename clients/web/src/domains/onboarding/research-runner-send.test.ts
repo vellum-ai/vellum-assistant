@@ -36,9 +36,18 @@ interface ArchiveCall {
   path: { assistant_id: string; id: string };
 }
 
+interface TelemetryCall {
+  body: {
+    type: string;
+    daemon_event_id?: string;
+    fields: Record<string, unknown>;
+  };
+}
+
 let postCalls: PostCall[] = [];
 let createCalls: CreateCall[] = [];
 let archiveCalls: ArchiveCall[] = [];
+let telemetryCalls: TelemetryCall[] = [];
 let getCalls = 0;
 let listed: { processing?: boolean; messages: unknown[] } = { messages: [] };
 /** When set, the prompt POST fails, so the run gives up before the poll loop. */
@@ -57,7 +66,10 @@ mock.module("@/generated/daemon/sdk.gen", () => ({
   ...sdkGen,
   pluginsSearchGet: () => ok({ matches: [] }),
   pluginsInstallPost: () => ok({}),
-  telemetryIngestPost: () => ok({}),
+  telemetryIngestPost: (opts: TelemetryCall) => {
+    telemetryCalls.push(opts);
+    return ok({});
+  },
   conversationsPost: (opts: CreateCall) => {
     createCalls.push(opts);
     return ok({ id: "conv-fresh" });
@@ -100,6 +112,7 @@ afterEach(() => {
   postCalls = [];
   createCalls = [];
   archiveCalls = [];
+  telemetryCalls = [];
   getCalls = 0;
   listed = { messages: [] };
   failMessagePost = false;
@@ -224,6 +237,98 @@ describe("research prompt send", () => {
 
     await whenResumeDecided();
     expect(postCalls).toHaveLength(0);
+
+    act(() => {
+      result.current.reset();
+    });
+  });
+});
+
+/**
+ * The `status: "started"` event is one half of the duration metric — the other
+ * half is the terminal report, and duration is the gap between the two
+ * `recorded_at` stamps. These pin the properties that make that subtraction
+ * meaningful: it fires exactly when the turn really began, and its collapse key
+ * is stable so a refresh cannot move the start forward.
+ */
+describe("research turn duration telemetry", () => {
+  const started = () =>
+    telemetryCalls.filter((c) => c.body.fields.status === "started");
+
+  test("emits a started event once the prompt lands", async () => {
+    const { result } = renderRunner();
+
+    act(() => {
+      result.current.start({
+        awaitAssistantId: async () => "ast-1",
+        subject,
+      });
+    });
+
+    await waitFor(() => {
+      expect(started()).toHaveLength(1);
+    });
+    const event = started()[0];
+    expect(event?.body.type).toBe("onboarding_research");
+    expect(event?.body.fields.conversation_id).toBe("conv-fresh");
+    // Conversation-scoped so a re-post collapses onto the original start
+    // instead of stamping a later one and shortening the measured duration.
+    expect(event?.body.daemon_event_id).toBe(
+      "onboarding_research:started:conv-fresh",
+    );
+    // Results belong to the terminal event; summing the pair must not
+    // double-count them.
+    expect(event?.body.fields.claim_count).toBe(0);
+    expect(event?.body.fields.claims).toEqual([]);
+    expect(event?.body.fields.installed_plugins).toEqual([]);
+
+    act(() => {
+      result.current.reset();
+    });
+  });
+
+  test("does not start the clock when the prompt fails to post", async () => {
+    // An interval opened here would never be closed — the run abandons before
+    // the poll loop, so no terminal event ever arrives to subtract from.
+    failMessagePost = true;
+    const { result } = renderRunner();
+
+    act(() => {
+      result.current.start({
+        awaitAssistantId: async () => "ast-1",
+        subject,
+      });
+    });
+
+    await waitFor(() => {
+      expect(postCalls).toHaveLength(1);
+    });
+    await waitFor(() => {
+      expect(archiveCalls).toHaveLength(1);
+    });
+    expect(started()).toHaveLength(0);
+
+    act(() => {
+      result.current.reset();
+    });
+  });
+
+  test("does not restart the clock on a resume of an in-flight turn", async () => {
+    // The turn is already running, so its start was recorded before the
+    // refresh. Re-stamping it here would measure only the post-refresh tail.
+    listed = { processing: true, messages: [] };
+    const { result } = renderRunner();
+
+    act(() => {
+      result.current.start({
+        awaitAssistantId: async () => "ast-1",
+        subject,
+        resumeConversationId: "conv-resumed",
+      });
+    });
+
+    await whenResumeDecided();
+    expect(started()).toHaveLength(0);
 
     act(() => {
       result.current.reset();
