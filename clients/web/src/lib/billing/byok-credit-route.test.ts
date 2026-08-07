@@ -659,27 +659,39 @@ describe("stale managed default stubs", () => {
 });
 
 describe("anchor fallbacks", () => {
-  test("falls back to the legacy top-level default entry for a managed verdict", () => {
-    expect(
-      classify({ llm: { default: { provider: "vellum", model: "claude" } } }),
-    ).toBe(true);
-  });
-
-  test("the legacy top-level default can never prove BYOK", () => {
-    // No availability source exists for the legacy body, so a BYOK-looking
-    // entry stays unknown and the banners stay up.
+  test("the legacy top-level llm.default is never consulted", () => {
+    // The daemon's mainAgent resolver no longer reads `llm.default`; a stale
+    // managed value must not defeat a genuine BYOK default-provider verdict.
     expect(
       classify({
         llm: {
-          default: {
+          default: { provider: "vellum", model: "claude" },
+          defaultProvider: {
             provider: "anthropic",
-            model: "claude",
-            provider_connection: "my-anthropic",
+            connectionName: "my-anthropic",
           },
         },
         connections: [BYOK_ANTHROPIC],
+        defaultProviderAvailability: "ok",
       }),
+    ).toBe(false);
+    expect(
+      classify({ llm: { default: { provider: "vellum", model: "claude" } } }),
     ).toBeNull();
+  });
+
+  test("an unset connectionName binds through the resolved conventional connection", () => {
+    // The daemon stamps `resolveDefaultConnectionName` onto default bodies;
+    // without it the anchor would misread as unbound and a coexisting
+    // platform-auth row for the provider would classify the route managed.
+    expect(
+      classify({
+        llm: { defaultProvider: { provider: "anthropic" } },
+        connections: [BYOK_ANTHROPIC, PLATFORM_ANTHROPIC],
+        defaultProviderAvailability: "ok",
+        defaultProviderResolvedConnection: "my-anthropic",
+      }),
+    ).toBe(false);
   });
 
   test("defaultProvider proves BYOK only with an ok availability", () => {

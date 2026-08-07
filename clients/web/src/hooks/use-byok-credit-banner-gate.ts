@@ -151,6 +151,8 @@ export function useSuppressCreditBannersForByok(
           profileAvailability,
           defaultProviderAvailability:
             defaultProviderQuery.data?.availability.status,
+          defaultProviderResolvedConnection:
+            defaultProviderQuery.data?.resolvedConnectionName,
           overrideProfile:
             conversationQuery.data?.conversation.inferenceProfile ?? null,
         })

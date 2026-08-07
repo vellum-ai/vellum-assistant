@@ -36,6 +36,12 @@ export interface ChatRouteEvidence {
    * `GET /config/llm/default-provider`, when known.
    */
   defaultProviderAvailability?: DefaultProviderAvailabilityStatus;
+  /**
+   * The connection the default-provider route conventionally resolves to
+   * when `connectionName` is unset (`resolvedConnectionName` from the same
+   * status response).
+   */
+  defaultProviderResolvedConnection?: string | null;
   /** The active conversation's `inferenceProfile` pin, when the caller has one. */
   overrideProfile?: string | null;
 }
@@ -221,9 +227,7 @@ function composedMainAgentRoute(
  * `null` (never a BYOK verdict) whenever the evidence can't settle the
  * question; callers fail open to showing the banners. That includes the
  * proof standard from {@link classifyEntry}: a BYOK verdict requires the
- * winning route's availability to be a proven "ok". The legacy top-level
- * `llm.default` body has no availability source, so it can classify managed
- * but never BYOK.
+ * winning route's availability to be a proven "ok".
  *
  * Depends on the config GET wire view materializing effective profile bodies
  * (`overlayEffectiveProfilesForWire` daemon-side): code-owned default
@@ -306,20 +310,40 @@ export function defaultChatRouteBurnsManagedCredits(
 }
 
 /**
+ * The billing route of the `llm.defaultProvider` anchor: the explicit
+ * `connectionName` when set, else the conventionally resolved connection the
+ * daemon stamps onto default bodies (`resolvedConnectionName` from the
+ * default-provider status), so an unset name doesn't misread as unbound
+ * dispatch. Null when no default provider is configured.
+ */
+function defaultProviderRouteEntry(
+  evidence: ChatRouteEvidence,
+): CreditRouteEntry | null {
+  const defaultProvider = evidence.llm?.defaultProvider;
+  if (!defaultProvider) {
+    return null;
+  }
+  return {
+    provider: defaultProvider.provider,
+    provider_connection:
+      defaultProvider.connectionName ??
+      evidence.defaultProviderResolvedConnection ??
+      undefined,
+  };
+}
+
+/**
  * The route a stale (unusable) managed default stub actually resolves to:
  * the pure catalog body through `llm.defaultProvider`'s column, or the
  * catalog's own vellum column (managed) when no default provider is set.
  */
 function classifyStaleDefaultStub(evidence: ChatRouteEvidence): boolean | null {
-  const defaultProvider = evidence.llm?.defaultProvider;
-  if (!defaultProvider) {
+  const entry = defaultProviderRouteEntry(evidence);
+  if (!entry) {
     return true;
   }
   return classifyDispatched(
-    {
-      provider: defaultProvider.provider,
-      provider_connection: defaultProvider.connectionName,
-    },
+    entry,
     evidence,
     evidence.defaultProviderAvailability,
   );
@@ -350,31 +374,19 @@ function classifyDispatched(
 
 /**
  * The code-owned bottom of the chain: the shipped intent rungs all resolve
- * their billing route through `llm.defaultProvider` (plus the legacy
- * top-level `llm.default` body, which predates profiles).
+ * their billing route through `llm.defaultProvider`. The legacy top-level
+ * `llm.default` body is deliberately NOT consulted: the daemon's `mainAgent`
+ * resolver never reads it, so a stale value must not defeat a genuine BYOK
+ * default-provider verdict.
  */
 function classifyAnchor(evidence: ChatRouteEvidence): boolean | null {
-  const { llm } = evidence;
-  const results: Array<boolean | null> = [];
-  if (llm?.default) {
-    // No availability source exists for the legacy body: managed can stand,
-    // BYOK cannot be proven.
-    results.push(classifyDispatched(llm.default, evidence, undefined));
-  }
-  if (llm?.defaultProvider) {
-    results.push(
-      classifyDispatched(
-        {
-          provider: llm.defaultProvider.provider,
-          provider_connection: llm.defaultProvider.connectionName,
-        },
-        evidence,
-        evidence.defaultProviderAvailability,
-      ),
-    );
-  }
-  if (results.length === 0) {
+  const entry = defaultProviderRouteEntry(evidence);
+  if (!entry) {
     return null;
   }
-  return anyBurns(results);
+  return classifyDispatched(
+    entry,
+    evidence,
+    evidence.defaultProviderAvailability,
+  );
 }
