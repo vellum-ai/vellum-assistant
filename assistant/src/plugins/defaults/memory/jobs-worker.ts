@@ -926,7 +926,7 @@ export const RETROSPECTIVE_SWEEP_CHECKPOINT = "retro_sweep:last_run";
  * `memory.retrospective.enabled` is checked here as well as inside the
  * enqueue funnel, so a disabled retrospective costs no scan at all rather
  * than a full conversation scan whose every enqueue is then declined. The
- * checkpoint is left untouched while disabled — re-enabling then fires the
+ * checkpoint is left untouched while disabled, so re-enabling fires the
  * first sweep on the next tick, which is the desired catch-up.
  *
  * Exported for tests; the worker calls it on every idle/drain tick. Returns

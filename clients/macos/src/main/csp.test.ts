@@ -15,6 +15,7 @@ describe("CSP_POLICY", () => {
       "script-src",
       "style-src",
       "connect-src",
+      "frame-src",
       "img-src",
       "media-src",
       "worker-src",
@@ -74,6 +75,21 @@ describe("CSP_POLICY", () => {
     expect(connectSrc).toContain("wss://*.vellum.ai");
     expect(connectSrc).toContain("https://*.ingest.sentry.io");
     expect(connectSrc).not.toMatch(/\bhttps:\s/);
+  });
+
+  test("allows the Stripe.js hosts needed by the payment-method modal", () => {
+    const scriptSrc = directiveValue("script-src")!;
+    expect(scriptSrc).toContain("https://js.stripe.com");
+    expect(scriptSrc).toContain("https://*.js.stripe.com");
+
+    const frameSrc = directiveValue("frame-src")!;
+    expect(frameSrc).toContain("'self'");
+    expect(frameSrc).toContain("https://js.stripe.com");
+    expect(frameSrc).toContain("https://*.js.stripe.com");
+    expect(frameSrc).toContain("https://hooks.stripe.com");
+
+    const connectSrc = directiveValue("connect-src")!;
+    expect(connectSrc).toContain("https://api.stripe.com");
   });
 
   test("connect-src allows loopback gateway WebSockets but not broad ws:", () => {

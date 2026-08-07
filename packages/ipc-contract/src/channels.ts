@@ -56,6 +56,7 @@ export const IDENTITY_NAME = "vellum:identity:name";
 
 // Icon / avatar
 export const ICON_SET_AVATAR = "vellum:icon:setAvatar";
+export const ICON_SET_CHARACTER = "vellum:icon:setCharacter";
 
 // Dock
 export const DOCK_SET_BADGE = "vellum:dock:setBadge";
@@ -132,6 +133,25 @@ export const DICTATION_OVERLAY_STOP_REQUESTED =
   "vellum:dictationOverlay:stopRequested";
 export const DICTATION_OVERLAY_SET_INTERACTIVE =
   "vellum:dictationOverlay:setInteractive";
+
+// Voice activity: the running live-voice session, as the companion surface
+// renders it. The session's window publishes; the surface's window presses.
+export const VOICE_ACTIVITY_START = "vellum:voiceActivity:start";
+export const VOICE_ACTIVITY_UPDATE = "vellum:voiceActivity:update";
+export const VOICE_ACTIVITY_END = "vellum:voiceActivity:end";
+export const VOICE_ACTIVITY_CONTROL = "vellum:voiceActivity:control";
+export const VOICE_ACTIVITY_CONTROL_EVENT = "vellum:voiceActivity:controlEvent";
+
+// Companion surface: the always-present floating avatar
+export const COMPANION_GET_STATE = "vellum:companion:getState";
+export const COMPANION_STATE_EVENT = "vellum:companion:state";
+export const COMPANION_SET_INTERACTIVE = "vellum:companion:setInteractive";
+export const COMPANION_MOVE_BY = "vellum:companion:moveBy";
+export const COMPANION_START_VOICE = "vellum:companion:startVoice";
+export const COMPANION_ACTIVATE = "vellum:companion:activate";
+export const COMPANION_SET_COMPOSING = "vellum:companion:setComposing";
+export const COMPANION_SUBMIT = "vellum:companion:submit";
+export const COMPANION_SET_CONTEXT = "vellum:companion:setContext";
 
 // Popout
 export const POPOUT_OPEN = "vellum:popout:open";

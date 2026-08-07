@@ -45,12 +45,22 @@ mock.module("../bot-username.js", () => ({
 
 let apiBaseUrl = "https://api.telegram.org";
 
+// What the gateway reconciler recorded on its last successful setWebhook.
+// Defaults to the URL the fixtures report from getWebhookInfo, so the common
+// case is a verified match; tests override it to exercise a stale registration
+// and a deployment that never recorded one.
+let registeredWebhookUrl: string | undefined =
+  "https://example.test/webhooks/telegram";
+
 // Spread the real modules below: these are broad barrels shared with peer test
 // files, and replacing one wholesale drops the exports those files import.
 const actualLoader = await import("../../config/loader.js");
 mock.module("../../config/loader.js", () => ({
   ...actualLoader,
-  getConfig: () => ({ telegram: { apiBaseUrl }, ingress: ingressConfig }),
+  getConfig: () => ({
+    telegram: { apiBaseUrl, registeredWebhookUrl },
+    ingress: ingressConfig,
+  }),
   loadRawConfig: () => ({ ingress: ingressConfig }),
 }));
 
@@ -152,6 +162,7 @@ beforeEach(() => {
   fetchCallCount = 0;
   fetchedUrls.length = 0;
   apiBaseUrl = "https://api.telegram.org";
+  registeredWebhookUrl = "https://example.test/webhooks/telegram";
   emittedSignals.length = 0;
   emitFails = false;
   _resetTelegramWebhookHealthState();
@@ -315,6 +326,67 @@ describe("detection", () => {
     const result = await checkTelegramWebhookHealth();
 
     expect(result.status).toBe("unknown");
+  });
+
+  test("reports url_mismatch when Telegram holds an address we did not register", async () => {
+    // The quiet-channel case the module header names as a known limitation:
+    // Telegram only produces delivery errors when it has something to deliver,
+    // so a stale tunnel address never errors and, before this comparison, read
+    // as healthy. No error is set here on purpose.
+    registeredWebhookUrl = "https://current.test/webhooks/telegram";
+    setWebhookInfo({
+      url: "https://stale.test/webhooks/telegram",
+      pending_update_count: 0,
+    });
+
+    const result = await checkTelegramWebhookHealth();
+
+    expect(result.status).toBe("url_mismatch");
+    expect(result.registeredUrl).toBe("https://stale.test/webhooks/telegram");
+    expect(result.expectedUrl).toBe("https://current.test/webhooks/telegram");
+  });
+
+  test("reports url_mismatch ahead of a recent delivery error", async () => {
+    // Both conditions hold. The mismatch is the cause and the error is its
+    // symptom, and they have different fixes, so the mismatch must win.
+    registeredWebhookUrl = "https://current.test/webhooks/telegram";
+    setWebhookInfo({
+      url: "https://stale.test/webhooks/telegram",
+      pending_update_count: 3,
+      last_error_date: Math.floor(Date.now() / 1000),
+      last_error_message: "Connection refused",
+    });
+
+    expect((await checkTelegramWebhookHealth()).status).toBe("url_mismatch");
+  });
+
+  test("reports unverified when nothing recorded which URL we registered", async () => {
+    // Reconciliation has not completed, or predates URL recording. Registered
+    // and quiet, but unproven: this must not report healthy.
+    registeredWebhookUrl = undefined;
+    setWebhookInfo({
+      url: "https://example.test/webhooks/telegram",
+      pending_update_count: 0,
+    });
+
+    const result = await checkTelegramWebhookHealth();
+
+    expect(result.status).toBe("unverified");
+    expect(result.expectedUrl).toBeUndefined();
+  });
+
+  test("an unverified webhook does not alert the guardian", async () => {
+    // Unproven is not broken. Alerting here would page every install whose
+    // last reconciliation predates recording.
+    registeredWebhookUrl = undefined;
+    setWebhookInfo({
+      url: "https://example.test/webhooks/telegram",
+      pending_update_count: 0,
+    });
+
+    await runTelegramWebhookHealthCheck();
+
+    expect(emittedSignals).toHaveLength(0);
   });
 
   test("honors a configured telegram.apiBaseUrl", async () => {

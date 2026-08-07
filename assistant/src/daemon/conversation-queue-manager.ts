@@ -14,6 +14,7 @@ import type { AuthContext } from "../runtime/auth/types.js";
 import { getLogger } from "../util/logger.js";
 import type { UserMessageAttachment } from "./message-protocol.js";
 import type { ConversationTransportMetadata } from "./message-types/conversations.js";
+import type { TrustContext } from "./trust-context-types.js";
 
 const log = getLogger("conversation-queue");
 
@@ -33,6 +34,15 @@ export interface QueuedMessage {
   sourceActorPrincipalId?: string;
   /** Full auth snapshot captured at enqueue time for turn-scoped authorization decisions. */
   authContext?: AuthContext;
+  /**
+   * Sender's trust captured at enqueue time. The conversation-level
+   * `trustContext` is a single mutable slot holding whichever actor last sent
+   * a message, so a drain that read it would run this message under a
+   * different actor's trust whenever another actor sent in between. Trust
+   * governs `trustClass`, `executionChannel`, and `requesterExternalUserId`,
+   * so reading the wrong one misroutes the whole tool-approval path.
+   */
+  trustContext?: TrustContext;
   /** Transport metadata snapshot captured at enqueue time, applied when this message becomes active. */
   transport?: ConversationTransportMetadata;
   /** Original user message text to persist to DB when recording intent stripping produced a different `content`. */

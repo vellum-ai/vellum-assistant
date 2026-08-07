@@ -38,6 +38,16 @@ export const conversations = sqliteTable(
     forkParentConversationId: text("fork_parent_conversation_id"),
     forkParentMessageId: text("fork_parent_message_id"),
     /**
+     * How this conversation's fork was materialized: `reference` means the
+     * rows at-or-before `forkParentMessageId` live on the parent and are read
+     * through it, `cloning` (and NULL, the value every pre-existing fork
+     * carries) means they were physically copied onto this row. Read through
+     * `isReferentialFork` in `conversation-lineage.ts`, never directly: the
+     * NULL-is-cloning default is what keeps existing forks from being read
+     * twice, once from their copies and once through their parent.
+     */
+    forkStrategy: text("fork_strategy"),
+    /**
      * Id of the conversation that spawned this one (subagent spawns stamp
      * their parent's conversation id). Distinct from
      * `forkParentConversationId`, which records message-history inheritance;

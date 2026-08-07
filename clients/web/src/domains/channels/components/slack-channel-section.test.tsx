@@ -35,9 +35,12 @@ const CHANNELS: SlackChannel[] = [
 /** The controller the mocked hook returns; each test seeds it. */
 let controller: ChannelPermissionOverridesController;
 
-mock.module("@/domains/channels/hooks/use-channel-permission-overrides", () => ({
-  useChannelPermissionOverrides: () => controller,
-}));
+mock.module(
+  "@/domains/channels/hooks/use-channel-permission-overrides",
+  () => ({
+    useChannelPermissionOverrides: () => controller,
+  }),
+);
 
 mock.module("@/domains/channels/slack-channels-query", () => ({
   memberSlackChannelsOptions: () => ({
@@ -50,9 +53,8 @@ mock.module("@/lib/threshold-api", () => ({
   getGlobalThresholds: async () => ({ interactive: "low" }),
 }));
 
-const { SlackChannelSection } = await import(
-  "@/domains/channels/components/slack-channel-section"
-);
+const { SlackChannelSection } =
+  await import("@/domains/channels/components/slack-channel-section");
 
 /** A healthy controller: cells loaded, every handler wired. */
 function healthyController(

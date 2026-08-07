@@ -2,19 +2,19 @@ import { Info } from "lucide-react";
 import { useMemo } from "react";
 
 import type { CreditTier, CreditTierEnum } from "@/generated/api/types.gen";
-import { Dropdown } from "@vellumai/design-library/components/dropdown";
+import {
+  Select,
+  type SelectOption,
+} from "@vellumai/design-library/components/select";
 import { Typography } from "@vellumai/design-library/components/typography";
 import { formatMonthly } from "./tier-pricing";
 
 /**
- * Sentinel option value for the synthesized "No credit bundle" entry. The
- * design-library Dropdown is generic over `T extends string`, so it cannot
- * carry a real `null` value — we map this sentinel to/from `null` at the
- * component boundary so callers see a clean `CreditTierEnum | null`.
+ * The catalog types `CreditTier.tier` as `string` while the subscription
+ * types the same concept as `CreditTierEnum` (see `types.gen.ts`), so the
+ * option values cannot be narrower than what the API returns.
  */
-const NO_BUNDLE_VALUE = "__none__";
-
-type CreditOptionValue = CreditTierEnum | typeof NO_BUNDLE_VALUE;
+type CreditOptionValue = string;
 
 /** "50 credits — $50/mo" for a catalog tier. */
 export function formatBundleOptionLabel(tier: CreditTier): string {
@@ -34,13 +34,13 @@ export function CreditBundlePicker({
   onCreditTierChange,
   disabled = false,
 }: CreditBundlePickerProps) {
-  const options = useMemo(() => {
+  const options: SelectOption<CreditOptionValue>[] = useMemo(() => {
     const noBundle = {
-      value: NO_BUNDLE_VALUE as CreditOptionValue,
+      value: null,
       label: `No credit bundle — ${formatMonthly(0)}`,
     };
     const tierOptions = creditTiers.map((t) => ({
-      value: t.tier as CreditOptionValue,
+      value: t.tier,
       label: formatBundleOptionLabel(t),
     }));
     return [noBundle, ...tierOptions];
@@ -60,16 +60,15 @@ export function CreditBundlePicker({
           <Info className="h-3 w-3 text-[var(--content-tertiary)]" />
         </span>
       </div>
-      <Dropdown<CreditOptionValue>
+      <Select<CreditOptionValue>
         aria-label="Credit bundle"
         placeholder="Select a credit bundle"
         disabled={disabled}
-        value={selectedCreditTier ?? NO_BUNDLE_VALUE}
-        onChange={(value) =>
-          onCreditTierChange(
-            value === NO_BUNDLE_VALUE ? null : (value as CreditTierEnum),
-          )
-        }
+        value={selectedCreditTier}
+        // Narrowing the catalog's `string` back to `CreditTierEnum` is
+        // unavoidable while the two disagree; LUM-3093 tracks aligning them.
+        onChange={(value) => onCreditTierChange(value as CreditTierEnum)}
+        onSelectNone={() => onCreditTierChange(null)}
         options={options}
       />
     </div>

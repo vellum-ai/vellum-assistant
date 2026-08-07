@@ -3,7 +3,7 @@ import { useMemo, useState } from "react";
 
 import { Button } from "@vellumai/design-library/components/button";
 import { Checkbox } from "@vellumai/design-library/components/checkbox";
-import { Dropdown } from "@vellumai/design-library/components/dropdown";
+import { Select } from "@vellumai/design-library/components/select";
 import { Modal } from "@vellumai/design-library/components/modal";
 import { Notice } from "@vellumai/design-library/components/notice";
 import { Typography } from "@vellumai/design-library/components/typography";
@@ -55,41 +55,6 @@ export interface BulkOverrideSwapModalProps {
 
 function actionCount(n: number): string {
   return `${n} ${n === 1 ? "action" : "actions"}`;
-}
-
-/** A dropdown with the label the swap dialog puts above both of its pickers. */
-function LabeledSelect({
-  id,
-  label,
-  value,
-  onChange,
-  options,
-  placeholder,
-}: {
-  id: string;
-  label: string;
-  value: string;
-  onChange: (value: string) => void;
-  options: { value: string; label: string }[];
-  placeholder?: string;
-}) {
-  return (
-    <div className="space-y-1">
-      <label
-        id={id}
-        className="block text-body-small-default text-[var(--content-tertiary)]"
-      >
-        {label}
-      </label>
-      <Dropdown
-        aria-labelledby={id}
-        value={value}
-        onChange={onChange}
-        options={options}
-        placeholder={placeholder}
-      />
-    </div>
-  );
 }
 
 // ---------------------------------------------------------------------------
@@ -269,15 +234,15 @@ export function BulkOverrideSwapModal({
           </Typography>
 
           <div className="grid grid-cols-2 gap-3">
-            <LabeledSelect
-              id="bulk-swap-source-label"
+            <Select
+              id="bulk-swap-source"
               label="Currently using"
               value={source}
               onChange={handleSourceChange}
               options={sourceOptions}
             />
-            <LabeledSelect
-              id="bulk-swap-target-label"
+            <Select
+              id="bulk-swap-target"
               label="Change to"
               value={target}
               onChange={setTarget}
@@ -308,7 +273,6 @@ export function BulkOverrideSwapModal({
               </div>
               <Button
                 variant="ghost"
-                size="compact"
                 onClick={() =>
                   setDeselectedIds(
                     allSelected
@@ -353,17 +317,11 @@ export function BulkOverrideSwapModal({
           >
             {actionCount(selectedIds.length)} will change
           </Typography>
-          <Button
-            variant="ghost"
-            size="compact"
-            onClick={onClose}
-            disabled={applying}
-          >
+          <Button variant="ghost" onClick={onClose} disabled={applying}>
             Cancel
           </Button>
           <Button
             variant="primary"
-            size="compact"
             disabled={
               !source || !target || selectedIds.length === 0 || applying
             }

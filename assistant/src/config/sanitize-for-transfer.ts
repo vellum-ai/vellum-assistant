@@ -6,6 +6,7 @@
  * - `ingress.publicBaseUrl` → set to `""`
  * - `ingress.enabled` → deleted
  * - `ingress.publicBaseUrlManagedBy` → deleted
+ * - `telegram.registeredWebhookUrl` → deleted
  * - `daemon` → deleted entirely
  * - `skills.load.extraDirs` → set to `[]`
  * - `hostBrowser.cdpInspect.desktopAuto` → deleted **only when the source
@@ -43,6 +44,16 @@ export function sanitizeConfigForTransfer(configJson: string): string {
     ingress.publicBaseUrl = "";
     delete ingress.enabled;
     delete ingress.publicBaseUrlManagedBy;
+  }
+
+  // Strip the recorded Telegram webhook URL. It records where *this*
+  // deployment pointed Telegram, so carrying it across a teleport would have
+  // the destination compare its own registration against the source's address
+  // and report a mismatch on a channel that is fine. Absent, the health sweep
+  // reports unverified until the destination reconciles and records its own.
+  if (config.telegram && typeof config.telegram === "object") {
+    const telegram = config.telegram as Record<string, unknown>;
+    delete telegram.registeredWebhookUrl;
   }
 
   // Strip daemon entirely

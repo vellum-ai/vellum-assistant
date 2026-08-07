@@ -34,6 +34,17 @@ const ASSISTANT_SETUP_PROMPTS: Record<SetupChannelId, string> = {
   phone: "I want to be able to call you. Let's set you up with a phone number.",
 };
 
+/**
+ * Sent instead when a channel holds credentials but is not working. Setup got
+ * part way, so asking to start over describes the wrong problem and tells the
+ * assistant to do the wrong thing.
+ */
+const ASSISTANT_FINISH_PROMPTS: Record<SetupChannelId, string> = {
+  slack: "Slack is set up but not working. Can you finish it off?",
+  telegram: "Telegram is set up but not working. Can you finish it off?",
+  phone: "My phone number is set up but not working. Can you finish it off?",
+};
+
 const READINESS_REFETCH_MS = 15000;
 
 export interface UseAssistantChannelsOptions {
@@ -181,11 +192,15 @@ export function useAssistantChannels({
   );
 
   const handleSetup = useCallback(
-    (channelKey: SetupChannelId) => {
+    (channelKey: SetupChannelId, incomplete = false) => {
       if (!onStartSetupConversation) {
         return;
       }
-      onStartSetupConversation(ASSISTANT_SETUP_PROMPTS[channelKey]);
+      onStartSetupConversation(
+        incomplete
+          ? ASSISTANT_FINISH_PROMPTS[channelKey]
+          : ASSISTANT_SETUP_PROMPTS[channelKey],
+      );
     },
     [onStartSetupConversation],
   );

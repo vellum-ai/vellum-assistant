@@ -33,9 +33,8 @@ mock.module("@/runtime/platform-detection", () => ({
 const env = import.meta.env as Record<string, string | undefined>;
 env.VITE_SESSION_REPLAY_APP_ID = "example/app";
 
-const { initSessionReplay } = await import(
-  "@/lib/session-replay/session-replay-init"
-);
+const { initSessionReplay } =
+  await import("@/lib/session-replay/session-replay-init");
 
 beforeEach(() => {
   syncedConfig = undefined;
@@ -52,8 +51,16 @@ describe("initSessionReplay surface selection", () => {
 
   test("uses macOS in Electron", () => {
     electron = true;
+    clientOs = "macos";
     initSessionReplay();
     expect(syncedConfig?.surface).toBe("macos");
+  });
+
+  test("uses Windows in Electron", () => {
+    electron = true;
+    clientOs = "windows";
+    initSessionReplay();
+    expect(syncedConfig?.surface).toBe("windows");
   });
 
   test("uses iOS in the native iOS shell", () => {

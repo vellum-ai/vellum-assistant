@@ -386,9 +386,24 @@ function operationalStatusBannerConfig(
 
 function localHealthBannerConfig(
   health: LocalAssistantHealth | null,
+  isPaired: boolean,
   wakeAction?: ReactNode,
   wakeError?: ReactNode,
 ): BannerConfig | null {
+  // A paired entry is reached over a tunnel to a remote host, so a failed
+  // health probe only proves the link is down; there is no meaningful
+  // sleeping/unreachable distinction, and Wake can't help from here. Wake is
+  // never offered for paired entries, so any wakeError belongs to a
+  // previously-viewed local assistant and must not color this banner.
+  if (isPaired && (health === "sleeping" || health === "unreachable")) {
+    return {
+      tone: "neutral",
+      title: "Your assistant can't be reached",
+      icon: <CloudOff className="h-4 w-4" aria-hidden="true" />,
+      children:
+        "The connection to the paired assistant's host is down. Check the host machine and its tunnel.",
+    };
+  }
   switch (health) {
     case "sleeping":
       return {
@@ -531,6 +546,16 @@ function useAssistantBannerConfig(): BannerConfig | null {
     operationalStatusAssistantId ??
     activeAssistantId ??
     selectedOperationalStatusAssistantId;
+  // Paired entries (`cloud: "paired"`) are reached over a tunnel to a remote
+  // host; their local-health banners get link-down copy and no wake action.
+  const isPairedActiveAssistant = useMemo(
+    () =>
+      assistants.some(
+        (assistant) =>
+          assistant.id === activeAssistantId && assistant.isPaired === true,
+      ),
+    [assistants, activeAssistantId],
+  );
   const showDoctorAction =
     assistantState.kind === "active" &&
     !assistantState.isLocal &&
@@ -803,8 +828,13 @@ function useAssistantBannerConfig(): BannerConfig | null {
 
   // A local / self-hosted assistant can surface where local-mode operations
   // aren't available (managed web, remote-web tunnel). There's no transport to
-  // wake it from here, so the banner is informative and action-free.
-  if (!isLocalModeHostAvailable() && canWakeLocalHealth(localHealth)) {
+  // wake it from here, so the banner is informative and action-free. Paired
+  // entries fall through to their own "can't be reached" banner instead.
+  if (
+    !isPairedActiveAssistant &&
+    !isLocalModeHostAvailable() &&
+    canWakeLocalHealth(localHealth)
+  ) {
     return {
       tone: "neutral",
       title: "Your assistant runs locally",
@@ -814,14 +844,19 @@ function useAssistantBannerConfig(): BannerConfig | null {
     };
   }
 
+  // Wake state is not keyed by assistant, so an in-flight wake started for a
+  // local assistant must not rewrite a paired entry's health to "starting".
   const effectiveLocalHealth =
     (isWakingLocalAssistant || isLocalWakeSettling) &&
+    !isPairedActiveAssistant &&
     canWakeLocalHealth(localHealth)
       ? "starting"
       : localHealth;
   // Only offer "Wake up" when the CLI can actually start this assistant —
-  // `vellum wake` works on plain local entries, not Docker/apple-container.
+  // `vellum wake` works on plain local entries, not Docker/apple-container,
+  // and never a paired entry (the remote host isn't ours to start).
   const localWakeAction =
+    !isPairedActiveAssistant &&
     canWakeLocalHealth(effectiveLocalHealth) &&
     !!activeAssistantId &&
     isCliWakeableAssistant(activeAssistantId) ? (
@@ -843,6 +878,7 @@ function useAssistantBannerConfig(): BannerConfig | null {
     ) : undefined;
   const localHealthBanner = localHealthBannerConfig(
     effectiveLocalHealth,
+    isPairedActiveAssistant,
     localWakeAction,
     wakeLocalAssistantError,
   );

@@ -28,7 +28,10 @@ import { deliverChannelReply } from "../runtime/gateway-client.js";
 import { introductionMode } from "../runtime/introduction-policy.js";
 import * as pendingInteractions from "../runtime/pending-interactions.js";
 import { getLogger } from "../util/logger.js";
-import { resolveDeliverCallbackUrlForChannel } from "./guardian-channel-delivery.js";
+import {
+  resolveDeliverCallbackUrlForChannel,
+  resolveRequesterDeliveryTarget,
+} from "./guardian-channel-delivery.js";
 
 const log = getLogger("guardian-expiry-notifier");
 
@@ -108,9 +111,10 @@ function releaseExpiredInteraction(request: GuardianRequestWire): void {
  *
  * The sweep is timer-driven and holds no inbound reply callback URL, so this
  * mirrors the resolvers' off-channel (desktop) delivery path: post to the
- * callback-less `/deliver/<channel>` route. On Slack the notice is routed to
- * the requester's DM via their user id rather than the channel id, so it is
- * never posted into a shared channel. No-ops on channels without a deliverable
+ * callback-less `/deliver/<channel>` route. On Slack and Discord the notice is
+ * routed to the requester's DM via their user id rather than the channel id,
+ * so it is never posted into a shared channel (see
+ * `resolveRequesterDeliveryTarget`). No-ops on channels without a deliverable
  * route (e.g. email, the in-app vellum surface) or when the requester chat is
  * unknown. Best-effort: a delivery failure is logged, never thrown.
  */
@@ -128,13 +132,11 @@ async function notifyRequesterOfExpiry(
     return;
   }
 
-  // On Slack, target the requester's DM (their `U…` user id) instead of the
-  // channel id so the expiry notice stays private. Other channels deliver to
-  // the requester chat directly.
-  const targetChatId =
-    channel === "slack" && requesterExternalUserId
-      ? requesterExternalUserId
-      : requesterChatId;
+  const targetChatId = resolveRequesterDeliveryTarget({
+    channel,
+    requesterChatId,
+    requesterExternalUserId,
+  });
 
   try {
     await deliverChannelReply(deliverUrl, {

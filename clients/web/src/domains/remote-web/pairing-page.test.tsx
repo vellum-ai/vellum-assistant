@@ -11,15 +11,26 @@ import { MemoryRouter } from "react-router";
 import type { RemoteWebPairingTokenResult } from "@/lib/auth/remote-gateway-session";
 
 let remoteGatewayMode = false;
+let injectedAssistantName: string | undefined;
+let injectedHubUrl: string | undefined;
 let nativePlatform = false;
 let nativePlatformName: "ios" | "android" = "ios";
+const nativeSwitchToOriginPathMock = mock(
+  async (_url: string | null, _path: string) => false,
+);
 
 mock.module("@/lib/local-mode", () => ({
   isRemoteGatewayMode: () => remoteGatewayMode,
+  getRemoteGatewayAssistantName: () => injectedAssistantName,
+  getRemoteGatewayHubUrl: () => injectedHubUrl,
 }));
 
 mock.module("@/runtime/native-auth", () => ({
   isNativePlatform: () => nativePlatform,
+}));
+
+mock.module("@/runtime/self-hosted-servers", () => ({
+  nativeSwitchToOriginPath: nativeSwitchToOriginPathMock,
 }));
 
 mock.module("@capacitor/core", () => ({
@@ -125,12 +136,16 @@ const { RemoteWebPairingPage } =
 afterEach(() => {
   cleanup();
   remoteGatewayMode = false;
+  injectedAssistantName = undefined;
+  injectedHubUrl = undefined;
   nativePlatform = false;
   nativePlatformName = "ios";
   setUserAgent(ORIGINAL_USER_AGENT);
   exchangeRemoteWebPairingTokenMock.mockClear();
   createRemoteWebPairingChallengeMock.mockClear();
   activateRemoteGatewaySessionMock.mockClear();
+  nativeSwitchToOriginPathMock.mockReset();
+  nativeSwitchToOriginPathMock.mockImplementation(async () => false);
 });
 
 describe("RemoteWebPairingPage", () => {
@@ -167,6 +182,138 @@ describe("RemoteWebPairingPage", () => {
       AbortSignal,
     );
     expect(createRemoteWebPairingChallengeMock).not.toHaveBeenCalled();
+  });
+
+  test("cancel leaves the origin for the hub chooser", async () => {
+    remoteGatewayMode = true;
+    injectedHubUrl = "https://hub.example.com/assistant";
+    const assignMock = mock((_url: string) => {});
+    const originalAssign = window.location.assign;
+    Object.defineProperty(window.location, "assign", {
+      value: assignMock,
+      configurable: true,
+    });
+
+    try {
+      render(
+        <MemoryRouter
+          initialEntries={["/assistant/pair?deviceCode=device-1&userCode=ABCD"]}
+        >
+          <RemoteWebPairingPage />
+        </MemoryRouter>,
+      );
+
+      expect(await screen.findByText("Waiting for approval")).not.toBeNull();
+      fireEvent.click(screen.getByText("Cancel"));
+
+      // An in-app navigate would be bounced back here by the remote-gateway
+      // pairing guard, so cancelling must cross to the hub's own origin.
+      await waitFor(() => {
+        expect(assignMock.mock.calls[0]?.[0]).toBe(
+          "https://hub.example.com/assistant/select-assistant?noAutoSkip=1",
+        );
+      });
+    } finally {
+      Object.defineProperty(window.location, "assign", {
+        value: originalAssign,
+        configurable: true,
+      });
+    }
+  });
+
+  test("cancel uses the native origin switch when available", async () => {
+    remoteGatewayMode = true;
+    injectedHubUrl = "https://hub.example.com/assistant";
+    nativePlatform = true;
+    nativeSwitchToOriginPathMock.mockResolvedValueOnce(true);
+    const assignMock = mock((_url: string) => {});
+    const originalAssign = window.location.assign;
+    Object.defineProperty(window.location, "assign", {
+      value: assignMock,
+      configurable: true,
+    });
+
+    try {
+      render(
+        <MemoryRouter
+          initialEntries={["/assistant/pair?deviceCode=device-1&userCode=ABCD"]}
+        >
+          <RemoteWebPairingPage />
+        </MemoryRouter>,
+      );
+
+      expect(await screen.findByText("Waiting for approval")).not.toBeNull();
+      fireEvent.click(screen.getByText("Cancel"));
+
+      await waitFor(() => {
+        expect(nativeSwitchToOriginPathMock).toHaveBeenCalledWith(
+          null,
+          "select-assistant?noAutoSkip=1",
+        );
+      });
+      expect(assignMock).not.toHaveBeenCalled();
+    } finally {
+      Object.defineProperty(window.location, "assign", {
+        value: originalAssign,
+        configurable: true,
+      });
+    }
+  });
+
+  test("cancel falls back when the native shell lacks path switching", async () => {
+    remoteGatewayMode = true;
+    injectedHubUrl = "https://hub.example.com/assistant";
+    nativePlatform = true;
+    const assignMock = mock((_url: string) => {});
+    const originalAssign = window.location.assign;
+    Object.defineProperty(window.location, "assign", {
+      value: assignMock,
+      configurable: true,
+    });
+
+    try {
+      render(
+        <MemoryRouter
+          initialEntries={["/assistant/pair?deviceCode=device-1&userCode=ABCD"]}
+        >
+          <RemoteWebPairingPage />
+        </MemoryRouter>,
+      );
+
+      expect(await screen.findByText("Waiting for approval")).not.toBeNull();
+      fireEvent.click(screen.getByText("Cancel"));
+
+      await waitFor(() => {
+        expect(nativeSwitchToOriginPathMock).toHaveBeenCalledWith(
+          null,
+          "select-assistant?noAutoSkip=1",
+        );
+        expect(assignMock.mock.calls[0]?.[0]).toBe(
+          "https://hub.example.com/assistant/select-assistant?noAutoSkip=1",
+        );
+      });
+    } finally {
+      Object.defineProperty(window.location, "assign", {
+        value: originalAssign,
+        configurable: true,
+      });
+    }
+  });
+
+  test("cancel is hidden when the served config names no hub", async () => {
+    remoteGatewayMode = true;
+    injectedHubUrl = undefined;
+
+    render(
+      <MemoryRouter
+        initialEntries={["/assistant/pair?deviceCode=device-1&userCode=ABCD"]}
+      >
+        <RemoteWebPairingPage />
+      </MemoryRouter>,
+    );
+
+    expect(await screen.findByText("Waiting for approval")).not.toBeNull();
+    expect(screen.queryByText("Cancel")).toBeNull();
   });
 
   test("shows progress state while creating a challenge", () => {
@@ -354,6 +501,8 @@ describe("RemoteWebPairingPage", () => {
     const query = new URLSearchParams(href.slice(href.indexOf("?") + 1));
     expect(query.get("url")).toBe(window.location.origin);
     expect(query.get("code")).toBe("device-1");
+    // The served config carries no assistant name, so the link omits it.
+    expect(query.has("name")).toBe(false);
 
     // The single-use code stays unspent while the choice is pending.
     expect(exchangeRemoteWebPairingTokenMock).not.toHaveBeenCalled();
@@ -391,6 +540,51 @@ describe("RemoteWebPairingPage", () => {
     );
     expect(androidIntentFallback(href)).toBe(window.location.href);
     expect(exchangeRemoteWebPairingTokenMock).not.toHaveBeenCalled();
+  });
+
+  test("the app handoff url carries the assistant name from the served config", async () => {
+    remoteGatewayMode = true;
+    injectedAssistantName = "My Homelab";
+    setUserAgent(IPHONE_USER_AGENT);
+
+    render(
+      <MemoryRouter
+        initialEntries={["/assistant/pair?deviceCode=device-1&userCode=ABCD"]}
+      >
+        <RemoteWebPairingPage />
+      </MemoryRouter>,
+    );
+
+    const link = await screen.findByRole("link", {
+      name: "Open in the Vellum app",
+    });
+    const href = link.getAttribute("href") ?? "";
+    const query = new URLSearchParams(href.slice(href.indexOf("?") + 1));
+    expect(query.get("name")).toBe("My Homelab");
+    expect(query.get("code")).toBe("device-1");
+    // Spaces are percent-encoded, not form-encoded: iOS URLComponents keeps
+    // a raw `+` as a literal plus.
+    expect(href).toContain("name=My%20Homelab");
+  });
+
+  test("the Android app handoff url carries the assistant name too", async () => {
+    remoteGatewayMode = true;
+    injectedAssistantName = "My Homelab";
+    setUserAgent(ANDROID_USER_AGENT);
+
+    render(
+      <MemoryRouter
+        initialEntries={["/assistant/pair?deviceCode=device-1&userCode=ABCD"]}
+      >
+        <RemoteWebPairingPage />
+      </MemoryRouter>,
+    );
+
+    const link = await screen.findByRole("link", {
+      name: "Open in the Vellum app",
+    });
+    const href = link.getAttribute("href") ?? "";
+    expect(androidIntentQuery(href).get("name")).toBe("My Homelab");
   });
 
   test("the app handoff url keeps a served path prefix", async () => {

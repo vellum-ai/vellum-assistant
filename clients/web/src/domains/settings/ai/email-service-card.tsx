@@ -14,7 +14,7 @@ import { captureError } from "@/lib/sentry/capture-error";
 import { useEnvironmentStore } from "@/stores/environment-store";
 import { shouldRetryDaemonError } from "@/utils/daemon-errors";
 import { getLocalSetting, setLocalSetting } from "@/utils/local-settings";
-import { Dropdown } from "@vellumai/design-library/components/dropdown";
+import { Select } from "@vellumai/design-library/components/select";
 import { toast } from "@vellumai/design-library/components/toast";
 
 import { ByoServiceCard, ServiceCard } from "@/domains/settings/ai/shared-ui";
@@ -152,7 +152,7 @@ export function EmailServiceCard() {
         <label className="block text-body-small-default text-[var(--content-tertiary)]">
           Provider
         </label>
-        <Dropdown
+        <Select
           value={byoProviderId}
           onChange={(val) => {
             if (val === "mailgun" || val === "resend") {

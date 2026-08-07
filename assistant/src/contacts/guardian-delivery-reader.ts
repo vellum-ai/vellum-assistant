@@ -181,6 +181,33 @@ export async function getGuardianDeliveryFresh(input?: {
   });
 }
 
+type GuardianDeliveryFetch = (input?: {
+  channelTypes?: string[];
+}) => Promise<unknown>;
+
+/**
+ * Warm both guardian-binding cache keys the sync persona resolvers read: the
+ * `"vellum"`-channel key for `peekGuardianForChannel("vellum")` and the
+ * unfiltered key for the `peekAnyGuardian()` fallback. Warming only one key
+ * still resolves `users/default.md` when the guardian lives on a non-vellum
+ * channel (phone / Telegram).
+ *
+ * Uses the FRESH reader so warmup bypasses a stale/empty cached entry: a
+ * gateway-side binding write (onboarding, rebind) does not invalidate the
+ * daemon cache, so a non-fresh read could return an empty binding cached
+ * before the guardian existed and freeze `users/default.md` until the TTL
+ * expires. The fresh reads repopulate the cache the sync `peek*` resolvers
+ * then read. Best-effort: the reader swallows failures.
+ */
+export async function warmGuardianBindings(
+  fetchDelivery: GuardianDeliveryFetch = getGuardianDeliveryFresh,
+): Promise<void> {
+  await Promise.all([
+    fetchDelivery({ channelTypes: ["vellum"] }),
+    fetchDelivery(),
+  ]);
+}
+
 /**
  * Clear ALL cached guardian deliveries so contact mutations refetch on the next
  * read. Called by {@link notifyContactsChanged} after a contact write, and

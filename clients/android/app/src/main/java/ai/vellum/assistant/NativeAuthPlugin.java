@@ -293,13 +293,37 @@ public class NativeAuthPlugin extends Plugin {
                 }
 
                 JSONObject sessionBody = WorkOSAuth.providerTokenRequestBody(expected.clientId, accessToken);
-                String sessionResponse = postJson(
-                    buildPlatformURL(expected.baseURL, PROVIDER_TOKEN_PATH),
-                    sessionBody
-                );
+                String sessionResponse;
+                try {
+                    sessionResponse = postJson(
+                        buildPlatformURL(expected.baseURL, PROVIDER_TOKEN_PATH),
+                        sessionBody
+                    );
+                } catch (HttpException e) {
+                    // A non-200 here is the platform refusing the sign-in —
+                    // signups closed, an unlinked provider account, a step this
+                    // shell cannot run. Carry its cause across so the login
+                    // screen can say which, and name the status in the message
+                    // either way so a failure we have not classified is still
+                    // diagnosable from a report.
+                    String authError = WorkOSAuth.sessionExchangeErrorCode(e.status, e.body);
+                    JSObject data = null;
+                    if (authError != null) {
+                        data = new JSObject();
+                        data.put("authError", authError);
+                    }
+                    rejectFlow(
+                        expected,
+                        "Session exchange failed (HTTP " + e.status + ")",
+                        authError == null ? null : AUTH_ERROR_CODE,
+                        data
+                    );
+                    return;
+                }
+
                 String sessionToken = WorkOSAuth.sessionToken(sessionResponse);
                 if (sessionToken == null) {
-                    rejectFlow(expected, "Session exchange returned invalid response", null, null);
+                    rejectFlow(expected, "Session exchange returned no session token", null, null);
                     return;
                 }
 
@@ -315,7 +339,7 @@ public class NativeAuthPlugin extends Plugin {
         try {
             int status = connection.getResponseCode();
             if (status != HttpURLConnection.HTTP_OK) {
-                throw new IOException("HTTP " + status);
+                throw new HttpException(status, readErrorBody(connection));
             }
             return readBody(connection.getInputStream());
         } finally {
@@ -337,7 +361,7 @@ public class NativeAuthPlugin extends Plugin {
 
             int status = connection.getResponseCode();
             if (status != HttpURLConnection.HTTP_OK) {
-                throw new IOException("HTTP " + status);
+                throw new HttpException(status, readErrorBody(connection));
             }
             return readBody(connection.getInputStream());
         } finally {
@@ -361,6 +385,23 @@ public class NativeAuthPlugin extends Plugin {
             .encodedPath(path)
             .build();
         return new URL(uri.toString());
+    }
+
+    /**
+     * The error body of a failed response, or {@code null} when there is none or it
+     * cannot be read. Best-effort by design: the status alone already classifies
+     * most failures, and losing the body must never mask the status.
+     */
+    private String readErrorBody(HttpURLConnection connection) {
+        InputStream stream = connection.getErrorStream();
+        if (stream == null) {
+            return null;
+        }
+        try {
+            return readBody(stream);
+        } catch (IOException e) {
+            return null;
+        }
     }
 
     private String readBody(InputStream stream) throws IOException {
@@ -565,6 +606,22 @@ public class NativeAuthPlugin extends Plugin {
     private interface ClientIdCallback {
         void onSuccess(String clientId);
         void onFailure(String message);
+    }
+
+    /**
+     * A non-200 HTTP response, carrying the status and error body so a caller can
+     * classify the failure. Still an {@link IOException}, so existing catch sites
+     * that only want "the request failed" keep working unchanged.
+     */
+    private static final class HttpException extends IOException {
+        final int status;
+        final String body;
+
+        HttpException(int status, String body) {
+            super("HTTP " + status);
+            this.status = status;
+            this.body = body;
+        }
     }
 
     private static final class AuthFlow {

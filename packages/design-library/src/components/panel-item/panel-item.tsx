@@ -49,6 +49,15 @@ import { MarqueeText } from "./marquee-text";
  * provides the interactive state layer (hover, active, focus-ring,
  * aria-current, `group` modifier).
  *
+ * ### `shape`
+ *
+ * - `"row"` (default): a full-width 6px-radius row, for lists and nav trees.
+ * - `"pill"`: a capsule that hugs its content and carries a resting
+ *   `--surface-lift` surface, for navigation chips that sit inline rather
+ *   than filling a column. Everything else (hover, active, badge, trailing
+ *   action, link/button semantics) is unchanged, which is the point: a pill
+ *   is a differently-shaped row, not a different component.
+ *
  * ### `activeVariant`
  *
  * Controls how the active (`aria-current="page"`) state is styled:
@@ -103,6 +112,13 @@ interface PanelItemProps {
    * layout space next to `badge`, which reads as broken.
    */
   trailingAction?: ReactNode;
+  /**
+   * Row geometry.
+   * - `"row"` fills its container at a 6px radius.
+   * - `"pill"` hugs its content as a capsule on `--surface-lift`.
+   * @default "row"
+   */
+  shape?: "row" | "pill";
   /** Selected state. Sets `aria-current="page"` automatically. */
   active?: boolean;
   /**
@@ -137,6 +153,16 @@ interface PanelItemProps {
    * Radix `Slot`. When true, pass exactly one child element; PanelItem's own
    * `href` and `onSelect` props are ignored.
    */
+  /**
+   * This row is a control whose activation a parent owns - a popover or
+   * bottom-sheet trigger cloning it via `asChild`. Renders the same
+   * interactive shell `onSelect` does (role, tab stop, focus ring, pointer)
+   * without taking a handler, because the parent supplies `onClick` and
+   * `onKeyDown` itself. Without it the row renders as an inert `<div>`: the
+   * parent's handlers still land, so it works by mouse, and silently loses
+   * keyboard and screen-reader access.
+   */
+  trigger?: boolean;
   asChild?: boolean;
   /** Children. Required when `asChild` is true; ignored otherwise. */
   children?: ReactNode;
@@ -148,7 +174,11 @@ interface PanelItemProps {
 // ---------------------------------------------------------------------------
 
 const ROW_BASE_CLASSES = [
-  "group relative",
+  /* Named as well as bare: slot content targets this row with
+     `group-hover/panel-item:`, which an unnamed group does not match, and
+     existing callers still rely on plain `group-hover:`. Both markers, so
+     neither form silently stops working. */
+  "group/panel-item group relative",
   "flex h-8 max-md:h-auto w-full items-center justify-between",
   "rounded-[6px] p-[8px] max-md:py-3 gap-[4px]",
   "text-left text-body-medium-lighter max-md:text-body-large-default",
@@ -159,13 +189,65 @@ const ROW_BASE_CLASSES = [
 ].join(" ");
 
 const INTERACTIVE_CLASSES = [
-  "[@media(hover:hover)]:hover:bg-[var(--surface-hover)]",
   "keyboard-focus:ring-2 keyboard-focus:ring-[var(--ring)]",
   "cursor-pointer select-none",
 ].join(" ");
 
+/**
+ * The hover surface, which differs by shape because the shapes rest on
+ * different things. A row rests transparent, where `--surface-hover` - a 6%
+ * translucent overlay - is exactly what it was built for. A pill rests on
+ * `--surface-lift`, where that same overlay composites *darker* than the
+ * resting surface and the pill reads as having no hover at all;
+ * `--surface-active` is the step up from lifted.
+ *
+ * Both stay overridable through `--panel-item-hover`, so a tinted pill still
+ * supplies its own lightened hue and never reaches either fallback.
+ */
+const ROW_HOVER_CLASS =
+  "[@media(hover:hover)]:hover:bg-[var(--panel-item-hover,var(--surface-hover))]";
+const PILL_HOVER_CLASS =
+  "[@media(hover:hover)]:hover:bg-[var(--panel-item-hover,var(--surface-active))]";
+
+/**
+ * {@link PanelItemProps.shape} `"pill"`: a capsule that sizes to its content
+ * and carries a resting surface, so it reads as a chip sitting in a column
+ * rather than a row filling one. Radius, width, and surface only, so hover,
+ * active, and every slot behave exactly as they do on a row.
+ *
+ * `w-fit` rather than `w-auto`: the root is a block-level flex container, and
+ * `width: auto` on one fills its containing block, so a pill would stretch to
+ * row width in every ordinary layout. `width: fit-content` shrink-wraps while
+ * leaving `display: flex` alone, which the row's internal layout depends on.
+ */
+/**
+ * A pill reads three optional custom properties, each falling back to the
+ * untinted surface, so a caller can tint one without this component taking a
+ * colour prop or a caller reaching in with `style` overrides:
+ *
+ * - `--panel-item-bg` — resting surface
+ * - `--panel-item-hover` — hover surface
+ * - `--panel-item-fg` — foreground paired with the above for contrast
+ *
+ * Follows the recipe the identity page already uses for avatar-tinted
+ * surfaces (`--card-bg` / `--card-hover` / `--card-flood-fg`): declare the
+ * colours on an ancestor, consume them here through a fallback, and the
+ * whole treatment collapses to the default when nothing declares them.
+ */
+const PILL_SHAPE_CLASSES = [
+  "w-fit rounded-full",
+  "bg-[var(--panel-item-bg,var(--surface-lift))]",
+  "text-[color:var(--panel-item-fg,inherit)]",
+].join(" ");
+
+/* The active surface reads the same tint properties the resting one does, so
+   a tinted pill stays tinted while active. Without that, this rule and the
+   resting `--panel-item-bg` are different variants - tailwind-merge keeps
+   both, and the aria one wins whenever it applies, dropping the tint at
+   exactly the moment the row is the current page. Untinted callers reach
+   `--surface-active` as before. */
 const ACTIVE_DEFAULT_CLASSES = [
-  "aria-[current=page]:bg-[var(--surface-active)]",
+  "aria-[current=page]:bg-[var(--panel-item-active,var(--panel-item-bg,var(--surface-active)))]",
   "aria-[current=page]:text-[var(--content-emphasised)]",
 ].join(" ");
 
@@ -191,8 +273,7 @@ const ICON_ACTIVE_BRANDED =
 
 const LABEL_CLASSES = "min-w-0 flex-1 truncate";
 
-const EXPAND_CHEVRON_CLASSES =
-  "shrink-0 text-[var(--content-tertiary)]";
+const EXPAND_CHEVRON_CLASSES = "shrink-0 text-[var(--content-tertiary)]";
 
 const RIGHT_CLUSTER_CLASSES = "flex items-center gap-2 shrink-0";
 
@@ -248,6 +329,7 @@ function PanelItem({
   badge,
   badgeBare = false,
   trailingAction,
+  shape = "row",
   active = false,
   activeVariant = "default",
   disabled = false,
@@ -256,6 +338,7 @@ function PanelItem({
   marqueeOnHover = false,
   className,
   "aria-label": ariaLabel,
+  trigger = false,
   asChild = false,
   children,
   ref,
@@ -269,11 +352,19 @@ function PanelItem({
     activeVariant === "branded" ? ICON_ACTIVE_BRANDED : ICON_ACTIVE_DEFAULT;
 
   const leadingIcon =
-    leadingSlot !== undefined
-      ? leadingSlot
-      : Icon
-        ? <Icon size={14} aria-hidden className={cn("max-md:size-4", LEADING_ICON_BASE_CLASSES, iconActiveClass)} />
-        : null;
+    leadingSlot !== undefined ? (
+      leadingSlot
+    ) : Icon ? (
+      <Icon
+        size={14}
+        aria-hidden
+        className={cn(
+          "max-md:size-4",
+          LEADING_ICON_BASE_CLASSES,
+          iconActiveClass,
+        )}
+      />
+    ) : null;
 
   const labelNode = marqueeOnHover ? (
     <MarqueeText>{label}</MarqueeText>
@@ -282,11 +373,7 @@ function PanelItem({
   );
 
   const expandChevronNode = ExpandChevron ? (
-    <ExpandChevron
-      size={12}
-      aria-hidden
-      className={EXPAND_CHEVRON_CLASSES}
-    />
+    <ExpandChevron size={12} aria-hidden className={EXPAND_CHEVRON_CLASSES} />
   ) : null;
 
   const badgeNode =
@@ -328,12 +415,16 @@ function PanelItem({
   );
 
   const activeClasses =
-    activeVariant === "branded" ? ACTIVE_BRANDED_CLASSES : ACTIVE_DEFAULT_CLASSES;
-  const isInteractive = asChild || !!href || !!onSelect;
+    activeVariant === "branded"
+      ? ACTIVE_BRANDED_CLASSES
+      : ACTIVE_DEFAULT_CLASSES;
+  const isInteractive = asChild || !!href || !!onSelect || trigger;
   const rowClasses = cn(
     ROW_BASE_CLASSES,
     isInteractive && INTERACTIVE_CLASSES,
+    isInteractive && (shape === "pill" ? PILL_HOVER_CLASS : ROW_HOVER_CLASS),
     activeClasses,
+    shape === "pill" && PILL_SHAPE_CLASSES,
     className,
   );
 
@@ -395,7 +486,7 @@ function PanelItem({
   // screen-reader semantics are preserved via `role="button"` + `tabIndex`.
   // `disabled` is honored via `aria-disabled` + skipped activation +
   // `tabIndex={-1}`, matching native `<button disabled>` behavior.
-  if (onSelect) {
+  if (onSelect || trigger) {
     const {
       onClick: rowOnClick,
       onKeyDown: rowOnKeyDown,
@@ -409,7 +500,7 @@ function PanelItem({
       }
       rowOnClick?.(event);
       if (!event.defaultPrevented) {
-        onSelect();
+        onSelect?.();
       }
     };
 
@@ -418,6 +509,10 @@ function PanelItem({
       rowOnKeyDown?.(event);
       if (event.defaultPrevented) return;
       if (event.key === "Enter" || event.key === " ") {
+        /* A trigger has no handler of its own; the parent's `onKeyDown` above
+           has already run and is what opens it. Preventing default here would
+           swallow the space key for it. */
+        if (!onSelect) return;
         event.preventDefault();
         onSelect();
       }
@@ -465,4 +560,3 @@ export {
   ACTIVE_DEFAULT_CLASSES,
   ACTIVE_BRANDED_CLASSES,
 };
-

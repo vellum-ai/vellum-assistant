@@ -120,12 +120,16 @@ const ButtonMock = ({
 const TypographyMock = ({ children, ...rest }: Record<string, unknown>) =>
   createElement("span", rest, children as ReactNode);
 
+// `mock.module` replaces the module process-wide, so the stub also carries
+// the `toast` export other modules pull from this entry point. Without it,
+// any test file loaded after this one fails to resolve it.
 mock.module("@vellumai/design-library", () => ({
   Menu: MenuMock,
   BottomSheet: BottomSheetMock,
   PanelItem: PanelItemMock,
   Button: ButtonMock,
   Typography: TypographyMock,
+  toast: { success: () => {}, error: () => {} },
 }));
 
 const { AppNavBar } = await import("@/components/app-nav-bar");
@@ -364,5 +368,111 @@ describe("AppNavBar share + deploy", () => {
     );
     expect(html).toContain("disabled");
     expect(html).toContain("lucide-loader");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Already-deployed state
+//
+// Once an app has an active Vercel deployment the affordance stops offering a
+// first-time deploy: it reports the deployment and hands the link back, with
+// redeploying moved to its own entry.
+// ---------------------------------------------------------------------------
+
+describe("AppNavBar deployed state", () => {
+  const DEPLOYED_URL = "https://my-app.vercel.app";
+
+  test("reports the deployment and offers Redeploy instead of Deploy (desktop)", () => {
+    mockIsMobile = false;
+    const html = renderToStaticMarkup(
+      <AppNavBar
+        appName="My App"
+        onClose={() => {}}
+        onShare={() => {}}
+        onDeploy={() => {}}
+        deployedUrl={DEPLOYED_URL}
+        onCopyDeployedLink={() => {}}
+      />,
+    );
+    expect(html).toContain(">Deployed to Vercel<");
+    expect(html).toContain(">Redeploy<");
+    expect(html).not.toContain(">Deploy to Vercel<");
+  });
+
+  test("shows the deployed URL in the mobile sheet", () => {
+    mockIsMobile = true;
+    const html = renderToStaticMarkup(
+      <AppNavBar
+        appName="My App"
+        onClose={() => {}}
+        onShare={() => {}}
+        onDeploy={() => {}}
+        deployedUrl={DEPLOYED_URL}
+        onCopyDeployedLink={() => {}}
+      />,
+    );
+    expect(html).toContain("Deployed to Vercel");
+    expect(html).toContain(DEPLOYED_URL);
+    expect(html).toContain("Redeploy");
+    expect(html).not.toContain("Publish as a static page");
+  });
+
+  test("falls back to the deploy entry when no link can be handed back", () => {
+    mockIsMobile = false;
+    const html = renderToStaticMarkup(
+      <AppNavBar
+        appName="My App"
+        onClose={() => {}}
+        onShare={() => {}}
+        onDeploy={() => {}}
+        deployedUrl={DEPLOYED_URL}
+      />,
+    );
+    expect(html).toContain(">Deploy to Vercel<");
+    expect(html).not.toContain(">Deployed to Vercel<");
+  });
+
+  test("the standalone deploy button copies the link once deployed", () => {
+    mockIsMobile = false;
+    const onCopyDeployedLink = mock(() => {});
+    const onDeploy = mock(() => {});
+    render(
+      <AppNavBar
+        appName="My App"
+        onClose={() => {}}
+        onDeploy={onDeploy}
+        deployedUrl={DEPLOYED_URL}
+        onCopyDeployedLink={onCopyDeployedLink}
+      />,
+    );
+
+    const copyButton = document.querySelector(
+      '[aria-label="Deployed to Vercel, copy link"]',
+    );
+    expect(copyButton).not.toBeNull();
+
+    fireEvent.click(copyButton as HTMLButtonElement);
+    expect(onCopyDeployedLink).toHaveBeenCalledTimes(1);
+    expect(onDeploy).not.toHaveBeenCalled();
+  });
+
+  test("the standalone deploy button still deploys when nothing is published", () => {
+    mockIsMobile = false;
+    const onDeploy = mock(() => {});
+    render(
+      <AppNavBar
+        appName="My App"
+        onClose={() => {}}
+        onDeploy={onDeploy}
+        deployedUrl={null}
+        onCopyDeployedLink={() => {}}
+      />,
+    );
+
+    const deployButton = document.querySelector('[aria-label="Deploy"]');
+    expect(deployButton).not.toBeNull();
+
+    fireEvent.click(deployButton as HTMLButtonElement);
+    expect(onDeploy).toHaveBeenCalledTimes(1);
   });
 });

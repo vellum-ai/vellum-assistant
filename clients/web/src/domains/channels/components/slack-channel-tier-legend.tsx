@@ -5,6 +5,7 @@ import {
   CHANNEL_TIER_VALUES,
   channelTierBehavesAs,
 } from "@/domains/channels/slack-channel-overrides";
+import { useTranslation } from "@/i18n";
 import { TierDot } from "@/domains/channels/components/tier-picker";
 import type { RiskThreshold } from "@/utils/threshold-presets";
 
@@ -62,7 +63,10 @@ export interface SlackChannelTierLegendProps {
  * the usual default reads first; the picker menu keeps preset order, which is
  * fine because each key entry names its level.
  */
-export function SlackChannelTierLegend({ defaultTier }: SlackChannelTierLegendProps) {
+export function SlackChannelTierLegend({
+  defaultTier,
+}: SlackChannelTierLegendProps) {
+  const { t } = useTranslation("channels");
   const shownDefault = channelTierBehavesAs(defaultTier ?? undefined) ?? null;
   const legendTiers = [...CHANNEL_TIER_VALUES].reverse();
   return (
@@ -83,7 +87,7 @@ export function SlackChannelTierLegend({ defaultTier }: SlackChannelTierLegendPr
                     variant="body-small-default"
                     className="text-[color:var(--content-tertiary)]"
                   >
-                    · default
+                    {t("slackChannelTierLegend.defaultMarker")}
                   </Typography>
                 ) : null}
               </span>

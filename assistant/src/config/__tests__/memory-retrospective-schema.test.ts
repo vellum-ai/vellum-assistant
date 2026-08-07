@@ -3,7 +3,7 @@
  * retrospective pass runs at all, and how its fork is materialized.
  *
  * The defaults are the contract: a workspace that says nothing must behave
- * exactly as it did before the fields existed — retrospectives on, forks
+ * exactly as it did before the fields existed: retrospectives on, forks
  * cloned.
  */
 

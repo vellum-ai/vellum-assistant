@@ -6,8 +6,10 @@ import type {
   StreamingTranscriber,
   SttProviderId,
 } from "../../stt/types.js";
+import { SttError } from "../../stt/types.js";
 import { getLogger } from "../../util/logger.js";
 import {
+  batchBoundaryGapReason,
   getCredentialProvider,
   getProviderEntry,
   supportsBoundary,
@@ -88,8 +90,13 @@ export function effectiveSttLanguage(
  *
  * Returns `null` when:
  * - The configured provider is not in the catalog.
- * - The configured provider doesn't support the `daemon-batch` boundary.
  * - No credentials are configured for the resolved provider.
+ *
+ * Throws an {@link SttError} when the configured provider is in the catalog
+ * but has no `daemon-batch` boundary. That is a configuration mismatch the
+ * resolver can name, and returning `null` for it would reach the user as the
+ * "no speech-to-text provider is configured" copy every caller pairs with
+ * `null`, which is the opposite of what happened.
  */
 export async function resolveBatchTranscriber(): Promise<BatchTranscriber | null> {
   // Snapshot the stt config once, before any await, so a concurrent config
@@ -111,7 +118,9 @@ export async function resolveBatchTranscriber(): Promise<BatchTranscriber | null
 
   // Verify the provider supports the daemon-batch boundary.
   if (!supportsBoundary(provider as SttProviderId, "daemon-batch")) {
-    return null;
+    const reason = batchBoundaryGapReason(provider as SttProviderId);
+    log.warn({ providerId: provider }, reason);
+    throw new SttError("provider-error", reason, { userFacing: true });
   }
 
   if (provider === "vellum") {
@@ -630,6 +639,20 @@ async function createStreamingTranscriber(
         ...(options.utteranceBoundaryFinals
           ? { utteranceBoundaryFinals: true }
           : {}),
+      });
+    }
+    case "deepgram-flux": {
+      // Flux is streaming-only and dials Deepgram's /v2/listen conversational
+      // endpoint. Turn-detection tuning comes from `liveVoice.flux`, which
+      // the adapter reads itself, so only the transport-level sample rate is
+      // passed here. No language is forwarded: the spike pins the
+      // English-only `flux-general-en`, and `language_hint` means nothing to
+      // a monolingual model. Diarization is off in the catalog, so a
+      // `"required"` caller never reaches this case.
+      const { DeepgramFluxRealtimeTranscriber } =
+        await import("./deepgram-flux-realtime.js");
+      return new DeepgramFluxRealtimeTranscriber(apiKey, {
+        sampleRate: options.sampleRate,
       });
     }
     default: {

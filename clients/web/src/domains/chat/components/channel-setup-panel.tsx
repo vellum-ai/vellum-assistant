@@ -51,8 +51,13 @@ export function ChannelSetupPanel({
     assistantId: payload.assistantId,
     onSuccess: onClose,
   });
+  // Closing on success is what hands off to the assistant: the drawer closing
+  // is what emits the wizard-closed notification the telegram-setup skill
+  // waits on. Slack already does this; leaving Telegram open made its handoff
+  // depend on the user knowing to close the panel themselves.
   const saveTelegram = useSaveTelegramConfig({
     assistantId: payload.assistantId,
+    onSuccess: onClose,
   });
   const saveTwilio = useSaveTwilioCredentials({
     assistantId: payload.assistantId,

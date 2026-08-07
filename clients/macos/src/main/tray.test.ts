@@ -121,13 +121,27 @@ mock.module("./logger", () => ({
 let featureFlags: Record<string, boolean> | null = null;
 mock.module("./settings", () => ({
   readSetting: (key: string) => (key === "featureFlags" ? featureFlags : null),
-  readHotkeyOverride: () => null,
   writeSetting: () => {},
   onSettingChange: () => () => {},
 }));
 
+// Full `./window-state` surface, for the same leak-safety reason as
+// `./settings` above. The companion flag is controllable so the checkbox
+// state can be exercised.
+let companionHidden = false;
 mock.module("./window-state", () => ({
   readOnboardingActive: () => false,
+  readCompanionHidden: () => companionHidden,
+  writeCompanionHidden: () => {},
+  writeOnboardingActive: () => {},
+}));
+
+const setCompanionSurfaceVisibleMock = mock((_visible: boolean) => undefined);
+mock.module("./companion-window", () => ({
+  setCompanionSurfaceVisible: setCompanionSurfaceVisibleMock,
+  // Reads the same controllable flags the `./settings` mock serves, so a case
+  // turns the surface on the way the real gate sees it turned on.
+  isCompanionSurfaceEnabled: () => featureFlags?.["companion-surface"] === true,
 }));
 
 const dispatchToMainMock = mock((_command: unknown) => undefined);
@@ -194,6 +208,8 @@ const handlers = {
   toggleMainWindow: mock(() => undefined),
   ensureMainWindow: mock(() => Promise.resolve()),
   openAbout: mock(() => undefined),
+  // No call running by default, so the voice-panel item stays out of the menu
+  // for every case that is not about it.
 };
 
 // Swap in fake timers so the pulse loop and deferred restart are deterministic.
@@ -212,6 +228,8 @@ beforeEach(() => {
   avatarListeners.clear();
   watchedLockfile = { assistants: [], activeAssistant: null };
   featureFlags = null;
+  companionHidden = false;
+  setCompanionSurfaceVisibleMock.mockClear();
   dispatchToMainMock.mockClear();
   buildFromTemplateMock.mockClear();
   statusFramesMock.mockClear();
@@ -226,7 +244,8 @@ beforeEach(() => {
     intervalCallback = cb;
     return 1 as unknown as ReturnType<typeof setInterval>;
   }) as typeof setInterval;
-  globalThis.clearInterval = clearIntervalMock as unknown as typeof clearInterval;
+  globalThis.clearInterval =
+    clearIntervalMock as unknown as typeof clearInterval;
   timeoutCallbacks = [];
   globalThis.setTimeout = ((cb: () => void) => {
     timeoutCallbacks.push(cb);
@@ -294,9 +313,9 @@ describe("installTray", () => {
     expect(labels).toContain("Restart");
     expect(labels).toContain("About Vellum Electron");
     expect(labels).toContain("Quit Vellum Electron");
-    expect(
-      template.find((item) => item.label?.startsWith("Quit"))?.role,
-    ).toBe("quit");
+    expect(template.find((item) => item.label?.startsWith("Quit"))?.role).toBe(
+      "quit",
+    );
   });
 
   test("the Re-pair item appears only when status is authFailed", () => {
@@ -308,6 +327,17 @@ describe("installTray", () => {
     }>;
     const labels = template.map((item) => item.label).filter(Boolean);
     expect(labels).toContain("Re-pair Assistant");
+  });
+
+  test("the floating companion item is absent while its flag is off", () => {
+    installTray(handlers);
+    handlerFor(trays[0], "right-click")?.();
+    const template = buildFromTemplateMock.mock.calls[0]?.[0] as Array<{
+      label?: string;
+    }>;
+    expect(template.map((item) => item.label)).not.toContain(
+      "Show Floating Companion",
+    );
   });
 
   test("the Re-pair item is absent when status is not authFailed", () => {
@@ -481,7 +511,10 @@ describe("assistant switcher", () => {
   });
 
   test("Remove from this Mac surfaces the window and dispatches removePairedAssistant", async () => {
-    watchedLockfile = { assistants: [pairedEntry], activeAssistant: "paired-1" };
+    watchedLockfile = {
+      assistants: [pairedEntry],
+      activeAssistant: "paired-1",
+    };
     const template = popMenu();
     const beforeEnsure = handlers.ensureMainWindow.mock.calls.length;
     const beforeDispatch = dispatchToMainMock.mock.calls.length;
@@ -526,6 +559,47 @@ describe("assistant switcher", () => {
     );
     expect(empty).toBeDefined();
     expect(empty?.enabled).toBe(false);
+  });
+});
+
+describe("floating companion toggle", () => {
+  type MenuItem = {
+    label?: string;
+    type?: string;
+    checked?: boolean;
+    click?: (item: { checked: boolean }) => void;
+  };
+
+  const popCompanionItem = (): MenuItem | undefined => {
+    // The item exists only for someone the surface is on for; these cases are
+    // about what it then does, and the gate itself is covered above.
+    featureFlags = { "companion-surface": true };
+    installTray(handlers);
+    handlerFor(trays[0], "right-click")?.();
+    const calls = buildFromTemplateMock.mock.calls;
+    const template = calls[calls.length - 1]?.[0] as MenuItem[];
+    return template.find((i) => i.label === "Show Floating Companion");
+  };
+
+  test("renders as a checked checkbox while the surface is shown", () => {
+    const item = popCompanionItem();
+    expect(item?.type).toBe("checkbox");
+    expect(item?.checked).toBe(true);
+  });
+
+  test("renders unchecked once the surface has been hidden", () => {
+    companionHidden = true;
+    expect(popCompanionItem()?.checked).toBe(false);
+  });
+
+  test("applies the item's toggled state to the surface", () => {
+    const item = popCompanionItem();
+    // Electron flips `checked` on the item before `click` runs, so the item
+    // carries the state being asked for.
+    item?.click?.({ checked: false });
+    expect(setCompanionSurfaceVisibleMock).toHaveBeenLastCalledWith(false);
+    item?.click?.({ checked: true });
+    expect(setCompanionSurfaceVisibleMock).toHaveBeenLastCalledWith(true);
   });
 });
 

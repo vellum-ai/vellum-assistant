@@ -2,6 +2,7 @@ import { useState } from "react";
 
 import { Button } from "@vellumai/design-library/components/button";
 
+import { useTranslation } from "@/i18n";
 import type { MutationStatus } from "@/components/channel-setup-wizard";
 import { EmptyState } from "@/components/empty-state";
 import { SlackSetupWizard } from "@/components/slack-setup-wizard";
@@ -89,10 +90,12 @@ export function ChannelPanel({
   policyError = false,
   onPolicyChange,
 }: ChannelPanelProps) {
+  const { t } = useTranslation("channels");
   const connected = channel.status === "ready";
   // Manual credential entry is a connect-time affordance, so it only applies
   // while disconnected — seeded from a `?setup=<channel>` deep link. Declared
   // before the Slack branch to keep hook order stable across renders.
+  const incomplete = channel.status === "incomplete";
   const [manualEntry, setManualEntry] = useState(initialManualEntry);
 
   // Slack is its own adapter shape — a token-pair channel with dedicated
@@ -176,12 +179,29 @@ export function ChannelPanel({
           <TwilioCredentialEntry onSave={onSaveTwilioCredentials} />
         )
       ) : (
-        // Pitch the channel and point at guided setup, with a
-        // manual-credentials escape hatch.
+        // Two different states share this branch. `not_configured` has never
+        // been set up and gets the pitch. `incomplete` holds credentials that
+        // are not delivering, so pitching the channel would hide that setup
+        // already happened and something after it failed.
         <EmptyState
           icon={<ChannelIcon channelId={channel.key} className="h-6 w-6" />}
-          title={`${getChannelLabel(channel.key)} isn't connected`}
-          description={meta.disconnectedPitch?.(assistantDisplayName)}
+          title={
+            incomplete
+              ? t("channelPanel.incompleteTitle", {
+                  channel: getChannelLabel(channel.key),
+                })
+              : t("channelPanel.disconnectedTitle", {
+                  channel: getChannelLabel(channel.key),
+                })
+          }
+          description={
+            incomplete
+              ? (channel.warning ??
+                t("channelPanel.incompleteDescription", {
+                  channel: getChannelLabel(channel.key),
+                }))
+              : meta.disconnectedPitch?.(assistantDisplayName)
+          }
           action={
             <div className="flex flex-col items-center gap-1">
               <Button
@@ -190,14 +210,18 @@ export function ChannelPanel({
                 onClick={onSetup}
                 disabled={!onSetup || pending}
               >
-                {pending ? "Opening…" : "Set up"}
+                {pending
+                  ? t("channelPanel.opening")
+                  : incomplete
+                    ? t("channelPanel.finishSetup")
+                    : t("channelPanel.setUp")}
               </Button>
               <Button
                 type="button"
                 variant="link"
                 onClick={() => setManualEntry(true)}
               >
-                or connect manually
+                {t("channelPanel.connectManually")}
               </Button>
             </div>
           }

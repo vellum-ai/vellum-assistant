@@ -1,15 +1,25 @@
 /**
  * `useLiveActivityMirror()` — mirrors the running live-voice session into the
- * iOS Live Activity (the Dynamic Island and Lock Screen presence for a session
- * that otherwise lives entirely in the web layer).
+ * platform's out-of-app session surface: the Dynamic Island and Lock Screen on
+ * iOS, the floating panel on macOS. Both are presence for a session that
+ * otherwise lives entirely in the web layer.
+ *
+ * **One snapshot, two sinks.** The payload is identical because the two
+ * surfaces show the same facts, so the content is computed once here and
+ * handed to whichever transport the host has: `runtime/native-live-activity`
+ * (Capacitor → ActivityKit) and `runtime/desktop-voice-activity` (Electron IPC
+ * → BrowserWindow). Each no-ops off its own host, so this hook needs no
+ * platform branch of its own. A mirror that asked "which platform am I on"
+ * would have to be updated for each new surface, whereas a sink that answers
+ * "not mine" degrades on its own.
  *
  * Mounted by {@link useLiveVoiceSessionController}, so the mirror's lifetime is
  * exactly the session's. It is deliberately a *separate module* from the
  * controller: the controller owns session lifecycle, this owns an optional
  * platform flourish. Nothing here may reach the session — every bridge call
- * goes through `runtime/native-live-activity`, which no-ops off iOS, on an
- * older App Store shell, and when the user has turned Live Activities off in
- * Settings (see that module's skew contract), and is then fired and forgotten.
+ * no-ops off its host, on an older shell, and when the user has turned Live
+ * Activities off in Settings (see each module's skew contract), and is then
+ * fired and forgotten.
  *
  * **Everything runs inside an effect**, reading the store through
  * {@link subscribeSettledLiveVoiceState} rather than a reactive selector. The
@@ -24,6 +34,9 @@
  * **Updates are pushed only when the content actually changes.** ActivityKit
  * rate-limits updates and silently drops the overflow, so an activity that
  * spends its budget on redundant pushes stops reflecting the session at all.
+ * The desktop panel has no such budget (it is local IPC), but it is fed from
+ * the same comparison anyway: two sinks diverging on *when* they update is how
+ * the two surfaces would come to show different things.
  * The mirror therefore reads only what a `ContentState` is built from (phase,
  * reconnecting, `assistantAudioActive` for the label remap, muted, accent) and
  * compares each candidate against the last payload it pushed. `inputAmplitude`
@@ -55,6 +68,11 @@ import {
   type VoiceLiveActivityContent,
   type VoiceLiveActivityStart,
 } from "@/runtime/native-live-activity";
+import {
+  endVoiceActivity,
+  startVoiceActivity,
+  updateVoiceActivity,
+} from "@/runtime/desktop-voice-activity";
 import { encodeAvatarForIsland } from "@/utils/avatar-island-encode";
 import type { AvatarRender } from "@/utils/avatar-render";
 import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
@@ -162,10 +180,17 @@ async function startWithAvatar(
   if (start === null) {
     return;
   }
-  await startVoiceLiveActivity({
+  const payload = {
     ...start,
     ...(avatarBase64 ? { avatarBase64 } : {}),
-  });
+  };
+  // Handed to both sinks unchanged. `VoiceActivityStart`'s `phase` is the same
+  // vocabulary as `ActiveLiveVoiceSessionState`, restated in the IPC contract
+  // rather than imported across the package boundary. This assignment is what
+  // holds the two in step, so a phase added to the store without a matching
+  // case in `@vellumai/ipc-contract` fails to compile here.
+  startVoiceActivity(payload);
+  await startVoiceLiveActivity(payload);
 }
 
 /** Whether two payloads would render the same island. */
@@ -274,6 +299,7 @@ export function useLiveActivityMirror(): void {
         registeredKey = null;
         void unregisterLiveActivityPushToken();
         void endVoiceLiveActivity();
+        endVoiceActivity();
         return;
       }
 
@@ -309,6 +335,7 @@ export function useLiveActivityMirror(): void {
       }
       pushed = content;
       void updateVoiceLiveActivity(content);
+      updateVoiceActivity(content);
     };
 
     // A session can already be running when this mounts — the controller
@@ -337,14 +364,15 @@ export function useLiveActivityMirror(): void {
     return () => {
       unsubscribe();
       unsubscribeToken();
-      // An activity that outlives its mirror sits on the Lock Screen showing a
-      // phase nothing is driving.
+      // A surface that outlives its mirror sits on the Lock Screen, or floats
+      // over the desktop, showing a phase nothing is driving.
       if (pushed !== null) {
         pushed = null;
         pushToken = null;
         registeredKey = null;
         void unregisterLiveActivityPushToken();
         void endVoiceLiveActivity();
+        endVoiceActivity();
       }
     };
   }, []);

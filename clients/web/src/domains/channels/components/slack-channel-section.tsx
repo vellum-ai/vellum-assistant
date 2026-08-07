@@ -6,6 +6,7 @@ import { Collapsible } from "@vellumai/design-library/components/collapsible";
 import { Notice } from "@vellumai/design-library/components/notice";
 import { Typography } from "@vellumai/design-library/components/typography";
 
+import { useTranslation } from "@/i18n";
 import { SlackChannelList } from "@/domains/channels/components/slack-channel-list";
 import { SlackChannelTypeDefaults } from "@/domains/channels/components/slack-channel-type-defaults";
 import { useChannelPermissionOverrides } from "@/domains/channels/hooks/use-channel-permission-overrides";
@@ -38,6 +39,7 @@ export function SlackChannelSection({
   assistantDisplayName,
   slackHandle,
 }: SlackChannelSectionProps) {
+  const { t } = useTranslation("channels");
   const channelsQuery = useQuery({
     ...memberSlackChannelsOptions(assistantId),
     enabled: Boolean(assistantId),
@@ -108,8 +110,7 @@ export function SlackChannelSection({
           clobber them, so there's nothing to offer here but a reload. */}
       {overrides.isError ? (
         <Notice tone="error">
-          Couldn’t load access settings. These controls stay disabled until they
-          load. Try reopening this page.
+          {t("slackChannelSection.overridesLoadFailed")}
         </Notice>
       ) : null}
       <SlackChannelTypeDefaults
@@ -129,7 +130,7 @@ export function SlackChannelSection({
           <Collapsible.Item value="per-channel-overrides">
             <Collapsible.Trigger className="group justify-between gap-2 px-4 py-3">
               <Typography as="span" variant="body-small-emphasised">
-                Per-channel overrides
+                {t("slackChannelSection.perChannelOverrides")}
               </Typography>
               <ChevronDown
                 aria-hidden="true"

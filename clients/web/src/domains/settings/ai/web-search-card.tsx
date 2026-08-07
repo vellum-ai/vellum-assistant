@@ -15,7 +15,7 @@ import {
   setLocalSetting,
 } from "@/utils/local-settings";
 import { useQueryClient } from "@tanstack/react-query";
-import { Dropdown } from "@vellumai/design-library/components/dropdown";
+import { Select } from "@vellumai/design-library/components/select";
 import { Input } from "@vellumai/design-library/components/input";
 import { toast } from "@vellumai/design-library/components/toast";
 
@@ -217,7 +217,7 @@ export function WebSearchCard() {
           <label className="block text-body-small-default text-[var(--content-tertiary)]">
             Provider
           </label>
-          <Dropdown
+          <Select
             aria-label="Web search provider"
             value={webSearchProvider}
             onChange={setDraftWebSearchProvider}

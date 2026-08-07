@@ -20,12 +20,17 @@ import type {
   AppVersionInfo,
   AssistantStatus,
   BundleScanData,
+  CompanionCharacter,
+  CompanionGrowth,
+  CompanionContext,
+  CompanionSurfaceState,
   ConnectivityState,
   DeepLink,
   DictationOverlayMessage,
   DictationOverlayState,
   DictationPartialEvent,
   DictationPartialsResult,
+  ElectronHostOS,
   FnPushToTalkResult,
   HelperRestartResult,
   HelperState,
@@ -50,12 +55,21 @@ import type {
   UpdateState,
   UpdateStatus,
   VellumCommand,
+  VoiceActivityContent,
+  VoiceActivityControl,
+  VoiceActivityControlAction,
+  VoiceActivityPhase,
+  VoiceActivityStart,
+  VoiceActivityState,
 } from "@vellumai/ipc-contract";
 
 export type {
   AppVersionInfo,
   AssistantStatus,
   BundleScanData,
+  CompanionGrowth,
+  CompanionContext,
+  CompanionSurfaceState,
   ConnectivityState,
   DeepLink,
   DictationOverlayMessage,
@@ -79,6 +93,12 @@ export type {
   UpdateState,
   UpdateStatus,
   VellumCommand,
+  VoiceActivityContent,
+  VoiceActivityControl,
+  VoiceActivityControlAction,
+  VoiceActivityPhase,
+  VoiceActivityStart,
+  VoiceActivityState,
 };
 
 // Legacy aliases — existing consumers import these `Electron`-prefixed names.
@@ -99,6 +119,7 @@ declare global {
   interface Window {
     vellum?: {
       platform: "electron";
+      hostOS?: ElectronHostOS;
       app: {
         versionInfo(): Promise<AppVersionInfo>;
         openWebsite(): Promise<void>;
@@ -172,6 +193,7 @@ declare global {
       };
       icon?: {
         setAvatar(png: Uint8Array | null): void;
+        setCharacter?(character: CompanionCharacter | null): void;
       };
       dock: {
         setBadge(count: number): void;
@@ -297,6 +319,24 @@ declare global {
         check(): Promise<void>;
         install(): Promise<void>;
         onState(callback: (state: UpdateState) => void): () => void;
+      };
+      voiceActivity?: {
+        start(state: VoiceActivityStart): void;
+        update(content: VoiceActivityContent): void;
+        end(): void;
+        control(control: VoiceActivityControl): void;
+        onControl(callback: (control: VoiceActivityControl) => void): () => void;
+      };
+      companion?: {
+        getState(): Promise<CompanionSurfaceState | null>;
+        onState(callback: (state: CompanionSurfaceState) => void): () => void;
+        setInteractive?(interactive: boolean): void;
+        moveBy?(dx: number, dy: number): void;
+        startVoice?(): void;
+        activate?(): void;
+        setComposing?(composing: boolean): void;
+        submit?(message: string, startsConversation: boolean): void;
+        setContext?(context: CompanionContext): void;
       };
     };
   }

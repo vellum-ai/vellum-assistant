@@ -1,5 +1,6 @@
 import * as childProcess from "node:child_process";
 import type { ChildProcess } from "node:child_process";
+import { createHash } from "node:crypto";
 import * as fsModule from "node:fs";
 import {
   existsSync,
@@ -79,7 +80,9 @@ afterAll(() => {
 
 import {
   buildIngressNginxConfig,
+  hasIpv6Loopback,
   buildRemoteWebIndexHtml,
+  cloudWebHubUrl,
   ensureTunnelEdge,
   startRemoteWebIngress,
   stopIngressNginx,
@@ -168,8 +171,23 @@ describe("buildIngressNginxConfig", () => {
     const listens = conf.match(/listen [^;]+;/g) ?? [];
     expect(listens.length).toBeGreaterThan(0);
     for (const directive of listens) {
-      expect(directive).toContain("127.0.0.1");
+      expect(directive).toMatch(/127\.0\.0\.1|\[::1\]/);
     }
+  });
+
+  test("adds the IPv6 loopback listener only where ::1 exists", () => {
+    // A tunnel agent pointed at "localhost" reaches ::1 first on macOS, so an
+    // IPv4-only bind refuses whichever share of a burst resolves that way.
+    // Emitting it unconditionally would make nginx exit on an IPv6-less host.
+    const withIpv6 = buildIngressNginxConfig({
+      gatewayPort: 7830,
+      listenPort: 7840,
+      ipv6Loopback: true,
+    });
+    expect(withIpv6).toContain("listen 127.0.0.1:7840;");
+    expect(withIpv6).toContain("listen [::1]:7840;");
+
+    expect(conf).not.toContain("[::1]");
   });
 
   test("emits relative redirects so a fronting proxy keeps scheme and port", () => {
@@ -243,6 +261,21 @@ describe("buildIngressNginxConfig", () => {
     expect(remoteConf).toContain('add_header Cache-Control "no-store";');
     expect(remoteConf).toContain(
       'return 200 "{\\"mode\\":\\"remote-gateway\\",\\"apiBaseUrl\\":\\"/v1\\",\\"platformDisabled\\":true,\\"disablePlatform\\":true}";',
+    );
+  });
+
+  test("stamps assistantName and hubUrl into the served config when provided", () => {
+    const named = buildIngressNginxConfig({
+      gatewayPort: 7830,
+      listenPort: 7840,
+      remoteWebIngress: {
+        webDistDir: "/tmp/vellum web/dist",
+        assistantName: "Homelab",
+        hubUrl: "https://www.vellum.ai/assistant",
+      },
+    });
+    expect(named).toContain(
+      'return 200 "{\\"mode\\":\\"remote-gateway\\",\\"apiBaseUrl\\":\\"/v1\\",\\"platformDisabled\\":true,\\"disablePlatform\\":true,\\"assistantName\\":\\"Homelab\\",\\"hubUrl\\":\\"https://www.vellum.ai/assistant\\"}";',
     );
   });
 
@@ -344,6 +377,44 @@ describe("buildRemoteWebIndexHtml", () => {
 
     expect(result).not.toContain("</script><script>alert(1)</script>");
     expect(result).toContain("\\u003c/script\\u003e");
+  });
+
+  test("drops modulepreload hints but keeps the entry script and stylesheet", () => {
+    const html = [
+      "<html><head>",
+      '<link rel="modulepreload" crossorigin href="/assistant/assets/a-1.js">',
+      '<link rel="modulepreload" crossorigin href="/assistant/assets/b-2.js">',
+      '<link rel="stylesheet" crossorigin href="/assistant/assets/main-3.css">',
+      '<script type="module" crossorigin src="/assistant/assets/index-4.js"></script>',
+      "</head><body></body></html>",
+    ].join("\n");
+
+    const result = buildRemoteWebIndexHtml(html, { mode: "remote-gateway" });
+
+    expect(result).not.toContain("modulepreload");
+    expect(result).not.toContain("/assistant/assets/a-1.js");
+    expect(result).toContain('href="/assistant/assets/main-3.css"');
+    expect(result).toContain('src="/assistant/assets/index-4.js"');
+  });
+});
+
+describe("cloudWebHubUrl", () => {
+  test("maps build environments to their cloud SPA base", () => {
+    expect(cloudWebHubUrl("production")).toBe(
+      "https://www.vellum.ai/assistant",
+    );
+    expect(cloudWebHubUrl("staging")).toBe(
+      "https://staging-assistant.vellum.ai/assistant",
+    );
+    expect(cloudWebHubUrl("dev")).toBe(
+      "https://dev-assistant.vellum.ai/assistant",
+    );
+    expect(cloudWebHubUrl("local")).toBe(
+      "https://dev-assistant.vellum.ai/assistant",
+    );
+    expect(cloudWebHubUrl(undefined)).toBe(
+      "https://dev-assistant.vellum.ai/assistant",
+    );
   });
 });
 
@@ -582,7 +653,12 @@ function mockWebDistPresent(): void {
 /** Record a running edge: ingress state, live pidfile, matching ps output. */
 function mockRunningEdge(
   ws: string,
-  opts: { listenPort: number; includeWebApp?: boolean; gatewayPort?: number },
+  opts: {
+    listenPort: number;
+    includeWebApp?: boolean;
+    gatewayPort?: number;
+    remoteWebConfigHash?: string;
+  },
 ): number {
   const pid = 123_460;
   writeFileSync(
@@ -597,6 +673,9 @@ function mockRunningEdge(
           ...(opts.gatewayPort === undefined
             ? {}
             : { gatewayPort: opts.gatewayPort }),
+          ...(opts.remoteWebConfigHash === undefined
+            ? {}
+            : { remoteWebConfigHash: opts.remoteWebConfigHash }),
         },
       },
     }) + "\n",
@@ -623,7 +702,51 @@ function mockUnkillableNginx(pid: number): void {
   installKillMock();
 }
 
+const PRODUCTION_HUB_URL = "https://www.vellum.ai/assistant";
+
+/**
+ * Mirror of the SPA config fingerprint the edge records in its ingress state
+ * (sha256 over the edge template version and the injected config JSON). Pins
+ * both the injected config shape and the hash format; assumes the
+ * production-pinned environment. `template` tracks `EDGE_TEMPLATE_VERSION`.
+ */
+function spaConfigHash(assistantName?: string): string {
+  return createHash("sha256")
+    .update(
+      JSON.stringify({
+        template: 2,
+        config: {
+          mode: "remote-gateway",
+          apiBaseUrl: "/v1",
+          platformDisabled: true,
+          disablePlatform: true,
+          ...(assistantName ? { assistantName } : {}),
+          hubUrl: PRODUCTION_HUB_URL,
+        },
+      }),
+    )
+    .digest("hex");
+}
+
+const originalEnvironment = process.env.VELLUM_ENVIRONMENT;
+
+/** Pin the build environment so the stamped hubUrl is deterministic. */
+function pinProductionEnvironment(): void {
+  beforeEach(() => {
+    process.env.VELLUM_ENVIRONMENT = "production";
+  });
+  afterEach(() => {
+    if (originalEnvironment === undefined) {
+      delete process.env.VELLUM_ENVIRONMENT;
+    } else {
+      process.env.VELLUM_ENVIRONMENT = originalEnvironment;
+    }
+  });
+}
+
 describe("startRemoteWebIngress", () => {
+  pinProductionEnvironment();
+
   test("webhooks-only mode starts the denylist+proxy edge without a web dist", async () => {
     const ws = makeWorkspace();
     mockNginxInstalled();
@@ -659,7 +782,11 @@ describe("startRemoteWebIngress", () => {
 
     const conf = realFs.readFileSync(ingressConfPath(ws), "utf-8");
     expect(conf).toBe(
-      buildIngressNginxConfig({ gatewayPort: 7830, listenPort: 7845 }),
+      buildIngressNginxConfig({
+        gatewayPort: 7830,
+        listenPort: 7845,
+        ipv6Loopback: hasIpv6Loopback(),
+      }),
     );
     expect(conf).toContain("location = /auth/token { return 404; }");
     expect(conf).toContain("location = /v1/pair { return 404; }");
@@ -699,25 +826,54 @@ describe("startRemoteWebIngress", () => {
       buildIngressNginxConfig({
         gatewayPort: 7830,
         listenPort: 7845,
+        ipv6Loopback: hasIpv6Loopback(),
         remoteWebIngress: {
           webDistDir,
           indexHtmlPath: join(ws, "data", "ingress", "assistant-index.html"),
+          hubUrl: PRODUCTION_HUB_URL,
         },
       }),
     );
     expect(conf).toContain("location ^~ /assistant/ {");
     expect(conf).toContain("location ^~ /webhooks/ {");
-    expect(
-      realFs.readFileSync(
-        join(ws, "data", "ingress", "assistant-index.html"),
-        "utf-8",
-      ),
-    ).toContain("remote-gateway");
+    const indexHtml = realFs.readFileSync(
+      join(ws, "data", "ingress", "assistant-index.html"),
+      "utf-8",
+    );
+    expect(indexHtml).toContain("remote-gateway");
+    expect(indexHtml).toContain(`"hubUrl":"${PRODUCTION_HUB_URL}"`);
+    // No assistant name was provided, so the served config omits the label.
+    expect(indexHtml).not.toContain("assistantName");
     expect((readConfig(ws).ingress as Record<string, unknown>).nginx).toEqual({
       listenPort: 7845,
       includeWebApp: true,
       gatewayPort: 7830,
+      remoteWebConfigHash: spaConfigHash(),
     });
+  });
+
+  test("stamps the assistant label into the served config when provided", async () => {
+    const ws = makeWorkspace();
+    mockNginxInstalled();
+    mockNginxSpawn();
+    mockWebDistPresent();
+
+    const result = await startRemoteWebIngress({
+      workspaceDir: ws,
+      gatewayPort: 7830,
+      listenPort: 7845,
+      assistantName: "My Homelab",
+    });
+
+    expect(result.status).toBe("started");
+    const indexHtml = realFs.readFileSync(
+      join(ws, "data", "ingress", "assistant-index.html"),
+      "utf-8",
+    );
+    expect(indexHtml).toContain('"assistantName":"My Homelab"');
+    expect(indexHtml).toContain(`"hubUrl":"${PRODUCTION_HUB_URL}"`);
+    const conf = realFs.readFileSync(ingressConfPath(ws), "utf-8");
+    expect(conf).toContain('\\"assistantName\\":\\"My Homelab\\"');
   });
 
   test("default mode still requires the web dist", async () => {
@@ -853,7 +1009,11 @@ describe("startRemoteWebIngress", () => {
     expect(spawnMock).toHaveBeenCalledTimes(1);
     const conf = realFs.readFileSync(ingressConfPath(ws), "utf-8");
     expect(conf).toBe(
-      buildIngressNginxConfig({ gatewayPort: 7830, listenPort: 7845 }),
+      buildIngressNginxConfig({
+        gatewayPort: 7830,
+        listenPort: 7845,
+        ipv6Loopback: hasIpv6Loopback(),
+      }),
     );
     expect(conf).toContain("proxy_pass http://127.0.0.1:7830;");
     expect((readConfig(ws).ingress as Record<string, unknown>).nginx).toEqual({
@@ -887,7 +1047,11 @@ describe("startRemoteWebIngress", () => {
     expect(edge.killed()).toBe(true);
     expect(spawnMock).toHaveBeenCalledTimes(1);
     expect(realFs.readFileSync(ingressConfPath(ws), "utf-8")).toBe(
-      buildIngressNginxConfig({ gatewayPort: 7900, listenPort: 7845 }),
+      buildIngressNginxConfig({
+        gatewayPort: 7900,
+        listenPort: 7845,
+        ipv6Loopback: hasIpv6Loopback(),
+      }),
     );
     expect((readConfig(ws).ingress as Record<string, unknown>).nginx).toEqual({
       listenPort: 7845,
@@ -900,7 +1064,11 @@ describe("startRemoteWebIngress", () => {
     const ws = makeWorkspace();
     mockNginxInstalled();
     mockNginxSpawn();
-    const pid = mockRunningEdge(ws, { listenPort: 7845, gatewayPort: 7830 });
+    const pid = mockRunningEdge(ws, {
+      listenPort: 7845,
+      gatewayPort: 7830,
+      remoteWebConfigHash: spaConfigHash(),
+    });
     const edge = mockKillableNginx(pid);
 
     const result = await startRemoteWebIngress({
@@ -916,6 +1084,175 @@ describe("startRemoteWebIngress", () => {
       gatewayPort: 7830,
     });
     expect(edge.killed()).toBe(false);
+    expect(spawnMock).not.toHaveBeenCalled();
+  });
+
+  test("short-circuits when the running SPA edge already serves the requested config", async () => {
+    const ws = makeWorkspace();
+    mockNginxInstalled();
+    mockNginxSpawn();
+    mockWebDistPresent();
+    const pid = mockRunningEdge(ws, {
+      listenPort: 7845,
+      includeWebApp: true,
+      gatewayPort: 7830,
+      remoteWebConfigHash: spaConfigHash("My Homelab"),
+    });
+    const edge = mockKillableNginx(pid);
+
+    const result = await startRemoteWebIngress({
+      workspaceDir: ws,
+      gatewayPort: 7830,
+      listenPort: 7845,
+      assistantName: "My Homelab",
+    });
+
+    expect(result).toEqual({
+      status: "already-running",
+      listenPort: 7845,
+      includeWebApp: true,
+      gatewayPort: 7830,
+    });
+    expect(edge.killed()).toBe(false);
+    expect(spawnMock).not.toHaveBeenCalled();
+  });
+
+  test("restarts the edge when the injected SPA config drifts from the recorded one", async () => {
+    const ws = makeWorkspace();
+    mockNginxInstalled();
+    mockNginxSpawn();
+    mockWebDistPresent();
+    const pid = mockRunningEdge(ws, {
+      listenPort: 7845,
+      includeWebApp: true,
+      gatewayPort: 7830,
+      remoteWebConfigHash: spaConfigHash("Old Name"),
+    });
+    const edge = mockKillableNginx(pid);
+
+    const result = await startRemoteWebIngress({
+      workspaceDir: ws,
+      gatewayPort: 7830,
+      listenPort: 7845,
+      assistantName: "New Name",
+    });
+
+    expect(result.status).toBe("started");
+    expect(edge.killed()).toBe(true);
+    expect(spawnMock).toHaveBeenCalledTimes(1);
+    const indexHtml = realFs.readFileSync(
+      join(ws, "data", "ingress", "assistant-index.html"),
+      "utf-8",
+    );
+    expect(indexHtml).toContain('"assistantName":"New Name"');
+    expect((readConfig(ws).ingress as Record<string, unknown>).nginx).toEqual({
+      listenPort: 7845,
+      includeWebApp: true,
+      gatewayPort: 7830,
+      remoteWebConfigHash: spaConfigHash("New Name"),
+    });
+  });
+
+  test("restarts an SPA edge recorded against an older template version", async () => {
+    const ws = makeWorkspace();
+    mockNginxInstalled();
+    mockNginxSpawn();
+    mockWebDistPresent();
+    // Same injected config, earlier template: the detached edge serves an
+    // index this build renders differently, so identity must not match.
+    const priorTemplateHash = createHash("sha256")
+      .update(
+        JSON.stringify({
+          template: 1,
+          config: {
+            mode: "remote-gateway",
+            apiBaseUrl: "/v1",
+            platformDisabled: true,
+            disablePlatform: true,
+            hubUrl: PRODUCTION_HUB_URL,
+          },
+        }),
+      )
+      .digest("hex");
+    const pid = mockRunningEdge(ws, {
+      listenPort: 7845,
+      includeWebApp: true,
+      gatewayPort: 7830,
+      remoteWebConfigHash: priorTemplateHash,
+    });
+    const edge = mockKillableNginx(pid);
+
+    const result = await startRemoteWebIngress({
+      workspaceDir: ws,
+      gatewayPort: 7830,
+      listenPort: 7845,
+    });
+
+    expect(result.status).toBe("started");
+    expect(edge.killed()).toBe(true);
+    expect((readConfig(ws).ingress as Record<string, unknown>).nginx).toEqual({
+      listenPort: 7845,
+      includeWebApp: true,
+      gatewayPort: 7830,
+      remoteWebConfigHash: spaConfigHash(),
+    });
+  });
+
+  test("restarts an SPA edge whose state predates the config fingerprint", async () => {
+    const ws = makeWorkspace();
+    mockNginxInstalled();
+    mockNginxSpawn();
+    mockWebDistPresent();
+    const pid = mockRunningEdge(ws, {
+      listenPort: 7845,
+      includeWebApp: true,
+      gatewayPort: 7830,
+    });
+    const edge = mockKillableNginx(pid);
+
+    const result = await startRemoteWebIngress({
+      workspaceDir: ws,
+      gatewayPort: 7830,
+      listenPort: 7845,
+    });
+
+    expect(result.status).toBe("started");
+    expect(edge.killed()).toBe(true);
+    expect((readConfig(ws).ingress as Record<string, unknown>).nginx).toEqual({
+      listenPort: 7845,
+      includeWebApp: true,
+      gatewayPort: 7830,
+      remoteWebConfigHash: spaConfigHash(),
+    });
+  });
+
+  test("a config-drifted edge that survives the restart attempt reports it as stale", async () => {
+    const ws = makeWorkspace();
+    mockNginxInstalled();
+    mockNginxSpawn();
+    mockWebDistPresent();
+    const pid = mockRunningEdge(ws, {
+      listenPort: 7845,
+      includeWebApp: true,
+      gatewayPort: 7830,
+      remoteWebConfigHash: spaConfigHash("Old Name"),
+    });
+    mockUnkillableNginx(pid);
+
+    const result = await startRemoteWebIngress({
+      workspaceDir: ws,
+      gatewayPort: 7830,
+      listenPort: 7845,
+      assistantName: "New Name",
+    });
+
+    expect(result).toEqual({
+      status: "already-running",
+      listenPort: 7845,
+      includeWebApp: true,
+      gatewayPort: 7830,
+      staleRemoteWebConfig: true,
+    });
     expect(spawnMock).not.toHaveBeenCalled();
   });
 
@@ -944,7 +1281,11 @@ describe("startRemoteWebIngress", () => {
     expect(spawnMock).toHaveBeenCalledTimes(1);
     const conf = realFs.readFileSync(ingressConfPath(ws), "utf-8");
     expect(conf).toBe(
-      buildIngressNginxConfig({ gatewayPort: 7830, listenPort: 7845 }),
+      buildIngressNginxConfig({
+        gatewayPort: 7830,
+        listenPort: 7845,
+        ipv6Loopback: hasIpv6Loopback(),
+      }),
     );
     expect((readConfig(ws).ingress as Record<string, unknown>).nginx).toEqual({
       listenPort: 7845,
@@ -984,7 +1325,11 @@ describe("startRemoteWebIngress", () => {
     expect(spawnMock).toHaveBeenCalledTimes(1);
     const conf = realFs.readFileSync(ingressConfPath(ws), "utf-8");
     expect(conf).toBe(
-      buildIngressNginxConfig({ gatewayPort: 7830, listenPort: 7845 }),
+      buildIngressNginxConfig({
+        gatewayPort: 7830,
+        listenPort: 7845,
+        ipv6Loopback: hasIpv6Loopback(),
+      }),
     );
     expect((readConfig(ws).ingress as Record<string, unknown>).nginx).toEqual({
       listenPort: 7845,
@@ -1019,6 +1364,7 @@ describe("startRemoteWebIngress", () => {
       listenPort: 7845,
       includeWebApp: true,
       gatewayPort: 7830,
+      remoteWebConfigHash: spaConfigHash(),
     });
   });
 
@@ -1069,7 +1415,8 @@ describe("startRemoteWebIngress", () => {
     });
     expect(spawnMock).toHaveBeenCalledTimes(1);
     const ingress = readConfig(ws).ingress as
-      Record<string, unknown> | undefined;
+      | Record<string, unknown>
+      | undefined;
     expect(ingress?.nginx).toBeUndefined();
   });
 
@@ -1097,7 +1444,8 @@ describe("startRemoteWebIngress", () => {
     });
     expect(spawnMock).toHaveBeenCalledTimes(1);
     const ingress = readConfig(ws).ingress as
-      Record<string, unknown> | undefined;
+      | Record<string, unknown>
+      | undefined;
     expect(ingress?.nginx).toBeUndefined();
   });
 
@@ -1186,9 +1534,17 @@ describe("ensureTunnelEdge", () => {
   const ASSISTANT_ID = "assistant-1";
   const REQUESTED_PORT = 7846;
   const originalIngressPort = process.env.VELLUM_NGINX_INGRESS_PORT;
+  const originalLockfileDir = process.env.VELLUM_LOCKFILE_DIR;
+  let lockfileDir: string;
+
+  pinProductionEnvironment();
 
   beforeEach(() => {
     process.env.VELLUM_NGINX_INGRESS_PORT = String(REQUESTED_PORT);
+    // Isolated lockfile dir so the assistant-name lookup never reads a real
+    // machine lockfile.
+    lockfileDir = makeWorkspace();
+    process.env.VELLUM_LOCKFILE_DIR = lockfileDir;
   });
 
   afterEach(() => {
@@ -1197,6 +1553,68 @@ describe("ensureTunnelEdge", () => {
     } else {
       process.env.VELLUM_NGINX_INGRESS_PORT = originalIngressPort;
     }
+    if (originalLockfileDir === undefined) {
+      delete process.env.VELLUM_LOCKFILE_DIR;
+    } else {
+      process.env.VELLUM_LOCKFILE_DIR = originalLockfileDir;
+    }
+  });
+
+  test("threads the lockfile display name into the served SPA config", async () => {
+    const ws = makeWorkspace();
+    mockNginxInstalled();
+    mockNginxSpawn();
+    mockWebDistPresent();
+    writeFileSync(
+      join(lockfileDir, ".vellum.lock.json"),
+      JSON.stringify({
+        assistants: [
+          {
+            assistantId: ASSISTANT_ID,
+            name: "Homelab",
+            cloud: "local",
+            runtimeUrl: "http://127.0.0.1:7830",
+            localUrl: "http://127.0.0.1:7830",
+          },
+        ],
+        activeAssistant: ASSISTANT_ID,
+      }),
+    );
+
+    const result = await ensureTunnelEdge({
+      assistantId: ASSISTANT_ID,
+      workspaceDir: ws,
+      gatewayPort: 7830,
+    });
+
+    expect(result.includesWebApp).toBe(true);
+    const indexHtml = realFs.readFileSync(
+      join(ws, "data", "ingress", "assistant-index.html"),
+      "utf-8",
+    );
+    expect(indexHtml).toContain('"assistantName":"Homelab"');
+    expect(indexHtml).toContain(`"hubUrl":"${PRODUCTION_HUB_URL}"`);
+  });
+
+  test("omits the assistant label when the lockfile has no matching entry", async () => {
+    const ws = makeWorkspace();
+    mockNginxInstalled();
+    mockNginxSpawn();
+    mockWebDistPresent();
+
+    const result = await ensureTunnelEdge({
+      assistantId: ASSISTANT_ID,
+      workspaceDir: ws,
+      gatewayPort: 7830,
+    });
+
+    expect(result.includesWebApp).toBe(true);
+    const indexHtml = realFs.readFileSync(
+      join(ws, "data", "ingress", "assistant-index.html"),
+      "utf-8",
+    );
+    expect(indexHtml).not.toContain("assistantName");
+    expect(indexHtml).toContain(`"hubUrl":"${PRODUCTION_HUB_URL}"`);
   });
 
   test("reuses a running edge that matches the flag-resolved mode", async () => {
@@ -1207,6 +1625,7 @@ describe("ensureTunnelEdge", () => {
       listenPort: 7845,
       includeWebApp: true,
       gatewayPort: 7830,
+      remoteWebConfigHash: spaConfigHash(),
     });
     const edge = mockKillableNginx(pid);
 
@@ -1250,6 +1669,81 @@ describe("ensureTunnelEdge", () => {
       includesWebApp: false,
     });
     expect(edge.killed()).toBe(false);
+    expect(spawnMock).not.toHaveBeenCalled();
+  });
+
+  test("restarts the edge when the lockfile display name changes", async () => {
+    const ws = makeWorkspace();
+    mockNginxInstalled();
+    mockNginxSpawn();
+    mockWebDistPresent();
+    const writeLockfile = (name: string) =>
+      writeFileSync(
+        join(lockfileDir, ".vellum.lock.json"),
+        JSON.stringify({
+          assistants: [
+            {
+              assistantId: ASSISTANT_ID,
+              name,
+              cloud: "local",
+              runtimeUrl: "http://127.0.0.1:7830",
+              localUrl: "http://127.0.0.1:7830",
+            },
+          ],
+          activeAssistant: ASSISTANT_ID,
+        }),
+      );
+    writeLockfile("Homelab");
+
+    const first = await ensureTunnelEdge({
+      assistantId: ASSISTANT_ID,
+      workspaceDir: ws,
+      gatewayPort: 7830,
+    });
+    expect(first.started).toBe(true);
+
+    // Same port and mode, renamed assistant: the edge must restart so the
+    // served index carries the new label instead of reporting already-running.
+    writeLockfile("Renamed");
+    const second = await ensureTunnelEdge({
+      assistantId: ASSISTANT_ID,
+      workspaceDir: ws,
+      gatewayPort: 7830,
+    });
+
+    expect(second.started).toBe(true);
+    expect(spawnMock).toHaveBeenCalledTimes(2);
+    const indexHtml = realFs.readFileSync(
+      join(ws, "data", "ingress", "assistant-index.html"),
+      "utf-8",
+    );
+    expect(indexHtml).toContain('"assistantName":"Renamed"');
+    expect(indexHtml).not.toContain('"assistantName":"Homelab"');
+  });
+
+  test("a config-drifted edge that survives the restart attempt throws", async () => {
+    const ws = makeWorkspace();
+    mockNginxInstalled();
+    mockNginxSpawn();
+    mockWebDistPresent();
+    const pid = mockRunningEdge(ws, {
+      listenPort: REQUESTED_PORT,
+      includeWebApp: true,
+      gatewayPort: 7830,
+      remoteWebConfigHash: spaConfigHash("Stale Name"),
+    });
+    mockUnkillableNginx(pid);
+
+    const promise = ensureTunnelEdge({
+      assistantId: ASSISTANT_ID,
+      workspaceDir: ws,
+      gatewayPort: 7830,
+    });
+
+    await expect(promise).rejects.toThrow(
+      "still serving an outdated remote web config",
+    );
+    await expect(promise).rejects.toThrow("vellum nginx-ingress down");
     expect(spawnMock).not.toHaveBeenCalled();
   });
 
@@ -1331,6 +1825,7 @@ describe("ensureTunnelEdge", () => {
       buildIngressNginxConfig({
         gatewayPort: 7830,
         listenPort: REQUESTED_PORT,
+        ipv6Loopback: hasIpv6Loopback(),
       }),
     );
   });
@@ -1361,6 +1856,7 @@ describe("ensureTunnelEdge", () => {
       buildIngressNginxConfig({
         gatewayPort: 7830,
         listenPort: REQUESTED_PORT,
+        ipv6Loopback: hasIpv6Loopback(),
       }),
     );
   });
@@ -1394,6 +1890,7 @@ describe("ensureTunnelEdge", () => {
       listenPort: REQUESTED_PORT,
       includeWebApp: true,
       gatewayPort: 7830,
+      remoteWebConfigHash: spaConfigHash(),
     });
   });
 

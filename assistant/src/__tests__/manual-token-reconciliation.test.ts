@@ -139,6 +139,51 @@ describe("syncManualTokenConnection", () => {
     warnings.length = 0;
   });
 
+  // ---- Discord server bot: one required field ----
+
+  test("connects discord_channel once the bot token is stored", async () => {
+    // Seeding the provider without this reconciliation leaves it listed and
+    // permanently disconnected, which is worse than not listing it: the
+    // setup skill stores the token and nothing ever reflects that.
+    setCredentialResult("discord_channel", "bot_token", {
+      value: "bot-token-value",
+      unreachable: false,
+    });
+
+    await syncManualTokenConnection("discord_channel");
+
+    expect(createdConnections.map((c) => c.provider)).toContain(
+      "discord_channel",
+    );
+  });
+
+  test("removes the discord_channel connection when the bot token is gone", async () => {
+    seedConnection("discord_channel");
+    setCredentialResult("discord_channel", "bot_token", {
+      value: undefined,
+      unreachable: false,
+    });
+
+    await syncManualTokenConnection("discord_channel");
+
+    expect(deletedConnectionIds).toContain("conn-discord_channel");
+  });
+
+  test("leaves the discord_channel row alone when the backend is unreachable", async () => {
+    // An unreachable credential store is not evidence the token is gone, so
+    // reconciliation must not read it as a disconnection.
+    seedConnection("discord_channel");
+    setCredentialResult("discord_channel", "bot_token", {
+      value: undefined,
+      unreachable: true,
+    });
+
+    await syncManualTokenConnection("discord_channel");
+
+    expect(deletedConnectionIds).not.toContain("conn-discord_channel");
+    expect(connectionStore["discord_channel"]).toBeDefined();
+  });
+
   // ---- Slack: reachable backend, missing tokens -> removes row ----
 
   test("removes slack_channel connection when bot token is missing and backend is reachable", async () => {

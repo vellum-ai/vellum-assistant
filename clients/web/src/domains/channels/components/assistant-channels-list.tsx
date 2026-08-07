@@ -2,20 +2,23 @@ import { useEffect, useState } from "react";
 
 import { ConfirmDialog } from "@vellumai/design-library/components/confirm-dialog";
 
+import { useTranslation } from "@/i18n";
 import { DetailCard } from "@/components/detail-card";
 import {
   MobileSidebarDrawer,
   MobileSidebarTrigger,
 } from "@/components/mobile-sidebar-drawer";
 import type { MutationStatus } from "@/components/channel-setup-wizard";
-import { useChannelAdapterSelectionStore } from "@/domains/channels/adapter-selection-store";
+import { useChannelRouteSelection } from "@/domains/channels/hooks/use-channel-route-selection";
 import { CHANNEL_META } from "@/domains/channels/channel-meta";
 import { ChannelAdapterList } from "@/domains/channels/components/channel-adapter-list";
 import { ChannelPanel } from "@/domains/channels/components/channel-panel";
+import { PluginChannelPanel } from "@/domains/channels/components/plugin-channel-panel";
 import type { SlackThreadMode } from "@/domains/channels/components/slack-thread-behavior";
 import type { AdmissionPolicy } from "@/lib/channel-admission-policy/types";
 import type {
   AssistantChannelState,
+  PluginChannelSummary,
   SetupChannelId,
 } from "@/types/channel-types";
 import { assistantDisplayName as toAssistantDisplayName } from "@/utils/assistant-display-name";
@@ -66,6 +69,13 @@ export interface AssistantChannelsListProps {
   assistantId: string;
   assistantName: string;
   channels: AssistantChannelState[];
+  /**
+   * Channels declared by installed plugins. Listed alongside the adapters and
+   * selectable, but managed by the plugin that brought them: no credential
+   * form, no disconnect, no trust floor, none of which this client can supply
+   * for a channel it knows nothing about.
+   */
+  pluginChannels?: PluginChannelSummary[];
   pendingChannelKey?: ChannelKey | null;
   slackThreadMode?: SlackThreadMode;
   slackThreadModePending?: boolean;
@@ -83,7 +93,7 @@ export interface AssistantChannelsListProps {
     channelKey: ChannelKey,
     policy: AdmissionPolicy,
   ) => void;
-  onSetup?: (channelKey: ChannelKey) => void;
+  onSetup?: (channelKey: ChannelKey, incomplete?: boolean) => void;
   onDisconnect?: (channelKey: ChannelKey) => void;
   onSaveTelegramToken?: (botToken: string) => void;
   telegramSaveStatus?: MutationStatus;
@@ -108,13 +118,15 @@ export interface AssistantChannelsListProps {
  * Slack/Telegram/Phone adapters (`ChannelAdapterList`) beside the selected
  * adapter's detail panel (`ChannelPanel`), plus the disconnect and trust-floor
  * confirmation dialogs. Rendered by the Channels tab (`ChannelsPage`). The
- * active adapter persists in `adapter-selection-store`; the queries and
- * mutations behind the props live in `useAssistantChannels`.
+ * active adapter is the one named in the URL
+ * (`use-channel-route-selection`); the queries and mutations behind the props
+ * live in `useAssistantChannels`.
  */
 export function AssistantChannelsList({
   assistantId,
   assistantName,
   channels,
+  pluginChannels = [],
   pendingChannelKey = null,
   slackThreadMode,
   slackThreadModePending = false,
@@ -135,8 +147,9 @@ export function AssistantChannelsList({
   onSaveTwilioCredentials,
   initialChannel = null,
 }: AssistantChannelsListProps) {
-  const selectedAdapter = useChannelAdapterSelectionStore.use.selectedAdapter();
-  const selectAdapter = useChannelAdapterSelectionStore.use.selectAdapter();
+  const { t } = useTranslation("channels");
+  const { selected: selectedAdapter, select: selectAdapter } =
+    useChannelRouteSelection();
 
   const [pendingDisconnect, setPendingDisconnect] = useState<ChannelKey | null>(
     null,
@@ -183,35 +196,53 @@ export function AssistantChannelsList({
     onChannelPolicyChange?.(channelKey, next);
   };
 
-  const handleSelect = (channelKey: ChannelKey) => {
+  const handleSelect = (channelKey: string) => {
     selectAdapter(channelKey);
     setDrawerOpen(false);
   };
 
-  // The persisted selection falls back to the first adapter if it names one
-  // that isn't present (the adapter set is fixed, so this is defensive).
-  const selected =
-    channels.find((channel) => channel.key === selectedAdapter) ?? channels[0];
+  // A plugin channel can be selected, and can also vanish under the selection
+  // when its plugin is uninstalled or disabled, so the lookup falls through to
+  // the adapters rather than leaving the panel empty.
+  const selectedPlugin = pluginChannels.find(
+    (channel) => channel.key === selectedAdapter,
+  );
+  const selected = selectedPlugin
+    ? undefined
+    : (channels.find((channel) => channel.key === selectedAdapter) ??
+      channels[0]);
 
-  if (!selected) {
+  if (!selected && !selectedPlugin) {
     return null;
   }
+
+  const selectedKey = selectedPlugin ? selectedPlugin.key : selected!.key;
 
   // Keyed on the adapter so switching selection remounts the panel: its
   // credential-form state (`initialManualEntry`) is seeded once at mount,
   // and each adapter should start fresh.
-  const detail = (
+  const detail = selectedPlugin ? (
+    <PluginChannelPanel
+      key={selectedPlugin.key}
+      channel={selectedPlugin}
+      assistantId={assistantId}
+    />
+  ) : (
     <ChannelPanel
-      key={selected.key}
-      channel={selected}
+      key={selected!.key}
+      channel={selected!}
       assistantId={assistantId}
       assistantName={assistantName}
       assistantDisplayName={displayName}
-      pending={pendingChannelKey === selected.key}
-      initialManualEntry={setupChannel === selected.key}
-      onSetup={onSetup ? () => onSetup(selected.key) : undefined}
+      pending={pendingChannelKey === selected!.key}
+      initialManualEntry={setupChannel === selected!.key}
+      onSetup={
+        onSetup
+          ? () => onSetup(selected!.key, selected!.status === "incomplete")
+          : undefined
+      }
       onDisconnect={
-        onDisconnect ? () => setPendingDisconnect(selected.key) : undefined
+        onDisconnect ? () => setPendingDisconnect(selected!.key) : undefined
       }
       onSaveTelegramToken={onSaveTelegramToken}
       telegramSaveStatus={telegramSaveStatus}
@@ -223,13 +254,13 @@ export function AssistantChannelsList({
       slackThreadModePending={slackThreadModePending}
       onSlackThreadModeChange={onSlackThreadModeChange}
       onSaveTwilioCredentials={onSaveTwilioCredentials}
-      policy={channelPolicies?.[selected.key]}
-      policySaving={policySavingKey === selected.key}
+      policy={channelPolicies?.[selected!.key]}
+      policySaving={policySavingKey === selected!.key}
       policyLoading={policiesLoading}
       policyError={policiesError}
       onPolicyChange={
         onChannelPolicyChange
-          ? (next) => handlePolicyChange(selected.key, next)
+          ? (next) => handlePolicyChange(selected!.key, next)
           : undefined
       }
     />
@@ -245,11 +276,12 @@ export function AssistantChannelsList({
         <MobileSidebarDrawer
           open={drawerOpen}
           onClose={() => setDrawerOpen(false)}
-          title="Channels"
+          title={t("assistantChannelsList.drawerTitle")}
         >
           <ChannelAdapterList
             channels={channels}
-            selectedKey={selected.key}
+            pluginChannels={pluginChannels}
+            selectedKey={selectedKey}
             onSelect={handleSelect}
           />
         </MobileSidebarDrawer>
@@ -257,7 +289,8 @@ export function AssistantChannelsList({
         <aside className="hidden min-h-0 w-[320px] shrink-0 overflow-y-auto self-stretch sm:block">
           <ChannelAdapterList
             channels={channels}
-            selectedKey={selected.key}
+            pluginChannels={pluginChannels}
+            selectedKey={selectedKey}
             onSelect={handleSelect}
           />
         </aside>
@@ -267,19 +300,17 @@ export function AssistantChannelsList({
             wrapper. Both scroll as a whole when the stacked content overflows —
             the per-channel list self-bounds its own rows within that. */}
         <section className="min-h-0 min-w-0 flex-1 overflow-y-auto">
-          {selected.key === "slack" ? (
-            detail
-          ) : (
-            <DetailCard>{detail}</DetailCard>
-          )}
+          {selectedKey === "slack" ? detail : <DetailCard>{detail}</DetailCard>}
         </section>
       </div>
 
       <ConfirmDialog
         open={pendingDisconnect !== null}
-        title={`Disconnect ${disconnectMeta?.label ?? ""}?`}
+        title={t("assistantChannelsList.disconnectTitle", {
+          channel: disconnectMeta?.label ?? "",
+        })}
         message={disconnectMeta?.disconnectMessage ?? ""}
-        confirmLabel="Disconnect"
+        confirmLabel={t("assistantChannelsList.disconnectConfirm")}
         destructive
         onConfirm={() => {
           if (pendingDisconnect && onDisconnect) {

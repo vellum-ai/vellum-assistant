@@ -6,6 +6,7 @@ import { Card } from "@vellumai/design-library/components/card";
 import { Tag } from "@vellumai/design-library/components/tag";
 import { Typography } from "@vellumai/design-library/components/typography";
 
+import { useTranslation } from "@/i18n";
 import { publicAsset } from "@/utils/public-asset";
 
 interface SlackConnectionCardProps {
@@ -31,6 +32,7 @@ export function SlackConnectionCard({
   onDisconnect,
   children,
 }: SlackConnectionCardProps) {
+  const { t } = useTranslation("channels");
   return (
     <Card.Root>
       <Card.Header>
@@ -46,7 +48,7 @@ export function SlackConnectionCard({
             </Typography>
           ) : null}
           <Tag tone="positive" leftIcon={<CheckCircle />}>
-            Connected
+            {t("connectionCard.connected")}
           </Tag>
           <div className="ml-auto">
             <Button
@@ -55,7 +57,9 @@ export function SlackConnectionCard({
               onClick={onDisconnect}
               disabled={!onDisconnect || disconnectPending}
             >
-              {disconnectPending ? "Disconnecting…" : "Disconnect"}
+              {disconnectPending
+                ? t("connectionCard.disconnecting")
+                : t("connectionCard.disconnect")}
             </Button>
           </div>
         </div>

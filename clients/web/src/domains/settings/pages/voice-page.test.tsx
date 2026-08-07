@@ -14,7 +14,13 @@
 
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import { MemoryRouter } from "react-router";
 
 // The voice-picker card reads the active assistant id (throws outside the
@@ -198,5 +204,115 @@ describe("VoiceSections listening language", () => {
     renderPage();
 
     expect(screen.getByText("Tamil (தமிழ்)")).toBeTruthy();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Microphone picker
+// ---------------------------------------------------------------------------
+
+/**
+ * Driven with `fireEvent`, matching every other picker test in this repo.
+ * That reaches `Select`'s `onChange` here: neutering the callback in
+ * `select.tsx` fails "choosing System Default clears the saved device",
+ * which is the check worth repeating if these ever start passing suspiciously
+ * easily.
+ */
+describe("VoiceSections microphone picker", () => {
+  const MICS: Partial<MediaDeviceInfo>[] = [
+    { deviceId: "mic-a", kind: "audioinput", label: "Built-in Mic" },
+    { deviceId: "mic-b", kind: "audioinput", label: "USB Mic" },
+  ];
+
+  function stubDevices(devices: Partial<MediaDeviceInfo>[]) {
+    Object.defineProperty(navigator, "mediaDevices", {
+      configurable: true,
+      value: {
+        enumerateDevices: async () => devices as MediaDeviceInfo[],
+        addEventListener: () => {},
+        removeEventListener: () => {},
+        getUserMedia: async () => ({
+          getTracks: () => [{ stop: () => {} }],
+        }),
+      },
+    });
+  }
+
+  function micTrigger(): HTMLElement {
+    // By aria-label, not by text: the page renders several pickers, and
+    // matching on rendered text picks whichever one happens to contain the
+    // string, which silently passes assertions against the wrong control.
+    const el = document.querySelector<HTMLElement>(
+      'button[role="combobox"][aria-label="Microphone"]',
+    );
+    if (!el) {
+      throw new Error("expected the microphone trigger");
+    }
+    return el;
+  }
+
+  function optionLabels(): string[] {
+    return Array.from(
+      document.querySelectorAll<HTMLElement>('[role="option"]'),
+    ).map((o) => o.textContent?.trim() ?? "");
+  }
+
+  test("System Default is offered", async () => {
+    // It carries the stored empty-string value, which Radix reserves. Passing
+    // that straight through drops the row and leaves no way to choose it.
+    stubDevices(MICS);
+    renderPage();
+    await waitFor(() => expect(micTrigger()).toBeTruthy());
+
+    fireEvent.click(micTrigger());
+    await waitFor(() => expect(optionLabels()).toContain("Built-in Mic"));
+    expect(optionLabels()).toContain("System Default");
+  });
+
+  test("choosing System Default clears the saved device", async () => {
+    localStorage.setItem("vellum:voice:inputDeviceId", "mic-b");
+    stubDevices(MICS);
+    renderPage();
+    await waitFor(() => expect(micTrigger().textContent).toContain("USB Mic"));
+
+    fireEvent.click(micTrigger());
+    const systemDefault = Array.from(
+      document.querySelectorAll<HTMLElement>('[role="option"]'),
+    ).find((o) => o.textContent?.trim() === "System Default");
+    fireEvent.click(systemDefault!);
+
+    expect(localStorage.getItem("vellum:voice:inputDeviceId")).toBe(null);
+  });
+
+  test("a saved device is not called disconnected before permission is granted", async () => {
+    // Browsers redact ids and labels until mic access is granted, so the
+    // enumerated list is empty for a reason that says nothing about whether
+    // the saved device is plugged in. Claiming it is disconnected there tells
+    // the user their working microphone is missing.
+    localStorage.setItem("vellum:voice:inputDeviceId", "mic-b");
+    stubDevices([
+      { deviceId: "", kind: "audioinput", label: "" },
+      { deviceId: "", kind: "audioinput", label: "" },
+    ]);
+    renderPage();
+
+    await waitFor(() =>
+      expect(micTrigger().textContent).toContain("Saved microphone"),
+    );
+    expect(micTrigger().textContent).not.toContain("not connected");
+  });
+
+  test("a saved device that is unplugged stays on the trigger", async () => {
+    // Showing System Default here would claim a preference the user does not
+    // have, and would make choosing System Default a no-op that cannot clear
+    // it. Capture already falls back, so the saved value is kept.
+    localStorage.setItem("vellum:voice:inputDeviceId", "mic-gone");
+    stubDevices(MICS);
+    renderPage();
+
+    await waitFor(() =>
+      expect(micTrigger().textContent).toContain("not connected"),
+    );
+    expect(localStorage.getItem("vellum:voice:inputDeviceId")).toBe("mic-gone");
   });
 });

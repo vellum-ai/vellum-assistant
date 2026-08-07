@@ -18,6 +18,8 @@ import { act, cleanup, render, waitFor } from "@testing-library/react";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 
+import { SIDEBAR_STACK_GAP } from "@/components/sidebar-nav-geometry";
+
 mock.module("@/hooks/use-is-mobile", () => ({
   useIsMobile: () => false,
   MOBILE_MEDIA_QUERY: "(max-width: 767px)",
@@ -26,16 +28,83 @@ mock.module("@/hooks/use-is-mobile", () => ({
 // The sidebar owns its Background/Scheduled lazy queries; stub both so static
 // SSR rendering resolves without a QueryClient. These tests pass the full
 // conversation list through `conversations` and assert the rendered buckets.
-mock.module("@/hooks/conversation-queries", () => ({
-  useBackgroundConversationListQuery: () => ({
-    conversations: [],
-    isPending: false,
+/* Every section asks the server for its own members, so the mock answers the
+   way the server does: filter by `groupId`, which is single-valued per
+   conversation. It MUST honor the filter. A mock that returned one fixed list
+   would hand every section the same rows and quietly pass a sidebar that
+   renders each conversation in every card. */
+let sectionSource: Conversation[] = [];
+
+function setSectionRows(conversations: Conversation[]) {
+  sectionSource = conversations;
+}
+
+/**
+ * Both filter axes, because a channel section constrains both: `system:all`
+ * for "no group claimed it" AND its own `origin_channel`. Honoring only the
+ * group would hand every channel card the whole ungrouped bucket.
+ */
+function rowsMatching(filter: {
+  groupId?: string;
+  originChannel?: string;
+}): Conversation[] {
+  if (filter.groupId === "system:pinned") {
+    return sectionSource.filter((c) => c.isPinned);
+  }
+  return sectionSource.filter((c) => {
+    if (c.isPinned) {
+      return false;
+    }
+    const inGroup =
+      filter.groupId === "system:all"
+        ? c.groupId == null || c.groupId === "system:all"
+        : c.groupId === filter.groupId;
+    if (!inGroup) {
+      return false;
+    }
+    if (filter.originChannel === undefined) {
+      return true;
+    }
+    // "vellum" also claims rows that were never attributed, matching the
+    // daemon's tolerant predicate.
+    return filter.originChannel === "vellum"
+      ? c.originChannel == null || c.originChannel === "vellum"
+      : c.originChannel === filter.originChannel;
+  });
+}
+
+mock.module(
+  "@/hooks/conversation-queries",
+  (): Partial<typeof ConversationQueries> => ({
+    useBackgroundConversationListQuery: () => ({
+      conversations: [],
+      isLoading: false,
+      isPending: false,
+      isError: false,
+      refetch: () => {},
+    }),
+    useScheduledConversationListQuery: () => ({
+      conversations: [],
+      isLoading: false,
+      isPending: false,
+      isError: false,
+      refetch: () => {},
+    }),
+    useSectionConversationListQuery: (
+      _assistantId: string | null,
+      filter: { groupId?: string; originChannel?: string },
+    ) => ({
+      conversations: rowsMatching(filter),
+      isLoading: false,
+      isPending: false,
+      isError: false,
+      // A resolved query. Omitting this reads as falsy, which would send every
+      // section back to its derived rows and pass these tests for the wrong
+      // reason: green because nothing is filtered, not because it is.
+      hasData: true,
+    }),
   }),
-  useScheduledConversationListQuery: () => ({
-    conversations: [],
-    isPending: false,
-  }),
-}));
+);
 
 // The assistant nav item reads the avatar through React Query; stub it so
 // static SSR rendering resolves without a QueryClient.
@@ -49,6 +118,7 @@ mock.module("@/hooks/use-assistant-avatar", () => ({
   }),
 }));
 
+import type * as ConversationQueries from "@/hooks/conversation-queries";
 import type {
   Conversation,
   ConversationGroup,
@@ -93,6 +163,7 @@ function renderMenu(props: {
   includeTipCard?: boolean;
   isLoadingConversations?: boolean;
 }): string {
+  setSectionRows(props.conversations);
   const includeFooterAction = props.includeFooterAction ?? true;
   const { container } = render(
     createElement(AssistantSideMenu, {
@@ -235,21 +306,6 @@ describe("AssistantSideMenu · All view", () => {
     }),
   ];
 
-  // Short lists mount their rows directly, so this can assert what actually
-  // renders. The windowed path is covered below, where virtuoso emits no rows
-  // without real layout and only its presence can be asserted.
-  test("drops the Chats and channel headers in favour of one flat list", () => {
-    const html = renderMenu({ conversations });
-
-    expect(html).not.toContain(">Chats<");
-    expect(html).not.toContain(">Slack<");
-    expect(html).toContain(">Pinned<");
-    expect(html).not.toContain('data-slot="virtual-list"');
-    // The channel conversation is in the flat list, not a channel section.
-    expect(html).toContain("Slack one");
-    expect(html).toContain("Recent one");
-  });
-
   test("carries no 'Show more' affordance", () => {
     const html = renderMenu({
       conversations: Array.from({ length: 40 }, (_, index) =>
@@ -264,81 +320,10 @@ describe("AssistantSideMenu · All view", () => {
     expect(html).toContain('data-slot="virtual-list"');
   });
 
-  // A stored order that would lift Chats above the curated layer is pulled
-  // back, so the tiers hold however the order was arrived at.
-  test("a stored order that lifts Chats above a group is pulled back", () => {
-    localStorage.setItem("vellum:sidebar-view-mode:asst-1", "grouped");
-    localStorage.setItem(
-      "vellum:sidebar-section-order:asst-1",
-      JSON.stringify(["recents", "grp-a", "channel:slack"]),
-    );
-    useSidebarLayoutStore.setState({ assistantId: null });
-
-    const container = parse(
-      renderMenu({
-        conversations: [
-          makeConversation({ conversationId: "r1", title: "Recent one" }),
-          makeConversation({
-            conversationId: "g1",
-            title: "Group one",
-            groupId: "grp-a",
-          }),
-        ],
-        conversationGroups: [
-          { id: "grp-a", name: "Alpha", isSystemGroup: false },
-        ] as unknown as ConversationGroup[],
-      }),
-    );
-
-    const root = container.querySelector<HTMLElement>(
-      '[data-slot="collapsible"]',
-    );
-    if (!root) {
-      throw new Error("expected the section list's accordion root");
-    }
-    const children = Array.from(root.children);
-    const indexOfText = (text: string) =>
-      children.findIndex((el) => (el.textContent ?? "").includes(text));
-
-    expect(indexOfText("Alpha")).toBeLessThan(indexOfText("Chats"));
-  });
-
-  test("offers the grouping dropdown behind the Conversations actions menu", async () => {
-    // "Conversations" is the persistent header carrying the dropdown, in
-    // every view mode, including this describe block's flat All view (see
-    // its own `beforeEach`).
-    const { container } = render(
-      createElement(AssistantSideMenu, {
-        assistantId: "asst-1",
-        collapsed: false,
-        variant: "rail",
-        conversations,
-        onSelectConversation: () => {},
-      }),
-    );
-    try {
-      const trigger = container.querySelector<HTMLElement>(
-        '[aria-label="Conversations actions"]',
-      );
-      expect(trigger).not.toBeNull();
-      act(() => {
-        trigger?.click();
-      });
-      await waitFor(() => {
-        expect(document.body.textContent).toContain("Group by");
-      });
-      // A dropdown, not tabs: only the selected option ("None", this
-      // block's flat view mode) shows on the closed trigger; "Channel"
-      // waits in the menu.
-      const select = document.body.querySelector<HTMLElement>(
-        '[data-slot="select-trigger"]',
-      );
-      expect(select).not.toBeNull();
-      expect(select?.textContent).toContain("None");
-    } finally {
-      cleanup();
-    }
-  });
+  // The grouping toggle used to be asserted here, because the "Conversations"
+  // header that carried it was on screen in every view. It now belongs to the
+  // Chats section's own menu, so it is asserted against both views together;
+  // see the "channel grouping toggle" block below.
 
   test("the collapsed rail reaches the flat list through a Chats icon", () => {
     const html = renderMenu({ conversations, collapsed: true });
@@ -493,22 +478,35 @@ describe("AssistantSideMenu · tipCard slot", () => {
     makeConversation({ conversationId: "a", title: "Alpha" }),
   ];
 
-  test("renders the rail footer as tip card, then divider, then footer action", () => {
+  test("renders the rail footer as tip card, then footer action", () => {
     const html = renderMenu({ conversations, includeTipCard: true });
 
     const footerIndex = html.indexOf('data-slot="side-menu-footer"');
     const tipIndex = html.indexOf("TipSentinel");
-    const separatorIndex = html.indexOf(
-      'data-slot="side-menu-separator"',
-      tipIndex,
-    );
     const actionIndex = html.indexOf("Preferences");
     expect(footerIndex).toBeGreaterThanOrEqual(0);
     expect(tipIndex).toBeGreaterThan(footerIndex);
-    // The divider sits BETWEEN the tip card and the footer action, never
-    // above the tip.
-    expect(separatorIndex).toBeGreaterThan(tipIndex);
-    expect(actionIndex).toBeGreaterThan(separatorIndex);
+    expect(actionIndex).toBeGreaterThan(tipIndex);
+  });
+
+  /* The footer carries no rule, in either direction: not over the tip card
+     and not between it and the action. Scoped to the footer rather than the
+     whole tree so a separator elsewhere in the sidebar cannot mask a rule
+     reappearing here. */
+  test("the rail footer carries no separator", () => {
+    const container = parse(
+      renderMenu({ conversations, includeTipCard: true }),
+    );
+
+    const footer = container.querySelector<HTMLElement>(
+      '[data-slot="side-menu-footer"]',
+    );
+    if (!footer) {
+      throw new Error("expected the rail footer");
+    }
+    expect(
+      footer.querySelectorAll('[data-slot="side-menu-separator"]'),
+    ).toHaveLength(0);
   });
 
   test("hides the tip card on the collapsed rail", () => {
@@ -896,29 +894,6 @@ describe("AssistantSideMenu · section header menus", () => {
     return last[1].map((c) => c.conversationId).sort();
   }
 
-  test("the Conversations header covers the same set in either view", async () => {
-    // The header sits above Chats and the channel sections, so its bulk
-    // actions have to reach every conversation it contains. Scoping them to
-    // the `all` view's flat list drops the channel sections in `grouped`,
-    // where those conversations have moved into sections of their own, and a
-    // user who archives "all conversations" is told their Slack threads are
-    // handled when they are not.
-    const scopes: Record<string, string[]> = {};
-    for (const mode of ["all", "grouped"] as const) {
-      localStorage.setItem("vellum:sidebar-view-mode:asst-1", mode);
-      const received: Array<[string, Conversation[]]> = [];
-      const { container, unmount } = renderWithGroupActions({
-        archiveAll: (label, c) => received.push([label, c]),
-      });
-      scopes[mode] = await archiveScopeOf(container, "Conversations", received);
-      unmount();
-      cleanup();
-    }
-
-    expect(scopes.grouped).toContain("s1");
-    expect(scopes.grouped).toEqual(scopes.all);
-  });
-
   test("a section header covers only that section", async () => {
     localStorage.setItem("vellum:sidebar-view-mode:asst-1", "grouped");
     const received: Array<[string, Conversation[]]> = [];
@@ -991,6 +966,152 @@ describe("AssistantSideMenu · section header menus", () => {
   });
 });
 
+/**
+ * The channel-grouping toggle, which no longer has a home of its own.
+ *
+ * It used to sit behind a persistent "Conversations" header, so it was on
+ * screen in every view and "can the user reach it?" was never a question. That
+ * header is gone: the toggle now rides in the menu of the sections the switch
+ * reshapes, which makes reachability a property of one section's menu in one
+ * view, and something that can silently stop being true.
+ *
+ * It stopped being true twice on this PR, each time caught in review rather
+ * than here: unreachable in All view, and later present on the header's
+ * right-click menu but missing from the "…" popover and the mobile sheet,
+ * which are built by a second function. So both views and both surfaces are
+ * asserted, and by activation rather than presence: an item that is rendered
+ * but wired to nothing is not reachable either (LUM-3120).
+ *
+ * The mobile sheet renders the popover's item set verbatim (one
+ * `renderGroupMenuItemsAsPanelItems` call inside `GroupActionsMenu`), and
+ * `group-actions-menu.test.tsx` holds that surface to the same items, so the
+ * popover standing in for it here is not a gap.
+ */
+describe("AssistantSideMenu · channel grouping toggle", () => {
+  const conversations = [
+    makeConversation({ conversationId: "r1", title: "Recent one" }),
+    makeConversation({
+      conversationId: "s1",
+      title: "Slack one",
+      originChannel: "slack",
+    }),
+  ];
+
+  /**
+   * The label names the view the toggle *leaves for*, so asserting it also
+   * asserts the section knows which view it is in. A toggle stuck on one label
+   * is the failure this catches: it would still be present and still fire, but
+   * would only ever describe one direction.
+   */
+  const LEAVES_FOR: Record<string, string> = {
+    all: "Group by channel",
+    grouped: "Ungroup",
+  };
+
+  const OTHER_VIEW: Record<string, string> = { all: "grouped", grouped: "all" };
+
+  function renderInView(viewMode: string) {
+    localStorage.setItem("vellum:sidebar-view-mode:asst-1", viewMode);
+    // The layout store is a module singleton keyed by assistant; clearing the
+    // id makes the next render re-read the view from localStorage.
+    useSidebarLayoutStore.setState({ assistantId: null });
+    setSectionRows(conversations);
+    return render(
+      createElement(AssistantSideMenu, {
+        assistantId: "asst-1",
+        collapsed: false,
+        variant: "rail" as const,
+        conversations,
+        onSelectConversation: () => {},
+      }),
+    );
+  }
+
+  function chatsHeader(container: HTMLElement): HTMLElement {
+    const header = Array.from(
+      container.querySelectorAll<HTMLElement>(
+        '[data-slot="collapsible-nav-section-header"]',
+      ),
+    ).find((h) => h.textContent?.includes("Chats"));
+    if (!header) {
+      throw new Error("No Chats section header, so no menu to reach it from");
+    }
+    return header;
+  }
+
+  test.each(["all", "grouped"])(
+    "right-clicking the Chats header reaches the toggle in %s view",
+    async (viewMode) => {
+      const { container } = renderInView(viewMode);
+      try {
+        act(() => {
+          chatsHeader(container).dispatchEvent(
+            new MouseEvent("contextmenu", { bubbles: true, button: 2 }),
+          );
+        });
+
+        let item: HTMLElement | undefined;
+        await waitFor(() => {
+          item = Array.from(
+            document.querySelectorAll<HTMLElement>('[role="menuitem"]'),
+          ).find((el) => el.textContent?.includes(LEAVES_FOR[viewMode]!));
+          expect(item).toBeDefined();
+        });
+
+        act(() => {
+          item!.click();
+        });
+        // The switch is a persisted per-assistant preference, so the stored
+        // value is where "it actually did something" is observable.
+        expect(localStorage.getItem("vellum:sidebar-view-mode:asst-1")).toBe(
+          OTHER_VIEW[viewMode],
+        );
+      } finally {
+        cleanup();
+      }
+    },
+  );
+
+  test.each(["all", "grouped"])(
+    "the Chats header's … menu reaches the toggle in %s view",
+    async (viewMode) => {
+      const { container } = renderInView(viewMode);
+      try {
+        /* The second surface, and the one that regressed: the popover and the
+           mobile sheet are built from a different function than the
+           right-click menu, so a new item added to one is not added to the
+           other. Reached through the real trigger rather than by rendering
+           the menu directly, because "the section has a … button at all" is
+           part of what has to hold. */
+        const trigger = container.querySelector<HTMLElement>(
+          '[aria-label="Chats actions"]',
+        );
+        expect(trigger).not.toBeNull();
+        act(() => {
+          trigger?.click();
+        });
+
+        let row: HTMLElement | undefined;
+        await waitFor(() => {
+          row = Array.from(
+            document.querySelectorAll<HTMLElement>('[role="button"]'),
+          ).find((el) => el.textContent?.trim() === LEAVES_FOR[viewMode]);
+          expect(row).toBeDefined();
+        });
+
+        act(() => {
+          row!.click();
+        });
+        expect(localStorage.getItem("vellum:sidebar-view-mode:asst-1")).toBe(
+          OTHER_VIEW[viewMode],
+        );
+      } finally {
+        cleanup();
+      }
+    },
+  );
+});
+
 // ---------------------------------------------------------------------------
 // Section layout (LUM-2909)
 // ---------------------------------------------------------------------------
@@ -1034,6 +1155,24 @@ function sectionElements(container: HTMLElement): HTMLElement[] {
   );
 }
 
+/**
+ * Each section's own card.
+ *
+ * The card is a section's outer box: it draws the surface, and it is the drag
+ * handle and the drop target. So anything about where a section sits in the
+ * stack, or what state a drag has put it in, is a fact about the card rather
+ * than about the section element inside it.
+ */
+function sectionCards(container: HTMLElement): HTMLElement[] {
+  return sectionElements(container).map((section) => {
+    const card = section.closest<HTMLElement>('[data-slot="card"]');
+    if (!card) {
+      throw new Error("A section rendered outside a card");
+    }
+    return card;
+  });
+}
+
 function sectionLabels(container: HTMLElement): (string | undefined)[] {
   return sectionElements(container).map((s) =>
     s
@@ -1054,31 +1193,31 @@ describe("AssistantSideMenu · section spacing", () => {
       }),
     );
 
-    // "Conversations" is the persistent header for everything that isn't
-    // Pinned or a custom group; Chats and each channel section nest inside
-    // it when grouped by Channels rather than sitting as its top-level
-    // siblings.
+    // Every section is a top-level sibling. There is no persistent
+    // "Conversations" header nesting Chats and the channel sections under a
+    // second tier, so nothing sits at a different depth from anything else.
     expect(sectionLabels(container)).toEqual([
       "Pinned",
       "Alpha",
-      "Conversations",
       "Chats",
       "Slack",
     ]);
 
-    // Two tiers, each sharing its own gap: the root holds Pinned, Alpha, and
-    // Conversations; Conversations' own wrapper holds Chats and Slack.
-    const sections = sectionElements(container);
-    const [pinned, alpha, conversations, chats, slack] = sections;
-    const rootParents = new Set(
-      [pinned, alpha, conversations].map((s) => s.parentElement),
-    );
-    expect(rootParents.size).toBe(1);
-    expect([...rootParents][0]?.className).toContain("gap-3");
+    /* One parent for all of them, at one gap. Two tiers meant two gaps, and
+       adjacent sections landing at different distances depending on which
+       tier they were in is exactly what `SIDEBAR_STACK_GAP` exists to stop.
+       Asserting the shared parent as well as the gap, since a single gap
+       value proves nothing if the sections are still split across tiers.
 
-    const nestedParents = new Set([chats, slack].map((s) => s.parentElement));
-    expect(nestedParents.size).toBe(1);
-    expect([...nestedParents][0]?.className).toContain("gap-3");
+       The sections are cards now, so they are the cards' siblings that share
+       a parent, not the sections'. Reading the gap off the section elements'
+       immediate parent would find each section's own card wrapper: four
+       parents, and a gap declared on none of them. */
+    const cards = sectionCards(container);
+    expect(cards).toHaveLength(4);
+    const parents = new Set(cards.map((card) => card.parentElement));
+    expect(parents.size).toBe(1);
+    expect([...parents][0]?.className).toContain(SIDEBAR_STACK_GAP);
   });
 });
 
@@ -1120,54 +1259,64 @@ describe("AssistantSideMenu · default section order", () => {
   });
 });
 
-describe("AssistantSideMenu · equal section treatment", () => {
-  // Custom groups are peers of Pinned, Chats, and the channel sections - not
-  // a separate class. Nothing in the list may imply a grouping the user
-  // didn't create, because they order these however they like.
-  // One rule in the list, and it is not a section break: it marks where the
-  // user's curation ends and the conversations begin. Two sections never have
-  // a rule between them, whatever their type.
-  test("the only rule follows the curated sections", () => {
-    const container = parse(
-      renderMenu({
-        conversations: LAYOUT_CONVERSATIONS,
-        conversationGroups: LAYOUT_GROUPS,
-      }),
-    );
+/* Membership in `sidebar.sections` and what renders have to be decided by
+   one predicate. When they were two - the list built unconditionally, the
+   section returning `null` when its query came back empty - `curatedSectionCount`
+   counted an entry nothing drew, so the curated rule appeared over an empty
+   tier and the header menu offered a move that swapped with an off-screen
+   section. */
+describe("AssistantSideMenu · a listed section is a rendered section", () => {
+  test("a custom group with no conversations still renders its header", () => {
+    const html = renderMenu({
+      conversations: [
+        makeConversation({ conversationId: "r1", title: "Solo" }),
+      ],
+      conversationGroups: [
+        {
+          id: "grp-empty",
+          name: "Fernweh",
+          sortPosition: 0,
+          isSystemGroup: false,
+        },
+      ],
+    });
 
-    const root = container.querySelector<HTMLElement>(
-      '[data-slot="collapsible"]',
-    );
-    if (!root) {
-      throw new Error("expected the section list's accordion root");
-    }
-    const children = Array.from(root.children);
-    const indexOfText = (text: string) =>
-      children.findIndex((el) => (el.textContent ?? "").includes(text));
-    // The rule sits inside a wrapper div (pulls it 2px closer to the
-    // curated block above), so it's a grandchild of root, not a direct
-    // child.
-    const ruleSelector = '[data-slot="sidebar-section-rule"]';
-    const ruleIndex = children.findIndex((el) =>
-      el.matches(ruleSelector) ? true : el.querySelector(ruleSelector) != null,
-    );
-
-    // Counts *every* horizontal rule in the list, not just the curated
-    // block's own: a `SideMenu.Separator` between two sections draws the
-    // same line, and this fixture puts Pinned directly above a custom group
-    // - the boundary a per-section divider would land on.
-    expect(
-      root.querySelectorAll(
-        `${ruleSelector}, [data-slot="side-menu-separator"]`,
-      ),
-    ).toHaveLength(1);
-    // Pinned and Alpha above it, Chats and Slack below.
-    expect(indexOfText("Pinned")).toBeLessThan(ruleIndex);
-    expect(indexOfText("Alpha")).toBeLessThan(ruleIndex);
-    expect(indexOfText("Chats")).toBeGreaterThan(ruleIndex);
-    expect(indexOfText("Slack")).toBeGreaterThan(ruleIndex);
+    // The group the user created is on screen even before anything is in it.
+    // "New group…" otherwise completes leaving nothing to show for it.
+    expect(html).toContain(">Fernweh<");
   });
 
+  test("an empty group draws no curated rule, because nothing precedes it", () => {
+    const html = renderMenu({
+      conversations: [
+        makeConversation({ conversationId: "r1", title: "Solo" }),
+      ],
+      conversationGroups: [
+        {
+          id: "grp-empty",
+          name: "Fernweh",
+          sortPosition: 0,
+          isSystemGroup: false,
+        },
+      ],
+    });
+    const container = parse(html);
+
+    // One curated section renders, so the rule below it is legitimate. What
+    // must never happen is a rule with an empty tier above it, which is what
+    // a counted-but-invisible section produces.
+    const curated = container.querySelectorAll(
+      '[data-slot="sidebar-section-rule"]',
+    );
+    if (curated.length > 0) {
+      expect(html.indexOf(">Fernweh<")).toBeLessThan(
+        html.indexOf('data-slot="sidebar-section-rule"'),
+      );
+    }
+  });
+});
+
+describe("AssistantSideMenu · equal section treatment", () => {
   test("the rule is absent until something is curated", () => {
     const container = parse(
       renderMenu({
@@ -1188,11 +1337,13 @@ describe("AssistantSideMenu · equal section treatment", () => {
     ).toHaveLength(0);
   });
 
-  // The built-in nav block above the list closes with a separator once the
-  // user pins an app; the collapsed rail adds its own to break the cluster
-  // off from the group icons. Only one of the two may render, or the rail
-  // shows two rules with nothing between them.
-  test("the collapsed rail's header carries one separator, pinned apps or not", () => {
+  // The rail is one column of identical circles on one step - identity, New
+  // Chat, the pinned apps and the section tiles alike - so it carries no rule
+  // anywhere in it. A separator here would divide two halves of a column that
+  // is uniform by construction, and the expanded rail dropped its own for the
+  // same reason. Asserted against both pinned-app states because the rule
+  // used to be conditional on them.
+  test("the collapsed rail's header carries no separator, pinned apps or not", () => {
     for (const pinnedApps of [
       [] as PinnedAppEntry[],
       [{ appId: "app-1", pinnedOrder: 0, name: "Vex Ops" }],
@@ -1219,7 +1370,7 @@ describe("AssistantSideMenu · equal section treatment", () => {
 
       expect(
         header.querySelectorAll('[data-slot="side-menu-separator"]'),
-      ).toHaveLength(1);
+      ).toHaveLength(0);
     }
 
     usePinnedAppsStore.setState({ pinnedApps: [], pinnedAppIds: new Set() });
@@ -1275,44 +1426,6 @@ describe("AssistantSideMenu · equal section treatment", () => {
     }
   });
 
-  // The dropdown isn't statically rendered at all: it lives behind the
-  // persistent "Conversations" header's "…" button, reachable rather than
-  // always on screen (Chats itself, nested inside Conversations when
-  // grouped by Channels, carries no button of its own, see
-  // `sidebar-section-item.tsx`).
-  test("the grouping dropdown is behind the Conversations actions menu, not statically rendered", async () => {
-    const html = renderMenu({
-      conversations: LAYOUT_CONVERSATIONS,
-      conversationGroups: LAYOUT_GROUPS,
-    });
-    expect(html).not.toContain('data-slot="select"');
-
-    const { container } = render(
-      createElement(AssistantSideMenu, {
-        assistantId: "asst-1",
-        collapsed: false,
-        variant: "rail",
-        conversations: LAYOUT_CONVERSATIONS,
-        conversationGroups: LAYOUT_GROUPS,
-        onSelectConversation: () => {},
-      }),
-    );
-    try {
-      const trigger = container.querySelector<HTMLElement>(
-        '[aria-label="Conversations actions"]',
-      );
-      expect(trigger).not.toBeNull();
-      act(() => {
-        trigger?.click();
-      });
-      await waitFor(() => {
-        expect(document.body.textContent).toContain("Group by");
-      });
-    } finally {
-      cleanup();
-    }
-  });
-
   test("every section renders through the same component with the same affordances", () => {
     const container = parse(
       renderMenu({
@@ -1321,58 +1434,29 @@ describe("AssistantSideMenu · equal section treatment", () => {
       }),
     );
 
+    /* No exception any more. "Conversations" used to be a wrapper that was
+       not itself a section - it did not drag and carried no icon - so this
+       had to carve it out. Every section here is a real member of
+       `sidebar.sections` and answers to the same rules. */
     const sections = sectionElements(container);
-    expect(sections).toHaveLength(5);
+    expect(sections).toHaveLength(4);
 
-    // "Conversations" is the persistent wrapper, not itself a member of
-    // `sidebar.sections`: it doesn't drag and carries no icon (matching
-    // Pinned's icon-less header). Everything else still shares the same
-    // affordances.
-    const labels = sectionLabels(container);
-    const reorderable = sections.filter(
-      (_, index) => labels[index] !== "Conversations",
-    );
-    expect(reorderable).toHaveLength(4);
-
-    for (const section of reorderable) {
+    for (const section of sections) {
+      /* Asked for via `closest` rather than on a named element: the drag
+         handle is the card, and which node carries `draggable` is an
+         implementation detail this should survive. What matters is that the
+         section is draggable at all. */
+      expect(section.closest('[draggable="true"]')).not.toBeNull();
       const header = section.querySelector<HTMLElement>(
         '[data-slot="collapsible-nav-section-header"]',
       );
-      // Draggable header (the reorder handle) and a disclosure chevron, on
-      // all four.
-      expect(header?.getAttribute("draggable")).toBe("true");
+      // A disclosure chevron, on every one.
       expect(header?.querySelector("svg")).not.toBeNull();
     }
   });
 });
 
 describe("AssistantSideMenu · section reordering", () => {
-  test("section headers are drag handles", () => {
-    const container = parse(
-      renderMenu({
-        conversations: LAYOUT_CONVERSATIONS,
-        conversationGroups: LAYOUT_GROUPS,
-      }),
-    );
-
-    // "Conversations" is the persistent wrapper (not a member of
-    // `sidebar.sections`), so it never drags; everything else does.
-    const labels = sectionLabels(container);
-    const headers = Array.from(
-      container.querySelectorAll<HTMLElement>(
-        '[data-slot="collapsible-nav-section-header"]',
-      ),
-    );
-    expect(headers).toHaveLength(5);
-    const draggable = headers.filter(
-      (_, index) => labels[index] !== "Conversations",
-    );
-    expect(draggable).toHaveLength(4);
-    expect(draggable.every((h) => h.getAttribute("draggable") === "true")).toBe(
-      true,
-    );
-  });
-
   test("a lone section isn't draggable - there's nothing to reorder against", () => {
     const container = parse(
       renderMenu({
@@ -1380,27 +1464,31 @@ describe("AssistantSideMenu · section reordering", () => {
       }),
     );
 
-    // "Conversations" (always present) plus the lone nested "Chats"
-    // section: neither drags. Conversations isn't a member of
-    // `sidebar.sections` to begin with, and Chats has nothing to reorder
-    // against.
-    const headers = Array.from(
-      container.querySelectorAll<HTMLElement>(
-        '[data-slot="collapsible-nav-section-header"]',
-      ),
-    );
-    expect(headers).toHaveLength(2);
-    expect(headers.every((h) => h.getAttribute("draggable") !== "true")).toBe(
-      true,
-    );
+    /* One section now: "Chats". The persistent "Conversations" wrapper that
+       used to sit above it is gone, so this is the whole list, and a list of
+       one has nothing to reorder against. */
+    const sections = sectionElements(container);
+    expect(sections).toHaveLength(1);
+    expect(sections[0]?.closest('[draggable="true"]')).toBeNull();
   });
 
-  // Regression guard. The handlers first sat on the section root, where
-  // `dragleave` bubbling up from the section's own conversation rows cleared
-  // the indicator every time the pointer crossed one - so dragging over an
-  // expanded section showed no drop target at all. Keeping them on the header
-  // is what fixes it, and only an event-level test can tell the difference.
-  test("dragging over a section header marks it as the drop target", async () => {
+  /* The card is the drag unit: the handle, the thing that dims while it moves,
+     and the edge the insertion line lands on. One test for all three, because
+     they are one fact. A section is a card now, so grabbing one should pick
+     the whole object up; with the handle on the header the drag image was a
+     lone header strip, reading as a conversation row rather than as the
+     section being moved, and the insertion line was drawn on a box that was
+     not the one being inserted against.
+
+     Also a regression guard, for a bug the handlers' position used to cause
+     and no longer does. They first sat on the section root, where `dragleave`
+     bubbling up from the section's own conversation rows cleared the indicator
+     every time the pointer crossed one, so dragging over an expanded section
+     showed no drop target at all. They are back on a root with children (the
+     card) and it is safe, because `use-drag-reorder` ignores a `dragleave`
+     whose `relatedTarget` is inside `currentTarget` (`use-drag-reorder.ts`,
+     `onDragLeave`) - the guard, not the position, is what holds this. */
+  test("the card is the drag handle, the drag image and the drop edge", async () => {
     const { container } = render(
       createElement(AssistantSideMenu, {
         assistantId: "asst-1",
@@ -1418,6 +1506,25 @@ describe("AssistantSideMenu · section reordering", () => {
             '[data-slot="collapsible-nav-section-header"]',
           ),
         ).find((h) => h.textContent?.includes(label))!;
+      const cardFor = (label: string) =>
+        headerFor(label).closest<HTMLElement>('[data-slot="card"]')!;
+
+      /* The handle, before any drag starts. Every section, with no exception:
+         "Conversations" used to be a wrapper that never dragged, and it is
+         gone. The header must not also be draggable, or the two handles fight
+         over the same gesture and the drag image is whichever won. */
+      const cards = sectionCards(container);
+      expect(cards).toHaveLength(4);
+      for (const card of cards) {
+        expect(card.getAttribute("draggable")).toBe("true");
+        expect(
+          card
+            .querySelector<HTMLElement>(
+              '[data-slot="collapsible-nav-section-header"]',
+            )
+            ?.getAttribute("draggable"),
+        ).not.toBe("true");
+      }
 
       // Minimal DataTransfer stand-in: `onDragStart` only sets an effect and
       // a payload (Firefox needs the latter to begin a drag at all).
@@ -1434,25 +1541,31 @@ describe("AssistantSideMenu · section reordering", () => {
         });
       };
 
+      // Dispatched on the header, which is where the pointer actually is: the
+      // events have to reach the card by bubbling, so this covers the wiring
+      // rather than only the handler.
       fire(headerFor("Alpha"), "dragstart");
       fire(headerFor("Chats"), "dragover");
 
-      const chatsSection = headerFor("Chats").closest(
-        '[data-slot="collapsible-nav-section-section"]',
-      );
-      // A zero-height rect in the test DOM puts the pointer past the midpoint,
-      // so the insertion line lands on the trailing edge.
-      expect(chatsSection?.className).toContain("inset_0_-2px");
+      /* A zero-height rect in the test DOM puts the pointer past the midpoint,
+         so the insertion line lands on the trailing edge. On the card, and on
+         the card only: the section box inside it is inset from the card's own
+         edge, so a line drawn there reads as landing *inside* the section
+         rather than after it. */
+      expect(cardFor("Chats").className).toContain("inset_0_-2px");
+      expect(
+        headerFor("Chats").closest<HTMLElement>(
+          '[data-slot="collapsible-nav-section-section"]',
+        )?.className,
+      ).not.toContain("inset_0_-2px");
 
-      // The dragged section dims - deferred one tick past `dragstart` on
+      // The dragged card dims - deferred one tick past `dragstart` on
       // purpose, because re-rendering the dragged node inside the dragstart
       // dispatch cancels the drag in Chromium.
       await waitFor(() => {
-        const dimmed = Array.from(
-          container.querySelectorAll(
-            '[data-slot="collapsible-nav-section-section"]',
-          ),
-        ).filter((el) => el.className.includes("opacity-50"));
+        const dimmed = sectionCards(container).filter((card) =>
+          card.className.includes("opacity-50"),
+        );
         expect(dimmed).toHaveLength(1);
         expect(dimmed[0]?.textContent).toContain("Alpha");
       });
@@ -1461,16 +1574,24 @@ describe("AssistantSideMenu · section reordering", () => {
     }
   });
 
-  // Drag events fire on neither touch nor the keyboard, so the header menu
-  // carries the same reordering.
-  // The layout is Pinned, Alpha, Chats, Slack: two curated sections then two
-  // governed ones. A section is offered only the moves that stay inside its
-  // own tier, so the pair at the boundary (Alpha, Chats) each offer one
-  // direction just like the pair at the ends (Pinned, Slack).
+  /* Drag events fire on neither touch nor the keyboard, so the header menu
+     carries the same reordering.
+
+     The layout is Pinned, Alpha, Chats, Slack, and the only thing that
+     constrains a move now is the end of the list: the ends offer one direction
+     and everything between them offers both. Alpha and Chats used to offer one
+     each as well, because they straddled a curated/governed tier boundary that
+     no move could cross - the constraint that made a custom group and the chat
+     list different kinds of thing. It is gone, so any section can sit
+     anywhere, and the menu says so.
+
+     Absence is the disabled state here: a section at an end is offered no move
+     in that direction rather than a greyed-out one, so these lists are
+     exhaustive on purpose. */
   test.each([
     ["Pinned", ["Move Section Down"]],
-    ["Alpha", ["Move Section Up"]],
-    ["Chats", ["Move Section Down"]],
+    ["Alpha", ["Move Section Up", "Move Section Down"]],
+    ["Chats", ["Move Section Up", "Move Section Down"]],
     ["Slack", ["Move Section Up"]],
   ])(
     "%s offers the move actions its position allows",

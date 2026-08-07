@@ -34,6 +34,34 @@ mock.module(
   }),
 );
 
+// The reopen link names its own document from the documents query and hides
+// itself while that document is open; both are covered by
+// `document-reopen-link.test`. Stub it to a bare button so these tests assert
+// what the transcript owns: which documents a turn anchors, in what order,
+// where in the message the links land, and what the click reaches.
+mock.module("@/domains/chat/transcript/document-reopen-link", () => ({
+  DocumentReopenLink: ({
+    surfaceId,
+    assistantId,
+    conversationId,
+    onOpenDocument,
+  }: {
+    surfaceId: string;
+    assistantId?: string | null;
+    conversationId?: string | null;
+    onOpenDocument: (surfaceId: string) => void;
+  }) => (
+    <button
+      type="button"
+      data-testid="document-reopen-link"
+      data-surface-id={surfaceId}
+      data-assistant-id={assistantId ?? ""}
+      data-conversation-id={conversationId ?? ""}
+      onClick={() => onOpenDocument(surfaceId)}
+    />
+  ),
+}));
+
 // The ACP-run and background-task rows wire their transcript stop button to
 // these standalone actions; stub them so clicking Stop records the call without
 // pulling in the daemon SDK / store wiring.
@@ -2196,5 +2224,152 @@ describe("TranscriptMessageBody — redacted-credential chip version gate", () =
   test("user messages never enable chips, even at the gated version", () => {
     hydrateIdentity(REDACTED_CHIPS_MIN_VERSION);
     expect(chipFlag("user")).toBe("false");
+  });
+});
+
+/**
+ * The links themselves are resolved across a whole response by `Transcript`
+ * (see `resolve-response-documents.test` for which documents a response
+ * anchors, and `transcript.test` for which message ends up carrying them).
+ * What the body owns is the slot: it renders exactly the ids it is handed,
+ * below the response body and above the footer, and nothing without a handler.
+ */
+describe("TranscriptMessageBody: changed-document reopen links", () => {
+  const DOC_ASSISTANT_ID = "asst-doc";
+  const DOC_CONVERSATION_ID = "conv-doc";
+  const onOpenDocumentMock = mock((_surfaceId: string) => {});
+
+  /** A settled `document_update` whose result carries the surface it wrote. */
+  function documentUpdateCall(
+    id: string,
+    surfaceId: string,
+  ): ChatMessageToolCall {
+    return {
+      id,
+      name: "document_update",
+      input: { surface_id: surfaceId, content: "notes" },
+      result: JSON.stringify({ success: true, surface_id: surfaceId }),
+      completedAt: 1,
+    };
+  }
+
+  /**
+   * A message that narrates, runs `document_update`, then answers. The lead-in
+   * and the tool run collapse into "Earlier activity", so any reopen link that
+   * renders has to sit outside that disclosure to still be visible.
+   */
+  function turnElement(
+    changedDocumentIds: string[] | undefined,
+    onOpenDocument: ((surfaceId: string) => void) | undefined,
+  ) {
+    const toolCalls = [documentUpdateCall("tc-doc", "surf-notes")];
+    return (
+      <TranscriptMessageBody
+        message={{
+          id: "m-doc-turn",
+          role: "assistant",
+          contentBlocks: [
+            textBlock("Updating your notes."),
+            ...toolCalls.map(toolUseBlock),
+            textBlock("Done."),
+          ],
+          toolCalls,
+          timestamp: 1_000,
+        }}
+        conversationId={DOC_CONVERSATION_ID}
+        assistantId={DOC_ASSISTANT_ID}
+        changedDocumentIds={changedDocumentIds}
+        onOpenDocument={onOpenDocument}
+        onSurfaceAction={noop}
+      />
+    );
+  }
+
+  function renderTurn(changedDocumentIds: string[] | undefined) {
+    return render(turnElement(changedDocumentIds, onOpenDocumentMock));
+  }
+
+  function reopenLinks(container: HTMLElement): HTMLElement[] {
+    return Array.from(
+      container.querySelectorAll<HTMLElement>(
+        "[data-testid='document-reopen-link']",
+      ),
+    );
+  }
+
+  function reopenSurfaceIds(container: HTMLElement): (string | null)[] {
+    return reopenLinks(container).map((link) =>
+      link.getAttribute("data-surface-id"),
+    );
+  }
+
+  beforeEach(() => {
+    onOpenDocumentMock.mockClear();
+  });
+
+  test("renders one reopen link per id its response resolved", () => {
+    const { container } = renderTurn(["surf-notes"]);
+
+    const links = reopenLinks(container);
+    expect(links.length).toBe(1);
+    expect(links[0]!.getAttribute("data-surface-id")).toBe("surf-notes");
+    expect(links[0]!.getAttribute("data-assistant-id")).toBe(DOC_ASSISTANT_ID);
+    expect(links[0]!.getAttribute("data-conversation-id")).toBe(
+      DOC_CONVERSATION_ID,
+    );
+  });
+
+  test("renders the ids in the order the response resolved them", () => {
+    const { container } = renderTurn(["surf-notes", "surf-plan"]);
+
+    expect(reopenSurfaceIds(container)).toEqual(["surf-notes", "surf-plan"]);
+  });
+
+  test("places the reopen link after the response body and above the footer", () => {
+    const { container, getByText } = renderTurn(["surf-notes"]);
+
+    const link = reopenLinks(container)[0]!;
+    // A direct child of the message column, so it is a sibling of the
+    // "Earlier activity" disclosure rather than something inside it.
+    const column = link.parentElement!;
+    expect(column.parentElement!.getAttribute("data-message-id")).toBe(
+      "m-doc-turn",
+    );
+    expect(
+      screen.getByRole("button", { name: "Earlier activity" }).contains(link),
+    ).toBe(false);
+    expect(
+      getByText("Done.").compareDocumentPosition(link) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).not.toBe(0);
+    // The hover-action footer is the column's last row.
+    expect(
+      link.compareDocumentPosition(column.lastElementChild!) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).not.toBe(0);
+  });
+
+  test("renders no reopen link for its own document tool calls", () => {
+    // The message writes a document, but the response anchored the link on a
+    // later message. Resolution belongs to the response, not to each message
+    // that wrote.
+    const { container } = renderTurn(undefined);
+
+    expect(reopenLinks(container).length).toBe(0);
+  });
+
+  test("clicking the reopen link opens that document", () => {
+    const { container } = renderTurn(["surf-notes"]);
+
+    fireEvent.click(reopenLinks(container)[0]!);
+
+    expect(onOpenDocumentMock).toHaveBeenCalledTimes(1);
+    expect(onOpenDocumentMock).toHaveBeenCalledWith("surf-notes");
+  });
+
+  test("renders no reopen link without a handler to open the document", () => {
+    const { container } = render(turnElement(["surf-notes"], undefined));
+
+    expect(reopenLinks(container).length).toBe(0);
   });
 });

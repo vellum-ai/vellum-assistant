@@ -21,8 +21,14 @@
  * exactly the session's; a press that arrives with no session mounted has
  * nothing listening and does nothing (nothing native queues them).
  *
- * No-ops off iOS and on a shell too old to send the events, through
- * `subscribeVoiceLiveActivityControl`'s skew contract.
+ * **Both out-of-app surfaces feed this one path.** The iOS island's App Intent
+ * presses and the macOS floating panel's button presses carry the same action
+ * vocabulary and mean the same thing, so they are applied by the same function
+ * rather than each growing its own handling. The drift this avoids is two
+ * surfaces disagreeing about what "mute" does mid-call.
+ *
+ * No-ops off iOS, off Electron, and on a shell too old to send the events,
+ * through each subscription's skew contract.
  */
 
 import { useEffect } from "react";
@@ -40,6 +46,7 @@ import {
   subscribeVoiceLiveActivityControl,
   type VoiceLiveActivityControlAction,
 } from "@/runtime/native-live-activity";
+import { subscribeVoiceActivityControl } from "@/runtime/desktop-voice-activity";
 import type { ConfirmationDecision } from "@/types/event-types";
 
 /**
@@ -133,10 +140,26 @@ export function applyLiveActivityControl(
 }
 
 export function useLiveActivityControls(): void {
-  useEffect(
-    () => subscribeVoiceLiveActivityControl(({ action, requestId }) => {
+  useEffect(() => {
+    const apply = ({
+      action,
+      requestId,
+    }: {
+      action: VoiceLiveActivityControlAction;
+      requestId?: string;
+    }): void => {
       applyLiveActivityControl(action, requestId);
-    }),
-    [],
-  );
+    };
+    // Both surfaces, one set of semantics. Each subscription no-ops off its own
+    // host, so at most one ever fires, but they are subscribed unconditionally
+    // rather than behind a platform branch, for the same reason the mirror
+    // pushes to both sinks: the host test belongs in the runtime module, not
+    // duplicated at every call site.
+    const unsubscribeIsland = subscribeVoiceLiveActivityControl(apply);
+    const unsubscribePanel = subscribeVoiceActivityControl(apply);
+    return () => {
+      unsubscribeIsland();
+      unsubscribePanel();
+    };
+  }, []);
 }

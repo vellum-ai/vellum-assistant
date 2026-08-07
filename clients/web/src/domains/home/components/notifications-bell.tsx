@@ -184,13 +184,38 @@ export function NotificationsBell() {
     }
   }, []);
 
+  // Radix restores focus to the trigger when the popover closes, and Radix
+  // Tooltip opens on focus unless that focus followed a pointerdown on the
+  // trigger. A close driven by a pointer that is somewhere else (a click on a
+  // panel control, or outside the panel) therefore lands focus on the bell
+  // with the cursor away from it, opening the "Notifications" tooltip with no
+  // pointerleave coming to dismiss it. Marks such a close so the focus
+  // restore can be skipped for it.
+  const closedByPointerRef = useRef(false);
+
+  // Activation modality of the last interaction inside the panel. The panel's
+  // controls close it from `onClick`, which fires for Enter and Space as well
+  // as for a pointer, so the close handlers cannot infer a pointer on their
+  // own. Keyboard closes keep the focus restore, which keyboard users need to
+  // hold their place in the top bar.
+  const isPointerInteractionRef = useRef(false);
+
   const handleOpenChange = (open: boolean) => {
     setIsOpen(open);
-    if (!open) {
+    if (open) {
+      // A fresh close cycle: neither flag carries over from the last one.
+      closedByPointerRef.current = false;
+      isPointerInteractionRef.current = false;
+    } else {
       // Reopening always lands on the list, at the top.
       setSelectedItemId(null);
       listScrollTopRef.current = 0;
     }
+  };
+
+  const closePanel = () => {
+    closedByPointerRef.current = isPointerInteractionRef.current;
+    handleOpenChange(false);
   };
 
   const handleSelectItem = (item: FeedItem) => {
@@ -201,12 +226,12 @@ export function NotificationsBell() {
   };
 
   const handleGoToConversation = (conversationId: string) => {
-    handleOpenChange(false);
+    closePanel();
     navigateToConversation(navigate, conversationId);
   };
 
   const handleViewSchedule = (scheduleId: string) => {
-    handleOpenChange(false);
+    closePanel();
     navigate(routes.schedules.detail(scheduleId));
   };
 
@@ -237,7 +262,7 @@ export function NotificationsBell() {
       { itemId: selectedItem.id, actionId },
       {
         onSuccess: (data) => {
-          handleOpenChange(false);
+          closePanel();
           navigateToConversation(navigate, data.conversationId);
         },
         onError: () => {
@@ -436,6 +461,21 @@ export function NotificationsBell() {
           const content = event.currentTarget as HTMLElement | null;
           event.preventDefault();
           content?.focus();
+        }}
+        onPointerDownCapture={() => {
+          isPointerInteractionRef.current = true;
+        }}
+        onKeyDownCapture={() => {
+          isPointerInteractionRef.current = false;
+        }}
+        onPointerDownOutside={() => {
+          closedByPointerRef.current = true;
+        }}
+        onCloseAutoFocus={(event) => {
+          if (closedByPointerRef.current) {
+            closedByPointerRef.current = false;
+            event.preventDefault();
+          }
         }}
         className="w-96 max-w-[calc(100vw-2rem)] rounded-lg p-2"
       >

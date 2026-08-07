@@ -426,7 +426,7 @@ describe("getRetrospectiveConfig handler", () => {
     const handler = findHandler("getRetrospectiveConfig");
     const result = (await handler({})) as ConfigResponse;
 
-    // `available` stays true so the Settings row still renders — it reads
+    // `available` stays true so the Settings row still renders. It reads
     // "Paused" rather than disappearing as it would with memory off.
     expect(result.available).toBe(true);
     expect(result.enabled).toBe(false);

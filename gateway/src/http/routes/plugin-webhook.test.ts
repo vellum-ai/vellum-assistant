@@ -136,21 +136,96 @@ describe("approved routes", () => {
 
     expect(calls[0]!.url).toContain("?token=abc");
   });
-});
 
-describe("the gate", () => {
-  it("404s a route the plugin declares but nobody approved", async () => {
-    // The whole point of the gate: pending is not served.
+  it("serves a trailing-slash request under the declared path", async () => {
+    // Providers store the URL we hand them and may call it back with a
+    // slash appended. The plugin serves what it declared, so the forward
+    // uses the declared spelling rather than the requested one.
     const { calls, fetchImpl } = recordingFetch();
     const handle = createPluginWebhookHandler({
       config: CONFIG,
       credentials: CREDENTIALS,
-      resolve: () =>
-        resolution({
-          pending: [
-            { plugin: "meeting-bot", routes: [ROUTE], digest: "d".repeat(32) },
-          ],
-        }),
+      resolve: () => approvedWith([ROUTE]),
+      fetchImpl,
+    });
+
+    const res = await handle(
+      post("/webhooks/plugins/meeting-bot/realtime/", '{"event":"joined"}'),
+      "meeting-bot",
+      "realtime/",
+    );
+
+    expect(res.status).toBe(200);
+    expect(calls[0]!.url).toBe(
+      "http://runtime.test:7821/v1/x/plugins/meeting-bot/realtime",
+    );
+  });
+});
+
+describe("the gate", () => {
+  /** An unapproved declaration of `routes` for `meeting-bot`. */
+  function pendingWith(routes: IngressRoute[]): PluginIngressResolution {
+    return resolution({
+      pending: [{ plugin: "meeting-bot", routes, digest: "d".repeat(32) }],
+    });
+  }
+
+  it("does not forward a route the plugin declares but nobody approved", async () => {
+    // The whole point of the gate: pending is not served, however well the
+    // delivery is signed.
+    const { calls, fetchImpl } = recordingFetch();
+    const handle = createPluginWebhookHandler({
+      config: CONFIG,
+      credentials: CREDENTIALS,
+      resolve: () => pendingWith([ROUTE]),
+      fetchImpl,
+    });
+
+    const res = await handle(
+      post("/webhooks/plugins/meeting-bot/realtime"),
+      "meeting-bot",
+      "realtime",
+    );
+
+    expect(res.status).toBe(409);
+    expect(await res.json()).toMatchObject({
+      error: "Ingress route awaiting approval",
+    });
+    expect(calls).toEqual([]);
+  });
+
+  it("tells only a verified caller that the route is waiting", async () => {
+    // A prober cannot sign, and the difference between 404 and 409 is exactly
+    // what would tell them a route is declared here. Every way of failing
+    // before the signature has to land on the same answer.
+    const { calls, fetchImpl } = recordingFetch();
+    const handle = createPluginWebhookHandler({
+      config: CONFIG,
+      credentials: CREDENTIALS,
+      resolve: () => pendingWith([ROUTE]),
+      fetchImpl,
+    });
+
+    for (const req of [
+      post("/webhooks/plugins/meeting-bot/realtime", "{}", ""),
+      post("/webhooks/plugins/meeting-bot/realtime", "{}", "wrong-secret"),
+      post("/webhooks/plugins/meeting-bot/realtime", "x".repeat(2048)),
+    ]) {
+      const res = await handle(req, "meeting-bot", "realtime");
+      expect(res.status).toBe(404);
+      expect(await res.json()).toEqual({ error: "Not Found" } as never);
+    }
+    expect(calls).toEqual([]);
+  });
+
+  it("hides a missing secret on an unapproved route", async () => {
+    // 409 "secret not configured" would name the plugin and the route to a
+    // caller who has proved nothing.
+    const { calls, fetchImpl } = recordingFetch();
+    const handle = createPluginWebhookHandler({
+      config: CONFIG,
+      credentials: credentialsFor({}),
+      resolve: () => pendingWith([ROUTE]),
       fetchImpl,
     });
 
@@ -295,7 +370,6 @@ describe("the gate", () => {
       "realtime/../../secret",
       "realtime%2fextra",
       "REALTIME",
-      "realtime/",
     ]) {
       const res = await handle(
         post(`/webhooks/plugins/meeting-bot/${path}`),

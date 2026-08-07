@@ -16,12 +16,17 @@ import {
   getDocumentById,
   getDocumentByWorkspacePath,
   getDocumentsForConversation,
+  isDocumentAssociatedWithConversation,
   refreshDocumentContentFromFile,
   saveDocument,
 } from "../../documents/document-store.js";
 import { rawAll } from "../../persistence/raw-query.js";
 import { getLogger } from "../../util/logger.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
+import {
+  getOriginClientId,
+  publishDocumentsChanged,
+} from "../sync/resource-sync-events.js";
 import { renderMarkdownToPDF } from "./document-pdf-renderer.js";
 import {
   BadRequestError,
@@ -159,6 +164,12 @@ function loadDocumentPayload(surfaceId: string): Record<string, unknown> {
  * content has drifted from the bytes on disk (the file was edited outside the
  * editor), the row is refreshed from the file before it is returned. Writes go
  * the other way — the document store writes through to the file.
+ *
+ * The publishes here carry no origin client id on purpose. The only caller,
+ * `viewer-store.loadWorkspaceFileDocument`, opens the file and never
+ * invalidates its own document queries, so the client that creates the row is
+ * the one that most needs to hear about it: suppressing its own echo would
+ * leave its assets pill and Library without the document it just opened.
  */
 function handleDocumentForWorkspaceFile({
   body,
@@ -194,8 +205,13 @@ function handleDocumentForWorkspaceFile({
   if (existing) {
     // Opening the file from another conversation grants that conversation
     // access, the same association the link route writes.
+    const alreadyLinked = isDocumentAssociatedWithConversation(
+      existing.surfaceId,
+      conversationId,
+    );
     addDocumentConversation(existing.surfaceId, conversationId);
 
+    let refreshed = false;
     if (existing.content !== fileText) {
       const refresh = refreshDocumentContentFromFile(
         existing.surfaceId,
@@ -204,10 +220,17 @@ function handleDocumentForWorkspaceFile({
       if (!refresh.success) {
         throw new InternalError(refresh.error);
       }
+      refreshed = true;
       log.info(
         { surfaceId: existing.surfaceId, workspacePath: relativePath },
         "Refreshed file-backed document from disk",
       );
+    }
+
+    // Reopening an unchanged, already-linked file writes nothing, so it must
+    // not invalidate every client's document list on each open.
+    if (!alreadyLinked || refreshed) {
+      publishDocumentsChanged();
     }
     return loadDocumentPayload(existing.surfaceId);
   }
@@ -227,7 +250,14 @@ function handleDocumentForWorkspaceFile({
     if (!raced) {
       throw new InternalError(created.error);
     }
+    const racedAlreadyLinked = isDocumentAssociatedWithConversation(
+      raced.surfaceId,
+      conversationId,
+    );
     addDocumentConversation(raced.surfaceId, conversationId);
+    if (!racedAlreadyLinked) {
+      publishDocumentsChanged();
+    }
     return loadDocumentPayload(raced.surfaceId);
   }
 
@@ -235,6 +265,7 @@ function handleDocumentForWorkspaceFile({
     { surfaceId, workspacePath: relativePath, conversationId },
     "Bound workspace file to a new document",
   );
+  publishDocumentsChanged();
   return loadDocumentPayload(surfaceId);
 }
 
@@ -325,7 +356,7 @@ export const ROUTES: RouteDefinition[] = [
       success: z.literal(true),
       surfaceId: z.string(),
     }),
-    handler: ({ body }) => {
+    handler: ({ body, headers }) => {
       const { surfaceId, conversationId, title, content, wordCount } = (body ??
         {}) as {
         surfaceId?: string;
@@ -362,6 +393,12 @@ export const ROUTES: RouteDefinition[] = [
       if (!result.success) {
         throw new InternalError(result.error);
       }
+      // Every save moves `updated_at`, which both document lists order by and
+      // the Library renders next to the word count, so a content-only save
+      // changes what the list surfaces show. The publish coalesces, which
+      // bounds the web editor's per-keystroke autosave to one broadcast per
+      // second, and the saving client suppresses its own echo by origin id.
+      publishDocumentsChanged(getOriginClientId(headers));
       return result;
     },
   },
@@ -426,6 +463,12 @@ export const ROUTES: RouteDefinition[] = [
         { surfaceId: pathParams!.id, conversationId },
         "Linked document to conversation",
       );
+      // No origin client id: the only caller, `document-viewer-page`, links the
+      // document and then navigates to the conversation whose assets pill must
+      // now list it, without invalidating anything itself. Suppressing its own
+      // echo would land it on a conversation whose pill is missing the document
+      // it just linked.
+      publishDocumentsChanged();
       return { success: true as const };
     },
   },

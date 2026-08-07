@@ -170,6 +170,7 @@ mock.module("../channels/gateway-guardian-requests.js", () => sim.module);
 import { applyGuardianDecision } from "../approvals/guardian-decision-primitive.js";
 import type { ActorContext } from "../approvals/guardian-request-resolvers.js";
 import { getResolver } from "../approvals/guardian-request-resolvers.js";
+import { getConfig } from "../config/loader.js";
 import type { TrustContext } from "../daemon/trust-context-types.js";
 import { getDb } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
@@ -177,12 +178,14 @@ import { scopedApprovalGrants } from "../persistence/schema/index.js";
 import { bridgeConfirmationRequestToGuardian } from "../runtime/confirmation-request-guardian-bridge.js";
 import { resolveRoutingState } from "../runtime/trust-context-resolver.js";
 import {
+  resolveInlineGrantWaitMs,
   TC_GRANT_WAIT_MAX_MS,
   ToolApprovalHandler,
   waitForInlineGrant,
 } from "../tools/tool-approval-handler.js";
 import type { ToolContext } from "../tools/types.js";
 import { seedContactChannel } from "./helpers/seed-contact-channel.js";
+import { setConfig } from "./helpers/set-config.js";
 
 await initializeDb();
 
@@ -754,7 +757,10 @@ describe("(f) timeout/stale flow: stale guardian decision after inline wait time
   test("inline_wait_active staleness guard: expired marker allows retry notification", async () => {
     // Create a guardian request with a stale inline_wait_active marker
     // that simulates a daemon crash during the wait.
-    const staleTimestamp = Date.now() - TC_GRANT_WAIT_MAX_MS - 60_000;
+    // Age the marker past the real wait budget, which the resolver's
+    // staleness threshold tracks. Deriving it from the same helper the
+    // waiter uses keeps this case meaningful if the budget changes.
+    const staleTimestamp = Date.now() - resolveInlineGrantWaitMs() - 60_000;
     const req = sim.seedRequest({
       id: `req-stale-${Date.now()}`,
       kind: "tool_grant_request",
@@ -800,6 +806,67 @@ describe("(f) timeout/stale flow: stale guardian decision after inline wait time
         (r.payload.text as string).includes("approved"),
     );
     expect(retryNotifications.length).toBeGreaterThan(0);
+  });
+
+  test("inline_wait_active marker older than the fallback constant but inside the real budget still suppresses retry", async () => {
+    // The staleness threshold must track the wait budget, not the fallback
+    // constant. A marker aged past TC_GRANT_WAIT_MAX_MS + buffer but still
+    // well inside the configured budget belongs to a waiter that is very
+    // much alive: telling the requester to retry would race a call that is
+    // about to resume, and the retry then fails against the one-time grant
+    // the live waiter consumes.
+    const priorTimeouts = getConfig().timeouts;
+    // Seed the budget rather than leaning on the ambient default, so the
+    // window this case probes exists no matter what the suite's config holds.
+    setConfig("timeouts", { ...priorTimeouts, permissionTimeoutSec: 300 });
+    try {
+      const budgetMs = resolveInlineGrantWaitMs();
+      // Comfortably past the old 90s threshold, comfortably short of the budget.
+      const markerAgeMs = TC_GRANT_WAIT_MAX_MS + 45_000;
+      const liveTimestamp = Date.now() - markerAgeMs;
+      expect(markerAgeMs).toBeLessThan(budgetMs);
+
+      const req = sim.seedRequest({
+        id: `req-live-${Date.now()}`,
+        kind: "tool_grant_request",
+        sourceType: "channel",
+        sourceChannel: "telegram",
+        sourceConversationId: "conv-live-1",
+        requesterExternalUserId: "requester-1",
+        requesterChatId: "requester-chat-1",
+        guardianExternalUserId: "guardian-1",
+        guardianPrincipalId: "test-principal-id",
+        toolName: "bash",
+        inputDigest: "sha256:livewait",
+        expiresAt: Date.now() + 60_000,
+      });
+
+      await sim.module.updateGuardianRequest(req.id, {
+        followupState: `inline_wait_active:${liveTimestamp}`,
+      });
+
+      deliveredReplies.length = 0;
+      const approvalResult = await applyGuardianDecision({
+        requestId: req.id,
+        action: "approve_once",
+        actorContext: guardianActor(),
+        channelDeliveryContext: {
+          replyCallbackUrl: "http://localhost:3000/reply",
+          guardianChatId: "guardian-chat-1",
+          assistantId: "self",
+        },
+      });
+      expect(approvalResult.applied).toBe(true);
+
+      const retryNotifications = deliveredReplies.filter(
+        (r) =>
+          typeof r.payload.text === "string" &&
+          (r.payload.text as string).includes("Please retry"),
+      );
+      expect(retryNotifications.length).toBe(0);
+    } finally {
+      setConfig("timeouts", priorTimeouts);
+    }
   });
 
   test("fresh inline_wait_active marker suppresses retry notification", async () => {
