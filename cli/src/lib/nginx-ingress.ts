@@ -203,15 +203,25 @@ function safeScriptJson(value: unknown): string {
     .replace(/>/g, "\\u003e");
 }
 
+/**
+ * Preloading the whole chunk graph opens ~290 tunnel connections on a cold
+ * load, and one dropped request blanks the app before React can report it.
+ * These are hints only; the entry module still pulls what it needs.
+ */
+function stripModulePreloads(html: string): string {
+  return html.replace(/<link[^>]+rel="modulepreload"[^>]*>\s*/g, "");
+}
+
 export function buildRemoteWebIndexHtml(
   rawHtml: string,
   config: Record<string, unknown>,
 ): string {
+  const html = stripModulePreloads(rawHtml);
   const script = `<script>window.__VELLUM_CONFIG__=${safeScriptJson(config)}</script>`;
-  if (rawHtml.includes("</head>")) {
-    return rawHtml.replace("</head>", `${script}</head>`);
+  if (html.includes("</head>")) {
+    return html.replace("</head>", `${script}</head>`);
   }
-  return `${script}${rawHtml}`;
+  return `${script}${html}`;
 }
 
 /**
@@ -272,6 +282,9 @@ http {
 
   server {
     listen 127.0.0.1:${opts.listenPort};
+    # A tunnel agent pointed at "localhost" reaches ::1 first on macOS, so an
+    # IPv4-only bind refuses whichever share of a burst resolves that way.
+    listen [::1]:${opts.listenPort};
     client_max_body_size 512m;
 
     # This edge sits behind a TLS-terminating front (tunnel or tailscale serve),

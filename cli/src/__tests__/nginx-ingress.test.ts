@@ -165,12 +165,15 @@ describe("buildIngressNginxConfig", () => {
     },
   });
 
-  test("listens on loopback only", () => {
+  test("listens on both loopback families, and nothing else", () => {
+    // A tunnel agent pointed at "localhost" reaches ::1 first on macOS, so an
+    // IPv4-only bind refuses whichever share of a burst resolves that way.
     expect(conf).toContain("listen 127.0.0.1:7840;");
+    expect(conf).toContain("listen [::1]:7840;");
     const listens = conf.match(/listen [^;]+;/g) ?? [];
     expect(listens.length).toBeGreaterThan(0);
     for (const directive of listens) {
-      expect(directive).toContain("127.0.0.1");
+      expect(directive).toMatch(/127\.0\.0\.1|\[::1\]/);
     }
   });
 
@@ -361,6 +364,24 @@ describe("buildRemoteWebIndexHtml", () => {
 
     expect(result).not.toContain("</script><script>alert(1)</script>");
     expect(result).toContain("\\u003c/script\\u003e");
+  });
+
+  test("drops modulepreload hints but keeps the entry script and stylesheet", () => {
+    const html = [
+      "<html><head>",
+      '<link rel="modulepreload" crossorigin href="/assistant/assets/a-1.js">',
+      '<link rel="modulepreload" crossorigin href="/assistant/assets/b-2.js">',
+      '<link rel="stylesheet" crossorigin href="/assistant/assets/main-3.css">',
+      '<script type="module" crossorigin src="/assistant/assets/index-4.js"></script>',
+      "</head><body></body></html>",
+    ].join("\n");
+
+    const result = buildRemoteWebIndexHtml(html, { mode: "remote-gateway" });
+
+    expect(result).not.toContain("modulepreload");
+    expect(result).not.toContain("/assistant/assets/a-1.js");
+    expect(result).toContain('href="/assistant/assets/main-3.css"');
+    expect(result).toContain('src="/assistant/assets/index-4.js"');
   });
 });
 
