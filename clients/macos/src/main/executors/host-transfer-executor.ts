@@ -13,9 +13,9 @@ import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 
-import type { HostProxyExecutor } from "../host-proxy-router";
-import type { HostProxyPoster } from "../host-proxy-poster";
-import type { HostProxySseMessage } from "../host-proxy-sse";
+import type { HostProxyExecutor } from "@vellumai/electron-desktop/host-proxy/router";
+import type { HostProxyPoster } from "@vellumai/electron-desktop/host-proxy/poster";
+import type { HostProxySseMessage } from "@vellumai/electron-desktop/host-proxy/sse";
 import log from "../logger";
 
 // ---------------------------------------------------------------------------

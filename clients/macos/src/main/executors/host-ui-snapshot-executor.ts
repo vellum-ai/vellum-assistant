@@ -18,12 +18,12 @@ import { app } from "electron";
 import { z } from "zod";
 
 import { getDevRendererBase, RENDERER_BASE_PROD } from "../app-config";
-import type { HostProxyExecutor } from "../host-proxy-router";
+import type { HostProxyExecutor } from "@vellumai/electron-desktop/host-proxy/router";
 import type {
   HostProxyPoster,
   HostUiSnapshotResultPayload,
-} from "../host-proxy-poster";
-import type { HostProxySseMessage } from "../host-proxy-sse";
+} from "@vellumai/electron-desktop/host-proxy/poster";
+import type { HostProxySseMessage } from "@vellumai/electron-desktop/host-proxy/sse";
 import { createWindow } from "../windows";
 import log from "../logger";
 

@@ -4,8 +4,8 @@ import { z } from "zod";
 import type { DeepLink } from "@vellumai/ipc-contract";
 import { resolveEnvironmentName } from "@vellumai/local-mode";
 
-import { handle, on } from "./ipc";
-import { ensureVisible as ensureMainWindowVisible } from "./main-window";
+import { capabilityToken } from "./capability-registry";
+import type { IpcHandle, IpcOn } from "./ipc";
 
 /**
  * Inbound deep links — `vellum://` and `vellum-assistant://` URL
@@ -51,17 +51,43 @@ import { ensureVisible as ensureMainWindowVisible } from "./main-window";
 
 export type { DeepLink };
 
+export interface DeepLinkRuntime {
+  ensureVisible: () => void | Promise<void>;
+  handle: IpcHandle;
+  initialArgv: readonly string[];
+  on: IpcOn;
+}
+
+export interface DeepLinkProtocolRegistration {
+  schemes: readonly string[];
+}
+
+export const DEEP_LINK_PROTOCOL_REGISTRATION =
+  capabilityToken<DeepLinkProtocolRegistration>(
+    "desktop.deep-link-protocol-registration",
+  );
+
+let runtime: DeepLinkRuntime | null = null;
+
+export const configureDeepLinks = (next: DeepLinkRuntime): void => {
+  runtime = next;
+};
+
 const PRODUCTION_SCHEME = "vellum-assistant";
 
 function schemeForEnv(env: string): string {
-  return env === "production" ? PRODUCTION_SCHEME : `${PRODUCTION_SCHEME}-${env}`;
+  return env === "production"
+    ? PRODUCTION_SCHEME
+    : `${PRODUCTION_SCHEME}-${env}`;
 }
 
 // Schemes to REGISTER with the OS via `app.setAsDefaultProtocolClient`.
 // Production claims both `vellum` and `vellum-assistant`; non-production
 // claims only the env-specific scheme to avoid hijacking production.
 export function resolveRegisteredSchemes(env: string): string[] {
-  if (env === "production") return ["vellum", PRODUCTION_SCHEME];
+  if (env === "production") {
+    return ["vellum", PRODUCTION_SCHEME];
+  }
   return [schemeForEnv(env)];
 }
 
@@ -70,7 +96,9 @@ export function resolveRegisteredSchemes(env: string): string[] {
 // routed to this build still parse correctly.
 export function resolveAcceptedSchemes(env: string): string[] {
   const accepted = new Set(["vellum:", `${PRODUCTION_SCHEME}:`]);
-  if (env !== "production") accepted.add(`${schemeForEnv(env)}:`);
+  if (env !== "production") {
+    accepted.add(`${schemeForEnv(env)}:`);
+  }
   return [...accepted];
 }
 
@@ -141,7 +169,9 @@ export const parseVellumUrl = (input: string): DeepLink => {
   }
   if (url.host === "thread") {
     const threadId = url.pathname.replace(/^\/+/, "").split("/")[0] ?? "";
-    if (threadId) return { kind: "openThread", threadId };
+    if (threadId) {
+      return { kind: "openThread", threadId };
+    }
     return { kind: "unknown", url: input };
   }
   if (url.host === "billing") {
@@ -191,7 +221,10 @@ export const parseVellumUrl = (input: string): DeepLink => {
   if (url.host === "auth" && url.pathname.startsWith("/callback")) {
     // The deprecated `/accounts/native/*` flow returns its auth code here.
     // Strip the sensitive code from the query so it doesn't get captured downstream.
-    return { kind: "unknown", url: `${url.protocol}//${url.host}${url.pathname}` };
+    return {
+      kind: "unknown",
+      url: `${url.protocol}//${url.host}${url.pathname}`,
+    };
   }
   return { kind: "unknown", url: input };
 };
@@ -201,9 +234,13 @@ export const parseVellumUrl = (input: string): DeepLink => {
  * where the OS delivers second-instance deep links via argv rather
  * than via `app.on("open-url")` like macOS. Exported for unit tests.
  */
-export const extractDeepLinkFromArgv = (argv: readonly string[]): string | null => {
+export const extractDeepLinkFromArgv = (
+  argv: readonly string[],
+): string | null => {
   for (const arg of argv) {
-    if (ACCEPTED_SCHEMES.some((s) => arg.startsWith(s))) return arg;
+    if (ACCEPTED_SCHEMES.some((s) => arg.startsWith(s))) {
+      return arg;
+    }
   }
   return null;
 };
@@ -234,7 +271,9 @@ const subscribers = new Set<WebContents>();
 
 const broadcast = (link: DeepLink): void => {
   for (const win of BrowserWindow.getAllWindows()) {
-    if (win.isDestroyed()) continue;
+    if (win.isDestroyed()) {
+      continue;
+    }
     win.webContents.send("vellum:deepLinks:event", link);
   }
 };
@@ -263,7 +302,9 @@ const broadcast = (link: DeepLink): void => {
 export const handleDeepLink = (input: string): void => {
   const link = parseVellumUrl(input);
 
-  if (subscribers.size === 0) pending.push(link);
+  if (subscribers.size === 0) {
+    pending.push(link);
+  }
   broadcast(link);
   // Activation is gated on `app.isReady()`. On cold launch, the
   // `will-finish-launching` → `open-url` path fires BEFORE
@@ -273,19 +314,21 @@ export const handleDeepLink = (input: string): void => {
   // `index.ts` creates the first window, which drains the link
   // on mount.
   if (link.kind !== "unknown" && app.isReady()) {
-    void ensureMainWindowVisible();
+    void runtime?.ensureVisible();
   }
 };
 
 let installed = false;
 
-/**
- * Wire the deep-link handlers. Called at module-top-level (NOT from
- * `whenReady`) so the `will-finish-launching` subscription captures
- * URLs delivered AT launch.
- */
+/** Wire protocol, process launch, and renderer delivery handlers. */
 export const installDeepLinks = (): void => {
-  if (installed) return;
+  if (installed) {
+    return;
+  }
+  const currentRuntime = runtime;
+  if (!currentRuntime) {
+    throw new Error("Deep-link runtime is unavailable");
+  }
   installed = true;
 
   // Dynamic registration — only claim the schemes this build owns.
@@ -307,9 +350,13 @@ export const installDeepLinks = (): void => {
   // buffer. The next link's `handleDeepLink` decision (buffer vs
   // broadcast-only) is governed by `subscriberCount`, not by
   // whether drain has been called.
-  handle("vellum:deepLinks:drain", z.tuple([]), (): DeepLink[] => {
-    return pending.splice(0, pending.length);
-  });
+  currentRuntime.handle(
+    "vellum:deepLinks:drain",
+    z.tuple([]),
+    (): DeepLink[] => {
+      return pending.splice(0, pending.length);
+    },
+  );
 
   // Subscriber tracking — see the `subscribers` comment above for
   // the model. The fire-and-forget `on` channel is sufficient — these
@@ -318,16 +365,38 @@ export const installDeepLinks = (): void => {
   // `destroyed` listener is the defense-in-depth for the cases
   // where the React effect cleanup doesn't run before the
   // webContents is torn down.
-  on("vellum:deepLinks:subscribe", z.tuple([]), (_args, event) => {
-    if (subscribers.has(event.sender)) return;
-    subscribers.add(event.sender);
-    event.sender.once("destroyed", () => {
+  currentRuntime.on(
+    "vellum:deepLinks:subscribe",
+    z.tuple([]),
+    (_args, event) => {
+      if (subscribers.has(event.sender)) {
+        return;
+      }
+      subscribers.add(event.sender);
+      event.sender.once("destroyed", () => {
+        subscribers.delete(event.sender);
+      });
+    },
+  );
+  currentRuntime.on(
+    "vellum:deepLinks:unsubscribe",
+    z.tuple([]),
+    (_args, event) => {
       subscribers.delete(event.sender);
-    });
+    },
+  );
+
+  app.on("second-instance", (_event, argv) => {
+    const url = extractDeepLinkFromArgv(argv);
+    if (url) {
+      handleDeepLink(url);
+    }
   });
-  on("vellum:deepLinks:unsubscribe", z.tuple([]), (_args, event) => {
-    subscribers.delete(event.sender);
-  });
+
+  const initialUrl = extractDeepLinkFromArgv(currentRuntime.initialArgv);
+  if (initialUrl) {
+    handleDeepLink(initialUrl);
+  }
 };
 
 /**

@@ -5,37 +5,19 @@
  * assistant. Local assistants (with a gatewayPort) connect to the loopback
  * gateway; cloud/managed assistants connect to the platform via
  * assistant-scoped URLs with session-token auth. Paired assistants use the
- * desktop data plane without receiving access to this Mac's host tools.
+ * desktop data plane without receiving access to the host's tools.
  *
  * Incoming SSE messages are dispatched to pluggable executors; unimplemented
  * executors post error results so daemon requests don't hang.
  */
 
 import {
-  getGuardianAccessToken,
-  resolveConfigDir,
-  resolveEnvironmentName,
-  type CliInvocation,
-} from "@vellumai/local-mode";
-import {
   isLoopbackGatewayCloud,
   type Lockfile,
 } from "@vellumai/local-mode/contract";
 
-import { HostProxySseClient, type HostProxySseMessage } from "./host-proxy-sse";
-import { HostProxyPoster } from "./host-proxy-poster";
-import { hostBashExecutor } from "./executors/host-bash-executor";
-import { hostFileExecutor } from "./executors/host-file-executor";
-import { hostTransferExecutor } from "./executors/host-transfer-executor";
-import { onLockfileChange, getWatchedLockfile } from "./lockfile-watcher";
-import { HostBrowserExecutor } from "./executors/host-browser-executor";
-import { hostCuExecutor } from "./executors/host-cu-executor";
-import { hostAppControlExecutor } from "./executors/host-app-control-executor";
-import { hostUiSnapshotExecutor } from "./executors/host-ui-snapshot-executor";
-import { shutdownSharedCuHelper } from "./sidecar/shared-cu-helper";
-import { getSessionToken } from "./session-token-store";
-import { installPresenceMonitor, type PresenceState } from "./presence";
-import log from "./logger";
+import { HostProxySseClient, type HostProxySseMessage } from "./sse";
+import { HostProxyPoster, type PresenceState } from "./poster";
 
 // ---------------------------------------------------------------------------
 // Executor interface
@@ -44,6 +26,58 @@ import log from "./logger";
 export interface HostProxyExecutor {
   handleRequest(message: HostProxySseMessage, poster: HostProxyPoster): void;
   handleCancel(message: HostProxySseMessage, poster: HostProxyPoster): void;
+}
+
+export type HostProxyExecutorKind =
+  | "host_bash"
+  | "host_file"
+  | "host_transfer"
+  | "host_browser"
+  | "host_cu"
+  | "host_app_control"
+  | "host_ui_snapshot";
+
+export interface HostProxyLogger {
+  info(message: string, context?: unknown): void;
+  warn(message: string, context?: unknown): void;
+  error(message: string, context?: unknown): void;
+}
+
+export interface HostProxyRuntime {
+  acquireGuardianToken: (assistantId: string) => Promise<string | null>;
+  getSessionToken: () => string | null;
+  getLockfile: () => Lockfile;
+  onLockfileChange: (listener: (lockfile: Lockfile) => void) => () => void;
+  installPresenceMonitor: (
+    onReport: (state: PresenceState) => void,
+  ) => () => void;
+  sseClientHeaders: () => Record<string, string>;
+  posterClientHeaders: () => Record<string, string>;
+  executors: Partial<Record<HostProxyExecutorKind, HostProxyExecutor>>;
+  teardownExecutors?: () => void;
+  logger: HostProxyLogger;
+}
+
+export interface HostProxyClientIdentity {
+  getClientId: () => string;
+  getMachineName: () => string;
+  interfaceId: string;
+}
+
+export function createHostProxyClientHeaders(
+  identity: HostProxyClientIdentity,
+): Pick<HostProxyRuntime, "posterClientHeaders" | "sseClientHeaders"> {
+  const posterClientHeaders = () => ({
+    "X-Vellum-Client-Id": identity.getClientId(),
+  });
+  return {
+    posterClientHeaders,
+    sseClientHeaders: () => ({
+      ...posterClientHeaders(),
+      "X-Vellum-Interface-Id": identity.interfaceId,
+      "X-Vellum-Machine-Name": identity.getMachineName(),
+    }),
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -83,9 +117,20 @@ const pendingConnects = new Map<string, PendingConnect>();
 
 const executors = new Map<string, HostProxyExecutor>();
 
-// Injected by installHostProxyBridge; kept at module scope so the
-// lockfile-change listener (which cannot be async) can reference it.
-let resolveCliInvocation: (() => Promise<CliInvocation>) | null = null;
+let hostRuntime: HostProxyRuntime | null = null;
+
+const requireRuntime = (): HostProxyRuntime => {
+  if (!hostRuntime) {
+    throw new Error("Host proxy runtime is not installed");
+  }
+  return hostRuntime;
+};
+
+const log: HostProxyLogger = {
+  info: (message, context) => requireRuntime().logger.info(message, context),
+  warn: (message, context) => requireRuntime().logger.warn(message, context),
+  error: (message, context) => requireRuntime().logger.error(message, context),
+};
 
 // ---------------------------------------------------------------------------
 // Executor registry
@@ -103,7 +148,7 @@ export function removeExecutor(kind: string): void {
 // Message dispatch
 // ---------------------------------------------------------------------------
 
-const EXECUTOR_KINDS = ["host_bash", "host_file", "host_transfer", "host_browser", "host_cu", "host_app_control", "host_ui_snapshot"] as const;
+const EXECUTOR_KINDS: readonly HostProxyExecutorKind[] = ["host_bash", "host_file", "host_transfer", "host_browser", "host_cu", "host_app_control", "host_ui_snapshot"];
 
 /** Route type → executor kind. Returns null for unknown types. */
 function executorKindForType(type: string): { kind: string; action: "request" | "cancel" } | null {
@@ -472,38 +517,15 @@ async function exchangeForGatewayToken(
 async function acquireGuardianToken(
   assistantId: string,
 ): Promise<string | null> {
-  if (!resolveCliInvocation) return null;
-
-  const configDir = resolveConfigDir(process.env);
-
-  let invocation: CliInvocation;
   try {
-    invocation = await resolveCliInvocation();
+    return await requireRuntime().acquireGuardianToken(assistantId);
   } catch (err) {
-    log.error("[host-proxy-router] failed to resolve CLI invocation", { assistantId, err });
-    return null;
-  }
-
-  // Pin the environment the guardian-token CLI subprocess (refresh) sees to
-  // the same one `configDir` is resolved from, so the token is always read
-  // and written under the same env dir.
-  const tokenResult = await getGuardianAccessToken(
-    assistantId,
-    configDir,
-    invocation,
-    true,
-    { VELLUM_ENVIRONMENT: resolveEnvironmentName(process.env) },
-  );
-
-  if (!tokenResult.ok) {
-    log.warn("[host-proxy-router] failed to obtain guardian token", {
+    log.error("[host-proxy-router] failed to obtain guardian token", {
       assistantId,
-      error: tokenResult.error,
+      err,
     });
     return null;
   }
-
-  return tokenResult.accessToken;
 }
 
 async function acquireGatewayToken(
@@ -599,10 +621,16 @@ function openLocalConnection(
   const sse = new HostProxySseClient({
     eventsUrl,
     authHeaders,
+    clientHeaders: requireRuntime().sseClientHeaders,
     onRefreshToken,
     onConnected: () => seedPresence(assistantId),
   });
-  const poster = new HostProxyPoster({ endpointBase, authHeaders, refreshAuth: onRefreshToken });
+  const poster = new HostProxyPoster({
+    endpointBase,
+    authHeaders,
+    clientHeaders: requireRuntime().posterClientHeaders,
+    refreshAuth: onRefreshToken,
+  });
 
   sse.setMessageCallback((msg) => dispatchMessage(msg, poster));
 
@@ -621,7 +649,7 @@ function connectCloudAssistant(
 ): void {
   if (connections.has(assistantId)) return;
 
-  const sessionToken = getSessionToken();
+  const sessionToken = requireRuntime().getSessionToken();
   if (!sessionToken) {
     log.warn("[host-proxy-router] no session token, skipping cloud connection", { assistantId });
     return;
@@ -630,7 +658,7 @@ function connectCloudAssistant(
   const baseUrl = runtimeUrl.replace(/\/$/, "");
 
   const authHeaders = (): Record<string, string> => {
-    const token = getSessionToken();
+    const token = requireRuntime().getSessionToken();
     if (!token) return {};
     const headers: Record<string, string> = { "X-Session-Token": token };
     if (organizationId) headers["Vellum-Organization-Id"] = organizationId;
@@ -643,9 +671,14 @@ function connectCloudAssistant(
   const sse = new HostProxySseClient({
     eventsUrl,
     authHeaders,
+    clientHeaders: requireRuntime().sseClientHeaders,
     onConnected: () => seedPresence(assistantId),
   });
-  const poster = new HostProxyPoster({ endpointBase, authHeaders });
+  const poster = new HostProxyPoster({
+    endpointBase,
+    authHeaders,
+    clientHeaders: requireRuntime().posterClientHeaders,
+  });
 
   sse.setMessageCallback((msg) => dispatchMessage(msg, poster));
 
@@ -748,26 +781,22 @@ let stopPresenceMonitor: (() => void) | null = null;
  * function for `before-quit`.
  */
 export function installHostProxyBridge(
-  cliResolver: () => Promise<CliInvocation>,
+  runtime: HostProxyRuntime,
 ): () => void {
-  resolveCliInvocation = cliResolver;
-  setExecutor("host_bash", hostBashExecutor);
-  setExecutor("host_file", hostFileExecutor);
-  setExecutor("host_transfer", hostTransferExecutor);
-  setExecutor("host_cu", hostCuExecutor);
-  setExecutor("host_app_control", hostAppControlExecutor);
-  setExecutor("host_ui_snapshot", hostUiSnapshotExecutor);
-  unsubscribe = onLockfileChange(handleLockfileChange);
+  hostRuntime = runtime;
+  executors.clear();
+  for (const [kind, executor] of Object.entries(runtime.executors)) {
+    if (executor) {
+      setExecutor(kind, executor);
+    }
+  }
+  unsubscribe = runtime.onLockfileChange(handleLockfileChange);
 
   // Seed from any assistants already present in the lockfile
-  const currentLockfile = getWatchedLockfile();
+  const currentLockfile = runtime.getLockfile();
   if (currentLockfile.assistants.length > 0) {
     handleLockfileChange(currentLockfile);
   }
-
-  // Register built-in executors
-  const browserExecutor = new HostBrowserExecutor();
-  setExecutor("host_browser", browserExecutor);
 
   // Not gated on there being any connections: the monitor is cheap, its
   // first report primes the cache, and a connection added later by
@@ -782,7 +811,7 @@ export function installHostProxyBridge(
   // safe direction; losing the app is not. Left null so teardown no-ops.
   stopPresenceMonitor = null;
   try {
-    stopPresenceMonitor = installPresenceMonitor(reportPresence);
+    stopPresenceMonitor = runtime.installPresenceMonitor(reportPresence);
   } catch (err) {
     log.warn("[host-proxy-router] presence monitor install failed", { err });
   }
@@ -798,12 +827,8 @@ export function installHostProxyBridge(
     }
     presencePostQueues.clear();
     lastRecordedState.clear();
-    browserExecutor.destroy();
-    removeExecutor("host_browser");
-    removeExecutor("host_cu");
-    removeExecutor("host_app_control");
-    shutdownSharedCuHelper();
-    resolveCliInvocation = null;
+    executors.clear();
+    runtime.teardownExecutors?.();
   };
 }
 
@@ -833,6 +858,9 @@ export const __testing = {
   disconnectAssistant,
   handleLockfileChange,
   seedPresence,
+  setRuntime(runtime: HostProxyRuntime) {
+    hostRuntime = runtime;
+  },
   reset() {
     stopPresenceMonitor?.();
     stopPresenceMonitor = null;
@@ -843,7 +871,7 @@ export const __testing = {
     presencePostQueues.clear();
     lastRecordedState.clear();
     executors.clear();
-    resolveCliInvocation = null;
+    hostRuntime = null;
     unsubscribe?.();
     unsubscribe = null;
   },
