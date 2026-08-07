@@ -1782,25 +1782,45 @@ describe("outbound verification sessions", () => {
     expect(result.success).toBe(true);
   });
 
-  // ── Voice identity match via expectedExternalUserId ──
+  // ── Voice identity is the number ──
 
-  test("Voice identity match succeeds via expectedExternalUserId", async () => {
+  test("a voice session is redeemed by the number it was sent to", async () => {
+    // Voice knows the caller by one thing, so the consume path receives that
+    // number as both actor axes. Every voice mint records it in both
+    // identity columns, and either way the session is bound to the number.
     const { secret } = await createOutboundSession({
       channel: "phone",
-      expectedExternalUserId: "voice-user-42",
-      expectedPhoneE164: "+15551234567",
-      destinationAddress: "+15551234567",
+      expectedExternalUserId: "+15555550101",
+      expectedPhoneE164: "+15555550101",
+      destinationAddress: "+15555550101",
     });
 
-    // Actor matches expectedExternalUserId
     const result = await validateAndConsumeVerification(
       "phone",
       secret,
-      "voice-user-42",
-      "voice-chat-1",
+      "+15555550101",
+      "+15555550101",
     );
 
     expect(result.success).toBe(true);
+  });
+
+  test("a voice session refuses a caller on a different number", async () => {
+    const { secret } = await createOutboundSession({
+      channel: "phone",
+      expectedExternalUserId: "+15555550101",
+      expectedPhoneE164: "+15555550101",
+      destinationAddress: "+15555550101",
+    });
+
+    const result = await validateAndConsumeVerification(
+      "phone",
+      secret,
+      "+15555550102",
+      "+15555550102",
+    );
+
+    expect(result.success).toBe(false);
   });
 });
 
