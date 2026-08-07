@@ -32,6 +32,7 @@ import { rollback } from "./commands/rollback";
 import { setup } from "./commands/setup";
 import { sleep } from "./commands/sleep";
 import { ssh } from "./commands/ssh";
+import { supervise } from "./commands/supervise";
 import { teleport } from "./commands/teleport";
 import { terminal } from "./commands/terminal";
 import { tunnel } from "./commands/tunnel";
@@ -72,6 +73,7 @@ const commands = {
   setup,
   sleep,
   ssh,
+  __supervise: supervise,
   teleport,
   terminal,
   tunnel,

@@ -118,11 +118,15 @@ describe("startCes", () => {
     expect(lastSpawnCall).not.toBeNull();
     expect(lastSpawnCall!.options.detached).toBe(true);
 
-    // Under plain bun (source tree / tests), CES must run via `bun run
-    // src/main.ts` — never an adjacent `credential-executor` binary, which in
-    // bun's own bin dir is an unrelated globally-installed package bin.
+    // Under plain bun, the supervisor must launch CES from source rather than
+    // an unrelated globally-installed credential-executor binary.
     expect(lastSpawnCall!.cmd[0]).toBe(process.execPath);
-    expect(lastSpawnCall!.cmd).toContain("src/main.ts");
+    expect(lastSpawnCall!.cmd).toContain("__supervise");
+    const supervisedProcess = JSON.parse(
+      lastSpawnCall!.options.env!.VELLUM_SUPERVISED_PROCESS!,
+    );
+    expect(supervisedProcess.command).toBe(process.execPath);
+    expect(supervisedProcess.args).toContain("src/main.ts");
 
     // Verify env vars
     const env = lastSpawnCall!.options.env!;

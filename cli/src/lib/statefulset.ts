@@ -378,7 +378,7 @@ export function buildServiceRunArgs(
     const svc = container.internalName;
 
     result[svc] = () => {
-      const args: string[] = ["run", "--init", "-d"];
+      const args: string[] = ["run", "--init", "--restart=on-failure:5", "-d"];
 
       // Container name
       const containerName =
