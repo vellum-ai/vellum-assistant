@@ -22,6 +22,28 @@ body {
   background: var(--surface-base);
 }
 
+/* The Capacitor camera preview is a native layer behind the web view. While it
+ * is active, hide the surrounding app canvas and keep only the voice room's
+ * controls visible over the transparent web view. The eight-digit token also
+ * tells the iOS backdrop bridge to clear safe-area paint around the web view. */
+:root.native-voice-camera-active {
+  --surface-overlay: #00000000;
+  background: transparent;
+}
+
+:root.native-voice-camera-active body,
+:root.native-voice-camera-active #root {
+  background: transparent;
+}
+
+:root.native-voice-camera-active #root {
+  visibility: hidden;
+}
+
+:root.native-voice-camera-active [data-native-voice-camera-chrome] {
+  visibility: visible;
+}
+
 /* Electron prechat onboarding typography — mirror the lighter DM Sans (Swift
  * VFont) weights/sizes so the macOS Electron funnel matches the native Swift
  * client. Scoped via `.electron-prechat-type` (applied ONLY on Electron) so the
