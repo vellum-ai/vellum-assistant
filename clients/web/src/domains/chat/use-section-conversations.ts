@@ -63,6 +63,18 @@ const NO_FILTER: SectionConversationFilter = {};
  *
  * Chats is a section only in Grouped view. The `all` view renders the same
  * conversations as `flatList`, which is not a section and is not wired here.
+ *
+ * One asymmetry to know about, because it looks like a bug from either side.
+ * `Conversation.originChannel` is binding-first on the client
+ * (`channelBinding.sourceChannel ?? conversationOriginChannel`, see
+ * `toConversation`), while these filters are matched against the
+ * `origin_channel` column alone. The two agree once a conversation's first
+ * inbound message stamps the column, and diverge before that: a row whose
+ * binding already names a channel but whose column is still unattributed
+ * derives into that channel's section and is fetched into Chats, since an
+ * unattributed column reads as native. Transient, self-correcting when the
+ * message lands, and in the safe direction: the row is in exactly one
+ * section throughout, never zero and never two.
  */
 function sectionFilter(
   section: SidebarSection,
