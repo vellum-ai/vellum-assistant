@@ -147,7 +147,7 @@ function getSaveBtn(): HTMLButtonElement {
 }
 
 /** All Select triggers (custom comboboxes) in document order. */
-function dropdownTriggers(): HTMLButtonElement[] {
+function selectTriggers(): HTMLButtonElement[] {
   return Array.from(
     document.querySelectorAll<HTMLButtonElement>('button[role="combobox"]'),
   );
@@ -254,7 +254,7 @@ function selectModel(label: string): void {
   // listbox contains the target model label. Probing each candidate keeps the
   // helper robust to the optional Connection dropdown appearing alongside it.
   const provTrigger = providerTrigger();
-  for (const trigger of dropdownTriggers()) {
+  for (const trigger of selectTriggers()) {
     if (trigger === provTrigger) {
       continue;
     }
@@ -989,7 +989,7 @@ describe("ProfileEditorModal create mode — provider-first", () => {
 
     // The Model dropdown trigger explains the empty list instead of showing
     // a bare "Select a model" placeholder over zero options...
-    const triggerLabels = dropdownTriggers().map((t) => t.textContent?.trim());
+    const triggerLabels = selectTriggers().map((t) => t.textContent?.trim());
     expect(triggerLabels).toContain("No models available");
     expect(triggerLabels).not.toContain("Select a model");
 
@@ -1008,7 +1008,7 @@ describe("ProfileEditorModal create mode — provider-first", () => {
 
     selectProvider("Ollama");
 
-    const triggerLabels = dropdownTriggers().map((t) => t.textContent?.trim());
+    const triggerLabels = selectTriggers().map((t) => t.textContent?.trim());
     expect(triggerLabels).toContain("Select a model");
     expect(triggerLabels).not.toContain("No models available");
 
@@ -1376,7 +1376,7 @@ describe("ProfileEditorModal edit mode — catalog-absent bound model", () => {
     // The Model trigger surfaces the bound id (no catalog/connection name
     // available, so it falls back to the raw id) rather than the empty
     // placeholder...
-    const triggerLabels = dropdownTriggers().map((t) => t.textContent?.trim());
+    const triggerLabels = selectTriggers().map((t) => t.textContent?.trim());
     expect(triggerLabels).toContain("openrouter/fusion");
     expect(triggerLabels).not.toContain("Select a model");
 
@@ -1423,7 +1423,7 @@ describe("ProfileEditorModal edit mode — catalog-absent bound model", () => {
 
     // Open each combobox; the Model dropdown must list the bound id so it can
     // be re-selected manually (the second reported surface of JARVIS-1180).
-    const optionLabels = dropdownTriggers().flatMap((trigger) => {
+    const optionLabels = selectTriggers().flatMap((trigger) => {
       fireEvent.click(trigger);
       const labels = Array.from(
         document.querySelectorAll<HTMLElement>('[role="option"]'),
@@ -1465,15 +1465,15 @@ describe("ProfileEditorModal edit mode — catalog-absent bound model", () => {
     // The incompatible model is auto-cleared: the Model trigger falls back to the
     // placeholder and never surfaces "GPT-5.5 Pro".
     await waitFor(() => {
-      const labels = dropdownTriggers().map((t) => t.textContent?.trim());
+      const labels = selectTriggers().map((t) => t.textContent?.trim());
       expect(labels).toContain("Select a model");
     });
-    expect(dropdownTriggers().map((t) => t.textContent?.trim())).not.toContain(
+    expect(selectTriggers().map((t) => t.textContent?.trim())).not.toContain(
       "GPT-5.5 Pro",
     );
 
     // The dropdown offers the Codex-compatible models but not the filtered one.
-    const optionLabels = dropdownTriggers().flatMap((trigger) => {
+    const optionLabels = selectTriggers().flatMap((trigger) => {
       fireEvent.click(trigger);
       const labels = Array.from(
         document.querySelectorAll<HTMLElement>('[role="option"]'),
@@ -1526,7 +1526,7 @@ describe("ProfileEditorModal edit mode — catalog-absent bound model", () => {
     // WHEN the user picks the free-text option (the Model dropdown is the only
     // one offering it) and types an id absent from the catalog, then saves
     let pickedCustom = false;
-    for (const trigger of dropdownTriggers()) {
+    for (const trigger of selectTriggers()) {
       fireEvent.click(trigger);
       const customOption = Array.from(
         document.querySelectorAll<HTMLElement>('[role="option"]'),
@@ -1582,7 +1582,7 @@ describe("ProfileEditorModal edit mode — catalog-absent bound model", () => {
       subscriptionConnection,
     );
 
-    const optionLabels = dropdownTriggers().flatMap((trigger) => {
+    const optionLabels = selectTriggers().flatMap((trigger) => {
       fireEvent.click(trigger);
       const labels = Array.from(
         document.querySelectorAll<HTMLElement>('[role="option"]'),

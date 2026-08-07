@@ -174,6 +174,96 @@ export interface DiscordMessage {
   id: string;
 }
 
+/** The subset of Discord's channel object that DM resolution reads back. */
+interface DiscordChannel {
+  id: string;
+}
+
+/**
+ * Resolved DM channels, keyed by recipient user snowflake.
+ *
+ * The mapping is stable, so this never goes stale: Discord's create-DM route
+ * returns the existing channel when one exists rather than opening a second
+ * (https://docs.discord.com/developers/resources/user). The cache is here
+ * because that same page warns that opening DMs in volume gets a bot rate
+ * limited or blocked from opening new ones, and a per-recipient DM lane would
+ * otherwise re-open on every notice.
+ */
+const dmChannelIds = new Map<string, string>();
+
+/**
+ * Bound on the cache. Entries are one small string pair each, and the eviction
+ * below is insertion-order rather than least-recently-used: the entries this
+ * cache exists to protect (the guardian, a handful of contacts) are the ones
+ * created first, and evicting one only costs a single extra API call.
+ */
+const MAX_CACHED_DM_CHANNELS = 512;
+
+/**
+ * Opens already in progress, so concurrent callers for the same recipient
+ * share one request rather than racing to make the same one. A verification
+ * send and a guardian expiry notice can address the same person in the same
+ * tick, and the cache alone does not help there: neither has populated it yet.
+ */
+const inFlightDmOpens = new Map<string, Promise<string>>();
+
+/**
+ * Open the DM channel with a Discord user and return its snowflake.
+ *
+ * Discord has no "look up my DM with this person" route: a bot names a
+ * recipient and is handed the channel, creating it the first time and
+ * receiving the same one after that. So reaching one person privately is
+ * always this call followed by an ordinary channel send, and the DM channel is
+ * a resolved address rather than something the caller can be told up front.
+ */
+export function openDiscordDmChannel(recipientUserId: string): Promise<string> {
+  const cached = dmChannelIds.get(recipientUserId);
+  if (cached) {
+    return Promise.resolve(cached);
+  }
+
+  const existing = inFlightDmOpens.get(recipientUserId);
+  if (existing) {
+    return existing;
+  }
+
+  const open = (async (): Promise<string> => {
+    const channel = await callDiscordApi<DiscordChannel>(
+      "POST",
+      "/users/@me/channels",
+      { recipient_id: recipientUserId },
+    );
+    if (typeof channel?.id !== "string" || channel.id.length === 0) {
+      throw new Error(
+        "Discord create-DM returned no channel id for the recipient",
+      );
+    }
+
+    if (dmChannelIds.size >= MAX_CACHED_DM_CHANNELS) {
+      const oldest = dmChannelIds.keys().next();
+      if (!oldest.done) {
+        dmChannelIds.delete(oldest.value);
+      }
+    }
+    dmChannelIds.set(recipientUserId, channel.id);
+    log.debug({ recipientUserId }, "Opened Discord DM channel");
+    return channel.id;
+  })().finally(() => {
+    // Cleared on failure too, so a transient error does not pin every later
+    // caller to the same rejected promise.
+    inFlightDmOpens.delete(recipientUserId);
+  });
+
+  inFlightDmOpens.set(recipientUserId, open);
+  return open;
+}
+
+/** Drop the resolved and in-flight DM channel state. Test-only seam. */
+export function resetDiscordDmChannelCache(): void {
+  dmChannelIds.clear();
+  inFlightDmOpens.clear();
+}
+
 /** Call a Discord REST route with a JSON body. */
 export async function callDiscordApi<T>(
   method: "POST" | "PATCH",

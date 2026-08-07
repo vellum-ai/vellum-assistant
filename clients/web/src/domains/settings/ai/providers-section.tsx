@@ -85,7 +85,6 @@ export function ProvidersSection({
       action={
         <Button
           variant="outlined"
-          size="compact"
           onClick={onAddProvider}
           leftIcon={<Plus />}
         >

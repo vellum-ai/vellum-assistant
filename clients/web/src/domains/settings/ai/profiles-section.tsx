@@ -67,7 +67,6 @@ export function ProfilesSection({
         action={
           <Button
             variant="primary"
-            size="compact"
             onClick={onCreateProfile}
             leftIcon={<Plus />}
             // The create panel needs config for duplicate-key validation

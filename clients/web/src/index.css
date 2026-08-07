@@ -95,7 +95,7 @@ body {
 }
 
 /* Home Activity detail drawer (schedule / heartbeat / notification) sliding
-   in from the right. The panel hosts fixed Dropdown/tooltip layers, so the
+   in from the right. The panel hosts fixed Select/tooltip layers, so the
    fill mode below matters: see the note on the rule. */
 @keyframes drawer-slide-in {
   0% { transform: translateX(16px); opacity: 0; }

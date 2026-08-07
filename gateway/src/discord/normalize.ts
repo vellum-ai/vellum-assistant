@@ -2,11 +2,12 @@
  * MESSAGE_CREATE → the canonical `GatewayInboundEvent`.
  *
  * The normalizer runs after the admission gate (`admit.ts`), so every message
- * here is a mention of the bot in an allow-listed channel — inside Discord's
- * content exemption, carrying real content. It maps identity fields onto the
- * channel-identity vocabulary: `conversationExternalId` is the delivery
- * address (the parent channel for thread messages, mirroring Slack's
- * channel + thread_ts split), `actorExternalId` the author's user snowflake.
+ * here is either a mention of the bot in an allow-listed channel or a DM to
+ * the bot. Both sit inside Discord's content exemption and carry real content.
+ * It maps identity fields onto the channel-identity vocabulary:
+ * `conversationExternalId` is the delivery address (the parent channel for
+ * thread messages, mirroring Slack's channel + thread_ts split, and the DM
+ * channel for a DM), `actorExternalId` the author's user snowflake.
  *
  * Mention markup (`<@snowflake>`) is forwarded verbatim; rendering is the
  * ingress-rendering slice's concern, and the daemon receives `raw` either way.
@@ -62,6 +63,10 @@ export function normalizeDiscordMessage(
   }
 
   const inThread = options.parentChannelId !== undefined;
+  // Discord marks a DM only by the absence of a guild, and a DM channel is
+  // already the private one-to-one address, so it is its own conversation and
+  // can never be in a thread.
+  const isDirectMessage = message.guild_id === undefined;
   return {
     version: "v1",
     sourceChannel: "discord",
@@ -86,7 +91,7 @@ export function normalizeDiscordMessage(
     source: {
       updateId: message.id,
       messageId: message.id,
-      chatType: "channel",
+      chatType: isDirectMessage ? "dm" : "channel",
       ...(inThread ? { threadId: message.channel_id } : {}),
     },
     raw: options.raw,
