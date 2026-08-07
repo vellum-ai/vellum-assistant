@@ -17,7 +17,6 @@ const DEPS_TO_INLINE = [
   "electron-log",
   "@vellumai/electron-utils",
   "@vellumai/electron-desktop",
-  "@vellumai/host-proxy",
   "@vellumai/ipc-contract",
   "@vellumai/local-mode",
   "@vellumai/environments",

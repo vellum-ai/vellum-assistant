@@ -20,7 +20,6 @@
     "packages/electron-utils",
     "packages/environments",
     "packages/gateway-client",
-    "packages/host-proxy",
     "packages/ipc-contract",
     "packages/ipc-server-utils",
     "packages/local-mode",

@@ -10,7 +10,6 @@ on:
       - 'clients/windows/**'
       - 'packages/electron-utils/**'
       - 'packages/electron-desktop/**'
-      - 'packages/host-proxy/**'
       - 'packages/ipc-contract/**'
       - 'packages/local-mode/**'
       - 'packages/environments/**'
