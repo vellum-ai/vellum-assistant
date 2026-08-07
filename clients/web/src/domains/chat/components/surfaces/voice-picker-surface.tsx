@@ -4,17 +4,22 @@
  * pointer to Settings. Same {@link VoiceList} the Voice settings page and the
  * voice room render, so a voice is chosen the same way everywhere.
  *
- * **Fires no surface action.** `handleSurfaceAction` requests a send on every
+ * **Carries no surface action.** `handleSurfaceAction` requests a send on every
  * non-guardian action, so a per-selection action would cost an assistant turn
  * on every audition click. It needs none: `VoiceList` writes
  * `services.tts.providers.vellum.model` to daemon config itself, and that
- * hot-applies on the assistant's next spoken turn. `onAction` is accepted only
- * to satisfy {@link SurfaceContainer}'s required prop and to keep the router's
- * call shape uniform across surfaces. This component never invokes it.
+ * hot-applies on the assistant's next spoken turn. `onAction` is accepted to
+ * satisfy {@link SurfaceContainer}'s required prop and to keep the router's
+ * call shape uniform; `SurfaceContainer` only invokes it for actions the
+ * surface declares, and no voice picker is given any.
  *
- * The assistant arrives as a prop rather than from `useActiveAssistantId()`,
- * which throws when nothing is resolved and answers with the globally-active
- * assistant, not necessarily the one that owns this surface's stream.
+ * Three states, not two, because most of the ways a picker fails to appear are
+ * permanent rather than transient: no chrome at all while the daemon queries
+ * are in flight, the picker once managed voice selection is available, and a
+ * pointer to where the voice actually lives for every settled state in between
+ * (a daemon too old to select voices, a catalog that failed or came back empty,
+ * no assistant). An empty bordered box is the one unacceptable outcome, since
+ * the model has just told the user the picker is here.
  */
 
 import { ByoVoiceNote } from "@/components/speech/byo-voice-note";
@@ -22,6 +27,9 @@ import { useManagedVoiceSelection } from "@/components/speech/use-managed-voice-
 import { VoiceList } from "@/components/speech/voice-list";
 import { SurfaceContainer } from "@/domains/chat/components/surfaces/surface-container";
 import type { Surface } from "@/domains/chat/types/types";
+import { MANAGED_VOICE_CREDITS_NOTE } from "@/lib/tts/managed-voice-catalog";
+
+const NOTE_CLASS = "text-body-small-default text-[var(--content-tertiary)]";
 
 interface VoicePickerSurfaceProps {
   surface: Surface;
@@ -30,7 +38,7 @@ interface VoicePickerSurfaceProps {
     actionId: string,
     data?: Record<string, unknown>,
   ) => void | Promise<void>;
-  assistantId?: string | null;
+  assistantId: string | null;
 }
 
 export function VoicePickerSurface({
@@ -38,25 +46,43 @@ export function VoicePickerSurface({
   onAction,
   assistantId,
 }: VoicePickerSurfaceProps) {
-  const { available, isByok } = useManagedVoiceSelection(assistantId ?? null);
+  // Only the three flags that pick the state. `VoiceList` runs the same hook for
+  // the data it renders; both calls share one set of React Query subscriptions.
+  const { available, isByok, settled } = useManagedVoiceSelection(assistantId);
+
+  if (!settled) {
+    return null;
+  }
 
   return (
     <SurfaceContainer surface={surface} onAction={onAction}>
-      {available && (
-        // Uncontrolled (no `value`/`onChange`) so the list commits the pick
-        // itself and it hot-applies, the mode the Settings picker and the voice
-        // room use. `showSource` stays off because `filterBySource` already
-        // labels the whole list with the chosen provider and drops the per-row
-        // badge. Capped so a long catalog can't take over the transcript.
-        <VoiceList
-          assistantId={assistantId ?? null}
-          filterBySource
-          className="max-h-[22rem] overflow-y-auto"
-        />
+      {available ? (
+        <div className="flex flex-col gap-3">
+          {/* Uncontrolled (no `value`/`onChange`): the list commits each pick
+              itself and it hot-applies. Every other host is controlled, because
+              each owns a Done or Start button that has to wait out an in-flight
+              write; this card has no button, so there is nothing to gate. */}
+          <VoiceList
+            assistantId={assistantId}
+            filterBySource
+            // Capped on the listbox rather than the wrapper, which also holds
+            // the provider dropdown: capping the wrapper scrolls the dropdown
+            // out of the card instead of scrolling the voices.
+            listClassName="max-h-[22rem]"
+          />
+          {/* Every other managed-voice surface discloses the cost; this one is
+              now the path users are steered toward. */}
+          <p className={NOTE_CLASS}>{MANAGED_VOICE_CREDITS_NOTE}</p>
+        </div>
+      ) : isByok ? (
+        <ByoVoiceNote />
+      ) : (
+        // Managed, but with nothing to choose from: an old daemon, or a catalog
+        // that failed or is empty. The BYO note would be a lie here.
+        <p className={NOTE_CLASS}>
+          Choosing a voice isn’t available for this assistant right now.
+        </p>
       )}
-      {/* Gated on `isByok` rather than `!available` so the BYO pointer never
-          flashes while config is still loading. */}
-      {isByok && <ByoVoiceNote />}
     </SurfaceContainer>
   );
 }

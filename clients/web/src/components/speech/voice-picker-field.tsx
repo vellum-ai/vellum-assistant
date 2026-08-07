@@ -69,6 +69,9 @@ export function VoicePickerField({
           onChange={onChange}
           onSelect={() => setOpen(false)}
           showSource
+          // The popover is the nearest scrollport, so opening on the current
+          // voice scrolls nothing but this list.
+          autoScrollToSelected
         />
       </Popover.Content>
     </Popover.Root>
