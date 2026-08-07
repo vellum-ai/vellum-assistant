@@ -128,24 +128,34 @@ const ROOT_BASE_CLASSES = [
  * screen edges (top/bottom safe-area boundaries on iOS). */
 const ROOT_RAIL_BORDER_CLASSES = "border border-[var(--border-base)]";
 
+/* 8px of horizontal inset, the same the collapsed rail carries, so the moat
+ * around the content does not change width when the rail is toggled.
+ *
+ * The rail's own children are cards and pills that carry their own padding, so
+ * anything wider here is a second inset stacked on the first: it costs the
+ * cards title width on a 220px to 400px column and pushes their edges away
+ * from the resize handle, which sits at the rail's edge and reads as belonging
+ * to something else. Vertical padding is unrelated and stays as it is. */
+const ROOT_RAIL_PADDING = "pt-4 px-2 pb-2";
+
 const ROOT_RAIL_EXPANDED_CLASSES = [
   ROOT_RAIL_BORDER_CLASSES,
   "w-[230px]",
   "rounded-[12px]",
-  "pt-4 px-4 pb-2",
+  ROOT_RAIL_PADDING,
 ].join(" ");
 
 const ROOT_RAIL_COLLAPSED_CLASSES = [
   ROOT_RAIL_BORDER_CLASSES,
   "w-[48px]",
   "rounded-[12px]",
-  "pt-4 px-2 pb-2",
+  ROOT_RAIL_PADDING,
 ].join(" ");
 
 const ROOT_RAIL_RESIZABLE_CLASSES = [
   ROOT_RAIL_BORDER_CLASSES,
   "rounded-[12px]",
-  "pt-4 px-4 pb-2",
+  ROOT_RAIL_PADDING,
 ].join(" ");
 
 const ROOT_OVERLAY_CLASSES = ["w-full", "rounded-none", "p-4"].join(" ");
