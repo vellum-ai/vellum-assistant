@@ -11,6 +11,7 @@
     "./capability-registry": "./src/capability-registry.ts",
     "./command-palette-window": "./src/command-palette-window.ts",
     "./commands": "./src/commands.ts",
+    "./deep-links": "./src/deep-links.ts",
     "./devtools": "./src/devtools.ts",
     "./dictation-overlay-window": "./src/dictation-overlay-window.ts",
     "./floating-window": "./src/floating-window.ts",
@@ -18,10 +19,15 @@
     "./file-open-preload": "./src/file-open-preload.ts",
     "./global-shortcuts": "./src/global-shortcuts.ts",
     "./hotkeys": "./src/hotkeys.ts",
+    "./host-proxy/poster": "./src/host-proxy/poster.ts",
+    "./host-proxy/router": "./src/host-proxy/router.ts",
+    "./host-proxy/sse": "./src/host-proxy/sse.ts",
     "./image-context-menu": "./src/image-context-menu.ts",
     "./ipc": "./src/ipc.ts",
+    "./login-item": "./src/login-item.ts",
     "./module-configuration": "./src/module-configuration.ts",
     "./popout-window": "./src/popout-window.ts",
+    "./preload": "./src/preload.ts",
     "./quick-input-window": "./src/quick-input-window.ts",
     "./text-context-menu": "./src/text-context-menu.ts",
     "./windows": "./src/windows.ts"
@@ -32,7 +38,8 @@
   },
   "dependencies": {
     "@vellumai/electron-utils": "workspace:*",
-    "@vellumai/ipc-contract": "workspace:*"
+    "@vellumai/ipc-contract": "workspace:*",
+    "@vellumai/local-mode": "workspace:*"
   },
   "peerDependencies": {
     "electron": ">=42.2.0",

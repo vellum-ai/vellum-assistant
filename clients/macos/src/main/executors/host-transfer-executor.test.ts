@@ -35,7 +35,7 @@ mock.module("../device-id", () => ({
   resetDeviceIdCache: () => {},
 }));
 
-const { HostProxyPoster } = await import("../host-proxy-poster");
+const { HostProxyPoster } = await import("@vellumai/electron-desktop/host-proxy/poster");
 const { hostTransferExecutor, __testing } = await import(
   "./host-transfer-executor"
 );
