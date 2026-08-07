@@ -3,9 +3,10 @@
  *  - the offer copy and claim button render the amount from props, never a
  *    hardcoded figure
  *  - a granted claim toasts success with the server-returned amount,
- *    invalidates the billing summary, and closes
- *  - `already_claimed` / `ineligible` claims toast info and close without
- *    touching the billing summary
+ *    invalidates the billing summary and the eligibility query, and closes
+ *  - `already_claimed` / `ineligible` claims toast info, invalidate the
+ *    eligibility query so a cached `eligible: true` cannot re-show the offer,
+ *    and close without touching the billing summary
  *  - a failed claim toasts an error and keeps the modal open with the button
  *    re-enabled
  *  - both actions are disabled while the claim is in flight
@@ -61,11 +62,14 @@ mock.module("@vellumai/design-library/components/toast", () => ({
   },
 }));
 
-const { organizationsBillingSummaryRetrieveQueryKey } =
-  await import("@/generated/api/@tanstack/react-query.gen");
+const {
+  organizationsBillingCheckoutBonusRetrieveQueryKey,
+  organizationsBillingSummaryRetrieveQueryKey,
+} = await import("@/generated/api/@tanstack/react-query.gen");
 const { CheckoutBonusModal } = await import("./checkout-bonus-modal");
 
 const SUMMARY_KEY = organizationsBillingSummaryRetrieveQueryKey();
+const ELIGIBILITY_KEY = organizationsBillingCheckoutBonusRetrieveQueryKey();
 
 function renderModal({
   amountUsd = "5.00",
@@ -77,9 +81,13 @@ function renderModal({
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
-  // Seed the billing summary entry so invalidation is observable without the
-  // query ever fetching.
+  // Seed the billing summary and eligibility entries so invalidation is
+  // observable without either query ever fetching.
   queryClient.setQueryData(SUMMARY_KEY, { settled_balance_usd: "0.00" });
+  queryClient.setQueryData(ELIGIBILITY_KEY, {
+    eligible: true,
+    amount_usd: "5.00",
+  });
   render(
     <QueryClientProvider client={queryClient}>
       <CheckoutBonusModal
@@ -114,7 +122,7 @@ describe("CheckoutBonusModal", () => {
     screen.getByRole("button", { name: "No thanks" });
   });
 
-  test("a granted claim toasts, invalidates the billing summary, and closes", async () => {
+  test("a granted claim toasts, invalidates the summary and eligibility, and closes", async () => {
     claimImpl = () =>
       Promise.resolve({
         data: { ...GRANTED, amount_usd: "10.00", balance_usd: "12.00" },
@@ -129,6 +137,9 @@ describe("CheckoutBonusModal", () => {
     expect(successToasts).toEqual(["$10 in credits added to your account."]);
     expect(infoToasts).toEqual([]);
     expect(queryClient.getQueryState(SUMMARY_KEY)?.isInvalidated).toBe(true);
+    expect(queryClient.getQueryState(ELIGIBILITY_KEY)?.isInvalidated).toBe(
+      true,
+    );
   });
 
   for (const status of ["already_claimed", "ineligible"] as const) {
@@ -143,6 +154,11 @@ describe("CheckoutBonusModal", () => {
       expect(infoToasts).toEqual(["This offer is no longer available."]);
       expect(successToasts).toEqual([]);
       expect(queryClient.getQueryState(SUMMARY_KEY)?.isInvalidated).toBe(false);
+      // The stale `eligible: true` must be dropped so the offer cannot
+      // re-show from cache.
+      expect(queryClient.getQueryState(ELIGIBILITY_KEY)?.isInvalidated).toBe(
+        true,
+      );
     });
   }
 

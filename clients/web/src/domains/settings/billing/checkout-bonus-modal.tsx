@@ -4,22 +4,16 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 
 import {
   organizationsBillingCheckoutBonusCreateMutation,
+  organizationsBillingCheckoutBonusRetrieveOptions,
   organizationsBillingSummaryRetrieveOptions,
 } from "@/generated/api/@tanstack/react-query.gen";
+import { useTranslation } from "@/i18n";
 import { Button } from "@vellumai/design-library/components/button";
 import { Modal } from "@vellumai/design-library/components/modal";
 import { toast } from "@vellumai/design-library/components/toast";
 import { Typography } from "@vellumai/design-library/components/typography";
 
-/** Format a USD decimal string ("5.00") as "$5", keeping non-zero cents ("$7.50"). */
-function formatUsdShort(value: string): string {
-  const n = parseFloat(value);
-  if (!Number.isFinite(n)) {
-    return `$${value}`;
-  }
-  const formatted = n.toFixed(2);
-  return `$${formatted.endsWith(".00") ? formatted.slice(0, -3) : formatted}`;
-}
+import { formatUsdShort } from "@/domains/settings/billing/format-usd";
 
 export interface CheckoutBonusModalProps {
   open: boolean;
@@ -44,6 +38,7 @@ export function CheckoutBonusModal({
   onOpenChange,
   amountUsd,
 }: CheckoutBonusModalProps) {
+  const { t } = useTranslation("settings");
   const queryClient = useQueryClient();
   const claimMutation = useMutation(
     organizationsBillingCheckoutBonusCreateMutation(),
@@ -61,18 +56,27 @@ export function CheckoutBonusModal({
         onSuccess: (data) => {
           if (data.status === "granted") {
             toast.success(
-              `${formatUsdShort(data.amount_usd)} in credits added to your account.`,
+              t("checkoutBonusModal.grantedToast", {
+                amount: formatUsdShort(data.amount_usd),
+              }),
             );
             void queryClient.invalidateQueries(
               organizationsBillingSummaryRetrieveOptions(),
             );
           } else {
-            toast.info("This offer is no longer available.");
+            toast.info(t("checkoutBonusModal.unavailableToast"));
           }
+          // Every non-error result means the offer is spent (granted or
+          // already claimed) or was never claimable (ineligible), so drop the
+          // cached eligibility answer before closing: a stale `eligible: true`
+          // would let the parent re-show the offer.
+          void queryClient.invalidateQueries(
+            organizationsBillingCheckoutBonusRetrieveOptions(),
+          );
           onOpenChange(false);
         },
         onError: () => {
-          toast.error("Could not add the credits. Please try again.");
+          toast.error(t("checkoutBonusModal.errorToast"));
         },
       },
     );
@@ -90,7 +94,9 @@ export function CheckoutBonusModal({
     >
       <Modal.Content size="sm" data-testid="checkout-bonus-modal">
         <Modal.Header>
-          <Modal.Title icon={Gift}>Here&apos;s {amount} on us</Modal.Title>
+          <Modal.Title icon={Gift}>
+            {t("checkoutBonusModal.title", { amount })}
+          </Modal.Title>
         </Modal.Header>
         <Modal.Body>
           <Typography
@@ -98,14 +104,13 @@ export function CheckoutBonusModal({
             variant="body-medium-default"
             className="text-(--content-secondary)"
           >
-            Claim a one-time {amount} credit and we&apos;ll add it straight to
-            your account balance. No payment required.
+            {t("checkoutBonusModal.body", { amount })}
           </Typography>
         </Modal.Body>
         <Modal.Footer>
           <Modal.Close asChild>
             <Button variant="outlined" disabled={pending}>
-              No thanks
+              {t("checkoutBonusModal.decline")}
             </Button>
           </Modal.Close>
           <Button
@@ -117,7 +122,7 @@ export function CheckoutBonusModal({
             disabled={pending}
             data-testid="claim-checkout-bonus-button"
           >
-            Claim {amount} in credits
+            {t("checkoutBonusModal.claim", { amount })}
           </Button>
         </Modal.Footer>
       </Modal.Content>
