@@ -340,7 +340,7 @@ Complete the following setup before enabling internal-track uploads:
    **Release apps to testing tracks**. Do not grant production publishing.
 6. Configure the repository and environment secrets above.
 7. Complete each Play listing, privacy policy, Data Safety form, content rating,
-   and the declarations required for microphone permissions.
+   and the declarations required for microphone and camera permissions.
 
 Before wider rollout, test the internal-track AAB on a physical device and
 verify its identity, web origin, authentication, keyboard, and file sharing.
