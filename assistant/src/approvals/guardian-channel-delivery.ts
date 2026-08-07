@@ -71,14 +71,17 @@ export function channelHasPrivateRequesterRoute(channel: string): boolean {
 /**
  * Resolve who a requester notice is addressed to on the callback-less route.
  *
- * A request's `requesterChatId` is wherever the request came from, and on
- * Slack and Discord that is a room other people can read. "Your request was
- * denied" posted into a community channel is worse than not sending it, so
- * both address the requester's own user id instead and let their transport
- * turn it into a DM.
+ * A request's `requesterChatId` is wherever the request came from, and where
+ * the channel has a private route to a user id that room is one other people
+ * can read. "Your request was denied" posted into a community channel is worse
+ * than not sending it, so those channels address the requester's own user id
+ * instead and let their transport turn it into a DM.
  *
  * Telegram and WhatsApp fall through to the chat id because theirs already is
- * the private one-to-one conversation.
+ * the private one-to-one conversation. So does a request with no actor
+ * identity: there is nobody to open a DM with, and on the channels that need
+ * one the transport reports that as a delivery failure rather than posting to
+ * the room.
  */
 export function resolveRequesterDeliveryTarget(params: {
   channel: string;
@@ -86,10 +89,7 @@ export function resolveRequesterDeliveryTarget(params: {
   requesterExternalUserId: string;
 }): string {
   const { channel, requesterChatId, requesterExternalUserId } = params;
-  if (
-    (channel === "slack" || channel === "discord") &&
-    requesterExternalUserId
-  ) {
+  if (channelHasPrivateRequesterRoute(channel) && requesterExternalUserId) {
     return requesterExternalUserId;
   }
   return requesterChatId;

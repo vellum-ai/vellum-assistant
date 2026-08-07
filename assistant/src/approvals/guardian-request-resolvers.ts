@@ -729,6 +729,11 @@ async function deliverRequesterNotice(params: {
     text,
   } = params;
 
+  // Re-applied rather than assumed. The access-request resolver already drops
+  // the context for these channels, because its verification-code branch needs
+  // the same rule and never reaches this helper; repeating it here keeps the
+  // helper correct for any caller that has not, at the cost of one idempotent
+  // check.
   const channelDeliveryContext = channelCanAddressOneReaderInBand(channel)
     ? params.channelDeliveryContext
     : undefined;
