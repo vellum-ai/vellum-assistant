@@ -1143,29 +1143,22 @@ describe("loadConfig startup behavior", () => {
     expect(effectiveBalanced?.model).toBe("gpt-5.6-luna");
   });
 
-  test("boot re-enables a disabled default that is still referenced", () => {
-    // `commitConfigWrite` rejects a disable that strands a reference, so this
-    // state only reaches disk from configs written before that rule (hatch-era
-    // stubs, or a disable carried by the BYOK conversion pass). Left alone the
-    // reference would silently resolve to a different model, so boot restores
-    // the profile the install has actually been running on.
+  test("boot moves activeProfile off a disabled default rather than re-enabling it", () => {
+    // The disable is the user's, so boot honors it and repairs the selection
+    // instead: a disabled profile is not a usable chat model, so it is
+    // repointed exactly like a dangling name would be.
     writeConfig({
       llm: {
-        profiles: {
-          balanced: { source: "managed", status: "disabled" },
-          "cost-optimized": { source: "managed", status: "disabled" },
-        },
+        profiles: { balanced: { source: "managed", status: "disabled" } },
         activeProfile: "balanced",
-        callSites: { recall: { profile: "cost-optimized" } },
       },
     });
 
     mergeDefaultConfigAndSeedInferenceProfiles();
     const raw = JSON.parse(readFileSync(CONFIG_PATH, "utf-8"));
 
-    expect(raw.llm.profiles.balanced.status).toBeUndefined();
-    expect(raw.llm.profiles["cost-optimized"].status).toBeUndefined();
-    expect(raw.llm.activeProfile).toBe("balanced");
+    expect(raw.llm.profiles.balanced.status).toBe("disabled");
+    expect(raw.llm.activeProfile).toBe("quality-optimized");
   });
 
   test("boot leaves an unreferenced disabled default hidden", () => {

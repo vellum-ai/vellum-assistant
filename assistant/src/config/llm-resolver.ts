@@ -45,8 +45,8 @@ import {
  *      `llm.defaultProvider`. Serves profileless call sites and any
  *      resolution where nothing above was usable.
  *
- * A profile the user has DISABLED is skipped at every rung — including the
- * code-owned `CALL_SITE_DEFAULTS` pins — so hiding a default profile also
+ * A profile the user has DISABLED is skipped at every rung, including the
+ * code-owned `CALL_SITE_DEFAULTS` pins, so hiding a default profile also
  * stops it being selected behind the user's back. Resolution stays total:
  * the anchor bottoms out on a code-owned body.
  *
@@ -247,7 +247,7 @@ export function selectWinningProfile(
  *
  * `latency-optimized` is last and is never skipped for being disabled: it is
  * in `CODE_OWNED_PROFILE_NAMES`, so it takes no workspace overlay at all and
- * always resolves — which is what makes it a sound floor.
+ * always resolves, which is what makes it a sound floor.
  */
 const ANCHOR_INTENT_ORDER = [
   "balanced",
@@ -257,7 +257,7 @@ const ANCHOR_INTENT_ORDER = [
 ] as const;
 
 /**
- * The anchor must always resolve — every call site bottoms out here — so it
+ * The anchor must always resolve (every call site bottoms out here), so it
  * walks `ANCHOR_INTENT_ORDER` for the first intent the user has left enabled
  * and, if somehow none is, falls back to the pure catalog `balanced` body.
  *
@@ -297,7 +297,7 @@ function anchorEntry(
  * disabled and the rung falls through rather than resurrecting the body the
  * user hid.
  *
- * An INCOMPLETE default (no provider/model) is a different story — no write
+ * An INCOMPLETE default (no provider/model) is a different story: no write
  * path produces one, so it is stale machinery state, and the pure catalog
  * overrides it. An unusable user-owned shadow is returned as-is so the rung
  * reports it and falls through.
@@ -381,7 +381,7 @@ function usableEntry(
  * the remaining intents, so a disabled `balanced` costs a rung, not a
  * resolution.
  *
- * Any other unusable state — missing, incomplete, a broken mix — is
+ * Any other unusable state (missing, incomplete, a broken mix) is
  * machinery state rather than user intent, so the pure catalog body stands.
  */
 function usableDefaultIntent(

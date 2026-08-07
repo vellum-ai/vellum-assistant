@@ -634,7 +634,7 @@ describe("disabled default profiles are honored, not overridden", () => {
 
   test("the anchor still resolves when every default is disabled", () => {
     // Not reachable through the write paths (the last-enabled guard rejects
-    // it) — resolution must stay total for a hand-edited config.json.
+    // it), so resolution must stay total for a hand-edited config.json.
     const llm = LLMSchema.parse({
       profiles: Object.fromEntries(
         ["balanced", "quality-optimized", "cost-optimized"].map((name) => [

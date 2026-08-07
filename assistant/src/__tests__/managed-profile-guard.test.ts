@@ -6,13 +6,13 @@
  * - The commitConfigWrite invariant guard: every managed profile name
  *   ("quality-optimized", "balanced", "cost-optimized", "os-beta") has a
  *   read-only BODY across PATCH/SET/PUT while its on-disk entry is
- *   managed-source. `status` is the exception — it is workspace-owned, and
+ *   managed-source. `status` is the exception: it is workspace-owned, and
  *   moving it either way is how a user hides a default profile from their
  *   pickers or brings it back. A user-owned (`source: "user"`) entry sharing
  *   a managed name is not locked at all.
- * - The disable guard (`assertProfileDisableSafe`), which refuses a disable
- *   that would strand a live reference — the reference would otherwise
- *   resolve to a different model with nothing in the UI saying so.
+ * - The disable guard (`assertNoReferencesToDisabledDefaults`), which refuses
+ *   a write that leaves a live reference naming a disabled default. Such a
+ *   reference resolves to a different model with nothing in the UI saying so.
  *
  * Plus the wire-only profile keys (`invariant`, `supportsVision`) stamped on
  * config reads: PATCH/SET strip them so a GET → write round-trip succeeds.
@@ -361,7 +361,7 @@ describe("PUT /v1/config/llm/profiles/:name — managed profile guard", () => {
       }
     ).profiles["os-beta"]!;
     expect(saved.status).toBe("disabled");
-    // Only `status` moves — the body stays code/seed-owned.
+    // Only `status` moves; the body stays code/seed-owned.
     expect(saved.model).toBe("zai-org/GLM-5.2");
     expect(saved.label).toBe("Custom Label");
   });
@@ -670,7 +670,7 @@ describe("managed-profile invariant guard — rejected writes", () => {
         body: { llm: { profiles: { balanced: { status: "disabled" } } } },
       }),
     ).rejects.toThrow(
-      /Cannot disable profile "balanced" — it is referenced by llm\.activeProfile/,
+      /Cannot disable profile "balanced": it is referenced by llm\.activeProfile/,
     );
     expectNothingCommitted();
   });
@@ -691,6 +691,39 @@ describe("managed-profile invariant guard — rejected writes", () => {
     const llm = committedRaw()!.llm as Record<string, any>;
     expect(llm.activeProfile).toBe("my-custom");
     expect(llm.profiles.balanced.status).toBe("disabled");
+  });
+
+  test("PATCH pointing a NEW reference at an already-disabled default is rejected", async () => {
+    // The other half of the same invariant. Without this, a two-step write
+    // (disable while unreferenced, then point a call site at it) would leave
+    // a pin the resolver silently ignores.
+    (rawConfig as Record<string, any>).llm.profiles.balanced.status =
+      "disabled";
+    seedRawConfig(rawConfig);
+    await expect(
+      patchRoute.handler({
+        body: { llm: { callSites: { recall: { profile: "balanced" } } } },
+      }),
+    ).rejects.toThrow(
+      /Cannot point llm\.callSites\.recall at profile "balanced": it is disabled/,
+    );
+    expectNothingCommitted();
+  });
+
+  test("PATCH tolerates a reference to a disabled default that already existed", async () => {
+    // Pre-existing violations are grandfathered: configs written before this
+    // invariant can carry one, and failing every later write would be worse
+    // than the stale pin. An unrelated edit still commits.
+    (rawConfig as Record<string, any>).llm.profiles.balanced.status =
+      "disabled";
+    (rawConfig as Record<string, any>).llm.callSites = {
+      recall: { profile: "balanced" },
+    };
+    seedRawConfig(rawConfig);
+    await patchRoute.handler({
+      body: { llm: { profiles: { "my-custom": { label: "Renamed" } } } },
+    });
+    expect(savedProfile("my-custom").label).toBe("Renamed");
   });
 
   test("PATCH setting a label on balanced is rejected", async () => {
@@ -749,7 +782,7 @@ describe("managed-profile invariant guard — rejected writes", () => {
         body: { llm: { profiles: { "os-beta": { status: "disabled" } } } },
       }),
     ).rejects.toThrow(
-      /Cannot disable profile "os-beta" — it is referenced by llm\.advisorProfile/,
+      /Cannot disable profile "os-beta": it is referenced by llm\.advisorProfile/,
     );
     expectNothingCommitted();
   });

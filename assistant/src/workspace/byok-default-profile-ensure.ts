@@ -459,7 +459,7 @@ function withCompletionBaked(
  * user state; it survives conversion as the thin managed overlay on the
  * bare key (the `WORKSPACE_OWNED_DEFAULT_FIELDS` overlay in
  * default-profile-catalog.ts). A carried `status: "disabled"` is the user's
- * disable and is honored in full — the picker hides the default and the
+ * disable and is honored in full: the picker hides the default and the
  * resolver skips it at every rung (see `providerAwareEntry` in
  * config/llm-resolver.ts). `repairProfileSelections` below repoints the
  * advisor and chat selections off it in the same write, and
@@ -583,7 +583,7 @@ function repairProfileSelections(
     );
 
   // A disabled profile is skipped by the resolver, so it is never a usable
-  // selection — for the advisor or the chat model. That holds whether the
+  // selection, for the advisor or the chat model. That holds whether the
   // disable is a carry off the user's retired copy or state already on the
   // bare key: both are the user's, and both hide the profile from every
   // picker.

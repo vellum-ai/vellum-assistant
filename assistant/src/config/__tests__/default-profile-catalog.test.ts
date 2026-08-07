@@ -217,7 +217,7 @@ describe("resolver integration", () => {
         },
       },
     });
-    // Disabling `balanced` retires it as a named winner — resolution lands on
+    // Disabling `balanced` retires it as a named winner: resolution lands on
     // the code-owned anchor (`undefined`, since the anchor is not a
     // selection) and walks on to the next enabled intent. What it must never
     // do is fall into the similarly named, user-mutable `custom-*` clone.

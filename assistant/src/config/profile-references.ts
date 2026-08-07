@@ -25,7 +25,7 @@ function asPlainObject(value: unknown): Record<string, unknown> | null {
  * every mix arm (`profiles.<mix>.mix[].profile`).
  *
  * Deleting a profile while any of these point at it would leave a dangling
- * reference that `LLMSchema`'s superRefine rejects on the next load — silently
+ * reference that `LLMSchema`'s superRefine rejects on the next load, silently
  * resetting the user's chat model or call-site pins. Disabling one is the same
  * hazard wearing a different hat: the reference still parses, but the resolver
  * skips the rung and the call site silently runs on a different model than the

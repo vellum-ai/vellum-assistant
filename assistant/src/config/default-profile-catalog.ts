@@ -312,10 +312,10 @@ export const CODE_OWNED_PROFILE_NAMES = new Set<string>(["latency-optimized"]);
 
 // All managed profiles, including the flag-gated os-beta, are invariant:
 // their MANAGED-SOURCE entries' CONTENT is read-only to user-facing writes
-// (enforced at commitConfigWrite). `status` is the exception — it is
+// (enforced at commitConfigWrite). `status` is the exception: it is
 // workspace-owned overlay state, so a user may disable a default profile to
 // hide it and enable it again later. A user-owned profile sharing one of
-// these names is NOT locked — invariance is gated on the on-disk entry's
+// these names is NOT locked. Invariance is gated on the on-disk entry's
 // `source` being `managed`.
 export const INVARIANT_PROFILE_NAMES = new Set<string>([
   ...DEFAULT_PROFILE_KEYS,

@@ -19,7 +19,6 @@
 import { z } from "zod";
 
 import {
-  CODE_OWNED_PROFILE_NAMES,
   getEffectiveProfilesForProvider,
   MANAGED_PROFILE_NAMES,
   resolveDefaultProfileForProvider,
@@ -90,18 +89,6 @@ const profileSummarySchema = z
     status: z.enum(["active", "disabled"]),
     source: z.enum(["managed", "user"]),
     provider_connection: z.string().optional(),
-    /**
-     * Whether the user may hide this profile by disabling it. False for the
-     * code-owned profiles, whose body resolves from the catalog verbatim so a
-     * persisted `status` would be inert — clients must not offer a Disable
-     * action that cannot take effect. Enabling is always allowed, so this
-     * gates only the disable direction.
-     *
-     * Optional on the wire: assistants predating the disable path omit it,
-     * and a client must read its absence as "this assistant has no answer"
-     * rather than as permission.
-     */
-    canDisable: z.boolean().optional(),
     /** Null when the profile has no provider to judge (e.g. mix profiles). */
     availability: availabilitySchema.nullable(),
   })
@@ -356,7 +343,6 @@ async function handleListProfiles() {
         ...(typeof record.provider_connection === "string"
           ? { provider_connection: record.provider_connection }
           : {}),
-        canDisable: !CODE_OWNED_PROFILE_NAMES.has(name),
         availability: await computeProfileAvailability(record),
       };
     }),
@@ -780,7 +766,7 @@ export const ROUTES: RouteDefinition[] = [
     },
     summary: "Delete an inference profile",
     description:
-      "Delete a custom profile. Managed default profiles cannot be deleted — the code catalog re-serves them whatever the workspace holds. Disable one instead to hide it from the pickers and stop the resolver selecting it.",
+      "Delete a custom profile. Managed default profiles cannot be deleted: the code catalog re-serves them whatever the workspace holds. Disable one instead to hide it from the pickers and stop the resolver selecting it.",
     tags: ["inference"],
     pathParams: [{ name: "name", description: "Profile name" }],
     responseBody: z.object({ ok: z.literal(true), name: z.string() }),

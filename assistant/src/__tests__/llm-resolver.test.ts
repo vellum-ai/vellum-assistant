@@ -1202,7 +1202,7 @@ describe("resolveDefaultProfileKey", () => {
 
   test("a disabled default does not divert the key to custom-*", () => {
     // Disabling a default takes its call sites to the code-owned anchor
-    // (`undefined` — the anchor is not a named selection). The similarly
+    // (`undefined`, since the anchor is not a named selection). The similarly
     // named, user-mutable `custom-*` clone must never capture them.
     const llm = LLMSchema.parse({
       profiles: {

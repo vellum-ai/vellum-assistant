@@ -2,13 +2,11 @@
  * Which kebab actions a Profiles row offers, focused on the Disable/Enable
  * pair.
  *
- * Disabling is how a default (managed) profile is hidden — they cannot be
+ * Disabling is how a default (managed) profile is hidden: they cannot be
  * deleted, since the code catalog re-serves them whatever the workspace
- * holds. Two things have to line up before the row offers it: an assistant new
- * enough to accept a managed disable at all, and that assistant's own
- * `canDisable` verdict on this profile (false for the code-owned ones, whose
- * persisted status would never take effect). Custom profiles consult neither
- * — they have always been disableable.
+ * holds. The row offers it on a managed profile only against an assistant new
+ * enough to accept the write. Custom profiles do not consult the gate,
+ * because they have always been disableable.
  *
  * Enable is deliberately never gated, so a profile disabled by a newer
  * assistant stays recoverable after a downgrade.
@@ -75,15 +73,15 @@ async function openKebab(profile: InferenceProfileSummary): Promise<string[]> {
 }
 
 /** The first release that accepts a managed disable. */
-const SUPPORTING_VERSION = "0.12.0";
-const OLD_VERSION = "0.11.9";
+const SUPPORTING_VERSION = "0.11.4";
+const OLD_VERSION = "0.11.3";
 
 afterEach(() => {
   cleanup();
   useAssistantIdentityStore.getState().clearIdentity();
 });
 
-describe("ProfileRow — Disable on a managed profile", () => {
+describe("ProfileRow: Disable on a managed profile", () => {
   beforeEach(() => {
     useAssistantIdentityStore
       .getState()
@@ -96,34 +94,11 @@ describe("ProfileRow — Disable on a managed profile", () => {
         name: "balanced",
         label: "Balanced",
         source: "managed",
-        canDisable: true,
       }),
     );
     expect(items).toContain("Disable");
-    // Still no Delete — the catalog would re-serve it.
+    // Still no Delete: the catalog would re-serve it.
     expect(items).not.toContain("Delete");
-  });
-
-  test("hides Disable for a code-owned profile the assistant marks undisableable", async () => {
-    // `latency-optimized` fronts live voice and resolves from the catalog
-    // verbatim, so a persisted status would be a silent no-op.
-    const items = await openKebab(
-      summary({
-        name: "latency-optimized",
-        label: "Speed",
-        source: "managed",
-        canDisable: false,
-      }),
-    );
-    expect(items).not.toContain("Disable");
-  });
-
-  test("hides Disable when the assistant sends no verdict at all", async () => {
-    // An absent `canDisable` is no answer, not permission.
-    const items = await openKebab(
-      summary({ name: "balanced", label: "Balanced", source: "managed" }),
-    );
-    expect(items).not.toContain("Disable");
   });
 
   test("offers Enable for a disabled managed profile", async () => {
@@ -133,7 +108,6 @@ describe("ProfileRow — Disable on a managed profile", () => {
         label: "Balanced",
         source: "managed",
         status: "disabled",
-        canDisable: true,
       }),
     );
     expect(items).toContain("Enable");
@@ -141,23 +115,18 @@ describe("ProfileRow — Disable on a managed profile", () => {
   });
 });
 
-describe("ProfileRow — Disable against an older assistant", () => {
+describe("ProfileRow: Disable against an older assistant", () => {
   beforeEach(() => {
     useAssistantIdentityStore
       .getState()
       .setIdentity("test-asst", OLD_VERSION, "asst-1");
   });
 
-  test("hides Disable on a managed profile even if canDisable says otherwise", async () => {
+  test("hides Disable on a managed profile", async () => {
     // Such an assistant rejects the write, and the user has no other way to
     // remove a default from their pickers there.
     const items = await openKebab(
-      summary({
-        name: "balanced",
-        label: "Balanced",
-        source: "managed",
-        canDisable: true,
-      }),
+      summary({ name: "balanced", label: "Balanced", source: "managed" }),
     );
     expect(items).not.toContain("Disable");
   });

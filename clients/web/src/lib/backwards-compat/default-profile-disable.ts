@@ -11,22 +11,17 @@
  *
  * New behavior (>= MIN_VERSION): a default profile can be disabled, which
  * hides it from every picker and stops the resolver selecting it at any rung.
- * The daemon refuses a disable that would strand a live reference, and marks
- * the profiles that cannot be disabled at all with `canDisable: false` on the
- * summary — so the row consults that field too, and treats its absence (an
- * older assistant, which never sends it) as no answer rather than as yes.
- *
- * MIN_VERSION names the next scheduled cut from main (0.12.0), the first
- * release carrying the disable path. A hotfix release branches from the
- * latest release tag instead, so a hotfix claiming this number would NOT
- * carry it; if that happens, retarget to the next scheduled cut.
+ * The daemon refuses a disable that would strand a live reference, and refuses
+ * one on a code-owned profile (`latency-optimized`), whose body resolves from
+ * the catalog verbatim so a persisted status would never take effect. Both
+ * refusals carry a message the row surfaces verbatim.
  *
  * Enabling is deliberately NOT gated: it was always accepted, and a profile
  * left disabled by a newer assistant must stay recoverable after a downgrade.
  */
 import { useAssistantSupports } from "./utils";
 
-export const MIN_VERSION = "0.12.0";
+export const MIN_VERSION = "0.11.4";
 
 /**
  * Render-path gate for the Disable action on a MANAGED profile row. Custom

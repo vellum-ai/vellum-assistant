@@ -131,9 +131,9 @@ export function useProfileActions(assistantId: string): ProfileActions {
       });
     } catch (error) {
       // A disable the daemon refuses is a verdict about this config, not an
-      // app fault: it names the references still pointing at the profile, or
-      // says this is the last profile left standing. Show it verbatim and
-      // skip the Sentry report — the user is the one who can fix it.
+      // app fault: it names the references still pointing at the profile.
+      // Show it verbatim and skip the Sentry report, since the user is the
+      // one who can fix it.
       const serverMessage = userActionableMessage(error);
       toast.error(serverMessage ?? STATUS_ERROR_MESSAGE);
       if (!serverMessage) {

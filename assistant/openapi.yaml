@@ -14693,9 +14693,9 @@ paths:
       operationId: inference_profiles_by_name_delete
       summary: Delete an inference profile
       description:
-        Delete a custom profile. Managed default profiles cannot be deleted — the code catalog re-serves them
+        "Delete a custom profile. Managed default profiles cannot be deleted: the code catalog re-serves them
         whatever the workspace holds. Disable one instead to hide it from the pickers and stop the resolver selecting
-        it.
+        it."
       tags:
         - inference
       parameters:
@@ -35120,8 +35120,6 @@ components:
             - user
         provider_connection:
           type: string
-        canDisable:
-          type: boolean
         availability:
           anyOf:
             - $ref: "#/components/schemas/ProfileConnectionAvailability"

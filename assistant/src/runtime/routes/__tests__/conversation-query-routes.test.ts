@@ -1150,7 +1150,7 @@ describe("PUT /v1/config/llm/profiles/:name", () => {
           body: { status: "disabled" },
         }),
       ).rejects.toThrow(
-        /Cannot disable profile "os-beta" — it is referenced by llm\.callSites\.recall/,
+        /Cannot disable profile "os-beta": it is referenced by llm\.callSites\.recall/,
       );
       // Guard rejects before any write — the seed status is untouched.
       expect(persistedProfile("os-beta").status).toBe("active");

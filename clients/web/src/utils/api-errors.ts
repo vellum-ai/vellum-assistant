@@ -138,9 +138,9 @@ export function badRequestMessage(error: unknown): string | undefined {
 
 /**
  * Like {@link badRequestMessage}, but also accepts 409. A conflict from the
- * daemon is the same kind of verdict as a 400 — the write was refused because
+ * daemon is the same kind of verdict as a 400: the write was refused because
  * of something the user can see and change ("it is referenced by
- * llm.activeProfile") — and the message names what to change, which generic
+ * llm.activeProfile"), and the message names what to change, which generic
  * retry copy cannot.
  */
 export function userActionableMessage(error: unknown): string | undefined {

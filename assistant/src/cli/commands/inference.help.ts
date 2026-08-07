@@ -443,7 +443,7 @@ Profiles are named model configurations. Managed defaults (balanced,
 quality-optimized, cost-optimized) have read-only bodies; create your own to
 customize provider, model, and tuning. They can be hidden from the pickers by
 disabling them, which also stops the resolver selecting them for any call
-site — a disable is refused while anything still points at the profile.
+site. A disable is refused while anything still points at the profile.
 
 Create, then verify with a live call, then activate. Activation is refused
 for a profile that cannot dispatch (no provider connection or API key), so
