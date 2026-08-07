@@ -30,32 +30,37 @@ This skill contains zero static information — only pointers to where the truth
 
 The CLI is the single source of truth for anything about the running assistant's current state.
 
-| Question type                         | Command                                                                    |
-| ------------------------------------- | -------------------------------------------------------------------------- |
-| Current model, provider, config       | `assistant config get llm`                                                 |
-| Full config                           | `assistant config list`                                                    |
-| Config schema (what's configurable)   | `assistant config schema [path]`                                           |
-| Available/installed skills            | `assistant skills list --json`                                             |
-| Platform connection                   | `assistant platform status --json`                                         |
-| Auth/identity                         | `assistant auth info --json`                                               |
-| What is connected, and in which sense | `assistant oauth providers list --json`                                    |
-| One provider's connection state       | `assistant oauth status <provider>`                                        |
-| Channel delivery health               | `assistant channels list`                                                  |
-| Connected clients                     | `assistant clients list --json`                                            |
-| Trust rules                           | `assistant trust list`                                                     |
-| Stored credentials                    | `assistant credentials list`                                               |
-| API keys                              | `assistant keys list`                                                      |
-| MCP servers                           | `assistant mcp list`                                                       |
-| Watchers                              | `assistant watchers list`                                                  |
-| Token usage/costs                     | `assistant usage totals` / `assistant usage breakdown --group-by provider` |
-| Version                               | `assistant --version`                                                      |
+| Question type                             | Command                                                                    |
+| ----------------------------------------- | -------------------------------------------------------------------------- |
+| Current model, provider, config           | `assistant config get llm`                                                 |
+| Full config                               | `assistant config list`                                                    |
+| Config schema (what's configurable)       | `assistant config schema [path]`                                           |
+| Available/installed skills                | `assistant skills list --json`                                             |
+| Platform connection                       | `assistant platform status --json`                                         |
+| Auth/identity                             | `assistant auth info --json`                                               |
+| Which providers exist, and in which sense | `assistant oauth providers list --json`                                    |
+| Whether one is actually connected         | `assistant oauth status <provider>`                                        |
+| Channel delivery health                   | `assistant channels list`                                                  |
+| Connected clients                         | `assistant clients list --json`                                            |
+| Trust rules                               | `assistant trust list`                                                     |
+| Stored credentials                        | `assistant credentials list`                                               |
+| API keys                                  | `assistant keys list`                                                      |
+| MCP servers                               | `assistant mcp list`                                                       |
+| Watchers                                  | `assistant watchers list`                                                  |
+| Token usage/costs                         | `assistant usage totals` / `assistant usage breakdown --group-by provider` |
+| Version                                   | `assistant --version`                                                      |
 
 Run `assistant --help` or `assistant <command> --help` to discover more.
 
 "Is X connected?" has two answers and a service can have either, both, or
-neither. Each provider carries `acts_as`: `user` means the assistant can act as
-the person who authorized it, `assistant` means a bot people reach the
-assistant through. Report the sense found rather than a bare yes.
+neither. It takes both commands: the providers list is a catalog and says
+nothing about whether anything is connected, so use it to find which provider
+keys belong to X, then check each with `oauth status`.
+
+Each provider in that list carries its sense: `actsAs` in the CLI's JSON,
+`acts_as` over HTTP. `user` means the assistant can act as the person who
+authorized it, `assistant` means a bot people reach the assistant through.
+Report the sense found rather than a bare yes.
 
 Do not infer the sense from the provider key. `slack` and `discord` name the
 user integration while their bots are `slack_channel` and `discord_channel`,
