@@ -108,15 +108,12 @@ function parseLastMessageAt(conversation: Conversation): number {
 /**
  * Recency order, newest first: the one order every section uses.
  *
- * `conversationId` breaks ties so the result stays deterministic when two
- * rows share a `lastMessageAt` (or both lack one).
+ * No tiebreak. `Array.prototype.sort` is stable, so rows sharing a
+ * `lastMessageAt` (or both missing one) keep the order they arrived in, which
+ * is the server's. Adding an id tiebreak here would reorder them against it.
  */
 function compareByRecency(a: Conversation, b: Conversation): number {
-  const byRecency = parseLastMessageAt(b) - parseLastMessageAt(a);
-  if (byRecency !== 0) {
-    return byRecency;
-  }
-  return a.conversationId.localeCompare(b.conversationId);
+  return parseLastMessageAt(b) - parseLastMessageAt(a);
 }
 
 /**
