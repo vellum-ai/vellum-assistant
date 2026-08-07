@@ -1,0 +1,11 @@
+{
+  "checkoutBonusModal": {
+    "title": "Aquí tienes {amount} de nuestra parte",
+    "body": "Reclama un crédito único de {amount} y lo añadiremos directamente al saldo de tu cuenta. No se requiere ningún pago.",
+    "decline": "No, gracias",
+    "claim": "Reclamar {amount} en créditos",
+    "grantedToast": "Se añadieron {amount} en créditos a tu cuenta.",
+    "unavailableToast": "Esta oferta ya no está disponible.",
+    "errorToast": "No se pudieron añadir los créditos. Inténtalo de nuevo."
+  }
+}
