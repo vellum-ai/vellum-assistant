@@ -72,12 +72,13 @@ export function useBillingBalanceQueryEnabled(): boolean {
  * user's own key never fail on the managed wallet, so the credit wall would
  * be a false alarm. Chat surfaces pass their active `conversationId` so a
  * managed per-conversation profile pin keeps the banners up over a BYOK
- * global default. `dailyLimitReached` is exempt, since it can only be true
+ * global default; client-minted drafts (no server row) pass the
+ * composer-stashed `draftProfile` instead. `dailyLimitReached` is exempt, since it can only be true
  * with managed spend today, which is exactly the burn that re-arms the
  * others.
  */
 export function useBillingBalanceStatus(
-  opts: { conversationId?: string | null } = {},
+  opts: { conversationId?: string | null; draftProfile?: string | null } = {},
 ): BillingBalanceStatus {
   const enabled = useBillingBalanceQueryEnabled();
   const { data: summary } = useQuery({
@@ -89,6 +90,7 @@ export function useBillingBalanceStatus(
   const suppressed = useSuppressCreditBannersForByok(
     enabled && (isExhausted || isLowBalance),
     opts.conversationId,
+    opts.draftProfile,
   );
   if (!enabled || !summary) {
     return { ...INERT_STATUS, enabled };

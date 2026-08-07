@@ -76,11 +76,17 @@ function useUtcDay(): string {
  *   Its `inferenceProfile` pin outranks the global default in the daemon's
  *   resolver, so a managed pin on a BYOK-default assistant must keep the
  *   banners up; the query shares its cache entry with
- *   `useActiveProfileModel`.
+ *   `useActiveProfileModel`. Client-minted drafts have no server row and
+ *   must pass null (a lookup would 404 and needlessly fail the gate open).
+ * @param draftProfile The composer-stashed profile of a draft conversation:
+ *   the pin the first message dispatches on, standing in for the row's
+ *   `inferenceProfile` until the row exists. Read only when
+ *   `conversationId` is null.
  */
 export function useSuppressCreditBannersForByok(
   candidate: boolean,
   conversationId?: string | null,
+  draftProfile?: string | null,
 ): boolean {
   const assistantId = useResolvedAssistantsStore.use.activeAssistantId();
   const routeQueriesEnabled = candidate && assistantId != null;
@@ -154,7 +160,9 @@ export function useSuppressCreditBannersForByok(
           defaultProviderResolvedConnection:
             defaultProviderQuery.data?.resolvedConnectionName,
           overrideProfile:
-            conversationQuery.data?.conversation.inferenceProfile ?? null,
+            conversationId != null
+              ? (conversationQuery.data?.conversation.inferenceProfile ?? null)
+              : (draftProfile ?? null),
         })
       : null;
 
