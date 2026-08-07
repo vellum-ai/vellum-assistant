@@ -3,15 +3,13 @@
  *
  * Every conversation row (in Pinned, Recents, a channel section, a custom
  * group, or the collapsed-rail flyout) needs the same ~12 action callbacks
- * plus the active/processing/attention state and the drag-reorder
- * controller. Providing them through context lets {@link ConversationRow}
- * read what it needs directly, so the row, list, and section components
- * don't each take a dozen props.
+ * plus the active/processing/attention state. Providing them through context
+ * lets {@link ConversationRow} read what it needs directly, so the row, list,
+ * and section components don't each take a dozen props.
  */
 
 import { createContext, useContext } from "react";
 
-import type { UseDragReorderResult } from "@/domains/chat/hooks/use-drag-reorder";
 import type {
   Conversation,
   ConversationGroup,
@@ -47,11 +45,6 @@ export interface ConversationListContextValue {
   onCreateGroupInto?: (conversation: Conversation) => void;
   /** Remove a conversation from its current custom group (back to Recents). */
   onRemoveFromGroup?: (conversation: Conversation) => void;
-
-  /** Drag-reorder controller; rows derive their own drag props from it. */
-  dragReorder: UseDragReorderResult<Conversation>;
-  /** True when reordering is wired (an `onReorder` handler exists). */
-  canReorder: boolean;
 }
 
 const ConversationListContext =

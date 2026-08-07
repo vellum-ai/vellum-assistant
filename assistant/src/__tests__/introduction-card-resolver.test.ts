@@ -182,7 +182,12 @@ describe("introduction card decisions", () => {
       expectedExternalUserId: "U-REQUESTER",
       expectedChatId: "C-CHAT",
       identityBindingStatus: "bound",
-      destinationAddress: "C-CHAT",
+      // The person, not the room. Slack delivers to a user id, and the room
+      // may hold an audience the code was never meant for. `expectedChatId`
+      // still carries the room because that is where the conversation is;
+      // with both identity fields set the consume path requires the user
+      // match, so the room is not a credential.
+      destinationAddress: "U-REQUESTER",
       verificationPurpose: "trusted_contact",
     });
     expect(outcomesOfType("activate_member")).toHaveLength(0);

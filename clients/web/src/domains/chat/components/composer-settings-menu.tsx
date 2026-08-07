@@ -1,5 +1,11 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Check, Plus, SlidersHorizontal, Sparkles } from "lucide-react";
+import {
+  Check,
+  Menu as HamburgerIcon,
+  Plus,
+  SlidersHorizontal,
+  Sparkles,
+} from "lucide-react";
 import {
   useCallback,
   useEffect,
@@ -25,6 +31,7 @@ import {
   conversationsByIdGetQueryKey,
 } from "@/generated/daemon/@tanstack/react-query.gen";
 import { conversationsByIdInferenceprofilePut } from "@/generated/daemon/sdk.gen";
+import { useComposerCompact } from "@/domains/chat/components/chat-composer/composer-compact";
 import { useIsMobile } from "@/hooks/use-is-mobile";
 import {
   deleteConversationOverride,
@@ -60,6 +67,9 @@ interface Props {
    * access on the left beside the attach button, model profile on the
    * right beside the mic), mounting one instance per side. Server state
    * is TanStack-Query-cached, so the two instances share fetches.
+   *
+   * Ignored when the surrounding composer is compact: the row then holds a
+   * single instance whose hamburger menu carries both sections.
    */
   segments?: "both" | "access" | "profile";
 }
@@ -70,12 +80,18 @@ export function ComposerSettingsMenu({
   segments = "both",
 }: Props) {
   const isMobile = useIsMobile();
+  // A composer too narrow for two labelled triggers folds both segments into
+  // one hamburger menu. The composer mounts a single instance in that mode
+  // (see `ChatComposer`'s action row), so `segments` is ignored here: the one
+  // menu holds both sections.
+  const compact = useComposerCompact() && !isMobile;
   const queryClient = useQueryClient();
   // Two independent menus/triggers — the access-level segment and the model-
   // profile segment each open their own popover so only the clicked segment
   // highlights and each surface shows a single, focused list.
   const [accessOpen, setAccessOpen] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
+  const [compactOpen, setCompactOpen] = useState(false);
 
   // ---------------------------------------------------------------------------
   // Server-state queries — replace the old useEffect + async IIFE pattern.
@@ -499,6 +515,7 @@ export function ComposerSettingsMenu({
             return;
           }
           setProfileOpen(false);
+          setCompactOpen(false);
           openProfileQuickAdd({
             existingNames: existingProfileNames,
             onCreated: (name, _label) => {
@@ -527,9 +544,8 @@ export function ComposerSettingsMenu({
   // value loads. Only the icon is shown inline — the label lives in a tooltip
   // and the menu — to keep the composer's bottom bar compact.
   const AccessIcon = activePreset.icon;
-  const showAccess =
-    (globalThresholdsQuery.isSuccess || serverIsOverride) &&
-    segments !== "profile";
+  const accessSettled = globalThresholdsQuery.isSuccess || serverIsOverride;
+  const showAccess = accessSettled && segments !== "profile";
   const showProfile = segments !== "access";
 
   // Each trigger is the design library's ghost Button — same chrome and
@@ -606,6 +622,117 @@ export function ComposerSettingsMenu({
       serverGlobalInteractive !== null &&
       preset.riskThreshold === serverGlobalInteractive,
   }));
+
+  // Menu rows, shared by the split desktop menus and the compact hamburger so
+  // the two layouts can never drift apart.
+  const accessMenuItems = accessItems.map(({ preset, isActive, isDefault }) => {
+    const PresetIcon = preset.icon;
+    return (
+      <Menu.Item
+        key={preset.id}
+        onSelect={() => handleSelect(preset)}
+        leftIcon={<PresetIcon className="h-3.5 w-3.5" />}
+        className={
+          isActive
+            ? "bg-[var(--surface-active)] text-[var(--content-emphasised)]"
+            : ""
+        }
+        shortcut={
+          isActive ? (
+            <Check className="h-3.5 w-3.5 text-[var(--system-positive-strong)]" />
+          ) : undefined
+        }
+        title={preset.description}
+      >
+        {preset.label}
+        {isDefault && (
+          <span className="ml-1 text-[var(--content-tertiary)]">(default)</span>
+        )}
+      </Menu.Item>
+    );
+  });
+
+  const profileMenuItems = visibleProfileEntries.map((entry) => {
+    const isActive = entry.name === profileActiveKey;
+    return (
+      <Menu.Item
+        key={entry.name}
+        onSelect={() => handleProfileSelect(entry.name)}
+        leftIcon={<Sparkles className="h-3.5 w-3.5" />}
+        className={
+          isActive
+            ? "bg-[var(--surface-active)] text-[var(--content-emphasised)]"
+            : ""
+        }
+        shortcut={
+          isActive ? (
+            <Check className="h-3.5 w-3.5 text-[var(--system-positive-strong)]" />
+          ) : undefined
+        }
+      >
+        {profilePickerLabel(entry)}
+      </Menu.Item>
+    );
+  });
+
+  const menuLabelClass =
+    "mb-1 text-label-small-default normal-case tracking-normal";
+  const profileMenuLabel = (
+    <Menu.Label
+      className={`${menuLabelClass} flex items-center justify-between gap-2`}
+    >
+      <span>Model Profile</span>
+      {/* The compact quick-add button (h-6/24px) is taller than the label
+          text's own line box (10px); items-center would otherwise stretch the
+          row to fit it and nudge the text down relative to the icon-less
+          Assistant Access label. Cancel that out so both labels sit at the
+          same offset. */}
+      <span className="-my-[7px]">{quickAddButton}</span>
+    </Menu.Label>
+  );
+
+  if (compact) {
+    // One trigger, one menu, both sections, so the row keeps its
+    // attach | settings | mic | voice order and nothing collides. The access
+    // section waits on a settled fetch (same gate as `showAccess`) so it never
+    // flashes the fallback preset, but the trigger itself is always mounted:
+    // the profile section below it is reachable either way.
+    const activeSummary = [
+      accessSettled ? activePreset.label : null,
+      activeProfileLabel,
+    ]
+      .filter(Boolean)
+      .join(" · ");
+    const compactLabel = "Assistant access and model profile";
+    return (
+      <Menu.Root open={compactOpen} onOpenChange={setCompactOpen}>
+        <Menu.Trigger asChild>
+          <Button
+            variant="ghost"
+            iconOnly={<HamburgerIcon />}
+            aria-label={compactLabel}
+            title={
+              activeSummary ? `${compactLabel}: ${activeSummary}` : compactLabel
+            }
+            className={triggerClass}
+          />
+        </Menu.Trigger>
+        <Menu.Content side="top" align="start">
+          {accessSettled && (
+            <>
+              <Menu.Label className={menuLabelClass}>
+                Assistant Access
+              </Menu.Label>
+              {accessMenuItems}
+              <Menu.Separator />
+            </>
+          )}
+          {profileMenuLabel}
+          {profileMenuItems}
+        </Menu.Content>
+      </Menu.Root>
+    );
+  }
 
   if (isMobile) {
     return (
@@ -694,37 +821,8 @@ export function ComposerSettingsMenu({
         <Menu.Root open={accessOpen} onOpenChange={setAccessOpen}>
           <Menu.Trigger asChild>{accessTrigger}</Menu.Trigger>
           <Menu.Content side="top" align="start">
-            <Menu.Label className="mb-1 text-label-small-default normal-case tracking-normal">
-              Assistant Access
-            </Menu.Label>
-            {accessItems.map(({ preset, isActive, isDefault }) => {
-              const PresetIcon = preset.icon;
-              return (
-                <Menu.Item
-                  key={preset.id}
-                  onSelect={() => handleSelect(preset)}
-                  leftIcon={<PresetIcon className="h-3.5 w-3.5" />}
-                  className={
-                    isActive
-                      ? "bg-[var(--surface-active)] text-[var(--content-emphasised)]"
-                      : ""
-                  }
-                  shortcut={
-                    isActive ? (
-                      <Check className="h-3.5 w-3.5 text-[var(--system-positive-strong)]" />
-                    ) : undefined
-                  }
-                  title={preset.description}
-                >
-                  {preset.label}
-                  {isDefault && (
-                    <span className="ml-1 text-[var(--content-tertiary)]">
-                      (default)
-                    </span>
-                  )}
-                </Menu.Item>
-              );
-            })}
+            <Menu.Label className={menuLabelClass}>Assistant Access</Menu.Label>
+            {accessMenuItems}
           </Menu.Content>
         </Menu.Root>
       )}
@@ -732,37 +830,8 @@ export function ComposerSettingsMenu({
         <Menu.Root open={profileOpen} onOpenChange={setProfileOpen}>
           <Menu.Trigger asChild>{profileTrigger}</Menu.Trigger>
           <Menu.Content side="top" align="start">
-            <Menu.Label className="mb-1 flex items-center justify-between gap-2 text-label-small-default normal-case tracking-normal">
-              <span>Model Profile</span>
-              {/* The compact quick-add button (h-6/24px) is taller than the
-                  label text's own line box (10px); items-center would
-                  otherwise stretch the row to fit it and nudge the text down
-                  relative to the icon-less Assistant Access label. Cancel
-                  that out so both labels sit at the same offset. */}
-              <span className="-my-[7px]">{quickAddButton}</span>
-            </Menu.Label>
-            {visibleProfileEntries.map((entry) => {
-              const isActive = entry.name === profileActiveKey;
-              return (
-                <Menu.Item
-                  key={entry.name}
-                  onSelect={() => handleProfileSelect(entry.name)}
-                  leftIcon={<Sparkles className="h-3.5 w-3.5" />}
-                  className={
-                    isActive
-                      ? "bg-[var(--surface-active)] text-[var(--content-emphasised)]"
-                      : ""
-                  }
-                  shortcut={
-                    isActive ? (
-                      <Check className="h-3.5 w-3.5 text-[var(--system-positive-strong)]" />
-                    ) : undefined
-                  }
-                >
-                  {profilePickerLabel(entry)}
-                </Menu.Item>
-              );
-            })}
+            {profileMenuLabel}
+            {profileMenuItems}
           </Menu.Content>
         </Menu.Root>
       )}

@@ -35,8 +35,6 @@ import { DAEMON_INTERNAL_ASSISTANT_ID } from "../assistant-scope.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import {
   cancelOutbound,
-  deliverVerificationEmail,
-  deliverVerificationSlack,
   normalizeTelegramDestination,
   resendOutbound,
   startOutbound,
@@ -152,16 +150,6 @@ export async function handleCreateVerificationSession({
       verificationRateLimiter.recordFailure(rateLimitKey);
     }
 
-    // Dispatch delivery from the daemon process (not sandboxed).
-    if (result._pendingSlackDm) {
-      const { userId, text, assistantId: aid } = result._pendingSlackDm;
-      deliverVerificationSlack(userId, text, aid);
-    }
-    if (result._pendingEmail) {
-      const { to, text, subject, assistantId: aid } = result._pendingEmail;
-      deliverVerificationEmail(to, text, subject, aid);
-    }
-
     if (!result.success) {
       if (result.error === "rate_limited") {
         throw new TooManyRequestsError(
@@ -174,9 +162,7 @@ export async function handleCreateVerificationSession({
       );
     }
 
-    // Strip internal fields from the response
-    const { _pendingSlackDm: _, _pendingEmail: __, ...publicResult } = result;
-    return publicResult;
+    return result;
   }
 
   // Inbound challenge path
@@ -222,16 +208,6 @@ export async function handleResendVerificationSession({
 
   const result = await resendOutbound({ channel, originConversationId });
 
-  // Dispatch delivery from the daemon process (not sandboxed).
-  if (result._pendingSlackDm) {
-    const { userId, text, assistantId: aid } = result._pendingSlackDm;
-    deliverVerificationSlack(userId, text, aid);
-  }
-  if (result._pendingEmail) {
-    const { to, text, subject, assistantId: aid } = result._pendingEmail;
-    deliverVerificationEmail(to, text, subject, aid);
-  }
-
   if (!result.success) {
     if (result.error === "rate_limited") {
       throw new TooManyRequestsError(
@@ -243,8 +219,7 @@ export async function handleResendVerificationSession({
     );
   }
 
-  const { _pendingSlackDm: _, _pendingEmail: __, ...publicResult } = result;
-  return publicResult;
+  return result;
 }
 
 /**

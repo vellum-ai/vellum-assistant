@@ -66,6 +66,26 @@ export type VellumCommand =
    * running is a no-op, because the running session is the one the user is in.
    */
   | { kind: "startVoice" }
+  /**
+   * Send what the user typed on the companion surface, the way its Type option
+   * asks.
+   *
+   * **The surface has its own thread.** Opening the composer starts a
+   * conversation and every follow-up continues it, rather than sending into
+   * whatever the app happens to have selected: the user reached past the app to
+   * a floating avatar, so they are starting something, not resuming a thread
+   * they cannot see. `startsConversation` marks the first message of a
+   * composer's life; the rest land in the conversation that one created, which
+   * is the app's active one by then.
+   *
+   * Like `startVoice`, this does not raise the app. The user reached for a
+   * floating surface precisely because they are working somewhere else.
+   */
+  | {
+      kind: "companionSubmit";
+      message: string;
+      startsConversation: boolean;
+    }
   | { kind: "cancelDictation" }
   | { kind: "replayOnboarding" }
   | { kind: "replayHatchFailure" }
@@ -586,9 +606,59 @@ export interface CompanionCharacter {
   color: string;
 }
 
+/**
+ * One side of one exchange, condensed for the companion surface's card.
+ *
+ * Text and a side, and nothing else: no ids, no attachments, no tool calls, no
+ * surfaces. The card is a glance at where the conversation got to, so anything
+ * richer crossing this bridge would be an invitation to render a transcript on
+ * a surface floating over someone else's work.
+ */
+export interface CompanionTurn {
+  role: "user" | "assistant";
+  text: string;
+}
+
+/**
+ * What the app's own window knows that the surface cannot.
+ *
+ * The surface is a renderer with no assistant and no conversation in it, so
+ * both facts are published by the window that has them. One payload rather than
+ * two channels: they describe the same assistant at the same moment, and a
+ * surface drawing one assistant's name over another's words is exactly the skew
+ * two independently-pushed facts would produce.
+ */
+export interface CompanionContext {
+  /**
+   * The assistant's display name, already resolved: the surface renders it
+   * verbatim rather than deciding what an unnamed assistant is called.
+   */
+  assistantName: string;
+  /** The conversation's tail, most recent last. */
+  turns: CompanionTurn[];
+}
+
 /** What main tells the companion renderer. */
 export interface CompanionSurfaceState {
   growth: CompanionGrowth;
+  /**
+   * The assistant's display name, for the composer's placeholder.
+   *
+   * Empty until the app's window publishes one, which the surface reads as
+   * "not known yet" and covers with its own fallback wording.
+   */
+  assistantName: string;
+  /**
+   * The tail of the conversation the surface belongs to, most recent last, or
+   * empty when there is none to show.
+   *
+   * Published by the renderer that owns the conversation and held here for the
+   * same reason the session is: the surface's own renderer can reload, and a
+   * card that came back blank would read as the conversation having been lost.
+   * It is what lets an exchange started from Type be read without going back to
+   * the app at all.
+   */
+  turns: CompanionTurn[];
   /**
    * The character to render live, or `undefined` when there is none to
    * compose. See {@link CompanionCharacter}; `avatarBase64` is the fallback.

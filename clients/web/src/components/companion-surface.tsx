@@ -19,6 +19,7 @@ import type {
 
 import type {
   CompanionCharacter,
+  CompanionTurn,
   VoiceActivityControlAction,
   VoiceActivityState,
 } from "@vellumai/ipc-contract";
@@ -167,20 +168,24 @@ const FALLBACK_WIDTHS: Record<CompanionSurfacePhase, number> = {
 const CARD_WIDTH = 360;
 
 /**
- * Lines each turn gets before it is cut off.
+ * The tallest the conversation gets before it scrolls.
  *
- * The card is a glance at the conversation, not the conversation. The assistant
- * gets one more line than the user because the user already knows what they
- * said.
+ * The card is still a card, not a chat window: it holds a readable stretch of
+ * the exchange and the rest is scrolled to, so a long reply can be read in
+ * place without the surface growing until it runs off the top of the display.
+ * Whatever this is, `MAX_CARD_HEIGHT` in `companion-window.ts` has to be sized
+ * to hold it plus the composer row.
  */
-const USER_LINE_CLAMP = 2;
-const ASSISTANT_LINE_CLAMP = 4;
+const TURNS_MAX_HEIGHT = 220;
 
-/** One side of one exchange, condensed for the card. */
-export interface CompanionTurn {
-  role: "user" | "assistant";
-  text: string;
-}
+/**
+ * One side of one exchange, condensed for the card.
+ *
+ * The contract's type rather than one of this component's own: the same rows
+ * are published by the app's window and pushed through main to get here, and a
+ * second declaration is how the two ends come to disagree about what a turn is.
+ */
+export type { CompanionTurn };
 
 export interface CompanionSurfaceProps {
   phase: CompanionSurfacePhase;
@@ -271,6 +276,21 @@ export interface CompanionSurfaceProps {
    */
   onTalk?: () => void;
   /**
+   * Open the composer, which is what Type does. The caller owns the phase, so
+   * this reports the press rather than switching to `typing` here: in the
+   * Electron host the same press also has to lend the window the keyboard.
+   */
+  onType?: () => void;
+  /**
+   * Send what was typed. The text is the composer's own until it leaves, so
+   * this is the only thing the caller ever sees of it.
+   */
+  onSubmit?: (message: string) => void;
+  /**
+   * Close the composer without sending, which is what Escape asks for.
+   */
+  onCancelTyping?: () => void;
+  /**
    * Press the avatar: go back to Vellum, on the conversation the surface
    * belongs to.
    *
@@ -318,6 +338,9 @@ export function CompanionSurface({
   onSurfaceMouseDown,
   spotlight,
   onTalk,
+  onType,
+  onSubmit,
+  onCancelTyping,
   onAvatarClick,
   call,
   onControl,
@@ -442,7 +465,11 @@ export function CompanionSurface({
           onClick={onAvatarClick}
         />
         {typing ? (
-          <Composer assistantName={assistantName} />
+          <Composer
+            assistantName={assistantName}
+            onSubmit={onSubmit}
+            onCancel={onCancelTyping}
+          />
         ) : (
           <div
             className="relative flex min-w-0 items-center gap-1 overflow-hidden transition-opacity duration-200"
@@ -463,7 +490,7 @@ export function CompanionSurface({
             {phase === "call" ? (
               <CallBody call={call} onControl={onControl} />
             ) : (
-              <IdleBody spotlight={spotlight} onTalk={onTalk} />
+              <IdleBody spotlight={spotlight} onTalk={onTalk} onType={onType} />
             )}
           </div>
         )}
@@ -473,43 +500,59 @@ export function CompanionSurface({
 }
 
 /**
- * The tail of the conversation, stacked above the composer.
+ * The conversation, stacked above the composer.
  *
- * Deliberately not a transcript. Two turns at most and a few lines each,
- * because a surface floating over someone else's work is a glance at where the
- * conversation got to, and the app is where the thread actually lives. Anything
- * longer would be a chat window that happens to be always on top.
+ * **Scrolled, not clipped.** An exchange the user has on this surface is one
+ * they should be able to read on it, so the turns get a viewport of their own
+ * and the older ones are scrolled back to rather than truncated. It is still
+ * not a transcript: what crosses the bridge is a bounded tail (see the mirror's
+ * `TAIL`), and the app is where the whole thread lives.
+ *
+ * **Pinned to the newest.** The view is anchored at the bottom on every change,
+ * because the reason to look at this card is what just arrived, and a streaming
+ * reply that scrolled out of sight as it was written would be unreadable
+ * exactly when it mattered.
  */
 function RecentTurns({ turns }: { turns: CompanionTurn[] }) {
-  // Oldest first, so the newest sits nearest the composer as it does in the app.
-  const recent = turns.slice(-2);
+  const scrollRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    const element = scrollRef.current;
+    if (!element) {
+      return;
+    }
+    element.scrollTop = element.scrollHeight;
+  }, [turns]);
+
   return (
-    <div className="relative flex flex-col gap-1.5 px-3 pt-3 pb-1">
+    <div
+      ref={scrollRef}
+      className="relative flex flex-col gap-1.5 overflow-y-auto px-3 pt-3 pb-1"
+      style={{ maxHeight: TURNS_MAX_HEIGHT }}
+    >
       {/* Sides, as the transcript does it: the user's turn is a bubble pushed
           right and capped at 80%, the assistant's is plain text filling the
           width. Matching `transcript-message-body.tsx` matters more than it
           looks, because this is a condensed read of the same conversation and a
           reader should not have to work out who said what a second time in a
           second idiom. */}
-      {recent.map((turn, index) => {
+      {turns.map((turn, index) => {
         const isUser = turn.role === "user";
         return (
           <div
             key={`${turn.role}-${index}`}
-            className={`flex ${isUser ? "justify-end" : "justify-start"}`}
+            className={`flex shrink-0 ${isUser ? "justify-end" : "justify-start"}`}
           >
+            {/* Whole, not clamped. Clamping belonged to a card that showed the
+                last two turns and nothing else; now that the conversation
+                scrolls, a cut-off reply would be text the user can see the top
+                of and has no way to reach the rest of. */}
             <p
-              className={`text-[12px] leading-[1.45] ${
+              className={`text-[12px] leading-[1.45] whitespace-pre-wrap ${
                 isUser
                   ? "max-w-[80%] rounded-lg bg-white/[0.08] px-2.5 py-1.5 text-white/75"
                   : "text-white/85"
               }`}
-              style={{
-                display: "-webkit-box",
-                WebkitBoxOrient: "vertical",
-                WebkitLineClamp: isUser ? USER_LINE_CLAMP : ASSISTANT_LINE_CLAMP,
-                overflow: "hidden",
-              }}
             >
               {turn.text}
             </p>
@@ -528,12 +571,61 @@ function RecentTurns({ turns }: { turns: CompanionTurn[] }) {
  * is: empty, focused, or full of text, it is the same elongated single line as
  * the voice states. Growth happens above it, never to it.
  */
-function Composer({ assistantName }: { assistantName: string }) {
+function Composer({
+  assistantName,
+  onSubmit,
+  onCancel,
+}: {
+  assistantName: string;
+  onSubmit?: (message: string) => void;
+  onCancel?: () => void;
+}) {
+  // The draft is the composer's own and never leaves except as a submitted
+  // message. Holding it in the page instead would re-render the whole surface,
+  // and the creature animating inside it, on every keystroke.
+  const [draft, setDraft] = useState("");
+  const inputRef = useRef<HTMLInputElement | null>(null);
+  const message = draft.trim();
+
+  // The caret goes where the press just asked for one. This component mounts
+  // with the card, so focusing on mount is the whole of it: pressing Type is
+  // pressing "let me type", and a field the user has to click a second time to
+  // use is a field that failed to do what it was asked.
+  useEffect(() => {
+    inputRef.current?.focus();
+  }, []);
+
+  const send = () => {
+    if (message === "") {
+      return;
+    }
+    setDraft("");
+    onSubmit?.(message);
+  };
+
   return (
     <div className="relative flex min-w-0 flex-1 items-center gap-1 pr-2">
       <input
+        ref={inputRef}
         type="text"
+        value={draft}
         placeholder={`Message ${assistantName}`}
+        onChange={(event) => {
+          setDraft(event.target.value);
+        }}
+        // Enter sends and Escape backs out, which is the whole keyboard here:
+        // the field is one line, so there is no newline to protect.
+        onKeyDown={(event) => {
+          if (event.key === "Enter") {
+            event.preventDefault();
+            send();
+            return;
+          }
+          if (event.key === "Escape") {
+            event.preventDefault();
+            onCancel?.();
+          }
+        }}
         // A press in the field is not a drag, and the field wants the caret
         // that press would otherwise be stolen from.
         onMouseDown={(event) => {
@@ -541,15 +633,28 @@ function Composer({ assistantName }: { assistantName: string }) {
         }}
         className="min-w-0 flex-1 bg-transparent text-[12px] text-white/85 placeholder:text-white/40 focus:outline-none"
       />
+      {/* **The way out, and the way on, in one control.** With nothing typed
+          there is nothing to send, so the trailing control is the way back to
+          the pill; the moment there are words it becomes the way to send them.
+          A card whose only control was a dead send arrow would be a state the
+          user could enter and not leave, and a second permanent button for
+          "never mind" would spend a third of the row on the thing the user
+          wants least. */}
       <button
         type="button"
-        aria-label="Send"
+        aria-label={message === "" ? "Go back" : "Send"}
+        title={message === "" ? "Go back" : "Send"}
+        onClick={message === "" ? onCancel : send}
         onMouseDown={(event) => {
           event.stopPropagation();
         }}
         className="grid size-7 shrink-0 place-items-center rounded-full bg-white/10 text-white/85 transition-colors hover:bg-white/20"
       >
-        <ArrowUp className="size-3.5" aria-hidden />
+        {message === "" ? (
+          <X className="size-3.5" aria-hidden />
+        ) : (
+          <ArrowUp className="size-3.5" aria-hidden />
+        )}
       </button>
     </div>
   );
@@ -590,7 +695,8 @@ function Avatar({
     <div
       className="relative grid size-11 shrink-0 place-items-center"
       onMouseEnter={onMouseEnter}
-      onClick={onClick}>
+      onClick={onClick}
+    >
       {glow && (
         <span
           className="absolute size-10 animate-pulse rounded-full blur-lg"
@@ -642,9 +748,11 @@ function Avatar({
 function IdleBody({
   spotlight,
   onTalk,
+  onType,
 }: {
   spotlight?: "talk" | "type";
   onTalk?: () => void;
+  onType?: () => void;
 }) {
   return (
     <>
@@ -660,6 +768,7 @@ function IdleBody({
         label="Type"
         showLabel
         active={spotlight === "type"}
+        onClick={onType}
       />
     </>
   );

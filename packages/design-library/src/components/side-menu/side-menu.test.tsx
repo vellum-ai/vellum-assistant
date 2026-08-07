@@ -10,7 +10,7 @@ import { Globe } from "lucide-react";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 
-import { SideMenu } from "./side-menu";
+import { SideMenu, useSideMenuCollapsed } from "./side-menu";
 
 describe("SideMenu root", () => {
   test("renders a <nav> with the provided aria-label and data-slot", () => {
@@ -481,16 +481,16 @@ function renderCollapsedItem(props: Record<string, unknown>): string {
 }
 
 describe("SideMenu.Item collapsed shape", () => {
-  test('shape="circle" fully rounds the collapsed tile', () => {
-    const html = renderCollapsedItem({ label: "Pinned", shape: "circle" });
+  test('shape="tile" fully rounds the collapsed tile', () => {
+    const html = renderCollapsedItem({ label: "Pinned", shape: "tile" });
     expect(html).toContain("rounded-full");
     // The 6px row radius is replaced, not stacked underneath it, so the
     // rendered radius can't depend on which class tailwind-merge kept.
     expect(html).not.toContain("rounded-[6px]");
   });
 
-  test('shape="circle" squares the tile, so it is round and not oval', () => {
-    const html = renderCollapsedItem({ label: "Pinned", shape: "circle" });
+  test('shape="tile" squares the tile, so it is round and not oval', () => {
+    const html = renderCollapsedItem({ label: "Pinned", shape: "tile" });
     /* A full radius on a `w-full` row is an ellipse, not a circle: the rail
        column is a little wider than the row is tall. The radius alone is not
        the shape, so assert the square too. A definite `size-*` is what makes
@@ -502,7 +502,7 @@ describe("SideMenu.Item collapsed shape", () => {
   });
 
   test("a tile is built as its own shape, not as a row with patches", () => {
-    const html = renderCollapsedItem({ label: "Pinned", shape: "circle" });
+    const html = renderCollapsedItem({ label: "Pinned", shape: "tile" });
     /* The row classes a tile does not want are absent, rather than present
        and countered. Absence is the property worth asserting: countering them
        with `w-auto` / `max-md:h-[30px]` / `max-md:py-[6px]` renders the same
@@ -546,7 +546,7 @@ describe("SideMenu.Item collapsed shape", () => {
             key: "i",
             icon: Globe,
             label: "Pinned",
-            shape: "circle",
+            shape: "tile",
           }),
         ),
       ),
@@ -675,5 +675,52 @@ describe("SideMenu.Item collapsed accessible name", () => {
     );
     expect(html).not.toContain('aria-label="Pinned"');
     expect(html).toContain(">Pinned<");
+  });
+});
+
+describe("useSideMenuCollapsed", () => {
+  /* Reports what a slot's own trigger has to render as. Exercised through a
+     real `SideMenu` rather than a stubbed context, because the value a caller
+     needs is the one the menu actually publishes. */
+  function Probe() {
+    return createElement("span", null, String(useSideMenuCollapsed()));
+  }
+
+  function probeInside(props: {
+    variant?: "rail" | "overlay";
+    collapsed?: boolean;
+  }): string {
+    return renderToStaticMarkup(
+      createElement(
+        SideMenu,
+        { ariaLabel: "Navigation", ...props },
+        createElement(SideMenu.Footer, null, createElement(Probe, null)),
+      ),
+    );
+  }
+
+  test("true inside a collapsed rail", () => {
+    expect(probeInside({ variant: "rail", collapsed: true })).toContain("true");
+  });
+
+  test("false inside an expanded rail", () => {
+    expect(probeInside({ variant: "rail", collapsed: false })).toContain(
+      "false",
+    );
+  });
+
+  /* The overlay ignores `collapsed` and always shows labels, so a slot must
+     not reduce its trigger to a tile there even when the flag is set. */
+  test("false on the overlay even when collapsed is set", () => {
+    expect(probeInside({ variant: "overlay", collapsed: true })).toContain(
+      "false",
+    );
+  });
+
+  /* Rendered outside any `SideMenu`, which is what a consumer mounted in
+     isolation (a test, a story of the trigger alone) does. The default context
+     answers rather than throwing, so such a caller gets the expanded form. */
+  test("false with no SideMenu above it", () => {
+    expect(renderToStaticMarkup(createElement(Probe, null))).toContain("false");
   });
 });

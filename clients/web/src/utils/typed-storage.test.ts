@@ -47,6 +47,64 @@ describe("createStorageAccessor", () => {
     expect(localStorage.getItem("vellum:test-items")).toBe('["a","b"]');
   });
 
+  /* The imperative counterpart to `useValue`, for the readers that are not
+     components. Both directions are covered: a write from this tab announces
+     itself on the same-tab channel, and a write from another tab arrives as a
+     `StorageEvent`, which is the one a module-level mirror depends on. */
+  describe("subscribe", () => {
+    test("fires on a write through the accessor", () => {
+      let calls = 0;
+      const off = accessor.subscribe(() => {
+        calls += 1;
+      });
+
+      accessor.save(["a"]);
+
+      expect(calls).toBe(1);
+      off();
+    });
+
+    test("fires on a cross-tab StorageEvent for its key", () => {
+      let calls = 0;
+      const off = accessor.subscribe(() => {
+        calls += 1;
+      });
+
+      window.dispatchEvent(
+        new StorageEvent("storage", { key: "vellum:test-items" }),
+      );
+
+      expect(calls).toBe(1);
+      off();
+    });
+
+    test("ignores changes to another key", () => {
+      let calls = 0;
+      const off = accessor.subscribe(() => {
+        calls += 1;
+      });
+
+      window.dispatchEvent(
+        new StorageEvent("storage", { key: "vellum:something-else" }),
+      );
+
+      expect(calls).toBe(0);
+      off();
+    });
+
+    test("stops firing once unsubscribed", () => {
+      let calls = 0;
+      const off = accessor.subscribe(() => {
+        calls += 1;
+      });
+      off();
+
+      accessor.save(["a"]);
+
+      expect(calls).toBe(0);
+    });
+  });
+
   test("remove deletes the key", () => {
     accessor.save(["a"]);
     accessor.remove();

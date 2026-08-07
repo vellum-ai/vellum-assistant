@@ -58,7 +58,7 @@ export interface NotificationTapPayload {
 type PermissionState = "granted" | "denied" | "prompt" | "unsupported";
 
 let cachedPermission: PermissionState | null = null;
-let permissionPromptIssued = false;
+let pendingPermissionRequest: Promise<PermissionState> | null = null;
 let tapListenersRegistered = false;
 let tapHandler: ((payload: NotificationTapPayload) => void) | null = null;
 const recentNativeDeliveryIds = new Set<string>();
@@ -165,21 +165,43 @@ export async function refreshNotificationPermission(): Promise<PermissionState> 
  * notification-worthy event. Subsequent denials are cached — we never
  * re-prompt (both iOS and browsers ignore repeat prompts anyway, but the
  * cache avoids wasted round-trips).
+ *
+ * The prompt is memoized as an in-flight promise rather than latched behind
+ * a boolean, because the user can take arbitrarily long to answer it — they
+ * are, by construction, in another app when the first intent lands. Every
+ * intent that arrives during that window awaits the same prompt and posts
+ * once it resolves; a boolean latch would instead resolve them all to
+ * `"prompt"`, drop their banners, and ack the daemon with an authorization
+ * denial that never happened.
  */
 export async function ensureNotificationPermission(): Promise<PermissionState> {
   const current = await getNotificationPermission();
   if (current !== "prompt") {
     return current;
   }
-  if (permissionPromptIssued) {
-    return current;
+  pendingPermissionRequest ??= requestPermissionOnce();
+  return pendingPermissionRequest;
+}
+
+/**
+ * Issue the permission request and cache its outcome. Kept memoized for the
+ * life of the session (never cleared): a resolved grant or denial is served
+ * from `cachedPermission` on the next call, and an unanswered or throwing
+ * prompt resolves to `"prompt"` without re-prompting.
+ */
+async function requestPermissionOnce(): Promise<PermissionState> {
+  try {
+    const result = isNativePlatform()
+      ? await requestNativePermission()
+      : await requestBrowserPermission();
+    cachedPermission = result;
+    return result;
+  } catch {
+    // `Notification.requestPermission()` throws on older browsers and when
+    // the page lacks the activation some engines require. Treat it as
+    // unanswered rather than denied.
+    return "prompt";
   }
-  permissionPromptIssued = true;
-  const result = isNativePlatform()
-    ? await requestNativePermission()
-    : await requestBrowserPermission();
-  cachedPermission = result;
-  return result;
 }
 
 async function registerTapListeners(): Promise<void> {
@@ -572,7 +594,7 @@ export function postForegroundRemotePush(
 
 export function __resetNotificationsStateForTests(): void {
   cachedPermission = null;
-  permissionPromptIssued = false;
+  pendingPermissionRequest = null;
   tapListenersRegistered = false;
   tapHandler = null;
   recentNativeDeliveryIds.clear();

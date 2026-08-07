@@ -82,7 +82,10 @@ function readPersonaFile(filePath: string): string | null {
  * (`guardianExternalUserId`): the info read is keyed on that address so it
  * matches the gateway's guardian binding. When the context carries no guardian
  * address (desktop / native turns), fall back to the channel's guardian
- * contact. Returns `"guardian.md"` when the resolved guardian has no userFile.
+ * contact, then any guardian: the guardian may be bound on a channel other
+ * than the turn's source, and the construction-time warm populates both the
+ * channel-filtered and unfiltered cache keys. Returns `"guardian.md"` when the
+ * resolved guardian has no userFile.
  */
 function resolveGuardianUserFile(trustContext: TrustContext): string | null {
   if (trustContext.guardianExternalUserId) {
@@ -94,7 +97,8 @@ function resolveGuardianUserFile(trustContext: TrustContext): string | null {
       return guardianContact.userFile ?? "guardian.md";
     }
   }
-  const guardian = peekGuardianForChannel(trustContext.sourceChannel);
+  const guardian =
+    peekGuardianForChannel(trustContext.sourceChannel) ?? peekAnyGuardian();
   return guardian
     ? (guardianDeliveryUserFile(guardian) ?? "guardian.md")
     : null;
