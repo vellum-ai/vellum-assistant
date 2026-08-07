@@ -333,7 +333,9 @@ export function SystemTaskDetailPanel({
               onClick={onRunNow}
               disabled={runNowDisabled}
             >
-              {isRunning ? t("scheduleDetail.running") : t("scheduleDetail.runNow")}
+              {isRunning
+                ? t("scheduleDetail.running")
+                : t("scheduleDetail.runNow")}
             </Button>
           ) : null}
         </div>

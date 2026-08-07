@@ -64,5 +64,8 @@
     "turnOnMemory": "Activar Memoria",
     "memorySettings": "Configuración de Memoria",
     "fallbackModelProfile": "Predeterminado (modelo de tareas del sistema)"
+  },
+  "scheduleRow": {
+    "toggleAria": "Alternar {name}"
   }
 }

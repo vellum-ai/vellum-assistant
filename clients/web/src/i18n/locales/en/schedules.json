@@ -64,5 +64,8 @@
     "turnOnMemory": "Turn on Memory",
     "memorySettings": "Memory settings",
     "fallbackModelProfile": "Default (system task model)"
+  },
+  "scheduleRow": {
+    "toggleAria": "Toggle {name}"
   }
 }

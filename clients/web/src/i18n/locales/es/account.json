@@ -72,6 +72,8 @@
     "completeAccountSubtitle": "Necesitamos algunos datos más para terminar de configurar tu cuenta.",
     "backToSignIn": "← Volver al inicio de sesión",
     "emailPlaceholder": "Correo electrónico",
-    "usernamePlaceholder": "Nombre de usuario"
+    "usernamePlaceholder": "Nombre de usuario",
+    "completeSignup": "Completar el registro",
+    "completingSignup": "Completando..."
   }
 }

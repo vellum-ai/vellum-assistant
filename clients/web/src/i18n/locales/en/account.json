@@ -72,6 +72,8 @@
     "completeAccountSubtitle": "We need a few more details to finish setting up your account.",
     "backToSignIn": "← Back to sign in",
     "emailPlaceholder": "Email",
-    "usernamePlaceholder": "Username"
+    "usernamePlaceholder": "Username",
+    "completeSignup": "Complete signup",
+    "completingSignup": "Completing..."
   }
 }

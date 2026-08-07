@@ -5,6 +5,7 @@ import { Maximize2, Minimize2 } from "lucide-react";
 import { Card, Skeleton } from "@vellumai/design-library";
 
 import { useTranslation } from "@/i18n";
+import { SCHEDULE_USAGE_WINDOW_DAYS } from "@/utils/usage-window";
 
 export interface ScheduleSummaryCardProps {
   title: string;
@@ -75,8 +76,6 @@ export function MinimizeButton({
   );
 }
 
-const COST_WINDOW_DAYS = 7;
-
 function CostDisplay({
   costLabel,
   costStatus,
@@ -101,7 +100,9 @@ function CostDisplay({
         {costStatus === "error" ? "—" : costLabel}
       </span>
       <span className="text-body-small-default text-[var(--content-tertiary)]">
-        {t("scheduleSummaryCard.costCaption", { days: COST_WINDOW_DAYS })}
+        {t("scheduleSummaryCard.costCaption", {
+          days: SCHEDULE_USAGE_WINDOW_DAYS,
+        })}
       </span>
     </div>
   );
@@ -119,8 +120,7 @@ export function ScheduleSummaryCard({
   children,
 }: ScheduleSummaryCardProps) {
   const { t } = useTranslation("schedules");
-  const resolvedExpandLabel =
-    expandLabel ?? t("scheduleSummaryCard.expand");
+  const resolvedExpandLabel = expandLabel ?? t("scheduleSummaryCard.expand");
   if (isExpanded) {
     return (
       <Card padding="lg">
@@ -153,7 +153,9 @@ export function ScheduleSummaryCard({
         >
           <span className="flex items-center gap-2 rounded-full border border-[var(--border-base)] bg-[var(--surface-overlay)] px-3 py-1.5 text-[var(--content-default)] shadow-sm">
             <Maximize2 className="h-4 w-4" />
-            <span className="text-label-medium-default">{resolvedExpandLabel}</span>
+            <span className="text-label-medium-default">
+              {resolvedExpandLabel}
+            </span>
           </span>
         </span>
       </button>

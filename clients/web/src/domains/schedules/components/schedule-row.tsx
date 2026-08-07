@@ -3,6 +3,7 @@ import { Fragment, type ReactNode } from "react";
 import { ChevronRight } from "lucide-react";
 
 import { pluginNameFromSourceKey } from "@/domains/schedules/plugin-source";
+import { useTranslation } from "@/i18n";
 import {
   formatScheduleCost,
   formatScheduleRunCount,
@@ -135,6 +136,7 @@ export function ScheduleRow({
   /** Omit for read-only rows (past one-shots) — hides the enable/disable toggle. */
   onToggle?: (enabled: boolean) => void;
 }) {
+  const { t } = useTranslation("schedules");
   const cadence = schedule.isOneShot ? "" : schedule.cadenceDescription.trim();
   const runAt = schedule.lastRunAt ?? schedule.nextRunAt;
   const metaParts = [cadence, runAt ? formatTimestamp(runAt) : ""].filter(
@@ -152,7 +154,11 @@ export function ScheduleRow({
       selected={selected}
       onClick={onClick}
       onToggle={onToggle}
-      toggleAriaLabel={onToggle ? `Toggle ${schedule.name}` : undefined}
+      toggleAriaLabel={
+        onToggle
+          ? t("scheduleRow.toggleAria", { name: schedule.name })
+          : undefined
+      }
     />
   );
 }

@@ -326,7 +326,10 @@ export function AssistantChannelsList({
         open={pendingPolicy !== null}
         title={pendingConfirmation?.title ?? ""}
         message={pendingConfirmation?.message ?? ""}
-        confirmLabel={pendingConfirmation?.confirmLabel ?? "Confirm"}
+        confirmLabel={
+          pendingConfirmation?.confirmLabel ??
+          t("assistantChannelsList.confirmFallback")
+        }
         destructive={pendingConfirmation?.destructive ?? false}
         onConfirm={() => {
           if (pendingPolicy) {

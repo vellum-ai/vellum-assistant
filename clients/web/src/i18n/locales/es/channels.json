@@ -2,7 +2,8 @@
   "assistantChannelsList": {
     "drawerTitle": "Canales",
     "disconnectTitle": "¿Desconectar {channel}?",
-    "disconnectConfirm": "Desconectar"
+    "disconnectConfirm": "Desconectar",
+    "confirmFallback": "Confirmar"
   },
   "channelAdapterList": {
     "pluginChannelAria": "{channel}, de un plugin"
@@ -80,9 +81,9 @@
     "filterGroupAria": "Filtrar canales por tipo",
     "noMatches": "Ningún canal coincide.",
     "accessAria": "Acceso del asistente en {channel}",
-    "filterAll": "Todos",
-    "filterPublic": "Públicos",
-    "filterPrivate": "Privados"
+    "filterAll": "{count, plural, one {Todos (#)} other {Todos (#)}}",
+    "filterPublic": "{count, plural, one {Público (#)} other {Públicos (#)}}",
+    "filterPrivate": "{count, plural, one {Privado (#)} other {Privados (#)}}"
   },
   "twilioCredentialEntry": {
     "accountSid": "SID de la cuenta",

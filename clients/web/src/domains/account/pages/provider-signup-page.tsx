@@ -248,8 +248,8 @@ export function ProviderSignupPage() {
       <AccountForm
         onSubmit={onSubmit}
         error={error}
-        submitLabel="Complete signup"
-        submittingLabel="Completing..."
+        submitLabel={t("providerSignupPage.completeSignup")}
+        submittingLabel={t("providerSignupPage.completingSignup")}
         isSubmitting={isSubmitting}
         footer={
           <Link
