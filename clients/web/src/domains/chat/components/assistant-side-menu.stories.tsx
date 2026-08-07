@@ -264,8 +264,8 @@ const meta: Meta<typeof AssistantSideMenu> = {
   parameters: { layout: "fullscreen" },
   /* `--surface-base` is the app backdrop the sidebar sits on; `SideMenu`
      paints its own `--surface-overlay`, so the wrapper must not paint over
-     it. The sidebar's own type and row metrics switch at `md`, so view these
-     stories at a desktop viewport to see what desktop users see. */
+     it. The sidebar's own type and row metrics switch at `md`; the desktop
+     width every story starts at holds these above that breakpoint. */
   decorators: [
     (Story) => (
       <div className="flex h-screen bg-[var(--surface-base)]">

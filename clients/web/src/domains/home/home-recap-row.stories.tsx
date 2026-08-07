@@ -15,8 +15,6 @@
  *
  * `category` drives the chip hue and comes from `EVENT_CATEGORY_MAP` in the
  * side effect, so each story sets the one its source event maps to.
- *
- * The row is not responsive (no `md:` variants), so no viewport is pinned.
  */
 import type { Meta, StoryObj } from "@storybook/react-vite";
 

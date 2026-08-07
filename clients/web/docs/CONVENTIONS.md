@@ -1495,14 +1495,18 @@ renders correctly given the data it actually receives in production.
   the app, and harder to spot. Hex in sample _data_ is fine (an avatar
   color the component receives as a prop): the line is whether the value
   styles the story or is the fixture.
-- **Pin a viewport when the component is responsive.** Components with
-  `max-md:` variants key off the *viewport*, so at a narrow window a
-  story silently renders the mobile treatment while still passing a
-  desktop variant. Set `globals: { viewport: { value: ... } }` on the
-  meta (viewport is built into Storybook core, no addon needed). Note
-  this holds the **Canvas** only: every story on a docs page shares one
-  iframe, so no per-story viewport applies in **Docs**, and that iframe
-  runs roughly 300px narrower than the browser window.
+- **Stories start at a desktop width; name a viewport only to leave it.**
+  Components with `max-md:` variants key off the *viewport*, so at a
+  narrow window a story would silently render the mobile treatment while
+  still passing a desktop variant. `.storybook/preview.tsx` starts every
+  story at the shared `sbDesktop` option from `.storybook/viewports.ts`,
+  and the toolbar still switches to `sbMobile`. A story that documents
+  the mobile treatment sets `globals: { viewport: { value: "sbMobile",
+  isRotated: false } }` on its meta, naming an option from that shared
+  list rather than declaring its own. This holds the **Canvas** only:
+  every story on a docs page shares one iframe, so no viewport global
+  applies in **Docs**, and that iframe runs roughly 300px narrower than
+  the browser window.
 
 References:
 - [Storybook - Writing stories](https://storybook.js.org/docs/writing-stories)

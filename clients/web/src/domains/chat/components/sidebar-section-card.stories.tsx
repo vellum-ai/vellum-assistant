@@ -113,27 +113,15 @@ const CHATS_MENU: GroupMenuItemsProps = {
 const meta = {
   title: "Chat/SidebarSectionCard",
   component: SidebarSectionCard,
-  globals: {
-    viewport: { value: "sbDesktop", isRotated: false },
-  },
   parameters: {
     layout: "padded",
-    viewport: {
-      options: {
-        sbDesktop: {
-          name: "Desktop",
-          styles: { width: "1280px", height: "760px" },
-          type: "desktop",
-        },
-      },
-    },
     /* Conversation rows and section headers carry `max-md:` variants for the
        mobile drawer (16px type at 36px tall instead of 14px at 30px). Those
-       key off the *viewport*, so in a narrow Canvas iframe these stories
-       would render the drawer's metrics inside the desktop rail, a
-       combination the app never ships.
+       key off the *viewport*, and the desktop width every story starts at
+       (see `.storybook/preview.tsx`) keeps the Canvas above the `md`
+       breakpoint, so the rail is never reviewed with the drawer's metrics.
 
-       It does not reach the Docs canvas: every story on a docs page shares
+       That does not reach the Docs canvas: every story on a docs page shares
        one iframe. Read these in Canvas. Tracked in LUM-2921. */
   },
   decorators: [
