@@ -139,6 +139,23 @@ The rule:
 
 ---
 
+## When CSS hides a surface, the substitute needs the same signal
+
+The most common way an adaptive layout loses a control: one component hides itself in CSS
+(`hidden sm:block`) while a sibling decides in JS whether to carry the same control, and the two use
+different thresholds. Nothing connects them, so the gap between the thresholds is a viewport where
+the control exists in neither surface, and no type or test notices.
+
+So whenever a surface is hidden by a Tailwind variant and something else stands in for it, one owner
+holds a single named signal and both sides read it. Usually the page that renders both: it resolves
+the breakpoint once (`useMediaQuery` with a constant sitting beside the markup it mirrors) and passes
+the answer down, rather than each child guessing at a width. Keep the substitution tied to *the
+absence of the thing it replaces*, never to a proxy like the pointer: the superpowers filter grows a
+Categories section exactly when the category rail is not rendered, so both a phone and a narrow
+mouse-driven window get it, and neither shows it twice.
+
+---
+
 ## Should iOS and Android differ?
 
 Sometimes, and the split is clean:
