@@ -1,6 +1,8 @@
 import { PinOff, Rocket } from "lucide-react";
 
 import { SwipeActionReveal } from "@/components/swipe-action-reveal";
+import { PinnedAppColorSwatches } from "@/domains/chat/components/pinned-app-color-swatches";
+import { pinTintStyle } from "@/domains/chat/utils/pin-color-registry";
 import { usePinnedAppsStore } from "@/stores/pinned-apps-store";
 import type { PinnedAppEntry } from "@/utils/app-pin-storage";
 import { isPointerCoarse } from "@/utils/pointer";
@@ -17,7 +19,13 @@ export interface PinnedAppNavItemProps {
 /**
  * A pinned-app row in the assistant sidebar. Renders the app as a
  * {@link SideMenu.Item} and, when expanded, wraps it in a right-click /
- * long-press {@link ContextMenu} whose sole action removes the pin.
+ * long-press {@link ContextMenu} offering a colour for the pin and an unpin.
+ *
+ * A pin the user has given a colour wears it as a wash rather than the solid
+ * fill the assistant identity pill above it wears, so that pill stays the
+ * sidebar's one saturated surface. The colour rides onto the collapsed rail
+ * with the row, because collapsing changes the shape of a thing and not what
+ * colour it is.
  *
  * The unpin lives here because it is the only place a stale pin can be
  * cleared: a deleted app never appears in the Library, so its card-level
@@ -42,9 +50,22 @@ export function PinnedAppNavItem({
   onOpen,
 }: PinnedAppNavItemProps) {
   const unpin = usePinnedAppsStore.use.unpin();
+  const setColor = usePinnedAppsStore.use.setColor();
+
+  /* The pin's colour, as the three custom properties both shapes read, and
+     `undefined` on an uncoloured pin so neither shape sees a declaration and
+     both wear their plain surface.
+
+     Declared on the row element itself rather than on a wrapper, which the
+     rail tile rules out: the tile centres itself with `mx-auto` against the
+     rail column, and a wrapper would become the thing it centres in. A custom
+     property resolves on the element that declares it, so one mechanism
+     covers both shapes. */
+  const tintStyle = pinTintStyle(app.color);
 
   const sideMenuItem = (
     <SideMenu.Item
+      style={tintStyle}
       // Apps source their icon as an emoji string on the manifest
       // (`app.icon`). Fall back to the Rocket lucide glyph so unmojified
       // apps still get a leading icon in the rail.
@@ -70,6 +91,7 @@ export function PinnedAppNavItem({
      absolutely positioned over the row's right edge. */
   const item = (
     <PanelItem
+      style={tintStyle}
       shape="pill"
       /* An app's icon is an emoji string on its manifest, so it goes in
          `leadingSlot`; `icon` takes a Lucide component, which is the fallback
@@ -130,6 +152,11 @@ export function PinnedAppNavItem({
         </SwipeActionReveal>
       </ContextMenu.Trigger>
       <ContextMenu.Content onClick={(event) => event.stopPropagation()}>
+        <PinnedAppColorSwatches
+          value={app.color}
+          onChange={(color) => setColor(app.appId, color)}
+        />
+        <ContextMenu.Separator />
         <ContextMenu.Item
           leftIcon={<PinOff size={14} />}
           onSelect={() => unpin(app.appId)}
