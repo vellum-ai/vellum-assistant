@@ -24,14 +24,21 @@ describe("feature flag registry availability", () => {
     );
     expect(assistantFlags.length).toBeGreaterThan(0);
 
-    // Every assistant-scope flag should have required fields
+    // Every assistant-scope flag should have required fields. A boolean
+    // default is the common case; a multivariate flag carries a string
+    // default that must name one of its declared variations.
     for (const flag of assistantFlags) {
       expect(typeof flag.id).toBe("string");
       expect(typeof flag.key).toBe("string");
       expect(typeof flag.label).toBe("string");
       expect(typeof flag.description).toBe("string");
-      expect(typeof flag.defaultEnabled).toBe("boolean");
       expect(flag.scope).toBe("assistant");
+      if (typeof flag.defaultEnabled === "string") {
+        expect(Array.isArray(flag.values)).toBe(true);
+        expect(flag.values).toContain(flag.defaultEnabled);
+      } else {
+        expect(typeof flag.defaultEnabled).toBe("boolean");
+      }
     }
   });
 });
