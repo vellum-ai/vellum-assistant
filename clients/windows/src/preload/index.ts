@@ -14,8 +14,6 @@ export type { AppVersionInfo, VellumBridge, VellumCommand };
 
 const NOT_AVAILABLE = "Local mode is not available on the Windows client yet";
 
-const noopUnsubscribe = (): (() => void) => () => undefined;
-
 /**
  * Minimal subset of the `VellumBridge` contract for the Windows skeleton.
  *
@@ -48,12 +46,6 @@ const coreBridge: WindowsCoreBridge = {
         ipcRenderer.off("vellum:command", handler);
       };
     },
-  },
-  // Stub: deep links need `vellum://` protocol registration plus
-  // second-instance argv parsing (`clients/macos/src/main/deep-links.ts`).
-  deepLinks: {
-    drain: () => Promise.resolve([]),
-    onLink: noopUnsubscribe,
   },
   mainWindow: {
     ensureVisible: (): Promise<void> =>

@@ -12,9 +12,9 @@
 
 import type { z } from "zod";
 
-import type { HostProxyExecutor } from "../host-proxy-router";
-import type { HostProxySseMessage } from "../host-proxy-sse";
-import type { HostProxyPoster } from "../host-proxy-poster";
+import type { HostProxyExecutor } from "@vellumai/electron-desktop/host-proxy/router";
+import type { HostProxySseMessage } from "@vellumai/electron-desktop/host-proxy/sse";
+import type { HostProxyPoster } from "@vellumai/electron-desktop/host-proxy/poster";
 import type { MacHelperClient } from "../sidecar/mac-helper";
 import log from "../logger";
 

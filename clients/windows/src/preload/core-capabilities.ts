@@ -5,7 +5,6 @@ export const WINDOWS_CORE_CAPABILITIES = [
   "hostOS",
   "app",
   "commands",
-  "deepLinks",
   "mainWindow",
   "localMode",
 ] as const satisfies readonly (keyof VellumBridge)[];

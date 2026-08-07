@@ -27,7 +27,7 @@ import { installWebContentsSecurity } from "./windows.client";
  *
  * Not ported from the macOS client yet (see `clients/macos/src/main/` for the
  * reference implementations): gateway/platform request forwarding for
- * packaged builds, native auth, deep links, auto-update, CSP,
+ * packaged builds, native auth, auto-update, CSP,
  * notifications, hotkeys, local-mode IPC, window-state persistence.
  */
 
@@ -175,9 +175,6 @@ app
   });
 
 app.on("second-instance", () => {
-  // TODO(windows): deep links arrive via second-instance argv on Windows.
-  // Port `extractDeepLinkFromArgv` from `clients/macos/src/main/deep-links.ts`
-  // when the `vellum://` protocol registration lands here.
   ensureVisible();
 });
 
