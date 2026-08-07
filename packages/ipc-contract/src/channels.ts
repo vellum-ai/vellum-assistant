@@ -56,6 +56,7 @@ export const IDENTITY_NAME = "vellum:identity:name";
 
 // Icon / avatar
 export const ICON_SET_AVATAR = "vellum:icon:setAvatar";
+export const ICON_SET_CHARACTER = "vellum:icon:setCharacter";
 
 // Dock
 export const DOCK_SET_BADGE = "vellum:dock:setBadge";

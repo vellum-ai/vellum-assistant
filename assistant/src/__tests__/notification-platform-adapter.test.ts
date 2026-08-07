@@ -340,6 +340,110 @@ describe("PlatformPushAdapter", () => {
     expect(result.remotePushAccepted).toBeUndefined();
   });
 
+  // A lock screen renders no markdown, so any marker that survives to the
+  // dispatch body reads as literal punctuation. See `stripMarkdownForPreview`.
+  describe("markdown flattening", () => {
+    test("flattens markdown out of the dispatched title and body", async () => {
+      const adapter = new PlatformPushAdapter();
+      const payload = makePayload({
+        copy: {
+          title: "**Build** finished",
+          body: [
+            "Here is the clip: ![vellum scene](vellum://workspace/a.mp4)",
+            "```ts",
+            "const a = 1;",
+            "```",
+            "| name | value |",
+            "| --- | --- |",
+            "| a | 1 |",
+          ].join("\n"),
+        },
+      });
+
+      const result = await adapter.send(payload, makeDestination());
+
+      expect(result.success).toBe(true);
+      const dispatched = fetchCalls[0]!.body;
+      expect(dispatched.title).toBe("Build finished");
+      const dispatchedBody = dispatched.body as string;
+      expect(dispatchedBody).not.toContain("![");
+      expect(dispatchedBody).not.toContain("```");
+      expect(dispatchedBody).not.toContain("|");
+      expect(dispatchedBody).toContain("Here is the clip:");
+      expect(dispatchedBody).toContain("const a = 1;");
+      expect(dispatchedBody).toContain("name value");
+    });
+
+    // Guardian question copy joins its question and instruction with a blank
+    // line, and iOS renders the break, so flattening must not collapse it.
+    test("preserves newlines in the dispatched body", async () => {
+      const adapter = new PlatformPushAdapter();
+      const payload = makePayload({
+        copy: {
+          title: "Question",
+          body: "Should I book the flight?\n\nReply here to answer.",
+        },
+      });
+
+      const result = await adapter.send(payload, makeDestination());
+
+      expect(result.success).toBe(true);
+      expect(fetchCalls[0]!.body.body).toBe(
+        "Should I book the flight?\n\nReply here to answer.",
+      );
+    });
+
+    test("leaves plain prose untouched", async () => {
+      const adapter = new PlatformPushAdapter();
+      const result = await adapter.send(makePayload(), makeDestination());
+
+      expect(result.success).toBe(true);
+      expect(fetchCalls[0]!.body.title).toBe("Reminder");
+      expect(fetchCalls[0]!.body.body).toBe("Check the oven!");
+    });
+
+    // The pass-through path copies a verbatim `requestedMessage` into both the
+    // title and the body, so media-only copy flattens both to nothing. Every
+    // empty-copy guard in the pipeline runs upstream of this adapter, and the
+    // platform's serializer rejects a blank title, so an unrecovered field
+    // costs the whole notification.
+    describe("copy that flattens to nothing", () => {
+      test("names the media instead of dispatching blank fields", async () => {
+        const adapter = new PlatformPushAdapter();
+        const embed = "![clip](vellum://workspace/a.mp4)";
+        const payload = makePayload({ copy: { title: embed, body: embed } });
+
+        const result = await adapter.send(payload, makeDestination());
+
+        expect(result.success).toBe(true);
+        expect(fetchCalls[0]!.body.title).toBe("Sent clip");
+        expect(fetchCalls[0]!.body.body).toBe("Sent clip");
+      });
+
+      test("counts several embeds", async () => {
+        const adapter = new PlatformPushAdapter();
+        const embeds =
+          "![one](vellum://workspace/1.mp4) ![two](https://e.com/2.png)";
+        const payload = makePayload({ copy: { title: embeds, body: embeds } });
+
+        await adapter.send(payload, makeDestination());
+
+        expect(fetchCalls[0]!.body.title).toBe("Sent 2 attachments");
+      });
+
+      // Nothing nameable is left, so the original beats a blank field: ugly
+      // copy still delivers, an empty title is a 400.
+      test("keeps the original when there is no media to name", async () => {
+        const adapter = new PlatformPushAdapter();
+        const payload = makePayload({ copy: { title: "###", body: "###" } });
+
+        await adapter.send(payload, makeDestination());
+
+        expect(fetchCalls[0]!.body.title).toBe("###");
+      });
+    });
+  });
+
   test("omits optional fields when absent from payload", async () => {
     const adapter = new PlatformPushAdapter();
     const payload: ChannelDeliveryPayload = {
