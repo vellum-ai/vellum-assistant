@@ -157,13 +157,17 @@ export interface BoundIdentity {
 export function boundIdentity(
   session: IdentityBoundSession,
 ): BoundIdentity | null {
-  if (session.expectedPhoneE164) {
+  // Presence, not truthiness. An empty string is a set-but-useless identity,
+  // and treating it as absent would report the session unbound, which the
+  // consume path reads as "no identity to check" and admits anyone holding
+  // the code. Kept as a value it can compare against and fail instead.
+  if (session.expectedPhoneE164 != null) {
     return { field: "phoneE164", value: session.expectedPhoneE164 };
   }
-  if (session.expectedExternalUserId) {
+  if (session.expectedExternalUserId != null) {
     return { field: "externalUserId", value: session.expectedExternalUserId };
   }
-  if (session.expectedChatId) {
+  if (session.expectedChatId != null) {
     return { field: "chatId", value: session.expectedChatId };
   }
   return null;
@@ -261,9 +265,12 @@ export type CreateInboundSessionIpcResponse = z.infer<
 /** Request for `verification_sessions_create_outbound`. */
 export const CreateOutboundSessionIpcParamsSchema = z.object({
   channel: z.string().min(1),
-  expectedExternalUserId: z.string().optional(),
-  expectedChatId: z.string().optional(),
-  expectedPhoneE164: z.string().optional(),
+  // An identity field is either absent or a real value. An empty string is
+  // neither, and a session bound to one can never be redeemed by anybody,
+  // so reject it at the boundary rather than mint a dead code.
+  expectedExternalUserId: z.string().min(1).optional(),
+  expectedChatId: z.string().min(1).optional(),
+  expectedPhoneE164: z.string().min(1).optional(),
   identityBindingStatus: IdentityBindingStatusSchema.optional(),
   destinationAddress: z.string().optional(),
   codeDigits: z.number().int().positive().optional(),

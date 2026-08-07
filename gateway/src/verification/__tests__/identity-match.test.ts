@@ -91,6 +91,15 @@ describe("checkIdentityMatch", () => {
     expect(checkIdentityMatch(s, "+15555550102", "+15555550102")).toBe(false);
   });
 
+  test("an empty identity admits nobody, rather than everybody", () => {
+    // Truthiness here would report the session unbound, and an unbound
+    // session admits any holder of the code. A set-but-empty identity is a
+    // broken session, and a broken session must fail closed.
+    const s = session({ expectedExternalUserId: "" });
+    expect(boundIdentity(s)).toEqual({ field: "externalUserId", value: "" });
+    expect(checkIdentityMatch(s, ALICE, ROOM)).toBe(false);
+  });
+
   test("an unbound session admits anyone", () => {
     // Inbound challenges rely on code secrecy alone, and a bootstrap session
     // is bound by the bootstrap path rather than here.

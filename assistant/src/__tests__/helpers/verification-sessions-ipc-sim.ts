@@ -505,50 +505,24 @@ function recordInvalidAttempt(key: string): void {
   rateLimits.set(key, entry);
 }
 
+/**
+ * Mirrors the gateway consume path. Both sides read the shared
+ * `boundIdentity`, so the sim cannot accept a code the real service would
+ * refuse. A session bound to no identity, or not yet finally bound
+ * (`pending_bootstrap`), bypasses the check as it does at the gateway.
+ */
 function checkIdentityMatch(
   session: VerificationSessionWire,
   actorExternalUserId: string,
   actorChatId: string,
 ): boolean {
-  const hasExpectedIdentity =
-    session.expectedExternalUserId != null ||
-    session.expectedChatId != null ||
-    session.expectedPhoneE164 != null;
-  // pending_bootstrap (and unbound inbound) sessions bypass the check.
-  if (!hasExpectedIdentity || session.identityBindingStatus !== "bound") {
+  const identity = boundIdentity(session);
+  if (identity === null || session.identityBindingStatus !== "bound") {
     return true;
   }
-
-  if (
-    session.expectedPhoneE164 != null &&
-    (actorExternalUserId === session.expectedPhoneE164 ||
-      actorExternalUserId === session.expectedExternalUserId)
-  ) {
-    return true;
-  }
-
-  // Shared-chatId caveat: when both expected fields are set, require the
-  // externalUserId match — chat IDs can be shared.
-  if (session.expectedChatId != null) {
-    if (session.expectedExternalUserId != null) {
-      if (actorExternalUserId === session.expectedExternalUserId) {
-        return true;
-      }
-    } else if (actorChatId === session.expectedChatId) {
-      return true;
-    }
-  }
-
-  if (
-    session.expectedPhoneE164 == null &&
-    session.expectedChatId == null &&
-    session.expectedExternalUserId != null &&
-    actorExternalUserId === session.expectedExternalUserId
-  ) {
-    return true;
-  }
-
-  return false;
+  return identity.field === "chatId"
+    ? actorChatId === identity.value
+    : actorExternalUserId === identity.value;
 }
 
 export function validateAndConsumeVerification(

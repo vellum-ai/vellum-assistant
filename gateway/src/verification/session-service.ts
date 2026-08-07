@@ -303,10 +303,9 @@ export async function validateAndConsumeSession(
     return CONSUME_FAILURE;
   }
 
-  // Expected-identity binding check (outbound sessions). checkIdentityMatch
-  // carries the daemon's rules verbatim: phone match, the shared-chatId
-  // caveat (externalUserId required when both are set), the
-  // externalUserId-only fallback, and the pending_bootstrap bypass.
+  // Expected-identity binding check (outbound sessions). The session is
+  // bound to one identity, and only that field decides who may redeem;
+  // sessions with no identity, or not yet finally bound, pass.
   if (!checkIdentityMatch(session, actorExternalUserId, actorChatId)) {
     await recordInvalidAttempt(channel, actorExternalUserId, actorChatId);
     return CONSUME_FAILURE;
