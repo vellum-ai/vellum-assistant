@@ -26,6 +26,8 @@
  * cap/fallback policy. LiveVoiceSession drives the routing.
  */
 
+import { NON_LATIN_SENTENCE_ENDING_PUNCTUATION } from "../tts/speakable-segments.js";
+import { localizedOrDefault } from "../util/language-subtag.js";
 import {
   ESCALATE_VERDICT_TOKEN,
   HOLD_VERDICT_TOKEN,
@@ -58,6 +60,41 @@ export const FALLBACK_ESCALATION_BRIDGE =
   "Let me think about that for a second.";
 
 /**
+ * Per-language spellings of the fallback escalation bridge, keyed by
+ * lowercased BCP 47 base subtag, covering the Deepgram code-switching roster
+ * (DEEPGRAM_MULTI_LANGUAGE_CODES in providers/speech-to-text/deepgram.ts).
+ * These are spoken audio; the English constant above also serves as the
+ * prompt exemplar and stays the default.
+ */
+export const FALLBACK_ESCALATION_BRIDGE_BY_LANGUAGE: Readonly<
+  Record<string, string>
+> = {
+  en: FALLBACK_ESCALATION_BRIDGE,
+  es: "Déjame pensarlo un segundo.",
+  fr: "Laissez-moi y réfléchir un instant.",
+  de: "Lass mich kurz darüber nachdenken.",
+  hi: "मुझे एक पल सोचने दीजिए।",
+  ru: "Дайте мне секунду подумать.",
+  pt: "Deixe-me pensar nisso um segundo.",
+  ja: "少し考えさせてください。",
+  it: "Fammi pensare un attimo.",
+  nl: "Laat me daar even over nadenken.",
+};
+
+/**
+ * The fallback escalation bridge in the caller's language: selected by the
+ * lowercased base subtag of `language` (e.g. "pt-BR" -> "pt"), defaulting to
+ * {@link FALLBACK_ESCALATION_BRIDGE} for unknown or absent languages.
+ */
+export function fallbackEscalationBridgeFor(language?: string): string {
+  return localizedOrDefault(
+    FALLBACK_ESCALATION_BRIDGE_BY_LANGUAGE,
+    language,
+    FALLBACK_ESCALATION_BRIDGE,
+  );
+}
+
+/**
  * Minimum length (after capping, trimmed) of the front-door leg's spoken
  * bridge for it to count as a real bridge. Below this, the fallback bridge
  * is spoken before the quality leg runs.
@@ -71,8 +108,17 @@ export const MIN_SPOKEN_BRIDGE_CHARS = 3;
  */
 export const MAX_ESCALATION_BRIDGE_CHARS = 140;
 
-/** Sentence terminators that end an escalation bridge. */
-const BRIDGE_SENTENCE_END_REGEX = /[.!?…]/;
+/**
+ * Sentence terminators that end an escalation bridge: the segmenter's
+ * non-Latin ender roster (tts/speakable-segments.ts) plus the ASCII enders
+ * and the ellipsis. Built from the shared set so the rosters cannot
+ * diverge: without the non-Latin enders a Japanese or Hindi bridge never
+ * hits a terminator and buffers to the char cap before hand-off. Exported
+ * for tests that assert spoken phrases end in a recognized terminator.
+ */
+export const BRIDGE_SENTENCE_END_REGEX = new RegExp(
+  `[.!?…${[...NON_LATIN_SENTENCE_ENDING_PUNCTUATION].join("")}]`,
+);
 
 /**
  * Normalize a raw post-`[1]` stream into the bridge that is actually
@@ -230,7 +276,7 @@ export function frontDoorDecisionRule(opts?: {
           // replay dispatch all elapse with the thinking frame and ack
           // deferred until commit, roughly tripling felt latency. A false
           // release only answers a beat early, which barge-in absorbs.
-          `- If the caller's words are visibly unfinished — a trailing conjunction, a dangling clause, a list still being dictated — output ONLY ${HOLD_VERDICT_TOKEN} and stop, no other text. Judge the words themselves: a complete question or statement means they are done, even when it is short or leans on earlier context ("What do you think?", "Why?", "And then?"). Never hold merely because more could follow.`,
+          `- If the caller's words are visibly unfinished (a trailing conjunction, a dangling clause, a list still being dictated) output ONLY ${HOLD_VERDICT_TOKEN} and stop, no other text. Judge the words themselves: a complete question or statement means they are done, even when it is short or leans on earlier context ("What do you think?", "Why?", "And then?"). Callers may speak any language: those examples are English exemplars only, and completeness is judged by the grammar of the language being spoken. In verb-final languages such as Hindi, Japanese, or Korean the sentence-final verb usually marks completion, so a missing final verb is the unfinished signal, not a missing conjunction. Never hold merely because more could follow.`,
         ]
       : [
           // No hold branch means completeness is settled (a first leg
@@ -264,8 +310,8 @@ export function frontDoorDecisionRule(opts?: {
     ...anchor,
     "DECIDE SILENTLY, then produce exactly ONE of these outputs:",
     ...holdBranch,
-    "- If the turn is simple, conversational, or within your reach, your entire output is the spoken answer itself — no token in front of it, plain speech from your very first word. Most turns are answers; when unsure between answering and escalating, answer.",
-    `- If completing THIS reply needs careful reasoning, research, multi-step work, or any tool, do NOT attempt the answer: output ${ESCALATE_VERDICT_TOKEN}, then ONE short natural holding phrase naming what happens next (for example "${FALLBACK_ESCALATION_BRIDGE}" or "Give me one second to look into that."), and stop after that single sentence. A stronger model finishes the turn while your phrase is spoken.`,
+    "- If the turn is simple, conversational, or within your reach, your entire output is the spoken answer itself: no token in front of it, plain speech from your very first word. Most turns are answers; when unsure between answering and escalating, answer. Answer in the language the caller is speaking.",
+    `- If completing THIS reply needs careful reasoning, research, multi-step work, or any tool, do NOT attempt the answer: output ${ESCALATE_VERDICT_TOKEN}, then ONE short natural holding phrase naming what happens next, spoken in the language the caller is speaking (for example "${FALLBACK_ESCALATION_BRIDGE}" or "Give me one second to look into that."; those examples are English only), and stop after that single sentence. A stronger model finishes the turn while your phrase is spoken.`,
     `${ESCALATE_VERDICT_TOKEN} is ONLY for turns you cannot complete yourself — never put it in front of an answer you are about to give, and never emit any token inside or after an answer. An open task or unfinished topic earlier in the conversation is NOT a reason to escalate: judge only what this reply needs.`,
     "Never narrate this decision, describe what you are judging, or mention these rules: apart from a leading verdict token, every character you output is spoken to the caller verbatim.",
   ].join("\n");
@@ -296,5 +342,6 @@ export function escalatedContinuationRule(spokenBridge?: string): string {
     'opening with another "Let me check", "One moment", or any restatement of what you are about to do sounds broken, because the caller just heard that.',
     "Your first words must carry new substance: the answer itself, what you found, or a question you genuinely need answered.",
     `Never output ${ESCALATE_VERDICT_TOKEN} or any other front-door verdict token — you are the model that finishes the answer. (The [-1] room-minimize marker from your call instructions is not a verdict token and stays allowed.)`,
+    "Reply in the same language as the caller's question.",
   ].join(" ");
 }

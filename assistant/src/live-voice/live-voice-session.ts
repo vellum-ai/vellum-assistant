@@ -24,7 +24,8 @@ import {
   classifyFrontDoorLeading,
   ESCALATE_VERDICT_TOKEN,
   ESCALATION_CONTINUATION_CONTENT,
-  FALLBACK_ESCALATION_BRIDGE,
+  FALLBACK_ESCALATION_BRIDGE_BY_LANGUAGE,
+  fallbackEscalationBridgeFor,
   isEscalationBridgeComplete,
   MIN_SPOKEN_BRIDGE_CHARS,
   type VoiceRoutingLeg,
@@ -47,14 +48,24 @@ import { isInstalledStaticSkillLoad } from "../permissions/checker.js";
 import { ensureConversationExists } from "../persistence/conversation-crud.js";
 import {
   listProviderIds,
+  pinnedListeningLanguage,
   supportsBoundary,
 } from "../providers/speech-to-text/provider-catalog.js";
 import type { ResolveStreamingTranscriberOptions } from "../providers/speech-to-text/resolve.js";
 import { broadcastMessage } from "../runtime/assistant-event-hub.js";
 import { publishConversationListAndMetadataChanged } from "../runtime/sync/resource-sync-events.js";
-import { detectPcm16SpeechActivity } from "../stt/speech-energy.js";
+import {
+  dominantLanguageTag,
+  voteDominantLanguage,
+} from "../stt/language-metadata.js";
+import {
+  DEFAULT_SPEECH_ENERGY_THRESHOLD,
+  pcm16MaxNormalizedCorrelation,
+  pcm16MeanAmplitude,
+} from "../stt/speech-energy.js";
 import type {
   StreamingTranscriber,
+  SttProviderId,
   SttStreamServerErrorEvent,
   SttStreamServerEvent,
 } from "../stt/types.js";
@@ -63,6 +74,7 @@ import { liveVoiceEndScreen } from "../telemetry/live-voice-funnel.js";
 import { getToolOwner } from "../tools/registry.js";
 import { extractSpeakableSegments } from "../tts/speakable-segments.js";
 import { createAbortReason } from "../util/abort-reasons.js";
+import { hasLocalizedEntry } from "../util/language-subtag.js";
 import { getLogger } from "../util/logger.js";
 import {
   activityLabelForTool,
@@ -103,7 +115,12 @@ import type {
   LiveVoiceTtsOptions,
   LiveVoiceTtsResult,
 } from "./live-voice-tts.js";
-import { pickProgressPhrase } from "./progress-phrases.js";
+import {
+  APPROVAL_PENDING_PHRASE_BY_LANGUAGE,
+  approvalPendingPhraseFor,
+  pickProgressPhrase,
+  PROGRESS_FALLBACK_PHRASES_BY_LANGUAGE,
+} from "./progress-phrases.js";
 import {
   type LiveVoiceClientAttachImageFrame,
   type LiveVoiceClientFrame,
@@ -120,6 +137,13 @@ type LiveVoiceSessionState =
   | "interrupted"
   | "failed"
   | "closed";
+
+type VadEnergyClassification = "speech" | "silence" | "echo";
+
+interface VadClassifiedChunk {
+  readonly chunk: Buffer;
+  readonly classification: VadEnergyClassification;
+}
 
 // Cap on audio buffered while a server-VAD utterance waits for its
 // transcriber (PCM16 mono seconds; oldest chunks are dropped past the cap).
@@ -148,6 +172,25 @@ const FINALIZE_GRACE_MS = 1_000;
 // our own TTS bleeding through imperfect echo cancellation from the caller,
 // and would report a user turn nobody took.
 const DEFAULT_BARGE_IN_MIN_SPEECH_MS = 250;
+// The playback echo gate learns microphone energy while assistant audio is
+// expected at the speaker. Input must rise above the learned level by this
+// margin to count as user speech.
+const DEFAULT_ECHO_BARGE_IN_MARGIN = 1.5;
+const DEFAULT_ECHO_EMA_HALF_LIFE_MS = 400;
+// Before learning a microphone power baseline, compare a short input window
+// with the PCM sent to the speaker. This keeps a user's first interruption
+// from becoming its own echo threshold.
+const ECHO_CORRELATION_PROBE_MS = 100;
+const ECHO_CORRELATION_MIN_MS = 50;
+const ECHO_CORRELATION_THRESHOLD = 0.65;
+const ECHO_REFERENCE_MAX_MS = 10_000;
+// Echo should reach the microphone near playback onset. If no signal arrives
+// within this much input audio, the gate returns to the fixed base threshold.
+// The same interval expires a learned reference after a real silent gap.
+const ECHO_ONSET_ELIGIBILITY_MS = 300;
+// Client buffering makes audible playback trail the server's send-time
+// estimate. Keep the echo window open briefly past that estimate.
+const DEFAULT_ECHO_DRAIN_SLACK_MS = 300;
 // Mirrors MediaTurnDetector's DEFAULT_SILENCE_THRESHOLD_MS: the session
 // tracks the effective trailing-silence threshold (the detector keeps its own
 // copy private) so the endpoint decider can report the pause length.
@@ -285,6 +328,17 @@ export interface LiveVoiceSessionOptions {
    */
   bargeInMinSpeechMs?: number;
   /**
+   * Multiplier over the learned playback echo level that input must exceed
+   * to count as speech while assistant audio is playing. Values at or below
+   * 1 disable adaptation for internal fixed-gate callers; workspace config
+   * requires a value greater than 1.
+   */
+  echoBargeInMargin?: number;
+  /** Half-life in milliseconds for the learned playback echo level. */
+  echoEmaHalfLifeMs?: number;
+  /** Extra time after the playback estimate during which echo is expected. */
+  echoDrainSlackMs?: number;
+  /**
    * Overrides the bounded wait for the shared transcriber's finalize
    * flush in persistent mode (test hook). Defaults to `FINALIZE_GRACE_MS`.
    */
@@ -406,6 +460,23 @@ interface UtteranceCycle {
   // text replays the boundary immediately — the hold was judged on stale
   // text, so waiting out the extension only adds silence.
   heldSpeculativeContent: string | null;
+  // Count per detected-language base subtag (see voteDominantLanguage)
+  // across this cycle's final transcript events. Resolves the turn's spoken
+  // language (see turnLanguageFor); empty when the provider tags nothing.
+  languageTally: Map<string, number>;
+  // Detected languages of the most recent partial that carried any, already
+  // normalized, dominance order. Speculative turns dispatch from partials
+  // before the first tagged final lands, so turnLanguageFor falls back to
+  // this when the final tally is still empty. Never cleared: the tally
+  // outranks it once finals arrive, and a revising partial without tags
+  // must not wipe an earlier partial's detection.
+  latestPartialLanguages: readonly string[] | null;
+  // The provider that actually transcribed this cycle, recorded when its
+  // transcriber is assigned and kept after teardown nulls `transcriber`.
+  // The resolver can silently dial managed vellum when a BYOK provider has
+  // no credential, so the language-pin gate in turnLanguageFor must follow
+  // this, not the configured provider.
+  dialedSttProvider: SttProviderId | null;
   turnId: string | null;
   userMessageId: string | null;
   userAudioChunks: Buffer[];
@@ -436,6 +507,11 @@ type UtteranceStartResult =
 // client in job-list order.
 interface TtsSegmentJob {
   readonly text: string;
+  // Per-segment language-hint override, preferred over the turn's language.
+  // Set on fixed phrases whose localized table lacks the turn's language:
+  // the English fallback text carries "en" so an enforcing provider never
+  // renders English words as ar/ko/ta. Undefined means the turn language.
+  readonly language: string | undefined;
   // The provider stream was started (the job holds an open-job slot).
   started: boolean;
   // Emission finished; the slot is free for the next queued segment.
@@ -520,6 +596,13 @@ interface ActiveAssistantTurn {
   token: symbol;
   turnId: string;
   utterance: UtteranceCycle;
+  // The caller's spoken language for this turn as a lowercase base subtag
+  // (see turnLanguageFor): the dominant STT-detected language, else a
+  // monolingual services.stt.language pin. Undefined when unknown, which
+  // disables every language-aware path (prompt note, TTS hint, localized
+  // fallbacks). Re-resolved when a speculative turn commits, since finals
+  // can land between dispatch and verdict.
+  language: string | undefined;
   abortController: AbortController;
   handle: VoiceTurnHandle | null;
   // When the turn launched, for narration's turnElapsedMs.
@@ -718,14 +801,8 @@ function createControlMarkerHoldback(
 // barge-in, the interruption merge note is appended to it (see
 // buildInterruptionMergeNote) so the model reconciles the interrupted request
 // with the new utterance.
-// Spoken once when a turn starts waiting on the user's decision. Fixed rather
-// than generated: this is a statement about the system's state, not about the
-// work, and it has to be true every time. Kept in the shape of the progress
-// phrases it displaces (short, neutral, no claim about tools).
-const APPROVAL_PENDING_PHRASE = "I need your okay for that one. Take a look.";
-
 const LIVE_VOICE_CONTROL_PROMPT_BASE =
-  "You are speaking in a local live voice session. Keep replies brief and conversational. Speech is the main channel: say the answer, and do not narrate a surface instead of answering. You can also put something on screen when it genuinely helps (a form, a list to pick from, a progress card for long work); the call overlay minimizes by itself once you finish speaking, so the user sees it without doing anything. Never tell the user you cannot show them something. ";
+  "You are speaking in a local live voice session. Keep replies brief and conversational. Speech is the main channel: say the answer, and do not narrate a surface instead of answering. You can also put something on screen when it genuinely helps (a form, a list to pick from, a progress card for long work); the call overlay minimizes by itself once you finish speaking, so the user sees it without doing anything. Never tell the user you cannot show them something. Reply in the language the caller is speaking; if they switch languages, switch with them. ";
 
 // Appended for the legs that can actually put something on screen: the main
 // leg and the escalated leg. The front-door (fast) leg never receives it, for
@@ -828,6 +905,9 @@ function buildVoiceControlPrompt(
     (leg.frontDoor === true
       ? ""
       : LIVE_VOICE_SCREEN_REVEAL_TEACHING + LIVE_VOICE_SETUP_FLOW_TEACHING);
+  if (turn.language !== undefined) {
+    prompt = `${prompt}\n\nThe caller has been speaking the language with code "${turn.language}" this turn. Reply in that language unless they clearly switch to another.`;
+  }
   if (turn.interruptedRequest) {
     prompt = `${prompt}\n\n${buildInterruptionMergeNote(turn.interruptedRequest)}`;
   }
@@ -879,6 +959,9 @@ function createUtteranceCycle(): UtteranceCycle {
     fluxBoundaryGeneration: null,
     fluxOpenTurnIndex: null,
     heldSpeculativeContent: null,
+    languageTally: new Map(),
+    latestPartialLanguages: null,
+    dialedSttProvider: null,
     turnId: null,
     userMessageId: null,
     userAudioChunks: [],
@@ -1045,9 +1128,29 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
   private failureCode: LiveVoiceProtocolErrorCode | null = null;
   // Non-null iff the start frame requested turnDetection "server_vad".
   private readonly turnDetector: MediaTurnDetector | null;
-  // Energy gate for server-VAD speech classification; undefined defers to
-  // DEFAULT_SPEECH_ENERGY_THRESHOLD.
+  // Base energy gate for server-VAD speech classification. During estimated
+  // playback, classifyVadEnergy raises this above the learned echo level.
   private readonly speechEnergyThreshold: number | undefined;
+  private readonly echoBargeInMargin: number;
+  private readonly echoEmaHalfLifeMs: number;
+  private readonly echoDrainSlackMs: number;
+  // Learned microphone energy attributable to assistant playback.
+  private echoEnergyEma = 0;
+  // Signal-bearing microphone audio held until it can be compared with the
+  // assistant PCM. A nonmatch is replayed through VAD in original order.
+  private echoProbeChunks: Buffer[] = [];
+  // Recent raw assistant PCM from the current playback burst.
+  private echoReferenceAudio = Buffer.alloc(0);
+  private echoWindowTotalAudioMs = 0;
+  // Consecutive sub-base input expires a reference that can no longer
+  // describe audible playback.
+  private echoSubBaseRunMs = 0;
+  // Once onset eligibility lapses, later user speech cannot seed a new echo
+  // reference in the same playback window.
+  private echoOnsetLapsed = false;
+  // A live speech run that predates playback belongs to the user and bypasses
+  // echo warm-up until that run genuinely resets.
+  private echoWindowGuardCarryover = false;
   // Mutable so a mid-session `update_config` frame can retune "interrupt
   // sensitivity" live (see applyConfigUpdate).
   private bargeInMinSpeechMs: number;
@@ -1244,6 +1347,12 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       context.startFrame.bargeInMinSpeechMs ??
       options.bargeInMinSpeechMs ??
       DEFAULT_BARGE_IN_MIN_SPEECH_MS;
+    this.echoBargeInMargin =
+      options.echoBargeInMargin ?? DEFAULT_ECHO_BARGE_IN_MARGIN;
+    this.echoEmaHalfLifeMs =
+      options.echoEmaHalfLifeMs ?? DEFAULT_ECHO_EMA_HALF_LIFE_MS;
+    this.echoDrainSlackMs =
+      options.echoDrainSlackMs ?? DEFAULT_ECHO_DRAIN_SLACK_MS;
     this.finalizeGraceMs = options.finalizeGraceMs ?? FINALIZE_GRACE_MS;
     this.frontDecider = options.frontDecider ?? null;
     this.frontModelConfig = LiveVoiceFrontModelConfigSchema.parse(
@@ -1467,6 +1576,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
         // Persistent re-arm: the shared stream is already open, so the cycle
         // goes straight to streaming with no resolve/start round-trip.
         utterance.transcriber = shared;
+        utterance.dialedSttProvider = shared.providerId;
         return await this.activateUtterance(utterance, replayTurnEnd);
       }
       // The shared stream is pinned to the old language, so retire it and
@@ -1518,6 +1628,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       }
 
       utterance.transcriber = transcriber;
+      utterance.dialedSttProvider = transcriber.providerId;
       // Reconcile the pre-dial guess with the provider that actually
       // answered. The resolver reads the provider from config, which cannot
       // change under a live session, so this normally confirms the guess; it
@@ -1752,14 +1863,28 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       return;
     }
 
-    const hasSpeech = detectPcm16SpeechActivity(
-      chunk,
-      this.speechEnergyThreshold,
-    );
+    for (const classified of this.classifyVadEnergy(chunk)) {
+      await this.handleClassifiedVadAudio(detector, classified);
+    }
+  }
+
+  private async handleClassifiedVadAudio(
+    detector: MediaTurnDetector,
+    classified: VadClassifiedChunk,
+  ): Promise<void> {
+    const { chunk, classification: energyClassification } = classified;
+    const hasSpeech = energyClassification === "speech";
     detector.onMediaChunk(hasSpeech);
-    this.trackBargeInGuard(hasSpeech, chunk);
+    this.trackBargeInGuard(energyClassification, chunk);
     if (hasSpeech) {
       this.localSpeechStopAtMs = Date.now();
+    }
+
+    // Playback echo is neither user audio nor useful pre-roll. Dropping it
+    // prevents the assistant's reply from reaching transcription as a ghost
+    // follow-up turn.
+    if (energyClassification === "echo") {
+      return;
     }
 
     // Idle mic: hold silent chunks in the bounded pre-roll instead of
@@ -1836,6 +1961,193 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       await this.routeVadAudio(utterance, preRollChunk);
     }
     await this.routeVadAudio(utterance, chunk);
+  }
+
+  /**
+   * Classify microphone energy while keeping assistant playback echo out of
+   * barge-in, turn detection, pre-roll, and transcription.
+   *
+   * A short onset probe must correlate with PCM sent to the speaker before its
+   * microphone power can seed the adaptive threshold. Nonmatching probe audio
+   * is replayed through VAD in original order, so a user who talks at playback
+   * onset is neither learned as echo nor lost. Once seeded, the EMA follows
+   * confirmed echo while speech above the learned margin remains frozen out.
+   */
+  private classifyVadEnergy(chunk: Buffer): VadClassifiedChunk[] {
+    const baseThreshold =
+      this.speechEnergyThreshold ?? DEFAULT_SPEECH_ENERGY_THRESHOLD;
+    const meanAmplitude = pcm16MeanAmplitude(chunk);
+    if (
+      this.echoBargeInMargin <= 1 ||
+      !this.isAssistantPlaybackEchoPossible()
+    ) {
+      this.resetEchoReference();
+      return [
+        this.classifyAtFixedThreshold(chunk, baseThreshold, meanAmplitude),
+      ];
+    }
+
+    if (this.echoWindowTotalAudioMs === 0) {
+      this.echoWindowGuardCarryover =
+        this.pendingBargeIn !== null && this.pendingBargeIn.speechMs > 0;
+    } else if (this.pendingBargeIn === null) {
+      this.echoWindowGuardCarryover = false;
+    }
+
+    const chunkMs = pcm16DurationMs(
+      chunk.byteLength,
+      this.context.startFrame.audio.sampleRate,
+    );
+    const onsetWasEligible =
+      !this.echoOnsetLapsed &&
+      this.echoWindowTotalAudioMs < ECHO_ONSET_ELIGIBILITY_MS;
+    this.echoWindowTotalAudioMs += chunkMs;
+
+    if (this.echoProbeChunks.length > 0) {
+      this.echoProbeChunks.push(Buffer.from(chunk));
+      return this.resolveEchoProbe(baseThreshold);
+    }
+
+    if (meanAmplitude <= baseThreshold) {
+      this.echoSubBaseRunMs += chunkMs;
+      if (this.echoSubBaseRunMs >= ECHO_ONSET_ELIGIBILITY_MS) {
+        this.echoEnergyEma = 0;
+        this.echoOnsetLapsed = true;
+      }
+      return [{ chunk, classification: "silence" }];
+    }
+
+    this.echoSubBaseRunMs = 0;
+    if (
+      this.echoEnergyEma === 0 &&
+      onsetWasEligible &&
+      !this.echoWindowGuardCarryover
+    ) {
+      this.echoProbeChunks.push(Buffer.from(chunk));
+      return this.resolveEchoProbe(baseThreshold);
+    }
+
+    if (this.echoEnergyEma === 0) {
+      this.echoOnsetLapsed = true;
+      return [{ chunk, classification: "speech" }];
+    }
+
+    const speechThreshold = Math.max(
+      baseThreshold,
+      this.echoBargeInMargin * this.echoEnergyEma,
+    );
+    if (meanAmplitude > speechThreshold) {
+      const guardHasSpeech =
+        this.pendingBargeIn !== null && this.pendingBargeIn.speechMs > 0;
+      if (!guardHasSpeech && this.echoMatchesAssistant(chunk)) {
+        this.updateEchoEnergy(meanAmplitude, chunkMs);
+        return [{ chunk, classification: "echo" }];
+      }
+      return [{ chunk, classification: "speech" }];
+    }
+
+    this.updateEchoEnergy(meanAmplitude, chunkMs);
+    return [{ chunk, classification: "echo" }];
+  }
+
+  private resolveEchoProbe(baseThreshold: number): VadClassifiedChunk[] {
+    const probe = Buffer.concat(this.echoProbeChunks);
+    const probeAudioMs = pcm16DurationMs(
+      probe.byteLength,
+      this.context.startFrame.audio.sampleRate,
+    );
+    if (
+      probeAudioMs >= ECHO_CORRELATION_MIN_MS &&
+      this.echoMatchesAssistant(probe)
+    ) {
+      this.echoEnergyEma = Math.max(baseThreshold, pcm16MeanAmplitude(probe));
+      const chunks = this.echoProbeChunks.splice(0);
+      return chunks.map((chunk) => ({ chunk, classification: "echo" }));
+    }
+    if (probeAudioMs < ECHO_CORRELATION_PROBE_MS) {
+      return [];
+    }
+
+    this.echoOnsetLapsed = true;
+    const chunks = this.echoProbeChunks.splice(0);
+    return chunks.map((chunk) =>
+      this.classifyAtFixedThreshold(chunk, baseThreshold),
+    );
+  }
+
+  private echoMatchesAssistant(chunk: Buffer): boolean {
+    const sampleRate = this.context.startFrame.audio.sampleRate;
+    const minimumBytes = Math.ceil(
+      (sampleRate * ECHO_CORRELATION_MIN_MS * 2) / 1_000,
+    );
+    if (
+      chunk.byteLength < minimumBytes ||
+      this.echoReferenceAudio.byteLength < minimumBytes
+    ) {
+      return false;
+    }
+    const probeByteLength = Math.min(
+      chunk.byteLength,
+      Math.ceil((sampleRate * ECHO_CORRELATION_PROBE_MS * 2) / 1_000),
+    );
+    return (
+      pcm16MaxNormalizedCorrelation(
+        chunk.subarray(0, probeByteLength),
+        this.echoReferenceAudio,
+      ) >= ECHO_CORRELATION_THRESHOLD
+    );
+  }
+
+  private updateEchoEnergy(meanAmplitude: number, chunkMs: number): void {
+    const alpha = 1 - 0.5 ** (chunkMs / this.echoEmaHalfLifeMs);
+    this.echoEnergyEma =
+      alpha * meanAmplitude + (1 - alpha) * this.echoEnergyEma;
+  }
+
+  private classifyAtFixedThreshold(
+    chunk: Buffer,
+    baseThreshold: number,
+    meanAmplitude = pcm16MeanAmplitude(chunk),
+  ): VadClassifiedChunk {
+    return {
+      chunk,
+      classification: meanAmplitude > baseThreshold ? "speech" : "silence",
+    };
+  }
+
+  private isAssistantPlaybackEchoPossible(): boolean {
+    return (
+      Date.now() < this.assistantPlaybackTailUntilMs + this.echoDrainSlackMs
+    );
+  }
+
+  private resetEchoReference(): void {
+    this.echoEnergyEma = 0;
+    this.echoProbeChunks = [];
+    this.echoReferenceAudio = Buffer.alloc(0);
+    this.echoWindowTotalAudioMs = 0;
+    this.echoSubBaseRunMs = 0;
+    this.echoOnsetLapsed = false;
+    this.echoWindowGuardCarryover = false;
+  }
+
+  private appendEchoReference(chunk: LiveVoiceTtsAudioChunk): void {
+    if (
+      chunk.contentType.split(";", 1)[0]?.trim().toLowerCase() !==
+        "audio/pcm" ||
+      chunk.sampleRate !== this.context.startFrame.audio.sampleRate
+    ) {
+      return;
+    }
+    const audio = Buffer.from(chunk.dataBase64, "base64");
+    const maxBytes = Math.ceil(
+      (chunk.sampleRate * ECHO_REFERENCE_MAX_MS * 2) / 1_000,
+    );
+    const combined = Buffer.concat([this.echoReferenceAudio, audio]);
+    this.echoReferenceAudio =
+      combined.byteLength > maxBytes
+        ? combined.subarray(combined.byteLength - maxBytes)
+        : combined;
   }
 
   private async routeVadAudio(
@@ -1988,7 +2300,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     // The client can still be draining audible playback after tts_done
     // (the turn is already cleared server-side) — that tail deserves the
     // same guard, or a noise blip clips the reply's last words.
-    const drainingPlayback = Date.now() < this.assistantPlaybackTailUntilMs;
+    const drainingPlayback = this.isAssistantPlaybackEchoPossible();
 
     if ((bargeableTurn || drainingPlayback) && this.bargeInMinSpeechMs > 0) {
       // Onset audio keeps flowing into the cycle/pre-roll while the guard
@@ -2010,13 +2322,14 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     }
   }
 
-  // Advances the sustained-speech barge-in guard by one server-VAD chunk:
-  // above-gate speech accumulates toward bargeInMinSpeechMs while brief
-  // sub-threshold gaps are tolerated (a single continuous silence longer than
-  // BARGE_IN_GAP_TOLERANCE_MS, or cumulative tolerated silence past the
-  // duty-cycle ceiling, zeroes the run), and once met the deferred
-  // speech_started + barge-in fire.
-  private trackBargeInGuard(hasSpeech: boolean, chunk: Buffer): void {
+  // Advance the sustained-speech barge-in guard by one server-VAD chunk.
+  // Speech accumulates toward bargeInMinSpeechMs, short true-silence gaps are
+  // tolerated, and classified playback echo resets the run immediately.
+  // Longer or mostly silent runs reset through the existing gap limits.
+  private trackBargeInGuard(
+    classification: VadEnergyClassification,
+    chunk: Buffer,
+  ): void {
     const guard = this.pendingBargeIn;
     if (!guard) {
       return;
@@ -2025,7 +2338,11 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       chunk.byteLength,
       this.context.startFrame.audio.sampleRate,
     );
-    if (!hasSpeech) {
+    if (classification === "echo") {
+      this.resetBargeInGuardRun();
+      return;
+    }
+    if (classification === "silence") {
       guard.silenceMs += chunkMs;
       guard.toleratedSilenceMs += chunkMs;
       // Strictly greater on the per-gap check: a gap of exactly
@@ -2039,9 +2356,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
         guard.toleratedSilenceMs >
           this.bargeInMinSpeechMs * BARGE_IN_MAX_TOLERATED_SILENCE_RATIO
       ) {
-        guard.speechMs = 0;
-        guard.silenceMs = 0;
-        guard.toleratedSilenceMs = 0;
+        this.resetBargeInGuardRun();
       }
       return;
     }
@@ -2056,6 +2371,21 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     const { turn } = guard;
     if (turn && turn === this.activeAssistantTurn && !turn.finalized) {
       this.bargeIn(turn);
+    }
+  }
+
+  private resetBargeInGuardRun(): void {
+    const guard = this.pendingBargeIn;
+    if (!guard) {
+      return;
+    }
+    guard.speechMs = 0;
+    guard.silenceMs = 0;
+    guard.toleratedSilenceMs = 0;
+    if (this.echoWindowGuardCarryover) {
+      this.echoWindowGuardCarryover = false;
+      this.echoEnergyEma = 0;
+      this.echoProbeChunks = [];
     }
   }
 
@@ -2646,8 +2976,13 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     // Spoken, because opening the room is only a cue for someone looking at
     // the screen, and the case this exists for is a phone the user has put
     // down. One line, not narration: the turn is not working, it is waiting,
-    // and it says which.
-    this.enqueueFillerPhrase(turn, APPROVAL_PENDING_PHRASE);
+    // and it says which, in the turn's spoken language, like every other
+    // filler phrase.
+    this.enqueueFillerPhrase(
+      turn,
+      approvalPendingPhraseFor(turn.language),
+      this.fixedPhraseLanguage(turn, APPROVAL_PENDING_PHRASE_BY_LANGUAGE),
+    );
   }
 
   /** Clear the wait once a decision lands, so the turn narrates normally again. */
@@ -3195,6 +3530,13 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     // are skipped; the thinking frame and timers still apply.
     const alreadyReleased = utterance.released;
     turn.speculativePending = false;
+    // Finals can land between the speculative dispatch and this verdict.
+    // Fill the language only when dispatch had none: the model request was
+    // already issued with the dispatch language, so overwriting here would
+    // hint TTS (and any voice override) in a different language than the
+    // text it speaks. The tally still carries the corrected detection into
+    // the next turn.
+    turn.language ??= this.turnLanguageFor(utterance);
     if (turn.verdictDeadlineTimer !== null) {
       clearTimeout(turn.verdictDeadlineTimer);
       turn.verdictDeadlineTimer = null;
@@ -3536,11 +3878,16 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     switch (event.type) {
       case "partial":
         utterance.latestPartialText = event.text;
+        this.capturePartialLanguages(utterance, event.languages);
         this.markFirstPartial(utterance);
         await this.sendFrame({ type: "stt_partial", text: event.text });
         return;
       case "final":
-        await this.recordFinalTranscript(utterance, event.text);
+        await this.recordFinalTranscript(
+          utterance,
+          event.text,
+          event.languages,
+        );
         return;
       case "finalized":
         // Per-cycle transcribers are torn down with stop(); the finalize
@@ -3631,6 +3978,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
           return;
         }
         target.latestPartialText = event.text;
+        this.capturePartialLanguages(target, event.languages);
         this.markFirstPartial(target);
         await this.sendFrame({ type: "stt_partial", text: event.text });
         return;
@@ -3646,7 +3994,11 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
           // newer cycle.
           const owner = this.finalizeQueue[0];
           if (owner && !owner.assistantTurnStarted && !owner.completed) {
-            await this.recordFinalTranscript(owner, event.text);
+            await this.recordFinalTranscript(
+              owner,
+              event.text,
+              event.languages,
+            );
           } else {
             log.warn(
               "Dropping a late finalize flush segment: its assistant turn already dispatched",
@@ -3663,7 +4015,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
           );
           return;
         }
-        await this.recordFinalTranscript(target, event.text);
+        await this.recordFinalTranscript(target, event.text, event.languages);
         return;
       }
       case "finalized": {
@@ -3764,10 +4116,16 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
   private async recordFinalTranscript(
     utterance: UtteranceCycle,
     text: string,
+    languages?: readonly string[],
   ): Promise<void> {
     const transcript = text.trim();
     if (transcript.length > 0) {
       utterance.finalTranscriptSegments.push(transcript);
+      // Tally only finals that committed transcript: empty silence frames
+      // can still carry container-level language tags describing no emitted
+      // words, and counting those would let silence outvote real speech
+      // (same choice as the adapter's boundary-final aggregation).
+      voteDominantLanguage(utterance.languageTally, languages);
     }
     // The final commits (and supersedes) whatever partial was trailing it.
     utterance.latestPartialText = null;
@@ -3804,6 +4162,59 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       }
     }
     await this.startAssistantTurnIfReady();
+  }
+
+  // Record a partial event's detected languages so speculative dispatch
+  // has a detection before the first tagged final. The event contract
+  // (stt/types.ts) guarantees the tags arrive as normalized base subtags
+  // in dominance order, so they are stored as-is. Partials revise each
+  // other, so this overwrites rather than tallies, and a tag-less partial
+  // keeps the previous value.
+  private capturePartialLanguages(
+    utterance: UtteranceCycle,
+    languages: readonly string[] | undefined,
+  ): void {
+    if (!languages || languages.length === 0) {
+      return;
+    }
+    utterance.latestPartialLanguages = languages;
+  }
+
+  /**
+   * The caller's spoken language for a turn on this utterance, as a
+   * lowercase base subtag: the dominant tallied STT-detected language
+   * (most final-event counts, ties by first appearance), else the latest
+   * tagged partial's dominant language (speculative turns dispatch from
+   * partials), else a monolingual `services.stt.language` pin (a pinned
+   * language IS the spoken language), else undefined ("multi" with no tags,
+   * non-tagging providers, silence).
+   */
+  private turnLanguageFor(utterance: UtteranceCycle): string | undefined {
+    const dominant = dominantLanguageTag(utterance.languageTally);
+    if (dominant !== undefined) {
+      return dominant;
+    }
+    // No tagged final yet (speculative turns dispatch from partials): the
+    // latest tagged partial is the best detection available and outranks a
+    // static pin for the same reason the tally does.
+    const partialDominant = utterance.latestPartialLanguages?.[0];
+    if (partialDominant !== undefined) {
+      return partialDominant;
+    }
+    // A persisted pin only counts when the provider that actually
+    // transcribed honors manual language selection (the shared
+    // pinnedListeningLanguage gate). The DIALED transcriber's providerId
+    // is authoritative, because the resolver silently falls back to
+    // managed vellum (which honors the pin) when a BYOK provider has no
+    // credential; the configured provider is only the last resort when no
+    // transcriber reference survives.
+    const { language: configured, provider: sttProvider } =
+      getConfig().services.stt;
+    const dialedProvider =
+      utterance.dialedSttProvider ??
+      this.sharedTranscriber?.providerId ??
+      (sttProvider as SttProviderId);
+    return pinnedListeningLanguage(dialedProvider, configured);
   }
 
   // Providers emit `error` mid-stream and may keep streaming; `closed` /
@@ -4063,6 +4474,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       token,
       turnId,
       utterance,
+      language: this.turnLanguageFor(utterance),
       abortController,
       handle: null,
       launchedAtMs: Date.now(),
@@ -4715,7 +5127,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     // deleted row for a bridge the model never produced).
     const usesFallbackBridge = cappedBridge.length < MIN_SPOKEN_BRIDGE_CHARS;
     const spokenBridge = usesFallbackBridge
-      ? FALLBACK_ESCALATION_BRIDGE
+      ? fallbackEscalationBridgeFor(activeTurn.language)
       : cappedBridge;
     if (!usesFallbackBridge) {
       this.markFirstAssistantDelta(activeTurn.utterance, activeTurn.turnId);
@@ -4724,12 +5136,25 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
         { type: "assistant_text_delta", text: spokenBridge },
         () => !activeTurn.abortController.signal.aborted && !this.isClosed,
       );
+      this.bufferAssistantTextForTts(activeTurn.token, `${spokenBridge} `);
+      // Force-flush now: on the TTS path an unpunctuated bridge would
+      // otherwise sit buffered until a sentence boundary and leave the
+      // caller in silence during the escalated model's call.
+      this.flushTtsBuffer(activeTurn.token, true);
+    } else {
+      // The canned bridge is a fixed localized-table phrase, enqueued
+      // directly (it is already one complete sentence) so the segment can
+      // carry the "en" override when the table lacks the turn's language.
+      const speakable = sanitizeForTts(spokenBridge).trim();
+      if (speakable.length > 0) {
+        this.enqueueTtsSegment(activeTurn.token, speakable, {
+          language: this.fixedPhraseLanguage(
+            activeTurn,
+            FALLBACK_ESCALATION_BRIDGE_BY_LANGUAGE,
+          ),
+        });
+      }
     }
-    this.bufferAssistantTextForTts(activeTurn.token, `${spokenBridge} `);
-    // Force-flush now: on the TTS path an unpunctuated bridge would otherwise
-    // sit buffered until a sentence boundary and leave the caller in silence
-    // during the escalated model's call.
-    this.flushTtsBuffer(activeTurn.token, true);
 
     // No overrideProfile: the escalated leg runs on the call-site default —
     // the exact profile an un-routed voice turn would use (see
@@ -5093,6 +5518,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
           : null,
         turnElapsedMs: now - turn.launchedAtMs,
         updateIndex: progress.updatesSpoken + 1,
+        ...(turn.language !== undefined ? { languageHint: turn.language } : {}),
       };
       const generated = await frontDecider
         .generateProgressText(input, turn.abortController.signal)
@@ -5121,13 +5547,20 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
         return;
       }
       let raw = generated;
+      // Decider text is generated in the turn's language; only the static
+      // fallback comes from a localized table and may need the "en" override.
+      let fillerLanguage: string | undefined;
       if (raw === null) {
         if (trigger !== "idle") {
           return;
         }
-        raw = pickProgressPhrase(this.progressPhraseCounter++);
+        raw = pickProgressPhrase(this.progressPhraseCounter++, turn.language);
+        fillerLanguage = this.fixedPhraseLanguage(
+          turn,
+          PROGRESS_FALLBACK_PHRASES_BY_LANGUAGE,
+        );
       }
-      if (!this.enqueueFillerPhrase(turn, raw)) {
+      if (!this.enqueueFillerPhrase(turn, raw, fillerLanguage)) {
         return;
       }
       progress.opsSinceNarration = 0;
@@ -5187,6 +5620,9 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
           {
             transcriptSoFar: transcript,
             toolName,
+            ...(activeTurn.language !== undefined
+              ? { languageHint: activeTurn.language }
+              : {}),
           },
           activeTurn.abortController.signal,
         )
@@ -5224,18 +5660,40 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
   // Sanitize and enqueue one filler sentence (spoken ack or progress
   // narration) on the turn's ordered TTS queue — the shared tail of every
   // filler path. Returns whether a phrase actually enqueued; per-kind metric
-  // marks and bookkeeping are the caller's.
-  private enqueueFillerPhrase(turn: ActiveAssistantTurn, raw: string): boolean {
+  // marks and bookkeeping are the caller's. `language` is a per-segment
+  // hint override (see fixedPhraseLanguage); omit it for generated text,
+  // which is already in the turn's language.
+  private enqueueFillerPhrase(
+    turn: ActiveAssistantTurn,
+    raw: string,
+    language?: string,
+  ): boolean {
     const phrase = sanitizeForTts(raw).trim();
     if (phrase.length === 0) {
       return false;
     }
     this.enqueueTtsSegment(turn.token, phrase, {
       countsAsFirstSegment: false,
+      ...(language !== undefined ? { language } : {}),
     });
     // A spoken filler holds the floor, so narration's minGapMs spaces from it.
     turn.progress.lastFloorHolderAtMs = Date.now();
     return true;
+  }
+
+  // The TTS hint override for a fixed phrase picked from a localized table:
+  // "en" when the turn has a language the table does not cover (the picker
+  // fell back to English text, which must not be synthesized under an
+  // ar/ko/ta hint), undefined otherwise (the segment rides the turn's
+  // language, or no hint at all when the language is unknown).
+  private fixedPhraseLanguage(
+    turn: ActiveAssistantTurn,
+    table: Readonly<Record<string, unknown>>,
+  ): string | undefined {
+    return turn.language !== undefined &&
+      !hasLocalizedEntry(table, turn.language)
+      ? "en"
+      : undefined;
   }
 
   private bufferAssistantTextForTts(token: symbol, text: string): void {
@@ -5358,7 +5816,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
   private enqueueTtsSegment(
     token: symbol,
     segment: string,
-    options: { countsAsFirstSegment?: boolean } = {},
+    options: { countsAsFirstSegment?: boolean; language?: string } = {},
   ): void {
     const activeTurn = this.activeAssistantTurn;
     if (activeTurn?.token !== token || !this.streamTtsAudio) {
@@ -5372,6 +5830,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     }
     const job: TtsSegmentJob = {
       text: segment,
+      language: options.language,
       started: false,
       settled: false,
       emitting: false,
@@ -5411,10 +5870,14 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
         return;
       }
       job.started = true;
+      // The segment's own language override (fixed English fallback text)
+      // wins over the turn's language.
+      const language = job.language ?? activeTurn.language;
       let synthesis: Promise<void>;
       try {
         synthesis = streamTtsAudio({
           text: job.text,
+          ...(language !== undefined ? { language } : {}),
           signal: activeTurn.abortController.signal,
           outputFormat: "pcm",
           sampleRate: this.context.startFrame.audio.sampleRate,
@@ -5554,6 +6017,10 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
         chunk.sampleRate,
       );
       const now = Date.now();
+      if (!this.isAssistantPlaybackEchoPossible()) {
+        this.resetEchoReference();
+      }
+      this.appendEchoReference(chunk);
       this.assistantPlaybackTailUntilMs =
         Math.max(now, this.assistantPlaybackTailUntilMs) + chunkMs;
       const turnAfterSend = this.activeAssistantTurn;
@@ -6090,6 +6557,11 @@ export function createLiveVoiceSession(
       options.speechEnergyThreshold ?? vadConfig?.speechEnergyThreshold,
     bargeInMinSpeechMs:
       options.bargeInMinSpeechMs ?? vadConfig?.bargeInMinSpeechMs,
+    echoBargeInMargin:
+      options.echoBargeInMargin ?? vadConfig?.echoBargeInMargin,
+    echoEmaHalfLifeMs:
+      options.echoEmaHalfLifeMs ?? vadConfig?.echoEmaHalfLifeMs,
+    echoDrainSlackMs: options.echoDrainSlackMs ?? vadConfig?.echoDrainSlackMs,
     frontModelConfig,
     // Absent config leaves the schema defaults, which keep Flux turn
     // detection off.

@@ -2,7 +2,8 @@
   "assistantChannelsList": {
     "drawerTitle": "Canales",
     "disconnectTitle": "¿Desconectar {channel}?",
-    "disconnectConfirm": "Desconectar"
+    "disconnectConfirm": "Desconectar",
+    "confirmFallback": "Confirmar"
   },
   "channelAdapterList": {
     "pluginChannelAria": "{channel}, de un plugin"
@@ -36,6 +37,7 @@
     "approvedAddresses": "{channel} recibe mensajes en estas direcciones:",
     "pendingAddresses": "{channel} pide recibir mensajes en estas direcciones. Hasta que lo apruebes, se rechazan las entregas:",
     "ungovernedAddresses": "Estas direcciones están abiertas decidas lo que decidas, porque solo Vellum puede alcanzarlas:",
+    "deliversInbound": "Lo que llegue aquí se convierte en un mensaje para tu asistente, no solo en una llamada de vuelta que {channel} recibe. Quién consigue pasar lo sigue decidiendo a quién permites escribirle.",
     "revokeIngress": "Revocar la entrada",
     "approveIngress": "Aprobar la entrada"
   },
@@ -80,9 +82,9 @@
     "filterGroupAria": "Filtrar canales por tipo",
     "noMatches": "Ningún canal coincide.",
     "accessAria": "Acceso del asistente en {channel}",
-    "filterAll": "Todos",
-    "filterPublic": "Públicos",
-    "filterPrivate": "Privados"
+    "filterAll": "{count, plural, one {Todos (#)} other {Todos (#)}}",
+    "filterPublic": "{count, plural, one {Público (#)} other {Públicos (#)}}",
+    "filterPrivate": "{count, plural, one {Privado (#)} other {Privados (#)}}"
   },
   "twilioCredentialEntry": {
     "accountSid": "SID de la cuenta",
@@ -90,5 +92,21 @@
     "authTokenPlaceholder": "Token de autenticación de Twilio",
     "saving": "Guardando…",
     "save": "Guardar"
+  },
+  "channelMeta": {
+    "slack": {
+      "label": "Slack",
+      "disconnectMessage": "Esto borra los tokens de bot y de aplicación de Slack guardados para este asistente. Puedes volver a conectarlo más tarde."
+    },
+    "telegram": {
+      "label": "Telegram",
+      "disconnectMessage": "Esto borra el token de bot de Telegram guardado para este asistente. Puedes volver a conectarlo más tarde.",
+      "disconnectedPitch": "Conecta un bot de Telegram para que {assistant} pueda enviar y recibir mensajes en Telegram."
+    },
+    "phone": {
+      "label": "Llamadas telefónicas",
+      "disconnectMessage": "Esto borra las credenciales de Twilio guardadas para este asistente. Puedes volver a conectarlo más tarde.",
+      "disconnectedPitch": "Conecta tu cuenta de Twilio para que {assistant} pueda hacer y contestar llamadas."
+    }
   }
 }

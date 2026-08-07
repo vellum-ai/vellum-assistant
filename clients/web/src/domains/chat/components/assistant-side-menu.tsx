@@ -219,6 +219,8 @@ export function AssistantSideMenu({
   });
 
   const isCollapsedRail = collapsed && variant === "rail";
+  /* Mirrors `SideMenu`'s own condition for mounting the resize handle. */
+  const isResizable = variant === "rail" && !collapsed && onWidthChange != null;
 
   /* Gated on an empty list, not on the loading flag alone: a refetch over a
      populated sidebar keeps drawing the rows it already has rather than
@@ -416,9 +418,22 @@ export function AssistantSideMenu({
         variant={variant}
         width={width}
         onWidthChange={onWidthChange}
-        /* The cards carry the surface now, so the panel behind them is the
-           page background rather than a second one. */
-        className="relative h-full border-0 bg-transparent"
+        /* The cards and pills carry the surface, so the panel behind them is
+           the page background and the rail carries no chrome of its own: no
+           border, no fill, and no padding, which leaves the page layout's
+           own padding as the drawer's only inset and lets the cards span the
+           rail's full width. The overlay keeps the component's padding - it
+           is a full-bleed sheet whose inset is all that keeps content off the
+           screen edges.
+
+           The resize handle sits in the rail's last 6px, and the cards are
+           their own drag handles for section reordering, so the scrollport
+           holds that strip clear: overlapped, a grab on a card's right edge
+           resizes the rail instead of picking the section up. */
+        className={cn(
+          "relative h-full border-0 bg-transparent",
+          variant === "rail" && (isResizable ? "p-0 pr-[6px]" : "p-0"),
+        )}
       >
         <SideMenu.Header>
           {variant === "overlay" ? (
@@ -451,19 +466,11 @@ export function AssistantSideMenu({
                  inline padding below is applied. The native-mobile pt-14
                  clears the 40px floating icon row plus a 16px gap. */
                 `-mx-4 ${SIDEBAR_STACK_GAP} px-4 pb-24 native-mobile:pt-14 ${NATIVE_MOBILE_LIST_TOP_FADE}`
-              : /* The collapsed rail tucks the group icons up under the
-                 cluster separator (~12px to the first icon tile) so they
-                 read as the next section, not a distant island. */
-                isCollapsedRail
-                ? `${SIDEBAR_STACK_GAP} pt-2`
-                : /* The scrollport spans the full rail so its scrollbar rides
-                     the outer edge instead of cutting through the content, and
-                     takes over the horizontal inset the root would have given
-                     it, so rows sit exactly where they did. The top inset is
-                     the same stack gap: the header no longer closes with a
-                     rule, so without it the first card butts against the last
-                     pill while every other pair is spaced. */
-                  `-mx-4 ${SIDEBAR_STACK_GAP} px-4 pt-2`
+              : /* The top inset is the same stack gap: the header closes
+                   with no rule, so without it the first card (or the
+                   collapsed rail's first group icon) butts against the
+                   last pill while every other pair is spaced. */
+                `${SIDEBAR_STACK_GAP} pt-2`
           }
           style={
             variant === "overlay" && overlayBottomColumnHeight > 0

@@ -409,7 +409,7 @@
         }
       },
       "compatibility": "Any environment running Claude Code headlessly",
-      "updatedAt": "2026-08-07T12:58:27.000Z"
+      "updatedAt": "2026-08-07T13:48:02.000Z"
     },
     {
       "id": "inbox-cleanup",
@@ -759,7 +759,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-08-07T12:35:44.000Z"
+      "updatedAt": "2026-08-07T17:52:56.000Z"
     },
     {
       "id": "public-ingress",
@@ -1241,7 +1241,7 @@
         }
       },
       "compatibility": "Sandbox mode works without any host dependencies. Host mode requires tmux installed on the user's machine. Works on macOS and Linux.",
-      "updatedAt": "2026-08-07T12:58:27.000Z"
+      "updatedAt": "2026-08-07T13:48:02.000Z"
     },
     {
       "id": "vellum-workspace-theme",

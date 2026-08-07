@@ -119,7 +119,7 @@ export function ProviderSignupPage() {
     try {
       await completeSignup();
     } catch {
-      setError("Something went wrong. Please try again.");
+      setError(t("authErrors.genericFailure"));
     } finally {
       setIsSubmitting(false);
     }
@@ -138,7 +138,7 @@ export function ProviderSignupPage() {
       // `account` domain may not import `onboarding` directly). Deferred.
       await completeSignup();
     } catch {
-      setError("Something went wrong. Please try again.");
+      setError(t("authErrors.genericFailure"));
     } finally {
       setIsSubmitting(false);
     }
@@ -248,8 +248,8 @@ export function ProviderSignupPage() {
       <AccountForm
         onSubmit={onSubmit}
         error={error}
-        submitLabel="Complete signup"
-        submittingLabel="Completing..."
+        submitLabel={t("providerSignupPage.completeSignup")}
+        submittingLabel={t("providerSignupPage.completingSignup")}
         isSubmitting={isSubmitting}
         footer={
           <Link

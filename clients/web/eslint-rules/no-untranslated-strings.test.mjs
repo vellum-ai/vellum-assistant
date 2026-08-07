@@ -76,6 +76,16 @@ ruleTester.run("no-untranslated-strings", noUntranslatedStrings, {
       code: `const C = () => <span>{count}{user.name}</span>;`,
     },
     {
+      name: "SVG geometry is not copy",
+      filename: COMPONENT,
+      code: `const C = () => <path d="M17 28.5L24.5 36L39 21" fill="none" />;`,
+    },
+    {
+      name: "enum-ish prop values are not copy",
+      filename: COMPONENT,
+      code: `const C = () => <Button variant="primary" tone="error" size="compact" />;`,
+    },
+    {
       name: "toast copy read through t()",
       filename: COMPONENT,
       code: `toast.error(t("save.failed"));`,
@@ -143,6 +153,13 @@ ruleTester.run("no-untranslated-strings", noUntranslatedStrings, {
       name: "copy used as a fallback",
       filename: COMPONENT,
       code: `const C = () => <span title={doc.title || "Untitled"} />;`,
+      errors: [{ messageId: "prop" }],
+    },
+    {
+      name: "copy on a prop outside any allowlist",
+      filename: COMPONENT,
+      // The shape the old allowlist could never cover: a bespoke prop name.
+      code: `const C = () => <Form submitLabel="Complete signup" />;`,
       errors: [{ messageId: "prop" }],
     },
     {

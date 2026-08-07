@@ -228,6 +228,12 @@ const SHARED_ARGS = {
   assistantName: "Vex",
   collapsed: false,
   variant: "rail",
+  /* `chat-layout` always hands the expanded rail a width and a width setter,
+     which is what mounts the drag-resize handle at the rail's edge. Omitting
+     them renders a rail the app never shows, and hides the handle's overlap
+     with whatever sits against that edge. */
+  width: 280,
+  onWidthChange: () => {},
   conversations: CONVERSATIONS,
   conversationGroups: GROUPS,
   activeConversationId: "r1",
@@ -262,16 +268,24 @@ const meta: Meta<typeof AssistantSideMenu> = {
   title: "Chat/AssistantSideMenu",
   component: AssistantSideMenu,
   parameters: { layout: "fullscreen" },
-  /* `--surface-base` is the app backdrop the sidebar sits on; `SideMenu`
-     paints its own `--surface-overlay`, so the wrapper must not paint over
-     it. The sidebar's own type and row metrics switch at `md`; the desktop
-     width every story starts at holds these above that breakpoint. */
+  /* The wrapper is `chat-layout`'s desktop shell, class for class: the
+     `gap-4 p-4` flex row on the `--surface-base` page background, the
+     shrink-wrapped `overflow-hidden` aside the rail sizes, and the
+     transparent `<main>` beside it, which carries no surface of its own -
+     the transcript inside it does. The rail's spacing against the window
+     edges and against the content area is then the app's own, so a story
+     shows the geometry desktop users get rather than a frame invented for
+     the story. `<main>` is left empty: the chat body is a separate domain
+     and mounting it would make these stories depend on it. The sidebar's
+     type and row metrics switch at `md`; the desktop width every story
+     starts at holds these above that breakpoint. */
   decorators: [
     (Story) => (
-      <div className="flex h-screen bg-[var(--surface-base)]">
-        <div className="w-[280px] shrink-0">
+      <div className="flex h-screen gap-4 bg-[var(--surface-base)] p-4">
+        <aside className="w-fit shrink-0 overflow-hidden">
           <Story />
-        </div>
+        </aside>
+        <main className="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden" />
       </div>
     ),
   ],
@@ -328,7 +342,7 @@ export const CollapsedRail: Story = {
     ...SHARED_ARGS,
     assistantId: "asst-collapsed",
     collapsed: true,
-    footerAction: <PreferencesMenu assistantId="asst-story" collapsed />,
+    footerAction: <PreferencesMenu assistantId="asst-story" />,
   },
 };
 
@@ -343,7 +357,7 @@ export const CollapsedRailAllView: Story = {
     ...SHARED_ARGS,
     assistantId: "asst-collapsed-all",
     collapsed: true,
-    footerAction: <PreferencesMenu assistantId="asst-story" collapsed />,
+    footerAction: <PreferencesMenu assistantId="asst-story" />,
   },
 };
 
@@ -391,7 +405,7 @@ export const UploadedImageAvatarCollapsed: Story = {
     assistantId: "asst-image",
     assistantName: "Haze II",
     collapsed: true,
-    footerAction: <PreferencesMenu assistantId="asst-story" collapsed />,
+    footerAction: <PreferencesMenu assistantId="asst-story" />,
   },
 };
 

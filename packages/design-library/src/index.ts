@@ -191,8 +191,12 @@ export {
   SideMenuSection,
   SideMenuSeparator,
   SideMenuSubList,
+  useSideMenuCollapsed,
   SIDE_MENU_DEFAULT_WIDTH,
+  SIDE_MENU_BORDER_WIDTH,
   SIDE_MENU_COLLAPSED_WIDTH,
+  SIDE_MENU_COLLAPSED_INSET,
+  SIDE_MENU_TILE_SIZE,
   SIDE_MENU_MIN_WIDTH,
   SIDE_MENU_MAX_WIDTH,
   type SideMenuProps,
@@ -235,6 +239,11 @@ export {
 } from "./components/shortcut-keys";
 export { cn } from "./utils/cn";
 export { initInputModality } from "./utils/input-modality";
+export {
+  PANEL_ITEM_WASH,
+  panelItemWashStyle,
+  type PanelItemWash,
+} from "./utils/panel-item-tint";
 export {
   PortalContainerProvider,
   usePortalContainer,

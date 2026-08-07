@@ -180,6 +180,16 @@ export {
 // the same resolution as `webhooks register`, and registers the callback route
 // on the managed branches. The plugin defaults to the one in context.
 export { resolveWebhookUrl, type WebhookUrlOptions } from "./webhook-url.js";
+// Resolve the redirect URI an authorization server should send a user back
+// to after consent. One shared route serves every OAuth flow in the
+// assistant, demultiplexed by OAuth `state`, so this takes no arguments and
+// returns the same URL for every caller and every attempt. A plugin needs it
+// when it publishes something that has to name the redirect URI ahead of the
+// flow, such as a Client ID Metadata Document, whose `redirect_uris` an
+// authorization server matches exactly. Throws when no public ingress is
+// configured and the assistant is not connected to the platform, which is the
+// case where no URL would work.
+export { resolveOauthCallbackUrl } from "../inbound/oauth-callback-url.js";
 // Resolve a provider for a call site (optionally overriding the profile) so a
 // plugin can run inference through the workspace's configured profiles and
 // credentials — managed-proxy or BYOK — without supplying its own API key.

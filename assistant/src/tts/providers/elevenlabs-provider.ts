@@ -169,6 +169,69 @@ function resolveVoiceId(
   return voiceId;
 }
 
+/**
+ * Models that accept the `language_code` request parameter for language
+ * enforcement (per the ElevenLabs text-to-speech API docs). Other models
+ * (e.g. `eleven_multilingual_v2`) reject the field, so it is omitted for
+ * anything not listed here.
+ */
+const LANGUAGE_ENFORCEMENT_MODEL_IDS = new Set([
+  "eleven_flash_v2_5",
+  "eleven_turbo_v2_5",
+]);
+
+/**
+ * ISO 639-1 codes for the 32 languages the v2.5 flash/turbo models accept in
+ * `language_code` (per the ElevenLabs models documentation: the Multilingual
+ * v2 roster plus Hungarian, Norwegian, and Vietnamese; Filipino uses the
+ * ISO 639-2 code `fil` since 639-1 has none). The request-level language is
+ * a hint sourced from the wider STT roster, so codes outside this set are
+ * dropped rather than forwarded: ElevenLabs rejects unknown codes with a 400,
+ * which would fail every synthesis segment in a session.
+ */
+const ELEVENLABS_V2_5_LANGUAGE_CODES = new Set([
+  "en",
+  "ja",
+  "zh",
+  "de",
+  "hi",
+  "fr",
+  "ko",
+  "pt",
+  "it",
+  "es",
+  "id",
+  "nl",
+  "tr",
+  "fil",
+  "pl",
+  "sv",
+  "bg",
+  "ro",
+  "ar",
+  "cs",
+  "el",
+  "fi",
+  "hr",
+  "ms",
+  "sk",
+  "da",
+  "ta",
+  "uk",
+  "ru",
+  "hu",
+  "no",
+  "vi",
+]);
+
+/**
+ * Repo language subtags whose ElevenLabs `language_code` spelling differs:
+ * the STT rosters tag Tagalog with the ISO 639-1 code `tl`, while the
+ * ElevenLabs roster lists Filipino under the ISO 639-2 code `fil`. Aliases
+ * are applied before the roster check above.
+ */
+const ELEVENLABS_LANGUAGE_CODE_ALIASES = new Map([["tl", "fil"]]);
+
 /** ElevenLabs `pcm_*` rates available on every subscription tier. */
 const UNRESTRICTED_PCM_SAMPLE_RATES_HZ = [16_000, 22_050, 24_000] as const;
 
@@ -251,16 +314,25 @@ async function performTtsRequest(
   const defaultModelId = stream
     ? "eleven_flash_v2_5"
     : "eleven_multilingual_v2";
+  const modelId = config.voiceModelId?.trim() || defaultModelId;
 
   const body: Record<string, unknown> = {
     text: request.text,
-    model_id: config.voiceModelId?.trim() || defaultModelId,
+    model_id: modelId,
     voice_settings: {
       stability: config.stability,
       similarity_boost: config.similarityBoost,
       speed: config.speed,
     },
   };
+  if (request.language && LANGUAGE_ENFORCEMENT_MODEL_IDS.has(modelId)) {
+    const languageCode =
+      ELEVENLABS_LANGUAGE_CODE_ALIASES.get(request.language) ??
+      request.language;
+    if (ELEVENLABS_V2_5_LANGUAGE_CODES.has(languageCode)) {
+      body.language_code = languageCode;
+    }
+  }
 
   log.info(
     { voiceId, outputFormat, stream, textLength: request.text.length },

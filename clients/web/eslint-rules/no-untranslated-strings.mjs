@@ -15,14 +15,15 @@
  *
  * What it reports:
  * - JSX text children that contain a word character
- * - string literals passed to a prop that renders to the user
- *   ({@link USER_FACING_PROPS})
+ * - string literals passed to any prop that is not structural, when the value
+ *   reads as copy rather than an enum ({@link looksLikeCopy})
  * - strings passed to `toast.*()`
  *
  * What it deliberately ignores, because false positives are what get a rule
  * turned off:
  * - text with no word characters (punctuation, separators, digits, symbols)
- * - structural props (`className`, `id`, `href`, `data-*`, and friends)
+ * - structural props (`className`, `id`, `href`, `data-*`, handlers)
+ * - enum-ish prop values (`variant="primary"`, `tone="error"`)
  * - anything already inside a `t()` call
  * - test and story files, whose fixtures are not shipped copy
  *
@@ -35,26 +36,75 @@
  */
 
 /**
- * Props whose value is rendered to, or announced to, a user. Anything not on
- * this list is treated as structural and skipped, so the rule stays quiet on
- * the overwhelming majority of props.
+ * Props that carry structure rather than copy. Everything else is treated as
+ * potentially user-facing.
+ *
+ * The allowlist this replaced could only ever catch props someone had thought
+ * to add, and a converted domain kept shipping English through `submitLabel`,
+ * `toggleAriaLabel`, `disconnectMessage`, and friends. Denying the structural
+ * names instead means a new prop is covered by default, which is the safer
+ * direction to be wrong in.
  */
-const USER_FACING_PROPS = new Set([
-  "alt",
-  "aria-description",
-  "aria-label",
-  "aria-placeholder",
-  "aria-roledescription",
-  "aria-valuetext",
-  "description",
-  "emptyMessage",
-  "helperText",
-  "label",
-  "placeholder",
-  "subtitle",
-  "title",
-  "tooltip",
+const STRUCTURAL_PROPS = new Set([
+  "accept",
+  // SVG geometry and paint. `d="M17 28.5L24.5 36"` has spaces and a capital
+  // first letter, so it reads as copy to `looksLikeCopy` without this.
+  "clipPath",
+  "d",
+  "fill",
+  "points",
+  "stroke",
+  "transform",
+  "viewBox",
+  "as",
+  "autoComplete",
+  "charSet",
+  "className",
+  "htmlFor",
+  "href",
+  "i18nKey",
+  "id",
+  "inputMode",
+  "key",
+  "method",
+  "name",
+  "ns",
+  "pattern",
+  "rel",
+  "role",
+  "src",
+  "style",
+  "target",
+  "testId",
+  "to",
+  "type",
 ]);
+
+/** True for props that never hold copy: structural names, `data-*`, handlers. */
+function isStructuralProp(name) {
+  return (
+    STRUCTURAL_PROPS.has(name) ||
+    name.startsWith("data-") ||
+    name.startsWith("on")
+  );
+}
+
+/**
+ * Whether a string reads as copy rather than an enum value.
+ *
+ * Prop values split cleanly in practice: copy has spaces ("Save changes") or is
+ * a capitalized word ("Delete"), while enum-ish values are lowercase single
+ * tokens (`primary`, `error`, `compact`, `dangerOutline`). Judging the value
+ * rather than the prop name is what lets `value` be covered at all: it holds
+ * `"Not used for workflow runs"` in one place and `"public"` in another.
+ */
+function looksLikeCopy(text) {
+  const trimmed = text.trim();
+  if (!isTranslatable(trimmed)) {
+    return false;
+  }
+  return trimmed.includes(" ") || /^\p{Lu}/u.test(trimmed);
+}
 
 /** Files whose strings are fixtures rather than shipped copy. */
 const EXEMPT_FILE_PATTERN = /\.(test|spec|stories)\.[cm]?[jt]sx?$/;
@@ -158,12 +208,12 @@ export const noUntranslatedStrings = {
      * sentence built by concatenation, which is the shape that cannot be
      * translated at all.
      */
-    function checkExpression(node, messageId, data) {
+    function checkExpression(node, messageId, data, isCopy = isTranslatable) {
       if (!node) {
         return;
       }
       if (node.type === "Literal" && typeof node.value === "string") {
-        if (isTranslatable(node.value)) {
+        if (isCopy(node.value)) {
           context.report({
             node,
             messageId,
@@ -174,7 +224,7 @@ export const noUntranslatedStrings = {
       }
       if (node.type === "TemplateLiteral") {
         const statics = node.quasis.map((q) => q.value.cooked ?? "").join(" ");
-        if (isTranslatable(statics)) {
+        if (isCopy(statics)) {
           context.report({
             node,
             messageId,
@@ -188,12 +238,12 @@ export const noUntranslatedStrings = {
       // writing one there: the choice belongs in the catalog, where a
       // translator can see both branches.
       if (node.type === "ConditionalExpression") {
-        checkExpression(node.consequent, messageId, data);
-        checkExpression(node.alternate, messageId, data);
+        checkExpression(node.consequent, messageId, data, isCopy);
+        checkExpression(node.alternate, messageId, data, isCopy);
         return;
       }
       if (node.type === "LogicalExpression") {
-        checkExpression(node.right, messageId, data);
+        checkExpression(node.right, messageId, data, isCopy);
       }
     }
 
@@ -216,10 +266,7 @@ export const noUntranslatedStrings = {
       // can reorder.
       JSXExpressionContainer(node) {
         const parent = node.parent;
-        if (
-          parent?.type !== "JSXElement" &&
-          parent?.type !== "JSXFragment"
-        ) {
+        if (parent?.type !== "JSXElement" && parent?.type !== "JSXFragment") {
           // An attribute value, handled by `JSXAttribute` against the list of
           // props that actually reach a user.
           return;
@@ -233,7 +280,7 @@ export const noUntranslatedStrings = {
       JSXAttribute(node) {
         const name =
           node.name.type === "JSXIdentifier" ? node.name.name : undefined;
-        if (!name || !USER_FACING_PROPS.has(name) || !node.value) {
+        if (!name || isStructuralProp(name) || !node.value) {
           return;
         }
 
@@ -246,7 +293,7 @@ export const noUntranslatedStrings = {
         if (insideTranslationCall(value)) {
           return;
         }
-        checkExpression(value, "prop", { prop: name });
+        checkExpression(value, "prop", { prop: name }, looksLikeCopy);
       },
 
       CallExpression(node) {

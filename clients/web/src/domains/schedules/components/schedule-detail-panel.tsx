@@ -14,6 +14,7 @@ import { useState } from "react";
 import { useNavigate } from "react-router";
 
 import { useTranslation } from "@/i18n";
+import { SCHEDULE_USAGE_WINDOW_DAYS } from "@/utils/usage-window";
 import { pluginNameFromSourceKey } from "@/domains/schedules/plugin-source";
 import {
   deleteSchedule,
@@ -184,8 +185,6 @@ function ScheduleModelProfileField({
   );
 }
 
-const COST_WINDOW_DAYS = 7;
-
 function StatCard({
   icon,
   value,
@@ -231,12 +230,16 @@ function StatCards({ usage }: { usage: ScheduleRowUsage }) {
       <StatCard
         icon={<Coins className="h-4 w-4" />}
         value={formatScheduleCost(usage.summary.totalEstimatedCostUsd)}
-        label={t("scheduleDetail.costLabel", { days: COST_WINDOW_DAYS })}
+        label={t("scheduleDetail.costLabel", {
+          days: SCHEDULE_USAGE_WINDOW_DAYS,
+        })}
       />
       <StatCard
         icon={<Repeat className="h-4 w-4" />}
         value={formatScheduleRunCount(usage.summary.runCount)}
-        label={t("scheduleDetail.runsLabel", { days: COST_WINDOW_DAYS })}
+        label={t("scheduleDetail.runsLabel", {
+          days: SCHEDULE_USAGE_WINDOW_DAYS,
+        })}
       />
     </div>
   );

@@ -426,6 +426,7 @@ extension MyViewController: WKScriptMessageHandler {
                   let hex = body["color"] as? String,
                   let color = UIColor(cssHex: hex)
             else { return }
+            webView?.isOpaque = false
             view.backgroundColor = color
             webView?.backgroundColor = color
             webView?.scrollView.backgroundColor = color

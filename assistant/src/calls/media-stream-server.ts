@@ -81,6 +81,7 @@ import {
   type MediaStreamSttSessionCallbacks,
   type MediaStreamSttSessionConfig,
 } from "./media-stream-stt-session.js";
+import { resolveTelephonySynthesisLanguage } from "./telephony-synthesis-language.js";
 import {
   TRUST_UNAVAILABLE_DENY_MESSAGE,
   unresolvedActorTrust,
@@ -192,6 +193,14 @@ export class MediaStreamCallSession {
   /** Number of transcript finals produced (non-empty). */
   private transcriptFinalsProduced = 0;
 
+  /**
+   * Synthesized speech follows the caller's latest detected language when
+   * the transcriber tags finals, falling back to the pin-based
+   * resolution. Shared by the output adapter and the call controller.
+   */
+  private readonly resolveSynthesisLanguage = (): string | undefined =>
+    resolveTelephonySynthesisLanguage(this.sttSession.currentLanguage());
+
   constructor(
     ws: ServerWebSocket<unknown>,
     callSessionId: string,
@@ -215,6 +224,8 @@ export class MediaStreamCallSession {
     };
 
     this.sttSession = new MediaStreamSttSession(sttConfig ?? {}, callbacks);
+
+    this.output.setSynthesisLanguageResolver(this.resolveSynthesisLanguage);
 
     log.info({ callSessionId }, "Media stream call session created");
   }
@@ -681,6 +692,7 @@ export class MediaStreamCallSession {
       {
         assistantId: result.assistantId,
         trustContext: result.trustContext,
+        resolveSynthesisLanguage: this.resolveSynthesisLanguage,
       },
     );
     this.controller = controller;

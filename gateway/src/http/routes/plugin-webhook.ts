@@ -14,6 +14,13 @@
  * The declaration picks whose secret that is — see `IngressRouteSchema.signer`
  * — and, for a route a third party calls, how the signature is formed at all
  * (`IngressRouteSchema.verification`).
+ *
+ * A route may also declare that its replies carry messages
+ * (`IngressRouteSchema.inbound`), which is how a plugin channel receives
+ * anything at all. The plugin parses its vendor's delivery and answers with
+ * the result; the gateway reads that answer and runs it through the same
+ * `handleInbound` every built-in channel uses. See `plugin-inbound.ts` for
+ * what of the reply the gateway believes.
  */
 
 import {
@@ -24,7 +31,10 @@ import {
   verifyDeclaredSignature,
   type VerificationRejection,
 } from "../../channels/ingress-verification.js";
+import { readPluginInbound } from "../../channels/plugin-inbound.js";
+import type { IngressInbound } from "../../channels/ingress-inbound.js";
 import type { IngressSigner } from "../../channels/plugin-ingress.js";
+import { handleInbound } from "../../handlers/handle-inbound.js";
 import { mintServiceToken } from "../../auth/token-exchange.js";
 import type { GatewayConfig } from "../../config.js";
 import type { CredentialCache } from "../../credential-cache.js";
@@ -34,7 +44,7 @@ import {
   verifySecretWithRefresh,
 } from "../../credential-refresh.js";
 import { getLogger } from "../../logger.js";
-import { readLimitedBodyBytes } from "../read-limited-body.js";
+import { readLimitedBody, readLimitedBodyBytes } from "../read-limited-body.js";
 import { verifyVellumSignature } from "../vellum-signature.js";
 import { proxyForwardToResponse } from "@vellumai/assistant-client";
 
@@ -106,6 +116,12 @@ export interface PluginWebhookHandlerDeps {
     input: string | URL | Request,
     init?: RequestInit,
   ) => Promise<Response>;
+  /**
+   * The inbound pipeline, injected for the same reason `fetchImpl` is: it
+   * reaches the ACL database, the trust resolver, and the runtime, none of
+   * which a test of this route's decisions should have to stand up.
+   */
+  handleInboundImpl?: typeof handleInbound;
 }
 
 /**
@@ -130,7 +146,13 @@ export interface PluginWebhookHandlerDeps {
  * by the same body cap as everything else here.
  */
 export function createPluginWebhookHandler(deps: PluginWebhookHandlerDeps) {
-  const { config, resolve, credentials, fetchImpl } = deps;
+  const {
+    config,
+    resolve,
+    credentials,
+    fetchImpl,
+    handleInboundImpl = handleInbound,
+  } = deps;
 
   return async (req: Request, plugin: string, path: string) => {
     let match: ReturnType<typeof findDeclaredRoute>;
@@ -275,13 +297,127 @@ export function createPluginWebhookHandler(deps: PluginWebhookHandlerDeps) {
         { plugin, path, status: response.status, duration },
         "Plugin webhook upstream error",
       );
-    } else if (response.status >= 400) {
+      return response;
+    }
+    if (response.status >= 400) {
       log.warn(
         { plugin, path, status: response.status, duration },
         "Plugin webhook upstream error",
       );
+      return response;
     }
 
-    return response;
+    const inbound = route.inbound;
+    if (!inbound) {
+      return response;
+    }
+    return deliverPluginInbound({
+      config,
+      plugin,
+      routePath: route.path,
+      inbound,
+      response,
+      handleInboundImpl,
+    });
   };
+}
+
+/**
+ * Run a plugin's reply through the inbound pipeline and answer the vendor.
+ *
+ * Only reached for a 2xx, because a reply the plugin itself is reporting a
+ * failure on is not a message. The vendor gets the plugin's status back but
+ * not its body: the body was addressed to us, and a plugin that normalizes a
+ * delivery into an event should not thereby echo the sender's message back to
+ * the vendor that sent it.
+ *
+ * Errors here are logged and swallowed. The delivery was authentic and the
+ * plugin accepted it, so a failure to interpret the reply is ours; answering
+ * the vendor with a 5xx would have them retry a delivery that will fail the
+ * same way, which is the retry storm the 409 on unapproved routes exists to
+ * avoid.
+ */
+async function deliverPluginInbound(opts: {
+  config: GatewayConfig;
+  plugin: string;
+  /** The declared path, for logs. Not the requested spelling. */
+  routePath: string;
+  inbound: IngressInbound;
+  response: Response;
+  handleInboundImpl: typeof handleInbound;
+}): Promise<Response> {
+  const { config, plugin, routePath, inbound, response, handleInboundImpl } =
+    opts;
+  const ack = Response.json({ ok: true }, { status: response.status });
+
+  const body = await readLimitedBody(response, config.maxWebhookPayloadBytes);
+  if (body.status !== "ok") {
+    log.warn(
+      { plugin, path: routePath, reason: body.status },
+      "Could not read the plugin's reply for inbound delivery",
+    );
+    return ack;
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = body.text.trim() === "" ? undefined : JSON.parse(body.text);
+  } catch {
+    log.warn(
+      { plugin, path: routePath },
+      "Plugin reply on an inbound route is not JSON",
+    );
+    return ack;
+  }
+
+  const reading = readPluginInbound({
+    plugin,
+    inbound,
+    body: parsed,
+    receivedAt: new Date().toISOString(),
+  });
+
+  if (reading.status === "none") {
+    // The ordinary case: a receipt, an echo, an event the plugin does not
+    // handle. Debug rather than info — every delivery would log otherwise.
+    log.debug(
+      { plugin, path: routePath },
+      "Plugin reply carried no inbound message",
+    );
+    return ack;
+  }
+  if (reading.status === "invalid") {
+    log.warn(
+      { plugin, path: routePath, reason: reading.reason },
+      "Plugin reply on an inbound route is not a usable message",
+    );
+    return ack;
+  }
+
+  try {
+    const result = await handleInboundImpl(config, reading.event, {
+      // Which plugin, for the runtime and for anyone reading a transcript. The
+      // route too: a plugin can declare several, and knowing which one a turn
+      // arrived on is the difference between a provider misconfiguration and a
+      // plugin bug.
+      sourceMetadata: { plugin, ingressRoute: routePath },
+    });
+    log.info(
+      {
+        plugin,
+        path: routePath,
+        forwarded: result.forwarded,
+        rejected: result.rejected,
+        rejectionReason: result.rejectionReason,
+      },
+      "Plugin inbound message handled",
+    );
+  } catch (err) {
+    log.error(
+      { err, plugin, path: routePath },
+      "Failed to handle a plugin inbound message",
+    );
+  }
+
+  return ack;
 }

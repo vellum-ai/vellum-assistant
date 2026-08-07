@@ -2,6 +2,9 @@
 include ':capacitor-android'
 project(':capacitor-android').projectDir = new File('../../node_modules/.bun/@capacitor+android@8.3.4+33da1c2fb16abc29/node_modules/@capacitor/android/capacitor')
 
+include ':capacitor-community-camera-preview'
+project(':capacitor-community-camera-preview').projectDir = new File('../../node_modules/.bun/@capacitor-community+camera-preview@8.0.1+33da1c2fb16abc29/node_modules/@capacitor-community/camera-preview/android')
+
 include ':capacitor-app'
 project(':capacitor-app').projectDir = new File('../../node_modules/.bun/@capacitor+app@8.1.0+33da1c2fb16abc29/node_modules/@capacitor/app/android')
 

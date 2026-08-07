@@ -282,7 +282,7 @@ export function SlackChannelList({
                         : "bg-[var(--tag-bg-neutral)] text-[color:var(--content-secondary)] hover:text-[color:var(--content-default)]",
                     )}
                   >
-                    {t(labelKey)} {count}
+                    {t(labelKey, { count })}
                   </button>
                 );
               })}

@@ -4,7 +4,12 @@ import {
 } from "@/components/charts/format-date-label";
 
 export type UsageRangeWindowId =
-  "today" | "yesterday" | "7d" | "30d" | "90d" | "all";
+  | "today"
+  | "yesterday"
+  | "7d"
+  | "30d"
+  | "90d"
+  | "all";
 
 const RANGE_START_DAY_OFFSETS: Record<
   Exclude<UsageRangeWindowId, "all" | "yesterday">,
@@ -21,6 +26,20 @@ const RANGE_START_DAY_OFFSETS: Record<
  * day boundaries computed in the effective `tz` so they stay aligned with the
  * backend's zone-aware usage buckets.
  */
+/**
+ * How far back schedule usage is summarised.
+ *
+ * The range and the copy describing it are the same fact, so both derive from
+ * here: `SCHEDULE_USAGE_RANGE` is what the query asks for, and
+ * `SCHEDULE_USAGE_WINDOW_DAYS` is what the cost and run labels interpolate.
+ * Changing one without the other leaves the UI claiming a window it does not
+ * summarise.
+ */
+export const SCHEDULE_USAGE_WINDOW_DAYS = 7;
+
+export const SCHEDULE_USAGE_RANGE =
+  `${SCHEDULE_USAGE_WINDOW_DAYS}d` as UsageRangeWindowId;
+
 export function resolveUsageRangeWindow(
   range: UsageRangeWindowId,
   tz: string,

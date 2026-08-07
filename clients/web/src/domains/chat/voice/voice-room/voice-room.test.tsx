@@ -18,7 +18,15 @@
 
 import { type ReactNode } from "react";
 
-import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  mock,
+  spyOn,
+  test,
+} from "bun:test";
 
 import {
   act,
@@ -1401,9 +1409,14 @@ describe("VoiceRoom: camera", () => {
   // stand-in throws where a real camera would not, but happy-dom's
   // implementation has no `getTracks()`, which release needs, so that one
   // method is filled in.
-  function fakeStream() {
+  function fakeStream(getSettings?: () => MediaTrackSettings) {
     const stream = new MediaStream();
-    Object.defineProperty(stream, "getTracks", { value: () => [] });
+    Object.defineProperties(stream, {
+      getTracks: { value: () => [] },
+      getVideoTracks: {
+        value: () => (getSettings ? [{ getSettings }] : []),
+      },
+    });
     return stream;
   }
 
@@ -1508,29 +1521,64 @@ describe("VoiceRoom: camera", () => {
   });
 
   test("tapping the camera opens the viewfinder and the shutter, and the call keeps running", async () => {
-    const getUserMedia = mock(async (_constraints?: MediaStreamConstraints) =>
-      fakeStream(),
+    const getSettings = mock(() => ({
+      width: 1920,
+      height: 1080,
+      aspectRatio: 16 / 9,
+      frameRate: 30,
+      facingMode: "environment",
+      deviceId: "camera-device-id",
+      groupId: "camera-group-id",
+    }));
+    const getUserMedia = mock(
+      async (_constraints?: MediaStreamConstraints) =>
+        fakeStream(getSettings),
     );
+    const consoleDebug = spyOn(console, "debug").mockImplementation(() => {});
     stubMediaDevices(getUserMedia);
     seedCameraCapableAssistant();
     startOwnedSession("listening");
-    render(<VoiceRoom />);
+    try {
+      render(<VoiceRoom />);
 
-    await act(async () => {
-      fireEvent.click(cameraToggle()!);
-    });
+      await act(async () => {
+        fireEvent.click(cameraToggle()!);
+      });
 
-    expect(viewfinder()).not.toBeNull();
-    expect(screen.queryByTestId("voice-room-shutter")).not.toBeNull();
-    // Video only. Requesting audio here would renegotiate the microphone the
-    // live-voice session is streaming from. See `voice-camera.ts`.
-    expect(getUserMedia).toHaveBeenCalledTimes(1);
-    expect(getUserMedia.mock.calls[0]?.[0]).toEqual({
-      video: { facingMode: "environment" },
-    });
-    // Opening a camera is not an act on the session itself.
-    expect(controls.stop).not.toHaveBeenCalled();
-    expect(controls.interrupt).not.toHaveBeenCalled();
+      const video = viewfinder() as HTMLVideoElement | null;
+      expect(video).not.toBeNull();
+      expect(video?.autoplay).toBe(true);
+      expect(video?.muted).toBe(true);
+      expect(video?.hasAttribute("playsinline")).toBe(true);
+      expect(video?.controls).toBe(false);
+      expect(screen.queryByTestId("voice-room-shutter")).not.toBeNull();
+      // Video only. Requesting audio here would renegotiate the microphone the
+      // live-voice session is streaming from. See `voice-camera.ts`.
+      expect(getUserMedia).toHaveBeenCalledTimes(1);
+      expect(getUserMedia.mock.calls[0]?.[0]).toEqual({
+        video: {
+          facingMode: "environment",
+          width: { ideal: 1920 },
+          height: { ideal: 1080 },
+        },
+      });
+      expect(getSettings).toHaveBeenCalledTimes(1);
+      expect(consoleDebug).toHaveBeenCalledWith(
+        "[voice-camera] negotiated video track",
+        {
+          width: 1920,
+          height: 1080,
+          aspectRatio: 16 / 9,
+          frameRate: 30,
+          facingMode: "environment",
+        },
+      );
+      // Opening a camera is not an act on the session itself.
+      expect(controls.stop).not.toHaveBeenCalled();
+      expect(controls.interrupt).not.toHaveBeenCalled();
+    } finally {
+      consoleDebug.mockRestore();
+    }
   });
 
   test("closing the camera leaves the session alone", async () => {

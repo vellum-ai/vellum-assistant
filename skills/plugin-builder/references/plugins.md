@@ -133,6 +133,19 @@ Values, not just types, that a plugin consumes at module-load or init time. A bo
 | `resolveCredential`         | value | Resolve a stored credential to its plaintext value (the same value `assistant credentials reveal` prints) from a UUID or a `service/field` reference. When a plugin is in context, resolution is scoped to credentials whose `field` matches the plugin's manifest name; outside any plugin it is unscoped. Throws `CredentialResolutionError` on failure. |
 | `CredentialResolutionError` | class | Thrown when the credential ref does not resolve, the store is unreachable, or the credential is out of the plugin's scope. Catch it to degrade gracefully rather than crashing the hook.                                                                                                                                                                   |
 
+#### Public URLs
+
+Both resolve through the same host logic, which decides between a managed
+platform callback route and a configured public ingress. Both throw when the
+assistant has neither, since no URL would work in that case and a plausible
+one produces a registration that silently receives nothing.
+
+| Export                    | Kind  | Purpose                                                                                                                                                                                                                                                                                                                                                                |
+| ------------------------- | ----- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `resolveWebhookUrl`       | value | Resolve the public URL a third party should deliver to for one of the plugin's own ingress routes, in the plugin's reserved namespace. Takes the route `path`, and the `plugin` (defaulting to the one in context) plus an optional `sourceIdentifier` for admin display.                                                                                              |
+| `resolveOauthCallbackUrl` | value | Resolve the redirect URI an authorization server should send a user back to after consent. One shared route serves every OAuth flow, demultiplexed by OAuth `state`, so it takes no arguments and returns the same URL for every caller and every attempt. Use it where something must name the redirect URI ahead of the flow, such as a Client ID Metadata Document. |
+| `WebhookUrlOptions`       | type  | Options for `resolveWebhookUrl`.                                                                                                                                                                                                                                                                                                                                       |
+
 #### Inference helpers
 
 | Export                   | Kind  | Purpose                                                                                                                                                                                                                                                                                                               |
