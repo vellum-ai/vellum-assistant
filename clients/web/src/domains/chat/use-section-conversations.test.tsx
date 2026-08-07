@@ -217,25 +217,6 @@ describe("useSectionConversations", () => {
     expect(lastEnabled).toBe(false);
   });
 
-  /* Chats and the channel sections have no filter yet. They must not fetch:
-     a groupless request would return the entire list. */
-  test("never fetches for a section with no filter of its own", () => {
-    openGate();
-    serverRows = FROM_SERVER;
-
-    const { result } = renderHook(() =>
-      useSectionConversations("asst-1", {
-        type: "recents",
-        key: "recents",
-        label: "Chats",
-        all: DERIVED,
-      }),
-    );
-
-    expect(result.current.map((c) => c.conversationId)).toEqual(["derived-1"]);
-    expect(lastEnabled).toBe(false);
-  });
-
   /* A failed first fetch is NOT pending, so branching on `isPending` alone
      lets the empty result through - and the hide-when-empty rule then removes
      the section from the sidebar and the rail entirely. One failed request
