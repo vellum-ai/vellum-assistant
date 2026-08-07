@@ -15,6 +15,7 @@ import { createSelectors } from "@/utils/create-selectors";
 import {
   loadPinnedApps,
   pinApp,
+  setAppColor,
   unpinApp,
   type PinnableApp,
   type PinnedAppEntry,
@@ -45,6 +46,12 @@ export interface PinnedAppsActions {
    * unpin is unreachable. A no-op when the id isn't pinned.
    */
   unpin: (appId: string) => void;
+  /**
+   * Set or clear the colour the sidebar tints this pin with, as an id from the
+   * pinned-app colour registry. `null` clears it. A no-op when the id is not
+   * pinned, matching {@link PinnedAppsActions.unpin}.
+   */
+  setColor: (appId: string, color: string | null) => void;
   isPinned: (appId: string) => boolean;
   onUnpin: (listener: UnpinListener) => () => void;
 }
@@ -88,6 +95,14 @@ const usePinnedAppsStoreBase = create<PinnedAppsStore>()((set, get) => ({
     for (const listener of unpinListeners) {
       listener(appId);
     }
+  },
+
+  setColor: (appId: string, color: string | null) => {
+    if (!get().pinnedAppIds.has(appId)) {
+      return;
+    }
+    setAppColor(appId, color);
+    set(loadState());
   },
 
   isPinned: (appId: string) => get().pinnedAppIds.has(appId),
