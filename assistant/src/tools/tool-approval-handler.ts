@@ -127,8 +127,38 @@ export function buildInactiveToolMessage(args: {
 
 /** Default polling interval for inline grant wait (ms). */
 const TC_GRANT_WAIT_INTERVAL_MS = 500;
-/** Default maximum wait time for inline grant wait (ms). */
+/**
+ * Fallback maximum wait for the inline grant wait (ms), used only when the
+ * deployed config cannot be read. The governing budget is
+ * `timeouts.permissionTimeoutSec` (see {@link resolveInlineGrantWaitMs}).
+ */
 export const TC_GRANT_WAIT_MAX_MS = 60_000;
+
+/**
+ * Resolve the wait budget for an escalated tool grant.
+ *
+ * A guardian answering an escalated tool call is making the same decision as a
+ * local user answering a permission prompt, so both paths spend the same
+ * budget: `timeouts.permissionTimeoutSec` (read by `permissions/prompter.ts`).
+ * If anything, this path needs the larger share of it: the prompter's user
+ * already has the prompt on screen, while the guardian is notified
+ * out-of-band and has to context-switch before deciding.
+ *
+ * Falls back to {@link TC_GRANT_WAIT_MAX_MS} when the config is unreadable or
+ * carries a non-positive value, so a bad read can never collapse the window to
+ * zero and auto-deny every escalation.
+ */
+function resolveInlineGrantWaitMs(): number {
+  try {
+    const seconds = getConfig().timeouts.permissionTimeoutSec;
+    if (Number.isFinite(seconds) && seconds > 0) {
+      return seconds * 1000;
+    }
+  } catch {
+    // Unreadable config falls through to the compiled-in default.
+  }
+  return TC_GRANT_WAIT_MAX_MS;
+}
 
 /**
  * Inline wait result for trusted-contact grant polling.
@@ -152,13 +182,16 @@ export type InlineGrantWaitOutcome =
  * and atomically consume the grant).
  *
  * Only called for trusted_contact actors with valid guardian bindings.
+ *
+ * `options.maxWaitMs` overrides the wait budget; omitting it spends the
+ * configured one from {@link resolveInlineGrantWaitMs}.
  */
 export async function waitForInlineGrant(
   escalationRequestId: string,
   consumeParams: Parameters<typeof consumeGrantForInvocation>[0],
   options?: { maxWaitMs?: number; intervalMs?: number; signal?: AbortSignal },
 ): Promise<InlineGrantWaitOutcome> {
-  const maxWait = options?.maxWaitMs ?? TC_GRANT_WAIT_MAX_MS;
+  const maxWait = options?.maxWaitMs ?? resolveInlineGrantWaitMs();
   const interval = options?.intervalMs ?? TC_GRANT_WAIT_INTERVAL_MS;
   const signal = options?.signal;
   const deadline = Date.now() + maxWait;
@@ -592,9 +625,16 @@ export type PreExecutionGateResult =
     }
   | { allowed: false; result: ToolExecutionResult };
 
-/** Configuration for the inline grant wait behavior. */
+/**
+ * Overrides for the inline grant wait behavior. Production leaves this empty
+ * so the wait spends the configured budget; tests inject short waits to keep
+ * escalation cases fast.
+ */
 export interface InlineGrantWaitConfig {
-  /** Maximum time to wait for guardian approval (ms). Defaults to TC_GRANT_WAIT_MAX_MS. */
+  /**
+   * Maximum time to wait for guardian approval (ms). Defaults to the budget
+   * from {@link resolveInlineGrantWaitMs}.
+   */
   maxWaitMs?: number;
   /** Polling interval during the wait (ms). Defaults to TC_GRANT_WAIT_INTERVAL_MS. */
   intervalMs?: number;
