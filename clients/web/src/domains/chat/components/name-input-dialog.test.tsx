@@ -33,12 +33,12 @@ function getNameInput(): HTMLInputElement {
   return input;
 }
 
-function getIconTile(label: string): HTMLButtonElement {
+function getIconButton(label: string): HTMLButtonElement {
   const tile = document.querySelector<HTMLButtonElement>(
     `button[aria-label="${label}"]`,
   );
   if (!tile) {
-    throw new Error(`expected an icon tile labeled "${label}"`);
+    throw new Error(`expected an icon button labeled "${label}"`);
   }
   return tile;
 }
@@ -274,7 +274,7 @@ describe("Icon picker", () => {
     // Name unchanged and icon unchanged: still a no-op edit.
     expect(getButton("Save").disabled).toBe(true);
 
-    fireEvent.click(getIconTile("rocket"));
+    fireEvent.click(getIconButton("rocket"));
     expect(getButton("Save").disabled).toBe(false);
     fireEvent.click(getButton("Save"));
 
@@ -295,10 +295,10 @@ describe("Icon picker", () => {
         onCancel={() => {}}
       />,
     );
-    expect(getIconTile("star").getAttribute("aria-pressed")).toBe("true");
+    expect(getIconButton("star").getAttribute("aria-pressed")).toBe("true");
 
-    fireEvent.click(getIconTile("No icon"));
-    expect(getIconTile("No icon").getAttribute("aria-pressed")).toBe("true");
+    fireEvent.click(getIconButton("No icon"));
+    expect(getIconButton("No icon").getAttribute("aria-pressed")).toBe("true");
     fireEvent.click(getButton("Save"));
 
     expect(onSubmit).toHaveBeenCalledWith("Research", null);
@@ -318,7 +318,7 @@ describe("Icon picker", () => {
       />,
     );
     fireEvent.change(getNameInput(), { target: { value: "Reading" } });
-    fireEvent.click(getIconTile("book"));
+    fireEvent.click(getIconButton("book"));
     fireEvent.click(getButton("Create"));
 
     expect(onSubmit).toHaveBeenCalledWith("Reading", "book");

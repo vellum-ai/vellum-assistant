@@ -13,6 +13,7 @@ import type {
   AppVersionInfo,
   AssistantStatus,
   BundleScanData,
+  CompanionSurfaceState,
   ConnectivityState,
   DeepLink,
   DictationOverlayMessage,
@@ -41,7 +42,6 @@ import type {
   VoiceActivityContent,
   VoiceActivityControl,
   VoiceActivityStart,
-  VoiceActivityState,
 } from "@vellumai/ipc-contract";
 
 export type {
@@ -574,22 +574,6 @@ const bridge: VellumBridge = {
     end: (): void => {
       ipcRenderer.send("vellum:voiceActivity:end");
     },
-    getState: (): Promise<VoiceActivityState | null> =>
-      ipcRenderer.invoke(
-        "vellum:voiceActivity:getState",
-      ) as Promise<VoiceActivityState | null>,
-    onState: (callback) => {
-      const handler = (
-        _event: IpcRendererEvent,
-        payload: VoiceActivityState | null,
-      ) => {
-        callback(payload);
-      };
-      ipcRenderer.on("vellum:voiceActivity:state", handler);
-      return () => {
-        ipcRenderer.off("vellum:voiceActivity:state", handler);
-      };
-    },
     control: (control: VoiceActivityControl): void => {
       ipcRenderer.send("vellum:voiceActivity:control", control);
     },
@@ -605,14 +589,35 @@ const bridge: VellumBridge = {
         ipcRenderer.off("vellum:voiceActivity:controlEvent", handler);
       };
     },
+  },
+  companion: {
+    getState: (): Promise<CompanionSurfaceState | null> =>
+      ipcRenderer.invoke(
+        "vellum:companion:getState",
+      ) as Promise<CompanionSurfaceState | null>,
+    onState: (callback) => {
+      const handler = (
+        _event: IpcRendererEvent,
+        state: CompanionSurfaceState,
+      ) => {
+        callback(state);
+      };
+      ipcRenderer.on("vellum:companion:state", handler);
+      return () => {
+        ipcRenderer.off("vellum:companion:state", handler);
+      };
+    },
+    setInteractive: (interactive: boolean): void => {
+      ipcRenderer.send("vellum:companion:setInteractive", interactive);
+    },
+    moveBy: (dx: number, dy: number): void => {
+      ipcRenderer.send("vellum:companion:moveBy", dx, dy);
+    },
+    startVoice: (): void => {
+      ipcRenderer.send("vellum:companion:startVoice");
+    },
     activate: (): void => {
-      ipcRenderer.send("vellum:voiceActivity:activate");
-    },
-    dismiss: (): void => {
-      ipcRenderer.send("vellum:voiceActivity:dismiss");
-    },
-    setCollapsed: (collapsed: boolean): void => {
-      ipcRenderer.send("vellum:voiceActivity:setCollapsed", collapsed);
+      ipcRenderer.send("vellum:companion:activate");
     },
   },
   popout: {

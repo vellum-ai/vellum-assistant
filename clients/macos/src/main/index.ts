@@ -13,7 +13,7 @@ import {
   resolveLockfilePaths,
 } from "@vellumai/local-mode";
 
-import { installAbout, openAboutWindow } from "./about";
+import { installAbout, openAboutWindow } from "./about.client";
 import { installAutoUpdate } from "./auto-update";
 import {
   APP_HOST,
@@ -71,11 +71,11 @@ import { installEscapeMonitor, setDictationRecording } from "./escape-monitor";
 import { installDiagnosticsIpc } from "./diagnostics";
 import { installFeatureFlagsIpc } from "./feature-flags";
 import { installFeedbackIpc } from "./feedback";
-import { installGlobalShortcuts } from "./global-shortcuts";
+import { installGlobalShortcuts } from "./global-shortcuts.client";
 import { installHotkeyHelper } from "./hotkey-helper";
-import { installHotkeysIpc } from "./hotkeys";
-import { installImageContextMenu } from "./image-context-menu";
-import { installTextContextMenu } from "./text-context-menu";
+import { installHotkeysIpc } from "./hotkeys.client";
+import { installImageContextMenu } from "@vellumai/electron-desktop/image-context-menu";
+import { installTextContextMenu } from "@vellumai/electron-desktop/text-context-menu";
 import { installPopoutWindows } from "./popout-window";
 import { installQuickInput } from "./quick-input-window";
 import {
@@ -106,13 +106,12 @@ import { installNativeAuth } from "./native-auth";
 import { installNotifications } from "./notifications";
 import { installPermissionHandler } from "./permissions";
 import { installPermissionsService } from "./permissions-service";
-import { installTextInsertionIpc } from "./textInsertion";
-import { installTray } from "./tray";
 import {
-  installVoiceActivityWindow,
-  isVoiceActivityRunning,
-  reopenVoiceActivityPanel,
-} from "./voice-activity-window";
+  installCompanionWindow,
+  openCompanionWindow,
+} from "./companion-window";
+import { installTextInsertionIpc } from "./textInsertion";
+import { installTray } from "./tray.client";
 import { installWebContentsSecurity } from "./windows";
 
 // Dev-only: override the workspace `name` (`@vellumai/macos`) so the
@@ -501,7 +500,7 @@ app
     installApplicationMenu();
     installQuickInput();
     installDictationOverlay({ onRecordingLifecycle: setDictationRecording });
-    installVoiceActivityWindow();
+    installCompanionWindow();
     installPopoutWindows();
     installGlobalShortcuts();
     // Register the avatar channel before the Dock and Tray install so their
@@ -533,11 +532,14 @@ app
       toggleMainWindow: toggleMainWindowVisibility,
       ensureMainWindow: ensureMainWindowVisible,
       openAbout: openAboutWindow,
-      isVoicePanelAvailable: isVoiceActivityRunning,
-      showVoicePanel: reopenVoiceActivityPanel,
     });
     installNativeAuth();
     installMainWindow();
+
+    // After the main window, so the surface opens over a running app rather
+    // than being the first thing on screen at launch. It is always present
+    // from here on: the app being frontmost is not one of its states.
+    openCompanionWindow();
 
     // Runs after the main window so the recovery dialog has a window to sit in
     // front of, and so a user who declines lands on a working app rather than

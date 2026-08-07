@@ -64,9 +64,7 @@ export const installWindowsTray = (): void => {
   });
   installTray({
     ensureMainWindow: async () => ensureVisible(),
-    isVoicePanelAvailable: () => false,
     openAbout: () => app.showAboutPanel(),
-    showVoicePanel: () => undefined,
     toggleMainWindow: toggleVisibility,
   });
 };

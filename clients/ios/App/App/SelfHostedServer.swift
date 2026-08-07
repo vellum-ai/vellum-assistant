@@ -54,6 +54,49 @@ enum SelfHostedServer {
         return url
     }
 
+    /// Canonical identity of a server URL, shared with the web chooser's
+    /// remembered-origins store (`normalizeOriginUrl`): lowercase scheme and
+    /// host, userinfo dropped, trailing slashes stripped from the path, query
+    /// and fragment dropped, path and port preserved. Every list-identity and
+    /// active-slot comparison goes through this so the iOS list and the web
+    /// store agree on which strings mean the same server. The active slot
+    /// itself stores the raw validated URL (the `Settings.bundle` contract).
+    static func canonicalize(_ url: URL) -> URL {
+        guard var components = URLComponents(url: url, resolvingAgainstBaseURL: false) else {
+            return url
+        }
+        components.scheme = components.scheme?.lowercased()
+        components.host = components.host?.lowercased()
+        components.user = nil
+        components.password = nil
+        components.query = nil
+        components.fragment = nil
+        // The web's URL.origin collapses the scheme default port; match it
+        // (validate only admits https).
+        if components.port == 443 {
+            components.port = nil
+        }
+        // Trim through the percent-encoded path so escaped separators
+        // (e.g. %2F) survive the round-trip instead of being decoded.
+        while components.percentEncodedPath.hasSuffix("/") {
+            components.percentEncodedPath = String(components.percentEncodedPath.dropLast())
+        }
+        return components.url ?? url
+    }
+
+    /// `canonicalize` as the string used for list entries and equality.
+    static func canonicalString(_ url: URL) -> String {
+        return canonicalize(url).absoluteString
+    }
+
+    /// Whether a URL canonically matches the active slot.
+    static func isActive(_ url: URL, defaults: UserDefaults = .standard) -> Bool {
+        guard let active = configuredURL(defaults: defaults) else {
+            return false
+        }
+        return canonicalString(active) == canonicalString(url)
+    }
+
     /// Persist a validated origin under the shared defaults key.
     static func store(_ url: URL, defaults: UserDefaults = .standard) {
         defaults.set(url.absoluteString, forKey: defaultsKey)
@@ -64,52 +107,60 @@ enum SelfHostedServer {
         defaults.removeObject(forKey: defaultsKey)
     }
 
-    /// The remembered server list. Entries failing `validate` are dropped, and
-    /// a legacy active URL absent from the stored list is included (name nil)
+    /// The remembered server list, entries keyed by canonical URL. Entries
+    /// failing `validate` are dropped, stored urls re-canonicalize on read
+    /// (deduping any pre-canonical duplicates, first entry wins), and a
+    /// legacy active URL absent from the stored list is included (name nil)
     /// without writing back until the next mutation.
     static func servers(defaults: UserDefaults = .standard) -> [Entry] {
         var entries: [Entry] = []
         if let data = defaults.data(forKey: serversKey),
            let decoded = try? JSONDecoder().decode([Entry].self, from: data) {
             for item in decoded {
-                guard let url = validate(item.url),
-                      !entries.contains(where: { $0.url == url.absoluteString })
-                else {
+                guard let url = validate(item.url) else {
                     continue
                 }
-                entries.append(Entry(name: normalizedName(item.name), url: url.absoluteString))
+                let canonical = canonicalString(url)
+                guard !entries.contains(where: { $0.url == canonical }) else {
+                    continue
+                }
+                entries.append(Entry(name: normalizedName(item.name), url: canonical))
             }
         }
-        if let active = configuredURL(defaults: defaults),
-           !entries.contains(where: { $0.url == active.absoluteString }) {
-            entries.append(Entry(name: nil, url: active.absoluteString))
+        if let active = configuredURL(defaults: defaults) {
+            let canonical = canonicalString(active)
+            if !entries.contains(where: { $0.url == canonical }) {
+                entries.append(Entry(name: nil, url: canonical))
+            }
         }
         return entries
     }
 
-    /// Remember an origin, deduped by absolute string. A re-append with a name
+    /// Remember an origin, deduped by canonical URL. A re-append with a name
     /// updates the label; a nameless re-append keeps the existing one, so
     /// switching to a remembered server never wipes its label.
     static func append(url: URL, name: String?, defaults: UserDefaults = .standard) {
         var entries = servers(defaults: defaults)
         let name = normalizedName(name)
-        if let index = entries.firstIndex(where: { $0.url == url.absoluteString }) {
+        let canonical = canonicalString(url)
+        if let index = entries.firstIndex(where: { $0.url == canonical }) {
             if let name {
                 entries[index].name = name
             }
         } else {
-            entries.append(Entry(name: name, url: url.absoluteString))
+            entries.append(Entry(name: name, url: canonical))
         }
         persist(entries, defaults: defaults)
     }
 
-    /// Forget an origin. When it is also the active URL, the active slot is
-    /// cleared so the shell falls back to the baked default.
+    /// Forget an origin, matched by canonical URL. When it is also the active
+    /// URL, the active slot is cleared so the shell falls back to the baked
+    /// default.
     static func remove(url: URL, defaults: UserDefaults = .standard) {
         var entries = servers(defaults: defaults)
-        entries.removeAll { $0.url == url.absoluteString }
+        entries.removeAll { $0.url == canonicalString(url) }
         persist(entries, defaults: defaults)
-        if configuredURL(defaults: defaults)?.absoluteString == url.absoluteString {
+        if isActive(url, defaults: defaults) {
             clear(defaults: defaults)
         }
     }

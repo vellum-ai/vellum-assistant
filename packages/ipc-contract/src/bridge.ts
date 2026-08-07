@@ -18,6 +18,7 @@ import type {
   AppVersionInfo,
   AssistantStatus,
   BundleScanData,
+  CompanionSurfaceState,
   ConnectivityState,
   DeepLink,
   DictationOverlayMessage,
@@ -44,7 +45,6 @@ import type {
   VoiceActivityContent,
   VoiceActivityControl,
   VoiceActivityStart,
-  VoiceActivityState,
 } from "./types";
 
 /**
@@ -292,25 +292,45 @@ export interface VellumBridge {
     setInteractive(interactive: boolean): void;
   };
   /**
-   * The floating live-voice session surface (macOS). Two renderers use
-   * different halves: the main window drives `start`/`update`/`end` and
-   * listens for `onControl`; the panel's own route reads `getState`/`onState`
-   * and sends `control`.
+   * The running live-voice session, as the desktop shows it. Two renderers use
+   * different halves: the window holding the session drives `start`/`update`/
+   * `end` and listens for `onControl`; the companion surface's own route reads
+   * the session off `companion.onState` and presses `control`.
    */
   voiceActivity: {
     start(state: VoiceActivityStart): void;
     update(content: VoiceActivityContent): void;
     end(): void;
-    getState(): Promise<VoiceActivityState | null>;
-    onState(callback: (state: VoiceActivityState | null) => void): () => void;
     control(control: VoiceActivityControl): void;
     onControl(callback: (control: VoiceActivityControl) => void): () => void;
-    /** Bring the app forward, the panel's way back to the conversation. */
+  };
+  /**
+   * The always-present companion surface (macOS), which is also where a running
+   * session is shown. Only the surface's own route uses it: it reads the anchor
+   * main computed from the window's position and the session main is holding,
+   * and reports whether the pointer is over the pill so main can make the
+   * window clickable without the transparent canvas swallowing clicks meant for
+   * whatever is behind it.
+   */
+  companion: {
+    getState(): Promise<CompanionSurfaceState | null>;
+    onState(callback: (state: CompanionSurfaceState) => void): () => void;
+    setInteractive(interactive: boolean): void;
+    /** Nudge the window, for dragging the surface around the desktop. */
+    moveBy(dx: number, dy: number): void;
+    /**
+     * Ask for a live-voice session, which is what Talk does.
+     *
+     * The surface is its own renderer and holds no session, so the press is
+     * handed to main and dispatched to the window that does. What comes back is
+     * the session itself, on `onState`.
+     */
+    startVoice(): void;
+    /**
+     * Bring Vellum forward on the conversation the user was last in, which is
+     * what pressing the avatar asks for.
+     */
     activate(): void;
-    /** Hide the window. The session keeps running. */
-    dismiss(): void;
-    /** Shrink to the chip, or restore. */
-    setCollapsed(collapsed: boolean): void;
   };
   popout: {
     open(conversationId: string): Promise<void>;

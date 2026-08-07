@@ -330,7 +330,7 @@
       "scope": "client",
       "key": "assistant-switcher",
       "label": "Assistant Switcher",
-      "description": "Show the Switch Assistant section in General settings (local mode only), linking to the assistant chooser.",
+      "description": "Show the Switch Assistant section in General settings, linking to the assistant chooser. Covers local clients, signed-in cloud-hub users, remote-gateway origins, and native mobile shells; remote-gateway desktop browsers hand off to the hub chooser with a self-registration param. Also makes the chooser's selection authoritative for the app's active assistant on every surface including the platform hub, a job that previously belonged to multi-platform-assistant alone.",
       "defaultEnabled": false
     },
     {

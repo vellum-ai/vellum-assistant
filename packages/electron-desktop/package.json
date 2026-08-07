@@ -5,26 +5,32 @@
   "license": "MIT",
   "type": "module",
   "exports": {
+    "./about": "./src/about.ts",
+    "./accelerator": "./src/accelerator.ts",
     "./app-origin": "./src/app-origin.ts",
     "./avatar": "./src/avatar.ts",
     "./avatar-image": "./src/avatar-image.ts",
     "./capability-registry": "./src/capability-registry.ts",
     "./connectivity-probe": "./src/connectivity-probe.ts",
+    "./commands": "./src/commands.ts",
     "./devtools": "./src/devtools.ts",
+    "./global-shortcuts": "./src/global-shortcuts.ts",
+    "./hotkeys": "./src/hotkeys.ts",
     "./identity": "./src/identity.ts",
     "./image-mask": "./src/image-mask.ts",
+    "./image-context-menu": "./src/image-context-menu.ts",
     "./ipc": "./src/ipc.ts",
     "./power-events": "./src/power-events.ts",
     "./presence-runtime": "./src/presence-runtime.ts",
     "./status": "./src/status.ts",
     "./status-icon": "./src/status-icon.ts",
+    "./text-context-menu": "./src/text-context-menu.ts",
     "./tray-model": "./src/tray-model.ts",
     "./windows": "./src/windows.ts"
   },
   "scripts": {
     "typecheck": "bunx tsc --noEmit",
-    "test": "bun test src/capability-registry.test.ts",
-    "test:presence": "bun test src/power-events.test.ts && bun test src/connectivity-probe.test.ts && bun test src/status.test.ts && bun test src/avatar.test.ts && bun test src/image-mask.test.ts && bun test src/status-icon.test.ts && bun test src/tray-model.test.ts"
+    "test": "bun scripts/run-tests.ts"
   },
   "dependencies": {
     "@vellumai/electron-utils": "workspace:*",

@@ -1,10 +1,20 @@
 import { app, globalShortcut } from "electron";
 
-import { GLOBAL_SHORTCUT_DEFAULTS } from "./commands";
-import log from "./logger";
-import { ensureVisible } from "./main-window";
-import { toggleQuickInput } from "./quick-input-window";
-import { onSettingChange, readHotkeyOverride } from "./settings";
+import {
+  GLOBAL_SHORTCUT_DEFAULTS,
+  onHotkeyOverridesChange,
+  readHotkeyOverride,
+} from "./commands";
+
+export interface GlobalShortcutLogger {
+  info: (message: string) => void;
+  warn: (message: string) => void;
+}
+
+export interface GlobalShortcutOptions {
+  handlers: Partial<Record<keyof typeof GLOBAL_SHORTCUT_DEFAULTS, () => void>>;
+  logger: GlobalShortcutLogger;
+}
 
 /**
  * Resolve the accelerator for a global shortcut key, preferring the user
@@ -37,7 +47,7 @@ const unregisterAll = (): void => {
   registered.clear();
 };
 
-const registerAll = (): void => {
+const registerAll = ({ handlers, logger }: GlobalShortcutOptions): void => {
   unregisterAll();
   for (const key of Object.keys(GLOBAL_SHORTCUT_DEFAULTS)) {
     const accelerator = resolveGlobalAccelerator(key);
@@ -45,7 +55,7 @@ const registerAll = (): void => {
       continue;
     }
 
-    const handler = HANDLERS[key];
+    const handler = handlers[key];
     if (!handler) {
       continue;
     }
@@ -53,22 +63,13 @@ const registerAll = (): void => {
     const ok = globalShortcut.register(accelerator, handler);
     if (ok) {
       registered.set(key, accelerator);
-      log.info(`[global-shortcuts] registered ${key} → ${accelerator}`);
+      logger.info(`[global-shortcuts] registered ${key}: ${accelerator}`);
     } else {
-      log.warn(
-        `[global-shortcuts] failed to register ${key} → ${accelerator} (possibly held by another app)`,
+      logger.warn(
+        `[global-shortcuts] failed to register ${key}: ${accelerator} (possibly held by another app)`,
       );
     }
   }
-};
-
-const HANDLERS: Record<string, () => void> = {
-  globalHotkey: () => {
-    void ensureVisible();
-  },
-  quickInput: () => {
-    toggleQuickInput();
-  },
 };
 
 let teardown: (() => void) | null = null;
@@ -77,13 +78,17 @@ let teardown: (() => void) | null = null;
  * Register system-wide global shortcuts and subscribe to settings changes
  * so re-binding is immediate. Call once from `app.whenReady()`.
  */
-export const installGlobalShortcuts = (): void => {
-  if (teardown) return;
+export const installGlobalShortcuts = (
+  options: GlobalShortcutOptions,
+): void => {
+  if (teardown) {
+    return;
+  }
 
-  registerAll();
+  registerAll(options);
 
-  const unsubscribe = onSettingChange("hotkeys", () => {
-    registerAll();
+  const unsubscribe = onHotkeyOverridesChange(() => {
+    registerAll(options);
   });
 
   const onQuit = (): void => {
@@ -96,4 +101,9 @@ export const installGlobalShortcuts = (): void => {
     app.off("will-quit", onQuit);
     onQuit();
   };
+};
+
+export const __resetGlobalShortcutsForTesting = (): void => {
+  teardown?.();
+  teardown = null;
 };

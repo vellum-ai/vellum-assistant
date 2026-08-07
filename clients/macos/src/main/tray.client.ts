@@ -17,7 +17,7 @@ import {
   MENU_ICON_REFRESHCW,
   MENU_ICON_SETTINGS,
 } from "./assets/menu-icons";
-import { acceleratorOption } from "./commands";
+import { acceleratorOption } from "./commands.client";
 import { getWatchedLockfile } from "./lockfile-watcher";
 import { dispatchToMain } from "./main-window";
 import { menuIcon } from "./menu-icon";
@@ -48,7 +48,7 @@ export const installTray = (handlers: TrayHandlers): void => {
     openComponentGallery: () => {
       void shell.openExternal("http://localhost:6007");
     },
-    removePairedLabel: "Remove from this Mac\u2026",
+    removePairedLabel: "Remove from this Mac…",
   });
   installSharedTray(handlers);
 };

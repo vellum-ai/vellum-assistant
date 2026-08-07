@@ -105,6 +105,9 @@ export function useMessageQueue({
           requestId: targetRequestId,
           messageId,
           setOptimisticSends,
+          // Mapping cleanup only. `pendingQueuedCount` moves on the daemon's
+          // `message_queued_deleted` broadcast, which lands on this tab too,
+          // so decrementing here as well would double-count the cancel.
           onDeleted: () => {
             useChatSessionStore.getState().popRequestIdMapping(targetRequestId);
           },

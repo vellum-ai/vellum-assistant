@@ -36,8 +36,10 @@ export const REMEMBERED_ORIGINS_STORAGE_KEY = "vellum:remembered-origins";
 
 /**
  * Normalize a candidate origin URL to its canonical stored form, or `null`
- * when it is not a usable `https:` base (mirrors the validation stance of
- * `SelfHostedServer.validate` in the iOS shell).
+ * when it is not a usable `https:` base. Mirrors the iOS shell: the
+ * validation stance of `SelfHostedServer.validate` and the canonical form
+ * of `SelfHostedServer.canonicalize`, so both stores agree on which
+ * strings mean the same server.
  *
  * Canonical form: lowercase scheme and host (via `URL.origin`, which also
  * drops any userinfo), path prefix preserved with trailing slashes
@@ -76,18 +78,23 @@ export interface RememberedOriginsProvider {
 }
 
 /**
- * Defensive parse of persisted JSON: anything that isn't an array becomes
- * empty, and entries whose `url` fails {@link normalizeOriginUrl} (or that
- * duplicate an earlier entry's url) are dropped.
+ * Defensive read of untrusted entry items (persisted JSON, a native bridge
+ * payload): non-object items and urls failing {@link normalizeOriginUrl} are
+ * dropped, and the first entry for a url wins. Every provider funnels its raw
+ * items through here so the backends agree on entry identity.
+ *
+ * @param fallbackAddedAt Stamped on items carrying no `addedAt`. Defaults to
+ *   now; a provider whose backend cannot record the timestamp passes a
+ *   constant so the value is stable across loads.
  */
-function parseStoredEntries(raw: string): RememberedOrigin[] | null {
-  const parsed: unknown = JSON.parse(raw);
-  if (!Array.isArray(parsed)) {
-    return null;
-  }
+export function toRememberedOrigins(
+  items: unknown[],
+  fallbackAddedAt?: string,
+): RememberedOrigin[] {
   const entries: RememberedOrigin[] = [];
   const seen = new Set<string>();
-  for (const item of parsed) {
+  const fallback = fallbackAddedAt ?? new Date().toISOString();
+  for (const item of items) {
     if (typeof item !== "object" || item === null) {
       continue;
     }
@@ -103,11 +110,16 @@ function parseStoredEntries(raw: string): RememberedOrigin[] | null {
     entries.push({
       url: normalized,
       ...(typeof name === "string" && name !== "" ? { name } : {}),
-      addedAt:
-        typeof addedAt === "string" ? addedAt : new Date().toISOString(),
+      addedAt: typeof addedAt === "string" ? addedAt : fallback,
     });
   }
   return entries;
+}
+
+/** Anything that isn't a JSON array reads as unusable, not as empty. */
+function parseStoredEntries(raw: string): RememberedOrigin[] | null {
+  const parsed: unknown = JSON.parse(raw);
+  return Array.isArray(parsed) ? toRememberedOrigins(parsed) : null;
 }
 
 // Device-scoped: the remembered list is this device's client-local view of
