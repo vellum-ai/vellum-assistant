@@ -47,11 +47,16 @@ export async function warmGuardianBindings(
  *
  * - An explicit `systemPromptOverride` (including an empty string) is used
  *   verbatim.
- * - A channel-routed conversation that already carries the requester's
- *   `trustContext` (e.g. Slack / Telegram inbound) builds with it, so the
- *   persona resolves the *requester's* `users/<slug>.md` (a DB contact lookup)
- *   rather than the guardian/default profile.
- * - Otherwise (no construction-time identity — the local vellum app sets trust
+ * - A channel-routed conversation carrying a non-guardian requester
+ *   `trustContext` (e.g. Slack / Telegram inbound) builds with it directly:
+ *   the requester's persona (`users/<slug>.md`) resolves via a DB contact
+ *   lookup that needs no guardian binding.
+ * - A guardian-class `trustContext` (background and scheduled turns, memory
+ *   consolidation, managed desktop) warms the guardian binding first: its
+ *   persona resolution reads the sync guardian-delivery cache, which is cold
+ *   in worker processes (schedule worker, memory worker) and after TTL expiry
+ *   in the daemon.
+ * - Otherwise (no construction-time identity: the local vellum app sets trust
  *   after creation) the guardian binding is warmed first so the persona slot
  *   resolves the guardian's `users/<slug>.md` instead of `users/default.md` on
  *   a cold cache.
@@ -67,7 +72,7 @@ export async function resolveInitialSystemPrompt(
     return storedOptions.systemPromptOverride;
   }
   const trustContext = storedOptions?.trustContext;
-  if (trustContext === undefined) {
+  if (trustContext === undefined || trustContext.trustClass === "guardian") {
     await (deps.warm ?? warmGuardianBindings)();
   }
   const build =

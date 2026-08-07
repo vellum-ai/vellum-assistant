@@ -41,6 +41,7 @@ import {
 import { z } from "zod";
 
 import type { AssistantConfig } from "../../../../config/types.js";
+import { getGuardianDelivery } from "../../../../contacts/guardian-delivery-reader.js";
 import {
   cachedTextBlock,
   extractToolUse,
@@ -392,6 +393,12 @@ async function runRouterBatch(
     batchIndex,
     provider,
   } = params;
+
+  // Warm the vellum guardian-delivery cache so resolveUserName's sync
+  // guardian-file resolution hits a fresh key instead of falling back to
+  // users/default.md on a cold/TTL-expired cache. Single-flight and
+  // TTL-cached, so per-batch calls collapse to at most one IPC read.
+  await getGuardianDelivery({ channelTypes: ["vellum"] });
 
   const systemPrompt = resolveRouterPrompt(
     config.memory?.v2?.router?.router_prompt_path ?? null,
