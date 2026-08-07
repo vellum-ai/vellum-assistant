@@ -16,10 +16,7 @@
  */
 import { describe, expect, test } from "bun:test";
 
-import {
-  resolveInitialSystemPrompt,
-  warmGuardianBindings,
-} from "../daemon/conversation-initial-prompt.js";
+import { resolveInitialSystemPrompt } from "../daemon/conversation-initial-prompt.js";
 import type { ConversationCreateOptions } from "../daemon/handlers/shared.js";
 import type { TrustContext } from "../daemon/trust-context-types.js";
 
@@ -64,19 +61,6 @@ const GUARDIAN_REQUESTER_TRUST = {
   trustClass: "guardian",
   requesterExternalUserId: "principal-123",
 } as unknown as TrustContext;
-
-describe("warmGuardianBindings", () => {
-  test("warms both the vellum-channel key and the unfiltered fallback key", async () => {
-    const keys: string[] = [];
-    await warmGuardianBindings(async (input) => {
-      keys.push(input?.channelTypes?.join(",") ?? "ALL");
-      return null;
-    });
-    // Both keys the persona resolver reads — peekGuardianForChannel("vellum")
-    // and its peekAnyGuardian() fallback — must be warmed.
-    expect(keys.sort()).toEqual(["ALL", "vellum"]);
-  });
-});
 
 describe("resolveInitialSystemPrompt", () => {
   test("no construction-time identity: warms the guardian binding, then builds with no trust context", async () => {

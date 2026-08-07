@@ -36,7 +36,7 @@ import { z } from "zod";
 
 import { usesConceptPageMemory } from "../../../../config/memory-v3-gate.js";
 import type { AssistantConfig } from "../../../../config/types.js";
-import { getGuardianDelivery } from "../../../../contacts/guardian-delivery-reader.js";
+import { warmGuardianBindings } from "../../../../contacts/guardian-delivery-reader.js";
 import { emitNotificationSignal } from "../../../../notifications/emit-signal.js";
 import { getDb } from "../../../../persistence/db-connection.js";
 import type { MemoryJob } from "../../../../persistence/jobs-store.js";
@@ -156,10 +156,11 @@ export async function memoryV2SweepJob(
       return 0;
     }
 
-    // Warm the vellum guardian-delivery cache so resolveUserName's sync
-    // guardian-file resolution hits a fresh key instead of falling back to
+    // Warm both guardian-delivery cache keys (vellum + unfiltered) so
+    // resolveUserName's sync guardian-file resolution, including its
+    // any-channel fallback, hits fresh keys instead of falling back to
     // users/default.md on this worker process's cold cache.
-    await getGuardianDelivery({ channelTypes: ["vellum"] });
+    await warmGuardianBindings();
 
     const systemPrompt = renderSweepPrompt({
       assistantName: getAssistantName(),
