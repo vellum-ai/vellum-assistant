@@ -3244,10 +3244,13 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     // are skipped; the thinking frame and timers still apply.
     const alreadyReleased = utterance.released;
     turn.speculativePending = false;
-    // Finals can land between the speculative dispatch and this verdict, so
-    // the committed turn re-reads the tally: TTS, the front model, and any
-    // escalated leg see the full utterance's language.
-    turn.language = this.turnLanguageFor(utterance);
+    // Finals can land between the speculative dispatch and this verdict.
+    // Fill the language only when dispatch had none: the model request was
+    // already issued with the dispatch language, so overwriting here would
+    // hint TTS (and any voice override) in a different language than the
+    // text it speaks. The tally still carries the corrected detection into
+    // the next turn.
+    turn.language ??= this.turnLanguageFor(utterance);
     if (turn.verdictDeadlineTimer !== null) {
       clearTimeout(turn.verdictDeadlineTimer);
       turn.verdictDeadlineTimer = null;
