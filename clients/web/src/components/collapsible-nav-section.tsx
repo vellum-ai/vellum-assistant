@@ -270,20 +270,7 @@ function CollapsibleNavSectionSection({
           }}
         >
           {iconSlot}
-          {/* The dot rides with the label rather than at the header's right
-              edge. `flex-1` lives on this wrapper, not the label, so the
-              label truncates and the dot sits immediately after the text
-              instead of being pushed to the far edge by the label's own
-              growth. Only while collapsed: an open section's rows carry the
-              same state and a header dot would double it. */}
-          <span className="flex min-w-0 flex-1 items-center gap-1">
-            <span className="min-w-0 truncate">{label}</span>
-            {collapsedIndicator ? (
-              <span className="flex shrink-0 items-center group-data-[state=open]/section:hidden">
-                {collapsedIndicator}
-              </span>
-            ) : null}
-          </span>
+          <span className="min-w-0 flex-1 truncate">{label}</span>
         </Collapsible.Trigger>
       ) : (
         // Non-collapsible: no chevron, no toggle affordance, just the icon
@@ -307,12 +294,39 @@ function CollapsibleNavSectionSection({
           <span className="min-w-0 flex-1 truncate">{label}</span>
         </div>
       )}
-      {collapsible || trailing ? (
+      {collapsible || trailing || collapsedIndicator ? (
         <span className="flex shrink-0 items-center gap-1 pr-[6px] max-md:pr-2">
-          {trailing ? (
-            <span
-              data-slot="collapsible-nav-section-trailing"
-              /* `empty:hidden` so a trailing component that renders nothing
+          {trailing || collapsedIndicator ? (
+            /* One cell, both occupants stacked in it: every child is placed
+               in the same grid area, so the dot and the "…" share a position
+               and nothing shifts as one gives way to the other. Grid rather
+               than absolute positioning keeps both in the layout, which is
+               what lets the menu stay keyboard reachable (`focus-within`
+               cannot fire on a `display:none` element) and lets the cell size
+               itself from the wider of the two. */
+            <span className="grid shrink-0 place-items-center [&>*]:[grid-area:1/1]">
+              {collapsedIndicator ? (
+                /* Only while collapsed: an open section's rows carry the same
+                   state, so a header dot would double it. `pointer-events-none`
+                   because it is painted over the menu button it shares a cell
+                   with. */
+                <span
+                  data-slot="collapsible-nav-section-indicator"
+                  className={cn(
+                    "pointer-events-none flex items-center",
+                    "transition-opacity",
+                    "group-hover/header:opacity-0",
+                    "max-md:opacity-0",
+                    "group-data-[state=open]/section:hidden",
+                  )}
+                >
+                  {collapsedIndicator}
+                </span>
+              ) : null}
+              {trailing ? (
+                <span
+                  data-slot="collapsible-nav-section-trailing"
+                  /* `empty:hidden` so a trailing component that renders nothing
                  doesn't leave a padded box behind.
 
                  Revealed on hover so a column of resting headers stays quiet.
@@ -321,16 +335,18 @@ function CollapsibleNavSectionSection({
                  anything inside holds focus, so it is keyboard reachable.
                  Touch has no hover and the header's long-press sheet is the
                  equivalent there, so below `md` it simply stays visible. */
-              className={cn(
-                "flex items-center shrink-0 empty:hidden",
-                "opacity-0 transition-opacity",
-                "group-hover/header:opacity-100 focus-within:opacity-100",
-                "has-[[aria-expanded=true]]:opacity-100",
-                "max-md:opacity-100",
-              )}
-              onClick={(event) => event.stopPropagation()}
-            >
-              {trailing}
+                  className={cn(
+                    "flex items-center shrink-0 empty:hidden",
+                    "opacity-0 transition-opacity",
+                    "group-hover/header:opacity-100 focus-within:opacity-100",
+                    "has-[[aria-expanded=true]]:opacity-100",
+                    "max-md:opacity-100",
+                  )}
+                  onClick={(event) => event.stopPropagation()}
+                >
+                  {trailing}
+                </span>
+              ) : null}
             </span>
           ) : null}
           {collapsible ? (
