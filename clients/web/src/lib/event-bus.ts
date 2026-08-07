@@ -145,15 +145,21 @@ export interface BusEventMap {
   "deeplink.send": { message: string };
   "deeplink.openThread": { threadId: string };
   /**
-   * Stripe Checkout finished for a checkout the Electron shell started
-   * in the system browser. The platform bounces the browser to
+   * Stripe Checkout finished for a checkout a native shell started
+   * (the Electron shell's system browser or Capacitor iOS's in-app
+   * SFSafariViewController). The platform bounces the browser to
    * `<scheme>://billing/checkout-complete`; the billing domain consumes
-   * this to land the user back on billing (and open the post-checkout
-   * Pro onboarding wizard on success).
+   * this to land the user back on billing. `flow` says which checkout
+   * it was: `subscription` opens the post-checkout Pro onboarding
+   * wizard on success (and the upgrade-cancel page on cancel), while
+   * `top_up` toasts on success and funnels a cancel into the billing
+   * page's server-verified checkout-bonus offer flow. Parsers default
+   * `flow` to `subscription` when the link omits it (all released
+   * clients and current Pro links).
    */
   "deeplink.billingCheckoutComplete":
-    | { status: "success"; sessionId: string }
-    | { status: "cancel"; sessionId: null };
+    | { status: "success"; sessionId: string; flow: "subscription" | "top_up" }
+    | { status: "cancel"; sessionId: null; flow: "subscription" | "top_up" };
   /**
    * The user asked to talk, from outside the SPA:
    * `<scheme>://voice?mode=new|resume&prompt=…`. The single native→SPA

@@ -223,8 +223,23 @@ export interface PowerEvent {
 export type DeepLink =
   | { kind: "send"; message: string }
   | { kind: "openThread"; threadId: string }
-  | { kind: "billingCheckoutComplete"; status: "success"; sessionId: string }
-  | { kind: "billingCheckoutComplete"; status: "cancel"; sessionId: null }
+  /**
+   * `flow` distinguishes a Pro subscription checkout from a credit top-up
+   * checkout. The main-process parser defaults it to `subscription` when
+   * the link omits the `flow` query param (all current Pro links).
+   */
+  | {
+      kind: "billingCheckoutComplete";
+      status: "success";
+      sessionId: string;
+      flow: "subscription" | "top_up";
+    }
+  | {
+      kind: "billingCheckoutComplete";
+      status: "cancel";
+      sessionId: null;
+      flow: "subscription" | "top_up";
+    }
   /**
    * `<scheme>://connect`: the pair-page "Open in the Vellum app" hand-off
    * and `vellum pair --qr --app` QR codes. `url` is a validated https server

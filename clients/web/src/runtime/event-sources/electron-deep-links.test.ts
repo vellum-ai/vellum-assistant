@@ -3,8 +3,18 @@ import { beforeEach, describe, expect, mock, spyOn, test } from "bun:test";
 type DeepLink =
   | { kind: "send"; message: string }
   | { kind: "openThread"; threadId: string }
-  | { kind: "billingCheckoutComplete"; status: "success"; sessionId: string }
-  | { kind: "billingCheckoutComplete"; status: "cancel"; sessionId: null }
+  | {
+      kind: "billingCheckoutComplete";
+      status: "success";
+      sessionId: string;
+      flow: "subscription" | "top_up";
+    }
+  | {
+      kind: "billingCheckoutComplete";
+      status: "cancel";
+      sessionId: null;
+      flow: "subscription" | "top_up";
+    }
   | { kind: "connect"; url?: string; bundle?: string }
   | { kind: "unknown"; url: string };
 
@@ -85,11 +95,13 @@ describe("publishElectronDeepLinksSource", () => {
       kind: "billingCheckoutComplete",
       status: "success",
       sessionId: "cs_test_a1B2",
+      flow: "subscription",
     });
     activeCallback!({
       kind: "billingCheckoutComplete",
       status: "cancel",
       sessionId: null,
+      flow: "top_up",
     });
     activeCallback!({ kind: "connect", bundle: "eyJnYXRld2F5" });
     activeCallback!({
@@ -103,11 +115,11 @@ describe("publishElectronDeepLinksSource", () => {
       ["deeplink.openThread", { threadId: "t-1" }],
       [
         "deeplink.billingCheckoutComplete",
-        { status: "success", sessionId: "cs_test_a1B2" },
+        { status: "success", sessionId: "cs_test_a1B2", flow: "subscription" },
       ],
       [
         "deeplink.billingCheckoutComplete",
-        { status: "cancel", sessionId: null },
+        { status: "cancel", sessionId: null, flow: "top_up" },
       ],
       ["deeplink.connect", { url: null, bundle: "eyJnYXRld2F5" }],
       ["deeplink.connect", { url: "https://assistant.example.com", bundle: null }],

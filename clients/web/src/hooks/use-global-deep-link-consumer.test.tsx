@@ -1,6 +1,18 @@
-import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  mock,
+  spyOn,
+  test,
+} from "bun:test";
 import { cleanup, renderHook, act } from "@testing-library/react";
+import type { ReactNode } from "react";
 
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+
+import { organizationsBillingSummaryRetrieveOptions } from "@/generated/api/@tanstack/react-query.gen";
 import { useSubagentStore } from "@/domains/chat/subagent-store";
 import { useWorkflowStore } from "@/domains/chat/workflow-store";
 import { useLiveVoiceStore } from "@/domains/chat/voice/live-voice/live-voice-store";
@@ -18,6 +30,7 @@ import {
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { useViewerStore } from "@/stores/viewer-store";
 import { routes } from "@/utils/routes";
+import * as toastModule from "@vellumai/design-library/components/toast";
 
 /**
  * Location the app is "on", advanced by the consumer's own `navigate` calls.
@@ -42,6 +55,20 @@ mock.module("@/runtime/main-window", () => ({
   ensureMainWindowVisible: ensureMainWindowVisibleMock,
 }));
 
+// Stub the toaster: the top-up success branch toasts, and no <Toaster /> is
+// mounted here. Full toast surface: `mock.module` is process-global in bun,
+// so a partial shape would shadow the other methods for later test files.
+const toastSuccessMock = mock((..._args: unknown[]) => undefined);
+mock.module("@vellumai/design-library/components/toast", () => ({
+  ...toastModule,
+  toast: Object.assign((..._args: unknown[]) => {}, {
+    success: toastSuccessMock,
+    error: () => {},
+    info: () => {},
+    warning: () => {},
+  }),
+}));
+
 const sentryBreadcrumbMock = mock((_args: unknown) => undefined);
 // Full Sentry surface — `mock.module` is process-global in bun, so a
 // partial mock would shadow `captureException` (used by `runtime/event-sources/*`
@@ -53,6 +80,16 @@ mock.module("@sentry/react", () => ({
 
 const { useGlobalDeepLinkConsumer } =
   await import("./use-global-deep-link-consumer");
+
+// The consumer reads `useQueryClient()` (the top-up success branch refetches
+// the billing summary), so every render mounts under a provider. Fresh client
+// per test, so cache state can't leak between cases.
+let queryClient: QueryClient;
+const Wrapper = ({ children }: { children: ReactNode }) => (
+  <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+);
+const renderConsumer = () =>
+  renderHook(() => useGlobalDeepLinkConsumer(), { wrapper: Wrapper });
 const { drainPendingVoiceStart } =
   await import("@/domains/chat/voice/live-voice/start-voice-request");
 const { useIsVoiceRoomVisible } = await import(
@@ -95,9 +132,13 @@ beforeEach(() => {
   __resetPendingDeepLinkForTesting();
   __resetConnectDialogForTesting();
   mockPathname = routes.assistant;
+  queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  });
   navigateMock.mockClear();
   ensureMainWindowVisibleMock.mockClear();
   sentryBreadcrumbMock.mockClear();
+  toastSuccessMock.mockClear();
   resetStores();
 });
 
@@ -111,7 +152,7 @@ afterEach(() => {
 
 describe("deeplink.send", () => {
   test("navigates to /assistant + parks the message in the pending store + ensures window", () => {
-    renderHook(() => useGlobalDeepLinkConsumer());
+    renderConsumer();
 
     act(() => {
       publish("deeplink.send", { message: "hi" });
@@ -127,7 +168,7 @@ describe("deeplink.send", () => {
 
 describe("deeplink.openThread", () => {
   test("navigates to the conversation route + ensures window", () => {
-    renderHook(() => useGlobalDeepLinkConsumer());
+    renderConsumer();
 
     act(() => {
       publish("deeplink.openThread", { threadId: "abc-123" });
@@ -141,7 +182,7 @@ describe("deeplink.openThread", () => {
 
   test("resets the main view to chat so the thread isn't hidden behind the app viewer", () => {
     useViewerStore.setState({ mainView: "app" });
-    renderHook(() => useGlobalDeepLinkConsumer());
+    renderConsumer();
 
     act(() => {
       publish("deeplink.openThread", { threadId: "abc-123" });
@@ -157,7 +198,7 @@ describe("deeplink.openThread", () => {
     useSubagentStore.setState({ orderedIds: ["sub-1"] });
     useWorkflowStore.setState({ orderedIds: ["wf-1"] });
     useConversationStore.setState({ activeConversationId: "old-conversation" });
-    renderHook(() => useGlobalDeepLinkConsumer());
+    renderConsumer();
 
     act(() => {
       publish("deeplink.openThread", { threadId: "abc-123" });
@@ -175,7 +216,7 @@ describe("deeplink.openThread", () => {
     useWorkflowStore.setState({ orderedIds: ["wf-1"] });
     useConversationStore.setState({ activeConversationId: "abc-123" });
     useViewerStore.setState({ mainView: "app" });
-    renderHook(() => useGlobalDeepLinkConsumer());
+    renderConsumer();
 
     act(() => {
       publish("deeplink.openThread", { threadId: "abc-123" });
@@ -193,35 +234,84 @@ describe("deeplink.openThread", () => {
 });
 
 describe("deeplink.billingCheckoutComplete", () => {
-  test("success navigates to billing carrying the session id so the wizard opens", () => {
-    renderHook(() => useGlobalDeepLinkConsumer());
+  test("subscription success navigates to billing carrying the session id so the wizard opens", () => {
+    renderConsumer();
 
     act(() => {
       publish("deeplink.billingCheckoutComplete", {
         status: "success",
         sessionId: "cs_test_a1B2",
+        flow: "subscription",
       });
     });
 
     expect(navigateMock).toHaveBeenCalledWith(
       "/assistant/settings/usage?tab=billing&session_id=cs_test_a1B2",
     );
+    expect(toastSuccessMock).not.toHaveBeenCalled();
     expect(ensureMainWindowVisibleMock).toHaveBeenCalledTimes(1);
   });
 
-  test("cancel lands on the upgrade-cancel page — no session id, no wizard", () => {
-    renderHook(() => useGlobalDeepLinkConsumer());
+  test("subscription cancel lands on the upgrade-cancel page: no session id, no wizard", () => {
+    renderConsumer();
 
     act(() => {
       publish("deeplink.billingCheckoutComplete", {
         status: "cancel",
         sessionId: null,
+        flow: "subscription",
       });
     });
 
     expect(navigateMock).toHaveBeenCalledWith(
       "/assistant/settings/billing/upgrade/cancel",
     );
+    expect(ensureMainWindowVisibleMock).toHaveBeenCalledTimes(1);
+  });
+
+  test("top_up success toasts + refetches the billing summary, with no forced navigation", () => {
+    const invalidateSpy = spyOn(queryClient, "invalidateQueries");
+    renderConsumer();
+
+    act(() => {
+      publish("deeplink.billingCheckoutComplete", {
+        status: "success",
+        sessionId: "cs_test_a1B2",
+        flow: "top_up",
+      });
+    });
+
+    // Same copy the web return path's `BillingStatusHandler` toasts.
+    expect(toastSuccessMock).toHaveBeenCalledWith(
+      "Payment received! Your credit balance will update shortly.",
+      { id: "billing-status" },
+    );
+    expect(invalidateSpy).toHaveBeenCalledWith({
+      queryKey: organizationsBillingSummaryRetrieveOptions().queryKey,
+    });
+    // The user stays wherever they were: a top-up has no wizard to open.
+    expect(navigateMock).not.toHaveBeenCalled();
+    expect(ensureMainWindowVisibleMock).toHaveBeenCalledTimes(1);
+  });
+
+  test("top_up cancel lands on billing with billing_status=cancel, the offer flow's single owner", () => {
+    renderConsumer();
+
+    act(() => {
+      publish("deeplink.billingCheckoutComplete", {
+        status: "cancel",
+        sessionId: null,
+        flow: "top_up",
+      });
+    });
+
+    // `usageBilling` already carries `?tab=billing`, so the param appends
+    // with `&`: the exact query `BillingStatusHandler` consumes to run the
+    // server-verified checkout-bonus offer flow.
+    expect(navigateMock).toHaveBeenCalledWith(
+      "/assistant/settings/usage?tab=billing&billing_status=cancel",
+    );
+    expect(toastSuccessMock).not.toHaveBeenCalled();
     expect(ensureMainWindowVisibleMock).toHaveBeenCalledTimes(1);
   });
 });
@@ -251,7 +341,7 @@ describe("deeplink.startVoice", () => {
     seedEligibleAssistant();
     const starter = mock((_a: string, _c: string | null) => undefined);
     useLiveVoiceStore.getState().setStarter(asStarter(starter));
-    renderHook(() => useGlobalDeepLinkConsumer());
+    renderConsumer();
 
     act(() => {
       publish("deeplink.startVoice", { mode: "new", prompt: null });
@@ -265,7 +355,7 @@ describe("deeplink.startVoice", () => {
 
   test("parks the request when no controller is mounted, and the drain starts it once a starter registers (cold launch)", async () => {
     seedEligibleAssistant();
-    renderHook(() => useGlobalDeepLinkConsumer());
+    renderConsumer();
 
     act(() => {
       publish("deeplink.startVoice", { mode: "new", prompt: null });
@@ -294,7 +384,7 @@ describe("deeplink.startVoice", () => {
     seedEligibleAssistant("0.10.11");
     const starter = mock((_a: string, _c: string | null) => undefined);
     useLiveVoiceStore.getState().setStarter(asStarter(starter));
-    renderHook(() => useGlobalDeepLinkConsumer());
+    renderConsumer();
 
     act(() => {
       publish("deeplink.startVoice", { mode: "new", prompt: null });
@@ -312,7 +402,7 @@ describe("deeplink.startVoice", () => {
     useLiveVoiceStore.getState().setStarter(asStarter(starter));
     useLiveVoiceStore.getState().setState("listening");
     useLiveVoiceStore.getState().setSessionContext("assistant-1", "conv-9");
-    renderHook(() => useGlobalDeepLinkConsumer());
+    renderConsumer();
 
     act(() => {
       publish("deeplink.startVoice", { mode: "resume", prompt: null });
@@ -339,7 +429,7 @@ describe("deeplink.startVoice", () => {
     useLiveVoiceStore.getState().setSessionContext("assistant-1", "conv-9");
     useLiveVoiceStore.getState().setRoomMinimized(true);
     mockPathname = routes.conversation("conv-9");
-    renderHook(() => useGlobalDeepLinkConsumer());
+    renderConsumer();
     expect(isVoiceRoomVisible()).toBe(false);
 
     act(() => {
@@ -360,7 +450,7 @@ describe("deeplink.startVoice", () => {
     useLiveVoiceStore.getState().setSessionContext("assistant-1", "conv-9");
     useLiveVoiceStore.getState().setRoomMinimized(true);
     mockPathname = routes.conversation("conv-9");
-    renderHook(() => useGlobalDeepLinkConsumer());
+    renderConsumer();
 
     act(() => {
       publish("deeplink.startVoice", { mode: "new", prompt: null });
@@ -375,7 +465,7 @@ describe("deeplink.startVoice", () => {
     seedEligibleAssistant();
     const starter = mock((_a: string, _c: string | null) => undefined);
     useLiveVoiceStore.getState().setStarter(asStarter(starter));
-    renderHook(() => useGlobalDeepLinkConsumer());
+    renderConsumer();
 
     act(() => {
       publish("deeplink.startVoice", { mode: "resume", prompt: null });
@@ -399,7 +489,7 @@ describe("deeplink.startVoice", () => {
     useLiveVoiceStore.getState().setStarter(asStarter(starter));
     useLiveVoiceStore.getState().setState("listening");
     useLiveVoiceStore.getState().setSessionContext("assistant-1", "conv-9");
-    renderHook(() => useGlobalDeepLinkConsumer());
+    renderConsumer();
 
     act(() => {
       publish("deeplink.startVoice", { mode: "new", prompt: null });
@@ -418,7 +508,7 @@ describe("deeplink.startVoice", () => {
     seedEligibleAssistant();
     const starter = mock((_a: string, _c: string | null) => undefined);
     useLiveVoiceStore.getState().setStarter(asStarter(starter));
-    renderHook(() => useGlobalDeepLinkConsumer());
+    renderConsumer();
 
     act(() => {
       publish("deeplink.startVoice", { mode: "resume", prompt: null });
@@ -449,7 +539,7 @@ describe("deeplink.startVoice", () => {
     useLiveVoiceStore.getState().setState("listening");
     useLiveVoiceStore.getState().setSessionContext("assistant-1", "draft-1");
     useLiveVoiceStore.getState().setConversationId("conv-7");
-    renderHook(() => useGlobalDeepLinkConsumer());
+    renderConsumer();
 
     act(() => {
       publish("deeplink.startVoice", { mode: "resume", prompt: null });
@@ -472,7 +562,7 @@ describe("deeplink.startVoice", () => {
     useLiveVoiceStore.getState().setState("listening");
     useLiveVoiceStore.getState().setSessionContext("assistant-1", null);
     useLiveVoiceStore.getState().setConversationId("conv-7");
-    renderHook(() => useGlobalDeepLinkConsumer());
+    renderConsumer();
 
     act(() => {
       publish("deeplink.startVoice", { mode: "resume", prompt: null });
@@ -494,7 +584,7 @@ describe("deeplink.startVoice", () => {
     useLiveVoiceStore.getState().setStarter(asStarter(starter));
     useLiveVoiceStore.getState().setState("connecting");
     useLiveVoiceStore.getState().setSessionContext("assistant-1", null);
-    renderHook(() => useGlobalDeepLinkConsumer());
+    renderConsumer();
 
     act(() => {
       publish("deeplink.startVoice", { mode: "resume", prompt: null });
@@ -514,7 +604,7 @@ describe("deeplink.startVoice", () => {
     seedEligibleAssistant();
     const starter = mock((_a: string, _c: string | null) => undefined);
     useLiveVoiceStore.getState().setStarter(asStarter(starter));
-    renderHook(() => useGlobalDeepLinkConsumer());
+    renderConsumer();
 
     // Nothing survived the force-quit — the branch condition the tap hits.
     expect(useLiveVoiceStore.getState().state).toBe("idle");
@@ -537,7 +627,7 @@ describe("deeplink.startVoice", () => {
     seedEligibleAssistant();
     const starter = mock((_a: string, _c: string | null) => undefined);
     useLiveVoiceStore.getState().setStarter(asStarter(starter));
-    renderHook(() => useGlobalDeepLinkConsumer());
+    renderConsumer();
 
     act(() => {
       publish("deeplink.startVoice", {
@@ -558,7 +648,7 @@ describe("deeplink.startVoice", () => {
     seedEligibleAssistant();
     const starter = mock((_a: string, _c: string | null) => undefined);
     useLiveVoiceStore.getState().setStarter(asStarter(starter));
-    renderHook(() => useGlobalDeepLinkConsumer());
+    renderConsumer();
 
     act(() => {
       publish("deeplink.startVoice", { mode: "new", prompt: null });
@@ -577,7 +667,7 @@ describe("deeplink.startVoice", () => {
     seedEligibleAssistant();
     const starter = mock((_a: string, _c: string | null) => undefined);
     useLiveVoiceStore.getState().setStarter(asStarter(starter));
-    const { rerender } = renderHook(() => useGlobalDeepLinkConsumer());
+    const { rerender } = renderConsumer();
 
     act(() => {
       publish("deeplink.startVoice", { mode: "new", prompt: "ask me once" });
@@ -604,7 +694,7 @@ describe("deeplink.startVoice", () => {
     useLiveVoiceStore.getState().setStarter(asStarter(starter));
     useLiveVoiceStore.getState().setState("listening");
     useLiveVoiceStore.getState().setSessionContext("assistant-1", "conv-9");
-    renderHook(() => useGlobalDeepLinkConsumer());
+    renderConsumer();
 
     act(() => {
       publish("deeplink.startVoice", { mode: "resume", prompt: "and this?" });
@@ -623,7 +713,7 @@ describe("deeplink.startVoice", () => {
 
 describe("deeplink.connect", () => {
   test("a bundle link opens the connect dialog prefilled and navigates to the chooser", () => {
-    renderHook(() => useGlobalDeepLinkConsumer());
+    renderConsumer();
 
     act(() => {
       publish("deeplink.connect", { url: null, bundle: "eyJnYXRld2F5" });
@@ -638,7 +728,7 @@ describe("deeplink.connect", () => {
   });
 
   test("a url+code QR link opens the dialog with guidance naming the host", () => {
-    renderHook(() => useGlobalDeepLinkConsumer());
+    renderConsumer();
 
     act(() => {
       publish("deeplink.connect", {
@@ -658,7 +748,7 @@ describe("deeplink.connect", () => {
   });
 
   test("a link with no usable fields still routes to the flow with hostless guidance", () => {
-    renderHook(() => useGlobalDeepLinkConsumer());
+    renderConsumer();
 
     act(() => {
       publish("deeplink.connect", { url: null, bundle: null });
@@ -673,7 +763,7 @@ describe("deeplink.connect", () => {
   });
 
   test("a bundle wins over guidance when both fields arrive", () => {
-    renderHook(() => useGlobalDeepLinkConsumer());
+    renderConsumer();
 
     act(() => {
       publish("deeplink.connect", {
@@ -690,7 +780,7 @@ describe("deeplink.connect", () => {
 
 describe("deeplink.unknown", () => {
   test("Sentry breadcrumb only — no navigation or window activation", () => {
-    renderHook(() => useGlobalDeepLinkConsumer());
+    renderConsumer();
 
     act(() => {
       publish("deeplink.unknown", { url: "javascript:alert(1)" });
@@ -708,7 +798,7 @@ describe("deeplink.unknown", () => {
 
 describe("subscription lifecycle", () => {
   test("unmount unsubscribes — published events after unmount have no effect", () => {
-    const { unmount } = renderHook(() => useGlobalDeepLinkConsumer());
+    const { unmount } = renderConsumer();
 
     unmount();
 

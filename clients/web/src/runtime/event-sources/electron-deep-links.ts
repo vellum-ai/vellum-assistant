@@ -11,7 +11,7 @@ import { useConnectDialogStore } from "@/stores/connect-dialog-store";
 /**
  * Electron `vellum://` deep-link bridge → typed bus events:
  * `deeplink.send { message }` / `deeplink.openThread { threadId }`
- * / `deeplink.billingCheckoutComplete { status, sessionId }`
+ * / `deeplink.billingCheckoutComplete { status, sessionId, flow }`
  * / `deeplink.connect { url, bundle }` / `deeplink.unknown { url }`.
  *
  * Two surfaces because deep links can arrive BEFORE the renderer
@@ -43,14 +43,18 @@ export function publishElectronDeepLinksSource(): () => void {
       case "openThread":
         publish("deeplink.openThread", { threadId: link.threadId });
         break;
-      case "billingCheckoutComplete":
+      case "billingCheckoutComplete": {
+        // Absent from a main process that predates the field; default to the
+        // subscription flow, matching what every flowless link means.
+        const flow = link.flow ?? "subscription";
         publish(
           "deeplink.billingCheckoutComplete",
           link.status === "success"
-            ? { status: "success", sessionId: link.sessionId }
-            : { status: "cancel", sessionId: null },
+            ? { status: "success", sessionId: link.sessionId, flow }
+            : { status: "cancel", sessionId: null, flow },
         );
         break;
+      }
       case "connect":
         publish("deeplink.connect", {
           url: link.url ?? null,

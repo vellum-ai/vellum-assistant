@@ -58,14 +58,22 @@ const BILLING_CHECKOUT_COMPLETE_PATH_SEGMENT = "checkout-complete";
  */
 const CHECKOUT_SESSION_ID_RE = /^cs_[A-Za-z0-9_]{1,255}$/;
 
+/**
+ * Which checkout the completed Stripe session belongs to: a Pro subscription
+ * upgrade or a credit top-up. Carried as the deep link's optional `flow`
+ * query param; links that omit it (all Pro-upgrade links) are `subscription`.
+ */
+export type BillingCheckoutFlow = "subscription" | "top_up";
+
 export type BillingCheckoutCompleteDeepLinkPayload =
-  | { status: "success"; sessionId: string }
-  | { status: "cancel"; sessionId: null };
+  | { status: "success"; sessionId: string; flow: BillingCheckoutFlow }
+  | { status: "cancel"; sessionId: null; flow: BillingCheckoutFlow };
 
 /**
  * Parse a `vellum-assistant://billing/checkout-complete?status=…&session_id=…`
  * deep link, the hand-off the platform bounces a `return_target=native`
- * Checkout to (`checkout_native_return.py`).
+ * Checkout to (`checkout_native_return.py`). An optional `flow=top_up` marks
+ * a credit top-up checkout; anything else is a subscription checkout.
  *
  * Returns `null` for anything else — including a `success` without a
  * well-formed Session id, which the app can do nothing with. Semantics mirror
@@ -92,13 +100,18 @@ export function parseBillingCheckoutCompleteDeepLink(
     return null;
   }
 
+  // Only `top_up` is meaningful; a missing or unrecognized value degrades to
+  // `subscription`, which is what every link without the param means.
+  const flow: BillingCheckoutFlow =
+    url.searchParams.get("flow") === "top_up" ? "top_up" : "subscription";
+
   const status = url.searchParams.get("status");
   if (status === "cancel") {
-    return { status: "cancel", sessionId: null };
+    return { status: "cancel", sessionId: null, flow };
   }
   const sessionId = url.searchParams.get("session_id") ?? "";
   if (status === "success" && CHECKOUT_SESSION_ID_RE.test(sessionId)) {
-    return { status: "success", sessionId };
+    return { status: "success", sessionId, flow };
   }
   return null;
 }
