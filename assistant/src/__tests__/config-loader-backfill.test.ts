@@ -1080,10 +1080,7 @@ describe("loadConfig startup behavior", () => {
     writeConfig({
       llm: {
         profiles: { balanced: edited },
-        // Anything still pointing at a disabled profile is repaired at boot
-        // (see the re-enable tests below), so the chat selection sits on a
-        // profile the user has left enabled.
-        activeProfile: "quality-optimized",
+        activeProfile: "balanced",
       },
     });
 
@@ -1128,7 +1125,7 @@ describe("loadConfig startup behavior", () => {
     writeConfig({
       llm: {
         profiles: { balanced: stub },
-        activeProfile: "quality-optimized",
+        activeProfile: "balanced",
       },
     });
 
@@ -1141,24 +1138,6 @@ describe("loadConfig startup behavior", () => {
     // Content still comes from the catalog — only label/status/topP are
     // workspace-owned.
     expect(effectiveBalanced?.model).toBe("gpt-5.6-luna");
-  });
-
-  test("boot moves activeProfile off a disabled default rather than re-enabling it", () => {
-    // The disable is the user's, so boot honors it and repairs the selection
-    // instead: a disabled profile is not a usable chat model, so it is
-    // repointed exactly like a dangling name would be.
-    writeConfig({
-      llm: {
-        profiles: { balanced: { source: "managed", status: "disabled" } },
-        activeProfile: "balanced",
-      },
-    });
-
-    mergeDefaultConfigAndSeedInferenceProfiles();
-    const raw = JSON.parse(readFileSync(CONFIG_PATH, "utf-8"));
-
-    expect(raw.llm.profiles.balanced.status).toBe("disabled");
-    expect(raw.llm.activeProfile).toBe("quality-optimized");
   });
 
   test("boot leaves an unreferenced disabled default hidden", () => {

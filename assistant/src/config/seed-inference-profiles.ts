@@ -145,33 +145,19 @@ export function seedInferenceProfiles(
     profiles as Record<string, ProfileEntry>,
   ) as Record<string, Record<string, unknown>>;
 
-  // Active profile resolution. A disabled profile is not a usable selection
-  // (the resolver skips it), so it counts as absent and gets repaired like a
-  // dangling name.
+  // Active profile resolution.
   const requestedActiveProfile = readString(llm.activeProfile);
   const requestedActiveEntry =
     requestedActiveProfile !== undefined
       ? readObject(effectiveProfiles[requestedActiveProfile])
       : null;
-  const requestedActiveExists =
-    requestedActiveEntry !== null && requestedActiveEntry.status !== "disabled";
+  const requestedActiveExists = requestedActiveEntry !== null;
   const shouldPreserveActiveProfile =
     options.preserveActiveProfile === true && requestedActiveExists;
 
   if (!shouldPreserveActiveProfile) {
     if (options.isHatch || !requestedActiveExists) {
-      // The first enabled default rather than `balanced` outright: the user
-      // may have disabled it, and pinning the chat model to a hidden profile
-      // would put the composer on a model absent from its own picker.
-      // `latency-optimized` closes the list because it is code-owned and so
-      // can never be disabled.
-      llm.activeProfile =
-        firstActiveManagedProfile(effectiveProfiles, [
-          "balanced",
-          "quality-optimized",
-          "cost-optimized",
-          "latency-optimized",
-        ]) ?? "balanced";
+      llm.activeProfile = "balanced";
     }
   }
 

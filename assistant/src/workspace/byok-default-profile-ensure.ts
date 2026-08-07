@@ -461,10 +461,8 @@ function withCompletionBaked(
  * default-profile-catalog.ts). A carried `status: "disabled"` is the user's
  * disable and is honored in full: the picker hides the default and the
  * resolver skips it at every rung (see `providerAwareEntry` in
- * config/llm-resolver.ts). `repairProfileSelections` below repoints the
- * advisor and chat selections off it in the same write, and
- * `clearDisablesOnReferencedDefaults` (config/seed-inference-profiles.ts)
- * catches any other reference on the next boot.
+ * config/llm-resolver.ts), so `repairProfileSelections` below will not seat
+ * the advisor on it.
  */
 function userOverlayState(
   entry: Record<string, unknown>,
@@ -583,32 +581,24 @@ function repairProfileSelections(
     );
 
   // A disabled profile is skipped by the resolver, so it is never a usable
-  // selection, for the advisor or the chat model. That holds whether the
-  // disable is a carry off the user's retired copy or state already on the
-  // bare key: both are the user's, and both hide the profile from every
-  // picker.
-  const isUsable = (name: unknown): boolean => {
-    if (typeof name !== "string") {
-      return false;
-    }
-    const entry = effectiveEntry(name);
-    return entry !== undefined && entry.status !== "disabled";
-  };
-
-  if (!isUsable(llm.advisorProfile)) {
-    const fallback = ADVISOR_FALLBACK_ORDER.find(isUsable);
+  // advisor. That holds whether the disable is a carry off the user's retired
+  // copy or state already on the bare key: both are the user's.
+  const advisor = llm.advisorProfile;
+  const advisorEntry =
+    typeof advisor === "string" ? effectiveEntry(advisor) : undefined;
+  if (advisorEntry === undefined || advisorEntry.status === "disabled") {
+    const fallback = ADVISOR_FALLBACK_ORDER.find((key) => {
+      const entry = effectiveEntry(key);
+      return entry !== undefined && entry.status !== "disabled";
+    });
     if (fallback !== undefined) {
       llm.advisorProfile = fallback;
     }
   }
 
-  if (typeof llm.activeProfile === "string" && !isUsable(llm.activeProfile)) {
-    // `balanced` only when the user has left it enabled; otherwise the first
-    // enabled class, mirroring `seedInferenceProfiles`' active repair. The
-    // final `balanced` is unreachable (a config with every default disabled
-    // cannot be written) and keeps the assignment a string.
-    llm.activeProfile =
-      ["balanced", ...ADVISOR_FALLBACK_ORDER].find(isUsable) ?? "balanced";
+  const active = llm.activeProfile;
+  if (typeof active === "string" && effectiveEntry(active) === undefined) {
+    llm.activeProfile = "balanced";
   }
 }
 

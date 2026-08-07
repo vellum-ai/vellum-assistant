@@ -137,27 +137,6 @@ export function badRequestMessage(error: unknown): string | undefined {
 }
 
 /**
- * Like {@link badRequestMessage}, but also accepts 409. A conflict from the
- * daemon is the same kind of verdict as a 400: the write was refused because
- * of something the user can see and change ("it is referenced by
- * llm.activeProfile"), and the message names what to change, which generic
- * retry copy cannot.
- */
-export function userActionableMessage(error: unknown): string | undefined {
-  if (!(error instanceof ApiError)) {
-    return undefined;
-  }
-  if (error.status !== 400 && error.status !== 409) {
-    return undefined;
-  }
-  const message = error.message.trim();
-  if (message.length === 0 || /^HTTP \d+$/.test(message)) {
-    return undefined;
-  }
-  return message;
-}
-
-/**
  * Wrap a non-OK response and its raw error body into a status-carrying
  * {@link ApiError}. The daemon client's error interceptor uses this, and so do
  * `throwOnError: false` reads that bypass that interceptor but still need the

@@ -65,12 +65,14 @@ mock.module("../../sync/resource-sync-events.js", () => ({
 
 import { setConfig } from "../../../__tests__/helpers/set-config.js";
 import { loadRawConfig } from "../../../config/loader.js";
-import { collectProfileReferences } from "../../../config/profile-references.js";
 import { getDb } from "../../../persistence/db-connection.js";
 import { initializeDb } from "../../../persistence/db-init.js";
 import { providerConnections } from "../../../persistence/schema/inference.js";
 import { BadRequestError, ConflictError, NotFoundError } from "../errors.js";
-import { ROUTES } from "../inference-profiles-routes.js";
+import {
+  collectProfileReferences,
+  ROUTES,
+} from "../inference-profiles-routes.js";
 import type { RouteDefinition, RouteHandlerArgs } from "../types.js";
 
 await initializeDb();

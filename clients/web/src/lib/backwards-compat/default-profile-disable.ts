@@ -11,10 +11,10 @@
  *
  * New behavior (>= MIN_VERSION): a default profile can be disabled, which
  * hides it from every picker and stops the resolver selecting it at any rung.
- * The daemon refuses a disable that would strand a live reference, and refuses
- * one on a code-owned profile (`latency-optimized`), whose body resolves from
- * the catalog verbatim so a persisted status would never take effect. Both
- * refusals carry a message the row surfaces verbatim.
+ * The daemon refuses a disable on a code-owned profile (`latency-optimized`),
+ * whose body resolves from the catalog verbatim so a persisted status would
+ * never take effect; that refusal carries a message the row surfaces
+ * verbatim.
  *
  * Enabling is deliberately NOT gated: it was always accepted, and a profile
  * left disabled by a newer assistant must stay recoverable after a downgrade.

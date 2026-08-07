@@ -42,7 +42,6 @@ import {
   withSuppressedConfigDiskWritesSync,
 } from "../../config/loader.js";
 import { completeCustomProfile } from "../../config/profile-materialization.js";
-import { collectProfileReferences } from "../../config/profile-references.js";
 import { AssistantConfigSchema } from "../../config/schema.js";
 import { getSchemaAtPath } from "../../config/schema-utils.js";
 import {
@@ -119,7 +118,6 @@ import { resolveActorPrincipalIdForLocalGuardian } from "../local-actor-identity
 import { publishConfigChanged } from "../sync/resource-sync-events.js";
 import {
   BadRequestError,
-  ConflictError,
   ForbiddenError,
   InternalError,
   NotFoundError,
@@ -1187,9 +1185,7 @@ export function rejectManagedProfileDeletion(
  * - `status` moves freely between `"active"` (equivalently `null`/absent) and
  *   `"disabled"`: it is the user's hide/show control over a default profile,
  *   mirroring the enable/disable verb default plugins use. Any other value is
- *   rejected. What a disable may NOT do, namely strand a live reference, is
- *   enforced separately by {@link assertNoReferencesToDisabledDefaults},
- *   which needs the whole config rather than one entry.
+ *   rejected.
  * - Wire-only keys (`WIRE_ONLY_PROFILE_KEYS`) are ignored on both sides:
  *   incoming writes have them stripped, but configs persisted before the
  *   strip existed may still carry them on disk, and treating that stale key
@@ -1259,108 +1255,6 @@ function assertInvariantProfilesPreserved(
           `Managed profiles are read-only; duplicate to a custom profile to customize.`,
       );
     }
-  }
-}
-
-/**
- * The names of the managed default profiles a config carries as disabled,
- * gated on managed ownership like every other managed guard: a user-owned
- * profile sharing a default's name is an ordinary custom profile and follows
- * custom-profile rules.
- */
-function disabledManagedDefaults(raw: Record<string, unknown>): {
-  llm: Record<string, unknown> | null;
-  names: string[];
-} {
-  const llm = asMutablePlainObject(raw.llm);
-  const profiles = asMutablePlainObject(llm?.profiles);
-  if (!llm || !profiles) {
-    return { llm: null, names: [] };
-  }
-  const names = [...MANAGED_PROFILE_NAMES].filter((name) => {
-    const entry = asMutablePlainObject(profiles[name]);
-    return entry?.source === "managed" && entry.status === "disabled";
-  });
-  return { llm, names };
-}
-
-/**
- * Enforce one invariant: no live reference may name a disabled managed
- * default profile.
- *
- * A disabled profile is skipped by the resolver, so an `activeProfile` /
- * `advisorProfile` / call-site pin / mix arm naming one silently resolves to
- * a different model while every UI keeps rendering the pin. The delete route
- * rejects the same hazard for custom profiles; disable is a default's only
- * removal verb, so it inherits that guard and the same `referencedBy`
- * payload, which the settings client can feed to the reassign step.
- *
- * Runs at `commitConfigWrite`, so it holds whichever side of the pair a write
- * moves: disabling a referenced profile and pointing a new reference at an
- * already-disabled one are the same violation, and both are rejected.
- *
- * Only violations this write INTRODUCES are rejected. Configs written before
- * the invariant existed can already carry one (hatch-era seeding wrote
- * disabled stubs, and the BYOK conversion pass carries a disable onto a bare
- * default key), and failing every subsequent config write on a workspace like
- * that would be far worse than the stale pin. Pre-existing pairs are
- * therefore grandfathered; startup selection repair moves `activeProfile` and
- * `advisorProfile` off a disabled profile anyway, and a stale call-site pin
- * falls through the resolver exactly as a disabled custom profile's does.
- *
- * Custom profiles are deliberately out of scope: their disable is a
- * reversible soft form of a delete they can also perform outright, and that
- * delete is already reference-guarded. Widening this to them would change
- * long-standing behavior on a path this feature does not touch.
- */
-function assertNoReferencesToDisabledDefaults(
-  oldRaw: Record<string, unknown>,
-  newRaw: Record<string, unknown>,
-): void {
-  const next = disabledManagedDefaults(newRaw);
-  if (!next.llm || next.names.length === 0) {
-    return;
-  }
-
-  // A code-owned profile resolves from the catalog verbatim, overlay and all
-  // (`resolveAgainstBody`), so a `status` written onto one is inert: it would
-  // keep dispatching while the settings row claimed it was off. Reject rather
-  // than accept a write that does nothing. It is also why the catalog can
-  // never empty, so no separate last-profile floor is needed.
-  const previous = disabledManagedDefaults(oldRaw);
-  for (const name of next.names) {
-    if (CODE_OWNED_PROFILE_NAMES.has(name) && !previous.names.includes(name)) {
-      throw new BadRequestError(
-        `Cannot disable profile "${name}": its configuration is code-owned ` +
-          `and it backs call sites that have no substitute.`,
-      );
-    }
-  }
-
-  const grandfathered = new Set<string>();
-  for (const name of previous.names) {
-    for (const reference of collectProfileReferences(previous.llm, name)) {
-      grandfathered.add(`${name} ${reference}`);
-    }
-  }
-
-  for (const name of next.names) {
-    const introduced = collectProfileReferences(next.llm, name).filter(
-      (reference) => !grandfathered.has(`${name} ${reference}`),
-    );
-    if (introduced.length === 0) {
-      continue;
-    }
-    const plural =
-      introduced.length === 1 ? "that reference" : "those references";
-    // Which half of the pair moved decides which half the message asks the
-    // user to change.
-    const message = previous.names.includes(name)
-      ? `Cannot point ${introduced.join(", ")} at profile "${name}": it is disabled. ` +
-        `Enable it first, or pick another profile.`
-      : `Cannot disable profile "${name}": it is referenced by ${introduced.join(", ")}. ` +
-        `Clear or repoint ${plural} first.`;
-    throw new ConflictError(message, { referencedBy: introduced });
   }
 }
 
@@ -1508,7 +1402,6 @@ export async function commitConfigWrite(
   const preWrite = loadRawConfig();
   completeChangedCustomProfiles(preWrite, raw);
   assertInvariantProfilesPreserved(preWrite, raw);
-  assertNoReferencesToDisabledDefaults(preWrite, raw);
   assertRoutableIdentityEntries(raw);
 
   // Suppress the file-watcher callback for the duration of the debounce

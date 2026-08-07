@@ -66,12 +66,6 @@ export function ModelProfilesContent() {
             profile disappears from the model pickers and is never picked for an
             action behind the scenes. You can re-enable it at any time.
           </p>
-          <p className="mb-4 text-stone-600 dark:text-stone-400">
-            Disabling is refused while something still points at the profile: your
-            workspace default, your advisor model, or a per-action override. Move
-            those to another profile first, and the app will tell you which ones
-            they are.
-          </p>
           <div className="overflow-x-auto">
             <table className="mb-4 w-full text-sm text-stone-600 dark:text-stone-400">
               <thead>

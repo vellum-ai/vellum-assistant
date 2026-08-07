@@ -10,7 +10,7 @@ import {
 } from "@/generated/daemon/@tanstack/react-query.gen";
 import { captureError } from "@/lib/sentry/capture-error";
 import { useSupportsActiveProfileRoute } from "@/lib/backwards-compat/use-supports-active-profile-route";
-import { badRequestMessage, userActionableMessage } from "@/utils/api-errors";
+import { badRequestMessage } from "@/utils/api-errors";
 import type { ConfigPatchRequest } from "@/generated/daemon/types.gen";
 
 const MAKE_ACTIVE_ERROR_CONTEXT = "settings-ai-profile-make-active";
@@ -130,11 +130,11 @@ export function useProfileActions(assistantId: string): ProfileActions {
         },
       });
     } catch (error) {
-      // A disable the daemon refuses is a verdict about this config, not an
-      // app fault: it names the references still pointing at the profile.
-      // Show it verbatim and skip the Sentry report, since the user is the
-      // one who can fix it.
-      const serverMessage = userActionableMessage(error);
+      // A disable the daemon refuses is a verdict about this profile, not an
+      // app fault: a code-owned profile cannot be hidden, and the message says
+      // so. Show it verbatim and skip the Sentry report, since it is not a
+      // failure the user can retry past.
+      const serverMessage = badRequestMessage(error);
       toast.error(serverMessage ?? STATUS_ERROR_MESSAGE);
       if (!serverMessage) {
         captureError(error, { context: "settings-ai-profile-toggle" });

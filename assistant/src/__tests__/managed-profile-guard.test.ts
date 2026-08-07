@@ -10,9 +10,6 @@
  *   moving it either way is how a user hides a default profile from their
  *   pickers or brings it back. A user-owned (`source: "user"`) entry sharing
  *   a managed name is not locked at all.
- * - The disable guard (`assertNoReferencesToDisabledDefaults`), which refuses
- *   a write that leaves a live reference naming a disabled default. Such a
- *   reference resolves to a different model with nothing in the UI saying so.
  *
  * Plus the wire-only profile keys (`invariant`, `supportsVision`) stamped on
  * config reads: PATCH/SET strip them so a GET → write round-trip succeeds.
@@ -662,70 +659,6 @@ describe("managed-profile invariant guard — rejected writes", () => {
     expect(saved.source).toBe("managed");
   });
 
-  test("PATCH disabling balanced is rejected while it is still referenced", async () => {
-    (rawConfig as Record<string, any>).llm.activeProfile = "balanced";
-    seedRawConfig(rawConfig);
-    await expect(
-      patchRoute.handler({
-        body: { llm: { profiles: { balanced: { status: "disabled" } } } },
-      }),
-    ).rejects.toThrow(
-      /Cannot disable profile "balanced": it is referenced by llm\.activeProfile/,
-    );
-    expectNothingCommitted();
-  });
-
-  test("PATCH may repoint a reference and disable in one write", async () => {
-    // What the settings client's reassign step submits: references are read
-    // from the post-write config, so an atomic repoint + disable is allowed.
-    (rawConfig as Record<string, any>).llm.activeProfile = "balanced";
-    seedRawConfig(rawConfig);
-    await patchRoute.handler({
-      body: {
-        llm: {
-          activeProfile: "my-custom",
-          profiles: { balanced: { status: "disabled" } },
-        },
-      },
-    });
-    const llm = committedRaw()!.llm as Record<string, any>;
-    expect(llm.activeProfile).toBe("my-custom");
-    expect(llm.profiles.balanced.status).toBe("disabled");
-  });
-
-  test("PATCH pointing a NEW reference at an already-disabled default is rejected", async () => {
-    // The other half of the same invariant. Without this, a two-step write
-    // (disable while unreferenced, then point a call site at it) would leave
-    // a pin the resolver silently ignores.
-    (rawConfig as Record<string, any>).llm.profiles.balanced.status =
-      "disabled";
-    seedRawConfig(rawConfig);
-    await expect(
-      patchRoute.handler({
-        body: { llm: { callSites: { recall: { profile: "balanced" } } } },
-      }),
-    ).rejects.toThrow(
-      /Cannot point llm\.callSites\.recall at profile "balanced": it is disabled/,
-    );
-    expectNothingCommitted();
-  });
-
-  test("PATCH tolerates a reference to a disabled default that already existed", async () => {
-    // Pre-existing violations are grandfathered: configs written before this
-    // invariant can carry one, and failing every later write would be worse
-    // than the stale pin. An unrelated edit still commits.
-    (rawConfig as Record<string, any>).llm.profiles.balanced.status =
-      "disabled";
-    (rawConfig as Record<string, any>).llm.callSites = {
-      recall: { profile: "balanced" },
-    };
-    seedRawConfig(rawConfig);
-    await patchRoute.handler({
-      body: { llm: { profiles: { "my-custom": { label: "Renamed" } } } },
-    });
-    expect(savedProfile("my-custom").label).toBe("Renamed");
-  });
-
   test("PATCH setting a label on balanced is rejected", async () => {
     await expect(
       patchRoute.handler({
@@ -766,24 +699,6 @@ describe("managed-profile invariant guard — rejected writes", () => {
         body: { llm: { profiles: { balanced: { topP: null } } } },
       }),
     ).rejects.toThrow('Cannot edit managed profile "balanced" fields [topP]');
-    expectNothingCommitted();
-  });
-
-  test("PATCH disabling a referenced managed-source os-beta is rejected", async () => {
-    (rawConfig as Record<string, any>).llm.profiles["os-beta"] = {
-      provider: "together",
-      model: "zai-org/GLM-5.2",
-      source: "managed",
-    };
-    (rawConfig as Record<string, any>).llm.advisorProfile = "os-beta";
-    seedRawConfig(rawConfig);
-    await expect(
-      patchRoute.handler({
-        body: { llm: { profiles: { "os-beta": { status: "disabled" } } } },
-      }),
-    ).rejects.toThrow(
-      /Cannot disable profile "os-beta": it is referenced by llm\.advisorProfile/,
-    );
     expectNothingCommitted();
   });
 

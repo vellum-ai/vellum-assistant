@@ -1138,24 +1138,6 @@ describe("PUT /v1/config/llm/profiles/:name", () => {
       expect(saved.source).toBe("managed");
     });
 
-    test("rejects disabling a managed profile that is still referenced", async () => {
-      (rawConfigFixture.llm as Record<string, unknown>).callSites = {
-        recall: { profile: "os-beta" },
-      };
-      seedRawConfig();
-
-      await expect(
-        replaceProfileRoute.handler({
-          pathParams: { name: "os-beta" },
-          body: { status: "disabled" },
-        }),
-      ).rejects.toThrow(
-        /Cannot disable profile "os-beta": it is referenced by llm\.callSites\.recall/,
-      );
-      // Guard rejects before any write — the seed status is untouched.
-      expect(persistedProfile("os-beta").status).toBe("active");
-    });
-
     test("rejects a managed status value that is neither active nor disabled", async () => {
       await expect(
         replaceProfileRoute.handler({
