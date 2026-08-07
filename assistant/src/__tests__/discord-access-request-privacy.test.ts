@@ -101,6 +101,16 @@ function desktopGuardian(): ActorContext {
   };
 }
 
+/** A guardian who decided from Telegram about a Discord requester. */
+function telegramGuardian(): ActorContext {
+  return {
+    actorPrincipalId: TEST_PRINCIPAL_ID,
+    actorExternalUserId: "telegram-guardian-1",
+    channel: "telegram",
+    guardianPrincipalId: TEST_PRINCIPAL_ID,
+  };
+}
+
 /** A guardian who decided by replying in the Discord guild channel. */
 function discordGuardian(): ActorContext {
   return {
@@ -237,6 +247,92 @@ describe("Discord access-request decisions stay out of the guild channel", () =>
     );
     expect(requesterNotice).toBeDefined();
     expect(isDmRoute(requesterNotice?.url ?? "")).toBe(true);
+  });
+
+  test("a guardian on another channel still gets their copy of the code", async () => {
+    // The requester's route is suppressed because a Discord guild channel has
+    // no one reader; the guardian's is not, because theirs is a private
+    // Telegram chat. Suppressing both would leave the guardian with no
+    // confirmation and no code, so the approval would read as a no-op.
+    const req = makeDiscordAccessRequest();
+    const TELEGRAM_CALLBACK = "http://127.0.0.1:7830/deliver/telegram";
+
+    const result = await applyGuardianDecision({
+      requestId: req.id,
+      action: "verify_code",
+      actorContext: telegramGuardian(),
+      channelDeliveryContext: {
+        replyCallbackUrl: TELEGRAM_CALLBACK,
+        guardianChatId: "telegram-chat-1",
+        assistantId: "asst-test",
+      },
+    });
+
+    expect(result.applied).toBe(true);
+    const secret = sim.state.mintedSecret;
+
+    const guardianCode = deliverReplyCalls.find(
+      (c) =>
+        c.payload.chatId === "telegram-chat-1" &&
+        String(c.payload.text ?? "").includes(secret),
+    );
+    expect(guardianCode).toBeDefined();
+    // Their code goes to their own channel, never the requester's transport.
+    expect(guardianCode?.url).toBe(TELEGRAM_CALLBACK);
+
+    // The requester is still reached privately, on Discord's own route.
+    const requesterDelivery = deliverReplyCalls.find(
+      (c) => c.payload.chatId === REQUESTER,
+    );
+    expect(requesterDelivery).toBeDefined();
+    expect(isDmRoute(requesterDelivery?.url ?? "")).toBe(true);
+    expect(deliveredChatIds()).not.toContain(GUILD_CHANNEL);
+  });
+
+  test("the requester is not handed a code they cannot reply to", async () => {
+    // Discord's DM ingress lane is not open on this branch, so a code DM'd
+    // with "reply with it here" would strand the requester holding a secret
+    // they can never spend. Until the lane lands they get the courier notice
+    // and the guardian relays the code.
+    const req = makeDiscordAccessRequest();
+
+    const result = await applyGuardianDecision({
+      requestId: req.id,
+      action: "verify_code",
+      actorContext: desktopGuardian(),
+    });
+
+    expect(result.applied).toBe(true);
+    const secret = sim.state.mintedSecret;
+
+    const requesterDelivery = deliverReplyCalls.find(
+      (c) => c.payload.chatId === REQUESTER,
+    );
+    expect(requesterDelivery).toBeDefined();
+    expect(String(requesterDelivery?.payload.text ?? "")).not.toContain(secret);
+  });
+
+  test("a denial still records the guardian-facing lifecycle signal", async () => {
+    // The signal used to be gated on the in-band reply context, which the
+    // per-reader suppression removes for Discord. Losing it would mean a
+    // Discord denial left no record for the guardian at all.
+    const req = makeDiscordAccessRequest();
+
+    await applyGuardianDecision({
+      requestId: req.id,
+      action: "block",
+      actorContext: discordGuardian(),
+      channelDeliveryContext: {
+        replyCallbackUrl: GUILD_REPLY_CALLBACK,
+        guardianChatId: GUILD_CHANNEL,
+        assistantId: "asst-test",
+      },
+    });
+
+    const decisionSignals = emitSignalCalls.filter(
+      (c) => c.sourceEventName === "ingress.trusted_contact.guardian_decision",
+    );
+    expect(decisionSignals).toHaveLength(1);
   });
 
   test("no Discord delivery is ever addressed to the originating conversation", async () => {

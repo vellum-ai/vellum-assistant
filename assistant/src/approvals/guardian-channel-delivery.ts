@@ -55,17 +55,36 @@ export function channelCanAddressOneReaderInBand(channel: string): boolean {
 }
 
 /**
- * Whether the channel can reach a requester privately by addressing their user
- * id, so a verification code can go straight to them instead of the guardian
- * relaying it out of band.
+ * Whether a notice can be addressed to one person by their user id rather than
+ * to the conversation the request arrived in.
  *
  * Slack opens a 1:1 DM when a `U…` id is posted as the channel. Discord
- * resolves a user snowflake to a DM channel on its `dm`-marked route. No other
- * channel has a guaranteed private path to a user id, so elsewhere the code
- * stays with the guardian and the requester gets a courier notice.
+ * resolves a user snowflake to a DM channel on its `dm`-marked route. This is
+ * an OUTBOUND question only: it says a message can be put in front of one
+ * person, and nothing about whether they can answer it.
  */
-export function channelHasPrivateRequesterRoute(channel: string): boolean {
+export function channelDeliversToUserId(channel: string): boolean {
   return channel === "slack" || channel === "discord";
+}
+
+/**
+ * Whether a verification code can be sent straight to the requester, rather
+ * than handed to the guardian to relay out of band.
+ *
+ * Deliberately NOT the same set as {@link channelDeliversToUserId}, though it
+ * looks like it. That one asks whether a message reaches one person; this asks
+ * whether a code handshake can COMPLETE there, which additionally needs the
+ * reply to be heard. The copy this gates says "reply with it here", so a
+ * channel that can send into a DM but not receive from one strands the
+ * requester holding a code they can never spend, which is worse than the
+ * courier path it replaced.
+ *
+ * Discord is absent for exactly that reason: its DM ingress lane is not open
+ * yet (`gateway/src/discord/admit.ts` drops a message with no guild), so its
+ * codes stay on the courier path until it is.
+ */
+export function channelCanCompleteCodeHandshakeInDm(channel: string): boolean {
+  return channel === "slack";
 }
 
 /**
@@ -89,7 +108,7 @@ export function resolveRequesterDeliveryTarget(params: {
   requesterExternalUserId: string;
 }): string {
   const { channel, requesterChatId, requesterExternalUserId } = params;
-  if (channelHasPrivateRequesterRoute(channel) && requesterExternalUserId) {
+  if (channelDeliversToUserId(channel) && requesterExternalUserId) {
     return requesterExternalUserId;
   }
   return requesterChatId;
