@@ -675,6 +675,17 @@ export interface CompanionSurfaceState {
    */
   call: VoiceActivityState | null;
   /**
+   * The dictation session the surface is hosting, or `null` when none is.
+   *
+   * Set while the surface is standing in for the top-center dictation overlay,
+   * which it does for as long as it is on screen: one assistant, one place, the
+   * same rule the running call follows. The states are the overlay's own
+   * ({@link DictationOverlayState}) rather than a restatement of them, because
+   * both surfaces draw the same session and a second vocabulary is how the two
+   * come to disagree about what a session is doing.
+   */
+  dictation: DictationOverlayState | null;
+  /**
    * The assistant's avatar as a base64 PNG, or `undefined` when there is none.
    *
    * Reuses the cache main already keeps for the Dock and Tray icons, which the

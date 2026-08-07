@@ -9,6 +9,7 @@ import {
   type CompanionGrowth,
   type CompanionContext,
   type CompanionSurfaceState,
+  type DictationOverlayState,
   type VellumCommand,
   type VoiceActivityState,
 } from "@vellumai/ipc-contract";
@@ -154,6 +155,8 @@ const CANVAS_HEIGHT = (MAX_RISE + CANVAS_PAD) * 2;
 /** Gap from the work area's bottom-right on the first ever launch. */
 const DEFAULT_MARGIN = 24;
 
+/** A canvas origin, which is what `BrowserWindow.getPosition` deals in. */
+type Origin = { x: number; y: number };
 
 let growth: CompanionGrowth = "right";
 
@@ -178,6 +181,26 @@ let call: VoiceActivityState | null = null;
 let context: CompanionContext = { assistantName: "", turns: [] };
 
 /**
+ * The dictation session the surface is standing in for, or `null` when none is.
+ *
+ * Held here for the same reason the call is: the states arrive from the
+ * renderer that owns the recording, and this surface's own renderer can reload
+ * mid-session.
+ */
+let dictation: DictationOverlayState | null = null;
+
+/**
+ * Where the surface sat before a dictation session moved it, or `null` when it
+ * is at rest where the user left it.
+ *
+ * A session snaps the avatar to the cursor and the end of that session puts it
+ * back. Remembering the spot is what makes the move a loan rather than a
+ * relocation: the surface is dragged where the user wants it, and dictating
+ * must not be a way to quietly lose that.
+ */
+let parkedOrigin: Origin | null = null;
+
+/**
  * The state the renderer sees, rebuilt on demand.
  *
  * The avatar is read from the cache main already keeps for the Dock and Tray
@@ -192,6 +215,7 @@ const currentState = (): CompanionSurfaceState => {
     character: character === null ? undefined : character,
     avatarBase64: png === null ? undefined : png.toString("base64"),
     call,
+    dictation,
     assistantName: context.assistantName,
     turns: context.turns,
   };
@@ -257,6 +281,63 @@ export const growthFor = (
 };
 
 /**
+ * The canvas origin that puts the avatar's centre on a point, kept on screen.
+ *
+ * The canvas is many times the size of the visible circle and the avatar is
+ * pinned to its centre, so a point the caller cares about is always a statement
+ * about the avatar and always has to be backed out by half the canvas to become
+ * a window position. Getting that backwards puts the circle half a screen from
+ * where it was meant to be, which is why this is one function both callers go
+ * through rather than the arithmetic written out twice.
+ *
+ * **The clamp is on the avatar, not the canvas.** Holding the whole canvas
+ * inside the work area would keep the circle hundreds of points away from every
+ * edge, which is most of the screen ruled out; the thing that has to stay
+ * reachable is the part the user can see. So the avatar is held inside the work
+ * area by its own half-width and the canvas hangs off the display either side,
+ * which costs nothing: it is transparent and click-through.
+ */
+export const canvasOriginForAvatarCentre = (
+  centre: Origin,
+  workArea: { x: number; y: number; width: number; height: number },
+): Origin => {
+  const half = AVATAR_BOX / 2;
+  const clamp = (value: number, min: number, max: number): number =>
+    // `min` last, so a work area narrower than the avatar resolves to its near
+    // edge rather than inverting the bounds.
+    Math.max(Math.min(value, max), min);
+  const x = clamp(
+    centre.x,
+    workArea.x + half,
+    workArea.x + workArea.width - half,
+  );
+  const y = clamp(
+    centre.y,
+    workArea.y + half,
+    workArea.y + workArea.height - half,
+  );
+  return {
+    x: Math.round(x - CANVAS_WIDTH / 2),
+    y: Math.round(y - CANVAS_HEIGHT / 2),
+  };
+};
+
+/**
+ * The spot to put the surface back to, given where it is now.
+ *
+ * **The first snap of a session wins.** A session pushes several states through
+ * and the surface can be snapped again while one is running, so taking the
+ * current position each time would record a spot the session itself had already
+ * moved the surface to, and the return would put it back to the cursor rather
+ * than to where the user parked it. Once a session ends the caller drops this
+ * and the next one records afresh.
+ */
+export const parkedOriginForSnap = (
+  parked: Origin | null,
+  current: Origin,
+): Origin => parked ?? current;
+
+/**
  * Where the surface opens with no remembered position: the bottom-right of the
  * display under the cursor, near where the Dock usually is and clear of the
  * window the user is working in.
@@ -265,17 +346,16 @@ export const growthFor = (
  * computed for the avatar and then backed out to the canvas origin. Getting
  * that backwards puts the circle half a screen from where it was meant to be.
  */
-const defaultCanvasOrigin = (): { x: number; y: number } => {
+const defaultCanvasOrigin = (): Origin => {
   const cursor = screen.getCursorScreenPoint();
   const { workArea } = screen.getDisplayNearestPoint(cursor);
-  const avatarCentreX =
-    workArea.x + workArea.width - DEFAULT_MARGIN - AVATAR_BOX / 2;
-  const avatarCentreY =
-    workArea.y + workArea.height - DEFAULT_MARGIN - AVATAR_BOX / 2;
-  return {
-    x: Math.round(avatarCentreX - CANVAS_WIDTH / 2),
-    y: Math.round(avatarCentreY - CANVAS_HEIGHT / 2),
-  };
+  return canvasOriginForAvatarCentre(
+    {
+      x: workArea.x + workArea.width - DEFAULT_MARGIN - AVATAR_BOX / 2,
+      y: workArea.y + workArea.height - DEFAULT_MARGIN - AVATAR_BOX / 2,
+    },
+    workArea,
+  );
 };
 
 const pushState = (): void => {
@@ -303,6 +383,85 @@ const refreshGrowth = (): void => {
   }
   growth = next;
   pushState();
+};
+
+/**
+ * Put the window somewhere.
+ *
+ * The growth direction takes care of itself: moving fires `move`, which
+ * recomputes it, the same way dragging the surface does.
+ */
+const moveCanvasTo = (origin: Origin): void => {
+  const win = getFloatingWindow(COMPANION_KIND);
+  if (!win || win.isDestroyed()) {
+    return;
+  }
+  win.setPosition(origin.x, origin.y);
+};
+
+/**
+ * The surface as a host for a dictation session, which it is whenever it is on
+ * screen.
+ *
+ * Handed to `installDictationOverlay` from `index.ts` rather than imported
+ * there, for the reason its sibling `onRecordingLifecycle` is injected: this
+ * module reaches `main-window.ts`, and importing it into the overlay would drag
+ * that whole graph into the overlay's unit tests.
+ *
+ * **The surface is the dictation HUD for as long as it exists.** The top-center
+ * overlay is what the app falls back to when the surface is flag-off or hidden
+ * from the tray, so the two are never both on screen describing the same
+ * session. That is the rule the running call already follows: one assistant,
+ * one place on screen.
+ */
+export const companionDictationHost = {
+  /** Whether the surface is on screen to be handed a session at all. */
+  canHost: (): boolean => getFloatingWindow(COMPANION_KIND) !== null,
+
+  /**
+   * Begin: come to the cursor, and hold the spot to go back to.
+   *
+   * The mouse cursor rather than the text caret. The caret is arguably the
+   * better answer while dictating into another app's field, but reading it
+   * means the accessibility API, which returns nothing at all in Electron apps
+   * and Terminal, so the surface would sit still exactly where a user is most
+   * likely to be typing.
+   */
+  begin: (): void => {
+    const win = getFloatingWindow(COMPANION_KIND);
+    if (!win || win.isDestroyed()) {
+      return;
+    }
+    const [x, y] = win.getPosition();
+    parkedOrigin = parkedOriginForSnap(parkedOrigin, { x, y });
+    const cursor = screen.getCursorScreenPoint();
+    const { workArea } = screen.getDisplayNearestPoint(cursor);
+    moveCanvasTo(canvasOriginForAvatarCentre(cursor, workArea));
+  },
+
+  /** Draw a state. */
+  forward: (state: DictationOverlayState): void => {
+    dictation = state;
+    pushState();
+  },
+
+  /**
+   * End: drop the session and go back to where the user parked the surface.
+   *
+   * The return happens even when the surface was closed and reopened
+   * mid-session, in which case there is no window to move and the reopened one
+   * has already computed a position of its own. See `closeCompanionWindow`,
+   * which drops the remembered spot for exactly that reason.
+   */
+  end: (): void => {
+    dictation = null;
+    const parked = parkedOrigin;
+    parkedOrigin = null;
+    if (parked !== null) {
+      moveCanvasTo(parked);
+    }
+    pushState();
+  },
 };
 
 /**
@@ -624,6 +783,12 @@ export const openCompanionWindow = (): void => {
 
 const closeCompanionWindow = (): void => {
   getFloatingWindow(COMPANION_KIND)?.close();
+  // The remembered spot belongs to the window that is going away. A session
+  // running through a close and reopen would otherwise end by moving the new
+  // window to where the old one happened to sit, undoing the position it just
+  // computed for the display the cursor is actually on.
+  parkedOrigin = null;
+  dictation = null;
 };
 
 /**

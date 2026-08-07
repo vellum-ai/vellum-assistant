@@ -15,11 +15,13 @@ import {
   subscribeCompanionState,
 } from "@/runtime/companion-surface";
 import { sendVoiceActivityControl } from "@/runtime/desktop-voice-activity";
+import { requestDictationOverlayStop } from "@/runtime/dictation-overlay";
 import type {
   CompanionCharacter,
   CompanionGrowth,
   CompanionSurfaceState,
   CompanionTurn,
+  DictationOverlayState,
   VoiceActivityState,
 } from "@vellumai/ipc-contract";
 
@@ -58,6 +60,13 @@ export function CompanionSurfacePage() {
   const [avatarSrc, setAvatarSrc] = useState<string | undefined>();
   const [character, setCharacter] = useState<CompanionCharacter | undefined>();
   const [call, setCall] = useState<VoiceActivityState | null>(null);
+  // The dictation session this surface is hosting in the top-center overlay's
+  // place, or null when none is. Pushed from main with the rest of the state,
+  // for the same reason the call is: the session is owned by the renderer doing
+  // the recording, not by this window.
+  const [dictation, setDictation] = useState<DictationOverlayState | null>(
+    null,
+  );
   const [turns, setTurns] = useState<CompanionTurn[]>([]);
   // Empty until the app's window publishes one, which the surface covers with
   // the component's own fallback wording rather than drawing a blank name.
@@ -98,6 +107,7 @@ export function CompanionSurfacePage() {
       );
       setCharacter(state.character);
       setCall(state.call);
+      setDictation(state.dictation);
       setTurns(state.turns);
       setAssistantName(state.assistantName);
     };
@@ -209,23 +219,31 @@ export function CompanionSurfacePage() {
     setInteractive(inside);
   };
 
-  // **An open composer outranks everything, and a running call outranks the
+  // **An open composer outranks everything, and a live microphone outranks the
   // pointer.** The surface is otherwise a circle that only becomes a pill while
   // it is being pointed at, and a live microphone that hides itself the moment
-  // the pointer leaves is a live microphone the user cannot see. So the call
+  // the pointer leaves is a live microphone the user cannot see. So a session
   // holds the pill open, and hovering it changes nothing: the controls it wants
   // are already there.
   //
   // The composer sits above even that, because it is the one state holding
   // something of the user's. A call starting from the app while a sentence is
   // half-typed must not collapse the card and take the sentence with it.
+  //
+  // **Dictation outranks a call**, on the rare occasion both are somehow live.
+  // It is the one the user started a moment ago by holding a key down, it ends
+  // by itself in seconds, and the surface came to the cursor to show it: an
+  // avatar that moved across the screen and then drew something else entirely
+  // would be the wrong half of what just happened.
   const phase: CompanionSurfacePhase = typing
     ? "typing"
-    : call !== null
-      ? "call"
-      : hovered
-        ? "hover"
-        : "resting";
+    : dictation !== null
+      ? "dictating"
+      : call !== null
+        ? "call"
+        : hovered
+          ? "hover"
+          : "resting";
 
   // The avatar's own colour, which arrives with the session. It is `""` until
   // the avatar resolves and the contract makes no promise it parses, so
@@ -274,6 +292,12 @@ export function CompanionSurfacePage() {
         // before the app's window has published one.
         assistantName={assistantName === "" ? undefined : assistantName}
         call={call ?? undefined}
+        dictation={dictation ?? undefined}
+        // Out to main and broadcast, which is how the overlay's own stop
+        // control asks: this page does not know which renderer is holding the
+        // recording, and the one that is has a listener up for exactly as long
+        // as it does.
+        onStopDictation={requestDictationOverlayStop}
         rootRef={pillRef}
         onSurfaceMouseDown={(event) => {
           dragRef.current = { x: event.screenX, y: event.screenY };

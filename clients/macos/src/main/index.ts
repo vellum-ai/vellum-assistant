@@ -95,6 +95,7 @@ import { installPermissionsService } from "./permissions-service";
 import { installPowerEvents } from "./power-events";
 import { installIdentityIpc } from "./identity";
 import {
+  companionDictationHost,
   installCompanionWindow,
   syncCompanionSurface,
 } from "./companion-window";
@@ -481,7 +482,13 @@ app
     installCommandPaletteWindow();
     installApplicationMenu();
     installQuickInput();
-    installDictationOverlay({ onRecordingLifecycle: setDictationRecording });
+    // The companion surface draws the session instead whenever it is on
+    // screen, which leaves the top-center overlay as the fallback for a user
+    // who is not targeted by the flag or has hidden the surface from the tray.
+    installDictationOverlay({
+      onRecordingLifecycle: setDictationRecording,
+      host: companionDictationHost,
+    });
     installCompanionWindow();
     installPopoutWindows();
     installGlobalShortcuts();

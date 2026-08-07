@@ -5,7 +5,9 @@ import {
   DONE_HIDE_MS,
   ERROR_HIDE_MS,
   createDictationOverlayController,
+  createRoutedDictationDeps,
   positionDictationOverlayInWorkArea,
+  type DictationOverlayDeps,
   type DictationOverlayState,
 } from "./dictation-overlay-window";
 
@@ -162,6 +164,129 @@ describe("createDictationOverlayController", () => {
 
     h.controller.handleMessage({ kind: "recording", transcription: "" });
     expect(h.showOverlay).toHaveBeenCalledTimes(2);
+  });
+});
+
+/**
+ * Which surface draws the session.
+ *
+ * The companion surface is the dictation HUD whenever it is on screen, and the
+ * top-center overlay is the fallback for a user who is not targeted by the flag
+ * or has hidden the surface from the tray. Both are never up at once describing
+ * the same session, which is the whole reason this routes rather than fanning
+ * out.
+ */
+describe("createRoutedDictationDeps", () => {
+  const createRouted = (canHost: () => boolean) => {
+    const base = {
+      showOverlay: mock(() => undefined),
+      hideOverlay: mock(() => undefined),
+      forwardState: mock(() => undefined),
+      setTimeout: (callback: () => void) => callback as unknown,
+      clearTimeout: () => undefined,
+    } satisfies DictationOverlayDeps;
+    const host = {
+      canHost,
+      begin: mock(() => undefined),
+      forward: mock(() => undefined),
+      end: mock(() => undefined),
+    };
+    return { base, host, deps: createRoutedDictationDeps(base, host) };
+  };
+
+  const RECORDING: DictationOverlayState = {
+    kind: "recording",
+    transcription: "hi",
+  };
+
+  test("draws on the host while it is on screen", () => {
+    const { base, host, deps } = createRouted(() => true);
+
+    deps.showOverlay();
+    deps.forwardState(RECORDING);
+    deps.hideOverlay();
+
+    expect(host.begin).toHaveBeenCalledTimes(1);
+    expect(host.forward).toHaveBeenCalledWith(RECORDING);
+    expect(host.end).toHaveBeenCalledTimes(1);
+    expect(base.showOverlay).not.toHaveBeenCalled();
+    expect(base.forwardState).not.toHaveBeenCalled();
+    expect(base.hideOverlay).not.toHaveBeenCalled();
+  });
+
+  test("falls back to the overlay when the host is not on screen", () => {
+    const { base, host, deps } = createRouted(() => false);
+
+    deps.showOverlay();
+    deps.forwardState(RECORDING);
+    deps.hideOverlay();
+
+    expect(base.showOverlay).toHaveBeenCalledTimes(1);
+    expect(base.forwardState).toHaveBeenCalledWith(RECORDING);
+    expect(base.hideOverlay).toHaveBeenCalledTimes(1);
+    expect(host.begin).not.toHaveBeenCalled();
+  });
+
+  test("with no host at all, everything goes to the overlay", () => {
+    const base = {
+      showOverlay: mock(() => undefined),
+      hideOverlay: mock(() => undefined),
+      forwardState: mock(() => undefined),
+      setTimeout: (callback: () => void) => callback as unknown,
+      clearTimeout: () => undefined,
+    } satisfies DictationOverlayDeps;
+    const deps = createRoutedDictationDeps(base, undefined);
+
+    deps.showOverlay();
+    deps.hideOverlay();
+
+    expect(base.showOverlay).toHaveBeenCalledTimes(1);
+    expect(base.hideOverlay).toHaveBeenCalledTimes(1);
+  });
+
+  // The two cases the latch exists for. A surface that appears or disappears
+  // mid-session must not split it across both windows, which would leave
+  // whichever one never got its end sitting there for good.
+  test("a host that disappears mid-session still finishes the session", () => {
+    let onScreen = true;
+    const { base, host, deps } = createRouted(() => onScreen);
+
+    deps.showOverlay();
+    onScreen = false;
+    deps.forwardState(RECORDING);
+    deps.hideOverlay();
+
+    expect(host.forward).toHaveBeenCalledWith(RECORDING);
+    expect(host.end).toHaveBeenCalledTimes(1);
+    expect(base.hideOverlay).not.toHaveBeenCalled();
+  });
+
+  test("a host that appears mid-session does not steal the running one", () => {
+    let onScreen = false;
+    const { base, host, deps } = createRouted(() => onScreen);
+
+    deps.showOverlay();
+    onScreen = true;
+    deps.forwardState(RECORDING);
+    deps.hideOverlay();
+
+    expect(base.forwardState).toHaveBeenCalledWith(RECORDING);
+    expect(base.hideOverlay).toHaveBeenCalledTimes(1);
+    expect(host.begin).not.toHaveBeenCalled();
+    expect(host.end).not.toHaveBeenCalled();
+  });
+
+  test("the next session re-decides", () => {
+    let onScreen = false;
+    const { base, host, deps } = createRouted(() => onScreen);
+
+    deps.showOverlay();
+    deps.hideOverlay();
+    onScreen = true;
+    deps.showOverlay();
+
+    expect(base.showOverlay).toHaveBeenCalledTimes(1);
+    expect(host.begin).toHaveBeenCalledTimes(1);
   });
 });
 

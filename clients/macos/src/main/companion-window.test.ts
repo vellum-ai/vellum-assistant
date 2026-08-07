@@ -17,8 +17,14 @@ mock.module("electron-store", () => ({
 
 // Dynamic, so the mock above is installed before the module graph loads:
 // static imports hoist above it.
-const { growthFor, callOnStart, callOnUpdate, shouldShowCompanionSurface } =
-  await import("./companion-window");
+const {
+  growthFor,
+  callOnStart,
+  callOnUpdate,
+  shouldShowCompanionSurface,
+  canvasOriginForAvatarCentre,
+  parkedOriginForSnap,
+} = await import("./companion-window");
 
 /** A session as the mirror publishes one, before main stamps its clock. */
 const START = {
@@ -147,5 +153,118 @@ describe("shouldShowCompanionSurface", () => {
   // wrote last time, and a fresh install has none.
   test("stays away when nothing is known yet", () => {
     expect(shouldShowCompanionSurface(false, false)).toBe(false);
+  });
+});
+
+/**
+ * Where the window goes when a dictation session calls the surface to the
+ * cursor.
+ *
+ * The canvas is far larger than the circle drawn in it, so every position is
+ * stated as the avatar's centre and backed out by half the canvas. That
+ * arithmetic is the whole of the bug surface here: off by the wrong half and
+ * the avatar lands a third of a screen from the pointer that summoned it.
+ */
+describe("canvasOriginForAvatarCentre", () => {
+  // Half of `CANVAS_WIDTH` (724) and `CANVAS_HEIGHT` (584): what the avatar's
+  // centre is offset by to become the window's own origin.
+  const HALF_W = 362;
+  const HALF_H = 292;
+  // Half the avatar's 44pt box, which is how close its centre may get to an
+  // edge before the circle would start leaving the display.
+  const HALF_AVATAR = 22;
+  const WORK_AREA = { x: 0, y: 0, width: 1440, height: 900 };
+
+  test("centres the avatar on the point", () => {
+    expect(canvasOriginForAvatarCentre({ x: 720, y: 450 }, WORK_AREA)).toEqual({
+      x: 720 - HALF_W,
+      y: 450 - HALF_H,
+    });
+  });
+
+  test("holds the avatar inside the top-left corner", () => {
+    expect(canvasOriginForAvatarCentre({ x: 0, y: 0 }, WORK_AREA)).toEqual({
+      x: HALF_AVATAR - HALF_W,
+      y: HALF_AVATAR - HALF_H,
+    });
+  });
+
+  test("holds the avatar inside the bottom-right corner", () => {
+    expect(canvasOriginForAvatarCentre({ x: 1440, y: 900 }, WORK_AREA)).toEqual(
+      {
+        x: 1440 - HALF_AVATAR - HALF_W,
+        y: 900 - HALF_AVATAR - HALF_H,
+      },
+    );
+  });
+
+  test("the canvas is allowed off the display, the avatar is not", () => {
+    // The origin lands well outside the work area at every edge, which is the
+    // point: clamping the canvas instead would keep the circle 362pt from the
+    // left of every display and 292pt from the top.
+    const origin = canvasOriginForAvatarCentre({ x: 0, y: 0 }, WORK_AREA);
+    expect(origin.x).toBeLessThan(WORK_AREA.x);
+    expect(origin.y).toBeLessThan(WORK_AREA.y);
+  });
+
+  test("clamps against the display's own origin, not the screen's", () => {
+    // A second display to the right of the primary. A cursor on its left edge
+    // is at x=1440 in screen coordinates, which is inside this display and must
+    // not be pulled to the primary's bounds.
+    const secondary = { x: 1440, y: 0, width: 1440, height: 900 };
+    expect(canvasOriginForAvatarCentre({ x: 1440, y: 450 }, secondary)).toEqual(
+      {
+        x: 1440 + HALF_AVATAR - HALF_W,
+        y: 450 - HALF_H,
+      },
+    );
+  });
+
+  test("rounds to whole points", () => {
+    // Electron takes integers, and a fractional position is silently truncated
+    // somewhere further down rather than rejected.
+    const origin = canvasOriginForAvatarCentre(
+      { x: 720.6, y: 450.4 },
+      WORK_AREA,
+    );
+    expect(Number.isInteger(origin.x)).toBe(true);
+    expect(Number.isInteger(origin.y)).toBe(true);
+  });
+
+  test("a work area narrower than the avatar resolves to its near edge", () => {
+    // The bounds cross over here, so the two clamps disagree. Answering with
+    // the near edge keeps the arithmetic total rather than returning something
+    // outside the display on the far side.
+    const sliver = { x: 0, y: 0, width: 30, height: 30 };
+    expect(canvasOriginForAvatarCentre({ x: 15, y: 15 }, sliver)).toEqual({
+      x: HALF_AVATAR - HALF_W,
+      y: HALF_AVATAR - HALF_H,
+    });
+  });
+});
+
+/**
+ * The spot the surface goes back to when the session that moved it ends.
+ *
+ * The rule is one line and the bug it prevents is not obvious: a session pushes
+ * many states, and re-reading the window's position on any of them would record
+ * the cursor the session had already moved it to.
+ */
+describe("parkedOriginForSnap", () => {
+  test("records where the surface was parked on the first snap", () => {
+    expect(parkedOriginForSnap(null, { x: 100, y: 200 })).toEqual({
+      x: 100,
+      y: 200,
+    });
+  });
+
+  test("a later snap in the same session does not overwrite it", () => {
+    const parked = parkedOriginForSnap(null, { x: 100, y: 200 });
+    // The surface has since been moved to the cursor. Recording that would put
+    // the return at the cursor rather than at the spot the user chose.
+    expect(parkedOriginForSnap(parked, { x: 900, y: 40 })).toEqual({
+      x: 100,
+      y: 200,
+    });
   });
 });

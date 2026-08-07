@@ -79,7 +79,7 @@ const meta: Meta<StoryArgs> = {
   argTypes: {
     phase: {
       control: "inline-radio",
-      options: ["resting", "hover", "call", "typing"],
+      options: ["resting", "hover", "call", "dictating", "typing"],
     },
     backdrop: {
       control: "inline-radio",
@@ -214,6 +214,55 @@ export const InCallMuted: Story = {
  */
 export const OnALightDesktop: Story = {
   args: { phase: "call", backdrop: "light" },
+};
+
+/**
+ * Dictating: the surface standing in for the top-center dictation overlay,
+ * having come to the cursor to do it.
+ *
+ * The words run past the room the pill gives them here on purpose. The line is
+ * anchored to its end, so what falls off is the beginning: a speaker checking
+ * the surface mid-sentence is checking that the words just said arrived, not
+ * re-reading the ones from ten seconds ago.
+ */
+export const Dictating: Story = {
+  args: {
+    phase: "dictating",
+    dictation: {
+      kind: "recording",
+      transcription:
+        "let's move the review to thursday afternoon if that still works for everyone",
+    },
+  },
+};
+
+/** The first moment of a session, before any words have been heard. */
+export const DictatingSilent: Story = {
+  args: {
+    phase: "dictating",
+    dictation: { kind: "recording", transcription: "" },
+  },
+};
+
+/**
+ * The key released: the stop control goes with it, because there is no longer
+ * anything to stop, and the mascot takes over as the thing showing work.
+ */
+export const DictatingProcessing: Story = {
+  args: { phase: "dictating", dictation: { kind: "processing" } },
+};
+
+/**
+ * A session that failed, carrying the reason.
+ *
+ * The message is the overlay's own wording passed straight through, so the two
+ * surfaces never explain the same failure differently.
+ */
+export const DictatingError: Story = {
+  args: {
+    phase: "dictating",
+    dictation: { kind: "error", message: "Microphone unavailable" },
+  },
 };
 
 /**

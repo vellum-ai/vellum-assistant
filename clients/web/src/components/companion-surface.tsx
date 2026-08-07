@@ -5,6 +5,7 @@ import {
   Keyboard,
   Mic,
   MicOff,
+  StopCircle,
   Volume2,
   VolumeX,
   X,
@@ -20,6 +21,7 @@ import type {
 import type {
   CompanionCharacter,
   CompanionTurn,
+  DictationOverlayState,
   VoiceActivityControlAction,
   VoiceActivityState,
 } from "@vellumai/ipc-contract";
@@ -75,6 +77,13 @@ export type CompanionSurfacePhase =
   | "resting"
   | "hover"
   | "call"
+  /**
+   * Dictating: the surface is standing in for the top-center dictation
+   * overlay, having come to the cursor to do it. The pill holds open for the
+   * session the way it does for a call, and for the same reason: a live
+   * microphone that only shows itself on hover is one the user cannot see.
+   */
+  | "dictating"
   /**
    * Typing: the pill becomes a card carrying a condensed read of the
    * conversation and somewhere to answer it. The only phase that grows
@@ -154,8 +163,21 @@ const FALLBACK_WIDTHS: Record<CompanionSurfacePhase, number> = {
   resting: AVATAR_BOX,
   hover: 188,
   call: 296,
+  dictating: 296,
   typing: 360,
 };
+
+/**
+ * How much room the live transcription may take before it starts scrolling
+ * itself.
+ *
+ * The pill measures its own body, so an uncapped line would widen the surface
+ * with every word until it ran off the display. Past this the newest words push
+ * the older ones out of view instead, which is the same bargain the overlay's
+ * two-line box makes and the right one: what a speaker needs to see is that the
+ * words arriving are the words they said.
+ */
+const TRANSCRIPTION_MAX_WIDTH = 180;
 
 /**
  * The card is a fixed width, unlike the pills.
@@ -320,6 +342,22 @@ export interface CompanionSurfaceProps {
    * no-op the next push corrects.
    */
   onControl?: (action: VoiceActivityControlAction, requestId?: string) => void;
+  /**
+   * The dictation session, when `phase` is `dictating`.
+   *
+   * The overlay's own state rather than a restatement of it: this surface and
+   * the top-center overlay draw the same session, and only one of them is on
+   * screen at a time.
+   */
+  dictation?: DictationOverlayState;
+  /**
+   * Stop the recording, which is what the pill's stop control asks for.
+   *
+   * The control the top-center overlay carries, kept here because this surface
+   * replaces it: a user who reaches for the mouse to stop dictating must not
+   * find that the button moved out from under them when the HUD did.
+   */
+  onStopDictation?: () => void;
 }
 
 export function CompanionSurface({
@@ -344,6 +382,8 @@ export function CompanionSurface({
   onAvatarClick,
   call,
   onControl,
+  dictation,
+  onStopDictation,
 }: CompanionSurfaceProps) {
   const expanded = phase !== "resting";
   const typing = phase === "typing";
@@ -459,8 +499,14 @@ export function CompanionSurface({
           // The assistant's own turn. The creature stops blinking and holds a
           // focused, morphing pose, which is the same treatment the chat avatar
           // uses while a reply is streaming: one vocabulary for "it is working"
-          // wherever the user meets it.
-          busy={call !== undefined && ASSISTANT_TURN_PHASES.has(call.phase)}
+          // wherever the user meets it. Dictation has the same shape: the
+          // speaker's turn ends at the key, and what follows is the assistant
+          // working on what it heard.
+          busy={
+            dictation !== undefined
+              ? dictation.kind === "processing"
+              : call !== undefined && ASSISTANT_TURN_PHASES.has(call.phase)
+          }
           onMouseEnter={onHoverStart}
           onClick={onAvatarClick}
         />
@@ -489,6 +535,11 @@ export function CompanionSurface({
           >
             {phase === "call" ? (
               <CallBody call={call} onControl={onControl} />
+            ) : phase === "dictating" ? (
+              <DictationBody
+                dictation={dictation}
+                onStopDictation={onStopDictation}
+              />
             ) : (
               <IdleBody spotlight={spotlight} onTalk={onTalk} onType={onType} />
             )}
@@ -876,6 +927,99 @@ function CallBody({
       />
     </>
   );
+}
+
+/**
+ * Expanded, mid-dictation: the words as they arrive, and the way to stop.
+ *
+ * **This is the top-center overlay's content on the surface that replaced it**,
+ * so it carries the same three things that pill did: whether the session is
+ * recording, processing or finished, what has been heard so far, and a stop
+ * control. It has one line where that pill had two, which is what the
+ * transcription's treatment below is about.
+ *
+ * **The status is the mascot's job, not a glyph's.** The same choice `CallBody`
+ * makes and for the same reason: a recording dot next to a stop button is two
+ * red circles forty pixels apart meaning different things. The creature holds
+ * the state instead, and the words carry the rest.
+ */
+function DictationBody({
+  dictation,
+  onStopDictation,
+}: {
+  dictation?: DictationOverlayState;
+  onStopDictation?: () => void;
+}) {
+  // No session yet is the first frame of one, which reads better as the state
+  // the surface is about to be in than as an empty pill.
+  const state: DictationOverlayState = dictation ?? {
+    kind: "recording",
+    transcription: "",
+  };
+  const transcription =
+    state.kind === "recording" ? state.transcription.trim() : "";
+
+  return (
+    <>
+      {/* **Anchored to its end, so the newest words win.** The line grows as
+          the speaker talks and the interesting end is the one still being
+          written, so overflow is pushed off the left rather than ellipsed on
+          the right: truncating forward would freeze the pill on the opening
+          words and hide everything said since. */}
+      {transcription === "" ? (
+        <span className="ml-1 shrink-0 text-[12px] text-white/85">
+          {stateLabel(state)}
+        </span>
+      ) : (
+        <span
+          className="ml-1 flex min-w-0 justify-end overflow-hidden"
+          style={{ maxWidth: TRANSCRIPTION_MAX_WIDTH }}
+        >
+          <span className="whitespace-nowrap text-[12px] text-white/85">
+            {transcription}
+          </span>
+        </span>
+      )}
+      {/* Only while there is something to stop. A terminal state lingers a
+          beat before the surface goes back to rest, and a stop button on a
+          session that already ended is a control that does nothing. */}
+      {state.kind === "recording" && (
+        <PillButton
+          icon={<StopCircle className="size-4" strokeWidth={2} />}
+          label="Stop recording"
+          tone="negative"
+          onClick={onStopDictation}
+        />
+      )}
+    </>
+  );
+}
+
+/**
+ * What the session is doing, for the moments it has no words to show instead.
+ *
+ * Only ever drawn when there is no transcription yet: once words are arriving
+ * they say the same thing better, and the mascot is already carrying the state.
+ *
+ * **"Listening" where the overlay says "Recording…"**, which is the one place
+ * the two HUDs deliberately part. That pill is a system recording indicator and
+ * names the machine's activity; this one is an assistant with a face on it, and
+ * a creature that says it is recording you reads as surveillance where the same
+ * creature saying it is listening reads as attention. Everything else here is
+ * the overlay's wording verbatim, `error` included, so a failure is never
+ * explained two different ways.
+ */
+function stateLabel(state: DictationOverlayState): string {
+  switch (state.kind) {
+    case "recording":
+      return "Listening";
+    case "processing":
+      return "Processing…";
+    case "done":
+      return "Done";
+    case "error":
+      return state.message;
+  }
 }
 
 /**

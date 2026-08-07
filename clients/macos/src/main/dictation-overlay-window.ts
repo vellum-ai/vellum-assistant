@@ -134,6 +134,72 @@ export const createDictationOverlayController = (
   return { handleMessage };
 };
 
+/**
+ * A surface that can draw a dictation session in the overlay's place.
+ *
+ * Structural rather than an import of the companion surface's own module: this
+ * one is loaded by the overlay's unit tests, and the companion window reaches
+ * `main-window.ts`, which cannot resolve off-Electron. The real implementation
+ * is `companionDictationHost`, injected from `index.ts`.
+ */
+export interface DictationHost {
+  /** Whether this surface is on screen to take a session right now. */
+  canHost: () => boolean;
+  /** A session is beginning. */
+  begin: () => void;
+  /** Draw a state. */
+  forward: (state: DictationOverlayState) => void;
+  /** The session is over. */
+  end: () => void;
+}
+
+/**
+ * The overlay's deps, routed to whichever surface should draw the session.
+ *
+ * A decorator over the deps rather than a branch inside the state machine: the
+ * rules about when a session begins, how long a terminal state lingers and what
+ * a `dismiss` may cut short are the same wherever it is drawn, and a second
+ * copy of them is how the two surfaces would come to disagree.
+ *
+ * **The target is latched when the session begins.** Deciding per call would
+ * let a surface appearing or disappearing mid-session split it across both:
+ * shown on one and hidden on the other, which strands whichever surface never
+ * got its end. The window that took the session is the window that finishes it.
+ */
+export const createRoutedDictationDeps = (
+  base: DictationOverlayDeps,
+  host: DictationHost | undefined,
+): DictationOverlayDeps => {
+  let routedToHost = false;
+
+  return {
+    ...base,
+    showOverlay: () => {
+      routedToHost = host?.canHost() === true;
+      if (routedToHost) {
+        host?.begin();
+        return;
+      }
+      base.showOverlay();
+    },
+    forwardState: (state) => {
+      if (routedToHost) {
+        host?.forward(state);
+        return;
+      }
+      base.forwardState(state);
+    },
+    hideOverlay: () => {
+      if (routedToHost) {
+        routedToHost = false;
+        host?.end();
+        return;
+      }
+      base.hideOverlay();
+    },
+  };
+};
+
 // ---------------------------------------------------------------------------
 // Window plumbing
 // ---------------------------------------------------------------------------
@@ -236,19 +302,30 @@ export const installDictationOverlay = (
      * recording even when the overlay itself is suppressed.
      */
     onRecordingLifecycle?: (recording: boolean) => void;
+    /**
+     * A surface that draws the session in this overlay's place while it is on
+     * screen, which is what the companion surface does. Injected rather than
+     * imported: see {@link DictationHost}.
+     */
+    host?: DictationHost;
   } = {},
 ): void => {
   if (installed) return;
   installed = true;
 
-  const controller = createDictationOverlayController({
-    showOverlay,
-    hideOverlay,
-    forwardState: sendState,
-    setTimeout,
-    clearTimeout: (handle) =>
-      clearTimeout(handle as ReturnType<typeof setTimeout>),
-  });
+  const controller = createDictationOverlayController(
+    createRoutedDictationDeps(
+      {
+        showOverlay,
+        hideOverlay,
+        forwardState: sendState,
+        setTimeout,
+        clearTimeout: (handle) =>
+          clearTimeout(handle as ReturnType<typeof setTimeout>),
+      },
+      options.host,
+    ),
+  );
 
   on(
     "vellum:dictationOverlay:setState",
