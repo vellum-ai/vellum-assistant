@@ -88,8 +88,10 @@ public class VoiceAudioSessionPlugin extends Plugin implements AudioManager.OnAu
         }
 
         try {
+            VoiceModeService.start(getContext());
             int result = requestAudioFocus();
             if (result != AudioManager.AUDIOFOCUS_REQUEST_GRANTED) {
+                VoiceModeService.stop(getContext());
                 call.resolve(activationResult(false));
                 return;
             }
@@ -119,6 +121,7 @@ public class VoiceAudioSessionPlugin extends Plugin implements AudioManager.OnAu
     @SuppressWarnings("deprecation")
     private void releaseAudioFocus() {
         stopRouteMonitoring();
+        VoiceModeService.stop(getContext());
         if (audioManager == null) {
             active = false;
             return;
@@ -144,6 +147,7 @@ public class VoiceAudioSessionPlugin extends Plugin implements AudioManager.OnAu
         if (focusChange == AudioManager.AUDIOFOCUS_LOSS) {
             active = false;
             stopRouteMonitoring();
+            VoiceModeService.stop(getContext());
         }
         notifyListeners(EVENT_NAME, event.toJSObject());
     }

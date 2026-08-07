@@ -1,10 +1,11 @@
 /**
  * JS to native bridge for the optional `VoiceAudioSession` Capacitor plugin.
  *
- * Android uses it to hold interactive voice audio focus while the foreground
- * WebView owns capture and playback. The shipped iOS methods and payloads stay
- * unchanged, but iOS activation remains disabled at its production caller due
- * to the handset regression documented in `docs/CAPACITOR.md`.
+ * Android uses it to hold interactive voice audio focus and a microphone
+ * foreground service while the WebView owns capture and playback. The shipped
+ * iOS methods and payloads stay unchanged, but iOS activation remains disabled
+ * at its production caller due to the handset regression documented in
+ * `docs/CAPACITOR.md`.
  *
  * Every call goes through {@link callNativeVoice}. Browsers and older native
  * shells keep the existing no-op behavior.

@@ -108,12 +108,13 @@ function useNativeAudioSessionLifecycle(): void {
     };
 
     const syncAudioFocus = (): void => {
-      const settledState = useLiveVoiceStore.getState().state;
+      const settledSession = useLiveVoiceStore.getState();
+      const settledState = settledSession.state;
       const stateChanged = settledState !== lastSettledState;
       lastSettledState = settledState;
-      const nextWantsAudioFocus = isLiveVoiceSessionActive(
-        settledState,
-      );
+      const nextWantsAudioFocus =
+        isLiveVoiceSessionActive(settledState) &&
+        (settledSession.microphoneActive || hasAudioFocus);
       activationAttempts = nextWantsAudioFocus ? activationAttempts : 0;
       if (
         nextWantsAudioFocus === wantsAudioFocus &&
