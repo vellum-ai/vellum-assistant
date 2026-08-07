@@ -489,19 +489,18 @@ async function dispatchHostBrowserResult(
  * applies its own cap as the second line of defense).
  */
 /**
- * The daemon's same-actor gate rejects a host-proxy result when the actor
- * that opened this client's SSE stream and the actor submitting the result
- * don't line up — most often because the stream registered before the
- * daemon could resolve its actor identity, so the binding is missing rather
- * than genuinely mismatched. That binding is established at subscribe time,
- * so the only thing that clears it from this side is a fresh registration:
- * exactly the "disconnect and reconnect and it works again" workaround.
+ * The daemon's same-actor gate rejects a host-proxy result when the actor that
+ * opened this client's SSE stream and the actor submitting the result don't
+ * line up, most often because the stream registered before the daemon could
+ * resolve its actor identity, leaving the binding missing rather than genuinely
+ * mismatched. The binding is established at subscribe time, so the only thing
+ * that clears it from this side is a fresh registration.
  *
- * Doing it automatically keeps a single unlucky subscribe from silently
- * breaking every browser action until the user notices and reconnects by
- * hand. A cooldown keeps a persistent rejection (e.g. the stream really is
- * bound to a different user) from turning into a reconnect loop — after the
- * one attempt, the failure is left to surface as it did before.
+ * Reconnecting on the rejection keeps one unlucky subscribe from silently
+ * breaking every browser action until the user reconnects by hand. The cooldown
+ * keeps a persistent rejection (e.g. the stream really is bound to a different
+ * user) from turning into a reconnect loop: past the one attempt, the failure
+ * surfaces to the event log and stops there.
  */
 const ACTOR_BINDING_RECONNECT_COOLDOWN_MS = 60_000;
 let lastActorBindingReconnectAt = 0;
@@ -514,8 +513,12 @@ function maybeReconnectOnActorBindingRejection(
   status: number,
   body: string,
 ): void {
-  if (!isActorBindingRejection(status, body)) return;
-  if (!shouldConnect) return;
+  if (!isActorBindingRejection(status, body)) {
+    return;
+  }
+  if (!shouldConnect) {
+    return;
+  }
 
   const now = Date.now();
   if (now - lastActorBindingReconnectAt < ACTOR_BINDING_RECONNECT_COOLDOWN_MS) {

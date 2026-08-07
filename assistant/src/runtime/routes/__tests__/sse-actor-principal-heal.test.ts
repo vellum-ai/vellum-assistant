@@ -1,12 +1,12 @@
 /**
- * Regression tests for the retrying SSE actor-principal self-heal.
+ * Tests for the retrying SSE actor-principal self-heal.
  *
- * The bug these pin: the heal used to be a single fire-and-forget lookup. The
- * guardian read goes over the gateway IPC and returns `null` on any transport
- * failure, so one unlucky attempt left the subscription principal-less for its
- * whole lifetime — every host-proxy result from that client then 403'd with
- * "Submitting actor does not match the target client's actor for this request"
- * until the user reconnected by hand.
+ * The invariant they pin: a single empty or failed guardian lookup must not
+ * strand the subscription without a principal. The read goes over the gateway
+ * IPC and comes back empty both when the transport fails and when no binding
+ * exists yet, and a subscription that stays principal-less rejects every
+ * host-proxy result its client submits with "Submitting actor does not match
+ * the target client's actor for this request" until it reconnects.
  */
 import { describe, expect, mock, test } from "bun:test";
 

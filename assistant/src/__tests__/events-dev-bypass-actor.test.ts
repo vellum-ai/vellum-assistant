@@ -27,6 +27,10 @@ let fakeGuardianPrincipalId: string | undefined = undefined;
 // exactly when the SSE self-heal lookup completes.
 const pendingAsyncResolutions: Array<(value: string | undefined) => void> = [];
 
+/** Options each async resolution was called with, in the same order. */
+const asyncResolutionOptions: Array<{ forceRefresh?: boolean } | undefined> =
+  [];
+
 mock.module("../config/env.js", () => ({
   isHttpAuthDisabled: () => fakeHttpAuthDisabled,
   hasUngatedHttpAuthDisabled: () => false,
@@ -42,10 +46,14 @@ mock.module("../runtime/local-actor-identity.js", () => ({
     }
     return fakeGuardianPrincipalId;
   },
-  resolveActorPrincipalIdForLocalGuardian: (rawHeader: string | undefined) => {
+  resolveActorPrincipalIdForLocalGuardian: (
+    rawHeader: string | undefined,
+    options?: { forceRefresh?: boolean },
+  ) => {
     if (rawHeader !== "dev-bypass" || !fakeHttpAuthDisabled) {
       return Promise.resolve(rawHeader);
     }
+    asyncResolutionOptions.push(options);
     return new Promise<string | undefined>((resolve) => {
       pendingAsyncResolutions.push(resolve);
     });
@@ -86,6 +94,7 @@ afterAll(() => {
 describe("events SSE registration — dev-bypass actor translation", () => {
   beforeEach(() => {
     pendingAsyncResolutions.length = 0;
+    asyncResolutionOptions.length = 0;
   });
 
   test("translates 'dev-bypass' to the real guardian principalId when auth is disabled", () => {
@@ -280,9 +289,9 @@ describe("events SSE registration — dev-bypass actor translation", () => {
 
   test("retries the heal after a failed lookup instead of giving up for the connection's lifetime", async () => {
     // The gateway IPC returns null on any transport failure, so the first
-    // lookup can miss even when a guardian is bound. Before the retry, that
-    // one miss left the subscription principal-less until the user manually
-    // reconnected — every host-proxy result it submitted 403'd in between.
+    // lookup can miss even when a guardian is bound. A subscription left
+    // principal-less rejects every host-proxy result it submits, so the heal
+    // has to outlive one miss rather than stopping there.
     fakeHttpAuthDisabled = true;
     fakeGuardianPrincipalId = undefined; // cold cache: sync resolution misses
 
@@ -317,6 +326,15 @@ describe("events SSE registration — dev-bypass actor translation", () => {
     expect(hub.getActorPrincipalIdForClient("retry-client-001")).toBe(
       "guardian-real-id",
     );
+
+    // Every attempt must bypass the guardian-delivery cache. A successful read
+    // that finds no binding is cached for minutes, which outlives the retry
+    // schedule, so a cached read would spend all attempts on the same answer
+    // and never observe a binding created in between.
+    expect(asyncResolutionOptions).toEqual([
+      { forceRefresh: true },
+      { forceRefresh: true },
+    ]);
 
     ac.abort();
   });

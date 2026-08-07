@@ -456,15 +456,14 @@ export function handleSubscribeAssistantEvents(
     throw err;
   }
 
-  // Self-heal for dev-bypass connections: the sync resolution above reads
-  // only the guardian-delivery cache, which can be cold at connect time.
-  // Without this, the subscription would carry no principal for its whole
-  // lifetime and every host-proxy result would 403. Fire-and-forget so the
-  // stream is not delayed; keyed by connectionId so a reconnect race cannot
-  // patch the subscription that replaced this one. The lookup goes over the
-  // gateway IPC and can fail transiently, so it retries on a bounded backoff
-  // rather than leaving the subscription principal-less until the user
-  // manually reconnects — see `sse-actor-principal-heal.ts`.
+  // Self-heal for dev-bypass connections: the sync resolution above reads only
+  // the guardian-delivery cache, which can be cold at connect time, and a
+  // subscription that carries no principal for its lifetime 403s every
+  // host-proxy result it submits. The heal retries on a bounded backoff
+  // (`sse-actor-principal-heal.ts`), fire-and-forget so the stream is not
+  // delayed, keyed by connectionId so a reconnect race cannot patch the
+  // subscription that replaced this one. The lookup forces a fresh gateway read
+  // because a cached empty result outlives the retry schedule.
   if (
     clientId &&
     interfaceId &&
@@ -474,7 +473,10 @@ export function handleSubscribeAssistantEvents(
     startActorPrincipalHeal({
       hub,
       connectionId: sub.connectionId,
-      resolve: () => resolveActorPrincipalIdForLocalGuardian("dev-bypass"),
+      resolve: () =>
+        resolveActorPrincipalIdForLocalGuardian("dev-bypass", {
+          forceRefresh: true,
+        }),
     });
   }
 
