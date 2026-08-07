@@ -18,7 +18,7 @@ import type { OAuthProviderRow } from "./oauth-store.js";
 export type SerializedProvider = ReturnType<typeof serializeProvider> &
   Record<string, unknown>;
 
-import { isChannelBotProvider } from "@vellumai/service-contracts";
+import { isChannelBotProvider } from "@vellumai/service-contracts/channels";
 
 /**
  * Lightweight summary projection of an OAuth provider, suitable for API

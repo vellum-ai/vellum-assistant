@@ -22,7 +22,7 @@
  * both is worth doing and needs the specs hoisted into a shared package.
  */
 
-import { CHANNEL_BOT_PROVIDER } from "@vellumai/service-contracts";
+import { CHANNEL_BOT_PROVIDER } from "@vellumai/service-contracts/channels";
 
 export interface ManualTokenProviderSpec {
   /** Every field that must be present for the provider to count as connected. */
