@@ -137,3 +137,65 @@ describe("nullable selection", () => {
     expect(attr(html, "span", "title")).toBe("Literally the token");
   });
 });
+
+describe("Select trigger chrome", () => {
+  function triggerClasses(markup: string): string {
+    return attr(markup, "button", "class") ?? "";
+  }
+
+  /**
+   * The default trigger is the path every pre-existing call site takes, and
+   * its chrome is now assembled by branching on `variant`. These are the
+   * pieces that branch, pinned so a future variant cannot quietly restyle the
+   * control that most of the app renders.
+   */
+  test("the default trigger keeps its border, fill, width and height", () => {
+    const classes = triggerClasses(
+      renderToStaticMarkup(
+        <Select
+          aria-label="Provider"
+          options={options}
+          value="anthropic"
+          onChange={() => {}}
+        />,
+      ),
+    );
+    expect(classes).toContain("w-full");
+    expect(classes).toContain("bg-[var(--field-bg)]");
+    expect(classes).toContain("border-[var(--field-border)]");
+    expect(classes).toContain("h-9");
+    expect(classes).toContain("focus:outline-none");
+    // Ghost-only chrome must not leak into the default.
+    expect(classes).not.toContain("bg-transparent");
+    expect(classes).not.toContain("outline-transparent");
+  });
+
+  /**
+   * Ghost exists to sit in a run of read-only values, which it can only do if
+   * it claims no fixed height and draws its ring outside layout. Both are load
+   * bearing: a bordered ring would keep 2px in layout and stand the row taller
+   * than its neighbours, and a fixed height would defeat the variant outright.
+   */
+  test("the ghost trigger claims no height and rings itself with an outline", () => {
+    const classes = triggerClasses(
+      renderToStaticMarkup(
+        <Select
+          aria-label="Provider"
+          variant="ghost"
+          options={options}
+          value="anthropic"
+          onChange={() => {}}
+        />,
+      ),
+    );
+    expect(classes).toContain("w-auto");
+    expect(classes).toContain("bg-transparent");
+    expect(classes).toContain("outline-transparent");
+    expect(classes).toContain("py-1");
+    expect(classes).not.toContain("h-9");
+    // A border would sit in layout and undo the height match.
+    expect(classes).not.toContain("border-[var(--field-border)]");
+    // The base rule that would erase the ghost's own focus ring.
+    expect(classes).not.toContain("focus:outline-none");
+  });
+});
