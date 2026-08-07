@@ -79,6 +79,8 @@ function summary(
     daily_limit_reached: false,
     low_balance_threshold_usd: "5.00",
     low_balance_warning: false,
+    credits_expiring_soon_usd: "0.00",
+    next_credit_expiry_at: null,
     ...overrides,
   };
 }
