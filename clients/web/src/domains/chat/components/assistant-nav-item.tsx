@@ -63,6 +63,11 @@ import { pathBBox, unionBBox } from "@/utils/eye-bbox";
  */
 const IDENTITY_PILL_CLASSES = "h-10";
 
+/** Collapsed-rail assistant tile height (Figma 7257:135820). */
+/* Matches the circle `SideMenu.Item` and the section triggers render on the
+   rail: every tile there is the same 30px circle, so one step runs the whole
+   column. Diverging from it drifts this cluster against the sections. */
+const COLLAPSED_ASSISTANT_TILE = 30;
 /** How far the collapsed rail's tile grows the eyes on a pulse. */
 const PULSE_SCALE = 1.35;
 
@@ -333,8 +338,8 @@ export function AssistantNavItem({
                 src={uploadedAvatarUrl}
                 alt=""
                 aria-hidden="true"
-                width={SIDE_MENU_TILE_SIZE}
-                height={SIDE_MENU_TILE_SIZE}
+                width={COLLAPSED_ASSISTANT_TILE}
+                height={COLLAPSED_ASSISTANT_TILE}
                 className="h-full w-full object-cover"
               />
             ) : (

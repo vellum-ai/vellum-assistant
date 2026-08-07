@@ -16,7 +16,6 @@
  */
 
 import type { CSSProperties } from "react";
-import { panelItemWashStyle } from "@vellumai/design-library";
 
 import { BUNDLED_COMPONENTS } from "@/utils/avatar-bundled-components";
 
@@ -71,6 +70,19 @@ const HEX_BY_ID: ReadonlyMap<string, string> = new Map(
   PIN_COLORS.map((color) => [color.id, color.hex]),
 );
 
+/**
+ * How much of the colour reaches the pill. A wash rather than a solid fill,
+ * because the assistant identity pill sits directly above the pinned apps and
+ * is the sidebar's only saturated surface: solid pills under it read as its
+ * peers rather than as entries below it.
+ *
+ * Two steps, the tinted analogue of what an untinted pill already does
+ * (`--surface-lift` at rest, `--surface-active` for hover and current page),
+ * so a coloured pill keeps that ladder instead of inventing a third state.
+ */
+const WASH_REST = "15%";
+const WASH_RAISED = "24%";
+
 /** Hex for a stored colour id, or `undefined` when the registry has no such colour. */
 export function getPinColorHex(
   id: string | null | undefined,
@@ -79,14 +91,14 @@ export function getPinColorHex(
 }
 
 /**
- * The pin's wash as `PanelItem`'s tint properties, or `undefined` when the pin
- * has no (or an unrecognised) colour. In that case neither the pill nor the
- * collapsed rail's tile sees a declaration and both fall back to their plain
- * surface.
+ * The three tint custom properties `PanelItem`'s pill and `SideMenu.Item`'s
+ * tile both read, or `undefined` when the pin has no (or an unrecognised)
+ * colour. In that case neither shape sees a declaration and both fall back to
+ * their plain surface.
  *
- * A wash rather than a solid fill, because the assistant identity pill sits
- * directly above the pinned apps and is the sidebar's only saturated surface:
- * solid pills under it read as its peers rather than as entries below it.
+ * `--panel-item-fg` is deliberately left undeclared: a 15% wash moves the
+ * surface too little to need a paired foreground, so the label keeps the same
+ * content token every other row uses and stays legible in all three themes.
  */
 export function pinTintStyle(
   id: string | null | undefined,
@@ -95,5 +107,10 @@ export function pinTintStyle(
   if (!hex) {
     return undefined;
   }
-  return panelItemWashStyle(hex);
+  const raised = `color-mix(in srgb, ${hex} ${WASH_RAISED}, var(--surface-lift))`;
+  return {
+    "--panel-item-bg": `color-mix(in srgb, ${hex} ${WASH_REST}, var(--surface-lift))`,
+    "--panel-item-hover": raised,
+    "--panel-item-active": raised,
+  } as CSSProperties;
 }

@@ -37,12 +37,6 @@ export interface ChannelAdapterListProps {
  * mounts it already names it (`IntelligenceLayout`'s section `<h1>` on
  * desktop, the `MobileSidebarDrawer` title on mobile), so one here would
  * put the word on screen twice.
- *
- * Channels a plugin brings sit in the same list as the rest. They are
- * channels, they are selected the same way, and their panel is the thing
- * that differs; a heading over them would sort the list by who supplies a
- * channel, which is not what someone scanning it is looking for. A plug
- * marks them instead.
  */
 export function ChannelAdapterList({
   channels,

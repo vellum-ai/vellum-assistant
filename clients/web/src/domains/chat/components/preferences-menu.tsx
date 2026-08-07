@@ -96,15 +96,15 @@ export function PreferencesMenu({
         <span className="min-w-0 truncate">{PREFERENCES_LABEL}</span>
       </Button>
     ) : collapsed ? (
-      /* Collapsed, the same tile every other rail entry reduces to: a circle
-         at the pill's own height with the glyph centred and no label, its name
-         carried by the hover tooltip. A pill is sized by its content, so one
-         keeping its label is wider than the collapsed rail and gets clipped
-         mid-word, and one with only the label dropped is still a
-         content-width capsule with the glyph against its leading edge.
-         `SideMenu.Item` owns that whole treatment, and it is what the pinned
-         apps above and the section tiles use, so the foot of the rail is drawn
-         by the same component as the rest of it.
+      /* Collapsed, the same tile every other rail entry reduces to: a 30px
+         circle with the glyph centred and no label, its name carried by the
+         hover tooltip. A pill is sized by its content, so one keeping its
+         label is wider than the 48px rail and gets clipped mid-word, and one
+         with only the label dropped is still a content-width capsule with the
+         glyph against its leading edge. `SideMenu.Item` owns that whole
+         treatment, and it is what the pinned apps above and the section tiles
+         use, so the foot of the rail is drawn by the same component as the
+         rest of it.
 
          No chevron: it says which way the popover will open, and a tile has
          no room for it beside the glyph. */

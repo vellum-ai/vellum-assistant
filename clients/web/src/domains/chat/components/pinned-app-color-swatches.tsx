@@ -59,7 +59,9 @@ export function PinnedAppColorSwatches({
   value,
   onChange,
 }: PinnedAppColorSwatchesProps) {
-  const { t } = useTranslation("chat");
+  /* The default namespace: this release line carries a single `common`
+     catalog, the namespace split having landed on main after it was cut. */
+  const { t } = useTranslation();
 
   /* A colour the registry no longer knows resolves to no tint, so the row
      shows "no colour" as the selection, matching what the pill is painting. */
