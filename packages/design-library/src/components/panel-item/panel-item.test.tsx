@@ -131,12 +131,36 @@ describe("PanelItem shape", () => {
     expect(html).not.toContain("w-auto");
   });
 
-  test("pill keeps the row's interaction treatment", () => {
-    const html = renderShaped("pill");
+  /* The other half of the split. Without it, collapsing both shapes back onto
+     one fallback would leave the pill test passing on its own terms while the
+     row silently changed. */
+  test("a row hovers to the overlay built for its transparent rest", () => {
+    const html = renderShaped();
     expect(html).toContain(
       "[@media(hover:hover)]:hover:bg-[var(--panel-item-hover,var(--surface-hover))]",
     );
-    expect(html).toContain("aria-[current=page]:bg-[var(--surface-active)]");
+    expect(html).not.toContain(
+      "[@media(hover:hover)]:hover:bg-[var(--panel-item-hover,var(--surface-active))]",
+    );
+  });
+
+  /* A pill hovers to `--surface-active`, not to `--surface-hover` like a row.
+     `--surface-hover` is a 6% translucent overlay built for a transparent
+     base; a pill rests on `--surface-lift`, so that overlay composites darker
+     than the resting surface and the pill reads as having no hover at all.
+     Asserted as the exact class, since the failure it guards against is the
+     row's fallback being used here. */
+  test("pill keeps the row's interaction treatment", () => {
+    const html = renderShaped("pill");
+    expect(html).toContain(
+      "[@media(hover:hover)]:hover:bg-[var(--panel-item-hover,var(--surface-active))]",
+    );
+    /* The active surface reads the tint properties too, so a tinted pill stays
+       tinted while it is the current page instead of the `aria-current` rule
+       winning over the resting tint. */
+    expect(html).toContain(
+      "aria-[current=page]:bg-[var(--panel-item-active,var(--panel-item-bg,var(--surface-active)))]",
+    );
   });
 
   /* Consumers override the shape's surface, so their className has to win
@@ -157,7 +181,7 @@ describe("PanelItem shape", () => {
     expect(html).toContain("bg-[var(--panel-item-bg,var(--surface-lift))]");
     expect(html).toContain("text-[color:var(--panel-item-fg,inherit)]");
     expect(html).toContain(
-      "[@media(hover:hover)]:hover:bg-[var(--panel-item-hover,var(--surface-hover))]",
+      "[@media(hover:hover)]:hover:bg-[var(--panel-item-hover,var(--surface-active))]",
     );
   });
 });
