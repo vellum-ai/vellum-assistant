@@ -23,6 +23,9 @@ const LEGACY_TAB_ALIASES: Record<string, SettingsTab> = {
   "Archived Conversations": "Archive",
 };
 
+const VOICE_TAB_PICKER_HINT =
+  'Next time the user wants to change or hear a voice, prefer `ui_show { surface_type: "voice_picker", data: {} }`, which puts the picker in the conversation without navigating away. Navigating here is right only when the user explicitly asked to open Settings.';
+
 export async function run(
   input: Record<string, unknown>,
   context: ToolContext,
@@ -45,8 +48,9 @@ export async function run(
     });
   }
 
+  const opened = `Opened settings to the ${tab} tab.`;
   return {
-    content: `Opened settings to the ${tab} tab.`,
+    content: tab === "Voice" ? `${opened} ${VOICE_TAB_PICKER_HINT}` : opened,
     isError: false,
   };
 }
