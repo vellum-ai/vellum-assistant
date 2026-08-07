@@ -257,10 +257,13 @@ export function defaultChatRouteBurnsManagedCredits(
     }
     const name = rungNames[index];
     const entry = name ? llm?.profiles?.[name] : undefined;
-    if (!name || !entry || entry.status === "disabled") {
+    if (!name || !entry) {
       return classifyFromRung(index + 1);
     }
     if (entry.mix && entry.mix.length > 0) {
+      if (entry.status === "disabled") {
+        return classifyFromRung(index + 1);
+      }
       return anyBurns(
         entry.mix.map((arm) => {
           const armEntry = llm?.profiles?.[arm.profile];
@@ -270,21 +273,56 @@ export function defaultChatRouteBurnsManagedCredits(
             !armEntry.mix &&
             !!armEntry.provider &&
             !!armEntry.model;
-          // A seed landing on an unusable arm skips this whole rung
-          // daemon-side, so that arm stands for the rest of the chain.
-          return armUsable
-            ? classifyNamedLeaf(arm.profile)
+          if (armUsable) {
+            return classifyNamedLeaf(arm.profile);
+          }
+          // Arms expand through the same stale-stub exception as rungs
+          // (`providerAwareEntry` daemon-side), so an unusable invariant
+          // stub resolves to the default-provider route; any other
+          // unusable arm skips this whole rung for its seeds and stands
+          // for the rest of the chain.
+          return armEntry?.invariant === true
+            ? classifyStaleDefaultStub(evidence)
             : classifyFromRung(index + 1);
         }),
       );
     }
-    if (!entry.provider || !entry.model) {
+    if (entry.status === "disabled" || !entry.provider || !entry.model) {
+      // An unusable managed-source stub of a code-owned default (the wire
+      // marks those `invariant`) does NOT fall through: the daemon's
+      // `providerAwareEntry` ignores the stale stub (defaults cannot be
+      // disabled through any write path) and resolves the pure catalog body
+      // through `llm.defaultProvider`, so this rung classifies as that
+      // route instead.
+      if (entry.invariant === true) {
+        return classifyStaleDefaultStub(evidence);
+      }
       return classifyFromRung(index + 1);
     }
     return classifyNamedLeaf(name);
   };
 
   return classifyFromRung(0);
+}
+
+/**
+ * The route a stale (unusable) managed default stub actually resolves to:
+ * the pure catalog body through `llm.defaultProvider`'s column, or the
+ * catalog's own vellum column (managed) when no default provider is set.
+ */
+function classifyStaleDefaultStub(evidence: ChatRouteEvidence): boolean | null {
+  const defaultProvider = evidence.llm?.defaultProvider;
+  if (!defaultProvider) {
+    return true;
+  }
+  return classifyDispatched(
+    {
+      provider: defaultProvider.provider,
+      provider_connection: defaultProvider.connectionName,
+    },
+    evidence,
+    evidence.defaultProviderAvailability,
+  );
 }
 
 /**

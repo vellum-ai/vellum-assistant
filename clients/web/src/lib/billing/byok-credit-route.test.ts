@@ -563,6 +563,101 @@ describe("mainAgent call-site tweak composition", () => {
   });
 });
 
+describe("stale managed default stubs", () => {
+  // The wire marks managed-source code-default entries `invariant`; a stale
+  // unusable stub of one is ignored by the daemon (`providerAwareEntry`) and
+  // resolves the pure catalog body through `llm.defaultProvider`, so it must
+  // classify as that route instead of falling through the chain.
+  const STALE_BALANCED = {
+    source: "managed",
+    status: "disabled",
+    invariant: true,
+  } as const;
+
+  test("a stale invariant stub classifies as the default-provider route, not the next rung", () => {
+    expect(
+      classify({
+        llm: {
+          activeProfile: "balanced",
+          callSites: { mainAgent: { profile: "byok-pin" } },
+          profiles: {
+            balanced: STALE_BALANCED,
+            "byok-pin": {
+              provider: "anthropic",
+              model: "claude",
+              provider_connection: "my-anthropic",
+            },
+          },
+          defaultProvider: { provider: "vellum" },
+        },
+        connections: [BYOK_ANTHROPIC],
+      }),
+    ).toBe(true);
+  });
+
+  test("a stale invariant stub with no default provider is managed (catalog vellum column)", () => {
+    expect(
+      classify({
+        llm: {
+          activeProfile: "balanced",
+          profiles: { balanced: STALE_BALANCED },
+        },
+      }),
+    ).toBe(true);
+  });
+
+  test("a stale invariant stub follows a BYOK default provider", () => {
+    expect(
+      classify({
+        llm: {
+          activeProfile: "balanced",
+          profiles: { balanced: STALE_BALANCED },
+          defaultProvider: {
+            provider: "anthropic",
+            connectionName: "my-anthropic",
+          },
+        },
+        connections: [BYOK_ANTHROPIC],
+      }),
+    ).toBe(false);
+  });
+
+  test("a disabled user-owned shadow still falls through the chain", () => {
+    expect(
+      classify({
+        llm: {
+          activeProfile: "shadow",
+          callSites: { mainAgent: { profile: "pinned" } },
+          profiles: {
+            shadow: {
+              provider: "anthropic",
+              model: "claude",
+              status: "disabled",
+              source: "user",
+            },
+            pinned: { provider: "vellum", model: "claude" },
+          },
+        },
+      }),
+    ).toBe(true);
+  });
+
+  test("a stale invariant stub named as a mix arm resolves the default-provider route", () => {
+    expect(
+      classify({
+        llm: {
+          activeProfile: "mixed",
+          profiles: {
+            mixed: { mix: [{ profile: "balanced", weight: 1 }] },
+            balanced: STALE_BALANCED,
+          },
+          defaultProvider: { provider: "vellum" },
+        },
+      }),
+    ).toBe(true);
+  });
+});
+
 describe("anchor fallbacks", () => {
   test("falls back to the legacy top-level default entry for a managed verdict", () => {
     expect(
