@@ -2,7 +2,7 @@ import { SIDEBAR_STACK_GAP } from "@/components/sidebar-nav-geometry";
 import { AssistantNavItem } from "@/domains/chat/components/assistant-nav-item";
 import { PinnedAppNavItem } from "@/domains/chat/components/pinned-app-nav-item";
 import { usePinnedAppsStore } from "@/stores/pinned-apps-store";
-import { cn, SideMenu } from "@vellumai/design-library";
+import { cn } from "@vellumai/design-library";
 
 export interface SideMenuBuiltInNavProps {
   assistantId: string | null;
@@ -24,10 +24,10 @@ export interface SideMenuBuiltInNavProps {
  * in the non-scrolling header; on the overlay it renders at the top of the
  * body so the whole menu scrolls as one surface (Figma 6764:6745).
  *
- * Expanded, the block carries neither a heading over the pinned apps nor a
- * rule under them. Every entry here is a pill on the page background, and a
- * pill is already delimited by its own shape - a label and a rule on top of
- * that divide a group that reads as grouped without them.
+ * The block carries neither a heading over the pinned apps nor a rule under
+ * them, in either state. Every entry here is a pill (a circle on the rail) on
+ * the page background, and a shape like that is already delimited - a label
+ * and a rule on top of it divide a group that reads as grouped without them.
  */
 export function SideMenuBuiltInNav({
   assistantId,
@@ -42,7 +42,6 @@ export function SideMenuBuiltInNav({
   onClose,
 }: SideMenuBuiltInNavProps) {
   const pinnedApps = usePinnedAppsStore.use.pinnedApps();
-  const isCollapsedRail = collapsed && variant === "rail";
 
   /* One column at a single gap, rather than each cluster spacing itself.
      `SideMenu.Header` puts its own gap between its children, so a margin
@@ -57,8 +56,8 @@ export function SideMenuBuiltInNav({
           collapsed rail) beneath it, so the identity leads and the action
           hangs off it. No divider when expanded: the wrapper's gap is the
           only thing between this cluster and the pinned apps. On the
-          collapsed rail the separator provides the section break (Figma
-          7257:135812). The
+          rail this cluster is a column of circles like the sections below
+          it, spaced by the same gap. The
           overlay drawer skips the New Chat row: its floating New Chat
           pill already owns that action in the thumb zone. */}
       <div>
@@ -105,12 +104,6 @@ export function SideMenuBuiltInNav({
           ))}
         </div>
       ) : null}
-      {/* The collapsed rail keeps its rule: it separates the cluster from the
-          group icons below it (Figma 7257:135826), and a column of circles
-          has no other break in it. Unconditional now that the pinned apps
-          don't carry one of their own, so the rail shows exactly one whether
-          or not anything is pinned. */}
-      {isCollapsedRail ? <SideMenu.Separator /> : null}
     </div>
   );
 }

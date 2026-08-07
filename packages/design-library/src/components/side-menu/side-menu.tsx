@@ -648,7 +648,10 @@ function SideMenuItem({
      once, so there is nothing to counter. */
   const isTile = collapsed && shape === "circle";
   const geometryClasses = isTile
-    ? "size-[30px] mx-auto rounded-full"
+    ? /* The tile carries the same resting surface as the card or pill it
+         stands in for when the rail is expanded, so collapsing changes the
+         shape of a thing and not whether it has a surface at all. */
+      "size-[30px] mx-auto rounded-full bg-[var(--surface-lift)]"
     : // `w-full` matters for the `<button>` render path: buttons keep
       // fit-content sizing even as flex containers, so without it a
       // button-backed item shrink-wraps while anchor-backed items fill the rail.

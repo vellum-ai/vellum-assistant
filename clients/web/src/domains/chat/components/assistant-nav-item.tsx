@@ -48,7 +48,11 @@ const ROW_HEIGHT = 30;
 /** Mobile-overlay row height, matching `SideMenu.Item`'s mobile row. */
 const MOBILE_ROW_HEIGHT = 44;
 /** Collapsed-rail assistant tile height (Figma 7257:135820). */
-const COLLAPSED_ASSISTANT_ROW_HEIGHT = 32;
+/* Matches the circle `SideMenu.Item` and the section triggers render on the
+   rail. Every tile there is the same 30px circle, so one step runs the whole
+   column; at 32 these two sat 2px taller and the cluster drifted out of the
+   rhythm the sections below it keep. */
+const COLLAPSED_ASSISTANT_TILE = 30;
 /** Patrol stop on the right side: grown, cut off by the bottom edge. */
 const SIDE_SCALE = 2.1;
 const SIDE_RIGHT_MARGIN = 14;
@@ -222,8 +226,41 @@ export function AssistantNavItem({
      two tinted surfaces next to each other with only the identity pill
      needing to carry the assistant's colour. Plain reads better beside it,
      and it drops the one place a leading icon and its label wanted different
-     colours. */
-  const newConversationRow = showNewConversation ? (
+     colours.
+
+     Collapsed, it becomes the same square glyph tile the identity above it
+     uses rather than a pill with its label dropped: a pill is sized by its
+     content, so on a 48px rail one keeping its label overflows the rail
+     entirely. */
+  const newConversationRow = !showNewConversation ? null : collapsed ? (
+    <button
+      type="button"
+      onClick={onNewConversation}
+      title="New Chat"
+      data-tour-id="new-chat"
+      className={cn(
+        "group relative flex shrink-0 self-center cursor-pointer items-center justify-center overflow-hidden select-none",
+        "rounded-full",
+        "outline-none keyboard-focus:ring-2 keyboard-focus:ring-[var(--ring)]",
+        "transition-colors duration-150 active:scale-[0.98]",
+        "bg-[var(--panel-item-bg,var(--surface-lift))]",
+        "[@media(hover:hover)]:hover:bg-[var(--panel-item-hover,var(--surface-hover))]",
+      )}
+      style={{
+        width: COLLAPSED_ASSISTANT_TILE,
+        height: COLLAPSED_ASSISTANT_TILE,
+      }}
+    >
+      {/* 14px, not the section headers' 12px - the plus glyph carries less
+          ink than the pin/chat icons, so it needs the extra 2px to read at
+          the same weight beside them. */}
+      <Plus
+        aria-hidden="true"
+        className="h-3.5 w-3.5"
+        style={{ color: "var(--content-tertiary)" }}
+      />
+    </button>
+  ) : (
     <PanelItem
       shape="pill"
       icon={Plus}
@@ -231,7 +268,7 @@ export function AssistantNavItem({
       onSelect={onNewConversation}
       data-tour-id="new-chat"
     />
-  ) : null;
+  );
 
   if (!hex) {
     // No character avatar (custom image / not loaded): a plain-toned row
@@ -248,15 +285,19 @@ export function AssistantNavItem({
             data-tour-id="assistant-page"
             aria-current={active ? "page" : undefined}
             className={cn(
-              "group relative flex w-full cursor-pointer items-center justify-center overflow-hidden select-none",
-              "rounded-[6px]",
+              "group relative flex shrink-0 self-center cursor-pointer items-center justify-center overflow-hidden select-none",
+              "rounded-full",
               "outline-none keyboard-focus:ring-2 keyboard-focus:ring-[var(--ring)]",
               "transition-colors duration-150 active:scale-[0.98]",
+              "bg-[var(--panel-item-bg,var(--surface-lift))]",
               active
                 ? "bg-[var(--surface-active)]"
-                : "hover:bg-[var(--surface-hover)]",
+                : "[@media(hover:hover)]:hover:bg-[var(--panel-item-hover,var(--surface-hover))]",
             )}
-            style={{ height: COLLAPSED_ASSISTANT_ROW_HEIGHT }}
+            style={{
+              width: COLLAPSED_ASSISTANT_TILE,
+              height: COLLAPSED_ASSISTANT_TILE,
+            }}
           >
             <Brain
               className="h-3.5 w-3.5"
@@ -376,16 +417,18 @@ export function AssistantNavItem({
       data-tour-id="assistant-page"
       aria-current={active ? "page" : undefined}
       className={cn(
-        "group relative flex w-full cursor-pointer items-center justify-center overflow-hidden select-none",
-        "rounded-[6px]",
+        "group relative flex shrink-0 self-center cursor-pointer items-center justify-center overflow-hidden select-none",
+        "rounded-full",
         "outline-none keyboard-focus:ring-2 keyboard-focus:ring-[var(--ring)]",
         "transition-[filter,transform,background-color,color] duration-300 active:scale-[0.98]",
+        "bg-[var(--panel-item-bg,var(--surface-lift))]",
         navTourActive
-          ? "hover:bg-[var(--surface-hover)]"
+          ? "[@media(hover:hover)]:hover:bg-[var(--panel-item-hover,var(--surface-hover))]"
           : "hover:brightness-105",
       )}
       style={{
-        height: COLLAPSED_ASSISTANT_ROW_HEIGHT,
+        width: COLLAPSED_ASSISTANT_TILE,
+        height: COLLAPSED_ASSISTANT_TILE,
         gap: SIDEBAR_CHIP_GAP,
         backgroundColor: navTourActive ? "transparent" : hex,
         color: navTourActive ? "var(--content-default)" : fg,
