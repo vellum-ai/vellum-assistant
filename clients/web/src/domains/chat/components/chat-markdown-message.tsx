@@ -4,7 +4,6 @@
  * media for external URLs, message attachments, and workspace files.
  */
 
-import { ExternalLink } from "lucide-react";
 import {
   type AnchorHTMLAttributes,
   isValidElement,
@@ -26,6 +25,11 @@ import {
 import type { DisplayAttachment } from "@/types/attachment-types";
 import { useAttachmentPreview } from "@/domains/chat/components/chat-attachments/use-attachment-preview";
 import { defaultUrlTransform } from "react-markdown";
+import {
+  EXTERNAL_LINK_CLASS,
+  ExternalLinkGlyph,
+  isWebUrl,
+} from "@/components/external-anchor";
 import { handleNativeAnchorClick } from "@/utils/native-anchor";
 
 import {
@@ -80,7 +84,6 @@ function OAuthAwareLink({
   children,
 }: Pick<AnchorHTMLAttributes<HTMLAnchorElement>, "href" | "children">) {
   const opensOAuthPopup = shouldOpenMarkdownLinkInOAuthPopup(href);
-  const isWebUrl = /^https?:\/\//i.test(href ?? "");
 
   return (
     <a
@@ -96,17 +99,10 @@ function OAuthAwareLink({
         // route through the native opener there (no-op elsewhere).
         handleNativeAnchorClick(event, href);
       }}
-      className="text-[var(--system-positive-strong)] underline hover:opacity-80"
+      className={EXTERNAL_LINK_CLASS}
     >
       {children}
-      {/* Inline (not inline-flex) anchor so long link text still wraps; the
-          icon aligns via a small baseline shift instead. */}
-      {isWebUrl ? (
-        <ExternalLink
-          aria-hidden
-          className="ml-0.5 inline h-3.5 w-3.5 shrink-0 align-[-0.125em]"
-        />
-      ) : null}
+      {isWebUrl(href) ? <ExternalLinkGlyph /> : null}
     </a>
   );
 }
