@@ -4,11 +4,8 @@
  * This is the single render path for Pinned, Chats, every origin-channel
  * section, and every custom group - which is what keeps their spacing and
  * header treatment identical and lets the user interleave them freely
- * (LUM-2909). Only three things vary by type, and they're all here:
+ * (LUM-2909). Only two things vary by type, and they're both here:
  *
- * - **Whether rows drag.** Only the sections that honor `displayOrder`
- *   (Pinned, custom groups) offer row-level reordering - the rest stay
- *   recency-sorted, so dragging a row in them would have nothing to persist.
  * - **Whether the header carries a "…" button.** The curated sections (Pinned
  *   and the custom groups) get one, so their actions are reachable without
  *   knowing to right-click. It reveals on hover; the derived sections (Chats,
@@ -32,39 +29,46 @@ import {
   type GroupMenuItemsProps,
 } from "@/domains/chat/components/group-actions-menu";
 import type { SidebarSection } from "@/domains/chat/use-sidebar-state";
+import { useSectionConversations } from "@/domains/chat/use-section-conversations";
 import { sectionIcon } from "@/domains/chat/utils/sidebar-section-icon";
+import type { Conversation } from "@/types/conversation-types";
 
 export interface SidebarSectionItemProps {
   section: SidebarSection;
-  /** Header actions, already wired by the sidebar (bulk, rename, move). */
-  groupMenu: GroupMenuItemsProps;
+  /** Owns this section's query; `null` keeps it on the derived rows. */
+  assistantId: string | null;
+  /**
+   * Header actions, given the section's own rows. A function rather than a
+   * built menu because the rows are resolved here: the sidebar decides what
+   * the bulk actions *are*, this decides what they act on, so "mark all read"
+   * covers every member rather than the ones that reached the foreground page.
+   */
+  groupMenu: (conversations: Conversation[]) => GroupMenuItemsProps;
   /** Section drag-reorder wiring; omit to pin the section in place. */
   drag?: CollapsibleNavSectionDrag;
   /** Activity dot shown in the header only while the section is collapsed. */
-  collapsedIndicator?: ReactNode;
-}
-
-/**
- * Row-list props for a section. Both branches carry the same keys so the
- * spread below stays a single object type rather than a union.
- */
-function rowListPropsFor(section: SidebarSection) {
-  if (section.type === "recents" || section.type === "channel") {
-    return { items: section.all, dragSection: undefined };
-  }
-  return {
-    items: section.all,
-    dragSection:
-      section.type === "pinned" ? "pinned" : `group:${section.key}`,
-  };
+  collapsedIndicator?: (conversations: Conversation[]) => ReactNode;
 }
 
 export function SidebarSectionItem({
   section,
-  groupMenu,
+  assistantId,
+  groupMenu: buildGroupMenu,
   drag,
   collapsedIndicator,
 }: SidebarSectionItemProps) {
+  const conversations = useSectionConversations(assistantId, section);
+
+  /* Every section handed to this component renders. Whether a section exists
+     at all is `use-sidebar-state`'s answer, and it has to stay the only one:
+     `curatedSectionCount` and the move-up/move-down nudges count entries in
+     that list, so a section that is present but returns `null` here draws the
+     curated rule over nothing and offers a move that swaps with something
+     off screen.
+
+     One predicate for membership and visibility, or the two drift and this
+     recurs at the next section type. */
+  const groupMenu = buildGroupMenu(conversations);
   return (
     <ConversationNavSection
       value={section.key}
@@ -78,14 +82,14 @@ export function SidebarSectionItem({
         ) : undefined
       }
       groupMenu={groupMenu}
-      collapsedIndicator={collapsedIndicator}
+      collapsedIndicator={collapsedIndicator?.(conversations)}
       drag={drag}
       // Pinned collapses like every other section (one component, one
       // behavior; its open state defaults open and persists like the
       // rest). It is the one section that never caps/scrolls internally:
       // it grows to fit its own rows instead.
       unbounded={section.type === "pinned"}
-      {...rowListPropsFor(section)}
+      items={conversations}
     />
   );
 }

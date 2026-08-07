@@ -1,22 +1,35 @@
 import { act, cleanup, renderHook } from "@testing-library/react";
 import { afterEach, describe, expect, mock, test } from "bun:test";
 
+import type * as ConversationQueries from "@/hooks/conversation-queries";
 import type { Conversation } from "@/types/conversation-types";
 import { useSidebarLayoutStore } from "@/domains/chat/sidebar-layout-store";
 
-// The Background/Scheduled sections own their lazy queries; stub both so the
-// hook resolves without a QueryClient and these tests stay focused on the
-// foreground grouping/pagination they exercise.
-mock.module("@/hooks/conversation-queries", () => ({
-  useBackgroundConversationListQuery: () => ({
-    conversations: [],
-    isPending: false,
+/* The Background/Scheduled sections own their lazy queries; stub both so the
+   hook resolves without a QueryClient.
+
+   No section query is stubbed here: each section fetches its own rows where
+   it renders (`useSectionConversations`). What this hook owns is the section
+   *list* and the derived fallback rows, which is what these tests cover. */
+mock.module(
+  "@/hooks/conversation-queries",
+  (): Partial<typeof ConversationQueries> => ({
+    useBackgroundConversationListQuery: () => ({
+      conversations: [],
+      isLoading: false,
+      isPending: false,
+      isError: false,
+      refetch: () => {},
+    }),
+    useScheduledConversationListQuery: () => ({
+      conversations: [],
+      isLoading: false,
+      isPending: false,
+      isError: false,
+      refetch: () => {},
+    }),
   }),
-  useScheduledConversationListQuery: () => ({
-    conversations: [],
-    isPending: false,
-  }),
-}));
+);
 
 const { useSidebarState } = await import("@/domains/chat/use-sidebar-state");
 
@@ -339,11 +352,7 @@ describe("useSidebarState section order", () => {
     const { result } = renderSidebar();
 
     act(() =>
-      result.current.onReorderSections([
-        "grp-a",
-        "channel:slack",
-        "recents",
-      ]),
+      result.current.onReorderSections(["grp-a", "channel:slack", "recents"]),
     );
 
     expect(useSidebarLayoutStore.getState().sectionOrder).toEqual([
@@ -362,11 +371,7 @@ describe("useSidebarState section order", () => {
     const { result } = renderSidebar();
 
     act(() =>
-      result.current.onReorderSections([
-        "channel:slack",
-        "grp-a",
-        "recents",
-      ]),
+      result.current.onReorderSections(["channel:slack", "grp-a", "recents"]),
     );
 
     expect(result.current.sections.map((s) => s.key)).toEqual([
@@ -425,11 +430,7 @@ describe("useSidebarState section order", () => {
     const { result, rerender } = renderSidebar();
 
     act(() =>
-      result.current.onReorderSections([
-        "grp-a",
-        "channel:slack",
-        "recents",
-      ]),
+      result.current.onReorderSections(["grp-a", "channel:slack", "recents"]),
     );
 
     // Slack goes quiet: its section stops rendering entirely.
@@ -448,9 +449,7 @@ describe("useSidebarState section order", () => {
     ]);
 
     // Reordering while it's gone must not forget where it lived.
-    act(() =>
-      quiet.result.current.onReorderSections(["grp-a", "recents"]),
-    );
+    act(() => quiet.result.current.onReorderSections(["grp-a", "recents"]));
     expect(useSidebarLayoutStore.getState().sectionOrder).toContain(
       "channel:slack",
     );
@@ -465,5 +464,43 @@ describe("useSidebarState section order", () => {
     );
     const keys = back.result.current.sections.map((s) => s.key);
     expect(keys.indexOf("channel:slack")).toBeLessThan(keys.indexOf("recents"));
+  });
+});
+
+/* Which sections exist still comes from the loaded list; what is in them
+   comes from each section's own query. These cover the former. */
+describe("useSidebarState curated sections", () => {
+  test("omits Pinned when no loaded conversation is pinned", () => {
+    const { result } = renderHook(() =>
+      useSidebarState({
+        assistantId: "asst-1",
+        conversations: [makeConversation(1), makeConversation(2)],
+      }),
+    );
+
+    expect(
+      result.current.sections.find((s) => s.type === "pinned"),
+    ).toBeUndefined();
+  });
+
+  test("lists a custom group even when no loaded conversation is in it", () => {
+    const { result } = renderHook(() =>
+      useSidebarState({
+        assistantId: "asst-1",
+        conversations: [makeConversation(1)],
+        conversationGroups: [
+          {
+            id: "grp-work",
+            name: "Work",
+            sortPosition: 0,
+            isSystemGroup: false,
+          },
+        ],
+      }),
+    );
+
+    const work = result.current.sections.find((s) => s.key === "grp-work");
+    expect(work).toBeDefined();
+    expect(work?.label).toBe("Work");
   });
 });

@@ -443,70 +443,55 @@ describe("groupConversations · custom group routing", () => {
   });
 });
 
-describe("groupConversations · displayOrder for pinned and custom groups", () => {
-  test("pinned bucket sorts by displayOrder ascending (user-set order)", () => {
-    // Note: input is provided newest-first by lastMessageAt to confirm the
-    // pinned sort overrides recency, matching the bug described in LUM-1619.
+describe("groupConversations · recency order for pinned and custom groups", () => {
+  /* Pinned and the custom groups used to sort by `displayOrder`, falling back
+     to creation time, so that a drag-reordered arrangement held regardless of
+     activity. LUM-3108 removed drag-reorder, and every section sorts by
+     recency now. Each test below sets `displayOrder` to the REVERSE of the
+     expected result, so re-introducing the old comparator fails them rather
+     than leaving them coincidentally passing. */
+
+  test("pinned sorts by recency, ignoring displayOrder", () => {
     const result = groupConversations([
       makeConversation({
-        conversationId: "b",
+        conversationId: "oldest",
         isPinned: true,
-        displayOrder: 1,
+        displayOrder: 0,
+        lastMessageAt: 1704067200000,
+      }),
+      makeConversation({
+        conversationId: "newest",
+        isPinned: true,
+        displayOrder: 2,
         lastMessageAt: 1704240000000,
       }),
       makeConversation({
-        conversationId: "a",
+        conversationId: "middle",
         isPinned: true,
-        displayOrder: 0,
+        displayOrder: 1,
         lastMessageAt: 1704153600000,
-      }),
-      makeConversation({
-        conversationId: "c",
-        isPinned: true,
-        displayOrder: 2,
-        lastMessageAt: 1704067200000,
-      }),
-    ]);
-    expect(result.pinned.map((c) => c.conversationId)).toEqual(["a", "b", "c"]);
-  });
-
-  test("pinned conversations without displayOrder fall back to createdAt desc, ignoring activity", () => {
-    // lastMessageAt is the REVERSE of createdAt to prove the fallback keys on
-    // immutable creation time, not recency — pinned rows must not reorder
-    // themselves based on activity.
-    const result = groupConversations([
-      makeConversation({
-        conversationId: "older",
-        isPinned: true,
-        createdAt: 1704067200000,
-        lastMessageAt: 1704412800000, // most recent activity
-      }),
-      makeConversation({
-        conversationId: "newer",
-        isPinned: true,
-        createdAt: 1704412800000,
-        lastMessageAt: 1704067200000, // least recent activity
       }),
     ]);
     expect(result.pinned.map((c) => c.conversationId)).toEqual([
-      "newer",
-      "older",
+      "newest",
+      "middle",
+      "oldest",
     ]);
   });
 
-  test("pinned order is stable when a pinned conversation receives new activity", () => {
+  test("a pinned conversation moves to the top when new activity arrives", () => {
     const base = [
       makeConversation({
         conversationId: "a",
         isPinned: true,
         createdAt: 3000,
-        lastMessageAt: 100,
+        lastMessageAt: 300,
       }),
       makeConversation({
         conversationId: "b",
         isPinned: true,
         createdAt: 2000,
-        lastMessageAt: 100,
+        lastMessageAt: 200,
       }),
       makeConversation({
         conversationId: "c",
@@ -515,20 +500,21 @@ describe("groupConversations · displayOrder for pinned and custom groups", () =
         lastMessageAt: 100,
       }),
     ];
-    const before = groupConversations(base).pinned.map((c) => c.conversationId);
-    expect(before).toEqual(["a", "b", "c"]);
+    expect(
+      groupConversations(base).pinned.map((c) => c.conversationId),
+    ).toEqual(["a", "b", "c"]);
 
-    // "c" gets a brand-new message — its lastMessageAt jumps far ahead. The
-    // pinned order must not change.
+    // "c" receives a brand-new message, so it leads. Under the old comparator
+    // the order was pinned to creation time and would not have changed.
     const after = groupConversations(
       base.map((c) =>
         c.conversationId === "c" ? { ...c, lastMessageAt: 9_999_999 } : c,
       ),
     ).pinned.map((c) => c.conversationId);
-    expect(after).toEqual(before);
+    expect(after).toEqual(["c", "a", "b"]);
   });
 
-  test("displayOrder rows come before rows without displayOrder", () => {
+  test("a row carrying displayOrder gets no precedence over one without", () => {
     const result = groupConversations([
       makeConversation({
         conversationId: "no-order-newer",
@@ -543,12 +529,12 @@ describe("groupConversations · displayOrder for pinned and custom groups", () =
       }),
     ]);
     expect(result.pinned.map((c) => c.conversationId)).toEqual([
-      "ordered-0",
       "no-order-newer",
+      "ordered-0",
     ]);
   });
 
-  test("custom group conversations sort by displayOrder", () => {
+  test("custom group conversations sort by recency, ignoring displayOrder", () => {
     const groups: ConversationGroup[] = [
       {
         id: "grp-work",
@@ -560,16 +546,16 @@ describe("groupConversations · displayOrder for pinned and custom groups", () =
     const result = groupConversations(
       [
         makeConversation({
-          conversationId: "z",
-          groupId: "grp-work",
-          displayOrder: 2,
-          lastMessageAt: 1704240000000,
-        }),
-        makeConversation({
           conversationId: "x",
           groupId: "grp-work",
           displayOrder: 0,
           lastMessageAt: 1704067200000,
+        }),
+        makeConversation({
+          conversationId: "z",
+          groupId: "grp-work",
+          displayOrder: 2,
+          lastMessageAt: 1704240000000,
         }),
         makeConversation({
           conversationId: "y",
@@ -582,9 +568,9 @@ describe("groupConversations · displayOrder for pinned and custom groups", () =
     );
     const work = result.customGroups.find((g) => g.id === "grp-work");
     expect(work?.conversations.map((c) => c.conversationId)).toEqual([
-      "x",
-      "y",
       "z",
+      "y",
+      "x",
     ]);
   });
 });

@@ -26,16 +26,83 @@ mock.module("@/hooks/use-is-mobile", () => ({
 // The sidebar owns its Background/Scheduled lazy queries; stub both so static
 // SSR rendering resolves without a QueryClient. These tests pass the full
 // conversation list through `conversations` and assert the rendered buckets.
-mock.module("@/hooks/conversation-queries", () => ({
-  useBackgroundConversationListQuery: () => ({
-    conversations: [],
-    isPending: false,
+/* Every section asks the server for its own members, so the mock answers the
+   way the server does: filter by `groupId`, which is single-valued per
+   conversation. It MUST honor the filter. A mock that returned one fixed list
+   would hand every section the same rows and quietly pass a sidebar that
+   renders each conversation in every card. */
+let sectionSource: Conversation[] = [];
+
+function setSectionRows(conversations: Conversation[]) {
+  sectionSource = conversations;
+}
+
+/**
+ * Both filter axes, because a channel section constrains both: `system:all`
+ * for "no group claimed it" AND its own `origin_channel`. Honoring only the
+ * group would hand every channel card the whole ungrouped bucket.
+ */
+function rowsMatching(filter: {
+  groupId?: string;
+  originChannel?: string;
+}): Conversation[] {
+  if (filter.groupId === "system:pinned") {
+    return sectionSource.filter((c) => c.isPinned);
+  }
+  return sectionSource.filter((c) => {
+    if (c.isPinned) {
+      return false;
+    }
+    const inGroup =
+      filter.groupId === "system:all"
+        ? c.groupId == null || c.groupId === "system:all"
+        : c.groupId === filter.groupId;
+    if (!inGroup) {
+      return false;
+    }
+    if (filter.originChannel === undefined) {
+      return true;
+    }
+    // "vellum" also claims rows that were never attributed, matching the
+    // daemon's tolerant predicate.
+    return filter.originChannel === "vellum"
+      ? c.originChannel == null || c.originChannel === "vellum"
+      : c.originChannel === filter.originChannel;
+  });
+}
+
+mock.module(
+  "@/hooks/conversation-queries",
+  (): Partial<typeof ConversationQueries> => ({
+    useBackgroundConversationListQuery: () => ({
+      conversations: [],
+      isLoading: false,
+      isPending: false,
+      isError: false,
+      refetch: () => {},
+    }),
+    useScheduledConversationListQuery: () => ({
+      conversations: [],
+      isLoading: false,
+      isPending: false,
+      isError: false,
+      refetch: () => {},
+    }),
+    useSectionConversationListQuery: (
+      _assistantId: string | null,
+      filter: { groupId?: string; originChannel?: string },
+    ) => ({
+      conversations: rowsMatching(filter),
+      isLoading: false,
+      isPending: false,
+      isError: false,
+      // A resolved query. Omitting this reads as falsy, which would send every
+      // section back to its derived rows and pass these tests for the wrong
+      // reason: green because nothing is filtered, not because it is.
+      hasData: true,
+    }),
   }),
-  useScheduledConversationListQuery: () => ({
-    conversations: [],
-    isPending: false,
-  }),
-}));
+);
 
 // The assistant nav item reads the avatar through React Query; stub it so
 // static SSR rendering resolves without a QueryClient.
@@ -49,6 +116,7 @@ mock.module("@/hooks/use-assistant-avatar", () => ({
   }),
 }));
 
+import type * as ConversationQueries from "@/hooks/conversation-queries";
 import type {
   Conversation,
   ConversationGroup,
@@ -93,6 +161,7 @@ function renderMenu(props: {
   includeTipCard?: boolean;
   isLoadingConversations?: boolean;
 }): string {
+  setSectionRows(props.conversations);
   const includeFooterAction = props.includeFooterAction ?? true;
   const { container } = render(
     createElement(AssistantSideMenu, {
@@ -1117,6 +1186,63 @@ describe("AssistantSideMenu · default section order", () => {
       );
 
     expect(railLabels).toEqual(["Pinned", "Alpha", "Chats", "Slack"]);
+  });
+});
+
+/* Membership in `sidebar.sections` and what renders have to be decided by
+   one predicate. When they were two - the list built unconditionally, the
+   section returning `null` when its query came back empty - `curatedSectionCount`
+   counted an entry nothing drew, so the curated rule appeared over an empty
+   tier and the header menu offered a move that swapped with an off-screen
+   section. */
+describe("AssistantSideMenu · a listed section is a rendered section", () => {
+  test("a custom group with no conversations still renders its header", () => {
+    const html = renderMenu({
+      conversations: [
+        makeConversation({ conversationId: "r1", title: "Solo" }),
+      ],
+      conversationGroups: [
+        {
+          id: "grp-empty",
+          name: "Fernweh",
+          sortPosition: 0,
+          isSystemGroup: false,
+        },
+      ],
+    });
+
+    // The group the user created is on screen even before anything is in it.
+    // "New group…" otherwise completes leaving nothing to show for it.
+    expect(html).toContain(">Fernweh<");
+  });
+
+  test("an empty group draws no curated rule, because nothing precedes it", () => {
+    const html = renderMenu({
+      conversations: [
+        makeConversation({ conversationId: "r1", title: "Solo" }),
+      ],
+      conversationGroups: [
+        {
+          id: "grp-empty",
+          name: "Fernweh",
+          sortPosition: 0,
+          isSystemGroup: false,
+        },
+      ],
+    });
+    const container = parse(html);
+
+    // One curated section renders, so the rule below it is legitimate. What
+    // must never happen is a rule with an empty tier above it, which is what
+    // a counted-but-invisible section produces.
+    const curated = container.querySelectorAll(
+      '[data-slot="sidebar-section-rule"]',
+    );
+    if (curated.length > 0) {
+      expect(html.indexOf(">Fernweh<")).toBeLessThan(
+        html.indexOf('data-slot="sidebar-section-rule"'),
+      );
+    }
   });
 });
 

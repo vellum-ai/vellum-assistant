@@ -2571,9 +2571,17 @@ async function main() {
 
         // Seed a contact channel for the actor (dual-write, fire-and-forget)
         // so later verification flows have a record to upgrade.
+        //
+        // `externalChatId` is recorded only for a DM, where the conversation
+        // address is a private one-to-one channel. A guild channel is a room
+        // the actor happens to be standing in, and storing it as their
+        // delivery address is how a private notice ends up posted in public.
         void upsertContactChannel({
           sourceChannel: "discord",
           externalUserId: event.actor.actorExternalId,
+          ...(event.source.chatType === "dm"
+            ? { externalChatId: event.message.conversationExternalId }
+            : {}),
           displayName: event.actor.displayName,
           username: event.actor.username,
         }).catch(() => {});

@@ -1,10 +1,25 @@
 /**
- * Data-shaping hook for the assistant sidebar.
+ * Which sections the sidebar has, and in what order.
  *
- * Owns conversation grouping, collapse/expand state, attention-forced
- * expansion, and the user's section order. Returns a
- * typed object the presentational `AssistantSideMenu` renders without any
- * inline computation, `useEffect`, or derived state.
+ * Owns the section *list*, collapse/expand state, attention-forced expansion,
+ * and the user's section order. It does not own a section's contents: Pinned
+ * and each custom group fetch their own rows where they render, through
+ * {@link useSectionConversations}. What this hook still puts on
+ * {@link SidebarSection.all} is the list derived from the foreground page,
+ * which those sections use only as the fallback they paint while their own
+ * query is pending or gated off.
+ *
+ * That split is the point of LUM-2443. Deriving a section by filtering one
+ * shared list makes a *complete* list a precondition for the sidebar being
+ * right, which is why a windowed conversation list kept getting reverted.
+ * Discovery is what stays here, and it never needed the conversation list:
+ * Pinned and Chats are fixed, and the custom groups come from the groups API.
+ *
+ * Which sections exist is still decided here, from the loaded list. That is
+ * the last client-side derivation of conversation data in the sidebar, and it
+ * survives only because the foreground list still drains in full. See the
+ * comment on `defaultSections` for why it cannot simply move down with the
+ * contents, and for the point at which it has to go.
  *
  * Two views share all of that. In `all` (the default) the sections stop at
  * the curated layer - Pinned and the custom groups - and everything else
@@ -284,6 +299,20 @@ export function useSidebarState({
   // while channel sections come and go with traffic. In the flat view the
   // sections stop at the curated layer: everything else renders as one list
   // below them.
+  /* This list decides which sections exist, and it is the only thing that
+     does. A section's *contents* come from its own query, but every entry
+     here renders: `curatedSectionCount` and the move-up/move-down nudges
+     count these entries, so an entry that renders nothing draws the curated
+     rule over an empty tier and offers a move that swaps with something off
+     screen. One predicate for membership and visibility, or the two drift.
+
+     Membership comes from the loaded list, which is accurate while that list
+     drains in full. It stops being accurate under a windowed list
+     (LUM-2444), the same change that removes `groupConversations`, so
+     section existence needs a server-side source at that point. A section
+     cannot answer this for itself in the meantime: emptiness has to be known
+     before the list is built, and this hook cannot mount N queries for N
+     groups. */
   const defaultSections = useMemo((): SidebarSection[] => {
     const list: SidebarSection[] = [];
     if (grouped.pinned.length > 0) {
@@ -343,8 +372,9 @@ export function useSidebarState({
 
   const curatedSectionCount = useMemo(
     () =>
-      sections.filter((section) => classifySectionKey(section.key) === "curated")
-        .length,
+      sections.filter(
+        (section) => classifySectionKey(section.key) === "curated",
+      ).length,
     [sections],
   );
 
@@ -371,7 +401,7 @@ export function useSidebarState({
         return null;
       }
       const settled = enforceCuratedLead(moved, classifySectionKey);
-      return settled.join(" ") === current.join(" ") ? null : settled;
+      return settled.join("\0") === current.join("\0") ? null : settled;
     },
     [sections],
   );
@@ -413,9 +443,7 @@ export function useSidebarState({
     }
     const keys = sections
       .filter((section) =>
-        section.all.some((c) =>
-          attentionConversationIds.has(c.conversationId),
-        ),
+        section.all.some((c) => attentionConversationIds.has(c.conversationId)),
       )
       .map((section) => section.key);
     return keys.length > 0 ? keys : EMPTY_KEYS;

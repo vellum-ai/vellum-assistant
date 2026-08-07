@@ -16,6 +16,7 @@ import {
 } from "./assets/menu-icons";
 import { onAvatarChange } from "./avatar";
 import { acceleratorOption } from "./commands.client";
+import { setCompanionSurfaceVisible } from "./companion-window";
 import { getName, onNameChange } from "./identity";
 import { getWatchedLockfile } from "./lockfile-watcher";
 import { dispatchToMain } from "./main-window";
@@ -30,7 +31,7 @@ import {
   type AssistantStatus,
 } from "./status";
 import { invalidateIconCache, statusFrames } from "./status-icon";
-import { readOnboardingActive } from "./window-state";
+import { readCompanionHidden, readOnboardingActive } from "./window-state";
 
 /**
  * macOS menu-bar (Tray) status item.
@@ -306,6 +307,19 @@ const buildTrayMenu = (
     {
       label: "Show / Hide Main Window",
       click: handlers.toggleMainWindow,
+    },
+    {
+      // The floating avatar pill (`companion-window.ts`). A checkbox rather
+      // than a toggle-action item: once the surface is hidden, this menu is
+      // the only place left to bring it back from, so the item has to show
+      // which state it is in. Electron flips `checked` before `click` runs,
+      // so the item carries the state being asked for.
+      label: "Show Floating Companion",
+      type: "checkbox",
+      checked: !readCompanionHidden(),
+      click: (item) => {
+        setCompanionSurfaceVisible(item.checked);
+      },
     },
     { type: "separator" },
     {

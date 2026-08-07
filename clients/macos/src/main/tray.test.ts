@@ -125,8 +125,20 @@ mock.module("./settings", () => ({
   onSettingChange: () => () => {},
 }));
 
+// Full `./window-state` surface, for the same leak-safety reason as
+// `./settings` above. The companion flag is controllable so the checkbox
+// state can be exercised.
+let companionHidden = false;
 mock.module("./window-state", () => ({
   readOnboardingActive: () => false,
+  readCompanionHidden: () => companionHidden,
+  writeCompanionHidden: () => {},
+  writeOnboardingActive: () => {},
+}));
+
+const setCompanionSurfaceVisibleMock = mock((_visible: boolean) => undefined);
+mock.module("./companion-window", () => ({
+  setCompanionSurfaceVisible: setCompanionSurfaceVisibleMock,
 }));
 
 const dispatchToMainMock = mock((_command: unknown) => undefined);
@@ -213,6 +225,8 @@ beforeEach(() => {
   avatarListeners.clear();
   watchedLockfile = { assistants: [], activeAssistant: null };
   featureFlags = null;
+  companionHidden = false;
+  setCompanionSurfaceVisibleMock.mockClear();
   dispatchToMainMock.mockClear();
   buildFromTemplateMock.mockClear();
   statusFramesMock.mockClear();
@@ -293,6 +307,7 @@ describe("installTray", () => {
     expect(labels).toContain("Current Conversation");
     expect(labels).toContain("Mark All as Read");
     expect(labels).toContain("Show / Hide Main Window");
+    expect(labels).toContain("Show Floating Companion");
     expect(labels).toContain("Restart");
     expect(labels).toContain("About Vellum Electron");
     expect(labels).toContain("Quit Vellum Electron");
@@ -531,6 +546,44 @@ describe("assistant switcher", () => {
     );
     expect(empty).toBeDefined();
     expect(empty?.enabled).toBe(false);
+  });
+});
+
+describe("floating companion toggle", () => {
+  type MenuItem = {
+    label?: string;
+    type?: string;
+    checked?: boolean;
+    click?: (item: { checked: boolean }) => void;
+  };
+
+  const popCompanionItem = (): MenuItem | undefined => {
+    installTray(handlers);
+    handlerFor(trays[0], "right-click")?.();
+    const calls = buildFromTemplateMock.mock.calls;
+    const template = calls[calls.length - 1]?.[0] as MenuItem[];
+    return template.find((i) => i.label === "Show Floating Companion");
+  };
+
+  test("renders as a checked checkbox while the surface is shown", () => {
+    const item = popCompanionItem();
+    expect(item?.type).toBe("checkbox");
+    expect(item?.checked).toBe(true);
+  });
+
+  test("renders unchecked once the surface has been hidden", () => {
+    companionHidden = true;
+    expect(popCompanionItem()?.checked).toBe(false);
+  });
+
+  test("applies the item's toggled state to the surface", () => {
+    const item = popCompanionItem();
+    // Electron flips `checked` on the item before `click` runs, so the item
+    // carries the state being asked for.
+    item?.click?.({ checked: false });
+    expect(setCompanionSurfaceVisibleMock).toHaveBeenLastCalledWith(false);
+    item?.click?.({ checked: true });
+    expect(setCompanionSurfaceVisibleMock).toHaveBeenLastCalledWith(true);
   });
 });
 

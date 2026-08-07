@@ -64,7 +64,7 @@ Direct the user:
 >
 > If any are already enabled, turn them off and click **Save Changes**.
 
-Why none are needed: the assistant's Discord client identifies with the non-privileged `GUILDS` and `GUILD_MESSAGES` intents only. It acts solely on messages that mention the bot, and Discord exempts four cases from the Message Content restriction: messages that mention your app, DMs with your app, your app's own messages, and the target of a message context-menu command. Every message the assistant reads falls inside that exemption and already arrives with full text. Server Members would deliver `GUILD_MEMBER_*` events that nothing here consumes.
+Why none are needed: the assistant's Discord client identifies with the non-privileged `GUILDS`, `GUILD_MESSAGES`, and `DIRECT_MESSAGES` intents only. It acts on messages that mention the bot and on DMs sent to it, and Discord exempts four cases from the Message Content restriction: messages that mention your app, DMs with your app, your app's own messages, and the target of a message context-menu command. Every message the assistant reads falls inside that exemption and already arrives with full text. Server Members would deliver `GUILD_MEMBER_*` events that nothing here consumes.
 
 Turning them on would grant access the software never reads, and would opt the app into Discord's privileged-intent review (with annual reapplication) once it is visible to more than 10,000 users.
 
@@ -147,7 +147,7 @@ Discord connected.
 ✅ Bot in server: {guild_name}
 
 Connected: {bot_username} (application: {application_name})
-Intents: Guilds, Guild Messages (no privileged intents)
+Intents: Guilds, Guild Messages, Direct Messages (no privileged intents)
 
 ⚠️ The bot will not respond yet. It only acts in channels you explicitly
    allow, and that list starts empty.
@@ -155,7 +155,9 @@ Intents: Guilds, Guild Messages (no privileged intents)
 
 Then tell the user how to finish:
 
-> The bot replies only when it is **@mentioned in an allow-listed channel**. The allow-list is empty by default, which means it currently ignores everything, and being invited to a server is not consent to every channel in it.
+> In a server the bot replies only when it is **@mentioned in an allow-listed channel**. The allow-list is empty by default, which means it currently ignores everything there, and being invited to a server is not consent to every channel in it.
+>
+> DMs are separate: the bot can be messaged directly without any allow-list entry, because a DM is already addressed to it alone. Who it answers in a DM is still governed by the channel's admission policy, which admits trusted contacts rather than anyone who shares a server with it.
 >
 > To allow a channel: enable Developer Mode in Discord (**User Settings → Advanced → Developer Mode**), right-click the channel and choose **Copy Channel ID**, then run:
 >
@@ -173,7 +175,7 @@ Two things still gate a reply after that, and are worth naming if the bot stays 
 - **Do NOT combine multiple steps into a single message.** Each step must be its own turn. Wait for the user to confirm completion before moving on.
 - **Do NOT collect the bot token before Step 3.** The token is shown once and cannot be retrieved later, so it must be collected in the same turn the user generates it, with the secure prompt already open.
 - **Do NOT request the `Administrator` permission** on the OAuth invite URL. The default permission integer was chosen with the principle of least privilege — only request more if a downstream feature explicitly requires it, and document why.
-- **Do NOT enable any privileged intent.** The client identifies with `GUILDS` and `GUILD_MESSAGES` only, and nothing reads presence, member, or non-mention message events. Enabling one grants access the software never uses and opts the app into Discord's privileged-intent review past 10,000 users.
+- **Do NOT enable any privileged intent.** The client identifies with `GUILDS`, `GUILD_MESSAGES`, and `DIRECT_MESSAGES` only, all three non-privileged, and nothing reads presence, member, or non-mention guild-message events. Enabling one grants access the software never uses and opts the app into Discord's privileged-intent review past 10,000 users.
 - **Do NOT claim the bot can reply once setup finishes.** It goes online, and looks working, while ignoring every message until a channel is on `discord.allowedChannelIds`. Always report that gap (Step 6).
 - **Do NOT instruct the user to set an Interactions Endpoint URL.** Gateway-connected bots receive interactions over the WebSocket — the HTTP endpoint is only needed for HTTP-only interaction handlers.
 - **Do NOT persist the application ID, public key, or bot user metadata** anywhere outside the credential vault. They are derivable from the bot token on demand and persisting them risks staleness after a token reset.

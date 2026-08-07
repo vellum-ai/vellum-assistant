@@ -106,50 +106,14 @@ function parseLastMessageAt(conversation: Conversation): number {
 }
 
 /**
- * Stable fallback order for pinned / custom-group rows that have no
- * server-assigned `displayOrder`, and the tie-breaker when two rows share a
- * `displayOrder`.
+ * Recency order, newest first: the one order every section uses.
  *
- * Keyed on the immutable `createdAt` (newest-created first) — deliberately NOT
- * `lastMessageAt`. Pinning sends no `displayOrder` (the daemon stores it as
- * NULL until the user drag-reorders), so without this every pinned row would
- * sort by recency and jump to the top whenever a new message landed in it.
- * Pinned rows should hold their position regardless of activity, so we sort by
- * creation time, which never changes. `conversationId` is the final
- * tie-breaker so the order stays fully deterministic when `createdAt` is equal
- * or missing.
+ * No tiebreak. `Array.prototype.sort` is stable, so rows sharing a
+ * `lastMessageAt` (or both missing one) keep the order they arrived in, which
+ * is the server's. Adding an id tiebreak here would reorder them against it.
  */
-function compareByCreatedAt(a: Conversation, b: Conversation): number {
-  const byCreated = (b.createdAt ?? 0) - (a.createdAt ?? 0);
-  if (byCreated !== 0) {
-    return byCreated;
-  }
-  return a.conversationId.localeCompare(b.conversationId);
-}
-
-/**
- * Comparator for buckets where the user can manually drag-reorder rows
- * (pinned, custom groups). Conversations with a server-provided
- * `displayOrder` come first in ascending order; ties and rows without
- * `displayOrder` fall back to a stable creation-time order so pinned rows
- * never reshuffle when activity arrives (see {@link compareByCreatedAt}).
- */
-function compareByDisplayOrder(a: Conversation, b: Conversation): number {
-  const aOrder = a.displayOrder;
-  const bOrder = b.displayOrder;
-  if (aOrder != null && bOrder != null) {
-    if (aOrder !== bOrder) {
-      return aOrder - bOrder;
-    }
-    return compareByCreatedAt(a, b);
-  }
-  if (aOrder != null) {
-    return -1;
-  }
-  if (bOrder != null) {
-    return 1;
-  }
-  return compareByCreatedAt(a, b);
+function compareByRecency(a: Conversation, b: Conversation): number {
+  return parseLastMessageAt(b) - parseLastMessageAt(a);
 }
 
 /**
@@ -300,25 +264,21 @@ export function groupConversations(
   // Copy before sort so we never mutate the caller's array. Sorting in-place
   // on a shared reference is a subtle source of downstream re-render churn
   // in React.
-  const sortedRecents = recents.slice().sort((a, b) => {
-    return parseLastMessageAt(b) - parseLastMessageAt(a);
-  });
+  const sortedRecents = recents.slice().sort(compareByRecency);
   // One section per channel that has conversations, each recency-sorted,
   // with the sections themselves ordered by channel id for a stable layout.
   const channelSections: ChannelSection[] = [...channelBuckets.entries()]
     .map(([channelId, convs]) => ({
       channelId,
-      conversations: convs
-        .slice()
-        .sort((a, b) => parseLastMessageAt(b) - parseLastMessageAt(a)),
+      conversations: convs.slice().sort(compareByRecency),
     }))
     .sort((a, b) => a.channelId.localeCompare(b.channelId));
-  // Pinned + custom groups honor `displayOrder` (set when the user
-  // drag-reorders). Any global resort by recency at this level would
-  // override the user's custom order — see LUM-1619.
-  const sortedPinned = pinned.slice().sort(compareByDisplayOrder);
+  // Pinned and the custom groups sort by recency like every other section.
+  // They used to honor `displayOrder` instead, which only ever held a value
+  // for someone who had drag-reordered (LUM-3108 removed that affordance).
+  const sortedPinned = pinned.slice().sort(compareByRecency);
   for (const bucket of customGroupsList) {
-    bucket.conversations.sort(compareByDisplayOrder);
+    bucket.conversations.sort(compareByRecency);
   }
 
   return {

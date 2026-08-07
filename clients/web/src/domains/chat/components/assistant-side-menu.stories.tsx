@@ -126,7 +126,6 @@ const SHARED_ARGS = {
   onStartNewConversation: () => {},
   onRenameGroup: () => {},
   onDeleteGroup: () => {},
-  onReorderConversations: () => {},
   // Wires the list's right-click "New group…". Omitting it drops the
   // affordance entirely, so the story has to pass it to show the menu.
   onCreateGroup: () => {},

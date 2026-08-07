@@ -137,7 +137,7 @@ import {
   startOutbound,
 } from "../runtime/verification-outbound-actions.js";
 import {
-  composeVerificationTelegram,
+  composeVerificationText,
   GUARDIAN_VERIFY_TEMPLATE_KEYS,
 } from "../runtime/verification-templates.js";
 import { resetDbForTesting } from "./db-test-helpers.js";
@@ -2344,7 +2344,7 @@ describe("outbound Telegram verification", () => {
   });
 
   test("telegram template does not include verification code in message", async () => {
-    const msg = composeVerificationTelegram(
+    const msg = composeVerificationText(
       GUARDIAN_VERIFY_TEMPLATE_KEYS.TELEGRAM_CHALLENGE_REQUEST,
       { code: "abc123", expiresInMinutes: 10 },
     );
@@ -2353,7 +2353,7 @@ describe("outbound Telegram verification", () => {
   });
 
   test("telegram resend template does not include code and includes (resent) suffix", async () => {
-    const msg = composeVerificationTelegram(
+    const msg = composeVerificationText(
       GUARDIAN_VERIFY_TEMPLATE_KEYS.TELEGRAM_RESEND,
       { code: "xyz789", expiresInMinutes: 5 },
     );
@@ -2363,7 +2363,7 @@ describe("outbound Telegram verification", () => {
   });
 
   test("telegram template includes Vellum assistant prefix", async () => {
-    const msg = composeVerificationTelegram(
+    const msg = composeVerificationText(
       GUARDIAN_VERIFY_TEMPLATE_KEYS.TELEGRAM_CHALLENGE_REQUEST,
       { code: "999999", expiresInMinutes: 10, assistantName: "MyBot" },
     );
