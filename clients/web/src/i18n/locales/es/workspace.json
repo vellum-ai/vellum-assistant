@@ -1,0 +1,48 @@
+{
+  "workspaceTree": {
+    "heading": "Archivos",
+    "newFile": "Nuevo archivo",
+    "newFolder": "Nueva carpeta",
+    "delete": "Eliminar",
+    "rename": "Cambiar el nombre",
+    "renaming": "Cambiando el nombre…",
+    "create": "Crear",
+    "creating": "Creando…",
+    "creatingHeading": "Crear",
+    "createTriggerAria": "Crear un archivo o una carpeta",
+    "createTriggerTitle": "Nuevo archivo o carpeta",
+    "nameLabel": "Nombre",
+    "nameError": "Escribe el nombre de un solo archivo o carpeta, sin barras.",
+    "cancel": "Cancelar",
+    "sortByNameAria": "Ordenar por nombre",
+    "sortBySizeAria": "Ordenar por tamaño",
+    "sortedBySizeTitle": "Ordenado por tamaño, cambiar a nombre",
+    "sortedByNameTitle": "Ordenado por nombre, cambiar a tamaño",
+    "hideHiddenAria": "Ocultar los archivos ocultos",
+    "showHiddenAria": "Mostrar los archivos ocultos",
+    "searchPlaceholder": "Buscar archivos",
+    "clearSearchAria": "Borrar la búsqueda",
+    "noFilesFound": "No se han encontrado archivos",
+    "deleteFolderTitle": "Eliminar la carpeta",
+    "deleteFileTitle": "Eliminar el archivo",
+    "deleteFileMessage": "¿Seguro que quieres eliminar <name>{name}</name>? Esto no se puede deshacer.",
+    "deleteFolderMessage": "¿Seguro que quieres eliminar <name>{name}</name> y todo su contenido? Esto no se puede deshacer.",
+    "deleting": "Eliminando…"
+  },
+  "workspaceBrowser": {
+    "drawerTitle": "Archivos"
+  },
+  "workspaceFileViewer": {
+    "download": "Descargar",
+    "downloading": "Descargando…",
+    "downloadFailed": "No se pudo descargar. Inténtalo de nuevo.",
+    "preview": "Vista previa",
+    "source": "Código",
+    "modifiedLabel": "Modificado:",
+    "selectAFile": "Selecciona un archivo para verlo",
+    "browseFiles": "Explorar archivos",
+    "fileNotFound": "Archivo no encontrado",
+    "saveFailed": "No se pudo guardar",
+    "downloadAria": "Descargar {name}"
+  }
+}

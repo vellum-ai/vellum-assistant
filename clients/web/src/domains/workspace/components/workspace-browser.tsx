@@ -11,6 +11,7 @@ import {
   MobileSidebarDrawer,
   MobileSidebarTrigger,
 } from "@/components/mobile-sidebar-drawer";
+import { useTranslation } from "@/i18n";
 import { WorkspaceFileViewer } from "@/domains/workspace/components/workspace-file-viewer";
 import {
   WorkspaceTree,
@@ -34,6 +35,7 @@ function getAncestorPaths(filePath: string): Set<string> {
 }
 
 export function WorkspaceBrowser({ assistantId }: { assistantId: string }) {
+  const { t } = useTranslation("workspace");
   const [searchParams, setSearchParams] = useSearchParams();
 
   const [expandedPaths, setExpandedPaths] = useState<Set<string>>(() => {
@@ -168,7 +170,7 @@ export function WorkspaceBrowser({ assistantId }: { assistantId: string }) {
       <MobileSidebarDrawer
         open={drawerOpen}
         onClose={() => setDrawerOpen(false)}
-        title="Files"
+        title={t("workspaceBrowser.drawerTitle")}
       >
         <WorkspaceTree {...treeProps} />
       </MobileSidebarDrawer>
