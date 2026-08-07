@@ -1,5 +1,9 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
+import type { FloatingWindowDependencies } from "@vellumai/electron-desktop/floating-window";
+
+import { RENDERER_BASE_PROD, getDevRendererBase } from "./app-config";
+
 type Listener = () => void;
 
 type StubWebContents = {
@@ -113,13 +117,20 @@ mock.module("electron", () => ({
   },
 }));
 
-mock.module("./windows", () => ({
-  createWindow: createWindowMock,
-}));
+const {
+  configureFloatingWindows,
+  createFloatingWindow,
+  createWindowRouteResolver,
+  getFloatingWindow,
+} = await import("@vellumai/electron-desktop/floating-window");
 
-const { createFloatingWindow, getFloatingWindow } = await import(
-  "./floating-window"
-);
+configureFloatingWindows({
+  createWindow: createWindowMock as unknown as FloatingWindowDependencies["createWindow"],
+  platform: "darwin",
+  resolveRoute: createWindowRouteResolver(() =>
+    appState.isPackaged ? RENDERER_BASE_PROD : getDevRendererBase(),
+  ),
+});
 
 let nextKind = 1;
 const kind = (name: string): string => `${name}-${nextKind++}`;
