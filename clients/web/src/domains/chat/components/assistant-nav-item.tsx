@@ -2,9 +2,9 @@
  * The sidebar's assistant cluster: the "Your Assistant" nav row, dressed up
  * as the assistant (a standard-height row painted solid in the avatar's color
  * with the avatar's eyes sitting in the leading icon slot), and a "New Chat"
- * row directly beneath it: a plus glyph with a label beside it, on the same
- * avatar-tinted wash the identity page's feature cards wear. The plus centers
- * on the same axis as the eyes, so the two rows' labels align. On the
+ * row directly beneath it: a plus glyph with a label beside it, on a wash of
+ * the same color, the recipe the identity page's feature cards wear. The plus
+ * centers on the same axis as the eyes, so the two rows' labels align. On the
  * collapsed rail both rows survive as icon-only tiles (Figma 7257:135811).
  *
  * The eyes hold their place in the leading slot and blink there periodically.
@@ -35,7 +35,7 @@ import { motion, useAnimationControls, useReducedMotion } from "motion/react";
 
 import type { CSSProperties } from "react";
 
-import { cn, PanelItem } from "@vellumai/design-library";
+import { cn, PanelItem, panelItemWashStyle } from "@vellumai/design-library";
 
 import {
   SIDEBAR_CHIP_GAP,
@@ -65,6 +65,13 @@ const IDENTITY_PILL_CLASSES = "h-10";
 const COLLAPSED_ASSISTANT_TILE = 30;
 /** How far the collapsed rail's tile grows the eyes on a pulse. */
 const PULSE_SCALE = 1.35;
+
+/**
+ * How much of the assistant's colour reaches the New Chat row. Deeper on
+ * hover than the pinned apps below it: those carry a colour to be told apart
+ * by, while this one is an action, and the step is what answers the pointer.
+ */
+const NEW_CHAT_WASH = { rest: 14, raised: 36 } as const;
 
 const sleep = (ms: number): Promise<void> =>
   new Promise((resolve) => setTimeout(resolve, ms));
@@ -208,16 +215,21 @@ export function AssistantNavItem({
       components.colors.find((c) => c.id === traits.color)?.hex) ||
     null;
 
-  /* An untinted pill. It sat on a 14% wash of the avatar colour, which put
-     two tinted surfaces next to each other with only the identity pill
-     needing to carry the assistant's colour. Plain reads better beside it,
-     and it drops the one place a leading icon and its label wanted different
-     colours.
+  /* A wash of the assistant's colour under the identity pill's solid fill,
+     built by the same helper the pinned apps' colours use so every tinted row
+     in the column mixes its hue the same way. Without a character avatar there
+     is no hue to mix and nothing is declared, leaving the plain surface both
+     the pill and the tile fall back to; while the tour owns the nav the wash
+     drains with the identity pill's fill.
 
-     Collapsed, it becomes the same square glyph tile the identity above it
-     uses rather than a pill with its label dropped: a pill is sized by its
+     Collapsed, the row becomes the same square glyph tile the identity above
+     it uses rather than a pill with its label dropped: a pill is sized by its
      content, so on a 48px rail one keeping its label overflows the rail
      entirely. */
+  const newConversationTint =
+    !navTourActive && hex
+      ? panelItemWashStyle(hex, NEW_CHAT_WASH)
+      : undefined;
   const newConversationRow = !showNewConversation ? null : collapsed ? (
     <button
       type="button"
@@ -233,6 +245,7 @@ export function AssistantNavItem({
         "[@media(hover:hover)]:hover:bg-[var(--panel-item-hover,var(--surface-hover))]",
       )}
       style={{
+        ...newConversationTint,
         width: COLLAPSED_ASSISTANT_TILE,
         height: COLLAPSED_ASSISTANT_TILE,
       }}
@@ -252,6 +265,7 @@ export function AssistantNavItem({
       icon={Plus}
       label="New Chat"
       onSelect={onNewConversation}
+      style={newConversationTint}
       data-tour-id="new-chat"
     />
   );

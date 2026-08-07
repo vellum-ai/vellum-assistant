@@ -1,0 +1,32 @@
+import { describe, expect, test } from "bun:test";
+
+import { panelItemWashStyle } from "./panel-item-tint";
+
+describe("panelItemWashStyle", () => {
+  test("mixes the colour into the lifted surface at both steps", () => {
+    expect(panelItemWashStyle("#7c3aed", { rest: 14, raised: 36 })).toEqual({
+      "--panel-item-bg": "color-mix(in srgb, #7c3aed 14%, var(--surface-lift))",
+      "--panel-item-hover":
+        "color-mix(in srgb, #7c3aed 36%, var(--surface-lift))",
+      "--panel-item-active":
+        "color-mix(in srgb, #7c3aed 36%, var(--surface-lift))",
+    });
+  });
+
+  /* The pill's active surface has its own declaration, so a wash that set only
+     the resting property would drop its tint at exactly the moment the row is
+     the current page. */
+  test("hover and current page land on the same raised surface", () => {
+    const style = panelItemWashStyle("#118a7e", { rest: 15, raised: 24 });
+    expect(style["--panel-item-active" as keyof typeof style]).toBe(
+      style["--panel-item-hover" as keyof typeof style],
+    );
+  });
+
+  /* A wash moves the surface too little to need a paired foreground, so the
+     label keeps the content token every other row uses. */
+  test("declares no foreground", () => {
+    const style = panelItemWashStyle("#7c3aed", { rest: 14, raised: 36 });
+    expect("--panel-item-fg" in style).toBe(false);
+  });
+});
