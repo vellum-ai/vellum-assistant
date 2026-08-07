@@ -36,6 +36,10 @@ import {
   handleToolCall,
   handleToolResult,
 } from "@/domains/settings/components/panels/doctor-event-handlers";
+import {
+  doctorStreamTerminalMessage,
+  isDoctorUnavailableStatus,
+} from "@/domains/settings/components/panels/doctor-errors";
 import { shouldResetDoctorSseReconnectBudget } from "@/domains/settings/components/panels/doctor-sse-reconnect";
 import {
   assistantsDoctorHistoryRetrieve,
@@ -187,12 +191,23 @@ export function useDoctorSSE() {
         useDoctorPanelStore.getState().setStreamingEntryId(id),
     };
 
-    const failStream = (content: string) => {
+    const failStream = (
+      content: string,
+      opts?: { reconnectable?: boolean },
+    ) => {
       if (!isCurrentStream()) {
         return;
       }
       controllerRef.current = null;
       const s = useDoctorPanelStore.getState();
+      s.setReconnectSnapshot(
+        opts?.reconnectable
+          ? {
+              pendingApproval: s.pendingApproval,
+              pendingBackup: s.pendingBackup,
+            }
+          : null,
+      );
       s.setThinking(false);
       s.setPendingApproval(false);
       s.setPendingBackup(false);
@@ -438,12 +453,13 @@ export function useDoctorSSE() {
         }
 
         if (reconnectAttempt >= MAX_DOCTOR_SSE_RECONNECT_ATTEMPTS) {
-          captureError(streamError, { context: "doctor_sse_stream" });
-          failStream(
-            failedStatus
-              ? `Failed to connect to event stream (${failedStatus}). Start a new session to continue.`
-              : "Event stream disconnected. Start a new session to continue.",
-          );
+          if (!isDoctorUnavailableStatus(failedStatus)) {
+            captureError(streamError, { context: "doctor_sse_stream" });
+          }
+          failStream(doctorStreamTerminalMessage(failedStatus), {
+            reconnectable:
+              failedStatus === null || isDoctorUnavailableStatus(failedStatus),
+          });
           return;
         }
 
