@@ -204,8 +204,8 @@ export function IdentityOverview({ assistantId }: IdentityOverviewProps) {
   } = useAssistantAvatar(assistantId);
   const identityQuery = useAssistantIdentityDetails(assistantId);
   const supportsPlugins = useSupportsPluginsSurface();
-  // The native mobile shells drop the Memory, Workspace, Contacts and
-  // Channels cards, so their measurements are dead reads there.
+  // The native mobile shells drop the Memory and Workspace cards, so those
+  // two measurements are dead reads there.
   const isNativeMobile = useIsNativeMobile();
   const stats = useIdentitySectionStats(assistantId, {
     supportsPlugins,
