@@ -423,7 +423,7 @@ export function useSidebarState({
         return null;
       }
       const settled = enforceCuratedLead(moved, classifySectionKey);
-      return settled.join(" ") === current.join(" ") ? null : settled;
+      return settled.join("\0") === current.join("\0") ? null : settled;
     },
     [sections],
   );
