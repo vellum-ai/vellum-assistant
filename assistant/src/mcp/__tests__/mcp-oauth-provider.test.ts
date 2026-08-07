@@ -16,6 +16,9 @@ mock.module("../../inbound/public-ingress-urls.js", () => ({
 
 mock.module("../../config/loader.js", () => ({
   loadConfig: () => ({}),
+  // `clientMetadata` reads the assistant's name, which pulls the persona
+  // resolver into the provider's import graph, and that reads config.
+  getConfig: () => ({}),
 }));
 
 // ── Import SUT after mocks ────────────────────────────────────────────────────

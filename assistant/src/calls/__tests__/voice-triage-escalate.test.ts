@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
+import { DEEPGRAM_MULTI_LANGUAGE_CODES } from "../../providers/speech-to-text/deepgram.js";
 import {
   capEscalationBridge,
   classifyFrontDoorLeading,
@@ -7,6 +8,8 @@ import {
   escalatedContinuationRule,
   ESCALATION_CONTINUATION_CONTENT,
   FALLBACK_ESCALATION_BRIDGE,
+  FALLBACK_ESCALATION_BRIDGE_BY_LANGUAGE,
+  fallbackEscalationBridgeFor,
   frontDoorCapabilityDigest,
   frontDoorDecisionRule,
   HOLD_VERDICT_TOKEN,
@@ -162,6 +165,33 @@ describe("front-door decision rule", () => {
     expect(rule.toLowerCase()).toContain("one short natural holding phrase");
     expect(rule.toLowerCase()).toContain("stop after that single sentence");
   });
+
+  test("hold completeness is judged in the caller's language", () => {
+    // Callers are not English-only: the hold branch's exemplars are English,
+    // so the rule must say completeness follows the grammar of the language
+    // being spoken, with the verb-final case called out (a missing final
+    // verb, not a missing conjunction, is the unfinished signal there).
+    const withHold = frontDoorDecisionRule({ includeHold: true });
+    expect(withHold.toLowerCase()).toContain("may speak any language");
+    expect(withHold.toLowerCase()).toContain(
+      "grammar of the language being spoken",
+    );
+    expect(withHold.toLowerCase()).toContain("verb-final");
+    expect(withHold.toLowerCase()).toContain("missing final verb");
+  });
+
+  test("the answer branch demands the caller's language", () => {
+    expect(rule).toContain("Answer in the language the caller is speaking.");
+  });
+
+  test("the escalation holding phrase demands the caller's language", () => {
+    // The bridge examples are English; without an explicit requirement a
+    // Spanish turn that needs a tool gets an English holding phrase before
+    // the localized answer. The examples stay, labeled as English only.
+    expect(rule).toContain("spoken in the language the caller is speaking");
+    expect(rule).toContain("those examples are English only");
+    expect(rule).toContain(`"${FALLBACK_ESCALATION_BRIDGE}"`);
+  });
 });
 
 describe("escalated continuation rule", () => {
@@ -190,6 +220,12 @@ describe("escalated continuation rule", () => {
     );
   });
 
+  test("demands the reply match the caller's language", () => {
+    expect(rule).toContain(
+      "Reply in the same language as the caller's question.",
+    );
+  });
+
   test("bans re-announcing the holding phrase (bridge-echo regression)", () => {
     // Regression: after the bridge "Let me check your calendar", the quality
     // model opened with "Let me check what calendar connections…" — a
@@ -198,6 +234,41 @@ describe("escalated continuation rule", () => {
     expect(rule.toLowerCase()).toContain("re-announce");
     expect(rule.toLowerCase()).toContain("paraphrase");
     expect(rule).toContain('"Let me check"');
+  });
+});
+
+describe("fallbackEscalationBridgeFor", () => {
+  test("covers every Deepgram code-switching language with a non-empty bridge", () => {
+    for (const code of DEEPGRAM_MULTI_LANGUAGE_CODES) {
+      const bridge = FALLBACK_ESCALATION_BRIDGE_BY_LANGUAGE[code];
+      expect(bridge).toBeDefined();
+      expect(bridge!.trim().length).toBeGreaterThan(0);
+      expect(fallbackEscalationBridgeFor(code)).toBe(bridge!);
+    }
+  });
+
+  test("every bridge fits the session-side cap", () => {
+    for (const bridge of Object.values(
+      FALLBACK_ESCALATION_BRIDGE_BY_LANGUAGE,
+    )) {
+      expect(bridge.length).toBeLessThanOrEqual(MAX_ESCALATION_BRIDGE_CHARS);
+    }
+  });
+
+  test("selects by lowercased base subtag", () => {
+    expect(fallbackEscalationBridgeFor("pt-BR")).toBe(
+      FALLBACK_ESCALATION_BRIDGE_BY_LANGUAGE.pt!,
+    );
+    expect(fallbackEscalationBridgeFor("JA")).toBe(
+      FALLBACK_ESCALATION_BRIDGE_BY_LANGUAGE.ja!,
+    );
+  });
+
+  test("falls back to English for unknown or absent languages", () => {
+    expect(fallbackEscalationBridgeFor()).toBe(FALLBACK_ESCALATION_BRIDGE);
+    expect(fallbackEscalationBridgeFor("ko")).toBe(FALLBACK_ESCALATION_BRIDGE);
+    expect(fallbackEscalationBridgeFor("")).toBe(FALLBACK_ESCALATION_BRIDGE);
+    expect(fallbackEscalationBridgeFor("en")).toBe(FALLBACK_ESCALATION_BRIDGE);
   });
 });
 
@@ -218,6 +289,24 @@ describe("capEscalationBridge", () => {
   test("strips internal markers before capping", () => {
     expect(capEscalationBridge("[END_CALL] One moment.")).toBe("One moment.");
   });
+
+  test("the Unicode ellipsis still terminates a bridge", () => {
+    // Regression pin: widening the terminator class for non-Latin enders
+    // must not drop the ellipsis the original regex recognized.
+    expect(capEscalationBridge("One moment… and some rambling")).toBe(
+      "One moment…",
+    );
+    expect(isEscalationBridgeComplete("One moment…")).toBe(true);
+  });
+
+  test("cuts just after a non-Latin sentence terminator", () => {
+    expect(capEscalationBridge("少し考えさせてください。その間の余談")).toBe(
+      "少し考えさせてください。",
+    );
+    expect(capEscalationBridge("मुझे एक पल सोचने दीजिए। और कुछ बातें")).toBe(
+      "मुझे एक पल सोचने दीजिए।",
+    );
+  });
 });
 
 describe("isEscalationBridgeComplete", () => {
@@ -232,6 +321,23 @@ describe("isEscalationBridgeComplete", () => {
     expect(
       isEscalationBridgeComplete("a".repeat(MAX_ESCALATION_BRIDGE_CHARS)),
     ).toBe(true);
+  });
+
+  test("a Japanese bridge ending in 。 completes without waiting for the cap", () => {
+    expect(isEscalationBridgeComplete("少し考えさせてください")).toBe(false);
+    expect(isEscalationBridgeComplete("少し考えさせてください。")).toBe(true);
+  });
+
+  test("every localized fallback bridge ends in a recognized terminator", () => {
+    // A model-spoken bridge in any roster language must hand off at its
+    // terminator, never by buffering to the char cap; the canned bridges are
+    // the canonical sample of each language's ender.
+    for (const bridge of Object.values(
+      FALLBACK_ESCALATION_BRIDGE_BY_LANGUAGE,
+    )) {
+      expect(isEscalationBridgeComplete(bridge)).toBe(true);
+      expect(capEscalationBridge(bridge)).toBe(bridge);
+    }
   });
 });
 

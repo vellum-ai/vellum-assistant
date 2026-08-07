@@ -75,5 +75,14 @@
     "usernamePlaceholder": "Username",
     "completeSignup": "Complete signup",
     "completingSignup": "Completing..."
+  },
+  "authErrors": {
+    "genericFailure": "Something went wrong. Please try again.",
+    "signupClosed": "Sign-ups are currently closed. Visit {community} to request access.",
+    "providerSignup": "No Vellum account is linked to that login yet. Sign up first, then sign in.",
+    "loginIncomplete": "Your account needs another step to finish signing in. Please sign in on the web, then try again.",
+    "loopbackStateMismatch": "Login failed: state mismatch. Please try again.",
+    "loopbackNoToken": "Login failed: no session token received. Please try again.",
+    "loopbackInvalidToken": "Login failed: invalid session token."
   }
 }

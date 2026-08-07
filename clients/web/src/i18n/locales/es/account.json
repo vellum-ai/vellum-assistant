@@ -75,5 +75,14 @@
     "usernamePlaceholder": "Nombre de usuario",
     "completeSignup": "Completar el registro",
     "completingSignup": "Completando..."
+  },
+  "authErrors": {
+    "genericFailure": "Algo ha ido mal. Inténtalo de nuevo.",
+    "signupClosed": "Los registros están cerrados por ahora. Visita {community} para solicitar acceso.",
+    "providerSignup": "Todavía no hay ninguna cuenta de Vellum vinculada a ese inicio de sesión. Regístrate primero y luego inicia sesión.",
+    "loginIncomplete": "Tu cuenta necesita un paso más para terminar de iniciar sesión. Inicia sesión en la web y vuelve a intentarlo.",
+    "loopbackStateMismatch": "No se pudo iniciar sesión: el estado no coincide. Inténtalo de nuevo.",
+    "loopbackNoToken": "No se pudo iniciar sesión: no se recibió ningún token de sesión. Inténtalo de nuevo.",
+    "loopbackInvalidToken": "No se pudo iniciar sesión: el token de sesión no es válido."
   }
 }

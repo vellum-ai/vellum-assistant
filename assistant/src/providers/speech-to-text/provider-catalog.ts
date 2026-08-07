@@ -16,6 +16,7 @@ import type {
   SttProviderId,
   TelephonySttMode,
 } from "../../stt/types.js";
+import { baseLanguageSubtag } from "../../util/language-subtag.js";
 
 // ---------------------------------------------------------------------------
 // Client display metadata
@@ -315,6 +316,43 @@ export function getProviderEntry(
  */
 export function listProviderEntries(): readonly SttProviderEntry[] {
   return [...CATALOG.values()];
+}
+
+/**
+ * A base-subtag regex over the pinned listening language. The pin is
+ * free-form workspace config, and it flows into prompt interpolation and
+ * per-language table lookups, so only a plausible ISO 639 base subtag
+ * passes; anything else (junk strings, prototype keys like "constructor")
+ * resolves as no pin.
+ */
+const PINNED_LANGUAGE_SUBTAG_REGEX = /^[a-z]{2,3}$/;
+
+/**
+ * The configured `services.stt.language` pin as the caller's listening
+ * language, or undefined when the pin carries no signal.
+ *
+ * A persisted pin only counts when the provider honors manual language
+ * selection: auto-detecting providers (gemini, whisper) ignore the setting
+ * entirely, so treating it as the caller's language would force every
+ * turn into a stale pin. "multi" and blank mean auto-detect (no pin), and
+ * the value must normalize to a plausible base subtag. Shared by the
+ * telephony pre-speech prompt rule (voice-session-bridge.ts), live
+ * voice's turn language (live-voice-session.ts), and telephony synthesis
+ * (telephony-synthesis-language.ts) so the gate cannot drift.
+ */
+export function pinnedListeningLanguage(
+  provider: string,
+  configuredLanguage: string | undefined,
+): string | undefined {
+  const providerHonorsLanguagePin =
+    getProviderEntry(provider as SttProviderId)?.languageSelection === "manual";
+  if (!providerHonorsLanguagePin || configuredLanguage?.trim() === "multi") {
+    return undefined;
+  }
+  const base = baseLanguageSubtag(configuredLanguage);
+  return base !== undefined && PINNED_LANGUAGE_SUBTAG_REGEX.test(base)
+    ? base
+    : undefined;
 }
 
 /**

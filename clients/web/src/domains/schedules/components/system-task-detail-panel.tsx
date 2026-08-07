@@ -92,7 +92,7 @@ export function SystemTaskDetailPanel({
   let onRunNow: (() => void) | undefined;
 
   if (kind === "heartbeat") {
-    name = "Heartbeat";
+    name = t("systemTaskDetail.nameHeartbeat");
     subtitle = heartbeatConfig ? heartbeatSubtitle(heartbeatConfig) : "";
     enabled = heartbeatConfig?.enabled ?? false;
     nextRunAt = heartbeatConfig?.nextRunAt ?? null;
@@ -100,7 +100,7 @@ export function SystemTaskDetailPanel({
     isRunning = systemTasks.isHeartbeatRunning;
     onRunNow = systemTasks.runHeartbeatNow;
   } else if (kind === "consolidation") {
-    name = "Consolidation";
+    name = t("systemTaskDetail.nameConsolidation");
     subtitle = consolidationConfig
       ? consolidationSubtitle(consolidationConfig)
       : "";
@@ -110,7 +110,7 @@ export function SystemTaskDetailPanel({
     isRunning = systemTasks.isConsolidationRunning;
     onRunNow = systemTasks.runConsolidationNow;
   } else {
-    name = "Memory retrospective";
+    name = t("systemTaskDetail.nameRetrospective");
     subtitle = RETROSPECTIVE_SUBTITLE;
     enabled = retrospectiveConfig?.enabled ?? false;
     // Event-driven: no global "next run".
@@ -132,18 +132,18 @@ export function SystemTaskDetailPanel({
   const runNowDisabled = isRunning || isMemoryPaused;
   const statusValue = isMemoryManaged
     ? enabled
-      ? "On · Managed by Memory"
-      : "Paused"
+      ? t("systemTaskDetail.statusManagedOn")
+      : t("systemTaskDetail.statusPaused")
     : enabled
-      ? "Enabled"
-      : "Disabled";
+      ? t("scheduleDetail.enabled")
+      : t("scheduleDetail.disabled");
   const isRetrospectiveSwitchedOff =
     isRetrospective && retrospectiveConfig?.available === true;
   const pausedNotice = isRetrospectiveSwitchedOff
-    ? "Retrospectives are turned off. Turn them back on under Memory in settings."
+    ? t("systemTaskDetail.pausedRetrospectiveSwitchedOff")
     : isRetrospective
-      ? "Memory is off, so retrospectives are paused. Turn Memory back on to resume them."
-      : "Memory is off, so consolidation is paused. Turn Memory back on to resume consolidation.";
+      ? t("systemTaskDetail.pausedRetrospective")
+      : t("systemTaskDetail.pausedConsolidation");
   const showMemorySettings =
     isMemoryManaged && enabled && canOpenMemorySettings;
 

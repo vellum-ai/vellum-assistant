@@ -549,6 +549,81 @@ describe("ElevenLabs TTS provider adapter", () => {
 
     const body = JSON.parse(capturedBody);
     expect(body.model_id).toBe("eleven_flash_v2_5");
+    expect("language_code" in body).toBe(false);
+  });
+
+  test("synthesizeStream sends language_code when the effective model supports enforcement", async () => {
+    let capturedBody = "";
+
+    globalThis.fetch = mock(
+      async (_input: RequestInfo | URL, init?: RequestInit) => {
+        capturedBody = init?.body as string;
+        return new Response(streamOf(new Uint8Array([0x01])), { status: 200 });
+      },
+    ) as unknown as typeof globalThis.fetch;
+
+    const provider = createElevenLabsProvider();
+    await provider.synthesizeStream!(makeRequest({ language: "hi" }), () => {});
+
+    const body = JSON.parse(capturedBody);
+    expect(body.model_id).toBe("eleven_flash_v2_5");
+    expect(body.language_code).toBe("hi");
+  });
+
+  test("maps the tl subtag to the fil code the v2.5 roster spells Filipino with", async () => {
+    let capturedBody = "";
+
+    globalThis.fetch = mock(
+      async (_input: RequestInfo | URL, init?: RequestInit) => {
+        capturedBody = init?.body as string;
+        return new Response(streamOf(new Uint8Array([0x01])), { status: 200 });
+      },
+    ) as unknown as typeof globalThis.fetch;
+
+    const provider = createElevenLabsProvider();
+    await provider.synthesizeStream!(makeRequest({ language: "tl" }), () => {});
+
+    const body = JSON.parse(capturedBody);
+    expect(body.model_id).toBe("eleven_flash_v2_5");
+    expect(body.language_code).toBe("fil");
+  });
+
+  test("omits language_code for a language the v2.5 models do not support", async () => {
+    let capturedBody = "";
+
+    globalThis.fetch = mock(
+      async (_input: RequestInfo | URL, init?: RequestInit) => {
+        capturedBody = init?.body as string;
+        return new Response(streamOf(new Uint8Array([0x01])), { status: 200 });
+      },
+    ) as unknown as typeof globalThis.fetch;
+
+    const provider = createElevenLabsProvider();
+    await provider.synthesizeStream!(makeRequest({ language: "he" }), () => {});
+
+    const body = JSON.parse(capturedBody);
+    expect(body.model_id).toBe("eleven_flash_v2_5");
+    expect("language_code" in body).toBe(false);
+  });
+
+  test("omits language_code when the configured model does not support enforcement", async () => {
+    mockElevenLabsConfig.voiceModelId = "eleven_multilingual_v2";
+    seedTtsConfig();
+    let capturedBody = "";
+
+    globalThis.fetch = mock(
+      async (_input: RequestInfo | URL, init?: RequestInit) => {
+        capturedBody = init?.body as string;
+        return new Response(streamOf(new Uint8Array([0x01])), { status: 200 });
+      },
+    ) as unknown as typeof globalThis.fetch;
+
+    const provider = createElevenLabsProvider();
+    await provider.synthesizeStream!(makeRequest({ language: "hi" }), () => {});
+
+    const body = JSON.parse(capturedBody);
+    expect(body.model_id).toBe("eleven_multilingual_v2");
+    expect("language_code" in body).toBe(false);
   });
 
   test("synthesizeStream respects configured voiceModelId over flash default", async () => {
@@ -1179,6 +1254,22 @@ describe("Deepgram TTS provider adapter", () => {
     expect(body.text).toBe("Hello world");
   });
 
+  test("request voiceId overrides the configured Deepgram model", async () => {
+    let capturedUrl = "";
+    globalThis.fetch = mock(async (input: RequestInfo | URL) => {
+      capturedUrl = typeof input === "string" ? input : input.toString();
+      return new Response(new Uint8Array([0x49, 0x44, 0x33]), { status: 200 });
+    }) as unknown as typeof globalThis.fetch;
+
+    const provider = createDeepgramProvider();
+    await provider.synthesize(makeRequest({ voiceId: "aura-2-thalia-en" }));
+    expect(capturedUrl).toContain("model=aura-2-thalia-en");
+
+    // A blank request voiceId falls back to the configured model.
+    await provider.synthesize(makeRequest({ voiceId: "  " }));
+    expect(capturedUrl).toContain("model=aura-asteria-en");
+  });
+
   test("uses linear16 encoding with container=none and sample_rate=16000 when outputFormat is pcm", async () => {
     const audioPayload = new Uint8Array([0x00, 0x01, 0x02]);
     let capturedUrl = "";
@@ -1685,6 +1776,42 @@ describe("xAI TTS provider adapter", () => {
     expect(body.voice_id).toBe("ara");
   });
 
+  test("request language overrides config language", async () => {
+    const audioPayload = new Uint8Array([0x49, 0x44, 0x33]);
+    let capturedBody = "";
+
+    globalThis.fetch = mock(
+      async (_input: RequestInfo | URL, init?: RequestInit) => {
+        capturedBody = init?.body as string;
+        return new Response(audioPayload, { status: 200 });
+      },
+    ) as unknown as typeof globalThis.fetch;
+
+    const provider = createXaiProvider();
+    await provider.synthesize(makeRequest({ language: "hi" }));
+
+    const body = JSON.parse(capturedBody);
+    expect(body.language).toBe("hi");
+  });
+
+  test("keeps configured language for a request code outside the code-switching roster", async () => {
+    const audioPayload = new Uint8Array([0x49, 0x44, 0x33]);
+    let capturedBody = "";
+
+    globalThis.fetch = mock(
+      async (_input: RequestInfo | URL, init?: RequestInit) => {
+        capturedBody = init?.body as string;
+        return new Response(audioPayload, { status: 200 });
+      },
+    ) as unknown as typeof globalThis.fetch;
+
+    const provider = createXaiProvider();
+    await provider.synthesize(makeRequest({ language: "th" }));
+
+    const body = JSON.parse(capturedBody);
+    expect(body.language).toBe("auto");
+  });
+
   test("wav config format produces codec=wav without bit_rate", async () => {
     mockXaiConfig.format = "wav";
     seedTtsConfig();
@@ -1900,6 +2027,26 @@ describe("xAI TTS provider adapter", () => {
       );
 
       expect(capturedSocketOptions().url).toContain("sample_rate=22050");
+    });
+
+    test("request language overrides config language in the stream URL", async () => {
+      const provider = createXaiProvider();
+      await provider.synthesizeStream!(
+        makeRequest({ language: "es" }),
+        () => {},
+      );
+
+      expect(capturedSocketOptions().url).toContain("language=es");
+    });
+
+    test("keeps configured language in the stream URL for an out-of-roster request code", async () => {
+      const provider = createXaiProvider();
+      await provider.synthesizeStream!(
+        makeRequest({ language: "th" }),
+        () => {},
+      );
+
+      expect(capturedSocketOptions().url).toContain("language=auto");
     });
 
     test("mp3 requests carry codec=mp3 and bit_rate and resolve audio/mpeg", async () => {

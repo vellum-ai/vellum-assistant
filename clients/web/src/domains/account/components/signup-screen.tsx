@@ -53,7 +53,7 @@ export function SignupScreen({ returnTo }: SignupScreenProps) {
       intent: "signup",
     }).catch((err) => {
       console.error("[signup] auth flow failed:", err);
-      setError("Something went wrong. Please try again.");
+      setError(t("authErrors.genericFailure"));
     });
   };
 
@@ -65,7 +65,7 @@ export function SignupScreen({ returnTo }: SignupScreenProps) {
       returnTo,
     }).catch((err) => {
       console.error("[signup] sign-in flow failed:", err);
-      setError("Something went wrong. Please try again.");
+      setError(t("authErrors.genericFailure"));
     });
   };
 

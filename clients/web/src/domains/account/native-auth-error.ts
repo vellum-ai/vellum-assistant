@@ -19,9 +19,24 @@ import { VELLUM_COMMUNITY_URL } from "@/utils/external-urls";
  * those causes into copy, so the three entry points cannot drift apart.
  */
 
-/** Shown when nothing more specific is known — a transport failure, a bug. */
-export const GENERIC_AUTH_ERROR_MESSAGE =
-  "Something went wrong. Please try again.";
+/** Catalog keys this module can name, all under the `account` namespace. */
+export type AuthErrorKey =
+  | "authErrors.genericFailure"
+  | "authErrors.signupClosed"
+  | "authErrors.providerSignup"
+  | "authErrors.loginIncomplete";
+
+/**
+ * The community link as prose, displayed bare without its scheme. Passed as
+ * the `community` value of `authErrors.signupClosed`.
+ */
+export const AUTH_ERROR_COMMUNITY_LINK = VELLUM_COMMUNITY_URL.replace(
+  /^https?:\/\//,
+  "",
+);
+
+/** Shown when nothing more specific is known: a transport failure, a bug. */
+export const GENERIC_AUTH_ERROR_KEY = "authErrors.genericFailure" as const;
 
 /**
  * Copy per `data.authError`. Keys are the codes the native shells emit:
@@ -30,15 +45,10 @@ export const GENERIC_AUTH_ERROR_MESSAGE =
  * falls back to {@link GENERIC_AUTH_ERROR_MESSAGE} — an unmapped code is a
  * missing entry here, never a crash.
  */
-/** The community link as prose — displayed bare, without its scheme. */
-const COMMUNITY_LINK_TEXT = VELLUM_COMMUNITY_URL.replace(/^https?:\/\//, "");
-
-const AUTH_ERROR_MESSAGES: Record<string, string> = {
-  signup_closed: `Sign-ups are currently closed. Visit ${COMMUNITY_LINK_TEXT} to request access.`,
-  provider_signup:
-    "No Vellum account is linked to that login yet. Sign up first, then sign in.",
-  login_incomplete:
-    "Your account needs another step to finish signing in. Please sign in on the web, then try again.",
+const AUTH_ERROR_KEYS: Record<string, AuthErrorKey> = {
+  signup_closed: "authErrors.signupClosed",
+  provider_signup: "authErrors.providerSignup",
+  login_incomplete: "authErrors.loginIncomplete",
 };
 
 function errorProperty(err: unknown, key: string): unknown {
@@ -81,11 +91,18 @@ export function nativeAuthErrorDetail(err: unknown): string | undefined {
   return typeof detail === "string" && detail !== "" ? detail : undefined;
 }
 
-/** User-facing copy for a rejected auth flow. */
-export function nativeAuthErrorMessage(err: unknown): string {
+/**
+ * Catalog key for a rejected auth flow, not the copy itself.
+ *
+ * A plain module cannot call `useTranslation()`, so returning a key keeps the
+ * mapping here and leaves the rendering to a component that knows the active
+ * locale. `authErrors.signupClosed` interpolates `community`, which callers
+ * supply from {@link AUTH_ERROR_COMMUNITY_LINK}.
+ */
+export function nativeAuthErrorKey(err: unknown): AuthErrorKey {
   const detail = nativeAuthErrorDetail(err);
   if (detail === undefined) {
-    return GENERIC_AUTH_ERROR_MESSAGE;
+    return GENERIC_AUTH_ERROR_KEY;
   }
-  return AUTH_ERROR_MESSAGES[detail] ?? GENERIC_AUTH_ERROR_MESSAGE;
+  return AUTH_ERROR_KEYS[detail] ?? GENERIC_AUTH_ERROR_KEY;
 }

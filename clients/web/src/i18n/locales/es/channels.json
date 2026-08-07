@@ -91,5 +91,21 @@
     "authTokenPlaceholder": "Token de autenticación de Twilio",
     "saving": "Guardando…",
     "save": "Guardar"
+  },
+  "channelMeta": {
+    "slack": {
+      "label": "Slack",
+      "disconnectMessage": "Esto borra los tokens de bot y de aplicación de Slack guardados para este asistente. Puedes volver a conectarlo más tarde."
+    },
+    "telegram": {
+      "label": "Telegram",
+      "disconnectMessage": "Esto borra el token de bot de Telegram guardado para este asistente. Puedes volver a conectarlo más tarde.",
+      "disconnectedPitch": "Conecta un bot de Telegram para que {assistant} pueda enviar y recibir mensajes en Telegram."
+    },
+    "phone": {
+      "label": "Llamadas telefónicas",
+      "disconnectMessage": "Esto borra las credenciales de Twilio guardadas para este asistente. Puedes volver a conectarlo más tarde.",
+      "disconnectedPitch": "Conecta tu cuenta de Twilio para que {assistant} pueda hacer y contestar llamadas."
+    }
   }
 }
