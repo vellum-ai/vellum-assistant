@@ -8,8 +8,7 @@ import { Select, type SelectOption } from "./select";
 import { Modal } from "./modal";
 import { Tag } from "./tag";
 
-// Deliberately the same fixtures as `dropdown.stories.tsx`, so the two entries
-// can be flipped between in the sidebar to compare them directly.
+// Shared option fixtures for the stories below.
 const fruits: SelectOption<string>[] = [
   { value: "apple", label: "Apple" },
   { value: "banana", label: "Banana" },
