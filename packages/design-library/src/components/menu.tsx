@@ -12,7 +12,7 @@ import { usePortalContainer } from "../utils/portal-container";
  * triggered by a button — think application menu, context menu, or overflow
  * menu.
  *
- * This is distinct from `Dropdown` which is a single-value form selector.
+ * This is distinct from `Select`, which is a single-value form selector.
  * Use `Menu` for command lists, multi-level submenus, checkbox toggles, and
  * radio groups.
  *
@@ -64,7 +64,9 @@ function Content({
   const container = usePortalContainer();
   const closedByPointerRef = useRef(false);
 
-  const handlePointerDownOutside: ContentProps["onPointerDownOutside"] = (e) => {
+  const handlePointerDownOutside: ContentProps["onPointerDownOutside"] = (
+    e,
+  ) => {
     closedByPointerRef.current = true;
     onPointerDownOutside?.(e);
   };
@@ -195,9 +197,7 @@ function RadioGroup({ ref, ...rest }: RadioGroupProps) {
   );
 }
 
-type RadioItemProps = ComponentProps<
-  typeof DropdownMenuPrimitive.RadioItem
-> & {
+type RadioItemProps = ComponentProps<typeof DropdownMenuPrimitive.RadioItem> & {
   readonly shortcut?: ReactNode;
 };
 
@@ -319,9 +319,7 @@ function SubTrigger({
   );
 }
 
-type SubContentProps = ComponentProps<
-  typeof DropdownMenuPrimitive.SubContent
->;
+type SubContentProps = ComponentProps<typeof DropdownMenuPrimitive.SubContent>;
 
 function SubContent({ className, ref, ...rest }: SubContentProps) {
   const container = usePortalContainer();

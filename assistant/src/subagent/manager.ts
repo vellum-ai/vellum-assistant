@@ -701,10 +701,17 @@ export class SubagentManager {
     // wins over parent inheritance: a parent that stamps trust per-turn (the
     // live-voice bridge) has already cleared it by the time a detached spawn
     // reads it, so its spawner resolves trust itself.
+    //
+    // Inherit the parent's *turn* trust ahead of its conversation-level slot:
+    // the slot holds whichever actor sent most recently, so a spawn during one
+    // actor's turn would otherwise run under another's privileges.
+    const parentTurnTrust =
+      parentConversation?.currentTurnTrustContext ??
+      parentConversation?.trustContext;
     if (config.trustContext) {
       conversation.setTrustContext({ ...config.trustContext });
-    } else if (parentConversation?.trustContext) {
-      conversation.setTrustContext({ ...parentConversation.trustContext });
+    } else if (parentTurnTrust) {
+      conversation.setTrustContext({ ...parentTurnTrust });
     }
     const parentAuthContext = parentConversation?.getAuthContext();
     if (parentAuthContext) {

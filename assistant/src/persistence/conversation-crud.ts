@@ -4209,13 +4209,19 @@ export function getConversationRecentProvenanceTrustClass(
 }
 
 // ---------------------------------------------------------------------------
-// CRUD functions for display_order and is_pinned
+// Conversation placement (group + pin) and display metadata
 // ---------------------------------------------------------------------------
 
-export function batchSetDisplayOrders(
+/**
+ * Move conversations between sections: set the group, and the pin state
+ * derived from it.
+ *
+ * Writes no ordering. Every list is ordered by recency, so a conversation's
+ * placement is which section holds it, not where it sits inside one.
+ */
+export function batchSetConversationPlacement(
   updates: Array<{
     id: string;
-    displayOrder: number | null;
     isPinned?: boolean;
     groupId?: string | null;
   }>,
@@ -4236,7 +4242,7 @@ export function batchSetDisplayOrders(
           safeGroupId = UNGROUPED_GROUP_ID;
         } else if (
           !rawGet<{ id: string }>(
-            "conversation:batchSetDisplayOrders:groupCheck",
+            "conversation:batchSetConversationPlacement:groupCheck",
             "SELECT id FROM conversation_groups WHERE id = ?",
             safeGroupId,
           )
@@ -4270,13 +4276,8 @@ export function batchSetDisplayOrders(
           safeGroupId !== UNGROUPED_GROUP_ID &&
           (safeGroupId === PINNED_GROUP_ID ||
             !safeGroupId.startsWith("system:"));
-        const setClauses = [
-          "display_order = ?",
-          "is_pinned = ?",
-          "group_id = ?",
-        ];
+        const setClauses = ["is_pinned = ?", "group_id = ?"];
         const params: Array<string | number | null> = [
-          update.displayOrder,
           safeGroupId === PINNED_GROUP_ID ? 1 : 0,
           safeGroupId,
         ];
@@ -4291,31 +4292,22 @@ export function batchSetDisplayOrders(
         }
         params.push(update.id);
         rawRun(
-          "conversation:batchSetDisplayOrders:group",
+          "conversation:batchSetConversationPlacement:group",
           `UPDATE conversations SET ${setClauses.join(", ")} WHERE id = ?`,
           ...params,
         );
-      } else if (update.isPinned === undefined) {
-        // Only displayOrder provided — preserve existing pin state and group.
+      } else if (update.isPinned === true) {
         rawRun(
-          "conversation:batchSetDisplayOrders:orderOnly",
-          "UPDATE conversations SET display_order = ? WHERE id = ?",
-          update.displayOrder,
+          "conversation:batchSetConversationPlacement:pin",
+          "UPDATE conversations SET is_pinned = 1, group_id = 'system:pinned' WHERE id = ?",
           update.id,
         );
-      } else if (update.isPinned) {
-        rawRun(
-          "conversation:batchSetDisplayOrders:pin",
-          "UPDATE conversations SET display_order = ?, is_pinned = 1, group_id = 'system:pinned' WHERE id = ?",
-          update.displayOrder,
-          update.id,
-        );
-      } else {
+      } else if (update.isPinned === false) {
         // Restore system group from source/conversationType when unpinning,
         // instead of clearing to NULL (which would lose provenance).
         rawRun(
-          "conversation:batchSetDisplayOrders:unpin",
-          `UPDATE conversations SET display_order = ?, is_pinned = 0,
+          "conversation:batchSetConversationPlacement:unpin",
+          `UPDATE conversations SET is_pinned = 0,
            group_id = CASE WHEN group_id = 'system:pinned' THEN
              CASE
                WHEN source IN ('schedule', 'reminder') THEN 'system:scheduled'
@@ -4325,7 +4317,6 @@ export function batchSetDisplayOrders(
              END
            ELSE group_id END
            WHERE id = ?`,
-          update.displayOrder,
           update.id,
         );
       }

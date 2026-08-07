@@ -11,7 +11,6 @@ import { cn } from "@vellumai/design-library/utils/cn";
 
 import {
   SIDEBAR_CHIP_GAP,
-  SIDEBAR_CHIP_SIZE,
   SIDEBAR_ROW_PADDING_X,
   SIDEBAR_SECTION_INDENT,
   SIDEBAR_SECTION_TITLE_TEXT_CLASSES,
@@ -158,10 +157,8 @@ export interface CollapsibleNavSectionDrag {
   dropEdge: "before" | "after" | null;
 }
 
-export interface CollapsibleNavSectionSectionProps extends Omit<
-  CollapsibleItemProps,
-  "children"
-> {
+export interface CollapsibleNavSectionSectionProps
+  extends Omit<CollapsibleItemProps, "children"> {
   value: string;
   icon?: LucideIcon;
   label: string;
@@ -219,8 +216,11 @@ function CollapsibleNavSectionSection({
   const iconSlot = Icon ? (
     <span
       data-slot="collapsible-nav-section-icon"
-      className="relative inline-flex h-[14px] shrink-0 items-center justify-center"
-      style={{ width: SIDEBAR_CHIP_SIZE }}
+      /* Hugs the glyph. A chip-width box with the glyph centred in it padded
+         the icon away from both edges, so the header read as indented from
+         the row surfaces below it. Centring is the collapsed rail's need,
+         and the rail draws its own tiles. */
+      className="relative inline-flex h-[14px] w-[14px] shrink-0 items-center justify-center"
     >
       <Icon size={12} aria-hidden className="text-[var(--content-tertiary)]" />
     </span>
@@ -271,11 +271,6 @@ function CollapsibleNavSectionSection({
         >
           {iconSlot}
           <span className="min-w-0 flex-1 truncate">{label}</span>
-          {collapsedIndicator ? (
-            <span className="ml-1 flex shrink-0 items-center group-data-[state=open]/section:hidden">
-              {collapsedIndicator}
-            </span>
-          ) : null}
         </Collapsible.Trigger>
       ) : (
         // Non-collapsible: no chevron, no toggle affordance, just the icon
@@ -299,11 +294,66 @@ function CollapsibleNavSectionSection({
           <span className="min-w-0 flex-1 truncate">{label}</span>
         </div>
       )}
-      {collapsible || trailing ? (
+      {collapsible || trailing || collapsedIndicator ? (
         <span className="flex shrink-0 items-center gap-1 pr-[6px] max-md:pr-2">
+          {trailing || collapsedIndicator ? (
+            /* One cell, both occupants stacked in it: every child is placed
+               in the same grid area, so the dot and the "…" share a position
+               and nothing shifts as one gives way to the other. Grid rather
+               than absolute positioning keeps both in the layout, which is
+               what lets the menu stay keyboard reachable (`focus-within`
+               cannot fire on a `display:none` element) and lets the cell size
+               itself from the wider of the two. */
+            <span className="grid shrink-0 place-items-center [&>*]:[grid-area:1/1]">
+              {collapsedIndicator ? (
+                /* Only while collapsed: an open section's rows carry the same
+                   state, so a header dot would double it. `pointer-events-none`
+                   because it is painted over the menu button it shares a cell
+                   with. */
+                <span
+                  data-slot="collapsible-nav-section-indicator"
+                  className={cn(
+                    "pointer-events-none flex items-center",
+                    "transition-opacity",
+                    "group-hover/header:opacity-0",
+                    "max-md:opacity-0",
+                    "group-data-[state=open]/section:hidden",
+                  )}
+                >
+                  {collapsedIndicator}
+                </span>
+              ) : null}
+              {trailing ? (
+                <span
+                  data-slot="collapsible-nav-section-trailing"
+                  /* `empty:hidden` so a trailing component that renders nothing
+                 doesn't leave a padded box behind.
+
+                 Revealed on hover so a column of resting headers stays quiet.
+                 It stays up while its own menu is open (`aria-expanded`), or
+                 the control would vanish the moment it was clicked, and while
+                 anything inside holds focus, so it is keyboard reachable.
+                 Touch has no hover and the header's long-press sheet is the
+                 equivalent there, so below `md` it simply stays visible. */
+                  className={cn(
+                    "flex items-center shrink-0 empty:hidden",
+                    "opacity-0 transition-opacity",
+                    "group-hover/header:opacity-100 focus-within:opacity-100",
+                    "has-[[aria-expanded=true]]:opacity-100",
+                    "max-md:opacity-100",
+                  )}
+                  onClick={(event) => event.stopPropagation()}
+                >
+                  {trailing}
+                </span>
+              ) : null}
+            </span>
+          ) : null}
           {collapsible ? (
             // Decorative disclosure indicator with the title trigger's own
-            // hover box, left of the "…". Not a trigger itself: the section
+            // hover box, outermost so the "…" sits inside it and the
+            // header's right edge stays the same glyph whichever is
+            // showing. Not a trigger itself: the section
             // has exactly one accessible toggle (the title), so the chevron
             // stays out of the accessibility tree and forwards pointer
             // clicks to that trigger instead. A second Radix trigger here
@@ -322,39 +372,12 @@ function CollapsibleNavSectionSection({
                 size={12}
                 aria-hidden
                 className={cn(
-                  "shrink-0 transition-[opacity,transform]",
+                  "shrink-0 transition-transform",
                   "text-[var(--content-tertiary)]",
-                  "opacity-0 group-hover/header:opacity-100",
-                  "max-md:opacity-100 max-md:h-[18px] max-md:w-[18px]",
+                  "max-md:h-[18px] max-md:w-[18px]",
                   "group-data-[state=open]/section:rotate-180",
                 )}
               />
-            </span>
-          ) : null}
-          {trailing ? (
-            <span
-              data-slot="collapsible-nav-section-trailing"
-              /* `empty:hidden` so a trailing component that renders nothing
-                 (a menu with no wired actions) doesn't leave a padded box
-                 behind.
-
-                 Revealed on hover so a row of resting section headers stays
-                 quiet. It also stays up while its own menu is open
-                 (`aria-expanded`), or the control would vanish the moment it
-                 was clicked, and while anything inside holds focus, so it is
-                 reachable by keyboard. Touch has no hover, and the header's
-                 long-press sheet is the equivalent affordance there, so
-                 below `md` it simply stays visible. */
-              className={cn(
-                "flex items-center shrink-0 empty:hidden",
-                "opacity-0 transition-opacity",
-                "group-hover/header:opacity-100 focus-within:opacity-100",
-                "has-[[aria-expanded=true]]:opacity-100",
-                "max-md:opacity-100",
-              )}
-              onClick={(event) => event.stopPropagation()}
-            >
-              {trailing}
             </span>
           ) : null}
         </span>

@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 import type { BatchTranscriber } from "../../../../stt/types.js";
+import { SttError } from "../../../../stt/types.js";
 import type { ToolContext } from "../../../../tools/types.js";
 
 // ---------------------------------------------------------------------------
@@ -8,9 +9,15 @@ import type { ToolContext } from "../../../../tools/types.js";
 // ---------------------------------------------------------------------------
 
 let mockTranscriber: BatchTranscriber | null = null;
+let mockResolveError: Error | null = null;
 
 mock.module("../../../../providers/speech-to-text/resolve.js", () => ({
-  resolveBatchTranscriber: async () => mockTranscriber,
+  resolveBatchTranscriber: async () => {
+    if (mockResolveError) {
+      throw mockResolveError;
+    }
+    return mockTranscriber;
+  },
 }));
 
 // Track calls to spawnWithTimeout so we can simulate ffmpeg/ffprobe results.
@@ -103,6 +110,7 @@ function makeMockTranscriber(
 describe("transcribe_media tool", () => {
   beforeEach(() => {
     mockTranscriber = null;
+    mockResolveError = null;
     spawnResults = {};
     accessiblePaths = new Set();
     mockFileContents = {};
@@ -118,6 +126,19 @@ describe("transcribe_media tool", () => {
       expect(result.content).toContain(
         "No speech-to-text provider is configured",
       );
+    });
+
+    test("surfaces a resolver error verbatim rather than the not-configured copy", async () => {
+      const reason =
+        'Deepgram Flux is streaming-only. Batch transcription requires the deepgram provider: set services.stt.provider to "deepgram".';
+      mockResolveError = new SttError("provider-error", reason, {
+        userFacing: true,
+      });
+
+      const result = await run({ file_path: "/tmp/test.mp3" }, makeContext());
+
+      expect(result.isError).toBe(true);
+      expect(result.content).toBe(reason);
     });
   });
 

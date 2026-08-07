@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Link, useLocation } from "react-router";
 
+import { useTranslation } from "@/i18n";
 import { NativeSplash } from "@/components/native-splash";
 import { AuthWaitSpinner } from "@/domains/account/components/auth-wait-spinner";
 import {
@@ -35,6 +36,7 @@ import { Button } from "@vellumai/design-library";
  * AuthKit handles Apple / Google / email selection.
  */
 function NativeLoginForm({ returnTo }: { returnTo: string | null }) {
+  const { t } = useTranslation("account");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
@@ -81,7 +83,7 @@ function NativeLoginForm({ returnTo }: { returnTo: string | null }) {
           disabled={loading}
           className="max-w-[300px]"
         >
-          Sign in
+          {t("loginPage.signIn")}
         </Button>
       </div>
     </NativeSplash>
@@ -94,6 +96,7 @@ function NativeLoginForm({ returnTo }: { returnTo: string | null }) {
  * theme context (the web login screen is always dark per Figma).
  */
 function WebLoginForm({ returnTo }: { returnTo: string | null }) {
+  const { t } = useTranslation("account");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const callbackUrl = buildProviderCallbackUrl(returnTo);
@@ -124,7 +127,7 @@ function WebLoginForm({ returnTo }: { returnTo: string | null }) {
   return (
     <DarkLoginShell>
       <LoginCard>
-        <LoginHeading>Sign in to Vellum</LoginHeading>
+        <LoginHeading>{t("loginPage.heading")}</LoginHeading>
         {errorMessage && <LoginErrorText>{errorMessage}</LoginErrorText>}
         <div className="flex flex-col items-center gap-3">
           <Button
@@ -135,18 +138,18 @@ function WebLoginForm({ returnTo }: { returnTo: string | null }) {
             disabled={loading}
             className="max-w-[300px]"
           >
-            Continue
+            {t("loginPage.continue")}
           </Button>
         </div>
         <p className="text-body-small-default flex justify-center gap-1">
           <span className="text-[var(--content-secondary)]">
-            Don&apos;t have an account?
+            {t("loginPage.noAccount")}
           </span>
           <Link
             to={signUpHref}
             className="font-medium text-[var(--content-emphasised)] hover:underline"
           >
-            Sign up
+            {t("loginPage.signUp")}
           </Link>
         </p>
       </LoginCard>

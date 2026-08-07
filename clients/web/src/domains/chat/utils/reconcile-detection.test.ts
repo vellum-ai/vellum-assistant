@@ -13,6 +13,20 @@ function userRow(id: string, text: string): DisplayMessage {
 function assistantRow(id: string, text: string): DisplayMessage {
   return { id, role: "assistant", ...textBody(text) } as DisplayMessage;
 }
+function withPhoto(message: DisplayMessage, id: string): DisplayMessage {
+  return {
+    ...message,
+    attachments: [
+      {
+        id,
+        filename: "photo.png",
+        mimeType: "image/png",
+        sizeBytes: 42,
+        previewUrl: null,
+      },
+    ],
+  };
+}
 
 // ---------------------------------------------------------------------------
 // serverSnapshotHasNewContent — the structural "is there anything new?" half.
@@ -35,6 +49,24 @@ describe("serverSnapshotHasNewContent", () => {
         [assistantRow("a1", "par")],
       ),
     ).toBe(true);
+  });
+
+  test("true when a matched row gains a server attachment", () => {
+    expect(
+      serverSnapshotHasNewContent(
+        [withPhoto(userRow("u1", "here's a photo:"), "attachment-1")],
+        [userRow("u1", "here's a photo:")],
+      ),
+    ).toBe(true);
+  });
+
+  test("false when the local row already has the server attachment", () => {
+    expect(
+      serverSnapshotHasNewContent(
+        [withPhoto(userRow("u1", "here's a photo:"), "attachment-1")],
+        [withPhoto(userRow("u1", "here's a photo:"), "attachment-1")],
+      ),
+    ).toBe(false);
   });
 
   test("false when the server matches the local view", () => {

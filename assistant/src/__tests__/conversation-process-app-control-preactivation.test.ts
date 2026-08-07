@@ -86,6 +86,7 @@ import {
   MessageQueue,
   type QueuedMessage,
 } from "../daemon/conversation-queue-manager.js";
+import type { TrustContext } from "../daemon/trust-context-types.js";
 
 // ---------------------------------------------------------------------------
 // Fake context — captures preactivation calls, satisfies the bare minimum
@@ -172,6 +173,7 @@ function makeQueuedMessage(opts: {
   content?: string;
   turnInterfaceContext?: TurnInterfaceContext;
   sourceActorPrincipalId?: string;
+  trustContext?: TrustContext;
 }): QueuedMessage {
   return {
     content: opts.content ?? "follow up",
@@ -185,6 +187,7 @@ function makeQueuedMessage(opts: {
     authContext: opts.sourceActorPrincipalId
       ? ({ actorPrincipalId: opts.sourceActorPrincipalId } as never)
       : undefined,
+    trustContext: opts.trustContext,
   };
 }
 
@@ -369,6 +372,126 @@ describe("drainQueue preactivation re-add for host-proxy interfaces", () => {
       "trusted-contact-user",
     );
     expect(ctx.currentTurnSourceActorPrincipalId).toBe("trusted-contact-user");
+  });
+
+  test("drainSingleMessage runs the turn under the queued sender's trust, not the live slot", async () => {
+    // The conversation-level slot holds whichever actor sent most recently.
+    // A message that waited while someone else sent must still run as its own
+    // sender: trust decides `trustClass`, `executionChannel`, and
+    // `requesterExternalUserId`, so reading the slot hands the whole
+    // tool-approval path the wrong identity in both directions -- a contact
+    // inheriting guardian self-approval, or a guardian's own call escalating
+    // back to her as a contact's grant request.
+    const contactTrust: TrustContext = {
+      trustClass: "trusted_contact",
+      sourceChannel: "slack",
+      requesterExternalUserId: "U-contact",
+    };
+    const queue = new MessageQueue();
+    queue.push(
+      makeQueuedMessage({
+        requestId: "req-contact",
+        trustContext: contactTrust,
+      }),
+    );
+    const ctx = makeFakeContext({ queue });
+    // Someone else sent after this message was queued, moving the slot.
+    ctx.trustContext = {
+      trustClass: "guardian",
+      sourceChannel: "vellum",
+      requesterExternalUserId: "guardian-principal",
+    };
+
+    await drainQueue(ctx);
+
+    expect(ctx.currentTurnTrustContext?.trustClass).toBe("trusted_contact");
+    expect(ctx.currentTurnTrustContext?.requesterExternalUserId).toBe(
+      "U-contact",
+    );
+    expect(ctx.currentTurnTrustContext?.sourceChannel).toBe("slack");
+    // The slot itself is left alone; only the turn's view is corrected.
+    expect(ctx.trustContext?.trustClass).toBe("guardian");
+  });
+
+  test("buildPassthroughBatch refuses to coalesce two channel senders", async () => {
+    // Channel senders carry no principal, so the `sourceActorPrincipalId`
+    // boundary sees `undefined === undefined` and would batch two different
+    // Slack contacts into one turn running under the head's trust. The batch
+    // must split on the sender's trust identity instead.
+    const ifCtx: TurnInterfaceContext = {
+      userMessageInterface: "web",
+      assistantMessageInterface: "web",
+    };
+    const queue = new MessageQueue();
+    queue.push(
+      makeQueuedMessage({
+        requestId: "req-contact-a",
+        content: "from A",
+        turnInterfaceContext: ifCtx,
+        trustContext: {
+          trustClass: "trusted_contact",
+          sourceChannel: "slack",
+          requesterExternalUserId: "U-alex",
+        },
+      }),
+    );
+    queue.push(
+      makeQueuedMessage({
+        requestId: "req-contact-b",
+        content: "from B",
+        turnInterfaceContext: ifCtx,
+        trustContext: {
+          trustClass: "trusted_contact",
+          sourceChannel: "slack",
+          requesterExternalUserId: "U-blake",
+        },
+      }),
+    );
+    const ctx = makeFakeContext({ queue, turnInterfaceContext: ifCtx });
+
+    await drainQueue(ctx);
+
+    // B stays queued: it gets its own turn under its own trust.
+    expect(queue.length).toBe(1);
+    expect(queue.peek(0)?.requestId).toBe("req-contact-b");
+    expect(ctx.currentTurnTrustContext?.requesterExternalUserId).toBe("U-alex");
+  });
+
+  test("buildPassthroughBatch still coalesces two messages from the same sender", async () => {
+    // Sensitivity check on the split above: identical trust must still batch,
+    // otherwise the boundary would be splitting on something incidental and
+    // the test above would pass for the wrong reason.
+    const ifCtx: TurnInterfaceContext = {
+      userMessageInterface: "web",
+      assistantMessageInterface: "web",
+    };
+    const sameTrust: TrustContext = {
+      trustClass: "trusted_contact",
+      sourceChannel: "slack",
+      requesterExternalUserId: "U-alex",
+    };
+    const queue = new MessageQueue();
+    queue.push(
+      makeQueuedMessage({
+        requestId: "req-a1",
+        content: "first",
+        turnInterfaceContext: ifCtx,
+        trustContext: { ...sameTrust },
+      }),
+    );
+    queue.push(
+      makeQueuedMessage({
+        requestId: "req-a2",
+        content: "second",
+        turnInterfaceContext: ifCtx,
+        trustContext: { ...sameTrust },
+      }),
+    );
+    const ctx = makeFakeContext({ queue, turnInterfaceContext: ifCtx });
+
+    await drainQueue(ctx);
+
+    expect(queue.length).toBe(0);
   });
 
   test("drainSingleMessage does NOT re-add 'app-control' for web-sourced message when no capable client is connected", async () => {

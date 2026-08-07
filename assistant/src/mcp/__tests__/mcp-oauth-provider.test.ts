@@ -22,16 +22,15 @@ mock.module("../../config/loader.js", () => ({
 
 const { McpOAuthProvider } = await import("../mcp-oauth-provider.js");
 
-function newGatewayProvider() {
+function newProvider() {
   return new McpOAuthProvider(
     "comms",
     "https://comms.example/mcp",
     /* interactive */ false,
-    "gateway",
   );
 }
 
-describe("McpOAuthProvider gateway callback", () => {
+describe("McpOAuthProvider callback", () => {
   test("stopCallbackServer() before a consumer attaches does not emit an unhandled rejection", async () => {
     // stopCallbackServer() rejects the deferred code promise. When no consumer
     // is attached, that rejection must stay observed so it does not surface as
@@ -40,7 +39,7 @@ describe("McpOAuthProvider gateway callback", () => {
     const onUnhandled = (reason: unknown) => unhandled.push(reason);
     process.on("unhandledRejection", onUnhandled);
     try {
-      const provider = newGatewayProvider();
+      const provider = newProvider();
 
       // Intentionally do NOT consume the returned codePromise — this mirrors the
       // early-exit paths where connect() throws before the OAuth tail is wired up.
@@ -53,7 +52,7 @@ describe("McpOAuthProvider gateway callback", () => {
       const cancelRejections = unhandled.filter(
         (r) =>
           r instanceof Error &&
-          r.message.includes("MCP OAuth gateway callback cancelled"),
+          r.message.includes("MCP OAuth callback cancelled"),
       );
       expect(cancelRejections).toHaveLength(0);
     } finally {
@@ -62,14 +61,12 @@ describe("McpOAuthProvider gateway callback", () => {
   });
 
   test("stopCallbackServer() still rejects a consumer that is awaiting the code", async () => {
-    const provider = newGatewayProvider();
+    const provider = newProvider();
     await provider.startCallbackServer();
 
     const codePromise = provider.waitForCode();
     provider.stopCallbackServer();
 
-    await expect(codePromise).rejects.toThrow(
-      "MCP OAuth gateway callback cancelled",
-    );
+    await expect(codePromise).rejects.toThrow("MCP OAuth callback cancelled");
   });
 });

@@ -13,7 +13,6 @@ const OTHER_CHANNEL = "800000000000000002";
 /** Reasons that surface once per channel, and the level they surface at. */
 const PROMOTED: Array<[AdmissionDropReason, AdmissionDropLogLevel]> = [
   ["channel_not_allowed", "warn"],
-  ["not_a_guild_message", "info"],
   ["bot_not_mentioned", "info"],
 ];
 
@@ -94,12 +93,13 @@ describe("AdmissionDropLog", () => {
   });
 
   test("an unbounded reason cannot starve the operator-actionable one", () => {
-    // `not_a_guild_message` is keyed on a DM channel, which is unique per
-    // sender, so outsiders control its key space. A shared budget would let a
-    // stream of DMs exhaust it and permanently demote `channel_not_allowed`.
+    // `bot_not_mentioned` fires on ordinary chatter in every allow-listed
+    // channel, so its key space grows with the guild rather than with
+    // operator intent. A shared budget would let that stream exhaust it and
+    // permanently demote `channel_not_allowed`.
     const dropLog = new AdmissionDropLog();
     for (let i = 0; i < 5_000; i++) {
-      dropLog.levelFor("not_a_guild_message", `dm-channel-${i}`);
+      dropLog.levelFor("bot_not_mentioned", `channel-${i}`);
     }
     expect(dropLog.levelFor("channel_not_allowed", CHANNEL)).toBe("warn");
   });
@@ -111,7 +111,6 @@ describe("AdmissionDropLog", () => {
     }
     expect(dropLog.levelFor("bot_not_mentioned", "channel-999")).toBe("debug");
     expect(dropLog.levelFor("channel_not_allowed", "channel-999")).toBe("warn");
-    expect(dropLog.levelFor("not_a_guild_message", "channel-999")).toBe("info");
   });
 
   test("instances do not share state", () => {

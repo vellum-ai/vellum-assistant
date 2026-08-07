@@ -672,9 +672,9 @@ export function SelectAssistantScreen() {
   }
 
   return (
-    <OnboardingLayout>
+    <OnboardingLayout showAvatarWave>
       <div
-        className={`mx-auto flex w-full max-w-xl flex-col items-center ${electron ? "min-h-full px-8 pt-21 pb-4 electron-prechat-type" : "min-h-screen px-6 pb-40 pt-6"} text-[var(--content-default)]`}
+        className={`mx-auto flex w-full max-w-xl flex-col items-center ${electron ? "min-h-full px-8 pt-21 pb-4 electron-prechat-type" : "min-h-screen px-6 pb-40 pt-6 md:min-h-full md:pb-6"} text-[var(--content-default)]`}
       >
         {/* The main block floats in the space above the creature footer;
             electron keeps its compact top-aligned flow. */}
@@ -682,7 +682,7 @@ export function SelectAssistantScreen() {
           className={`flex w-full flex-col items-center ${electron ? "" : "flex-1 justify-center"}`}
         >
         <h1
-          className="text-center text-5xl font-normal tracking-tight"
+          className="text-center text-5xl font-normal tracking-tight md:text-4xl lg:text-5xl"
           style={{
             fontFamily: "var(--font-serif)",
             animation: "fadeInUp 0.5s ease-out 0.1s both",
@@ -904,7 +904,7 @@ export function SelectAssistantScreen() {
 /** Full-screen "Connecting…" hold shown while a decision or connect lands. */
 function ConnectingHold() {
   return (
-    <OnboardingLayout>
+    <OnboardingLayout showAvatarWave>
       <div className="mx-auto flex min-h-screen w-full max-w-xl flex-col items-center justify-center px-6 text-[var(--content-default)]">
         <p className="text-body-medium-lighter text-[var(--content-tertiary)]">
           Connecting to your assistant…

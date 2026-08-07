@@ -46,10 +46,35 @@ export type SidebarSectionCardProps = ComponentProps<
 
 export function SidebarSectionCard({
   cardClassName,
+  drag,
   ...section
 }: SidebarSectionCardProps) {
+  /* The card is what drags, not the header inside it. A section is a card
+     now, so grabbing one should pick up the whole object; with the handle on
+     the header the drag image was a lone header strip, which reads as a
+     conversation row rather than as the section being moved. The drop
+     feedback moves with it for the same reason: the insertion line belongs
+     on the edge being inserted against. */
   return (
-    <Card.Root bordered={false} noPadding className={cn("p-2", cardClassName)}>
+    <Card.Root
+      bordered={false}
+      noPadding
+      className={cn(
+        "p-2",
+        /* The card is the drag handle, so it says so. Every interactive thing
+           inside it sets its own `cursor-pointer`, which wins wherever one is
+           actually under the pointer - so the grab cursor shows on the card's
+           own surface and nowhere else. */
+        drag && "cursor-grab active:cursor-grabbing",
+        drag?.dragging && "opacity-50",
+        drag?.dropEdge === "before" &&
+          "shadow-[inset_0_2px_0_0_var(--primary-base)]",
+        drag?.dropEdge === "after" &&
+          "shadow-[inset_0_-2px_0_0_var(--primary-base)]",
+        cardClassName,
+      )}
+      {...drag?.headerProps}
+    >
       <ConversationNavSection {...section} />
     </Card.Root>
   );

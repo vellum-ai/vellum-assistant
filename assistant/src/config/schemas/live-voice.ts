@@ -212,6 +212,58 @@ export const LiveVoiceFrontModelConfigSchema = z
     "Front-model presence layer tuning for live voice sessions (semantic endpointing + spoken acks + progress narration)",
   );
 
+const LiveVoiceFluxTurnEndConfigSchema = z
+  .object({
+    enabled: z
+      .boolean({ error: "liveVoice.flux.turnEnd.enabled must be a boolean" })
+      .default(false)
+      .describe(
+        "Commit the live-voice turn on Flux's EndOfTurn instead of the front-door [0] hold verdict. Requires services.stt.provider to be deepgram-flux; ignored otherwise.",
+      ),
+  })
+  .describe(
+    "Which signal commits a live voice turn when Deepgram Flux is the STT provider",
+  );
+
+export const LiveVoiceFluxConfigSchema = z
+  .object({
+    turnEnd: LiveVoiceFluxTurnEndConfigSchema.default(
+      LiveVoiceFluxTurnEndConfigSchema.parse({}),
+    ),
+    model: z
+      .string({ error: "liveVoice.flux.model must be a string" })
+      .default("flux-general-en")
+      .describe("Deepgram Flux model requested when opening the STT stream"),
+    eotThreshold: z
+      .number({ error: "liveVoice.flux.eotThreshold must be a number" })
+      .min(0.5, "liveVoice.flux.eotThreshold must be >= 0.5")
+      .max(0.9, "liveVoice.flux.eotThreshold must be <= 0.9")
+      .default(0.7)
+      .describe(
+        "End-of-turn confidence Flux must reach before it emits EndOfTurn. Lower values commit sooner and cut speakers off more often; higher values wait longer and add end-of-turn latency.",
+      ),
+    eagerEotThreshold: z
+      .number({ error: "liveVoice.flux.eagerEotThreshold must be a number" })
+      .min(0.3, "liveVoice.flux.eagerEotThreshold must be >= 0.3")
+      .max(0.9, "liveVoice.flux.eagerEotThreshold must be <= 0.9")
+      .optional()
+      .describe(
+        "Confidence at which Flux starts speculating that the turn has ended. Leaving it unset disables Deepgram's EagerEndOfTurn / TurnResumed events; enabling it raises LLM calls 50-70% because speculative turns that resume are thrown away.",
+      ),
+    eotTimeoutMs: z
+      .number({ error: "liveVoice.flux.eotTimeoutMs must be a number" })
+      .int("liveVoice.flux.eotTimeoutMs must be an integer")
+      .min(500, "liveVoice.flux.eotTimeoutMs must be >= 500")
+      .max(60_000, "liveVoice.flux.eotTimeoutMs must be <= 60000")
+      .default(5_000)
+      .describe(
+        "Silence (ms) after which Flux force-ends the turn even though its end-of-turn confidence never reached eotThreshold",
+      ),
+  })
+  .describe(
+    "Deepgram Flux turn-detection tuning for live voice sessions (model-integrated end-of-turn)",
+  );
+
 export const LiveVoiceConfigSchema = z
   .object({
     mode: z
@@ -225,6 +277,9 @@ export const LiveVoiceConfigSchema = z
     vad: LiveVoiceVadConfigSchema.default(LiveVoiceVadConfigSchema.parse({})),
     frontModel: LiveVoiceFrontModelConfigSchema.default(
       LiveVoiceFrontModelConfigSchema.parse({}),
+    ),
+    flux: LiveVoiceFluxConfigSchema.default(
+      LiveVoiceFluxConfigSchema.parse({}),
     ),
     maxSessionDurationSeconds: z
       .number({
@@ -255,3 +310,4 @@ export type LiveVoiceFrontModelConfig = z.infer<
 export type LiveVoiceProgressConfig = z.infer<
   typeof LiveVoiceProgressConfigSchema
 >;
+export type LiveVoiceFluxConfig = z.infer<typeof LiveVoiceFluxConfigSchema>;

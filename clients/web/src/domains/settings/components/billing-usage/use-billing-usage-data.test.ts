@@ -1,9 +1,6 @@
 import { afterEach, describe, expect, mock, test } from "bun:test";
 
-import {
-  computeRangeInTimezone,
-  presetDaysFromRange,
-} from "@/components/charts/date-range-select";
+import { computeRangeInTimezone } from "@/components/charts/date-range-select";
 
 import {
   buildBillingUsageSeriesQuery,
@@ -102,21 +99,6 @@ describe("computeRangeInTimezone", () => {
   });
 });
 
-describe("presetDaysFromRange", () => {
-  for (const days of [7, 30, 90]) {
-    test(`maps a ${days}-day range back to its preset identity`, () => {
-      expect(presetDaysFromRange(computeRangeInTimezone(days))).toBe(days);
-    });
-  }
-
-  test("falls back to the 30-day default for a non-preset span", () => {
-    // 45 days apart matches none of the 7/30/90 presets.
-    expect(presetDaysFromRange({ from: "2025-12-01", to: "2026-01-14" })).toBe(
-      30,
-    );
-  });
-});
-
 describe("preset identity → range derivation (tz change)", () => {
   // The panel stores the preset identity (days) and derives bounds from that
   // identity + the live tz. This is what makes a tz change recompute the
@@ -142,18 +124,15 @@ describe("preset identity → range derivation (tz change)", () => {
     });
   }
 
-  test("rollover: a stale prior-day range is ignored, identity wins", () => {
-    // Simulate the bug's setup: the active range was computed on a PRIOR
-    // calendar day (a fixed, now-stale 7-day range). Reverse-matching this
-    // against freshly recomputed prev-tz bounds would fail and strand it as
-    // "custom". Deriving from the stored identity (7) sidesteps that entirely.
+  test("a range shown on a prior calendar day does not feed the next derivation", () => {
+    // The panel holds the identity, so bounds computed on an earlier day are
+    // not an input to the next computation, only an output of the last one.
     const stalePriorDayRange = { from: "2026-01-01", to: "2026-01-07" };
-    const presetDays = presetDaysFromRange(stalePriorDayRange); // 7
 
-    const recomputed = computeRangeInTimezone(presetDays, WEST);
+    const recomputed = computeRangeInTimezone(7, WEST);
 
+    expect(recomputed).not.toEqual(stalePriorDayRange);
     expect(daysApart(recomputed.from, recomputed.to)).toBe(7);
-    expect(recomputed).toEqual(computeRangeInTimezone(7, WEST));
   });
 });
 

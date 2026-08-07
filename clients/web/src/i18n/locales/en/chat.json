@@ -1,0 +1,19 @@
+{
+  "conversationAssets": {
+    "heading": "Assets",
+    "label": "{count, plural, one {# asset} other {# assets}}",
+    "ariaLabel": "Conversation assets, {count, plural, one {# item} other {# items}}",
+    "ariaLabelUnseen": "Conversation assets, {count, plural, one {# item} other {# items}} (unseen changes)"
+  },
+  "pinnedAppColorSwatches": {
+    "noColor": "No color",
+    "colors": {
+      "green": "Green",
+      "orange": "Orange",
+      "pink": "Pink",
+      "purple": "Purple",
+      "teal": "Teal",
+      "yellow": "Yellow"
+    }
+  }
+}
