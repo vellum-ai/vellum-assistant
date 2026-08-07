@@ -151,11 +151,11 @@ Fallbacks are logged at `warn`, so they are visible at the default log level:
 No provider end-of-turn is coming; falling back to the silence boundary for this utterance
 ```
 
-The deadline is `liveVoice.flux.eotTimeoutMs` plus a 1000ms margin (`FLUX_TURN_END_FALLBACK_MARGIN_MS`), measured from the local speech-stop mark. If you see these routinely, you are measuring the fallback path, not Flux.
+The deadline is `liveVoice.flux.eotTimeoutMs` plus a 1000ms margin (`PROVIDER_TURN_END_FALLBACK_MARGIN_MS`), measured from the local speech-stop mark. If you see these routinely, you are measuring the fallback path, not Flux.
 
 #### Lower `eotTimeoutMs` for the run
 
-With the shipped defaults the fail-open budget is `eotTimeoutMs` (**5000**) plus `FLUX_TURN_END_FALLBACK_MARGIN_MS` (**1000**), so **6000ms from the local speech-stop mark**. The local silence boundary fires at ~1200ms and then hands the turn to Flux, so a stalled turn is roughly **4.8 seconds of dead air** before the utterance replays onto the hold path and anyone answers.
+With the shipped defaults the fail-open budget is `eotTimeoutMs` (**5000**) plus `PROVIDER_TURN_END_FALLBACK_MARGIN_MS` (**1000**), so **6000ms from the local speech-stop mark**. The local silence boundary fires at ~1200ms and then hands the turn to Flux, so a stalled turn is roughly **4.8 seconds of dead air** before the utterance replays onto the hold path and anyone answers.
 
 That is the worst case by design (the budget has to clear Flux's own force-end), but it is a bad property to carry through a measurement run. It makes a stall expensive to sit through, which biases you toward not reproducing one, and it means arm B's slow turns are dominated by a timeout rather than by turn detection.
 
@@ -165,7 +165,7 @@ Set `liveVoice.flux.eotTimeoutMs` to **1500 to 2000** for the duration of the ru
 
 `isStaleProviderTurnEnd` decides on Flux's own `turn_index`, which `parseFluxFrame` carries onto `turn-start` and `turn-end`. The cycle records the newest turn Flux opened, so a delayed end-of-turn for an older index is recognized as stale and dropped, even though the caller has resumed speaking since. An end-of-turn for the turn still in progress is never stale: the mid-thought pause is what Flux's turn model exists to judge, its verdict covers the resumed speech, and the newest speech-stop mark is the right anchor for it.
 
-The local VAD generation counter is only the fallback, for an event that carries no turn number. There the outlier mode survives: if the caller resumes and stops again before a delayed `turn-end` lands, the second boundary re-stamps `fluxBoundaryGeneration` to the current generation, the event stops looking stale, and it is accepted against the newer speech-stop mark. The **commit is still correct**, but the recorded latency is understated for that turn, in `endpointCommitLatencyMs` and `endpointDecisionMaxLatencyMs` alike, since they share the anchor.
+The local VAD generation counter is only the fallback, for an event that carries no turn number. There the outlier mode survives: if the caller resumes and stops again before a delayed `turn-end` lands, the second boundary re-stamps `turnBoundaryGeneration` to the current generation, the event stops looking stale, and it is accepted against the newer speech-stop mark. The **commit is still correct**, but the recorded latency is understated for that turn, in `endpointCommitLatencyMs` and `endpointDecisionMaxLatencyMs` alike, since they share the anchor.
 
 Drops log at `info` and so are visible at the default log level, carrying `turnIndex`, `openTurnIndex`, `boundaryGeneration`, and `speechGeneration`:
 
