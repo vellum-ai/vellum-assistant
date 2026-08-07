@@ -9,6 +9,7 @@ import { credentialKey } from "../credential-key.js";
 import { mutateConfigFile } from "../config-file-utils.js";
 import { getLogger } from "../logger.js";
 import { ExponentialBackoff } from "../util/exponential-backoff.js";
+import { waitForWebSocketClose } from "../util/wait-for-ws-close.js";
 import {
   VELAY_ALLOWED_PATHS_HEADER,
   VELAY_ALLOWED_PATHS_HEADER_VALUE,
@@ -33,6 +34,7 @@ const RECONNECT_JITTER_RATIO = 0.5;
 const VELAY_POLICY_CLOSE_CODE = 4008;
 const HEARTBEAT_INTERVAL_MS = 30_000;
 const HEARTBEAT_READ_TIMEOUT_MS = 60_000;
+const CHECKPOINT_RECONNECT_HOLDOFF_MS = 60_000;
 // Velay's production load balancer terminates every tunnel connection at
 // exactly 3600s (BackendConfig timeoutSec), killing any proxied call
 // mid-stream. Refresh the tunnel ourselves before that deadline (but only
@@ -116,6 +118,7 @@ export class VelayTunnelClient {
   // Last observed value of `ingress.enabled === false`, so a config change can
   // detect a disabled → enabled transition and wake a waiting reconnect.
   private lastPublicIngressDisabled = false;
+  private reconnectHoldoffUntil = 0;
 
   constructor(private readonly options: VelayTunnelClientOptions) {
     this.webSocketConstructor =
@@ -190,6 +193,46 @@ export class VelayTunnelClient {
     this.connectForCredentialRefresh(reason);
   }
 
+  /** Close the external tunnel before a checkpoint and defer reconnection. */
+  async prepareForCheckpoint(): Promise<boolean> {
+    if (!this.running) {
+      return false;
+    }
+    this.reconnectHoldoffUntil = Date.now() + CHECKPOINT_RECONNECT_HOLDOFF_MS;
+    this.backoff.reset();
+    if (this.reconnectTimer) {
+      this.timerApi.clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
+    const ws = this.ws;
+    if (!ws) {
+      this.scheduleReconnect();
+      return false;
+    }
+    log.info("Closing Velay tunnel for pre-checkpoint quiesce");
+    this.disconnectActiveWebSocket(ws, 1000, "pre-checkpoint quiesce");
+    await waitForWebSocketClose(ws);
+    return true;
+  }
+
+  /** Clear the checkpoint holdoff and reconnect after system wake. */
+  resumeAfterWake(): void {
+    this.reconnectHoldoffUntil = 0;
+    if (!this.running || this.ws || this.connecting) {
+      return;
+    }
+    this.backoff.reset();
+    if (this.reconnectTimer) {
+      this.timerApi.clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
+    void this.connect().catch((err) => {
+      this.connecting = false;
+      log.error({ err }, "Velay reconnect after wake failed");
+      this.scheduleReconnect();
+    });
+  }
+
   start(): void {
     if (this.running) return;
     this.running = true;
@@ -233,7 +276,13 @@ export class VelayTunnelClient {
   }
 
   private async connect(): Promise<void> {
-    if (!this.running || this.connecting) return;
+    if (!this.running || this.connecting || this.ws) {
+      return;
+    }
+    if (Date.now() < this.reconnectHoldoffUntil) {
+      this.scheduleReconnect();
+      return;
+    }
     this.connecting = true;
 
     if (this.isPublicIngressDisabled()) {
@@ -292,6 +341,12 @@ export class VelayTunnelClient {
       if (this.consumePendingCredentialRefresh("Velay base URL invalid")) {
         return;
       }
+      this.scheduleReconnect();
+      return;
+    }
+
+    if (Date.now() < this.reconnectHoldoffUntil) {
+      this.connecting = false;
       this.scheduleReconnect();
       return;
     }
@@ -674,7 +729,8 @@ export class VelayTunnelClient {
   private scheduleReconnect(): void {
     if (!this.running || this.reconnectTimer) return;
 
-    const delay = this.backoff.nextDelayMs();
+    const holdoffRemaining = this.reconnectHoldoffUntil - Date.now();
+    const delay = Math.max(this.backoff.nextDelayMs(), holdoffRemaining);
 
     this.reconnectTimer = this.timerApi.setTimeout(() => {
       this.reconnectTimer = null;

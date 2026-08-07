@@ -57,6 +57,7 @@ import type {
 } from "../runtime/routes/types.js";
 import { RouteResponse } from "../runtime/routes/types.js";
 import { getLogger } from "../util/logger.js";
+import { CHECKPOINT_IPC_METHODS } from "./routes/checkpoint-ipc-routes.js";
 import { CONTACTS_INFO_IPC_METHODS } from "./routes/contacts-info-ipc-routes.js";
 import { CONTACTS_MIRROR_IPC_METHODS } from "./routes/contacts-mirror-ipc-routes.js";
 import { CONVERSATION_SYNC_IPC_METHODS } from "./routes/conversation-sync-ipc-routes.js";
@@ -219,6 +220,7 @@ export class AssistantIpcServer {
       CONVERSATION_SYNC_IPC_METHODS,
       DOCUMENTS_SYNC_IPC_METHODS,
       EVENTS_IPC_METHODS,
+      CHECKPOINT_IPC_METHODS,
     ]) {
       for (const [operationId, handler] of Object.entries(methodMap)) {
         this.methods.set(operationId, handler);

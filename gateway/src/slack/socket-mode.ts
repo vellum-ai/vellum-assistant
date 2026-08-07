@@ -7,10 +7,17 @@ import { fetchImpl } from "../fetch.js";
 import type { GatewayConfig } from "../config.js";
 import { SlackStore } from "../db/slack-store.js";
 import {
+  beginCheckpointReconnectHoldoff,
+  checkpointReconnectHoldoffRemainingMs,
+  clearCheckpointReconnectHoldoff,
+  isCheckpointReconnectHoldoffActive,
+} from "../checkpoint-reconnect-holdoff.js";
+import {
   SLACK_THREAD_ALREADY_MUTED,
   SLACK_THREAD_MUTE_SUCCESS,
 } from "../webhook-copy.js";
 import { ExponentialBackoff } from "../util/exponential-backoff.js";
+import { waitForWebSocketClose } from "../util/wait-for-ws-close.js";
 import {
   CatchupAbortSignal,
   fetchChannelHistorySince,
@@ -499,6 +506,34 @@ export class SlackSocketModeClient {
     }
   }
 
+  /** Close the external socket before a checkpoint and defer reconnection. */
+  async prepareForCheckpoint(): Promise<boolean> {
+    if (!this.running) {
+      return false;
+    }
+    beginCheckpointReconnectHoldoff();
+    this.backoff.reset();
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
+    const ws = this.ws;
+    if (!ws) {
+      this.scheduleReconnect();
+      return false;
+    }
+    log.info("Closing Slack Socket Mode connection for pre-checkpoint quiesce");
+    this.ws = null;
+    try {
+      ws.close(1000, "pre-checkpoint quiesce");
+    } catch {
+      // The socket is abandoned even if close throws.
+    }
+    this.scheduleReconnect();
+    await waitForWebSocketClose(ws);
+    return true;
+  }
+
   /**
    * Force-close the current WebSocket and reconnect immediately.
    * Used by the sleep/wake detector to recover from half-open connections
@@ -511,6 +546,7 @@ export class SlackSocketModeClient {
   forceReconnect(): void {
     if (!this.running) return;
 
+    clearCheckpointReconnectHoldoff();
     log.info("Force-reconnecting Slack Socket Mode (sleep/wake recovery)");
 
     if (this.reconnectTimer) {
@@ -956,8 +992,16 @@ export class SlackSocketModeClient {
   }
 
   private async connect(): Promise<void> {
-    if (!this.running) return;
-    if (this.connecting) return;
+    if (!this.running) {
+      return;
+    }
+    if (this.connecting) {
+      return;
+    }
+    if (isCheckpointReconnectHoldoffActive()) {
+      this.scheduleReconnect();
+      return;
+    }
     this.connecting = true;
 
     let wsUrl: string;
@@ -965,6 +1009,12 @@ export class SlackSocketModeClient {
       wsUrl = await this.getWebSocketUrl();
     } catch (err) {
       log.error({ err }, "Failed to obtain Socket Mode WebSocket URL");
+      this.connecting = false;
+      this.scheduleReconnect();
+      return;
+    }
+
+    if (isCheckpointReconnectHoldoffActive()) {
       this.connecting = false;
       this.scheduleReconnect();
       return;
@@ -1876,7 +1926,8 @@ export class SlackSocketModeClient {
     if (this.reconnectTimer) return;
 
     const attempt = this.backoff.attemptCount;
-    const delay = this.backoff.nextDelayMs();
+    const holdoffRemaining = checkpointReconnectHoldoffRemainingMs();
+    const delay = Math.max(this.backoff.nextDelayMs(), holdoffRemaining);
 
     log.info({ attempt, delayMs: delay }, "Scheduling Socket Mode reconnect");
 

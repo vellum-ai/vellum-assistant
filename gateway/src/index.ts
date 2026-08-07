@@ -18,6 +18,7 @@ import { findGuardianForChannelActor } from "./auth/guardian-bootstrap.js";
 import { AuthFallbackReporter } from "./auth-fallback-reporter.js";
 import { loopbackFallbackCountTracker } from "./http/middleware/auth.js";
 import { ConfigFileCache } from "./config-file-cache.js";
+import { clearCheckpointReconnectHoldoff } from "./checkpoint-reconnect-holdoff.js";
 import { ConfigFileWatcher } from "./config-file-watcher.js";
 import { FeatureFlagWatcher } from "./feature-flag-watcher.js";
 import { RemoteFeatureFlagSync } from "./remote-feature-flag-sync.js";
@@ -84,6 +85,7 @@ import { createVercelControlPlaneProxyHandler } from "./http/routes/vercel-contr
 import { createContactsControlPlaneProxyHandler } from "./http/routes/contacts-control-plane-proxy.js";
 import { buildContactsControlPlaneRoutes } from "./http/routes/contacts-control-plane-route-table.js";
 import { handleContactPromptSubmit } from "./http/routes/contact-prompt.js";
+import { handleCheckpointQuiesce } from "./http/routes/checkpoint-quiesce.js";
 import {
   handleListDevices,
   handleRevokeDevice,
@@ -1780,6 +1782,20 @@ async function main() {
     handler: (req) => handleCreateToken(req, server, config.trustProxy),
   });
 
+  // ── Pre-checkpoint socket quiesce (platform control plane) ──
+  // vembda calls this right before triggering a gVisor pod snapshot so no
+  // external TCP connection is captured (dead-on-restore sockets crash Bun).
+  routes.push({
+    path: "/internal/prepare-for-checkpoint",
+    method: "POST",
+    auth: "custom",
+    handler: (req) =>
+      handleCheckpointQuiesce(req, {
+        velayTunnelClient,
+        getSlackSocketClient: () => slackSocketClient,
+      }),
+  });
+
   // Runtime proxy catch-all — must be last so specific routes are checked first.
   routes.push({
     path: /^\//, // match everything
@@ -2928,8 +2944,14 @@ async function main() {
   const sleepWakeDetector = new SleepWakeDetector(() => {
     log.info("System wake detected — reconnecting channels");
 
+    clearCheckpointReconnectHoldoff();
+
     // Force-reconnect Slack WebSocket (may be half-open after sleep)
     slackSocketClient?.forceReconnect();
+
+    // Reconnect the Velay tunnel if it was closed by a pre-checkpoint
+    // quiesce (pod snapshot restore fires this wake path) or died in sleep.
+    velayTunnelClient?.resumeAfterWake();
 
     // Invalidate caches so next read picks up any config changes (e.g. new ngrok URL)
     configFileCache.invalidate();

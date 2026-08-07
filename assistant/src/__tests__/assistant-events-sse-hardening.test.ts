@@ -13,6 +13,10 @@ import { beforeEach, describe, expect, test } from "bun:test";
 import { getDb } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
 import { AssistantEventHub } from "../runtime/assistant-event-hub.js";
+import {
+  beginCheckpointQuiesce,
+  clearCheckpointQuiesce,
+} from "../runtime/checkpoint-quiesce.js";
 import { ServiceUnavailableError } from "../runtime/routes/errors.js";
 import { handleSubscribeAssistantEvents } from "../runtime/routes/events-routes.js";
 
@@ -332,5 +336,20 @@ describe("SSE route — disconnect cleanup", () => {
 
     expect(hub.subscriberCount()).toBe(0);
     ac.abort();
+  });
+});
+
+describe("SSE route — pre-checkpoint quiesce latch", () => {
+  test("rejects new subscriptions with a 503 while the latch is armed", () => {
+    beginCheckpointQuiesce();
+    try {
+      expect(() =>
+        handleSubscribeAssistantEvents({
+          queryParams: { conversationKey: "quiesce-latch" },
+        }),
+      ).toThrow(ServiceUnavailableError);
+    } finally {
+      clearCheckpointQuiesce();
+    }
   });
 });
