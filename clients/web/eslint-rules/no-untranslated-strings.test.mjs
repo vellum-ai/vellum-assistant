@@ -1,0 +1,118 @@
+/**
+ * Unit tests for the no-untranslated-strings ESLint rule.
+ *
+ * Run with: `bun test eslint-rules/no-untranslated-strings.test.mjs`
+ *
+ * The `valid` cases carry most of the weight here. A lint rule that fires on
+ * legitimate code gets switched off rather than obeyed, so each one pins a
+ * shape that must stay quiet: structural props, punctuation-only text, already
+ * translated call sites, `<Trans>` children, and fixture files.
+ */
+import { RuleTester } from "eslint";
+import tseslint from "typescript-eslint";
+
+import { noUntranslatedStrings } from "./no-untranslated-strings.mjs";
+
+const ruleTester = new RuleTester({
+  languageOptions: {
+    parser: tseslint.parser,
+    ecmaVersion: "latest",
+    sourceType: "module",
+    parserOptions: { ecmaFeatures: { jsx: true } },
+  },
+});
+
+const COMPONENT = "/repo/clients/web/src/components/example.tsx";
+const STORY = "/repo/clients/web/src/components/example.stories.tsx";
+const TEST = "/repo/clients/web/src/components/example.test.tsx";
+
+ruleTester.run("no-untranslated-strings", noUntranslatedStrings, {
+  valid: [
+    {
+      name: "copy read through t()",
+      filename: COMPONENT,
+      code: `const C = () => <h1>{t("notFound.title")}</h1>;`,
+    },
+    {
+      name: "a user-facing prop read through t()",
+      filename: COMPONENT,
+      code: `const C = () => <input placeholder={t("search.placeholder")} />;`,
+    },
+    {
+      name: "structural props are not copy",
+      filename: COMPONENT,
+      code: `const C = () => <div className="flex gap-2" data-slot="row" id="root" />;`,
+    },
+    {
+      name: "JSX text with no letters",
+      filename: COMPONENT,
+      code: `const C = () => <span>{value} / {other} &middot; 42</span>;`,
+    },
+    {
+      name: "template literal assembling a path, not a sentence",
+      filename: COMPONENT,
+      code: `const C = () => <img alt={\`\${a}/\${b}\`} />;`,
+    },
+    {
+      name: "Trans children hold their own default copy",
+      filename: COMPONENT,
+      code: `const C = () => <Trans i18nKey="terms">Read the <a href="/terms">terms</a> first</Trans>;`,
+    },
+    {
+      name: "toast copy read through t()",
+      filename: COMPONENT,
+      code: `toast.error(t("save.failed"));`,
+    },
+    {
+      name: "story fixtures are not shipped copy",
+      filename: STORY,
+      code: `export const Default = { args: { label: "Save changes" } };`,
+    },
+    {
+      name: "test fixtures are not shipped copy",
+      filename: TEST,
+      code: `const C = () => <h1>Page not found</h1>;`,
+    },
+  ],
+
+  invalid: [
+    {
+      name: "bare JSX text",
+      filename: COMPONENT,
+      code: `const C = () => <h1>Page not found</h1>;`,
+      errors: [{ messageId: "jsxText" }],
+    },
+    {
+      name: "a user-facing prop given a literal",
+      filename: COMPONENT,
+      code: `const C = () => <input placeholder="Search skills" />;`,
+      errors: [{ messageId: "prop" }],
+    },
+    {
+      name: "an aria-label given a literal",
+      filename: COMPONENT,
+      code: `const C = () => <button aria-label="Close dialog" />;`,
+      errors: [{ messageId: "prop" }],
+    },
+    {
+      name: "a sentence assembled by template literal",
+      filename: COMPONENT,
+      // The shape that cannot be translated at all: word order is fixed by
+      // the source, so no translator can move the count or the noun.
+      code: `const C = () => <span aria-label={\`\${n} files selected\`} />;`,
+      errors: [{ messageId: "prop" }],
+    },
+    {
+      name: "toast copy as a literal",
+      filename: COMPONENT,
+      code: `toast.success("Assistant retired");`,
+      errors: [{ messageId: "toast" }],
+    },
+    {
+      name: "bare toast() call",
+      filename: COMPONENT,
+      code: `toast("Copied to clipboard");`,
+      errors: [{ messageId: "toast" }],
+    },
+  ],
+});

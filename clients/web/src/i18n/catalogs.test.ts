@@ -1,23 +1,30 @@
 /**
  * Structural guards on the translation catalogs.
  *
- * These do not check translation *quality*. They check the things a
- * translator or a rebase can silently break and that no reviewer reliably
- * catches by eye: a message that no longer parses as ICU, a key that outlived
- * the code that read it, and a placeholder dropped in translation (which
- * renders as a literal `{count}` in front of the user).
+ * These do not check translation *quality*. They check the things a translator
+ * or a rebase can silently break and that no reviewer reliably catches by eye:
+ * a message that no longer parses as ICU, a key that outlived the code that
+ * read it, a placeholder dropped in translation (which renders as a literal
+ * `{count}` in front of the user), and a key nothing references any more.
  *
  * Missing keys are deliberately *not* an error: `fallbackLng` renders the
  * English copy, so a catalog that lags the source is degraded, not broken.
  */
+import { Glob } from "bun";
 import { describe, expect, test } from "bun:test";
 import IntlMessageFormat from "intl-messageformat";
 
-import en from "@/i18n/locales/en/common.json";
-import es from "@/i18n/locales/es/common.json";
+import enChat from "@/i18n/locales/en/chat.json";
+import enCommon from "@/i18n/locales/en/common.json";
+import esChat from "@/i18n/locales/es/chat.json";
+import esCommon from "@/i18n/locales/es/common.json";
+import { NAMESPACES, type Namespace } from "@/i18n/namespaces";
 import { DEFAULT_LOCALE, SUPPORTED_LOCALES } from "@/i18n/supported-locales";
 
-const CATALOGS: Record<string, unknown> = { en, es };
+const CATALOGS: Record<string, Record<Namespace, unknown>> = {
+  en: { common: enCommon, chat: enChat },
+  es: { common: esCommon, chat: esChat },
+};
 
 /** Flatten a nested catalog to `{ "a.b.c": "message" }`. */
 function flatten(value: unknown, prefix = ""): Record<string, string> {
@@ -55,8 +62,8 @@ function placeholders(message: string, locale: string): Set<string> {
         options?: Record<string, { value?: unknown }>;
         children?: unknown;
       };
-      // Types 1–6 are argument-bearing (argument, number, date, time, select,
-      // plural); 0 is a literal, 7 is `#`, 8 is a tag.
+      // Types 1 through 6 are argument-bearing (argument, number, date, time,
+      // select, plural); 0 is a literal, 7 is `#`, 8 is a tag.
       if (
         typeof element.type === "number" &&
         element.type >= 1 &&
@@ -81,44 +88,88 @@ function placeholders(message: string, locale: string): Set<string> {
 }
 
 describe("catalog integrity", () => {
-  test("every shipped locale has a catalog", () => {
+  test("every shipped locale has every namespace", () => {
     for (const locale of SUPPORTED_LOCALES) {
-      expect(CATALOGS[locale]).toBeDefined();
+      for (const namespace of NAMESPACES) {
+        expect(CATALOGS[locale]?.[namespace]).toBeDefined();
+      }
     }
   });
 
   for (const locale of SUPPORTED_LOCALES) {
-    test(`${locale}: every message parses as ICU MessageFormat`, () => {
-      for (const [key, message] of Object.entries(flatten(CATALOGS[locale]))) {
-        expect(() => new IntlMessageFormat(message, locale)).not.toThrow(
-          // Surfaces the offending key in the failure output.
-          `${locale}/${key}`,
-        );
-      }
-    });
+    for (const namespace of NAMESPACES) {
+      test(`${locale}/${namespace}: every message parses as ICU MessageFormat`, () => {
+        for (const [key, message] of Object.entries(
+          flatten(CATALOGS[locale][namespace]),
+        )) {
+          expect(() => new IntlMessageFormat(message, locale)).not.toThrow(
+            // Surfaces the offending key in the failure output.
+            `${locale}/${namespace}/${key}`,
+          );
+        }
+      });
+    }
   }
-
-  const source = flatten(CATALOGS[DEFAULT_LOCALE]);
 
   for (const locale of SUPPORTED_LOCALES.filter((l) => l !== DEFAULT_LOCALE)) {
-    const translated = flatten(CATALOGS[locale]);
+    for (const namespace of NAMESPACES) {
+      const source = flatten(CATALOGS[DEFAULT_LOCALE][namespace]);
+      const translated = flatten(CATALOGS[locale][namespace]);
 
-    test(`${locale}: has no keys that are absent from ${DEFAULT_LOCALE}`, () => {
-      const stale = Object.keys(translated).filter((key) => !(key in source));
-      expect(stale).toEqual([]);
-    });
+      test(`${locale}/${namespace}: has no keys absent from ${DEFAULT_LOCALE}`, () => {
+        const stale = Object.keys(translated).filter((key) => !(key in source));
+        expect(stale).toEqual([]);
+      });
 
-    test(`${locale}: preserves every placeholder from ${DEFAULT_LOCALE}`, () => {
-      for (const [key, message] of Object.entries(translated)) {
-        const expected = placeholders(source[key], DEFAULT_LOCALE);
-        const actual = placeholders(message, locale);
-        for (const name of expected) {
-          expect(
-            actual.has(name),
-            `${locale}/${key} is missing placeholder {${name}}`,
-          ).toBe(true);
+      test(`${locale}/${namespace}: preserves every placeholder`, () => {
+        for (const [key, message] of Object.entries(translated)) {
+          const expected = placeholders(source[key], DEFAULT_LOCALE);
+          const actual = placeholders(message, locale);
+          for (const name of expected) {
+            expect(
+              actual.has(name),
+              `${locale}/${namespace}/${key} is missing placeholder {${name}}`,
+            ).toBe(true);
+          }
         }
-      }
-    });
+      });
+    }
   }
+});
+
+describe("catalog usage", () => {
+  /**
+   * Source text of every file that could reference a key. Read once and
+   * searched as a single string: the check only asks whether a key appears
+   * anywhere, so per-file attribution would cost more than it tells us.
+   */
+  const sources = [...new Glob("src/**/*.{ts,tsx}").scanSync(".")]
+    .filter((file) => !file.includes("/i18n/locales/"))
+    .map((file) => Bun.file(file).text());
+
+  test("no key in the English catalogs is unreferenced", async () => {
+    const haystack = (await Promise.all(sources)).join("\n");
+
+    const orphans: string[] = [];
+    for (const namespace of NAMESPACES) {
+      for (const key of Object.keys(
+        flatten(CATALOGS[DEFAULT_LOCALE][namespace]),
+      )) {
+        // Both call shapes reach the same message: `t("a.b")` inside a
+        // component bound to the namespace, and `t("ns:a.b")` from anywhere.
+        if (
+          haystack.includes(`"${key}"`) ||
+          haystack.includes(`"${namespace}:${key}"`)
+        ) {
+          continue;
+        }
+        orphans.push(`${namespace}:${key}`);
+      }
+    }
+
+    // A key nothing reads is copy a translator will still be paid to
+    // translate, and dead weight in every locale's chunk. Delete it, or add
+    // the call site it was written for.
+    expect(orphans).toEqual([]);
+  });
 });

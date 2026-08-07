@@ -16,7 +16,8 @@ import ICU from "i18next-icu";
 import { initReactI18next } from "react-i18next";
 
 import { i18nextInitOptions } from "./src/i18n/config";
-import englishCatalog from "./src/i18n/locales/en/common.json";
+import englishChat from "./src/i18n/locales/en/chat.json";
+import englishCommon from "./src/i18n/locales/en/common.json";
 
 GlobalRegistrator.register();
 
@@ -104,4 +105,8 @@ window.HTMLElement.prototype.focus = function patchedFocus(
 await i18next
   .use(new ICU())
   .use(initReactI18next)
-  .init(i18nextInitOptions("en", { en: englishCatalog }));
+  .init(
+    i18nextInitOptions("en", {
+      en: { common: englishCommon, chat: englishChat },
+    }),
+  );
