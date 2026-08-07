@@ -6,8 +6,13 @@ import { isScheduledConversation } from "@/utils/conversation-predicates";
 import { isChannelConversation } from "@/domains/chat/utils/conversation-channel";
 /**
  * Pure helper for splitting the sidebar's conversation list into system
- * category buckets (`pinned`, `channelSections`, `scheduled`, `background`,
- * `recents`) and optional user-defined custom groups.
+ * category buckets (`pinned`, `channelSections`, `recents`) and optional
+ * user-defined custom groups.
+ *
+ * These buckets are the derived fallback, not the sidebar's contents: each
+ * section fetches its own rows (`useSectionConversations`) and falls back to
+ * what is here while a section's query is gated off, pending, or failed.
+ * Which sections exist is still read from these buckets.
  *
  * Categorization (mirrors backend conventions in `web/src/lib/chat/api.ts`):
  *
@@ -21,18 +26,20 @@ import { isChannelConversation } from "@/domains/chat/utils/conversation-channel
  *   produced at all and those conversations go to `recents` instead, at the
  *   same point in the precedence chain, so which bucket a conversation is
  *   visible in changes but whether it is visible does not.
- * - `scheduled` — `conversationType === "scheduled"` OR legacy
- *   `groupId === "system:scheduled"`.
- * - `background` — all background threads
- *   (`conversationType === "background"` or `groupId === "system:background"`),
- *   including auto-analysis (reflections).
  * - `recents` — everything else (foreground, non-pinned), sorted by
- *   `lastMessageAt` descending. Background/scheduled conversations with a
- *   non-null `surfacedAt` (explicitly promoted via the daemon's surface API)
- *   land here instead of their system buckets.
+ *   `lastMessageAt` descending.
  *
- * Archived conversations (`archivedAt != null`) are excluded from every
- * bucket.
+ * Excluded from every bucket, because no section renders them:
+ *
+ * - archived conversations (`archivedAt != null`), which live in their own view
+ * - scheduled threads (`conversationType === "scheduled"` or legacy
+ *   `groupId === "system:scheduled"`)
+ * - background threads (`conversationType === "background"` or legacy
+ *   `groupId === "system:background"`), including auto-analysis reflections
+ *
+ * A scheduled or background conversation with a non-null `surfacedAt` has
+ * been explicitly promoted through the daemon's surface API, and reaches
+ * `recents` like any foreground thread.
  *
  * Kept deliberately in its own file (no React, no icons) so it can be unit
  * tested without a DOM and reused by other surfaces if a compact recent-list
@@ -57,8 +64,6 @@ export interface ChannelSection {
 
 export interface GroupedConversations {
   pinned: Conversation[];
-  scheduled: Conversation[];
-  background: Conversation[];
   channelSections: ChannelSection[];
   recents: Conversation[];
   customGroups: CustomGroup[];
@@ -171,8 +176,6 @@ export function groupConversations(
 ): GroupedConversations {
   const groupByChannel = options?.groupByChannel ?? true;
   const pinned: Conversation[] = [];
-  const scheduled: Conversation[] = [];
-  const background: Conversation[] = [];
   const channelBuckets = new Map<string, Conversation[]>();
   const recents: Conversation[] = [];
 
@@ -248,13 +251,11 @@ export function groupConversations(
       continue;
     }
 
-    if (isScheduledConversation(c)) {
-      scheduled.push(c);
-      continue;
-    }
-
-    if (isBackground(c)) {
-      background.push(c);
+    /* Excluded rather than bucketed. Scheduled and background rows have no
+       section of their own, so what matters is that they do not fall through
+       into Chats. They reach the sidebar only by being surfaced, which the
+       branch above already promoted. */
+    if (isScheduledConversation(c) || isBackground(c)) {
       continue;
     }
 
@@ -283,8 +284,6 @@ export function groupConversations(
 
   return {
     pinned: sortedPinned,
-    scheduled,
-    background,
     channelSections,
     recents: sortedRecents,
     customGroups: customGroupsList,

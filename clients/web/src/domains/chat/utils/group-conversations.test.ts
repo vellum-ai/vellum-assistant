@@ -4,10 +4,28 @@ import type {
   Conversation,
   ConversationGroup,
 } from "@/types/conversation-types";
+import type { GroupedConversations } from "@/domains/chat/utils/group-conversations";
 import {
   buildMoveToGroupTargets,
   groupConversations,
 } from "@/domains/chat/utils/group-conversations";
+
+/**
+ * Every conversation id the sidebar would render from a grouping result.
+ *
+ * Scheduled and background threads have no section, so the invariant worth
+ * asserting is that they appear in NONE of these, not that they landed in a
+ * bucket of their own. Checking `recents` alone would miss a leak into a
+ * channel section or a custom group.
+ */
+function renderedIds(result: GroupedConversations): string[] {
+  return [
+    ...result.pinned,
+    ...result.recents,
+    ...result.customGroups.flatMap((g) => g.conversations),
+    ...result.channelSections.flatMap((s) => s.conversations),
+  ].map((c) => c.conversationId);
+}
 
 function makeConversation(overrides: Partial<Conversation>): Conversation {
   return {
@@ -32,8 +50,6 @@ describe("groupConversations · bucket routing", () => {
   test("returns empty buckets for an empty input", () => {
     const result = groupConversations([]);
     expect(result.pinned).toEqual([]);
-    expect(result.scheduled).toEqual([]);
-    expect(result.background).toEqual([]);
     expect(result.channelSections).toEqual([]);
     expect(result.recents).toEqual([]);
   });
@@ -46,12 +62,10 @@ describe("groupConversations · bucket routing", () => {
     ]);
     expect(result.pinned.map((c) => c.conversationId)).toEqual(["a", "b", "c"]);
     expect(result.recents).toEqual([]);
-    expect(result.scheduled).toEqual([]);
-    expect(result.background).toEqual([]);
     expect(result.channelSections).toEqual([]);
   });
 
-  test("routes conversationType=scheduled into scheduled bucket", () => {
+  test("excludes conversationType=scheduled from every rendered bucket", () => {
     const result = groupConversations([
       makeConversation({
         conversationId: "s1",
@@ -62,14 +76,14 @@ describe("groupConversations · bucket routing", () => {
         groupId: "system:scheduled",
       }),
     ]);
-    expect(result.scheduled.map((c) => c.conversationId).sort()).toEqual([
-      "s1",
-      "s2",
-    ]);
+    // No section renders these.
+    for (const id of ["s1", "s2"]) {
+      expect(renderedIds(result)).not.toContain(id);
+    }
     expect(result.recents).toEqual([]);
   });
 
-  test("routes conversationType=background into background bucket", () => {
+  test("excludes conversationType=background from every rendered bucket", () => {
     const result = groupConversations([
       makeConversation({
         conversationId: "b1",
@@ -81,10 +95,10 @@ describe("groupConversations · bucket routing", () => {
         groupId: "system:background",
       }),
     ]);
-    expect(result.background.map((c) => c.conversationId).sort()).toEqual([
-      "b1",
-      "b2",
-    ]);
+    // No section renders these.
+    for (const id of ["b1", "b2"]) {
+      expect(renderedIds(result)).not.toContain(id);
+    }
   });
 
   test("routes Slack-origin conversations into the Slack bucket", () => {
@@ -120,8 +134,6 @@ describe("groupConversations · bucket routing", () => {
       "slack-background",
     ]);
     expect(result.recents.map((c) => c.conversationId)).toEqual(["regular"]);
-    expect(result.scheduled).toEqual([]);
-    expect(result.background).toEqual([]);
   });
 
   test("keeps pinned and custom-group Slack conversations in their explicit buckets", () => {
@@ -160,7 +172,7 @@ describe("groupConversations · bucket routing", () => {
     ).toEqual(["custom-slack"]);
   });
 
-  test("keeps explicitly assigned scheduled and background Slack conversations in their system buckets", () => {
+  test("excludes scheduled and background Slack conversations, channel or not", () => {
     const result = groupConversations([
       makeConversation({
         conversationId: "scheduled-slack",
@@ -175,18 +187,16 @@ describe("groupConversations · bucket routing", () => {
     ]);
 
     expect(result.channelSections).toEqual([]);
-    expect(result.scheduled.map((c) => c.conversationId)).toEqual([
-      "scheduled-slack",
-    ]);
-    expect(result.background.map((c) => c.conversationId)).toEqual([
-      "background-slack",
-    ]);
+    // An explicit system group takes them out of channel routing, so they
+    // fall through to the exclusion rather than into the Slack section.
+    for (const id of ["scheduled-slack", "background-slack"]) {
+      expect(renderedIds(result)).not.toContain(id);
+    }
   });
 
-  test("routes background conversations with source=auto-analysis into background bucket", () => {
-    // Auto-analysis (reflections) are a flavor of background — they land
-    // in the background bucket and are sub-grouped downstream by
-    // backgroundSubGroups.ts.
+  test("excludes auto-analysis reflections like any other background thread", () => {
+    // Auto-analysis (reflections) are a flavor of background, so they are
+    // excluded on the same branch rather than treated as their own kind.
     const result = groupConversations([
       makeConversation({
         conversationId: "r1",
@@ -199,10 +209,10 @@ describe("groupConversations · bucket routing", () => {
         source: "auto-analysis",
       }),
     ]);
-    expect(result.background.map((c) => c.conversationId).sort()).toEqual([
-      "r1",
-      "r2",
-    ]);
+    // No section renders these.
+    for (const id of ["r1", "r2"]) {
+      expect(renderedIds(result)).not.toContain(id);
+    }
   });
 
   test("does not reroute a foreground thread with source=auto-analysis", () => {
@@ -210,7 +220,6 @@ describe("groupConversations · bucket routing", () => {
     const result = groupConversations([
       makeConversation({ conversationId: "a", source: "auto-analysis" }),
     ]);
-    expect(result.background).toEqual([]);
     expect(result.recents.map((c) => c.conversationId)).toEqual(["a"]);
   });
 
@@ -240,7 +249,6 @@ describe("groupConversations · bucket routing", () => {
     expect(result.pinned.map((c) => c.conversationId)).toEqual([
       "pinned-reflection",
     ]);
-    expect(result.background).toEqual([]);
   });
 
   test("excludes archived conversations from every bucket", () => {
@@ -409,7 +417,10 @@ describe("groupConversations · custom group routing", () => {
     const result = groupConversations(conversations, { groups });
 
     expect(result.pinned.map((c) => c.conversationId)).toEqual(["s1"]);
-    expect(result.scheduled.map((c) => c.conversationId)).toEqual(["s2"]);
+    // No section renders these.
+    for (const id of ["s2"]) {
+      expect(renderedIds(result)).not.toContain(id);
+    }
     expect(result.customGroups.every((g) => g.conversations.length === 0)).toBe(
       true,
     );
@@ -576,7 +587,7 @@ describe("groupConversations · recency order for pinned and custom groups", () 
 });
 
 describe("groupConversations · surfaced promotion to recents", () => {
-  test("a surfaced scheduled conversation lands in recents, not scheduled", () => {
+  test("a surfaced scheduled conversation reaches recents instead of being excluded", () => {
     const result = groupConversations([
       makeConversation({
         conversationId: "sched-surfaced",
@@ -591,12 +602,13 @@ describe("groupConversations · surfaced promotion to recents", () => {
     expect(result.recents.map((c) => c.conversationId)).toEqual([
       "sched-surfaced",
     ]);
-    expect(result.scheduled.map((c) => c.conversationId)).toEqual([
-      "sched-plain",
-    ]);
+    // No section renders these.
+    for (const id of ["sched-plain"]) {
+      expect(renderedIds(result)).not.toContain(id);
+    }
   });
 
-  test("a surfaced background conversation lands in recents, not background", () => {
+  test("a surfaced background conversation reaches recents instead of being excluded", () => {
     const result = groupConversations([
       makeConversation({
         conversationId: "bg-surfaced",
@@ -617,9 +629,10 @@ describe("groupConversations · surfaced promotion to recents", () => {
       "bg-legacy-surfaced",
       "bg-surfaced",
     ]);
-    expect(result.background.map((c) => c.conversationId)).toEqual([
-      "bg-plain",
-    ]);
+    // No section renders these.
+    for (const id of ["bg-plain"]) {
+      expect(renderedIds(result)).not.toContain(id);
+    }
   });
 
   test("surfaced conversations sort into recents by lastMessageAt desc", () => {
@@ -723,7 +736,6 @@ describe("groupConversations · surfaced promotion to recents", () => {
       }),
     ]);
     expect(result.recents).toEqual([]);
-    expect(result.background).toEqual([]);
   });
 
   test("duplicate pinned conversations in input produce duplicate pinned entries", () => {
@@ -793,10 +805,8 @@ describe("groupConversations · groupByChannel: false", () => {
     const grouped = groupConversations(conversations);
 
     expect(flat.recents.map((c) => c.conversationId)).toEqual(["s1"]);
-    expect(flat.background).toEqual([]);
     // Same membership in the grouped view, just a different bucket.
     expect(channelSectionIds(grouped, "slack")).toEqual(["s1"]);
-    expect(grouped.background).toEqual([]);
   });
 
   test("pinned and custom-group precedence is unchanged", () => {
