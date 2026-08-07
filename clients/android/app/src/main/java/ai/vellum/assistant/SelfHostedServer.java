@@ -37,7 +37,7 @@ final class SelfHostedServer {
 
         String readServers();
 
-        void writeServers(String value);
+        boolean writeServers(String value);
     }
 
     /** A canonical server base plus the optional label the chooser shows. */
@@ -107,18 +107,20 @@ final class SelfHostedServer {
         return entries;
     }
 
-    static void append(Context context, URI server, String name) {
-        append(new PreferencesStore(context), server, name);
+    static boolean append(Context context, URI server, String name) {
+        return append(new PreferencesStore(context), server, name);
     }
 
     /**
      * Remember a server, deduped by url. A named re-append renames; a nameless
-     * one keeps the stored label, so switching never wipes a name.
+     * one keeps the stored label, so switching never wipes a name. Answers
+     * whether the list now holds it, so a caller does not publish an entry the
+     * shell failed to persist.
      */
-    static void append(Store store, URI server, String name) {
+    static boolean append(Store store, URI server, String name) {
         URI validated = canonical(server);
         if (validated == null) {
-            return;
+            return false;
         }
         List<Entry> entries = servers(store);
         String url = validated.toASCIIString();
@@ -129,7 +131,17 @@ final class SelfHostedServer {
         } else if (label != null) {
             entries.set(index, new Entry(label, url));
         }
-        store.writeServers(encode(entries));
+        return store.writeServers(encode(entries));
+    }
+
+    static boolean isActive(Context context, URI server) {
+        return isActive(new PreferencesStore(context), server);
+    }
+
+    /** Whether a server canonically matches the active slot. */
+    static boolean isActive(Store store, URI server) {
+        URI validated = canonical(server);
+        return validated != null && validated.equals(configured(store));
     }
 
     static boolean remove(Context context, URI server) {
@@ -137,41 +149,43 @@ final class SelfHostedServer {
     }
 
     /**
-     * Forget a server, clearing the active slot when it was the active one and
-     * answering whether it was, so the caller knows to reload the shell.
+     * Forget a server, clearing the active slot when it was the active one.
+     * Answers whether the list is now without it, which a url that was never in
+     * it satisfies, so only a failed write reads as failure.
      */
     static boolean remove(Store store, URI server) {
         URI validated = canonical(server);
         if (validated == null) {
-            return false;
+            return true;
+        }
+        if (validated.equals(configured(store))) {
+            clear(store);
         }
         List<Entry> entries = servers(store);
         int index = indexOf(entries, validated.toASCIIString());
-        if (index >= 0) {
-            entries.remove(index);
-            store.writeServers(encode(entries));
+        if (index < 0) {
+            return true;
         }
-        boolean wasActive = validated.equals(configured(store));
-        if (wasActive) {
-            clear(store);
-        }
-        return wasActive;
+        entries.remove(index);
+        return store.writeServers(encode(entries));
     }
 
     /**
-     * The SPA entry point for a server base, {@code <base>/assistant}. The
+     * The SPA entry point for a self-hosted base, {@code <base>/assistant}. The
      * ingress redirects a bare {@code /} to an absolute {@code /assistant/},
      * which drops a hosting prefix ({@code https://host/assistant-123} landing
-     * on {@code https://host/assistant/}), so the segment is appended here. The
-     * baked Vellum Cloud url already carries it and comes back unchanged.
+     * on {@code https://host/assistant/}), so the segment is appended here.
+     *
+     * Appended unconditionally, matching the pair page {@link ConnectDeepLink}
+     * builds: a base is never already an entry, because the only url that
+     * carries the segment natively is the baked Vellum Cloud one, which is
+     * configured whole and never passes through here. Testing the last segment
+     * instead would strand a deployment hosted at a {@code /assistant} prefix,
+     * whose entry is {@code /assistant/assistant}.
      */
     static URI appEntry(URI server) {
-        String base = server.toASCIIString();
-        if (base.endsWith(APP_ENTRY_SEGMENT)) {
-            return server;
-        }
         try {
-            return new URI(base + APP_ENTRY_SEGMENT);
+            return new URI(server.toASCIIString() + APP_ENTRY_SEGMENT);
         } catch (URISyntaxException exception) {
             return server;
         }
@@ -529,8 +543,8 @@ final class SelfHostedServer {
         }
 
         @Override
-        public void writeServers(String value) {
-            preferences.edit().putString(SERVERS_KEY, value).commit();
+        public boolean writeServers(String value) {
+            return preferences.edit().putString(SERVERS_KEY, value).commit();
         }
     }
 }

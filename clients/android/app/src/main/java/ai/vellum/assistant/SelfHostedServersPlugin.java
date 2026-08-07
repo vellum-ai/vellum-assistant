@@ -52,26 +52,33 @@ public class SelfHostedServersPlugin extends Plugin {
             call.reject("invalid url");
             return;
         }
-        SelfHostedServer.append(getContext(), server, call.getString("name"));
+        // A dropped write must reject: the store treats a resolved add as a
+        // committed mutation and would publish a card the shell does not hold.
+        if (!SelfHostedServer.append(getContext(), server, call.getString("name"))) {
+            call.reject("unable to remember the server");
+            return;
+        }
         call.resolve(ok());
     }
 
     /**
-     * Forgetting a url that is not (or cannot be) in the list is a no-op, so this
-     * never rejects. Removing the active server clears the active slot, so the
-     * shell reloads back to the baked origin like {@code switchTo({})}.
+     * Forgetting a url that is not (or cannot be) in the list is a no-op, so only
+     * a dropped write rejects. Removing the active server clears the active slot,
+     * so the shell reloads back to the baked origin like {@code switchTo({})}.
      */
     @PluginMethod
     public void remove(PluginCall call) {
-        boolean removedActive = SelfHostedServer.remove(
-            getContext(),
-            SelfHostedServer.validate(call.getString("url"))
-        );
+        URI server = SelfHostedServer.validate(call.getString("url"));
+        boolean wasActive = server != null && SelfHostedServer.isActive(getContext(), server);
+        if (!SelfHostedServer.remove(getContext(), server)) {
+            call.reject("unable to forget the server");
+            return;
+        }
         // Resolve before scheduling the reload: it recreates the activity and
         // tears the web context down, so a caller awaiting this call would
         // otherwise never settle.
         call.resolve(ok());
-        if (removedActive) {
+        if (wasActive) {
             reloadConfiguredOrigin(null);
         }
     }
@@ -128,6 +135,9 @@ public class SelfHostedServersPlugin extends Plugin {
             call.reject("unable to save the server");
             return false;
         }
+        // Unlike `add`, a dropped list write is not worth failing the switch: the
+        // active slot took, so the origin is genuinely changing, and `list` reports
+        // the active url whether or not the stored list carries it.
         SelfHostedServer.append(getContext(), server, null);
         return true;
     }

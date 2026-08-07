@@ -110,16 +110,35 @@ public class SelfHostedServerTest {
     }
 
     @Test
-    public void appendsTheAppEntrySegmentOnlyWhereItIsMissing() {
+    public void appendsTheAppEntrySegmentToEverySelfHostedBase() {
         assertEquals("https://example.com/assistant", SelfHostedServer.appEntry(URI.create("https://example.com")).toASCIIString());
         assertEquals(
             "https://example.com/assistant-123/assistant",
             SelfHostedServer.appEntry(URI.create("https://example.com/assistant-123")).toASCIIString()
         );
+        // A base hosted at an /assistant prefix has its entry one level deeper,
+        // matching the pair page a connect link for it opens.
         assertEquals(
-            "https://example.com/assistant",
+            "https://example.com/assistant/assistant",
             SelfHostedServer.appEntry(URI.create("https://example.com/assistant")).toASCIIString()
         );
+    }
+
+    @Test
+    public void reportsADroppedListWriteRatherThanClaimingTheMutationLanded() {
+        FakeStore store = new FakeStore();
+        URI server = SelfHostedServer.validate("https://example.com");
+        store.serversWritable = false;
+
+        assertFalse(SelfHostedServer.append(store, server, null));
+
+        store.serversWritable = true;
+        assertTrue(SelfHostedServer.append(store, server, null));
+        // Forgetting a url the list never held needs no write, so it succeeds.
+        assertTrue(SelfHostedServer.remove(store, SelfHostedServer.validate("https://other.example.com")));
+
+        store.serversWritable = false;
+        assertFalse(SelfHostedServer.remove(store, server));
     }
 
     @Test
@@ -199,8 +218,9 @@ public class SelfHostedServerTest {
         SelfHostedServer.append(store, other, null);
         SelfHostedServer.store(store, active);
 
-        assertFalse(SelfHostedServer.remove(store, other));
+        assertTrue(SelfHostedServer.remove(store, other));
         assertEquals(1, SelfHostedServer.servers(store).size());
+        assertTrue(SelfHostedServer.isActive(store, active));
         assertEquals(active, SelfHostedServer.configured(store));
 
         assertTrue(SelfHostedServer.remove(store, active));
@@ -232,6 +252,7 @@ public class SelfHostedServerTest {
     private static final class FakeStore implements SelfHostedServer.Store {
         private String value;
         private String servers;
+        private boolean serversWritable = true;
 
         @Override
         public String read() {
@@ -255,8 +276,12 @@ public class SelfHostedServerTest {
         }
 
         @Override
-        public void writeServers(String value) {
+        public boolean writeServers(String value) {
+            if (!serversWritable) {
+                return false;
+            }
             servers = value;
+            return true;
         }
     }
 }
