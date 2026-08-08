@@ -290,7 +290,6 @@ function FilterSheet({
   onOpenChange,
   trigger,
 }: FilterSheetProps) {
-
   return (
     <BottomSheet.Root open={open} onOpenChange={onOpenChange}>
       <BottomSheet.Trigger asChild>{trigger}</BottomSheet.Trigger>
@@ -472,13 +471,7 @@ function CategoryGroup({
   ];
 
   return (
-    <li>
-      <div
-        className="px-3 pb-1 pt-2 text-body-small-default uppercase tracking-wide"
-        style={{ color: "var(--content-tertiary)" }}
-      >
-        Categories
-      </div>
+    <OptionGroup label="Categories">
       <ul className="max-h-48 overflow-y-auto">
         {rows.map((row) => {
           const isSelected = category === row.slug;
@@ -507,7 +500,7 @@ function CategoryGroup({
           );
         })}
       </ul>
-    </li>
+    </OptionGroup>
   );
 }
 
@@ -523,13 +516,7 @@ function FilterGroup({
   onSelect: (v: SuperpowerFilter) => void;
 }) {
   return (
-    <li>
-      <div
-        className="px-3 pb-1 pt-2 text-body-small-default uppercase tracking-wide"
-        style={{ color: "var(--content-tertiary)" }}
-      >
-        {label}
-      </div>
+    <OptionGroup label={label}>
       <ul>
         {options.map((option) => {
           const Icon = option.icon;
@@ -558,6 +545,31 @@ function FilterGroup({
           );
         })}
       </ul>
+    </OptionGroup>
+  );
+}
+
+/**
+ * One labelled section of a popover listbox. `role="group"` plus the heading as
+ * its accessible name ties the visible label to the options it heads, so a
+ * screen reader announces which axis an option belongs to.
+ */
+function OptionGroup({
+  label,
+  children,
+}: {
+  label: string;
+  children: ReactNode;
+}) {
+  return (
+    <li role="group" aria-label={label}>
+      <div
+        className="px-3 pb-1 pt-2 text-body-small-default uppercase tracking-wide"
+        style={{ color: "var(--content-tertiary)" }}
+      >
+        {label}
+      </div>
+      {children}
     </li>
   );
 }
