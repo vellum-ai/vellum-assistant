@@ -18607,6 +18607,101 @@ paths:
                   - sections
                   - failures
                 additionalProperties: false
+  /v1/memory/v3/gate-stats:
+    get:
+      operationId: memory_v3_gatestats_get
+      summary: Gate fire-rate stats bucketed by corpus size
+      description:
+        Reads the memory v3 injection gate telemetry outbox and returns pass rates and reason distributions grouped
+        by concept page count bucket. Coverage is limited to runs still pending platform flush (typically minutes to
+        hours in a healthy system). Useful for spot-checking gate behavior; long-window aggregation lives on the
+        platform.
+      tags:
+        - memory
+      parameters:
+        - name: lookbackDays
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Days of telemetry to aggregate (1–90, default 30)
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  lookbackDays:
+                    type: number
+                    description: Lookback window applied
+                  totalRuns:
+                    type: number
+                    description: Total gate runs found in the window
+                  buckets:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        pageCountRange:
+                          type: string
+                          description: Concept page count range (e.g. '10-49' or '200+')
+                        total:
+                          type: number
+                          description: All gate runs in this bucket (scored + pass-open)
+                        scored:
+                          type: number
+                          description: Runs that weighed scores (dense lane available)
+                        passed:
+                          type: number
+                          description: Runs that passed the gate
+                        scoredPassRate:
+                          anyOf:
+                            - type: number
+                            - type: "null"
+                          description: scoredPasses / scored (contested decisions only); null when no scored runs in bucket
+                        reasons:
+                          type: object
+                          propertyNames:
+                            type: string
+                          additionalProperties:
+                            type: number
+                          description: Gate reason code to run count (dense_pass, fail_no_signal, ...)
+                      required:
+                        - pageCountRange
+                        - total
+                        - scored
+                        - passed
+                        - scoredPassRate
+                        - reasons
+                      additionalProperties: false
+                    description: Stats by concept page count range, lean to large
+                  unknownPageCount:
+                    type: object
+                    properties:
+                      total:
+                        type: number
+                      passed:
+                        type: number
+                      reasons:
+                        type: object
+                        propertyNames:
+                          type: string
+                        additionalProperties:
+                          type: number
+                    required:
+                      - total
+                      - passed
+                      - reasons
+                    additionalProperties: false
+                    description: Runs with no real_concept_page_count in telemetry detail
+                required:
+                  - lookbackDays
+                  - totalRuns
+                  - buckets
+                  - unknownPageCount
+                additionalProperties: false
   /v1/memory/v3/rebuild-index:
     post:
       operationId: memory_v3_rebuildindex_post
