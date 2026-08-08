@@ -23,7 +23,7 @@ function stubMatchMedia({
 }): void {
   window.matchMedia = ((query: string) => ({
     matches:
-      (!query.includes("max-width: 767px") || narrow) &&
+      (!query.includes("width < 48rem") || narrow) &&
       (!query.includes("pointer: coarse") || coarsePointer),
     media: query,
     addEventListener: () => {},
@@ -41,11 +41,13 @@ afterEach(() => {
 
 describe("useTouchMobile", () => {
   test("requires both a narrow viewport and a coarse pointer", () => {
-    // The query is the design library's `touch-mobile` variant, so the two
-    // features have to be ANDed rather than either one standing alone.
+    // The query is the design library's `touch-mobile` variant, character for
+    // character, so the two features are ANDed rather than either one standing
+    // alone, and the width half is written in range syntax as the variant is.
     // https://developer.mozilla.org/en-US/docs/Web/CSS/@media/pointer
+    // https://developer.mozilla.org/en-US/docs/Web/CSS/CSS_media_queries/Using_media_queries#syntax_improvements_in_level_4
     expect(TOUCH_MOBILE_MEDIA_QUERY).toBe(
-      "(max-width: 767px) and (pointer: coarse)",
+      "(width < 48rem) and (pointer: coarse)",
     );
   });
 

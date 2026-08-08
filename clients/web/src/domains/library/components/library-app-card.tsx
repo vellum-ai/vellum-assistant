@@ -16,7 +16,6 @@ import {
   copyDeployedAppLink,
   useAppDeployment,
 } from "@/hooks/use-app-deployment";
-import { useTouchMobile } from "@/hooks/use-touch-mobile";
 import { type AppSummary, isReadOnlyApp } from "@/types/app-types";
 import { getCachedAppHtml } from "@/utils/app-html-cache";
 import { formatFriendlyDate } from "@/utils/format-date";
@@ -24,13 +23,7 @@ import { cn } from "@/utils/misc";
 import { shareApp } from "@/utils/share-app";
 import { isPointerCoarse } from "@/utils/pointer";
 import type { SwipeAction } from "@/hooks/use-swipe-to-reveal";
-import {
-  BottomSheet,
-  Button,
-  Menu,
-  PanelItem,
-  toast,
-} from "@vellumai/design-library";
+import { ActionMenu, Button, toast } from "@vellumai/design-library";
 
 interface LibraryAppCardProps {
   app: AppSummary;
@@ -200,7 +193,7 @@ export function LibraryAppCard({
 }
 
 // ---------------------------------------------------------------------------
-// Actions menu (anchored dropdown, or a bottom sheet on touch)
+// Actions menu
 // ---------------------------------------------------------------------------
 
 export interface LibraryAppCardActionsMenuProps {
@@ -234,183 +227,70 @@ export function LibraryAppCardActionsMenu({
   deployedUrl,
   onCopyDeployedLink,
 }: LibraryAppCardActionsMenuProps) {
-  const isTouchMobile = useTouchMobile();
   // Only treated as deployed when the caller can also hand the link back.
   // Otherwise the entry would report a deployment it can't reach.
   const isDeployed =
     deployedUrl != null && deployedUrl !== "" && onCopyDeployedLink != null;
-  if (isTouchMobile) {
-    return (
-      <BottomSheet.Root open={open} onOpenChange={onOpenChange}>
-        <BottomSheet.Trigger asChild>
-          <Button
-            variant="primary"
-            size="compact"
-            iconOnly={<Ellipsis />}
-            aria-label="App actions"
-            onClick={(e: MouseEvent) => e.stopPropagation()}
-          />
-        </BottomSheet.Trigger>
-        <BottomSheet.Content>
-          <BottomSheet.Header className="sr-only">
-            <BottomSheet.Title>{appName}</BottomSheet.Title>
-          </BottomSheet.Header>
-          <BottomSheet.Body className="pt-0">
-            <PanelItem
-              icon={isPinned ? PinOff : Pin}
-              label={isPinned ? "Unpin" : "Pin"}
-              onSelect={() => {
-                onOpenChange(false);
-                onPin();
-              }}
-            />
-            {onShare ? (
-              <PanelItem
-                icon={ArrowUp}
-                label={
-                  <span className="flex flex-col gap-0.5 overflow-visible whitespace-normal">
-                    <span>Share</span>
-                    <span className="text-body-small-default text-[var(--content-tertiary)]">
-                      Export as .vellum file
-                    </span>
-                  </span>
-                }
-                onSelect={() => {
-                  onOpenChange(false);
-                  onShare();
-                }}
-              />
-            ) : null}
-            {onDeploy && isDeployed ? (
-              <>
-                <PanelItem
-                  icon={Link2}
-                  label={
-                    <span className="flex flex-col gap-0.5 overflow-visible whitespace-normal">
-                      <span>Deployed to Vercel</span>
-                      <span className="break-all text-body-small-default text-[var(--content-tertiary)]">
-                        {deployedUrl}
-                      </span>
-                    </span>
-                  }
-                  onSelect={() => {
-                    onOpenChange(false);
-                    onCopyDeployedLink?.();
-                  }}
-                />
-                <PanelItem
-                  icon={RefreshCw}
-                  label={
-                    <span className="flex flex-col gap-0.5 overflow-visible whitespace-normal">
-                      <span>Redeploy</span>
-                      <span className="text-body-small-default text-[var(--content-tertiary)]">
-                        Publish the current version
-                      </span>
-                    </span>
-                  }
-                  onSelect={() => {
-                    onOpenChange(false);
-                    onDeploy();
-                  }}
-                />
-              </>
-            ) : onDeploy ? (
-              <PanelItem
-                icon={Globe}
-                label={
-                  <span className="flex flex-col gap-0.5 overflow-visible whitespace-normal">
-                    <span>Deploy to Vercel</span>
-                    <span className="text-body-small-default text-[var(--content-tertiary)]">
-                      Publish as a static page
-                    </span>
-                  </span>
-                }
-                onSelect={() => {
-                  onOpenChange(false);
-                  onDeploy();
-                }}
-              />
-            ) : null}
-            {onDelete ? (
-              <PanelItem
-                icon={Trash2}
-                label="Delete"
-                onSelect={() => {
-                  onOpenChange(false);
-                  onDelete();
-                }}
-              />
-            ) : null}
-          </BottomSheet.Body>
-        </BottomSheet.Content>
-      </BottomSheet.Root>
-    );
-  }
+  const title = `Options for ${appName}`;
+
   return (
-    <Menu.Root open={open} onOpenChange={onOpenChange}>
-      <Menu.Trigger asChild>
+    <ActionMenu.Root open={open} onOpenChange={onOpenChange}>
+      <ActionMenu.Trigger asChild>
         <Button
           variant="primary"
           size="compact"
           iconOnly={<Ellipsis />}
-          aria-label="App actions"
+          aria-label={title}
           onClick={(e: MouseEvent) => e.stopPropagation()}
         />
-      </Menu.Trigger>
-      <Menu.Content align="end" sideOffset={4}>
-        <Menu.Item
-          leftIcon={isPinned ? <PinOff size={14} /> : <Pin size={14} />}
-          onSelect={() => onPin()}
-          className="whitespace-nowrap"
-        >
-          {isPinned ? "Unpin" : "Pin"}
-        </Menu.Item>
+      </ActionMenu.Trigger>
+      <ActionMenu.Content title={title}>
+        <ActionMenu.Item
+          icon={isPinned ? PinOff : Pin}
+          label={isPinned ? "Unpin" : "Pin"}
+          onSelect={onPin}
+        />
         {onShare ? (
-          <Menu.Item
-            leftIcon={<ArrowUp size={14} />}
-            onSelect={() => onShare()}
-            className="whitespace-nowrap"
-          >
-            Share
-          </Menu.Item>
+          <ActionMenu.Item
+            icon={ArrowUp}
+            label="Share"
+            description="Export as .vellum file"
+            onSelect={onShare}
+          />
         ) : null}
         {onDeploy && isDeployed ? (
           <>
-            <Menu.Item
-              leftIcon={<Link2 size={14} />}
+            <ActionMenu.Item
+              icon={Link2}
+              label="Deployed to Vercel"
+              description={<span className="break-all">{deployedUrl}</span>}
               shortcut="Copy link"
               onSelect={() => onCopyDeployedLink?.()}
-              className="whitespace-nowrap"
-            >
-              Deployed to Vercel
-            </Menu.Item>
-            <Menu.Item
-              leftIcon={<RefreshCw size={14} />}
-              onSelect={() => onDeploy()}
-              className="whitespace-nowrap"
-            >
-              Redeploy
-            </Menu.Item>
+            />
+            <ActionMenu.Item
+              icon={RefreshCw}
+              label="Redeploy"
+              description="Publish the current version"
+              onSelect={onDeploy}
+            />
           </>
         ) : onDeploy ? (
-          <Menu.Item
-            leftIcon={<Globe size={14} />}
-            onSelect={() => onDeploy()}
-            className="whitespace-nowrap"
-          >
-            Deploy to Vercel
-          </Menu.Item>
+          <ActionMenu.Item
+            icon={Globe}
+            label="Deploy to Vercel"
+            description="Publish as a static page"
+            onSelect={onDeploy}
+          />
         ) : null}
         {onDelete ? (
-          <Menu.Item
-            leftIcon={<Trash2 size={14} className="text-red-600" />}
-            onSelect={() => onDelete()}
-            className="whitespace-nowrap text-red-600 data-[highlighted]:text-red-700"
-          >
-            Delete
-          </Menu.Item>
+          <ActionMenu.Item
+            icon={Trash2}
+            label="Delete"
+            tone="destructive"
+            onSelect={onDelete}
+          />
         ) : null}
-      </Menu.Content>
-    </Menu.Root>
+      </ActionMenu.Content>
+    </ActionMenu.Root>
   );
 }
