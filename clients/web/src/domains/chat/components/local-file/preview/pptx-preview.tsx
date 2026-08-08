@@ -16,10 +16,15 @@ import { PowerPointViewer } from "pptx-react-viewer";
 
 import { Typography } from "@vellumai/design-library";
 
+import { registerPptxTranslations } from "@/domains/chat/components/local-file/pptx/register-pptx-i18n";
 import { usePptxBytes } from "@/domains/chat/components/local-file/pptx/use-pptx-bytes";
 import { PreviewSkeleton } from "@/domains/chat/components/local-file/preview/preview-skeleton";
 
 import "pptx-react-viewer/styles.css";
+
+// Module scope, not an effect: the viewer's first render must already see its
+// strings, or the ribbon paints raw keys for a frame.
+registerPptxTranslations();
 
 interface PptxPreviewProps {
   blob: Blob;

@@ -22,10 +22,15 @@ import { PowerPointViewer } from "pptx-react-viewer";
 import { Button, Typography } from "@vellumai/design-library";
 
 import { PreviewSkeleton } from "@/domains/chat/components/local-file/preview/preview-skeleton";
+import { registerPptxTranslations } from "@/domains/chat/components/local-file/pptx/register-pptx-i18n";
 import { usePptxBytes } from "@/domains/chat/components/local-file/pptx/use-pptx-bytes";
 import { workspaceFileBlobQuery } from "@/domains/chat/components/local-file/use-local-file-info";
 
 import "pptx-react-viewer/styles.css";
+
+// Module scope, not an effect: the viewer's first render must already see its
+// strings, or the ribbon paints raw keys for a frame.
+registerPptxTranslations();
 
 interface PptxEditorContainerProps {
   assistantId: string;

@@ -39,7 +39,7 @@ import {
   type LocaleCatalogs,
 } from "@/i18n/catalogs";
 import { i18nextInitOptions } from "@/i18n/config";
-import { NAMESPACES } from "@/i18n/namespaces";
+import { DEFAULT_NAMESPACE, NAMESPACES } from "@/i18n/namespaces";
 import { systemLocales } from "@/i18n/system-locale";
 import {
   DEFAULT_LOCALE,
@@ -206,6 +206,26 @@ export async function changeLocale(locale: SupportedLocale): Promise<void> {
   await i18next.changeLanguage(locale);
   setDeviceSetting("locale", locale);
   applyDocumentLocale(locale);
+}
+
+/**
+ * Merge a nested subtree of strings into the default namespace, for UI shipped
+ * by a third-party component that translates through this app's instance.
+ *
+ * Additive (`deep`, no overwrite), so app catalogs always win: a vendored
+ * subtree can never displace a string this app owns, whichever registers first.
+ * Registered under `DEFAULT_LOCALE` only — a vendor dictionary covers the
+ * languages it ships, and anything else falls back exactly as an untranslated
+ * app string does.
+ */
+export function addTranslationSubtree(subtree: Record<string, unknown>): void {
+  i18next.addResourceBundle(
+    DEFAULT_LOCALE,
+    DEFAULT_NAMESPACE,
+    subtree,
+    true,
+    false,
+  );
 }
 
 /** The active locale, or `DEFAULT_LOCALE` before initialization. */
