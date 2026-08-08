@@ -904,9 +904,8 @@ function buildVoiceControlPrompt(
 ): string {
   let prompt =
     LIVE_VOICE_CONTROL_PROMPT_BASE +
-    (leg.frontDoor === true
-      ? ""
-      : LIVE_VOICE_SCREEN_REVEAL_TEACHING + LIVE_VOICE_SETUP_FLOW_TEACHING);
+    (leg.frontDoor === true ? "" : LIVE_VOICE_SCREEN_REVEAL_TEACHING) +
+    VOICE_NO_SETUP_FLOWS_RULE;
   if (turn.language !== undefined) {
     prompt = `${prompt}\n\nThe caller has been speaking the language with code "${turn.language}" this turn. Reply in that language unless they clearly switch to another.`;
   }
@@ -1633,16 +1632,6 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
 
       utterance.transcriber = transcriber;
       utterance.dialedSttProvider = transcriber.providerId;
-      // Reconcile the pre-dial guess with the provider that actually
-      // answered. The resolver reads the provider from config, which cannot
-      // change under a live session, so this normally confirms the guess; it
-      // clears it when the dial fell back to another provider or resolved
-      // one the config did not name.
-      this.setProviderTurnEndActive(
-        this.fluxConfig.turnEnd.enabled &&
-          supportsProviderTurnDetection(transcriber.providerId) &&
-          this.turnDetector !== null,
-      );
       if (
         this.turnDetector &&
         typeof transcriber.finalizeUtterance === "function"
@@ -1880,9 +1869,6 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     const hasSpeech = energyClassification === "speech";
     detector.onMediaChunk(hasSpeech);
     this.trackBargeInGuard(energyClassification, chunk);
-    if (hasSpeech) {
-      this.localSpeechStopAtMs = Date.now();
-    }
 
     // Playback echo is neither user audio nor useful pre-roll. Dropping it
     // prevents the assistant's reply from reaching transcription as a ghost
