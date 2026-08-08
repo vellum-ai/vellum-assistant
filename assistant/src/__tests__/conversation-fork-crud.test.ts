@@ -1794,3 +1794,72 @@ describe("forkConversation + memory_retrospective_state", () => {
     expect(fork.slackContextCompactionWatermarkAt).toBe(compactedAt);
   });
 });
+
+describe("forkConversation with unfinalized rows", () => {
+  beforeEach(() => {
+    resetTables();
+  });
+
+  test("skips unfinalized rows and anchors the fork at the last finalized message", async () => {
+    const source = createConversation("Mid-turn fork");
+    await addMessage(source.id, "user", "question", { skipIndexing: true });
+    const lastFinalized = await addMessage(
+      source.id,
+      "assistant",
+      "completed reply",
+      { skipIndexing: true },
+    );
+    const streaming = await addMessage(
+      source.id,
+      "assistant",
+      "partial reply still being written",
+      { skipIndexing: true },
+    );
+    rawRun(
+      "test:markUnfinalized",
+      "UPDATE messages SET finalized = 0 WHERE id = ?",
+      streaming.id,
+    );
+
+    const fork = forkConversation({ conversationId: source.id });
+    const forkMessages = getMessages(fork.id);
+
+    // The invariant, not mere presence: exactly the finalized rows were
+    // copied, every copy reads as finalized, no copy descends from the
+    // unfinalized source row, and the lineage anchor is a row the fork
+    // actually holds.
+    expect(forkMessages).toHaveLength(2);
+    expect(forkMessages.every((row) => row.finalized === 1)).toBe(true);
+    const forkedFromIds = forkMessages.map(
+      (row) =>
+        (parseMetadata(row.metadata) as { forkSourceMessageId?: string })
+          ?.forkSourceMessageId,
+    );
+    expect(forkedFromIds).not.toContain(streaming.id);
+    expect(fork.forkParentMessageId).toBe(lastFinalized.id);
+    // The source still owns its in-flight row untouched.
+    expect(getMessages(source.id)).toHaveLength(3);
+  });
+
+  test("a stale mid-history unfinalized row is skipped without shifting the anchor", async () => {
+    const source = createConversation("Stale row fork");
+    await addMessage(source.id, "user", "first", { skipIndexing: true });
+    const stale = await addMessage(source.id, "assistant", "orphaned partial", {
+      skipIndexing: true,
+    });
+    const tail = await addMessage(source.id, "user", "latest", {
+      skipIndexing: true,
+    });
+    rawRun(
+      "test:markUnfinalized",
+      "UPDATE messages SET finalized = 0 WHERE id = ?",
+      stale.id,
+    );
+
+    const fork = forkConversation({ conversationId: source.id });
+    const forkMessages = getMessages(fork.id);
+
+    expect(forkMessages).toHaveLength(2);
+    expect(fork.forkParentMessageId).toBe(tail.id);
+  });
+});
