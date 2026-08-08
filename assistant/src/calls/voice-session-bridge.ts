@@ -55,6 +55,7 @@ import {
   stripInternalSpeechMarkers,
 } from "./voice-control-protocol.js";
 import {
+  createFrontDoorStreamGate,
   escalatedContinuationRule,
   ESCALATION_CONTINUATION_CONTENT,
   frontDoorCapabilityDigest,
@@ -1450,6 +1451,34 @@ export async function startVoiceTurn(
   // Set by the handle's discard(): the whole leg must leave no trace.
   let discarded = false;
 
+  // Verdict-first gate on the hub broadcast. A front-door leg's raw stream
+  // carries its routing verdict, so hub subscribers (web, passive devices)
+  // read it through the gate and see only the text the caller heard. Every
+  // other leg, including the escalated continuation that answers for real,
+  // broadcasts its deltas untouched.
+  const frontDoorStreamGate =
+    opts.routingLeg === "front-door"
+      ? createFrontDoorStreamGate(opts.unifiedVerdict === true)
+      : null;
+
+  /**
+   * Broadcast one agent-loop event to hub subscribers, holding a front-door
+   * leg's control-plane text back at the boundary rather than emitting it and
+   * repairing the transcript afterwards. Text released by the gate travels as
+   * an ordinary delta on the leg's own reserved row, so a client that renders
+   * the stream lands on the same text the teardown hygiene pass persists.
+   */
+  const broadcastLegEvent = (msg: AssistantEvent): void => {
+    if (frontDoorStreamGate === null || msg.type !== "assistant_text_delta") {
+      broadcastMessage(msg);
+      return;
+    }
+    const released = frontDoorStreamGate.push(msg.text);
+    if (released.length > 0) {
+      broadcastMessage({ ...msg, text: released });
+    }
+  };
+
   /**
    * Teardown transcript hygiene. Runs after the agent loop has fully
    * settled — including the stranded-content fold that finalizes an aborted
@@ -1477,6 +1506,12 @@ export async function startVoiceTurn(
    * the escalated leg — blocked on this turn's teardown — snapshots it, so
    * the quality model never sees the marker text either. Best-effort: a
    * hiccup here must not escalate into a turn-level failure.
+   *
+   * This pass owns the PERSISTED row, which the agent loop writes from the
+   * model's raw output regardless of what was broadcast. The live hub stream
+   * is gated separately by `broadcastLegEvent`, so the refetch this pass
+   * publishes confirms text a subscriber already holds instead of correcting
+   * it.
    */
   const finalizeVoiceLegTranscript = async (): Promise<void> => {
     if (reservedAssistantRowId == null) {
@@ -1620,7 +1655,24 @@ export async function startVoiceTurn(
           } else if (msg.type === "conversation_error") {
             lastError = msg.userMessage;
           }
-          broadcastMessage(msg);
+          if (frontDoorStreamGate !== null && msg.type === "message_complete") {
+            // A leg that completed mid-bridge (a holding phrase with no
+            // sentence terminator) still hands off and speaks what arrived,
+            // so release it ahead of the completion frame. A cancelled leg
+            // never hands off, and correspondingly never flushes.
+            const trailing = frontDoorStreamGate.finish();
+            if (trailing.length > 0) {
+              broadcastMessage({
+                type: "assistant_text_delta",
+                text: trailing,
+                ...(reservedAssistantRowId !== null
+                  ? { messageId: reservedAssistantRowId }
+                  : {}),
+                conversationId: opts.conversationId,
+              });
+            }
+          }
+          broadcastLegEvent(msg);
 
           // Forward voice-relevant events to the real-time event sink
           if (msg.type === "assistant_text_delta") {

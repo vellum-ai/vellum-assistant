@@ -4593,9 +4593,10 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
    * escalate verdict the post-verdict stream buffers into the capped bridge
    * and `escalateTurn` starts a second "escalated" leg that shares this same
    * ActiveAssistantTurn. The persisted assistant row is reduced to the capped
-   * bridge by the bridge's teardown transcript-hygiene pass; the shared
-   * conversation-hub broadcast still streams the raw verdict deltas mid-turn
-   * until the turn-end resync (the remaining scope of issue #37850).
+   * bridge by the bridge's teardown transcript-hygiene pass, and the shared
+   * conversation-hub broadcast releases the same capped bridge through the
+   * bridge's front-door stream gate, so no verdict token reaches a hub
+   * subscriber mid-turn.
    */
   private async startAssistantLeg(
     activeTurn: ActiveAssistantTurn,
