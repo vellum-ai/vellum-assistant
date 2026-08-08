@@ -24,9 +24,45 @@
 import type { DenseHitScored } from "./dense.js";
 import type { SectionNeedleScoredHit } from "./section-needle.js";
 
-/** BM25F normalization constant when config.bm25NormK is null.
- *  TODO(memory-v3): replace with per-corpus auto-calibration. */
+/**
+ * BM25F normalization constant used when `config.bm25NormK` is null AND the
+ * corpus is empty (no sections to calibrate against).
+ */
 export const DEFAULT_BM25_NORM_K = 9.0;
+
+/**
+ * Derive a per-corpus BM25F normalization constant from the section count.
+ *
+ * The gate normalizes a raw BM25F score as `score / (score + k)`. Setting k
+ * to the expected peak raw score maps the normalization midpoint (0.5) to
+ * exactly that match quality, giving a scale-invariant operating point across
+ * corpus sizes.
+ *
+ * Derivation: assume three query terms each appearing in exactly one section
+ * (df=1), with a TF-normalized contribution of 1.0 per term. Using the Okapi
+ * IDF from section-needle.ts:
+ *
+ *   IDF(df=1) = ln(1 + (N − 0.5) / 1.5)
+ *
+ * The expected peak raw score for three such terms is 3 × IDF(df=1), so:
+ *
+ *   k = 3 × ln(1 + (N − 0.5) / 1.5)
+ *
+ * Scale invariance: a match with the same relative rarity (df=1 per term)
+ * lands at normalized score 0.5 at any corpus size. At N=33 this gives
+ * k ≈ 9.4, reproducing DEFAULT_BM25_NORM_K.
+ *
+ * Floored at 3 to keep the sparse lane usable on single-section corpora.
+ * Falls back to DEFAULT_BM25_NORM_K for an empty corpus.
+ */
+export function calibrateBm25NormK(sectionCount: number): number {
+  if (sectionCount <= 0) {
+    return DEFAULT_BM25_NORM_K;
+  }
+  // Floor at 3 so the normalization midpoint never falls below a raw score of 3,
+  // keeping the sparse lane usable even on single-section corpora.
+  return Math.max(3, 3 * Math.log(1 + (sectionCount - 0.5) / 1.5));
+}
 
 export type V3GateReason =
   | "dense_pass"

@@ -1894,7 +1894,7 @@ describe("outbound voice verification", () => {
 
   test("resend_outbound before cooldown is rejected", async () => {
     // Start an outbound session first
-    await startOutbound({ channel: "phone", destination: "+15551234567" });
+    await startOutbound({ channel: "phone", destination: "+15555550100" });
 
     // Immediately try to resend (before cooldown)
     const resp = await resendOutbound({ channel: "phone" });
@@ -1931,7 +1931,7 @@ describe("outbound voice verification", () => {
 
   test("resend_outbound exceeding max sends is rejected", async () => {
     // Start an outbound session
-    await startOutbound({ channel: "phone", destination: "+15551234567" });
+    await startOutbound({ channel: "phone", destination: "+15555550100" });
 
     // Set the send count to MAX_SENDS_PER_SESSION and nextResendAt to the past
     const session = await serviceFindActiveSession("phone");
@@ -1952,7 +1952,7 @@ describe("outbound voice verification", () => {
 
   test("cancel_outbound revokes active session", async () => {
     // Start an outbound session
-    await startOutbound({ channel: "phone", destination: "+15551234567" });
+    await startOutbound({ channel: "phone", destination: "+15555550100" });
 
     // Verify session exists
     const sessionBefore = await serviceFindActiveSession("phone");
@@ -2540,7 +2540,7 @@ describe("outbound voice verification", () => {
 
   test("resend_outbound for voice initiates a new call with cooldown check", async () => {
     // Start an outbound session first
-    await startOutbound({ channel: "phone", destination: "+15551234567" });
+    await startOutbound({ channel: "phone", destination: "+15555550100" });
 
     // Immediately try to resend (before cooldown)
     const resp = await resendOutbound({ channel: "phone" });
@@ -2551,7 +2551,7 @@ describe("outbound voice verification", () => {
 
   test("cancel_outbound for voice cancels session", async () => {
     // Start an outbound session first
-    await startOutbound({ channel: "phone", destination: "+15551234567" });
+    await startOutbound({ channel: "phone", destination: "+15555550100" });
 
     // Cancel the session
     await cancelOutbound({ channel: "phone" });
@@ -2629,7 +2629,7 @@ describe("M1–M4 hardening coverage", () => {
 
   test("resend_outbound for voice response includes secret", async () => {
     // Start a session first
-    await startOutbound({ channel: "phone", destination: "+15551234567" });
+    await startOutbound({ channel: "phone", destination: "+15555550100" });
 
     // Move past cooldown
     const session = await serviceFindActiveSession("phone");

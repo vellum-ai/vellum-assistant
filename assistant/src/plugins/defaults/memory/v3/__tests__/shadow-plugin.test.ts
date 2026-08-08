@@ -31,6 +31,7 @@ import { MemoryV3GateSchema } from "../../../../../config/schemas/memory-v3.js";
 import { ensureMemoryV3SelectionsSchema } from "../../../../../persistence/migrations/338-move-memory-v3-selections-to-memory-db.js";
 import { ensureMemoryV3EverInjectedSchema } from "../../../../../persistence/migrations/345-move-memory-v3-ever-injected-to-memory-db.js";
 import * as schema from "../../../../../persistence/schema/index.js";
+import { DEFAULT_BM25_NORM_K } from "../gate.js";
 import type { HotSetEntry, HotSetOptions } from "../hot-set.js";
 import type { OrchestrateResult } from "../orchestrate.js";
 import { MEMORY_V3_FULL_PROFILE_MIN_PAGES } from "../tuning-profile.js";
@@ -790,9 +791,14 @@ describe("memory-v3 engine", () => {
     const deps = (
       orchestrateSpy.mock.calls as unknown as unknown[][]
     )[0]![1] as { gateConfig?: unknown };
-    // The live gate config is the `memory.v3.gate` tuning, including the
-    // default-on `enabled` kill-switch.
-    expect(deps.gateConfig).toEqual({ ...GATE_DEFAULTS, enabled: true });
+    // The live gate config is the `memory.v3.gate` tuning with bm25NormK
+    // resolved from null to the calibrated default (empty section index →
+    // DEFAULT_BM25_NORM_K).
+    expect(deps.gateConfig).toEqual({
+      ...GATE_DEFAULTS,
+      enabled: true,
+      bm25NormK: DEFAULT_BM25_NORM_K,
+    });
   });
 
   test("gate.enabled:false config kill-switch → gate threads inert", async () => {
@@ -803,8 +809,12 @@ describe("memory-v3 engine", () => {
       orchestrateSpy.mock.calls as unknown as unknown[][]
     )[0]![1] as { gateConfig?: unknown };
     // The kill-switch makes the effective `enabled` false, so selection
-    // always runs.
-    expect(deps.gateConfig).toEqual({ ...GATE_DEFAULTS, enabled: false });
+    // always runs. bm25NormK is resolved from null to the calibrated default.
+    expect(deps.gateConfig).toEqual({
+      ...GATE_DEFAULTS,
+      enabled: false,
+      bm25NormK: DEFAULT_BM25_NORM_K,
+    });
   });
 
   test("initLanes filters core to existing pages and excludes core from the hot set", async () => {
