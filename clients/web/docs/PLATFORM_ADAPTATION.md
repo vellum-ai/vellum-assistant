@@ -3,8 +3,8 @@
 The same `clients/web` bundle runs in four places: a desktop browser, an
 [Electron](https://www.electronjs.org/) shell (`clients/macos`, `clients/windows`), and
 [Capacitor](https://capacitorjs.com/) WebViews on iOS and Android. When a surface needs to look or
-behave differently in one of them, this document says which signal to branch on and where the branch
-belongs.
+behave differently in one of them, this document says whether that difference should be a conditional
+at all, which signal it branches on, and where the branch belongs.
 
 Read this before writing any `isMobile ? … : …`, `isNativeIOS()`, or `pointer: coarse` check.
 
@@ -79,6 +79,38 @@ Use the platform axis for exactly two things:
 2. **OS idiom**: the visual grammar users expect from the shell they launched.
 
 Not for layout, and not for "is this touch". Both have their own axis.
+
+---
+
+## Which conditionals should exist at all
+
+Moving branches into primitives is not a campaign to reach zero conditionals. Some differences are
+genuinely the caller's to decide, and burying those inside a component makes the code harder to follow,
+not easier. One question separates the two:
+
+**Would every caller asking this question want the same answer?**
+
+If yes, the caller should not be asking. "Does a menu open as a dropdown or a sheet" has one right
+answer for every menu in the app, so a dozen callers computing it independently is a dozen chances to
+disagree, and they already do (a focus fix and a max-height cap that exist in one copy and not its
+neighbour). That belongs to the primitive, and the caller writes `Menu`.
+
+If no, keep the conditional. "Does the detail sit beside the list or replace it", "how many chips fit
+before collapsing into a count", "is the composer compact" all depend on what surrounds the surface,
+which only the page knows. A primitive that guessed would be guessing with less information than its
+caller had.
+
+Two corollaries worth stating, because they are the cases people get wrong in both directions:
+
+- **A prop carrying an axis down the tree is almost always the wrong shape.** `isMobile` as a prop
+  means one component asked a question on another component's behalf, so the answer can be wrong at
+  the point it is used and no type catches it. Whoever makes the choice reads the signal where the
+  choice is made. Passing a *decision* down (`showCategories`) is fine; passing the *raw axis* down is
+  not.
+- **Two surfaces that substitute for each other are one decision, not two.** See
+  [the hidden-surface rule](#when-css-hides-a-surface-the-substitute-needs-the-same-signal) below: if a
+  control moves from one place to another as the window changes, one owner decides and both sides
+  follow, or there is a viewport where it lives in neither.
 
 ---
 
