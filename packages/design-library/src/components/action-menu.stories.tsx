@@ -140,6 +140,7 @@ export const Controlled: Story = {
   parameters: { controls: { disable: true } },
   render: function RenderControlled({ presentation, title }) {
     const [open, setOpen] = useState(false);
+    const [closes, setCloses] = useState(0);
     return (
       <div className="flex flex-col items-center gap-3">
         <Button variant="outlined" onClick={() => setOpen(true)}>
@@ -148,7 +149,12 @@ export const Controlled: Story = {
         <ActionMenu.Root
           presentation={presentation}
           open={open}
-          onOpenChange={setOpen}
+          onOpenChange={(next) => {
+            setOpen(next);
+            if (!next) {
+              setCloses((count) => count + 1);
+            }
+          }}
         >
           <ActionMenu.Trigger asChild>
             <Button
@@ -162,6 +168,7 @@ export const Controlled: Story = {
           </ActionMenu.Content>
         </ActionMenu.Root>
         <span>{open ? "Menu open" : "Menu closed"}</span>
+        <span>Closes reported: {closes}</span>
       </div>
     );
   },
@@ -176,6 +183,10 @@ export const Controlled: Story = {
     await waitFor(() => {
       expect(screen.getByText("Menu closed")).toBeVisible();
     });
+
+    // Once, though the item and the surface each ask for the close, so a
+    // caller counting dismissals is not told twice about one of them.
+    expect(screen.getByText("Closes reported: 1")).toBeVisible();
   },
 };
 

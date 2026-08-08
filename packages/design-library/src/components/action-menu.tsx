@@ -3,6 +3,8 @@ import {
   createContext,
   useCallback,
   useContext,
+  useEffect,
+  useRef,
   useState,
   type ComponentProps,
   type ReactNode,
@@ -109,15 +111,26 @@ function Root({
   const presentation =
     presentationProp ?? (isTouchSurface ? "sheet" : "anchored");
 
+  // Selecting an item closes the surface, and the anchored surface also closes
+  // itself, so the same transition arrives twice. The latch reports it once.
+  const reported = useRef(open);
   const handleOpenChange = useCallback(
     (next: boolean) => {
       if (openProp === undefined) {
         setUncontrolledOpen(next);
       }
+      if (reported.current === next) {
+        return;
+      }
+      reported.current = next;
       onOpenChange?.(next);
     },
     [onOpenChange, openProp],
   );
+
+  useEffect(() => {
+    reported.current = open;
+  }, [open]);
 
   const close = useCallback(() => handleOpenChange(false), [handleOpenChange]);
 
@@ -298,7 +311,10 @@ function Item({
           "text-[var(--system-negative-strong)] data-[highlighted]:text-[var(--system-negative-hover)]",
         className,
       )}
-      onSelect={() => onSelect?.()}
+      onSelect={() => {
+        close();
+        onSelect?.();
+      }}
     >
       {label}
     </Menu.Item>
