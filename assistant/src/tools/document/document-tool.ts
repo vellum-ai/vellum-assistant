@@ -426,13 +426,22 @@ export function executeDocumentUpdate(
     };
   }
 
+  // The store drops append content that merely restates the document's tail,
+  // so the client renders what actually landed rather than the submission.
+  const applied = result.appliedMarkdown;
+  const message = result.duplicateLeadingContentSkipped
+    ? applied.length === 0
+      ? "Nothing appended: the content is already at the end of the document"
+      : "Document content updated (leading content already at the end of the document was skipped)"
+    : "Document content updated";
+
   // Send document_editor_update message to update the built-in RTE
   if (context.sendToClient) {
     context.sendToClient({
       type: "document_editor_update",
       conversationId: context.conversationId,
       surfaceId,
-      markdown: content,
+      markdown: applied,
       mode,
     });
 
@@ -441,7 +450,7 @@ export function executeDocumentUpdate(
         success: true,
         surface_id: surfaceId,
         mode,
-        message: "Document content updated",
+        message,
       }),
       isError: false,
     };
@@ -458,7 +467,7 @@ export function executeDocumentUpdate(
       success: true,
       surface_id: surfaceId,
       mode,
-      message: "Document content updated (no client connected to render it)",
+      message: `${message} (no client connected to render it)`,
     }),
     isError: false,
   };

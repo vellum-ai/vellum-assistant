@@ -798,12 +798,125 @@ export function replaceInDocument(
   }
 }
 
+// ---------------------------------------------------------------------------
+// Append idempotency
+// ---------------------------------------------------------------------------
+
+/** A blank-line-delimited block of markdown, located in its source string. */
+interface MarkdownBlock {
+  /** Whitespace-trimmed block text, the unit duplicate detection compares. */
+  text: string;
+  /** Offset of the block's first character in the source string. */
+  start: number;
+}
+
+/**
+ * Split markdown into blank-line-delimited blocks, dropping empty ones but
+ * keeping each surviving block's offset so a suffix of the source can be
+ * recovered verbatim.
+ */
+function splitIntoBlocks(content: string): MarkdownBlock[] {
+  const blocks: MarkdownBlock[] = [];
+  const separator = /\n[^\S\n]*\n/g;
+  let cursor = 0;
+  let match: RegExpExecArray | null;
+  const push = (start: number, end: number): void => {
+    const text = content.slice(start, end).trim();
+    if (text.length > 0) {
+      blocks.push({ text, start });
+    }
+  };
+  while ((match = separator.exec(content)) !== null) {
+    push(cursor, match.index);
+    cursor = match.index + match[0].length;
+  }
+  push(cursor, content.length);
+  return blocks;
+}
+
+/**
+ * An append has to repeat at least this many characters of the document's tail
+ * before the repetition is treated as an accident.
+ *
+ * The floor is what keeps legitimate repetition intact. A document can honestly
+ * repeat a heading, a refrain, a table row, or a bare "TODO" back to back, and
+ * those are all short. Only a substantial restatement (an opening paragraph
+ * passed to both `document_create` and the first append) clears the bar.
+ */
+const MIN_DUPLICATE_APPEND_CHARS = 40;
+
+/**
+ * Drop a leading run of blocks from `markdown` that exactly repeats the tail of
+ * `existing`, so an append that restates content already committed does not
+ * write it a second time.
+ *
+ * The guard is deliberately narrow: the repeated run must be an exact,
+ * block-aligned match, it must sit at the very start of the append and the very
+ * end of the document, and it must be at least
+ * {@link MIN_DUPLICATE_APPEND_CHARS} long. Anything else, including the same
+ * text reappearing further down the append, is passed through untouched.
+ */
+function stripDuplicateLeadingBlocks(
+  existing: string,
+  markdown: string,
+): string {
+  const existingBlocks = splitIntoBlocks(existing);
+  const incomingBlocks = splitIntoBlocks(markdown);
+  const maxOverlap = Math.min(existingBlocks.length, incomingBlocks.length);
+
+  let overlap = 0;
+  for (let candidate = maxOverlap; candidate >= 1; candidate--) {
+    const offset = existingBlocks.length - candidate;
+    let matches = true;
+    for (let i = 0; i < candidate; i++) {
+      if (existingBlocks[offset + i].text !== incomingBlocks[i].text) {
+        matches = false;
+        break;
+      }
+    }
+    if (matches) {
+      overlap = candidate;
+      break;
+    }
+  }
+  if (overlap === 0) {
+    return markdown;
+  }
+
+  const duplicatedChars = incomingBlocks
+    .slice(0, overlap)
+    .reduce((total, block) => total + block.text.length, 0);
+  if (duplicatedChars < MIN_DUPLICATE_APPEND_CHARS) {
+    return markdown;
+  }
+
+  if (overlap === incomingBlocks.length) {
+    return "";
+  }
+  return markdown
+    .slice(incomingBlocks[overlap].start)
+    .replace(/^(?:[^\S\n]*\n)+/, "");
+}
+
+/** Outcome of a successful {@link updateDocumentContent} call. */
+export interface DocumentContentUpdated {
+  success: true;
+  /**
+   * The markdown that actually landed. Equals the submitted markdown except
+   * when an append's leading blocks duplicated the document's tail, in which
+   * case it is the remainder. Clients render this so their view matches the row.
+   */
+  appliedMarkdown: string;
+  /** True when a duplicated leading run was dropped from an append. */
+  duplicateLeadingContentSkipped: boolean;
+}
+
 /** Update persisted document content (append or replace). */
 export function updateDocumentContent(
   surfaceId: string,
   markdown: string,
   mode: string,
-): { success: true } | { success: false; error: string } {
+): DocumentContentUpdated | { success: false; error: string } {
   try {
     const existing = rawGet<{ content: string }>(
       "documents:updateDocumentContent:get",
@@ -814,9 +927,19 @@ export function updateDocumentContent(
       log.info({ surfaceId }, "No persisted document to update");
       return { success: false, error: "Document not found" };
     }
-    const sep = mode === "append" && existing.content.length > 0 ? "\n\n" : "";
-    const newContent =
-      mode === "append" ? existing.content + sep + markdown : markdown;
+    const appending = mode === "append";
+    const appliedMarkdown = appending
+      ? stripDuplicateLeadingBlocks(existing.content, markdown)
+      : markdown;
+    const duplicateLeadingContentSkipped =
+      appending && appliedMarkdown !== markdown;
+    const sep =
+      appending && existing.content.length > 0 && appliedMarkdown.length > 0
+        ? "\n\n"
+        : "";
+    const newContent = appending
+      ? existing.content + sep + appliedMarkdown
+      : appliedMarkdown;
     writeThroughToWorkspaceFile(surfaceId, newContent);
     const wordCount = countWords(newContent);
     rawRun(
@@ -827,8 +950,18 @@ export function updateDocumentContent(
       Date.now(),
       surfaceId,
     );
+    if (duplicateLeadingContentSkipped) {
+      log.info(
+        { surfaceId, skippedChars: markdown.length - appliedMarkdown.length },
+        "Skipped append content duplicating the document tail",
+      );
+    }
     log.info({ surfaceId, mode }, "Updated document content");
-    return { success: true };
+    return {
+      success: true,
+      appliedMarkdown,
+      duplicateLeadingContentSkipped,
+    };
   } catch (error) {
     log.error({ err: error, surfaceId }, "Document content update error");
     return {
