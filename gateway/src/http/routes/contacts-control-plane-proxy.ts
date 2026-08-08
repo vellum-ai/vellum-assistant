@@ -1091,9 +1091,9 @@ export function createContactsControlPlaneProxyHandler(config: GatewayConfig) {
      * GET /v1/contacts — gateway-native contact list.
      *
      * Reads ACL shape from gateway DB + info shape from assistant DB (single
-     * batched join). Falls back to the daemon proxy for search-style queries
-     * (query, channelAddress, channelType) which require searchContacts logic
-     * not yet implemented in the gateway.
+     * batched join). Falls back to the daemon proxy only for search-style
+     * queries (query, channelAddress, channelType) which require
+     * searchContacts logic not yet implemented in the gateway.
      *
      * Supported natively: limit, role, contactType.
      */
@@ -1120,11 +1120,10 @@ export function createContactsControlPlaneProxyHandler(config: GatewayConfig) {
         );
       }
 
-      // Search-style queries and contactType filter go through the daemon
-      // (it owns filter/search + info/identity). The daemon emits NEUTRAL ACL,
-      // so overlay authoritative gateway-DB ACL onto the forwarded body before
-      // returning.
-      if (query || channelAddress || channelType || contactType) {
+      // Search-style queries go through the daemon (searchContacts logic not
+      // yet in gateway). The daemon emits NEUTRAL ACL, so overlay authoritative
+      // gateway-DB ACL onto the forwarded body before returning.
+      if (query || channelAddress || channelType) {
         return forwardListWithAclOverlay(req, url.search);
       }
 
@@ -1133,6 +1132,7 @@ export function createContactsControlPlaneProxyHandler(config: GatewayConfig) {
         const contacts = await store.listContactsWithInfo({
           limit,
           role: role ?? undefined,
+          contactType: contactType ?? undefined,
         });
         log.info(
           { count: contacts.length, role, contactType, limit },
@@ -1209,7 +1209,8 @@ export function createContactsControlPlaneProxyHandler(config: GatewayConfig) {
       }
 
       const assistantMeta = body.assistantMetadata as
-        { species?: unknown; metadata?: unknown } | undefined;
+        | { species?: unknown; metadata?: unknown }
+        | undefined;
 
       if (body.contactType === "assistant") {
         if (!assistantMeta) {
@@ -1365,7 +1366,9 @@ export function createContactsControlPlaneProxyHandler(config: GatewayConfig) {
                 species: assistantMeta.species as string,
                 metadata:
                   (assistantMeta.metadata as
-                    Record<string, unknown> | null | undefined) ?? null,
+                    | Record<string, unknown>
+                    | null
+                    | undefined) ?? null,
               }
             : undefined,
         channels: channelInputs?.map((ch) => ({

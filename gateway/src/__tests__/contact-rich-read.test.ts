@@ -283,6 +283,63 @@ describe("ContactStore.listContactsRich", () => {
     expect(result).toHaveLength(2);
   });
 
+  test("contactType filter returns only matching contacts and applies limit", async () => {
+    seedGatewayContact({ id: "h1", updatedAt: 300 });
+    seedGatewayContact({ id: "h2", updatedAt: 200 });
+    seedGatewayContact({ id: "bot1", updatedAt: 100 });
+    seedAssistantInfo({ id: "h1", contactType: "human" });
+    seedAssistantInfo({ id: "h2", contactType: "human" });
+    seedAssistantInfo({ id: "bot1", contactType: "assistant" });
+
+    const result = await new ContactStore().listContactsWithInfo({
+      contactType: "human",
+      limit: 10,
+    });
+
+    expect(result.map((c) => c.id)).toEqual(["h1", "h2"]);
+    expect(result.every((c) => c.contactType === "human")).toBe(true);
+  });
+
+  test("contactType filter with limit caps the result after filtering", async () => {
+    for (let i = 0; i < 5; i++) {
+      seedGatewayContact({ id: `h${i}`, updatedAt: i });
+      seedAssistantInfo({ id: `h${i}`, contactType: "human" });
+    }
+    seedGatewayContact({ id: "bot", updatedAt: 10 });
+    seedAssistantInfo({ id: "bot", contactType: "assistant" });
+
+    const result = await new ContactStore().listContactsWithInfo({
+      contactType: "human",
+      limit: 3,
+    });
+
+    expect(result).toHaveLength(3);
+    expect(result.every((c) => c.contactType === "human")).toBe(true);
+  });
+
+  test("contactType=assistant returns only assistant-type contacts", async () => {
+    seedGatewayContact({ id: "h1" });
+    seedGatewayContact({ id: "bot1" });
+    seedAssistantInfo({ id: "h1", contactType: "human" });
+    seedAssistantInfo({ id: "bot1", contactType: "assistant" });
+
+    const result = await new ContactStore().listContactsWithInfo({
+      contactType: "assistant",
+    });
+
+    expect(result.map((c) => c.id)).toEqual(["bot1"]);
+  });
+
+  test("contactType filter throws on assistant DB outage (not silent empty)", async () => {
+    seedGatewayContact({ id: "h1" });
+    seedAssistantInfo({ id: "h1", contactType: "human" });
+    fakeAssistantDb.throwOnQuery = true;
+
+    await expect(
+      new ContactStore().listContactsWithInfo({ contactType: "human" }),
+    ).rejects.toThrow();
+  });
+
   test("missing assistant-DB row degrades gracefully (info null, no throw)", async () => {
     seedGatewayContact({ id: "gap" });
     seedGatewayChannel({ id: "ch-gap", contactId: "gap", interactionCount: 3 });

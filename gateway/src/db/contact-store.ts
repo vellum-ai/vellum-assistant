@@ -145,11 +145,19 @@ export class ContactStore {
    * channelType) are NOT supported here — callers that need those should
    * fall back to the proxy path until a gateway-native search is built.
    *
+   * When `contactType` is provided the gateway fetches up to 200 contacts from
+   * the gateway DB (contactType lives in the assistant DB and is only known
+   * after the info join), post-filters in memory, then applies the limit.
+   * Workspaces with more than 200 contacts of mixed types may see fewer results
+   * than requested in that case — the same trade-off the 200-row hard cap
+   * already applies to plain list reads.
+   *
    * Ordering mirrors the daemon: guardian role first, then updatedAt desc.
    */
   async listContactsWithInfo(opts?: {
     limit?: number;
     role?: string;
+    contactType?: string;
     ids?: string[];
   }): Promise<ContactWithInfo[]> {
     // Explicit id set: the caller has already selected/filtered the contacts
@@ -160,7 +168,13 @@ export class ContactStore {
       contactIds = [...new Set(opts.ids)].slice(0, 200);
       if (contactIds.length === 0) return [];
     } else {
-      const effectiveLimit = Math.min(opts?.limit ?? 50, 200);
+      // When filtering by contactType, fetch the hard cap from the gateway DB
+      // so post-filter has enough rows. Without this, a limit=50 request for
+      // contactType=human could return 0 results if the first 50 are all
+      // assistant-type contacts.
+      const effectiveLimit = opts?.contactType
+        ? 200
+        : Math.min(opts?.limit ?? 50, 200);
       const conditions = [];
       if (opts?.role) conditions.push(eq(contacts.role, opts.role));
 
@@ -205,7 +219,17 @@ export class ContactStore {
       )
       .all();
 
-    return this.joinInfoIntoContacts(rows);
+    let results = await this.joinInfoIntoContacts(rows, {
+      throwOnInfoFailure: !!opts?.contactType,
+    });
+
+    if (opts?.contactType) {
+      results = results.filter((c) => c.contactType === opts.contactType);
+      const requestedLimit = Math.min(opts.limit ?? 50, 200);
+      results = results.slice(0, requestedLimit);
+    }
+
+    return results;
   }
 
   /**
@@ -401,6 +425,7 @@ export class ContactStore {
    */
   private async joinInfoIntoContacts(
     rows: { contact: Contact; channel: ContactChannel | null }[],
+    opts: { throwOnInfoFailure?: boolean } = {},
   ): Promise<ContactWithInfo[]> {
     // Group channels by contact, preserving first-seen contact order.
     const orderedIds: string[] = [];
@@ -423,6 +448,9 @@ export class ContactStore {
     try {
       infoMap = await fetchInfoForContacts(orderedIds);
     } catch (err) {
+      if (opts.throwOnInfoFailure) {
+        throw err;
+      }
       log.warn(
         { err, count: orderedIds.length },
         "listContactsWithInfo: assistant DB info read failed; returning ACL-only shape",
