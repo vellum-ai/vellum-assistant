@@ -228,7 +228,7 @@ const ROOT_RAIL_COLLAPSED_CLASSES = [
   ROOT_RAIL_BORDER_CLASSES,
   "box-content w-[var(--side-menu-tile-size)]",
   "rounded-[12px]",
-  ROOT_RAIL_PADDING,
+  "pt-4 px-[var(--side-menu-collapsed-inset)] pb-2",
 ].join(" ");
 
 const ROOT_RAIL_RESIZABLE_CLASSES = [
@@ -760,7 +760,7 @@ function SideMenuItem({
          does, through the same fallback: a caller that tints the expanded pill
          tints this with one declaration, and one that tints nothing reaches
          `--surface-lift`. */
-      "size-[30px] mx-auto rounded-full bg-[var(--panel-item-bg,var(--surface-lift))]"
+      "size-[var(--side-menu-tile-size)] mx-auto rounded-full bg-[var(--panel-item-bg,var(--surface-lift))]"
     : // `w-full` matters for the `<button>` render path: buttons keep
       // fit-content sizing even as flex containers, so without it a
       // button-backed item shrink-wraps while anchor-backed items fill the rail.

@@ -169,16 +169,17 @@ function seedViewMode(assistantId: string, mode: SidebarViewMode): void {
 }
 
 /**
- * The identity row reads its avatar through React Query rather than through a
- * prop, so a story that seeds nothing gets the row's no-avatar fallback: a
- * Brain glyph on a plain pill. That is the row behaving correctly on the data
- * it has, and it is why the eyes, the avatar tint and the uploaded-image
- * treatment were all unreviewable here.
+ * Seeds the cache the identity row's avatar hook reads.
  *
- * Seeding the cache the hook reads is enough to fix that. The story owns its
- * own client so the seed cannot leak between stories, and both spellings of
- * the key carry it: the hook appends its manifest-support flag, and a story
- * cannot know which way that resolves.
+ * That row takes an assistant id and fetches its own avatar rather than being
+ * handed one, so a story seeding nothing renders the row's no-avatar fallback:
+ * a Brain glyph on a plain pill. The row is correct on the data it has, which
+ * puts the eyes, the avatar tint and the uploaded-image treatment out of reach
+ * of any story that does not seed.
+ *
+ * Each story owns its client, so a seed cannot leak into its neighbours, and
+ * both spellings of the key carry it: the hook appends its manifest-support
+ * flag and a story cannot know which way that resolves.
  */
 function seededAvatarClient(
   assistantId: string,
@@ -276,8 +277,8 @@ const meta: Meta<typeof AssistantSideMenu> = {
      shows the geometry desktop users get rather than a frame invented for
      the story. `<main>` is left empty: the chat body is a separate domain
      and mounting it would make these stories depend on it. The sidebar's
-     type and row metrics switch at `md`, so view these at a desktop
-     viewport. */
+     type and row metrics switch at `md`; the desktop width every story
+     starts at holds these above that breakpoint. */
   decorators: [
     (Story) => (
       <div className="flex h-screen gap-4 bg-[var(--surface-base)] p-4">
@@ -409,9 +410,9 @@ export const UploadedImageAvatarCollapsed: Story = {
 };
 
 /**
- * The character-avatar treatment, which no story reached before: the eyes in
- * the leading slot, the pill painted in the avatar's colour, and the name
- * flipped for contrast against it. The eyes blink where they sit.
+ * The character-avatar treatment: the eyes in the leading slot, the pill
+ * painted in the avatar's colour, and the name flipped for contrast against
+ * it. The eyes blink where they sit.
  */
 export const CharacterAvatar: Story = {
   name: "Identity row · character avatar",

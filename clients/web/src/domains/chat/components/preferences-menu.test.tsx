@@ -214,11 +214,10 @@ describe("PreferencesMenu", () => {
     expect(html).toContain("Preferences");
   });
 
-  /* The collapsed rail is 48px wide and a pill is sized by its content, so a
+  /* The collapsed rail fits one tile and a pill is sized by its content, so a
      labelled trigger rendered there is clipped mid-word. The tile is not that
-     pill with `display:none` on its label: it is a fixed 30px square centring
-     its glyph, the same affordance the pinned apps and section tiles reduce
-     to.
+     pill with `display:none` on its label: it is a fixed square centring its
+     glyph, the same affordance the pinned apps and section tiles reduce to.
 
      The collapsed `SideMenu` is the whole input: the trigger reads the rail's
      state from that context and takes no prop for it, so this renders the
@@ -244,8 +243,8 @@ describe("PreferencesMenu", () => {
     const html = collapsedRailMarkup();
 
     // Fixed square, centered in the rail column, fully rounded - not a
-    // content-width capsule that the 48px rail then crops.
-    expect(html).toContain("size-[30px]");
+    // content-width capsule that the rail then crops.
+    expect(html).toContain("size-[var(--side-menu-tile-size)]");
     expect(html).toContain("mx-auto");
     // Nothing to clip: the label is not rendered at all.
     expect(visibleText(html)).toBe("");
@@ -276,7 +275,7 @@ describe("PreferencesMenu", () => {
     // trigger is the content-sized pill it shares with the pinned apps.
     expect(visibleText(html)).toContain("Preferences");
     expect(html).toContain("w-fit");
-    expect(html).not.toContain("size-[30px]");
+    expect(html).not.toContain("size-[var(--side-menu-tile-size)]");
   });
 
   test("native Android shows the balance without an add-credits action", async () => {
