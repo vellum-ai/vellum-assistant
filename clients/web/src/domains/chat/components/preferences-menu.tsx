@@ -21,7 +21,7 @@ import {
 import { LazyBoundary } from "@/components/lazy-boundary";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { useBillingBalanceStatus } from "@/hooks/use-billing-balance-status";
-import { useIsMobile } from "@/hooks/use-is-mobile";
+import { useTouchMobile } from "@/hooks/use-touch-mobile";
 import { usePlatformGate } from "@/hooks/use-platform-gate";
 import { isElectron } from "@/runtime/is-electron";
 import { useAuthStore, useIsAuthenticated } from "@/stores/auth-store";
@@ -71,7 +71,7 @@ export function PreferencesMenu({
      it reads false regardless. */
   const collapsed = useSideMenuCollapsed();
   const isAuthenticated = useIsAuthenticated();
-  const isMobile = useIsMobile();
+  const isTouchMobile = useTouchMobile();
   const [isOpen, setIsOpen] = useState(false);
   const [isFeedbackOpen, setIsFeedbackOpen] = useState(false);
 
@@ -149,7 +149,7 @@ export function PreferencesMenu({
 
   return (
     <>
-      {isMobile ? (
+      {isTouchMobile ? (
         <BottomSheet.Root open={isOpen} onOpenChange={setIsOpen}>
           <BottomSheet.Trigger asChild>{trigger}</BottomSheet.Trigger>
           <BottomSheet.Content className="max-h-[85dvh]">

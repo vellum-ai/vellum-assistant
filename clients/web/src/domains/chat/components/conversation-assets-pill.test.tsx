@@ -19,6 +19,13 @@ import * as motionReact from "motion/react";
 
 import type { DocumentSummary } from "@/types/document-types";
 
+const isTouchMobileRef = { value: false };
+
+mock.module("@/hooks/use-touch-mobile", () => ({
+  useTouchMobile: () => isTouchMobileRef.value,
+  TOUCH_MOBILE_MEDIA_QUERY: "(max-width: 767px) and (pointer: coarse)",
+}));
+
 const isMobileRef = { value: false };
 
 mock.module("@/hooks/use-is-mobile", () => ({
@@ -143,6 +150,7 @@ beforeEach(() => {
 
 afterEach(() => {
   cleanup();
+  isTouchMobileRef.value = false;
   isMobileRef.value = false;
   reducedMotion = false;
   useUnseenDocumentChangesStore.setState({ changedDocuments: {} });
@@ -181,8 +189,35 @@ describe("desktop pill", () => {
   });
 });
 
+describe("narrow window with a mouse", () => {
+  // Room decides whether the count fits in the header cluster, and pointer
+  // decides whether the disclosure is a sheet: a narrow mouse-driven window
+  // gets the compact trigger and still opens the anchored popover.
+  beforeEach(() => {
+    isMobileRef.value = true;
+  });
+
+  test("trigger is icon-only and keeps its accessible name", () => {
+    renderPill();
+
+    expect(screen.getByRole("button", { name: SEEN_LABEL }).textContent).toBe(
+      "",
+    );
+  });
+
+  test("opening the popover clears the conversation", () => {
+    markUnseen();
+    renderPill();
+
+    fireEvent.click(screen.getByRole("button", { name: UNSEEN_LABEL }));
+
+    expect(unseenConversations()).toEqual([]);
+  });
+});
+
 describe("mobile trigger", () => {
   beforeEach(() => {
+    isTouchMobileRef.value = true;
     isMobileRef.value = true;
   });
 
@@ -236,7 +271,7 @@ describe("conversation switch while the disclosure is open", () => {
   });
 
   test("closes the sheet and keeps the incoming dot on mobile", () => {
-    isMobileRef.value = true;
+    isTouchMobileRef.value = true;
     markUnseen(OTHER_CONVERSATION_ID, OTHER_SURFACE_ID);
     const { switchConversation } = renderPill();
 

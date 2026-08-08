@@ -23,12 +23,12 @@ import { SideMenu } from "@vellumai/design-library";
 
 import type { AuthUser } from "@/stores/auth-store";
 
-const isMobileRef = { value: false };
+const isTouchMobileRef = { value: false };
 const nativeAndroidRef = { value: false };
 
-mock.module("@/hooks/use-is-mobile", () => ({
-  useIsMobile: () => isMobileRef.value,
-  MOBILE_MEDIA_QUERY: "(max-width: 767px)",
+mock.module("@/hooks/use-touch-mobile", () => ({
+  useTouchMobile: () => isTouchMobileRef.value,
+  TOUCH_MOBILE_MEDIA_QUERY: "(max-width: 767px) and (pointer: coarse)",
 }));
 
 mock.module("@/runtime/platform-detection", () => ({
@@ -140,7 +140,7 @@ const { PreferencesMenu } =
   await import("@/domains/chat/components/preferences-menu");
 
 beforeEach(() => {
-  isMobileRef.value = false;
+  isTouchMobileRef.value = false;
   nativeAndroidRef.value = false;
   authRef.isAuthenticated = true;
   authRef.user = {
@@ -203,13 +203,13 @@ describe("PreferencesMenu", () => {
   });
 
   test("desktop renders trigger (Popover surface)", () => {
-    isMobileRef.value = false;
+    isTouchMobileRef.value = false;
     const html = renderToStaticMarkup(createElement(PreferencesMenu));
     expect(html).toContain("Preferences");
   });
 
   test("mobile renders trigger (BottomSheet surface)", () => {
-    isMobileRef.value = true;
+    isTouchMobileRef.value = true;
     const html = renderToStaticMarkup(createElement(PreferencesMenu));
     expect(html).toContain("Preferences");
   });
@@ -280,7 +280,7 @@ describe("PreferencesMenu", () => {
 
   test("native Android shows the balance without an add-credits action", async () => {
     nativeAndroidRef.value = true;
-    isMobileRef.value = true;
+    isTouchMobileRef.value = true;
     billingRef.data = { effective_balance: "60" };
     render(<PreferencesMenu />);
 

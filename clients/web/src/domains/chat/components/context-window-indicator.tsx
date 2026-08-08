@@ -2,7 +2,7 @@ import { Brain } from "lucide-react";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
-import { useIsMobile } from "@/hooks/use-is-mobile";
+import { useTouchMobile } from "@/hooks/use-touch-mobile";
 import { showContextWindowIndicator } from "@/utils/composer-settings";
 import { BottomSheet, Button } from "@vellumai/design-library";
 
@@ -220,7 +220,7 @@ export function ContextWindowIndicator({
 }: ContextWindowIndicatorProps) {
   const assistantDisplayName = assistantName?.trim() || "Your assistant";
   const enabled = showContextWindowIndicator.useValue();
-  const isMobile = useIsMobile();
+  const isTouchMobile = useTouchMobile();
   const [sheetOpen, setSheetOpen] = useState(false);
   const [isHovered, setIsHovered] = useState(false);
   const [tooltipPosition, setTooltipPosition] = useState<{
@@ -267,7 +267,7 @@ export function ContextWindowIndicator({
   const { tokens, maxTokens } = usage;
 
   const handleMouseEnter = () => {
-    if (isMobile) {
+    if (isTouchMobile) {
       return;
     }
     if (hoverTimerRef.current != null) {
@@ -287,7 +287,7 @@ export function ContextWindowIndicator({
     setTooltipPosition(null);
   };
 
-  if (isMobile) {
+  if (isTouchMobile) {
     return (
       <BottomSheet.Root open={sheetOpen} onOpenChange={setSheetOpen}>
         <BottomSheet.Trigger asChild>
