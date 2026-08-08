@@ -83,6 +83,51 @@ add `.ttf`/`.eot` to `sharedBuildOptions`'s loader map so it matches
 Symptom if forgotten: `package-build.mjs` exits 1 with a wall of
 `No loader is configured for ".ttf"` errors before anything is emitted.
 
+## Committed lib forks (`.design-sync/overrides/`)
+
+**[GENERAL] Controlled inputs rendered valueless — `useArgs()` returned `{}`.**
+Checkbox/Radio/Toggle appeared unchecked, Slider printed `undefined` with no
+track fill, Select showed a blank trigger, Input showed its placeholder instead
+of the typed value. Every controlled story here uses storybook's documented
+pattern:
+
+```js
+const [{ checked }, updateArgs] = useArgs();
+return <Checkbox {...args} checked={checked} … />;   // args.checked discarded
+```
+
+`compose()` merges `meta.args + story.args` correctly, but the story overrides
+that with whatever `useArgs()` returns — and the stub returned an unconditional
+empty object, so the prop became `undefined`. Fixed by two forks:
+
+- `preview-gen-storybook.mjs` — `compose()` publishes the merged args on
+  `globalThis.__dsStoryArgs` immediately before invoking each story's render.
+- `story-imports.mjs` — the `useArgs()` stub returns those published args.
+
+Both are sanctioned fork points, both are committed, so re-syncs inherit them
+automatically. Symptom if they ever stop working: any controlled component
+renders in its empty/false state while the storybook panel shows it populated.
+Note this is invisible on stories whose real value is `""`/`false`/`undefined`
+anyway — those grade `match` either way, so they do not prove the fork is live.
+Checkbox `Default` (declares `checked: true`) is the reliable canary.
+
+Editing anything in `.design-sync/overrides/` (or `libOverrides`) trips
+`[CONFIG_STALE]` on targeted rebuilds — a full `package-build.mjs` is required
+to re-stamp the grade keys.
+
+## Grading artifacts that look like defects but are not
+
+- **Storybook's canvas backdrop.** The storybook panel renders on a light
+  gray/beige page background (`appBg: #F6F5F4` from `.storybook/preview.tsx`);
+  the preview panel is plain white. Anything whose only delta is "storybook has
+  a gray box behind it" is chrome, not the component. This is why PanelItem's
+  white `--surface-lift` pills look "missing" on the preview side.
+- **Per-panel sheet scaling.** The storybook raw shot is a tight bounding-box
+  crop of the story root; the preview raw shot is always a fixed full-canvas
+  capture. The same element therefore reads as proportionally smaller on the
+  preview side of the composited sheet. Measure the raw PNGs before calling a
+  size mismatch (Skeleton and Button both trip this).
+
 ## Card presentation
 
 `cfg.overrides` carries only presentation keys, all derived from
@@ -94,6 +139,17 @@ Symptom if forgotten: `package-build.mjs` exits 1 with a wall of
   positions outside any cell).
 - `titleMap: {"Toast": "Toaster"}` — the storybook title is `Toast` but the
   package exports the component as `Toaster` (`toast` is the imperative fn).
+
+## Grade keys use story DISPLAY names, not export names
+
+`<Name>.grade.json` keys must match the grade keys compare prints (and that
+`.design-sync/.cache/compare/<Name>.json` lists) — these are storybook's
+*display* names, with spaces: `"Small Padding"`, `"With Sections"`,
+`"With Toggle And Usage"`. Writing the export-name form (`SmallPadding`)
+silently fails to register: the driver reports `ok: true` while
+`verification.pendingGrade` still lists the component, so the §4d gate does not
+pass. Worth stating explicitly to any fan-out subagent — it cost a full driver
+cycle on Card/ListRow/PanelItem/ResizablePanel/Stepper/Tabs.
 
 ## Re-sync risks
 
@@ -117,3 +173,21 @@ Symptom if forgotten: `package-build.mjs` exits 1 with a wall of
 - **`markdown-message.stories.tsx` references `https://example.com/...` images**
   deliberately (testing the missing-image fallback). These are fixtures, not a
   real remote-asset dependency, so `[ASSETS_BLOCKED]` is not a concern here.
+- **`conventions.md` names a vocabulary that is validated against the BUILD, not
+  the source.** `--radius-*`, `--shadow-*`, most `--app-spacing-*`, `--anim-*`,
+  `--font-mono` and `--font-serif` exist in `tokens.css` but are **tree-shaken
+  out** of the shipped stylesheet (they sit in a plain `@theme inline` block;
+  only `@theme static inline` survives untouched). The header deliberately tells
+  the design agent NOT to use them. If the DS ever moves those into a `static`
+  block, re-validate and update the header. Re-run the grep checks before
+  editing it: every class/token it names must appear in `ds-bundle/_ds_bundle.css`.
+- **The shipped stylesheet is compiled and tree-shaken**, so it contains only the
+  utility classes the library itself uses — including arbitrary-value ones like
+  `bg-[var(--surface-lift)]`. A design agent cannot invent new utilities; the
+  conventions header therefore steers it to inline `style` + `var(--token)` for
+  its own layout. Widening the DS's own class usage widens what designs can use.
+- **Overlay components render only their closed trigger.** BottomSheet,
+  ConfirmDialog, ContextMenu, Menu, Modal, Popover and Toaster stories have no
+  `play` function, so both storybook and the previews show just the trigger
+  button. That is faithful to the oracle, but it means those DS cards are visually
+  thin. Adding open-state stories upstream would improve the cards.

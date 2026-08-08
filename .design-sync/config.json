@@ -8,10 +8,17 @@
   "storybookStatic": ".design-sync/sb-reference",
   "buildCmd": "sh .design-sync/prepare-build.sh",
   "cssEntry": "dist/ds-styles.css",
+  "readmeHeader": ".design-sync/conventions.md",
   "titleMap": {
     "Toast": "Toaster"
   },
+  "libOverrides": {
+    "story-imports.mjs": "useArgs() stub returns the composed story args instead of {} — this DS drives every controlled input through storybook's useArgs pattern",
+    "preview-gen-storybook.mjs": "compose() publishes the merged args for that useArgs stub to read"
+  },
   "overrides": {
+    "Button": { "cardMode": "column" },
+    "Stepper": { "cardMode": "column" },
     "Collapsible": { "cardMode": "column" },
     "Input": { "cardMode": "column" },
     "MarkdownMessage": { "cardMode": "column" },
