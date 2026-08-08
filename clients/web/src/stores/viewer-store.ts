@@ -213,6 +213,7 @@ export type MainView =
   | "chat"
   | "app"
   | "app-editing"
+  | "pptx-editing"
   | "document"
   | "subagent-detail"
   | "tool-detail"
@@ -265,6 +266,7 @@ export type WorkspaceFilePreviewKind =
   | "csv"
   | "text"
   | "pdf"
+  | "pptx"
   | "image"
   | "audio"
   | "video"
@@ -654,6 +656,14 @@ export interface ViewerActions {
     workspacePath: string,
     previewKind: WorkspaceFilePreviewKind,
   ) => void;
+  /**
+   * Expand the PowerPoint preview currently in the drawer into the full-screen
+   * editor. A no-op unless a `.pptx` preview is actually on show, so a stray
+   * call can't strand the layout on a view with nothing to render.
+   */
+  enterPptxEditing: () => void;
+  /** Collapse the full-screen PowerPoint editor back to the drawer preview. */
+  exitPptxEditing: () => void;
   setLoadedDocument: (document: OpenedDocumentState) => void;
   updateDocumentContent: (
     surfaceId: string,
@@ -1268,6 +1278,26 @@ const useViewerStoreBase = create<ViewerStore>()((set, get) => ({
       },
       viewBeforeDocument: resolveViewBefore(get(), "viewBeforeDocument"),
     });
+  },
+
+  enterPptxEditing: () => {
+    const opened = get().openedDocumentState;
+    if (
+      opened?.source !== "workspace-file-preview" ||
+      opened.previewKind !== "pptx"
+    ) {
+      return;
+    }
+    set({ mainView: "pptx-editing" });
+  },
+
+  exitPptxEditing: () => {
+    if (get().mainView !== "pptx-editing") {
+      return;
+    }
+    // The drawer preview it was expanded from is still in
+    // `openedDocumentState`, so returning is purely a view change.
+    set({ mainView: "document" });
   },
 
   setLoadedDocument: (document) => {

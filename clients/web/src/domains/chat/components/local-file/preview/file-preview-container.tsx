@@ -14,7 +14,7 @@
 
 import { lazy, useCallback, type ReactNode } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Download, X } from "lucide-react";
+import { Download, Pencil, X } from "lucide-react";
 
 import { Button, toast, Typography } from "@vellumai/design-library";
 
@@ -33,6 +33,7 @@ import {
   workspaceFileBlobQuery,
 } from "@/domains/chat/components/local-file/use-local-file-info";
 import type { WorkspaceFilePreviewKind } from "@/stores/viewer-store";
+import { useViewerStore } from "@/stores/viewer-store";
 import { downloadWorkspaceFile } from "@/utils/download-workspace-file";
 import { openWorkspaceFile } from "@/utils/open-workspace-file";
 
@@ -50,6 +51,9 @@ const PdfFilePreview = lazy(() =>
 );
 const MediaPreview = lazy(() =>
   import("./media-preview").then((m) => ({ default: m.MediaPreview })),
+);
+const PptxPreview = lazy(() =>
+  import("./pptx-preview").then((m) => ({ default: m.PptxPreview })),
 );
 
 const NOTICE_CLASSES =
@@ -75,6 +79,8 @@ function previewFor(
       return <TextPreview blob={blob} filename={filename} />;
     case "pdf":
       return <PdfFilePreview blob={blob} />;
+    case "pptx":
+      return <PptxPreview blob={blob} filename={filename} />;
     case "image":
     case "audio":
     case "video":
@@ -139,6 +145,10 @@ export function FilePreviewContainer({
   const handleOpenInWorkspace = useCallback(() => {
     void openWorkspaceFile(workspacePath);
   }, [workspacePath]);
+
+  const handleEdit = useCallback(() => {
+    useViewerStore.getState().enterPptxEditing();
+  }, []);
 
   const handleDownload = useCallback(() => {
     void downloadWorkspaceFile({
@@ -234,6 +244,19 @@ export function FilePreviewContainer({
         >
           {documentName}
         </Typography>
+
+        {/* Formats with an editor of their own step up to it from here. The
+            drawer stays the reading surface; editing takes the full screen. */}
+        {previewKind === "pptx" ? (
+          <Button
+            variant="outlined"
+            size="compact"
+            leftIcon={<Pencil />}
+            onClick={handleEdit}
+          >
+            Edit
+          </Button>
+        ) : null}
 
         <Button
           variant="ghost"

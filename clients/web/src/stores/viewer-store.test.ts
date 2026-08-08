@@ -989,6 +989,62 @@ describe("updateDocumentContent", () => {
 });
 
 // ---------------------------------------------------------------------------
+// PowerPoint: drawer preview <-> full-screen editor
+// ---------------------------------------------------------------------------
+
+describe("enterPptxEditing / exitPptxEditing", () => {
+  it("expands a pptx preview to the full-screen editor and back", () => {
+    getState().openWorkspaceFilePreview("decks/plan.pptx", "pptx");
+
+    getState().enterPptxEditing();
+    expect(getState().mainView).toBe("pptx-editing");
+    // The preview it expanded from is retained, so returning is a view change
+    // and the editor can read which file it is editing.
+    expect(getState().openedDocumentState).toMatchObject({
+      source: "workspace-file-preview",
+      workspacePath: "decks/plan.pptx",
+      previewKind: "pptx",
+    });
+
+    getState().exitPptxEditing();
+    expect(getState().mainView).toBe("document");
+  });
+
+  it("refuses to expand a preview of some other format", () => {
+    getState().openWorkspaceFilePreview("data/rows.csv", "csv");
+
+    getState().enterPptxEditing();
+
+    // Nothing to render in the editor, so the view must not move there.
+    expect(getState().mainView).toBe("document");
+  });
+
+  it("refuses to expand when no preview is open at all", () => {
+    getState().enterPptxEditing();
+
+    expect(getState().mainView).toBe("chat");
+  });
+
+  it("exiting is a no-op when the editor is not open", () => {
+    getState().openWorkspaceFilePreview("decks/plan.pptx", "pptx");
+
+    getState().exitPptxEditing();
+
+    expect(getState().mainView).toBe("document");
+  });
+
+  it("closing the drawer from the editor restores the pre-document view", () => {
+    getState().openWorkspaceFilePreview("decks/plan.pptx", "pptx");
+    getState().enterPptxEditing();
+
+    getState().closeDocument();
+
+    expect(getState().mainView).toBe("chat");
+    expect(getState().openedDocumentState).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Document viewer: read-only file previews
 // ---------------------------------------------------------------------------
 

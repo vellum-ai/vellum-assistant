@@ -19,6 +19,13 @@ import { LazyBoundary } from "@/components/lazy-boundary";
 import { AppViewerContainer } from "@/components/app-viewer-container";
 import { DocumentViewerContainer } from "@/domains/chat/components/document-viewer-container";
 import { FilePreviewContainer } from "@/domains/chat/components/local-file/preview/file-preview-container";
+// The PowerPoint editor pulls in the OOXML reader and its editing surface —
+// a chunk of its own, loaded only when a deck is actually expanded.
+const PptxEditorContainer = lazy(() =>
+  import("@/domains/chat/components/local-file/pptx/pptx-editor-container").then(
+    (m) => ({ default: m.PptxEditorContainer }),
+  ),
+);
 import {
   ChatMainPanel,
   type ChatMainPanelProps,
@@ -134,6 +141,10 @@ export function ChatContentLayout(props: ChatMainPanelProps) {
   // -------------------------------------------------------------------------
   // Side-panel callbacks (store operations only — no hook-local state)
   // -------------------------------------------------------------------------
+
+  const handleExitPptxEditing = useCallback(() => {
+    useViewerStore.getState().exitPptxEditing();
+  }, []);
 
   const handleCloseApp = useCallback(() => {
     useViewerStore.getState().closeApp();
@@ -338,6 +349,28 @@ export function ChatContentLayout(props: ChatMainPanelProps) {
   // -------------------------------------------------------------------------
   // Layout routing
   // -------------------------------------------------------------------------
+
+  // PowerPoint editing: the drawer preview expanded to the full content area.
+  // Full-width rather than a split — editing slides needs the room, and the
+  // deck is already readable beside the chat in the drawer this came from.
+  if (
+    mainView === "pptx-editing" &&
+    openedDocumentState?.source === "workspace-file-preview" &&
+    openedDocumentState.previewKind === "pptx" &&
+    assistantId
+  ) {
+    return (
+      <LazyBoundary fallback={null}>
+        <PptxEditorContainer
+          key={`pptx-edit:${openedDocumentState.workspacePath}`}
+          assistantId={assistantId}
+          workspacePath={openedDocumentState.workspacePath}
+          documentName={openedDocumentState.documentName}
+          onExit={handleExitPptxEditing}
+        />
+      </LazyBoundary>
+    );
+  }
 
   // App editing: resizable split with chat + app editor
   if (mainView === "app-editing" && openedAppState && editingConversationId) {

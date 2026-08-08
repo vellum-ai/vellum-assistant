@@ -48,6 +48,11 @@ const PREVIEW_EXTENSIONS = new Map<string, WorkspaceFilePreviewKind>([
   ["yml", "text"],
   ["xml", "text"],
   ["pdf", "pdf"],
+  // OOXML presentations only. The legacy binary `.ppt` is a different format
+  // the reader cannot parse, so it stays in the unsupported state rather than
+  // opening a viewer that would fail on it.
+  ["pptx", "pptx"],
+  ["pptm", "pptx"],
   ["png", "image"],
   ["jpg", "image"],
   ["jpeg", "image"],

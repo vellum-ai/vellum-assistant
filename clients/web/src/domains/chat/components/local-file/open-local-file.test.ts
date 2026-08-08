@@ -115,11 +115,23 @@ describe("previewKindFor", () => {
     expect(previewKindFor("demo.mov")).toBe("video");
   });
 
+  test("OOXML presentations read as PowerPoint", () => {
+    expect(previewKindFor("deck.pptx")).toBe("pptx");
+    expect(previewKindFor("deck.pptm")).toBe("pptx");
+    expect(previewKindFor("DECK.PPTX")).toBe("pptx");
+  });
+
+  test("the legacy binary .ppt has no reader", () => {
+    // The PowerPoint reader parses OOXML packages only, so the pre-2007
+    // binary format stays in the unsupported state rather than opening a
+    // viewer that would fail on it.
+    expect(previewKindFor("deck.ppt")).toBeNull();
+  });
+
   test("formats with no reader of their own report none", () => {
     expect(previewKindFor("notes.md")).toBeNull();
     expect(previewKindFor("report.doc")).toBeNull();
     expect(previewKindFor("report.docx")).toBeNull();
-    expect(previewKindFor("deck.pptx")).toBeNull();
     expect(previewKindFor("bundle.zip")).toBeNull();
     expect(previewKindFor("Makefile")).toBeNull();
     expect(previewKindFor(".csv")).toBeNull();
@@ -197,13 +209,23 @@ describe("openLocalFile", () => {
     openLocalFile("archives/bundle.zip", "bundle.zip", "asst-1");
     openLocalFile("bin/tool", "tool", "asst-1");
     openLocalFile("docs/report.docx", "report.docx", "asst-1");
-    openLocalFile("decks/plan.pptx", "plan.pptx", "asst-1");
+    openLocalFile("decks/legacy.ppt", "legacy.ppt", "asst-1");
 
     expect(openWorkspaceFilePreview.mock.calls).toEqual([
       ["archives/bundle.zip", "unsupported"],
       ["bin/tool", "unsupported"],
       ["docs/report.docx", "unsupported"],
-      ["decks/plan.pptx", "unsupported"],
+      ["decks/legacy.ppt", "unsupported"],
+    ]);
+    expect(loadWorkspaceFileDocument).not.toHaveBeenCalled();
+    expect(openWorkspaceFile).not.toHaveBeenCalled();
+  });
+
+  test("a PowerPoint deck opens in the drawer's presentation reader", () => {
+    openLocalFile("decks/plan.pptx", "plan.pptx", "asst-1");
+
+    expect(openWorkspaceFilePreview.mock.calls).toEqual([
+      ["decks/plan.pptx", "pptx"],
     ]);
     expect(loadWorkspaceFileDocument).not.toHaveBeenCalled();
     expect(openWorkspaceFile).not.toHaveBeenCalled();
