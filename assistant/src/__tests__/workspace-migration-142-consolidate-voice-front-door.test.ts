@@ -14,13 +14,23 @@ import { WORKSPACE_MIGRATIONS } from "../workspace/migrations/registry.js";
 
 let workspaceDir: string;
 let configPath: string;
+let previousDefaultWorkspaceConfigPath: string | undefined;
 
 beforeEach(() => {
+  previousDefaultWorkspaceConfigPath =
+    process.env.VELLUM_DEFAULT_WORKSPACE_CONFIG_PATH;
+  delete process.env.VELLUM_DEFAULT_WORKSPACE_CONFIG_PATH;
   workspaceDir = mkdtempSync(join(tmpdir(), "vellum-migration-142-test-"));
   configPath = join(workspaceDir, "config.json");
 });
 
 afterEach(() => {
+  if (previousDefaultWorkspaceConfigPath === undefined) {
+    delete process.env.VELLUM_DEFAULT_WORKSPACE_CONFIG_PATH;
+  } else {
+    process.env.VELLUM_DEFAULT_WORKSPACE_CONFIG_PATH =
+      previousDefaultWorkspaceConfigPath;
+  }
   if (existsSync(workspaceDir)) {
     rmSync(workspaceDir, { recursive: true, force: true });
   }
@@ -99,6 +109,27 @@ describe("142-consolidate-voice-front-door migration", () => {
     const callSites = llm.callSites as Record<string, unknown>;
     expect(callSites.voiceProgressNarration).toEqual({
       profile: "latency-optimized",
+    });
+    expect(callSites).not.toHaveProperty("voiceFrontDecision");
+  });
+
+  test("migrates saved overrides when a default config overlay is configured", () => {
+    process.env.VELLUM_DEFAULT_WORKSPACE_CONFIG_PATH = "/tmp/overlay.json";
+    writeConfig({
+      llm: {
+        callSites: {
+          voiceFrontDecision: { profile: "cost-optimized" },
+        },
+      },
+    });
+
+    consolidateVoiceFrontDoorMigration.run(workspaceDir);
+
+    const config = readConfig();
+    const llm = config.llm as Record<string, unknown>;
+    const callSites = llm.callSites as Record<string, unknown>;
+    expect(callSites.voiceProgressNarration).toEqual({
+      profile: "cost-optimized",
     });
     expect(callSites).not.toHaveProperty("voiceFrontDecision");
   });

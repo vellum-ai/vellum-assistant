@@ -15,10 +15,6 @@ export const consolidateVoiceFrontDoorMigration: WorkspaceMigration = {
   description:
     "Rename the progress narration callsite and remove retired generated-ack tuning",
   run(workspaceDir: string): void {
-    if (process.env.VELLUM_DEFAULT_WORKSPACE_CONFIG_PATH) {
-      return;
-    }
-
     const configPath = join(workspaceDir, "config.json");
     if (!existsSync(configPath)) {
       return;
