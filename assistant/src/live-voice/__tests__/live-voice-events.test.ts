@@ -260,8 +260,7 @@ describe("LiveVoiceSession archive and metrics events", () => {
       // needing a tool to the escalated leg (see
       // live-voice-triage-escalate.test.ts).
       voiceControlPrompt:
-        "You are speaking in a local live voice session. Keep replies brief and conversational. Speech is the main channel: say the answer, and do not narrate a surface instead of answering. You can also put something on screen when it genuinely helps (a form, a list to pick from, a progress card for long work); the call overlay minimizes by itself once you finish speaking, so the user sees it without doing anything. Never tell the user you cannot show them something. Reply in the language the caller is speaking; if they switch languages, switch with them. " +
-        VOICE_NO_SETUP_FLOWS_RULE,
+        "You are speaking in a local live voice session. Keep replies brief and conversational. Speech is the main channel: say the answer, and do not narrate a surface instead of answering. You can also put something on screen when it genuinely helps (a form, a list to pick from, a progress card for long work); the call overlay minimizes by itself once you finish speaking, so the user sees it without doing anything. Never tell the user you cannot show them something. Reply in the language the caller is speaking; if they switch languages, switch with them. ",
     });
     callbacks?.assistant_text_delta?.(makeTextDelta("Hello there."));
     callbacks?.message_complete?.(makeMessageComplete());
