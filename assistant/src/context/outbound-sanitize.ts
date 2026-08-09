@@ -105,7 +105,7 @@ export function compactAxTreeHistory(messages: Message[]): Message[] {
 /**
  * Full-wrapper matcher for the `<channel_capabilities>` block. Both ends are
  * required so a user message that merely opens with the tag (someone pasting
- * prompt markup into chat) is never mistaken for an injected block — the same
+ * prompt markup into chat) is never mistaken for an injected block, the same
  * discipline `stripUserTextBlocksByPrefix` uses in `strip-injections.ts`.
  */
 const CHANNEL_CAPABILITIES_OPEN = "<channel_capabilities>\n";
@@ -125,7 +125,7 @@ function isChannelCapabilitiesBlock(text: string): boolean {
  * of one per turn.
  *
  * Runtime injection prepends this block to the turn-starting user message and
- * then freezes it into history — live, because injection splices into the
+ * then freezes it into history: live, because injection splices into the
  * conversation's own message array, and across restarts, because `loadFromDb`
  * rehydrates it from message metadata. Nothing ever removes it, so an N-turn
  * channel conversation ships N copies. Unlike `<turn_context>`, which at least
@@ -136,7 +136,7 @@ function isChannelCapabilitiesBlock(text: string): boolean {
  * ## Why "same as the last retained copy" and not "not the current turn"
  *
  * Prompt caching only pays off when the bytes a provider marked in turn N are
- * still at the same position in turn N+1 — an invariant this repo enforces end
+ * still at the same position in turn N+1, an invariant this repo enforces end
  * to end in `prompt-cache-cross-turn-stability.test.ts`. Any rule of the form
  * "keep it on the current turn, collapse it above" necessarily re-renders one
  * message every turn (the turn that just ended), which is a full cache miss on

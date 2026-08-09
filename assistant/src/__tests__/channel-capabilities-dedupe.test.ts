@@ -1,5 +1,5 @@
 /**
- * `<channel_capabilities>` must not accumulate one copy per turn — and
+ * `<channel_capabilities>` must not accumulate one copy per turn, and
  * deduplicating it must not disturb the cross-turn byte-identity that prompt
  * caching depends on (see `prompt-cache-cross-turn-stability.test.ts`, which
  * owns that invariant end to end).
@@ -13,7 +13,7 @@ import {
 import type { Message } from "../providers/types.js";
 
 // ---------------------------------------------------------------------------
-// Fixtures — shaped like what runtime injection actually produces: the block is
+// Fixtures, shaped like what runtime injection actually produces: the block is
 // its OWN text content block, prepended to the turn-starting user message by
 // `injectChannelCapabilityContext`, and then frozen into history.
 // ---------------------------------------------------------------------------
@@ -114,7 +114,7 @@ describe("<channel_capabilities> does not accumulate across a conversation", () 
 
   test("everything else on the row is untouched", () => {
     const sanitized = preModelCallSanitize(conversation(4));
-    // `<turn_context>` is deliberately left alone — it carries a fresh
+    // `<turn_context>` is deliberately left alone: it carries a fresh
     // timestamp each turn and historical copies are read back by the
     // compactor's tail resolution.
     expect(countOccurrences(allText(sanitized), "<turn_context>")).toBe(4);
