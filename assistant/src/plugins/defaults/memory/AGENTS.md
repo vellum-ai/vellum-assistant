@@ -59,6 +59,10 @@ Everything else under the plugin root is **spine**:
 - Shared infra at the root: `logging`, `paths`, `embeddings`, `anisotropy`,
   `frontmatter`, `validation`, `llm-helpers`, `config`, `memory-db`,
   `host-utils`, `path-containment`, `prompt-override`, `memory-marker`,
+  `buffer-format` (the sole owner of the `memory/buffer.md` entry format:
+  the writer plus the one matcher every reader uses. It lives at the root
+  precisely so `substrate/`, `graph/`, and `graph-topology/` can all reach it
+  without a tier importing spine. Do not add a second matcher anywhere),
   `segmenter`, `message-media`, `worker`, `worker-control`,
   `memory-recall-log-store`, `activation-session-store` (the onboarding
   activation rail — **not** a memory tier despite the name),

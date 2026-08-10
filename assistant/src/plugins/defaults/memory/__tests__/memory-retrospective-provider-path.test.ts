@@ -96,7 +96,10 @@ mock.module("../find-most-recent-retrospective-for.js", () => ({
 }));
 
 mock.module("../../../../persistence/conversation-crud.js", () => ({
-  getMessagesAfter: (_id: string, _afterId: string | null) => newMessages,
+  // Real rows always carry `finalized` (NOT NULL, default 1); the slice
+  // filter drops unfinalized rows, so mock rows default to finalized.
+  getMessagesAfter: (_id: string, _afterId: string | null) =>
+    newMessages.map((row) => ({ finalized: 1, ...row })),
   getMessages: (id: string) => messageStores[id] ?? [],
   // `defaultResolveTarget` in the REAL wake reads the FORK id's row for the
   // archived check, so both rows carry archivedAt/createdAt. The fork's

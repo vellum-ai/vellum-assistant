@@ -3,6 +3,7 @@ import { v4 as uuid } from "uuid";
 
 import type { DrizzleDb } from "./db-connection.js";
 import { stringifyMessageContent } from "./message-content.js";
+import { messageConversationId } from "./message-reads.js";
 import { conversations, messageBookmarks, messages } from "./schema.js";
 
 /**
@@ -138,15 +139,10 @@ export function createBookmark(
   params: { messageId: string },
 ): CreateBookmarkResult {
   const { messageId } = params;
-  const message = db
-    .select({ conversationId: messages.conversationId })
-    .from(messages)
-    .where(eq(messages.id, messageId))
-    .get();
-  if (!message) {
+  const conversationId = messageConversationId(messageId, { db });
+  if (conversationId === null) {
     throw new Error(`Message ${messageId} not found`);
   }
-  const conversationId = message.conversationId;
 
   const existing = db
     .select({ id: messageBookmarks.id })

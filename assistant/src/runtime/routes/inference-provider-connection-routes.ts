@@ -21,6 +21,7 @@ import { getDb } from "../../persistence/db-connection.js";
 import {
   type Auth,
   AuthSchema,
+  CHATGPT_SUBSCRIPTION_CONNECTION_NAME,
   type ConnectionModel,
   ConnectionModelSchema,
   ConnectionProviderSchema,
@@ -205,14 +206,26 @@ function deriveConnectionAuth(provider: string, credential: unknown): Auth {
 function assertAuthMatchesProvider(provider: string, auth: Auth): void {
   const managedAuth = auth.type === "platform";
   const managedProvider = provider === VELLUM_MANAGED_PROVIDER;
-  if (managedAuth === managedProvider) {
-    return;
+  if (managedAuth !== managedProvider) {
+    throw new BadRequestError(
+      managedAuth
+        ? `Auth type "platform" is only valid for provider "${VELLUM_MANAGED_PROVIDER}", not "${provider}". Vellum-managed routing is selected by the provider, so omit "auth" to derive it.`
+        : `Provider "${VELLUM_MANAGED_PROVIDER}" is always platform-authenticated; "${auth.type}" auth is not valid for it. Omit "auth" to derive it, or name a real provider for key-based auth.`,
+    );
   }
-  throw new BadRequestError(
-    managedAuth
-      ? `Auth type "platform" is only valid for provider "${VELLUM_MANAGED_PROVIDER}", not "${provider}". Vellum-managed routing is selected by the provider, so omit "auth" to derive it.`
-      : `Provider "${VELLUM_MANAGED_PROVIDER}" is always platform-authenticated; "${auth.type}" auth is not valid for it. Omit "auth" to derive it, or name a real provider for key-based auth.`,
-  );
+  // Same rule for the subscription identity: provider "chatgpt" and
+  // oauth_subscription auth record one fact and must pair, or a key-auth
+  // row under the identity would dispatch against the API while the user
+  // believes they are on subscription billing.
+  const subscriptionAuth = auth.type === "oauth_subscription";
+  const subscriptionProvider = provider === "chatgpt";
+  if (subscriptionAuth !== subscriptionProvider) {
+    throw new BadRequestError(
+      subscriptionAuth
+        ? `Auth type "oauth_subscription" is only valid for provider "chatgpt", not "${provider}". Run the ChatGPT sign-in flow to connect a subscription.`
+        : `Provider "chatgpt" is always subscription-authenticated; "${auth.type}" auth is not valid for it. Run the ChatGPT sign-in flow, or name a real provider for key-based auth.`,
+    );
+  }
 }
 
 /**
@@ -330,15 +343,27 @@ async function handleCreateConnection({ body = {} }: RouteHandlerArgs) {
       `Invalid provider "${String(provider)}". Valid: ${VALID_CONNECTION_PROVIDERS.join(", ")}`,
     );
   }
+  // The chatgpt identity lives on its canonical row: routing resolves the
+  // subscription by that name, so an identity row under any other name can
+  // never dispatch.
+  if (
+    providerResult.data === "chatgpt" &&
+    name !== CHATGPT_SUBSCRIPTION_CONNECTION_NAME
+  ) {
+    throw new BadRequestError(
+      `Provider "chatgpt" is reserved for the "${CHATGPT_SUBSCRIPTION_CONNECTION_NAME}" connection. Run the ChatGPT sign-in flow to connect a subscription.`,
+    );
+  }
   const authResult = AuthSchema.safeParse(
     auth ?? deriveConnectionAuth(providerResult.data, body.credential),
   );
   if (!authResult.success) {
     throw new BadRequestError(`Invalid auth: ${authResult.error.message}`);
   }
-  if (auth !== undefined) {
-    assertAuthMatchesProvider(providerResult.data, authResult.data);
-  }
+  // Asserted on derived auth as well: derivation pairs every provider
+  // correctly except the chatgpt identity, whose fallthrough would mint
+  // api_key auth from a bare credential.
+  assertAuthMatchesProvider(providerResult.data, authResult.data);
 
   const labelRaw = body.label;
   if (
@@ -434,15 +459,31 @@ async function handleUpdateConnection({
   if (!authResult.success) {
     throw new BadRequestError(`Invalid auth: ${authResult.error.message}`);
   }
+  // The canonical subscription row owns the "chatgpt" identity: writing
+  // subscription auth to it stamps the provider with the auth, mirroring
+  // the daemon's own sign-in exchange route. The CLI's login-chatgpt PATCHes
+  // auth through this route, and without the stamp a row the identity
+  // migration deliberately skipped (a claiming row with key auth) would end
+  // up as provider "openai" with subscription auth. Provider stays
+  // immutable for every other row.
+  const chatgptIdentityStamp =
+    name === CHATGPT_SUBSCRIPTION_CONNECTION_NAME &&
+    authResult.data.type === "oauth_subscription" &&
+    existing.provider !== "chatgpt";
+
   // The pairing is enforced on an actual auth change, not on the field being
   // present: the web editor and the CLI both resend the stored auth on every
   // edit, so a row whose columns already disagree stays relabelable and
-  // re-pointable.
+  // re-pointable. Judged against the stamped provider when the stamp
+  // applies, since that is the pair being written.
   if (
     body.auth !== undefined &&
     authFingerprint(authResult.data) !== authFingerprint(existing.auth)
   ) {
-    assertAuthMatchesProvider(existing.provider, authResult.data);
+    assertAuthMatchesProvider(
+      chatgptIdentityStamp ? "chatgpt" : existing.provider,
+      authResult.data,
+    );
   }
 
   const labelRaw = body.label;
@@ -473,6 +514,7 @@ async function handleUpdateConnection({
 
   const result = updateConnection(getDb(), name, {
     auth: authResult.data,
+    ...(chatgptIdentityStamp ? { provider: "chatgpt" } : {}),
     ...(labelRaw !== undefined ? { label: labelRaw as string | null } : {}),
     ...customFields,
   });

@@ -1,81 +1,23 @@
 /**
- * Purpose-built activity UI for a `skill_load` call (LUM-2999).
+ * Purpose-built activity UI for a `skill_load` call (LUM-2999), laid out to
+ * Figma node 7778-163402: a "Used Skill" card carrying the skill's identity and
+ * a View action, the tools the load unlocked, then the skill body under an
+ * Output section with a Clean/Raw switch.
  *
  * The generic drawer rendered this call at its worst: `{"skill":"app-builder"}`
  * as raw JSON input, and the skill's entire instruction body — often thousands
  * of lines, including a machine-facing "## Available Tools" manifest — dumped
- * into a monospace `<pre>`. This renderer instead leads with the skill's
- * identity, turns the manifest into a scannable tool list, and renders the
- * instructions as actual markdown behind a disclosure.
+ * into a monospace `<pre>`.
  */
 
-import { Sparkles } from "lucide-react";
+import { Notice, Skeleton } from "@vellumai/design-library";
 
-import { Skeleton, Typography } from "@vellumai/design-library";
-
-import { CodeBlock, SectionLabel } from "@/components/detail-primitives";
-import { ChatMarkdownMessage } from "@/domains/chat/components/chat-markdown-message";
-import { DetailDisclosure } from "@/domains/chat/components/tool-activity/detail-disclosure";
+import { SectionLabel } from "@/components/detail-primitives";
+import { SkillLoadCard } from "@/domains/chat/components/tool-activity/skill-load-card";
+import { SkillLoadOutput } from "@/domains/chat/components/tool-activity/skill-load-output";
 import { SkillToolList } from "@/domains/chat/components/tool-activity/skill-tool-list";
 import { parseSkillLoadActivity } from "@/domains/chat/utils/skill-activity";
 import type { ToolActivityRendererProps } from "@/domains/chat/components/tool-activity/types";
-
-/**
- * Instruction bodies shorter than this render expanded; longer ones start
- * collapsed so the drawer opens on the skill's identity and tools rather than
- * a wall of prose the reader has to scroll past.
- */
-const INSTRUCTIONS_AUTO_EXPAND_CHARS = 1200;
-
-/**
- * Leading skill identity row: glyph tile, the skill's human name, and load
- * status. Falls back to the raw id from the call's input until the result's
- * header lands (or when it carries no `Skill:` line).
- */
-function SkillIdentity({
-  name,
-  description,
-  status,
-}: {
-  name: string;
-  description: string;
-  status: string;
-}) {
-  return (
-    <div>
-      <div className="flex items-center gap-2.5">
-        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-[var(--surface-overlay)]">
-          <Sparkles className="h-4 w-4 text-[var(--content-secondary)]" />
-        </div>
-        <div className="min-w-0">
-          <Typography
-            variant="body-medium-default"
-            as="div"
-            className="truncate leading-5 text-[var(--content-default)]"
-          >
-            {name}
-          </Typography>
-          <Typography
-            variant="body-small-lighter"
-            as="div"
-            className="mt-0.5 text-[var(--content-secondary)]"
-          >
-            {status}
-          </Typography>
-        </div>
-      </div>
-      {description && (
-        <Typography
-          variant="body-small-lighter"
-          as="p"
-          className="mt-3 text-[var(--content-secondary)]"
-        >
-          {description}
-        </Typography>
-      )}
-    </div>
-  );
-}
 
 /**
  * Placeholder for the sections still in flight while `skill_load` runs: the
@@ -83,8 +25,8 @@ function SkillIdentity({
  * tool cards over staggered prose lines — so the panel doesn't reflow when the
  * body lands.
  *
- * The skill identity row above is NOT skeletonised: the skill id comes from the
- * call's own input, so it's known immediately and showing it beats a shimmer.
+ * The skill card above is NOT skeletonised: the skill id comes from the call's
+ * own input, so it's known immediately and showing it beats a shimmer.
  */
 function SkillLoadSkeleton() {
   return (
@@ -120,37 +62,42 @@ export function SkillLoadDetail({
   isError,
   assistantId,
 }: ToolActivityRendererProps) {
-  const { skillId, displayName, description, instructions, tools, errorMessage } =
-    parseSkillLoadActivity({ input: detail.input, result, isError });
+  const {
+    skillId,
+    displayName,
+    description,
+    instructions,
+    tools,
+    errorMessage,
+  } = parseSkillLoadActivity({ input: detail.input, result, isError });
 
+  // The card's second line is the skill's description once the body lands, and
+  // the load's own state until then — the description is the more useful thing
+  // to say, and it's only absent while there's something else to report.
   const status = isRunning
     ? "Loading skill…"
     : errorMessage
       ? "Failed to load"
-      : tools.length > 0
-        ? `Loaded · ${tools.length} tool${tools.length === 1 ? "" : "s"}`
-        : "Loaded";
-
-  const instructionLines = instructions ? instructions.split("\n").length : 0;
+      : "";
 
   return (
     <div className="flex flex-col gap-5">
-      <SkillIdentity
-        name={displayName || skillId || "Skill"}
-        description={description}
-        status={status}
-      />
+      <div>
+        <SectionLabel>Used Skill</SectionLabel>
+        <SkillLoadCard
+          skillId={skillId}
+          name={displayName || skillId || "Skill"}
+          secondary={description || status}
+          assistantId={assistantId}
+        />
+      </div>
 
       {errorMessage && (
-        <div className="rounded-lg border border-[var(--system-negative-strong)] bg-[var(--system-negative-weak)] p-4">
-          <Typography
-            variant="body-small-lighter"
-            as="p"
-            className="whitespace-pre-wrap break-words text-[var(--content-default)]"
-          >
+        <Notice tone="error">
+          <span className="whitespace-pre-wrap break-words">
             {errorMessage}
-          </Typography>
-        </div>
+          </span>
+        </Notice>
       )}
 
       {tools.length > 0 && (
@@ -160,20 +107,15 @@ export function SkillLoadDetail({
         </div>
       )}
 
-      {instructions && (
-        <DetailDisclosure
-          label="Instructions"
-          hint={`${instructionLines} line${instructionLines === 1 ? "" : "s"}`}
-          defaultOpen={instructions.length <= INSTRUCTIONS_AUTO_EXPAND_CHARS}
-        >
-          <ChatMarkdownMessage content={instructions} assistantId={assistantId} />
-        </DetailDisclosure>
-      )}
-
-      {typeof result === "string" && result !== "" && (
-        <DetailDisclosure label="Raw output">
-          <CodeBlock text={result} />
-        </DetailDisclosure>
+      {/* A failed load's "output" is the error text, which the notice above
+          already shows in full — rendering it again as Output would say the
+          same thing twice. */}
+      {!errorMessage && (
+        <SkillLoadOutput
+          instructions={instructions}
+          raw={typeof result === "string" ? result : ""}
+          assistantId={assistantId}
+        />
       )}
 
       {isRunning && !instructions && !errorMessage && <SkillLoadSkeleton />}

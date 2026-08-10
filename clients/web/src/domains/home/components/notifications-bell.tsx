@@ -10,6 +10,7 @@ import {
   useScheduledConversationListQuery,
 } from "@/hooks/conversation-queries";
 import { useTouchMobile } from "@/hooks/use-touch-mobile";
+import { useTranslation } from "@/i18n";
 import { useSupportsBulkFeedStatus } from "@/lib/backwards-compat/bulk-feed-status";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { mergeConversationLists } from "@/utils/conversation-cache";
@@ -101,6 +102,7 @@ export function NotificationsBell() {
   const [isOpen, setIsOpen] = useState(false);
   const [selectedItemId, setSelectedItemId] = useState<string | null>(null);
   const isTouchMobile = useTouchMobile();
+  const { t } = useTranslation("home");
   const navigate = useNavigate();
   const assistantId = useResolvedAssistantsStore.use.activeAssistantId();
   const feedQuery = useHomeFeedQuery(assistantId);
@@ -266,7 +268,7 @@ export function NotificationsBell() {
           navigateToConversation(navigate, data.conversationId);
         },
         onError: () => {
-          toast.error("Couldn't start that conversation. Try again.");
+          toast.error(t("notificationsBell.actionFailed"));
         },
         onSettled: () => {
           isTriggeringActionRef.current = false;
@@ -309,7 +311,11 @@ export function NotificationsBell() {
           ) : null}
         </span>
       }
-      aria-label={hasUnread ? "Notifications (unread)" : "Notifications"}
+      aria-label={
+        hasUnread
+          ? t("notificationsBell.ariaLabelUnread")
+          : t("notificationsBell.ariaLabel")
+      }
     />
   );
 
@@ -330,8 +336,8 @@ export function NotificationsBell() {
         className="px-[var(--app-spacing-lg)] py-[var(--app-spacing-xl)] text-center text-[var(--content-tertiary)]"
       >
         {feedQuery.isError
-          ? "Couldn't load notifications."
-          : "No notifications yet."}
+          ? t("notificationsBell.loadFailed")
+          : t("notificationsBell.empty")}
       </Typography>
     ) : (
       <div
@@ -396,7 +402,7 @@ export function NotificationsBell() {
               as="h2"
               className="text-[var(--content-default)]"
             >
-              Notifications
+              {t("notificationsBell.heading")}
             </Typography>
           </div>
 
@@ -411,7 +417,7 @@ export function NotificationsBell() {
                   onClick={handleMarkAllRead}
                   disabled={feedQuery.markAll.isPending}
                 >
-                  Mark all as read
+                  {t("actions.markAllAsRead")}
                 </Button>
               ) : null}
               <Button
@@ -420,7 +426,7 @@ export function NotificationsBell() {
                 onClick={handleClearAll}
                 disabled={feedQuery.markAll.isPending}
               >
-                Clear all
+                {t("actions.clearAll")}
               </Button>
             </div>
           ) : null}
@@ -438,7 +444,7 @@ export function NotificationsBell() {
             <BottomSheet.Title>
               {selectedItem
                 ? resolveFeedItemTitle(selectedItem)
-                : "Notifications"}
+                : t("notificationsBell.heading")}
             </BottomSheet.Title>
           </BottomSheet.Header>
           <BottomSheet.Body className="pt-0">{panel}</BottomSheet.Body>
@@ -449,7 +455,7 @@ export function NotificationsBell() {
 
   return (
     <Popover.Root open={isOpen} onOpenChange={handleOpenChange}>
-      <Tooltip content="Notifications">
+      <Tooltip content={t("notificationsBell.ariaLabel")}>
         <Popover.Trigger asChild>{trigger}</Popover.Trigger>
       </Tooltip>
       <Popover.Content

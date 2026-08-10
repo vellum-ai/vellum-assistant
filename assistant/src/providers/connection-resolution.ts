@@ -162,8 +162,18 @@ export async function tryResolveProviderForConnectionName(
     isVellum &&
     !!expectedProvider &&
     MANAGED_ROUTABLE_PROVIDERS.has(expectedProvider);
+  // The ChatGPT-subscription row stores the "chatgpt" routing identity in
+  // its provider column, so the equality never holds for its openai
+  // upstream. The identity dispatches with the upstream threaded as
+  // `providerOverride`, mirroring the vellum sentinel; the upstream is
+  // always openai (`resolveRoutingIdentity`). Any other declared provider
+  // on a chatgpt row is a genuine mismatch and falls through below.
+  const isChatgptRoute =
+    connection.provider === "chatgpt" &&
+    (expectedProvider === undefined || expectedProvider === "openai");
   if (
     !isVellumRoute &&
+    !isChatgptRoute &&
     expectedProvider &&
     connection.provider !== expectedProvider
   ) {
@@ -225,7 +235,11 @@ export async function tryResolveProviderForConnectionName(
   try {
     const provider = await resolveProviderFromConnection(connection, config, {
       model,
-      providerOverride: isVellumRoute ? expectedProvider : undefined,
+      providerOverride: isVellumRoute
+        ? expectedProvider
+        : isChatgptRoute
+          ? "openai"
+          : undefined,
     });
     return attachProviderRoute(provider, connection);
   } catch (err) {
@@ -512,7 +526,12 @@ export async function preflightResolvedConfig(
     }
     return;
   }
-  if (connection.provider !== provider) {
+  // The ChatGPT-subscription row stores the "chatgpt" identity while its
+  // upstream is openai; the credential-presence switch below is the right
+  // preflight for it (the subscription token is its credential).
+  const isChatgptRow =
+    connection.provider === "chatgpt" && provider === "openai";
+  if (!isChatgptRow && connection.provider !== provider) {
     throw new ConnectionResolutionError(
       connectionName,
       "provider_mismatch",

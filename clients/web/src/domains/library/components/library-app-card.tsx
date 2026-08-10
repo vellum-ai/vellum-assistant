@@ -11,6 +11,7 @@ import {
 import { type MouseEvent, useCallback, useState } from "react";
 
 import { AppPreviewThumbnail } from "@/components/app-card";
+import { useTranslation } from "@/i18n";
 import { SwipeActionReveal } from "@/components/swipe-action-reveal";
 import {
   copyDeployedAppLink,
@@ -48,6 +49,7 @@ export function LibraryAppCard({
   justImported,
   onAnimationEnd,
 }: LibraryAppCardProps) {
+  const { t } = useTranslation("library");
   const [isSharing, setIsSharing] = useState(false);
   // Plugin-bundled apps are read-only: the daemon rejects delete/share/deploy
   // against them, so drop those actions here rather than render buttons that
@@ -67,15 +69,17 @@ export function LibraryAppCard({
     setIsSharing(true);
     try {
       await shareApp(assistantId, app.id, app.name);
-      toast.success("App exported", { description: `${app.name}.vellum` });
+      toast.success(t("libraryAppCard.exported"), {
+        description: `${app.name}.vellum`,
+      });
     } catch (err) {
-      toast.error("Failed to share app", {
+      toast.error(t("libraryAppCard.shareFailed"), {
         description: err instanceof Error ? err.message : undefined,
       });
     } finally {
       setIsSharing(false);
     }
-  }, [assistantId, app.id, app.name, isSharing]);
+  }, [assistantId, app.id, app.name, isSharing, t]);
 
   const [menuOpen, setMenuOpen] = useState(false);
 
@@ -227,11 +231,12 @@ export function LibraryAppCardActionsMenu({
   deployedUrl,
   onCopyDeployedLink,
 }: LibraryAppCardActionsMenuProps) {
+  const { t } = useTranslation("library");
   // Only treated as deployed when the caller can also hand the link back.
   // Otherwise the entry would report a deployment it can't reach.
   const isDeployed =
     deployedUrl != null && deployedUrl !== "" && onCopyDeployedLink != null;
-  const title = `Options for ${appName}`;
+  const title = t("libraryAppCard.actionsTitle", { appName });
 
   return (
     <ActionMenu.Root open={open} onOpenChange={onOpenChange}>
@@ -247,14 +252,16 @@ export function LibraryAppCardActionsMenu({
       <ActionMenu.Content title={title}>
         <ActionMenu.Item
           icon={isPinned ? PinOff : Pin}
-          label={isPinned ? "Unpin" : "Pin"}
+          label={
+            isPinned ? t("libraryAppCard.unpin") : t("libraryAppCard.pin")
+          }
           onSelect={onPin}
         />
         {onShare ? (
           <ActionMenu.Item
             icon={ArrowUp}
-            label="Share"
-            description="Export as .vellum file"
+            label={t("libraryAppCard.share")}
+            description={t("libraryAppCard.shareSub")}
             onSelect={onShare}
           />
         ) : null}
@@ -262,30 +269,30 @@ export function LibraryAppCardActionsMenu({
           <>
             <ActionMenu.Item
               icon={Link2}
-              label="Deployed to Vercel"
+              label={t("libraryAppCard.deployed")}
               description={<span className="break-all">{deployedUrl}</span>}
-              shortcut="Copy link"
+              shortcut={t("libraryAppCard.copyLink")}
               onSelect={() => onCopyDeployedLink?.()}
             />
             <ActionMenu.Item
               icon={RefreshCw}
-              label="Redeploy"
-              description="Publish the current version"
+              label={t("libraryAppCard.redeploy")}
+              description={t("libraryAppCard.redeploySub")}
               onSelect={onDeploy}
             />
           </>
         ) : onDeploy ? (
           <ActionMenu.Item
             icon={Globe}
-            label="Deploy to Vercel"
-            description="Publish as a static page"
+            label={t("libraryAppCard.deploy")}
+            description={t("libraryAppCard.deploySub")}
             onSelect={onDeploy}
           />
         ) : null}
         {onDelete ? (
           <ActionMenu.Item
             icon={Trash2}
-            label="Delete"
+            label={t("libraryAppCard.delete")}
             tone="destructive"
             onSelect={onDelete}
           />

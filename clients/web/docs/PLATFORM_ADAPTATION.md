@@ -39,6 +39,29 @@ matching Tailwind's `md` breakpoint. Use it for **layout**: how many columns, wh
 stacks, how many chips fit before truncating. Prefer plain `max-md:` classes when CSS can express it,
 and reach for the hook only when the difference is structural (different components, different props).
 
+#### Measured sizes: no new JavaScript `clamp()`
+
+The same preference, one level down. `useLayoutViewportSize()` and `useElementSize()`
+([`src/hooks/use-element-size.ts`](../src/hooks/use-element-size.ts)) hand you a live `{ w, h }`, and it
+is tempting to do the sizing arithmetic in JavaScript. If `clamp()`, `min()`, `vmin`, `vw`, `dvh` or `%`
+can express the rule, write it in CSS instead. Most of this app already does
+(`max-w-[min(520px,calc(100vw-8rem))]`, `w-[90vw] max-w-[800px]`).
+
+This is not a style preference. CSS units resolve against a defined box automatically, so they cannot
+disagree with the `%`-positioned content beside them. JavaScript has to *pick* a box, and there are
+three plausible answers here (the layout viewport, the visual viewport, and the container), which is
+how a decorative layer ends up half a safe-area inset out of register with the foreground it is pinned
+to. CSS also updates without a React render.
+
+Reach for a measured size only when CSS genuinely cannot: a number handed to an animation library, or
+one paired with a `getBoundingClientRect()`.
+
+**Direction of travel.** The onboarding and voice-room decorative layers predate this rule and compute
+`clamp()` in JavaScript today (`edgeSize` is literally `clamp(130px, 40vmin, 420px)`). That is tracked
+in LUM-3204 and is being unwound per surface, so treat those files as the pattern being retired rather
+than the example to copy. New consumers of the measured-size hooks should be able to say which of the
+two exceptions above they fall under.
+
 ### Input capability
 
 The pointer is the signal for **interaction**: which overlay a trigger opens, whether long-press is

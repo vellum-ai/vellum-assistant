@@ -9,6 +9,7 @@ import {
   onboardingProvider,
   type OnboardingProviderId,
 } from "@/domains/onboarding/provider-catalog";
+import { SETUP_NAVIGATE } from "@/domains/onboarding/onboarding-navigation";
 import {
   peekPendingProviderKey,
   setPendingProviderKey,
@@ -80,11 +81,12 @@ export function ApiKeyScreen() {
       hosting
         ? `${routes.onboarding.privacy}?hosting=${hosting}`
         : routes.onboarding.privacy,
+      SETUP_NAVIGATE,
     );
   };
 
   const onBack = () => {
-    void navigate(routes.onboarding.hosting);
+    void navigate(routes.onboarding.hosting, SETUP_NAVIGATE);
   };
 
   return (

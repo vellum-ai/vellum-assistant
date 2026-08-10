@@ -220,6 +220,40 @@ describe("preflightResolvedConfig", () => {
     ).resolves.toBeUndefined();
   });
 
+  test("a chatgpt-identity subscription row preflights the same way", async () => {
+    // Migration 366 stamps the row with provider "chatgpt"; preflight judges
+    // its subscription credential, not a provider equality with the openai
+    // upstream.
+    connectionsByName["chatgpt-subscription"] = {
+      name: "chatgpt-subscription",
+      provider: "chatgpt",
+      auth: {
+        type: "oauth_subscription",
+        credential: "credential/chatgpt/access_token",
+      },
+    };
+    const missing = await preflightError(
+      resolved({
+        provider: "chatgpt",
+        provider_connection: "",
+        model: "gpt-5.5",
+      }),
+    );
+    expect(missing?.reason).toBe("missing_credential");
+
+    secureKeys["credential/chatgpt/access_token"] = "tok";
+    await expect(
+      preflightResolvedConfig(
+        resolved({
+          provider: "chatgpt",
+          provider_connection: "",
+          model: "gpt-5.5",
+        }),
+        {},
+      ),
+    ).resolves.toBeUndefined();
+  });
+
   test("a chatgpt identity with no subscription row throws not_found", async () => {
     const err = await preflightError(
       resolved({

@@ -236,6 +236,13 @@ export function findInboundConversationId(
 /**
  * Record an inbound channel event. Returns `duplicate: true` if this
  * exact (channel, chat, message) combination was already seen.
+ *
+ * The dedup half of this is also implemented gateway-side, on the same
+ * triple, in `gateway/src/db/inbound-dedup-store.ts`. Deliberately, not by
+ * accident: the gateway claims a delivery before handing it over, so a
+ * vendor's retry costs no crossing, and this stays as the record that binds
+ * the conversation and tracks the reply. Both must key on the same three
+ * fields for either to mean anything.
  */
 export function recordInbound(
   sourceChannel: string,

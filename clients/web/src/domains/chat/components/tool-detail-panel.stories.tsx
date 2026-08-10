@@ -186,13 +186,41 @@ export const Bash: Story = {
 };
 
 /**
- * `skill_load` with a purpose-built body: skill identity and tool count up top,
- * the manifest as scannable tool cards, and the instruction markdown rendered
- * (not dumped as a `<pre>`) behind a disclosure.
+ * `skill_load` with a purpose-built body: the skill's identity and a View
+ * action up top, the manifest as a scannable tool list, and the instruction
+ * markdown rendered (not dumped as a `<pre>`) under Output.
  */
 export const SkillLoad: Story = {
   args: {
     detail: skillLoadDetail,
+    onClose: () => {},
+  },
+};
+
+/**
+ * A realistically long skill body: Output clamps it behind "Show more", and
+ * the Clean/Raw switch flips between the rendered markdown and the daemon's
+ * verbatim result (header lines and tool manifest included).
+ */
+export const SkillLoadLongBody: Story = {
+  args: {
+    detail: {
+      ...skillLoadDetail,
+      result: skillLoadResult.replace(
+        "## Workflow",
+        [
+          "## When to use this",
+          "",
+          "Reach for the app builder when the user asks for something that",
+          "should outlive the conversation — a tracker they'll come back to, a",
+          "dashboard over their own data, a small tool they'd otherwise rebuild",
+          "by hand each time. A one-off calculation or a chart they only need",
+          "once is not an app; answer it inline instead.",
+          "",
+          "## Workflow",
+        ].join("\n"),
+      ),
+    },
     onClose: () => {},
   },
 };

@@ -137,6 +137,9 @@ function getAttachmentRow(attachmentId: string): AttachmentRow | null {
 function getMessageConversationContext(
   messageId: string,
 ): { conversationId: string; conversationCreatedAt: number } | null {
+  // Any-state read, deliberately: the id names a message the caller is
+  // already linking an attachment to, and a rendered row may still be
+  // streaming. Existence and ownership are the question, not completeness.
   return (
     rawGet<{ conversationId: string; conversationCreatedAt: number }>(
       "attachments:getMessageConversationContext",

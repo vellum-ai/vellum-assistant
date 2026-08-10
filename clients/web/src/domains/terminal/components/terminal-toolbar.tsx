@@ -1,5 +1,6 @@
 import { Loader2, PlugZap, Terminal, Unplug, Wrench, X } from "lucide-react";
 
+import { useTranslation } from "@/i18n";
 import type { TerminalStatus } from "@/domains/terminal/types";
 import { Button } from "@vellumai/design-library/components/button";
 import { Tag, type TagTone } from "@vellumai/design-library/components/tag";
@@ -21,6 +22,7 @@ export function TerminalToolbar({
   className,
   maintenanceModeActive,
 }: TerminalToolbarProps) {
+  const { t } = useTranslation("terminal");
   const isConnecting = status === "connecting" || status === "reconnecting";
   const isConnected = status === "connected";
   const canConnect =
@@ -48,16 +50,16 @@ export function TerminalToolbar({
           className="truncate text-body-medium-default"
           style={{ color: "var(--content-secondary)" }}
         >
-          Terminal
+          {t("terminalToolbar.heading")}
         </span>
         <StatusBadge status={status} />
         {maintenanceModeActive && (
           <Tag
             tone="warning"
             leftIcon={<Wrench />}
-            title="Recovery Mode active — session connected to the debug terminal"
+            title={t("terminalToolbar.recoveryTitle")}
           >
-            Recovery
+            {t("terminalToolbar.recoveryTag")}
           </Tag>
         )}
       </div>
@@ -68,9 +70,9 @@ export function TerminalToolbar({
           size="compact"
           leftIcon={<X />}
           onClick={onClear}
-          title="Clear terminal output"
+          title={t("terminalToolbar.clearTitle")}
         >
-          Clear
+          {t("terminalToolbar.clear")}
         </Button>
 
         {isConnected || isConnecting ? (
@@ -82,9 +84,9 @@ export function TerminalToolbar({
             }
             onClick={onDisconnect}
             disabled={isConnecting}
-            title="Disconnect terminal session"
+            title={t("terminalToolbar.disconnectTitle")}
           >
-            Disconnect
+            {t("terminalToolbar.disconnect")}
           </Button>
         ) : (
           <Button
@@ -93,9 +95,9 @@ export function TerminalToolbar({
             leftIcon={<PlugZap />}
             onClick={onConnect}
             disabled={!canConnect}
-            title="Connect terminal session"
+            title={t("terminalToolbar.connectTitle")}
           >
-            Connect
+            {t("terminalToolbar.connect")}
           </Button>
         )}
       </div>
@@ -104,7 +106,9 @@ export function TerminalToolbar({
 }
 
 function StatusBadge({ status }: { status: TerminalStatus }) {
+  const { t } = useTranslation("terminal");
   const config = STATUS_CONFIG[status];
+  const label = t(config.labelKey);
   return (
     <Tag
       tone={config.tone}
@@ -118,21 +122,38 @@ function StatusBadge({ status }: { status: TerminalStatus }) {
             .join(" ")}
         />
       }
-      aria-label={`Terminal status: ${config.label}`}
+      aria-label={t("terminalToolbar.statusAria", { status: label })}
     >
-      {config.label}
+      {label}
     </Tag>
   );
 }
 
+/**
+ * Tone and pulse per status. The label is a catalog key rather than copy: a
+ * module-scope table cannot call `useTranslation()`, so a plain string here
+ * would render English whatever the active locale is.
+ */
 const STATUS_CONFIG: Record<
   TerminalStatus,
-  { label: string; tone: TagTone; pulse?: boolean }
+  {
+    labelKey: `terminalStatus.${TerminalStatus}`;
+    tone: TagTone;
+    pulse?: boolean;
+  }
 > = {
-  idle: { label: "Idle", tone: "neutral" },
-  connecting: { label: "Connecting", tone: "warning", pulse: true },
-  connected: { label: "Connected", tone: "positive" },
-  reconnecting: { label: "Reconnecting", tone: "warning", pulse: true },
-  error: { label: "Error", tone: "negative" },
-  closed: { label: "Closed", tone: "neutral" },
+  idle: { labelKey: "terminalStatus.idle", tone: "neutral" },
+  connecting: {
+    labelKey: "terminalStatus.connecting",
+    tone: "warning",
+    pulse: true,
+  },
+  connected: { labelKey: "terminalStatus.connected", tone: "positive" },
+  reconnecting: {
+    labelKey: "terminalStatus.reconnecting",
+    tone: "warning",
+    pulse: true,
+  },
+  error: { labelKey: "terminalStatus.error", tone: "negative" },
+  closed: { labelKey: "terminalStatus.closed", tone: "neutral" },
 };

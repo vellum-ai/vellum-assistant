@@ -27,11 +27,8 @@ import {
 
 import { useVoiceSamplePreview } from "@/components/speech/use-voice-sample-preview";
 import { OnboardingCharacterStage } from "@/domains/onboarding/components/onboarding-character-stage";
+import { OnboardingStage } from "@/domains/onboarding/components/onboarding-stage";
 import { OnboardingTopBar } from "@/domains/onboarding/components/onboarding-top-bar";
-import {
-  OnboardingStageSizeProvider,
-  useElementSize,
-} from "@/domains/onboarding/hooks/use-onboarding-stage-size";
 import { useOnboardingAvatarPoolStore } from "@/domains/onboarding/onboarding-avatar-pool-store";
 import { resolveAvatarVoice } from "@/domains/onboarding/onboarding-avatar-voices";
 import { useUnscopedManagedVoices } from "@/lib/tts/use-managed-voices";
@@ -111,10 +108,6 @@ export function GiveMeAFaceScreen({
   // so their custom name survives cycling through avatars.
   const nameCustomized = useRef(false);
   const nameInputRef = useRef<HTMLInputElement>(null);
-  // Measure this screen's container so the decorative stage shares the exact
-  // coordinate space as the foreground arrows/title/buttons (see
-  // use-onboarding-stage-size).
-  const { ref: stageRef, size: stageSize } = useElementSize();
   // The current swap: the newly selected char + the slot it came from
   // (entering), and the old center + the slot it's heading to (exiting).
   const [swap, setSwap] = useState<{
@@ -264,157 +257,151 @@ export function GiveMeAFaceScreen({
     "transition-colors duration-150 hover:bg-[color-mix(in_srgb,var(--content-default)_18%,transparent)]";
 
   return (
-    <div
-      ref={stageRef}
-      data-theme="dark"
-      className="relative h-full overflow-hidden bg-[var(--surface-base)] text-[var(--content-default)]"
-    >
-      <OnboardingStageSizeProvider size={stageSize}>
-        {ready && (
-          <OnboardingCharacterStage
-            components={components}
-            characters={characters}
-            centerChar={arrangement.centerChar}
-            edgeOrder={arrangement.edgeOrder}
-            entering={swap?.entering ?? null}
-            exiting={swap?.exiting ?? null}
-            onEnterComplete={(char) =>
-              setSwap((curr) => (curr?.entering.char === char ? null : curr))
-            }
-            onSelectChar={moveTo}
-          />
-        )}
+    <OnboardingStage className="bg-[var(--surface-base)] text-[var(--content-default)]">
+      {ready && (
+        <OnboardingCharacterStage
+          components={components}
+          characters={characters}
+          centerChar={arrangement.centerChar}
+          edgeOrder={arrangement.edgeOrder}
+          entering={swap?.entering ?? null}
+          exiting={swap?.exiting ?? null}
+          onEnterComplete={(char) =>
+            setSwap((curr) => (curr?.entering.char === char ? null : curr))
+          }
+          onSelectChar={moveTo}
+        />
+      )}
 
-        {/* Redo routes through Continue (not the generic step redo) so any avatar
+      {/* Redo routes through Continue (not the generic step redo) so any avatar
           or name edits made after stepping back are captured before advancing —
           otherwise the redo would re-stage the previous selection. */}
-        <OnboardingTopBar
-          tone="light"
-          onBack={onBack}
-          onNext={onForward ? handleContinue : undefined}
-        />
+      <OnboardingTopBar
+        tone="light"
+        onBack={onBack}
+        onNext={onForward ? handleContinue : undefined}
+      />
 
-        {/* Title */}
-        <h1
-          className="absolute left-1/2 top-[22%] z-10 -translate-x-1/2 whitespace-nowrap text-center text-[2.6rem] leading-none max-md:w-[90vw] max-md:whitespace-normal max-md:text-[2.08rem]"
-          style={{
-            fontFamily: "var(--font-serif)",
-            animation: "fadeInUp 0.4s ease-out both",
-          }}
-        >
-          Give me a face and a name
-        </h1>
+      {/* Title */}
+      <h1
+        className="absolute left-1/2 top-[22%] z-10 -translate-x-1/2 whitespace-nowrap text-center text-[2.6rem] leading-none max-md:w-[90vw] max-md:whitespace-normal max-md:text-[2.08rem]"
+        style={{
+          fontFamily: "var(--font-serif)",
+          animation: "fadeInUp 0.4s ease-out both",
+        }}
+      >
+        Give me a face and a name
+      </h1>
 
-        {/* Cycle arrows, flanking the centered avatar */}
-        <button
-          type="button"
-          aria-label="Previous character"
-          onClick={goPrev}
-          className={`absolute left-[calc(50%-170px)] top-[43%] -translate-y-1/2 ${arrowClass}`}
-        >
-          <ArrowLeft className="h-4 w-4" />
-        </button>
-        <button
-          type="button"
-          aria-label="Next character"
-          onClick={goNext}
-          className={`absolute right-[calc(50%-170px)] top-[43%] -translate-y-1/2 ${arrowClass}`}
-        >
-          <ArrowRight className="h-4 w-4" />
-        </button>
+      {/* Cycle arrows, flanking the centered avatar */}
+      <button
+        type="button"
+        aria-label="Previous character"
+        onClick={goPrev}
+        className={`absolute left-[calc(50%-170px)] top-[43%] -translate-y-1/2 ${arrowClass}`}
+      >
+        <ArrowLeft className="h-4 w-4" />
+      </button>
+      <button
+        type="button"
+        aria-label="Next character"
+        onClick={goNext}
+        className={`absolute right-[calc(50%-170px)] top-[43%] -translate-y-1/2 ${arrowClass}`}
+      >
+        <ArrowRight className="h-4 w-4" />
+      </button>
 
-        {/* Name (view ↔ edit) + Continue, grouped with room between them. */}
-        <div className="absolute left-1/2 top-[58%] z-10 flex -translate-x-1/2 flex-col items-center gap-10 max-md:top-[54%]">
-          <div className="flex flex-col items-center gap-4">
-            {editingName ? (
-              <input
-                ref={nameInputRef}
-                value={name}
-                onChange={(e) => {
-                  nameCustomized.current = true;
-                  setName(e.target.value);
-                }}
-                onBlur={() => setEditingName(false)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") {
-                    e.preventDefault();
-                    setEditingName(false);
-                  }
-                }}
-                placeholder="Name your assistant"
-                aria-label="Assistant name"
-                className="w-[234px] rounded-2xl border border-[var(--border-element)] bg-transparent px-4 py-2.5 text-center text-lg text-[var(--content-default)] placeholder:text-[var(--content-tertiary)] outline-none transition-colors duration-150 focus:border-[var(--border-active)]"
-              />
-            ) : (
-              <div className="flex items-center gap-2.5">
-                <button
-                  type="button"
-                  onClick={() => setEditingName(true)}
-                  aria-label="Edit name"
-                  className="flex cursor-pointer items-center gap-2.5"
+      {/* Name (view ↔ edit) + Continue, grouped with room between them. */}
+      <div className="absolute left-1/2 top-[58%] z-10 flex -translate-x-1/2 flex-col items-center gap-10 max-md:top-[54%]">
+        <div className="flex flex-col items-center gap-4">
+          {editingName ? (
+            <input
+              ref={nameInputRef}
+              value={name}
+              onChange={(e) => {
+                nameCustomized.current = true;
+                setName(e.target.value);
+              }}
+              onBlur={() => setEditingName(false)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  setEditingName(false);
+                }
+              }}
+              placeholder="Name your assistant"
+              aria-label="Assistant name"
+              className="w-[234px] rounded-2xl border border-[var(--border-element)] bg-transparent px-4 py-2.5 text-center text-lg text-[var(--content-default)] placeholder:text-[var(--content-tertiary)] outline-none transition-colors duration-150 focus:border-[var(--border-active)]"
+            />
+          ) : (
+            <div className="flex items-center gap-2.5">
+              <button
+                type="button"
+                onClick={() => setEditingName(true)}
+                aria-label="Edit name"
+                className="flex cursor-pointer items-center gap-2.5"
+              >
+                <span
+                  className={`text-2xl font-medium ${name ? "text-[var(--content-default)]" : "text-[var(--content-tertiary)]"}`}
                 >
-                  <span
-                    className={`text-2xl font-medium ${name ? "text-[var(--content-default)]" : "text-[var(--content-tertiary)]"}`}
-                  >
-                    {name || "Name your assistant"}
-                  </span>
-                  <Pencil className="h-5 w-5 text-[var(--content-tertiary)]" />
-                </button>
-                <button
-                  type="button"
-                  onClick={randomizeCharacter}
-                  aria-label="Shuffle name and appearance"
-                  title="Shuffle name and appearance"
-                  className="cursor-pointer text-[var(--content-tertiary)] transition-[transform,color] duration-300 hover:rotate-180 hover:text-[var(--content-default)]"
-                >
-                  <Dices className="h-5 w-5" />
-                </button>
-              </div>
-            )}
+                  {name || "Name your assistant"}
+                </span>
+                <Pencil className="h-5 w-5 text-[var(--content-tertiary)]" />
+              </button>
+              <button
+                type="button"
+                onClick={randomizeCharacter}
+                aria-label="Shuffle name and appearance"
+                title="Shuffle name and appearance"
+                className="cursor-pointer text-[var(--content-tertiary)] transition-[transform,color] duration-300 hover:rotate-180 hover:text-[var(--content-default)]"
+              >
+                <Dices className="h-5 w-5" />
+              </button>
+            </div>
+          )}
 
-            {/* The only place voice is surfaced in onboarding. It auditions the
+          {/* The only place voice is surfaced in onboarding. It auditions the
                 CENTERED avatar's own voice, so cycling the carousel is also how
                 you shop for a voice. While the catalog is in flight the button
                 spins rather than sitting dead: a slow fetch has to read as
                 "coming", not "broken". Absent entirely where the catalog is out
                 of reach, rather than offered and permanently inert. */}
-            {canAuditionVoice && (
-              <button
-                type="button"
-                onClick={toggleVoice}
-                disabled={!centeredVoice}
-                title="Hear my voice"
-                aria-label={
-                  auditioning ? "Stop the voice sample" : "Hear my voice"
-                }
-                aria-busy={voicePending}
-                className={`flex cursor-pointer items-center gap-2 rounded-full border border-[color-mix(in_srgb,var(--content-default)_22%,transparent)] px-4 py-2 text-sm text-[var(--content-default)] transition-colors duration-150 hover:bg-[color-mix(in_srgb,var(--content-default)_10%,transparent)] disabled:cursor-default ${voicePending ? "disabled:opacity-70" : "disabled:opacity-40"}`}
-              >
-                {voicePending ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                ) : auditioning ? (
-                  <Square className="h-4 w-4" />
-                ) : (
-                  <Volume2 className="h-4 w-4" />
-                )}
-                Hear my voice
-              </button>
-            )}
-          </div>
-
-          <Button
-            type="button"
-            variant="primary"
-            size="regular"
-            rightIcon={<ArrowRight size={16} />}
-            disabled={!ready}
-            onClick={handleContinue}
-            className="h-11 w-[234px] text-base"
-          >
-            Continue
-          </Button>
+          {canAuditionVoice && (
+            <button
+              type="button"
+              onClick={toggleVoice}
+              disabled={!centeredVoice}
+              title="Hear my voice"
+              aria-label={
+                auditioning ? "Stop the voice sample" : "Hear my voice"
+              }
+              aria-busy={voicePending}
+              className={`flex cursor-pointer items-center gap-2 rounded-full border border-[color-mix(in_srgb,var(--content-default)_22%,transparent)] px-4 py-2 text-sm text-[var(--content-default)] transition-colors duration-150 hover:bg-[color-mix(in_srgb,var(--content-default)_10%,transparent)] disabled:cursor-default ${voicePending ? "disabled:opacity-70" : "disabled:opacity-40"}`}
+            >
+              {voicePending ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : auditioning ? (
+                <Square className="h-4 w-4" />
+              ) : (
+                <Volume2 className="h-4 w-4" />
+              )}
+              Hear my voice
+            </button>
+          )}
         </div>
-      </OnboardingStageSizeProvider>
-    </div>
+
+        <Button
+          type="button"
+          variant="primary"
+          size="regular"
+          rightIcon={<ArrowRight size={16} />}
+          disabled={!ready}
+          onClick={handleContinue}
+          className="h-11 w-[234px] text-base"
+        >
+          Continue
+        </Button>
+      </div>
+    </OnboardingStage>
   );
 }

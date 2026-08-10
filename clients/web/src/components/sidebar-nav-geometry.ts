@@ -13,14 +13,6 @@
 export const SIDEBAR_ROW_PADDING_X = 12;
 
 /**
- * Height of every top-level sidebar pill: the assistant identity row, New
- * Chat, pinned apps, section headers (collapsed or expanded), and
- * Preferences. Individual conversation rows inside an expanded section are
- * their own, smaller size and don't use this.
- */
-export const SIDEBAR_PILL_HEIGHT_CLASS = "h-9";
-
-/**
  * Width of the leading icon slot. Icons of any size center inside it,
  * so the axis holds whether the slot shows a 12px section icon, the
  * 14px plus, or the hand-tuned assistant eyes.

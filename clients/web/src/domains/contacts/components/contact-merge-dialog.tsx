@@ -196,7 +196,7 @@ function CandidateRow({
   const channelLabel =
     mergeDialogChannelTypeLabels(contact).join(" | ") || undefined;
   return (
-    <PanelItem asChild label="">
+    <PanelItem asChild>
       <button
         type="button"
         onClick={onPick}

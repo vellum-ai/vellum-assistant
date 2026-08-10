@@ -197,6 +197,7 @@ const { memoryV2ConsolidateJob, CONSOLIDATION_FAILURE_CHECKPOINT_KEY } =
 const { CUTOFF_PLACEHOLDER, CONSOLIDATION_PROMPT } =
   await import("../prompts/consolidation.js");
 const { invalidatePageIndex } = await import("../page-index.js");
+const { formatRememberEntry } = await import("../../buffer-format.js");
 
 // The handler only reads `config.memory.enabled`, `config.memory.v2.enabled`,
 // `config.memory.v2.consolidation_prompt_path`, and
@@ -435,6 +436,38 @@ describe("memoryV2ConsolidateJob — chunked cutoff (consolidation_max_entries_p
     expect(outcome.deferredEntries).toBe(0);
     expect(outcome.cutoff).not.toBe(" ");
     expect(outcome.cutoff).not.toBe("[meeting-notes]");
+  });
+
+  test("a fact whose body holds a canonical entry line counts once and never supplies the cutoff", async () => {
+    // Written through the real writer, so this covers the round trip rather
+    // than a hand-built buffer: the body line carries the exact shape an entry
+    // opening has. Counting it would both inflate the per-run budget and let
+    // the cutoff be drawn from inside a fact, deferring entries against a
+    // timestamp the user never filed anything at.
+    writeFileSync(
+      bufferPath(),
+      formatRememberEntry(
+        "Alice's rollout plan:\n- [Apr 28, 9:00 AM] cutover",
+        new Date(2026, 3, 27, 9, 0),
+      ) +
+        formatRememberEntry(
+          "Bob takes his coffee black.",
+          new Date(2026, 3, 27, 9, 1),
+        ),
+    );
+
+    const outcome = await memoryV2ConsolidateJob(
+      makeJob(),
+      configWithMaxEntries(2),
+    );
+
+    expect(outcome.kind).toBe("invoked");
+    if (outcome.kind !== "invoked") {
+      throw new Error("unreachable");
+    }
+    // Two facts, cap 2 → no chunking. Three would chunk and defer one.
+    expect(outcome.deferredEntries).toBe(0);
+    expect(outcome.cutoff).not.toBe("Apr 28, 9:00 AM");
   });
 
   test("multi-line entries under the cap → full-buffer cutoff even when raw line count exceeds it", async () => {

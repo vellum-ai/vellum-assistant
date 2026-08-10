@@ -1,6 +1,7 @@
 import { useNavigate } from "react-router";
 
 import { OnboardingLayout } from "@/domains/onboarding/components/onboarding-layout";
+import { SETUP_NAVIGATE } from "@/domains/onboarding/onboarding-navigation";
 import { useOnboardingLogin } from "@/hooks/use-onboarding-login";
 import { hasAssistants } from "@/lib/local-mode";
 import { routes } from "@/utils/routes";
@@ -14,10 +15,13 @@ export function WelcomeScreen() {
     if (loading) {
       cancel();
     }
+    // `replace`, like every other step of the setup flow: the funnel occupies a
+    // single history entry so a Back press can never re-enter it (see
+    // `SETUP_NAVIGATE` in `onboarding-navigation.ts`).
     if (hasAssistants()) {
-      void navigate(routes.selectAssistant);
+      void navigate(routes.selectAssistant, SETUP_NAVIGATE);
     } else {
-      void navigate(routes.onboarding.hosting);
+      void navigate(routes.onboarding.hosting, SETUP_NAVIGATE);
     }
   };
 

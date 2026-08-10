@@ -1,6 +1,7 @@
 import { useNavigate } from "react-router";
 
 import { OnboardingLayout } from "@/domains/onboarding/components/onboarding-layout";
+import { SETUP_NAVIGATE } from "@/domains/onboarding/onboarding-navigation";
 import { routes } from "@/utils/routes";
 import { Button } from "@vellumai/design-library/components/button";
 
@@ -48,7 +49,9 @@ export function StartScreen() {
               size="regular"
               fullWidth
               className="h-11 text-base"
-              onClick={() => void navigate(routes.onboarding.privacy)}
+              onClick={() =>
+                void navigate(routes.onboarding.privacy, SETUP_NAVIGATE)
+              }
             >
               Create your assistant
             </Button>

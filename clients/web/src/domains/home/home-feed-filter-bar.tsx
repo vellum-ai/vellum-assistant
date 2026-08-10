@@ -1,6 +1,7 @@
 import { Bell, Clock, List, Mail, Settings, ShieldCheck } from "lucide-react";
 import { type ComponentType, type SVGProps } from "react";
 
+import { useTranslation } from "@/i18n";
 import type { FeedItemCategory } from "@vellumai/assistant-api";
 import {
   SegmentControl,
@@ -13,6 +14,12 @@ interface CategoryStyle {
   icon: LucideIcon;
   strong: string;
   weak: string;
+  /**
+   * Written out per category rather than built from the wire value, so a
+   * category added without its copy fails to compile and the key stays
+   * greppable for the orphan check in `catalogs.test.ts`.
+   */
+  labelKey: `category.${FeedItemCategory}`;
 }
 
 export const CATEGORY_STYLES: Record<FeedItemCategory, CategoryStyle> = {
@@ -20,26 +27,31 @@ export const CATEGORY_STYLES: Record<FeedItemCategory, CategoryStyle> = {
     icon: ShieldCheck,
     strong: "var(--feed-nudge-strong)",
     weak: "var(--feed-nudge-weak)",
+    labelKey: "category.security",
   },
   email: {
     icon: Mail,
     strong: "var(--feed-digest-strong)",
     weak: "var(--feed-digest-weak)",
+    labelKey: "category.email",
   },
   scheduling: {
     icon: Clock,
     strong: "var(--feed-thread-strong)",
     weak: "var(--feed-thread-weak)",
+    labelKey: "category.scheduling",
   },
   background: {
     icon: Settings,
     strong: "var(--system-info-strong)",
     weak: "var(--system-info-weak)",
+    labelKey: "category.background",
   },
   system: {
     icon: Bell,
     strong: "var(--feed-digest-strong)",
     weak: "var(--feed-digest-weak)",
+    labelKey: "category.system",
   },
 };
 
@@ -75,6 +87,7 @@ export function HomeFeedFilterBar({
   activeFilter,
   onFilterChange,
 }: HomeFeedFilterBarProps) {
+  const { t } = useTranslation("home");
   const presentCategories = CATEGORY_ORDER.filter((c) =>
     categories.includes(c),
   );
@@ -84,12 +97,16 @@ export function HomeFeedFilterBar({
   }
 
   const items: SegmentControlItem<FilterValue>[] = [
-    { value: ALL_FILTER, label: "All", icon: <List className="h-4 w-4" /> },
+    {
+      value: ALL_FILTER,
+      label: t("category.all"),
+      icon: <List className="h-4 w-4" />,
+    },
     ...presentCategories.map((category) => {
-      const Icon = CATEGORY_STYLES[category].icon;
+      const { icon: Icon, labelKey } = CATEGORY_STYLES[category];
       return {
         value: category,
-        label: category.charAt(0).toUpperCase() + category.slice(1),
+        label: t(labelKey),
         icon: <Icon className="h-4 w-4" />,
       };
     }),
@@ -97,7 +114,7 @@ export function HomeFeedFilterBar({
 
   return (
     <SegmentControl<FilterValue>
-      ariaLabel="Filter notifications"
+      ariaLabel={t("homeFeedFilterBar.ariaLabel")}
       value={activeFilter ?? ALL_FILTER}
       onChange={(next) => onFilterChange(next === ALL_FILTER ? null : next)}
       items={items}

@@ -519,7 +519,7 @@ function attachLoginChatgptSubcommand(providers: Command): void {
             {
               body: {
                 name: connectionName,
-                provider: "openai",
+                provider: "chatgpt",
                 auth: authInput,
               },
             },
