@@ -2,7 +2,7 @@ import { AlertCircle, ChevronRight, Loader2 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Link, useLocation, useSearchParams } from "react-router";
 
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 
 import {
   organizationsBillingSummaryRetrieveOptions,
@@ -63,7 +63,6 @@ interface AddCreditsModalProps {
 }
 
 function AddCreditsModalContent({ open, onOpenChange }: AddCreditsModalProps) {
-  const queryClient = useQueryClient();
   const { pathname } = useLocation();
   const [searchParams] = useSearchParams();
   const returnPath = searchParams.toString()
@@ -90,18 +89,16 @@ function AddCreditsModalContent({ open, onOpenChange }: AddCreditsModalProps) {
 
   // On native, SFSafariViewController stays on top of the app: the modal
   // remains mounted while Stripe checkout runs. `browserFinished` fires when
-  // the sheet closes for any reason, so it carries no success/cancel meaning.
-  // It only tidies up: close the modal and refetch the billing summary so the
-  // balance reflects a completed top-up. Outcome signaling arrives separately
-  // via the `flow=top_up` checkout-complete deep link.
+  // the sheet closes for any reason, so it carries no success/cancel meaning
+  // and only closes the modal. Every completed outcome (and its
+  // billing-summary refetch) arrives separately via the `flow=top_up`
+  // checkout-complete deep link; a sheet dismissed with no outcome has
+  // nothing to refetch.
   useEffect(() => {
     return openUrlFinishedListener(() => {
       onOpenChange(false);
-      void queryClient.invalidateQueries(
-        organizationsBillingSummaryRetrieveOptions(),
-      );
     });
-  }, [onOpenChange, queryClient]);
+  }, [onOpenChange]);
 
   // The outcome-carrying return: the `flow=top_up` checkout-complete deep
   // link. On Electron this is the ONLY return signal (`browserFinished`

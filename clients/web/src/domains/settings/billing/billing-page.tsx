@@ -67,9 +67,6 @@ function BillingStatusHandler({
     }
 
     if (billingStatus === "success") {
-      // Shared with the native `flow=top_up` deep-link return
-      // (`useGlobalDeepLinkConsumer`) so the copy and refresh semantics
-      // cannot drift.
       notifyCheckoutSuccess(queryClient);
     } else if (billingStatus === "cancel") {
       toast.info(

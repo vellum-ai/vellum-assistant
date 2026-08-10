@@ -1,7 +1,8 @@
 /**
  * Format a USD decimal string like "25.00" as "$25" (or "$25.50" if non-zero
- * cents, "$1,250" with locale separators). Nullish or unparseable input
- * renders "$0"; negatives render "-$5".
+ * cents, "$1,250" with en-US separators). The en-US formatting is intentional:
+ * these are USD amounts, rendered the same in every UI locale. Nullish or
+ * unparseable input renders "$0"; negatives render "-$5".
  *
  * Single source of truth for short dollar amounts on billing surfaces (the
  * auto-top-up summary, the checkout bonus offer). Import this rather than
