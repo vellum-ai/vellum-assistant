@@ -7,6 +7,8 @@ import type {
 } from "@vellumai/assistant-api";
 
 import { useAcpRunStore } from "@/domains/chat/acp-run-store";
+import { useInteractionStore } from "@/domains/chat/interaction-store";
+import { ACP_CLAUDE_AUTH_REQUIRED_CODE } from "@/domains/chat/utils/acp-connect";
 
 export function handleAcpSessionSpawned(event: AcpSessionSpawnedEvent): void {
   useAcpRunStore.getState().spawnRun({
@@ -86,10 +88,31 @@ export function handleAcpSessionError(event: AcpSessionErrorEvent): void {
   if (store.byId[event.acpSessionId]?.status === "cancelled") {
     return;
   }
+  const entry = store.byId[event.acpSessionId];
   store.setTerminal({
     acpSessionId: event.acpSessionId,
     status: "failed",
     error: event.error,
     completedAt: Date.now(),
   });
+
+  // The run's Claude credential was rejected. Raise the same inline Connect
+  // affordance the missing-token path uses, anchored to the tool call that
+  // spawned this run so it renders under that activity group. Without an
+  // anchor there is nowhere to put it, so an older daemon that omitted
+  // `parentToolUseId` simply keeps the plain failed-run rendering.
+  //
+  // Held in the interaction store rather than on the run entry for the same
+  // reason as the missing-token prompt: it has to survive the routine
+  // post-turn `/messages` reseed, which rebuilds the transcript from
+  // persisted history.
+  if (
+    event.errorCode === ACP_CLAUDE_AUTH_REQUIRED_CODE &&
+    entry?.parentToolUseId
+  ) {
+    useInteractionStore.getState().showAcpConnect({
+      toolUseId: entry.parentToolUseId,
+      reason: "auth_required",
+    });
+  }
 }

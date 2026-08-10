@@ -62,6 +62,9 @@ function AcpConnectAffordanceInner({ assistantId }: { assistantId: string }) {
   const connection = useConnectClaude(assistantId);
   const [pastedCode, setPastedCode] = useState("");
   const [alreadyConnected, setAlreadyConnected] = useState(false);
+  const reason = useInteractionStore(
+    (state) => state.pendingAcpConnect?.reason ?? "missing",
+  );
 
   // Self-heal: if Claude is already connected (e.g. connected from Settings out
   // of band), the store-held prompt is stale — retire it rather than show a CTA
@@ -70,7 +73,17 @@ function AcpConnectAffordanceInner({ assistantId }: { assistantId: string }) {
   // Only acts while the user hasn't started a flow in this card (`phase` still
   // `idle`), so a fresh in-card connect keeps showing its "connected"
   // confirmation instead of unmounting out from under the user.
+  //
+  // Skipped entirely for an `auth_required` prompt. That check answers "is a
+  // usable token stored", which is the right question only when the card was
+  // raised because none was. Here the daemon raised it because the token that
+  // IS stored got rejected by the agent, so a "yes" would retire the card over
+  // the very failure it exists to repair. Such a prompt clears by finishing the
+  // flow or by the user dismissing it, nothing else.
   useEffect(() => {
+    if (reason === "auth_required") {
+      return;
+    }
     let cancelled = false;
     void isClaudeConnected(assistantId)
       .then((connected) => {
@@ -84,7 +97,7 @@ function AcpConnectAffordanceInner({ assistantId }: { assistantId: string }) {
     return () => {
       cancelled = true;
     };
-  }, [assistantId]);
+  }, [assistantId, reason]);
 
   useEffect(() => {
     if (alreadyConnected && connection.phase === "idle") {

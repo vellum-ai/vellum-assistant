@@ -1,6 +1,8 @@
 import { beforeEach, describe, expect, it } from "bun:test";
 
 import { useAcpRunStore } from "@/domains/chat/acp-run-store";
+import { useInteractionStore } from "@/domains/chat/interaction-store";
+import { ACP_CLAUDE_AUTH_REQUIRED_CODE } from "@/domains/chat/utils/acp-connect";
 import {
   handleAcpSessionSpawned,
   handleAcpSessionUpdate,
@@ -239,5 +241,96 @@ describe("handleAcpSessionError", () => {
     const entry = getState().byId["acp-1"];
     expect(entry?.status).toBe("cancelled");
     expect(entry?.error).toBeUndefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Connect Claude affordance on an auth_required failure
+// ---------------------------------------------------------------------------
+
+describe("handleAcpSessionError — Claude re-authentication", () => {
+  beforeEach(() => {
+    useInteractionStore.setState({
+      pendingAcpConnect: null,
+      dismissedAcpConnectToolUseIds: new Set<string>(),
+    });
+  });
+
+  it("raises the Connect prompt anchored to the run's spawning tool call", () => {
+    spawn();
+    handleAcpSessionError({
+      type: "acp_session_error",
+      acpSessionId: "acp-1",
+      error:
+        "Failed to authenticate. API Error: 401 OAuth access token expired",
+      errorCode: ACP_CLAUDE_AUTH_REQUIRED_CODE,
+    });
+
+    // Anchored to the acp_spawn call, not the run: that is the transcript row
+    // the affordance renders under.
+    expect(useInteractionStore.getState().pendingAcpConnect).toEqual({
+      toolUseId: "tool-1",
+      reason: "auth_required",
+    });
+  });
+
+  it("marks the prompt auth_required so it cannot self-dismiss on a presence check", () => {
+    // The card's self-heal asks "is a token stored". Here one IS stored and the
+    // agent rejected it, so answering that question must not retire the card.
+    spawn();
+    handleAcpSessionError({
+      type: "acp_session_error",
+      acpSessionId: "acp-1",
+      error: "auth",
+      errorCode: ACP_CLAUDE_AUTH_REQUIRED_CODE,
+    });
+
+    expect(useInteractionStore.getState().pendingAcpConnect?.reason).toBe(
+      "auth_required",
+    );
+  });
+
+  it("leaves an ordinary failure alone", () => {
+    spawn();
+    handleAcpSessionError({
+      type: "acp_session_error",
+      acpSessionId: "acp-1",
+      error: "boom",
+    });
+
+    expect(useInteractionStore.getState().pendingAcpConnect).toBeNull();
+  });
+
+  it("does not raise a prompt for a cancelled run", () => {
+    spawn();
+    getState().cancelRun({ acpSessionId: "acp-1", completedAt: Date.now() });
+    handleAcpSessionError({
+      type: "acp_session_error",
+      acpSessionId: "acp-1",
+      error: "auth",
+      errorCode: ACP_CLAUDE_AUTH_REQUIRED_CODE,
+    });
+
+    expect(useInteractionStore.getState().pendingAcpConnect).toBeNull();
+  });
+
+  it("skips the prompt when the run has no spawning tool call to anchor to", () => {
+    // Older daemons omit parentToolUseId; with no anchor the transcript has
+    // nowhere to render the card, so the run keeps its plain failed rendering.
+    handleAcpSessionSpawned({
+      type: "acp_session_spawned",
+      acpSessionId: "acp-2",
+      agent: "claude",
+      parentConversationId: "conv-1",
+      task: "no anchor",
+    });
+    handleAcpSessionError({
+      type: "acp_session_error",
+      acpSessionId: "acp-2",
+      error: "auth",
+      errorCode: ACP_CLAUDE_AUTH_REQUIRED_CODE,
+    });
+
+    expect(useInteractionStore.getState().pendingAcpConnect).toBeNull();
   });
 });

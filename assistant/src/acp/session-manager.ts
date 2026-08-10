@@ -16,6 +16,11 @@ import { acpSessionHistory } from "../persistence/schema/index.js";
 import * as pendingInteractions from "../runtime/pending-interactions.js";
 import { getLogger } from "../util/logger.js";
 import { AcpAgentProcess } from "./agent-process.js";
+import {
+  ACP_CLAUDE_AUTH_REQUIRED_CODE,
+  CLAUDE_ACP_COMMAND,
+  isAcpAuthRequired,
+} from "./auth-required.js";
 import { resolveAgentWithAutoInstall } from "./auto-install.js";
 import { VellumAcpClientHandler } from "./client-handler.js";
 import { deriveFailureError } from "./failure-error.js";
@@ -25,6 +30,46 @@ import { claudeResumeHint } from "./resume-hint.js";
 import type { AcpAgentConfig, AcpSessionState } from "./types.js";
 
 const log = getLogger("acp:session-manager");
+
+/**
+ * Appended to the parent-conversation notification when a run died because its
+ * Claude credential needs reconnecting, so the assistant relays the recovery
+ * the app is actually offering.
+ *
+ * Without this the model receives only the adapter's raw failure text (for an
+ * expired token, a bare "401 ... Re-authenticate to continue") and invents a
+ * remedy: typically `claude setup-token`, pasting a token into chat, or a
+ * Connect card it has not been told exists. Mirrors the wording discipline of
+ * the missing-token message in `prepare-agent-env.ts`, including the ban on
+ * describing where the card is, since placement is a UI detail the model
+ * cannot see.
+ */
+const ACP_AUTH_RECOVERY_GUIDANCE =
+  "The Claude Code connection needs to be re-authorized. The app shows the " +
+  'user an inline "Connect Claude Code" card. Reply with ONE short sentence: ' +
+  "ask them to click Connect to sign in again, and tell them you'll continue " +
+  "automatically once they are connected. Do NOT say where the card is; never " +
+  'say "below", "above", "at the bottom", or "here". Do NOT tell them to run ' +
+  "`claude setup-token`, paste a token in chat, run credential CLI commands, " +
+  "or re-run the agent yourself; the card and auto-continue handle it.";
+
+/**
+ * The client-facing marker for a run that failed because its Claude credential
+ * was rejected, or undefined when this failure is anything else.
+ *
+ * Gated on the adapter as well as the signal: `auth_required` is protocol-level
+ * and any agent can raise it, but the marker promises a repair the Connect
+ * Claude flow can actually perform. Raising it for a codex run would offer a
+ * card that fixes nothing.
+ */
+function claudeAuthRequiredCode(
+  err: unknown,
+  entry: { command: string },
+): string | undefined {
+  return isAcpAuthRequired(err) && entry.command === CLAUDE_ACP_COMMAND
+    ? ACP_CLAUDE_AUTH_REQUIRED_CODE
+    : undefined;
+}
 
 /**
  * The manager's "unknown session id" error. Thrown whenever an operation
@@ -1093,6 +1138,12 @@ export class AcpSessionManager {
             err.message,
             current.process.stderrSince(stderrMark),
           );
+          // Classify BEFORE the message is flattened. `deriveFailureError`
+          // answers "what should a human read", and for an expired Claude
+          // token it returns the provider's raw 401 text, which says nothing
+          // about how to recover. Whether this was an auth failure is a
+          // separate question, and only the structured error can answer it.
+          const errorCode = claudeAuthRequiredCode(err, current);
           if (current.state.status !== "cancelled") {
             current.state.status = "failed";
             current.state.completedAt = Date.now();
@@ -1100,13 +1151,14 @@ export class AcpSessionManager {
           }
           current.currentPrompt = null;
           log.error(
-            { acpSessionId, error: err.message, failureMessage },
+            { acpSessionId, error: err.message, failureMessage, errorCode },
             "ACP prompt failed",
           );
           current.sendToVellum({
             type: "acp_session_error",
             acpSessionId,
             error: failureMessage,
+            ...(errorCode ? { errorCode } : {}),
           });
 
           // Persist the terminal row before teardown clears the buffer.
@@ -1123,7 +1175,8 @@ export class AcpSessionManager {
           if (current.state.status !== "cancelled") {
             this.notifyParent(
               current,
-              `[ACP agent "${current.state.agentId}" failed]\n\n${failureMessage}`,
+              `[ACP agent "${current.state.agentId}" failed]\n\n${failureMessage}` +
+                (errorCode ? `\n\n${ACP_AUTH_RECOVERY_GUIDANCE}` : ""),
             );
           }
         }

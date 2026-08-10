@@ -13,6 +13,22 @@
 export const ACP_CLAUDE_OAUTH_MISSING_CODE = "acp_claude_oauth_missing";
 
 /**
+ * Sibling marker for a token that EXISTS but is no longer accepted.
+ *
+ * The daemon tags `acp_session_error` with this when a `claude-agent-acp` run
+ * failed on the adapter's structured ACP `auth_required` signal (see
+ * `ACP_CLAUDE_AUTH_REQUIRED_CODE` in `assistant/src/acp/auth-required.ts`).
+ *
+ * It needs its own path because it is a POST-spawn failure: the spawn
+ * succeeded, so there is no failed `acp_spawn` tool result to hang an
+ * `errorCode` on, and the missing-token machinery never fires. The run itself
+ * is what failed, so the affordance is anchored to the run's spawning tool call
+ * instead. The web literal and the daemon literal are a wire contract and must
+ * stay in sync.
+ */
+export const ACP_CLAUDE_AUTH_REQUIRED_CODE = "acp_claude_auth_required";
+
+/**
  * Hidden continuation prompt sent on the user's behalf once the inline Connect
  * card completes, so the assistant picks the task back up without the user
  * having to type "retry". Delivered as a `hidden` send (no user bubble); the
