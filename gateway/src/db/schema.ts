@@ -10,6 +10,7 @@ import { sql } from "drizzle-orm";
 import {
   index,
   integer,
+  primaryKey,
   sqliteTable,
   text,
   uniqueIndex,
@@ -669,4 +670,52 @@ export const pluginIngressApprovals = sqliteTable(
     approvedBy: text("approved_by"),
   },
   (table) => [index("idx_plugin_ingress_approvals_digest").on(table.digest)],
+);
+
+// ---------------------------------------------------------------------------
+// Inbound dedup (a vendor's retry must not become a second turn)
+// ---------------------------------------------------------------------------
+
+/**
+ * Inbound deliveries already claimed by the gateway.
+ *
+ * Every vendor retries: on a timeout, on a 5xx, on an ack it did not see. The
+ * assistant has always deduped these on the same three columns, in
+ * `channel_inbound_events` (`recordInbound`), but that is on the far side of
+ * the handoff, so a retry still costs a crossing and lands wherever the
+ * pipeline's side effects happen to be idempotent. Claiming it here is the
+ * same decision made earlier, on the gateway side, where the rest of the
+ * administrative work already lives.
+ *
+ * Only the claim lives here, not the record. The assistant's row is permanent
+ * because it carries more than dedup: the conversation it bound to, the
+ * message it produced, the delivery status of the reply. This table answers
+ * one question, so its rows expire. A vendor that retries a day later is
+ * sending a new message, not a retry, and holding the key forever would grow
+ * a table nothing reads.
+ */
+export const inboundSeenEvents = sqliteTable(
+  "inbound_seen_events",
+  {
+    // The same triple `recordInbound` dedups on, so a key claimed here means
+    // the same delivery it would mean there. For plugin channels this is
+    // always `plugin` with plugin-scoped ids (see `pluginScopedId`), which is
+    // what keeps two plugins whose vendors both number messages from 1 out of
+    // each other's keyspace.
+    sourceChannel: text("source_channel").notNull(),
+    externalChatId: text("external_chat_id").notNull(),
+    externalMessageId: text("external_message_id").notNull(),
+    seenAt: integer("seen_at").notNull(),
+    expiresAt: integer("expires_at").notNull(),
+  },
+  (table) => [
+    primaryKey({
+      columns: [
+        table.sourceChannel,
+        table.externalChatId,
+        table.externalMessageId,
+      ],
+    }),
+    index("idx_inbound_seen_events_expires_at").on(table.expiresAt),
+  ],
 );
