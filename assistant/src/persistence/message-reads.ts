@@ -191,6 +191,25 @@ export function existingMessageIds(
 }
 
 /**
+ * Whether `messageId` exists as a row, in any state.
+ *
+ * Any-state deliberately: callers bracket work with this check to avoid
+ * leaving derived artifacts for a deleted message, and a streaming row
+ * exists. The single-id twin of {@link existingMessageIds}.
+ */
+export function messageExists(
+  messageId: string,
+  opts?: { db?: MessageReadHandle },
+): boolean {
+  const row = (opts?.db ?? getDb())
+    .select({ id: messages.id })
+    .from(messages)
+    .where(eq(messages.id, messageId))
+    .get();
+  return row !== undefined;
+}
+
+/**
  * The conversation that owns `messageId`, in any state, or null when the
  * message does not exist.
  *

@@ -293,6 +293,8 @@ export function collectPersistedV3Cards(conversationId: string): Set<string> {
   const rows = getSqliteFrom(getDb())
     .query(
       /*sql*/ `
+      -- Any-state scan: only metadata markers are read, and the marker is
+      -- written by the injection path on rows it owns regardless of state.
       SELECT metadata FROM messages
       WHERE conversation_id = ? AND metadata LIKE '%' || ? || '%'
     `,
