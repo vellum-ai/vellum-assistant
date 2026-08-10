@@ -597,15 +597,18 @@ describe("Conversation message queue", () => {
     await new Promise((r) => setTimeout(r, 10));
   });
 
-  test("a turn's identity never carries over from an earlier one", async () => {
-    // The loop builds the identity as each turn begins, so a turn that runs
-    // after a path which left one behind still executes as its own actor.
-    // Without that, a later turn resolves the earlier actor and the elevation
-    // its own entry point captured is ignored.
+  test("a direct agent-loop run does not inherit a leftover turn identity", async () => {
+    // The regression this guards. Paths exist that set turn state and return
+    // without running a loop, so an identity can be left on the conversation.
+    // A later run that supplies its own trust -- a wake elevating for its turn
+    // is the real case -- must execute under that trust, not the leftover.
+    //
+    // Driving runAgentLoop directly is what makes this sensitive: a turn
+    // entered through processMessage would overwrite the leftover on its way
+    // in, so it cannot tell whether the loop or the entry point did it.
     const conversation = makeConversation();
     await conversation.loadFromDb();
 
-    // Stand in for a path that set an identity and returned without a loop.
     (conversation as unknown as { currentTurn?: unknown }).currentTurn = {
       trust: {
         trustClass: "trusted_contact",
@@ -614,27 +617,29 @@ describe("Conversation message queue", () => {
       },
     };
 
-    conversation.setTrustContext({
-      trustClass: "guardian",
-      sourceChannel: "vellum",
-      requesterExternalUserId: "guardian-principal",
+    const persisted = await conversation.persistUserMessage({
+      content: "wake work",
+      attachments: [],
+      requestId: "req-wake",
     });
 
-    const p1 = conversation.processMessage({
-      content: "msg-1",
-      attachments: [],
-      onEvent: () => {},
-      requestId: "req-1",
+    const run = conversation.runAgentLoop("wake work", persisted.id, {
+      turnTrustContext: {
+        trustClass: "guardian",
+        sourceChannel: "vellum",
+        requesterExternalUserId: "guardian-principal",
+      },
     });
     await waitForPendingRun(1);
 
+    // Read mid-run: this is what tool setup resolves against.
     expect(conversation.currentTurn?.trust.trustClass).toBe("guardian");
     expect(conversation.currentTurn?.trust.requesterExternalUserId).toBe(
       "guardian-principal",
     );
 
     await resolveRun(0);
-    await p1;
+    await run;
     await new Promise((r) => setTimeout(r, 10));
   });
 
