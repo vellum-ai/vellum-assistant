@@ -13,6 +13,7 @@
     "./commands": "./src/commands.ts",
     "./csp": "./src/csp.ts",
     "./deep-links": "./src/deep-links.ts",
+    "./device-id": "./src/device-id.ts",
     "./devtools": "./src/devtools.ts",
     "./diagnostics": "./src/diagnostics.ts",
     "./dictation-overlay-window": "./src/dictation-overlay-window.ts",
@@ -31,6 +32,7 @@
     "./ipc": "./src/ipc.ts",
     "./login-item": "./src/login-item.ts",
     "./module-configuration": "./src/module-configuration.ts",
+    "./native-auth": "./src/native-auth.ts",
     "./permissions": "./src/permissions.ts",
     "./platform-forward": "./src/platform-forward.ts",
     "./popout-window": "./src/popout-window.ts",
@@ -39,9 +41,11 @@
     "./redact": "./src/redact.ts",
     "./sentry": "./src/sentry.ts",
     "./settings": "./src/settings.ts",
+    "./session-token-store": "./src/session-token-store.ts",
     "./text-context-menu": "./src/text-context-menu.ts",
     "./window-readiness": "./src/window-readiness.ts",
     "./window-state": "./src/window-state.ts",
+    "./workos-pkce": "./src/workos-pkce.ts",
     "./windows": "./src/windows.ts"
   },
   "scripts": {

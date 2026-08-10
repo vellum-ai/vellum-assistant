@@ -1,23 +1,19 @@
-import { app, session, shell } from "electron";
 import crypto from "node:crypto";
 import { z } from "zod";
 
-import { resolveLocalConfigFromEnv } from "@vellumai/local-mode";
-
-import { handle, handleSync } from "./ipc";
-import { ensureVisible } from "./main-window";
-import {
-    clearSessionToken,
-    getSessionToken,
-    saveSessionToken,
+import type { createIpcRegistrar } from "./ipc";
+import type {
+  clearSessionToken,
+  getSessionToken,
+  saveSessionToken,
 } from "./session-token-store";
 import {
-    buildAuthorizeUrl,
-    exchangeAccessTokenForSession,
-    exchangeCodeWithWorkos,
-    fetchWorkosClientId,
-    generatePkcePair,
-    startLoopbackListener,
+  buildAuthorizeUrl,
+  exchangeAccessTokenForSession,
+  exchangeCodeWithWorkos,
+  fetchWorkosClientId,
+  generatePkcePair,
+  startLoopbackListener,
 } from "./workos-pkce";
 
 const AUTH_FLOW_TIMEOUT_MS = 5 * 60_000;
@@ -26,21 +22,47 @@ export function generateState(): string {
   return crypto.randomBytes(32).toString("base64url");
 }
 
+type IpcRegistrar = Pick<
+  ReturnType<typeof createIpcRegistrar>,
+  "handle" | "handleSync"
+>;
+
+export interface NativeAuthOptions {
+  activateWindow: () => void | Promise<void>;
+  getPlatformUrl: () => string;
+  ipc: IpcRegistrar;
+  openExternal: (url: string) => void | Promise<void>;
+  removeCookie: (url: string, name: string) => Promise<void>;
+  sessionStore: {
+    clear: typeof clearSessionToken;
+    get: typeof getSessionToken;
+    save: typeof saveSessionToken;
+  };
+}
+
+let runtime: NativeAuthOptions | null = null;
+
+export const configureNativeAuth = (options: NativeAuthOptions): void => {
+  runtime = options;
+};
+
+const getRuntime = (): NativeAuthOptions => {
+  if (!runtime) {
+    throw new Error("Native auth is not configured");
+  }
+  return runtime;
+};
+
 // Evict the session cookies installed by prior builds, so that
 // header auth takes precedence.
 async function clearLegacySessionCookies(): Promise<void> {
-  const url = resolveProxyPlatformUrl();
+  const options = getRuntime();
+  const url = options.getPlatformUrl();
   await Promise.all(
     ["sessionid", "__Secure-sessionid"].map((name) =>
-      // Best-effort — a missing cookie is the common case.
-      session.defaultSession.cookies.remove(url, name).catch(() => undefined),
+      options.removeCookie(url, name).catch(() => undefined),
     ),
   );
-}
-
-// The platform URL the renderer's proxy talks to.
-function resolveProxyPlatformUrl(): string {
-  return resolveLocalConfigFromEnv(process.env).platformUrl;
 }
 
 let activePkceCancel: ((reason?: string) => void) | null = null;
@@ -55,7 +77,8 @@ async function startOAuth(options: {
 }): Promise<{ sessionToken: string }> {
   activePkceCancel?.();
 
-  const platformUrl = resolveProxyPlatformUrl();
+  const runtimeOptions = getRuntime();
+  const platformUrl = runtimeOptions.getPlatformUrl();
   const clientId = await fetchWorkosClientId(platformUrl);
   const state = generateState();
   const { verifier, challenge } = generatePkcePair();
@@ -65,7 +88,8 @@ async function startOAuth(options: {
     () => listener.close("Sign-in timed out. Please try again."),
     AUTH_FLOW_TIMEOUT_MS,
   );
-  activePkceCancel = listener.close;
+  const cancelListener = listener.close;
+  activePkceCancel = cancelListener;
 
   try {
     const authorizeUrl = buildAuthorizeUrl({
@@ -76,7 +100,7 @@ async function startOAuth(options: {
       loginHint: options.loginHint,
       intent: options.intent,
     });
-    void shell.openExternal(authorizeUrl);
+    void runtimeOptions.openExternal(authorizeUrl);
 
     const code = await listener.waitForCode;
     const accessToken = await exchangeCodeWithWorkos({
@@ -90,16 +114,15 @@ async function startOAuth(options: {
       accessToken,
     );
 
-    saveSessionToken(sessionToken);
-    // The system browser stays foregrounded because we use loopback redirect for PKCE flow.
-    // Manually refocus here after login completes.
-    app.focus({ steal: true });
-    void ensureVisible();
+    runtimeOptions.sessionStore.save(sessionToken);
+    void runtimeOptions.activateWindow();
     return { sessionToken };
   } finally {
     clearTimeout(timer);
-    listener.close();
-    activePkceCancel = null;
+    cancelListener();
+    if (activePkceCancel === cancelListener) {
+      activePkceCancel = null;
+    }
   }
 }
 
@@ -113,28 +136,32 @@ const startOAuthSchema = z.tuple([
 let installed = false;
 
 export const installNativeAuth = (): void => {
-  if (installed) return;
+  if (installed) {
+    return;
+  }
   installed = true;
 
+  const options = getRuntime();
   void clearLegacySessionCookies();
 
-  handle(
+  options.ipc.handle(
     "vellum:auth:startOAuth",
     startOAuthSchema,
-    async ([options]): Promise<{ sessionToken: string }> => {
-      return startOAuth(options);
-    },
+    async ([authOptions]): Promise<{ sessionToken: string }> =>
+      startOAuth(authOptions),
   );
 
-  handle("vellum:auth:cancelOAuth", z.tuple([]), () => {
+  options.ipc.handle("vellum:auth:cancelOAuth", z.tuple([]), () => {
     activePkceCancel?.();
   });
 
-  handle("vellum:auth:signOut", z.tuple([]), () => {
-    clearSessionToken();
+  options.ipc.handle("vellum:auth:signOut", z.tuple([]), () => {
+    options.sessionStore.clear();
   });
 
-  handleSync("vellum:auth:getSessionToken", () => getSessionToken());
+  options.ipc.handleSync("vellum:auth:getSessionToken", () =>
+    options.sessionStore.get(),
+  );
 };
 
 export const __resetForTesting = (): void => {

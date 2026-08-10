@@ -78,7 +78,7 @@ mock.module("./cli-installer", () => ({
   ensureCliInstalled: ensureCliInstalledMock,
 }));
 
-mock.module("./session-token-store", () => ({
+mock.module("./session-token-store.client", () => ({
   getSessionToken: () => null,
 }));
 

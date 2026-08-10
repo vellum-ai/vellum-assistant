@@ -1,12 +1,12 @@
 import { afterEach, describe, expect, mock, test } from "bun:test";
 
-// --- Mocks (installed before the `await import` of the module under test) ---
+import type { NativeAuthOptions } from "./native-auth";
 
 // Capture IPC registrations so tests can invoke the handlers directly.
 const ipcHandlers: Record<string, (args: unknown[]) => unknown> = {};
 const ipcSyncHandlers: Record<string, () => unknown> = {};
 
-mock.module("./ipc", () => ({
+const ipc = {
   handle: (
     channel: string,
     _schema: unknown,
@@ -17,7 +17,7 @@ mock.module("./ipc", () => ({
   handleSync: (channel: string, fn: () => unknown) => {
     ipcSyncHandlers[channel] = fn;
   },
-}));
+};
 
 // Capture the OAuth start URL so tests can read back the generated `state`.
 let lastOpenedUrl = "";
@@ -28,21 +28,7 @@ const cookieRemoveCalls: Array<{ url: string; name: string }> = [];
 // Capture the post-login app-refocus calls.
 const refocus = { appFocusSteal: 0, ensureVisible: 0 };
 
-mock.module("./main-window", () => ({
-  ensureVisible: () => {
-    refocus.ensureVisible += 1;
-    return Promise.resolve();
-  },
-}));
-
 mock.module("electron", () => ({
-  app: {
-    getVersion: () => "9.9.9",
-    getPath: () => "/tmp",
-    focus: (opts?: { steal?: boolean }) => {
-      if (opts?.steal) refocus.appFocusSteal += 1;
-    },
-  },
   net: {
     // Routed by URL: serves the real workos-pkce module's three network
     // legs (config discovery, WorkOS code exchange, session exchange) and
@@ -76,29 +62,6 @@ mock.module("electron", () => ({
       );
     },
   },
-  session: {
-    defaultSession: {
-      cookies: {
-        remove: (url: string, name: string) => {
-          cookieRemoveCalls.push({ url, name });
-          return Promise.resolve();
-        },
-      },
-    },
-  },
-  shell: {
-    openExternal: (url: string) => {
-      lastOpenedUrl = url;
-      return Promise.resolve();
-    },
-  },
-}));
-
-mock.module("@vellumai/local-mode", () => ({
-  resolveLocalConfigFromEnv: () => ({
-    webUrl: "https://web.example",
-    platformUrl: "https://platform.example",
-  }),
 }));
 
 // Capture session-token-store interactions.
@@ -107,19 +70,37 @@ const store = {
   clearCalls: 0,
 };
 
-mock.module("./session-token-store", () => ({
-  saveSessionToken: (token: string) => {
-    store.saved.push(token);
-  },
-  clearSessionToken: () => {
-    store.clearCalls += 1;
-  },
-  getSessionToken: () => store.saved.at(-1) ?? null,
-}));
+const {
+  __resetForTesting,
+  configureNativeAuth,
+  generateState,
+  installNativeAuth,
+} = await import("./native-auth");
 
-const { generateState, installNativeAuth, __resetForTesting } = await import(
-  "./native-auth"
-);
+configureNativeAuth({
+  activateWindow: () => {
+    refocus.appFocusSteal += 1;
+    refocus.ensureVisible += 1;
+  },
+  getPlatformUrl: () => "https://platform.example",
+  ipc: ipc as NativeAuthOptions["ipc"],
+  openExternal: (url) => {
+    lastOpenedUrl = url;
+  },
+  removeCookie: (url, name) => {
+    cookieRemoveCalls.push({ url, name });
+    return Promise.resolve();
+  },
+  sessionStore: {
+    save: (token) => {
+      store.saved.push(token);
+    },
+    clear: () => {
+      store.clearCalls += 1;
+    },
+    get: () => store.saved.at(-1) ?? null,
+  },
+});
 
 afterEach(() => {
   __resetForTesting();
@@ -147,7 +128,7 @@ describe("generateState", () => {
   });
 });
 
-describe("installNativeAuth — session-token wiring", () => {
+describe("installNativeAuth session-token wiring", () => {
   test("persists the exchanged token on successful PKCE login", async () => {
     installNativeAuth();
 
@@ -198,6 +179,20 @@ describe("installNativeAuth — session-token wiring", () => {
 
     await signOut([]);
     expect(store.clearCalls).toBe(1);
+  });
+
+  test("cancelOAuth stops an active loopback flow", async () => {
+    installNativeAuth();
+
+    const pending = ipcHandlers["vellum:auth:startOAuth"]!([{}]) as Promise<{
+      sessionToken: string;
+    }>;
+    while (!lastOpenedUrl) {
+      await Bun.sleep(1);
+    }
+
+    await ipcHandlers["vellum:auth:cancelOAuth"]!([]);
+    await expect(pending).rejects.toThrow("Auth flow cancelled");
   });
 
   test("exposes the cached token over sync IPC", () => {

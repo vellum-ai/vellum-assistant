@@ -22,7 +22,7 @@ import { getVersionInfo } from "./about.client";
 import { getInstallLocation } from "./install-location";
 import { handle, on } from "./ipc";
 import { getLogFilePaths } from "./logger";
-import { getSessionToken } from "./session-token-store";
+import { getSessionToken } from "./session-token-store.client";
 
 declare const __VELLUM_BUILD_SHA__: string;
 declare const __VELLUM_ENVIRONMENT__: string;
