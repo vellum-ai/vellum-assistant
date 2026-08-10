@@ -401,29 +401,34 @@ export async function refreshConversationListWindows(
   /* One refresh decision for every tracked list cache, bucket or section. */
   const refresh = async (
     queryKey: readonly unknown[],
-    data: Conversation[] | undefined,
     fetchStatus: "fetching" | "paused" | "idle",
     fetchFirstPage: () => Promise<ConversationListPage>,
     pinnedInjected: boolean,
   ): Promise<void> => {
-    if (data === undefined) {
+    /* Read fresh here rather than passed in from discovery, so the
+       reference below describes the cache as of the moment the request
+       leaves, not as of when the caches were enumerated. */
+    const before = queryClient.getQueryData<Conversation[]>(queryKey);
+    if (before === undefined) {
       if (fetchStatus === "idle") {
         await queryClient.invalidateQueries({ queryKey });
       }
       return;
     }
-    /* The cache's write clock, read before the request leaves. This fetch
-       runs outside TanStack, so nothing that protects the cache from
-       in-flight *queries* protects it from this response: an optimistic
-       placement's `cancelQueries` cannot cancel it, and a second refresh
-       cannot dedupe against it. Any write that lands while the request is
-       in flight (an optimistic move, a newer refresh, a real refetch) makes
-       this response the older account of the cache, so it is dropped rather
-       than merged. The writer that outran it carries its own
-       reconciliation; the next sync signal re-refreshes regardless. */
-    const fetchedAt = queryClient.getQueryState(queryKey)?.dataUpdatedAt;
     const page = await fetchFirstPage();
-    if (queryClient.getQueryState(queryKey)?.dataUpdatedAt !== fetchedAt) {
+    /* Identity, not a timestamp. This fetch runs outside TanStack, so
+       nothing that protects the cache from in-flight *queries* protects it
+       from this response: an optimistic placement's `cancelQueries` cannot
+       cancel it, and a second refresh cannot dedupe against it. Any write
+       that lands while the request is in flight (an optimistic move, a
+       newer refresh, a real refetch) replaces the array, so a changed
+       reference marks this response as the older account of the cache and
+       it is dropped rather than merged. `dataUpdatedAt` cannot carry this
+       check: it has millisecond resolution, and a write landing in the
+       same millisecond the reference was captured would be invisible to
+       it. The writer that outran the response carries its own
+       reconciliation; the next sync signal re-refreshes regardless. */
+    if (queryClient.getQueryData<Conversation[]>(queryKey) !== before) {
       return;
     }
     queryClient.setQueryData<Conversation[]>(
@@ -443,7 +448,6 @@ export async function refreshConversationListWindows(
     }
     await refresh(
       queryKey,
-      state.data,
       state.fetchStatus,
       () => bucket.fetchFirstPage(assistantId),
       /* The one request the daemon appends pinned rows to is the unfiltered
@@ -462,7 +466,6 @@ export async function refreshConversationListWindows(
       }
       await refresh(
         query.queryKey,
-        query.state.data as Conversation[] | undefined,
         query.state.fetchStatus,
         () => listSectionConversationsFirstPage(assistantId, filter),
         false,

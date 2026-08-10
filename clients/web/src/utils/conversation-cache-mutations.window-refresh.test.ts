@@ -121,7 +121,11 @@ describe("refreshConversationListWindows and sections", () => {
   test("the Pinned section merges its page even though every row is pinned", async () => {
     const client = reset();
     client.setQueryData(sectionConversationsQueryKey(ASSISTANT_ID, PINNED), [
+      // Inside the page's window (between 3000 and 5000) but missing from
+      // the page: no longer pinned, must be dropped.
       conversation({ conversationId: "p-stale", lastMessageAt: 4000 }),
+      // Below the window: presumed to live on a later page, must survive.
+      conversation({ conversationId: "p-older", lastMessageAt: 100 }),
     ]);
     sectionPages = () => ({
       conversations: [
@@ -130,16 +134,21 @@ describe("refreshConversationListWindows and sections", () => {
           lastMessageAt: 5000,
           isPinned: true,
         }),
+        conversation({
+          conversationId: "p-mid",
+          lastMessageAt: 3000,
+          isPinned: true,
+        }),
       ],
       hasMore: true,
     });
 
     await refreshConversationListWindows(client, ASSISTANT_ID);
 
-    // Under the injected-pinned cutoff rule this page would have merged
-    // nothing (no non-pinned rows to form a window) and p-stale would
-    // survive a sync signal forever.
-    expect(rowsIn(client, PINNED)).toEqual(["p-new"]);
+    // Under the injected-pinned cutoff rule this all-pinned page would have
+    // formed no window at all: nothing merged, p-stale surviving every sync
+    // signal.
+    expect(rowsIn(client, PINNED)).toEqual(["p-new", "p-mid", "p-older"]);
   });
 
   test("a complete section page replaces the cache", async () => {
