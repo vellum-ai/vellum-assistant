@@ -25,11 +25,11 @@ import {
   DEFAULT_PROVIDER_CHOICES,
   DefaultProviderSchema,
 } from "../../config/schemas/llm.js";
+import { ROUTING_IDENTITY_PROVIDERS } from "../../providers/inference/auth.js";
 import {
   computeConnectionAvailability,
   CONNECTION_AVAILABILITY_STATUSES,
 } from "../../providers/inference/connection-availability.js";
-import { ROUTING_IDENTITY_PROVIDERS } from "../../providers/inference/auth.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import { BadRequestError } from "./errors.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
