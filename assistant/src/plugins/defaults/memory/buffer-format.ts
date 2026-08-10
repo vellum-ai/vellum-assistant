@@ -37,10 +37,11 @@ export interface BufferEntryStart {
  * Anchored at column 0, requiring a space after the dash, and spelling the
  * timestamp with the single spaces {@link formatBufferTimestamp} emits.
  * Everything else in the file is a continuation line belonging to the entry
- * above it, which is how a multiline fact keeps its body: `remember()` stores
- * the body verbatim after the timestamped first line. That rule is what makes
- * a bullet carrying other bracketed text (a `- [ ]` checklist item, a
- * `- [[wikilink]]` bullet) read as continuation rather than as a new fact.
+ * above it, which is how a multiline fact keeps its body: `remember()` writes
+ * only the opening line at column 0 and nests the body beneath it. That rule
+ * is what makes a bullet carrying other bracketed text (a `- [ ]` checklist
+ * item, a `- [[wikilink]]` bullet) read as continuation rather than as a new
+ * fact, and it is why a body line can never imitate an opening.
  *
  * Matching the writer's exact shape is the conservative choice in both
  * directions: a line the writer could not have produced stays body text, so an
