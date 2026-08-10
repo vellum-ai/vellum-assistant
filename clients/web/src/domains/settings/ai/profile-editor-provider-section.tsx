@@ -25,14 +25,16 @@ import type {
   ProviderConnection,
 } from "@/generated/daemon/types.gen";
 
+// Keep in sync with CODEX_SUBSCRIPTION_MODEL_IDS in
+// assistant/src/providers/openai/codex-models.ts.
 const CODEX_SUBSCRIPTION_MODEL_IDS = new Set([
   "gpt-5.6-sol",
   "gpt-5.6-terra",
   "gpt-5.6-luna",
   "gpt-5.5",
+  // Retire from ChatGPT sign-in on 2026-08-31 (API-key auth is unaffected).
   "gpt-5.4",
   "gpt-5.4-mini",
-  "gpt-5.3-codex",
 ]);
 
 function connectionModelsToCatalog(

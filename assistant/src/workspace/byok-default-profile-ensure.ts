@@ -156,6 +156,10 @@ const HISTORICAL_INTENT_MODELS: Record<
   Partial<Record<string, readonly string[]>>
 > = {
   balanced: {
+    openai: [
+      // balanced intent 2026-05-05 (#29755) to the 2026-08-10 gpt-5.6 repoint.
+      "gpt-5.4-mini",
+    ],
     fireworks: [
       // balanced intent 2026-05-05 (#29755) to 2026-05-19 (#31068).
       "accounts/fireworks/models/kimi-k2p5",
@@ -166,6 +170,10 @@ const HISTORICAL_INTENT_MODELS: Record<
     ],
   },
   "quality-optimized": {
+    openai: [
+      // quality intent 2026-05-05 (#29755) to the 2026-08-10 gpt-5.6 repoint.
+      "gpt-5.4",
+    ],
     anthropic: [
       // quality intent 2026-05-05 (#29755) to 2026-06-11 (#34498).
       "claude-opus-4-7",
