@@ -25,6 +25,7 @@ import {
   DEFAULT_PROVIDER_CHOICES,
   DefaultProviderSchema,
 } from "../../config/schemas/llm.js";
+import { ROUTING_IDENTITY_PROVIDERS } from "../../providers/inference/auth.js";
 import {
   computeConnectionAvailability,
   CONNECTION_AVAILABILITY_STATUSES,
@@ -92,6 +93,20 @@ async function handlePutDefaultProvider({
         ", ",
       )}; "connectionName" is optional and must be a non-empty string.`,
     );
+  }
+  // Routing identities dispatch through their canonical row regardless of
+  // any stored pin (`resolveRoutingIdentity`), so a noncanonical
+  // connectionName would be judged by availability and the deletion guards
+  // while inference uses a different row. Reject it here rather than
+  // persisting a pin that status and dispatch disagree about.
+  const { provider, connectionName } = result.data;
+  if (connectionName != null && ROUTING_IDENTITY_PROVIDERS.has(provider)) {
+    const canonical = resolveDefaultConnectionName({ provider });
+    if (connectionName !== canonical) {
+      throw new BadRequestError(
+        `Provider "${provider}" always dispatches through its canonical connection "${canonical}". Omit "connectionName" or pass "${canonical}".`,
+      );
+    }
   }
   setDefaultProvider(result.data);
   return handleGetDefaultProvider();

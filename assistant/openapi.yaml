@@ -4826,6 +4826,7 @@ paths:
                     - gemini
                     - fireworks
                     - openrouter
+                    - chatgpt
                     - vellum
                     - together
                     - vercel-ai-gateway
@@ -34540,6 +34541,7 @@ components:
                     - gemini
                     - fireworks
                     - openrouter
+                    - chatgpt
                     - vellum
                     - together
                     - vercel-ai-gateway
@@ -34917,6 +34919,7 @@ components:
                 - gemini
                 - fireworks
                 - openrouter
+                - chatgpt
                 - vellum
                 - together
                 - vercel-ai-gateway

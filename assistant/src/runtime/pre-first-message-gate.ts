@@ -55,9 +55,13 @@ export function hasReceivedUserMessage(): boolean {
   try {
     const row = rawGet<{ one: number }>(
       "preFirstMsg:hasReceivedUserMessage",
+      // Finalized user-role rows only: the grouped tool-result row is a
+      // user-role row reserved unfinalized mid-turn, and this gate must not
+      // read tool plumbing as "the user has messaged this assistant".
       `SELECT 1 AS one FROM messages m
        JOIN conversations c ON m.conversation_id = c.id
        WHERE m.role = 'user'
+         AND m.finalized = 1
          AND c.conversation_type = 'standard'
        LIMIT 1`,
     );

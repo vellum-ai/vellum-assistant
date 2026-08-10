@@ -11,7 +11,7 @@ import {
 import { create, themes } from "storybook/theming";
 import { addons } from "storybook/preview-api";
 import { GLOBALS_UPDATED } from "storybook/internal/core-events";
-import { MemoryRouter } from "react-router";
+import { MemoryRouter, Route, Routes } from "react-router";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import i18next from "i18next";
 import ICU from "i18next-icu";
@@ -50,6 +50,28 @@ void i18next
   .use(new ICU())
   .use(initReactI18next)
   .init(i18nextInitOptions("en", { en: FALLBACK_CATALOGS }));
+
+/**
+ * Routing context for a story, declared as `parameters.router`.
+ *
+ * Every story renders inside the one router the preview mounts. React Router
+ * rejects a `<Router>` nested in another Router, so a story that needs a
+ * particular address or route params configures this one rather than mounting
+ * its own.
+ *
+ * https://reactrouter.com/api/declarative-routers/MemoryRouter
+ */
+interface StoryRouterParameters {
+  /** Address the story starts at. Defaults to `/`. */
+  initialEntries?: string[];
+  /**
+   * Route patterns the story renders under. Set these when the component reads
+   * `useParams()` or navigates, so the patterns matching the app's routes
+   * resolve, and pass every pattern the story moves between: a story that
+   * navigates to an address no pattern matches renders nothing.
+   */
+  paths?: string[];
+}
 
 const lightTheme = create({
   base: "light",
@@ -130,13 +152,25 @@ export default definePreview({
       defaultTheme: "light",
       attributeName: "data-theme",
     }),
-    (Story) => (
-      <QueryClientProvider client={storybookQueryClient}>
-        <MemoryRouter>
-          <Story />
-        </MemoryRouter>
-      </QueryClientProvider>
-    ),
+    (Story, context) => {
+      const { initialEntries = ["/"], paths } = (context.parameters["router"] ??
+        {}) as StoryRouterParameters;
+      return (
+        <QueryClientProvider client={storybookQueryClient}>
+          <MemoryRouter initialEntries={initialEntries}>
+            {paths == null ? (
+              <Story />
+            ) : (
+              <Routes>
+                {paths.map((path) => (
+                  <Route key={path} path={path} element={<Story />} />
+                ))}
+              </Routes>
+            )}
+          </MemoryRouter>
+        </QueryClientProvider>
+      );
+    },
   ],
   /**
    * Start every story at a desktop width.

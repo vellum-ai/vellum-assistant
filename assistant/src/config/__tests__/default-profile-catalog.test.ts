@@ -7,6 +7,7 @@ import {
   CODE_DEFAULT_PROFILE_ENTRIES,
   getEffectiveProfile,
   getEffectiveProfiles,
+  getEffectiveProfilesForProvider,
   PROFILE_IMPLS,
   resolveDefaultProfileForProvider,
 } from "../default-profile-catalog.js";
@@ -333,7 +334,7 @@ describe("resolveDefaultProfileForProvider", () => {
         expect(typeof entry?.model).toBe("string");
         expect(entry?.provider).toBeDefined();
         // Identity columns stamp no connection; BYOK columns always do.
-        if (entry?.provider === "vellum") {
+        if (entry?.provider === "vellum" || entry?.provider === "chatgpt") {
           expect(entry?.provider_connection).toBeUndefined();
         } else {
           expect(entry?.provider_connection).toBeDefined();
@@ -341,6 +342,27 @@ describe("resolveDefaultProfileForProvider", () => {
         expect(entry?.source).toBe("managed");
       }
     }
+  });
+
+  test("the chatgpt column resolves Codex-pinned models with no connection stamp", () => {
+    const byKey: Record<string, string> = {
+      balanced: "gpt-5.6-luna",
+      "quality-optimized": "gpt-5.6-sol",
+      "cost-optimized": "gpt-5.6-luna",
+      "latency-optimized": "gpt-5.6-luna",
+    };
+    const effective = getEffectiveProfilesForProvider(undefined, dp("chatgpt"));
+    for (const [key, model] of Object.entries(byKey)) {
+      const entry = effective[key];
+      expect(entry?.provider).toBe("chatgpt");
+      expect(entry?.model).toBe(model);
+      expect(entry?.provider_connection).toBeUndefined();
+      expect(entry?.source).toBe("managed");
+    }
+    // Cost and Speed both opt fully out of reasoning.
+    expect(effective["cost-optimized"]?.effort).toBe("none");
+    expect(effective["latency-optimized"]?.effort).toBe("none");
+    expect(effective.balanced?.thinking?.enabled).toBe(true);
   });
 
   test("a provider without a named matrix column materializes from the shared BYOK templates", () => {

@@ -4,6 +4,7 @@ import {
   isModelInCatalog,
 } from "../providers/model-catalog.js";
 import { resolveModelIntent } from "../providers/model-intents.js";
+import { isCodexSubscriptionModel } from "../providers/openai/codex-models.js";
 import type { ModelIntent } from "../providers/types.js";
 import { getManagedUpstream } from "../providers/vellum-model-routing.js";
 import {
@@ -31,7 +32,8 @@ import {
  * structured as an intent × provider matrix: each default profile is an
  * intent, and each provider that can serve default profiles has a concrete
  * implementation of that intent (model, token budget, effort, thinking).
- * The `vellum` column is the platform-managed implementation; the other
+ * The `vellum` column is the platform-managed implementation and the
+ * `chatgpt` column is the ChatGPT-subscription implementation; the other
  * columns are the BYOK implementations resolved through `llm.defaultProvider`
  * on off-platform installs.
  *
@@ -148,6 +150,69 @@ const VELLUM_PROFILE_IMPLS: ProfileImpls = {
 };
 
 /**
+ * The `chatgpt` column: ChatGPT-subscription implementations, stamped
+ * `provider: "chatgpt"` so dispatch routes through the canonical
+ * `chatgpt-subscription` row via `resolveRoutingIdentity` with no pinned
+ * connection. Models are pinned (never intents): the intent tables are
+ * keyed by concrete dispatch providers, and the Codex endpoint serves only
+ * `CODEX_SUBSCRIPTION_MODEL_IDS`. Cost and Speed are identical
+ * implementations here: the subscription serves no tier cheaper or faster
+ * than luna, and both profiles advertise reasoning off.
+ */
+const CHATGPT_PROFILE_IMPLS: ProfileImpls = {
+  balanced: {
+    model: "gpt-5.6-luna",
+    provider: "chatgpt",
+    source: "managed",
+    label: "Balanced",
+    description: "Good balance of quality, cost, and speed",
+    // Matches the vellum column's Balanced (same model): the Codex path
+    // sends no max_output_tokens, so this only sizes internal budgeting.
+    maxTokens: 32000,
+    effort: "high",
+    thinking: { enabled: true, streamThinking: true },
+    contextWindow: { maxInputTokens: DEFAULT_CONTEXT_WINDOW_MAX_INPUT_TOKENS },
+  },
+  "quality-optimized": {
+    model: "gpt-5.6-sol",
+    provider: "chatgpt",
+    source: "managed",
+    label: "Quality",
+    description: "Best results with the most capable model",
+    maxTokens: 32000,
+    effort: "high",
+    thinking: { enabled: true, streamThinking: true },
+    contextWindow: { maxInputTokens: DEFAULT_CONTEXT_WINDOW_MAX_INPUT_TOKENS },
+  },
+  "cost-optimized": {
+    model: "gpt-5.6-luna",
+    provider: "chatgpt",
+    source: "managed",
+    label: "Cost",
+    description: "Cheapest responses, for high-volume work",
+    maxTokens: 8192,
+    effort: "none",
+    thinking: { enabled: false, streamThinking: false },
+    contextWindow: { maxInputTokens: DEFAULT_CONTEXT_WINDOW_MAX_INPUT_TOKENS },
+  },
+  "latency-optimized": {
+    model: "gpt-5.6-luna",
+    provider: "chatgpt",
+    source: "managed",
+    label: "Speed",
+    description: "Fastest responses, with reasoning turned off",
+    maxTokens: 8192,
+    // Explicit reasoning opt-out, matching the other columns: this profile
+    // advertises reasoning as off, and OpenAI-compat APIs default reasoning
+    // to "medium" when the field is omitted, so the opt-out has to be stated
+    // rather than implied.
+    effort: "none",
+    thinking: { enabled: false, streamThinking: false },
+    contextWindow: { maxInputTokens: DEFAULT_CONTEXT_WINDOW_MAX_INPUT_TOKENS },
+  },
+};
+
+/**
  * The BYOK implementation of each default profile intent, shared by every
  * non-vellum provider. The concrete model resolves per provider from the
  * `intent` via `resolveModelIntent` at materialization time (falling back to
@@ -219,7 +284,9 @@ export const PROFILE_IMPLS: Record<
         provider,
         provider === "vellum"
           ? VELLUM_PROFILE_IMPLS[key]
-          : { ...BYOK_PROFILE_IMPLS[key], provider },
+          : provider === "chatgpt"
+            ? CHATGPT_PROFILE_IMPLS[key]
+            : { ...BYOK_PROFILE_IMPLS[key], provider },
       ]),
     ) as Record<DefaultProfileProvider, DefaultProfileTemplate>,
   ]),
@@ -372,21 +439,23 @@ for (const key of DEFAULT_PROFILE_KEYS) {
         `PROFILE_IMPLS[${key}][${provider}] must set exactly one of \`intent\` or \`model\`.`,
       );
     }
-    if (impl.provider === "vellum" && impl.model == null) {
+    if (ROUTING_IDENTITY_PROVIDERS.has(impl.provider) && impl.model == null) {
       throw new Error(
-        `PROFILE_IMPLS[${key}][${provider}] must pin a \`model\`: the vellum ` +
-          `column has no intent table, and the model selects the upstream.`,
+        `PROFILE_IMPLS[${key}][${provider}] must pin a \`model\`: routing ` +
+          `identities have no intent table, and the model selects the route.`,
       );
     }
     if (impl.model != null) {
       const routable =
         impl.provider === "vellum"
           ? getManagedUpstream(impl.model) !== null
-          : isModelInCatalog(impl.provider, impl.model);
+          : impl.provider === "chatgpt"
+            ? isCodexSubscriptionModel(impl.model)
+            : isModelInCatalog(impl.provider, impl.model);
       if (!routable) {
         throw new Error(
           `PROFILE_IMPLS[${key}][${provider}] references model "${impl.model}" ` +
-            `which is not ${impl.provider === "vellum" ? "served by any managed upstream" : `in PROVIDER_CATALOG for provider "${impl.provider}"`}. ` +
+            `which is not ${impl.provider === "vellum" ? "served by any managed upstream" : impl.provider === "chatgpt" ? "in CODEX_SUBSCRIPTION_MODEL_IDS" : `in PROVIDER_CATALOG for provider "${impl.provider}"`}. ` +
             `Update model-catalog.ts or default-profile-catalog.ts.`,
         );
       }
@@ -517,7 +586,9 @@ function resolveAgainstBody(
  * Non-obvious rules:
  *
  * - The `vellum` column stamps `provider: "vellum"` with no connection —
- *   dispatch derives the upstream from the model per-request.
+ *   dispatch derives the upstream from the model per-request. The `chatgpt`
+ *   column likewise stamps its routing identity with no connection;
+ *   dispatch resolves the canonical subscription row per-request.
  * - A default provider without a named matrix column materializes from the
  *   shared `BYOK_PROFILE_IMPLS` templates, with `resolveModelIntent`
  *   falling back to the provider's catalog `defaultModel`.
