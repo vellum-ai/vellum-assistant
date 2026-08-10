@@ -335,19 +335,22 @@ export async function computeProfileAvailability(
     }
   }
 
-  // An entry-name provider IS the connection name; judge the row against
-  // its own dispatchable kind, the same translation dispatch uses.
+  // Precedence matches dispatch: an explicit provider_connection wins over
+  // an entry-name provider, and the vendor judged is the entry's
+  // dispatchable kind either way (the same translation dispatch uses).
   const entryName = resolveEntryConnectionName(provider);
-  if (entryName !== null) {
-    return computeConnectionAvailability(
-      connectionProviderKind(entryName, model) ?? provider,
-      entryName,
-    );
-  }
+  const entryKind =
+    entryName !== null
+      ? (connectionProviderKind(entryName, model) ?? provider)
+      : provider;
 
   const pinned = entry.provider_connection;
   if (typeof pinned === "string") {
-    return computeConnectionAvailability(provider, pinned);
+    return computeConnectionAvailability(entryKind, pinned);
+  }
+
+  if (entryName !== null) {
+    return computeConnectionAvailability(entryKind, entryName);
   }
 
   // Mirror the dispatch-time auto-resolve (`resolveConfiguredProvider`): with

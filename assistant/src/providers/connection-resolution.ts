@@ -591,6 +591,9 @@ export async function preflightResolvedConfig(
   const identity = resolveRoutingIdentity(resolved.provider, resolved.model);
   // An entry-name provider IS the connection name, and the row's kind is
   // what the checks below judge against (same translation dispatch uses).
+  // Precedence matches dispatch exactly: an explicit provider_connection
+  // wins over the entry name, so preflight judges the row the request
+  // actually uses rather than a healthy entry the request ignores.
   const entryName = identity
     ? null
     : resolveEntryConnectionName(resolved.provider);
@@ -600,7 +603,7 @@ export async function preflightResolvedConfig(
       ? (connectionProviderKind(entryName, resolved.model) ?? resolved.provider)
       : resolved.provider;
   const connectionName =
-    identity?.connectionName ?? entryName ?? resolved.provider_connection;
+    identity?.connectionName ?? resolved.provider_connection ?? entryName;
   if (!connectionName) {
     return;
   }
