@@ -548,6 +548,25 @@ describe("loadConfig startup behavior", () => {
     expect(raw.daemon?.standaloneRecording).toBe(false);
   });
 
+  test("strips calls.voice.language from existing user configs", () => {
+    // `calls.voice.language` is a retired no-op knob: nothing read it.
+    // The spoken language lives at `services.stt.language` and per-language
+    // TTS voices at `services.tts.providers.<id>.languageVoices`. Existing
+    // configs that have it written to disk should load cleanly with the
+    // field stripped and its siblings preserved.
+    writeConfig({
+      provider: "anthropic",
+      calls: { voice: { language: "es-ES", telephonyStreaming: false } },
+    });
+
+    loadConfig();
+
+    const raw = JSON.parse(readFileSync(CONFIG_PATH, "utf-8"));
+    expect(raw.calls?.voice?.language).toBeUndefined();
+    // Sibling fields under calls.voice are preserved
+    expect(raw.calls?.voice?.telephonyStreaming).toBe(false);
+  });
+
   test("still writes a default config on first launch when file is absent", () => {
     // Discoverability: when no config.json exists, write one populated with
     // all schema defaults so users can see and edit available options.

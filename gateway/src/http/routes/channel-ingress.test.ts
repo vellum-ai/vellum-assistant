@@ -229,6 +229,7 @@ describe("list", () => {
             description: "events",
             credential: "credential/meeting-bot/webhook_secret",
             served: false,
+            deliversInbound: false,
           },
         ],
       },

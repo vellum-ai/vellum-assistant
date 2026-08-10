@@ -11,7 +11,7 @@ import {
 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import { useIsMobile } from "@/hooks/use-is-mobile";
+import { useTouchMobile } from "@/hooks/use-touch-mobile";
 import { credentialsRevealPost } from "@/generated/daemon/sdk.gen";
 import { copyToClipboard } from "@/lib/copy-to-clipboard";
 import { BottomSheet } from "@vellumai/design-library/components/bottom-sheet";
@@ -318,13 +318,13 @@ function CredentialValue({
 }
 
 // ---------------------------------------------------------------------------
-// CredentialConfigureMenu — desktop popover / mobile bottom-sheet wrapper for
+// CredentialConfigureMenu: anchored popover / touch bottom-sheet wrapper for
 // the stored-credential "Configure" action menu. Unit-testable in isolation
 // (no parent mutations required), mirroring IntegrationConfigureMenu.
 // ---------------------------------------------------------------------------
 
 export interface CredentialConfigureMenuProps {
-  /** `service:field` of the credential — used as the mobile sheet title. */
+  /** `service:field` of the credential, used as the sheet title. */
   name: string;
   /** Whether the Configure menu is open (controlled). */
   open: boolean;
@@ -344,7 +344,7 @@ export function CredentialConfigureMenu({
   onGenerateLink,
   onDelete,
 }: CredentialConfigureMenuProps) {
-  const isMobile = useIsMobile();
+  const isTouchMobile = useTouchMobile();
   const busy = generatingLink || deleting;
 
   const trigger = (
@@ -362,7 +362,7 @@ export function CredentialConfigureMenu({
     </Button>
   );
 
-  if (isMobile) {
+  if (isTouchMobile) {
     return (
       <BottomSheet.Root open={open} onOpenChange={onOpenChange}>
         <BottomSheet.Trigger asChild>{trigger}</BottomSheet.Trigger>

@@ -35,6 +35,7 @@ import { ACP_RUN_DESCRIPTOR } from "@/domains/chat/process-registry/descriptors/
 import { SUBAGENT_DESCRIPTOR } from "@/domains/chat/process-registry/descriptors/subagent";
 import { InlineProcessCardRow } from "@/domains/chat/process-registry/inline-process-card-row";
 import { useIsMobile } from "@/hooks/use-is-mobile";
+import { useTouchMobile } from "@/hooks/use-touch-mobile";
 
 import type {
   ConversationActivityRow,
@@ -213,6 +214,7 @@ export function ConversationActivityPill({
   const activity = useConversationActivity(conversationId);
   const [open, setOpen] = useState(false);
   const isMobile = useIsMobile();
+  const isTouchMobile = useTouchMobile();
   const handleClose = useCallback(() => setOpen(false), []);
 
   const { running, completed, total } = activity;
@@ -280,7 +282,7 @@ export function ConversationActivityPill({
 
   const panel = <ActivityPanel activity={activity} onClose={handleClose} />;
 
-  if (isMobile) {
+  if (isTouchMobile) {
     return (
       <BottomSheet.Root open={open} onOpenChange={setOpen}>
         <BottomSheet.Trigger asChild>

@@ -197,6 +197,7 @@ const i18nEnforcedPaths = [
   "src/domains/settings/billing/checkout-bonus-modal.tsx",
   "src/domains/account/**/*.{ts,tsx}",
   "src/domains/channels/**/*.{ts,tsx}",
+  "src/domains/workspace/**/*.{ts,tsx}",
 ];
 
 const eslintConfig = defineConfig([

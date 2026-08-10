@@ -1,10 +1,12 @@
 import { useRef, useState } from "react";
 import { useLocation } from "react-router";
 
+import { t } from "@/i18n";
 import { PROVIDER_ID } from "@/domains/account/login-flow";
 import {
   nativeAuthErrorDetail,
-  nativeAuthErrorMessage,
+  AUTH_ERROR_COMMUNITY_LINK,
+  nativeAuthErrorKey,
 } from "@/domains/account/native-auth-error";
 import { buildNavigationState } from "@/lib/navigation/build-state";
 import { captureError } from "@/lib/sentry/capture-error";
@@ -41,7 +43,11 @@ export function useOnboardingLogin(returnToOverride?: string) {
         context: "onboarding_login",
         tags: { authError: nativeAuthErrorDetail(err) ?? "unclassified" },
       });
-      setError(nativeAuthErrorMessage(err));
+      setError(
+        t(`account:${nativeAuthErrorKey(err)}`, {
+          community: AUTH_ERROR_COMMUNITY_LINK,
+        }),
+      );
       setLoading(false);
     }
   };

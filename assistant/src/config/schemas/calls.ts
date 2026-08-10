@@ -43,10 +43,6 @@ const CallsSafetyConfigSchema = z
 
 const CallsVoiceConfigSchema = z
   .object({
-    language: z
-      .string({ error: "calls.voice.language must be a string" })
-      .default("en-US")
-      .describe("BCP-47 language code for speech recognition and synthesis"),
     interruptSensitivity: z
       .enum(["low", "medium", "high"], {
         error:

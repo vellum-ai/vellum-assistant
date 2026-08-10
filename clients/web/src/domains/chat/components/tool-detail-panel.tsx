@@ -15,9 +15,7 @@
 import {
   Bolt,
   Brain,
-  Check,
   Code,
-  Copy,
   FileText,
   Globe,
   Monitor,
@@ -28,13 +26,13 @@ import {
   UserPlus,
   type LucideIcon,
 } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
 
 import { Typography } from "@vellumai/design-library";
 
 import { ChatMarkdownMessage } from "@/domains/chat/components/chat-markdown-message";
-import { copyToClipboard } from "@/lib/copy-to-clipboard";
+import { CodeBlock, SectionLabel } from "@/components/detail-primitives";
 import { DetailShell } from "@/components/detail-shell";
+import { getToolActivityRenderer } from "@/domains/chat/components/tool-activity/tool-activity-renderers";
 import { RiskBadge } from "@/domains/chat/components/risk-badge";
 import { titleCaseToolName } from "@/domains/chat/components/tool-call-chip/utils";
 import { useLiveThinkingText } from "@/domains/chat/hooks/use-live-thinking-text";
@@ -66,88 +64,11 @@ const ICON_MAP: Record<IconName, LucideIcon> = {
   brain: Brain,
 };
 
-const COPIED_RESET_MS = 1500;
-
-/**
- * Small ghost button that copies `text` to the clipboard and shows a transient
- * "Copied" confirmation. Positioned by the caller (top-right of a `<pre>`).
- */
-function CopyButton({ text }: { text: string }) {
-  const [copied, setCopied] = useState(false);
-  const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  useEffect(() => {
-    return () => {
-      if (timeoutRef.current) {
-        clearTimeout(timeoutRef.current);
-      }
-    };
-  }, []);
-
-  const handleCopy = () => {
-    copyToClipboard(text, {
-      errorMessage: "Couldn't copy.",
-      onCopied: () => {
-        setCopied(true);
-        if (timeoutRef.current) {
-          clearTimeout(timeoutRef.current);
-        }
-        timeoutRef.current = setTimeout(
-          () => setCopied(false),
-          COPIED_RESET_MS,
-        );
-      },
-    });
-  };
-
-  return (
-    <button
-      type="button"
-      onClick={handleCopy}
-      aria-label={copied ? "Copied" : "Copy"}
-      className="absolute right-2 top-2 flex items-center gap-1 rounded p-1 text-label-small-default text-[var(--content-tertiary)] transition-colors hover:bg-[var(--ghost-hover)] hover:text-[var(--content-default)]"
-    >
-      {copied ? (
-        <Check className="h-3.5 w-3.5" />
-      ) : (
-        <Copy className="h-3.5 w-3.5" />
-      )}
-      {copied ? "Copied" : null}
-    </button>
-  );
-}
-
-/** A `<pre>` code block with a copy button positioned in the top-right. */
-export function CodeBlock({ text }: { text: string }) {
-  return (
-    <div className="relative">
-      <pre className="rounded-lg border border-[var(--border-base)] bg-[var(--surface-overlay)] p-3 font-mono text-xs whitespace-pre-wrap break-words text-[var(--content-default)]">
-        {text}
-      </pre>
-      <CopyButton text={text} />
-    </div>
-  );
-}
-
-/** Uppercase section label in `--content-tertiary`. */
-export function SectionLabel({
-  children,
-  className = "mb-1.5",
-}: {
-  children: string;
-  /** Margin override for rows that manage their own spacing. */
-  className?: string;
-}) {
-  return (
-    <Typography
-      variant="label-small-default"
-      as="div"
-      className={`uppercase tracking-wider text-[var(--content-tertiary)] ${className}`}
-    >
-      {children}
-    </Typography>
-  );
-}
+// Re-exported for the panels that already imported these from here
+// (`background-task-detail-panel`, `acp-run-detail-panel`, …). They now live in
+// `@/components/detail-primitives` so tool-specific renderers can use them
+// without importing this module and forming a cycle.
+export { CodeBlock, SectionLabel };
 
 /**
  * Thinking variant body. Reuses the shared shell but renders the reasoning
@@ -198,7 +119,14 @@ function ThinkingDetailBody({
  * `result` when it lands, falling back to the open-time snapshot on `detail`
  * when the call can't be resolved live (e.g. paged out).
  */
-export function ToolDetailBody({ detail }: { detail: ToolDetailPayload }) {
+export function ToolDetailBody({
+  detail,
+  assistantId,
+}: {
+  detail: ToolDetailPayload;
+  /** Threaded to any markdown a tool-specific renderer shows. */
+  assistantId?: string | null;
+}) {
   const liveTc = useLiveToolCall(detail.toolCallId);
   const result = liveTc?.result ?? detail.result;
   const streamedOutput = liveTc?.streamedOutput ?? detail.streamedOutput;
@@ -207,6 +135,7 @@ export function ToolDetailBody({ detail }: { detail: ToolDetailPayload }) {
   const isRunning = liveTc
     ? isToolCallRunning(liveTc)
     : detail.status === "running";
+  const isError = liveTc?.isError ?? detail.status === "error";
   const hasStreamedOutput = !!streamedOutput;
   const inputJson = JSON.stringify(detail.input, null, 2);
 
@@ -215,6 +144,10 @@ export function ToolDetailBody({ detail }: { detail: ToolDetailPayload }) {
   // classifier jargon and is deliberately NOT shown.
   const riskLevel = liveTc?.riskLevel ?? detail.riskLevel;
   const riskHint = getRiskToleranceHint(riskLevel);
+
+  // Tools with purpose-built activity UI replace the generic name/activity/JSON
+  // block; those that also own their output suppress the shared Output section.
+  const renderer = getToolActivityRenderer(detail.toolName);
 
   return (
     <>
@@ -238,32 +171,45 @@ export function ToolDetailBody({ detail }: { detail: ToolDetailPayload }) {
         </div>
       )}
 
-      {/* Tool name + activity + input */}
-      <div>
-        <Typography
-          variant="body-medium-default"
-          as="div"
-          className="text-[var(--content-default)]"
-        >
-          {titleCaseToolName(detail.toolName)}
-        </Typography>
-        {detail.activity && (
+      {/* Tool-specific activity UI when the tool has one, else the generic
+          name + activity + raw JSON input block. */}
+      {renderer ? (
+        <renderer.Component
+          detail={detail}
+          result={result}
+          streamedOutput={streamedOutput}
+          isRunning={isRunning}
+          isError={isError}
+          assistantId={assistantId}
+        />
+      ) : (
+        <div>
           <Typography
-            variant="body-small-default"
-            as="p"
-            className="mt-0.5 text-[var(--content-secondary)]"
+            variant="body-medium-default"
+            as="div"
+            className="text-[var(--content-default)]"
           >
-            {detail.activity}
+            {titleCaseToolName(detail.toolName)}
           </Typography>
-        )}
-        <div className="mt-2">
-          <CodeBlock text={inputJson} />
+          {detail.activity && (
+            <Typography
+              variant="body-small-default"
+              as="p"
+              className="mt-0.5 text-[var(--content-secondary)]"
+            >
+              {detail.activity}
+            </Typography>
+          )}
+          <div className="mt-2">
+            <CodeBlock text={inputJson} />
+          </div>
         </div>
-      </div>
+      )}
 
       {/* Output — the final result once present, else the live streamed tail
-          while running, else a bare running placeholder. */}
-      {(hasResult || isRunning) && (
+          while running, else a bare running placeholder. Suppressed for tools
+          whose renderer already presents the result itself. */}
+      {!renderer?.ownsOutput && (hasResult || isRunning) && (
         <div className="mt-5">
           <SectionLabel>Output</SectionLabel>
           {hasResult ? (
@@ -323,7 +269,7 @@ export function ToolDetailPanel({
       closeLabel="Close tool details"
       onClose={onClose}
     >
-      <ToolDetailBody detail={detail} />
+      <ToolDetailBody detail={detail} assistantId={assistantId} />
     </DetailShell>
   );
 }

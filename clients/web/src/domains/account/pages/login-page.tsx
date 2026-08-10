@@ -18,7 +18,8 @@ import {
 import {
   isUserCancelledAuthError,
   nativeAuthErrorDetail,
-  nativeAuthErrorMessage,
+  AUTH_ERROR_COMMUNITY_LINK,
+  nativeAuthErrorKey,
 } from "@/domains/account/native-auth-error";
 import { withPreservedAttribution } from "@/domains/account/social-auth";
 import { captureError } from "@/lib/sentry/capture-error";
@@ -58,7 +59,9 @@ function NativeLoginForm({ returnTo }: { returnTo: string | null }) {
         context: "native_login",
         tags: { authError: nativeAuthErrorDetail(err) ?? "unclassified" },
       });
-      setErrorMessage(nativeAuthErrorMessage(err));
+      setErrorMessage(
+        t(nativeAuthErrorKey(err), { community: AUTH_ERROR_COMMUNITY_LINK }),
+      );
       setLoading(false);
     }
   };
@@ -119,7 +122,9 @@ function WebLoginForm({ returnTo }: { returnTo: string | null }) {
         context: "web_login",
         tags: { authError: nativeAuthErrorDetail(err) ?? "unclassified" },
       });
-      setErrorMessage(nativeAuthErrorMessage(err));
+      setErrorMessage(
+        t(nativeAuthErrorKey(err), { community: AUTH_ERROR_COMMUNITY_LINK }),
+      );
       setLoading(false);
     }
   };

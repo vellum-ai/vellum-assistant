@@ -10,6 +10,7 @@ import {
 } from "@vellumai/design-library";
 
 import { useIsMobile } from "@/hooks/use-is-mobile";
+import { useTouchMobile } from "@/hooks/use-touch-mobile";
 import { routes } from "@/utils/routes";
 
 import { useEffectiveChatPlugins } from "./use-effective-chat-plugins";
@@ -27,7 +28,7 @@ const COST_CAPTION = "Changing plugin settings can incur high costs.";
  * opens a read-only list of those plugins plus a "Manage" shortcut to the
  * plugins page — editing the set happens there, not in this menu. Mirrors
  * `ConversationAssetsPill`'s top-right placement and desktop-popover /
- * mobile-bottom-sheet split.
+ * touch-bottom-sheet split.
  */
 export function InChatPluginPill({
   assistantId,
@@ -38,7 +39,10 @@ export function InChatPluginPill({
     conversationId,
   );
   const [open, setOpen] = useState(false);
+  // Two independent questions: the header cluster only has room for a labelled
+  // pill on a roomy window, and the list is a sheet only under a thumb.
   const isMobile = useIsMobile();
+  const isTouchMobile = useTouchMobile();
   const navigate = useNavigate();
 
   const handleManage = useCallback(() => {
@@ -92,18 +96,31 @@ export function InChatPluginPill({
     </div>
   );
 
-  if (isMobile) {
+  const trigger = isMobile ? (
+    <Button
+      variant="ghost"
+      active
+      iconOnly={<Plug />}
+      tintColor="var(--content-default)"
+      aria-label={ariaLabel}
+    />
+  ) : (
+    <Button
+      variant="ghost"
+      active
+      leftIcon={<Plug />}
+      className="rounded-full"
+      tintColor="var(--content-default)"
+      aria-label={ariaLabel}
+    >
+      {label}
+    </Button>
+  );
+
+  if (isTouchMobile) {
     return (
       <BottomSheet.Root open={open} onOpenChange={setOpen}>
-        <BottomSheet.Trigger asChild>
-          <Button
-            variant="ghost"
-            active
-            iconOnly={<Plug />}
-            tintColor="var(--content-default)"
-            aria-label={ariaLabel}
-          />
-        </BottomSheet.Trigger>
+        <BottomSheet.Trigger asChild>{trigger}</BottomSheet.Trigger>
         <BottomSheet.Content>
           <BottomSheet.Header>
             <BottomSheet.Title>Plugins</BottomSheet.Title>
@@ -119,18 +136,7 @@ export function InChatPluginPill({
 
   return (
     <Popover.Root open={open} onOpenChange={setOpen}>
-      <Popover.Trigger asChild>
-        <Button
-          variant="ghost"
-          active
-          leftIcon={<Plug />}
-          className="rounded-full"
-          tintColor="var(--content-default)"
-          aria-label={ariaLabel}
-        >
-          {label}
-        </Button>
-      </Popover.Trigger>
+      <Popover.Trigger asChild>{trigger}</Popover.Trigger>
       <Popover.Content
         side="bottom"
         align="end"

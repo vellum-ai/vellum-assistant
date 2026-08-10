@@ -35,6 +35,12 @@ mock.module("@/hooks/use-is-mobile", () => ({
   MOBILE_MEDIA_QUERY: "(max-width: 767px)",
 }));
 
+const isTouchMobileRef = { value: false };
+mock.module("@/hooks/use-touch-mobile", () => ({
+  useTouchMobile: () => isTouchMobileRef.value,
+  TOUCH_MOBILE_MEDIA_QUERY: "(max-width: 767px) and (pointer: coarse)",
+}));
+
 // --- toast -------------------------------------------------------------------
 const toastSuccess = mock((_msg: string) => {});
 const toastError = mock((_msg: string) => {});
@@ -203,6 +209,7 @@ function renderMenu() {
 
 beforeEach(() => {
   isMobileRef.value = false;
+  isTouchMobileRef.value = false;
   openProfileQuickAdd.mockClear();
   inferenceprofilePut.mockClear();
   configPatchMock.mockClear();
@@ -230,6 +237,7 @@ describe("Model Profile quick-add", () => {
 
   test('"+" New Profile renders on mobile', async () => {
     isMobileRef.value = true;
+    isTouchMobileRef.value = true;
     renderMenu();
     await waitFor(() => {
       expect(screen.getByLabelText("New Profile")).toBeTruthy();

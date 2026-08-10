@@ -67,16 +67,16 @@ export function ExportProgressModal({
           }
         }}
       >
-        <Modal.Header>
-          <Modal.Title
-            icon={
-              phase === "error"
-                ? AlertCircle
-                : phase === "done"
-                  ? CheckCircle2
-                  : Download
-            }
-          >
+        <Modal.Header
+          icon={
+            phase === "error"
+              ? AlertCircle
+              : phase === "done"
+                ? CheckCircle2
+                : Download
+          }
+        >
+          <Modal.Title>
             {phase === "error"
               ? "Export failed"
               : phase === "done"

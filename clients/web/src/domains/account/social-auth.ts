@@ -88,10 +88,7 @@ export function readAttributionParams(search: string): Record<string, string> {
  * attribution was decorated deliberately upstream, so re-applying is safe
  * (idempotent). Returns `href` unchanged when nothing new is collected.
  */
-export function withPreservedAttribution(
-  href: string,
-  search: string,
-): string {
+export function withPreservedAttribution(href: string, search: string): string {
   const queryStart = href.indexOf("?");
   const existing = new URLSearchParams(
     queryStart === -1 ? "" : href.slice(queryStart + 1),

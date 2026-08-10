@@ -1,9 +1,16 @@
 import { describe, expect, test } from "bun:test";
 
+import { sanitizeForTts } from "../../calls/tts-text-sanitizer.js";
 import { extractSpeakableSegments } from "../speakable-segments.js";
 
 const DEFAULT_CHAR_THRESHOLD = 180;
 const EAGER_CHAR_THRESHOLD = 60;
+
+// The compile target's lib predates String.prototype.isWellFormed; Bun
+// supports it at runtime.
+function isWellFormedUtf16(value: string): boolean {
+  return (value as string & { isWellFormed(): boolean }).isWellFormed();
+}
 
 describe("extractSpeakableSegments", () => {
   test("splits complete sentences and keeps the trailing fragment as remainder", () => {
@@ -34,6 +41,16 @@ describe("extractSpeakableSegments", () => {
 
     expect(segments).toEqual([]);
     expect(remainder).toBe("Version 3.5 is out");
+  });
+
+  test("does not split inside a decimal number", () => {
+    const { segments, remainder } = extractSpeakableSegments(
+      "3.14 is pi.",
+      false,
+    );
+
+    expect(segments).toEqual(["3.14 is pi."]);
+    expect(remainder).toBe("");
   });
 
   test("treats a newline as a segment boundary", () => {
@@ -177,6 +194,459 @@ describe("extractSpeakableSegments", () => {
 
     test("non-eager extraction ignores clause punctuation", () => {
       const text = "Sure, I can help with that, and here is more";
+
+      const { segments, remainder } = extractSpeakableSegments(text, false);
+
+      expect(segments).toEqual([]);
+      expect(remainder).toBe(text);
+    });
+  });
+
+  describe("non-Latin scripts", () => {
+    test("splits Hindi at the danda", () => {
+      const { segments, remainder } = extractSpeakableSegments(
+        "नमस्ते। आप कैसे हैं?",
+        false,
+      );
+
+      expect(segments).toEqual(["नमस्ते।", "आप कैसे हैं?"]);
+      expect(remainder).toBe("");
+    });
+
+    test("splits Japanese at the ideographic full stop with no whitespace", () => {
+      const { segments, remainder } = extractSpeakableSegments(
+        "こんにちは。今日はいい天気ですね。続き",
+        false,
+      );
+
+      expect(segments).toEqual(["こんにちは。", "今日はいい天気ですね。"]);
+      expect(remainder).toBe("続き");
+    });
+
+    test("a buffer ending at a non-Latin ender keeps buffering for closers", () => {
+      // Streaming deltas can split a quoted sentence: `「こんにちは。`
+      // arrives first and `」次です。` in the next delta. A boundary at the
+      // buffer-final 。 would orphan the 」 into the next segment.
+      const firstDelta = extractSpeakableSegments("「こんにちは。", false);
+      expect(firstDelta.segments).toEqual([]);
+      expect(firstDelta.remainder).toBe("「こんにちは。");
+
+      const afterNextDelta = extractSpeakableSegments(
+        `${firstDelta.remainder}」次です。`,
+        false,
+      );
+      expect(afterNextDelta.segments).toEqual(["「こんにちは。」"]);
+      expect(afterNextDelta.remainder).toBe("次です。");
+    });
+
+    test("force still flushes a buffer ending at an ideographic full stop", () => {
+      const { segments, remainder } = extractSpeakableSegments(
+        "終わりです。",
+        true,
+      );
+
+      expect(segments).toEqual(["終わりです。"]);
+      expect(remainder).toBe("");
+    });
+
+    test("the Arabic question mark terminates a segment", () => {
+      const { segments, remainder } = extractSpeakableSegments(
+        "كيف حالك؟ الطقس جميل",
+        false,
+      );
+
+      expect(segments).toEqual(["كيف حالك؟"]);
+      expect(remainder).toBe(" الطقس جميل");
+    });
+
+    test("eager mode splits at an ideographic comma with no whitespace", () => {
+      const text = `${"あ".repeat(30)}、まだ続く`;
+
+      const { segments, remainder } = extractSpeakableSegments(text, false, {
+        eager: true,
+      });
+
+      expect(segments).toEqual([`${"あ".repeat(30)}、`]);
+      expect(remainder).toBe("まだ続く");
+    });
+
+    test("eager mode keeps a fullwidth grouping comma inside a number", () => {
+      const text =
+        "これは長い導入文で二十四文字を確実に超えています１，０００円です";
+
+      const { segments, remainder } = extractSpeakableSegments(text, false, {
+        eager: true,
+      });
+
+      expect(segments).toEqual([]);
+      expect(remainder).toBe(text);
+    });
+
+    test("eager mode defers a digit-final fullwidth comma at the buffer edge", () => {
+      // The grouped digits may arrive in the next delta (`１，` then
+      // `０００円`), so a buffer-final comma after a digit keeps buffering.
+      const text = "これは長い導入文で二十四文字を確実に超えています１，";
+
+      const { segments, remainder } = extractSpeakableSegments(text, false, {
+        eager: true,
+      });
+
+      expect(segments).toEqual([]);
+      expect(remainder).toBe(text);
+    });
+
+    test("eager mode still splits at a fullwidth comma between non-digits", () => {
+      const text = `${"あ".repeat(30)}，まだ続く`;
+
+      const { segments, remainder } = extractSpeakableSegments(text, false, {
+        eager: true,
+      });
+
+      expect(segments).toEqual([`${"あ".repeat(30)}，`]);
+      expect(remainder).toBe("まだ続く");
+    });
+
+    test("hard-cap splits never break a surrogate pair", () => {
+      // "犬" shifts every non-BMP pair to an odd offset so the 180-unit cap
+      // lands mid-pair without the step-back.
+      const text = `犬${"𠮟".repeat(120)}`;
+
+      const { segments, remainder } = extractSpeakableSegments(text, false);
+
+      expect(segments).toHaveLength(1);
+      for (const segment of segments) {
+        expect(isWellFormedUtf16(segment)).toBe(true);
+      }
+      expect(isWellFormedUtf16(remainder)).toBe(true);
+      // No text is lost or reordered across the split.
+      expect(segments.join("") + remainder).toBe(text);
+    });
+
+    test("accented italic spans toggle like ASCII ones", () => {
+      const { segments, remainder } = extractSpeakableSegments(
+        "*café. crème* done. And more",
+        false,
+      );
+
+      expect(segments).toEqual(["*café. crème* done."]);
+      expect(remainder).toBe(" And more");
+    });
+
+    test("CJK underscore spans toggle like ASCII ones", () => {
+      const { segments, remainder } = extractSpeakableSegments(
+        "_変数_ です。まだ続きます",
+        false,
+      );
+
+      expect(segments).toEqual(["_変数_ です。"]);
+      expect(remainder).toBe("まだ続きます");
+    });
+
+    test("does not split a fullwidth decimal number", () => {
+      const { segments, remainder } = extractSpeakableSegments(
+        "３．１４です",
+        false,
+      );
+
+      expect(segments).toEqual([]);
+      expect(remainder).toBe("３．１４です");
+    });
+
+    test("a buffer ending exactly at a fullwidth full stop keeps buffering", () => {
+      // Streaming deltas can split a fullwidth decimal: `３．` arrives
+      // first and `１４です` in the next delta. The trailing ．must not be
+      // classified as a sentence boundary until the next character shows
+      // whether it is a decimal point.
+      const firstDelta = extractSpeakableSegments("３．", false);
+      expect(firstDelta.segments).toEqual([]);
+      expect(firstDelta.remainder).toBe("３．");
+
+      const afterNextDelta = extractSpeakableSegments(
+        `${firstDelta.remainder}１４です。次`,
+        false,
+      );
+      expect(afterNextDelta.segments).toEqual(["３．１４です。"]);
+      expect(afterNextDelta.remainder).toBe("次");
+    });
+
+    test("force still flushes a buffer ending at a fullwidth full stop", () => {
+      const { segments, remainder } = extractSpeakableSegments("３．", true);
+
+      expect(segments).toEqual(["３．"]);
+      expect(remainder).toBe("");
+    });
+
+    test("the fullwidth full stop still ends a genuine sentence", () => {
+      const { segments, remainder } = extractSpeakableSegments(
+        "終わりです．次です",
+        false,
+      );
+
+      expect(segments).toEqual(["終わりです．"]);
+      expect(remainder).toBe("次です");
+    });
+
+    test("the halfwidth ideographic full stop ends a sentence", () => {
+      const { segments, remainder } = extractSpeakableSegments(
+        "こんにちは｡次です",
+        false,
+      );
+
+      expect(segments).toEqual(["こんにちは｡"]);
+      expect(remainder).toBe("次です");
+    });
+
+    test("non-Latin enders inside a Markdown link URL do not split", () => {
+      const { segments, remainder } = extractSpeakableSegments(
+        "[記事](https://example.com/前編。後編)を読んで。次",
+        false,
+      );
+
+      expect(segments).toEqual([
+        "[記事](https://example.com/前編。後編)を読んで。",
+      ]);
+      expect(remainder).toBe("次");
+    });
+
+    test("an unclosed link URL still splits at a newline", () => {
+      const { segments, remainder } = extractSpeakableSegments(
+        "[x](https://a。b\n次",
+        false,
+      );
+
+      expect(segments).toEqual(["[x](https://a。b"]);
+      expect(remainder).toBe("次");
+    });
+
+    test("balanced parens inside a link URL keep suppressing boundaries", () => {
+      // The sanitizer's link pattern accepts balanced parens inside URLs
+      // (Wikipedia-style paths), so the segmenter must not exit the URL at
+      // the inner closing paren and split at a later terminator.
+      const { segments, remainder } = extractSpeakableSegments(
+        "[記事](https://example.com/a_(b)/前編。後編)を読んで。次",
+        false,
+      );
+
+      expect(segments).toEqual([
+        "[記事](https://example.com/a_(b)/前編。後編)を読んで。",
+      ]);
+      expect(remainder).toBe("次");
+    });
+
+    test("non-Latin enders inside a Markdown link label do not split the link", () => {
+      const { segments, remainder } = extractSpeakableSegments(
+        "[詳細。こちら](https://example.com)を確認。次",
+        false,
+      );
+
+      expect(segments).toEqual(["[詳細。こちら](https://example.com)を確認。"]);
+      expect(remainder).toBe("次");
+      // The intact link sanitizes to its label; a split would have left
+      // markup or the raw URL in a fragment.
+      expect(sanitizeForTts(segments[0] ?? "")).toBe("詳細。こちらを確認。");
+    });
+
+    test("enders inside image alt text do not split the image link", () => {
+      const { segments, remainder } = extractSpeakableSegments(
+        "![代替。テキスト](https://example.com/a.png)です。次",
+        false,
+      );
+
+      expect(segments).toEqual([
+        "![代替。テキスト](https://example.com/a.png)です。",
+      ]);
+      expect(remainder).toBe("次");
+    });
+
+    test("a bracket inside an inline code span does not suppress the sentence boundary", () => {
+      const { segments, remainder } = extractSpeakableSegments(
+        "Use `const items = [` to start. Then close it later on.",
+        false,
+      );
+
+      expect(segments).toEqual([
+        "Use `const items = [` to start.",
+        "Then close it later on.",
+      ]);
+      expect(remainder).toBe("");
+    });
+
+    test("a stray bracket splits at the suppressed boundary once a newline cancels it", () => {
+      const { segments, remainder } = extractSpeakableSegments(
+        "これは[メモ。次です。\nそして",
+        false,
+      );
+
+      expect(segments).toEqual(["これは[メモ。", "次です。"]);
+      expect(remainder).toBe("そして");
+    });
+
+    test("a closing bracket without a paren reopens the suppressed boundary", () => {
+      const { segments, remainder } = extractSpeakableSegments(
+        "これは[メモ。です]ね。次",
+        false,
+      );
+
+      expect(segments).toEqual(["これは[メモ。", "です]ね。"]);
+      expect(remainder).toBe("次");
+    });
+
+    test("a stray bracket in a long buffer splits at the suppressed boundary at the cap", () => {
+      const filler = "あ".repeat(DEFAULT_CHAR_THRESHOLD);
+      const { segments, remainder } = extractSpeakableSegments(
+        `これは[メモ。${filler}`,
+        false,
+      );
+
+      expect(segments).toEqual(["これは[メモ。", filler]);
+      expect(remainder).toBe("");
+    });
+
+    test("a label split across deltas defers, then completes", () => {
+      const firstDelta = extractSpeakableSegments("[詳細。こち", false);
+      expect(firstDelta.segments).toEqual([]);
+      expect(firstDelta.remainder).toBe("[詳細。こち");
+
+      const afterNextDelta = extractSpeakableSegments(
+        `${firstDelta.remainder}ら](https://example.com)を確認。次`,
+        false,
+      );
+      expect(afterNextDelta.segments).toEqual([
+        "[詳細。こちら](https://example.com)を確認。",
+      ]);
+      expect(afterNextDelta.remainder).toBe("次");
+    });
+
+    test("a buffer-final closing bracket keeps buffering for the paren", () => {
+      const firstDelta = extractSpeakableSegments("[詳細。こちら]", false);
+      expect(firstDelta.segments).toEqual([]);
+      expect(firstDelta.remainder).toBe("[詳細。こちら]");
+
+      const afterNextDelta = extractSpeakableSegments(
+        `${firstDelta.remainder}(https://example.com)を確認。次`,
+        false,
+      );
+      expect(afterNextDelta.segments).toEqual([
+        "[詳細。こちら](https://example.com)を確認。",
+      ]);
+      expect(afterNextDelta.remainder).toBe("次");
+    });
+
+    test("force flushes a buffer-final open label", () => {
+      const openLabel = extractSpeakableSegments("[詳細。こち", true);
+      expect(openLabel.segments).toEqual(["[詳細。こち"]);
+      expect(openLabel.remainder).toBe("");
+
+      const openUrl = extractSpeakableSegments(
+        "[詳細。こちら](https://exa",
+        true,
+      );
+      expect(openUrl.segments).toEqual(["[詳細。こちら](https://exa"]);
+      expect(openUrl.remainder).toBe("");
+    });
+
+    test("adjacent enders stay in one segment", () => {
+      // 本当！？ must not emit 本当！ and then a punctuation-only ？ segment.
+      const { segments, remainder } = extractSpeakableSegments(
+        "本当！？次です",
+        false,
+      );
+
+      expect(segments).toEqual(["本当！？"]);
+      expect(remainder).toBe("次です");
+    });
+
+    test("adjacent enders followed by a closer stay together", () => {
+      const { segments, remainder } = extractSpeakableSegments(
+        "「本当！？」次です",
+        false,
+      );
+
+      expect(segments).toEqual(["「本当！？」"]);
+      expect(remainder).toBe("次です");
+    });
+
+    test("a fullwidth stop inside a filename-style token does not split", () => {
+      const { segments, remainder } = extractSpeakableSegments(
+        "添付のreport．pdfを見てください。次です",
+        false,
+      );
+
+      expect(segments).toEqual(["添付のreport．pdfを見てください。"]);
+      expect(remainder).toBe("次です");
+    });
+
+    test("keeps a CJK closing bracket with its sentence", () => {
+      const { segments, remainder } = extractSpeakableSegments(
+        "「こんにちは。」次です。",
+        false,
+      );
+
+      expect(segments).toEqual(["「こんにちは。」"]);
+      // The trailing sentence ends at the buffer edge, so it keeps
+      // buffering in case the next delta opens with a closer.
+      expect(remainder).toBe("次です。");
+    });
+
+    test("keeps a CJK double angle bracket with its sentence", () => {
+      const { segments, remainder } = extractSpeakableSegments(
+        "《こんにちは。》次です。",
+        false,
+      );
+
+      expect(segments).toEqual(["《こんにちは。》"]);
+      expect(remainder).toBe("次です。");
+    });
+
+    test("keeps a closing curly quote with its sentence", () => {
+      const { segments, remainder } = extractSpeakableSegments(
+        "“早く！”と言った。まだ続く",
+        false,
+      );
+
+      expect(segments).toEqual(["“早く！”", "と言った。"]);
+      expect(remainder).toBe("まだ続く");
+    });
+
+    test("a span closer touching an astral word char keeps the span open", () => {
+      // 𠮟 is a non-BMP letter (surrogate pair). The sanitizer's Unicode
+      // lookarounds see it as \p{L} and leave *note*𠮟 unstripped, so the
+      // segmenter must agree and defer the boundary at the period.
+      const text = "*note*𠮟. Next";
+
+      const { segments, remainder } = extractSpeakableSegments(text, false);
+
+      expect(segments).toEqual([]);
+      expect(remainder).toBe(text);
+
+      // Forced flush keeps the whole span in one segment, so per-segment
+      // sanitization matches whole-text sanitization: no unbalanced marker
+      // is spoken.
+      const forced = extractSpeakableSegments(text, true);
+      expect(forced.segments.map(sanitizeForTts).join("")).toBe(
+        sanitizeForTts(text),
+      );
+    });
+
+    test("astral underscore spans toggle like BMP ones", () => {
+      // prev/next of both `_` markers are surrogate-pair halves; assembled
+      // code points make the span open and close exactly as the sanitizer's
+      // lookarounds do, so the split after 。 leaks no markers.
+      const { segments, remainder } = extractSpeakableSegments(
+        "_𠮟_ です。まだ続く",
+        false,
+      );
+
+      expect(segments).toEqual(["_𠮟_ です。"]);
+      expect(remainder).toBe("まだ続く");
+      // The sanitizer strips the balanced span, so nothing leaks.
+      expect(sanitizeForTts(segments[0] ?? "")).toBe("𠮟 です。");
+    });
+
+    test("a span closer touching a CJK word char keeps the span open", () => {
+      // Mirrors the sanitizer's Unicode lookarounds: it leaves *強調*です
+      // unstripped, so splitting after the 。 would leak the markers.
+      const text = "*強調*です。まだ続く";
 
       const { segments, remainder } = extractSpeakableSegments(text, false);
 

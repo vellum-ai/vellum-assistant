@@ -22,6 +22,7 @@ import {
 import {
   type DefaultProviderConfig,
   type LLMCallSite,
+  LLMCallSiteEnum,
   LLMSchema,
   type ProfileEntry,
 } from "../schemas/llm.js";
@@ -245,7 +246,10 @@ describe("resolver integration", () => {
       },
     });
     const body = CODE_DEFAULT_PROFILE_ENTRIES["latency-optimized"]!;
-    for (const callSite of ["voiceFrontDoor", "voiceFrontDecision"] as const) {
+    for (const callSite of [
+      "voiceFrontDoor",
+      "voiceProgressNarration",
+    ] as const) {
       const resolved = resolveCallSiteConfig(callSite, llm);
       expect(resolved.model).toBe(body.model as string);
       expect(resolved.model).not.toBe("claude-opus-4-6");
@@ -265,6 +269,12 @@ describe("resolver integration", () => {
 });
 
 describe("schema validation", () => {
+  test("voiceFrontDoor is the only front callsite", () => {
+    expect(
+      LLMCallSiteEnum.options.filter((callSite) => callSite.includes("Front")),
+    ).toEqual(["voiceFrontDoor"]);
+  });
+
   test("always-available default names are valid references; os-beta only when materialized", () => {
     expect(() => LLMSchema.parse({ activeProfile: "balanced" })).not.toThrow();
     expect(() =>

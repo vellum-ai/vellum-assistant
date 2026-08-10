@@ -178,7 +178,16 @@ function ScheduleModelProfileField({
           // asks for a choice instead of rendering blank.
           placeholder={t("scheduleDetail.chooseModel")}
           isSaving={profileMutation.isPending}
-          className="min-w-[11rem]"
+          // The row sits among read-only facts, so the trigger stays
+          // borderless until aimed at. The negative margins cancel the
+          // trigger's own padding, so its value lines up with the values
+          // above and below it and its row stays their height.
+          variant="ghost"
+          // The trigger shrink-wraps at the right edge of the row, and its
+          // menu is wider than it is, so the menu hangs from that same edge
+          // rather than growing rightwards into the panel wall.
+          menuAlign="end"
+          className="-my-1 -mr-2"
         />
       }
     />

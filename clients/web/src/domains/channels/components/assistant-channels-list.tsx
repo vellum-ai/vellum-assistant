@@ -226,6 +226,7 @@ export function AssistantChannelsList({
       key={selectedPlugin.key}
       channel={selectedPlugin}
       assistantId={assistantId}
+      assistantDisplayName={displayName}
     />
   ) : (
     <ChannelPanel
@@ -307,9 +308,9 @@ export function AssistantChannelsList({
       <ConfirmDialog
         open={pendingDisconnect !== null}
         title={t("assistantChannelsList.disconnectTitle", {
-          channel: disconnectMeta?.label ?? "",
+          channel: disconnectMeta ? t(disconnectMeta.labelKey) : "",
         })}
-        message={disconnectMeta?.disconnectMessage ?? ""}
+        message={disconnectMeta ? t(disconnectMeta.disconnectMessageKey) : ""}
         confirmLabel={t("assistantChannelsList.disconnectConfirm")}
         destructive
         onConfirm={() => {

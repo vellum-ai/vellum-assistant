@@ -68,8 +68,10 @@ export async function speakSystemPrompt(
     });
 
   if (!useSynthesizedPath || !provider) {
-    // Native path — send text tokens through the transport.
-    relay.sendTextToken(text, true);
+    // Native path: send text tokens through the transport. Marked as
+    // system copy so transports that re-synthesize tokens (media-stream)
+    // never attach the caller-language hint to these fixed English prompts.
+    relay.sendTextToken(text, true, { systemCopy: true });
     return;
   }
 
@@ -128,6 +130,11 @@ async function synthesizeAndPlay(
       },
     });
 
+    // No language hint: this path speaks fixed English copy (verification
+    // codes, guardian prompts), so a pin-based hint would tell an
+    // enforcing provider to render English text in the pinned language.
+    // Conversational synthesis (call-controller, media-stream-output)
+    // carries the hint instead.
     const result = await synthesizeAndEmit({
       provider,
       text,
@@ -258,8 +265,9 @@ async function synthesizeAndPlay(
     // Fallback: send text via native TTS so the caller still hears the message.
     // sendTextToken with last:true includes the end-of-turn signal inherently.
     // This fallback is only used for providers whose catalog entry allows
-    // native fallback.
-    relay.sendTextToken(text, true);
+    // native fallback. Marked as system copy for the same reason as the
+    // native path above.
+    relay.sendTextToken(text, true, { systemCopy: true });
   } finally {
     sink?.finalize();
   }

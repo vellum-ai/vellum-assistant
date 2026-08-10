@@ -63,7 +63,15 @@
     "openMemorySettings": "Open Memory settings",
     "turnOnMemory": "Turn on Memory",
     "memorySettings": "Memory settings",
-    "fallbackModelProfile": "Default (system task model)"
+    "fallbackModelProfile": "Default (system task model)",
+    "nameHeartbeat": "Heartbeat",
+    "nameConsolidation": "Consolidation",
+    "nameRetrospective": "Memory retrospective",
+    "statusManagedOn": "On · Managed by Memory",
+    "statusPaused": "Paused",
+    "pausedRetrospectiveSwitchedOff": "Retrospectives are turned off. Turn them back on under Memory in settings.",
+    "pausedRetrospective": "Memory is off, so retrospectives are paused. Turn Memory back on to resume them.",
+    "pausedConsolidation": "Memory is off, so consolidation is paused. Turn Memory back on to resume consolidation."
   },
   "scheduleRow": {
     "toggleAria": "Toggle {name}"

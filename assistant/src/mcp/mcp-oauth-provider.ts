@@ -28,6 +28,8 @@ import type {
   OAuthTokens,
 } from "@modelcontextprotocol/sdk/shared/auth.js";
 
+import { getPlatformAssistantId } from "../config/env.js";
+import { getAssistantName } from "../daemon/identity-helpers.js";
 import {
   deleteSecureKeyAsync,
   getSecureKeyAsync,
@@ -35,6 +37,7 @@ import {
 } from "../security/secure-keys.js";
 import { openInHostBrowser } from "../util/browser.js";
 import { getLogger } from "../util/logger.js";
+import { APP_VERSION } from "../version.js";
 
 const log = getLogger("mcp-oauth");
 
@@ -47,6 +50,32 @@ function clientInfoKey(serverId: string): string {
 }
 function discoveryKey(serverId: string): string {
   return `mcp:${serverId}:discovery`;
+}
+function clientBindingKey(serverId: string): string {
+  return `mcp:${serverId}:client_binding`;
+}
+
+/**
+ * Logo shown on an authorization server's consent screen.
+ *
+ * Anonymously fetchable, which is the requirement: the server loads it
+ * without credentials. It identifies Vellum rather than the individual
+ * assistant, so every assistant a person runs presents the same mark.
+ */
+const CLIENT_LOGO_URI = "https://www.vellum.ai/favicon.svg";
+
+/**
+ * What a stored client registration was made against.
+ *
+ * A client identifier belongs to the authorization server that issued it and
+ * is registered for one set of redirect URIs, so reusing a registration after
+ * either changes is invalid. Recording both is what lets a registration be
+ * reused when they still hold, which is the difference between registering
+ * once per assistant and registering once per attempt.
+ */
+interface ClientRegistrationBinding {
+  issuer: string | null;
+  redirectUri: string;
 }
 
 export interface McpOAuthCallbackResult {
@@ -102,13 +131,36 @@ export class McpOAuthProvider implements OAuthClientProvider {
 
   // --- clientMetadata ---
 
+  /**
+   * Identity presented at dynamic registration, and on the consent screen
+   * the user reads before approving.
+   *
+   * The client is this assistant, not the Vellum product and not the plugin
+   * that declared the server: each assistant registers separately, with its
+   * own redirect URI, so its own name is what makes the consent screen
+   * meaningful when a person runs several. `software_id` carries the
+   * assistant id so a server can correlate an assistant's registrations
+   * across servers without treating every assistant as the same client.
+   *
+   * `logo_uri` is the Vellum mark rather than the assistant's own avatar.
+   * An authorization server fetching a logo is anonymous, and the avatar is
+   * served only behind authentication, so there is no per-assistant URL to
+   * give it. A stable public identity per assistant is what would supply
+   * one, and the same prerequisite would let this move to Client ID
+   * Metadata Documents and drop registration altogether.
+   */
   get clientMetadata(): OAuthClientMetadata {
+    const assistantName = getAssistantName();
+    const assistantId = getPlatformAssistantId().trim();
     return {
-      client_name: "Vellum Assistant",
+      client_name: assistantName ?? "Vellum Assistant",
+      logo_uri: CLIENT_LOGO_URI,
       redirect_uris: this._redirectUrl ? [this._redirectUrl] : [],
       token_endpoint_auth_method: "none",
       grant_types: ["authorization_code", "refresh_token"],
       response_types: ["code"],
+      ...(assistantId.length > 0 && { software_id: assistantId }),
+      software_version: APP_VERSION,
     };
   }
 
@@ -199,13 +251,26 @@ export class McpOAuthProvider implements OAuthClientProvider {
 
   // --- Client Information ---
 
+  /**
+   * The stored registration, or `undefined` to make the SDK register a new
+   * one.
+   *
+   * Returning the stored value is the normal case: dynamic registration
+   * writes a record on the authorization server, so re-registering per
+   * attempt accumulates records nobody cleans up. It is withheld only when
+   * the registration provably no longer applies, because the redirect URI
+   * it was made for changed or because a different authorization server now
+   * fronts the resource.
+   */
   async clientInformation(): Promise<OAuthClientInformationMixed | undefined> {
     const raw = await getSecureKeyAsync(clientInfoKey(this.serverId));
     if (!raw) {
       return undefined;
     }
+
+    let info: OAuthClientInformationMixed;
     try {
-      return JSON.parse(raw) as OAuthClientInformationMixed;
+      info = JSON.parse(raw) as OAuthClientInformationMixed;
     } catch {
       log.warn(
         { serverId: this.serverId },
@@ -213,6 +278,16 @@ export class McpOAuthProvider implements OAuthClientProvider {
       );
       return undefined;
     }
+
+    const stale = await this.describeStaleBinding();
+    if (stale) {
+      log.info(
+        { serverId: this.serverId, reason: stale },
+        "Stored client registration no longer applies; registering again",
+      );
+      return undefined;
+    }
+    return info;
   }
 
   async saveClientInformation(
@@ -229,7 +304,74 @@ export class McpOAuthProvider implements OAuthClientProvider {
       );
       return;
     }
+
+    // Record what the registration was made against, so a later run can tell
+    // whether reusing it is still valid.
+    if (this._redirectUrl) {
+      const binding: ClientRegistrationBinding = {
+        issuer: await this.currentIssuer(),
+        redirectUri: this._redirectUrl,
+      };
+      const boundOk = await setSecureKeyAsync(
+        clientBindingKey(this.serverId),
+        JSON.stringify(binding),
+      );
+      if (!boundOk) {
+        log.warn(
+          { serverId: this.serverId },
+          "Failed to persist OAuth client binding; the registration will be remade on the next flow",
+        );
+      }
+    }
+
     log.info({ serverId: this.serverId }, "OAuth client information saved");
+  }
+
+  /** Issuer of the authorization server currently in play, when known. */
+  private async currentIssuer(): Promise<string | null> {
+    const state = await this.discoveryState();
+    return (
+      state?.authorizationServerMetadata?.issuer ??
+      state?.authorizationServerUrl ??
+      null
+    );
+  }
+
+  /**
+   * Why the stored registration cannot be reused, or null when it can.
+   *
+   * The redirect URI is only checked while a flow is being prepared:
+   * outside one there is no redirect URI to compare against, and a silent
+   * reconnect must not be turned into a registration.
+   *
+   * The issuer is only checked when discovery has run. An unverifiable
+   * issuer keeps the registration rather than discarding it, since the
+   * redirect check already covers the case this plugin actually changes.
+   */
+  private async describeStaleBinding(): Promise<string | null> {
+    const raw = await getSecureKeyAsync(clientBindingKey(this.serverId));
+    if (!raw) {
+      // Registered before the binding was recorded. Keep it: discarding
+      // every pre-existing registration would remake all of them at once.
+      return null;
+    }
+
+    let binding: ClientRegistrationBinding;
+    try {
+      binding = JSON.parse(raw) as ClientRegistrationBinding;
+    } catch {
+      return "stored binding is unreadable";
+    }
+
+    if (this._redirectUrl && binding.redirectUri !== this._redirectUrl) {
+      return "redirect URI changed";
+    }
+
+    const issuer = await this.currentIssuer();
+    if (issuer && binding.issuer && binding.issuer !== issuer) {
+      return "authorization server changed";
+    }
+    return null;
   }
 
   // --- Code Verifier (in-memory, ephemeral) ---
@@ -382,6 +524,10 @@ export class McpOAuthProvider implements OAuthClientProvider {
           "OAuth client information key not found in secure storage (already removed)",
         );
       }
+      // The binding describes the registration being dropped, so it goes
+      // with it. Leaving it would let a later registration inherit the
+      // previous one's issuer and redirect URI.
+      await deleteSecureKeyAsync(clientBindingKey(this.serverId));
     }
     if (scope === "all" || scope === "verifier") {
       this._codeVerifier = undefined;
@@ -483,14 +629,17 @@ export async function hasMcpOAuthTokens(serverId: string): Promise<boolean> {
 export async function deleteMcpOAuthCredentials(
   serverId: string,
 ): Promise<{ ok: boolean; failedKeys: string[] }> {
-  const [tokensResult, clientResult, discoveryResult] = await Promise.all([
-    deleteSecureKeyAsync(tokensKey(serverId)),
-    deleteSecureKeyAsync(clientInfoKey(serverId)),
-    deleteSecureKeyAsync(discoveryKey(serverId)),
-  ]);
+  const [tokensResult, clientResult, bindingResult, discoveryResult] =
+    await Promise.all([
+      deleteSecureKeyAsync(tokensKey(serverId)),
+      deleteSecureKeyAsync(clientInfoKey(serverId)),
+      deleteSecureKeyAsync(clientBindingKey(serverId)),
+      deleteSecureKeyAsync(discoveryKey(serverId)),
+    ]);
   const results = [
     { key: "tokens", result: tokensResult },
     { key: "client_info", result: clientResult },
+    { key: "client_binding", result: bindingResult },
     { key: "discovery", result: discoveryResult },
   ];
   const failedKeys = results

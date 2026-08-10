@@ -16,7 +16,7 @@ import {
   copyDeployedAppLink,
   useAppDeployment,
 } from "@/hooks/use-app-deployment";
-import { useIsMobile } from "@/hooks/use-is-mobile";
+import { useTouchMobile } from "@/hooks/use-touch-mobile";
 import { type AppSummary, isReadOnlyApp } from "@/types/app-types";
 import { getCachedAppHtml } from "@/utils/app-html-cache";
 import { formatFriendlyDate } from "@/utils/format-date";
@@ -85,7 +85,6 @@ export function LibraryAppCard({
   }, [assistantId, app.id, app.name, isSharing]);
 
   const [menuOpen, setMenuOpen] = useState(false);
-  const isMobile = useIsMobile();
 
   // The library renders one card per app, so the deployment status is fetched
   // lazily rather than N-at-a-time on mount: the first hover (or menu open)
@@ -180,7 +179,6 @@ export function LibraryAppCard({
             onDeploy={deployAction}
             deployedUrl={deployedUrl}
             onCopyDeployedLink={handleCopyDeployedLink}
-            isMobile={isMobile}
           />
         </div>
 
@@ -202,7 +200,7 @@ export function LibraryAppCard({
 }
 
 // ---------------------------------------------------------------------------
-// Actions menu (desktop dropdown + mobile bottom sheet)
+// Actions menu (anchored dropdown, or a bottom sheet on touch)
 // ---------------------------------------------------------------------------
 
 export interface LibraryAppCardActionsMenuProps {
@@ -222,7 +220,6 @@ export interface LibraryAppCardActionsMenuProps {
   deployedUrl?: string | null;
   /** Invoked by the deployed-state entry; copies the link and shows it. */
   onCopyDeployedLink?: () => void;
-  isMobile: boolean;
 }
 
 export function LibraryAppCardActionsMenu({
@@ -236,13 +233,13 @@ export function LibraryAppCardActionsMenu({
   onDeploy,
   deployedUrl,
   onCopyDeployedLink,
-  isMobile,
 }: LibraryAppCardActionsMenuProps) {
+  const isTouchMobile = useTouchMobile();
   // Only treated as deployed when the caller can also hand the link back.
   // Otherwise the entry would report a deployment it can't reach.
   const isDeployed =
     deployedUrl != null && deployedUrl !== "" && onCopyDeployedLink != null;
-  if (isMobile) {
+  if (isTouchMobile) {
     return (
       <BottomSheet.Root open={open} onOpenChange={onOpenChange}>
         <BottomSheet.Trigger asChild>

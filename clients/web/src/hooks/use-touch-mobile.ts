@@ -1,4 +1,4 @@
-import { useSyncExternalStore } from "react";
+import { useMediaQuery } from "@/hooks/use-media-query";
 
 /**
  * Mirrors the design-library `touch-mobile` CSS variant: a narrow viewport
@@ -9,17 +9,14 @@ import { useSyncExternalStore } from "react";
 export const TOUCH_MOBILE_MEDIA_QUERY =
   "(max-width: 767px) and (pointer: coarse)";
 
-function subscribe(onChange: () => void): () => void {
-  const mql = window.matchMedia(TOUCH_MOBILE_MEDIA_QUERY);
-  mql.addEventListener("change", onChange);
-  return () => mql.removeEventListener("change", onChange);
-}
-
-function getSnapshot(): boolean {
-  return window.matchMedia(TOUCH_MOBILE_MEDIA_QUERY).matches;
-}
-
-/** Returns `true` on touch-first mobile viewports (see the media query). */
+/**
+ * Returns `true` on touch-first mobile viewports (see the media query).
+ *
+ * This is the input-capability axis: which overlay a trigger should open,
+ * whether long-press is the way in, whether a hover-revealed affordance can
+ * exist at all. How much fits on screen is `useIsMobile()`. See
+ * `docs/PLATFORM_ADAPTATION.md`.
+ */
 export function useTouchMobile(): boolean {
-  return useSyncExternalStore(subscribe, getSnapshot, () => false);
+  return useMediaQuery(TOUCH_MOBILE_MEDIA_QUERY);
 }

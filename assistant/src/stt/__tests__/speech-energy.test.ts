@@ -3,6 +3,8 @@ import { describe, expect, test } from "bun:test";
 import {
   DEFAULT_SPEECH_ENERGY_THRESHOLD,
   detectPcm16SpeechActivity,
+  pcm16MaxNormalizedCorrelation,
+  pcm16MeanAmplitude,
 } from "../speech-energy.js";
 
 /** Build a PCM16LE buffer from an array of sample values. */
@@ -64,5 +66,82 @@ describe("detectPcm16SpeechActivity", () => {
     expect(detectPcm16SpeechActivity(quiet)).toBe(false);
     expect(detectPcm16SpeechActivity(quiet, 400)).toBe(true);
     expect(detectPcm16SpeechActivity(quiet, 500)).toBe(false);
+  });
+});
+
+describe("pcm16MeanAmplitude", () => {
+  test("returns 0 for an empty buffer", () => {
+    expect(pcm16MeanAmplitude(Buffer.alloc(0))).toBe(0);
+  });
+
+  test("returns the exact mean absolute amplitude", () => {
+    expect(pcm16MeanAmplitude(pcm16([1_000, -2_000, 3_000, -4_000]))).toBe(
+      2_500,
+    );
+  });
+
+  test("ignores a trailing odd byte", () => {
+    const samples = pcm16([3_000, -3_000]);
+    expect(
+      pcm16MeanAmplitude(Buffer.concat([samples, Buffer.from([0x01])])),
+    ).toBe(3_000);
+  });
+
+  test("matches the detector's threshold comparison", () => {
+    const chunks = [
+      Buffer.alloc(0),
+      pcm16([0, 0]),
+      pcm16([500, -500]),
+      pcm16([DEFAULT_SPEECH_ENERGY_THRESHOLD]),
+      pcm16([DEFAULT_SPEECH_ENERGY_THRESHOLD + 1]),
+    ];
+    for (const chunk of chunks) {
+      expect(detectPcm16SpeechActivity(chunk)).toBe(
+        pcm16MeanAmplitude(chunk) > DEFAULT_SPEECH_ENERGY_THRESHOLD,
+      );
+    }
+  });
+});
+
+describe("pcm16MaxNormalizedCorrelation", () => {
+  const wave = (frequency: number, count: number): Buffer =>
+    pcm16(
+      Array.from({ length: count }, (_, index) =>
+        Math.round(
+          8_000 * Math.sin((2 * Math.PI * frequency * index) / 16_000),
+        ),
+      ),
+    );
+
+  test("finds a matching waveform at an arbitrary reference offset", () => {
+    const input = wave(240, 800);
+    const reference = Buffer.concat([wave(410, 400), input, wave(610, 400)]);
+
+    expect(pcm16MaxNormalizedCorrelation(input, reference)).toBeGreaterThan(
+      0.99,
+    );
+  });
+
+  test("is invariant to gain and polarity", () => {
+    const inputSamples = Array.from({ length: 800 }, (_, index) =>
+      Math.round(5_000 * Math.sin((2 * Math.PI * index) / 83)),
+    );
+    const inverted = pcm16(inputSamples.map((sample) => -2 * sample));
+
+    expect(
+      pcm16MaxNormalizedCorrelation(pcm16(inputSamples), inverted),
+    ).toBeGreaterThan(0.99);
+  });
+
+  test("rejects an unrelated waveform and flat power", () => {
+    expect(
+      pcm16MaxNormalizedCorrelation(wave(240, 800), wave(610, 1_600)),
+    ).toBeLessThan(0.3);
+    expect(
+      pcm16MaxNormalizedCorrelation(
+        pcm16(new Array(800).fill(3_000)),
+        pcm16(new Array(1_600).fill(3_000)),
+      ),
+    ).toBe(0);
   });
 });

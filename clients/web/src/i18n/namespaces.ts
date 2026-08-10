@@ -41,6 +41,7 @@ export const NAMESPACES = [
   "account",
   "channels",
   "settings",
+  "workspace",
 ] as const;
 
 export type Namespace = (typeof NAMESPACES)[number];

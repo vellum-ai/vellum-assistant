@@ -63,7 +63,15 @@
     "openMemorySettings": "Abrir la configuración de Memoria",
     "turnOnMemory": "Activar Memoria",
     "memorySettings": "Configuración de Memoria",
-    "fallbackModelProfile": "Predeterminado (modelo de tareas del sistema)"
+    "fallbackModelProfile": "Predeterminado (modelo de tareas del sistema)",
+    "nameHeartbeat": "Latido",
+    "nameConsolidation": "Consolidación",
+    "nameRetrospective": "Retrospectiva de memoria",
+    "statusManagedOn": "Activo · Gestionado por Memoria",
+    "statusPaused": "En pausa",
+    "pausedRetrospectiveSwitchedOff": "Las retrospectivas están desactivadas. Vuelve a activarlas en Memoria, dentro de los ajustes.",
+    "pausedRetrospective": "Memoria está desactivada, así que las retrospectivas están en pausa. Vuelve a activar Memoria para reanudarlas.",
+    "pausedConsolidation": "Memoria está desactivada, así que la consolidación está en pausa. Vuelve a activar Memoria para reanudarla."
   },
   "scheduleRow": {
     "toggleAria": "Alternar {name}"

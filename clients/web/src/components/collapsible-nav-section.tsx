@@ -11,6 +11,7 @@ import { cn } from "@vellumai/design-library/utils/cn";
 
 import {
   SIDEBAR_CHIP_GAP,
+  SIDEBAR_PILL_HEIGHT_CLASS,
   SIDEBAR_ROW_PADDING_X,
   SIDEBAR_SECTION_INDENT,
   SIDEBAR_SECTION_TITLE_TEXT_CLASSES,
@@ -188,6 +189,20 @@ export interface CollapsibleNavSectionSectionProps
    * always visible regardless of the root's open-section state.
    */
   collapsible?: boolean;
+  /**
+   * Skips the "grow to fill the sidebar's remaining space while open" sizing
+   * below. Pinned wants this: it grows to fit its own rows instead, and
+   * should never stretch to claim space its rows don't use.
+   */
+  unbounded?: boolean;
+  /**
+   * Whether this is the bottom-most section in the list - only it grows to
+   * fill leftover space while open; every section above it (even open, even
+   * busy) sizes to its own content instead, since flex-grow would otherwise
+   * hand every open section a share of the leftover space whether or not it
+   * has enough rows to use it.
+   */
+  isLast?: boolean;
 }
 
 function CollapsibleNavSectionSection({
@@ -204,6 +219,8 @@ function CollapsibleNavSectionSection({
   contentClassName,
   ref,
   collapsible = true,
+  unbounded = false,
+  isLast = false,
   ...itemProps
 }: CollapsibleNavSectionSectionProps) {
   // The chevron forwards its clicks to the title trigger, keeping one
@@ -234,7 +251,7 @@ function CollapsibleNavSectionSection({
         // the header. The trigger carries its own unnamed `group` for the
         // icon/chevron swap, and it is a *sibling* of the trailing slot, so
         // that one can't reach it.
-        "group/header flex items-center justify-between",
+        "group/header flex shrink-0 items-center justify-between",
         // The title trigger's Accordion.Header wrapper must grow to fill
         // the row, so the whole header (minus the trailing cluster) is
         // the click target and long labels still truncate. The primitive
@@ -258,7 +275,8 @@ function CollapsibleNavSectionSection({
           ref={titleTriggerRef}
           data-slot="collapsible-nav-section-title"
           className={cn(
-            "h-[30px] max-md:h-auto",
+            SIDEBAR_PILL_HEIGHT_CLASS,
+            "max-md:h-auto shrink-0",
             "rounded-[6px] py-[6px] max-md:py-3",
             "text-left",
             SIDEBAR_SECTION_TITLE_TEXT_CLASSES,
@@ -277,7 +295,8 @@ function CollapsibleNavSectionSection({
         // slot (if given) and the label, always at rest.
         <div
           className={cn(
-            "flex h-[30px] max-md:h-auto",
+            "flex max-md:h-auto shrink-0",
+            SIDEBAR_PILL_HEIGHT_CLASS,
             // Half the usual mobile bottom padding: the gap to the first
             // row below reads as too large at the full py-3 (matches the
             // desktop py-[6px] top/bottom, kept as-is above).
@@ -419,6 +438,18 @@ function CollapsibleNavSectionSection({
         // Trigger, not a descendant) can read this item's own open/closed
         // `data-state` for its rotation.
         "group/section",
+        // While open, only the bottom-most section grows to claim whatever
+        // space the sidebar has left instead of the row list capping at a
+        // fixed height - `min-h-0` is what lets a flex item shrink below its
+        // content's natural size, which flex-1 needs here to actually cap
+        // rather than just growing forever. Every other section (even open,
+        // even unbounded) sizes to its own content: flex-grow has no notion
+        // of "this section needs the room," so giving every open section a
+        // share stretched a two-row group into a mostly-empty box the same
+        // size as a busy one beside it.
+        !unbounded &&
+          isLast &&
+          "data-[state=open]:min-h-0 data-[state=open]:flex-1",
         drag?.dragging && "opacity-50",
         // Insertion line, matching the conversation-row drop indicator.
         drag?.dropEdge === "before" &&
@@ -430,12 +461,25 @@ function CollapsibleNavSectionSection({
       {...itemProps}
     >
       {header}
-      {/* One indent for every section's content, defined here rather than at
-          each call site so no section can nest differently from the rest. */}
+      {/*
+       * The card carries no padding of its own (the header row above is
+       * already a self-contained pill), so the content picks up the same
+       * 12px horizontal inset directly, plus a little vertical breathing
+       * room from the header above it and the card's bottom edge below.
+       * Defined here rather than at each call site so no section can nest
+       * differently from the rest.
+       */}
       {collapsible ? (
         <Collapsible.Content
-          className={contentClassName}
-          style={{ paddingLeft: SIDEBAR_SECTION_INDENT }}
+          className={cn(
+            "sidebar-section-list pt-2 pb-2",
+            !unbounded && isLast && "flex min-h-0 flex-1 flex-col",
+            contentClassName,
+          )}
+          style={{
+            paddingLeft: SIDEBAR_ROW_PADDING_X + SIDEBAR_SECTION_INDENT,
+            paddingRight: SIDEBAR_ROW_PADDING_X,
+          }}
         >
           {children}
         </Collapsible.Content>
@@ -444,8 +488,11 @@ function CollapsibleNavSectionSection({
         // content can't be collapsed even if this section's `value` isn't
         // in the root's open list.
         <div
-          className={contentClassName}
-          style={{ paddingLeft: SIDEBAR_SECTION_INDENT }}
+          className={cn("pt-2 pb-2", contentClassName)}
+          style={{
+            paddingLeft: SIDEBAR_ROW_PADDING_X + SIDEBAR_SECTION_INDENT,
+            paddingRight: SIDEBAR_ROW_PADDING_X,
+          }}
         >
           {children}
         </div>

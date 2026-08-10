@@ -897,6 +897,73 @@ describe("MediaStreamSttSession", () => {
       session.dispose();
     });
 
+    // ── Detected language (latest tagged utterance) ─────────────────
+
+    test("a language switch retargets on the first final in the new language", async () => {
+      const { session, fake } = await startStreamingSession();
+
+      expect(session.currentLanguage()).toBeUndefined();
+
+      fake.emit({ type: "final", text: "hola", languages: ["es", "en"] });
+      fake.emit({ type: "final", text: "buenos dias", languages: ["es"] });
+      expect(session.currentLanguage()).toBe("es");
+
+      // The first ja-tagged utterance wins immediately: the caller does
+      // not have to outvote the session's es history. The secondary "es"
+      // tag does not dilute the utterance's dominant tag.
+      fake.emit({ type: "final", text: "konnichiwa", languages: ["ja", "es"] });
+      expect(session.currentLanguage()).toBe("ja");
+
+      session.dispose();
+    });
+
+    test("regional variants normalize to their base subtag", async () => {
+      const { session, fake } = await startStreamingSession();
+
+      fake.emit({ type: "final", text: "tudo bem", languages: ["pt-BR"] });
+
+      expect(session.currentLanguage()).toBe("pt");
+
+      session.dispose();
+    });
+
+    test("empty and untagged finals keep the previous value", async () => {
+      const { session, fake } = await startStreamingSession();
+
+      // A silence final can carry container-level tags describing no
+      // emitted words; it must not update the language.
+      fake.emit({ type: "final", text: "   ", languages: ["fr"] });
+      expect(session.currentLanguage()).toBeUndefined();
+
+      fake.emit({ type: "final", text: "hola", languages: ["es"] });
+      expect(session.currentLanguage()).toBe("es");
+
+      // A committed final without tags keeps the previous value.
+      fake.emit({ type: "final", text: "hello" });
+      expect(session.currentLanguage()).toBe("es");
+
+      // So does a tagged silence final after a language is established.
+      fake.emit({ type: "final", text: "   ", languages: ["fr"] });
+      expect(session.currentLanguage()).toBe("es");
+
+      session.dispose();
+    });
+
+    test("falling back to batch mid-call clears the detected language", async () => {
+      const { session, fake } = await startStreamingSession();
+
+      fake.emit({ type: "final", text: "konnichiwa", languages: ["ja"] });
+      expect(session.currentLanguage()).toBe("ja");
+
+      // Provider closes the stream unexpectedly: the session settles on
+      // batch, whose transcripts carry no language metadata. The stale ja
+      // detection must not keep hinting synthesis for English speech.
+      fake.emit({ type: "closed" });
+      expect(session.currentLanguage()).toBeUndefined();
+
+      session.dispose();
+    });
+
     test("local VAD turn end never triggers batch transcription in streaming mode", async () => {
       const onTranscriptFinal = jest.fn();
       const { session } = await startStreamingSession(
