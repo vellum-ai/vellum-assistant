@@ -1,0 +1,23 @@
+{
+  "name": "@vellumai/native-sidecar",
+  "version": "0.0.1",
+  "private": true,
+  "license": "MIT",
+  "type": "module",
+  "exports": {
+    "./process-supervisor": "./src/process-supervisor.ts",
+    "./supervisor": "./src/supervisor.ts"
+  },
+  "scripts": {
+    "test": "bun test ./src/supervisor.test.ts",
+    "typecheck": "bunx tsc --noEmit"
+  },
+  "dependencies": {
+    "zod": "4.3.6"
+  },
+  "devDependencies": {
+    "@types/bun": "1.3.11",
+    "@types/node": "22.10.5",
+    "typescript": "5.9.3"
+  }
+}
