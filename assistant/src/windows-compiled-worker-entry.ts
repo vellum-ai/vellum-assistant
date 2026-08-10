@@ -10,7 +10,9 @@ switch (worker) {
     await import("./schedule/worker.js");
     break;
   case "memory":
-    await import("./plugins/defaults/memory/worker.js");
+    await (
+      await import("./plugins/defaults/worker-entrypoints.js")
+    ).loadDefaultMemoryWorker();
     break;
   case "routes":
     await import("./embedded/plugin-api.js");
