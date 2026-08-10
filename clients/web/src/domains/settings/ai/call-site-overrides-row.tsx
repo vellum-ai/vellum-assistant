@@ -118,6 +118,19 @@ export function CallSiteOverrideRow({
     value: m.id,
     label: m.displayName,
   }));
+  // A stored pin outside the offered set stays visible as itself, marked
+  // unavailable: hiding it would render a blank trigger while the pin is
+  // still saved (mirrors the provider picker's unavailable-pin handling).
+  const storedModel = typeof draft?.model === "string" ? draft.model : "";
+  if (storedModel && !availableModels.some((m) => m.id === storedModel)) {
+    const displayName =
+      getModelsForProvider(currentProvider).find((m) => m.id === storedModel)
+        ?.displayName ?? storedModel;
+    modelOptions.push({
+      value: storedModel,
+      label: `${displayName} (unavailable)`,
+    });
+  }
   const hasModelError = !!draft?.provider && !draft?.model;
 
   function handleProfilePickerChange(val: string) {

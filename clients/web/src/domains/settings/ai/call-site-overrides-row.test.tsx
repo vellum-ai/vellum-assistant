@@ -193,4 +193,21 @@ describe("CallSiteOverrideRow model picker under a ChatGPT subscription", () => 
 
     expect(optionLabels().some((l) => l.includes("Nano"))).toBe(true);
   });
+
+  test("a stored pin outside the filtered set stays visible as unavailable", () => {
+    renderRow({ provider: "openai", model: "gpt-5.4-nano" }, [
+      SUBSCRIPTION_CONNECTION,
+    ]);
+
+    // The trigger shows the stored pin instead of rendering blank while the
+    // incompatible value is still saved.
+    expect(
+      triggerLabels().some((l) => l.includes("GPT-5.4 Nano (unavailable)")),
+    ).toBe(true);
+
+    fireEvent.click(modelTrigger());
+    expect(
+      optionLabels().some((l) => l.includes("GPT-5.4 Nano (unavailable)")),
+    ).toBe(true);
+  });
 });
