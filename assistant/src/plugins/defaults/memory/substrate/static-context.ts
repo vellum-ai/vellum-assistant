@@ -29,6 +29,7 @@
 import type { ChannelId } from "../../../../channels/types.js";
 import { usesConceptPageMemory } from "../../../../config/memory-v3-gate.js";
 import { readPromptFile } from "../../../../prompts/system-prompt.js";
+import { type BufferEntryLines, splitBufferEntries } from "../buffer-format.js";
 import { getMemoryConfig } from "../config.js";
 import { getWorkspacePromptPath } from "../paths.js";
 import { resolveSubstrateTuning } from "./tuning.js";
@@ -67,54 +68,55 @@ const BUFFER_INJECTION_NOTICE =
  * the operator has opted out of size-based buffer management and the
  * injection is left unbounded to match.
  *
- * Non-empty lines are the unit because that is what the scheduler counts
- * (`countBufferLines`), so the two readings of "how big is the buffer" agree.
- * Retained lines keep their original spacing; the notice replaces everything
- * before them.
+ * The unit is the entry, not the line. `remember()` stores a multiline fact
+ * as one timestamped line plus its body, so trimming by raw line count can
+ * land inside a fact and inject continuation lines stripped of the timestamp
+ * and opening clause that give them meaning. Whole entries are taken
+ * newest-first while they fit, which makes a mid-entry cut unrepresentable
+ * rather than something to detect and repair. Retained lines keep their
+ * original spacing; the notice replaces everything before them.
  *
- * The cap is a bound on buffered *content*, not a hard line budget: a single
- * entry whose body alone exceeds it keeps its opening line and an elision
- * marker (see {@link retainFromEntryBoundary}), so the output can run to
- * `maxLines + 2`.
+ * `maxLines` is still measured in non-empty lines, because that is what the
+ * scheduler counts (`countBufferLines`), so the two readings of "how big is
+ * the buffer" agree. See {@link capOversizedNewestEntry} for the one case
+ * that can exceed it.
  */
 function capBufferSection(content: string, maxLines: number | null): string {
   if (maxLines === null) {
     return content;
   }
   const lines = content.split("\n");
-  let kept = 0;
-  let start = lines.length;
-  while (start > 0 && kept < maxLines) {
-    start--;
-    if (lines[start]!.trim().length > 0) {
-      kept++;
-    }
-  }
-  if (start === 0) {
+  if (countNonEmpty(lines) <= maxLines) {
     return content;
   }
-  while (start < lines.length && lines[start]!.trim().length === 0) {
-    start++;
+
+  const entries = splitBufferEntries(lines);
+  const kept: BufferEntryLines[] = [];
+  let budget = maxLines;
+  // Newest-first: the buffer is append-only, so the tail is the most recent.
+  for (let i = entries.length - 1; i >= 0; i--) {
+    const entry = entries[i]!;
+    // A headless leading group is prose before the first entry, not a fact.
+    if (entry.start === null) {
+      break;
+    }
+    const cost = countNonEmpty(entry.lines);
+    if (cost > budget) {
+      break;
+    }
+    budget -= cost;
+    kept.unshift(entry);
   }
-  return `${BUFFER_INJECTION_NOTICE}\n${retainFromEntryBoundary(lines, start)}`;
+
+  const body =
+    kept.length > 0
+      ? kept.flatMap((entry) => entry.lines).join("\n")
+      : capOversizedNewestEntry(lines, entries, maxLines);
+  return `${BUFFER_INJECTION_NOTICE}\n${body}`;
 }
 
 /**
- * Matches the first line of a buffer entry: `- [Mon D, h:mm AM/PM] fact`, the
- * shape `formatRememberEntry` writes. The timestamp must be present and
- * timestamp-shaped, so a bullet carrying other bracketed text (a `- [ ]`
- * checklist item inside a multiline fact) reads as a continuation line.
- *
- * Duplicated from `BUFFER_ENTRY_REGEX` in `graph-topology/pending-buffer.ts`
- * rather than imported: `substrate/` is the bottom layer and `graph-topology/`
- * already imports it, so importing back would invert the layering. The two
- * must stay in sync.
- */
-const BUFFER_ENTRY_START_REGEX =
-  /^-\s+\[[A-Z][a-z]{2}\s+\d{1,2},\s+\d{1,2}:\d{2}\s+[AP]M\]/;
-
-/**
- * Marker replacing the head of an entry whose body alone exceeds the cap, so
+ * Marker replacing the elided head of an entry too large to inject whole, so
  * the retained tail reads as a fragment of the entry above it rather than as
  * the whole fact.
  */
@@ -122,67 +124,68 @@ const ENTRY_BODY_TRIMMED_NOTICE =
   "(This entry's body was trimmed. Read memory/buffer.md for the rest of it.)";
 
 /**
- * Render the retained lines from `start`, moved onto an entry boundary so the
- * injected Buffer never opens on orphan continuation lines.
+ * Render the tail when not even the newest entry fits inside the cap.
  *
- * A multiline `remember()` stores its body verbatim after the timestamped
- * first line, and consolidation reads non-timestamped lines as part of the
- * preceding entry. Cutting purely on a line count can therefore land inside a
- * fact and inject continuation lines stripped of the timestamp and opening
- * clause that give them meaning, which is worse than showing one fewer fact.
+ * There is no whole entry to fall back to here, and all three options cost
+ * something. Dropping the entry would leave the section with a "trimmed"
+ * notice and no facts at all, which is the worst outcome because the newest
+ * fact is usually the one that mattered. Admitting it whole would reopen the
+ * unbounded injection the cap exists to prevent, since a fact has no size
+ * limit. So the entry keeps its opening line, which carries the timestamp and
+ * first clause the tail needs to be readable, then the marker, then as much
+ * of the tail as the cap allows. Every injected line stays attributable to a
+ * timestamped entry, at a fixed cost of two lines over `maxLines`.
  *
- * Three cases, distinguished by what entry structure surrounds the cut:
- *
- * - **A later entry starts at or after the cut.** Drop the straddled entry and
- *   open on that one. Every surviving fact stays whole and the result can only
- *   shrink, so the cap still holds. This is the common case.
- * - **No later entry, but the cut sits inside one.** The newest entry's body is
- *   itself larger than the cap, so there is no whole entry to fall back to:
- *   dropping it would leave the section empty of facts, and the newest entry is
- *   the one most worth injecting. Keep its opening line (the timestamp and
- *   first clause the tail needs to be readable), then {@link
- *   ENTRY_BODY_TRIMMED_NOTICE}, then the tail. Costs two lines over the cap and
- *   attributes every retained line to a timestamped entry. When the cut fell on
- *   the opening line's immediate successor nothing was actually elided, so the
- *   whole entry is returned without the marker rather than claiming a trim that
- *   did not happen.
- * - **No entry structure at all.** A hand-written buffer that never went
- *   through `remember()`. Nothing to preserve, so the line cut stands.
+ * Two cases return early. When the cut falls on the opening line's immediate
+ * successor nothing was actually elided, so the entry is returned whole
+ * without a marker that would claim a trim that did not happen. When the
+ * buffer has no entry structure at all, it is hand-written and never went
+ * through `remember()`, so there is nothing to preserve and the plain line
+ * cut stands.
  */
-function retainFromEntryBoundary(lines: string[], start: number): string {
-  const successor = findEntryStart(lines, start, 1);
-  if (successor !== null) {
-    return lines.slice(successor).join("\n");
+function capOversizedNewestEntry(
+  lines: string[],
+  entries: readonly BufferEntryLines[],
+  maxLines: number,
+): string {
+  const cut = lineCutStart(lines, maxLines);
+  const newest = entries.at(-1);
+  if (newest === undefined || newest.start === null) {
+    return lines.slice(cut).join("\n");
   }
-  const opening = findEntryStart(lines, start - 1, -1);
-  if (opening === null) {
-    return lines.slice(start).join("\n");
-  }
-  const elidedHead = lines
-    .slice(opening + 1, start)
-    .some((line) => line.trim().length > 0);
+  const elidedHead = countNonEmpty(lines.slice(newest.firstLine + 1, cut)) > 0;
   if (!elidedHead) {
-    return lines.slice(opening).join("\n");
+    return lines.slice(newest.firstLine).join("\n");
   }
   return [
-    lines[opening]!,
+    lines[newest.firstLine]!,
     ENTRY_BODY_TRIMMED_NOTICE,
-    ...lines.slice(start),
+    ...lines.slice(cut),
   ].join("\n");
 }
 
-/** First index from `from` in direction `step` whose line starts an entry. */
-function findEntryStart(
-  lines: string[],
-  from: number,
-  step: 1 | -1,
-): number | null {
-  for (let i = from; i >= 0 && i < lines.length; i += step) {
-    if (BUFFER_ENTRY_START_REGEX.test(lines[i]!)) {
-      return i;
+/**
+ * Index of the first line in the trailing window of `maxLines` non-empty
+ * lines, advanced past any blank lines that would otherwise open the section.
+ */
+function lineCutStart(lines: readonly string[], maxLines: number): number {
+  let kept = 0;
+  let cut = lines.length;
+  while (cut > 0 && kept < maxLines) {
+    cut--;
+    if (lines[cut]!.trim().length > 0) {
+      kept++;
     }
   }
-  return null;
+  while (cut < lines.length && lines[cut]!.trim().length === 0) {
+    cut++;
+  }
+  return cut;
+}
+
+/** Non-empty line count, the unit the scheduler's `countBufferLines` uses. */
+function countNonEmpty(lines: readonly string[]): number {
+  return lines.filter((line) => line.trim().length > 0).length;
 }
 
 /**

@@ -91,7 +91,10 @@ import {
   type MemoryJobType,
 } from "../../../../persistence/jobs-store.js";
 import { runBackgroundJob } from "../../../../runtime/background-job-runner.js";
-import { formatBufferTimestamp } from "../graph/tool-handlers.js";
+import {
+  formatBufferTimestamp,
+  matchBufferEntryStart,
+} from "../buffer-format.js";
 import { getLogger } from "../logging.js";
 import { getWorkspaceDir } from "../paths.js";
 import {
@@ -597,32 +600,36 @@ function readBufferContent(bufferPath: string): string {
 
 /**
  * Extract the bracketed timestamp from a `buffer.md` entry line
- * (`- [Mon D, h:mm AM/PM] …`, see `formatBufferEntry`). Returned verbatim so
- * it can serve directly as a consolidation cutoff — both sides of the agent's
- * "timestamp ≥ cutoff" comparison then share the exact `formatBufferTimestamp`
- * shape.
+ * (`- [Mon D, h:mm AM/PM] …`, see {@link formatRememberEntry}). Returned
+ * verbatim so it can serve directly as a consolidation cutoff: both sides of
+ * the agent's "timestamp >= cutoff" comparison then share the exact
+ * {@link formatBufferTimestamp} shape.
  *
- * The bracket contents must match that shape exactly: a remembered fact's
- * continuation lines can themselves start with `- [` (markdown checklists
- * `- [ ] …`, wikilink bullets `- [[…]]`), and counting those as entries
- * would inflate the per-run budget — or worse, hand the agent a garbage
- * cutoff like a blank string. Returns `null` for anything that isn't a real
- * timestamped entry start.
+ * Recognition is delegated to the shared matcher, so a remembered fact's
+ * continuation lines never register as entries. That matters here beyond
+ * tidiness: counting a fact's `- [ ] …` checklist lines or an indented
+ * entry-shaped body line as entries would inflate the per-run budget, or hand
+ * the agent a cutoff drawn from the middle of a fact.
  */
 function extractBufferEntryTimestamp(line: string): string | null {
-  const match = /^\s*-\s*\[([A-Z][a-z]{2} \d{1,2}, \d{1,2}:\d{2} [AP]M)\]/.exec(
-    line,
-  );
-  return match ? match[1] : null;
+  return matchBufferEntryStart(line)?.timestamp ?? null;
 }
 
 /**
  * Count non-empty lines in `memory/buffer.md`. Used by the scheduler to
  * implement the size-based consolidation trigger. Missing file → 0.
  *
- * Each entry is one line (`- [Mon D, h:mm AM/PM] …\n`), so non-empty-line
- * count == entry count for a well-formed buffer; blank lines and trailing
- * newlines don't inflate the count.
+ * Lines, deliberately, not entries. A multiline `remember()` fact is one
+ * entry spread over several lines, so the two counts diverge and each answers
+ * a different question. This trigger and the injected-Buffer cap that reuses
+ * it (`capBufferSection` in `static-context.ts`) both care about how much
+ * context the buffer costs, which scales with lines. The per-run budget
+ * `consolidation_max_entries_per_run` cares about how many facts the agent
+ * must file, so it counts entry-start lines instead.
+ *
+ * Do not "fix" this to count entries: a single 200-line fact is a context
+ * problem the trigger should fire on, even though it is one entry. Blank
+ * lines and trailing newlines don't inflate the count.
  */
 export function countBufferLines(bufferPath: string): number {
   return countNonEmptyLines(readBufferContent(bufferPath));
