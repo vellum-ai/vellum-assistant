@@ -33925,23 +33925,7 @@ components:
       additionalProperties: {}
     LLMProvider:
       type: string
-      enum:
-        - anthropic
-        - openai
-        - gemini
-        - ollama
-        - fireworks
-        - openrouter
-        - vercel-ai-gateway
-        - openai-compatible
-        - minimax
-        - atlascloud
-        - together
-        - litellm
-        - baseten
-        - poolside
-        - vellum
-        - chatgpt
+      minLength: 1
     ProfilePatchEntry:
       type: object
       properties:

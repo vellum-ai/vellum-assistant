@@ -40,6 +40,7 @@ import {
   describeSubscriptionModelIncompatibility,
   isConnectionCompatibleWithModel,
 } from "./connection-model-compat.js";
+import { VALID_CONNECTION_PROVIDERS } from "./inference/auth.js";
 import {
   canonicalVellumConnection,
   getConnection,
@@ -55,6 +56,7 @@ import {
 } from "./routing-identity.js";
 import type { Provider } from "./types.js";
 import {
+  getManagedUpstream,
   isVellumManagedConnection,
   MANAGED_ROUTABLE_PROVIDERS,
   VELLUM_MANAGED_CONNECTION_NAME,
@@ -63,6 +65,30 @@ import {
 export { ConnectionResolutionError, resolveRoutingIdentity };
 
 const log = getLogger("providers/connection-resolution");
+
+/**
+ * Resolve a provider label that names a connection row (an entry) to that
+ * row's name. Returns null for catalog providers and routing identities
+ * (those translate through their own rules) and for labels naming no row.
+ *
+ * The write surfaces reject entry-name providers until the entries model
+ * enables them, so a config carrying one reaches dispatch only through a
+ * hand edit today and through the collapse migration later; translating
+ * here makes both route explainably instead of failing as an unknown
+ * provider.
+ */
+export function resolveEntryConnectionName(
+  provider: string | undefined,
+): string | null {
+  if (!provider || VALID_CONNECTION_PROVIDERS.includes(provider)) {
+    return null;
+  }
+  try {
+    return getConnection(getDb(), provider) ? provider : null;
+  } catch {
+    return null;
+  }
+}
 
 /**
  * Resolve a Provider through a named `provider_connection`.
@@ -152,11 +178,19 @@ export async function tryResolveProviderForConnectionName(
   // fall back to the default provider.
   const isVellum = isVellumManagedConnection(connection);
   if (isVellum && !expectedProvider) {
-    throw new ConnectionResolutionError(
-      connectionName,
-      "provider_mismatch",
-      `provider_connection "${connectionName}" is the provider-agnostic Vellum-managed connection but the resolving profile declared no provider — set the profile's provider so the upstream can be selected`,
-    );
+    // An entry-name route carries no declared provider (the label is the
+    // row's name, not a vendor); a vellum-kind row derives its upstream
+    // from the model, same as the vellum identity itself.
+    expectedProvider = model
+      ? (getManagedUpstream(model) ?? undefined)
+      : undefined;
+    if (!expectedProvider) {
+      throw new ConnectionResolutionError(
+        connectionName,
+        "provider_mismatch",
+        `provider_connection "${connectionName}" is the provider-agnostic Vellum-managed connection but the resolving profile declared no provider — set the profile's provider so the upstream can be selected`,
+      );
+    }
   }
   const isVellumRoute =
     isVellum &&
@@ -348,6 +382,19 @@ export async function resolveDefaultProvider(
       resolved.provider,
       resolved.model,
     )?.connectionName;
+  }
+  // An entry-name provider IS the connection name: the label points at a
+  // row, and the row's own provider drives dispatch.
+  const entryName = connectionName
+    ? null
+    : resolveEntryConnectionName(resolved.provider);
+  if (entryName) {
+    return tryResolveProviderForConnectionName(
+      entryName,
+      config,
+      undefined,
+      resolved.model,
+    );
   }
   if (!connectionName) {
     // The merged config has no provider_connection — the profile likely set

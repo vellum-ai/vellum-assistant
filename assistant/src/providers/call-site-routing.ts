@@ -39,6 +39,7 @@ import {
 import {
   ConnectionResolutionError,
   isManagedConnectionRoute,
+  resolveEntryConnectionName,
   resolveRoutingIdentity,
   tryResolveProviderForConnectionName,
 } from "./connection-resolution.js";
@@ -112,7 +113,7 @@ export class CallSiteRoutingProvider implements Provider {
      */
     private readonly resolveByConnection: (
       connectionName: string,
-      expectedProvider: string,
+      expectedProvider: string | undefined,
       model: string | undefined,
     ) => Promise<Provider | null>,
     private readonly defaultRouteAttribution?: ProviderRouteAttribution,
@@ -273,6 +274,16 @@ export class CallSiteRoutingProvider implements Provider {
       )?.connectionName;
     }
 
+    // An entry-name provider IS the connection name: the label points at a
+    // row, and the row's own provider drives dispatch, so no expected
+    // provider is threaded (the label is not a vendor).
+    const entryRoute = connectionName
+      ? null
+      : resolveEntryConnectionName(resolved.provider);
+    if (entryRoute) {
+      connectionName = entryRoute;
+    }
+
     // When no connection is set, auto-resolve one for the resolved provider —
     // including when the provider matches the default's name. The default
     // transport may ride the managed (platform-billed) connection, so reusing
@@ -303,7 +314,7 @@ export class CallSiteRoutingProvider implements Provider {
     if (connectionName) {
       const connectionProvider = await this.resolveByConnection(
         connectionName,
-        resolved.provider,
+        entryRoute ? undefined : resolved.provider,
         resolved.model,
       );
       if (connectionProvider) {

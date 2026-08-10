@@ -221,7 +221,6 @@ describe("getDefaultProvider / setDefaultProvider", () => {
   test("setDefaultProvider validates the provider before writing", () => {
     expect(() =>
       setDefaultProvider({
-        // @ts-expect-error deliberately invalid for the test
         provider: "not-a-provider",
       }),
     ).toThrow();

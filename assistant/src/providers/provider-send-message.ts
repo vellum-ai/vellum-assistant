@@ -17,6 +17,7 @@ import {
   isConnectionCompatibleWithModel,
 } from "./connection-model-compat.js";
 import {
+  resolveEntryConnectionName,
   resolveRoutingIdentity,
   tryResolveProviderForConnectionName,
 } from "./connection-resolution.js";
@@ -158,6 +159,14 @@ export async function resolveConfiguredProvider(
       resolved.model,
     )?.connectionName;
   }
+  // An entry-name provider IS the connection name: the label points at a
+  // row, and the row's own provider drives dispatch.
+  const entryRoute = connectionName
+    ? null
+    : resolveEntryConnectionName(inferenceProvider);
+  if (entryRoute) {
+    connectionName = entryRoute;
+  }
   if (!connectionName) {
     if (inferenceProvider) {
       try {
@@ -202,7 +211,7 @@ export async function resolveConfiguredProvider(
   const connectionProvider = await tryResolveProviderForConnectionName(
     connectionName,
     config,
-    inferenceProvider,
+    entryRoute ? undefined : inferenceProvider,
     resolved.model,
   );
   if (!connectionProvider) {

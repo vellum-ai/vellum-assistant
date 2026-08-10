@@ -50,6 +50,7 @@ import {
   LLMConfigFragment,
   ProfileEntry,
   routingIdentityModelIssue,
+  unknownLlmProviderIssue,
 } from "../../config/schemas/llm.js";
 import { VALID_MEMORY_EMBEDDING_PROVIDERS } from "../../config/schemas/memory-storage.js";
 import { ServiceModeSchema } from "../../config/schemas/services.js";
@@ -1374,6 +1375,13 @@ function assertRoutableIdentityEntries(raw: Record<string, unknown>): void {
   for (const [label, entry] of entries) {
     if (typeof entry.provider !== "string") {
       continue;
+    }
+    // The provider schema is an open string (a stored value outside the
+    // known set parses instead of stripping its profile), so write-time
+    // membership is enforced here and at the profiles route.
+    const providerIssue = unknownLlmProviderIssue(entry.provider);
+    if (providerIssue) {
+      throw new BadRequestError(`${providerIssue} (${label})`);
     }
     const issue = routingIdentityModelIssue(
       entry.provider,

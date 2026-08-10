@@ -524,3 +524,84 @@ describe("routing identities", () => {
     ).rejects.toMatchObject({ reason: "not_found" });
   });
 });
+
+// ---------------------------------------------------------------------------
+// Entry-name providers — a profile provider naming a connection row directly.
+// Write surfaces reject these until the entries model enables them; dispatch
+// translates them so hand-edited configs (and the collapse migration later)
+// route through the named row.
+// ---------------------------------------------------------------------------
+
+describe("entry-name providers", () => {
+  beforeEach(() => {
+    resolveProviderCalls.length = 0;
+    resolveProviderOpts.length = 0;
+    fakeConnections.clear();
+    fakeProviders.clear();
+    setConfig("llm", {});
+  });
+
+  test("a profile naming an entry dispatches through that row", async () => {
+    registerConnection(
+      {
+        name: "anthropic-work",
+        provider: "anthropic",
+        auth: {
+          type: "api_key",
+          credential: "credential/anthropic-work/api_key",
+        },
+      },
+      { name: "anthropic", tag: "work-key" },
+    );
+    setLlmConfig({
+      profiles: {
+        work: { provider: "anthropic-work", model: "claude-opus-4-8" },
+      },
+    });
+
+    const result = await getConfiguredProvider("mainAgent", {
+      overrideProfile: "work",
+    });
+
+    expect(result).not.toBeNull();
+    expect(resolveProviderCalls.length).toBe(1);
+    expect(resolveProviderCalls[0]?.name).toBe("anthropic-work");
+    // The label is not a vendor: the row's own provider drives dispatch,
+    // so no override is threaded.
+    expect(resolveProviderOpts[0]?.providerOverride).toBeUndefined();
+  });
+
+  test("a vellum-kind entry derives its upstream from the model", async () => {
+    registerConnection(
+      { name: "work-managed", provider: "vellum", auth: { type: "platform" } },
+      { name: "anthropic", tag: "managed-stub" },
+    );
+    setLlmConfig({
+      profiles: {
+        managed: { provider: "work-managed", model: "claude-opus-4-8" },
+      },
+    });
+
+    const result = await getConfiguredProvider("mainAgent", {
+      overrideProfile: "managed",
+    });
+
+    expect(result).not.toBeNull();
+    expect(resolveProviderCalls[0]?.name).toBe("work-managed");
+    expect(resolveProviderOpts[0]?.providerOverride).toBe("anthropic");
+  });
+
+  test("a label naming no row degrades to the soft null path", async () => {
+    setLlmConfig({
+      profiles: {
+        ghost: { provider: "no-such-entry", model: "claude-opus-4-8" },
+      },
+    });
+
+    const result = await getConfiguredProvider("mainAgent", {
+      overrideProfile: "ghost",
+    });
+
+    expect(result).toBeNull();
+  });
+});
