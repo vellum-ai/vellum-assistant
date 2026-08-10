@@ -35,6 +35,15 @@ export const SCROLL_TO_MESSAGE_PARAM = "message";
  */
 export const PACKAGE_PARAM = "package";
 
+/**
+ * Search param naming the entry point that produced a plans-takeover visit
+ * (`/assistant/plans?source=<tag>`). Producers tag it via
+ * `plansRouteForSource` in `lib/telemetry/plans-entry-telemetry.ts`; the
+ * plans page reports the tag once on mount and strips it. Also produced
+ * cross-app by the marketing pricing page (`source=marketing_pricing`).
+ */
+export const PLANS_SOURCE_PARAM = "source";
+
 export const routes = {
   assistant: r("/assistant"),
   /**

@@ -9,9 +9,9 @@ import {
 import { useIsFreePlan } from "@/hooks/use-is-free-plan";
 import { usePlatformGate } from "@/hooks/use-platform-gate";
 import { ANDROID_BILLING_MESSAGE } from "@/lib/billing/android-consumption-only";
+import { plansRouteForSource } from "@/lib/telemetry/plans-entry-source";
 import { useIsNativeAndroid } from "@/runtime/platform-detection";
 import { useAddCreditsModalStore } from "@/stores/add-credits-modal-store";
-import { routes } from "@/utils/routes";
 
 /** Free-plan copy in the `upgrade-cta` experiment arm. */
 export const UPGRADE_COPY = {
@@ -92,7 +92,7 @@ export function CreditsUpsellCard() {
           : {
               label: copy.ctaLabel,
               onClick: isUpgrade
-                ? () => void navigate(routes.plans)
+                ? () => void navigate(plansRouteForSource("out_of_credits"))
                 : () => useAddCreditsModalStore.getState().setOpen(true),
             }
       }

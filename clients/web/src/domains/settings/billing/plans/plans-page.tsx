@@ -80,7 +80,8 @@ import { checkoutReturnTarget } from "@/lib/billing/checkout-return-target";
 import { lowersMachineCeiling } from "@/lib/billing/machine-sizes";
 import { openUrl } from "@/runtime/browser";
 import { isElectron } from "@/runtime/is-electron";
-import { PACKAGE_PARAM, routes } from "@/utils/routes";
+import { emitPlansEntryViewed } from "@/lib/telemetry/plans-entry-telemetry";
+import { PACKAGE_PARAM, PLANS_SOURCE_PARAM, routes } from "@/utils/routes";
 import { preloadBundledAvatarComponents } from "@/utils/use-bundled-avatar-components";
 import { Button } from "@vellumai/design-library/components/button";
 import { toast } from "@vellumai/design-library/components/toast";
@@ -303,6 +304,10 @@ function PlansPageContent() {
   // `?package=<key>` is the one-shot deep link; it is live until the effects
   // below strip it.
   const packageParam = searchParams.get(PACKAGE_PARAM);
+  // `?source=<tag>` names the entry point that produced this visit (see
+  // `plans-entry-telemetry.ts`). Consumed once per mount, below.
+  const sourceParam = searchParams.get(PLANS_SOURCE_PARAM);
+  const sourceReportedRef = useRef(false);
 
   // The takeover only makes sense against a platform-hosted assistant with a
   // live package catalog. Anything else — self-hosted or no platform session,
@@ -331,6 +336,38 @@ function PlansPageContent() {
       navigate(target, { replace: true });
     }
   }, [cannotResolve, notPlatformHosted, navigate]);
+
+  // Report the entry source exactly once per mount — an untagged arrival
+  // counts as "direct". Reported even when the resolve bails redirect away:
+  // the user still followed that entry point here, and the bail states are
+  // already rare because most producers are platform-gated.
+  useEffect(() => {
+    if (sourceReportedRef.current) {
+      return;
+    }
+    sourceReportedRef.current = true;
+    emitPlansEntryViewed(sourceParam ?? "direct");
+  }, [sourceParam]);
+
+  // Strip the consumed source tag so a refresh or a shared URL doesn't
+  // re-report the original entry. Held while `cannotResolve` (the redirect
+  // effect above owns navigation this tick, and the param dies with the page)
+  // and while a `?package=` deep link is live — that flow's strip below drops
+  // both params in one navigation, since two same-tick setSearchParams calls
+  // would clobber each other.
+  useEffect(() => {
+    if (sourceParam == null || packageParam != null || cannotResolve) {
+      return;
+    }
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev);
+        next.delete(PLANS_SOURCE_PARAM);
+        return next;
+      },
+      { replace: true },
+    );
+  }, [sourceParam, packageParam, cannotResolve, setSearchParams]);
 
   const handleBack = () => {
     const idx = (window.history.state as { idx?: number } | null)?.idx ?? 0;
@@ -516,6 +553,9 @@ function PlansPageContent() {
       (prev) => {
         const next = new URLSearchParams(prev);
         next.delete(PACKAGE_PARAM);
+        // A marketing "Manage your plan" link carries both params; the
+        // source-strip effect above defers to this one, so drop both here.
+        next.delete(PLANS_SOURCE_PARAM);
         return next;
       },
       { replace: true },

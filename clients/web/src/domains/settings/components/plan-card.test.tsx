@@ -47,7 +47,7 @@ import {
   makeUltraPackage,
 } from "@/domains/settings/billing/plans/pro-package-test-fixtures";
 import * as takeoverAvatarStash from "@/lib/billing/takeover-avatar-stash";
-import { routes } from "@/utils/routes";
+import { plansRouteForSource } from "@/lib/telemetry/plans-entry-source";
 
 // Capture navigate() targets so the action-button wiring can be asserted
 // without a live Router.
@@ -603,7 +603,9 @@ describe("PlanCard action button", () => {
     // navigate() fires from the click handler; await it so the assertion never
     // races the handler's commit in the CI runner.
     await waitFor(() => {
-      expect(navigateArgs).toEqual([[routes.plans, undefined]]);
+      expect(navigateArgs).toEqual([
+        [plansRouteForSource("billing_plan_card"), undefined],
+      ]);
     });
     expect(onManage).not.toHaveBeenCalled();
   });
@@ -621,7 +623,9 @@ describe("PlanCard action button", () => {
     // navigate() fires from the click handler; await it so the assertion never
     // races the handler's commit in the CI runner.
     await waitFor(() => {
-      expect(navigateArgs).toEqual([[routes.plans, undefined]]);
+      expect(navigateArgs).toEqual([
+        [plansRouteForSource("billing_plan_card"), undefined],
+      ]);
     });
     expect(onManage).not.toHaveBeenCalled();
   });
@@ -664,7 +668,9 @@ describe("PlanCard action button", () => {
     fireEvent.click(await findByTestId("plan-card-plans-button"));
 
     await waitFor(() => {
-      expect(navigateArgs).toEqual([[routes.plans, undefined]]);
+      expect(navigateArgs).toEqual([
+        [plansRouteForSource("billing_plan_card"), undefined],
+      ]);
     });
     expect(onManage).not.toHaveBeenCalled();
   });
@@ -683,7 +689,9 @@ describe("PlanCard action button", () => {
     fireEvent.click(await findByTestId("plan-card-plans-button"));
 
     await waitFor(() => {
-      expect(navigateArgs).toEqual([[routes.plans, undefined]]);
+      expect(navigateArgs).toEqual([
+        [plansRouteForSource("billing_plan_card"), undefined],
+      ]);
     });
     expect(onManage).not.toHaveBeenCalled();
   });
@@ -708,7 +716,9 @@ describe("PlanCard action button", () => {
     fireEvent.click(await findByTestId("plan-card-plans-button"));
 
     await waitFor(() => {
-      expect(navigateArgs).toEqual([[routes.plans, undefined]]);
+      expect(navigateArgs).toEqual([
+        [plansRouteForSource("billing_plan_card"), undefined],
+      ]);
     });
     expect(onManage).not.toHaveBeenCalled();
   });
@@ -755,7 +765,9 @@ describe("PlanCard action button", () => {
     fireEvent.click(await findByTestId("plan-card-plans-button"));
 
     await waitFor(() => {
-      expect(navigateArgs).toEqual([[routes.plans, undefined]]);
+      expect(navigateArgs).toEqual([
+        [plansRouteForSource("billing_plan_card"), undefined],
+      ]);
     });
     expect(onManage).not.toHaveBeenCalled();
   });

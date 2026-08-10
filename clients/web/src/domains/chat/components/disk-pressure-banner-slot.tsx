@@ -22,6 +22,10 @@ import {
   removeLocalSetting,
   setLocalBool,
 } from "@/utils/local-settings";
+import {
+  diskPressurePlansSource,
+  plansRouteForSource,
+} from "@/lib/telemetry/plans-entry-source";
 import { useIsNativeAndroid } from "@/runtime/platform-detection";
 import { routes } from "@/utils/routes";
 
@@ -124,7 +128,8 @@ export function DiskPressureBannerSlot({
       }
       onUpgradeStorage={
         assistantStateKind === "active" && !isNativeAndroid
-          ? () => void navigate(routes.plans)
+          ? () =>
+              void navigate(plansRouteForSource(diskPressurePlansSource(mode)))
           : null
       }
     />

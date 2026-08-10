@@ -22,9 +22,9 @@ import {
 } from "@/generated/api/@tanstack/react-query.gen";
 import { ANDROID_BILLING_MESSAGE } from "@/lib/billing/android-consumption-only";
 import { captureError } from "@/lib/sentry/capture-error";
+import { plansRouteForSource } from "@/lib/telemetry/plans-entry-source";
 import { useIsNativeAndroid } from "@/runtime/platform-detection";
 import { extractErrorMessage } from "@/utils/api-errors";
-import { routes } from "@/utils/routes";
 import { Button } from "@vellumai/design-library/components/button";
 import { ConfirmDialog } from "@vellumai/design-library/components/confirm-dialog";
 import { Notice } from "@vellumai/design-library/components/notice";
@@ -295,7 +295,10 @@ export function EmailManagedContent({
         title="Give your assistant its own email address"
         actions={
           isNativeAndroid ? undefined : (
-            <Button size="compact" onClick={() => navigate(routes.plans)}>
+            <Button
+              size="compact"
+              onClick={() => navigate(plansRouteForSource("email_upsell"))}
+            >
               Upgrade
             </Button>
           )

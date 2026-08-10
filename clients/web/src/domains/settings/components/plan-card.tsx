@@ -38,7 +38,7 @@ import { useDocumentTheme } from "@/hooks/use-document-theme";
 import { saveCheckoutIntent } from "@/lib/billing/checkout-intent";
 import { checkoutReturnTarget } from "@/lib/billing/checkout-return-target";
 import { openUrl } from "@/runtime/browser";
-import { routes } from "@/utils/routes";
+import { plansRouteForSource } from "@/lib/telemetry/plans-entry-source";
 import { Button } from "@vellumai/design-library/components/button";
 import { Card } from "@vellumai/design-library/components/card";
 import { Notice } from "@vellumai/design-library/components/notice";
@@ -441,7 +441,9 @@ export function PlanCard({ onManage, onTierUpgraded }: PlanCardProps) {
           <Button
             variant="outlined"
             onClick={
-              canOpenPlansTakeover ? () => navigate(routes.plans) : onManage
+              canOpenPlansTakeover
+                ? () => navigate(plansRouteForSource("billing_plan_card"))
+                : onManage
             }
             data-testid="plan-card-plans-button"
             className="shrink-0"

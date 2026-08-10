@@ -53,6 +53,10 @@ import {
 import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
 import { useIsAuthenticated } from "@/stores/auth-store";
 import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
+import {
+  diskPressurePlansSource,
+  plansRouteForSource,
+} from "@/lib/telemetry/plans-entry-source";
 import { routes } from "@/utils/routes";
 
 export function GeneralPage() {
@@ -190,7 +194,14 @@ export function GeneralPage() {
           }
           onUpgradeStorage={
             infraGate === "full" && !isNativeAndroid
-              ? () => void navigate(routes.plans)
+              ? () =>
+                  void navigate(
+                    plansRouteForSource(
+                      diskPressurePlansSource(
+                        diskPressure.mode as DiskPressureBannerMode,
+                      ),
+                    ),
+                  )
               : null
           }
         />

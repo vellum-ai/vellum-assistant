@@ -112,9 +112,26 @@ let assistantFixture: Assistant | null = null;
 let activeAssistantFixture: Assistant | null = null;
 const assistantByIdCalls: (string | null)[] = [];
 let activeAssistantCalls = 0;
+// Entry-source telemetry rides the ingest endpoint; captured so the billing
+// plans_viewed emission can be asserted (and so tests never hit the wire).
+const telemetryIngestCalls: Captured[] = [];
+
+// Entry-source telemetry gates on analytics consent, which reads the
+// onboarding store — a cross-domain import this settings-domain test can't
+// make. Pin consent open at the lib seam instead.
+mock.module("@/lib/telemetry/consent", () => ({
+  readAnalyticsConsent: () => true,
+}));
 
 mock.module("@/generated/api/sdk.gen", () => ({
   ...sdkGen,
+  telemetryIngestCreate: (opts: Captured) => {
+    telemetryIngestCalls.push(opts);
+    return Promise.resolve({
+      data: { accepted: 1, persisted: 1, dropped: {} },
+      response: { ok: true },
+    });
+  },
   organizationsBillingSubscriptionChangePackageCreate: (opts: Captured) => {
     changePackageCall = opts;
     if (!changePackageAutoResolve) {
@@ -552,12 +569,15 @@ function renderInteractive(
     plans = fullCatalog(),
     onboardingData = onboarding(),
     seedOnboarding = true,
+    initialEntry = "/assistant/plans",
   }: {
     plans?: PlanListResponse;
     /** Null models a read that settled with no payload, e.g. one that failed. */
     onboardingData?: OnboardingStateResponse | null;
     /** False leaves the onboarding query to fetch, so it mounts unsettled. */
     seedOnboarding?: boolean;
+    /** Overridable so deep links (`?source=`, `?package=`) can be exercised. */
+    initialEntry?: string;
   } = {},
 ) {
   subscriptionFixture = subscription;
@@ -589,7 +609,7 @@ function renderInteractive(
     // Exposed so the checkout test can seed the avatar cache the stash reads.
     client,
     ...render(
-      <MemoryRouter initialEntries={["/assistant/plans"]}>
+      <MemoryRouter initialEntries={[initialEntry]}>
         <QueryClientProvider client={client}>
           <PlansPage />
         </QueryClientProvider>
@@ -626,6 +646,7 @@ beforeEach(() => {
   activeAssistantCalls = 0;
   toastSuccessCalls.length = 0;
   takeoverResizeContext = undefined;
+  telemetryIngestCalls.length = 0;
   // The stash and the assistants store are module-level globals, so reset both.
   clearTakeoverAvatarStash();
   useResolvedAssistantsStore.setState({
@@ -1606,5 +1627,48 @@ describe("PlansPage — Pro custom plan (change-tier)", () => {
     expect(getByTestId("loc").textContent).toBe("/assistant/plans");
     expect(machineTierCall).toBeNull();
     expect(upgradeCall).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Entry-source telemetry (`?source=` → billing plans_viewed emission)
+// ---------------------------------------------------------------------------
+
+/** The billing funnel events uploaded so far, across all captured batches. */
+function plansEntryEvents(): Array<Record<string, unknown>> {
+  return telemetryIngestCalls
+    .flatMap(
+      (call) =>
+        (call.body as { events?: Array<Record<string, unknown>> } | undefined)
+          ?.events ?? [],
+    )
+    .filter((event) => event.type === "billing");
+}
+
+describe("PlansPage entry-source telemetry", () => {
+  test("reports a tagged arrival once and strips the source param", async () => {
+    const { getByTestId } = renderInteractive(freeSubscription(), {
+      initialEntry: "/assistant/plans?source=out_of_credits",
+    });
+
+    // The consumed tag is stripped so a refresh can't re-report the entry.
+    await waitFor(() =>
+      expect(getByTestId("loc").textContent).toBe("/assistant/plans"),
+    );
+    const events = plansEntryEvents();
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({
+      type: "billing",
+      step: "plans_viewed",
+      entry_source: "out_of_credits",
+    });
+  });
+
+  test("reports an untagged arrival as direct", async () => {
+    const { getByTestId } = renderInteractive(freeSubscription());
+
+    await waitFor(() => expect(plansEntryEvents()).toHaveLength(1));
+    expect(plansEntryEvents()[0]).toMatchObject({ entry_source: "direct" });
+    expect(getByTestId("loc").textContent).toBe("/assistant/plans");
   });
 });

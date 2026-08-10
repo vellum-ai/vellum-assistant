@@ -22,7 +22,7 @@ import {
   SIZE_LABEL,
 } from "@/lib/billing/machine-sizes";
 import { useIsNativeAndroid } from "@/runtime/platform-detection";
-import { routes } from "@/utils/routes";
+import { plansRouteForSource } from "@/lib/telemetry/plans-entry-source";
 import { Button } from "@vellumai/design-library/components/button";
 import { Select } from "@vellumai/design-library/components/select";
 import { Modal } from "@vellumai/design-library/components/modal";
@@ -405,7 +405,7 @@ export function ResizeCard({
             <Button
               onClick={() => {
                 setUpgradeModalOpen(false);
-                void navigate(routes.plans);
+                void navigate(plansRouteForSource("resize_upgrade_modal"));
               }}
             >
               Upgrade
@@ -479,7 +479,7 @@ export function ResizeCard({
               <span className="text-label-small-default text-[var(--content-tertiary)]">
                 Need more?{" "}
                 <Link
-                  to={routes.plans}
+                  to={plansRouteForSource("resize_modal_link")}
                   className="text-[var(--content-secondary)] underline decoration-[var(--border-element)] underline-offset-2 transition-colors hover:text-[var(--content-default)]"
                   onClick={() => setResizeModalOpen(false)}
                 >

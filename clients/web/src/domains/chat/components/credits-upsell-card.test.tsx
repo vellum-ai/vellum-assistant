@@ -58,7 +58,7 @@ mock.module("@/components/platform-login-notice", () => ({
 }));
 
 import { CreditsUpsellCard } from "./credits-upsell-card";
-import { routes } from "@/utils/routes";
+import { plansRouteForSource } from "@/lib/telemetry/plans-entry-source";
 
 beforeEach(() => {
   navigateTargets = [];
@@ -85,7 +85,7 @@ describe("CreditsUpsellCard", () => {
     ).toBeTruthy();
 
     fireEvent.click(getByRole("button", { name: "View plans" }));
-    expect(navigateTargets).toEqual([routes.plans]);
+    expect(navigateTargets).toEqual([plansRouteForSource("out_of_credits")]);
     expect(useAddCreditsModalStore.getState().open).toBe(false);
   });
 
