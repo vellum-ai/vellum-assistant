@@ -48,6 +48,14 @@ function formatTokens(count: number): string {
 }
 
 /**
+ * The ring's accessible name. Both presentations and the sheet's gauge share
+ * it, so a screen reader hears the same thing whichever one renders.
+ */
+function ringLabel(percentage: number): string {
+  return `Context window ${percentage}% full`;
+}
+
+/**
  * The ring glyph only. Deliberately carries no name, role, or tab stop: each
  * branch below wraps it in exactly one focusable, labelled element, and a
  * labelled ring nested inside a labelled trigger would announce twice and
@@ -170,7 +178,7 @@ function TouchSheetContent({
             height={16}
             fillColor={ringColor}
             className="bg-[color-mix(in_srgb,var(--content-tertiary)_20%,transparent)]"
-            aria-label={`Context window ${percentage}% full`}
+            aria-label={ringLabel(percentage)}
           />
         </div>
 
@@ -249,7 +257,7 @@ export function ContextWindowIndicator({
           <button
             type="button"
             className="relative flex items-center px-1.5"
-            aria-label={`Context window ${percentage}% full`}
+            aria-label={ringLabel(percentage)}
           >
             <CircularRing ringColor={ringColor} dashOffset={dashOffset} />
           </button>
@@ -280,15 +288,15 @@ export function ContextWindowIndicator({
 
   // Own the provider rather than relying on the app-level one in
   // `providers.tsx`, so the ring also works in isolation (tests, Storybook).
-  // The design library's own `Tooltip` convenience wrapper does the same and
+  // The design library's own `Tooltip` convenience wrapper does the same, and
   // documents that a nested provider scopes its subtree with matching
-  // defaults. The delays match the app-level values.
+  // defaults.
   return (
     <TooltipProvider delayDuration={200} skipDelayDuration={300}>
       <Tooltip.Root>
         <Tooltip.Trigger
           type="button"
-          aria-label={`Context window ${percentage}% full`}
+          aria-label={ringLabel(percentage)}
           className="relative flex items-center rounded-full px-1.5 outline-none focus-visible:ring-1 focus-visible:ring-[var(--primary-base)]"
         >
           <CircularRing ringColor={ringColor} dashOffset={dashOffset} />
