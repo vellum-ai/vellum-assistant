@@ -108,18 +108,15 @@ function AddCreditsModalContent({ open, onOpenChange }: AddCreditsModalProps) {
   // above is Capacitor-only, and Stripe runs in the system browser), so
   // without it the stale modal would sit over the success toast or the
   // billing page's cancel-triggered bonus-offer flow, its Continue button
-  // still armed to start a second checkout. Same tidy-up on either outcome;
-  // the outcome handling itself (toast / navigation) stays with
-  // `useGlobalDeepLinkConsumer`. On Capacitor this overlaps the
-  // `browserFinished` cleanup, which is idempotent.
+  // still armed to start a second checkout. This subscription only closes
+  // the modal, on either outcome; all outcome handling (success toast plus
+  // the billing-summary invalidation) is owned by
+  // `useGlobalDeepLinkConsumer` via `notifyCheckoutSuccess`.
   useBusSubscription("deeplink.billingCheckoutComplete", ({ flow }) => {
     if (flow !== "top_up") {
       return;
     }
     onOpenChange(false);
-    void queryClient.invalidateQueries(
-      organizationsBillingSummaryRetrieveOptions(),
-    );
   });
 
   const handleAddFunds = () => {
