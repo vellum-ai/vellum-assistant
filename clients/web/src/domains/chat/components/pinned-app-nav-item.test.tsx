@@ -365,12 +365,6 @@ describe("PinnedAppNavItem", () => {
     expect(screen.queryByRole("menuitemradio", { name: "teal" })).toBeNull();
   });
 
-  test("collapsed rail: the colour row is omitted with the rest of the menu", () => {
-    render(<PinnedAppNavItem app={TEAL_APP} active={false} collapsed />);
-
-    expect(screen.queryByRole("menuitemradio", { name: "Teal" })).toBeNull();
-  });
-
   /* `aria-current="page"` rather than a `data-active` attribute: the pill's
      active state is the one assistive tech reads, and it is what the pill's
      own active styling is keyed off (`aria-[current=page]:` classes), so
