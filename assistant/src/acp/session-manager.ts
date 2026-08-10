@@ -1154,12 +1154,26 @@ export class AcpSessionManager {
             { acpSessionId, error: err.message, failureMessage, errorCode },
             "ACP prompt failed",
           );
+          // The failure event keeps its exact pre-existing shape so an older
+          // packaged client still parses it and renders the failure. The
+          // recovery signal rides a SEPARATE event, which such a client
+          // ignores rather than choking on; see `api/events/acp-auth-required.ts`.
           current.sendToVellum({
             type: "acp_session_error",
             acpSessionId,
             error: failureMessage,
-            ...(errorCode ? { errorCode } : {}),
           });
+          if (errorCode) {
+            current.sendToVellum({
+              type: "acp_auth_required",
+              acpSessionId,
+              authCode: errorCode,
+              agent: current.state.agentId,
+              ...(current.parentToolUseId
+                ? { parentToolUseId: current.parentToolUseId }
+                : {}),
+            });
+          }
 
           // Persist the terminal row before teardown clears the buffer.
           this.persistTerminal(acpSessionId, current);

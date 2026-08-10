@@ -10,6 +10,8 @@
 
 import { describe, expect, test } from "bun:test";
 
+import { AcpAuthRequiredEventSchema } from "../../api/events/acp-auth-required.js";
+import { AcpSessionErrorEventSchema } from "../../api/events/acp-session-error.js";
 import {
   ACP_CLAUDE_AUTH_REQUIRED_CODE,
   AcpAuthRequiredError,
@@ -53,6 +55,57 @@ describe("AcpAuthRequiredError", () => {
     expect(err.name).toBe("AcpAuthRequiredError");
     expect(err.agentId).toBe("claude");
     expect(err.message).toBe("needs a reconnect");
+  });
+});
+
+describe("event shape is additive-safe for older clients", () => {
+  test("acp_session_error rejects unknown keys, which is why the signal is not a field on it", () => {
+    // Clients parse with AssistantEventSchema.safeParse and fall back to an
+    // inert `unknown` event when it fails. A packaged client (iOS and macOS
+    // bundle the web app, so they can lag the daemon) carries whatever version
+    // of this schema it shipped with. Adding a field here would make such a
+    // client drop the whole event and leave the run rendering as still active,
+    // which is worse than the plain failure. This asserts the strictness that
+    // forces new signals into their own event type instead.
+    const result = AcpSessionErrorEventSchema.safeParse({
+      type: "acp_session_error",
+      acpSessionId: "acp-1",
+      error: "boom",
+      someFutureField: "x",
+    });
+    expect(result.success).toBe(false);
+  });
+
+  test("acp_session_error still parses in its unchanged shape", () => {
+    expect(
+      AcpSessionErrorEventSchema.safeParse({
+        type: "acp_session_error",
+        acpSessionId: "acp-1",
+        error: "boom",
+      }).success,
+    ).toBe(true);
+  });
+
+  test("acp_auth_required carries the code and an optional anchor", () => {
+    const parsed = AcpAuthRequiredEventSchema.parse({
+      type: "acp_auth_required",
+      acpSessionId: "acp-1",
+      authCode: ACP_CLAUDE_AUTH_REQUIRED_CODE,
+      agent: "claude",
+      parentToolUseId: "tool-1",
+    });
+    expect(parsed.authCode).toBe(ACP_CLAUDE_AUTH_REQUIRED_CODE);
+    expect(parsed.parentToolUseId).toBe("tool-1");
+
+    // The anchor is optional: a run not started by a tool call has none.
+    expect(
+      AcpAuthRequiredEventSchema.safeParse({
+        type: "acp_auth_required",
+        acpSessionId: "acp-1",
+        authCode: ACP_CLAUDE_AUTH_REQUIRED_CODE,
+        agent: "claude",
+      }).success,
+    ).toBe(true);
   });
 });
 
