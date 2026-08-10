@@ -1,3 +1,4 @@
+import type { BillingCheckoutFlow } from "@/lib/event-bus";
 import { isElectron } from "@/runtime/is-electron";
 
 /**
@@ -31,13 +32,13 @@ export type DeepLink =
       kind: "billingCheckoutComplete";
       status: "success";
       sessionId: string;
-      flow?: "subscription" | "top_up";
+      flow?: BillingCheckoutFlow;
     }
   | {
       kind: "billingCheckoutComplete";
       status: "cancel";
       sessionId: null;
-      flow?: "subscription" | "top_up";
+      flow?: BillingCheckoutFlow;
     }
   /** `<scheme>://connect` pairing hand-off. `bundle` is secret material:
    *  never log or breadcrumb it. */
