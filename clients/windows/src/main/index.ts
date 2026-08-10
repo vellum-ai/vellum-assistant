@@ -6,6 +6,7 @@ import { pathToFileURL } from "node:url";
 import path from "node:path";
 
 import { resolveAppProtocolPath } from "@vellumai/electron-utils/app-protocol";
+import { getDeviceId } from "@vellumai/electron-desktop/device-id";
 import { resolveLocalConfigFromEnv } from "@vellumai/local-mode";
 
 import { VELLUMAPP_PROTOCOL } from "@vellumai/electron-desktop/bundle-platform";
@@ -156,8 +157,7 @@ const fileExists = async (candidate: string): Promise<boolean> => {
 };
 
 // Synchronous config snapshot the preload reads at startup and exposes to the
-// renderer as `window.__VELLUM_CONFIG__`. `deviceId` is null until the
-// device-id store is ported from the macOS client.
+// renderer as `window.__VELLUM_CONFIG__`.
 const resolvedConfig = resolveLocalConfigFromEnv(process.env);
 handleSync("vellum:config:get", () => ({
   webUrl: resolvedConfig.webUrl,
@@ -166,7 +166,7 @@ handleSync("vellum:config:get", () => ({
     ["true", "1"].includes(
       (process.env.VELLUM_DISABLE_PLATFORM ?? "").toLowerCase(),
     ) || undefined,
-  deviceId: null,
+  deviceId: getDeviceId(),
 }));
 
 // ---------------------------------------------------------------------------
