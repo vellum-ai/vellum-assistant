@@ -1,20 +1,38 @@
 import { BrowserWindow, screen } from "electron";
 import { z } from "zod";
 
-import { createFloatingWindow, getFloatingWindow } from "./floating-window";
-import { handle } from "./ipc";
 import {
-  current as currentMainWindow,
-  dispatchToMain,
-  ensureVisible as ensureMainWindowVisible,
-} from "./main-window";
-import type { VellumCommand } from "@vellumai/electron-desktop/commands";
+  COMMAND_PALETTE_DISMISS,
+  COMMAND_PALETTE_OPEN,
+  COMMAND_PALETTE_SELECT,
+  type VellumCommand,
+} from "@vellumai/ipc-contract";
+
+import {
+  createFloatingWindow,
+  getFloatingWindow,
+  repositionFloatingWindow,
+} from "./floating-window";
+import type { IpcHandle } from "./ipc";
+import { createModuleConfiguration } from "./module-configuration";
 
 const COMMAND_PALETTE_KIND = "commandPalette";
 const COMMAND_PALETTE_PATH = "/floating/command-palette";
 
 const PANEL_WIDTH = 584;
 const PANEL_HEIGHT = 444;
+
+export interface CommandPaletteWindowDependencies {
+  currentMainWindow: () => BrowserWindow | null;
+  dispatchToMain: (command: VellumCommand) => void;
+  ensureMainWindowVisible: () => void | Promise<void>;
+  handle: IpcHandle;
+}
+
+const configuration = createModuleConfiguration<CommandPaletteWindowDependencies>(
+  "Command palette window module",
+);
+export const configureCommandPaletteWindow = configuration.configure;
 
 type PayloadCommandKind = Extract<
   VellumCommand,
@@ -89,6 +107,10 @@ const commandPalettePosition = (): { x: number; y: number } => {
   };
 };
 
+export const repositionCommandPaletteWindow = (): void => {
+  repositionFloatingWindow(COMMAND_PALETTE_KIND, commandPalettePosition);
+};
+
 export const closeCommandPaletteWindow = (): void => {
   const win = getFloatingWindow(COMMAND_PALETTE_KIND);
   if (win && !win.isDestroyed()) {
@@ -120,6 +142,7 @@ export const openCommandPaletteWindow = (): void => {
     browserWindow: {
       minimizable: false,
       maximizable: false,
+      focusable: true,
       hasShadow: true,
       backgroundColor: "#00000000",
     },
@@ -141,6 +164,8 @@ export const selectCommandPaletteCommand = async (
 ): Promise<void> => {
   closeCommandPaletteWindow();
 
+  const { currentMainWindow, dispatchToMain, ensureMainWindowVisible } =
+    configuration.get();
   const main = currentMainWindow();
   if (!main || main.isDestroyed() || !main.isVisible() || main.isMinimized()) {
     await ensureMainWindowVisible();
@@ -152,19 +177,22 @@ export const selectCommandPaletteCommand = async (
 let installed = false;
 
 export const installCommandPaletteWindow = (): void => {
-  if (installed) return;
+  if (installed) {
+    return;
+  }
   installed = true;
+  const { handle } = configuration.get();
 
-  handle("vellum:commandPalette:open", z.tuple([]), () => {
+  handle(COMMAND_PALETTE_OPEN, z.tuple([]), () => {
     openCommandPaletteWindow();
   });
 
-  handle("vellum:commandPalette:dismiss", z.tuple([]), () => {
+  handle(COMMAND_PALETTE_DISMISS, z.tuple([]), () => {
     closeCommandPaletteWindow();
   });
 
   handle(
-    "vellum:commandPalette:select",
+    COMMAND_PALETTE_SELECT,
     z.tuple([commandPaletteDispatchCommandSchema]),
     async ([command]) => {
       await selectCommandPaletteCommand(command);

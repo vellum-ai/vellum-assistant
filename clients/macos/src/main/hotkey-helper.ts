@@ -21,7 +21,7 @@ import {
   MacHelperClient,
   type MacHelperClientOptions,
   type MacHelperState,
-} from "./sidecar/mac-helper";
+} from "./sidecar/mac-helper.client";
 import {
   getMacHelperAppPath,
   getMacHelperPath,

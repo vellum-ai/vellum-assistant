@@ -26,7 +26,7 @@ import {
   closeCommandPaletteWindow,
   isCommandPaletteWindowFocused,
   openCommandPaletteWindow,
-} from "./command-palette-window";
+} from "./command-palette.client";
 import { areChromeDevToolsEnabled } from "./devtools";
 import { handle } from "./ipc";
 import { dispatchToMain } from "./main-window";
