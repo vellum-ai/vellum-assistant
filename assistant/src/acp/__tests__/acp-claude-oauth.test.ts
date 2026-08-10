@@ -60,7 +60,7 @@ beforeEach(() => {
 describe("CLAUDE_OAUTH_CONFIG", () => {
   test("matches the verified endpoints, client id, and scope", () => {
     expect(CLAUDE_OAUTH_CONFIG.authorizeUrl).toBe(
-      "https://claude.ai/oauth/authorize",
+      "https://claude.com/cai/oauth/authorize",
     );
     expect(CLAUDE_OAUTH_CONFIG.tokenExchangeUrl).toBe(
       "https://platform.claude.com/v1/oauth/token",
@@ -93,7 +93,7 @@ describe("buildClaudeAuthorizeUrl", () => {
 
     const parsed = new URL(url);
     expect(`${parsed.origin}${parsed.pathname}`).toBe(
-      "https://claude.ai/oauth/authorize",
+      "https://claude.com/cai/oauth/authorize",
     );
 
     const params = parsed.searchParams;
@@ -106,6 +106,10 @@ describe("buildClaudeAuthorizeUrl", () => {
     expect(params.get("state")).toBe("state-abc");
     expect(params.get("code_challenge")).toBe("challenge-123");
     expect(params.get("code_challenge_method")).toBe("S256");
+    // The manual flow's defining param: tells Claude to render `code#state` on
+    // the callback page. Without it the grant is rejected as an invalid
+    // request, so a sign-in can never complete (JARVIS-1517).
+    expect(params.get("code")).toBe("true");
   });
 
   test("works with the manual redirect URI too", () => {
