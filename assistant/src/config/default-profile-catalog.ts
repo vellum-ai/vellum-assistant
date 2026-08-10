@@ -166,7 +166,9 @@ const CHATGPT_PROFILE_IMPLS: ProfileImpls = {
     source: "managed",
     label: "Balanced",
     description: "Good balance of quality, cost, and speed",
-    maxTokens: 16000,
+    // Matches the vellum column's Balanced (same model): the Codex path
+    // sends no max_output_tokens, so this only sizes internal budgeting.
+    maxTokens: 32000,
     effort: "high",
     thinking: { enabled: true, streamThinking: true },
     contextWindow: { maxInputTokens: DEFAULT_CONTEXT_WINDOW_MAX_INPUT_TOKENS },
