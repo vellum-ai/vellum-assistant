@@ -67,6 +67,7 @@ const { registerDefaultPluginInjectors } =
   await import("../plugins/defaults/index.js");
 import { eq } from "drizzle-orm";
 
+import type { InterfaceId } from "../channels/types.js";
 import {
   clearConversations,
   setConversation,
@@ -86,6 +87,7 @@ import type { Message } from "../providers/types.js";
 import { getSubagentManager } from "../subagent/index.js";
 import type { SubagentState } from "../subagent/types.js";
 import { getWorkspacePromptPath } from "../util/platform.js";
+import { asConversation } from "./helpers/mock-conversation.js";
 
 // `applyRuntimeInjections` self-resolves the Slack active-thread focus block
 // from the persisted message rows, so the schema must exist for Slack-channel
@@ -153,26 +155,30 @@ function seedWorkspaceContext(
   text: string,
   currentTurnTemporalSnapshot?: {
     clientTimezone: string | null;
+    timeSinceLastMessage: string | null;
   },
-  interfaceName?: string,
+  interfaceName?: InterfaceId,
 ): void {
-  setConversation(TEST_CONVERSATION_ID, {
-    conversationId: TEST_CONVERSATION_ID,
-    workingDir: "/sandbox",
-    workspaceTopLevelContext: text,
-    workspaceTopLevelDirty: false,
-    currentTurnTemporalSnapshot,
-    currentTurnInterfaceContext: interfaceName
-      ? {
-          userMessageInterface: interfaceName,
-          assistantMessageInterface: interfaceName,
-        }
-      : undefined,
-    // Mirrors Conversation.getSubagentChildren: the `<active_subagents>` block
-    // is sourced from the live conversation, which delegates to the manager.
-    getSubagentChildren: () =>
-      getSubagentManager().getChildrenOf(TEST_CONVERSATION_ID),
-  } as never);
+  setConversation(
+    TEST_CONVERSATION_ID,
+    asConversation({
+      conversationId: TEST_CONVERSATION_ID,
+      workingDir: "/sandbox",
+      workspaceTopLevelContext: text,
+      workspaceTopLevelDirty: false,
+      currentTurnTemporalSnapshot,
+      currentTurnInterfaceContext: interfaceName
+        ? {
+            userMessageInterface: interfaceName,
+            assistantMessageInterface: interfaceName,
+          }
+        : undefined,
+      // Mirrors Conversation.getSubagentChildren: the `<active_subagents>` block
+      // is sourced from the live conversation, which delegates to the manager.
+      getSubagentChildren: () =>
+        getSubagentManager().getChildrenOf(TEST_CONVERSATION_ID),
+    }),
+  );
 }
 
 // `applyRuntimeInjections` gates the `<turn_context>` block on the live
@@ -181,13 +187,19 @@ function seedWorkspaceContext(
 // fall back to the runtime-assembly fallback conversation, so seed the snapshot
 // there.
 function seedFallbackTemporalSnapshot(): void {
-  setConversation("runtime-assembly-fallback", {
-    conversationId: "runtime-assembly-fallback",
-    workingDir: "/sandbox",
-    workspaceTopLevelContext: "",
-    workspaceTopLevelDirty: false,
-    currentTurnTemporalSnapshot: { clientTimezone: null },
-  } as never);
+  setConversation(
+    "runtime-assembly-fallback",
+    asConversation({
+      conversationId: "runtime-assembly-fallback",
+      workingDir: "/sandbox",
+      workspaceTopLevelContext: "",
+      workspaceTopLevelDirty: false,
+      currentTurnTemporalSnapshot: {
+        clientTimezone: null,
+        timeSinceLastMessage: null,
+      },
+    }),
+  );
 }
 
 // Persist Slack-channel rows for the turn conversation so
@@ -484,7 +496,11 @@ describe("injector chain", () => {
     seedSubagentChild(TEST_CONVERSATION_ID, subagentChild);
     const subagentBlock = buildSubagentStatusBlock([subagentChild])!;
 
-    seedWorkspaceContext(workspaceText, { clientTimezone: null }, "macos");
+    seedWorkspaceContext(
+      workspaceText,
+      { clientTimezone: null, timeSinceLastMessage: null },
+      "macos",
+    );
     const result = await applyRuntimeInjections(runMessages, {
       ...makeTurnContext(),
     });
@@ -562,20 +578,23 @@ describe("injector chain", () => {
         createdAt: 1700000005_000,
       },
     ]);
-    setConversation(TEST_CONVERSATION_ID, {
-      conversationId: TEST_CONVERSATION_ID,
-      workingDir: "/sandbox",
-      workspaceTopLevelContext: "",
-      workspaceTopLevelDirty: false,
-      trustContext: { trustClass: "guardian" },
-      channelCapabilities: {
-        channel: "slack",
-        dashboardCapable: false,
-        supportsDynamicUi: false,
-        supportsVoiceInput: false,
-        chatType: "channel",
-      },
-    } as never);
+    setConversation(
+      TEST_CONVERSATION_ID,
+      asConversation({
+        conversationId: TEST_CONVERSATION_ID,
+        workingDir: "/sandbox",
+        workspaceTopLevelContext: "",
+        workspaceTopLevelDirty: false,
+        trustContext: { trustClass: "guardian", sourceChannel: "vellum" },
+        channelCapabilities: {
+          channel: "slack",
+          dashboardCapable: false,
+          supportsDynamicUi: false,
+          supportsVoiceInput: false,
+          chatType: "channel",
+        },
+      }),
+    );
     const result = await applyRuntimeInjections(originalRun, {
       ...makeTurnContext(),
     });
@@ -614,7 +633,10 @@ describe("injector chain", () => {
       timestamp: FIXED_TURN_TIMESTAMP,
       interfaceName: "web",
     });
-    seedWorkspaceContext("", { clientTimezone: null });
+    seedWorkspaceContext("", {
+      clientTimezone: null,
+      timeSinceLastMessage: null,
+    });
     seedSubagentChild(
       TEST_CONVERSATION_ID,
       makeSubagentState("sub-1", "worker", "running"),
