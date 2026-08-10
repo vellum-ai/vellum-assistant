@@ -11,6 +11,7 @@ import { describe, expect, test } from "bun:test";
 import {
   boundedMaxSize,
   clampSize,
+  migrateLegacySize,
   nextSizeForKey,
   paneDelta,
   resolveMaxSize,
@@ -159,5 +160,87 @@ describe("legacy width conversion", () => {
     const leftWidth = 640;
     const rightWidth = convert(leftWidth, containerWidth);
     expect(rightWidth + leftWidth + 8).toBe(containerWidth);
+  });
+});
+
+describe("migrateLegacySize", () => {
+  // The master-detail drawer's real numbers.
+  const bounds = { minSize: 400, reserveForRest: 328 };
+  const convert = (leftWidth: number, containerWidth: number) =>
+    containerWidth - leftWidth - 8;
+
+  test("converts a split that still fits", () => {
+    expect(
+      migrateLegacySize({
+        stored: 700,
+        containerSize: 1500,
+        convert,
+        ...bounds,
+      }),
+    ).toBe(792);
+  });
+
+  test("a split restored in a narrower container cannot persist below the minimum", () => {
+    // 1000 - 700 - 8 = 292, under the 400px minimum. The migrated number is
+    // written to storage, so an unclamped result would keep a width the pane
+    // can never take and would recur on every reload.
+    expect(
+      migrateLegacySize({
+        stored: 700,
+        containerSize: 1000,
+        convert,
+        ...bounds,
+      }),
+    ).toBe(400);
+  });
+
+  test("a split restored in a narrower container cannot persist above the maximum", () => {
+    // 1000 - 100 - 8 = 892, past the 672 the container leaves once the other
+    // pane's minimum is reserved.
+    expect(
+      migrateLegacySize({
+        stored: 100,
+        containerSize: 1000,
+        convert,
+        ...bounds,
+      }),
+    ).toBe(672);
+  });
+
+  test("an absolute cap is honoured too", () => {
+    expect(
+      migrateLegacySize({
+        stored: 100,
+        containerSize: 2000,
+        convert,
+        minSize: 220,
+        maxSize: 400,
+        reserveForRest: 0,
+      }),
+    ).toBe(400);
+  });
+
+  test("a conversion that cannot produce a number is refused", () => {
+    // Returning null leaves the legacy entry in place for a later attempt
+    // rather than writing a broken value over it.
+    expect(
+      migrateLegacySize({
+        stored: 700,
+        containerSize: 1000,
+        convert: () => Number.NaN,
+        ...bounds,
+      }),
+    ).toBeNull();
+  });
+
+  test("rounds, so storage and aria-valuenow cannot disagree", () => {
+    expect(
+      migrateLegacySize({
+        stored: 700,
+        containerSize: 1522.36,
+        convert,
+        ...bounds,
+      }),
+    ).toBe(814);
   });
 });

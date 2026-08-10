@@ -126,6 +126,41 @@ export function paneDelta(dx: number, side: "start" | "end"): number {
 }
 
 /**
+ * The size a value in an older format becomes, converted against the container
+ * it is being restored into and held inside that container's current bounds.
+ *
+ * The clamp is what keeps the migration honest. A split that was valid in a
+ * wide window can convert to a width the current window cannot give, and the
+ * migrated number is written to storage, so an unclamped result would persist
+ * a size the pane can never take. The passive re-clamp corrects the render but
+ * deliberately does not rewrite storage, which is what lets a width survive a
+ * temporary narrowing, so the value has to be valid before it is stored.
+ */
+export function migrateLegacySize({
+  stored,
+  containerSize,
+  convert,
+  minSize,
+  maxSize,
+  reserveForRest,
+}: {
+  stored: number;
+  containerSize: number;
+  convert: (stored: number, containerSize: number) => number;
+  minSize: number;
+  maxSize?: number;
+  reserveForRest: number;
+}): number | null {
+  const converted = Math.round(convert(stored, containerSize));
+  if (!Number.isFinite(converted)) return null;
+  return clampSize(
+    converted,
+    minSize,
+    resolveMaxSize({ minSize, maxSize, reserveForRest, containerSize }),
+  );
+}
+
+/**
  * The size a key press asks for, or `null` for a key this pattern does not
  * claim. `Enter` is deliberately unclaimed: APG lists collapse and restore as
  * conditional on the implementation supporting collapse, and no pane here can
@@ -316,8 +351,17 @@ export function useResizablePane({
     if (stored == null) return;
     const containerWidth = containerRef.current?.offsetWidth || containerSize;
     if (containerWidth <= 0) return;
-    const converted = Math.round(legacy.convert(stored, containerWidth));
-    if (!Number.isFinite(converted)) return;
+    // Bounds come from the width just measured rather than from `clamp`, whose
+    // `containerSize` is still 0 on the synchronous first pass.
+    const converted = migrateLegacySize({
+      stored,
+      containerSize: containerWidth,
+      convert: legacy.convert,
+      minSize,
+      maxSize,
+      reserveForRest,
+    });
+    if (converted == null) return;
     setSize(converted);
     writeStoredSize(storageKey, converted);
     try {
@@ -325,7 +369,7 @@ export function useResizablePane({
     } catch {
       // Storage quota or security error, ignore.
     }
-  }, [legacyKey, storageKey, containerSize]);
+  }, [legacyKey, storageKey, containerSize, minSize, maxSize, reserveForRest]);
 
   // Re-clamp when the bound moves so a pane sized for a wide window does not
   // keep its width after the window shrinks under it. The DOM write stays out
