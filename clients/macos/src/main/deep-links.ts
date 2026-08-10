@@ -154,8 +154,6 @@ export const parseVellumUrl = (input: string): DeepLink => {
     if (segment !== "checkout-complete") {
       return { kind: "unknown", url: withoutQuery };
     }
-    // `flow=top_up` marks a credit top-up checkout; anything else (including
-    // links without the param) is a subscription checkout.
     const flow: "subscription" | "top_up" =
       url.searchParams.get("flow") === "top_up" ? "top_up" : "subscription";
     const status = url.searchParams.get("status");

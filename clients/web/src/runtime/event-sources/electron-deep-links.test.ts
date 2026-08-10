@@ -1,22 +1,7 @@
 import { beforeEach, describe, expect, mock, spyOn, test } from "bun:test";
 
-type DeepLink =
-  | { kind: "send"; message: string }
-  | { kind: "openThread"; threadId: string }
-  | {
-      kind: "billingCheckoutComplete";
-      status: "success";
-      sessionId: string;
-      flow: "subscription" | "top_up";
-    }
-  | {
-      kind: "billingCheckoutComplete";
-      status: "cancel";
-      sessionId: null;
-      flow: "subscription" | "top_up";
-    }
-  | { kind: "connect"; url?: string; bundle?: string }
-  | { kind: "unknown"; url: string };
+// Type-only, so it is erased before `mock.module` replaces the module.
+import type { DeepLink } from "@/runtime/deep-links";
 
 let activeCallback: ((link: DeepLink) => void) | null = null;
 let pendingFixture: DeepLink[] = [];

@@ -46,6 +46,14 @@ export type AppResumeSignal = "visibility" | "app_state" | "online";
 export type AppHiddenSignal = "visibility" | "app_state";
 
 /**
+ * Which checkout a completed Stripe session belongs to: a Pro
+ * subscription upgrade or a credit top-up. Carried on
+ * `deeplink.billingCheckoutComplete`; the deep-link parsers in
+ * `runtime/` share this alias.
+ */
+export type BillingCheckoutFlow = "subscription" | "top_up";
+
+/**
  * Map of bus event name → payload type. New event names are added
  * here so subscribers get exact handler types via the `keyof` lookup.
  */
@@ -158,8 +166,8 @@ export interface BusEventMap {
    * clients and current Pro links).
    */
   "deeplink.billingCheckoutComplete":
-    | { status: "success"; sessionId: string; flow: "subscription" | "top_up" }
-    | { status: "cancel"; sessionId: null; flow: "subscription" | "top_up" };
+    | { status: "success"; sessionId: string; flow: BillingCheckoutFlow }
+    | { status: "cancel"; sessionId: null; flow: BillingCheckoutFlow };
   /**
    * The user asked to talk, from outside the SPA:
    * `<scheme>://voice?mode=new|resume&prompt=…`. The single native→SPA
