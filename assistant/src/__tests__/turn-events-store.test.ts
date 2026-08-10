@@ -359,19 +359,18 @@ describe("unfinalized rows and turn accounting", () => {
     expect(byId[second].turnIndex).toBe(2);
   });
 
-  test("a finalized empty-placeholder row is not a real user turn", async () => {
+  test("a persisted empty-display user row still counts as a turn", async () => {
     const conv = createConversation({ conversationType: "standard" });
     const real = await insertUserMessageAt(conv.id, "real question", 1000);
-    // Writer-creation fallback: the grouped tool-result row reserved without
-    // an in-flight writer is born finalized with placeholder [] content,
-    // which matches neither NOT LIKE exclusion until the first write lands.
-    await insertUserMessageAt(conv.id, "[]", 2000);
+    // A hidden send persists its user row with [] content (displayContent "")
+    // and still runs a turn, so [] rows must stay in turn accounting.
+    const hidden = await insertUserMessageAt(conv.id, "[]", 2000);
 
     const events = queryUnreportedTurnEvents(0, undefined, 100);
     const ids = events
       .filter((e) => e.conversationId === conv.id)
       .map((e) => e.id);
 
-    expect(ids).toEqual([real]);
+    expect(ids).toEqual([real, hidden]);
   });
 });
