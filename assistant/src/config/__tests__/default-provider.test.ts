@@ -157,6 +157,12 @@ describe("resolveDefaultConnectionName", () => {
     );
   });
 
+  test("chatgpt resolves to the canonical subscription connection name", () => {
+    expect(resolveDefaultConnectionName({ provider: "chatgpt" })).toBe(
+      "chatgpt-subscription",
+    );
+  });
+
   test("every other provider resolves to its personal connection", () => {
     expect(resolveDefaultConnectionName({ provider: "anthropic" })).toBe(
       "anthropic-personal",

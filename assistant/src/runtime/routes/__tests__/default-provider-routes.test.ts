@@ -432,6 +432,31 @@ describe("PUT config/llm/default-provider", () => {
     expect(availability(result)).toEqual({ status: "ok" });
   });
 
+  test("chatgpt persists and resolves the canonical subscription row", async () => {
+    seedConnection({
+      name: "chatgpt-subscription",
+      provider: "chatgpt",
+      auth: {
+        type: "oauth_subscription",
+        credential: "credential/chatgpt/access_token",
+      },
+    });
+    secureKeyResults["credential/chatgpt/access_token"] = {
+      value: "token",
+      unreachable: false,
+    };
+
+    const result = (await put({ provider: "chatgpt" })) as Record<
+      string,
+      unknown
+    >;
+
+    expect(persistedDefaultProvider()).toEqual({ provider: "chatgpt" });
+    expect(result.provider).toBe("chatgpt");
+    expect(result.resolvedConnectionName).toBe("chatgpt-subscription");
+    expect(availability(result)).toEqual({ status: "ok" });
+  });
+
   test("persists an explicit connectionName", async () => {
     await put({ provider: "openai", connectionName: "work-openai" });
     expect(persistedDefaultProvider()).toEqual({
