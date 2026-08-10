@@ -27,9 +27,9 @@ describe("the dm-marked Discord route", () => {
     // regressed, the notice would fall through to the HTTP proxy, which cannot
     // fetch a base-less URL: the delivery would vanish rather than error, and
     // every behavioural assertion about where it landed would still pass.
-    expect(channelForCallback(resolveDeliverCallbackUrlForChannel("discord")!)).toBe(
-      "discord",
-    );
+    expect(
+      channelForCallback(resolveDeliverCallbackUrlForChannel("discord")!),
+    ).toBe("discord");
   });
 });
 

@@ -202,7 +202,6 @@ mock.module("../config/llm-resolver.js", () => ({
 
 // ── Imports (after mocks) ───────────────────────────────────────────────────
 
-import type { Conversation } from "../daemon/conversation.js";
 import {
   clearConversations,
   setConversation,
@@ -240,9 +239,9 @@ function registerFakeParent(parentConversationId: string): {
       assistantId: undefined,
       enqueueMessage: () => {
         enqueued += 1;
-        return { rejected: false, queued: true };
+        return { rejected: false, queued: true, requestId: "req-fake" };
       },
-    } as unknown as Partial<Conversation>),
+    }),
   );
   return { enqueuedCount: () => enqueued };
 }

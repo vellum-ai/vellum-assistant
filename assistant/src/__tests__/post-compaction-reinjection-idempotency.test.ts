@@ -12,7 +12,6 @@
  */
 import { afterEach, describe, expect, test } from "bun:test";
 
-import type { Conversation } from "../daemon/conversation.js";
 import {
   clearConversations,
   setConversation,
@@ -169,8 +168,11 @@ describe("applyRuntimeInjections re-injection idempotency", () => {
         workingDir: "/sandbox",
         workspaceTopLevelContext: WORKSPACE_BLOCK,
         workspaceTopLevelDirty: false,
-        currentTurnTemporalSnapshot: { clientTimezone: null },
-      } as unknown as Partial<Conversation>),
+        currentTurnTemporalSnapshot: {
+          clientTimezone: null,
+          timeSinceLastMessage: null,
+        },
+      }),
     );
   }
 

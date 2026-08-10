@@ -1,7 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test";
 
 import { createApp } from "../apps/app-store.js";
-import type { Conversation } from "../daemon/conversation.js";
 import {
   clearConversations,
   setConversation,
@@ -46,7 +45,7 @@ function registerFallbackConversation(fields: Record<string, unknown>): void {
       workspaceTopLevelContext: "",
       workspaceTopLevelDirty: false,
       ...fields,
-    } as unknown as Partial<Conversation>),
+    }),
   );
 }
 

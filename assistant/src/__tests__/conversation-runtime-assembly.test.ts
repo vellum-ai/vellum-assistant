@@ -103,10 +103,10 @@ mock.module("../daemon/date-context.js", () => ({
   formatTurnTimestamp: () => FIXED_TURN_TIMESTAMP,
 }));
 
+import type { SurfaceDataByType } from "../api/surfaces.js";
 import { resolveCallSiteConfig } from "../config/llm-resolver.js";
 import { LLMSchema } from "../config/schemas/llm.js";
 import { REFUSAL_FALLBACK_TEXT } from "../context/refusal-quarantine.js";
-import type { Conversation } from "../daemon/conversation.js";
 import {
   clearConversations,
   setConversation,
@@ -137,7 +137,7 @@ import {
   stripInjectionsForCompaction,
   stripNowScratchpad,
 } from "../daemon/conversation-runtime-assembly.js";
-import type { SurfaceData, SurfaceType } from "../daemon/message-protocol.js";
+import type { SurfaceStateEntry } from "../daemon/conversation-surface-state.js";
 import { buildPkbReminder } from "../daemon/pkb-reminder-builder.js";
 import type { TrustContext } from "../daemon/trust-context-types.js";
 import {
@@ -217,11 +217,12 @@ function seedActiveSurfaceConversation(
   conversationId: string,
   workspaceText: string,
   surfaceId: string,
-  data: SurfaceData,
+  data: SurfaceDataByType["dynamic_page"],
   channelCapabilities?: ChannelCapabilities,
   commandIntent?: { type: string; payload?: string; languageCode?: string },
   currentTurnTemporalSnapshot?: {
     clientTimezone: string | null;
+    timeSinceLastMessage: string | null;
   },
 ): void {
   setConversation(
@@ -232,14 +233,13 @@ function seedActiveSurfaceConversation(
       workspaceTopLevelContext: workspaceText,
       workspaceTopLevelDirty: false,
       currentActiveSurfaceId: surfaceId,
-      surfaceState: new Map<
-        string,
-        { surfaceType: SurfaceType; data: SurfaceData }
-      >([[surfaceId, { surfaceType: "dynamic_page", data }]]),
+      surfaceState: new Map<string, SurfaceStateEntry>([
+        [surfaceId, { surfaceType: "dynamic_page", data }],
+      ]),
       channelCapabilities: channelCapabilities ?? undefined,
       commandIntent,
       currentTurnTemporalSnapshot,
-    } as unknown as Partial<Conversation>),
+    }),
   );
 }
 
@@ -267,7 +267,7 @@ function seedChannelCapabilitiesConversation(
       surfaceState: new Map(),
       channelCapabilities: caps ?? undefined,
       transportHints,
-    } as unknown as Partial<Conversation>),
+    }),
   );
 }
 
@@ -994,6 +994,7 @@ describe("applyRuntimeInjections — injection mode", () => {
       { type: "start" },
       {
         clientTimezone: null,
+        timeSinceLastMessage: null,
       },
     );
   });
@@ -1041,7 +1042,7 @@ describe("applyRuntimeInjections — injection mode", () => {
         surfaceState: new Map(),
         channelCapabilities,
         conversationType: "background",
-      } as unknown as Partial<Conversation>),
+      }),
     );
 
     const { blocks } = await applyRuntimeInjections(baseMessages, fullOptions);
@@ -2248,12 +2249,13 @@ describe("applyRuntimeInjections with unifiedTurnContext", () => {
         surfaceState: new Map(),
         currentTurnTemporalSnapshot: {
           clientTimezone: null,
+          timeSinceLastMessage: null,
         },
         currentTurnInterfaceContext: {
           userMessageInterface: "macos",
           assistantMessageInterface: "macos",
         },
-      } as unknown as Partial<Conversation>),
+      }),
     );
   }
 
@@ -2353,7 +2355,7 @@ describe("applyRuntimeInjections timezone resolution", () => {
           clientTimezone,
           timeSinceLastMessage,
         },
-      } as unknown as Partial<Conversation>),
+      }),
     );
   }
 
@@ -2518,12 +2520,13 @@ describe("applyRuntimeInjections blocks.unifiedTurnContext", () => {
         surfaceState: new Map(),
         currentTurnTemporalSnapshot: {
           clientTimezone: null,
+          timeSinceLastMessage: null,
         },
         currentTurnInterfaceContext: {
           userMessageInterface: "macos",
           assistantMessageInterface: "macos",
         },
-      } as unknown as Partial<Conversation>),
+      }),
     );
   }
 
@@ -2718,7 +2721,7 @@ describe("applyRuntimeInjections — subagent status", () => {
         surfaceState: new Map(),
         getSubagentChildren: () =>
           getSubagentManager().getChildrenOf(FALLBACK_CONVERSATION_ID),
-      } as unknown as Partial<Conversation>),
+      }),
     );
   });
 
@@ -2782,7 +2785,7 @@ describe("applyRuntimeInjections — subagent status", () => {
         workspaceTopLevelDirty: false,
         surfaceState: new Map(),
         isSubagent: true,
-      } as unknown as Partial<Conversation>),
+      }),
     );
     // AND a child is registered under its id
     seedSubagentChild(
@@ -4352,12 +4355,12 @@ describe("Slack channel chronological rendering — multi-thread", () => {
         workspaceTopLevelDirty: false,
         surfaceState: new Map(),
         channelCapabilities: caps,
-        trustContext: { trustClass: "guardian" },
+        trustContext: { trustClass: "guardian", sourceChannel: "vellum" },
         slackContextCompactionWatermarkTs:
           compaction.slackContextCompactionWatermarkTs ?? null,
         contextCompactedMessageCount:
           compaction.contextCompactedMessageCount ?? 0,
-      } as unknown as Partial<Conversation>),
+      }),
     );
   }
 

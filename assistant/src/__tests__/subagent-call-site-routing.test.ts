@@ -180,13 +180,14 @@ mock.module("../persistence/db-connection.js", () => ({
 
 // ── Imports (after mocks) ───────────────────────────────────────────────────
 
-import type { Conversation } from "../daemon/conversation.js";
 import {
   clearConversations,
   setConversation,
 } from "../daemon/conversation-registry.js";
+import type { TrustContext } from "../daemon/trust-context-types.js";
 import { CallSiteRoutingProvider } from "../providers/call-site-routing.js";
 import { SubagentManager } from "../subagent/manager.js";
+import { mockAuthContext } from "./helpers/mock-actor-context.js";
 import { asConversation } from "./helpers/mock-conversation.js";
 
 // Seed the workspace `llm` config per-case. The real loader schema-merges the
@@ -306,16 +307,16 @@ describe("SubagentManager — provider call-site routing", () => {
   test("copies parent guardian and auth context into spawned conversation", async () => {
     setLlmConfig(makeLlmFixture());
 
-    const parentTrustContext = {
+    const parentTrustContext: TrustContext = {
       sourceChannel: "vellum",
       trustClass: "guardian",
       guardianPrincipalId: "guardian-1",
       guardianExternalUserId: "guardian-1",
     };
-    const parentAuthContext = {
+    const parentAuthContext = mockAuthContext({
       subject: "local:self:parent-perms",
       actorPrincipalId: "guardian-1",
-    };
+    });
 
     capturedConversations.length = 0;
     clearConversations();
@@ -327,7 +328,7 @@ describe("SubagentManager — provider call-site routing", () => {
         getAuthContext: () => parentAuthContext,
         assistantId: "self",
         getCurrentSystemPrompt: () => "parent system",
-      } as unknown as Partial<Conversation>),
+      }),
     );
 
     await manager.spawn(
@@ -365,7 +366,7 @@ describe("SubagentManager — provider call-site routing", () => {
         enabledPlugins: parentScope,
         getAuthContext: () => undefined,
         getCurrentSystemPrompt: () => "parent system",
-      } as unknown as Partial<Conversation>),
+      }),
     );
 
     await manager.spawn(
@@ -391,11 +392,14 @@ describe("SubagentManager — provider call-site routing", () => {
     capturedConversations.length = 0;
     clearConversations();
     const manager = new SubagentManager();
-    setConversation("parent-unscoped", {
-      enabledPlugins: null,
-      getAuthContext: () => undefined,
-      getCurrentSystemPrompt: () => "parent system",
-    } as any);
+    setConversation(
+      "parent-unscoped",
+      asConversation({
+        enabledPlugins: null,
+        getAuthContext: () => undefined,
+        getCurrentSystemPrompt: () => "parent system",
+      }),
+    );
 
     await manager.spawn(
       {

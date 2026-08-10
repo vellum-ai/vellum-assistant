@@ -67,7 +67,7 @@ const { registerDefaultPluginInjectors } =
   await import("../plugins/defaults/index.js");
 import { eq } from "drizzle-orm";
 
-import type { Conversation } from "../daemon/conversation.js";
+import type { InterfaceId } from "../channels/types.js";
 import {
   clearConversations,
   setConversation,
@@ -155,8 +155,9 @@ function seedWorkspaceContext(
   text: string,
   currentTurnTemporalSnapshot?: {
     clientTimezone: string | null;
+    timeSinceLastMessage: string | null;
   },
-  interfaceName?: string,
+  interfaceName?: InterfaceId,
 ): void {
   setConversation(
     TEST_CONVERSATION_ID,
@@ -176,7 +177,7 @@ function seedWorkspaceContext(
       // is sourced from the live conversation, which delegates to the manager.
       getSubagentChildren: () =>
         getSubagentManager().getChildrenOf(TEST_CONVERSATION_ID),
-    } as unknown as Partial<Conversation>),
+    }),
   );
 }
 
@@ -193,8 +194,11 @@ function seedFallbackTemporalSnapshot(): void {
       workingDir: "/sandbox",
       workspaceTopLevelContext: "",
       workspaceTopLevelDirty: false,
-      currentTurnTemporalSnapshot: { clientTimezone: null },
-    } as unknown as Partial<Conversation>),
+      currentTurnTemporalSnapshot: {
+        clientTimezone: null,
+        timeSinceLastMessage: null,
+      },
+    }),
   );
 }
 
@@ -492,7 +496,11 @@ describe("injector chain", () => {
     seedSubagentChild(TEST_CONVERSATION_ID, subagentChild);
     const subagentBlock = buildSubagentStatusBlock([subagentChild])!;
 
-    seedWorkspaceContext(workspaceText, { clientTimezone: null }, "macos");
+    seedWorkspaceContext(
+      workspaceText,
+      { clientTimezone: null, timeSinceLastMessage: null },
+      "macos",
+    );
     const result = await applyRuntimeInjections(runMessages, {
       ...makeTurnContext(),
     });
@@ -577,7 +585,7 @@ describe("injector chain", () => {
         workingDir: "/sandbox",
         workspaceTopLevelContext: "",
         workspaceTopLevelDirty: false,
-        trustContext: { trustClass: "guardian" },
+        trustContext: { trustClass: "guardian", sourceChannel: "vellum" },
         channelCapabilities: {
           channel: "slack",
           dashboardCapable: false,
@@ -585,7 +593,7 @@ describe("injector chain", () => {
           supportsVoiceInput: false,
           chatType: "channel",
         },
-      } as unknown as Partial<Conversation>),
+      }),
     );
     const result = await applyRuntimeInjections(originalRun, {
       ...makeTurnContext(),
@@ -625,7 +633,10 @@ describe("injector chain", () => {
       timestamp: FIXED_TURN_TIMESTAMP,
       interfaceName: "web",
     });
-    seedWorkspaceContext("", { clientTimezone: null });
+    seedWorkspaceContext("", {
+      clientTimezone: null,
+      timeSinceLastMessage: null,
+    });
     seedSubagentChild(
       TEST_CONVERSATION_ID,
       makeSubagentState("sub-1", "worker", "running"),
