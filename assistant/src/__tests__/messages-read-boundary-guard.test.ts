@@ -36,36 +36,43 @@ import { Glob } from "bun";
 const SRC_REL = "src";
 const SRC_ABS = join(process.cwd(), SRC_REL);
 
-/** Files outside persistence/ with audited direct reads of `messages`. */
-const BASELINE: readonly string[] = [
-  "src/apps/app-store.ts",
-  "src/daemon/credential-transcript-scrub.ts",
-  "src/live-voice/live-voice-archive.ts",
-  "src/monitoring/recovery/inflight-content.ts",
-  "src/plugins/defaults/memory/context-search/sources/conversations.ts",
-  "src/plugins/defaults/memory/graph/image-ref-utils.ts",
-  "src/plugins/defaults/memory/indexer.ts",
-  "src/plugins/defaults/memory/memory-retrospective-accounting.ts",
-  "src/plugins/defaults/memory/substrate/sweep-job.ts",
-  "src/plugins/defaults/memory/v1/graph/extraction.ts",
-  "src/plugins/defaults/memory/v1/job-handlers/backfill.ts",
-  "src/plugins/defaults/memory/v1/job-handlers/embedding.ts",
-  "src/plugins/defaults/memory/v1/job-handlers/index-maintenance.ts",
-  "src/plugins/defaults/memory/v2/harness/oracle.ts",
-  "src/plugins/defaults/memory/v2/harness/replay-input.ts",
-  "src/plugins/defaults/memory/v3-eval/eval-packets.ts",
-  "src/plugins/defaults/memory/v3/prune.ts",
-  "src/plugins/defaults/memory/v3/selection-log-store.ts",
-  "src/runtime/pre-first-message-gate.ts",
-  "src/runtime/routes/log-export-routes.ts",
-  "src/runtime/routes/surface-conversation-resolver.ts",
-  "src/telemetry/turn-events-store.ts",
-  "src/telemetry/turn-trace-store.ts",
-  "src/workspace/migrations/rebuild-conversation-disk-view.ts",
-];
+/**
+ * Audited direct readers outside persistence/, as file -> count of matching
+ * read sites. Counts, not just filenames: a new read added inside an
+ * already-baselined file must fail the ratchet too, since each site carries
+ * its own visibility decision. A same-file refactor that replaces one read
+ * with another at equal count passes; that is accepted ratchet granularity
+ * (the diff still shows the site to its reviewer).
+ */
+const BASELINE: Readonly<Record<string, number>> = {
+  "src/apps/app-store.ts": 1,
+  "src/daemon/credential-transcript-scrub.ts": 1,
+  "src/live-voice/live-voice-archive.ts": 1,
+  "src/monitoring/recovery/inflight-content.ts": 2,
+  "src/plugins/defaults/memory/context-search/sources/conversations.ts": 1,
+  "src/plugins/defaults/memory/graph/image-ref-utils.ts": 1,
+  "src/plugins/defaults/memory/indexer.ts": 2,
+  "src/plugins/defaults/memory/memory-retrospective-accounting.ts": 4,
+  "src/plugins/defaults/memory/substrate/sweep-job.ts": 1,
+  "src/plugins/defaults/memory/v1/graph/extraction.ts": 3,
+  "src/plugins/defaults/memory/v1/job-handlers/backfill.ts": 1,
+  "src/plugins/defaults/memory/v1/job-handlers/embedding.ts": 1,
+  "src/plugins/defaults/memory/v1/job-handlers/index-maintenance.ts": 1,
+  "src/plugins/defaults/memory/v2/harness/oracle.ts": 1,
+  "src/plugins/defaults/memory/v2/harness/replay-input.ts": 1,
+  "src/plugins/defaults/memory/v3-eval/eval-packets.ts": 2,
+  "src/plugins/defaults/memory/v3/prune.ts": 1,
+  "src/plugins/defaults/memory/v3/selection-log-store.ts": 1,
+  "src/runtime/pre-first-message-gate.ts": 1,
+  "src/runtime/routes/log-export-routes.ts": 1,
+  "src/runtime/routes/surface-conversation-resolver.ts": 2,
+  "src/telemetry/turn-events-store.ts": 2,
+  "src/telemetry/turn-trace-store.ts": 2,
+  "src/workspace/migrations/rebuild-conversation-disk-view.ts": 1,
+};
 
-const DRIZZLE_READ = /\.from\(\s*messages\s*\)/;
-const RAW_SQL_READ = /FROM\s+messages\b/;
+const DRIZZLE_READ = /\.from\(\s*messages\s*\)/g;
+const RAW_SQL_READ = /FROM\s+messages\b/g;
 
 function isExempt(relPath: string): boolean {
   const parts = relPath.split(sep);
@@ -76,20 +83,23 @@ function isExempt(relPath: string): boolean {
   );
 }
 
-async function scanDirectReaders(): Promise<string[]> {
+async function scanDirectReaders(): Promise<Map<string, number>> {
   const glob = new Glob("**/*.ts");
-  const found: string[] = [];
+  const found = new Map<string, number>();
   for await (const file of glob.scan({ cwd: SRC_ABS, absolute: true })) {
     const relPath = join(SRC_REL, relative(SRC_ABS, file));
     if (isExempt(relPath)) {
       continue;
     }
     const source = readFileSync(file, "utf-8");
-    if (DRIZZLE_READ.test(source) || RAW_SQL_READ.test(source)) {
-      found.push(relPath);
+    const count =
+      [...source.matchAll(DRIZZLE_READ)].length +
+      [...source.matchAll(RAW_SQL_READ)].length;
+    if (count > 0) {
+      found.set(relPath, count);
     }
   }
-  return found.sort();
+  return found;
 }
 
 describe("messages read boundary", () => {
@@ -97,23 +107,27 @@ describe("messages read boundary", () => {
     const found = await scanDirectReaders();
 
     if (process.env.UPDATE_MESSAGES_READ_BASELINE === "1") {
-      console.log(JSON.stringify(found, null, 2));
+      console.log(
+        JSON.stringify(Object.fromEntries([...found].sort()), null, 2),
+      );
     }
 
-    const baseline = new Set(BASELINE);
-    const newReaders = found.filter((file) => !baseline.has(file));
+    const grown = [...found]
+      .filter(([file, count]) => count > (BASELINE[file] ?? 0))
+      .map(([file, count]) => `${file}: ${BASELINE[file] ?? 0} -> ${count}`);
     expect(
-      newReaders,
+      grown,
       `New direct reads of the messages table outside persistence/ (route ` +
         `through an accessor in persistence/message-reads.ts, or audit the ` +
         `read, state its visibility decision at the site, and baseline it):`,
     ).toEqual([]);
 
-    const foundSet = new Set(found);
-    const stale = BASELINE.filter((file) => !foundSet.has(file));
+    const shrunk = Object.entries(BASELINE)
+      .filter(([file, count]) => (found.get(file) ?? 0) < count)
+      .map(([file, count]) => `${file}: ${count} -> ${found.get(file) ?? 0}`);
     expect(
-      stale,
-      "Stale baseline entries (the file no longer reads messages directly; remove it so coverage cannot rot):",
+      shrunk,
+      "Stale baseline entries (fewer direct reads than baselined; ratchet the count down so coverage cannot rot):",
     ).toEqual([]);
   });
 });
