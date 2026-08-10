@@ -1,4 +1,4 @@
-import { useMemo, useRef, type ComponentProps, type ReactNode } from "react";
+import { useRef, type ComponentProps, type ReactNode } from "react";
 
 import { cn } from "../utils/cn";
 import { useResizablePane } from "../hooks/use-resizable-pane";
@@ -72,25 +72,22 @@ export function ResizablePanel({
   ...rest
 }: ResizablePanelProps) {
   const paneRef = useRef<HTMLDivElement>(null);
-  const legacySize = useMemo(
-    () =>
-      storageKey
-        ? {
-            key: storageKey,
-            convert: (leftWidth: number, containerWidth: number) =>
-              containerWidth - leftWidth - HANDLE_WIDTH_PX,
-          }
-        : undefined,
-    [storageKey],
-  );
   const { size, containerRef, paneId, handleProps, isResizing } =
     useResizablePane({
       side: "end",
       defaultSize: defaultRightWidth,
       minSize: minRightWidth,
       reserveForRest: minLeftWidth + HANDLE_WIDTH_PX,
-      storageKey: storageKey && `${storageKey}${STORAGE_FORMAT_SUFFIX}`,
-      legacySize,
+      storageKey: storageKey
+        ? `${storageKey}${STORAGE_FORMAT_SUFFIX}`
+        : undefined,
+      legacySize: storageKey
+        ? {
+            key: storageKey,
+            convert: (leftWidth: number, containerWidth: number) =>
+              containerWidth - leftWidth - HANDLE_WIDTH_PX,
+          }
+        : undefined,
       label: separatorLabel,
       paneRef,
       onSizeCommit: onWidthChange,

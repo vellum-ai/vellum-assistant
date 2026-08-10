@@ -1,15 +1,3 @@
-import {
-  useCallback,
-  useEffect,
-  useId,
-  useLayoutEffect,
-  useRef,
-  useState,
-  type KeyboardEvent,
-  type PointerEvent,
-  type RefObject,
-} from "react";
-
 /**
  * One owner for "a pane has a width, the other side takes the rest, you can
  * drag or key the edge, and it is remembered".
@@ -30,6 +18,26 @@ import {
  *
  * [apg]: https://www.w3.org/WAI/ARIA/apg/patterns/windowsplitter/
  */
+
+import {
+  useCallback,
+  useEffect,
+  useId,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type KeyboardEvent,
+  type PointerEvent,
+  type RefObject,
+} from "react";
+
+/**
+ * `useLayoutEffect` warns when React renders on the server, and this package is
+ * rendered to static markup in its own tests. The migration it guards has
+ * nothing to do before hydration anyway.
+ */
+const useIsomorphicLayoutEffect =
+  typeof window === "undefined" ? useEffect : useLayoutEffect;
 
 /** Px moved per arrow press, and the multiplier applied when Shift is held. */
 const STEP_PX = 16;
@@ -248,6 +256,11 @@ export function useResizablePane({
   paneRef,
   onSizeCommit,
 }: UseResizablePaneOptions): UseResizablePaneResult {
+  // Held in a ref so the migration effect can depend on the key alone. A
+  // caller passing an inline object would otherwise re-run it every render.
+  const legacySizeRef = useRef(legacySize);
+  legacySizeRef.current = legacySize;
+
   const generatedPaneId = useId();
   const paneId = providedPaneId ?? generatedPaneId;
   const containerRef = useRef<HTMLDivElement>(null);
@@ -288,38 +301,43 @@ export function useResizablePane({
   );
   const boundedMax = boundedMaxSize(effectiveMax, minSize, size);
 
-  // Runs before paint so a converted size never flashes the default first.
-  // Measuring here rather than reusing `containerSize` because that state is
-  // still 0 on the first pass, and the conversion needs a real container.
-  useLayoutEffect(() => {
-    if (!legacySize || !storageKey) return;
+  // Runs before paint so a converted size never flashes the default. The
+  // synchronous read is what makes that possible, since `containerSize` is
+  // still 0 on the first pass; depending on it as well retries the conversion
+  // for a container that had no layout at mount, which is what a hidden tab or
+  // an offscreen route looks like. Without the retry a stored value would stay
+  // stranded in the old format.
+  const legacyKey = legacySize?.key;
+  useIsomorphicLayoutEffect(() => {
+    const legacy = legacySizeRef.current;
+    if (!legacy || !storageKey) return;
     if (readStoredSize(storageKey) != null) return;
-    const stored = readStoredSize(legacySize.key);
+    const stored = readStoredSize(legacy.key);
     if (stored == null) return;
-    const containerWidth = containerRef.current?.offsetWidth ?? 0;
+    const containerWidth = containerRef.current?.offsetWidth || containerSize;
     if (containerWidth <= 0) return;
-    const converted = legacySize.convert(stored, containerWidth);
+    const converted = Math.round(legacy.convert(stored, containerWidth));
     if (!Number.isFinite(converted)) return;
     setSize(converted);
     writeStoredSize(storageKey, converted);
     try {
-      localStorage.removeItem(legacySize.key);
+      localStorage.removeItem(legacy.key);
     } catch {
       // Storage quota or security error, ignore.
     }
-  }, [legacySize, storageKey]);
+  }, [legacyKey, storageKey, containerSize]);
 
   // Re-clamp when the bound moves so a pane sized for a wide window does not
-  // keep its width after the window shrinks under it.
+  // keep its width after the window shrinks under it. The DOM write stays out
+  // of the state updater, which React is free to call more than once.
   useEffect(() => {
-    setSize((prev) => {
-      const clamped = clamp(prev);
-      if (clamped !== prev && paneRef?.current) {
-        paneRef.current.style.width = `${clamped}px`;
-      }
-      return clamped;
-    });
-  }, [clamp, paneRef]);
+    const clamped = clamp(size);
+    if (clamped === size) return;
+    setSize(clamped);
+    if (paneRef?.current) {
+      paneRef.current.style.width = `${clamped}px`;
+    }
+  }, [size, clamp, paneRef]);
 
   const applyLive = useCallback(
     (next: number) => {
@@ -332,11 +350,16 @@ export function useResizablePane({
     [paneRef],
   );
 
+  // Rounded once, here, so the state, the persisted entry, the caller's
+  // callback, and the separator's `aria-valuenow` all carry the same number. A
+  // sub-pixel container measurement otherwise reaches storage verbatim and
+  // disagrees with what the separator announces.
   const commit = useCallback(
     (next: number) => {
-      setSize(next);
-      writeStoredSize(storageKey, next);
-      onSizeCommit?.(next);
+      const rounded = Math.round(next);
+      setSize(rounded);
+      writeStoredSize(storageKey, rounded);
+      onSizeCommit?.(rounded);
     },
     [storageKey, onSizeCommit],
   );
