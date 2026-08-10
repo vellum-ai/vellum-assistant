@@ -591,6 +591,40 @@ describe("entry-name providers", () => {
     expect(resolveProviderOpts[0]?.providerOverride).toBe("anthropic");
   });
 
+  test("an entry label alongside an explicit provider_connection still dispatches", async () => {
+    // The step-3 collapse migration rewrites provider to an entry name; a
+    // stale provider_connection left beside it must not fail the vendor
+    // equality against a label that is not a vendor.
+    registerConnection(
+      {
+        name: "anthropic-work",
+        provider: "anthropic",
+        auth: {
+          type: "api_key",
+          credential: "credential/anthropic-work/api_key",
+        },
+      },
+      { name: "anthropic", tag: "work-key" },
+    );
+    setLlmConfig({
+      profiles: {
+        work: {
+          provider: "anthropic-work",
+          provider_connection: "anthropic-work",
+          model: "claude-opus-4-8",
+        },
+      },
+    });
+
+    const result = await getConfiguredProvider("mainAgent", {
+      overrideProfile: "work",
+    });
+
+    expect(result).not.toBeNull();
+    expect(resolveProviderCalls[0]?.name).toBe("anthropic-work");
+    expect(resolveProviderOpts[0]?.providerOverride).toBeUndefined();
+  });
+
   test("a label naming no row degrades to the soft null path", async () => {
     setLlmConfig({
       profiles: {

@@ -38,8 +38,10 @@ import {
 } from "./connection-model-compat.js";
 import {
   ConnectionResolutionError,
+  expectedVendorProvider,
   isManagedConnectionRoute,
   resolveEntryConnectionName,
+  resolveEntryProviderKind,
   resolveRoutingIdentity,
   tryResolveProviderForConnectionName,
 } from "./connection-resolution.js";
@@ -204,9 +206,12 @@ export class CallSiteRoutingProvider implements Provider {
       forceOverrideProfile: options?.config?.forceOverrideProfile,
       selectionSeed: options?.config?.selectionSeed,
     });
+    // An entry-name label is not a provider id: translate it to the row's
+    // dispatchable kind so capability selection cannot drift from routing.
     return shouldUseNativeWebSearch(
       getConfig(),
-      resolved.provider,
+      resolveEntryProviderKind(resolved.provider, resolved.model) ??
+        resolved.provider,
       resolved.model,
     );
   }
@@ -312,9 +317,12 @@ export class CallSiteRoutingProvider implements Provider {
     }
 
     if (connectionName) {
+      // The vendor guard covers both the entry route and a config carrying
+      // an entry label alongside an explicit provider_connection: a label
+      // that is not a vendor never threads into the row-equality check.
       const connectionProvider = await this.resolveByConnection(
         connectionName,
-        entryRoute ? undefined : resolved.provider,
+        expectedVendorProvider(resolved.provider),
         resolved.model,
       );
       if (connectionProvider) {

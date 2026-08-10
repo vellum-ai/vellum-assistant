@@ -17,6 +17,7 @@ import {
   isConnectionCompatibleWithModel,
 } from "./connection-model-compat.js";
 import {
+  expectedVendorProvider,
   resolveEntryConnectionName,
   resolveRoutingIdentity,
   tryResolveProviderForConnectionName,
@@ -211,7 +212,7 @@ export async function resolveConfiguredProvider(
   const connectionProvider = await tryResolveProviderForConnectionName(
     connectionName,
     config,
-    entryRoute ? undefined : inferenceProvider,
+    expectedVendorProvider(inferenceProvider),
     resolved.model,
   );
   if (!connectionProvider) {

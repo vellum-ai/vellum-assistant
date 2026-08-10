@@ -91,6 +91,53 @@ export function resolveEntryConnectionName(
 }
 
 /**
+ * A resolved provider value usable as the expected vendor in row-equality
+ * checks: catalog ids and routing identities pass through; an entry-name
+ * label (or any unknown value) yields undefined, so a config carrying both
+ * an entry label and a `provider_connection` never fails the equality
+ * against a label that is not a vendor.
+ */
+export function expectedVendorProvider(
+  provider: string | undefined,
+): string | undefined {
+  return provider && VALID_CONNECTION_PROVIDERS.includes(provider)
+    ? provider
+    : undefined;
+}
+
+/**
+ * The dispatchable provider kind behind an entry-name label, or null when
+ * the label is not an entry. Identity-kind rows derive their upstream the
+ * way the identities themselves do. Sync and best-effort so capability
+ * probes can share dispatch's translation without replaying its async
+ * resolution.
+ */
+export function resolveEntryProviderKind(
+  provider: string | undefined,
+  model: string | undefined,
+): string | null {
+  const entryName = resolveEntryConnectionName(provider);
+  if (!entryName) {
+    return null;
+  }
+  try {
+    const row = getConnection(getDb(), entryName);
+    if (!row) {
+      return null;
+    }
+    if (isVellumManagedConnection(row)) {
+      return model ? getManagedUpstream(model) : null;
+    }
+    if (row.provider === "chatgpt") {
+      return "openai";
+    }
+    return row.provider;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Resolve a Provider through a named `provider_connection`.
  *
  * Throws `ConnectionResolutionError` on hard config errors:
@@ -448,7 +495,7 @@ export async function resolveDefaultProvider(
   return tryResolveProviderForConnectionName(
     connectionName,
     config,
-    resolved.provider,
+    expectedVendorProvider(resolved.provider),
     resolved.model,
   );
 }
