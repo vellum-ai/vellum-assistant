@@ -2498,10 +2498,8 @@ export class Conversation {
    * `undefined` when no turn recorded one, which is a gap in the entry point
    * rather than an answer. Deliberately does not fall back to the
    * conversation's trust: a caller that can accept the conversation's owner
-   * instead should say so, by spelling `?? getTrustContext()` where a reader
-   * can see it. Hiding that inside this method would answer a question nobody
-   * asked and reintroduce, one layer down, exactly the ambiguity these two
-   * accessors exist to remove.
+   * instead spells `?? getTrustContext()`, so the substitution is visible
+   * where it happens.
    */
   getTurnTrust(): TrustContext | undefined {
     return this.currentTurnTrustContext;
