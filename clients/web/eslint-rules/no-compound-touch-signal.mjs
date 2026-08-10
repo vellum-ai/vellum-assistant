@@ -21,11 +21,17 @@
  * hover-only surface does not work at all, so the size half cannot matter and
  * the call site wants `isPointerCoarse()` from `@/utils/pointer`.
  *
- * This rule does not ban the compound, it freezes its population. Existing
- * call sites are listed in `.touch-signal-allowlist.json` while the overlay
- * presentation moves into the design library (LUM-3177), at which point most
- * of them stop asking the question at all. That file shrinks toward zero.
- * Don't add entries by hand: pick the axis the surface actually needs.
+ * This rule does not ban the compound, it freezes its population. It counts
+ * *usages*, not files: `.touch-signal-allowlist.json` records how many
+ * references each grandfathered file is permitted, so an allow-listed file
+ * cannot quietly grow a second narrow-plus-coarse branch. The list shrinks as
+ * overlay presentation moves into the design library (LUM-3177), at which
+ * point most of these sites stop asking the question at all. Don't add
+ * entries by hand: pick the axis the surface actually needs.
+ *
+ * `scripts/audit-touch-signal-allowlist.mjs` re-runs this rule with
+ * `ignoreAllowlist` to recount, so there is exactly one definition of "uses
+ * the compound" and the script cannot drift from the rule.
  *
  * See `clients/web/docs/PLATFORM_ADAPTATION.md` → "Three axes, not one
  * boolean".
@@ -72,14 +78,33 @@ function isCompoundModule(source) {
   return base === COMPOUND_MODULE;
 }
 
+/** True for the compound module itself, plus its colocated test and story. */
+function isOwnModule(key) {
+  const base = path
+    .basename(key)
+    .replace(/\.(test|stories)\.[jt]sx?$/, "")
+    .replace(/\.[jt]sx?$/, "");
+  return base === COMPOUND_MODULE;
+}
+
 export const noCompoundTouchSignal = {
   meta: {
     type: "problem",
     docs: {
       description:
-        "Disallow new call sites reading the narrow-AND-coarse compound signal.",
+        "Freeze the population of call sites reading the narrow-AND-coarse compound signal.",
     },
-    schema: [],
+    schema: [
+      {
+        type: "object",
+        properties: {
+          // Used by scripts/audit-touch-signal-allowlist.mjs to recount the
+          // real population without the allow-list suppressing it.
+          ignoreAllowlist: { type: "boolean" },
+        },
+        additionalProperties: false,
+      },
+    ],
     messages: {
       compoundSignal:
         "'{{name}}' is the narrow-AND-coarse compound, not the input axis. " +
@@ -89,49 +114,87 @@ export const noCompoundTouchSignal = {
         "really about room. The compound is only right when both halves " +
         "genuinely matter (a sheet that wants a thumb AND a window too narrow " +
         "to anchor in). See docs/PLATFORM_ADAPTATION.md.",
+      extraUsage:
+        "This file is grandfathered for {{allowed}} use(s) of the compound " +
+        "signal and now has {{actual}}. Don't grow the population: a new " +
+        "branch here wants isPointerCoarse() or useIsMobile(). If the whole " +
+        "file has genuinely migrated, run 'bun run audit:touch-signal'. " +
+        "See docs/PLATFORM_ADAPTATION.md.",
     },
   },
   create(context) {
     const filePath = context.filename ?? context.getFilename();
     const key = relKey(filePath);
 
-    // The module that defines the compound is exempt from its own rule, as
-    // are its colocated test and story.
-    const ownBase = path
-      .basename(key)
-      .replace(/\.(test|stories)\.[jt]sx?$/, "")
-      .replace(/\.[jt]sx?$/, "");
-    if (ownBase === COMPOUND_MODULE) {
+    if (isOwnModule(key)) {
       return {};
     }
 
-    const allowlist = loadAllowlist();
-    if (Object.hasOwn(allowlist, key)) {
-      return {};
-    }
+    const ignoreAllowlist = context.options[0]?.ignoreAllowlist === true;
+    const entry = ignoreAllowlist ? undefined : loadAllowlist()[key];
+    const allowed = typeof entry?.uses === "number" ? entry.uses : 0;
+
+    const sourceCode = context.sourceCode ?? context.getSourceCode();
 
     return {
       ImportDeclaration(node) {
         if (!isCompoundModule(node.source.value)) {
           return;
         }
-        for (const specifier of node.specifiers) {
-          const name =
-            specifier.type === "ImportSpecifier"
-              ? specifier.imported.name
-              : specifier.local.name;
-          if (
+
+        // Every reference to a binding this import introduces, which is the
+        // usage count. A file with one import and three branches counts 3.
+        const references = sourceCode
+          .getDeclaredVariables(node)
+          .flatMap((variable) => variable.references);
+
+        const relevant = node.specifiers.filter(
+          (specifier) =>
             specifier.type !== "ImportSpecifier" ||
-            COMPOUND_EXPORTS.has(name)
-          ) {
+            COMPOUND_EXPORTS.has(specifier.imported.name),
+        );
+        if (relevant.length === 0) {
+          return;
+        }
+
+        // Recount mode: one message per reference, so the audit script's
+        // message count is the usage count and shares the budget's unit.
+        if (ignoreAllowlist) {
+          for (const reference of references) {
+            context.report({
+              node: reference.identifier,
+              messageId: "compoundSignal",
+              data: { name: reference.identifier.name },
+            });
+          }
+          return;
+        }
+
+        if (allowed === 0) {
+          for (const specifier of relevant) {
             context.report({
               node: specifier,
               messageId: "compoundSignal",
-              data: { name },
+              data: { name: specifier.local.name },
             });
           }
+          return;
+        }
+
+        // Grandfathered: permitted up to `allowed` references. Report each
+        // one beyond the budget, at the reference rather than the import, so
+        // the error points at the new branch.
+        const excess = references.slice(allowed);
+        for (const reference of excess) {
+          context.report({
+            node: reference.identifier,
+            messageId: "extraUsage",
+            data: { allowed, actual: references.length },
+          });
         }
       },
     };
   },
 };
+
+export const TOUCH_SIGNAL_ALLOWLIST_PATH = ALLOWLIST_PATH;
