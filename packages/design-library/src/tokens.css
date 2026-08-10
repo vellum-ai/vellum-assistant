@@ -774,23 +774,30 @@
 }
 
 /* ---------------------------------------------------------------------------
- * Sidebar section resize — the row list's own height animation, scoped via
- * the extra `.sidebar-section-list` marker class layered onto the shared
- * `.collapsible-content` so only the sidebar's own section row lists use
- * this timing; every other `Collapsible` in the app keeps the plain default
- * above. The height keyframes are reused by name at a longer, decelerating
- * duration/easing here so height, width, and radius (`sidebar-section-
- * card.tsx`) all settle together instead of racing each other at different
- * paces. No separate content fade: an earlier version staggered the row
- * list's opacity against the shape (fade out fast, shape keeps shrinking),
- * which read as the list hanging around empty after collapsing - text and
- * shape now move as one.
- * --------------------------------------------------------------------------- */
+ * Sidebar section resize, scoped via the extra `.sidebar-section-list`
+ * marker class layered onto the shared `.collapsible-content` so only the
+ * sidebar's own section row lists use this timing; every other
+ * `Collapsible` in the app keeps the plain default above.
+ *
+ * Expanding still eases the row list open with the height keyframe (a
+ * gradual reveal reads fine growing into empty space). Collapsing sets
+ * `animation: none` explicitly, on purpose: height and opacity both jump
+ * straight to their closed values in the same instant. A more specific
+ * selector only wins property-by-property, not rule-by-rule - simply
+ * *not* declaring `animation` here still let the shared, less specific
+ * `.collapsible-content[data-state="closed"]` rule's own
+ * `collapsible-slide-up` keyframe apply, since nothing here was competing
+ * with it for that property. Radix's `Presence` only defers actually
+ * unmounting the content for as long as it detects a running
+ * transition/animation on the node, so a real animation here (however
+ * short) held the whole collapse up behind it. */
 .sidebar-section-list.collapsible-content[data-state="open"] {
+  opacity: 1;
   animation: collapsible-slide-down var(--anim-slow) var(--anim-ease-out);
 }
 .sidebar-section-list.collapsible-content[data-state="closed"] {
-  animation: collapsible-slide-up var(--anim-slow) var(--anim-ease-out);
+  opacity: 0;
+  animation: none;
 }
 
 /* ---------------------------------------------------------------------------
