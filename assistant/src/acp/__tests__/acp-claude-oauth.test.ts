@@ -56,11 +56,13 @@ const {
   CLAUDE_MANUAL_REDIRECT_URI,
   buildClaudeAuthorizeUrl,
   parseManualClaudeCode,
-  storeAcpClaudeTokens,
+  storeConnectedAcpClaudeTokens,
+  persistRefreshedAcpClaudeTokens,
   hasAcpClaudeToken,
   isAcpClaudeTokenExpiring,
   readAcpClaudeRefreshToken,
-  clearAcpClaudeRefreshMaterial,
+  clearAcpClaudeRefreshToken,
+  forgetAcpClaudeRenewalStateOnForeignWrite,
 } = await import("../acp-claude-oauth.js");
 
 beforeEach(() => {
@@ -161,9 +163,9 @@ describe("parseManualClaudeCode", () => {
 // storeAcpClaudeTokens
 // ---------------------------------------------------------------------------
 
-describe("storeAcpClaudeTokens", () => {
+describe("storeConnectedAcpClaudeTokens", () => {
   test("writes the access token and force-grants the acp_spawn policy (repairs a denied policy)", async () => {
-    await storeAcpClaudeTokens({ accessToken: "sk-ant-oat-token" });
+    await storeConnectedAcpClaudeTokens({ accessToken: "sk-ant-oat-token" });
 
     expect(setSecureKeyAsync).toHaveBeenCalledWith(
       ACCESS_KEY,
@@ -177,7 +179,7 @@ describe("storeAcpClaudeTokens", () => {
 
   test("persists the refresh token and an absolute expiry alongside it", async () => {
     const before = Date.now();
-    await storeAcpClaudeTokens({
+    await storeConnectedAcpClaudeTokens({
       accessToken: "sk-ant-oat-token",
       refreshToken: "refresh-me",
       expiresIn: 3600,
@@ -194,7 +196,7 @@ describe("storeAcpClaudeTokens", () => {
     vault.set(REFRESH_KEY, "old-refresh");
     vault.set(EXPIRES_KEY, String(Date.now() + 60_000));
 
-    await storeAcpClaudeTokens({ accessToken: "sk-ant-oat-fresh" });
+    await storeConnectedAcpClaudeTokens({ accessToken: "sk-ant-oat-fresh" });
 
     // Leaving the old values would pair a NEW access token with the PREVIOUS
     // connect's refresh token, which renews into the wrong credential.
@@ -206,7 +208,7 @@ describe("storeAcpClaudeTokens", () => {
     storeReturn = false;
 
     await expect(
-      storeAcpClaudeTokens({ accessToken: "sk-ant-oat-token" }),
+      storeConnectedAcpClaudeTokens({ accessToken: "sk-ant-oat-token" }),
     ).rejects.toThrow(/Failed to store/);
     expect(grantAcpSpawnPolicy).not.toHaveBeenCalled();
   });
@@ -234,16 +236,87 @@ describe("refresh material accessors", () => {
     expect(await isAcpClaudeTokenExpiring()).toBe(false);
   });
 
-  test("clearAcpClaudeRefreshMaterial drops refresh + expiry but keeps the access token", async () => {
+  test("clearAcpClaudeRefreshToken leaves the account reading as NOT connected", async () => {
     vault.set(ACCESS_KEY, "sk-ant-oat-token");
     vault.set(REFRESH_KEY, "refresh-me");
     vault.set(EXPIRES_KEY, String(Date.now() - 1000));
 
-    await clearAcpClaudeRefreshMaterial();
+    await clearAcpClaudeRefreshToken();
+
+    // The invariant, not the mechanics: after a rejected refresh the account
+    // must stop vouching for itself, or the Connect card self-dismisses and
+    // the user is stuck. Asserting only that the expiry survives would pass
+    // just as well against a helper that cleared it and broke this.
+    expect(await hasAcpClaudeToken()).toBe(false);
+    expect(await readAcpClaudeRefreshToken()).toBeNull();
+    // The expiry is what makes that answer possible, so it must survive.
+    expect(vault.get(EXPIRES_KEY)).toBeDefined();
+    expect(vault.get(ACCESS_KEY)).toBe("sk-ant-oat-token");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Writes that bypass the Connect flow
+// ---------------------------------------------------------------------------
+
+describe("forgetAcpClaudeRenewalStateOnForeignWrite", () => {
+  test("a hand-provisioned token reads as connected instead of inheriting a stale expiry", async () => {
+    // `credentials set` and friends write only the access token. The previous
+    // token's expiry would otherwise condemn a brand-new working one.
+    vault.set(EXPIRES_KEY, String(Date.now() - 1000));
+    vault.set(ACCESS_KEY, "sk-ant-oat-pasted");
+
+    await forgetAcpClaudeRenewalStateOnForeignWrite(
+      "acp",
+      "claude_oauth_token",
+    );
+
+    expect(await hasAcpClaudeToken()).toBe(true);
+    expect(vault.has(EXPIRES_KEY)).toBe(false);
+  });
+
+  test("drops the previous refresh token so it cannot overwrite the new one", async () => {
+    // Left in place, the next expiring spawn would spend this and clobber the
+    // token the user just pasted.
+    vault.set(ACCESS_KEY, "sk-ant-oat-pasted");
+    vault.set(REFRESH_KEY, "refresh-from-previous-connect");
+    vault.set(EXPIRES_KEY, String(Date.now() - 1000));
+
+    await forgetAcpClaudeRenewalStateOnForeignWrite(
+      "acp",
+      "claude_oauth_token",
+    );
 
     expect(await readAcpClaudeRefreshToken()).toBeNull();
-    expect(vault.has(EXPIRES_KEY)).toBe(false);
-    expect(vault.get(ACCESS_KEY)).toBe("sk-ant-oat-token");
+  });
+
+  test("ignores other services and fields", async () => {
+    vault.set(REFRESH_KEY, "refresh-me");
+
+    await forgetAcpClaudeRenewalStateOnForeignWrite("acp", "openai_api_key");
+    await forgetAcpClaudeRenewalStateOnForeignWrite("github", "token");
+
+    expect(vault.get(REFRESH_KEY)).toBe("refresh-me");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// persistRefreshedAcpClaudeTokens
+// ---------------------------------------------------------------------------
+
+describe("persistRefreshedAcpClaudeTokens", () => {
+  test("writes the token set WITHOUT granting the acp_spawn policy", async () => {
+    await persistRefreshedAcpClaudeTokens({
+      accessToken: "sk-ant-oat-renewed",
+      refreshToken: "refresh-rotated",
+      expiresIn: 3600,
+    });
+
+    expect(vault.get(ACCESS_KEY)).toBe("sk-ant-oat-renewed");
+    expect(vault.get(REFRESH_KEY)).toBe("refresh-rotated");
+    // A background renewal carries no user consent, so it must not restore a
+    // permission an admin removed from allowedTools.
+    expect(grantAcpSpawnPolicy).not.toHaveBeenCalled();
   });
 });
 

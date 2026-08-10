@@ -28,10 +28,11 @@
  * path, so it must never be the thing that fails a spawn.
  *
  * One case is not quiet: when the provider rejects the refresh token itself
- * (revoked, or rotated out from under us), the stored refresh material is
- * cleared. That flips `hasAcpClaudeToken()` to "not connected", which is what
- * keeps the inline Connect card on screen instead of letting it self-dismiss
- * against a credential that can never be renewed.
+ * (revoked, or rotated out from under us), the stored refresh token is dropped.
+ * The recorded EXPIRY is deliberately kept, because that pair (expired, no way
+ * to renew) is what makes `hasAcpClaudeToken()` answer "not connected" and keep
+ * the inline Connect card on screen. Dropping the expiry too would make the
+ * dead credential read as unexpired and vouch for itself.
  */
 
 import {
@@ -43,11 +44,13 @@ import { refreshOAuth2Token } from "../security/oauth2.js";
 import { getLogger } from "../util/logger.js";
 import {
   CLAUDE_OAUTH_CONFIG,
-  clearAcpClaudeRefreshMaterial,
+  clearAcpClaudeRefreshToken,
   isAcpClaudeTokenExpiring,
+  persistRefreshedAcpClaudeTokens,
   readAcpClaudeRefreshToken,
-  storeAcpClaudeTokens,
 } from "./acp-claude-oauth.js";
+import { acpSpawnCanReadCredential } from "./acp-credential-policy.js";
+import { ACP_OAUTH_TOKEN_FIELD } from "./acp-credentials.js";
 
 const log = getLogger("acp:claude-token-refresh");
 
@@ -66,6 +69,13 @@ const REFRESH_KEY = "acp:claude";
  * with the credential broker, so callers re-read through it as usual.
  */
 export async function ensureFreshAcpClaudeToken(): Promise<void> {
+  // An explicit `allowedTools` that omits `acp_spawn` means the broker will
+  // deny the read this renewal exists to feed, so there is nothing to gain by
+  // spending a refresh token here. Checking first also keeps a passive spawn
+  // from touching a credential the workspace has deliberately fenced off.
+  if (!acpSpawnCanReadCredential(ACP_OAUTH_TOKEN_FIELD)) {
+    return;
+  }
   if (!(await isAcpClaudeTokenExpiring())) {
     return;
   }
@@ -110,16 +120,16 @@ async function doRefresh(refreshToken: string): Promise<string> {
       // reconnect, rather than re-attempting a grant that cannot succeed.
       log.warn(
         { err },
-        "Claude OAuth refresh token was rejected; clearing stored refresh material",
+        "Claude OAuth refresh token was rejected; dropping it so the account reads as needing a reconnect",
       );
-      await clearAcpClaudeRefreshMaterial();
+      await clearAcpClaudeRefreshToken();
     } else {
       log.warn({ err }, "Claude OAuth token refresh failed transiently");
     }
     throw err;
   }
 
-  await storeAcpClaudeTokens({
+  await persistRefreshedAcpClaudeTokens({
     accessToken: result.accessToken,
     refreshToken: result.refreshToken,
     expiresIn: result.expiresIn,

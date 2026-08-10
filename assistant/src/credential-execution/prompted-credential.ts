@@ -12,6 +12,7 @@
  * collected through a secure prompt.
  */
 
+import { forgetAcpClaudeRenewalStateOnForeignWrite } from "../acp/acp-claude-oauth.js";
 import {
   ACP_SERVICE,
   AcpCredentialFormatError,
@@ -202,6 +203,19 @@ export async function persistPromptedCredential(args: {
     if (!ok) {
       return { outcome: "error", message: "failed to store credential" };
     }
+  }
+
+  // A token written outside the Connect flow knows nothing about the previous
+  // one's refresh token or expiry; leaving them would either report a valid new
+  // token as disconnected or spend a stale refresh token over it. Best-effort:
+  // the credential is already stored.
+  try {
+    await forgetAcpClaudeRenewalStateOnForeignWrite(service, field);
+  } catch (err) {
+    log.warn(
+      { service, field, err },
+      "Stored credential, but failed to clear stale Claude ACP renewal state",
+    );
   }
 
   // The prompt UI never puts the value in the transcript, but the flow is

@@ -1,10 +1,10 @@
 /**
  * Read-policy helpers for the `acp/<field>` credentials the ACP spawn path
- * consumes.
+ * consumes: who may read them, and whether a given read would be permitted.
  *
- * Split out of `prepare-agent-env.ts` so modules that only need the policy
- * rules (the Connect Claude flow, the token-refresh path) do not have to
- * import the env-injection module, which imports them back.
+ * Kept separate from the env-injection module that applies them so the other
+ * callers (the Connect Claude flow, the token-refresh path) can depend on the
+ * policy rules alone, without a cycle through env injection.
  */
 
 import {

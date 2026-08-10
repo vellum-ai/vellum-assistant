@@ -48,13 +48,13 @@ mock.module("../../../security/oauth2.js", () => ({
 
 const actualClaudeOauth = await import("../../../acp/acp-claude-oauth.js");
 const { CLAUDE_MANUAL_REDIRECT_URI } = actualClaudeOauth;
-const storeAcpClaudeTokenMock = mock(async (_token: string) => {});
+const storeConnectedAcpClaudeTokensMock = mock(async (_tokens: unknown) => {});
 // The connect-status route reads token presence; mock it so the route test
 // doesn't reach real secure storage.
 const hasAcpClaudeTokenMock = mock(async () => false);
 mock.module("../../../acp/acp-claude-oauth.js", () => ({
   ...actualClaudeOauth,
-  storeAcpClaudeToken: storeAcpClaudeTokenMock,
+  storeConnectedAcpClaudeTokens: storeConnectedAcpClaudeTokensMock,
   hasAcpClaudeToken: hasAcpClaudeTokenMock,
 }));
 
@@ -135,7 +135,7 @@ function deferredFlow(state: string): {
 beforeEach(() => {
   prepareOAuth2FlowMock.mockClear();
   exchangeCodeForTokensMock.mockClear();
-  storeAcpClaudeTokenMock.mockClear();
+  storeConnectedAcpClaudeTokensMock.mockClear();
   // Reset host to its default (local/loopback); cloud tests flip it on.
   getIsContainerizedMock.mockReturnValue(false);
   hasAcpClaudeTokenMock.mockClear();
@@ -223,9 +223,16 @@ describe("loopback capture", () => {
     const status = await waitForStatus(state, "connected");
     expect(status).toEqual({ status: "connected" });
 
-    // Access token persisted via storeAcpClaudeToken.
-    expect(storeAcpClaudeTokenMock).toHaveBeenCalledTimes(1);
-    expect(storeAcpClaudeTokenMock).toHaveBeenCalledWith("sk-ant-oat-access");
+    // The WHOLE token set is persisted, not just the access token: without
+    // the refresh token and expiry the credential can never renew itself.
+    expect(storeConnectedAcpClaudeTokensMock).toHaveBeenCalledTimes(1);
+    expect(storeConnectedAcpClaudeTokensMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        accessToken: "sk-ant-oat-access",
+        refreshToken: "refresh-xyz",
+        expiresIn: 3600,
+      }),
+    );
   });
 
   test("flips status to error when the exchange fails", async () => {
@@ -238,7 +245,7 @@ describe("loopback capture", () => {
     const status = await waitForStatus(state, "error");
     expect(status.status).toBe("error");
     expect(status.error).toContain("token exchange failed");
-    expect(storeAcpClaudeTokenMock).not.toHaveBeenCalled();
+    expect(storeConnectedAcpClaudeTokensMock).not.toHaveBeenCalled();
   });
 });
 
@@ -331,7 +338,9 @@ describe("acp_claude_auth_exchange", () => {
     expect(call[1]).toBe("auth-code-123");
     expect(call[2]).toBe(CLAUDE_MANUAL_REDIRECT_URI);
     expect(call[3]).toBeTruthy(); // PKCE verifier from the start call
-    expect(storeAcpClaudeTokenMock).toHaveBeenCalledWith("sk-ant-oat-manual");
+    expect(storeConnectedAcpClaudeTokensMock).toHaveBeenCalledWith(
+      expect.objectContaining({ accessToken: "sk-ant-oat-manual" }),
+    );
 
     // The pending entry is consumed — a second exchange fails.
     await expect(
@@ -352,7 +361,9 @@ describe("acp_claude_auth_exchange", () => {
       string,
     ];
     expect(call[1]).toBe("raw-code-xyz");
-    expect(storeAcpClaudeTokenMock).toHaveBeenCalledWith("sk-ant-oat-manual");
+    expect(storeConnectedAcpClaudeTokensMock).toHaveBeenCalledWith(
+      expect.objectContaining({ accessToken: "sk-ant-oat-manual" }),
+    );
   });
 
   test("malformed paste (no `#`, no state) is rejected", async () => {
@@ -403,6 +414,6 @@ describe("acp_claude_auth_exchange", () => {
 
     // The flow is marked errored (not left pending) and the token is not stored.
     expect(getStatus(state).status).toBe("error");
-    expect(storeAcpClaudeTokenMock).not.toHaveBeenCalled();
+    expect(storeConnectedAcpClaudeTokensMock).not.toHaveBeenCalled();
   });
 });

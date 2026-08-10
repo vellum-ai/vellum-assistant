@@ -6,9 +6,10 @@
  * helpers the daemon connect routes call: the loopback path builds an
  * authorize URL against a localhost redirect, while the cloud paste path
  * builds one against the manual redirect page and parses the `code#state`
- * string the user copies back. Both converge on `storeAcpClaudeTokens`, which
- * writes the `acp/claude_oauth_token` vault field the ACP broker reads at
- * spawn time and provisions the `acp_spawn` read policy.
+ * string the user copies back. Both converge on
+ * `storeConnectedAcpClaudeTokens`, which writes the `acp/claude_oauth_token`
+ * vault field the ACP broker reads at spawn time and provisions the
+ * `acp_spawn` read policy.
  *
  * It also owns the two companion fields captured by the same exchange, the
  * refresh token and the access token's expiry, plus the accessors over them.
@@ -113,23 +114,22 @@ function key(field: string): string {
 }
 
 /**
- * Store a captured Claude OAuth token set in the `acp/claude_oauth_*` vault
- * fields and provision the `acp_spawn` read policy so the broker can inject the
- * access token at spawn time. Throws when the backing store rejects the write.
+ * Write a Claude OAuth token set to the `acp/claude_oauth_*` vault fields.
+ * Throws when the backing store rejects any of the three writes.
  *
  * The refresh token and expiry are written as a SET with the access token: when
  * the provider returns neither (which we cannot rule out for this client and
  * scope), any previously stored values are cleared rather than left behind. A
  * stale refresh token paired with a newly connected access token would
- * otherwise renew into the credential from a previous connect.
+ * otherwise renew into the credential from a previous connect. That invariant
+ * is only worth as much as the writes that enforce it, so a failed companion
+ * write or clear is fatal here rather than silently leaving a mismatched set.
  *
  * Only the access-token field gets credential metadata. `serverUse` refuses any
  * field without metadata, so the refresh token and expiry stay unreachable
  * through the broker and can never be injected into a spawned agent's env.
  */
-export async function storeAcpClaudeTokens(
-  tokens: AcpClaudeTokens,
-): Promise<void> {
+async function writeTokenSet(tokens: AcpClaudeTokens): Promise<void> {
   const stored = await setSecureKeyAsync(
     key(ACP_OAUTH_TOKEN_FIELD),
     tokens.accessToken,
@@ -144,14 +144,44 @@ export async function storeAcpClaudeTokens(
     ACP_OAUTH_EXPIRES_AT_FIELD,
     expiresAt == null ? undefined : String(expiresAt),
   );
-  // Force-grant acp_spawn (union) rather than merely ensure it: an explicit
-  // Connect is a deliberate opt-in to ACP, so this repairs a credential whose
-  // explicit allowedTools omitted acp_spawn — otherwise the broker keeps denying
-  // the spawn read and the Connect card dead-loops on every auto-continue.
+}
+
+/**
+ * Persist the token set captured by an explicit "Connect Claude" flow, and
+ * provision the `acp_spawn` read policy so the broker can inject the access
+ * token at spawn time.
+ *
+ * The policy grant belongs to THIS path only. Connecting is a deliberate user
+ * opt-in to ACP, which is what makes force-granting (union) defensible: it
+ * repairs a credential whose explicit `allowedTools` omitted `acp_spawn`,
+ * without which the broker keeps denying the spawn read and the Connect card
+ * dead-loops on every auto-continue. A background token renewal carries no such
+ * consent, so it must use {@link persistRefreshedAcpClaudeTokens} instead.
+ */
+export async function storeConnectedAcpClaudeTokens(
+  tokens: AcpClaudeTokens,
+): Promise<void> {
+  await writeTokenSet(tokens);
   grantAcpSpawnPolicy(
     ACP_OAUTH_TOKEN_FIELD,
     "Claude OAuth token for ACP agent authentication",
   );
+}
+
+/**
+ * Persist a token set obtained by renewing an existing credential, leaving the
+ * read policy exactly as it was.
+ *
+ * A renewal happens on a passive spawn with no user in the loop, so it must not
+ * widen what the credential is allowed to do. Granting `acp_spawn` here would
+ * let a background refresh silently restore a permission a user or admin had
+ * explicitly removed from `allowedTools`, turning a denied credential into a
+ * readable one without anyone asking.
+ */
+export async function persistRefreshedAcpClaudeTokens(
+  tokens: AcpClaudeTokens,
+): Promise<void> {
+  await writeTokenSet(tokens);
 }
 
 /**
@@ -173,11 +203,14 @@ export async function storeAcpClaudeTokens(
  * that denied-policy case too.
  *
  * An EXPIRED token with no way to renew it is the same shape of problem, and is
- * likewise NOT connected. Presence alone used to answer this question, which
- * meant a dead token reported "connected" and the inline Connect card
- * self-dismissed the moment it mounted, leaving the user with a failed run and
- * no way to act on it. An expired token that still has a refresh token IS
- * connected: `ensureFreshAcpClaudeToken` renews it on the next spawn.
+ * likewise NOT connected: the card has to stay up so the user can reconnect,
+ * because nothing else will repair the credential. An expired token that still
+ * has a refresh token IS connected, since `ensureFreshAcpClaudeToken` renews it
+ * on the next spawn and there is nothing for the user to do.
+ *
+ * The recorded expiry is therefore load-bearing for this answer, and the code
+ * that drops refresh material must leave it in place. See
+ * {@link clearAcpClaudeRefreshToken}.
  */
 export async function hasAcpClaudeToken(): Promise<boolean> {
   const token = await getSecureKeyAsync(key(ACP_OAUTH_TOKEN_FIELD));
@@ -202,15 +235,36 @@ export async function hasAcpClaudeToken(): Promise<boolean> {
 // Read/write helpers for the two companion fields, kept here with the rest of
 // the Claude ACP credential storage. `claude-token-refresh.ts` drives them.
 
+/**
+ * Write a companion field, or delete it when there is no value.
+ *
+ * Both outcomes are checked. The store signals failure by return value rather
+ * than by throwing (`setSecureKeyAsync` returns false, `deleteSecureKeyAsync`
+ * returns `"error"` on timeout), so ignoring them would let a backend hiccup
+ * report success while leaving the three fields out of sync: an access token
+ * with no way to renew it, or worse, a NEW access token still paired with a
+ * PREVIOUS connect's refresh token, which is the exact mismatch the set-write
+ * semantics exist to prevent.
+ */
 async function writeOrClear(
   field: string,
   value: string | undefined,
 ): Promise<void> {
   if (value) {
-    await setSecureKeyAsync(key(field), value);
+    const stored = await setSecureKeyAsync(key(field), value);
+    if (!stored) {
+      throw new Error(
+        `Failed to store Claude OAuth ${field} in secure storage.`,
+      );
+    }
     return;
   }
-  await deleteSecureKeyAsync(key(field));
+  const result = await deleteSecureKeyAsync(key(field));
+  if (result === "error") {
+    throw new Error(
+      `Failed to clear Claude OAuth ${field} from secure storage.`,
+    );
+  }
 }
 
 /**
@@ -249,11 +303,60 @@ export async function hasAcpClaudeRefreshToken(): Promise<boolean> {
 }
 
 /**
- * Drop the refresh token and expiry, leaving the access token in place. Called
- * when the provider rejects the refresh token, so the connected check stops
- * reporting a credential that can no longer be renewed.
+ * Drop the refresh token, KEEPING the recorded expiry and the access token.
+ * Called when the provider rejects the refresh token.
+ *
+ * The expiry has to survive. `hasAcpClaudeToken()` reads "not connected" from
+ * the combination of an expired token and no refresh token; clearing the expiry
+ * as well would make `readExpiresAt()` return null, which
+ * {@link isAcpClaudeTokenExpiring} treats as "assume usable", and the dead
+ * credential would report itself connected and dismiss the user's only repair
+ * CTA.
  */
-export async function clearAcpClaudeRefreshMaterial(): Promise<void> {
+export async function clearAcpClaudeRefreshToken(): Promise<void> {
+  await writeOrClear(ACP_OAUTH_REFRESH_TOKEN_FIELD, undefined);
+}
+
+/**
+ * Forget everything we know about renewing the stored access token: both the
+ * refresh token and the recorded expiry.
+ *
+ * For when the access token is replaced by a path that knows nothing about
+ * either, which is every write outside the Connect flow (`credentials set`, the
+ * secret-collection route, a prompted credential). The companion fields
+ * describe the PREVIOUS token, and keeping them against a new one is wrong
+ * twice over: a stale past expiry makes a valid token report as not connected,
+ * and a stale refresh token can be spent to overwrite the token that was just
+ * pasted. Clearing both lands on "no expiry recorded", which reads as assume
+ * usable, and no renewal material, which is the truth.
+ */
+export async function forgetAcpClaudeRenewalState(): Promise<void> {
   await writeOrClear(ACP_OAUTH_REFRESH_TOKEN_FIELD, undefined);
   await writeOrClear(ACP_OAUTH_EXPIRES_AT_FIELD, undefined);
+}
+
+/**
+ * Call after ANY successful credential write that did not come from the Connect
+ * flow, so a hand-provisioned Claude token does not inherit the previous one's
+ * renewal state. A no-op for every other service and field.
+ *
+ * `storeConnectedAcpClaudeTokens` is the only writer that keeps the three
+ * `acp/claude_oauth_*` fields consistent. The generic credential writers
+ * (`credentials set`, the secret-collection route, a prompted credential) reach
+ * the access-token field directly, and the headless instructions in
+ * `prepare-agent-env.ts` actively point users at one of them, so this is a
+ * supported route rather than an edge case.
+ *
+ * Best-effort by contract: the token itself is already stored, so a failure to
+ * tidy the companion fields must not fail the caller's write. Callers log and
+ * continue.
+ */
+export async function forgetAcpClaudeRenewalStateOnForeignWrite(
+  service: string,
+  field: string,
+): Promise<void> {
+  if (service !== ACP_SERVICE || field !== ACP_OAUTH_TOKEN_FIELD) {
+    return;
+  }
+  await forgetAcpClaudeRenewalState();
 }

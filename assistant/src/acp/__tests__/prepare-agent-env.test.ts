@@ -104,6 +104,17 @@ mock.module("../../tools/credentials/broker.js", () => ({
   },
 }));
 
+/**
+ * Token renewal runs ahead of the broker read on the claude path. It is
+ * exercised in `claude-token-refresh.test.ts`; stubbed here so this file keeps
+ * testing env injection against mocked storage only, rather than reaching a
+ * real secure-keys backend (and its credential timeout) through the import.
+ */
+const ensureFreshAcpClaudeToken = mock(async () => {});
+mock.module("../claude-token-refresh.js", () => ({
+  ensureFreshAcpClaudeToken,
+}));
+
 const { prepareAgentEnv, ACP_CLAUDE_OAUTH_MISSING_CODE } =
   await import("../prepare-agent-env.js");
 const { grantAcpSpawnPolicy } = await import("../acp-credential-policy.js");

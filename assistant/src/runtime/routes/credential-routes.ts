@@ -16,6 +16,7 @@
 
 import { z } from "zod";
 
+import { forgetAcpClaudeRenewalStateOnForeignWrite } from "../../acp/acp-claude-oauth.js";
 import {
   ACP_SERVICE,
   AcpCredentialFormatError,
@@ -483,6 +484,19 @@ async function handleCredentialsSet({ body }: RouteHandlerArgs) {
   if (!stored) {
     throw new InternalError(
       `Failed to store credential in secure storage (backend: ${getActiveBackendName()})`,
+    );
+  }
+
+  // A token written outside the Connect flow knows nothing about the previous
+  // one's refresh token or expiry; leaving them would either report a valid new
+  // token as disconnected or spend a stale refresh token over it. Best-effort:
+  // the credential is already stored, so tidying must not fail this write.
+  try {
+    await forgetAcpClaudeRenewalStateOnForeignWrite(service, field);
+  } catch (err) {
+    log.warn(
+      { service, field, err },
+      "Stored credential, but failed to clear stale Claude ACP renewal state",
     );
   }
 

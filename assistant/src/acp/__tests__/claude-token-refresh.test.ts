@@ -25,10 +25,12 @@ let refreshImpl: () => Promise<OAuth2TokenResult> = async () => {
   throw new Error("refreshOAuth2Token not stubbed for this test");
 };
 
+let spawnCanRead = true;
 const isAcpClaudeTokenExpiring = mock(async () => expiring);
 const readAcpClaudeRefreshToken = mock(async () => storedRefreshToken);
-const storeAcpClaudeTokens = mock(async (_tokens: unknown) => {});
-const clearAcpClaudeRefreshMaterial = mock(async () => {});
+const persistRefreshedAcpClaudeTokens = mock(async (_tokens: unknown) => {});
+const clearAcpClaudeRefreshToken = mock(async () => {});
+const acpSpawnCanReadCredential = mock((_field: string) => spawnCanRead);
 const refreshOAuth2Token = mock(async (..._args: unknown[]) => refreshImpl());
 
 mock.module("../acp-claude-oauth.js", () => ({
@@ -39,8 +41,11 @@ mock.module("../acp-claude-oauth.js", () => ({
   },
   isAcpClaudeTokenExpiring,
   readAcpClaudeRefreshToken,
-  storeAcpClaudeTokens,
-  clearAcpClaudeRefreshMaterial,
+  persistRefreshedAcpClaudeTokens,
+  clearAcpClaudeRefreshToken,
+}));
+mock.module("../acp-credential-policy.js", () => ({
+  acpSpawnCanReadCredential,
 }));
 mock.module("../../security/oauth2.js", () => ({ refreshOAuth2Token }));
 
@@ -50,13 +55,15 @@ const { ensureFreshAcpClaudeToken } =
 beforeEach(() => {
   expiring = false;
   storedRefreshToken = null;
+  spawnCanRead = true;
   refreshImpl = async () => {
     throw new Error("refreshOAuth2Token not stubbed for this test");
   };
   isAcpClaudeTokenExpiring.mockClear();
   readAcpClaudeRefreshToken.mockClear();
-  storeAcpClaudeTokens.mockClear();
-  clearAcpClaudeRefreshMaterial.mockClear();
+  persistRefreshedAcpClaudeTokens.mockClear();
+  clearAcpClaudeRefreshToken.mockClear();
+  acpSpawnCanReadCredential.mockClear();
   refreshOAuth2Token.mockClear();
 });
 
@@ -72,7 +79,7 @@ describe("ensureFreshAcpClaudeToken: skip paths", () => {
     await ensureFreshAcpClaudeToken();
 
     expect(refreshOAuth2Token).not.toHaveBeenCalled();
-    expect(storeAcpClaudeTokens).not.toHaveBeenCalled();
+    expect(persistRefreshedAcpClaudeTokens).not.toHaveBeenCalled();
   });
 
   test("does nothing when expiring with no refresh token stored", async () => {
@@ -84,7 +91,7 @@ describe("ensureFreshAcpClaudeToken: skip paths", () => {
     await ensureFreshAcpClaudeToken();
 
     expect(refreshOAuth2Token).not.toHaveBeenCalled();
-    expect(clearAcpClaudeRefreshMaterial).not.toHaveBeenCalled();
+    expect(clearAcpClaudeRefreshToken).not.toHaveBeenCalled();
   });
 });
 
@@ -114,7 +121,7 @@ describe("ensureFreshAcpClaudeToken: renewal", () => {
     expect(args[5]).toBe("json");
 
     // The ROTATED refresh token must be persisted, not the one we spent.
-    expect(storeAcpClaudeTokens).toHaveBeenCalledWith({
+    expect(persistRefreshedAcpClaudeTokens).toHaveBeenCalledWith({
       accessToken: "sk-ant-oat-new",
       refreshToken: "refresh-rotated",
       expiresIn: 3600,
@@ -126,20 +133,52 @@ describe("ensureFreshAcpClaudeToken: renewal", () => {
     // exchange would spend an already-invalidated token.
     expiring = true;
     storedRefreshToken = "refresh-me";
-    let resolveRefresh: (v: OAuth2TokenResult) => void = () => {};
-    refreshImpl = () =>
-      new Promise<OAuth2TokenResult>((resolve) => {
-        resolveRefresh = resolve;
-      });
+
+    // The deferred is built UP FRONT so `resolve` exists before either call
+    // runs. Capturing it inside `refreshImpl` instead would leave it unassigned
+    // until the first refresh actually starts, several awaits in, and resolving
+    // a not-yet-created promise hangs the test rather than failing it.
+    let resolveRefresh!: (v: OAuth2TokenResult) => void;
+    const gate = new Promise<OAuth2TokenResult>((resolve) => {
+      resolveRefresh = resolve;
+    });
+    refreshImpl = () => gate;
 
     const both = Promise.all([
       ensureFreshAcpClaudeToken(),
       ensureFreshAcpClaudeToken(),
     ]);
+    // Let both calls get past their awaited storage reads and reach the
+    // deduplicator before the refresh completes; otherwise the second could
+    // start a fresh one and the test would pass or fail on timing.
+    for (let i = 0; i < 20; i++) {
+      await Promise.resolve();
+    }
     resolveRefresh({ accessToken: "sk-ant-oat-new" });
     await both;
 
     expect(refreshOAuth2Token).toHaveBeenCalledTimes(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Policy
+// ---------------------------------------------------------------------------
+
+describe("ensureFreshAcpClaudeToken: policy", () => {
+  test("does not refresh when the spawn policy denies reading the credential", async () => {
+    // The broker would refuse the read this renewal feeds, so spending the
+    // refresh token buys nothing. It also keeps a passive spawn from touching
+    // a credential the workspace fenced off: the renewal write must never be
+    // able to hand `acp_spawn` back a permission an admin removed.
+    expiring = true;
+    storedRefreshToken = "refresh-me";
+    spawnCanRead = false;
+
+    await ensureFreshAcpClaudeToken();
+
+    expect(refreshOAuth2Token).not.toHaveBeenCalled();
+    expect(persistRefreshedAcpClaudeTokens).not.toHaveBeenCalled();
   });
 });
 
@@ -159,8 +198,8 @@ describe("ensureFreshAcpClaudeToken: failures", () => {
 
     // Clearing is what flips hasAcpClaudeToken() to "not connected", which is
     // what keeps the Connect card on screen instead of self-dismissing.
-    expect(clearAcpClaudeRefreshMaterial).toHaveBeenCalledTimes(1);
-    expect(storeAcpClaudeTokens).not.toHaveBeenCalled();
+    expect(clearAcpClaudeRefreshToken).toHaveBeenCalledTimes(1);
+    expect(persistRefreshedAcpClaudeTokens).not.toHaveBeenCalled();
   });
 
   test("keeps refresh material on a transient failure", async () => {
@@ -173,8 +212,8 @@ describe("ensureFreshAcpClaudeToken: failures", () => {
     await ensureFreshAcpClaudeToken();
 
     // A network blip must not cost the user their stored credential.
-    expect(clearAcpClaudeRefreshMaterial).not.toHaveBeenCalled();
-    expect(storeAcpClaudeTokens).not.toHaveBeenCalled();
+    expect(clearAcpClaudeRefreshToken).not.toHaveBeenCalled();
+    expect(persistRefreshedAcpClaudeTokens).not.toHaveBeenCalled();
   });
 
   test("never throws, so a refresh outage cannot fail the spawn", async () => {
