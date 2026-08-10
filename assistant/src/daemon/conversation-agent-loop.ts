@@ -407,12 +407,7 @@ export async function runAgentLoopImpl(
   // one resolved for that turn. Assigning unconditionally also overwrites any
   // identity left by a path that set one and returned without running a loop.
   ctx.currentTurn = ctx.currentTurnTrustContext
-    ? createTurnIdentity({
-        trust: ctx.currentTurnTrustContext,
-        authContext: ctx.currentTurnAuthContext ?? ctx.authContext,
-        sourceActorPrincipalId: ctx.getTurnActorPrincipalId(),
-        channelCapabilities: ctx.channelCapabilities,
-      })
+    ? createTurnIdentity({ trust: ctx.currentTurnTrustContext })
     : undefined;
 
   // Re-resolve the system prompt under the snapshots just set and push it into
