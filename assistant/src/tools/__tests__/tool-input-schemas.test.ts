@@ -185,7 +185,7 @@ describe("derived input_schema", () => {
       required: string[];
     };
     expect(schema.properties.start_index?.type).toBe("number");
-    expect(schema.properties.start_index?.description).toContain("1-indexed");
+    expect(schema.properties.start_index?.description).toContain("0-indexed");
     expect(schema.required).not.toContain("start_index");
     expect(schema.required).not.toContain("max_chars");
   });

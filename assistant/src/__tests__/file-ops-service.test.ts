@@ -119,7 +119,7 @@ describe("FileSystemOps.readFileSafe", () => {
 
     const result = await ops.readFileSafe({
       path: "lines.txt",
-      startIndex: 3,
+      startIndex: 2,
       maxChars: 3,
     });
     expect(result.ok).toBe(true);
@@ -144,7 +144,7 @@ describe("FileSystemOps.readFileSafe", () => {
     const [body] = result.value.content.split("\n\n[Truncated:");
     expect(body).toHaveLength(READ_CHAR_BUDGET);
     expect(result.value.content).toContain(
-      `[Truncated: characters 1-${READ_CHAR_BUDGET} of ${total}. Read on with start_index=${READ_CHAR_BUDGET + 1}.]`,
+      `[Truncated: characters 0-${READ_CHAR_BUDGET} of ${total}. Read on with start_index=${READ_CHAR_BUDGET}.]`,
     );
   });
 
@@ -179,7 +179,7 @@ describe("FileSystemOps.readFileSafe", () => {
     const [body] = result.value.content.split("\n\n[Truncated:");
     expect(body).toHaveLength(10);
     expect(result.value.content).toContain(
-      "[Truncated: characters 1-10 of 500. Read on with start_index=11.]",
+      "[Truncated: characters 0-10 of 500. Read on with start_index=10.]",
     );
   });
 
@@ -193,11 +193,11 @@ describe("FileSystemOps.readFileSafe", () => {
     if (!first.ok) {
       return;
     }
-    expect(first.value.content).toContain("start_index=5");
+    expect(first.value.content).toContain("start_index=4");
 
     const second = await ops.readFileSafe({
       path: "big.txt",
-      startIndex: 5,
+      startIndex: 4,
       maxChars: 4,
     });
     expect(second.ok).toBe(true);
@@ -235,6 +235,99 @@ describe("FileSystemOps.readFileSafe", () => {
       return;
     }
     expect(result.value.content).not.toContain("[Truncated:");
+  });
+
+  test("a window boundary inside a surrogate pair does not corrupt it", async () => {
+    const dir = makeTempDir();
+    // "ab" + a 2-unit emoji + "cd": a maxChars of 3 would split the pair.
+    writeFileSync(join(dir, "emoji.txt"), `ab\u{1F600}cd`);
+    const ops = new FileSystemOps(sandboxPolicyFor(dir));
+
+    const result = await ops.readFileSafe({ path: "emoji.txt", maxChars: 3 });
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      return;
+    }
+    const [body] = result.value.content.split("\n\n[Truncated:");
+    expect(body).toBe("ab");
+    expect(body).not.toContain("\uFFFD");
+  });
+
+  test("paging across a surrogate pair reassembles the whole file", async () => {
+    const dir = makeTempDir();
+    const original = `ab\u{1F600}cd`;
+    writeFileSync(join(dir, "emoji.txt"), original);
+    const ops = new FileSystemOps(sandboxPolicyFor(dir));
+
+    let assembled = "";
+    let startIndex = 0;
+    for (let i = 0; i < 10; i++) {
+      const result = await ops.readFileSafe({
+        path: "emoji.txt",
+        startIndex,
+        maxChars: 3,
+      });
+      expect(result.ok).toBe(true);
+      if (!result.ok) {
+        return;
+      }
+      const [body] = result.value.content.split("\n\n[Truncated:");
+      assembled += body;
+      const match = /start_index=(\d+)/.exec(result.value.content);
+      if (match?.[1] === undefined) {
+        break;
+      }
+      startIndex = Number(match[1]);
+    }
+    expect(assembled).toBe(original);
+  });
+
+  test("a lone-low-surrogate startIndex backs up onto the whole pair", async () => {
+    const dir = makeTempDir();
+    writeFileSync(join(dir, "emoji.txt"), `ab\u{1F600}cd`);
+    const ops = new FileSystemOps(sandboxPolicyFor(dir));
+
+    // Index 3 (0-indexed) is the low half of the emoji.
+    const result = await ops.readFileSafe({
+      path: "emoji.txt",
+      startIndex: 3,
+      maxChars: 2,
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      return;
+    }
+    const [body] = result.value.content.split("\n\n[Truncated:");
+    expect(body).toBe(`\u{1F600}`);
+    expect(body).not.toContain("\uFFFD");
+  });
+
+  test("legacy offset/limit are rejected rather than silently ignored", async () => {
+    const { fileReadTool } = await import("../tools/filesystem/read.js");
+    const dir = makeTempDir();
+    writeFileSync(join(dir, "big.txt"), "x".repeat(500));
+
+    const result = await fileReadTool.execute(
+      { path: join(dir, "big.txt"), offset: 2001, limit: 2000 },
+      { workingDir: dir } as never,
+    );
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain("no longer takes");
+    expect(result.content).toContain("start_index");
+  });
+
+  test("legacy fields alongside current ones do not trigger the guard", async () => {
+    const { fileReadTool } = await import("../tools/filesystem/read.js");
+    const dir = makeTempDir();
+    writeFileSync(join(dir, "big.txt"), "abcdefghij");
+
+    const result = await fileReadTool.execute(
+      { path: join(dir, "big.txt"), offset: 1, max_chars: 4 },
+      { workingDir: dir } as never,
+    );
+    expect(result.isError).toBe(false);
+    const [body] = result.content.split("\n\n[Truncated:");
+    expect(body).toBe("abcd");
   });
 
   test("the read budget stays under the tool-result spool threshold", () => {

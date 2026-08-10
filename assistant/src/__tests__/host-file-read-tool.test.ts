@@ -84,7 +84,7 @@ describe("host_file_read tool", () => {
     writeFileSync(filePath, "first\nsecond\nthird\n");
 
     const result = await hostFileReadTool.execute(
-      { path: filePath, start_index: 7, max_chars: 6 },
+      { path: filePath, start_index: 6, max_chars: 6 },
       makeContext(),
     );
     expect(result.isError).toBe(false);
@@ -155,14 +155,14 @@ describe("host_file_read tool", () => {
     expect(result.isError).toBe(false);
   });
 
-  test("start_index is 1-indexed", async () => {
+  test("start_index is 0-indexed", async () => {
     const dir = mkdtempSync(join(tmpdir(), "host-file-read-test-"));
     testDirs.push(dir);
     const filePath = join(dir, "lines.txt");
     writeFileSync(filePath, "a\nb\nc\nd\ne\n");
 
     const result = await hostFileReadTool.execute(
-      { path: filePath, start_index: 5, max_chars: 1 },
+      { path: filePath, start_index: 4, max_chars: 1 },
       makeContext(),
     );
     expect(result.isError).toBe(false);

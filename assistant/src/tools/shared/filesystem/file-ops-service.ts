@@ -95,7 +95,38 @@ function truncationNotice(
   end: number,
   totalChars: number,
 ): string {
-  return `\n\n[Truncated: characters ${start + 1}-${end} of ${totalChars}. Read on with start_index=${end + 1}.]`;
+  return `\n\n[Truncated: characters ${start}-${end} of ${totalChars}. Read on with start_index=${end}.]`;
+}
+
+const isHighSurrogate = (code: number): boolean =>
+  code >= 0xd800 && code <= 0xdbff;
+const isLowSurrogate = (code: number): boolean =>
+  code >= 0xdc00 && code <= 0xdfff;
+
+/**
+ * Character window that never splits a surrogate pair. A split leaves a lone
+ * half at each edge, and each encodes to U+FFFD, so the character is lost from
+ * both this window and the next one paged in after it.
+ */
+export function surrogateSafeWindow(
+  total: number,
+  charCodeAt: (index: number) => number,
+  requestedStart: number,
+  maxChars: number,
+): { start: number; end: number } {
+  let start = Math.max(0, Math.min(requestedStart, total));
+  if (start > 0 && start < total && isLowSurrogate(charCodeAt(start))) {
+    start -= 1;
+  }
+
+  let end = Math.min(total, start + maxChars);
+  if (end > start && end < total && isHighSurrogate(charCodeAt(end - 1))) {
+    // Backing off would empty a one-character window, which stalls paging on
+    // the same offset, so take the whole pair instead.
+    end = end - 1 > start ? end - 1 : Math.min(total, end + 1);
+  }
+
+  return { start, end };
 }
 
 export class FileSystemOps {
@@ -138,15 +169,19 @@ export class FileSystemOps {
     try {
       const raw = await readFile(filePath, "utf-8");
 
-      const start = Math.max(0, (input.startIndex ?? 1) - 1);
       // A ceiling, not just a default: a larger window would be spooled to
       // disk and replaced with a stub, returning less than this.
       const maxChars = Math.min(
         READ_CHAR_BUDGET,
         Math.max(0, input.maxChars ?? READ_CHAR_BUDGET),
       );
-      const window = raw.slice(start, start + maxChars);
-      const end = start + window.length;
+      const { start, end } = surrogateSafeWindow(
+        raw.length,
+        (i) => raw.charCodeAt(i),
+        input.startIndex ?? 0,
+        maxChars,
+      );
+      const window = raw.slice(start, end);
 
       // An empty window means the caller paged past the end or asked for
       // nothing, which is not a truncated read.

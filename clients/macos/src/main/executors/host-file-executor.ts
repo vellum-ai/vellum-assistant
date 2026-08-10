@@ -31,6 +31,37 @@ const DENIED_BASENAMES = new Set([".backup.key", "backup.key"]);
  */
 const READ_CHAR_BUDGET = 20_000;
 
+const isHighSurrogate = (code: number): boolean =>
+  code >= 0xd800 && code <= 0xdbff;
+const isLowSurrogate = (code: number): boolean =>
+  code >= 0xdc00 && code <= 0xdfff;
+
+/**
+ * Character window that never splits a surrogate pair. A split leaves a lone
+ * half at each edge, and each encodes to U+FFFD, so the character is lost from
+ * both this window and the next one paged in after it.
+ */
+function surrogateSafeWindow(
+  total: number,
+  charCodeAt: (index: number) => number,
+  requestedStart: number,
+  maxChars: number,
+): { start: number; end: number } {
+  let start = Math.max(0, Math.min(requestedStart, total));
+  if (start > 0 && start < total && isLowSurrogate(charCodeAt(start))) {
+    start -= 1;
+  }
+
+  let end = Math.min(total, start + maxChars);
+  if (end > start && end < total && isHighSurrogate(charCodeAt(end - 1))) {
+    // Backing off would empty a one-character window, which stalls paging on
+    // the same offset, so take the whole pair instead.
+    end = end - 1 > start ? end - 1 : Math.min(total, end + 1);
+  }
+
+  return { start, end };
+}
+
 function formatBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
@@ -259,6 +290,38 @@ interface ReadFields {
   path: string;
   startIndex?: number;
   maxChars?: number;
+  /** Line-based window sent by a daemon older than the character window. */
+  offset?: number;
+  /** Line-based window sent by a daemon older than the character window. */
+  limit?: number;
+}
+
+const LEGACY_READ_LINE_LIMIT = 2000;
+
+/**
+ * Line window for a daemon that predates the character window. This app
+ * auto-updates on its own cadence, so a newer client can be driven by an older
+ * daemon. Reading its `offset` as a character index would silently return the
+ * wrong region, and ignoring it would pin every page to the start of the file,
+ * so the old semantics are honored as they were. Delete once no daemon in the
+ * field sends these fields.
+ */
+function executeLegacyLineRead(
+  text: string,
+  offset: number | undefined,
+  limit: number | undefined,
+): { content: string } {
+  const lines = text.split("\n");
+  const start = Math.max(0, (offset ?? 1) - 1);
+  const sliced = lines.slice(start, start + (limit ?? LEGACY_READ_LINE_LIMIT));
+  const lastLineReturned = start + sliced.length;
+  const content = sliced.join("\n");
+  if (sliced.length > 0 && lastLineReturned < lines.length) {
+    return {
+      content: `${content}\n\n[Truncated: showing through line ${lastLineReturned} of ${lines.length}. Read on with offset=${lastLineReturned + 1}, or pass an explicit limit.]`,
+    };
+  }
+  return { content };
 }
 
 function executeRead(fields: ReadFields): {
@@ -291,18 +354,29 @@ function executeRead(fields: ReadFields): {
     return { audioData: raw.toString("base64"), audioMimeType: audio.mimeType };
   }
 
-  // Text file — apply the character window
+  // Text file: apply the character window
   const text = raw.toString("utf-8");
-  const start = Math.max(0, (fields.startIndex ?? 1) - 1);
+
+  if (fields.startIndex === undefined && fields.maxChars === undefined) {
+    if (fields.offset !== undefined || fields.limit !== undefined) {
+      return executeLegacyLineRead(text, fields.offset, fields.limit);
+    }
+  }
+
   const maxChars = Math.min(
     READ_CHAR_BUDGET,
     Math.max(0, fields.maxChars ?? READ_CHAR_BUDGET),
   );
-  const content = text.slice(start, start + maxChars);
-  const end = start + content.length;
+  const { start, end } = surrogateSafeWindow(
+    text.length,
+    (i) => text.charCodeAt(i),
+    fields.startIndex ?? 0,
+    maxChars,
+  );
+  const content = text.slice(start, end);
   if (content.length > 0 && end < text.length) {
     return {
-      content: `${content}\n\n[Truncated: characters ${start + 1}-${end} of ${text.length}. Read on with start_index=${end + 1}.]`,
+      content: `${content}\n\n[Truncated: characters ${start}-${end} of ${text.length}. Read on with start_index=${end}.]`,
     };
   }
   return { content };
@@ -442,6 +516,8 @@ function handleRequest(
           path: filePath,
           startIndex: message.startIndex as number | undefined,
           maxChars: message.maxChars as number | undefined,
+          offset: message.offset as number | undefined,
+          limit: message.limit as number | undefined,
         });
         break;
       case "write":

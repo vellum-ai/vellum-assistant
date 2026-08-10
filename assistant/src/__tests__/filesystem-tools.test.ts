@@ -158,14 +158,14 @@ describe("FileSystemOps read character-window edge cases", () => {
     expect(result.value.content).toBe("");
   });
 
-  test("startIndex=1 reads from the first character (1-indexed)", async () => {
+  test("startIndex=0 reads from the first character (0-indexed)", async () => {
     const dir = makeTempDir();
     writeFileSync(join(dir, "file.txt"), "first\nsecond\nthird");
     const ops = new FileSystemOps(sandboxPolicyFor(dir));
 
     const result = await ops.readFileSafe({
       path: "file.txt",
-      startIndex: 1,
+      startIndex: 0,
       maxChars: 5,
     });
     expect(result.ok).toBe(true);
@@ -183,7 +183,7 @@ describe("FileSystemOps read character-window edge cases", () => {
 
     const result = await ops.readFileSafe({
       path: "file.txt",
-      startIndex: 1,
+      startIndex: 0,
       maxChars: 1000,
     });
     expect(result.ok).toBe(true);
@@ -200,7 +200,7 @@ describe("FileSystemOps read character-window edge cases", () => {
 
     const result = await ops.readFileSafe({
       path: "file.txt",
-      startIndex: 5,
+      startIndex: 4,
       maxChars: 3,
     });
     expect(result.ok).toBe(true);

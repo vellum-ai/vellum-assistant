@@ -12,6 +12,7 @@ import {
   IMAGE_EXTENSIONS,
   readImageFile,
 } from "../shared/filesystem/image-read.js";
+import { legacyReadArgsError } from "../shared/filesystem/legacy-read-args.js";
 import { sandboxReadPolicy } from "../shared/filesystem/path-policy.js";
 import {
   invalidToolInputResult,
@@ -38,7 +39,7 @@ export const fileReadInputSchema = z.looseObject({
     ),
   start_index: z
     .number()
-    .describe("Character to start reading from (1-indexed). Text files only.")
+    .describe("Character to start reading from (0-indexed). Text files only.")
     .optional()
     .catch(undefined),
   max_chars: z
@@ -83,7 +84,8 @@ export const fileReadTool = {
       max_chars: maxChars,
     } = parsed.data;
 
-    // For image files, delegate to the shared image reader.
+    // For image files, delegate to the shared image reader. Media reads carry
+    // no window, so the legacy-argument guard below does not apply to them.
     const ext = extname(rawPath).toLowerCase();
     if (IMAGE_EXTENSIONS.has(ext)) {
       const pathCheck = sandboxReadPolicy(rawPath, context.workingDir);
@@ -106,6 +108,11 @@ export const fileReadTool = {
         };
       }
       return readAudioFile(pathCheck.resolved);
+    }
+
+    const legacyArgs = legacyReadArgsError("file_read", input);
+    if (legacyArgs !== undefined) {
+      return { content: legacyArgs, isError: true };
     }
 
     const ops = new FileSystemOps((path, opts) =>

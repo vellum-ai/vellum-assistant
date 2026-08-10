@@ -18,6 +18,7 @@ import {
   IMAGE_EXTENSIONS,
   readImageFile,
 } from "../shared/filesystem/image-read.js";
+import { legacyReadArgsError } from "../shared/filesystem/legacy-read-args.js";
 import { hostPolicy } from "../shared/filesystem/path-policy.js";
 import {
   invalidToolInputResult,
@@ -46,7 +47,7 @@ export const hostFileReadInputSchema = z.looseObject({
     ),
   start_index: z
     .number()
-    .describe("Character to start reading from (1-indexed). Text files only.")
+    .describe("Character to start reading from (0-indexed). Text files only.")
     .optional()
     .catch(undefined),
   max_chars: z
@@ -181,6 +182,11 @@ export const hostFileReadTool = {
         return { content: `Error: ${pathCheck.error}`, isError: true };
       }
       return readAudioFile(pathCheck.resolved);
+    }
+
+    const legacyArgs = legacyReadArgsError("host_file_read", input);
+    if (legacyArgs !== undefined) {
+      return { content: legacyArgs, isError: true };
     }
 
     const ops = new FileSystemOps(hostPolicy);

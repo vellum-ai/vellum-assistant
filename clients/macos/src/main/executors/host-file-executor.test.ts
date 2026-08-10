@@ -221,7 +221,7 @@ describe("host-file-executor", () => {
       const [body] = result.content!.split("\n\n[Truncated:");
       expect(body).toHaveLength(20_000);
       expect(result.content).toContain(
-        `[Truncated: characters 1-20000 of ${total}. Read on with start_index=20001.]`,
+        `[Truncated: characters 0-20000 of ${total}. Read on with start_index=20000.]`,
       );
     });
 
@@ -248,6 +248,57 @@ describe("host-file-executor", () => {
       expect(result.imageData).toBeUndefined();
     });
 
+    test("a window boundary inside a surrogate pair does not corrupt it", () => {
+      const dir = freshTmpDir();
+      const filePath = path.join(dir, "emoji.txt");
+      fs.writeFileSync(filePath, `ab\u{1F600}cd`);
+
+      const result = __testing.executeRead({ path: filePath, maxChars: 3 });
+      const [body] = result.content!.split("\n\n[Truncated:");
+      expect(body).toBe("ab");
+      expect(body).not.toContain("\uFFFD");
+    });
+
+    test("an older daemon's offset/limit still pages line by line", () => {
+      const dir = freshTmpDir();
+      const filePath = path.join(dir, "big.txt");
+      fs.writeFileSync(
+        filePath,
+        Array.from({ length: 2500 }, (_, i) => `line${i + 1}`).join("\n"),
+      );
+
+      // A daemon predating the character window sends only offset/limit. The
+      // window must advance rather than pinning every page to the file start.
+      const first = __testing.executeRead({ path: filePath, limit: 10 });
+      expect(first.content).toContain("line1");
+      expect(first.content).toContain("line10");
+      expect(first.content).not.toContain("line11");
+
+      const second = __testing.executeRead({
+        path: filePath,
+        offset: 11,
+        limit: 10,
+      });
+      expect(second.content).toContain("line11");
+      expect(second.content).not.toContain("line10\n");
+    });
+
+    test("current fields win when a request carries both sets", () => {
+      const dir = freshTmpDir();
+      const filePath = path.join(dir, "lines.txt");
+      fs.writeFileSync(filePath, "a\nb\nc\nd\ne");
+
+      const result = __testing.executeRead({
+        path: filePath,
+        startIndex: 4,
+        maxChars: 3,
+        offset: 1,
+        limit: 1,
+      });
+      const [body] = result.content!.split("\n\n[Truncated:");
+      expect(body).toBe("c\nd");
+    });
+
     test("respects startIndex and maxChars", () => {
       const dir = freshTmpDir();
       const filePath = path.join(dir, "lines.txt");
@@ -255,7 +306,7 @@ describe("host-file-executor", () => {
 
       const result = __testing.executeRead({
         path: filePath,
-        startIndex: 3,
+        startIndex: 2,
         maxChars: 3,
       });
       const [body] = result.content!.split("\n\n[Truncated:");
