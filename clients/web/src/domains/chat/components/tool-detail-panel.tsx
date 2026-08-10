@@ -27,13 +27,12 @@ import {
   type LucideIcon,
 } from "lucide-react";
 
-import { Typography } from "@vellumai/design-library";
+import { Notice, Typography } from "@vellumai/design-library";
 
 import { ChatMarkdownMessage } from "@/domains/chat/components/chat-markdown-message";
 import { CodeBlock, SectionLabel } from "@/components/detail-primitives";
 import { DetailShell } from "@/components/detail-shell";
 import { getToolActivityRenderer } from "@/domains/chat/components/tool-activity/tool-activity-renderers";
-import { RiskBadge } from "@/domains/chat/components/risk-badge";
 import { titleCaseToolName } from "@/domains/chat/components/tool-call-chip/utils";
 import { useLiveThinkingText } from "@/domains/chat/hooks/use-live-thinking-text";
 import { useLiveToolCall } from "@/domains/chat/hooks/use-live-tool-call";
@@ -41,7 +40,11 @@ import {
   deriveStepLabelFromName,
   type IconName,
 } from "@/domains/chat/components/tool-progress-card/derive-step-label";
-import { getRiskToleranceHint } from "@/domains/chat/utils/risk";
+import {
+  getRiskBadgeWeakStyle,
+  getRiskNoticeTone,
+  getRiskToleranceHint,
+} from "@/domains/chat/utils/risk";
 import { isToolCallRunning } from "@/domains/chat/utils/tool-call-status";
 import type { ToolDetailPayload } from "@/stores/viewer-store";
 
@@ -96,6 +99,7 @@ function ThinkingDetailBody({
       Glyph={Brain}
       title={detail.title}
       closeLabel="Close tool details"
+      closeVariant="outlined"
       onClose={onClose}
     >
       <ChatMarkdownMessage
@@ -144,6 +148,7 @@ export function ToolDetailBody({
   // classifier jargon and is deliberately NOT shown.
   const riskLevel = liveTc?.riskLevel ?? detail.riskLevel;
   const riskHint = getRiskToleranceHint(riskLevel);
+  const riskStyle = getRiskBadgeWeakStyle(riskLevel);
 
   // Tools with purpose-built activity UI replace the generic name/activity/JSON
   // block; those that also own their output suppress the shared Output section.
@@ -151,23 +156,26 @@ export function ToolDetailBody({
 
   return (
     <>
-      {/* Risk Level — the call's risk badge and tolerance hint in an
-          overlay card. */}
+      {/* Risk Level — a single tone-coloured bar reading "<level> →
+          <when it auto-approves>" (Figma node 7778-163402). The level and its
+          tolerance hint were previously a badge stacked over a caption in a
+          neutral card, which spent three lines saying one thing. */}
       {riskLevel && (
         <div className="mb-5">
           <SectionLabel>Risk Level</SectionLabel>
-          <div className="rounded-lg border border-[var(--border-base)] bg-[var(--surface-overlay)] p-3">
-            <RiskBadge level={riskLevel} />
-            {riskHint && (
-              <Typography
-                variant="body-small-default"
-                as="p"
-                className="mt-1.5 text-[var(--content-secondary)]"
-              >
-                {riskHint}
-              </Typography>
-            )}
-          </div>
+          <Notice
+            tone={getRiskNoticeTone(riskLevel)}
+            data-testid="risk-notice"
+            data-risk-level={riskLevel}
+          >
+            {/* `Notice` renders its message in `--content-secondary`; the
+                colour class on this span applies directly to the text and so
+                beats the inherited value, giving the Figma's tone-matched
+                sentence without a design-library fork. */}
+            <span className={riskStyle.text}>
+              {riskHint ? `${riskStyle.label} → ${riskHint}` : riskStyle.label}
+            </span>
+          </Notice>
         </div>
       )}
 
@@ -267,6 +275,9 @@ export function ToolDetailPanel({
       Glyph={Glyph}
       title={title}
       closeLabel="Close tool details"
+      // Bordered X, matching the Figma sidepanel header and the sibling
+      // background-task / settings drawers.
+      closeVariant="outlined"
       onClose={onClose}
     >
       <ToolDetailBody detail={detail} assistantId={assistantId} />

@@ -48,9 +48,9 @@ describe("matchBufferEntryStart", () => {
   });
 
   test("an indented entry-shaped line is body text, not a new entry", () => {
-    // The writer always emits at column 0, so anything indented can only be
-    // part of the fact above it. Reading it as an entry splits one multiline
-    // fact into two nodes in the web Memory tab.
+    // The writer puts only an entry's opening line at column 0 and nests the
+    // body under it, so anything indented is part of the fact above it.
+    // Reading it as an entry splits one fact into two nodes in the Memory tab.
     expect(isBufferEntryStart("  - [Jan 1, 9:00 AM] indented")).toBe(false);
     expect(isBufferEntryStart("\t- [Jan 1, 9:00 AM] tab-indented")).toBe(false);
   });
@@ -94,6 +94,60 @@ describe("matchBufferEntryStart", () => {
 
   test("tolerates trailing whitespace, which editors add invisibly", () => {
     expect(isBufferEntryStart("- [Jan 1, 9:00 AM] fact   ")).toBe(true);
+  });
+});
+
+describe("formatRememberEntry round trip", () => {
+  const WRITTEN_AT = new Date(2026, 0, 1, 9, 0);
+
+  test("a fact whose body is itself entry-shaped survives as one entry", () => {
+    const content = "plan:\n- [Jan 2, 9:00 AM] step";
+    const written = formatRememberEntry(content, WRITTEN_AT);
+
+    // The body is nested, so it cannot be mistaken for the next fact.
+    expect(written).toBe(
+      "- [Jan 1, 9:00 AM] plan:\n  - [Jan 2, 9:00 AM] step\n",
+    );
+    expect(splitBufferEntries(written.trimEnd().split("\n"))).toHaveLength(1);
+  });
+
+  test("any content round-trips to exactly one entry", () => {
+    // The delimiter is "canonical entry shape at column 0", so the property
+    // that matters is that no fact body can imitate one, whatever the user
+    // dictated.
+    const adversarial = [
+      "plan:\n- [Jan 2, 9:00 AM] step",
+      "plan:\n- [Jan 2, 9:00 AM] step\n- [Jan 3, 10:15 PM] another",
+      "- [Jan 2, 9:00 AM] body opens with an entry shape",
+      "top\n\n- [Dec 31, 12:05 PM] after a blank line",
+      "top\n  - [Jan 2, 9:00 AM] already indented",
+      "top\n\t- [Jan 2, 9:00 AM] tab indented",
+      "top\n- [ ] checklist\n- [[wikilink]] doc\n- plain bullet",
+      "single line, no body",
+    ];
+
+    for (const content of adversarial) {
+      const written = formatRememberEntry(content, WRITTEN_AT);
+      expect(splitBufferEntries(written.trimEnd().split("\n"))).toHaveLength(1);
+    }
+  });
+
+  test("the fact text a reader recovers is unchanged by nesting", () => {
+    const content = "plan:\n- [Jan 2, 9:00 AM] step";
+    const groups = splitBufferEntries(
+      formatRememberEntry(content, WRITTEN_AT).trimEnd().split("\n"),
+    );
+    // Opening clause on the entry, body carried verbatim under it.
+    expect(groups[0]!.start?.text).toBe("plan:");
+    expect(groups[0]!.lines).toEqual([
+      "- [Jan 1, 9:00 AM] plan:",
+      "  - [Jan 2, 9:00 AM] step",
+    ]);
+  });
+
+  test("blank body lines stay blank rather than becoming whitespace", () => {
+    const written = formatRememberEntry("a\n\nb", WRITTEN_AT);
+    expect(written).toBe("- [Jan 1, 9:00 AM] a\n\n  b\n");
   });
 });
 

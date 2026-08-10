@@ -203,6 +203,7 @@ const i18nEnforcedPaths = [
   "src/domains/credential-requests/**/*.{ts,tsx}",
   "src/domains/logs/**/*.{ts,tsx}",
   "src/domains/library/**/*.{ts,tsx}",
+  "src/domains/home/**/*.{ts,tsx}",
 ];
 
 const eslintConfig = defineConfig([

@@ -1,7 +1,12 @@
 import { ChevronDown, type LucideIcon } from "lucide-react";
 import { useRef, type DragEvent, type ReactNode, type Ref } from "react";
 
-import { BottomSheet, ContextMenu } from "@vellumai/design-library";
+import {
+  BottomSheet,
+  ContextMenu,
+  CrossfadeStack,
+  SideMenu,
+} from "@vellumai/design-library";
 import {
   Collapsible,
   type CollapsibleItemProps,
@@ -11,7 +16,6 @@ import { cn } from "@vellumai/design-library/utils/cn";
 
 import {
   SIDEBAR_CHIP_GAP,
-  SIDEBAR_PILL_HEIGHT_CLASS,
   SIDEBAR_ROW_PADDING_X,
   SIDEBAR_SECTION_INDENT,
   SIDEBAR_SECTION_TITLE_TEXT_CLASSES,
@@ -243,6 +247,27 @@ function CollapsibleNavSectionSection({
     </span>
   ) : null;
 
+  /* Both header branches are the same row: one is a disclosure trigger and
+     the other is inert, so the geometry and the content are declared once and
+     the branch below chooses only the element. */
+  const titleClasses = cn(
+    "py-[6px] max-md:py-3",
+    SIDEBAR_SECTION_TITLE_TEXT_CLASSES,
+  );
+
+  const titleStyle = {
+    paddingLeft: SIDEBAR_ROW_PADDING_X,
+    paddingRight: SIDEBAR_ROW_PADDING_X,
+    gap: SIDEBAR_CHIP_GAP,
+  };
+
+  const titleContent = (
+    <>
+      {iconSlot}
+      <span className="min-w-0 flex-1 truncate">{label}</span>
+    </>
+  );
+
   const headerEl = (
     <div
       data-slot="collapsible-nav-section-header"
@@ -271,59 +296,34 @@ function CollapsibleNavSectionSection({
         // or collapses the section, while click-and-hold-and-move drags it
         // (native HTML5 drag on the header div, see `drag` below). The
         // chevron in the trailing cluster forwards its clicks here.
-        <Collapsible.Trigger
-          ref={titleTriggerRef}
-          data-slot="collapsible-nav-section-title"
-          className={cn(
-            SIDEBAR_PILL_HEIGHT_CLASS,
-            "max-md:h-auto shrink-0",
-            "rounded-[6px] py-[6px] max-md:py-3",
-            "text-left",
-            SIDEBAR_SECTION_TITLE_TEXT_CLASSES,
-          )}
-          style={{
-            paddingLeft: SIDEBAR_ROW_PADDING_X,
-            paddingRight: SIDEBAR_ROW_PADDING_X,
-            gap: SIDEBAR_CHIP_GAP,
-          }}
+        <SideMenu.SectionHeader
+          asChild
+          className={titleClasses}
+          style={titleStyle}
         >
-          {iconSlot}
-          <span className="min-w-0 flex-1 truncate">{label}</span>
-        </Collapsible.Trigger>
+          <Collapsible.Trigger
+            ref={titleTriggerRef}
+            data-slot="collapsible-nav-section-title"
+          >
+            {titleContent}
+          </Collapsible.Trigger>
+        </SideMenu.SectionHeader>
       ) : (
         // Non-collapsible: no chevron, no toggle affordance, just the icon
-        // slot (if given) and the label, always at rest.
-        <div
-          className={cn(
-            "flex max-md:h-auto shrink-0",
-            SIDEBAR_PILL_HEIGHT_CLASS,
-            // Half the usual mobile bottom padding: the gap to the first
-            // row below reads as too large at the full py-3 (matches the
-            // desktop py-[6px] top/bottom, kept as-is above).
-            "rounded-[6px] py-[6px] max-md:pt-3 max-md:pb-1.5",
-            SIDEBAR_SECTION_TITLE_TEXT_CLASSES,
-          )}
-          style={{
-            paddingLeft: SIDEBAR_ROW_PADDING_X,
-            paddingRight: SIDEBAR_ROW_PADDING_X,
-            gap: SIDEBAR_CHIP_GAP,
-          }}
+        // slot (if given) and the label, always at rest. Half the usual
+        // mobile bottom padding: the gap to the first row below reads as too
+        // large at the full py-3.
+        <SideMenu.SectionHeader
+          className={cn(titleClasses, "max-md:pt-3 max-md:pb-1.5")}
+          style={titleStyle}
         >
-          {iconSlot}
-          <span className="min-w-0 flex-1 truncate">{label}</span>
-        </div>
+          {titleContent}
+        </SideMenu.SectionHeader>
       )}
       {collapsible || trailing || collapsedIndicator ? (
         <span className="flex shrink-0 items-center gap-1 pr-[6px] max-md:pr-2">
           {trailing || collapsedIndicator ? (
-            /* One cell, both occupants stacked in it: every child is placed
-               in the same grid area, so the dot and the "…" share a position
-               and nothing shifts as one gives way to the other. Grid rather
-               than absolute positioning keeps both in the layout, which is
-               what lets the menu stay keyboard reachable (`focus-within`
-               cannot fire on a `display:none` element) and lets the cell size
-               itself from the wider of the two. */
-            <span className="grid shrink-0 place-items-center [&>*]:[grid-area:1/1]">
+            <CrossfadeStack>
               {collapsedIndicator ? (
                 /* Only while collapsed: an open section's rows carry the same
                    state, so a header dot would double it. `pointer-events-none`
@@ -366,7 +366,7 @@ function CollapsibleNavSectionSection({
                   {trailing}
                 </span>
               ) : null}
-            </span>
+            </CrossfadeStack>
           ) : null}
           {collapsible ? (
             // Decorative disclosure indicator with the title trigger's own

@@ -82,6 +82,24 @@ describe("SideMenu root", () => {
     );
   });
 
+  /* Every top-level row resolves its height from this property rather than
+     naming the pixels again, which is what keeps a pill and the tile it
+     collapses into from disagreeing - a disagreement that stays invisible
+     until the rail collapses. Both variants publish it, since an overlay
+     holds the same rows. */
+  test("both variants publish the tile property rows size from", () => {
+    for (const variant of ["rail", "overlay"] as const) {
+      const html = renderToStaticMarkup(
+        createElement(
+          SideMenu,
+          { ariaLabel: "Primary", variant },
+          createElement(SideMenu.Body, { key: "body" }, null),
+        ),
+      );
+      expect(html).toContain(`--side-menu-tile-size:${SIDE_MENU_TILE_SIZE}px`);
+    }
+  });
+
   test("overlay variant is full-bleed with no radius", () => {
     const html = renderToStaticMarkup(
       createElement(
@@ -92,6 +110,37 @@ describe("SideMenu root", () => {
     );
     expect(html).toContain("w-full");
     expect(html).toContain("rounded-none");
+  });
+});
+
+describe("SideMenu.SectionHeader", () => {
+  /* A section header is a top-level rail row, so it stands at the height the
+     pills and tiles around it do, and it reads that from the rail rather than
+     from a caller's class - a caller free to name the height is a caller free
+     to name a different one. */
+  test("stands at the rail's row height, growing to its padding when touch-sized", () => {
+    const html = renderToStaticMarkup(
+      createElement(SideMenu.SectionHeader, null, "Pinned"),
+    );
+    expect(html).toContain("h-[var(--side-menu-tile-size)]");
+    expect(html).toContain("max-md:h-auto");
+    expect(html).toContain('data-slot="side-menu-section-header"');
+  });
+
+  /* The collapsible variant of the same row is a disclosure trigger, and it
+     has to be the same row: taking the geometry through the slot is what
+     keeps a section that opens from standing at a different height than one
+     that does not. */
+  test("hands its geometry to the caller's own element", () => {
+    const html = renderToStaticMarkup(
+      createElement(
+        SideMenu.SectionHeader,
+        { asChild: true },
+        createElement("button", { type: "button" }, "Pinned"),
+      ),
+    );
+    expect(html).toContain("<button");
+    expect(html).toContain("h-[var(--side-menu-tile-size)]");
   });
 });
 

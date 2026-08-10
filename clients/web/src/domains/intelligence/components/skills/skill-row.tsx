@@ -1,7 +1,7 @@
 import { ArrowDownToLine, Loader2, Trash2 } from "lucide-react";
 import type { KeyboardEvent } from "react";
 
-import { SkillIcon } from "@/domains/intelligence/components/skills/skill-icon";
+import { SkillIcon } from "@/components/skill-icon";
 import { SkillOriginBadge } from "@/domains/intelligence/components/skills/skill-origin-badge";
 import {
   isAvailableSkill,

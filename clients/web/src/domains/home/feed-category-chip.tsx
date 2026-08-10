@@ -1,11 +1,10 @@
 import { type CSSProperties } from "react";
 
+import { useTranslation } from "@/i18n";
 import type { FeedItemCategory } from "@vellumai/assistant-api";
 import { Tag } from "@vellumai/design-library";
 
 import { resolveCategoryStyle } from "./home-feed-filter-bar";
-
-const FALLBACK_CATEGORY: FeedItemCategory = "system";
 
 export interface FeedCategoryChipProps {
   category?: FeedItemCategory;
@@ -22,15 +21,15 @@ export interface FeedCategoryChipProps {
  * every category background at this 12px/600 size.
  */
 export function FeedCategoryChip({ category }: FeedCategoryChipProps) {
+  const { t } = useTranslation("home");
   const style = resolveCategoryStyle(category);
-  const label = category ?? FALLBACK_CATEGORY;
 
   return (
     <Tag
       className="bg-[var(--feed-chip-weak)] uppercase tracking-wide leading-none"
       style={{ "--feed-chip-weak": style.weak } as CSSProperties}
     >
-      {label.charAt(0).toUpperCase() + label.slice(1)}
+      {t(style.labelKey)}
     </Tag>
   );
 }

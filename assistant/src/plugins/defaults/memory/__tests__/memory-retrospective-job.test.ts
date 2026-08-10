@@ -168,7 +168,10 @@ mock.module("../find-most-recent-retrospective-for.js", () => ({
 mock.module("../../../../persistence/conversation-crud.js", () => ({
   getMessagesAfter: (id: string, afterId: string | null) => {
     messagesAfterCalls.push({ conversationId: id, afterId });
-    return newMessages;
+    // Real rows always carry `finalized` (NOT NULL, default 1); the slice
+    // filter drops unfinalized rows, so mock rows default to finalized
+    // unless a test explicitly stages a streaming row.
+    return newMessages.map((row) => ({ finalized: 1, ...row }));
   },
   getMessages: (id: string) => {
     if (messagesByConversationId[id]) {

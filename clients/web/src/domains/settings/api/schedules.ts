@@ -1,7 +1,11 @@
 /**
- * Fetch wrappers for user-created schedule CRUD (list, create, update, toggle,
+ * Fetch wrappers for user-created schedule CRUD (create, update, toggle,
  * delete, runs, usage summary). System-task queries (heartbeat, consolidation,
- * retrospective) use generated SDK options directly — see use-system-tasks.ts.
+ * retrospective) use generated SDK options directly, see use-system-tasks.ts.
+ *
+ * Reading the schedule list is not here: `@/utils/schedules` owns it, because
+ * its consumers span domains (settings, schedules, home, intelligence) and a
+ * domain may not import a peer's internals.
  */
 import {
   schedulesByIdDelete,
@@ -13,16 +17,13 @@ import {
   schedulesUsagesummaryGet,
   schedulesPost,
 } from "@/generated/daemon/sdk.gen";
-import { schedulesGetQueryKey } from "@/generated/daemon/@tanstack/react-query.gen";
 import {
   ApiError,
   assertHasResponse,
   extractErrorMessage,
 } from "@/utils/api-errors";
-import { fetchSchedules as fetchSharedSchedules } from "@/utils/schedules";
 
 import type {
-  Schedule,
   ScheduleRun,
   ScheduleUsageSummary,
 } from "@/domains/settings/types/schedules";
@@ -95,10 +96,6 @@ export async function updateSchedule(
   }
 }
 
-export async function fetchSchedules(assistantId: string): Promise<Schedule[]> {
-  return fetchSharedSchedules(assistantId);
-}
-
 const REASSIGN_PROFILE_ERROR =
   "Failed to move schedules to the selected profile.";
 
@@ -133,25 +130,6 @@ export async function reassignScheduleInferenceProfile(
     );
   }
   return data?.reassigned ?? 0;
-}
-
-/**
- * TanStack Query options for the schedules list. The single definition of
- * the list's query key + staleTime, so every consumer (the Schedules page
- * data hook, the Activity page's "View schedule" link validation) reads one
- * shared cache entry instead of hand-copying the key.
- */
-export function schedulesListQueryOptions(assistantId: string | undefined) {
-  return {
-    queryKey: schedulesGetQueryKey({
-      path: { assistant_id: assistantId ?? "" },
-    }),
-    queryFn: () =>
-      assistantId
-        ? fetchSchedules(assistantId)
-        : Promise.resolve<Schedule[]>([]),
-    staleTime: 10_000,
-  };
 }
 
 export async function fetchScheduleRuns(

@@ -1,32 +1,13 @@
-import {
-  ArrowLeft,
-  Calendar,
-  Mail,
-  MailOpen,
-  RotateCcw,
-  Trash2,
-  X,
-} from "lucide-react";
+import { ArrowLeft, Mail, MailOpen, RotateCcw, Trash2, X } from "lucide-react";
 
+import { useTranslation } from "@/i18n";
 import { formatFullLocalDate, formatRelativeDate } from "@/utils/format-date";
 import type { FeedItem, FeedItemStatus } from "@vellumai/assistant-api";
 import { Button, Tag, Typography } from "@vellumai/design-library";
 import { resolveCategoryStyle } from "../home-feed-filter-bar";
+import type { FeedItemEntityLink } from "../hooks/use-feed-item-entity-links";
 import { HomeGenericDetail } from "./home-generic-detail";
 import { HomeToolPermissionCard } from "./home-tool-permission-card";
-
-// The header shows the item's own title when it has one. Many feed items omit
-// a distinct title — for those, falling back to `summary` (which is also the
-// body) duplicates the same text, so we surface the category label instead.
-function resolveHeaderTitle(item: FeedItem): string {
-  if (item.title) {
-    return item.title;
-  }
-  if (item.category) {
-    return item.category.charAt(0).toUpperCase() + item.category.slice(1);
-  }
-  return "Notification";
-}
 
 export interface HomeDetailPanelProps {
   item: FeedItem | null;
@@ -37,10 +18,13 @@ export interface HomeDetailPanelProps {
   onUpdateStatus: (itemId: string, status: FeedItemStatus) => void;
   onDismiss: (itemId: string) => void;
   /**
-   * Provided only when this item originated from a schedule that still exists.
-   * Opens the Schedules page with that schedule selected.
+   * Links to the entities this notification names (its schedule, the skill it
+   * updated), already validated as still existing. Resolved by
+   * `useFeedItemEntityLinks`; empty for an item that names none.
    */
-  onViewSchedule?: () => void;
+  entityLinks?: FeedItemEntityLink[];
+  /** Navigate to an entity link's `to` path. */
+  onNavigate?: (to: string) => void;
 }
 
 export function HomeDetailPanel({
@@ -51,17 +35,30 @@ export function HomeDetailPanel({
   onGoToThread,
   onUpdateStatus,
   onDismiss,
-  onViewSchedule,
+  entityLinks = [],
+  onNavigate,
 }: HomeDetailPanelProps) {
+  const { t } = useTranslation("home");
+
   if (!item) {
     return null;
   }
 
   const panelKind = item.detailPanel?.kind;
-  const headerTitle = resolveHeaderTitle(item);
   const categoryStyle = resolveCategoryStyle(item.category);
+  // The header shows the item's own title when it has one. Many feed items
+  // omit a distinct title, and falling back to `summary` (which is also the
+  // body) duplicates the same text, so the category label stands in instead.
+  const headerTitle = item.title
+    ? item.title
+    : item.category
+      ? t(categoryStyle.labelKey)
+      : t("homeDetailPanel.untitled");
   const CategoryIcon = categoryStyle.icon;
   const isUnread = item.status === "new";
+  const readToggleLabel = isUnread
+    ? t("actions.markAsRead")
+    : t("actions.markAsUnread");
   const isDismissed = item.status === "dismissed";
   const hasValidConversation =
     !!item.conversationId && validConversationIds.has(item.conversationId);
@@ -75,15 +72,15 @@ export function HomeDetailPanel({
             variant="ghost"
             iconOnly={<ArrowLeft />}
             onClick={onClose}
-            aria-label="Back"
-            tooltip="Back"
+            aria-label={t("homeDetailPanel.back")}
+            tooltip={t("homeDetailPanel.back")}
           />
 
           <Typography
             variant="body-medium-default"
             className="pointer-events-none absolute inset-x-0 text-center text-[var(--content-secondary)]"
           >
-            Details
+            {t("homeDetailPanel.heading")}
           </Typography>
 
           <div className="ml-auto flex items-center gap-2">
@@ -91,24 +88,24 @@ export function HomeDetailPanel({
               variant="ghost"
               iconOnly={isUnread ? <MailOpen /> : <Mail />}
               onClick={() => onUpdateStatus(item.id, isUnread ? "seen" : "new")}
-              aria-label={isUnread ? "Mark as read" : "Mark as unread"}
-              tooltip={isUnread ? "Mark as read" : "Mark as unread"}
+              aria-label={readToggleLabel}
+              tooltip={readToggleLabel}
             />
             {isDismissed ? (
               <Button
                 variant="ghost"
                 iconOnly={<RotateCcw />}
                 onClick={() => onUpdateStatus(item.id, "seen")}
-                aria-label="Restore"
-                tooltip="Restore"
+                aria-label={t("actions.restore")}
+                tooltip={t("actions.restore")}
               />
             ) : (
               <Button
                 variant="ghost"
                 iconOnly={<Trash2 />}
                 onClick={() => onDismiss(item.id)}
-                aria-label="Dismiss"
-                tooltip="Dismiss"
+                aria-label={t("actions.dismiss")}
+                tooltip={t("actions.dismiss")}
               />
             )}
           </div>
@@ -159,25 +156,26 @@ export function HomeDetailPanel({
         </div>
 
         {/* Bottom CTA */}
-        {hasValidConversation || onViewSchedule ? (
+        {hasValidConversation || entityLinks.length > 0 ? (
           <div className="flex shrink-0 flex-col gap-2 px-4 pb-4 pt-2">
-            {onViewSchedule ? (
+            {entityLinks.map((link) => (
               <Button
+                key={link.kind}
                 variant="outlined"
                 fullWidth
-                leftIcon={<Calendar className="size-4" />}
-                onClick={onViewSchedule}
+                leftIcon={<link.icon className="size-4" />}
+                onClick={() => onNavigate?.(link.to)}
               >
-                View schedule
+                {t(link.labelKey)}
               </Button>
-            ) : null}
+            ))}
             {hasValidConversation ? (
               <Button
                 variant="primary"
                 fullWidth
                 onClick={() => onGoToThread(item.conversationId!)}
               >
-                Go to Conversation
+                {t("actions.goToConversation")}
               </Button>
             ) : null}
           </div>
@@ -218,7 +216,7 @@ export function HomeDetailPanel({
             variant="outlined"
             onClick={() => onGoToThread(item.conversationId!)}
           >
-            Go to Convo
+            {t("actions.goToConvo")}
           </Button>
         ) : null}
 
@@ -226,8 +224,8 @@ export function HomeDetailPanel({
           variant="outlined"
           iconOnly={<X />}
           onClick={onClose}
-          aria-label="Close detail panel"
-          tooltip="Close"
+          aria-label={t("homeDetailPanel.closeAriaLabel")}
+          tooltip={t("homeDetailPanel.close")}
         />
       </div>
 
@@ -247,16 +245,17 @@ export function HomeDetailPanel({
 
       {/* Footer actions */}
       <div className="flex shrink-0 items-center justify-between gap-[var(--app-spacing-sm)] border-t border-[var(--border-base)] p-[var(--app-spacing-lg)]">
-        <div>
-          {onViewSchedule ? (
+        <div className="flex items-center gap-[var(--app-spacing-sm)]">
+          {entityLinks.map((link) => (
             <Button
+              key={link.kind}
               variant="outlined"
-              leftIcon={<Calendar className="size-4" />}
-              onClick={onViewSchedule}
+              leftIcon={<link.icon className="size-4" />}
+              onClick={() => onNavigate?.(link.to)}
             >
-              View schedule
+              {t(link.labelKey)}
             </Button>
-          ) : null}
+          ))}
         </div>
         <div className="flex items-center gap-[var(--app-spacing-sm)]">
           {isDismissed ? (
@@ -264,7 +263,7 @@ export function HomeDetailPanel({
               variant="primary"
               onClick={() => onUpdateStatus(item.id, "seen")}
             >
-              Restore
+              {t("actions.restore")}
             </Button>
           ) : (
             <>
@@ -274,10 +273,10 @@ export function HomeDetailPanel({
                   onUpdateStatus(item.id, isUnread ? "seen" : "new")
                 }
               >
-                {isUnread ? "Mark as read" : "Mark as unread"}
+                {readToggleLabel}
               </Button>
               <Button variant="primary" onClick={() => onDismiss(item.id)}>
-                Dismiss
+                {t("actions.dismiss")}
               </Button>
             </>
           )}

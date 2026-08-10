@@ -2,6 +2,7 @@ import { Bell, ChevronRight } from "lucide-react";
 import { useState } from "react";
 
 import { PageEmptyState } from "@/components/page-empty-state";
+import { useTranslation } from "@/i18n";
 
 import type {
   FeedItem,
@@ -20,10 +21,10 @@ import {
   sortFeedItems,
 } from "./utils";
 
-const TIME_GROUP_LABELS: Record<FeedTimeGroup, string> = {
-  today: "Today",
-  yesterday: "Yesterday",
-  older: "Older",
+const TIME_GROUP_KEYS: Record<FeedTimeGroup, `homeFeedList.${FeedTimeGroup}`> = {
+  today: "homeFeedList.today",
+  yesterday: "homeFeedList.yesterday",
+  older: "homeFeedList.older",
 };
 
 const READ_ARCHIVE_AGE_MS = 7 * 24 * 60 * 60 * 1000;
@@ -71,6 +72,7 @@ export function HomeFeedList({
   dismissedOpen,
   onDismissedOpenChange,
 }: HomeFeedListProps) {
+  const { t } = useTranslation("home");
   const [activeFilter, setActiveFilter] = useState<FeedItemCategory | null>(
     null,
   );
@@ -130,13 +132,13 @@ export function HomeFeedList({
             variant="body-medium-lighter"
             className="py-[var(--app-spacing-xl)] text-center text-[var(--content-disabled)]"
           >
-            No items match the selected filter.
+            {t("homeFeedList.noMatches")}
           </Typography>
         ) : (
           <PageEmptyState
             icon={Bell}
-            title="No notifications yet"
-            description="Updates and activity from your assistant will appear here."
+            title={t("homeFeedList.emptyTitle")}
+            description={t("homeFeedList.emptyBody")}
           />
         )
       ) : (
@@ -150,7 +152,7 @@ export function HomeFeedList({
               as="h3"
               className="text-[var(--content-tertiary)]"
             >
-              {TIME_GROUP_LABELS[group]}
+              {t(TIME_GROUP_KEYS[group])}
             </Typography>
 
             <div className="flex flex-col gap-[var(--app-spacing-sm)]">
@@ -185,7 +187,9 @@ export function HomeFeedList({
                 aria-hidden
                 className="shrink-0 transition-transform group-data-[state=open]:rotate-90"
               />
-              <span>Earlier ({archivedRead.length})</span>
+              <span>
+                {t("homeFeedList.earlier", { count: archivedRead.length })}
+              </span>
             </Collapsible.Trigger>
             <Collapsible.Content>
               <div className="flex flex-col gap-[var(--app-spacing-sm)] pt-[var(--app-spacing-sm)]">
@@ -221,7 +225,9 @@ export function HomeFeedList({
                 aria-hidden
                 className="shrink-0 transition-transform group-data-[state=open]:rotate-90"
               />
-              <span>Dismissed ({dismissed.length})</span>
+              <span>
+                {t("homeFeedList.dismissed", { count: dismissed.length })}
+              </span>
             </Collapsible.Trigger>
             <Collapsible.Content>
               <div className="flex flex-col gap-[var(--app-spacing-sm)] pt-[var(--app-spacing-sm)]">

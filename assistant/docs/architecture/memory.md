@@ -80,7 +80,12 @@ graph LR
   uses. A fact may span several lines, so the entry and the line are different
   units, and the readers below (consolidation's cutoff, the injected `<info>`
   Buffer cap, the Memory tab's pending nodes) all recognize entries through
-  that one matcher rather than their own.
+  that one matcher rather than their own. An entry opens with a timestamped
+  bullet at column 0 and its body is indented under it, which is what makes the
+  format round-trip: the delimiter is the column-0 bullet shape, so nesting the
+  body keeps fact content from imitating one. Entries written before that
+  nesting existed still parse, since an unindented body line that is not itself
+  entry-shaped is read as a continuation.
 - **Consolidation** (`substrate/consolidation-job.ts`) is a background
   agent conversation that files buffer entries into concept pages, rewrites
   the aggregate views, and trims the buffer. Scheduling

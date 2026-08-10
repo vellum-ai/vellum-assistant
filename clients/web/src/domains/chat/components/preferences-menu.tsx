@@ -19,7 +19,6 @@ import {
 } from "@vellumai/design-library";
 
 import { LazyBoundary } from "@/components/lazy-boundary";
-import { SIDEBAR_PILL_HEIGHT_CLASS } from "@/components/sidebar-nav-geometry";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { useBillingBalanceStatus } from "@/hooks/use-billing-balance-status";
 import { useTouchMobile } from "@/hooks/use-touch-mobile";
@@ -130,7 +129,6 @@ export function PreferencesMenu({
          overlay's floating action button. */
       <PanelItem
         shape="pill"
-        className={SIDEBAR_PILL_HEIGHT_CLASS}
         /* The popover owns the click, so this row takes no handler of its
            own and needs telling that it is still a control. */
         trigger

@@ -1,14 +1,17 @@
 import { PinOff, Rocket } from "lucide-react";
 
 import { SwipeActionReveal } from "@/components/swipe-action-reveal";
-import { SIDEBAR_PILL_HEIGHT_CLASS } from "@/components/sidebar-nav-geometry";
 import { PinnedAppColorSwatches } from "@/domains/chat/components/pinned-app-color-swatches";
 import { pinTintStyle } from "@/domains/chat/utils/pin-color-registry";
 import { usePinnedAppsStore } from "@/stores/pinned-apps-store";
 import type { PinnedAppEntry } from "@/utils/app-pin-storage";
 import { isPointerCoarse } from "@/utils/pointer";
 import type { SwipeAction } from "@/hooks/use-swipe-to-reveal";
-import { ContextMenu, PanelItem, SideMenu } from "@vellumai/design-library";
+import {
+  ContextMenu,
+  PanelItem,
+  SideMenu,
+} from "@vellumai/design-library";
 
 export interface PinnedAppNavItemProps {
   app: PinnedAppEntry;
@@ -126,7 +129,6 @@ export function PinnedAppNavItem({
     <PanelItem
       style={tintStyle}
       shape="pill"
-      className={SIDEBAR_PILL_HEIGHT_CLASS}
       /* An app's icon is an emoji string on its manifest, so it goes in
          `leadingSlot`; `icon` takes a Lucide component, which is the fallback
          for an app with no emoji. Exactly one of the two is ever set. The
