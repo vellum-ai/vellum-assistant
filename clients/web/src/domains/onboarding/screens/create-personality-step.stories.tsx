@@ -2,44 +2,26 @@
  * The five personality sliders, with an avatar peeking in from each screen edge
  * as a slider is dragged toward that end.
  *
- * The peeking avatars anchor with `calc(50% - 50vw)`, which mixes two boxes:
- * `50%` resolves against the containing block, `50vw` against the layout
- * viewport. They agree only while the stage is exactly viewport-width, so
- * `LandscapeWithSideInsets` is the story that matters: the app shell pads by
- * `env(safe-area-inset-left/right)` in landscape on a notched device, and the
- * two boxes come apart by that inset.
+ * The peeking avatars anchor to the edge of the box they live in. `50%` in a
+ * CSS inset resolves against the containing block and `vw` against the layout
+ * viewport, so anchoring with a mix of the two only lands correctly while the
+ * stage is exactly viewport-width. `LandscapeWithSideInsets` is the story that
+ * holds that honest: the app shell pads by `env(safe-area-inset-left/right)`,
+ * and an avatar anchored to the viewport is pushed
+ * `(stageWidth - viewportWidth) / 2` outside the stage, where `overflow-hidden`
+ * clips it.
  *
- * The avatars are hidden below 640px, so every story here is at a width that
- * shows them.
+ * The avatars are hidden below 640px, so every story here is wider than that.
  */
 
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import { useState } from "react";
+import { useArgs } from "storybook/preview-api";
 
 import { CreatePersonalityStep } from "./create-personality-step";
 import { OnboardingStage } from "@/domains/onboarding/components/onboarding-stage";
-import {
-  SeededAvatarPool,
-  StageHost,
-} from "@/domains/onboarding/components/onboarding-story-fixtures";
+import { StageHost } from "@/domains/onboarding/components/onboarding-story-fixtures";
 
-/** Drives the sliders as the route does, so dragging moves the avatars. */
-function PersonalityStep({ initial }: { initial?: Record<string, number> }) {
-  const [values, setValues] = useState<Record<string, number>>(initial ?? {});
-  return (
-    <CreatePersonalityStep
-      values={values}
-      onValueChange={(axisId, value) =>
-        setValues((prev) => ({ ...prev, [axisId]: value }))
-      }
-      locked={false}
-      onContinue={() => {}}
-      onBack={() => {}}
-    />
-  );
-}
-
-/** Every slider pushed to its right end, so all five right-side avatars show. */
+/** Every slider at its right end, so all five right-side avatars are fully in. */
 const ALL_RIGHT: Record<string, number> = {
   "companion-coworker": 100,
   "genz-boomer": 100,
@@ -50,43 +32,73 @@ const ALL_RIGHT: Record<string, number> = {
 
 const meta: Meta<typeof CreatePersonalityStep> = {
   title: "Onboarding/CreatePersonalityStep",
-  parameters: { layout: "fullscreen", controls: { disable: true } },
-  render: () => (
-    <StageHost>
-      <OnboardingStage className="bg-[var(--surface-base)] text-[var(--content-default)]">
-        <SeededAvatarPool>
-          <PersonalityStep initial={ALL_RIGHT} />
-        </SeededAvatarPool>
-      </OnboardingStage>
-    </StageHost>
-  ),
+  parameters: { layout: "fullscreen" },
+  args: {
+    values: ALL_RIGHT,
+    locked: false,
+    onContinue: () => {},
+    onBack: () => {},
+  },
+  argTypes: {
+    locked: { control: "boolean" },
+    values: { control: "object" },
+  },
+  render: function Render(args) {
+    // Controlled component: the route owns `values`, so the story owns them
+    // through args and the sliders stay draggable.
+    const [{ values }, updateArgs] = useArgs<{
+      values: Record<string, number>;
+    }>();
+    return (
+      <StageHost>
+        <OnboardingStage className="bg-[var(--surface-base)] text-[var(--content-default)]">
+          <CreatePersonalityStep
+            {...args}
+            values={values}
+            onValueChange={(axisId, value) =>
+              updateArgs({ values: { ...values, [axisId]: value } })
+            }
+          />
+        </OnboardingStage>
+      </StageHost>
+    );
+  },
 };
 
 export default meta;
 type Story = StoryObj<typeof CreatePersonalityStep>;
 
-/** Desktop, no insets: the stage is viewport-width, so the two boxes agree. */
+/** Desktop, no insets: the stage is viewport-width, so both boxes agree. */
 export const Desktop: Story = {
   globals: { viewport: { value: "sbDesktop" } },
 };
 
 /**
  * Landscape on a notched device: the shell pads 59px on the notch side and 34px
- * for the home indicator, so the stage is narrower than the viewport and the
- * `50vw` half of the anchor no longer matches the `50%` half.
+ * for the home indicator, so the stage is narrower than the viewport.
  *
  * The peeking avatars should rest against the stage's edge, inside the padded
- * frame. Any part of them sitting on the light inset band is the anchor
- * resolving against the wrong box.
+ * frame. Any of them sitting on the light inset band, or cut off harder than
+ * the `EDGE_GAP` intends, is the anchor resolving against the wrong box.
  */
 export const LandscapeWithSideInsets: Story = {
-  render: () => (
-    <StageHost insetLeft={59} insetRight={34} insetTop={0} insetBottom={21}>
-      <OnboardingStage className="bg-[var(--surface-base)] text-[var(--content-default)]">
-        <SeededAvatarPool>
-          <PersonalityStep initial={ALL_RIGHT} />
-        </SeededAvatarPool>
-      </OnboardingStage>
-    </StageHost>
-  ),
+  globals: { viewport: { value: "sbDesktop" } },
+  render: function Render(args) {
+    const [{ values }, updateArgs] = useArgs<{
+      values: Record<string, number>;
+    }>();
+    return (
+      <StageHost insetLeft={59} insetRight={34} insetBottom={21}>
+        <OnboardingStage className="bg-[var(--surface-base)] text-[var(--content-default)]">
+          <CreatePersonalityStep
+            {...args}
+            values={values}
+            onValueChange={(axisId, value) =>
+              updateArgs({ values: { ...values, [axisId]: value } })
+            }
+          />
+        </OnboardingStage>
+      </StageHost>
+    );
+  },
 };
