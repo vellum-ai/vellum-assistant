@@ -1,6 +1,8 @@
 import { BrowserWindow, app, shell } from "electron";
 import { z } from "zod";
 
+import type { VellumCommand } from "@vellumai/ipc-contract";
+
 import { getRendererRootUrl } from "./app-config";
 import { isAllowedOrigin, resolveAllowedOrigin } from "./app-origin.client";
 import { handle } from "./ipc.client";
@@ -16,7 +18,33 @@ const MAIN_MIN_SIZE = { width: 800, height: 600 } as const;
 let mainWindow: BrowserWindow | null = null;
 let isQuitting = false;
 
+interface ReadyState {
+  promise: Promise<void>;
+  resolve: () => void;
+  didFinishLoad: boolean;
+  didShow: boolean;
+}
+
+const readyStates = new WeakMap<BrowserWindow, ReadyState>();
+
+const armReadyState = (win: BrowserWindow): ReadyState => {
+  let resolve: () => void = () => {};
+  const promise = new Promise<void>((res) => {
+    resolve = res;
+  });
+  const state = { promise, resolve, didFinishLoad: false, didShow: false };
+  readyStates.set(win, state);
+  return state;
+};
+
 export const current = (): BrowserWindow | null => mainWindow;
+
+export const dispatchToMain = (command: VellumCommand): void => {
+  const win = current();
+  if (win && !win.isDestroyed() && !win.webContents.isDestroyed()) {
+    win.webContents.send("vellum:command", command);
+  }
+};
 
 // Same-origin navigation guard: the window only ever navigates within the
 // renderer origin; external http(s) links open in the default browser, and
@@ -59,9 +87,21 @@ const createMainWindow = (): BrowserWindow => {
     navigation: { installGuard: installSameOriginNavigationGuard },
   });
 
+  const ready = armReadyState(win);
+  const maybeResolveReady = (): void => {
+    if (ready.didFinishLoad && ready.didShow) {
+      ready.resolve();
+    }
+  };
+  win.webContents.once("did-finish-load", () => {
+    ready.didFinishLoad = true;
+    maybeResolveReady();
+  });
   win.once("ready-to-show", () => {
     win.show();
     win.focus();
+    ready.didShow = true;
+    maybeResolveReady();
   });
 
   win.on("close", (event) => {
@@ -73,6 +113,7 @@ const createMainWindow = (): BrowserWindow => {
   });
 
   win.on("closed", () => {
+    ready.resolve();
     if (mainWindow === win) {
       mainWindow = null;
     }
@@ -88,16 +129,17 @@ const createMainWindow = (): BrowserWindow => {
 };
 
 /** Recreate if destroyed, restore from minimize, show, focus. */
-export const ensureVisible = (): void => {
+export const ensureVisible = (): Promise<void> => {
   if (!mainWindow || mainWindow.isDestroyed()) {
-    createMainWindow();
-    return;
+    const win = createMainWindow();
+    return readyStates.get(win)?.promise ?? Promise.resolve();
   }
   if (mainWindow.isMinimized()) {
     mainWindow.restore();
   }
   mainWindow.show();
   mainWindow.focus();
+  return readyStates.get(mainWindow)?.promise ?? Promise.resolve();
 };
 
 export const toggleVisibility = (): void => {
@@ -118,8 +160,8 @@ export const installMainWindow = (): void => {
   // reacting to inbound signals (deep links, notification clicks) once those
   // land here. Mirrors `clients/macos/src/main/main-window.ts`.
   handle("vellum:mainWindow:ensureVisible", z.tuple([]), () => {
-    ensureVisible();
+    return ensureVisible();
   });
 
-  ensureVisible();
+  void ensureVisible();
 };

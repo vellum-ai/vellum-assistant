@@ -89,11 +89,21 @@ export class SidecarSupervisor {
   }
 
   ensureRunning(): ChildProcessWithoutNullStreams | null {
-    if (this.stopping) return null;
-    if (this.child) return this.child;
-    if (this.state.status === "stopped") return null;
-    if (this.state.status === "circuit-open") return null;
-    if (this.restartTimer) return null;
+    if (this.stopping) {
+      return null;
+    }
+    if (this.child) {
+      return this.child;
+    }
+    if (this.state.status === "stopped") {
+      return null;
+    }
+    if (this.state.status === "circuit-open") {
+      return null;
+    }
+    if (this.restartTimer) {
+      return null;
+    }
     return this.startNow();
   }
 
@@ -114,7 +124,9 @@ export class SidecarSupervisor {
 
   private replaceChild(): void {
     const child = this.child;
-    if (!child) return;
+    if (!child) {
+      return;
+    }
 
     this.child = null;
     this.clearStableTimer();
@@ -175,7 +187,9 @@ export class SidecarSupervisor {
   }
 
   private startNow(): ChildProcessWithoutNullStreams | null {
-    if (this.state.status === "circuit-open") return null;
+    if (this.state.status === "circuit-open") {
+      return null;
+    }
 
     this.stopping = false;
     this.setState({ status: "starting", attempt: this.attempt + 1 });
@@ -193,9 +207,13 @@ export class SidecarSupervisor {
     this.child = child;
     let handledExit = false;
     const handleExit = (reason: string) => {
-      if (handledExit) return;
+      if (handledExit) {
+        return;
+      }
       handledExit = true;
-      if (this.child !== child) return;
+      if (this.child !== child) {
+        return;
+      }
       this.handleChildExit(reason);
     };
 
@@ -299,14 +317,20 @@ export class SidecarSupervisor {
   }
 
   private setState(state: SidecarState): void {
-    if (sidecarStatesEqual(this.state, state)) return;
+    if (sidecarStatesEqual(this.state, state)) {
+      return;
+    }
     this.state = state;
-    for (const listener of this.listeners) listener(state);
+    for (const listener of this.listeners) {
+      listener(state);
+    }
   }
 }
 
 const sidecarStatesEqual = (a: SidecarState, b: SidecarState): boolean => {
-  if (a.status !== b.status) return false;
+  if (a.status !== b.status) {
+    return false;
+  }
   switch (a.status) {
     case "idle":
       return true;

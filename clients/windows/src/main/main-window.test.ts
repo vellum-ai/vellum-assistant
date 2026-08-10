@@ -2,24 +2,33 @@ import { expect, mock, test } from "bun:test";
 
 const appListeners = new Map<string, () => void>();
 const windowListeners = new Map<string, (event?: unknown) => void>();
+const webContentsListeners = new Map<string, () => void>();
 const hide = mock(() => undefined);
+let destroyed = false;
 const win = {
-  focus: () => undefined,
+  focus: mock(() => undefined),
   hide,
-  isDestroyed: () => false,
+  isDestroyed: () => destroyed,
   isFocused: () => true,
   isMinimized: () => false,
   isVisible: () => true,
-  loadURL: () => Promise.resolve(),
+  loadURL: mock(() => Promise.resolve()),
   on: (event: string, listener: (event?: unknown) => void) => {
     windowListeners.set(event, listener);
   },
   once: (event: string, listener: (event?: unknown) => void) => {
     windowListeners.set(event, listener);
   },
-  restore: () => undefined,
-  show: () => undefined,
-  webContents: { on: () => undefined },
+  restore: mock(() => undefined),
+  show: mock(() => undefined),
+  webContents: {
+    isDestroyed: () => destroyed,
+    on: () => undefined,
+    once: (event: string, listener: () => void) => {
+      webContentsListeners.set(event, listener);
+    },
+    send: mock(() => undefined),
+  },
 };
 
 mock.module("electron", () => ({
@@ -42,7 +51,7 @@ mock.module("./ipc.client", () => ({ handle: () => undefined }));
 mock.module("./logger", () => ({ default: { error: () => undefined } }));
 mock.module("./windows.client", () => ({ createWindow: () => win }));
 
-const { installMainWindow } = await import("./main-window");
+const { ensureVisible, installMainWindow } = await import("./main-window");
 
 test("hides on close and allows close while quitting", () => {
   installMainWindow();
@@ -59,4 +68,28 @@ test("hides on close and allows close while quitting", () => {
 
   expect(quitClose).not.toHaveBeenCalled();
   expect(hide).toHaveBeenCalledTimes(1);
+});
+
+test("ensureVisible waits for a recreated renderer before resolving", async () => {
+  destroyed = true;
+  win.show.mockClear();
+  win.focus.mockClear();
+  let resolved = false;
+  const ready = ensureVisible().then(() => {
+    resolved = true;
+  });
+  destroyed = false;
+
+  await Promise.resolve();
+  expect(resolved).toBe(false);
+
+  webContentsListeners.get("did-finish-load")?.();
+  await Promise.resolve();
+  expect(resolved).toBe(false);
+
+  windowListeners.get("ready-to-show")?.();
+  await ready;
+  expect(resolved).toBe(true);
+  expect(win.show).toHaveBeenCalledTimes(1);
+  expect(win.focus).toHaveBeenCalledTimes(1);
 });

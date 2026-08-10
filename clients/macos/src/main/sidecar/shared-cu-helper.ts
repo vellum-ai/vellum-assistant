@@ -12,7 +12,7 @@
  */
 
 import log from "../logger";
-import { MacHelperClient } from "./mac-helper";
+import { MacHelperClient } from "./mac-helper.client";
 import { getMacHelperPath } from "./mac-helper-path";
 
 // Computer-use / app-control actions run an accessibility-tree walk, a settle
