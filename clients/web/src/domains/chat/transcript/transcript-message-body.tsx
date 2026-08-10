@@ -1120,7 +1120,7 @@ export function TranscriptMessageBody({
         {renderedGroups.slice(groupIndex, runEndIndex)}
       </AssistantContentDisclosure>,
     );
-    // The disclosure rendered the rest of its run, so resume past it.
+    // The disclosure renders the rest of its run, so resume past it.
     groupIndex = runEndIndex;
   }
 

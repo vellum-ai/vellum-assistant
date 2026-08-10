@@ -1045,9 +1045,9 @@ describe("TranscriptMessageBody", () => {
   });
 
   test("does not wrap a lone thinking run in earlier activity", () => {
-    // The reported shape: one settled reasoning run ahead of the answer. The
-    // "Thinking" link is already a single one-line row, so a disclosure over
-    // it trades one row for another and hides nothing.
+    // One settled reasoning run ahead of the answer. The "Thinking" link is a
+    // single one-line row, so a disclosure over it would trade one row for
+    // another and hide nothing.
     const { container, queryByRole, queryByText } = render(
       <TranscriptMessageBody
         message={{
@@ -1076,7 +1076,7 @@ describe("TranscriptMessageBody", () => {
   test("does not wrap a lone multi-step activity run in earlier activity", () => {
     // Step count does not change the calculus: a merged run renders as ONE
     // header row whose timeline lives in the steps panel, so collapsing it
-    // still removes no text from the transcript.
+    // removes no text from the transcript.
     const { container, queryByRole } = render(
       <TranscriptMessageBody
         message={{
@@ -1108,8 +1108,8 @@ describe("TranscriptMessageBody", () => {
       "[data-testid='tool-progress-card']",
     );
     expect(cards.length).toBe(1);
-    // The whole run stayed in the one header, rather than being split so that
-    // "two blocks" could re-earn a disclosure.
+    // The whole run occupies that one header, so there is no second block
+    // beside it to make the pair a disclosure would need.
     expect(cards[0]!.getAttribute("data-item-kinds")).toBe(
       "thinking,toolCall,toolCall",
     );
@@ -1117,7 +1117,7 @@ describe("TranscriptMessageBody", () => {
 
   test("still collapses a run that pairs earlier prose with activity", () => {
     // Two collapsible runs split by a surface: the leading [prose, thinking]
-    // pair still earns a disclosure, the trailing lone thinking run does not.
+    // pair earns a disclosure; the trailing lone thinking run does not.
     const { container, getAllByRole, queryByText } = render(
       <TranscriptMessageBody
         message={{
