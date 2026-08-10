@@ -40,7 +40,7 @@ import { cn } from "../../utils/cn";
  *     │   ├── SideMenu.Section   — labeled group with optional `actions`
  *     │   │   └── SideMenu.SubList
  *     │   │       └── SideMenu.Item
- *     │   ├── SideMenu.SectionHeader — title row of a caller-drawn group
+ *     │   ├── SideMenu.SectionHeader: title row of a caller-drawn group
  *     │   └── SideMenu.Separator
  *     └── SideMenu.Footer        — bottom slot (sticks via margin-top: auto)
  *
@@ -475,7 +475,7 @@ function SideMenuSeparator({
 }
 
 // ---------------------------------------------------------------------------
-// SectionHeader — the title row of a group of rows
+// SectionHeader: the title row of a group of rows
 // ---------------------------------------------------------------------------
 
 export interface SideMenuSectionHeaderProps extends ComponentProps<"div"> {
@@ -631,12 +631,11 @@ export interface SideMenuItemProps {
    * `"tile"` renders the collapsed-rail affordance: the whole treatment a row
    * reduces to when the rail collapses, not a geometry switch. It squares to
    * the pill height ({@link SIDE_MENU_TILE_SIZE}, which a row carrying this
-   * shape also sets itself to),
-   * centers in the rail column, rounds fully, and carries
-   * the resting surface the expanded card or pill wore - collapsing changes
-   * the shape of a thing, not whether it has a surface. The squaring is part
-   * of it, not an extra: a collapsed row is `w-full` of a column slightly
-   * wider than it is tall, so rounding it alone draws an ellipse.
+   * shape also sets itself to), centers in the rail column, rounds fully, and
+   * carries the resting surface the expanded card or pill wore: collapsing
+   * changes the shape of a thing, not whether it has a surface. The squaring
+   * is part of it, not an extra: a collapsed row is `w-full` of a column
+   * slightly wider than it is tall, so rounding it alone draws an ellipse.
    *
    * Named for what it is rather than for its outline, because it decides
    * colour as well as form. A caller reaching for a round row somewhere other
