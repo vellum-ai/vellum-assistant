@@ -396,6 +396,17 @@ async function deliverPluginInbound(opts: {
     );
     return ack;
   }
+  if (reading.status === "probe") {
+    // The vendor confirming it can reach us. It travelled the real path —
+    // signature, approval gate, forward — so one arriving is proof the whole
+    // surface works, and it is worth an info line rather than the silence a
+    // receipt gets. It is never a turn: it carries no sender and no content.
+    log.info(
+      { plugin, path: routePath },
+      "Plugin ingress delivery probe verified end to end",
+    );
+    return ack;
+  }
   if (reading.status === "invalid") {
     log.warn(
       { plugin, path: routePath, reason: reading.reason },

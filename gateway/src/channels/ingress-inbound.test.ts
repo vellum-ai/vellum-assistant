@@ -4,7 +4,7 @@ import {
   INBOUND_FIELD_DEFAULTS,
   IngressInboundSchema,
   canonicalInbound,
-  inboundFieldPath,
+  inboundFieldSource,
   readInboundField,
 } from "./ingress-inbound.js";
 
@@ -20,8 +20,8 @@ describe("IngressInboundSchema", () => {
     const inbound = declare({});
 
     expect(inbound.identity).toBe("opaque");
-    expect(inboundFieldPath(inbound, "content")).toBe("message.content");
-    expect(inboundFieldPath(inbound, "actorExternalId")).toBe(
+    expect(inboundFieldSource(inbound, "content")).toBe("message.content");
+    expect(inboundFieldSource(inbound, "actorExternalId")).toBe(
       "actor.actorExternalId",
     );
   });
@@ -29,8 +29,8 @@ describe("IngressInboundSchema", () => {
   it("keeps the defaults for fields an override did not name", () => {
     const inbound = declare({ fields: { content: "text" } });
 
-    expect(inboundFieldPath(inbound, "content")).toBe("text");
-    expect(inboundFieldPath(inbound, "conversationExternalId")).toBe(
+    expect(inboundFieldSource(inbound, "content")).toBe("text");
+    expect(inboundFieldSource(inbound, "conversationExternalId")).toBe(
       INBOUND_FIELD_DEFAULTS.conversationExternalId,
     );
   });

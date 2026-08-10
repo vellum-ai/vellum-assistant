@@ -53,6 +53,144 @@ const InboundFieldPathSchema = z
     message: "field path must not traverse __proto__",
   });
 
+/* ------------------------------------------------------------------ *
+ * Conditions — deciding what a delivery is
+ * ------------------------------------------------------------------ */
+
+/**
+ * One test against the delivery, as data.
+ *
+ * Deliberately a closed vocabulary rather than an expression language. The
+ * manifest is untrusted input evaluated against an attacker-authored document,
+ * so the set of things a condition can do is fixed here and a plugin composes
+ * from it — no operators to escape, nothing to evaluate, no way to reach a
+ * prototype or spend unbounded time.
+ *
+ * Exactly one operator per condition, which keeps "what does this mean" a
+ * question with one answer. `equals` and `in` compare strings and nothing
+ * else: a wire value that is not a string fails rather than being coerced,
+ * because coercion is how `"false"` comes to mean `false`.
+ */
+const IngressConditionSchema = z
+  .object({
+    path: InboundFieldPathSchema,
+    equals: z.string().optional(),
+    in: z.array(z.string()).min(1).optional(),
+    /**
+     * True: the path must resolve to a non-empty string. False: it must not.
+     * "Absent" and "present but empty" are one answer, because a vendor that
+     * sends `""` for a field it has nothing to say about is the common case
+     * and treating that as present strands the delivery.
+     */
+    present: z.boolean().optional(),
+  })
+  .strict()
+  .refine(
+    (c) =>
+      [c.equals, c.in, c.present].filter((v) => v !== undefined).length === 1,
+    { message: "a condition must use exactly one of equals, in, or present" },
+  );
+export type IngressCondition = z.infer<typeof IngressConditionSchema>;
+
+/**
+ * Whether a delivery satisfies one condition.
+ *
+ * A path that resolves to a non-string reads as absent, matching
+ * {@link readInboundField}: "not there" and "there but not a string" are the
+ * same answer everywhere in this file, so a malformed payload cannot satisfy
+ * a test by accident.
+ */
+export function conditionHolds(
+  body: unknown,
+  condition: IngressCondition,
+): boolean {
+  const value = readInboundField(body, condition.path)?.trim();
+
+  if (condition.present !== undefined) {
+    return condition.present ? Boolean(value) : !value;
+  }
+  if (condition.equals !== undefined) {
+    return value === condition.equals;
+  }
+  return value !== undefined && condition.in!.includes(value);
+}
+
+/** Whether every condition holds. An empty list holds vacuously. */
+export function allConditionsHold(
+  body: unknown,
+  conditions: readonly IngressCondition[],
+): boolean {
+  return conditions.every((condition) => conditionHolds(body, condition));
+}
+
+/**
+ * Where one field comes from.
+ *
+ * A bare path is the shorthand. The object form adds the two things a real
+ * vendor payload needs and a single path cannot express:
+ *
+ * `from` may list several paths, tried in order, first non-empty wins. Photon
+ * puts the conversation on `message.space.id` and falls back to `space.id`
+ * depending on the delivery, which in code is `message.space ?? event.space` —
+ * a fallback chain, not a second field.
+ *
+ * `map` and `default` turn a vendor's vocabulary into ours. Photon reports a
+ * platform per message and the plugin collapses it to `imessage` or `sms`,
+ * because SMS sender ids are spoofable and iMessage identities are not — a
+ * distinction admission acts on, so it has to survive normalization. Matching
+ * is case-insensitive and `default` is what an unmatched or absent value
+ * becomes, which is how "anything that is not explicitly iMessage reads as
+ * sms" stays the conservative answer rather than a guess.
+ */
+const InboundFieldSourceSchema = z.union([
+  InboundFieldPathSchema,
+  z.array(InboundFieldPathSchema).min(1),
+  z
+    .object({
+      from: z.union([
+        InboundFieldPathSchema,
+        z.array(InboundFieldPathSchema).min(1),
+      ]),
+      map: z.record(z.string(), z.string()).optional(),
+      default: z.string().optional(),
+    })
+    .strict(),
+]);
+export type InboundFieldSource = z.infer<typeof InboundFieldSourceSchema>;
+
+/** The paths a source tries, in order. */
+export function fieldSourcePaths(source: InboundFieldSource): string[] {
+  if (typeof source === "string") return [source];
+  if (Array.isArray(source)) return source;
+  return typeof source.from === "string" ? [source.from] : source.from;
+}
+
+/**
+ * Read one field, following the fallback chain and applying any mapping.
+ *
+ * Returns undefined when nothing resolved and no default was declared, which
+ * is what a caller checking a required field tests.
+ */
+export function readFieldSource(
+  body: unknown,
+  source: InboundFieldSource,
+): string | undefined {
+  const mapping =
+    typeof source === "string" || Array.isArray(source) ? undefined : source;
+
+  for (const path of fieldSourcePaths(source)) {
+    const value = readInboundField(body, path)?.trim();
+    if (!value) continue;
+    if (!mapping) return value;
+    // Case-insensitive because a vendor spelling it `iMessage` and `imessage`
+    // across two endpoints is the ordinary case, and a mapping that missed on
+    // capitalisation would silently fall through to the conservative default.
+    const mapped = mapping.map?.[value.toLowerCase()];
+    return mapped ?? mapping.default ?? value;
+  }
+  return mapping?.default;
+}
+
 /**
  * Per-field overrides of {@link INBOUND_FIELD_DEFAULTS}.
  *
@@ -63,13 +201,13 @@ const InboundFieldPathSchema = z
  */
 const InboundFieldsSchema = z
   .object({
-    content: InboundFieldPathSchema.optional(),
-    conversationExternalId: InboundFieldPathSchema.optional(),
-    externalMessageId: InboundFieldPathSchema.optional(),
-    actorExternalId: InboundFieldPathSchema.optional(),
-    actorDisplayName: InboundFieldPathSchema.optional(),
-    actorUsername: InboundFieldPathSchema.optional(),
-    chatType: InboundFieldPathSchema.optional(),
+    content: InboundFieldSourceSchema.optional(),
+    conversationExternalId: InboundFieldSourceSchema.optional(),
+    externalMessageId: InboundFieldSourceSchema.optional(),
+    actorExternalId: InboundFieldSourceSchema.optional(),
+    actorDisplayName: InboundFieldSourceSchema.optional(),
+    actorUsername: InboundFieldSourceSchema.optional(),
+    chatType: InboundFieldSourceSchema.optional(),
   })
   .strict();
 
@@ -111,15 +249,34 @@ export type InboundIdentity = z.infer<typeof InboundIdentitySchema>;
 
 export const IngressInboundSchema = z.object({
   identity: InboundIdentitySchema.default("opaque"),
+  /**
+   * What must hold for a delivery to be a message at all.
+   *
+   * Empty by default, which reads as "every delivery is a message" — right for
+   * a vendor with one event type and wrong for every vendor that also sends
+   * receipts and echoes. Photon declares `event === "messages"` and
+   * `direction` inbound; Comms declares its own two names.
+   */
+  when: z.array(IngressConditionSchema).default([]),
+  /**
+   * What identifies the vendor's own delivery test.
+   *
+   * A probe carries no sender and no content, so it can never be a message and
+   * every required-field check would report it as a broken one. It is named
+   * separately because reaching us proves registration, the signing secret and
+   * routing all work — the only confirmation of inbound available without
+   * waiting for a human to send something.
+   */
+  probe: z.array(IngressConditionSchema).default([]),
   fields: InboundFieldsSchema.default({}),
 });
 export type IngressInbound = z.infer<typeof IngressInboundSchema>;
 
-/** The path a field is read from, after the manifest's overrides. */
-export function inboundFieldPath(
+/** Where a field is read from, after the manifest's overrides. */
+export function inboundFieldSource(
   inbound: IngressInbound,
   field: InboundFieldName,
-): string {
+): InboundFieldSource {
   return inbound.fields[field] ?? INBOUND_FIELD_DEFAULTS[field];
 }
 
@@ -133,10 +290,26 @@ export function inboundFieldPath(
  * were already getting.
  */
 export function canonicalInbound(inbound: IngressInbound): string {
-  const fields = INBOUND_FIELD_NAMES.map(
-    (name) => `${name}=${inboundFieldPath(inbound, name)}`,
-  ).sort();
-  return [inbound.identity, ...fields].join(" ");
+  const fields = INBOUND_FIELD_NAMES.map((name) => {
+    const source = inboundFieldSource(inbound, name);
+    return `${name}=${typeof source === "string" ? source : JSON.stringify(sortKeys(source))}`;
+  }).sort();
+  const conditions = (label: string, list: readonly IngressCondition[]) =>
+    list.map((c) => `${label}:${JSON.stringify(sortKeys(c))}`).sort();
+
+  return [
+    inbound.identity,
+    ...conditions("when", inbound.when),
+    ...conditions("probe", inbound.probe),
+    ...fields,
+  ].join(" ");
+}
+
+/** Key-sorted shallow copy, so an encoding does not depend on author order. */
+function sortKeys(value: object): Record<string, unknown> {
+  return Object.fromEntries(
+    Object.entries(value).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)),
+  );
 }
 
 /**
