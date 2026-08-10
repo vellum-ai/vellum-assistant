@@ -19,6 +19,7 @@ const DEFAULT_PROVIDER_ELIGIBLE: Record<DefaultProviderId, true> = {
   gemini: true,
   fireworks: true,
   openrouter: true,
+  chatgpt: true,
   vellum: true,
   together: true,
   "vercel-ai-gateway": true,

@@ -1,6 +1,9 @@
 import { z } from "zod";
 
-import { PROVIDERS_REQUIRING_BASE_URL_AND_MODELS } from "../../providers/inference/auth.js";
+import {
+  PROVIDERS_REQUIRING_BASE_URL_AND_MODELS,
+  ROUTING_IDENTITY_PROVIDERS,
+} from "../../providers/inference/auth.js";
 import { PROVIDER_CATALOG } from "../../providers/model-catalog.js";
 import { isCodexSubscriptionModel } from "../../providers/openai/codex-models.js";
 import {
@@ -84,13 +87,15 @@ export function isDefaultProviderChoice(value: string): value is LLMProvider {
 
 /**
  * Default-provider choices whose profiles materialize from the shared BYOK
- * templates: every choice except the `vellum` routing identity, whose
- * defaults are pinned managed models.
+ * templates: every choice except the routing identities (`vellum`,
+ * `chatgpt`), whose defaults are pinned models on code-owned columns.
  */
 export function isByokDefaultProviderChoice(
   value: string,
 ): value is LLMProvider {
-  return value !== "vellum" && isDefaultProviderChoice(value);
+  return (
+    !ROUTING_IDENTITY_PROVIDERS.has(value) && isDefaultProviderChoice(value)
+  );
 }
 
 const DefaultProviderEnum = z.enum(
