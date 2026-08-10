@@ -17,7 +17,7 @@ export function resolveArchitectures(
   requested?: string,
   host: string = process.arch,
 ): PreviewArchitecture[] {
-  if (requested === "all") {
+  if (requested === "all" || (requested === undefined && host === "all")) {
     return ["x64", "arm64"];
   }
   if (requested === "x64" || requested === "arm64") {
@@ -64,9 +64,9 @@ function argValue(flag: string) {
   return inline?.slice(flag.length + 1) ?? (index >= 0 ? process.argv[index + 1] : undefined);
 }
 
-async function run(command: string[]) {
+export async function runNativeCommand(command: string[], cwd = windowsRoot) {
   const child = Bun.spawn(command, {
-    cwd: windowsRoot,
+    cwd,
     stderr: "inherit",
     stdout: "inherit",
   });
@@ -85,10 +85,10 @@ async function portableTest() {
   const scratch = await mkdtemp(join(tmpdir(), "vellum-preview-test-"));
   const installed = join(scratch, "vcpkg");
   try {
-    await run([vcpkg, "install", `--x-manifest-root=${handlerRoot}`,
+    await runNativeCommand([vcpkg, "install", `--x-manifest-root=${handlerRoot}`,
       `--x-install-root=${installed}`, `--triplet=${triplet}`]);
     const executable = join(scratch, "BundleReaderTests");
-    await run([
+    await runNativeCommand([
       "c++",
       "-std=c++20",
       "-Wall",
@@ -103,7 +103,7 @@ async function portableTest() {
       "-o",
       executable,
     ]);
-    await run([executable, fixtureRoot]);
+    await runNativeCommand([executable, fixtureRoot]);
   } finally {
     await rm(scratch, { recursive: true, force: true });
   }
@@ -128,12 +128,12 @@ async function main() {
   for (const architecture of resolveArchitectures(argValue("--arch"))) {
     const platform = architecture === "arm64" ? "ARM64" : "x64";
     const project = join(handlerRoot, "Vellum.PreviewHandler.vcxproj");
-    await run([msbuild, project, "/p:Configuration=Release", `/p:Platform=${platform}`, "/m"]);
-    await run([msbuild, project, "/p:Configuration=Tests", `/p:Platform=${platform}`, "/m"]);
+    await runNativeCommand([msbuild, project, "/p:Configuration=Release", `/p:Platform=${platform}`, "/m"]);
+    await runNativeCommand([msbuild, project, "/p:Configuration=Tests", `/p:Platform=${platform}`, "/m"]);
     const output = join(handlerRoot, "build", platform, "Release");
     await writeFile(join(output, "registration.json"), `${JSON.stringify(registrationMetadata(architecture), null, 2)}\n`);
     if (architecture === (process.arch === "arm64" ? "arm64" : "x64")) {
-      await run([
+      await runNativeCommand([
         join(handlerRoot, "build", platform, "Tests", "BundleReaderTests.exe"),
         fixtureRoot,
       ]);

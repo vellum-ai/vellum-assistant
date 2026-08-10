@@ -3,3 +3,6 @@ out/
 dist/
 build/
 resources/web-dist
+resources/native-helper/
+native/**/bin/
+native/**/obj/

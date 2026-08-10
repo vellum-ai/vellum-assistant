@@ -1,11 +1,7 @@
-import {
-  app,
-  type BrowserWindow,
-  type BrowserWindowConstructorOptions,
-} from "electron";
+import type { BrowserWindow, BrowserWindowConstructorOptions } from "electron";
 
-import { RENDERER_BASE_PROD, getDevRendererBase } from "./app-config";
-import { createWindow } from "./windows";
+import { createModuleConfiguration } from "./module-configuration";
+import type { CreateWindowOptions } from "./windows";
 
 type AlwaysOnTopLevel = NonNullable<
   Parameters<BrowserWindow["setAlwaysOnTop"]>[1]
@@ -43,21 +39,34 @@ export interface CreateFloatingWindowOptions {
   position?: FloatingWindowPosition;
 }
 
-const floatingWindows = new Map<string, BrowserWindow>();
+export interface FloatingWindowDependencies {
+  createWindow: (options: CreateWindowOptions) => BrowserWindow;
+  platform: "darwin" | "win32";
+  resolveRoute: (route: string) => string;
+}
 
-const floatingWindowUrl = (route: string): string => {
-  const normalizedRoute = route.startsWith("/") ? route : `/${route}`;
-  const base = app.isPackaged ? RENDERER_BASE_PROD : getDevRendererBase();
-  return `${base}${normalizedRoute}`;
-};
+export const createWindowRouteResolver = (getBase: () => string) =>
+  (route: string): string =>
+    `${getBase()}${route.startsWith("/") ? route : `/${route}`}`;
+
+const configuration = createModuleConfiguration<FloatingWindowDependencies>(
+  "Floating window module",
+);
+export const configureFloatingWindows = configuration.configure;
+
+const floatingWindows = new Map<string, BrowserWindow>();
 
 const isAlive = (win: BrowserWindow): boolean =>
   !win.isDestroyed() && !win.webContents.isDestroyed();
 
 export const getFloatingWindow = (kind: string): BrowserWindow | null => {
   const win = floatingWindows.get(kind);
-  if (!win) return null;
-  if (isAlive(win)) return win;
+  if (!win) {
+    return null;
+  }
+  if (isAlive(win)) {
+    return win;
+  }
   floatingWindows.delete(kind);
   return null;
 };
@@ -66,9 +75,21 @@ const applyPosition = (
   win: BrowserWindow,
   position: FloatingWindowPosition | undefined,
 ): void => {
-  if (!position) return;
+  if (!position) {
+    return;
+  }
   const { x, y } = typeof position === "function" ? position(win) : position;
   win.setPosition(x, y);
+};
+
+export const repositionFloatingWindow = (
+  kind: string,
+  position: FloatingWindowPosition,
+): void => {
+  const win = getFloatingWindow(kind);
+  if (win) {
+    applyPosition(win, position);
+  }
 };
 
 const showFloatingWindow = (
@@ -106,6 +127,7 @@ export const createFloatingWindow = ({
   browserWindow,
   position,
 }: CreateFloatingWindowOptions): BrowserWindow => {
+  const { createWindow, platform, resolveRoute } = configuration.get();
   const existing = getFloatingWindow(kind);
   if (existing) {
     applyPosition(existing, position);
@@ -119,7 +141,7 @@ export const createFloatingWindow = ({
   const win = createWindow({
     browserWindow: {
       ...browserWindow,
-      type: "panel",
+      ...(platform === "darwin" ? { type: "panel" as const } : {}),
       width,
       height,
       frame: false,
@@ -136,7 +158,7 @@ export const createFloatingWindow = ({
   if (ignoreMouseEvents) {
     applyIgnoreMouseEvents(win, ignoreMouseEvents);
   }
-  if (visibleOnAllWorkspaces) {
+  if (visibleOnAllWorkspaces && platform === "darwin") {
     win.setVisibleOnAllWorkspaces(true, {
       visibleOnFullScreen: true,
       skipTransformProcessType: true,
@@ -153,7 +175,7 @@ export const createFloatingWindow = ({
 
   floatingWindows.set(kind, win);
   applyPosition(win, position);
-  void win.loadURL(floatingWindowUrl(route));
+  void win.loadURL(resolveRoute(route));
   showFloatingWindow(win, focusOnShow);
   return win;
 };

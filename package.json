@@ -23,6 +23,7 @@
     "packages/ipc-contract",
     "packages/ipc-server-utils",
     "packages/local-mode",
+    "packages/native-sidecar",
     "packages/service-contracts",
     "packages/slack-text",
     "packages/twilio-client"
