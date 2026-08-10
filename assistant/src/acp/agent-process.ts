@@ -288,17 +288,12 @@ export class AcpAgentProcess {
 
       const method = this.selectEnvVarAuthMethod();
       if (!method) {
-        // Typed, so the session manager can still tell an auth failure from a
-        // crash and surface a re-authentication path. Thrown as a plain Error,
-        // this classification died here.
-        //
-        // The remediation text is split by what the agent actually advertises.
-        // Pointing at env vars and `credentials prompt` is useful only when
-        // the agent HAS an env_var method we failed to satisfy. Adapters that
-        // advertise only interactive `terminal` logins (claude-agent-acp among
-        // them) cannot be fixed that way, and saying otherwise sends the user
-        // and the model chasing a CLI workaround for a credential the app can
-        // repair on its own.
+        // Typed so the session manager can tell an auth failure from a crash
+        // and surface a re-authentication path. The remediation text is split
+        // by what the agent advertises: env-var and `credentials prompt`
+        // advice only helps when an env_var method exists to satisfy, and for
+        // terminal-login-only adapters it sends the user chasing a CLI
+        // workaround for a credential the app repairs on its own.
         throw new AcpAuthRequiredError(
           this.agentId,
           this.hasEnvVarAuthMethod()

@@ -105,19 +105,19 @@ export function handleAcpSessionError(event: AcpSessionErrorEvent): void {
  * routine post-turn `/messages` reseed.
  */
 export function handleAcpAuthRequired(event: AcpAuthRequiredEvent): void {
+  if (event.authCode !== ACP_CLAUDE_AUTH_REQUIRED_CODE) {
+    return;
+  }
+  const entry = useAcpRunStore.getState().byId[event.acpSessionId];
   // A run the user already stopped is not a failure to recover from.
-  if (
-    useAcpRunStore.getState().byId[event.acpSessionId]?.status === "cancelled"
-  ) {
+  if (entry?.status === "cancelled") {
     return;
   }
   // The daemon always sends the anchor when it emits this event; the
   // run-store lookup is defensive. With neither, there is nowhere to render
   // the card and the run keeps its plain failed rendering.
-  const toolUseId =
-    event.parentToolUseId ??
-    useAcpRunStore.getState().byId[event.acpSessionId]?.parentToolUseId;
-  if (event.authCode !== ACP_CLAUDE_AUTH_REQUIRED_CODE || !toolUseId) {
+  const toolUseId = event.parentToolUseId ?? entry?.parentToolUseId;
+  if (!toolUseId) {
     return;
   }
   useInteractionStore.getState().showAcpConnect({

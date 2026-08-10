@@ -15,9 +15,7 @@
  * "Connect Claude Code" card.
  */
 
-import { ACP_CLAUDE_AUTH_REQUIRED_CODE } from "../api/events/acp-auth-required.js";
-
-export { ACP_CLAUDE_AUTH_REQUIRED_CODE };
+export { ACP_CLAUDE_AUTH_REQUIRED_CODE } from "../api/events/acp-auth-required.js";
 
 /**
  * JSON-RPC error code agents use to signal that authentication is required
