@@ -709,7 +709,6 @@ export async function handleChannelInbound({
       externalMessageId,
       sourceMessageId,
       sourceThreadId: channelThreadId,
-      canonicalAssistantId,
       assistantId,
       content,
       channelId: resolvedMember?.channelId,
@@ -723,28 +722,29 @@ export async function handleChannelInbound({
     externalMessageId,
     {
       sourceMessageId,
-      assistantId: canonicalAssistantId,
       sourceThreadId: channelThreadId,
     },
   );
 
   const replyCallbackUrl = body.replyCallbackUrl;
 
-  // external_conversation_bindings is assistant-agnostic. Restrict writes to
-  // self so assistant-scoped legacy routes do not overwrite each other's
-  // channel binding metadata for the same chat.
-  if (canonicalAssistantId === DAEMON_INTERNAL_ASSISTANT_ID) {
-    upsertBinding({
-      conversationId: result.conversationId,
-      sourceChannel,
-      externalChatId: conversationExternalId,
-      externalChatName: slackChannelName,
-      externalThreadId: channelThreadId ?? null,
-      externalUserId: canonicalSenderId ?? rawSenderId ?? null,
-      displayName: body.actorDisplayName ?? null,
-      username: body.actorUsername ?? null,
-    });
-  }
+  // `external_conversation_bindings` is assistant-agnostic, and this write was
+  // gated on the caller resolving to self so assistant-scoped legacy routes
+  // could not overwrite each other's binding for one chat. The gate could not
+  // decide anything: `canonicalChannelAssistantId` discards its argument and
+  // answers self for every caller, so there is no second writer to guard
+  // against and the binding was either written or silently skipped for
+  // nobody.
+  upsertBinding({
+    conversationId: result.conversationId,
+    sourceChannel,
+    externalChatId: conversationExternalId,
+    externalChatName: slackChannelName,
+    externalThreadId: channelThreadId ?? null,
+    externalUserId: canonicalSenderId ?? rawSenderId ?? null,
+    displayName: body.actorDisplayName ?? null,
+    username: body.actorUsername ?? null,
+  });
 
   // ── Actor role resolution ──
   // Built from the gateway-stamped trust verdict (ACL + identity). An absent

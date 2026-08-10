@@ -5,12 +5,15 @@ import {
   ensureConversationExists,
   getConversation,
 } from "../persistence/conversation-crud.js";
+import { getConversationByKey } from "../persistence/conversation-key-store.js";
 import {
   isEchoSuppressedUserMessage,
   isReplyPushIneligibleUserMessage,
 } from "../persistence/conversation-types.js";
 import { getDb } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
+import { buildScopedConversationKey } from "../persistence/delivery-crud.js";
+import { getBindingByConversation } from "../persistence/external-conversation-store.js";
 
 await initializeDb();
 
@@ -191,5 +194,125 @@ describe("runConversationTurn provenance", () => {
     const metadata = lastEnqueueOptions?.metadata as Record<string, unknown>;
     expect(metadata).toEqual({ automated: true });
     expect(isReplyPushIneligibleUserMessage(metadata)).toBe(true);
+  });
+});
+
+/**
+ * Addressing a turn by chat rather than by conversation id.
+ *
+ * The point of these is not that the turn runs (that is the same code path
+ * either way) but that the conversation it runs in is the one the rest of
+ * the assistant already addresses by those coordinates. A caller keeping its
+ * own chat-to-conversation map would pass every test above and still be
+ * invisible to conversation reset, to the deny lanes, and to the channel
+ * metadata the conversation list renders.
+ */
+describe("runConversationTurn channel binding", () => {
+  const CHANNEL = {
+    sourceChannel: "plugin" as const,
+    externalChatId: "imessage:+12025550142",
+    displayName: "Ada",
+  };
+
+  beforeEach(() => {
+    const db = getDb();
+    db.run("DELETE FROM messages");
+    db.run("DELETE FROM external_conversation_bindings");
+    db.run("DELETE FROM conversation_keys");
+    db.run("DELETE FROM conversations");
+    listChangedCalls.length = 0;
+  });
+
+  test("resolves the chat to the conversation inbound would have used", async () => {
+    const result = await runConversationTurn({
+      channel: CHANNEL,
+      content: [{ type: "text", text: "hello" }],
+    });
+
+    // The public name for this conversation, which is what reset and the deny
+    // lanes address it by.
+    expect(
+      getConversationByKey(
+        buildScopedConversationKey(
+          CHANNEL.sourceChannel,
+          CHANNEL.externalChatId,
+        ),
+      )?.conversationId,
+    ).toBe(result.conversationId);
+  });
+
+  test("keeps the same chat in the same conversation across turns", async () => {
+    const first = await runConversationTurn({
+      channel: CHANNEL,
+      content: [{ type: "text", text: "hello" }],
+    });
+    const second = await runConversationTurn({
+      channel: CHANNEL,
+      content: [{ type: "text", text: "still me" }],
+    });
+
+    expect(second.conversationId).toBe(first.conversationId);
+    // Only the first turn minted a conversation.
+    expect(listChangedCalls).toEqual([
+      { kind: "created", conversationId: first.conversationId },
+    ]);
+  });
+
+  test("gives a different chat its own conversation", async () => {
+    const ada = await runConversationTurn({
+      channel: CHANNEL,
+      content: [{ type: "text", text: "hello" }],
+    });
+    const grace = await runConversationTurn({
+      channel: { ...CHANNEL, externalChatId: "imessage:+12025550188" },
+      content: [{ type: "text", text: "hello" }],
+    });
+
+    expect(grace.conversationId).not.toBe(ada.conversationId);
+  });
+
+  test("records the channel metadata the conversation list reads", async () => {
+    const result = await runConversationTurn({
+      channel: { ...CHANNEL, externalUserId: "+12025550142" },
+      content: [{ type: "text", text: "hello" }],
+    });
+
+    const binding = getBindingByConversation(result.conversationId);
+    expect(binding).toMatchObject({
+      sourceChannel: "plugin",
+      externalChatId: CHANNEL.externalChatId,
+      externalUserId: "+12025550142",
+      displayName: "Ada",
+    });
+  });
+
+  test("follows the vendor when a display name changes", async () => {
+    await runConversationTurn({
+      channel: CHANNEL,
+      content: [{ type: "text", text: "hello" }],
+    });
+    const result = await runConversationTurn({
+      channel: { ...CHANNEL, displayName: "Ada L." },
+      content: [{ type: "text", text: "renamed" }],
+    });
+
+    expect(getBindingByConversation(result.conversationId)?.displayName).toBe(
+      "Ada L.",
+    );
+  });
+
+  test("an explicit conversation id wins over the address", async () => {
+    // Two different conversations were named. Re-resolving would overrule the
+    // caller, so the explicit one is honoured and nothing is bound behind it.
+    const existing = createConversation({ title: "chosen" });
+
+    const result = await runConversationTurn({
+      conversationId: existing.id,
+      channel: CHANNEL,
+      content: [{ type: "text", text: "hello" }],
+    });
+
+    expect(result.conversationId).toBe(existing.id);
+    expect(getBindingByConversation(existing.id)).toBeNull();
   });
 });

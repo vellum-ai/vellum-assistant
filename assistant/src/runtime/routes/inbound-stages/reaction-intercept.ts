@@ -182,7 +182,6 @@ export async function handleSlackReactionIntercept(
     externalMessageId,
     {
       sourceMessageId: reactedMessageTs,
-      assistantId: canonicalAssistantId,
       sourceThreadId: threadTs,
     },
   );
