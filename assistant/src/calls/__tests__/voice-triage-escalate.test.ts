@@ -484,6 +484,26 @@ describe("createFrontDoorStreamGate", () => {
     ]);
   });
 
+  test("a too-short bridge releases nothing, matching the audio-only fallback", () => {
+    // Under MIN_SPOKEN_BRIDGE_CHARS the session discards the model's bridge
+    // and plays a canned fallback with no caption and no persisted row, so
+    // releasing the capped text would show words the caller never heard.
+    expect(release([ESCALATE_VERDICT_TOKEN, " ok"])).toEqual([]);
+    expect(release([ESCALATE_VERDICT_TOKEN, " ."])).toEqual([]);
+  });
+
+  test("a too-short bridge releases nothing via finish either", () => {
+    const gate = createFrontDoorStreamGate(false);
+    expect(gate.push(`${ESCALATE_VERDICT_TOKEN} ok`)).toBe("");
+    expect(gate.finish()).toBe("");
+  });
+
+  test("a bridge at the spoken threshold is still released", () => {
+    // The boundary belongs to the spoken side: the session speaks anything
+    // that is not BELOW the threshold, so the gate must release it too.
+    expect(release([ESCALATE_VERDICT_TOKEN, " Sure."])).toEqual(["Sure."]);
+  });
+
   test("a bridge with no terminator is released by finish", () => {
     const gate = createFrontDoorStreamGate(false);
     expect(gate.push("[1] Let me check")).toBe("");

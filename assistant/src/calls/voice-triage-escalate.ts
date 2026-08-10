@@ -253,7 +253,10 @@ export interface FrontDoorStreamGate {
  *   in one piece once the bridge is complete (exactly what
  *   {@link capEscalationBridge} yields, so the released text, the audio, and
  *   the persisted row agree). The verdict token and anything streamed past
- *   the cap are dropped.
+ *   the cap are dropped. A bridge shorter than
+ *   {@link MIN_SPOKEN_BRIDGE_CHARS} releases nothing at all: the session
+ *   substitutes an audio-only canned fallback for it, so there is no
+ *   displayed text for the gate to agree with.
  * - `answer`: the leg's output IS the reply, so every delta passes through,
  *   including the leading text held back while the verdict was pending.
  */
@@ -267,7 +270,15 @@ export function createFrontDoorStreamGate(
 
   const releaseBridge = (): string => {
     stage = "done";
-    return capEscalationBridge(bridgeRaw);
+    const capped = capEscalationBridge(bridgeRaw);
+    // Below the spoken threshold the session throws the model's bridge away
+    // and plays a canned fallback that is audio-only, deleting the row rather
+    // than persisting a phrase the model never really produced (see
+    // `usesFallbackBridge` in `live-voice-session.ts`). Releasing the capped
+    // text here would put words on a subscriber's screen that the caller never
+    // heard, which is the same spoken/displayed divergence this gate exists to
+    // prevent.
+    return capped.length < MIN_SPOKEN_BRIDGE_CHARS ? "" : capped;
   };
 
   return {
