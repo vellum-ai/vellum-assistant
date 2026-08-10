@@ -348,6 +348,12 @@ export function patchConversation(
   key: string,
   patch: Partial<Conversation>,
 ): readonly (readonly unknown[])[] {
+  // Built once and shared by every cache that holds the key, rather than
+  // looked up again afterwards. Sharing the instance is what lets the
+  // membership pass tell a cache that already agrees from one that needs
+  // rewriting, so sections the patch did not move are not re-rendered.
+  let patched: Conversation | undefined;
+
   updateAllConversationCaches(queryClient, assistantId, (conversations) => {
     let changed = false;
     const next = conversations.map((c) => {
@@ -355,16 +361,13 @@ export function patchConversation(
         return c;
       }
       changed = true;
-      return { ...c, ...patch };
+      patched ??= { ...c, ...patch };
+      return patched;
     });
     return changed ? next : conversations;
   });
 
-  if (!patchAffectsMembership(patch)) {
-    return [];
-  }
-  const patched = findConversation(queryClient, assistantId, key);
-  if (!patched) {
+  if (!patched || !patchAffectsMembership(patch)) {
     return [];
   }
   return reconcileSectionMembership(queryClient, assistantId, patched);

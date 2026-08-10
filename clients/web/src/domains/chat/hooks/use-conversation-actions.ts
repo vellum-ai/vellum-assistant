@@ -61,9 +61,9 @@ type MoveToGroupVars = {
 type MutationContext = { snapshot: ConversationCacheSnapshot };
 
 /**
- * Context for the mutations that move a row between sections. No snapshot:
- * they roll back by writing the previous field values, which re-derives
- * membership through the same path the optimistic write used.
+ * Context for a move between sections. No snapshot: it rolls back by writing
+ * the previous field values, which re-derives membership through the same
+ * path the optimistic write used.
  *
  * `sectionKeys` is what the optimistic write actually moved, so the settle
  * refetches those sections instead of the whole conversation-list prefix.
@@ -180,10 +180,6 @@ export function useConversationActions({
   // patch cannot reach.
   // -------------------------------------------------------------------------
 
-  /* Archive and unarchive are one shape twice: both write `archivedAt`, which
-     is a field every section filter reads, so both are placements. The row
-     leaves every section on archive and rejoins the one that claims it on
-     unarchive, without either path naming a section. */
   const archiveMutation = useMutation<void, Error, ArchiveVars>({
     mutationFn: async ({ assistantId: aid, conversationId }) => {
       await conversationsByIdArchivePost({
@@ -320,11 +316,6 @@ export function useConversationActions({
       isPinned,
     }) => {
       await cancelConversationQueries(queryClient, aid);
-      /* The whole move, in one write. `patchConversation` puts the row in
-         whichever sections the new `groupId` / `isPinned` place it and takes
-         it out of the ones they do not, so Pinned and the section the row
-         came from both repaint on this render rather than on their next
-         refetch. */
       const sectionKeys = patchConversation(queryClient, aid, conversationId, {
         isPinned,
         groupId,
