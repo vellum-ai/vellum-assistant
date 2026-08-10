@@ -171,36 +171,62 @@ function conversation(conversationId: string): Conversation {
 }
 
 /**
- * The schedules list the detail validates its "View schedule" link against,
- * plus a record of the `enabled` flag the query was called with. Same shape as
- * the conversation lists above, and the flags pin the same lazy-loading
- * property: the bell must not fetch schedules to render its list view.
+ * The lists the detail validates its entity links against ("View schedule",
+ * "View skill"), plus a record of the `enabled` flag each query was called
+ * with. Same shape as the conversation lists above, and the flags pin the same
+ * lazy-loading property: the bell must not fetch either list to render its
+ * list view.
  */
 const schedulesRef: { list: { id: string }[]; isPending: boolean } = {
   list: [],
   isPending: false,
 };
 
-const scheduleEnabledCalls: boolean[] = [];
+const skillsRef: { list: { id: string }[]; isPending: boolean } = {
+  list: [],
+  isPending: false,
+};
 
-mock.module("@/domains/settings/api/schedules", () => ({
+const entityLinkEnabledCalls: boolean[] = [];
+
+mock.module("@/utils/schedules", () => ({
   schedulesListQueryOptions: (assistantId: string | undefined) => ({
     queryKey: ["schedules", assistantId ?? ""],
     queryFn: () => Promise.resolve(schedulesRef.list),
   }),
 }));
 
-// The bell is the only part of this tree that reads a TanStack query directly
-// (the feed and conversation hooks are mocked above), so stubbing `useQuery`
-// stands in for a QueryClientProvider and exposes the `enabled` flag.
+mock.module("@/generated/daemon/@tanstack/react-query.gen", () => ({
+  skillsGetOptions: (options: { query?: { kind?: string } }) => ({
+    queryKey: ["skills", options.query?.kind ?? ""],
+    queryFn: () => Promise.resolve({ skills: skillsRef.list }),
+  }),
+}));
+
+// The entity-link resolver is the only part of this tree that reads a TanStack
+// query directly (the feed and conversation hooks are mocked above), so
+// stubbing `useQuery` stands in for a QueryClientProvider and exposes the
+// `enabled` flag. Dispatching on the query key keeps the two lists distinct:
+// the resolver reads both on every render, and a stub that answered them
+// identically could not tell a present skill from a present schedule.
 mock.module("@tanstack/react-query", () => ({
-  useQuery: (options: { enabled?: boolean }) => {
-    scheduleEnabledCalls.push(options.enabled === true);
+  useQuery: (options: { enabled?: boolean; queryKey: unknown[] }) => {
+    entityLinkEnabledCalls.push(options.enabled === true);
+    if (options.queryKey[0] === "skills") {
+      return {
+        data: { skills: skillsRef.list },
+        isPending: skillsRef.isPending,
+      };
+    }
     return { data: schedulesRef.list, isPending: schedulesRef.isPending };
   },
 }));
 
 function schedule(id: string): { id: string } {
+  return { id };
+}
+
+function skill(id: string): { id: string } {
   return { id };
 }
 
@@ -291,7 +317,9 @@ beforeEach(() => {
   enabledCalls.scheduled = [];
   schedulesRef.list = [];
   schedulesRef.isPending = false;
-  scheduleEnabledCalls.length = 0;
+  skillsRef.list = [];
+  skillsRef.isPending = false;
+  entityLinkEnabledCalls.length = 0;
   updateStatusCalls.length = 0;
   triggerActionCalls.length = 0;
   triggerActionRef.outcome = "pending";
@@ -614,6 +642,77 @@ describe("NotificationsBell detail", () => {
     ).toBeNull();
   });
 
+  test("offers View skill when the skill a background pass updated still exists", async () => {
+    feedRef.items = [{ ...FIRST, metadata: { skillId: "weekly-export" } }];
+    skillsRef.list = [skill("weekly-export")];
+
+    await openDetail("Watcher job failed");
+
+    // The schedules list stays empty: a skill link must come from the skills
+    // list, not from whichever list answered first.
+    expect(screen.getByRole("button", { name: "View skill" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "View schedule" })).toBeNull();
+  });
+
+  test("omits View skill when the item names no skill", async () => {
+    feedRef.items = [FIRST];
+    skillsRef.list = [skill("weekly-export")];
+
+    await openDetail("Watcher job failed");
+
+    expect(screen.queryByRole("button", { name: "View skill" })).toBeNull();
+  });
+
+  test("omits View skill when the skill has since been removed", async () => {
+    feedRef.items = [{ ...FIRST, metadata: { skillId: "removed-skill" } }];
+    skillsRef.list = [skill("weekly-export")];
+
+    await openDetail("Watcher job failed");
+
+    expect(screen.queryByRole("button", { name: "View skill" })).toBeNull();
+  });
+
+  test("withholds View skill while the skills list is still loading", async () => {
+    feedRef.items = [{ ...FIRST, metadata: { skillId: "weekly-export" } }];
+    skillsRef.isPending = true;
+
+    await openDetail("Watcher job failed");
+
+    expect(screen.queryByRole("button", { name: "View skill" })).toBeNull();
+    expect(screen.getByTestId("notifications-bell-detail-footer")).toBeTruthy();
+  });
+
+  test("View skill opens the skill and closes the bell", async () => {
+    feedRef.items = [{ ...FIRST, metadata: { skillId: "weekly-export" } }];
+    skillsRef.list = [skill("weekly-export")];
+
+    await openDetail("Watcher job failed");
+    fireEvent.click(screen.getByRole("button", { name: "View skill" }));
+    await act(async () => {});
+
+    expect(navigateMock).toHaveBeenCalledTimes(1);
+    expect(navigateMock.mock.calls[0]?.[0]).toBe(
+      "/assistant/skills/weekly-export",
+    );
+    // Navigating closes the bell, so the panel is gone with it.
+    expect(
+      screen.queryByRole("heading", { name: "Watcher job failed" }),
+    ).toBeNull();
+  });
+
+  test("percent-encodes a namespaced skill id so the deep link stays one path segment", async () => {
+    feedRef.items = [{ ...FIRST, metadata: { skillId: "org/repo/skill" } }];
+    skillsRef.list = [skill("org/repo/skill")];
+
+    await openDetail("Watcher job failed");
+    fireEvent.click(screen.getByRole("button", { name: "View skill" }));
+    await act(async () => {});
+
+    expect(navigateMock.mock.calls[0]?.[0]).toBe(
+      "/assistant/skills/org%2Frepo%2Fskill",
+    );
+  });
+
   test("offers both footer links when the item has a schedule and a conversation", async () => {
     feedRef.items = [
       {
@@ -806,19 +905,19 @@ describe("NotificationsBell detail", () => {
     expect(shortHeight).toBe(longHeight);
   });
 
-  test("loads the conversation and schedule lists only once a detail is open", async () => {
+  test("loads the conversation and entity-link lists only once a detail is open", async () => {
     feedRef.items = [FIRST];
 
     await openBell();
 
-    // The list view has no use for conversation or schedule ids, and the bell
-    // renders on every route, so nothing may be fetched to show it.
+    // The list view has no use for conversation, schedule, or skill ids, and
+    // the bell renders on every route, so nothing may be fetched to show it.
     expect(enabledCalls.foreground.length).toBeGreaterThan(0);
     expect(enabledCalls.foreground.some((enabled) => enabled)).toBe(false);
     expect(enabledCalls.background.some((enabled) => enabled)).toBe(false);
     expect(enabledCalls.scheduled.some((enabled) => enabled)).toBe(false);
-    expect(scheduleEnabledCalls.length).toBeGreaterThan(0);
-    expect(scheduleEnabledCalls.some((enabled) => enabled)).toBe(false);
+    expect(entityLinkEnabledCalls.length).toBeGreaterThan(0);
+    expect(entityLinkEnabledCalls.some((enabled) => enabled)).toBe(false);
 
     fireEvent.click(screen.getByRole("button", { name: "Watcher job failed" }));
     await act(async () => {});
@@ -826,7 +925,7 @@ describe("NotificationsBell detail", () => {
     expect(enabledCalls.foreground.at(-1)).toBe(true);
     expect(enabledCalls.background.at(-1)).toBe(true);
     expect(enabledCalls.scheduled.at(-1)).toBe(true);
-    expect(scheduleEnabledCalls.at(-1)).toBe(true);
+    expect(entityLinkEnabledCalls.at(-1)).toBe(true);
   });
 
   test("reopening the bell lands back on the list", async () => {

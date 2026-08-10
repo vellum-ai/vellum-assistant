@@ -20,12 +20,6 @@
   "src/domains/chat/surface-actions.ts": [
     "onboarding"
   ],
-  "src/domains/home/components/notifications-bell.tsx": [
-    "settings"
-  ],
-  "src/domains/home/home-page.tsx": [
-    "settings"
-  ],
   "src/domains/schedules/components/schedule-detail-panel.tsx": [
     "settings"
   ],

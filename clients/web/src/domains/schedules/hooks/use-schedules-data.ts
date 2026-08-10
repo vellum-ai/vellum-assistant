@@ -1,10 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { useCallback, useMemo, useState } from "react";
 
-import {
-  schedulesListQueryOptions,
-  toggleSchedule,
-} from "@/domains/settings/api/schedules";
+import { toggleSchedule } from "@/domains/settings/api/schedules";
 import type { Schedule } from "@/domains/settings/types/schedules";
 import {
   groupSchedules,
@@ -14,6 +11,7 @@ import {
 } from "@/domains/settings/utils/schedule-formatters";
 import { t } from "@/i18n";
 import { captureError } from "@/lib/sentry/capture-error";
+import { schedulesListQueryOptions } from "@/utils/schedules";
 import { useEffectiveTimezone } from "@/utils/use-effective-timezone";
 import { toast } from "@vellumai/design-library/components/toast";
 
