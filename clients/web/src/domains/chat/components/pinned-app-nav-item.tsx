@@ -32,10 +32,14 @@ export interface PinnedAppNavItemProps {
  * cleared: a deleted app never appears in the Library, so its card-level
  * unpin is unreachable, leaving the sidebar entry orphaned.
  *
- * On touch devices, swiping left reveals an Unpin action button —
- * complementing the long-press context menu. In the collapsed rail the
- * swipe is omitted (the tooltip provider would interfere, same as the
- * context menu).
+ * Both shapes carry the menu, because the rail changes what a pinned app
+ * looks like and not what can be done to it. The collapsed tile depends on it
+ * most: it has no hover button and nothing to swipe, so the menu is its only
+ * route to an unpin, reached by right click or by long press.
+ *
+ * On touch, the expanded row additionally reveals an Unpin button on a left
+ * swipe. The tile omits that: it has nowhere to swipe to, and the actions a
+ * swipe reveals are sized for a full-width row.
  *
  * On desktop, a third path: a hover-revealed unpin button on the row's
  * trailing edge. `SideMenu.Item` has no `trailingAction` slot (unlike
@@ -81,8 +85,36 @@ export function PinnedAppNavItem({
     />
   );
 
+  /* One definition for both shapes. The rail changes what a pinned app looks
+     like, not what can be done to it, and the collapsed tile is the shape with
+     the most riding on this: it has no hover button and nothing to swipe, so
+     the menu is its only route to an unpin. */
+  const menu = (
+    <ContextMenu.Content onClick={(event) => event.stopPropagation()}>
+      <PinnedAppColorSwatches
+        value={app.color}
+        onChange={(color) => setColor(app.appId, color)}
+      />
+      <ContextMenu.Separator />
+      <ContextMenu.Item
+        leftIcon={<PinOff size={14} />}
+        onSelect={() => unpin(app.appId)}
+      >
+        Unpin
+      </ContextMenu.Item>
+    </ContextMenu.Content>
+  );
+
   if (collapsed) {
-    return sideMenuItem;
+    /* No `SwipeActionReveal`: a 30px tile has nowhere to swipe to, and the
+       actions it reveals are sized for a full-width row. Touch reaches the
+       same menu by long press, which is what the trigger already does. */
+    return (
+      <ContextMenu.Root>
+        <ContextMenu.Trigger>{sideMenuItem}</ContextMenu.Trigger>
+        {menu}
+      </ContextMenu.Root>
+    );
   }
 
   /* A pill, so a pinned app reads as its own object rather than as a row in
@@ -153,19 +185,7 @@ export function PinnedAppNavItem({
           {item}
         </SwipeActionReveal>
       </ContextMenu.Trigger>
-      <ContextMenu.Content onClick={(event) => event.stopPropagation()}>
-        <PinnedAppColorSwatches
-          value={app.color}
-          onChange={(color) => setColor(app.appId, color)}
-        />
-        <ContextMenu.Separator />
-        <ContextMenu.Item
-          leftIcon={<PinOff size={14} />}
-          onSelect={() => unpin(app.appId)}
-        >
-          Unpin
-        </ContextMenu.Item>
-      </ContextMenu.Content>
+      {menu}
     </ContextMenu.Root>
   );
 }
