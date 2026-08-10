@@ -8,9 +8,9 @@ import {
 import type { FeedItem, FeedItemStatus } from "@vellumai/assistant-api";
 import { Button, Tag, Typography } from "@vellumai/design-library";
 
-import { FeedCategoryIcon } from "../feed-category-icon";
 import { HomeGenericDetail } from "../detail-panel/home-generic-detail";
 import { HomeToolPermissionCard } from "../detail-panel/home-tool-permission-card";
+import { FeedCategoryIcon } from "../feed-category-icon";
 import type { FeedItemEntityLink } from "../hooks/use-feed-item-entity-links";
 import { resolveFeedItemTitle } from "../utils";
 
@@ -243,7 +243,7 @@ export function NotificationsBellDetail({
       >
         <Tag
           tone="neutral"
-          className="min-w-0 shrink-0"
+          className="shrink-0"
           title={formatFullLocalDate(item.timestamp)}
         >
           {formatCompactLocalDate(item.timestamp)}
