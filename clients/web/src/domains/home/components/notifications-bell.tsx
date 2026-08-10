@@ -50,9 +50,12 @@ export interface ActivityLocationState {
 // cards plus the four 8px gaps between them. A compact card is 73px tall: 2px
 // borders, 16px padding, a 32px title line (sized by the h-8 hover actions that
 // share it with the timestamp), a 2px gap, and a 21px preview line.
-// 5 * 73 + 4 * 8 = 397. The list takes it as a cap, so a short feed draws a
-// short panel and older notifications stay reachable by scrolling. The detail
-// takes it as a fixed height, so every notification renders in the same frame.
+// 5 * 73 + 4 * 8 = 397. Both views take it as a cap, so each sizes to its own
+// content: a short feed draws a short panel with older notifications reachable
+// by scrolling, and a two line notification draws a two line detail. It was a
+// fixed height for the detail once, to hold one frame across notifications,
+// which bought that consistency at the price of ~400px of empty space under
+// the body of every routine background item (the common case here).
 const PANEL_CONTENT_HEIGHT = "397px";
 
 // Ceiling on that budget, so a viewport too short to seat it shrinks the
@@ -71,10 +74,8 @@ const PANEL_CONTENT_HEIGHT = "397px";
 // leaving every ordinary desktop window on the budget exactly.
 const PANEL_VIEWPORT_MAX_HEIGHT = "calc(100dvh - 176px)";
 
-// The list caps rather than fixes, so its one `max-height` has to carry both
-// terms; the detail splits them across `height` and `max-height`, which is the
-// same minimum.
-const PANEL_LIST_MAX_HEIGHT = `min(${PANEL_CONTENT_HEIGHT}, ${PANEL_VIEWPORT_MAX_HEIGHT})`;
+// One `max-height` carrying both terms, shared by the list and the detail.
+const PANEL_CONTENT_MAX_HEIGHT = `min(${PANEL_CONTENT_HEIGHT}, ${PANEL_VIEWPORT_MAX_HEIGHT})`;
 
 // The same budget on a bottom sheet, where the content region is measured
 // against the viewport rather than the popover. No viewport ceiling of its
@@ -312,15 +313,11 @@ export function NotificationsBell() {
     />
   );
 
-  const contentHeight = isTouchMobile
-    ? MOBILE_PANEL_CONTENT_HEIGHT
-    : PANEL_CONTENT_HEIGHT;
+  // One budget, spent the same way by both views: whichever is open sizes to
+  // its own content and stops growing here.
   const contentMaxHeight = isTouchMobile
-    ? undefined
-    : PANEL_VIEWPORT_MAX_HEIGHT;
-  const listMaxHeight = isTouchMobile
     ? MOBILE_PANEL_CONTENT_HEIGHT
-    : PANEL_LIST_MAX_HEIGHT;
+    : PANEL_CONTENT_MAX_HEIGHT;
 
   const list =
     visibleItems.length === 0 ? (
@@ -338,7 +335,7 @@ export function NotificationsBell() {
         onScroll={(event) => {
           listScrollTopRef.current = event.currentTarget.scrollTop;
         }}
-        style={{ maxHeight: listMaxHeight }}
+        style={{ maxHeight: contentMaxHeight }}
         className="flex flex-col gap-[var(--app-spacing-sm)] overflow-y-auto"
       >
         {visibleItems.map((item) => (
@@ -371,7 +368,6 @@ export function NotificationsBell() {
       {selectedItem ? (
         <NotificationsBellDetail
           item={selectedItem}
-          contentHeight={contentHeight}
           contentMaxHeight={contentMaxHeight}
           validConversationIds={validConversationIds}
           areConversationListsPending={areConversationListsPending}

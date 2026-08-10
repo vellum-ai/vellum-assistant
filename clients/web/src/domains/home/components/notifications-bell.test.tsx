@@ -295,7 +295,7 @@ function footerLinkLabels(footer: HTMLElement): (string | null)[] {
   );
 }
 
-/** The detail's fixed-height content region. */
+/** The detail's content region, capped rather than fixed. */
 function detailContent(): HTMLElement {
   return screen.getByTestId("notifications-bell-detail-content");
 }
@@ -462,12 +462,14 @@ describe("NotificationsBell detail", () => {
    * content region resolved to, tearing the tree down so the next call starts
    * from one bell.
    */
-  async function detailFrameHeight(summary: string): Promise<string> {
+  async function detailFrameSizing(
+    summary: string,
+  ): Promise<{ height: string; maxHeight: string }> {
     feedRef.items = [{ ...FIRST, summary }];
     await openDetail("Watcher job failed");
-    const height = detailContent().style.height;
+    const { height, maxHeight } = detailContent().style;
     cleanup();
-    return height;
+    return { height, maxHeight };
   }
 
   test("selecting a row opens that item's detail in place", async () => {
@@ -869,10 +871,12 @@ describe("NotificationsBell detail", () => {
 
     await openDetail("Watcher job failed");
 
-    // A `height` in bare pixels, so the frame is drawn at the budget whatever
-    // the notification is. The `max-height` riding alongside it is the
-    // viewport clamp below, which carries no content term either.
-    expect(detailContent().style.height).toMatch(/^\d+px$/);
+    // No `height` at all, so the region is drawn at its content's size. The
+    // budget rides on `max-height` instead, which stops it growing without
+    // ever propping a two line notification open to five cards' worth of
+    // empty space.
+    expect(detailContent().style.height).toBe("");
+    expect(detailContent().style.maxHeight).toMatch(/^min\(\d+px, /);
   });
 
   test("the frame is clamped to the available viewport height", async () => {
@@ -884,25 +888,36 @@ describe("NotificationsBell detail", () => {
     // popover path (the mobile query is on width alone) but far too short for
     // the budget, which a fixed height on its own would overflow. `dvh` over
     // `vh` so the term stays honest under mobile browser chrome.
-    const content = detailContent();
-    const clamp = /^calc\(100dvh - (\d+)px\)$/.exec(content.style.maxHeight);
-    expect(clamp).not.toBeNull();
+    // Both terms ride on the one `max-height` now that no `height` competes
+    // with them: the content budget, and the viewport clamp under it.
+    const terms = /^min\((\d+)px, calc\(100dvh - (\d+)px\)\)$/.exec(
+      detailContent().style.maxHeight,
+    );
+    expect(terms).not.toBeNull();
 
     // The clamp may only engage on a viewport shorter than any ordinary
-    // desktop window, so the frame there is still exactly the budget.
-    const budget = Number.parseInt(content.style.height, 10);
-    const chromeAllowance = Number.parseInt(clamp?.[1] ?? "", 10);
+    // desktop window, so the cap there is still exactly the budget.
+    const budget = Number.parseInt(terms?.[1] ?? "", 10);
+    const chromeAllowance = Number.parseInt(terms?.[2] ?? "", 10);
     expect(budget + chromeAllowance).toBeLessThan(600);
   });
 
-  test("a long body and a short body render in the same frame", async () => {
-    const shortHeight = await detailFrameHeight("Done.");
-    const longHeight = await detailFrameHeight(
+  test("a long body and a short body share one cap, neither pinned to it", async () => {
+    const short = await detailFrameSizing("Done.");
+    const long = await detailFrameSizing(
       "The watcher job could not reach the upstream service. ".repeat(80),
     );
 
-    expect(shortHeight).not.toBe("");
-    expect(shortHeight).toBe(longHeight);
+    // The cap is the notification-independent term, so both carry it.
+    expect(short.maxHeight).not.toBe("");
+    expect(short.maxHeight).toBe(long.maxHeight);
+
+    // And neither is held at it. This is the assertion that fails if a fixed
+    // height comes back: happy-dom runs no layout, so the rendered heights
+    // themselves are not observable here and the absence of the inline
+    // `height` is what stands in for "sized to its content".
+    expect(short.height).toBe("");
+    expect(long.height).toBe("");
   });
 
   test("loads the conversation and entity-link lists only once a detail is open", async () => {
@@ -952,10 +967,10 @@ describe("NotificationsBell detail", () => {
       screen.getByText("The watcher job could not reach the upstream service."),
     ).toBeTruthy();
     // No viewport clamp on this path: the sheet is capped at 85dvh and its
-    // body scrolls, so an oversized frame scrolls inside the sheet rather
-    // than escaping the viewport the way the popover would. The sheet's own
-    // budget is a bare `dvh` length, which happy-dom drops from the CSSOM, so
-    // the height value itself is only observable on the popover path above.
+    // body scrolls, so an oversized region scrolls inside the sheet rather
+    // than escaping the viewport the way the popover would. The sheet's cap is
+    // a bare `dvh` length, which happy-dom drops from the CSSOM, so the value
+    // itself is only observable on the popover path above.
     expect(detailContent().style.maxHeight).toBe("");
     expect(detailFooter().textContent).toContain(
       formatCompactLocalDate(FIRST.timestamp),

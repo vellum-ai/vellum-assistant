@@ -41,9 +41,9 @@ const meta = {
   component: NotificationsBellDetail,
   parameters: { layout: "padded" },
   args: {
-    // The bell's own content budget: five compact cards plus their gaps.
-    contentHeight: "397px",
-    contentMaxHeight: "calc(100dvh - 176px)",
+    // The bell's own content budget: five compact cards plus their gaps,
+    // clamped against a viewport too short to seat them.
+    contentMaxHeight: "min(397px, calc(100dvh - 176px))",
     validConversationIds: FIXTURE_VALID_CONVERSATIONS,
     areConversationListsPending: false,
     entityLinks: [],
@@ -105,6 +105,40 @@ export const SkillSinceRemoved: Story = {
       category: "background",
       urgency: "low",
       metadata: { skillId: "approved-pr-merge-gate" },
+      conversationId: FIXTURE_CONVERSATION_ID,
+    }),
+  },
+};
+
+/**
+ * A body past the cap, which is the case the region still scrolls for. Worth
+ * looking at next to `SkillUpdated`: the two used to draw the same box, and
+ * the point of the cap is that only this one reaches it.
+ */
+export const LongBody: Story = {
+  args: {
+    item: feedItem({
+      id: "feed-long-body",
+      title: "Background job failed: memory.v2.sweep",
+      summary: [
+        "exception: Qdrant collection `memory_v2_concept_pages` is unavailable after 3 retries.",
+        "",
+        "The sweep will retry on its next scheduled pass. Concept pages stay readable in the meantime; only re-embedding is paused.",
+        "",
+        "**What ran before the failure**",
+        "",
+        "- Reindexed 1,204 concept pages",
+        "- Pruned 18 stale embeddings",
+        "- Skipped 2 pages that failed validation",
+        "",
+        "**What to check**",
+        "",
+        "1. Whether the collection exists at all, which a failed migration can leave half-created.",
+        "2. Whether the daemon's file-descriptor limit is the one it inherited from launchd rather than the raised one.",
+        "3. Whether the retry budget is being spent on a host that is never coming back.",
+      ].join("\n"),
+      category: "background",
+      urgency: "medium",
       conversationId: FIXTURE_CONVERSATION_ID,
     }),
   },

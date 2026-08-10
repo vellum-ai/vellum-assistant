@@ -6,8 +6,9 @@ import {
   formatFullLocalDate,
 } from "@/utils/format-date";
 import type { FeedItem, FeedItemStatus } from "@vellumai/assistant-api";
-import { Button, Typography } from "@vellumai/design-library";
+import { Button, Tag, Typography } from "@vellumai/design-library";
 
+import { resolveCategoryStyle } from "../home-feed-filter-bar";
 import { HomeGenericDetail } from "../detail-panel/home-generic-detail";
 import { HomeToolPermissionCard } from "../detail-panel/home-tool-permission-card";
 import type { FeedItemEntityLink } from "../hooks/use-feed-item-entity-links";
@@ -32,18 +33,11 @@ const BODY_LEADING_CLASS = "[&_p]:leading-normal [&_li]:leading-normal";
 export interface NotificationsBellDetailProps {
   item: FeedItem;
   /**
-   * Height of the scrollable content region. The bell passes the budget the
-   * list is capped at, and the detail takes it as a fixed height so every
-   * notification renders in an identically sized frame.
+   * Cap on the scrollable content region, the same budget the bell's list view
+   * is capped at. The region sizes to its content and stops growing here, so a
+   * short notification draws a short panel.
    */
-  contentHeight: string;
-  /**
-   * Ceiling on that frame, expressed against the viewport rather than the
-   * content, so a viewport too short to seat the budget shrinks the frame
-   * instead of overflowing. Together with `contentHeight` this is the minimum
-   * of the two. Omitted where an ancestor already scrolls.
-   */
-  contentMaxHeight?: string;
+  contentMaxHeight: string;
   /**
    * Ids of the conversations that still exist, merged from the foreground,
    * background, and scheduled lists exactly as the Activity page merges them.
@@ -77,7 +71,6 @@ export interface NotificationsBellDetailProps {
  */
 export function NotificationsBellDetail({
   item,
-  contentHeight,
   contentMaxHeight,
   validConversationIds,
   areConversationListsPending,
@@ -93,6 +86,11 @@ export function NotificationsBellDetail({
 }: NotificationsBellDetailProps) {
   const { t } = useTranslation("home");
   const conversationId = item.conversationId ?? null;
+  const title = resolveFeedItemTitle(item);
+  // The category treatment the Activity page's detail header uses, so one
+  // notification reads the same in both places.
+  const categoryStyle = resolveCategoryStyle(item.category);
+  const CategoryIcon = categoryStyle.icon;
   const isUnread = item.status === "new";
   const readToggleLabel = isUnread
     ? t("actions.markAsRead")
@@ -137,12 +135,32 @@ export function NotificationsBellDetail({
           onClick={onBack}
           aria-label={t("notificationsBellDetail.back")}
         />
+        <span
+          className="flex shrink-0 items-center justify-center rounded-full"
+          style={{
+            width: 24,
+            height: 24,
+            backgroundColor: categoryStyle.weak,
+          }}
+          aria-hidden="true"
+        >
+          <CategoryIcon
+            width={12}
+            height={12}
+            style={{ color: categoryStyle.strong }}
+          />
+        </span>
+
+        {/* `title` puts the untruncated text within reach: three controls and
+            the category share this row inside a 384px popover, so a named
+            notification ("Skill updated: <name>") routinely runs past it. */}
         <Typography
           variant="body-medium-default"
           as="h2"
           className="min-w-0 flex-1 truncate text-[var(--content-default)]"
+          title={title}
         >
-          {resolveFeedItemTitle(item)}
+          {title}
         </Typography>
 
         {/*
@@ -181,16 +199,17 @@ export function NotificationsBellDetail({
       </div>
 
       {/*
-        A fixed frame rather than a cap: a short notification leaves empty
-        space below it and a long one scrolls inside, so the panel is the same
-        size whichever notification is open. The `max-height` is measured
-        against the viewport, never the content, so it clamps the frame on a
-        screen too short to seat it without ever letting the notification's
-        own length move it.
+        Sized to the notification, capped at the panel's budget: a two line body
+        draws a two line region, and only a body longer than the cap scrolls.
+        Deliberately a plain overflow container rather than `ScrollShadow`: the
+        cap is a runtime value and `ScrollShadow` takes no `style` (it owns that
+        attribute for its mask), so a fade would mean widening its API for a
+        case that is now rare, having been the common one while this frame was
+        a fixed height.
       */}
       <div
         data-testid="notifications-bell-detail-content"
-        style={{ height: contentHeight, maxHeight: contentMaxHeight }}
+        style={{ maxHeight: contentMaxHeight }}
         className="overflow-y-auto px-[var(--app-spacing-md)]"
       >
         {item.detailPanel?.kind === "toolPermission" ? (
@@ -241,13 +260,13 @@ export function NotificationsBellDetail({
         data-testid="notifications-bell-detail-footer"
         className="mt-[var(--app-spacing-sm)] flex flex-wrap items-center justify-between gap-[var(--app-spacing-sm)] border-t border-[var(--border-base)] pt-[var(--app-spacing-sm)]"
       >
-        <Typography
-          variant="body-small-lighter"
-          className="min-w-0 truncate text-[var(--content-tertiary)]"
+        <Tag
+          tone="neutral"
+          className="min-w-0 shrink-0"
           title={formatFullLocalDate(item.timestamp)}
         >
           {formatCompactLocalDate(item.timestamp)}
-        </Typography>
+        </Tag>
 
         {/* `ml-auto` keeps the links against the right edge on the second row
             too, once a narrow sheet has wrapped them off the timestamp's. */}
