@@ -1422,6 +1422,9 @@ export function backfillAppConversationIds(): void {
   }
 
   try {
+    // Unfinalized rows cannot match: their content is a { ref } pointer,
+    // never inline surface JSON, so this scan sees finalized content only by
+    // shape. No completeness predicate needed.
     const rows = rawAll<{ conversation_id: string; content: string }>(
       "apps:backfillConversationIds",
       `SELECT conversation_id, content FROM messages WHERE content LIKE '%"type":"ui_surface"%'`,
