@@ -232,6 +232,61 @@ describe("POST inference/provider-connections (create)", () => {
     expect((err as BadRequestError).message).toContain("vellum");
   });
 
+  test("rejects a chatgpt identity row under a non-canonical name", async () => {
+    const err = await call(
+      findHandler("inference_provider_connections_create"),
+      {
+        body: {
+          name: "my-chatgpt",
+          provider: "chatgpt",
+          auth: { type: "oauth_subscription", credential: "credential/x" },
+        },
+      },
+    ).catch((e: unknown) => e);
+
+    expect(err).toBeInstanceOf(BadRequestError);
+    expect((err as BadRequestError).message).toContain("chatgpt-subscription");
+  });
+
+  test("rejects key auth on the chatgpt provider, derived or explicit", async () => {
+    for (const body of [
+      {
+        name: "chatgpt-subscription",
+        provider: "chatgpt",
+        auth: { type: "api_key", credential: "vault/x" },
+      },
+      // No explicit auth: derivation would fall through to api_key.
+      {
+        name: "chatgpt-subscription",
+        provider: "chatgpt",
+        credential: "vault/x",
+      },
+    ]) {
+      const err = await call(
+        findHandler("inference_provider_connections_create"),
+        { body },
+      ).catch((e: unknown) => e);
+      expect(err).toBeInstanceOf(BadRequestError);
+      expect((err as BadRequestError).message).toContain("sign-in");
+    }
+  });
+
+  test("rejects subscription auth on a non-chatgpt provider", async () => {
+    const err = await call(
+      findHandler("inference_provider_connections_create"),
+      {
+        body: {
+          name: "keyed-oauth",
+          provider: "openai",
+          auth: { type: "oauth_subscription", credential: "credential/x" },
+        },
+      },
+    ).catch((e: unknown) => e);
+
+    expect(err).toBeInstanceOf(BadRequestError);
+    expect((err as BadRequestError).message).toContain("chatgpt");
+  });
+
   test("rejects key auth on the vellum provider", async () => {
     const err = await call(
       findHandler("inference_provider_connections_create"),
