@@ -13,6 +13,11 @@ describe("hasBillingIntent", () => {
     expect(hasBillingIntent(params("adjust_plan=1"))).toBe(true);
     expect(hasBillingIntent(params("pro_onboarding"))).toBe(true);
     expect(hasBillingIntent(params("billing_status=success"))).toBe(true);
+    // The upgrade-cancel redirect always pairs billing_context with
+    // billing_status, so the existing billing_status check covers it.
+    expect(
+      hasBillingIntent(params("billing_status=cancel&billing_context=upgrade")),
+    ).toBe(true);
     expect(hasBillingIntent(params("session_id=cs_test_123"))).toBe(true);
   });
 

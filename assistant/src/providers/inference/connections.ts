@@ -348,10 +348,12 @@ export function updateConnection(
     connection: {
       ...existing,
       auth,
+      provider: nextProvider,
       label: input.label !== undefined ? input.label : existing.label,
       baseUrl: nextBaseUrl,
       models: nextModels,
       updatedAt: now,
+      isManaged: isManagedRow({ name, provider: nextProvider, auth }),
     },
   };
 }

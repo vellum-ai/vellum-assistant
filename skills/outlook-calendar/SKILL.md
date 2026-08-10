@@ -1,6 +1,6 @@
 ---
 name: outlook-calendar
-description: View, create, and manage Outlook Calendar events and check availability
+description: View Outlook Calendar events for any day, create and manage events, and check availability
 compatibility: "Designed for Vellum personal assistants"
 metadata:
   icon: assets/icon.svg
@@ -10,9 +10,9 @@ metadata:
     display-name: "Outlook Calendar"
     user-invocable: true
     activation-hints:
-      - "check my availability this week"
-      - "find open time slots / when am I free"
-      - "cross-calendar free/busy across my connected accounts"
+      - "plan my day or my week"
+      - "what does my day look like"
+      - "check my availability, find open time slots, when am I free"
 ---
 
 ## Script Reference

@@ -75,6 +75,12 @@ graph LR
 - `handleRemember` (`graph/tool-handlers.ts`) appends timestamped bullets to
   `memory/buffer.md` + the daily archive whenever memory is enabled. Facts may
   carry `[[slug]]` page hints that consolidation reads first when filing.
+- The buffer entry format itself is owned by `buffer-format.ts` at the plugin
+  root: the writer (`formatRememberEntry`) plus the single matcher every reader
+  uses. A fact may span several lines, so the entry and the line are different
+  units, and the readers below (consolidation's cutoff, the injected `<info>`
+  Buffer cap, the Memory tab's pending nodes) all recognize entries through
+  that one matcher rather than their own.
 - **Consolidation** (`substrate/consolidation-job.ts`) is a background
   agent conversation that files buffer entries into concept pages, rewrites
   the aggregate views, and trims the buffer. Scheduling

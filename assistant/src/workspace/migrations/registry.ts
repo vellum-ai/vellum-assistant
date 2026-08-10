@@ -140,6 +140,7 @@ import { clearRenamedCostProfileLabelMigration } from "./139-clear-renamed-cost-
 import { repairSeedPinnedMemoryV3LiveMigration } from "./140-repair-seed-pinned-memory-v3-live.js";
 import { sttEnglishDefaultToMultilingualMigration } from "./141-stt-english-default-to-multilingual.js";
 import { consolidateVoiceFrontDoorMigration } from "./142-consolidate-voice-front-door.js";
+import { repairDeprecatedCodexModelIdMigration } from "./143-repair-deprecated-codex-model-id.js";
 import { migrateToWorkspaceVolumeMigration } from "./migrate-to-workspace-volume.js";
 import type { WorkspaceMigration } from "./types.js";
 
@@ -295,4 +296,5 @@ export const WORKSPACE_MIGRATIONS: WorkspaceMigration[] = [
   repairSeedPinnedMemoryV3LiveMigration,
   sttEnglishDefaultToMultilingualMigration,
   consolidateVoiceFrontDoorMigration,
+  repairDeprecatedCodexModelIdMigration,
 ];

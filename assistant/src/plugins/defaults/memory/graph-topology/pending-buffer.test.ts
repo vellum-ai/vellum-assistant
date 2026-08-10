@@ -42,6 +42,21 @@ describe("parseBufferEntries", () => {
     expect(entries[1]!.text).toBe("separate fact");
   });
 
+  test("an indented entry-shaped line stays inside the fact above it", () => {
+    // `formatRememberEntry` always writes at column 0, so an indented bullet
+    // that happens to carry a timestamp is body text the user wrote. Reading
+    // it as an entry splits one fact into two nodes in the Memory tab.
+    const entries = parseBufferEntries(
+      "- [Jul 20, 3:15 PM] Timeline for the migration:\n" +
+        "  - [Jul 21, 9:00 AM] cutover window opens\n" +
+        "  - [Jul 22, 9:00 AM] rollback deadline\n",
+    );
+    expect(entries).toHaveLength(1);
+    expect(entries[0]!.text).toBe(
+      "Timeline for the migration:\n- [Jul 21, 9:00 AM] cutover window opens\n- [Jul 22, 9:00 AM] rollback deadline",
+    );
+  });
+
   test("keeps interior blank lines inside a multiline fact", () => {
     const entries = parseBufferEntries(
       "- [Jul 20, 3:15 PM] first paragraph\n\nsecond paragraph\n- [Jul 20, 3:16 PM] next\n",

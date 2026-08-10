@@ -17,6 +17,8 @@ import {
   type CredentialRequestDetails,
 } from "./credential-entry-api";
 
+import { useTranslation } from "@/i18n";
+
 /**
  * Public one-time credential entry page (`/assistant/credentials/enter`).
  *
@@ -87,6 +89,7 @@ function StatusCard({
 }
 
 export function CredentialEntryPage() {
+  const { t } = useTranslation("credential-requests");
   // The token is captured once, before it is stripped from the URL below.
   // Minted links carry it in the fragment (never sent over HTTP); the query
   // param remains as a fallback.
@@ -213,29 +216,27 @@ export function CredentialEntryPage() {
             aria-hidden
           />
         }
-        title="Checking link"
+        title={t("credentialEntry.checkingTitle")}
       >
-        Looking up this credential request.
+        {t("credentialEntry.checkingBody")}
       </StatusCard>
     );
   } else if (phase.kind === "success") {
     content = (
       <StatusCard
         icon={<CheckCircle2 className="h-5 w-5 text-green-600" aria-hidden />}
-        title="Credential saved"
+        title={t("credentialEntry.savedTitle")}
       >
-        You can close this tab and return to your conversation — the assistant
-        can use the credential right away. The value can't be viewed again.
+        {t("credentialEntry.savedBody")}
       </StatusCard>
     );
   } else if (phase.kind === "invalid") {
     content = (
       <StatusCard
         icon={<AlertCircle className="h-5 w-5 text-red-600" aria-hidden />}
-        title="Link not valid"
+        title={t("credentialEntry.invalidTitle")}
       >
-        This credential link isn't valid. Check that the full link was copied,
-        or ask for a new one.
+        {t("credentialEntry.invalidBody")}
       </StatusCard>
     );
   } else if (
@@ -245,40 +246,36 @@ export function CredentialEntryPage() {
     content = (
       <StatusCard
         icon={<AlertCircle className="h-5 w-5 text-red-600" aria-hidden />}
-        title="Link expired"
+        title={t("credentialEntry.expiredTitle")}
       >
-        This credential link has expired. Links only work for a short time — ask
-        for a new one and enter the value again.
+        {t("credentialEntry.expiredBody")}
       </StatusCard>
     );
   } else if (phase.kind === "used") {
     content = (
       <StatusCard
         icon={<AlertCircle className="h-5 w-5 text-red-600" aria-hidden />}
-        title="Link already used"
+        title={t("credentialEntry.usedTitle")}
       >
-        This credential link has already been used. Each link works exactly once
-        — ask for a new one if the value still needs to be provided.
+        {t("credentialEntry.usedBody")}
       </StatusCard>
     );
   } else if (phase.kind === "store-failed") {
     content = (
       <StatusCard
         icon={<AlertCircle className="h-5 w-5 text-red-600" aria-hidden />}
-        title="Link no longer valid"
+        title={t("credentialEntry.storeFailedTitle")}
       >
-        The assistant could not store the credential, and for safety this
-        one-time link cannot be reused. Ask for a new link and try again there.
+        {t("credentialEntry.storeFailedBody")}
       </StatusCard>
     );
   } else if (phase.kind === "error") {
     content = (
       <StatusCard
         icon={<AlertCircle className="h-5 w-5 text-red-600" aria-hidden />}
-        title="Something went wrong"
+        title={t("credentialEntry.errorTitle")}
       >
-        The credential request couldn't be loaded. Refresh the page to try
-        again.
+        {t("credentialEntry.errorBody")}
       </StatusCard>
     );
   } else {
@@ -289,7 +286,9 @@ export function CredentialEntryPage() {
       <>
         <div className="flex items-center gap-3">
           <KeyRound className="h-5 w-5 text-blue-600" aria-hidden />
-          <h1 className="text-xl font-semibold">Provide a credential</h1>
+          <h1 className="text-xl font-semibold">
+            {t("credentialEntry.heading")}
+          </h1>
         </div>
 
         <div className="rounded-md border border-[var(--border-subtle)] bg-[var(--background-muted)] p-4">
@@ -297,14 +296,13 @@ export function CredentialEntryPage() {
             {request.label || name}
           </p>
           <p className="mt-1 font-mono text-body-small-default text-[var(--content-tertiary)]">
-            {request.label ? `${name} · ` : ""}one-time entry
+            {request.label ? `${name} · ` : ""}
+            {t("credentialEntry.oneTimeEntry")}
           </p>
         </div>
 
         <p className="text-sm leading-6 text-[var(--content-secondary)]">
-          Enter the secret value below. It is stored encrypted on the assistant,
-          is never shown again, and this link stops working as soon as it's
-          used.
+          {t("credentialEntry.instructions")}
         </p>
 
         <form
@@ -312,11 +310,11 @@ export function CredentialEntryPage() {
           onSubmit={(event) => void handleSubmit(event)}
         >
           <Input
-            label="Secret value"
+            label={t("credentialEntry.valueLabel")}
             type="password"
             value={value}
             onChange={(event) => setValue(event.target.value)}
-            placeholder="Enter the secret value"
+            placeholder={t("credentialEntry.valuePlaceholder")}
             autoComplete="off"
             autoFocus
             fullWidth
@@ -331,13 +329,15 @@ export function CredentialEntryPage() {
               ) : undefined
             }
           >
-            Submit
+            {t("credentialEntry.submit")}
           </Button>
         </form>
 
         <p className="text-xs text-[var(--content-tertiary)]">
-          Expires in {formatRemaining(remainingMs)} (
-          {new Date(expiresAtMs ?? 0).toLocaleTimeString()}).
+          {t("credentialEntry.expiresIn", {
+            remaining: formatRemaining(remainingMs),
+            time: new Date(expiresAtMs ?? 0).toLocaleTimeString(),
+          })}
         </p>
       </>
     );

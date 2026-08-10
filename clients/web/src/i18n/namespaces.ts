@@ -40,7 +40,13 @@ export const NAMESPACES = [
   "schedules",
   "account",
   "channels",
+  "settings",
   "workspace",
+  "terminal",
+  "remote-web",
+  "credential-requests",
+  "logs",
+  "library",
 ] as const;
 
 export type Namespace = (typeof NAMESPACES)[number];

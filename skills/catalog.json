@@ -354,7 +354,7 @@
     {
       "id": "google-calendar",
       "name": "google-calendar",
-      "description": "View, create, and manage Google Calendar events and check availability",
+      "description": "View Google Calendar events for any day, create and manage events, and check availability",
       "metadata": {
         "icon": "assets/icon.svg",
         "emoji": "📅",
@@ -363,14 +363,14 @@
           "display-name": "Google Calendar",
           "user-invocable": "true",
           "activation-hints": [
-            "check my availability this week",
-            "find open time slots / when am I free",
-            "cross-calendar free/busy across my connected accounts"
+            "plan my day or my week",
+            "what does my day look like",
+            "check my availability, find open time slots, when am I free"
           ]
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-07-07T04:41:13.000Z"
+      "updatedAt": "2026-08-07T20:42:41.000Z"
     },
     {
       "id": "guardian-verify-setup",
@@ -716,7 +716,7 @@
     {
       "id": "outlook-calendar",
       "name": "outlook-calendar",
-      "description": "View, create, and manage Outlook Calendar events and check availability",
+      "description": "View Outlook Calendar events for any day, create and manage events, and check availability",
       "metadata": {
         "icon": "assets/icon.svg",
         "emoji": "📅",
@@ -725,14 +725,14 @@
           "display-name": "Outlook Calendar",
           "user-invocable": "true",
           "activation-hints": [
-            "check my availability this week",
-            "find open time slots / when am I free",
-            "cross-calendar free/busy across my connected accounts"
+            "plan my day or my week",
+            "what does my day look like",
+            "check my availability, find open time slots, when am I free"
           ]
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-07-07T04:41:13.000Z"
+      "updatedAt": "2026-08-07T20:42:41.000Z"
     },
     {
       "id": "plugin-builder",
@@ -759,7 +759,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-08-07T17:52:56.000Z"
+      "updatedAt": "2026-08-07T19:19:58.000Z"
     },
     {
       "id": "public-ingress",

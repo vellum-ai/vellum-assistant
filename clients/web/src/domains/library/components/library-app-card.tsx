@@ -32,6 +32,8 @@ import {
   toast,
 } from "@vellumai/design-library";
 
+import { useTranslation } from "@/i18n";
+
 interface LibraryAppCardProps {
   app: AppSummary;
   assistantId: string;
@@ -55,6 +57,7 @@ export function LibraryAppCard({
   justImported,
   onAnimationEnd,
 }: LibraryAppCardProps) {
+  const { t } = useTranslation("library");
   const [isSharing, setIsSharing] = useState(false);
   // Plugin-bundled apps are read-only: the daemon rejects delete/share/deploy
   // against them, so drop those actions here rather than render buttons that
@@ -74,15 +77,17 @@ export function LibraryAppCard({
     setIsSharing(true);
     try {
       await shareApp(assistantId, app.id, app.name);
-      toast.success("App exported", { description: `${app.name}.vellum` });
+      toast.success(t("libraryAppCard.exported"), {
+        description: `${app.name}.vellum`,
+      });
     } catch (err) {
-      toast.error("Failed to share app", {
+      toast.error(t("libraryAppCard.shareFailed"), {
         description: err instanceof Error ? err.message : undefined,
       });
     } finally {
       setIsSharing(false);
     }
-  }, [assistantId, app.id, app.name, isSharing]);
+  }, [assistantId, app.id, app.name, isSharing, t]);
 
   const [menuOpen, setMenuOpen] = useState(false);
 
@@ -234,6 +239,7 @@ export function LibraryAppCardActionsMenu({
   deployedUrl,
   onCopyDeployedLink,
 }: LibraryAppCardActionsMenuProps) {
+  const { t } = useTranslation("library");
   const isTouchMobile = useTouchMobile();
   // Only treated as deployed when the caller can also hand the link back.
   // Otherwise the entry would report a deployment it can't reach.
@@ -247,7 +253,7 @@ export function LibraryAppCardActionsMenu({
             variant="primary"
             size="compact"
             iconOnly={<Ellipsis />}
-            aria-label="App actions"
+            aria-label={t("libraryAppCard.actionsAria")}
             onClick={(e: MouseEvent) => e.stopPropagation()}
           />
         </BottomSheet.Trigger>
@@ -258,7 +264,9 @@ export function LibraryAppCardActionsMenu({
           <BottomSheet.Body className="pt-0">
             <PanelItem
               icon={isPinned ? PinOff : Pin}
-              label={isPinned ? "Unpin" : "Pin"}
+              label={
+                isPinned ? t("libraryAppCard.unpin") : t("libraryAppCard.pin")
+              }
               onSelect={() => {
                 onOpenChange(false);
                 onPin();
@@ -269,9 +277,9 @@ export function LibraryAppCardActionsMenu({
                 icon={ArrowUp}
                 label={
                   <span className="flex flex-col gap-0.5 overflow-visible whitespace-normal">
-                    <span>Share</span>
+                    <span>{t("libraryAppCard.share")}</span>
                     <span className="text-body-small-default text-[var(--content-tertiary)]">
-                      Export as .vellum file
+                      {t("libraryAppCard.shareSub")}
                     </span>
                   </span>
                 }
@@ -287,7 +295,7 @@ export function LibraryAppCardActionsMenu({
                   icon={Link2}
                   label={
                     <span className="flex flex-col gap-0.5 overflow-visible whitespace-normal">
-                      <span>Deployed to Vercel</span>
+                      <span>{t("libraryAppCard.deployed")}</span>
                       <span className="break-all text-body-small-default text-[var(--content-tertiary)]">
                         {deployedUrl}
                       </span>
@@ -302,9 +310,9 @@ export function LibraryAppCardActionsMenu({
                   icon={RefreshCw}
                   label={
                     <span className="flex flex-col gap-0.5 overflow-visible whitespace-normal">
-                      <span>Redeploy</span>
+                      <span>{t("libraryAppCard.redeploy")}</span>
                       <span className="text-body-small-default text-[var(--content-tertiary)]">
-                        Publish the current version
+                        {t("libraryAppCard.redeploySub")}
                       </span>
                     </span>
                   }
@@ -319,9 +327,9 @@ export function LibraryAppCardActionsMenu({
                 icon={Globe}
                 label={
                   <span className="flex flex-col gap-0.5 overflow-visible whitespace-normal">
-                    <span>Deploy to Vercel</span>
+                    <span>{t("libraryAppCard.deploy")}</span>
                     <span className="text-body-small-default text-[var(--content-tertiary)]">
-                      Publish as a static page
+                      {t("libraryAppCard.deploySub")}
                     </span>
                   </span>
                 }
@@ -334,7 +342,7 @@ export function LibraryAppCardActionsMenu({
             {onDelete ? (
               <PanelItem
                 icon={Trash2}
-                label="Delete"
+                label={t("libraryAppCard.delete")}
                 onSelect={() => {
                   onOpenChange(false);
                   onDelete();
@@ -353,7 +361,7 @@ export function LibraryAppCardActionsMenu({
           variant="primary"
           size="compact"
           iconOnly={<Ellipsis />}
-          aria-label="App actions"
+          aria-label={t("libraryAppCard.actionsAria")}
           onClick={(e: MouseEvent) => e.stopPropagation()}
         />
       </Menu.Trigger>
@@ -363,7 +371,7 @@ export function LibraryAppCardActionsMenu({
           onSelect={() => onPin()}
           className="whitespace-nowrap"
         >
-          {isPinned ? "Unpin" : "Pin"}
+          {isPinned ? t("libraryAppCard.unpin") : t("libraryAppCard.pin")}
         </Menu.Item>
         {onShare ? (
           <Menu.Item
@@ -371,25 +379,25 @@ export function LibraryAppCardActionsMenu({
             onSelect={() => onShare()}
             className="whitespace-nowrap"
           >
-            Share
+            {t("libraryAppCard.share")}
           </Menu.Item>
         ) : null}
         {onDeploy && isDeployed ? (
           <>
             <Menu.Item
               leftIcon={<Link2 size={14} />}
-              shortcut="Copy link"
+              shortcut={t("libraryAppCard.copyLink")}
               onSelect={() => onCopyDeployedLink?.()}
               className="whitespace-nowrap"
             >
-              Deployed to Vercel
+              {t("libraryAppCard.deployed")}
             </Menu.Item>
             <Menu.Item
               leftIcon={<RefreshCw size={14} />}
               onSelect={() => onDeploy()}
               className="whitespace-nowrap"
             >
-              Redeploy
+              {t("libraryAppCard.redeploy")}
             </Menu.Item>
           </>
         ) : onDeploy ? (
@@ -398,7 +406,7 @@ export function LibraryAppCardActionsMenu({
             onSelect={() => onDeploy()}
             className="whitespace-nowrap"
           >
-            Deploy to Vercel
+            {t("libraryAppCard.deploy")}
           </Menu.Item>
         ) : null}
         {onDelete ? (
@@ -407,7 +415,7 @@ export function LibraryAppCardActionsMenu({
             onSelect={() => onDelete()}
             className="whitespace-nowrap text-red-600 data-[highlighted]:text-red-700"
           >
-            Delete
+            {t("libraryAppCard.delete")}
           </Menu.Item>
         ) : null}
       </Menu.Content>

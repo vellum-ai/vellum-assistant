@@ -17,6 +17,8 @@ import type {
 import type { PlatformGateState } from "@/hooks/use-platform-gate";
 import { routes } from "@/utils/routes";
 
+import { useTranslation } from "@/i18n";
+
 function formatTimestamp(iso: string): string {
   return new Date(iso).toLocaleString(undefined, {
     month: "short",
@@ -84,6 +86,7 @@ function ErrorRetryRow({
   onRetry: () => void;
   retrying: boolean;
 }) {
+  const { t } = useTranslation("logs");
   return (
     <MessageBox tone="error">
       <div className="flex items-center justify-between gap-3">
@@ -95,7 +98,7 @@ function ErrorRetryRow({
           className="text-body-small-default underline disabled:opacity-50"
           style={{ color: "var(--content-default)" }}
         >
-          {retrying ? "Retrying…" : "Retry"}
+          {retrying ? t("errorRetryRow.retrying") : t("errorRetryRow.retry")}
         </button>
       </div>
     </MessageBox>
@@ -142,6 +145,7 @@ function StatTile({ label, value, sub }: StatTileProps) {
 }
 
 function EmailRow({ email }: { email: EmailMessage }) {
+  const { t } = useTranslation("logs");
   const isInbound = email.direction === "inbound";
   return (
     <div
@@ -158,7 +162,7 @@ function EmailRow({ email }: { email: EmailMessage }) {
               tone={isInbound ? "positive" : "neutral"}
               leftIcon={isInbound ? <Inbox /> : <Send />}
             >
-              {isInbound ? "Inbound" : "Outbound"}
+              {isInbound ? t("emailsTab.inbound") : t("emailsTab.outbound")}
             </Tag>
             <span
               className="truncate text-body-small-default"
@@ -171,7 +175,7 @@ function EmailRow({ email }: { email: EmailMessage }) {
             className="truncate text-body-medium-default"
             style={{ color: "var(--content-default)" }}
           >
-            {email.subject || "(no subject)"}
+            {email.subject || t("emailsTab.noSubject")}
           </p>
         </div>
         <div
@@ -192,6 +196,7 @@ interface EmailsTabProps {
 }
 
 export function EmailsTab({ assistantId, platformGate }: EmailsTabProps) {
+  const { t } = useTranslation("logs");
   const gateEnabled = platformGate === "full";
 
   const addressesQuery = useQuery({
@@ -234,7 +239,7 @@ export function EmailsTab({ assistantId, platformGate }: EmailsTabProps) {
   if (addressesQuery.isError) {
     return (
       <ErrorRetryRow
-        message="Couldn't load email addresses."
+        message={t("emailsTab.addressesLoadFailed")}
         onRetry={() => {
           void addressesQuery.refetch();
         }}
@@ -246,13 +251,13 @@ export function EmailsTab({ assistantId, platformGate }: EmailsTabProps) {
   if (!address) {
     return (
       <MessageBox>
-        No email address registered yet.{" "}
+        {t("emailsTab.noAddress")}{" "}
         <Link
           to={routes.settings.ai}
           className="underline"
           style={{ color: "var(--content-tertiary)" }}
         >
-          Set one up in AI Settings → Email.
+          {t("emailsTab.setUpLink")}
         </Link>
       </MessageBox>
     );
@@ -260,41 +265,51 @@ export function EmailsTab({ assistantId, platformGate }: EmailsTabProps) {
 
   return (
     <div className="flex flex-col gap-6">
-      <Section title="Totals">
+      <Section title={t("emailsTab.totals")}>
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
           <StatTile
-            label="Sent today"
+            label={t("emailsTab.sentToday")}
             value={usage?.sent_today}
-            sub={usage ? `of ${usage.daily_limit} daily limit` : undefined}
+            sub={
+              usage
+                ? t("emailsTab.dailyLimitSub", { limit: usage.daily_limit })
+                : undefined
+            }
           />
-          <StatTile label="Received today" value={usage?.received_today} />
-          <StatTile label="Sent this month" value={usage?.sent_this_month} />
           <StatTile
-            label="Received this month"
+            label={t("emailsTab.receivedToday")}
+            value={usage?.received_today}
+          />
+          <StatTile
+            label={t("emailsTab.sentThisMonth")}
+            value={usage?.sent_this_month}
+          />
+          <StatTile
+            label={t("emailsTab.receivedThisMonth")}
             value={usage?.received_this_month}
           />
         </div>
       </Section>
 
-      <Section title="Recent Emails">
+      <Section title={t("emailsTab.recentEmails")}>
         {emailsQuery.isLoading ? (
           <div
             className="flex items-center gap-2 text-body-small-default"
             style={{ color: "var(--content-tertiary)" }}
           >
             <Loader2 className="h-4 w-4 animate-spin" />
-            Loading…
+            {t("emailsTab.loading")}
           </div>
         ) : emailsQuery.isError ? (
           <ErrorRetryRow
-            message="Couldn't load recent emails."
+            message={t("emailsTab.emailsLoadFailed")}
             onRetry={() => {
               void emailsQuery.refetch();
             }}
             retrying={emailsQuery.isFetching}
           />
         ) : emails.length === 0 ? (
-          <MessageBox>No emails yet.</MessageBox>
+          <MessageBox>{t("emailsTab.noEmails")}</MessageBox>
         ) : (
           <div className="space-y-2">
             {emails.map((email) => (

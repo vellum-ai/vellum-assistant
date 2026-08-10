@@ -161,7 +161,12 @@ export async function computeConnectionAvailability(
   if (resolvedConnectionName === VELLUM_MANAGED_CONNECTION_NAME) {
     return vellumConnectionAvailability();
   }
-  if (connection.provider !== provider) {
+  // The ChatGPT-subscription row stores the "chatgpt" identity while its
+  // upstream is openai; the credential switch below is the right check for
+  // it (the subscription token is its credential).
+  const isChatgptRow =
+    connection.provider === "chatgpt" && provider === "openai";
+  if (!isChatgptRow && connection.provider !== provider) {
     return {
       status: "provider_mismatch",
       message: `Connection "${resolvedConnectionName}" is for provider "${connection.provider}", but the requested provider is "${provider}". Pick a connection for "${provider}" ${SETTINGS_HINT}.`,
