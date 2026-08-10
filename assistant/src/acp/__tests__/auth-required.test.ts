@@ -18,6 +18,7 @@ import {
   AUTH_REQUIRED_CODE,
   CLAUDE_ACP_COMMAND,
   isAcpAuthRequired,
+  isClaudeAuthFailureMessage,
 } from "../auth-required.js";
 
 describe("isAcpAuthRequired", () => {
@@ -45,6 +46,50 @@ describe("isAcpAuthRequired", () => {
     // Matches the SDK's RequestError.authRequired(); drifting from it would
     // silently stop classifying every auth failure.
     expect(AUTH_REQUIRED_CODE).toBe(-32000);
+  });
+});
+
+describe("isClaudeAuthFailureMessage", () => {
+  test("matches the live rejected-credential failure verbatim", () => {
+    // Captured from a real claude-agent-acp run against a revoked token: the
+    // adapter relays the CLI's failure as a -32603 internal error carrying
+    // this text, NOT as the structured auth_required rejection. This message
+    // is the reported bug, so it must classify.
+    expect(
+      isClaudeAuthFailureMessage(
+        "Internal error: Failed to authenticate. API Error: 401 OAuth access token has been revoked.",
+      ),
+    ).toBe(true);
+  });
+
+  test("is insensitive to the server's variable suffix", () => {
+    // The CLI-authored prefix is the stable part; the API's suffix varies.
+    expect(
+      isClaudeAuthFailureMessage(
+        "Failed to authenticate. API Error: 401 OAuth access token has expired. Re-authenticate to continue.",
+      ),
+    ).toBe(true);
+  });
+
+  test("matches the CLI's other auth phrasings", () => {
+    expect(
+      isClaudeAuthFailureMessage(
+        "Session expired. Please run /login to sign in again.",
+      ),
+    ).toBe(true);
+    expect(isClaudeAuthFailureMessage("Not logged in")).toBe(true);
+  });
+
+  test("does not fire on ordinary failures", () => {
+    expect(isClaudeAuthFailureMessage("Internal error")).toBe(false);
+    expect(isClaudeAuthFailureMessage("ECONNRESET: connection reset")).toBe(
+      false,
+    );
+    expect(
+      isClaudeAuthFailureMessage("Command failed: login.sh: not found"),
+    ).toBe(false);
+    expect(isClaudeAuthFailureMessage(undefined)).toBe(false);
+    expect(isClaudeAuthFailureMessage("")).toBe(false);
   });
 });
 

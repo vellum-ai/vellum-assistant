@@ -20,6 +20,7 @@ import {
   ACP_CLAUDE_AUTH_REQUIRED_CODE,
   CLAUDE_ACP_COMMAND,
   isAcpAuthRequired,
+  isClaudeAuthFailureMessage,
 } from "./auth-required.js";
 import { resolveAgentWithAutoInstall } from "./auto-install.js";
 import { VellumAcpClientHandler } from "./client-handler.js";
@@ -55,18 +56,31 @@ const ACP_AUTH_RECOVERY_GUIDANCE =
 
 /**
  * The client-facing marker for a run that failed because its Claude credential
- * was rejected, or undefined when this failure is anything else.
+ * was rejected or missing, or undefined when this failure is anything else.
  *
- * Gated on the adapter as well as the signal: `auth_required` is protocol-level
- * and any agent can raise it, but the marker promises a repair the Connect
- * Claude flow can actually perform. Raising it for a codex run would offer a
- * card that fixes nothing.
+ * Gated on the adapter FIRST: the signals below are Claude-specific, and the
+ * marker promises a repair only the Connect Claude flow can perform. Raising it
+ * for a codex run would offer a card that fixes nothing.
+ *
+ * Both auth-failure shapes are checked (see `auth-required.ts`): the structured
+ * ACP `auth_required` rejection for the no-credentials case, and the CLI's
+ * authored failure text for a present-but-rejected credential, which the
+ * adapter relays as a generic internal error. The text check runs against both
+ * the raw rejection message and the derived failure message, since
+ * `deriveFailureError` may replace one with the other.
  */
 function claudeAuthRequiredCode(
   err: unknown,
+  failureMessage: string,
   entry: { command: string },
 ): string | undefined {
-  return isAcpAuthRequired(err) && entry.command === CLAUDE_ACP_COMMAND
+  if (entry.command !== CLAUDE_ACP_COMMAND) {
+    return undefined;
+  }
+  const rawMessage = err instanceof Error ? err.message : String(err);
+  return isAcpAuthRequired(err) ||
+    isClaudeAuthFailureMessage(rawMessage) ||
+    isClaudeAuthFailureMessage(failureMessage)
     ? ACP_CLAUDE_AUTH_REQUIRED_CODE
     : undefined;
 }
@@ -1143,7 +1157,11 @@ export class AcpSessionManager {
           // token it returns the provider's raw 401 text, which says nothing
           // about how to recover. Whether this was an auth failure is a
           // separate question, and only the structured error can answer it.
-          const errorCode = claudeAuthRequiredCode(err, current);
+          const errorCode = claudeAuthRequiredCode(
+            err,
+            failureMessage,
+            current,
+          );
           if (current.state.status !== "cancelled") {
             current.state.status = "failed";
             current.state.completedAt = Date.now();

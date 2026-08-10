@@ -1,20 +1,28 @@
 /**
- * The ACP auth-required signal, and the marker that carries it to the client.
+ * Detection of Claude authentication failures on ACP runs, and the marker that
+ * carries the classification to the client.
  *
- * When a Claude Code turn fails authentication, the CLI injects a synthetic
- * "Please run /login" assistant message. `claude-agent-acp` deliberately does
- * NOT pass that TUI-specific text through: it converts it into a structured ACP
- * `auth_required` rejection so the client can run its own auth flow. That
- * rejection is the one trustworthy, adapter-agnostic statement that a run died
- * because its credential is no longer good, and it is what the inline
- * re-authentication affordance is built on.
+ * Claude auth failures reach the daemon in TWO distinct shapes, and both are
+ * needed. Verified against `claude-agent-acp` 0.63.0 / Claude Code CLI 2.1.220
+ * by live probe, since the shapes are decided across a compiled binary and a
+ * server response:
  *
- * Keeping the signal STRUCTURED matters. The human-readable text around it is
- * not stable enough to key on: it varies by adapter and by failure mode, and
- * `deriveFailureError` may replace it wholesale with whatever the adapter last
- * wrote to stderr (for an expired Claude token, the provider's raw
- * "401 OAuth access token has expired"). Matching on that string would be
- * guessing at a moving target when the protocol already told us the answer.
+ * 1. NO credentials at all: the CLI injects a synthetic "Please run /login"
+ *    assistant message, which the adapter converts into a structured ACP
+ *    `auth_required` rejection (JSON-RPC -32000) so the client can run its own
+ *    auth flow. {@link isAcpAuthRequired} catches this shape.
+ * 2. Credentials PRESENT but rejected (the expired/revoked-token case, and the
+ *    one users actually hit): the CLI surfaces the API's 401 as an error whose
+ *    message it authors, e.g. "Failed to authenticate. API Error: 401 OAuth
+ *    access token has been revoked." The adapter relays it as a generic
+ *    JSON-RPC -32603 internal error, NOT as `auth_required`.
+ *    {@link isClaudeAuthFailureMessage} catches this shape.
+ *
+ * The second matcher is text-based by necessity, but it is anchored: the
+ * Claude Code binary ships `^Failed to authenticate\.`, `^Please run \/login ·`
+ * and `^Not logged in$` as its own classification constants, so these patterns
+ * mirror the CLI's contract with itself. They match CLI-authored framing, never
+ * the server's variable suffixes ("has expired" vs "has been revoked").
  */
 
 /**
@@ -58,6 +66,34 @@ export function isAcpAuthRequired(err: unknown): boolean {
     typeof err === "object" &&
     err !== null &&
     (err as { code?: unknown }).code === AUTH_REQUIRED_CODE
+  );
+}
+
+/**
+ * The CLI-authored auth-failure phrasings, mirrored from the constants the
+ * Claude Code binary uses for its own error classification. Deliberately
+ * unanchored (no ^/$): by the time these messages reach the session manager
+ * they carry adapter framing ("Internal error: Failed to authenticate. ..."),
+ * and `deriveFailureError` may have picked the line out of stderr instead.
+ */
+const CLAUDE_AUTH_FAILURE_PATTERNS: readonly RegExp[] = [
+  /Failed to authenticate\b/,
+  /Please run \/login/,
+  /\bNot logged in\b/,
+];
+
+/**
+ * Whether a failure message is a Claude authentication failure, per the CLI's
+ * own phrasings. Callers gate on the adapter (`claude-agent-acp`) BEFORE
+ * consulting this: the patterns are Claude-specific, and the marker built on
+ * them promises a repair only the Connect Claude flow can perform.
+ */
+export function isClaudeAuthFailureMessage(
+  message: string | undefined,
+): boolean {
+  return (
+    message != null &&
+    CLAUDE_AUTH_FAILURE_PATTERNS.some((pattern) => pattern.test(message))
   );
 }
 
