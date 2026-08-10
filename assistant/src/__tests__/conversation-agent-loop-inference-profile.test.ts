@@ -325,6 +325,7 @@ mock.module("../persistence/llm-request-log-store.js", () => ({
 
 import type { Conversation } from "../daemon/conversation.js";
 import { runAgentLoopImpl } from "../daemon/conversation-agent-loop.js";
+import { asConversation } from "./helpers/mock-conversation.js";
 
 // ── Test helpers ─────────────────────────────────────────────────────
 
@@ -363,7 +364,7 @@ function makeCtx(
     ];
   };
 
-  return {
+  return asConversation({
     conversationId: "test-conv",
     messages: [
       { role: "user", content: [{ type: "text", text: "Hello" }] },
@@ -493,7 +494,7 @@ function makeCtx(
     } as unknown as Conversation["graphMemory"],
 
     ...overrides,
-  } as unknown as Conversation;
+  } as unknown as Partial<Conversation>);
 }
 
 // ── Tests ────────────────────────────────────────────────────────────

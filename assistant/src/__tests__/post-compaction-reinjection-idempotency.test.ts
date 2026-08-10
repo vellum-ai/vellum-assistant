@@ -12,6 +12,7 @@
  */
 import { afterEach, describe, expect, test } from "bun:test";
 
+import type { Conversation } from "../daemon/conversation.js";
 import {
   clearConversations,
   setConversation,
@@ -20,6 +21,7 @@ import { applyRuntimeInjections } from "../daemon/conversation-runtime-assembly.
 import { registerDefaultPluginInjectors } from "../plugins/defaults/index.js";
 import { stripTailInjectionsForReinjection } from "../plugins/defaults/memory/tail-reinjection-strip.js";
 import type { Message } from "../providers/types.js";
+import { asConversation } from "./helpers/mock-conversation.js";
 
 // Populate the injector registry with the default plugins' injectors the way
 // bootstrap does in production, so `applyRuntimeInjections` walks a non-empty
@@ -160,13 +162,16 @@ describe("applyRuntimeInjections re-injection idempotency", () => {
   // a frozen temporal snapshot so the non-presence-gated `<turn_context>` block
   // is produced every assembly.
   function seedConversation(): void {
-    setConversation(FALLBACK_CONVERSATION_ID, {
-      conversationId: FALLBACK_CONVERSATION_ID,
-      workingDir: "/sandbox",
-      workspaceTopLevelContext: WORKSPACE_BLOCK,
-      workspaceTopLevelDirty: false,
-      currentTurnTemporalSnapshot: { clientTimezone: null },
-    } as never);
+    setConversation(
+      FALLBACK_CONVERSATION_ID,
+      asConversation({
+        conversationId: FALLBACK_CONVERSATION_ID,
+        workingDir: "/sandbox",
+        workspaceTopLevelContext: WORKSPACE_BLOCK,
+        workspaceTopLevelDirty: false,
+        currentTurnTemporalSnapshot: { clientTimezone: null },
+      } as unknown as Partial<Conversation>),
+    );
   }
 
   afterEach(() => {

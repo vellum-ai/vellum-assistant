@@ -180,12 +180,14 @@ mock.module("../persistence/db-connection.js", () => ({
 
 // ── Imports (after mocks) ───────────────────────────────────────────────────
 
+import type { Conversation } from "../daemon/conversation.js";
 import {
   clearConversations,
   setConversation,
 } from "../daemon/conversation-registry.js";
 import { CallSiteRoutingProvider } from "../providers/call-site-routing.js";
 import { SubagentManager } from "../subagent/manager.js";
+import { asConversation } from "./helpers/mock-conversation.js";
 
 // Seed the workspace `llm` config per-case. The real loader schema-merges the
 // raw fragment over defaults exactly as the code path reads it.
@@ -318,12 +320,15 @@ describe("SubagentManager — provider call-site routing", () => {
     capturedConversations.length = 0;
     clearConversations();
     const manager = new SubagentManager();
-    setConversation("parent-perms", {
-      trustContext: parentTrustContext,
-      getAuthContext: () => parentAuthContext,
-      assistantId: "self",
-      getCurrentSystemPrompt: () => "parent system",
-    } as any);
+    setConversation(
+      "parent-perms",
+      asConversation({
+        trustContext: parentTrustContext,
+        getAuthContext: () => parentAuthContext,
+        assistantId: "self",
+        getCurrentSystemPrompt: () => "parent system",
+      } as unknown as Partial<Conversation>),
+    );
 
     await manager.spawn(
       {
@@ -354,11 +359,14 @@ describe("SubagentManager — provider call-site routing", () => {
     capturedConversations.length = 0;
     clearConversations();
     const manager = new SubagentManager();
-    setConversation("parent-scoped", {
-      enabledPlugins: parentScope,
-      getAuthContext: () => undefined,
-      getCurrentSystemPrompt: () => "parent system",
-    } as any);
+    setConversation(
+      "parent-scoped",
+      asConversation({
+        enabledPlugins: parentScope,
+        getAuthContext: () => undefined,
+        getCurrentSystemPrompt: () => "parent system",
+      } as unknown as Partial<Conversation>),
+    );
 
     await manager.spawn(
       {

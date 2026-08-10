@@ -7,7 +7,9 @@
 
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
+import { asConversation } from "../__tests__/helpers/mock-conversation.js";
 import type { QuestionRequestEvent } from "../api/events/question-request.js";
+import type { Conversation } from "../daemon/conversation.js";
 
 const createGuardianRequestMock = mock(
   (params: Record<string, unknown>): Promise<Record<string, unknown>> =>
@@ -27,7 +29,12 @@ let rowAfterExpire: Record<string, unknown> | null = null;
 
 mock.module("../daemon/conversation-registry.js", () => ({
   findConversation: (_id: string) =>
-    trustContext ? { trustContext, assistantId: "self" } : undefined,
+    trustContext
+      ? asConversation({
+          trustContext: trustContext as never,
+          assistantId: "self",
+        } as unknown as Partial<Conversation>)
+      : undefined,
 }));
 mock.module("../channels/gateway-guardian-requests.js", () => ({
   createGuardianRequest: (params: Record<string, unknown>) =>

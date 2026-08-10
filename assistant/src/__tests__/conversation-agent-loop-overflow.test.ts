@@ -472,6 +472,7 @@ mock.module("../memory/archive-store.js", () => ({
 import { AgentLoop } from "../agent/loop.js";
 import type { Conversation } from "../daemon/conversation.js";
 import { runAgentLoopImpl } from "../daemon/conversation-agent-loop.js";
+import { asConversation } from "./helpers/mock-conversation.js";
 import {
   createMockProvider,
   type ScriptedResponse,
@@ -519,7 +520,7 @@ function makeCtx(
     toolExecutor,
   });
 
-  const ctx = {
+  const ctx = asConversation({
     conversationId: "test-conv",
     messages: [
       { role: "user", content: [{ type: "text", text: "Hello" }] },
@@ -632,7 +633,7 @@ function makeCtx(
     } as unknown as Conversation["graphMemory"],
 
     ...ctxOverrides,
-  } as unknown as Conversation;
+  } as unknown as Partial<Conversation>);
   // The convergence driver resolves the turn-scoped overflow ladder off the
   // manager; give every fake manager the ladder methods unless a test supplied
   // its own.

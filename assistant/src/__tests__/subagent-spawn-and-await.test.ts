@@ -202,11 +202,13 @@ mock.module("../config/llm-resolver.js", () => ({
 
 // ── Imports (after mocks) ───────────────────────────────────────────────────
 
+import type { Conversation } from "../daemon/conversation.js";
 import {
   clearConversations,
   setConversation,
 } from "../daemon/conversation-registry.js";
 import { SubagentAbortedError, SubagentManager } from "../subagent/manager.js";
+import { asConversation } from "./helpers/mock-conversation.js";
 
 function makeConfig(overrides: Record<string, unknown> = {}) {
   return {
@@ -229,16 +231,19 @@ function registerFakeParent(parentConversationId: string): {
   enqueuedCount: () => number;
 } {
   let enqueued = 0;
-  setConversation(parentConversationId, {
-    // Accessors read by setUpSubagent when copying trust/auth context.
-    trustContext: undefined,
-    getAuthContext: () => undefined,
-    assistantId: undefined,
-    enqueueMessage: () => {
-      enqueued += 1;
-      return { rejected: false, queued: true };
-    },
-  } as never);
+  setConversation(
+    parentConversationId,
+    asConversation({
+      // Accessors read by setUpSubagent when copying trust/auth context.
+      trustContext: undefined,
+      getAuthContext: () => undefined,
+      assistantId: undefined,
+      enqueueMessage: () => {
+        enqueued += 1;
+        return { rejected: false, queued: true };
+      },
+    } as unknown as Partial<Conversation>),
+  );
   return { enqueuedCount: () => enqueued };
 }
 

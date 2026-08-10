@@ -2319,7 +2319,7 @@ export async function applyRuntimeInjections(
   // folded into the summary are excluded.
   const slackActiveThreadFocusBlock = channelCapabilities
     ? loadSlackActiveThreadFocusBlock(conversationId, channelCapabilities, {
-        trustClass: liveConversation?.trustContext?.trustClass,
+        trustClass: liveConversation?.getTrustContext()?.trustClass,
         contextCompactedMessageCount:
           liveConversation?.contextCompactedMessageCount,
         slackContextCompactionWatermarkTs:
@@ -2337,7 +2337,7 @@ export async function applyRuntimeInjections(
   // boundary without the orchestrator threading a snapshot in.
   const slackChronologicalMessages = channelCapabilities
     ? loadSlackChronologicalMessages(conversationId, channelCapabilities, {
-        trustClass: liveConversation?.trustContext?.trustClass,
+        trustClass: liveConversation?.getTrustContext()?.trustClass,
         contextSummary: liveConversation?.contextSummary,
         contextCompactedMessageCount:
           liveConversation?.contextCompactedMessageCount,

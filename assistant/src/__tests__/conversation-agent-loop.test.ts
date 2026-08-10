@@ -676,6 +676,7 @@ import {
   runAgentLoopImpl,
 } from "../daemon/conversation-agent-loop.js";
 import { settleTurnTail } from "../daemon/turn-tail-chain.js";
+import { asConversation } from "./helpers/mock-conversation.js";
 import {
   createMockProvider,
   type ScriptedResponse,
@@ -731,7 +732,7 @@ function makeCtx(
     toolExecutor,
   });
 
-  const ctx = {
+  const ctx = asConversation({
     conversationId: "test-conv",
     messages: [
       { role: "user", content: [{ type: "text", text: "Hello" }] },
@@ -851,7 +852,7 @@ function makeCtx(
     } as unknown as Conversation["graphMemory"],
 
     ...ctxOverrides,
-  } as unknown as Conversation;
+  } as unknown as Partial<Conversation>);
   // Reactive overflow recovery resolves the turn-scoped reduction ladder off
   // the manager; give every fake manager the ladder methods unless a test
   // supplied its own.

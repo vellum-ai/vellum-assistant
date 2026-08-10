@@ -106,6 +106,7 @@ mock.module("../daemon/date-context.js", () => ({
 import { resolveCallSiteConfig } from "../config/llm-resolver.js";
 import { LLMSchema } from "../config/schemas/llm.js";
 import { REFUSAL_FALLBACK_TEXT } from "../context/refusal-quarantine.js";
+import type { Conversation } from "../daemon/conversation.js";
 import {
   clearConversations,
   setConversation,
@@ -161,6 +162,7 @@ import { wrapUntrustedContent } from "../security/untrusted-content.js";
 import { getSubagentManager } from "../subagent/index.js";
 import type { SubagentState } from "../subagent/types.js";
 import { getWorkspacePromptPath } from "../util/platform.js";
+import { asConversation } from "./helpers/mock-conversation.js";
 
 // `applyRuntimeInjections` self-resolves the Slack active-thread focus block by
 // reading the live conversation's persisted message rows, so the schema must
@@ -222,20 +224,23 @@ function seedActiveSurfaceConversation(
     clientTimezone: string | null;
   },
 ): void {
-  setConversation(conversationId, {
+  setConversation(
     conversationId,
-    workingDir: "/sandbox",
-    workspaceTopLevelContext: workspaceText,
-    workspaceTopLevelDirty: false,
-    currentActiveSurfaceId: surfaceId,
-    surfaceState: new Map<
-      string,
-      { surfaceType: SurfaceType; data: SurfaceData }
-    >([[surfaceId, { surfaceType: "dynamic_page", data }]]),
-    channelCapabilities: channelCapabilities ?? undefined,
-    commandIntent,
-    currentTurnTemporalSnapshot,
-  } as never);
+    asConversation({
+      conversationId,
+      workingDir: "/sandbox",
+      workspaceTopLevelContext: workspaceText,
+      workspaceTopLevelDirty: false,
+      currentActiveSurfaceId: surfaceId,
+      surfaceState: new Map<
+        string,
+        { surfaceType: SurfaceType; data: SurfaceData }
+      >([[surfaceId, { surfaceType: "dynamic_page", data }]]),
+      channelCapabilities: channelCapabilities ?? undefined,
+      commandIntent,
+      currentTurnTemporalSnapshot,
+    } as unknown as Partial<Conversation>),
+  );
 }
 
 function clearWorkspaceContext(): void {
@@ -252,15 +257,18 @@ function seedChannelCapabilitiesConversation(
   caps: ChannelCapabilities | null,
   transportHints?: string[],
 ): void {
-  setConversation("runtime-assembly-fallback", {
-    conversationId: "runtime-assembly-fallback",
-    workingDir: "/sandbox",
-    workspaceTopLevelContext: "",
-    workspaceTopLevelDirty: false,
-    surfaceState: new Map(),
-    channelCapabilities: caps ?? undefined,
-    transportHints,
-  } as never);
+  setConversation(
+    "runtime-assembly-fallback",
+    asConversation({
+      conversationId: "runtime-assembly-fallback",
+      workingDir: "/sandbox",
+      workspaceTopLevelContext: "",
+      workspaceTopLevelDirty: false,
+      surfaceState: new Map(),
+      channelCapabilities: caps ?? undefined,
+      transportHints,
+    } as unknown as Partial<Conversation>),
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -1023,15 +1031,18 @@ describe("applyRuntimeInjections — injection mode", () => {
     // rehydration-order tests in conversation-lifecycle.test.ts). background-turn
     // fires only for a background/scheduled live conversation, so register one
     // under the turn's conversation id.
-    setConversation("injection-mode-conv", {
-      conversationId: "injection-mode-conv",
-      workingDir: "/sandbox",
-      workspaceTopLevelContext: "",
-      workspaceTopLevelDirty: false,
-      surfaceState: new Map(),
-      channelCapabilities,
-      conversationType: "background",
-    } as never);
+    setConversation(
+      "injection-mode-conv",
+      asConversation({
+        conversationId: "injection-mode-conv",
+        workingDir: "/sandbox",
+        workspaceTopLevelContext: "",
+        workspaceTopLevelDirty: false,
+        surfaceState: new Map(),
+        channelCapabilities,
+        conversationType: "background",
+      } as unknown as Partial<Conversation>),
+    );
 
     const { blocks } = await applyRuntimeInjections(baseMessages, fullOptions);
 
@@ -2227,20 +2238,23 @@ describe("applyRuntimeInjections with unifiedTurnContext", () => {
   // context (so the injector sources the interface label to match
   // `sampleOptions.interfaceName`).
   function seedTemporalSnapshot(): void {
-    setConversation("runtime-assembly-fallback", {
-      conversationId: "runtime-assembly-fallback",
-      workingDir: "/sandbox",
-      workspaceTopLevelContext: "",
-      workspaceTopLevelDirty: false,
-      surfaceState: new Map(),
-      currentTurnTemporalSnapshot: {
-        clientTimezone: null,
-      },
-      currentTurnInterfaceContext: {
-        userMessageInterface: "macos",
-        assistantMessageInterface: "macos",
-      },
-    } as never);
+    setConversation(
+      "runtime-assembly-fallback",
+      asConversation({
+        conversationId: "runtime-assembly-fallback",
+        workingDir: "/sandbox",
+        workspaceTopLevelContext: "",
+        workspaceTopLevelDirty: false,
+        surfaceState: new Map(),
+        currentTurnTemporalSnapshot: {
+          clientTimezone: null,
+        },
+        currentTurnInterfaceContext: {
+          userMessageInterface: "macos",
+          assistantMessageInterface: "macos",
+        },
+      } as unknown as Partial<Conversation>),
+    );
   }
 
   test("injects the turn-context block when the inputs are provided", async () => {
@@ -2327,17 +2341,20 @@ describe("applyRuntimeInjections timezone resolution", () => {
     clientTimezone: string | null,
     timeSinceLastMessage: string | null = null,
   ): void {
-    setConversation("runtime-assembly-fallback", {
-      conversationId: "runtime-assembly-fallback",
-      workingDir: "/sandbox",
-      workspaceTopLevelContext: "",
-      workspaceTopLevelDirty: false,
-      surfaceState: new Map(),
-      currentTurnTemporalSnapshot: {
-        clientTimezone,
-        timeSinceLastMessage,
-      },
-    } as never);
+    setConversation(
+      "runtime-assembly-fallback",
+      asConversation({
+        conversationId: "runtime-assembly-fallback",
+        workingDir: "/sandbox",
+        workspaceTopLevelContext: "",
+        workspaceTopLevelDirty: false,
+        surfaceState: new Map(),
+        currentTurnTemporalSnapshot: {
+          clientTimezone,
+          timeSinceLastMessage,
+        },
+      } as unknown as Partial<Conversation>),
+    );
   }
 
   function injectedText(result: { messages: Message[] }): string {
@@ -2491,20 +2508,23 @@ describe("applyRuntimeInjections blocks.unifiedTurnContext", () => {
   // context (so the injector sources the interface label to match
   // `sampleOptions.interfaceName`).
   function seedTemporalSnapshot(): void {
-    setConversation("runtime-assembly-fallback", {
-      conversationId: "runtime-assembly-fallback",
-      workingDir: "/sandbox",
-      workspaceTopLevelContext: "",
-      workspaceTopLevelDirty: false,
-      surfaceState: new Map(),
-      currentTurnTemporalSnapshot: {
-        clientTimezone: null,
-      },
-      currentTurnInterfaceContext: {
-        userMessageInterface: "macos",
-        assistantMessageInterface: "macos",
-      },
-    } as never);
+    setConversation(
+      "runtime-assembly-fallback",
+      asConversation({
+        conversationId: "runtime-assembly-fallback",
+        workingDir: "/sandbox",
+        workspaceTopLevelContext: "",
+        workspaceTopLevelDirty: false,
+        surfaceState: new Map(),
+        currentTurnTemporalSnapshot: {
+          clientTimezone: null,
+        },
+        currentTurnInterfaceContext: {
+          userMessageInterface: "macos",
+          assistantMessageInterface: "macos",
+        },
+      } as unknown as Partial<Conversation>),
+    );
   }
 
   test("captures unifiedTurnContext when tail is a user message", async () => {
@@ -2688,15 +2708,18 @@ describe("applyRuntimeInjections — subagent status", () => {
   // a fallback fake carrying that delegation for the seeded children to
   // surface.
   beforeEach(() => {
-    setConversation(FALLBACK_CONVERSATION_ID, {
-      conversationId: FALLBACK_CONVERSATION_ID,
-      workingDir: "/sandbox",
-      workspaceTopLevelContext: "",
-      workspaceTopLevelDirty: false,
-      surfaceState: new Map(),
-      getSubagentChildren: () =>
-        getSubagentManager().getChildrenOf(FALLBACK_CONVERSATION_ID),
-    } as never);
+    setConversation(
+      FALLBACK_CONVERSATION_ID,
+      asConversation({
+        conversationId: FALLBACK_CONVERSATION_ID,
+        workingDir: "/sandbox",
+        workspaceTopLevelContext: "",
+        workspaceTopLevelDirty: false,
+        surfaceState: new Map(),
+        getSubagentChildren: () =>
+          getSubagentManager().getChildrenOf(FALLBACK_CONVERSATION_ID),
+      } as unknown as Partial<Conversation>),
+    );
   });
 
   afterEach(() => {
@@ -2750,14 +2773,17 @@ describe("applyRuntimeInjections — subagent status", () => {
 
   test("skips subagent status when the conversation is itself a subagent", async () => {
     // GIVEN the live conversation is itself a subagent (no nesting)
-    setConversation("runtime-assembly-fallback", {
-      conversationId: "runtime-assembly-fallback",
-      workingDir: "/sandbox",
-      workspaceTopLevelContext: "",
-      workspaceTopLevelDirty: false,
-      surfaceState: new Map(),
-      isSubagent: true,
-    } as never);
+    setConversation(
+      "runtime-assembly-fallback",
+      asConversation({
+        conversationId: "runtime-assembly-fallback",
+        workingDir: "/sandbox",
+        workspaceTopLevelContext: "",
+        workspaceTopLevelDirty: false,
+        surfaceState: new Map(),
+        isSubagent: true,
+      } as unknown as Partial<Conversation>),
+    );
     // AND a child is registered under its id
     seedSubagentChild(
       "runtime-assembly-fallback",
@@ -4317,19 +4343,22 @@ describe("Slack channel chronological rendering — multi-thread", () => {
         )
         .run();
     }
-    setConversation("runtime-assembly-fallback", {
-      conversationId: "runtime-assembly-fallback",
-      workingDir: "/sandbox",
-      workspaceTopLevelContext: "",
-      workspaceTopLevelDirty: false,
-      surfaceState: new Map(),
-      channelCapabilities: caps,
-      trustContext: { trustClass: "guardian" },
-      slackContextCompactionWatermarkTs:
-        compaction.slackContextCompactionWatermarkTs ?? null,
-      contextCompactedMessageCount:
-        compaction.contextCompactedMessageCount ?? 0,
-    } as never);
+    setConversation(
+      "runtime-assembly-fallback",
+      asConversation({
+        conversationId: "runtime-assembly-fallback",
+        workingDir: "/sandbox",
+        workspaceTopLevelContext: "",
+        workspaceTopLevelDirty: false,
+        surfaceState: new Map(),
+        channelCapabilities: caps,
+        trustContext: { trustClass: "guardian" },
+        slackContextCompactionWatermarkTs:
+          compaction.slackContextCompactionWatermarkTs ?? null,
+        contextCompactedMessageCount:
+          compaction.contextCompactedMessageCount ?? 0,
+      } as unknown as Partial<Conversation>),
+    );
   }
 
   // Re-run a Slack-channel turn through the public assembly path. The
