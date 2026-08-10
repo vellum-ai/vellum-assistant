@@ -11,6 +11,7 @@ import {
 } from "react";
 
 import { cn } from "../../utils/cn";
+import { CrossfadeStack } from "../crossfade-stack";
 
 import { MarqueeText } from "./marquee-text";
 
@@ -47,7 +48,9 @@ import { MarqueeText } from "./marquee-text";
  * `<NavLink>`) while merging PanelItem's visual classes and aria attributes
  * onto it via Radix `Slot`. The consumer provides all children; PanelItem
  * provides the interactive state layer (hover, active, focus-ring,
- * aria-current, `group` modifier).
+ * aria-current, `group` modifier). It is the state layer alone, so the props
+ * that describe a row's contents (`icon`, `label`, `badge`, `trailingAction`,
+ * `href`, `onSelect`) belong to the child and are rejected here.
  *
  * ### `shape`
  *
@@ -72,7 +75,35 @@ import { MarqueeText } from "./marquee-text";
 // Props
 // ---------------------------------------------------------------------------
 
-interface PanelItemProps {
+/** Shape, state, and styling: true of a row however its content is supplied. */
+interface PanelItemFrameProps {
+  /**
+   * Row geometry.
+   * - `"row"` fills its container at a 6px radius.
+   * - `"pill"` hugs its content as a capsule on `--surface-lift`.
+   * @default "row"
+   */
+  shape?: "row" | "pill";
+  /** Selected state. Sets `aria-current="page"` automatically. */
+  active?: boolean;
+  /**
+   * Active-state color treatment.
+   * - `"default"` — neutral `--surface-active` bg, `--content-emphasised` text.
+   * - `"branded"` — primary-tinted bg, `--primary-base` text, bolder weight.
+   * @default "default"
+   */
+  activeVariant?: "default" | "branded";
+  className?: string;
+  /** Optional accessible label override (defaults to `label` when it's a string). */
+  "aria-label"?: string;
+  ref?: Ref<HTMLAnchorElement | HTMLDivElement | HTMLElement>;
+}
+
+/** PanelItem renders the row's contents from these props. */
+interface PanelItemContentProps extends PanelItemFrameProps {
+  asChild?: false;
+  /** Ignored: this variant builds its own children from the props below. */
+  children?: never;
   /** Leading icon. Omit for label-only rows (e.g. indented sub-items). */
   icon?: LucideIcon;
   /**
@@ -114,22 +145,6 @@ interface PanelItemProps {
    */
   trailingAction?: ReactNode;
   /**
-   * Row geometry.
-   * - `"row"` fills its container at a 6px radius.
-   * - `"pill"` hugs its content as a capsule on `--surface-lift`.
-   * @default "row"
-   */
-  shape?: "row" | "pill";
-  /** Selected state. Sets `aria-current="page"` automatically. */
-  active?: boolean;
-  /**
-   * Active-state color treatment.
-   * - `"default"` — neutral `--surface-active` bg, `--content-emphasised` text.
-   * - `"branded"` — primary-tinted bg, `--primary-base` text, bolder weight.
-   * @default "default"
-   */
-  activeVariant?: "default" | "branded";
-  /**
    * Disabled state for the `onSelect` variant. Blocks click and Enter/Space
    * activation, removes the row from the tab order, and sets `aria-disabled`.
    * No effect on the anchor (`href`) / `asChild` / non-interactive variants.
@@ -145,15 +160,6 @@ interface PanelItemProps {
    * the pointer leaves. Honors `prefers-reduced-motion`. Off by default.
    */
   marqueeOnHover?: boolean;
-  className?: string;
-  /** Optional accessible label override (defaults to `label` when it's a string). */
-  "aria-label"?: string;
-  /**
-   * Render as a caller-provided child element (e.g. React Router `<NavLink>`)
-   * while merging PanelItem's styling and aria attributes onto it. Uses
-   * Radix `Slot`. When true, pass exactly one child element; PanelItem's own
-   * `href` and `onSelect` props are ignored.
-   */
   /**
    * This row is a control whose activation a parent owns - a popover or
    * bottom-sheet trigger cloning it via `asChild`. Renders the same
@@ -164,11 +170,38 @@ interface PanelItemProps {
    * keyboard and screen-reader access.
    */
   trigger?: boolean;
-  asChild?: boolean;
-  /** Children. Required when `asChild` is true; ignored otherwise. */
-  children?: ReactNode;
-  ref?: Ref<HTMLAnchorElement | HTMLDivElement | HTMLElement>;
 }
+
+/**
+ * The caller supplies the whole element (e.g. a React Router `<NavLink>` or a
+ * `Collapsible.Trigger`) and PanelItem merges its styling and aria attributes
+ * onto it through Radix `Slot`.
+ *
+ * The content and behaviour props are typed out rather than left unused: the
+ * child owns its own children, link target, and handlers, so a row that passes
+ * both a child and an `icon` is asking for two different things at once. The
+ * `never`s make that a type error at the call site instead of a prop that is
+ * silently dropped at runtime.
+ */
+interface PanelItemSlotProps extends PanelItemFrameProps {
+  asChild: true;
+  /** Exactly one element, which becomes the rendered row. */
+  children: ReactNode;
+  icon?: never;
+  leadingSlot?: never;
+  label?: never;
+  expandChevron?: never;
+  badge?: never;
+  badgeBare?: never;
+  trailingAction?: never;
+  marqueeOnHover?: never;
+  disabled?: never;
+  onSelect?: never;
+  href?: never;
+  trigger?: never;
+}
+
+type PanelItemProps = PanelItemContentProps | PanelItemSlotProps;
 
 // ---------------------------------------------------------------------------
 // Class composition
@@ -407,7 +440,7 @@ function PanelItem({
     <ExpandChevron size={12} aria-hidden className={EXPAND_CHEVRON_CLASSES} />
   ) : null;
 
-  const bothPresent = badge != null && trailingAction != null;
+  const crossfadeBadgeAndTrailing = badge != null && trailingAction != null;
 
   const badgeNode =
     badge != null ? (
@@ -415,7 +448,7 @@ function PanelItem({
         className={cn(
           badgeBare ? BADGE_BARE_CLASSES : BADGE_BASE_CLASSES,
           badgeBare && !trailingAction && BADGE_BARE_ALONE_CLASSES,
-          bothPresent && BADGE_YIELDS_TO_TRAILING_CLASSES,
+          crossfadeBadgeAndTrailing && BADGE_YIELDS_TO_TRAILING_CLASSES,
         )}
       >
         {badge}
@@ -442,14 +475,11 @@ function PanelItem({
         {expandChevronNode}
       </span>
       <span className={RIGHT_CLUSTER_CLASSES}>
-        {bothPresent ? (
-          /* One cell, both occupants stacked in it - same trick as the
-             section header's own dot/"…" pair - so the two crossfade in
-             place instead of sitting side by side. */
-          <span className="grid shrink-0 place-items-center [&>*]:[grid-area:1/1]">
+        {crossfadeBadgeAndTrailing ? (
+          <CrossfadeStack>
             {badgeNode}
             {trailingNode}
-          </span>
+          </CrossfadeStack>
         ) : (
           <>
             {badgeNode}
@@ -476,14 +506,6 @@ function PanelItem({
 
   // ── asChild variant ──────────────────────────────────────────────────
   if (asChild) {
-    if (import.meta.env.DEV) {
-      if (Icon || leadingSlot || badge || trailingAction || ExpandChevron) {
-        console.warn(
-          "PanelItem: icon, leadingSlot, badge, trailingAction, and expandChevron " +
-            "are ignored when asChild is true: the consumer owns all children.",
-        );
-      }
-    }
     return (
       <Slot
         data-slot="panel-item"

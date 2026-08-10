@@ -13,6 +13,7 @@ export {
   CardFooter,
   type CardRootProps,
 } from "./components/card";
+export { CrossfadeStack } from "./components/crossfade-stack";
 export { Notice, type NoticeProps, type NoticeTone } from "./components/notice";
 export { ProgressBar, type ProgressBarProps } from "./components/progress-bar";
 export {
@@ -191,6 +192,7 @@ export {
   SideMenuHeader,
   SideMenuItem,
   SideMenuSection,
+  SideMenuSectionHeader,
   SideMenuSeparator,
   SideMenuSubList,
   useSideMenuCollapsed,
@@ -199,12 +201,12 @@ export {
   SIDE_MENU_COLLAPSED_WIDTH,
   SIDE_MENU_COLLAPSED_INSET,
   SIDE_MENU_TILE_SIZE,
-  SIDE_MENU_PILL_HEIGHT_CLASS,
   SIDE_MENU_MIN_WIDTH,
   SIDE_MENU_MAX_WIDTH,
   type SideMenuProps,
   type SideMenuVariant,
   type SideMenuSectionProps,
+  type SideMenuSectionHeaderProps,
   type SideMenuItemProps,
 } from "./components/side-menu/side-menu";
 export {

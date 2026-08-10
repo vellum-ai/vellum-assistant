@@ -198,20 +198,23 @@ function ContactRow({
       ? channelTypes.join(" | ")
       : undefined;
 
+  /* Sits in the row's own trailing cluster: `PanelItem` draws the contents of
+     a row it owns, and this row supplies its own button. */
   const trailingActionIcon =
     trailingIcon === "pencil" ? (
-      <Pencil className="h-3.5 w-3.5" aria-hidden />
+      <Pencil
+        className="h-3.5 w-3.5 text-[color:var(--content-tertiary)]"
+        aria-hidden
+      />
     ) : trailingIcon === "more" ? (
-      <MoreVertical className="h-3.5 w-3.5" aria-hidden />
+      <MoreVertical
+        className="h-3.5 w-3.5 text-[color:var(--content-tertiary)]"
+        aria-hidden
+      />
     ) : undefined;
 
   return (
-    <PanelItem
-      asChild
-      active={selected}
-      label=""
-      trailingAction={trailingActionIcon}
-    >
+    <PanelItem asChild active={selected}>
       <button
         type="button"
         onClick={onClick}
@@ -235,6 +238,7 @@ function ContactRow({
             </Tag>
           ) : null}
           <ContactTypeBadge role={role} contactType={contactType} />
+          {trailingActionIcon}
         </span>
       </button>
     </PanelItem>

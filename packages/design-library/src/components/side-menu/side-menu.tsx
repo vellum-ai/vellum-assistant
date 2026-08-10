@@ -14,6 +14,8 @@ import {
   type Ref,
 } from "react";
 
+import { Slot } from "@radix-ui/react-slot";
+
 import { Typography } from "../typography";
 import { Tooltip } from "../tooltip";
 import { cn } from "../../utils/cn";
@@ -38,6 +40,7 @@ import { cn } from "../../utils/cn";
  *     │   ├── SideMenu.Section   — labeled group with optional `actions`
  *     │   │   └── SideMenu.SubList
  *     │   │       └── SideMenu.Item
+ *     │   ├── SideMenu.SectionHeader — title row of a caller-drawn group
  *     │   └── SideMenu.Separator
  *     └── SideMenu.Footer        — bottom slot (sticks via margin-top: auto)
  *
@@ -175,17 +178,6 @@ const RAIL_GEOMETRY_VARS = {
   "--side-menu-tile-size": `${SIDE_MENU_TILE_SIZE}px`,
   "--side-menu-collapsed-inset": `${SIDE_MENU_COLLAPSED_INSET}px`,
 } as CSSProperties;
-
-/**
- * Height utility for a top-level rail row a caller draws itself rather than
- * taking from `PanelItem` - a collapsible section's header is the one such row,
- * since it wears the rail's small caps and no resting surface.
- *
- * A `PanelItem` pill already resolves its height from the same property, so
- * passing this to one is redundant. Only valid inside `SideMenu.Root`, which is
- * where the property is published.
- */
-export const SIDE_MENU_PILL_HEIGHT_CLASS = "h-[var(--side-menu-tile-size)]";
 
 export interface SideMenuProps extends ComponentProps<"nav"> {
   /** Ignored when `variant="overlay"`. */
@@ -483,6 +475,52 @@ function SideMenuSeparator({
 }
 
 // ---------------------------------------------------------------------------
+// SectionHeader — the title row of a group of rows
+// ---------------------------------------------------------------------------
+
+export interface SideMenuSectionHeaderProps extends ComponentProps<"div"> {
+  /**
+   * Render the caller's own element instead, typically a disclosure trigger,
+   * with this row's geometry merged onto it.
+   */
+  asChild?: boolean;
+  ref?: Ref<HTMLDivElement>;
+}
+
+/**
+ * The title row of a group in the rail. It is a top-level row like a pill or a
+ * tile, so it stands at the same height, taken from the property
+ * {@link SideMenuRoot} publishes ({@link SIDE_MENU_TILE_SIZE}); on a
+ * touch-sized viewport it grows to its own padding the way every other row
+ * does. It wears small caps and no resting surface, which is why it is this
+ * rather than a `PanelItem`.
+ *
+ * Owns the vertical geometry, the part that has to agree with the rows around
+ * it. Typography, horizontal insets, and whatever sits on the trailing edge
+ * stay with the caller, whose sidebar decides those.
+ */
+function SideMenuSectionHeader({
+  asChild = false,
+  className,
+  ref,
+  ...rest
+}: SideMenuSectionHeaderProps) {
+  const Component = asChild ? Slot : "div";
+  return (
+    <Component
+      ref={ref}
+      data-slot="side-menu-section-header"
+      className={cn(
+        "flex shrink-0 items-center rounded-[6px]",
+        "h-[var(--side-menu-tile-size)] max-md:h-auto",
+        className,
+      )}
+      {...rest}
+    />
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Section — title row + right-aligned actions
 // ---------------------------------------------------------------------------
 
@@ -593,7 +631,7 @@ export interface SideMenuItemProps {
    * `"tile"` renders the collapsed-rail affordance: the whole treatment a row
    * reduces to when the rail collapses, not a geometry switch. It squares to
    * the pill height ({@link SIDE_MENU_TILE_SIZE}, which a row carrying this
-   * shape also sets itself to with {@link SIDE_MENU_PILL_HEIGHT_CLASS}),
+   * shape also sets itself to),
    * centers in the rail column, rounds fully, and carries
    * the resting surface the expanded card or pill wore - collapsing changes
    * the shape of a thing, not whether it has a surface. The squaring is part
@@ -980,6 +1018,7 @@ type SideMenuComponent = typeof SideMenuRoot & {
   Body: typeof SideMenuBody;
   Footer: typeof SideMenuFooter;
   Section: typeof SideMenuSection;
+  SectionHeader: typeof SideMenuSectionHeader;
   SubList: typeof SideMenuSubList;
   Item: typeof SideMenuItem;
   Separator: typeof SideMenuSeparator;
@@ -990,6 +1029,7 @@ SideMenu.Header = SideMenuHeader;
 SideMenu.Body = SideMenuBody;
 SideMenu.Footer = SideMenuFooter;
 SideMenu.Section = SideMenuSection;
+SideMenu.SectionHeader = SideMenuSectionHeader;
 SideMenu.SubList = SideMenuSubList;
 SideMenu.Item = SideMenuItem;
 SideMenu.Separator = SideMenuSeparator;
@@ -1001,6 +1041,7 @@ export {
   SideMenuHeader,
   SideMenuItem,
   SideMenuSection,
+  SideMenuSectionHeader,
   SideMenuSeparator,
   SideMenuSubList,
   useSideMenuCollapsed,
