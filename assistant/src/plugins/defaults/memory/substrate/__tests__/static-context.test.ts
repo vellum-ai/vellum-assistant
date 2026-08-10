@@ -219,6 +219,59 @@ describe("readMemoryV2StaticContent Buffer cap", () => {
     );
   });
 
+  test("never opens mid-entry when the cap lands inside a multiline fact", () => {
+    // The 5-line fact straddles the cap: counting back 10 non-empty lines
+    // lands on one of its continuation lines. Injecting from there would show
+    // orphan bullets with no timestamp and no opening clause.
+    const multiline = [
+      "- [Jan 1, 9:00 AM] the straddling fact",
+      "  - [ ] a checklist item inside the fact",
+      "  continuation prose",
+      "  - another bullet",
+      "  closing line",
+    ].join("\n");
+    writeMemoryFile(
+      "buffer.md",
+      `${bufferEntries(20)}\n${multiline}\n${bufferEntries(8)}`,
+    );
+
+    const text = readMemoryV2StaticContent()!;
+    const body = text.slice(text.indexOf("buffer.md for the full backlog.)\n"));
+    const firstLine = body.split("\n")[1]!;
+    expect(firstLine).toMatch(/^- \[Jan 1, 9:00 AM\]/);
+    // The partial entry is dropped whole: none of its continuation lines
+    // survive on their own.
+    expect(text).not.toContain("continuation prose");
+    expect(text).not.toContain("the straddling fact");
+  });
+
+  test("keeps a multiline entry intact when it sits fully inside the cap", () => {
+    const multiline = [
+      "- [Jan 1, 9:00 AM] a fact with a body",
+      "  second line of the same fact",
+    ].join("\n");
+    writeMemoryFile("buffer.md", `${bufferEntries(20)}\n${multiline}`);
+
+    const text = readMemoryV2StaticContent()!;
+    expect(text).toContain("a fact with a body");
+    expect(text).toContain("second line of the same fact");
+  });
+
+  test("falls back to the line cut for a buffer with no timestamped entries", () => {
+    // A hand-written buffer that never went through `remember()` has no entry
+    // structure to preserve, so the line-based cut stands rather than dropping
+    // everything.
+    const handWritten = Array.from(
+      { length: 30 },
+      (_, i) => `just a line ${i}`,
+    ).join("\n");
+    writeMemoryFile("buffer.md", handWritten);
+
+    const text = readMemoryV2StaticContent()!;
+    expect(text).toContain("just a line 29");
+    expect(text).not.toContain("just a line 0");
+  });
+
   test("leaves the buffer unbounded when the size trigger is disabled", () => {
     configMaxBufferLines = null;
     const buffer = bufferEntries(30);

@@ -91,7 +91,49 @@ function capBufferSection(content: string, maxLines: number | null): string {
   while (start < lines.length && lines[start]!.trim().length === 0) {
     start++;
   }
+  start = alignToEntryStart(lines, start);
   return `${BUFFER_INJECTION_NOTICE}\n${lines.slice(start).join("\n")}`;
+}
+
+/**
+ * Matches the first line of a buffer entry: `- [Mon D, h:mm AM/PM] fact`, the
+ * shape `formatRememberEntry` writes. The timestamp must be present and
+ * timestamp-shaped, so a bullet carrying other bracketed text (a `- [ ]`
+ * checklist item inside a multiline fact) reads as a continuation line.
+ *
+ * Duplicated from `BUFFER_ENTRY_REGEX` in `graph-topology/pending-buffer.ts`
+ * rather than imported: `substrate/` is the bottom layer and `graph-topology/`
+ * already imports it, so importing back would invert the layering. The two
+ * must stay in sync.
+ */
+const BUFFER_ENTRY_START_REGEX =
+  /^-\s+\[[A-Z][a-z]{2}\s+\d{1,2},\s+\d{1,2}:\d{2}\s+[AP]M\]/;
+
+/**
+ * Advance `start` to the next line that begins a buffer entry, so the injected
+ * Buffer never opens mid-entry.
+ *
+ * A multiline `remember()` stores its body verbatim after the timestamped
+ * first line, and consolidation reads non-timestamped lines as part of the
+ * preceding entry. Cutting purely on a line count can therefore land inside a
+ * fact and inject orphan continuation lines stripped of the timestamp and
+ * opening clause that give them meaning, which is worse than showing one fewer
+ * fact. Dropping the partial entry keeps every surviving fact whole and can
+ * only shrink the result, so the cap still holds.
+ *
+ * Returns `start` unchanged when no entry start exists at or after it, which
+ * is the hand-written buffer that never used `remember()`. There is no entry
+ * structure to preserve there, so the line-based cut stands.
+ */
+function alignToEntryStart(lines: string[], start: number): number {
+  let aligned = start;
+  while (
+    aligned < lines.length &&
+    !BUFFER_ENTRY_START_REGEX.test(lines[aligned]!)
+  ) {
+    aligned++;
+  }
+  return aligned === lines.length ? start : aligned;
 }
 
 /**
