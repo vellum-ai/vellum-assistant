@@ -29,9 +29,12 @@ const log = getLogger("migration-144");
  * A converted fragment gets `provider: "chatgpt"`, and a model outside the
  * Codex subscription set is replaced with `gpt-5.6-terra` (the "chatgpt"
  * identity requires a Codex-servable model at schema validation; on the
- * subscription every model bills the same). Fragments with a
- * `provider_connection` pin, any other provider, or a managed source are
- * left untouched. `llm.default` is not swept: migration 133 drops that
+ * subscription every model bills the same). An unpinned
+ * `llm.defaultProvider` of "openai" converts the same way: it anchors the
+ * code-owned default profiles and background call sites, which are equally
+ * stranded. Fragments with a `provider_connection` pin, a pinned
+ * defaultProvider connectionName, any other provider, or a managed source
+ * are left untouched. `llm.default` is not swept: migration 133 drops that
  * legacy blob and runs earlier in the chain.
  */
 export const convertStrandedSubscriptionOpenaiProfilesMigration: WorkspaceMigration =
@@ -94,6 +97,17 @@ export const convertStrandedSubscriptionOpenaiProfilesMigration: WorkspaceMigrat
         }
       }
 
+      const defaultProvider = readObject(llm.defaultProvider);
+      if (
+        defaultProvider !== null &&
+        defaultProvider.provider === "openai" &&
+        !("connectionName" in defaultProvider)
+      ) {
+        defaultProvider.provider = "chatgpt";
+        changed = true;
+        log.info("Converted stranded openai default provider");
+      }
+
       if (!changed) {
         return;
       }
@@ -120,6 +134,8 @@ export const convertStrandedSubscriptionOpenaiProfilesMigration: WorkspaceMigrat
 // ---------------------------------------------------------------------------
 
 const SUBSCRIPTION_CONNECTION_NAME = "chatgpt-subscription";
+
+const LEGACY_MANAGED_OPENAI_NAME = "openai-managed";
 
 const CODEX_SUBSCRIPTION_MODEL_IDS = new Set([
   "gpt-5.6-sol",
@@ -179,16 +195,20 @@ function isSubscriptionOnlyWorkspace(workspaceDir: string): boolean {
       return false;
     }
 
+    // Two openai-provider rows do not count as usable openai connections.
     // The canonical row itself stores provider "openai" until DB migration
-    // 366 flips it, and this migration checkpoints once; counting the row
-    // as an openai connection here would skip the conversion forever on
-    // exactly the upgrade boot that needs it. Its subscription auth is
-    // already verified above, so exclusion by name is safe.
+    // 366 flips it, and this migration checkpoints once; counting it would
+    // skip the conversion forever on exactly the upgrade boot that needs it
+    // (its subscription auth is already verified above). The legacy
+    // "openai-managed" row is a pre-consolidation platform leftover that the
+    // connection listings hide (LEGACY_MANAGED_CONNECTION_NAMES in
+    // providers/inference/connections.ts); treating it as a live connection
+    // would block the repair on installs that still carry it.
     const openaiRow = db
       .query(
-        `SELECT 1 FROM provider_connections WHERE provider = 'openai' AND name != ?`,
+        `SELECT 1 FROM provider_connections WHERE provider = 'openai' AND name NOT IN (?, ?)`,
       )
-      .get(SUBSCRIPTION_CONNECTION_NAME);
+      .get(SUBSCRIPTION_CONNECTION_NAME, LEGACY_MANAGED_OPENAI_NAME);
     return openaiRow === null;
   } catch {
     return false;

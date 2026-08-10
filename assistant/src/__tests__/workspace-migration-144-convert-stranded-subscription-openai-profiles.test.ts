@@ -80,6 +80,7 @@ const OPENAI_KEY_ROW: SeedRow = {
 
 const STRANDED_CONFIG = {
   llm: {
+    defaultProvider: { provider: "openai" },
     profiles: {
       mine: { provider: "openai", model: "gpt-5.5", source: "user" },
       nano: { provider: "openai", model: "gpt-5.4-nano", source: "user" },
@@ -153,8 +154,44 @@ describe("144-convert-stranded-subscription-openai-profiles migration", () => {
       expect(llm.profiles.pinned.provider).toBe("openai");
       expect(llm.profiles.other.provider).toBe("anthropic");
       expect(llm.profiles.managed.provider).toBe("openai");
+      // The unpinned default provider anchors the code-owned defaults and
+      // converts with them.
+      expect(llm.defaultProvider).toEqual({ provider: "chatgpt" });
     },
   );
+
+  test("a pinned defaultProvider connectionName stays untouched", () => {
+    writeConfig({
+      llm: {
+        defaultProvider: {
+          provider: "openai",
+          connectionName: "openai-personal",
+        },
+      },
+    });
+    seedConnections([SUBSCRIPTION_POST_366]);
+    const before = readFileSync(join(workspaceDir, "config.json"), "utf-8");
+
+    convertStrandedSubscriptionOpenaiProfilesMigration.run(workspaceDir);
+
+    expect(readFileSync(join(workspaceDir, "config.json"), "utf-8")).toBe(
+      before,
+    );
+  });
+
+  test("a hidden legacy openai-managed row does not block the conversion", () => {
+    writeConfig(STRANDED_CONFIG);
+    seedConnections([
+      SUBSCRIPTION_POST_366,
+      { name: "openai-managed", provider: "openai", authType: "platform" },
+    ]);
+
+    convertStrandedSubscriptionOpenaiProfilesMigration.run(workspaceDir);
+
+    const llm = readConfig().llm as Record<string, any>;
+    expect(llm.profiles.mine.provider).toBe("chatgpt");
+    expect(llm.defaultProvider).toEqual({ provider: "chatgpt" });
+  });
 
   test("does not convert when an openai api-key connection exists", () => {
     writeConfig(STRANDED_CONFIG);
