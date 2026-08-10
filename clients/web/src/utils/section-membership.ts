@@ -2,15 +2,13 @@
  * Which sidebar section a conversation belongs to, decided locally.
  *
  * Every section fetches its own rows through a server filter (LUM-2443), so a
- * section's membership is no longer something the client derives: it is the
- * contents of that section's cache entry. That is what makes this module
- * necessary. A conversation's `groupId` / `isPinned` / `archivedAt` are the
- * server's inputs to that filter, so the moment a mutation changes one of
- * them locally, the caches disagree with the fields until a refetch lands.
- * Without a local answer, moving a row between sections costs a network round
- * trip per section and each one lands at a different time, which is visible as
- * the row sitting in its old section after it has already appeared in its new
- * one.
+ * section's membership is the contents of that section's cache entry rather
+ * than something the client derives. A conversation's `groupId` / `isPinned` /
+ * `archivedAt` are the server's inputs to that filter, so the moment a
+ * mutation changes one of them locally, the caches disagree with the fields
+ * until a refetch lands. Answering locally is what keeps a move off the
+ * network: without it, each section corrects itself on its own round trip, and
+ * a row is visible in two sections until the slower one returns.
  *
  * {@link matchesSectionFilter} is the client twin of the daemon's
  * `groupIdClause` / `originChannelClause` in
@@ -155,22 +153,31 @@ export function matchesSectionFilter(
 
 /**
  * Bring every cached section into agreement with `conversation`, and report
- * the caches that actually changed.
+ * the sections a settle still has to ask the server about.
  *
  * Walks `getQueriesData` rather than writing through `setQueriesData` because
  * the decision needs the query *key*: a section states what it holds only
  * through the filter it was keyed by, and TanStack hands a `setQueriesData`
  * updater the data alone.
  *
- * Only caches that already exist are touched. A section whose query has never
- * run must stay unfetched: `useSectionConversations` treats "has data" as its
- * signal to stop painting the derived fallback, so minting a cache here would
- * hand that section a single row and call it the whole section.
+ * Only caches that already hold rows are written. A section whose query has
+ * not resolved must stay unfetched: `useSectionConversations` treats "has
+ * data" as its signal to stop painting the derived fallback, so minting a
+ * cache here would hand that section a single row and call it the whole
+ * section.
  *
- * The returned keys are what a caller needs to reconcile narrowly. A move
- * touches at most the section a row left and the one it joined, so
- * invalidating those two beats invalidating the list prefix, which refetches
- * every mounted section and the foreground list on every pin.
+ * The returned keys are what a caller needs to reconcile narrowly, and they
+ * are of two kinds:
+ *
+ * 1. Sections this write moved the row between. A move touches at most the
+ *    one it left and the one it joined, so invalidating those beats
+ *    invalidating the list prefix, which refetches every mounted section and
+ *    the foreground list.
+ * 2. Sections holding no data, which this write could not place the row in.
+ *    A first fetch that was cancelled on the way in (optimistic writes cancel
+ *    the prefix so an in-flight response cannot land on top of them) leaves an
+ *    observer with nothing and no pending request, and a settle scoped to the
+ *    sections that changed would never re-drive it.
  *
  * @see {@link https://tanstack.com/query/latest/docs/reference/QueryClient#queryclientgetqueriesdata}
  */
@@ -182,17 +189,18 @@ export function reconcileSectionMembership(
   if (!assistantId) {
     return [];
   }
-  const changed: (readonly unknown[])[] = [];
+  const needsRefetch: (readonly unknown[])[] = [];
   const entries = queryClient.getQueriesData<Conversation[]>({
     queryKey: sectionListPrefix(assistantId),
   });
 
   for (const [queryKey, rows] of entries) {
-    if (!rows) {
-      continue;
-    }
     const filter = parseSectionConversationsQueryKey(queryKey);
     if (!filter) {
+      continue;
+    }
+    if (!rows) {
+      needsRefetch.push(queryKey);
       continue;
     }
 
@@ -222,8 +230,8 @@ export function reconcileSectionMembership(
         ? insertByRecency(rows, conversation)
         : rows.filter((c) => c.conversationId !== conversation.conversationId),
     );
-    changed.push(queryKey);
+    needsRefetch.push(queryKey);
   }
 
-  return changed;
+  return needsRefetch;
 }

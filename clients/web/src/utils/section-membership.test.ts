@@ -12,9 +12,9 @@
  * {@link reconcileSectionMembership} is the write, and the invariant it has to
  * hold is "a conversation appears in exactly one section, never twice"
  * (LUM-2443). Its tests count copies across every seeded section rather than
- * asserting the destination contains the row, because the bug being guarded
- * against (a row that arrives in Pinned while still sitting in the section it
- * left) passes every presence-only assertion.
+ * asserting the destination contains the row: a row that arrives in Pinned
+ * while still sitting in the section it left satisfies every presence-only
+ * assertion.
  */
 
 import { describe, expect, test } from "bun:test";
@@ -247,8 +247,8 @@ describe("reconcileSectionMembership", () => {
       groupId: "system:pinned",
     });
 
-    // The invariant, not the destination: before this write existed, the row
-    // arrived in Pinned and *stayed* in Slack until a refetch removed it.
+    // The invariant, not the destination: arriving in Pinned while still
+    // sitting in Slack would satisfy the two assertions below on its own.
     expect(copiesAcrossSections(client, [SLACK, PINNED], "c1")).toBe(1);
     expect(rowsIn(client, PINNED).map((c) => c.conversationId)).toEqual(["c1"]);
     expect(rowsIn(client, SLACK)).toEqual([]);
@@ -276,6 +276,54 @@ describe("reconcileSectionMembership", () => {
     expect(copiesAcrossSections(client, [SLACK, PINNED], "c1")).toBe(1);
     expect(rowsIn(client, SLACK).map((c) => c.conversationId)).toEqual(["c1"]);
     expect(rowsIn(client, PINNED)).toEqual([]);
+  });
+
+  test("pinning a background run places it once its promotion is stamped", () => {
+    /* A background row reaches the sidebar only by being surfaced, and the
+       daemon stamps `surfaced_at` in the same write that pins it. The patch
+       has to carry that stamp or the row belongs to no section and the move
+       waits for the refetch. */
+    const row = conversation({
+      conversationId: "c1",
+      conversationType: "background",
+    });
+    const client = seed([[PINNED, []]]);
+
+    reconcileSectionMembership(client, ASSISTANT_ID, {
+      ...row,
+      isPinned: true,
+      groupId: "system:pinned",
+      surfacedAt: 42,
+    });
+
+    expect(rowsIn(client, PINNED).map((c) => c.conversationId)).toEqual(["c1"]);
+  });
+
+  test("demoting a surfaced background run keeps it out of Chats", () => {
+    /* Moving into `system:background` clears the promotion, so the row leaves
+       the sidebar. Without the cleared stamp it reads as an ordinary
+       ungrouped row and lands in Chats, which is a worse failure than the lag
+       it replaces: the refetch takes it straight back out. */
+    const row = conversation({
+      conversationId: "c1",
+      conversationType: "background",
+      surfacedAt: 42,
+      isPinned: true,
+      groupId: "system:pinned",
+    });
+    const client = seed([
+      [CHATS, []],
+      [PINNED, [row]],
+    ]);
+
+    reconcileSectionMembership(client, ASSISTANT_ID, {
+      ...row,
+      isPinned: false,
+      groupId: "system:background",
+      surfacedAt: undefined,
+    });
+
+    expect(copiesAcrossSections(client, [CHATS, PINNED], "c1")).toBe(0);
   });
 
   test("archiving takes the row out of every section", () => {
@@ -334,6 +382,38 @@ describe("reconcileSectionMembership", () => {
       client.getQueryData(sectionConversationsQueryKey(ASSISTANT_ID, PINNED)),
     ).toBeUndefined();
     expect(rowsIn(client, CHATS)).toEqual([]);
+  });
+
+  test("a section whose first fetch was cancelled is reported for refetch", async () => {
+    /* Optimistic writes cancel the list prefix so an in-flight response
+       cannot land on top of them, which leaves a first fetch abandoned with
+       no data and no pending request. Nothing can be written into that cache,
+       so the settle has to re-drive it or the section never loads. */
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    client.setQueryData(sectionConversationsQueryKey(ASSISTANT_ID, CHATS), [
+      conversation({ conversationId: "c1" }),
+    ]);
+    const pinnedKey = sectionConversationsQueryKey(ASSISTANT_ID, PINNED);
+    void client
+      .prefetchQuery({
+        queryKey: pinnedKey,
+        queryFn: () => new Promise<Conversation[]>(() => {}),
+      })
+      .catch(() => {});
+    await client.cancelQueries({ queryKey: pinnedKey });
+
+    expect(client.getQueryData(pinnedKey)).toBeUndefined();
+
+    const keys = reconcileSectionMembership(client, ASSISTANT_ID, {
+      conversationId: "c1",
+      isPinned: true,
+      groupId: "system:pinned",
+    });
+
+    const serialized = keys.map((k) => JSON.stringify(k));
+    expect(serialized).toContain(JSON.stringify(pinnedKey));
   });
 
   test("a member is replaced in place and reports no membership change", () => {

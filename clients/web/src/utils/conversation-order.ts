@@ -1,14 +1,14 @@
 /**
  * The one order every conversation list is in, and how to place a row into it.
  *
- * Recency, newest first. Nothing writes `display_order` any more (LUM-3108),
- * so every section (Pinned, the custom groups, the channels, Chats) is
- * sorted by `lastMessageAt` descending, on the server and here.
+ * Recency, newest first: every section (Pinned, the custom groups, the
+ * channels, Chats) is sorted by `lastMessageAt` descending, on the server and
+ * here. Nothing consults `display_order` (LUM-3108).
  *
- * Extracted because the comparator had grown three copies (the list fetchers'
- * sort, the sidebar's derived bucketing, and now local placement) and they
- * have to agree: a locally inserted row that sorts differently from the way
- * the server would return it jumps position the moment the list refetches.
+ * One comparator, shared by the list fetchers, the sidebar's derived
+ * bucketing, and local placement, because the three have to agree. A locally
+ * inserted row that sorts differently from the way the server returns it jumps
+ * position the moment the list refetches.
  */
 
 import type { Conversation } from "@/types/conversation-types";

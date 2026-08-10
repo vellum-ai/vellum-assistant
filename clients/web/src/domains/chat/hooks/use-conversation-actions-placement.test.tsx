@@ -1,19 +1,18 @@
 /**
  * Tests for pin/unpin as a *placement*: the section caches, not the fields.
  *
- * **The bug these tests guard against.** Every sidebar section fetches its own
- * rows through a server filter (LUM-2443), so a section's membership is the
- * contents of its cache entry rather than something the client derives.
- * Pinning used to rewrite `isPinned` / `groupId` on the row and stop there, so
- * no cache moved it: the row appeared in Pinned only once Pinned's refetch
- * landed, and stayed in the section it came from until *that* section's
- * refetch landed. Those are separate requests of very different cost, which is
- * why the row was visibly in two sections at once in between.
+ * Every sidebar section fetches its own rows through a server filter
+ * (LUM-2443), so a section's membership is the contents of its cache entry
+ * rather than something the client derives. Two invariants follow, and these
+ * are what the assertions are shaped around:
  *
- * The assertions count copies across every seeded section rather than checking
- * the destination, because the old behavior satisfies "Pinned contains the
- * row" perfectly well. What it violates is "a conversation appears in exactly
- * one section, never twice".
+ * 1. A conversation appears in exactly one section, never twice. Counting
+ *    copies across every seeded section is the only assertion that catches a
+ *    row which reaches its destination without leaving its origin; "Pinned
+ *    contains the row" holds either way.
+ * 2. The move lands before the request resolves. A placement that waits on the
+ *    network shows the row in two sections for the length of the round trip,
+ *    since each section corrects itself on its own refetch.
  */
 
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";

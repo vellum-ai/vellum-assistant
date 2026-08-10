@@ -34,6 +34,7 @@ import type { Conversation } from "@/types/conversation-types";
 import { useRenameRequestStore } from "@/domains/chat/rename-request-store";
 import {
   findNextConversationId,
+  resolvePlacementSurfacedAt,
   resolveUnpinGroupId,
 } from "@/domains/chat/hooks/conversation-action-utils";
 import { useMarkConversationSeenMutation } from "@/domains/chat/hooks/use-mark-conversation-seen-mutation";
@@ -54,8 +55,16 @@ type MoveToGroupVars = {
   conversationId: string;
   groupId: string;
   isPinned: boolean;
+  /**
+   * The promotion marker the placement leaves behind. Carried as a variable
+   * rather than derived in `onMutate` so the optimistic write and its rollback
+   * read the same value, and so the timestamp is stamped once instead of
+   * being re-taken on a retry.
+   */
+  surfacedAt: number | undefined;
   previousIsPinned: boolean;
   previousGroupId: string | undefined;
+  previousSurfacedAt: number | undefined;
 };
 
 type MutationContext = { snapshot: ConversationCacheSnapshot };
@@ -87,17 +96,17 @@ type MarkUnreadContext = MutationContext & { unreadCountDelta: number };
 // ---------------------------------------------------------------------------
 
 /**
- * Reconcile the sections an optimistic placement moved a row between.
+ * Refetch the sections an optimistic placement could not settle on its own.
  *
  * Scoped to those sections rather than the conversation-list prefix. The
- * prefix reaches every mounted section *and* the foreground list, and each of
- * those refetches by draining its pages serially, so invalidating it made a
- * pin cost a full re-read of the sidebar. Nothing else about the row changed:
- * a move rewrites `groupId` / `isPinned` and the optimistic write already put
- * the row where those values say it goes.
+ * prefix reaches every mounted section *and* the foreground list, each of
+ * which refetches by draining its pages serially, so invalidating it costs a
+ * full re-read of the sidebar to learn one row's group. A move rewrites
+ * `groupId` / `isPinned` / `surfacedAt` and nothing else, and the optimistic
+ * write has already put the row where those values say it goes.
  *
- * Falls back to the whole section prefix when the write moved nothing, which
- * is the case where the client's idea of the sections is least trustworthy.
+ * Falls back to the whole section prefix when the write reports nothing, the
+ * case where the client's idea of the sections is least trustworthy.
  *
  * Returned, not fired and forgotten, so the mutation stays pending until the
  * refetch finishes. TanStack is explicit about this, and it is what makes
@@ -314,11 +323,13 @@ export function useConversationActions({
       conversationId,
       groupId,
       isPinned,
+      surfacedAt,
     }) => {
       await cancelConversationQueries(queryClient, aid);
       const sectionKeys = patchConversation(queryClient, aid, conversationId, {
         isPinned,
         groupId,
+        surfacedAt,
       });
       return { sectionKeys };
     },
@@ -335,11 +346,13 @@ export function useConversationActions({
         isPinned,
         previousIsPinned,
         previousGroupId,
+        previousSurfacedAt,
       },
     ) => {
       patchConversation(queryClient, aid, conversationId, {
         isPinned: previousIsPinned,
         groupId: previousGroupId,
+        surfacedAt: previousSurfacedAt,
       });
       if (isPinned) {
         prePinGroupIdsRef.current.delete(conversationId);
@@ -448,6 +461,7 @@ export function useConversationActions({
 
       const previousIsPinned = conversation.isPinned ?? false;
       const previousGroupId = conversation.groupId;
+      const previousSurfacedAt = conversation.surfacedAt;
       const isPinned = groupId === "system:pinned";
 
       if (isPinned) {
@@ -462,8 +476,14 @@ export function useConversationActions({
         conversationId: conversation.conversationId,
         groupId,
         isPinned,
+        surfacedAt: resolvePlacementSurfacedAt(
+          conversation,
+          groupId,
+          Date.now(),
+        ),
         previousIsPinned,
         previousGroupId,
+        previousSurfacedAt,
       });
     },
     [assistantId, prePinGroupIdsRef, moveToGroupMutation],

@@ -329,11 +329,10 @@ export function getConversations(
  * is why the move happens here rather than in a companion helper the callers
  * are expected to also call. A section's contents are a server filter over
  * `groupId` / `isPinned` / `archivedAt` (LUM-2443), so a patch to one of those
- * fields *is* a membership change; leaving the two as separate steps is what
- * produced the bug this replaced, where pinning rewrote the row's fields and
- * no cache moved it, so the sidebar could only correct itself by refetching
- * every section. A caller that patches a field cannot forget the other half,
- * because there is no other half to call.
+ * fields *is* a membership change. Keeping them one operation means a caller
+ * that patches a field cannot forget the other half, because there is no other
+ * half to call; split apart, the row keeps its old section until a refetch
+ * removes it.
  *
  * Patches that touch no membership field (seen state, titles, processing
  * flags, and every bulk path built on them) skip the pass entirely.
