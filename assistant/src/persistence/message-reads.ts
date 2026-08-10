@@ -35,8 +35,9 @@ export interface MessageRef {
 /**
  * Structural read handle: anything that can `select` like the shared
  * connection, which includes the connection itself and an open transaction.
- * Accessors take this rather than `DrizzleDb` so a caller inside
- * `db.transaction(...)` reads through its own handle.
+ * Every accessor takes `opts.db` with this type and defaults to the shared
+ * connection, so a caller holding its own handle (a transaction, an injected
+ * or in-memory database) reads the same database it writes.
  */
 export type MessageReadHandle = Pick<DrizzleDb, "select">;
 
@@ -110,8 +111,9 @@ export function latestAssistantMessageBefore(
  */
 export function latestUserMessageRawContent(
   conversationId: string,
+  opts?: { db?: MessageReadHandle },
 ): string | null {
-  const row = getDb()
+  const row = (opts?.db ?? getDb())
     .select({ content: messages.content })
     .from(messages)
     .where(
@@ -137,11 +139,12 @@ export function latestUserMessageRawContent(
 export function countMessagesByRoleForConversations(
   conversationIds: string[],
   role: string,
+  opts?: { db?: MessageReadHandle },
 ): Map<string, { count: number; lastAt: number }> {
   if (conversationIds.length === 0) {
     return new Map();
   }
-  const rows = getDb()
+  const rows = (opts?.db ?? getDb())
     .select({
       conversationId: messages.conversationId,
       count: sql<number>`COUNT(*)`.as("count"),
@@ -171,12 +174,15 @@ export function countMessagesByRoleForConversations(
  * rows referencing messages), and a streaming row exists. An empty input
  * returns an empty set without querying.
  */
-export function existingMessageIds(messageIds: string[]): Set<string> {
+export function existingMessageIds(
+  messageIds: string[],
+  opts?: { db?: MessageReadHandle },
+): Set<string> {
   if (messageIds.length === 0) {
     return new Set();
   }
   return new Set(
-    getDb()
+    (opts?.db ?? getDb())
       .select({ id: messages.id })
       .from(messages)
       .where(inArray(messages.id, messageIds))
@@ -193,8 +199,11 @@ export function existingMessageIds(messageIds: string[]): Set<string> {
  * a rendered row, an attachment link), and a rendered row may still be
  * streaming.
  */
-export function messageConversationId(messageId: string): string | null {
-  const row = getDb()
+export function messageConversationId(
+  messageId: string,
+  opts?: { db?: MessageReadHandle },
+): string | null {
+  const row = (opts?.db ?? getDb())
     .select({ conversationId: messages.conversationId })
     .from(messages)
     .where(eq(messages.id, messageId))

@@ -139,7 +139,7 @@ export function createBookmark(
   params: { messageId: string },
 ): CreateBookmarkResult {
   const { messageId } = params;
-  const conversationId = messageConversationId(messageId);
+  const conversationId = messageConversationId(messageId, { db });
   if (conversationId === null) {
     throw new Error(`Message ${messageId} not found`);
   }

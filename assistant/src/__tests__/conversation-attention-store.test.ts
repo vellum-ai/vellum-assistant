@@ -868,3 +868,30 @@ describe("attention watermarks and streaming rows", () => {
     expect(state.lastSeenAssistantMessageId).toBe("msg-done");
   });
 });
+
+describe("markConversationUnread with only a streaming reply", () => {
+  test("reports no assistant message rather than rewinding onto the streaming row", () => {
+    clearTables();
+    ensureConversation("conv-1");
+    getDb()
+      .insert(messages)
+      .values({
+        id: "msg-streaming-only",
+        conversationId: "conv-1",
+        role: "assistant",
+        content: "still being written",
+        createdAt: 1_000,
+        metadata: null,
+        finalized: 0,
+      })
+      .run();
+
+    // The write-path projection anchors at the finalize seam
+    // (`reserveMessage` deliberately skips it), so attention state for this
+    // conversation says "no reply yet". The rewind fallback must agree with
+    // the projection rather than anchoring on the streaming row.
+    expect(() => markConversationUnread("conv-1")).toThrow(
+      /no assistant message/i,
+    );
+  });
+});
