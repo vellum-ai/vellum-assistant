@@ -16,13 +16,13 @@ import {
   getMemoryCheckpoint,
   setMemoryCheckpoint,
 } from "../../../persistence/checkpoints.js";
+import { getDb } from "../../../persistence/db-connection.js";
 import {
   enqueueMemoryJob,
   isMemoryEnabled,
   upsertDebouncedJob,
 } from "../../../persistence/jobs-store.js";
-import { messageExists } from "../../../persistence/message-reads.js";
-import { memorySegments } from "../../../persistence/schema/index.js";
+import { memorySegments, messages } from "../../../persistence/schema/index.js";
 import type { TrustClass } from "../../../runtime/actor-trust-resolver.js";
 import { isAutoAnalysisConversation } from "../../../runtime/services/auto-analysis-guard.js";
 import { getLogger } from "./logging.js";
@@ -123,9 +123,16 @@ export async function indexMessageNow(
   // memory_segments has no cross-file FK to messages, so this call must not
   // leave pieces for a message with no row. Skip early when the source
   // row is already gone, the common case of a backfill job running after the
-  // message was deleted. A post-write re-check below closes the narrower window
+  // message was deleted. Any-state existence check, deliberately: a
+  // streaming row exists, and orphan prevention is about deletion, not
+  // completeness. A post-write re-check below closes the narrower window
   // where the delete lands mid-transaction.
-  if (!messageExists(input.messageId)) {
+  const sourceMessage = getDb()
+    .select({ id: messages.id })
+    .from(messages)
+    .where(eq(messages.id, input.messageId))
+    .get();
+  if (!sourceMessage) {
     return { indexedSegments: 0, enqueuedJobs: 0 };
   }
 
@@ -193,7 +200,12 @@ export async function indexMessageNow(
   // drop the pieces this call just wrote and skip the embedding jobs, so a
   // delete racing a backfill leaves nothing searchable behind. No embeddings
   // exist yet. The skipped jobs are what would have created them.
-  if (!messageExists(input.messageId)) {
+  const stillExists = getDb()
+    .select({ id: messages.id })
+    .from(messages)
+    .where(eq(messages.id, input.messageId))
+    .get();
+  if (!stillExists) {
     mem
       .delete(memorySegments)
       .where(eq(memorySegments.messageId, input.messageId))
