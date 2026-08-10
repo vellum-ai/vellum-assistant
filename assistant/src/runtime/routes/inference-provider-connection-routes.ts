@@ -21,6 +21,7 @@ import { getDb } from "../../persistence/db-connection.js";
 import {
   type Auth,
   AuthSchema,
+  CHATGPT_SUBSCRIPTION_CONNECTION_NAME,
   type ConnectionModel,
   ConnectionModelSchema,
   ConnectionProviderSchema,
@@ -434,15 +435,31 @@ async function handleUpdateConnection({
   if (!authResult.success) {
     throw new BadRequestError(`Invalid auth: ${authResult.error.message}`);
   }
+  // The canonical subscription row owns the "chatgpt" identity: writing
+  // subscription auth to it stamps the provider with the auth, mirroring
+  // the daemon's own sign-in exchange route. The CLI's login-chatgpt PATCHes
+  // auth through this route, and without the stamp a row the identity
+  // migration deliberately skipped (a claiming row with key auth) would end
+  // up as provider "openai" with subscription auth. Provider stays
+  // immutable for every other row.
+  const chatgptIdentityStamp =
+    name === CHATGPT_SUBSCRIPTION_CONNECTION_NAME &&
+    authResult.data.type === "oauth_subscription" &&
+    existing.provider !== "chatgpt";
+
   // The pairing is enforced on an actual auth change, not on the field being
   // present: the web editor and the CLI both resend the stored auth on every
   // edit, so a row whose columns already disagree stays relabelable and
-  // re-pointable.
+  // re-pointable. Judged against the stamped provider when the stamp
+  // applies, since that is the pair being written.
   if (
     body.auth !== undefined &&
     authFingerprint(authResult.data) !== authFingerprint(existing.auth)
   ) {
-    assertAuthMatchesProvider(existing.provider, authResult.data);
+    assertAuthMatchesProvider(
+      chatgptIdentityStamp ? "chatgpt" : existing.provider,
+      authResult.data,
+    );
   }
 
   const labelRaw = body.label;
@@ -473,6 +490,7 @@ async function handleUpdateConnection({
 
   const result = updateConnection(getDb(), name, {
     auth: authResult.data,
+    ...(chatgptIdentityStamp ? { provider: "chatgpt" } : {}),
     ...(labelRaw !== undefined ? { label: labelRaw as string | null } : {}),
     ...customFields,
   });

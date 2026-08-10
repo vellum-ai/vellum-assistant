@@ -677,6 +677,52 @@ describe("PATCH inference/provider-connections/:name (update)", () => {
 
   // The guard must not trap a legacy row in its mismatched state: an auth
   // change that repairs the pairing is exactly what should be allowed.
+  // The canonical subscription row owns the "chatgpt" identity: writing
+  // subscription auth to it stamps the provider (the CLI login-chatgpt path
+  // PATCHes auth through this route on a row the identity migration
+  // deliberately skipped).
+  test("stamps the chatgpt identity when subscription auth lands on the canonical row", async () => {
+    seedConnection({
+      name: "chatgpt-subscription",
+      provider: "openai",
+      auth: { type: "api_key", credential: "vault/openai/key" },
+    });
+
+    const result = (await call(
+      findHandler("inference_provider_connections_update"),
+      {
+        pathParams: { name: "chatgpt-subscription" },
+        body: {
+          auth: {
+            type: "oauth_subscription",
+            credential: "credential/chatgpt/access_token",
+          },
+        },
+      },
+    )) as { provider: string; auth: { type: string } };
+    expect(result.provider).toBe("chatgpt");
+    expect(result.auth.type).toBe("oauth_subscription");
+  });
+
+  test("does not stamp the identity for non-subscription auth on that name", async () => {
+    seedConnection({
+      name: "chatgpt-subscription",
+      provider: "openai",
+      auth: { type: "api_key", credential: "vault/openai/key" },
+    });
+
+    const result = (await call(
+      findHandler("inference_provider_connections_update"),
+      {
+        pathParams: { name: "chatgpt-subscription" },
+        body: {
+          auth: { type: "api_key", credential: "vault/openai/other-key" },
+        },
+      },
+    )) as { provider: string };
+    expect(result.provider).toBe("openai");
+  });
+
   test("allows repairing a legacy mismatched row with a valid auth change", async () => {
     seedConnection({
       name: "legacy-managed-anthropic",
