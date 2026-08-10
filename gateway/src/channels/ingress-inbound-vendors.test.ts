@@ -4,8 +4,8 @@
  * The question this answers is whether a manifest can express what a plugin's
  * webhook normalizer expresses in code. If it cannot, the gateway has to take
  * the plugin's word for what a delivery says, which means crossing into the
- * assistant to ask before the gate can run — and the gate is the thing that
- * must not move.
+ * assistant to ask before the gate can run, and the gate is the thing that must
+ * not move.
  *
  * So these are not schema tests. They are the two shipping vendors' actual
  * webhook envelopes, read by a declaration written the way a plugin author
@@ -35,11 +35,6 @@ function read(plugin: string, raw: unknown, declaration: unknown) {
 /** `{ event, message }`, the envelope Comms delivers. */
 const COMMS = {
   identity: "phone",
-  when: [
-    { path: "event", in: ["comms.message.received", "message.received"] },
-    { path: "message.direction", equals: "inbound" },
-  ],
-  probe: [{ path: "event", in: ["comms.ping", "ping"] }],
   fields: {
     content: "message.body",
     conversationExternalId: ["message.conversation_id", "message.from"],
@@ -108,17 +103,11 @@ describe("a Comms declaration", () => {
     }
   });
 
-  it("calls the delivery test a probe rather than a broken message", () => {
+  it("finds no message in a delivery test, leaving it for the plugin", () => {
+    // A ping carries no sender and no content. The gateway has nobody to gate
+    // and nothing to admit, so it reads as absent rather than as broken, and
+    // what the event means stays the plugin\'s business.
     const result = read("imessage", { event: "comms.ping" }, COMMS);
-    expect(result.status).toBe("probe");
-  });
-
-  it("does not treat our own echo as a turn", () => {
-    const result = read(
-      "imessage",
-      commsDelivery({ direction: "outbound" }),
-      COMMS,
-    );
     expect(result.status).toBe("none");
   });
 });
@@ -130,14 +119,14 @@ describe("a Comms declaration", () => {
 /**
  * `{ event, space, message: { sender, space, content } }`.
  *
- * The two things a single path could not express are both here: the
- * conversation falls back from `message.space.id` to `space.id` (in code,
- * `message.space ?? event.space`), and the platform is mapped to the two
- * values admission acts on.
+ * The two things a single path could not express are both here. The
+ * conversation falls back from `message.space.id` to `space.id`, which in code
+ * is `message.space ?? event.space`, and the platform is mapped to the two
+ * values admission acts on. The vendor\'s own casing is used for the map key,
+ * because a declaration should be able to quote what the wire says.
  */
 const PHOTON = {
   identity: "phone",
-  when: [{ path: "event", equals: "messages" }],
   fields: {
     content: "message.content.text",
     conversationExternalId: ["message.space.id", "space.id"],
@@ -145,7 +134,7 @@ const PHOTON = {
     actorExternalId: "message.sender.id",
     chatType: {
       from: ["message.platform", "space.platform"],
-      map: { imessage: "imessage" },
+      map: { iMessage: "imessage" },
       default: "sms",
     },
   },
@@ -215,11 +204,6 @@ describe("a Photon declaration", () => {
     expect(result.status).toBe("event");
     if (result.status !== "event") return;
     expect(result.event.source.chatType).toBe("sms");
-  });
-
-  it("ignores an event that is not a message", () => {
-    const raw = { ...photonDelivery(), event: "spaces" };
-    expect(read("imessage", raw, PHOTON).status).toBe("none");
   });
 
   it("reports a delivery with no sender rather than inventing one", () => {

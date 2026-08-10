@@ -46,7 +46,6 @@
  */
 
 import {
-  allConditionsHold,
   inboundFieldSource,
   readFieldSource,
   type IngressInbound,
@@ -97,8 +96,6 @@ function readRaw(body: unknown): Record<string, unknown> {
 
 export type PluginInboundReading =
   | { status: "event"; event: PluginInboundEvent }
-  /** The vendor's own delivery test. Proof the path works, never a turn. */
-  | { status: "probe" }
   | { status: "none" }
   | { status: "invalid"; reason: string };
 
@@ -134,19 +131,6 @@ export function readPluginInbound(
   const { plugin, inbound, body, receivedAt } = opts;
   const read = (field: InboundFieldName) =>
     readFieldSource(body, inboundFieldSource(inbound, field));
-
-  // Probe first: it carries no sender and no content, so every check below
-  // would report the vendor confirming it can reach us as a broken message.
-  if (inbound.probe.length > 0 && allConditionsHold(body, inbound.probe)) {
-    return { status: "probe" };
-  }
-
-  // Then whether this is a message at all. A receipt or an outbound echo is
-  // routine, and reporting it as a half-formed message would make the ordinary
-  // case look like a bug.
-  if (!allConditionsHold(body, inbound.when)) {
-    return { status: "none" };
-  }
 
   const conversation = read("conversationExternalId")?.trim();
   const actor = read("actorExternalId")?.trim();
