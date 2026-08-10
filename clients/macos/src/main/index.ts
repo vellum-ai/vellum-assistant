@@ -4,6 +4,8 @@ import { pathToFileURL } from "node:url";
 import path from "node:path";
 
 import { installCsp } from "@vellumai/electron-desktop/csp";
+import { installCommandPaletteWindow } from "@vellumai/electron-desktop/command-palette-window";
+import { installDictationOverlay } from "@vellumai/electron-desktop/dictation-overlay-window";
 import {
   authorizePairedGatewayForwardPlan,
   executeGatewayForwardPlan,
@@ -14,9 +16,10 @@ import {
 import { installPermissionHandler } from "@vellumai/electron-desktop/permissions";
 import {
   executePlatformForwardPlan,
-  fetchForwardPlanWithRetry,
   planPlatformForward,
 } from "@vellumai/electron-desktop/platform-forward";
+import { installPopoutWindows } from "@vellumai/electron-desktop/popout-window";
+import { installQuickInput } from "@vellumai/electron-desktop/quick-input-window";
 import { planAppProtocolAssetRequest } from "@vellumai/electron-utils/app-protocol";
 import {
   pairedGatewayTargetsFromLockfile,
@@ -45,8 +48,7 @@ import {
   onFileOpen,
 } from "./file-open.client";
 import { installAvatarIpc } from "./avatar";
-import { installCommandPaletteWindow } from "./command-palette-window";
-import { installDictationOverlay } from "./dictation-overlay-window";
+import "./auxiliary-windows.client";
 import { installDock } from "./dock";
 import { installDownloads } from "./downloads";
 import { installShare } from "./share";
@@ -62,8 +64,6 @@ import { installHotkeyHelper } from "./hotkey-helper";
 import { installHotkeysIpc } from "./hotkeys.client";
 import { installImageContextMenu } from "@vellumai/electron-desktop/image-context-menu";
 import { installTextContextMenu } from "@vellumai/electron-desktop/text-context-menu";
-import { installPopoutWindows } from "./popout-window";
-import { installQuickInput } from "./quick-input-window";
 import {
   getPairedGuardianAccessToken,
   installLocalMode,
