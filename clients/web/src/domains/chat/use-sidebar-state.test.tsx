@@ -2,6 +2,7 @@ import { act, cleanup, renderHook } from "@testing-library/react";
 import { afterEach, describe, expect, mock, test } from "bun:test";
 
 import type * as ConversationQueries from "@/hooks/conversation-queries";
+import type { SidebarIndexSection } from "@/utils/conversation-list-fetchers";
 import type { Conversation } from "@/types/conversation-types";
 import { useSidebarLayoutStore } from "@/domains/chat/sidebar-layout-store";
 /* Type-only, so it is erased before the `mock.module` above takes effect and
@@ -14,9 +15,15 @@ import type { SidebarState } from "@/domains/chat/use-sidebar-state";
    No section query is stubbed here: each section fetches its own rows where
    it renders (`useSectionConversations`). What this hook owns is the section
    *list* and the derived fallback rows, which is what these tests cover. */
+/* Controls the stubbed section index per test. `null` is the feature-off
+   answer (older daemon / unresolved read), which keeps every existing test on
+   the derived-discovery path it was written against. */
+let sidebarSectionsImpl: SidebarIndexSection[] | null = null;
+
 mock.module(
   "@/hooks/conversation-queries",
   (): Partial<typeof ConversationQueries> => ({
+    useSidebarSectionsQuery: () => sidebarSectionsImpl,
     useBackgroundConversationListQuery: () => ({
       conversations: [],
       isLoading: false,
@@ -52,6 +59,7 @@ function makeConversation(
 afterEach(() => {
   cleanup();
   localStorage.clear();
+  sidebarSectionsImpl = null;
   useSidebarLayoutStore.setState({
     assistantId: null,
     openCategories: [],
@@ -535,5 +543,125 @@ describe("useSidebarState curated sections", () => {
     const work = result.current.sections.find((s) => s.key === "grp-work");
     expect(work).toBeDefined();
     expect(work?.label).toBe("Work");
+  });
+});
+
+describe("useSidebarState with the section index", () => {
+  test("a group absent from the index gets no section, present in it does", () => {
+    const conversationGroups = [
+      { id: "grp-empty", name: "Empty", sortPosition: 0, isSystemGroup: false },
+      { id: "grp-full", name: "Full", sortPosition: 1, isSystemGroup: false },
+    ];
+    const conversations = [
+      makeConversation(0, { conversationId: "g1", groupId: "grp-full" }),
+    ];
+    sidebarSectionsImpl = [
+      {
+        kind: "group",
+        groupId: "grp-full",
+        name: "Full",
+        icon: null,
+        sortPosition: 1,
+        total: 1,
+        unread: 0,
+      },
+      { kind: "chats", total: 0, unread: 0 },
+    ];
+
+    const { result } = renderHook(() =>
+      useSidebarState({
+        assistantId: "asst-1",
+        conversations,
+        conversationGroups,
+      }),
+    );
+
+    const keys = result.current.sections.map((s) => s.key);
+    expect(keys).toContain("grp-full");
+    // The empty group is the index's call, not the groups query's: it stays
+    // a "Move to group" target but renders no card.
+    expect(keys).not.toContain("grp-empty");
+  });
+
+  test("group metadata comes from the index snapshot, not the groups query", () => {
+    const conversationGroups = [
+      {
+        id: "grp-a",
+        name: "Stale name",
+        sortPosition: 0,
+        isSystemGroup: false,
+      },
+    ];
+    sidebarSectionsImpl = [
+      {
+        kind: "group",
+        groupId: "grp-a",
+        name: "Fresh name",
+        icon: null,
+        sortPosition: 0,
+        total: 2,
+        unread: 0,
+      },
+      { kind: "chats", total: 0, unread: 0 },
+    ];
+
+    const { result } = renderHook(() =>
+      useSidebarState({
+        assistantId: "asst-1",
+        conversations: [],
+        conversationGroups,
+      }),
+    );
+
+    const section = result.current.sections.find((s) => s.key === "grp-a");
+    expect(section?.label).toBe("Fresh name");
+  });
+
+  test("Pinned exists exactly when the index says so", () => {
+    // Derived pinned rows exist either way; the index decides the section.
+    const conversations = [
+      makeConversation(0, { conversationId: "p1", isPinned: true }),
+    ];
+    sidebarSectionsImpl = [{ kind: "chats", total: 0, unread: 0 }];
+
+    const { result, rerender } = renderHook(() =>
+      useSidebarState({ assistantId: "asst-1", conversations }),
+    );
+    expect(result.current.sections.map((s) => s.key)).not.toContain("pinned");
+
+    sidebarSectionsImpl = [
+      { kind: "pinned", total: 1, unread: 0 },
+      { kind: "chats", total: 0, unread: 0 },
+    ];
+    rerender();
+    // The section exists per the index; its fallback rows are the derived
+    // pinned bucket.
+    expect(sectionFor(result.current.sections, "pinned").all).toHaveLength(1);
+  });
+
+  test("a channel section from the index renders even with no derived rows", () => {
+    seedGroupedView();
+    sidebarSectionsImpl = [
+      { kind: "channel", channelId: "slack", total: 3, unread: 1 },
+      { kind: "chats", total: 0, unread: 0 },
+    ];
+
+    const { result } = renderHook(() =>
+      useSidebarState({ assistantId: "asst-1", conversations: [] }),
+    );
+
+    // Its own query fills the contents; existence must not wait for derived
+    // rows the foreground page never carried.
+    expect(sectionFor(result.current.sections, "channel:slack").all).toEqual(
+      [],
+    );
+  });
+
+  test("Chats renders in both discovery modes", () => {
+    sidebarSectionsImpl = [{ kind: "chats", total: 0, unread: 0 }];
+    const { result } = renderHook(() =>
+      useSidebarState({ assistantId: "asst-1", conversations: [] }),
+    );
+    expect(sectionFor(result.current.sections, "recents")).toBeDefined();
   });
 });

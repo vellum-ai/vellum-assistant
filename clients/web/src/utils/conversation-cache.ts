@@ -40,6 +40,7 @@ import {
   conversationListPrefix,
   conversationsQueryKey,
   scheduledConversationsQueryKey,
+  sidebarSectionsQueryKey,
   unreadConversationCountQueryKey,
 } from "@/utils/conversation-list-fetchers";
 import {
@@ -126,10 +127,12 @@ export function restoreConversationCaches(
  * server. Used in `onSettled` to reconcile optimistic values with the
  * server-authoritative state regardless of mutation success or failure.
  *
- * Includes the unread-count cache (own key, see
- * `cancelConversationQueries`) so optimistic count deltas always
- * reconcile against the authoritative server count after a mutation
- * settles.
+ * Includes the unread-count cache and the sidebar section index (own keys,
+ * see `cancelConversationQueries`) so optimistic count deltas and section
+ * existence always reconcile against the authoritative server state after a
+ * mutation settles. The index needs the local settle path in particular:
+ * the daemon suppresses sync echo to the originating client, so nothing
+ * else refreshes it for the client that made the change.
  */
 export async function invalidateConversationQueries(
   queryClient: QueryClient,
@@ -141,6 +144,9 @@ export async function invalidateConversationQueries(
     }),
     queryClient.invalidateQueries({
       queryKey: unreadConversationCountQueryKey(assistantId),
+    }),
+    queryClient.invalidateQueries({
+      queryKey: sidebarSectionsQueryKey(assistantId),
     }),
   ]);
 }

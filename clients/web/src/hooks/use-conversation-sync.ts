@@ -36,6 +36,7 @@ import { useBusSubscription } from "@/hooks/use-bus-subscription";
 import { groupsGetQueryKey } from "@/generated/daemon/@tanstack/react-query.gen";
 import {
   archivedConversationsQueryKey,
+  sidebarSectionsQueryKey,
   unreadConversationCountQueryKey,
 } from "@/utils/conversation-list-fetchers";
 import { getClientId } from "@/lib/telemetry/client-identity";
@@ -220,6 +221,11 @@ function scheduleConversationListRefetch(
     void queryClient.invalidateQueries({
       queryKey: unreadConversationCountQueryKey(assistantId),
     });
+    // Section existence and badge counts change with the list shape; the
+    // index is one cheap GET, so it rides the same debounced signal.
+    void queryClient.invalidateQueries({
+      queryKey: sidebarSectionsQueryKey(assistantId),
+    });
   });
 }
 
@@ -240,6 +246,11 @@ function scheduleUnreadCountRefetch(
   scheduleDebounced(timerRef, () => {
     void queryClient.invalidateQueries({
       queryKey: unreadConversationCountQueryKey(assistantId),
+    });
+    // Seen-state changes move per-section unread; the index carries those
+    // badges now, so it refetches on the same metadata-driven timer.
+    void queryClient.invalidateQueries({
+      queryKey: sidebarSectionsQueryKey(assistantId),
     });
   });
 }

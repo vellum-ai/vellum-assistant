@@ -17,10 +17,17 @@
 import { queryOptions } from "@tanstack/react-query";
 import {
   conversationsGet,
+  conversationsSectionsGet,
   conversationsUnreadcountGet,
 } from "@/generated/daemon/sdk.gen";
-import { conversationsUnreadcountGetQueryKey } from "@/generated/daemon/@tanstack/react-query.gen";
-import type { ConversationsGetData } from "@/generated/daemon/types.gen";
+import {
+  conversationsSectionsGetQueryKey,
+  conversationsUnreadcountGetQueryKey,
+} from "@/generated/daemon/@tanstack/react-query.gen";
+import type {
+  ConversationsGetData,
+  ConversationsSectionsGetResponse,
+} from "@/generated/daemon/types.gen";
 import {
   ApiError,
   assertHasResponse,
@@ -696,6 +703,56 @@ export async function fetchUnreadConversationCount(
   return data?.count ?? null;
 }
 
+/** One renderable sidebar section as the daemon indexes it. */
+export type SidebarIndexSection =
+  ConversationsSectionsGetResponse["sections"][number];
+
+/**
+ * Key for the sidebar section index (`GET /v1/conversations/sections`). The
+ * cache holds `SidebarIndexSection[] | null` (see
+ * {@link fetchSidebarSections}).
+ *
+ * The generated key, NOT a child of {@link conversationListPrefix}, for the
+ * same reason as the unread count: the prefix-wide helpers in
+ * `conversation-cache.ts` treat every entry under the prefix as a
+ * `Conversation[]`, and this cache holds section rows.
+ */
+export function sidebarSectionsQueryKey(assistantId: string | null) {
+  return conversationsSectionsGetQueryKey({
+    path: { assistant_id: assistantId ?? "" },
+  });
+}
+
+/**
+ * Read the sidebar section index, mapping a 404 to `null`.
+ *
+ * An assistant without `GET /v1/conversations/sections` 404s this read;
+ * resolving `null` lets the sidebar keep deriving section existence from the
+ * loaded list, and lets a refetch clear an index from a since-rolled-back
+ * assistant instead of stranding it (see "When a gate is unnecessary" in
+ * BACKWARDS_COMPAT.md). Every other HTTP failure throws a status-carrying
+ * {@link ApiError} so the app-level no-retry-4xx policy applies; a missing
+ * response (network error) rethrows raw and retries as transient.
+ */
+export async function fetchSidebarSections(
+  assistantId: string,
+  signal?: AbortSignal,
+): Promise<SidebarIndexSection[] | null> {
+  const { data, error, response } = await conversationsSectionsGet({
+    path: { assistant_id: assistantId },
+    throwOnError: false,
+    signal,
+  });
+  assertHasResponse(response, error, "Failed to fetch sidebar sections.");
+  if (!response.ok) {
+    if (response.status === 404) {
+      return null;
+    }
+    throw toApiError(error, response);
+  }
+  return data?.sections ?? null;
+}
+
 // ---------------------------------------------------------------------------
 // First-page fetchers
 //
@@ -882,6 +939,24 @@ export function unreadConversationCountOptions(assistantId: string) {
   return queryOptions({
     queryKey: unreadConversationCountQueryKey(assistantId),
     queryFn: ({ signal }) => fetchUnreadConversationCount(assistantId, signal),
+    staleTime: QUERY_STALE_TIME_MS,
+    refetchOnWindowFocus: false,
+  });
+}
+
+/**
+ * Query options for the sidebar section index. The cache holds
+ * `SidebarIndexSection[] | null`; `null` means the connected assistant does
+ * not serve the endpoint (see {@link fetchSidebarSections}).
+ *
+ * `refetchOnWindowFocus` is disabled for the same reason as the unread
+ * count: freshness arrives via `sync_changed`-driven invalidation, and a
+ * focus refetch would re-issue the 404 against assistants without the route.
+ */
+export function sidebarSectionsOptions(assistantId: string) {
+  return queryOptions({
+    queryKey: sidebarSectionsQueryKey(assistantId),
+    queryFn: ({ signal }) => fetchSidebarSections(assistantId, signal),
     staleTime: QUERY_STALE_TIME_MS,
     refetchOnWindowFocus: false,
   });

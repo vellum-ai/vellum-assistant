@@ -15,7 +15,10 @@ import {
   type ConversationCacheSnapshot,
 } from "@/utils/conversation-cache";
 import { adjustUnreadCountCache } from "@/utils/conversation-cache-mutations";
-import { sectionListPrefix } from "@/utils/conversation-list-fetchers";
+import {
+  sectionListPrefix,
+  sidebarSectionsQueryKey,
+} from "@/utils/conversation-list-fetchers";
 import { contributesToUnreadCount } from "@/utils/conversation-predicates";
 import { executeBulkWithFallback } from "@/utils/bulk-with-fallback";
 import {
@@ -128,14 +131,27 @@ function reconcilePlacement(
   assistantId: string,
   sectionKeys: readonly (readonly unknown[])[] | undefined,
 ): Promise<unknown> {
+  /* The section index rides every placement settle: a move can create or
+     empty a section and always shifts its counts, and the daemon suppresses
+     sync echo to the originating client, so this settle is the only local
+     refresh the index gets. */
+  const refreshIndex = queryClient.invalidateQueries({
+    queryKey: sidebarSectionsQueryKey(assistantId),
+  });
   if (!sectionKeys?.length) {
-    return queryClient.invalidateQueries({
-      queryKey: sectionListPrefix(assistantId),
-    });
+    return Promise.all([
+      refreshIndex,
+      queryClient.invalidateQueries({
+        queryKey: sectionListPrefix(assistantId),
+      }),
+    ]);
   }
-  return Promise.all(
-    sectionKeys.map((queryKey) => queryClient.invalidateQueries({ queryKey })),
-  );
+  return Promise.all([
+    refreshIndex,
+    ...sectionKeys.map((queryKey) =>
+      queryClient.invalidateQueries({ queryKey }),
+    ),
+  ]);
 }
 
 /**

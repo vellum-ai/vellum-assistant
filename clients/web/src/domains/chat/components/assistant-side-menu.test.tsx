@@ -76,6 +76,8 @@ function rowsMatching(filter: {
 mock.module(
   "@/hooks/conversation-queries",
   (): Partial<typeof ConversationQueries> => ({
+    /* Feature-off: these tests exercise the derived-discovery path. */
+    useSidebarSectionsQuery: () => null,
     useBackgroundConversationListQuery: () => ({
       conversations: [],
       isLoading: false,
