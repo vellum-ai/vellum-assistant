@@ -170,6 +170,67 @@ describe("refreshConversationListWindows and sections", () => {
     expect(sectionCalls).toEqual([SLACK]);
   });
 
+  test("a section whose first fetch failed is invalidated for retry", async () => {
+    /* A tracked query holding no data cannot be merged into, and skipping it
+       strands the section on its derived fallback forever: the sync signal
+       is its only retry path now that the prefix invalidation is gone. */
+    const client = reset();
+    const failedKey = sectionConversationsQueryKey(ASSISTANT_ID, PINNED);
+    await client
+      .prefetchQuery({
+        queryKey: failedKey,
+        queryFn: () => Promise.reject(new Error("first fetch failed")),
+        retry: false,
+      })
+      .catch(() => {});
+    expect(client.getQueryData(failedKey)).toBeUndefined();
+
+    await refreshConversationListWindows(client, ASSISTANT_ID);
+
+    expect(client.getQueryState(failedKey)?.isInvalidated).toBe(true);
+    // Invalidation re-drives the query's own fetch; the window fetcher must
+    // not also fire for a cache it cannot merge into.
+    expect(sectionCalls).toEqual([]);
+  });
+
+  test("a section mid-first-fetch is left alone", async () => {
+    /* Invalidating an in-flight query cancels and restarts it, so a burst
+       of sync signals arriving faster than a first load completes would
+       keep that load from ever finishing. */
+    const client = reset();
+    const pendingKey = sectionConversationsQueryKey(ASSISTANT_ID, SLACK);
+    void client
+      .prefetchQuery({
+        queryKey: pendingKey,
+        queryFn: () => new Promise<Conversation[]>(() => {}),
+      })
+      .catch(() => {});
+
+    await refreshConversationListWindows(client, ASSISTANT_ID);
+
+    expect(client.getQueryState(pendingKey)?.isInvalidated).toBe(false);
+    expect(sectionCalls).toEqual([]);
+  });
+
+  test("a bucket whose first fetch failed is invalidated for retry", async () => {
+    // Same recovery contract as the sections; the bucket path had the same
+    // hole (a failed first fetch was skipped, not retried).
+    const client = reset();
+    const foregroundKey = conversationsQueryKey(ASSISTANT_ID);
+    await client
+      .prefetchQuery({
+        queryKey: foregroundKey,
+        queryFn: () => Promise.reject(new Error("first fetch failed")),
+        retry: false,
+      })
+      .catch(() => {});
+
+    await refreshConversationListWindows(client, ASSISTANT_ID);
+
+    expect(client.getQueryState(foregroundKey)?.isInvalidated).toBe(true);
+    expect(foregroundCalls).toBe(0);
+  });
+
   test("an unpopulated bucket is skipped", async () => {
     const client = reset();
     client.setQueryData(backgroundConversationsQueryKey(ASSISTANT_ID), [

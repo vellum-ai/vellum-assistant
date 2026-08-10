@@ -189,10 +189,13 @@ function scheduleConversationListRefetch(
   scheduleDebounced(debounceTimerRef, () => {
     // One first-page GET per populated list cache, including every
     // per-section cache, never a full paginated drain (see
-    // refreshConversationListWindows). Sections must NOT be invalidated
-    // here instead: a section refetches by draining all of its pages, so
-    // prefix invalidation costs a full drain per mounted section per
-    // signal, which is the exact cost this window refresh exists to avoid.
+    // refreshConversationListWindows). Sections must NOT be prefix-
+    // invalidated here instead: a section refetches by draining all of its
+    // pages, so that costs a full drain per mounted section per signal,
+    // which is the exact cost this window refresh exists to avoid. The
+    // helper itself invalidates the caches it cannot merge (tracked but
+    // holding no data, e.g. a failed first fetch), so a signal is still
+    // the retry path for a section stranded on its derived fallback.
     void refreshConversationListWindows(queryClient, assistantId).catch(
       (err: unknown) => {
         captureError(err, {

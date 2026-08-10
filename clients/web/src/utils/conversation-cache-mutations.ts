@@ -378,10 +378,17 @@ const LIST_WINDOW_BUCKETS = [
  * rate-limit budget during active turns; refreshing just the visible
  * window keeps the cost bounded.
  *
- * Caches that were never fetched (collapsed sidebar sections) are
- * skipped — their queries fetch on first expand anyway. Fetch errors are
- * rethrown so the caller can log/capture without silently dropping the
- * signal.
+ * A tracked cache holding no data cannot be window-merged, and it must not
+ * be skipped either: a query whose first fetch failed sits exactly there,
+ * and a sync signal is its retry path. Those caches are invalidated
+ * instead, which refetches the active ones and leaves disabled or
+ * unmounted ones stale for their next mount. A cache mid-fetch is left
+ * alone so a burst of signals cannot cancel and restart a first load that
+ * is already running. Untracked keys (a section never expanded) stay
+ * untouched: their queries fetch on first expand anyway.
+ *
+ * Fetch errors are rethrown so the caller can log/capture without silently
+ * dropping the signal.
  */
 export async function refreshConversationListWindows(
   queryClient: QueryClient,
@@ -390,44 +397,62 @@ export async function refreshConversationListWindows(
   if (!assistantId) {
     return;
   }
-  const bucketRefreshes = LIST_WINDOW_BUCKETS.map(async (bucket) => {
-    const queryKey = bucket.queryKey(assistantId);
-    if (queryClient.getQueryData<Conversation[]>(queryKey) === undefined) {
+
+  /* One refresh decision for every tracked list cache, bucket or section. */
+  const refresh = async (
+    queryKey: readonly unknown[],
+    data: Conversation[] | undefined,
+    fetchStatus: "fetching" | "paused" | "idle",
+    fetchFirstPage: () => Promise<ConversationListPage>,
+    pinnedInjected: boolean,
+  ): Promise<void> => {
+    if (data === undefined) {
+      if (fetchStatus === "idle") {
+        await queryClient.invalidateQueries({ queryKey });
+      }
       return;
     }
-    const page = await bucket.fetchFirstPage(assistantId);
+    const page = await fetchFirstPage();
     queryClient.setQueryData<Conversation[]>(
       queryKey,
       (prev: Conversation[] | undefined) =>
         prev === undefined
           ? undefined
-          : /* The one request the daemon appends pinned rows to is the
-               unfiltered foreground list; see mergeListFirstPage. */
-            mergeListFirstPage(prev, page, {
-              pinnedInjected: bucket.queryKey === conversationsQueryKey,
-            }),
+          : mergeListFirstPage(prev, page, { pinnedInjected }),
+    );
+  };
+
+  const bucketRefreshes = LIST_WINDOW_BUCKETS.map(async (bucket) => {
+    const queryKey = bucket.queryKey(assistantId);
+    const state = queryClient.getQueryState<Conversation[]>(queryKey);
+    if (!state) {
+      return;
+    }
+    await refresh(
+      queryKey,
+      state.data,
+      state.fetchStatus,
+      () => bucket.fetchFirstPage(assistantId),
+      /* The one request the daemon appends pinned rows to is the unfiltered
+         foreground list; see mergeListFirstPage. */
+      bucket.queryKey === conversationsQueryKey,
     );
   });
 
   const sectionRefreshes = queryClient
-    .getQueriesData<Conversation[]>({
-      queryKey: sectionListPrefix(assistantId),
-    })
-    .map(async ([queryKey, data]) => {
-      if (data === undefined) {
-        return;
-      }
-      const filter = parseSectionConversationsQueryKey(queryKey);
+    .getQueryCache()
+    .findAll({ queryKey: sectionListPrefix(assistantId) })
+    .map(async (query) => {
+      const filter = parseSectionConversationsQueryKey(query.queryKey);
       if (!filter) {
         return;
       }
-      const page = await listSectionConversationsFirstPage(assistantId, filter);
-      queryClient.setQueryData<Conversation[]>(
-        queryKey,
-        (prev: Conversation[] | undefined) =>
-          prev === undefined
-            ? undefined
-            : mergeListFirstPage(prev, page, { pinnedInjected: false }),
+      await refresh(
+        query.queryKey,
+        query.state.data as Conversation[] | undefined,
+        query.state.fetchStatus,
+        () => listSectionConversationsFirstPage(assistantId, filter),
+        false,
       );
     });
 
