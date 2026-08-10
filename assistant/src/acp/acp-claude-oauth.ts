@@ -33,14 +33,13 @@ import {
  * `CLAUDE_CODE_OAUTH_TOKEN` requires.
  */
 export const CLAUDE_OAUTH_CONFIG: OAuth2Config = {
-  // The claude.ai-account authorize endpoint, matching CLAUDE_AI_AUTHORIZE_URL
-  // in Claude Code CLI 2.1.220. Shared by both flows: the loopback path builds
-  // its URL from this in `prepareOAuth2Flow`, the manual path in
-  // `buildClaudeAuthorizeUrl`. Only this claude.com/cai host completes a
-  // grant. The legacy claude.ai host still renders a working-looking consent
-  // screen, but its authorize POST rejects every grant with a 400 "Invalid
-  // request format", so a wrong host here looks functional until the final
-  // click of a real sign-in.
+  // The claude.ai-account authorize endpoint, matching the Claude Code CLI's
+  // own CLAUDE_AI_AUTHORIZE_URL. Shared by both flows: the loopback path
+  // builds its URL from this in `prepareOAuth2Flow`, the manual path in
+  // `buildClaudeAuthorizeUrl`. Only the claude.com/cai host completes a
+  // grant; the legacy claude.ai host still renders a working-looking consent
+  // screen but rejects every authorize POST, so a wrong host here looks
+  // functional until the final click of a real sign-in.
   authorizeUrl: "https://claude.com/cai/oauth/authorize",
   tokenExchangeUrl: "https://platform.claude.com/v1/oauth/token",
   clientId: "9d1c250a-e61b-44d9-88ed-5944d1962f5e",
