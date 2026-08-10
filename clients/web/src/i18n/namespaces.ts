@@ -47,6 +47,7 @@ export const NAMESPACES = [
   "credential-requests",
   "logs",
   "library",
+  "home",
 ] as const;
 
 export type Namespace = (typeof NAMESPACES)[number];

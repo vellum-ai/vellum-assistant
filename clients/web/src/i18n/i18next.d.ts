@@ -15,6 +15,7 @@
 import type account from "@/i18n/locales/en/account.json";
 import type channels from "@/i18n/locales/en/channels.json";
 import type credentialRequests from "@/i18n/locales/en/credential-requests.json";
+import type home from "@/i18n/locales/en/home.json";
 import type library from "@/i18n/locales/en/library.json";
 import type logs from "@/i18n/locales/en/logs.json";
 import type remoteWeb from "@/i18n/locales/en/remote-web.json";
@@ -41,6 +42,7 @@ declare module "i18next" {
       "credential-requests": typeof credentialRequests;
       logs: typeof logs;
       library: typeof library;
+      home: typeof home;
     };
     returnNull: false;
   }
