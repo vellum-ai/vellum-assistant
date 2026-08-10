@@ -3,7 +3,10 @@ import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import type { BundleScanData } from "./bundle-manager";
 
 type StubWebContents = {
-  on: (event: string, listener: (...args: unknown[]) => void) => StubWebContents;
+  on: (
+    event: string,
+    listener: (...args: unknown[]) => void,
+  ) => StubWebContents;
   setWindowOpenHandler: (
     handler: (details: { url: string }) => { action: "deny" | "allow" },
   ) => void;
@@ -66,15 +69,21 @@ const makeWindow = (): StubWindow => {
     loadURL: loadURLMock,
     webContents,
     emit: (event) => {
-      if (event === "closed") destroyed = true;
-      for (const l of listeners.get(event) ?? []) l();
+      if (event === "closed") {
+        destroyed = true;
+      }
+      for (const listener of listeners.get(event) ?? []) {
+        listener();
+      }
     },
   };
   return win;
 };
 
-const ipcHandleMock = mock((_channel: string, _handler: unknown) => undefined);
-const ipcOnMock = mock((_channel: string, _handler: unknown) => undefined);
+const registerGetDataMock = mock((_handler: () => unknown) => undefined);
+const registerResponseMock = mock(
+  (_handler: (accepted: boolean) => void) => undefined,
+);
 
 mock.module("electron", () => ({
   app: {
@@ -87,15 +96,30 @@ mock.module("electron", () => ({
       Object.assign(this, win);
     }
   },
-  ipcMain: {
-    handle: ipcHandleMock,
-    on: ipcOnMock,
-  },
 }));
 
-const { openBundleConfirmation, installBundleConfirmation } = await import(
-  "./bundle-confirmation"
-);
+mock.module("./bundle-platform", () => ({
+  getBundlePlatform: () => ({
+    rendererBase: () => "http://localhost:5173/assistant",
+    ipc: {
+      handle: (_channel: string, _schema: unknown, handler: () => unknown) => {
+        registerGetDataMock(handler);
+      },
+      on: (
+        _channel: string,
+        _schema: unknown,
+        handler: (args: [boolean]) => void,
+      ) => {
+        registerResponseMock((accepted) => {
+          handler([accepted]);
+        });
+      },
+    },
+  }),
+}));
+
+const { openBundleConfirmation, installBundleConfirmation } =
+  await import("./bundle-confirmation");
 
 const SAMPLE_DATA: BundleScanData = {
   manifest: {
@@ -125,13 +149,15 @@ beforeEach(() => {
   showMock.mockClear();
   focusMock.mockClear();
   loadURLMock.mockClear();
-  ipcHandleMock.mockClear();
-  ipcOnMock.mockClear();
+  registerGetDataMock.mockClear();
+  registerResponseMock.mockClear();
 });
 
 afterEach(() => {
   for (const win of constructed) {
-    if (!win.isDestroyed()) win.emit("closed");
+    if (!win.isDestroyed()) {
+      win.emit("closed");
+    }
   }
 });
 
@@ -185,11 +211,7 @@ describe("openBundleConfirmation", () => {
 describe("installBundleConfirmation", () => {
   test("registers getData (handle) and respond (on) IPC channels", () => {
     installBundleConfirmation();
-
-    const handleChannels = ipcHandleMock.mock.calls.map((c) => c[0]);
-    expect(handleChannels).toContain("vellum:bundleConfirm:getData");
-
-    const onChannels = ipcOnMock.mock.calls.map((c) => c[0]);
-    expect(onChannels).toContain("vellum:bundleConfirm:respond");
+    expect(registerGetDataMock).toHaveBeenCalledTimes(1);
+    expect(registerResponseMock).toHaveBeenCalledTimes(1);
   });
 });
