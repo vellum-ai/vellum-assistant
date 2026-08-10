@@ -1,17 +1,10 @@
-import {
-  ArrowLeft,
-  Calendar,
-  Mail,
-  MailOpen,
-  RotateCcw,
-  Trash2,
-  X,
-} from "lucide-react";
+import { ArrowLeft, Mail, MailOpen, RotateCcw, Trash2, X } from "lucide-react";
 
 import { formatFullLocalDate, formatRelativeDate } from "@/utils/format-date";
 import type { FeedItem, FeedItemStatus } from "@vellumai/assistant-api";
 import { Button, Tag, Typography } from "@vellumai/design-library";
 import { resolveCategoryStyle } from "../home-feed-filter-bar";
+import type { FeedItemEntityLink } from "../hooks/use-feed-item-entity-links";
 import { HomeGenericDetail } from "./home-generic-detail";
 import { HomeToolPermissionCard } from "./home-tool-permission-card";
 
@@ -37,10 +30,13 @@ export interface HomeDetailPanelProps {
   onUpdateStatus: (itemId: string, status: FeedItemStatus) => void;
   onDismiss: (itemId: string) => void;
   /**
-   * Provided only when this item originated from a schedule that still exists.
-   * Opens the Schedules page with that schedule selected.
+   * Links to the entities this notification names (its schedule, the skill it
+   * updated), already validated as still existing. Resolved by
+   * `useFeedItemEntityLinks`; empty for an item that names none.
    */
-  onViewSchedule?: () => void;
+  entityLinks?: FeedItemEntityLink[];
+  /** Navigate to an entity link's `to` path. */
+  onNavigate?: (to: string) => void;
 }
 
 export function HomeDetailPanel({
@@ -51,7 +47,8 @@ export function HomeDetailPanel({
   onGoToThread,
   onUpdateStatus,
   onDismiss,
-  onViewSchedule,
+  entityLinks,
+  onNavigate,
 }: HomeDetailPanelProps) {
   if (!item) {
     return null;
@@ -65,6 +62,7 @@ export function HomeDetailPanel({
   const isDismissed = item.status === "dismissed";
   const hasValidConversation =
     !!item.conversationId && validConversationIds.has(item.conversationId);
+  const links = onNavigate ? (entityLinks ?? []) : [];
 
   if (isMobile) {
     return (
@@ -159,18 +157,19 @@ export function HomeDetailPanel({
         </div>
 
         {/* Bottom CTA */}
-        {hasValidConversation || onViewSchedule ? (
+        {hasValidConversation || links.length > 0 ? (
           <div className="flex shrink-0 flex-col gap-2 px-4 pb-4 pt-2">
-            {onViewSchedule ? (
+            {links.map((link) => (
               <Button
+                key={link.kind}
                 variant="outlined"
                 fullWidth
-                leftIcon={<Calendar className="size-4" />}
-                onClick={onViewSchedule}
+                leftIcon={<link.icon className="size-4" />}
+                onClick={() => onNavigate?.(link.to)}
               >
-                View schedule
+                {link.label}
               </Button>
-            ) : null}
+            ))}
             {hasValidConversation ? (
               <Button
                 variant="primary"
@@ -247,16 +246,17 @@ export function HomeDetailPanel({
 
       {/* Footer actions */}
       <div className="flex shrink-0 items-center justify-between gap-[var(--app-spacing-sm)] border-t border-[var(--border-base)] p-[var(--app-spacing-lg)]">
-        <div>
-          {onViewSchedule ? (
+        <div className="flex items-center gap-[var(--app-spacing-sm)]">
+          {links.map((link) => (
             <Button
+              key={link.kind}
               variant="outlined"
-              leftIcon={<Calendar className="size-4" />}
-              onClick={onViewSchedule}
+              leftIcon={<link.icon className="size-4" />}
+              onClick={() => onNavigate?.(link.to)}
             >
-              View schedule
+              {link.label}
             </Button>
-          ) : null}
+          ))}
         </div>
         <div className="flex items-center gap-[var(--app-spacing-sm)]">
           {isDismissed ? (

@@ -13,7 +13,6 @@ import {
 import { useIsMobile } from "@/hooks/use-is-mobile";
 import { mergeConversationLists } from "@/utils/conversation-cache";
 import { navigateToConversation } from "@/utils/conversation-navigation";
-import { routes } from "@/utils/routes";
 import { Typography } from "@vellumai/design-library";
 
 export function HomePageRoute() {
@@ -80,9 +79,7 @@ export function HomePageRoute() {
       onOpenConversation={(conversationId) =>
         navigateToConversation(navigate, conversationId)
       }
-      onViewSchedule={(scheduleId) =>
-        navigate(routes.schedules.detail(scheduleId))
-      }
+      onNavigate={(to) => navigate(to)}
     />
   );
 }

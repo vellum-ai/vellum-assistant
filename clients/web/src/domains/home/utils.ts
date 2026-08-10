@@ -102,6 +102,18 @@ export function getVisibleFeedItems(items: FeedItem[]): FeedItem[] {
 }
 
 /**
+ * Read a non-empty string id out of a feed item's free-form `metadata` bag.
+ *
+ * `metadata` is `Record<string, unknown>` on the wire (the daemon spreads a
+ * notification's whole context payload into it, see `home-feed-side-effect.ts`),
+ * so every entity id a link is built from has to be narrowed the same way.
+ */
+function readMetadataId(item: FeedItem | null, key: string): string | null {
+  const id = item?.metadata?.[key];
+  return typeof id === "string" && id.length > 0 ? id : null;
+}
+
+/**
  * Scheduled-run notifications (`schedule.notify`) carry their originating
  * schedule id in `metadata.scheduleId`, letting a detail view link to the
  * schedule. Returns null for feed items not tied to a schedule. Shared by the
@@ -109,8 +121,22 @@ export function getVisibleFeedItems(items: FeedItem[]): FeedItem[] {
  * the same items.
  */
 export function getFeedItemScheduleId(item: FeedItem | null): string | null {
-  const id = item?.metadata?.scheduleId;
-  return typeof id === "string" && id.length > 0 ? id : null;
+  return readMetadataId(item, "scheduleId");
+}
+
+/**
+ * Background skill-update notifications carry the id of the skill the
+ * retrospective rewrote in `metadata.skillId` (emitted by
+ * `notifyBackgroundSkillUpdate` in the daemon's `scaffold-managed` tool),
+ * letting a detail view link to the skill it names. Returns null for feed
+ * items not tied to a skill.
+ *
+ * Only *updates* reach the feed. A newly authored skill announces itself with
+ * an in-chat card instead (`skill-created-card.tsx`), which deep-links the same
+ * way; this is the update path's equivalent.
+ */
+export function getFeedItemSkillId(item: FeedItem | null): string | null {
+  return readMetadataId(item, "skillId");
 }
 
 /**
