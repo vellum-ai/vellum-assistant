@@ -1104,27 +1104,25 @@ export function TranscriptMessageBody({
   const disclosedRunByStart = new Map(
     disclosedRuns.map((run) => [run.start, run.end]),
   );
-  // Groups after a run's head are rendered by the disclosure at that head, so
-  // their own slot renders nothing.
-  const isInsideDisclosedRun = (groupIndex: number) =>
-    disclosedRuns.some((run) => groupIndex > run.start && groupIndex < run.end);
-  const assistantContent =
-    disclosedRuns.length > 0
-      ? renderedGroups.map((renderedGroup, groupIndex) => {
-          const runEndIndex = disclosedRunByStart.get(groupIndex);
-          if (runEndIndex !== undefined) {
-            return (
-              <AssistantContentDisclosure
-                key={`earlier-activity-${groupIndex}`}
-                isStreaming={isStreaming}
-              >
-                {renderedGroups.slice(groupIndex, runEndIndex)}
-              </AssistantContentDisclosure>
-            );
-          }
-          return isInsideDisclosedRun(groupIndex) ? null : renderedGroup;
-        })
-      : renderedGroups;
+  const assistantContent: ReactNode[] = [];
+  for (let groupIndex = 0; groupIndex < renderedGroups.length; ) {
+    const runEndIndex = disclosedRunByStart.get(groupIndex);
+    if (runEndIndex === undefined) {
+      assistantContent.push(renderedGroups[groupIndex]);
+      groupIndex += 1;
+      continue;
+    }
+    assistantContent.push(
+      <AssistantContentDisclosure
+        key={`earlier-activity-${groupIndex}`}
+        isStreaming={isStreaming}
+      >
+        {renderedGroups.slice(groupIndex, runEndIndex)}
+      </AssistantContentDisclosure>,
+    );
+    // The disclosure rendered the rest of its run, so resume past it.
+    groupIndex = runEndIndex;
+  }
 
   // Resolved across the whole response by `Transcript` and handed only to the
   // message that ends it. Without a handler the link opens nothing, so it does
