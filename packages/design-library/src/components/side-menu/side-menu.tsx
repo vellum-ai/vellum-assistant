@@ -4,18 +4,19 @@ import {
   useCallback,
   useContext,
   useEffect,
+  useId,
   useRef,
   useState,
   type ComponentProps,
   type CSSProperties,
   type MouseEvent,
-  type PointerEvent,
   type ReactNode,
   type Ref,
 } from "react";
 
 import { Typography } from "../typography";
 import { Tooltip } from "../tooltip";
+import { SplitterHandle } from "../splitter-handle";
 import { cn } from "../../utils/cn";
 
 /**
@@ -272,7 +273,11 @@ function SideMenuRoot({
 }: SideMenuProps) {
   const effectiveCollapsed = variant === "overlay" ? false : collapsed;
   const resizable = variant === "rail" && onWidthChange != null;
-  const showResizeHandle = resizable && !effectiveCollapsed;
+  // `width` is required for the handle, not just for the inline style: the
+  // separator publishes it as `aria-valuenow`, and a handle that cannot say
+  // where it sits is the kind of half-kept ARIA promise this pattern exists
+  // to avoid. A rail sized purely by CSS gets no drag handle.
+  const showResizeHandle = resizable && !effectiveCollapsed && width != null;
 
   const [contentCollapsed, setContentCollapsed] = useState(effectiveCollapsed);
   if (!effectiveCollapsed && contentCollapsed) {
@@ -284,70 +289,62 @@ function SideMenuRoot({
     return () => clearTimeout(id);
   }, [effectiveCollapsed]);
 
-  const dragRef = useRef<{
-    nav: HTMLElement;
-    startX: number;
-    startWidth: number;
-  } | null>(null);
+  const generatedNavId = useId();
+  const navId = rest.id ?? generatedNavId;
 
-  const handleResizePointerDown = useCallback(
-    (e: PointerEvent<HTMLDivElement>) => {
-      if (!onWidthChange) return;
-      e.preventDefault();
-      e.currentTarget.setPointerCapture(e.pointerId);
-      const nav = e.currentTarget.closest(
-        '[data-slot="side-menu"]',
-      ) as HTMLElement | null;
-      if (!nav) return;
-      dragRef.current = {
-        nav,
-        startX: e.clientX,
-        startWidth: nav.getBoundingClientRect().width,
-      };
-      nav.style.transition = "none";
-      document.body.style.cursor = "col-resize";
-      document.body.style.userSelect = "none";
-    },
-    [onWidthChange],
-  );
+  const handleRef = useRef<HTMLDivElement>(null);
+  // The nav being dragged, held only for the duration of a pointer drag. Its
+  // presence is also what tells `handleResizeValueChange` a drag is in flight.
+  const dragNavRef = useRef<HTMLElement | null>(null);
 
-  const handleResizePointerMove = useCallback(
-    (e: PointerEvent<HTMLDivElement>) => {
-      const drag = dragRef.current;
-      if (!drag) return;
-      const delta = e.clientX - drag.startX;
-      const next = Math.min(
-        maxWidth,
-        Math.max(minWidth, drag.startWidth + delta),
-      );
-      drag.nav.style.width = `${next}px`;
-    },
+  const handleResizeDragStart = useCallback(() => {
+    const nav = handleRef.current?.closest(
+      '[data-slot="side-menu"]',
+    ) as HTMLElement | null;
+    if (!nav) return;
+    dragNavRef.current = nav;
+    nav.style.transition = "none";
+    document.body.style.cursor = "col-resize";
+    document.body.style.userSelect = "none";
+  }, []);
+
+  const handleResizeDragEnd = useCallback(() => {
+    const nav = dragNavRef.current;
+    dragNavRef.current = null;
+    if (nav) nav.style.transition = "";
+    document.body.style.cursor = "";
+    document.body.style.userSelect = "";
+  }, []);
+
+  const clampWidth = useCallback(
+    (next: number) => Math.min(maxWidth, Math.max(minWidth, next)),
     [minWidth, maxWidth],
   );
 
-  const handleResizeEnd = useCallback(
-    (e: PointerEvent<HTMLDivElement>) => {
-      const drag = dragRef.current;
-      if (!drag) return;
-      e.currentTarget.releasePointerCapture(e.pointerId);
-      dragRef.current = null;
-      drag.nav.style.transition = "";
-      document.body.style.cursor = "";
-      document.body.style.userSelect = "";
-      const delta = e.clientX - drag.startX;
-      const finalWidth = Math.min(
-        maxWidth,
-        Math.max(minWidth, drag.startWidth + delta),
-      );
-      onWidthChange?.(finalWidth);
+  // During a pointer drag the width is written straight to the DOM so the
+  // rail tracks the cursor without a React commit per frame; `onWidthChange`
+  // fires once at the end. A keyboard nudge has no such frame budget problem
+  // and goes through the commit path alone, via `onValueCommit` below.
+  const handleResizeValueChange = useCallback(
+    (next: number) => {
+      const nav = dragNavRef.current;
+      if (!nav) return;
+      nav.style.width = `${clampWidth(next)}px`;
     },
-    [onWidthChange, minWidth, maxWidth],
+    [clampWidth],
+  );
+
+  const handleResizeValueCommit = useCallback(
+    (next: number) => {
+      onWidthChange?.(clampWidth(next));
+    },
+    [onWidthChange, clampWidth],
   );
 
   useEffect(() => {
     return () => {
-      if (dragRef.current) {
-        dragRef.current = null;
+      if (dragNavRef.current) {
+        dragNavRef.current = null;
         document.body.style.cursor = "";
         document.body.style.userSelect = "";
       }
@@ -376,20 +373,25 @@ function SideMenuRoot({
         )}
         style={widthStyle}
         {...rest}
+        id={navId}
       >
         {children}
         {showResizeHandle ? (
-          <div
-            role="separator"
-            aria-orientation="vertical"
-            className="absolute right-0 top-0 bottom-0 z-10 w-[6px] cursor-col-resize group/resize"
-            onPointerDown={handleResizePointerDown}
-            onPointerMove={handleResizePointerMove}
-            onPointerUp={handleResizeEnd}
-            onPointerCancel={handleResizeEnd}
+          <SplitterHandle
+            ref={handleRef}
+            value={width}
+            min={minWidth}
+            max={maxWidth}
+            onValueChange={handleResizeValueChange}
+            onValueCommit={handleResizeValueCommit}
+            onResizeStart={handleResizeDragStart}
+            onResizeEnd={handleResizeDragEnd}
+            label="Resize sidebar"
+            controls={navId}
+            className="absolute right-0 top-0 bottom-0 z-10 w-[6px] group/resize"
           >
-            <div className="pointer-events-none absolute right-0 top-2 bottom-2 w-[2px] rounded-full bg-[var(--content-tertiary)] opacity-0 transition-opacity group-hover/resize:opacity-100" />
-          </div>
+            <div className="pointer-events-none absolute right-0 top-2 bottom-2 w-[2px] rounded-full bg-[var(--content-tertiary)] opacity-0 transition-opacity group-hover/resize:opacity-100 group-focus-visible/resize:opacity-100" />
+          </SplitterHandle>
         ) : null}
       </nav>
     </SideMenuContext>

@@ -25,6 +25,10 @@ export {
   type ScrollShadowOrientation,
 } from "./components/scroll-shadow";
 export {
+  SplitterHandle,
+  type SplitterHandleProps,
+} from "./components/splitter-handle";
+export {
   Tag,
   tagVariants,
   type TagProps,

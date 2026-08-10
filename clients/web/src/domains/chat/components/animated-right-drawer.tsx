@@ -25,12 +25,13 @@
 import {
   useCallback,
   useEffect,
+  useId,
   useRef,
   useState,
-  type PointerEvent as ReactPointerEvent,
   type ReactNode,
 } from "react";
 import { motion, useReducedMotion } from "motion/react";
+import { SplitterHandle } from "@vellumai/design-library";
 
 import { cn } from "@/utils/misc";
 
@@ -95,8 +96,9 @@ export function AnimatedRightDrawer({
   const [width, setWidth] = useState<number>(
     () => readStoredWidth(storageKey, minWidth) ?? defaultWidth,
   );
-  const dragRef = useRef<{ startX: number; startWidth: number } | null>(null);
   const [isDragging, setIsDragging] = useState(false);
+  const drawerPaneId = useId();
+  const [containerWidth, setContainerWidth] = useState(0);
 
   // Keep the drawer pane (content + drag handle) mounted while open and through
   // the close animation. `mounted` flips on synchronously when opening, and off
@@ -139,46 +141,22 @@ export function AnimatedRightDrawer({
     [minWidth, minLeftWidth],
   );
 
-  const handlePointerDown = useCallback(
-    (e: ReactPointerEvent<HTMLDivElement>) => {
-      e.preventDefault();
-      (e.target as HTMLElement).setPointerCapture(e.pointerId);
-      dragRef.current = { startX: e.clientX, startWidth: width };
-      setIsDragging(true);
-    },
-    [width],
-  );
-
-  const handlePointerMove = useCallback(
-    (e: ReactPointerEvent<HTMLDivElement>) => {
-      if (!dragRef.current) {
-        return;
-      }
-      // Dragging the handle LEFT (clientX decreases) widens the drawer.
-      const delta = dragRef.current.startX - e.clientX;
-      setWidth(clamp(dragRef.current.startWidth + delta));
+  const handleValueChange = useCallback(
+    (next: number) => {
+      setWidth(clamp(next));
     },
     [clamp],
   );
 
-  const handlePointerUp = useCallback(
-    (e: ReactPointerEvent<HTMLDivElement>) => {
-      if (!dragRef.current) {
+  const handleValueCommit = useCallback(
+    (next: number) => {
+      if (!storageKey) {
         return;
       }
-      (e.target as HTMLElement).releasePointerCapture(e.pointerId);
-      const finalWidth = clamp(
-        dragRef.current.startWidth + (dragRef.current.startX - e.clientX),
-      );
-      dragRef.current = null;
-      setIsDragging(false);
-      setWidth(finalWidth);
-      if (storageKey) {
-        try {
-          localStorage.setItem(storageKey, String(finalWidth));
-        } catch {
-          // Storage quota or security error — ignore.
-        }
+      try {
+        localStorage.setItem(storageKey, String(clamp(next)));
+      } catch {
+        // Storage quota or security error, ignore.
       }
     },
     [clamp, storageKey],
@@ -193,6 +171,30 @@ export function AnimatedRightDrawer({
     window.addEventListener("resize", onResize);
     return () => window.removeEventListener("resize", onResize);
   }, [clamp]);
+
+  // Backs `aria-valuemax` only; `clamp` above still measures live on each
+  // change. Observed rather than read on window resize because this container
+  // changes width without one (the sidebar collapsing beside it, say), and a
+  // stale maximum would misreport how far the drawer can still travel.
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) {
+      return;
+    }
+    setContainerWidth(container.offsetWidth);
+    const observer = new ResizeObserver(() => {
+      setContainerWidth(container.offsetWidth);
+    });
+    observer.observe(container);
+    return () => observer.disconnect();
+  }, []);
+
+  // Before the first measurement the container width is unknown, so the only
+  // honest upper bound is the width already in use.
+  const maxWidth =
+    containerWidth > 0
+      ? Math.max(minWidth, containerWidth - minLeftWidth - SEPARATOR_WIDTH_PX)
+      : Math.max(minWidth, width);
 
   return (
     <div
@@ -213,27 +215,33 @@ export function AnimatedRightDrawer({
           present while the drawer is mounted so a closed drawer leaves no
           stray hit-area or grab handle over the full-width chat. */}
       {mounted && (
-        <div
-          role="separator"
-          aria-orientation="vertical"
+        <SplitterHandle
+          value={width}
+          min={minWidth}
+          max={maxWidth}
+          onValueChange={handleValueChange}
+          onValueCommit={handleValueCommit}
+          onResizeStart={() => setIsDragging(true)}
+          onResizeEnd={() => setIsDragging(false)}
+          // The handle sits to the LEFT of the drawer, so moving it right
+          // shrinks the pane it controls.
+          invert
+          label="Resize side panel"
+          controls={drawerPaneId}
           className={cn(
-            "group relative z-10 flex h-full w-2 shrink-0 cursor-col-resize items-center justify-center",
+            "group relative z-10 flex h-full w-2 shrink-0 items-center justify-center",
             isDragging && "select-none",
           )}
-          onPointerDown={handlePointerDown}
-          onPointerMove={handlePointerMove}
-          onPointerUp={handlePointerUp}
-          onPointerCancel={handlePointerUp}
         >
           <div className="h-full w-px bg-transparent" />
           <div
             className={cn(
               "absolute h-8 w-1 rounded-full bg-[var(--content-tertiary)] opacity-0 transition-opacity",
-              "group-hover:opacity-100",
+              "group-hover:opacity-100 group-focus-visible:opacity-100",
               isDragging && "opacity-100",
             )}
           />
-        </div>
+        </SplitterHandle>
       )}
 
       {/* Drawer — its width is the animated dimension, eased 0 ⇄ target by the
@@ -243,6 +251,7 @@ export function AnimatedRightDrawer({
           reflowing the content mid-animation. Reduced motion: snap instead of
           ease. Content unmounts only once a close animation reaches width 0. */}
       <motion.div
+        id={drawerPaneId}
         className="relative h-full shrink-0 overflow-hidden"
         initial={reduce ? false : { width: 0 }}
         animate={{ width: open ? width : 0 }}
