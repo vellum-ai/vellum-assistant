@@ -115,17 +115,19 @@ export const SIDE_MENU_MIN_WIDTH = 220;
 export const SIDE_MENU_MAX_WIDTH = 400;
 
 /**
- * The circle a card or pill becomes when the rail collapses: a tile
- * `SideMenu.Item`, a section trigger, and whatever a caller mounts through a
- * slot. It is `PanelItem`'s and `Button`'s height, because a tile is one of
- * those shapes with its label taken away, and holding that height is what
- * keeps its glyph on the axis the expanded pill puts it on.
+ * The height of a top-level rail pill (an assistant identity row, New Chat, a
+ * pinned app, a section header, Preferences), and so also the diameter of the
+ * circle each of those becomes when the rail collapses: a tile is one of those
+ * pills with its label taken away, and holding the pill's height is what keeps
+ * its glyph on the axis the expanded pill puts it on.
  *
  * A list row keeps its own denser height: the rail collapses cards and pills
  * into tiles, and a conversation row is neither.
  *
  * Exported so a caller drawing its own tile sizes it from here rather than
  * from a matching literal, which is the only way the column stays one width.
+ * A caller sizing a pill wants {@link SIDE_MENU_PILL_HEIGHT_CLASS} instead,
+ * which resolves to this same number through CSS.
  */
 export const SIDE_MENU_TILE_SIZE = 36;
 
@@ -172,6 +174,18 @@ const RAIL_GEOMETRY_VARS = {
   "--side-menu-tile-size": `${SIDE_MENU_TILE_SIZE}px`,
   "--side-menu-collapsed-inset": `${SIDE_MENU_COLLAPSED_INSET}px`,
 } as CSSProperties;
+
+/**
+ * Height utility for a top-level pill a caller mounts in the rail: the
+ * assistant identity row, New Chat, a pinned app, a collapsible section's
+ * header, Preferences.
+ *
+ * It reads the same property the collapsed tile is drawn from rather than
+ * naming the pixels again, so the pill and the circle it becomes cannot end up
+ * at two different heights. Only valid inside `SideMenu.Root`, which is where
+ * the property is published.
+ */
+export const SIDE_MENU_PILL_HEIGHT_CLASS = "h-[var(--side-menu-tile-size)]";
 
 export interface SideMenuProps extends ComponentProps<"nav"> {
   /** Ignored when `variant="overlay"`. */
@@ -578,7 +592,9 @@ export interface SideMenuItemProps {
   /**
    * `"tile"` renders the collapsed-rail affordance: the whole treatment a row
    * reduces to when the rail collapses, not a geometry switch. It squares to
-   * its own row height, centers in the rail column, rounds fully, and carries
+   * the pill height ({@link SIDE_MENU_TILE_SIZE}, which a row carrying this
+   * shape also sets itself to with {@link SIDE_MENU_PILL_HEIGHT_CLASS}),
+   * centers in the rail column, rounds fully, and carries
    * the resting surface the expanded card or pill wore - collapsing changes
    * the shape of a thing, not whether it has a surface. The squaring is part
    * of it, not an extra: a collapsed row is `w-full` of a column slightly

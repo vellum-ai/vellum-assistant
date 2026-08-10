@@ -1,7 +1,11 @@
 import { ChevronDown, type LucideIcon } from "lucide-react";
 import { useRef, type DragEvent, type ReactNode, type Ref } from "react";
 
-import { BottomSheet, ContextMenu } from "@vellumai/design-library";
+import {
+  BottomSheet,
+  ContextMenu,
+  SIDE_MENU_PILL_HEIGHT_CLASS,
+} from "@vellumai/design-library";
 import {
   Collapsible,
   type CollapsibleItemProps,
@@ -11,7 +15,6 @@ import { cn } from "@vellumai/design-library/utils/cn";
 
 import {
   SIDEBAR_CHIP_GAP,
-  SIDEBAR_PILL_HEIGHT_CLASS,
   SIDEBAR_ROW_PADDING_X,
   SIDEBAR_SECTION_INDENT,
   SIDEBAR_SECTION_TITLE_TEXT_CLASSES,
@@ -275,7 +278,7 @@ function CollapsibleNavSectionSection({
           ref={titleTriggerRef}
           data-slot="collapsible-nav-section-title"
           className={cn(
-            SIDEBAR_PILL_HEIGHT_CLASS,
+            SIDE_MENU_PILL_HEIGHT_CLASS,
             "max-md:h-auto shrink-0",
             "rounded-[6px] py-[6px] max-md:py-3",
             "text-left",
@@ -296,7 +299,7 @@ function CollapsibleNavSectionSection({
         <div
           className={cn(
             "flex max-md:h-auto shrink-0",
-            SIDEBAR_PILL_HEIGHT_CLASS,
+            SIDE_MENU_PILL_HEIGHT_CLASS,
             // Half the usual mobile bottom padding: the gap to the first
             // row below reads as too large at the full py-3 (matches the
             // desktop py-[6px] top/bottom, kept as-is above).

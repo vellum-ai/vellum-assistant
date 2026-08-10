@@ -14,6 +14,7 @@ import {
   SIDE_MENU_BORDER_WIDTH,
   SIDE_MENU_COLLAPSED_INSET,
   SIDE_MENU_COLLAPSED_WIDTH,
+  SIDE_MENU_PILL_HEIGHT_CLASS,
   SIDE_MENU_TILE_SIZE,
   SideMenu,
   useSideMenuCollapsed,
@@ -80,6 +81,24 @@ describe("SideMenu root", () => {
         SIDE_MENU_COLLAPSED_INSET * 2 +
         SIDE_MENU_BORDER_WIDTH * 2,
     );
+  });
+
+  /* A pill and the tile it collapses into are one height, so the utility a
+     caller sizes the pill with has to resolve to the same property the tile is
+     drawn from. Naming the pixels a second time is what lets the two disagree,
+     and the disagreement is invisible until the rail is collapsed. */
+  test("pill height reads the tile property both variants publish", () => {
+    expect(SIDE_MENU_PILL_HEIGHT_CLASS).toBe("h-[var(--side-menu-tile-size)]");
+    for (const variant of ["rail", "overlay"] as const) {
+      const html = renderToStaticMarkup(
+        createElement(
+          SideMenu,
+          { ariaLabel: "Primary", variant },
+          createElement(SideMenu.Body, { key: "body" }, null),
+        ),
+      );
+      expect(html).toContain(`--side-menu-tile-size:${SIDE_MENU_TILE_SIZE}px`);
+    }
   });
 
   test("overlay variant is full-bleed with no radius", () => {

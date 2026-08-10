@@ -39,13 +39,13 @@ import {
   cn,
   PanelItem,
   panelItemWashStyle,
+  SIDE_MENU_PILL_HEIGHT_CLASS,
   SIDE_MENU_TILE_SIZE,
 } from "@vellumai/design-library";
 
 import {
   SIDEBAR_CHIP_GAP,
   SIDEBAR_CHIP_SIZE as CHIP_SIZE,
-  SIDEBAR_PILL_HEIGHT_CLASS,
 } from "@/components/sidebar-nav-geometry";
 import { useAssistantAvatar } from "@/hooks/use-assistant-avatar";
 import { useInChatOnboardingStore } from "@/stores/in-chat-onboarding-store";
@@ -57,7 +57,7 @@ import { pathBBox, unionBBox } from "@/utils/eye-bbox";
  * One constant for both branches below, because an assistant with no character
  * avatar is still the assistant: colour is the only thing that differs.
  */
-const IDENTITY_PILL_CLASSES = SIDEBAR_PILL_HEIGHT_CLASS;
+const IDENTITY_PILL_CLASSES = SIDE_MENU_PILL_HEIGHT_CLASS;
 
 /** How far the collapsed rail's tile grows the eyes on a pulse. */
 const PULSE_SCALE = 1.35;
@@ -262,7 +262,7 @@ export function AssistantNavItem({
   ) : (
     <PanelItem
       shape="pill"
-      className={SIDEBAR_PILL_HEIGHT_CLASS}
+      className={SIDE_MENU_PILL_HEIGHT_CLASS}
       icon={Plus}
       label="New Chat"
       onSelect={onNewConversation}
