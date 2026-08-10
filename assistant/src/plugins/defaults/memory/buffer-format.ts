@@ -9,9 +9,12 @@
 // This module deliberately sits at the plugin root (shared infra, not a tier)
 // and imports nothing. `substrate/` is the bottom tier and may not import a
 // tier, but plugin-root infra is fair game, so all readers can reach this one
-// without inverting the layering. Before this existed the format had four
-// independent definitions that disagreed on indented lines, on a missing space
-// after the bullet dash, and on double-spaced dates.
+// without inverting the layering.
+//
+// A second matcher for this format anywhere in the tree is a bug. Two copies
+// disagree on the shapes nobody thinks to test (indentation, spacing after the
+// bullet dash, spacing inside the date), and each disagreement splits or merges
+// somebody's fact.
 
 /**
  * A parsed buffer entry opening line.
@@ -48,9 +51,9 @@ const BUFFER_ENTRY_REGEX =
  * Parse `line` as an entry opening, or `null` if it is a continuation line.
  *
  * Pass the raw line. Callers must not trim it first: leading whitespace is
- * exactly what distinguishes an indented body line from a real entry, and
- * trimming before matching is how one of the previous readers ended up
- * splitting a single multiline fact into two.
+ * exactly what distinguishes an indented body line from a real entry, so a
+ * trimmed line reads an indented body bullet as a fresh fact and splits one
+ * entry into two.
  */
 export function matchBufferEntryStart(line: string): BufferEntryStart | null {
   const match = BUFFER_ENTRY_REGEX.exec(line.trimEnd());
@@ -99,8 +102,8 @@ export function formatRememberEntry(content: string, now: Date): string {
  * Split buffer content into entries, each keeping its lines verbatim.
  *
  * The unit callers almost always want. Counting or trimming a buffer by raw
- * lines conflates a five-line fact with five facts, which is how the injected
- * Buffer section used to cut a fact in half.
+ * lines conflates a five-line fact with five facts, and cuts a fact in half
+ * wherever the count runs out.
  *
  * Leading lines that precede the first entry opening (a hand-written buffer,
  * or stray prose) are returned as a headless first group with

@@ -72,9 +72,9 @@ const BUFFER_INJECTION_NOTICE =
  * as one timestamped line plus its body, so trimming by raw line count can
  * land inside a fact and inject continuation lines stripped of the timestamp
  * and opening clause that give them meaning. Whole entries are taken
- * newest-first while they fit, which makes a mid-entry cut unrepresentable
- * rather than something to detect and repair. Retained lines keep their
- * original spacing; the notice replaces everything before them.
+ * newest-first while they fit, which makes a mid-entry cut unrepresentable.
+ * Retained lines keep their original spacing; the notice replaces everything
+ * before them.
  *
  * `maxLines` is still measured in non-empty lines, because that is what the
  * scheduler counts (`countBufferLines`), so the two readings of "how big is

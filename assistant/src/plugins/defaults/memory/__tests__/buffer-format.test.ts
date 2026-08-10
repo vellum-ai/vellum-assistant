@@ -1,10 +1,10 @@
 /**
  * Tests for the single owner of the `memory/buffer.md` entry format.
  *
- * The format previously had four independent definitions (the writer plus
- * three hand-rolled matchers) that disagreed on indented lines, on a missing
- * space after the bullet dash, and on double-spaced dates. These cases pin
- * the resolved behavior so a future reader cannot quietly re-diverge.
+ * These cases pin exactly which lines count as an entry opening, covering the
+ * shapes a second matcher is most likely to get wrong: indentation, spacing
+ * after the bullet dash, and spacing inside the date. Every one of them is the
+ * difference between one fact and two.
  */
 
 import { describe, expect, test } from "bun:test";
@@ -49,8 +49,8 @@ describe("matchBufferEntryStart", () => {
 
   test("an indented entry-shaped line is body text, not a new entry", () => {
     // The writer always emits at column 0, so anything indented can only be
-    // part of the fact above it. Reading it as an entry used to split one
-    // multiline fact into two nodes in the web Memory tab.
+    // part of the fact above it. Reading it as an entry splits one multiline
+    // fact into two nodes in the web Memory tab.
     expect(isBufferEntryStart("  - [Jan 1, 9:00 AM] indented")).toBe(false);
     expect(isBufferEntryStart("\t- [Jan 1, 9:00 AM] tab-indented")).toBe(false);
   });
