@@ -28,7 +28,7 @@ import {
   SLOT_ROTATIONS,
 } from "@/domains/onboarding/components/onboarding-character-stage";
 import { useOnboardingAvatarPoolStore } from "@/domains/onboarding/onboarding-avatar-pool-store";
-import { useWindowSize } from "@/hooks/use-element-size";
+import { useLayoutViewportSize } from "@/hooks/use-element-size";
 import { useBundledAvatarComponents } from "@/utils/use-bundled-avatar-components";
 
 export function OnboardingEdgeCharacters() {
@@ -36,7 +36,7 @@ export function OnboardingEdgeCharacters() {
   const characters = useOnboardingAvatarPoolStore.use.characters();
   const ensureGenerated = useOnboardingAvatarPoolStore.use.ensureGenerated();
   const reduce = useReducedMotion();
-  const { w, h } = useWindowSize();
+  const { w, h } = useLayoutViewportSize();
 
   useEffect(() => {
     if (components) {

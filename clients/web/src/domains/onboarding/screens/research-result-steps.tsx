@@ -28,7 +28,7 @@ import {
   useOnboardingTone,
   type OnboardingTone,
 } from "@/domains/onboarding/onboarding-tone";
-import { useWindowSize } from "@/hooks/use-element-size";
+import { useLayoutViewportSize } from "@/hooks/use-element-size";
 import { useBundledAvatarComponents } from "@/utils/use-bundled-avatar-components";
 import {
   pluginDisplayName,
@@ -121,7 +121,7 @@ export function MeetingCreatedStep({
 }) {
   const { components, chosen } = useChosenAvatar();
   const reduce = useReducedMotion();
-  const { w, h } = useWindowSize();
+  const { w, h } = useLayoutViewportSize();
 
   const title = scheduledTime
     ? `Check-in scheduled for tomorrow at ${scheduledTime}!`
@@ -952,7 +952,7 @@ export function LetsChatReadyStep({
   const reduce = useReducedMotion();
   const [starting, setStarting] = useState(false);
   const { components, chosen } = useChosenAvatar();
-  const { h: vh } = useWindowSize();
+  const { h: vh } = useLayoutViewportSize();
 
   // Each installed plugin as a card: its display name + (when known) the
   // catalog description. Names without a display label are dropped.

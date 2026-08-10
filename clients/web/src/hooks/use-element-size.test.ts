@@ -1,9 +1,9 @@
 /**
- * Tests for `useWindowSize`, the live window measurement the onboarding and
- * voice-room decorative layers read.
+ * Tests for `useLayoutViewportSize`, the live layout-viewport measurement the
+ * onboarding and voice-room decorative layers read.
  *
  * The contract worth pinning is the part callers used to hand-roll: that the
- * size comes from `windowSize` (so the fallback dimensions have one owner
+ * size comes from `layoutViewportSize` (so the fallback dimensions have one owner
  * rather than being restated per call site), that it tracks `resize`, and
  * that `enabled: false` opts out for the caller that already has a size from
  * context.
@@ -17,7 +17,10 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { act, cleanup, renderHook } from "@testing-library/react";
 
-import { useWindowSize, windowSize } from "@/hooks/use-element-size";
+import {
+  useLayoutViewportSize,
+  layoutViewportSize,
+} from "@/hooks/use-element-size";
 
 function setWindowSize(w: number, h: number): void {
   Object.defineProperty(window, "innerWidth", {
@@ -43,18 +46,18 @@ afterEach(() => {
   cleanup();
 });
 
-describe("useWindowSize", () => {
+describe("useLayoutViewportSize", () => {
   test("reports the current window size", () => {
     setWindowSize(1024, 768);
-    const { result } = renderHook(() => useWindowSize());
+    const { result } = renderHook(() => useLayoutViewportSize());
     expect(result.current).toEqual({ w: 1024, h: 768 });
     // Same source of truth as every other layer on the screen.
-    expect(result.current).toEqual(windowSize());
+    expect(result.current).toEqual(layoutViewportSize());
   });
 
   test("tracks a resize", () => {
     setWindowSize(1024, 768);
-    const { result } = renderHook(() => useWindowSize());
+    const { result } = renderHook(() => useLayoutViewportSize());
 
     setWindowSize(390, 844);
     fireResize();
@@ -64,7 +67,7 @@ describe("useWindowSize", () => {
 
   test("keeps the same reference when a resize leaves the dimensions alone", () => {
     setWindowSize(1024, 768);
-    const { result, rerender } = renderHook(() => useWindowSize());
+    const { result, rerender } = renderHook(() => useLayoutViewportSize());
     const first = result.current;
 
     // `resize` also fires for zoom, the iOS keyboard, and orientation changes
@@ -77,8 +80,8 @@ describe("useWindowSize", () => {
 
   test("shares one snapshot across consumers", () => {
     setWindowSize(1024, 768);
-    const a = renderHook(() => useWindowSize());
-    const b = renderHook(() => useWindowSize());
+    const a = renderHook(() => useLayoutViewportSize());
+    const b = renderHook(() => useLayoutViewportSize());
 
     expect(a.result.current).toBe(b.result.current);
 
@@ -91,7 +94,7 @@ describe("useWindowSize", () => {
 
   test("does not re-subscribe while disabled, but still reports the size", () => {
     setWindowSize(1024, 768);
-    const { result } = renderHook(() => useWindowSize(false));
+    const { result } = renderHook(() => useLayoutViewportSize(false));
 
     expect(result.current).toEqual({ w: 1024, h: 768 });
 

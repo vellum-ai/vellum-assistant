@@ -17,7 +17,10 @@
 
 import { createContext, useContext, type ReactNode } from "react";
 
-import { useWindowSize, type StageSize } from "@/hooks/use-element-size";
+import {
+  useLayoutViewportSize,
+  type StageSize,
+} from "@/hooks/use-element-size";
 
 export { useElementSize } from "@/hooks/use-element-size";
 export type { ElementSize, StageSize } from "@/hooks/use-element-size";
@@ -45,6 +48,6 @@ export function OnboardingStageSizeProvider({
 export function useOnboardingStageSize(): StageSize {
   const ctx = useContext(OnboardingStageSizeContext);
   // A provider supplies the size; no need to track the window.
-  const fallback = useWindowSize(!ctx);
+  const fallback = useLayoutViewportSize(!ctx);
   return ctx ?? fallback;
 }

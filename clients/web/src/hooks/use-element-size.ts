@@ -3,7 +3,7 @@
  *
  * Two boxes qualify, so this module owns both and the fallback dimensions
  * they share: `useElementSize` for a container (via `ResizeObserver`) and
- * `useWindowSize` for the viewport (via `resize`).
+ * `useLayoutViewportSize` for the layout viewport (via `resize`).
  *
  * Which one a layer wants is the whole point of the split. Layers that anchor
  * to a container's edges (the onboarding stage, the About Assistant stage)
@@ -12,7 +12,20 @@
  * a `position: fixed` layer measured from `window.innerHeight` resolves
  * against the taller layout viewport instead of the container. Layers that
  * genuinely anchor to the screen edge, or that pair a size with a
- * (viewport-relative) `getBoundingClientRect()`, want the window instead.
+ * (viewport-relative) `getBoundingClientRect()`, want the layout viewport.
+ *
+ * "Layout viewport" is deliberate, and is not a third name for the two things
+ * that already carry one. It is `window.innerWidth` / `innerHeight`: the box
+ * CSS resolves `%` and `dvh` against, which does NOT shrink when the soft
+ * keyboard opens.
+ *
+ * - `useVisibleViewport` (`use-visible-viewport.ts`) is the *visual* viewport,
+ *   which does shrink with the keyboard and reports no width. Sizing artwork
+ *   from it would resize the artwork every time a field is focused.
+ * - `useOnboardingWindowSize` (`use-onboarding-window-size.ts`) is the Electron
+ *   OS window, driven over IPC. Nothing to do with either viewport.
+ *
+ * @see https://developer.mozilla.org/en-US/docs/Web/API/Visual_Viewport_API#visual_viewport_vs._layout_viewport
  */
 
 import { useLayoutEffect, useState, useSyncExternalStore } from "react";
@@ -24,7 +37,7 @@ export interface StageSize {
 
 const FALLBACK: StageSize = { w: 1280, h: 800 };
 
-export function windowSize(): StageSize {
+export function layoutViewportSize(): StageSize {
   if (typeof window === "undefined") {
     return FALLBACK;
   }
@@ -32,8 +45,8 @@ export function windowSize(): StageSize {
 }
 
 /**
- * The window, as an external store: one `resize` listener and one snapshot
- * shared by every consumer, however many mount.
+ * The layout viewport, as an external store: one `resize` listener and one
+ * snapshot shared by every consumer, however many mount.
  *
  * `getSnapshot` reads live but returns the *previous* object whenever both
  * dimensions are unchanged. `useSyncExternalStore` calls it on every render
@@ -43,37 +56,40 @@ export function windowSize(): StageSize {
  * means a `resize` that leaves the box alone (zoom, the iOS keyboard, an
  * orientation change that settles back) costs nothing downstream.
  */
-let windowSnapshot: StageSize = FALLBACK;
-const windowListeners = new Set<() => void>();
+let layoutViewportSnapshot: StageSize = FALLBACK;
+const layoutViewportListeners = new Set<() => void>();
 
-function notifyWindowResize(): void {
-  for (const listener of windowListeners) {
+function notifyLayoutViewportResize(): void {
+  for (const listener of layoutViewportListeners) {
     listener();
   }
 }
 
-function subscribeToWindow(onStoreChange: () => void): () => void {
-  if (windowListeners.size === 0) {
-    window.addEventListener("resize", notifyWindowResize);
+function subscribeToLayoutViewport(onStoreChange: () => void): () => void {
+  if (layoutViewportListeners.size === 0) {
+    window.addEventListener("resize", notifyLayoutViewportResize);
   }
-  windowListeners.add(onStoreChange);
+  layoutViewportListeners.add(onStoreChange);
   return () => {
-    windowListeners.delete(onStoreChange);
-    if (windowListeners.size === 0) {
-      window.removeEventListener("resize", notifyWindowResize);
+    layoutViewportListeners.delete(onStoreChange);
+    if (layoutViewportListeners.size === 0) {
+      window.removeEventListener("resize", notifyLayoutViewportResize);
     }
   };
 }
 
-function getWindowSnapshot(): StageSize {
-  const next = windowSize();
-  if (next.w !== windowSnapshot.w || next.h !== windowSnapshot.h) {
-    windowSnapshot = next;
+function getLayoutViewportSnapshot(): StageSize {
+  const next = layoutViewportSize();
+  if (
+    next.w !== layoutViewportSnapshot.w ||
+    next.h !== layoutViewportSnapshot.h
+  ) {
+    layoutViewportSnapshot = next;
   }
-  return windowSnapshot;
+  return layoutViewportSnapshot;
 }
 
-function getWindowServerSnapshot(): StageSize {
+function getLayoutViewportServerSnapshot(): StageSize {
   return FALLBACK;
 }
 
@@ -81,22 +97,22 @@ function getWindowServerSnapshot(): StageSize {
 const noopSubscribe = () => () => {};
 
 /**
- * The window size, kept live on `resize`.
+ * The layout viewport size, kept live on `resize`.
  *
  * Lives here rather than at the call site so the SSR fallback and the
  * `FALLBACK` dimensions keep one owner: a caller re-deriving this from
  * `window.innerWidth` ends up restating those constants, and then they drift
- * from the ones `windowSize` hands every other layer on the same screen.
+ * from the ones `layoutViewportSize` hands every other layer on the same
+ * screen.
  *
- * Pass `enabled: false` when something else is supplying the size and the
- * window is only a fallback. The value stays correct; it just stops
- * subscribing to changes.
+ * Pass `enabled: false` when something else is supplying the size and this is
+ * only a fallback. The value stays correct; it just stops subscribing.
  */
-export function useWindowSize(enabled = true): StageSize {
+export function useLayoutViewportSize(enabled = true): StageSize {
   return useSyncExternalStore(
-    enabled ? subscribeToWindow : noopSubscribe,
-    getWindowSnapshot,
-    getWindowServerSnapshot,
+    enabled ? subscribeToLayoutViewport : noopSubscribe,
+    getLayoutViewportSnapshot,
+    getLayoutViewportServerSnapshot,
   );
 }
 
@@ -110,12 +126,12 @@ export interface ElementSize {
  * Measure an element's box, kept live via `ResizeObserver`. Uses a callback
  * ref (stored in state) so it re-measures whenever the element
  * mounts/unmounts — robust to containers that appear after the first render
- * (e.g. a step that's conditionally rendered). Returns the window size
- * until the element mounts.
+ * (e.g. a step that's conditionally rendered). Returns the layout viewport
+ * size until the element mounts.
  */
 export function useElementSize(): ElementSize {
   const [el, setEl] = useState<HTMLElement | null>(null);
-  const [size, setSize] = useState<StageSize>(() => windowSize());
+  const [size, setSize] = useState<StageSize>(() => layoutViewportSize());
 
   useLayoutEffect(() => {
     if (!el) {

@@ -31,7 +31,7 @@ import { OnboardingTopBar } from "@/domains/onboarding/components/onboarding-top
 import { useOnboardingStageSize } from "@/domains/onboarding/hooks/use-onboarding-stage-size";
 import { useOnboardingAvatarPoolStore } from "@/domains/onboarding/onboarding-avatar-pool-store";
 import { useOnboardingTone } from "@/domains/onboarding/onboarding-tone";
-import { useWindowSize } from "@/hooks/use-element-size";
+import { useLayoutViewportSize } from "@/hooks/use-element-size";
 import {
   preloadBundledAvatarComponents,
   useBundledAvatarComponents,
@@ -377,7 +377,7 @@ export function CreatePersonalityStep({
 }: CreatePersonalityStepProps) {
   const tone = useOnboardingTone();
   const components = useBundledAvatarComponents();
-  const { w: viewportWidth } = useWindowSize();
+  const { w: viewportWidth } = useLayoutViewportSize();
   const { w: stageW, h: stageH } = useOnboardingStageSize();
   // Keep the Continue button clear of the backdrop eyes: reserve their visible
   // height (plus a little breathing room) at the bottom of the content column.

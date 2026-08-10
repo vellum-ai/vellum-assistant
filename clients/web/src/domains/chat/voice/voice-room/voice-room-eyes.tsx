@@ -48,7 +48,7 @@
  * Everything here is sized against the box it is given, not the window. The
  * room is an inset panel on desktop (see `voice-room.tsx`), so "the screen" the
  * avatar grows to BE is the panel; the room measures itself and passes that
- * box, and Storybook passes its frame. `useWindowSize` remains only as the
+ * box, and Storybook passes its frame. `useLayoutViewportSize` remains only as the
  * fallback for callers that render at full-viewport scale.
  */
 
@@ -60,7 +60,7 @@ import {
   useReducedMotion,
 } from "motion/react";
 
-import { useWindowSize } from "@/hooks/use-element-size";
+import { useLayoutViewportSize } from "@/hooks/use-element-size";
 import { pathBBox, unionBBox, type BBox } from "@/utils/eye-bbox";
 import type { CharacterComponents, CharacterTraits } from "@/types/avatar";
 
@@ -357,7 +357,7 @@ export function VoiceRoomColorLook({
   viewport?: { w: number; h: number };
 }) {
   const reduce = useReducedMotion();
-  const measured = useWindowSize();
+  const measured = useLayoutViewportSize();
   const { w, h } = viewport ?? measured;
   const entrance = withReducedMotion(requestedEntrance, reduce === true);
 
@@ -958,7 +958,7 @@ export function VoiceRespondingRings({
   /** The room box to size against; omitted, falls back to the window. */
   viewport?: { w: number; h: number };
 }) {
-  const measured = useWindowSize();
+  const measured = useLayoutViewportSize();
   return (
     <VoiceRespondingTreatment
       style="rings"
