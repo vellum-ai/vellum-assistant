@@ -606,6 +606,27 @@ describe("pre-spawn Claude auth rejection", () => {
     expect(hasAcpConnectCardRaised("conv-prespawn-auth")).toBe(true);
   });
 
+  test("a raw wire auth_required object (unwrapped initialize path) gets the same surface", async () => {
+    // initialize() cannot ride withAuthRetry (its response advertises the
+    // methods the retry selects from), so its rejection arrives as the plain
+    // JSON-RPC object rather than the typed error. The gate must recognize
+    // both shapes or this path silently flattens to a generic failure.
+    spawnMock.mockImplementationOnce(async () => {
+      throw { code: -32000, message: "Authentication required" };
+    });
+
+    const context = { ...makeContext(), conversationId: "conv-prespawn-raw" };
+    const result = await executeAcpSpawn(
+      { agent: "claude", task: "do something" },
+      context,
+    );
+
+    expect(result.isError).toBe(true);
+    expect(result.errorCode).toBe(ACP_CLAUDE_AUTH_REQUIRED_CODE);
+    expect(result.content).toContain("Connect Claude Code");
+    expect(hasAcpConnectCardRaised("conv-prespawn-raw")).toBe(true);
+  });
+
   test("a non-auth spawn failure keeps the plain flattened result", async () => {
     spawnMock.mockImplementationOnce(async () => {
       throw new Error("adapter exploded");
