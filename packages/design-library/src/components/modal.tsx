@@ -140,17 +140,19 @@ function Title({
       ref={ref}
       data-slot="modal-title"
       className={cn(
-        // `text-title-*` set line-height: 1, leaving no room under the
-        // baseline, so `truncate`'s `overflow: hidden` shears glyph
-        // descenders (the tail of a g/p/y in a title like "Upgrade to
-        // Super?"). `leading-snug` grows the line box to contain them;
-        // single-line ellipsis still works.
-        "min-w-0 truncate text-title-medium leading-snug text-[var(--content-emphasised)]",
+        "text-title-medium text-[var(--content-emphasised)]",
         className,
       )}
       {...props}
     >
-      {children}
+      {/* `text-title-*` set line-height: 1, leaving no room under the
+          baseline, so `truncate`'s `overflow: hidden` shears glyph
+          descenders (the tail of a g/p/y in a title like "Upgrade to
+          Super?"). `leading-snug` grows the line box to contain them;
+          single-line ellipsis still works. Kept as a child span (rather
+          than truncating the root) so callers can opt a long title back
+          into wrapping via `[&>span]:whitespace-normal`. */}
+      <span className="min-w-0 truncate leading-snug">{children}</span>
     </Dialog.Title>
   );
 }
@@ -183,7 +185,7 @@ function Close(props: ComponentProps<typeof Dialog.Close>) {
 interface ModalHeaderProps extends ComponentProps<"div"> {
   /**
    * Leading glyph shown beside the title/description column, sized and
-   * centered against the whole column rather than just the title line —
+   * centered against the whole column rather than just the title line:
    * matches Figma's icon+title+subtitle header layout.
    */
   icon?: LucideIcon;
