@@ -14,10 +14,12 @@
     "./command-palette-window": "./src/command-palette-window.ts",
     "./commands": "./src/commands.ts",
     "./connectivity-probe": "./src/connectivity-probe.ts",
+    "./csp": "./src/csp.ts",
     "./deep-links": "./src/deep-links.ts",
     "./devtools": "./src/devtools.ts",
     "./dictation-overlay-window": "./src/dictation-overlay-window.ts",
     "./floating-window": "./src/floating-window.ts",
+    "./gateway-forward": "./src/gateway-forward.ts",
     "./file-open": "./src/file-open.ts",
     "./file-open-preload": "./src/file-open-preload.ts",
     "./global-shortcuts": "./src/global-shortcuts.ts",
@@ -32,6 +34,8 @@
     "./login-item": "./src/login-item.ts",
     "./lockfile-watcher": "./src/lockfile-watcher.ts",
     "./module-configuration": "./src/module-configuration.ts",
+    "./permissions": "./src/permissions.ts",
+    "./platform-forward": "./src/platform-forward.ts",
     "./popout-window": "./src/popout-window.ts",
     "./power-events": "./src/power-events.ts",
     "./preload": "./src/preload.ts",
@@ -41,6 +45,8 @@
     "./status-icon": "./src/status-icon.ts",
     "./text-context-menu": "./src/text-context-menu.ts",
     "./tray-model": "./src/tray-model.ts",
+    "./window-readiness": "./src/window-readiness.ts",
+    "./window-state": "./src/window-state.ts",
     "./windows": "./src/windows.ts"
   },
   "scripts": {
@@ -50,7 +56,8 @@
   "dependencies": {
     "@vellumai/electron-utils": "workspace:*",
     "@vellumai/ipc-contract": "workspace:*",
-    "@vellumai/local-mode": "workspace:*"
+    "@vellumai/local-mode": "workspace:*",
+    "electron-store": "11.0.2"
   },
   "peerDependencies": {
     "electron": ">=42.2.0",

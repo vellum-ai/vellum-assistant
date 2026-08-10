@@ -244,6 +244,12 @@ export interface ForwardFetchRetryOptions {
   onError?: (err: unknown, attempt: number) => void;
 }
 
+/** Injectable stand-in for Electron's `net.fetch`. */
+export type PlatformForwardFetcher = (
+  url: string,
+  init: RequestInit & { duplex?: "half" },
+) => Promise<Response>;
+
 const defaultSleep = (ms: number): Promise<void> =>
   new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -279,5 +285,33 @@ export async function fetchForwardPlanWithRetry(
       if (!canRetry) return buildProxyNetworkErrorResponse();
       await sleep(retryDelayMs);
     }
+  }
+}
+
+export function executePlatformForwardPlan(
+  plan: PlatformForwardPlan,
+  request: Pick<Request, "body">,
+  fetcher: PlatformForwardFetcher,
+  retryOptions: ForwardFetchRetryOptions = {},
+): Promise<Response> | Response | null {
+  switch (plan.kind) {
+    case "pass":
+      return null;
+    case "reject":
+      return new Response(plan.message, { status: plan.status });
+    case "forward":
+      return fetchForwardPlanWithRetry(
+        plan,
+        () =>
+          fetcher(plan.url, {
+            method: plan.method,
+            headers: plan.headers,
+            body: plan.hasBody ? request.body : undefined,
+            ...(plan.hasBody ? { duplex: "half" as const } : {}),
+            redirect: "manual",
+            credentials: "omit",
+          }),
+        retryOptions,
+      );
   }
 }

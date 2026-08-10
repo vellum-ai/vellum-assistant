@@ -7,6 +7,10 @@ import {
   type TrayHandlers,
   type TrayMenuIcon,
 } from "@vellumai/electron-desktop/tray-model";
+import {
+  readCompanionHidden,
+  readOnboardingActive,
+} from "@vellumai/electron-desktop/window-state";
 
 import {
   MENU_ICON_CIRCLECHECK,
@@ -26,7 +30,6 @@ import { getWatchedLockfile } from "./lockfile-watcher.client";
 import { dispatchToMain } from "./main-window";
 import { menuIcon } from "./menu-icon";
 import { readSetting } from "./settings";
-import { readCompanionHidden, readOnboardingActive } from "./window-state";
 
 const ICONS: Record<TrayMenuIcon, NativeImage> = {
   check: menuIcon(MENU_ICON_CIRCLECHECK),

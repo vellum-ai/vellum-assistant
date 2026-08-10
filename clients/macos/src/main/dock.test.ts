@@ -2,12 +2,7 @@ import { beforeAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
 import type { z } from "zod";
 
-// `./main-window` (which `./dock` imports `current` /
-// `onMainWindowVisibilityChange` from) transitively pulls in
-// `./window-state`, which depends on the `electron-store` module —
-// stub both so the pure-function tests below don't need a real
-// store. The mocks are no-ops; the `computePolicy` matrix tests
-// only exercise the pure path.
+// Keep pure policy tests independent of Electron window state.
 mock.module("./main-window", () => ({
   current: () => null,
   onMainWindowVisibilityChange: () => undefined,

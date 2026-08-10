@@ -8,12 +8,15 @@ import {
 } from "@vellumai/electron-desktop/floating-window";
 import { configurePopoutWindows } from "@vellumai/electron-desktop/popout-window";
 import { configureQuickInputWindow } from "@vellumai/electron-desktop/quick-input-window";
+import {
+  restoreBounds,
+  track as trackWindowState,
+} from "@vellumai/electron-desktop/window-state";
 
 import { RENDERER_BASE_PROD, getDevRendererBase } from "./app-config";
 import { handle, on } from "./ipc";
 import { current, dispatchToMain, ensureVisible } from "./main-window";
 import { createWindow } from "./windows";
-import { restoreBounds, track as trackWindowState } from "./window-state";
 
 const resolveRoute = createWindowRouteResolver(() =>
   app.isPackaged ? RENDERER_BASE_PROD : getDevRendererBase(),
