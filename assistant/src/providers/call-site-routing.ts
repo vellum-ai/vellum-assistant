@@ -37,6 +37,7 @@ import {
   isConnectionCompatibleWithModel,
 } from "./connection-model-compat.js";
 import {
+  connectionProviderKind,
   ConnectionResolutionError,
   expectedVendorProvider,
   isManagedConnectionRoute,
@@ -206,12 +207,17 @@ export class CallSiteRoutingProvider implements Provider {
       forceOverrideProfile: options?.config?.forceOverrideProfile,
       selectionSeed: options?.config?.selectionSeed,
     });
-    // An entry-name label is not a provider id: translate it to the row's
-    // dispatchable kind so capability selection cannot drift from routing.
+    // Capability follows the same row dispatch selects: an explicit
+    // provider_connection wins, then an entry-name label's row, then the
+    // resolved provider itself. Kept in this order so a label paired with a
+    // conflicting connection cannot enable a capability the dispatched
+    // transport lacks.
+    const routedKind = resolved.provider_connection
+      ? connectionProviderKind(resolved.provider_connection, resolved.model)
+      : resolveEntryProviderKind(resolved.provider, resolved.model);
     return shouldUseNativeWebSearch(
       getConfig(),
-      resolveEntryProviderKind(resolved.provider, resolved.model) ??
-        resolved.provider,
+      routedKind ?? resolved.provider,
       resolved.model,
     );
   }
@@ -322,7 +328,7 @@ export class CallSiteRoutingProvider implements Provider {
       // that is not a vendor never threads into the row-equality check.
       const connectionProvider = await this.resolveByConnection(
         connectionName,
-        expectedVendorProvider(resolved.provider),
+        expectedVendorProvider(resolved.provider, resolved.model),
         resolved.model,
       );
       if (connectionProvider) {

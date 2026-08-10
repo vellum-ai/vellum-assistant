@@ -91,37 +91,39 @@ export function resolveEntryConnectionName(
 }
 
 /**
- * A resolved provider value usable as the expected vendor in row-equality
- * checks: catalog ids and routing identities pass through; an entry-name
- * label (or any unknown value) yields undefined, so a config carrying both
- * an entry label and a `provider_connection` never fails the equality
- * against a label that is not a vendor.
+ * The vendor a resolved provider value expects its connection row to serve:
+ * catalog ids and routing identities pass through, and an entry-name label
+ * resolves to its row's dispatchable kind, so a config carrying both an
+ * entry label and a `provider_connection` is held to the label's kind by
+ * the row-equality check (a conflicting row mismatches explainably or
+ * auto-recovers to a matching one). A label naming no row yields undefined.
  */
 export function expectedVendorProvider(
   provider: string | undefined,
+  model: string | undefined,
 ): string | undefined {
-  return provider && VALID_CONNECTION_PROVIDERS.includes(provider)
-    ? provider
-    : undefined;
+  if (!provider) {
+    return undefined;
+  }
+  if (VALID_CONNECTION_PROVIDERS.includes(provider)) {
+    return provider;
+  }
+  return resolveEntryProviderKind(provider, model) ?? undefined;
 }
 
 /**
- * The dispatchable provider kind behind an entry-name label, or null when
- * the label is not an entry. Identity-kind rows derive their upstream the
- * way the identities themselves do. Sync and best-effort so capability
- * probes can share dispatch's translation without replaying its async
- * resolution.
+ * The dispatchable provider kind behind a connection row, or null when the
+ * row is missing or its kind cannot be derived. Identity-kind rows derive
+ * their upstream the way the identities themselves do. Sync and
+ * best-effort so capability probes can share dispatch's translation
+ * without replaying its async resolution.
  */
-export function resolveEntryProviderKind(
-  provider: string | undefined,
+export function connectionProviderKind(
+  connectionName: string,
   model: string | undefined,
 ): string | null {
-  const entryName = resolveEntryConnectionName(provider);
-  if (!entryName) {
-    return null;
-  }
   try {
-    const row = getConnection(getDb(), entryName);
+    const row = getConnection(getDb(), connectionName);
     if (!row) {
       return null;
     }
@@ -135,6 +137,18 @@ export function resolveEntryProviderKind(
   } catch {
     return null;
   }
+}
+
+/**
+ * The dispatchable provider kind behind an entry-name label, or null when
+ * the label is not an entry.
+ */
+export function resolveEntryProviderKind(
+  provider: string | undefined,
+  model: string | undefined,
+): string | null {
+  const entryName = resolveEntryConnectionName(provider);
+  return entryName ? connectionProviderKind(entryName, model) : null;
 }
 
 /**
@@ -495,7 +509,7 @@ export async function resolveDefaultProvider(
   return tryResolveProviderForConnectionName(
     connectionName,
     config,
-    expectedVendorProvider(resolved.provider),
+    expectedVendorProvider(resolved.provider, resolved.model),
     resolved.model,
   );
 }

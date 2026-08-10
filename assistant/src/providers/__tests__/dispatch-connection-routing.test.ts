@@ -65,6 +65,10 @@ const fakeConnections = new Map<string, Connection>();
 mock.module("../inference/connections.js", () => ({
   getConnection: (_db: unknown, name: string) =>
     fakeConnections.get(name) ?? null,
+  listConnections: (_db: unknown, filter?: { provider?: string }) =>
+    Array.from(fakeConnections.values()).filter(
+      (c) => !filter?.provider || c.provider === filter.provider,
+    ),
 }));
 
 mock.module("../registry.js", () => ({
@@ -623,6 +627,43 @@ describe("entry-name providers", () => {
     expect(result).not.toBeNull();
     expect(resolveProviderCalls[0]?.name).toBe("anthropic-work");
     expect(resolveProviderOpts[0]?.providerOverride).toBeUndefined();
+  });
+
+  test("a label with a conflicting provider_connection is held to the label's kind", async () => {
+    // The label's row kind threads as the expected vendor, so a stale or
+    // conflicting connection cannot silently dispatch a different vendor:
+    // the equality mismatch auto-recovers to a row matching the kind.
+    registerConnection(
+      {
+        name: "anthropic-work",
+        provider: "anthropic",
+        auth: {
+          type: "api_key",
+          credential: "credential/anthropic-work/api_key",
+        },
+      },
+      { name: "anthropic", tag: "work-key" },
+    );
+    registerConnection(
+      { name: "ollama-local", provider: "ollama", auth: { type: "none" } },
+      { name: "ollama", tag: "local" },
+    );
+    setLlmConfig({
+      profiles: {
+        conflicted: {
+          provider: "anthropic-work",
+          provider_connection: "ollama-local",
+          model: "claude-opus-4-8",
+        },
+      },
+    });
+
+    const result = await getConfiguredProvider("mainAgent", {
+      overrideProfile: "conflicted",
+    });
+
+    expect(result).not.toBeNull();
+    expect(resolveProviderCalls[0]?.name).toBe("anthropic-work");
   });
 
   test("a label naming no row degrades to the soft null path", async () => {

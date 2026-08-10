@@ -212,7 +212,7 @@ export async function resolveConfiguredProvider(
   const connectionProvider = await tryResolveProviderForConnectionName(
     connectionName,
     config,
-    expectedVendorProvider(inferenceProvider),
+    expectedVendorProvider(inferenceProvider, resolved.model),
     resolved.model,
   );
   if (!connectionProvider) {
