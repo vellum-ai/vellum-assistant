@@ -1079,18 +1079,40 @@ export function TranscriptMessageBody({
         return hasVisibleOutputOrControl ? [] : [groupIndex];
       })
     : [];
-  const collapsibleGroupIndexSet = new Set(collapsibleGroupIndexes);
+  // One entry per contiguous run a single disclosure would cover. Relies on
+  // `collapsibleGroupIndexes` being ascending (it is built by walking `groups`
+  // in order), so a gap means a new run. `end` is exclusive, matching `slice`.
+  const collapsibleRuns: Array<{ start: number; end: number }> = [];
+  for (const groupIndex of collapsibleGroupIndexes) {
+    const openRun = collapsibleRuns[collapsibleRuns.length - 1];
+    if (openRun?.end === groupIndex) {
+      openRun.end = groupIndex + 1;
+    } else {
+      collapsibleRuns.push({ start: groupIndex, end: groupIndex + 1 });
+    }
+  }
+  // A run that is one lone activity group does not earn a disclosure. Every
+  // activity rendering is already a single one-line row (`SingleActivity`'s
+  // bare "Thinking" / tool link, or `MultiActivityGroup`'s header) that keeps
+  // its reasoning and step timeline in a drawer rather than inline. Collapsing
+  // one swaps a one-line row for the one-line "Earlier activity" trigger:
+  // chrome with no text wall removed. Runs spanning two or more groups, and
+  // any run containing prose, still collapse.
+  const disclosedRuns = collapsibleRuns.filter(
+    (run) => run.end - run.start > 1 || groups[run.start]?.type !== "activity",
+  );
+  const disclosedRunByStart = new Map(
+    disclosedRuns.map((run) => [run.start, run.end]),
+  );
+  // Groups after a run's head are rendered by the disclosure at that head, so
+  // their own slot renders nothing.
+  const isInsideDisclosedRun = (groupIndex: number) =>
+    disclosedRuns.some((run) => groupIndex > run.start && groupIndex < run.end);
   const assistantContent =
-    collapsibleGroupIndexes.length > 0
+    disclosedRuns.length > 0
       ? renderedGroups.map((renderedGroup, groupIndex) => {
-          if (
-            collapsibleGroupIndexSet.has(groupIndex) &&
-            !collapsibleGroupIndexSet.has(groupIndex - 1)
-          ) {
-            let runEndIndex = groupIndex + 1;
-            while (collapsibleGroupIndexSet.has(runEndIndex)) {
-              runEndIndex += 1;
-            }
+          const runEndIndex = disclosedRunByStart.get(groupIndex);
+          if (runEndIndex !== undefined) {
             return (
               <AssistantContentDisclosure
                 key={`earlier-activity-${groupIndex}`}
@@ -1100,9 +1122,7 @@ export function TranscriptMessageBody({
               </AssistantContentDisclosure>
             );
           }
-          return collapsibleGroupIndexSet.has(groupIndex)
-            ? null
-            : renderedGroup;
+          return isInsideDisclosedRun(groupIndex) ? null : renderedGroup;
         })
       : renderedGroups;
 
