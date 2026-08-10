@@ -6,7 +6,7 @@
  */
 
 import { describe, expect, test } from "bun:test";
-import { createElement } from "react";
+import { createElement, Fragment } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 
 import { PanelItem } from "./panel-item";
@@ -198,6 +198,50 @@ describe("PanelItem shape", () => {
     expect(html).toContain("text-[color:var(--panel-item-fg,inherit)]");
     expect(html).toContain(
       "[@media(hover:hover)]:hover:bg-[var(--panel-item-hover,var(--surface-active))]",
+    );
+  });
+});
+
+describe("PanelItem asChild", () => {
+  /* The row is a state layer over the caller's element: the geometry and the
+     interactive treatment have to land on that element, since nothing else is
+     rendered to carry them. */
+  test("merges the row's geometry and interactive treatment onto the child", () => {
+    const html = renderToStaticMarkup(
+      createElement(
+        PanelItem,
+        { asChild: true, active: true },
+        createElement("a", { href: "/pinned" }, "Pinned"),
+      ),
+    );
+    expect(html).toContain('<a href="/pinned"');
+    expect(html).toContain("group/panel-item");
+    expect(html).toContain("cursor-pointer");
+    expect(html).toContain('aria-current="page"');
+  });
+
+  /* Radix `Slot` skips both the prop merge and the ref composition for a
+     fragment, so a fragment child renders a row with none of the above and
+     holds no ref. The type cannot express that, so it is reported. */
+  test("reports a fragment child, which the slot cannot merge onto", () => {
+    const errors: unknown[] = [];
+    const original = console.error;
+    console.error = (...args: unknown[]) => {
+      errors.push(args[0]);
+    };
+    try {
+      renderToStaticMarkup(
+        createElement(
+          PanelItem,
+          { asChild: true },
+          createElement(Fragment, null, "Pinned"),
+        ),
+      );
+    } finally {
+      console.error = original;
+    }
+    expect(errors.some((message) => String(message).includes("PanelItem"))).toBe(
+      true,
     );
   });
 });

@@ -21,6 +21,7 @@ import { Tooltip } from "../tooltip";
 import { PaneResizeHandle } from "../pane-resize-handle";
 import { useResizablePane } from "../../hooks/use-resizable-pane";
 import { cn } from "../../utils/cn";
+import { reportUnmergeableSlotChild } from "../../utils/slot-child";
 
 /**
  * SideMenu primitive — a docked application navigation rail.
@@ -465,22 +466,38 @@ export type SideMenuSectionHeaderProps =
  * it. Typography, horizontal insets, and whatever sits on the trailing edge
  * stay with the caller, whose sidebar decides those.
  */
-function SideMenuSectionHeader({
-  asChild = false,
-  className,
-  ref,
-  ...rest
-}: SideMenuSectionHeaderProps) {
-  const Component = asChild ? Slot : "div";
+function SideMenuSectionHeader(props: SideMenuSectionHeaderProps) {
+  const className = cn(
+    "flex shrink-0 items-center rounded-[6px]",
+    "h-[var(--side-menu-tile-size)] max-md:h-auto",
+    props.className,
+  );
+  if (props.asChild === true) {
+    const {
+      asChild: _asChild,
+      className: _className,
+      children,
+      ref,
+      ...rest
+    } = props;
+    reportUnmergeableSlotChild("SideMenu.SectionHeader", children);
+    return (
+      <Slot
+        ref={ref}
+        data-slot="side-menu-section-header"
+        className={className}
+        {...rest}
+      >
+        {children}
+      </Slot>
+    );
+  }
+  const { asChild: _asChild, className: _className, ref, ...rest } = props;
   return (
-    <Component
-      ref={ref as Ref<HTMLDivElement>}
+    <div
+      ref={ref}
       data-slot="side-menu-section-header"
-      className={cn(
-        "flex shrink-0 items-center rounded-[6px]",
-        "h-[var(--side-menu-tile-size)] max-md:h-auto",
-        className,
-      )}
+      className={className}
       {...rest}
     />
   );
