@@ -966,12 +966,11 @@ describe("NotificationsBell detail", () => {
     expect(
       screen.getByText("The watcher job could not reach the upstream service."),
     ).toBeTruthy();
-    // No viewport clamp on this path: the sheet is capped at 85dvh and its
-    // body scrolls, so an oversized region scrolls inside the sheet rather
-    // than escaping the viewport the way the popover would. The sheet's cap is
-    // a bare `dvh` length, which happy-dom drops from the CSSOM, so the value
-    // itself is only observable on the popover path above.
-    expect(detailContent().style.maxHeight).toBe("");
+    // The sheet's own budget, with no viewport clamp folded into it: the sheet
+    // is capped at 85dvh and its body scrolls, so an oversized region scrolls
+    // inside the sheet rather than escaping the viewport the way the popover
+    // would. The popover path above carries both terms; this one carries one.
+    expect(detailContent().style.maxHeight).toBe("60dvh");
     expect(detailFooter().textContent).toContain(
       formatCompactLocalDate(FIRST.timestamp),
     );
