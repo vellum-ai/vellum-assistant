@@ -64,6 +64,10 @@ describe("143-repair-deprecated-codex-model-id migration", () => {
         default: { provider: "chatgpt", model: DEPRECATED },
         callSites: {
           recall: { provider: "chatgpt", model: DEPRECATED, maxTokens: 4096 },
+          // A providerless call-site pin inherits the winning profile's
+          // provider and connection at resolve time, so it is repaired too.
+          heartbeatAgent: { model: DEPRECATED },
+          vision: { provider: "openai-compatible", model: DEPRECATED },
           malformed: DEPRECATED,
         },
         profiles: {
@@ -78,6 +82,8 @@ describe("143-repair-deprecated-codex-model-id migration", () => {
     expect(llm.default.model).toBe(REPLACEMENT);
     expect(llm.callSites.recall.model).toBe(REPLACEMENT);
     expect(llm.callSites.recall.maxTokens).toBe(4096);
+    expect(llm.callSites.heartbeatAgent.model).toBe(REPLACEMENT);
+    expect(llm.callSites.vision.model).toBe(DEPRECATED);
     expect(llm.profiles.codex.model).toBe(REPLACEMENT);
     expect(llm.profiles.codex.source).toBe("user");
   });
@@ -87,7 +93,9 @@ describe("143-repair-deprecated-codex-model-id migration", () => {
       llm: {
         profiles: {
           // The allowlist only gates the "chatgpt" routing identity; an
-          // openai-compatible endpoint may legitimately serve this id.
+          // openai-compatible endpoint may legitimately serve this id. A
+          // providerless profile completes against the code-owned base, not
+          // the subscription, so it stays untouched too.
           byok: { provider: "openai-compatible", model: DEPRECATED },
           inherited: { model: DEPRECATED },
           current: { provider: "chatgpt", model: "gpt-5.6-luna" },

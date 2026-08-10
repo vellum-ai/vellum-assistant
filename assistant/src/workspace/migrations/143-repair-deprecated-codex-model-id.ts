@@ -19,9 +19,14 @@ import type { WorkspaceMigration } from "./types.js";
  *
  * Repair rewrites the model to `gpt-5.6-terra` (OpenAI's recommended
  * everyday Codex model) on an exact `provider: "chatgpt"` + model match in
- * `llm.default`, `llm.callSites.*`, and `llm.profiles.*`. Fragments with any
- * other provider are left untouched: the allowlist only gates the "chatgpt"
- * routing identity, so they cannot trip the salvage path.
+ * `llm.default`, `llm.callSites.*`, and `llm.profiles.*`. A call-site
+ * fragment is also repaired when it pins the model with no provider of its
+ * own: at resolve time such a fragment overlays the winning profile, so the
+ * stale pin rides whatever provider and connection the winner supplies
+ * (including the subscription connection, which routes it to the Codex
+ * endpoint). Fragments with any other explicit provider are left untouched:
+ * the allowlist only gates the "chatgpt" routing identity, and a provider
+ * like `openai-compatible` may legitimately serve this id.
  */
 export const repairDeprecatedCodexModelIdMigration: WorkspaceMigration = {
   id: "143-repair-deprecated-codex-model-id",
@@ -61,7 +66,10 @@ export const repairDeprecatedCodexModelIdMigration: WorkspaceMigration = {
     const callSites = readObject(llm.callSites);
     if (callSites !== null) {
       for (const rawConfig of Object.values(callSites)) {
-        changed = repairFragment(readObject(rawConfig)) || changed;
+        changed =
+          repairFragment(readObject(rawConfig), {
+            repairMissingProvider: true,
+          }) || changed;
       }
     }
 
@@ -100,14 +108,18 @@ export const repairDeprecatedCodexModelIdMigration: WorkspaceMigration = {
 const DEPRECATED_MODEL_ID = "gpt-5.3-codex";
 const REPLACEMENT_MODEL_ID = "gpt-5.6-terra";
 
-function repairFragment(fragment: Record<string, unknown> | null): boolean {
-  if (fragment === null) {
+function repairFragment(
+  fragment: Record<string, unknown> | null,
+  options?: { repairMissingProvider?: boolean },
+): boolean {
+  if (fragment === null || fragment.model !== DEPRECATED_MODEL_ID) {
     return false;
   }
-  if (
-    fragment.provider !== "chatgpt" ||
-    fragment.model !== DEPRECATED_MODEL_ID
-  ) {
+  const providerRepairable =
+    fragment.provider === "chatgpt" ||
+    (options?.repairMissingProvider === true &&
+      fragment.provider === undefined);
+  if (!providerRepairable) {
     return false;
   }
   fragment.model = REPLACEMENT_MODEL_ID;
