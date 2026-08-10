@@ -54,11 +54,16 @@ export function resolveEffectiveContextWindow({
     forceOverrideProfile,
     selectionSeed,
   });
-  // Routing identities are not catalog providers; the model's catalog owner
-  // carries its context-window limits.
-  const catalogProviderId = ROUTING_IDENTITY_PROVIDERS.has(resolved.provider)
-    ? getCatalogProviderForModel(resolved.model)
-    : resolved.provider;
+  // Routing identities and entry-name providers are not catalog providers;
+  // the model's catalog owner carries its context-window limits either way,
+  // so any provider value without a catalog entry resolves through the
+  // model. This stays a pure catalog lookup (no row read): the model's
+  // limits are the model's regardless of which key serves it.
+  const catalogProviderId =
+    ROUTING_IDENTITY_PROVIDERS.has(resolved.provider) ||
+    !PROVIDER_CATALOG.some((p) => p.id === resolved.provider)
+      ? getCatalogProviderForModel(resolved.model)
+      : resolved.provider;
   const catalogModel = PROVIDER_CATALOG.find(
     (provider) => provider.id === catalogProviderId,
   )?.models.find((model) => model.id === resolved.model);

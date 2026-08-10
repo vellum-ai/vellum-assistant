@@ -131,6 +131,26 @@ describe("resolveEffectiveContextWindow", () => {
     expect(resolved.modelMaxInputTokens).toBe(1050000);
   });
 
+  test("an entry-name provider resolves the model's own context limits", () => {
+    // The entries collapse stores connection names in the provider field;
+    // the model's catalog owner carries its limits regardless of which key
+    // serves it, so an entry label must not fall back to the 200k default.
+    const llm = LLMSchema.parse({
+      profiles: {
+        work: { provider: "anthropic-work", model: "gpt-5.5" },
+      },
+      activeProfile: "work",
+    });
+
+    const resolved = resolveEffectiveContextWindow({
+      llm,
+      callSite: "mainAgent",
+    });
+
+    expect(resolved.modelMaxInputTokens).toBe(1050000);
+    expect(resolved.maxOutputTokens).toBeDefined();
+  });
+
   test("unknown catalog model falls back safely to the default 200k cap", () => {
     const llm = LLMSchema.parse({
       callSites: {
