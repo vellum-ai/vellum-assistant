@@ -322,11 +322,13 @@ function SideMenuRoot({
         className={cn(
           ROOT_BASE_CLASSES,
           showResizeHandle && "relative",
+          rootChromeClasses(variant, effectiveCollapsed, resizable),
           // The rail animates its width when collapsing. During a drag that
           // easing would make the edge lag the cursor, so it is suspended for
-          // the drag's duration.
+          // the drag's duration. It must come after `rootChromeClasses`, whose
+          // `transition-[width,padding]` is in the same tailwind-merge group
+          // and wins when it is last.
           isResizing && "transition-none",
-          rootChromeClasses(variant, effectiveCollapsed, resizable),
           className,
         )}
         style={widthStyle}

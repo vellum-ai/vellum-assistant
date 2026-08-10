@@ -343,7 +343,7 @@ export function ChatContentLayout(props: ChatMainPanelProps) {
   if (mainView === "app-editing" && openedAppState && editingConversationId) {
     return (
       <ResizablePanel
-        storageKey="appEditPanelWidth.v2"
+        storageKey="appEditPanelWidth"
         hideDivider
         defaultRightWidth={400}
         minLeftWidth={300}

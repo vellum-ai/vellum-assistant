@@ -2,6 +2,7 @@ import {
   useCallback,
   useEffect,
   useId,
+  useLayoutEffect,
   useRef,
   useState,
   type KeyboardEvent,
@@ -14,10 +15,8 @@ import {
  * drag or key the edge, and it is remembered".
  *
  * Four surfaces are that same thing: the sidebar rail, the app-editing split,
- * the Activity/Schedules detail drawer, and the tool-detail drawer. Each used
- * to hold its own copy of the width state, the clamping, the persistence, and
- * the pointer arithmetic, which is how they came to disagree about where the
- * live width is written during a drag and who writes it to storage (LUM-3200).
+ * the Activity/Schedules detail drawer, and the tool-detail drawer. They share
+ * the width state, the clamping, the persistence, and the pointer arithmetic.
  *
  * A hook rather than a wrapper component because the three DOM shapes are
  * genuinely different: a `nav` landmark with an absolutely positioned edge, a
@@ -62,6 +61,99 @@ function writeStoredSize(storageKey: string | undefined, size: number): void {
   }
 }
 
+/**
+ * The upper bound the pane may take: its own hard cap, and whatever the
+ * measured container leaves after reserving room for the other side. Returns
+ * `Infinity` when neither bound is known yet.
+ *
+ * A container narrower than both panes' minimums drives the derived bound
+ * below `minSize`; the pane's own minimum wins there, and the layout overflows
+ * rather than collapsing the pane past what it can render.
+ */
+export function resolveMaxSize({
+  minSize,
+  maxSize,
+  reserveForRest,
+  containerSize,
+}: {
+  minSize: number;
+  maxSize?: number;
+  reserveForRest: number;
+  containerSize: number;
+}): number {
+  return Math.max(
+    minSize,
+    Math.min(
+      maxSize ?? Number.POSITIVE_INFINITY,
+      containerSize > 0
+        ? containerSize - reserveForRest
+        : Number.POSITIVE_INFINITY,
+    ),
+  );
+}
+
+/**
+ * The same bound reduced to a real number, for the two places that cannot use
+ * `Infinity`: what `End` commits, and what the separator announces.
+ */
+export function boundedMaxSize(
+  maxSize: number,
+  minSize: number,
+  size: number,
+): number {
+  return Number.isFinite(maxSize) ? maxSize : Math.max(minSize, size);
+}
+
+export function clampSize(
+  next: number,
+  minSize: number,
+  maxSize: number,
+): number {
+  return Math.max(minSize, Math.min(next, maxSize));
+}
+
+/** Px the pane grows by when the handle travels `dx` to the right. */
+export function paneDelta(dx: number, side: "start" | "end"): number {
+  return side === "end" ? -dx : dx;
+}
+
+/**
+ * The size a key press asks for, or `null` for a key this pattern does not
+ * claim. `Enter` is deliberately unclaimed: APG lists collapse and restore as
+ * conditional on the implementation supporting collapse, and no pane here can
+ * collapse.
+ */
+export function nextSizeForKey(
+  key: string,
+  {
+    shiftKey,
+    size,
+    side,
+    minSize,
+    maxSize,
+  }: {
+    shiftKey: boolean;
+    size: number;
+    side: "start" | "end";
+    minSize: number;
+    maxSize: number;
+  },
+): number | null {
+  const nudge = shiftKey ? STEP_PX * COARSE_STEP_MULTIPLIER : STEP_PX;
+  switch (key) {
+    case "ArrowLeft":
+      return size + paneDelta(-nudge, side);
+    case "ArrowRight":
+      return size + paneDelta(nudge, side);
+    case "Home":
+      return minSize;
+    case "End":
+      return maxSize;
+    default:
+      return null;
+  }
+}
+
 export interface UseResizablePaneOptions {
   /**
    * Which side of the container the sized pane occupies. `"start"` grows as
@@ -84,6 +176,16 @@ export interface UseResizablePaneOptions {
   reserveForRest?: number;
   /** `localStorage` key. Omit to make the size session-only. */
   storageKey?: string;
+  /**
+   * A key holding a size in an older format, migrated into `storageKey` once
+   * the container has been measured and then removed. `convert` receives the
+   * stored value and the measured container size and returns the equivalent
+   * in the current format.
+   */
+  legacySize?: {
+    key: string;
+    convert: (stored: number, containerSize: number) => number;
+  };
   /** Accessible name for the handle, e.g. "Resize sidebar". */
   label: string;
   /**
@@ -140,6 +242,7 @@ export function useResizablePane({
   maxSize,
   reserveForRest = 0,
   storageKey,
+  legacySize,
   label,
   paneId: providedPaneId,
   paneRef,
@@ -150,8 +253,11 @@ export function useResizablePane({
   const containerRef = useRef<HTMLDivElement>(null);
   const dragRef = useRef<{ startX: number; startSize: number } | null>(null);
   const [isResizing, setIsResizing] = useState(false);
-  const [size, setSize] = useState(
-    () => readStoredSize(storageKey) ?? defaultSize,
+  // `minSize` is applied at read time so a stale or corrupt stored value never
+  // renders below the minimum, not even for the frame before the re-clamp
+  // effect runs. The upper bound needs a measured container, so it waits.
+  const [size, setSize] = useState(() =>
+    Math.max(minSize, readStoredSize(storageKey) ?? defaultSize),
   );
   const [containerSize, setContainerSize] = useState(0);
 
@@ -170,30 +276,38 @@ export function useResizablePane({
     return () => observer.disconnect();
   }, []);
 
-  // A container narrower than both panes' minimums makes the derived bound
-  // fall below `minSize`; the pane's own minimum wins, and the layout
-  // overflows rather than collapsing the pane past what it can render.
-  const effectiveMax = Math.max(
+  const effectiveMax = resolveMaxSize({
     minSize,
-    Math.min(
-      maxSize ?? Number.POSITIVE_INFINITY,
-      containerSize > 0
-        ? containerSize - reserveForRest
-        : Number.POSITIVE_INFINITY,
-    ),
-  );
+    maxSize,
+    reserveForRest,
+    containerSize,
+  });
   const clamp = useCallback(
-    (next: number) => Math.max(minSize, Math.min(next, effectiveMax)),
+    (next: number) => clampSize(next, minSize, effectiveMax),
     [minSize, effectiveMax],
   );
+  const boundedMax = boundedMaxSize(effectiveMax, minSize, size);
 
-  // Before the first measurement, and with no absolute `maxSize`, the bound is
-  // genuinely unknown. `End` must still land somewhere real and the separator
-  // must still announce a number, so the size in use stands in until a
-  // measurement arrives.
-  const boundedMax = Number.isFinite(effectiveMax)
-    ? effectiveMax
-    : Math.max(minSize, size);
+  // Runs before paint so a converted size never flashes the default first.
+  // Measuring here rather than reusing `containerSize` because that state is
+  // still 0 on the first pass, and the conversion needs a real container.
+  useLayoutEffect(() => {
+    if (!legacySize || !storageKey) return;
+    if (readStoredSize(storageKey) != null) return;
+    const stored = readStoredSize(legacySize.key);
+    if (stored == null) return;
+    const containerWidth = containerRef.current?.offsetWidth ?? 0;
+    if (containerWidth <= 0) return;
+    const converted = legacySize.convert(stored, containerWidth);
+    if (!Number.isFinite(converted)) return;
+    setSize(converted);
+    writeStoredSize(storageKey, converted);
+    try {
+      localStorage.removeItem(legacySize.key);
+    } catch {
+      // Storage quota or security error, ignore.
+    }
+  }, [legacySize, storageKey]);
 
   // Re-clamp when the bound moves so a pane sized for a wide window does not
   // keep its width after the window shrinks under it.
@@ -206,12 +320,6 @@ export function useResizablePane({
       return clamped;
     });
   }, [clamp, paneRef]);
-
-  /** Px the pane grows by when the handle travels `dx` to the right. */
-  const paneDelta = useCallback(
-    (dx: number) => (side === "end" ? -dx : dx),
-    [side],
-  );
 
   const applyLive = useCallback(
     (next: number) => {
@@ -261,9 +369,11 @@ export function useResizablePane({
     (e: PointerEvent<HTMLElement>) => {
       const drag = dragRef.current;
       if (!drag) return;
-      applyLive(clamp(drag.startSize + paneDelta(e.clientX - drag.startX)));
+      applyLive(
+        clamp(drag.startSize + paneDelta(e.clientX - drag.startX, side)),
+      );
     },
-    [applyLive, clamp, paneDelta],
+    [applyLive, clamp, side],
   );
 
   const endDrag = useCallback(
@@ -274,38 +384,28 @@ export function useResizablePane({
       dragRef.current = null;
       setIsResizing(false);
       setBodyDragStyles(false);
-      commit(clamp(drag.startSize + paneDelta(e.clientX - drag.startX)));
+      commit(clamp(drag.startSize + paneDelta(e.clientX - drag.startX, side)));
     },
-    [commit, clamp, paneDelta, setBodyDragStyles],
+    [commit, clamp, side, setBodyDragStyles],
   );
 
   const onKeyDown = useCallback(
     (e: KeyboardEvent<HTMLElement>) => {
-      const nudge = e.shiftKey ? STEP_PX * COARSE_STEP_MULTIPLIER : STEP_PX;
-      let next: number;
-      switch (e.key) {
-        case "ArrowLeft":
-          next = size + paneDelta(-nudge);
-          break;
-        case "ArrowRight":
-          next = size + paneDelta(nudge);
-          break;
-        case "Home":
-          next = minSize;
-          break;
-        case "End":
-          next = boundedMax;
-          break;
-        default:
-          return;
-      }
+      const next = nextSizeForKey(e.key, {
+        shiftKey: e.shiftKey,
+        size,
+        side,
+        minSize,
+        maxSize: boundedMax,
+      });
+      if (next == null) return;
       // Claim the key before the browser scrolls the pane behind the handle.
       e.preventDefault();
       // No `applyLive` here: a key press has no per-frame budget problem, so
       // the commit's own re-render is what moves the pane.
       commit(clamp(next));
     },
-    [size, paneDelta, minSize, boundedMax, clamp, commit],
+    [size, side, minSize, boundedMax, clamp, commit],
   );
 
   return {

@@ -1,4 +1,4 @@
-import { useRef, type ComponentProps, type ReactNode } from "react";
+import { useMemo, useRef, type ComponentProps, type ReactNode } from "react";
 
 import { cn } from "../utils/cn";
 import { useResizablePane } from "../hooks/use-resizable-pane";
@@ -11,6 +11,14 @@ import { PaneResizeHandle } from "./pane-resize-handle";
  * the right pane may be.
  */
 const HANDLE_WIDTH_PX = 8;
+
+/**
+ * Suffix for the persisted width. The stored number is the right pane's width;
+ * a bare `storageKey` holds the left pane's, so the two are kept in separate
+ * entries and the bare one is converted on first read. Callers pass the bare
+ * key and never see this.
+ */
+const STORAGE_FORMAT_SUFFIX = ".v2";
 
 export interface ResizablePanelProps
   extends Omit<ComponentProps<"div">, "children"> {
@@ -45,12 +53,10 @@ export interface ResizablePanelProps
  * A sized right pane beside a flexible left one, with a draggable and
  * keyboard-operable edge between them.
  *
- * Not a proportional split view, despite the name it used to imply: every
- * caller sizes one pane in pixels and lets the other take the remainder, which
- * is why the old percentage API was dead on arrival and has been removed
- * (LUM-3200). Sizing, clamping, persistence, and the separator's ARIA all come
- * from `useResizablePane`, shared with the sidebar rail and the tool-detail
- * drawer.
+ * Panes are sized in pixels: the right pane owns a width and the left pane
+ * takes the remainder. Sizing, clamping, persistence, and the separator's ARIA
+ * come from `useResizablePane`, shared with the sidebar rail and the
+ * tool-detail drawer.
  */
 export function ResizablePanel({
   left,
@@ -66,13 +72,25 @@ export function ResizablePanel({
   ...rest
 }: ResizablePanelProps) {
   const paneRef = useRef<HTMLDivElement>(null);
+  const legacySize = useMemo(
+    () =>
+      storageKey
+        ? {
+            key: storageKey,
+            convert: (leftWidth: number, containerWidth: number) =>
+              containerWidth - leftWidth - HANDLE_WIDTH_PX,
+          }
+        : undefined,
+    [storageKey],
+  );
   const { size, containerRef, paneId, handleProps, isResizing } =
     useResizablePane({
       side: "end",
       defaultSize: defaultRightWidth,
       minSize: minRightWidth,
       reserveForRest: minLeftWidth + HANDLE_WIDTH_PX,
-      storageKey,
+      storageKey: storageKey && `${storageKey}${STORAGE_FORMAT_SUFFIX}`,
+      legacySize,
       label: separatorLabel,
       paneRef,
       onSizeCommit: onWidthChange,
