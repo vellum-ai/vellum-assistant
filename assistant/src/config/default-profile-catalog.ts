@@ -70,7 +70,7 @@ type ProfileImpls = Record<DefaultProfileKey, DefaultProfileTemplate>;
  */
 const VELLUM_PROFILE_IMPLS: ProfileImpls = {
   balanced: {
-    model: "gpt-5.6-luna",
+    model: "accounts/fireworks/models/glm-5p2",
     provider: "vellum",
     source: "managed",
     label: "Balanced",
@@ -127,8 +127,8 @@ const VELLUM_PROFILE_IMPLS: ProfileImpls = {
     // provisioned in every environment, and it alone selects the upstream:
     // `provider` below is the provider-agnostic managed sentinel, so
     // `getManagedUpstream` resolves the real upstream from the model's catalog
-    // owner. Sharing `balanced`'s model is deliberate: the split is effort
-    // and thinking, and this model is the one live-voice TTFT drives validated.
+    // owner. This model is the one live-voice TTFT drives validated, so it is
+    // pinned independently of the other profiles' pins.
     model: "gpt-5.6-luna",
     provider: "vellum",
     source: "managed",
