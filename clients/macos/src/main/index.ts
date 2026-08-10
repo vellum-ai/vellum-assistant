@@ -1,14 +1,27 @@
 import "./env-seed";
 import { app, net, protocol, session, shell } from "electron";
-import fs from "node:fs/promises";
 import { pathToFileURL } from "node:url";
 import path from "node:path";
 
-import { resolveAppProtocolPath } from "@vellumai/electron-utils/app-protocol";
+import { installCsp } from "@vellumai/electron-desktop/csp";
 import { installCommandPaletteWindow } from "@vellumai/electron-desktop/command-palette-window";
+import { getDeviceId } from "@vellumai/electron-desktop/device-id";
 import { installDictationOverlay } from "@vellumai/electron-desktop/dictation-overlay-window";
+import {
+  authorizePairedGatewayForwardPlan,
+  executeGatewayForwardPlan,
+  planGatewayForward,
+  planPairedGatewayForward,
+  type GatewayForwardFetcher,
+} from "@vellumai/electron-desktop/gateway-forward";
+import { installPermissionHandler } from "@vellumai/electron-desktop/permissions";
+import {
+  executePlatformForwardPlan,
+  planPlatformForward,
+} from "@vellumai/electron-desktop/platform-forward";
 import { installPopoutWindows } from "@vellumai/electron-desktop/popout-window";
 import { installQuickInput } from "@vellumai/electron-desktop/quick-input-window";
+import { planAppProtocolAssetRequest } from "@vellumai/electron-utils/app-protocol";
 import {
   pairedGatewayTargetsFromLockfile,
   readAllowedGatewayPorts,
@@ -23,21 +36,8 @@ import { APP_HOST, APP_PROTOCOL, BUNDLES_DIR_NAME, VELLUMAPP_PROTOCOL } from "./
 import { resolveAllowedOrigin } from "./app-origin";
 import { writeCliLocator } from "./cli-installer";
 import { provisionCliForWrapper } from "./cli-path-installer";
-import { installCsp } from "./csp";
-import { getDeviceId } from "@vellumai/electron-desktop/device-id";
 import { handleSync } from "./ipc";
 import { registerVellumAppProtocol } from "./vellumapp-protocol";
-import {
-  authorizePairedGatewayForwardPlan,
-  executeGatewayForwardPlan,
-  planGatewayForward,
-  planPairedGatewayForward,
-  type GatewayForwardFetcher,
-} from "./gateway-forward";
-import {
-  fetchForwardPlanWithRetry,
-  planPlatformForward,
-} from "./platform-forward";
 import { installPairedGatewayRequestGuard } from "./paired-gateway-request-guard";
 import { hasPendingDeepLinks, installDeepLinks } from "./deep-links.client";
 import { handleBundleFile, installBundleFlow } from "./bundle-flow";
@@ -90,7 +90,6 @@ import { markRelocationSkipped } from "./install-location";
 import { installNativeAuth } from "./native-auth.client";
 import { installConnectivityProbe } from "./connectivity-probe";
 import { installNotifications } from "./notifications";
-import { installPermissionHandler } from "./permissions";
 import { installPermissionsService } from "./permissions-service";
 import { installPowerEvents } from "./power-events";
 import { installIdentityIpc } from "./identity";
@@ -286,33 +285,21 @@ const registerAppProtocol = (): void => {
     const platformProxied = await forwardPlatformRequest(request, platformUrl);
     if (platformProxied) return platformProxied;
 
-    const result = resolveAppProtocolPath(
+    const asset = await planAppProtocolAssetRequest({
       rendererRoot,
-      request.url,
-      RENDERER_MOUNT,
-    );
-    if (result.kind === "forbidden") {
+      indexHtml,
+      requestUrl: request.url,
+      mountPrefix: RENDERER_MOUNT,
+      allowedOrigin: { protocol: `${APP_PROTOCOL}:`, host: APP_HOST },
+    });
+    if (asset.kind === "forbidden") {
       return new Response("Forbidden", { status: 403 });
     }
-    const { resolved } = result;
-    if (await fileExists(resolved)) {
-      return net.fetch(pathToFileURL(resolved).toString());
-    }
-    const ext = path.extname(resolved);
-    if (ext === "" || ext === ".html") {
-      return net.fetch(pathToFileURL(indexHtml).toString());
+    if (asset.kind === "fetch") {
+      return net.fetch(pathToFileURL(asset.path).toString());
     }
     return new Response("Not Found", { status: 404 });
   });
-};
-
-const fileExists = async (candidate: string): Promise<boolean> => {
-  try {
-    const stat = await fs.stat(candidate);
-    return stat.isFile();
-  } catch {
-    return false;
-  }
 };
 
 const gatewayForwardFetcher: GatewayForwardFetcher = (url, init) =>
@@ -376,33 +363,19 @@ const forwardPlatformRequest = async (
   const plan = planPlatformForward(request, platformUrl, {
     allowedOrigin: resolveAllowedOrigin(),
   });
-  if (plan.kind === "pass") return null;
-  if (plan.kind === "reject") {
-    return new Response(plan.message, { status: plan.status });
-  }
-
+  const target = plan.kind === "forward" ? `${plan.method} ${plan.url}` : "";
   // Transient net-stack failures (e.g. ERR_NETWORK_CHANGED while Wi-Fi
   // reassociates after sleep) retry in-proxy for GET/HEAD; whatever still
   // fails becomes a structured 502 the renderer can classify, never a raw
   // `net::ERR_*` body (LUM-2402).
-  return fetchForwardPlanWithRetry(
+  return executePlatformForwardPlan(
     plan,
-    () =>
-      net.fetch(plan.url, {
-        method: plan.method,
-        headers: plan.headers,
-        body: plan.hasBody ? request.body : undefined,
-        ...(plan.hasBody ? { duplex: "half" } : {}),
-        redirect: "manual",
-        // Auth is header-based (X-Session-Token), not cookie-based.
-        // Omit credentials so stale session cookies in the main process's
-        // default session store never shadow the renderer's token header.
-        credentials: "omit",
-      }),
+    request,
+    (url, init) => net.fetch(url, init),
     {
       onError: (err, attempt) => {
         console.error(
-          `[platform-forward] net.fetch failed (attempt ${attempt + 1}) for ${plan.method} ${plan.url}:`,
+          `[platform-forward] net.fetch failed (attempt ${attempt + 1}) for ${target}:`,
           err,
         );
       },
@@ -447,7 +420,7 @@ app
     );
     installBundleFlow();
     onFileOpen(handleBundleFile);
-    installPermissionHandler();
+    installPermissionHandler(resolveAllowedOrigin);
     installCsp();
     installHotkeysIpc();
     installFeatureFlagsIpc();

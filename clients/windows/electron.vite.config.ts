@@ -15,6 +15,8 @@ import { defineConfig, externalizeDepsPlugin } from "electron-vite";
 // Inlining lets Rollup compile their source into the bundle.
 const DEPS_TO_INLINE = [
   "electron-log",
+  "electron-store",
+  "conf",
   "@vellumai/electron-utils",
   "@vellumai/electron-desktop",
   "@vellumai/ipc-contract",
