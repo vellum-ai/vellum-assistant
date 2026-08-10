@@ -1,4 +1,5 @@
 import { getModelsForProvider } from "@/assistant/llm-model-catalog";
+import { codexServableModels } from "@/domains/settings/ai/codex-subscription-models";
 import { VELLUM_CONNECTION_PROVIDER } from "@/domains/settings/ai/constants";
 import type {
   DefaultProviderStatus,
@@ -85,8 +86,14 @@ export function providerRowMeta(conn: ProviderConnection): string {
     return customProviderMeta(conn);
   }
   const parts: string[] = [];
-  const modelCount =
-    conn.models?.length ?? getModelsForProvider(conn.provider).length;
+  // A subscription connection hard-routes to the Codex endpoint, which
+  // serves only the Codex model set; counting the full catalog would
+  // advertise models the connection cannot dispatch.
+  const catalogModels =
+    conn.auth.type === "oauth_subscription"
+      ? codexServableModels(conn.provider)
+      : getModelsForProvider(conn.provider);
+  const modelCount = conn.models?.length ?? catalogModels.length;
   if (modelCount > 0) {
     parts.push(`${modelCount} ${modelCount === 1 ? "model" : "models"}`);
   }

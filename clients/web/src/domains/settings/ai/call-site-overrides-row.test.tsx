@@ -19,13 +19,15 @@ mock.module("@/hooks/use-platform-gate", () => ({
   useActiveAssistantIsSelfHosted: () => selfHosted,
 }));
 
-const { CallSiteOverrideRow } = await import(
-  "@/domains/settings/ai/call-site-overrides-row"
-);
+const { CallSiteOverrideRow } =
+  await import("@/domains/settings/ai/call-site-overrides-row");
 
 const drafts: unknown[] = [];
 
-function renderRow(draft: Record<string, unknown> | null) {
+function renderRow(
+  draft: Record<string, unknown> | null,
+  connections?: Record<string, unknown>[],
+) {
   return render(
     <CallSiteOverrideRow
       id="workflowLeaf"
@@ -33,6 +35,7 @@ function renderRow(draft: Record<string, unknown> | null) {
       defaultProfileLabel="Balanced"
       draft={draft as never}
       profileOptions={[{ value: "balanced", label: "Balanced" }] as never}
+      connections={connections as never}
       onDraftChange={(_id, next) => {
         drafts.push(next);
       }}
@@ -128,5 +131,66 @@ describe("CallSiteOverrideRow provider picker", () => {
 
     expect(optionLabels().some((l) => l.includes("(unavailable)"))).toBe(false);
     expect(optionLabels().some((l) => l.includes("Ollama"))).toBe(true);
+  });
+});
+
+/** The row renders three pickers in order: profile, provider, model. */
+function modelTrigger(): HTMLElement {
+  const triggers = document.querySelectorAll<HTMLElement>(
+    'button[role="combobox"]',
+  );
+  const el = triggers[2];
+  if (!el) {
+    throw new Error(
+      `expected a model trigger, saw ${triggers.length} comboboxes`,
+    );
+  }
+  return el;
+}
+
+const SUBSCRIPTION_CONNECTION = {
+  name: "chatgpt-subscription",
+  provider: "openai",
+  auth: { type: "oauth_subscription", credential: "credential/chatgpt" },
+};
+
+const API_KEY_CONNECTION = {
+  name: "openai-personal",
+  provider: "openai",
+  auth: { type: "api_key", credential: "credential/openai" },
+};
+
+describe("CallSiteOverrideRow model picker under a ChatGPT subscription", () => {
+  test("only Codex-servable models are offered when every openai connection is a subscription", () => {
+    renderRow({ provider: "openai", model: "gpt-5.6-luna" }, [
+      SUBSCRIPTION_CONNECTION,
+    ]);
+
+    fireEvent.click(modelTrigger());
+
+    const labels = optionLabels();
+    expect(labels.some((l) => l.includes("GPT-5.6 Luna"))).toBe(true);
+    // The Codex endpoint rejects gpt-5.4-nano; offering it saves a pin that
+    // fails on every request.
+    expect(labels.some((l) => l.includes("Nano"))).toBe(false);
+  });
+
+  test("an api-key connection restores the full catalog", () => {
+    renderRow({ provider: "openai", model: "gpt-5.6-luna" }, [
+      SUBSCRIPTION_CONNECTION,
+      API_KEY_CONNECTION,
+    ]);
+
+    fireEvent.click(modelTrigger());
+
+    expect(optionLabels().some((l) => l.includes("Nano"))).toBe(true);
+  });
+
+  test("absent connection data leaves the catalog unfiltered", () => {
+    renderRow({ provider: "openai", model: "gpt-5.6-luna" });
+
+    fireEvent.click(modelTrigger());
+
+    expect(optionLabels().some((l) => l.includes("Nano"))).toBe(true);
   });
 });

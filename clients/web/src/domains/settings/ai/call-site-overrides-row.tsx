@@ -6,7 +6,10 @@ import {
   getModelsForProvider,
   PROVIDER_DISPLAY_NAMES,
 } from "@/assistant/llm-model-catalog";
-import type { CallSiteOverrideDraft } from "@/generated/daemon/types.gen";
+import type {
+  CallSiteOverrideDraft,
+  ProviderConnection,
+} from "@/generated/daemon/types.gen";
 
 import {
   INFERENCE_PROVIDERS,
@@ -16,6 +19,10 @@ import {
   CUSTOM_SENTINEL,
   isDraftActive,
 } from "@/domains/settings/ai/call-site-helpers";
+import {
+  codexServableModels,
+  restrictsToSubscriptionModels,
+} from "@/domains/settings/ai/codex-subscription-models";
 import { useSelectableInferenceProviders } from "@/domains/settings/ai/provider-availability";
 
 // ---------------------------------------------------------------------------
@@ -34,6 +41,13 @@ export interface CallSiteOverrideRowProps {
   defaultProfileLabel: string | null;
   draft: CallSiteOverrideDraft | null;
   profileOptions: ProfileOption[];
+  /**
+   * All provider connections, used to limit the model picker to what the
+   * matching connections can dispatch (a ChatGPT subscription serves only
+   * the Codex model set). Absent when the caller has no connection data;
+   * the picker then offers the full catalog.
+   */
+  connections?: ProviderConnection[];
   onDraftChange: (id: string, draft: CallSiteOverrideDraft | null) => void;
   onToggle: (id: string, on: boolean) => void;
 }
@@ -49,6 +63,7 @@ export function CallSiteOverrideRow({
   defaultProfileLabel,
   draft,
   profileOptions,
+  connections,
   onDraftChange,
   onToggle,
 }: CallSiteOverrideRowProps) {
@@ -85,7 +100,20 @@ export function CallSiteOverrideRow({
     storedProvider !== undefined &&
     selectableInferenceProviders.some((p) => p === storedProvider);
   const currentProvider = storedProvider ?? defaultProvider;
-  const availableModels = getModelsForProvider(currentProvider);
+  // A call-site override pins no connection, so dispatch auto-resolves one.
+  // When every connection for the provider is a ChatGPT subscription, only
+  // Codex models can resolve; offering the rest would save a pin that fails
+  // on every request.
+  const connectionsForProvider = (connections ?? []).filter(
+    (c) => c.provider === currentProvider,
+  );
+  const availableModels = restrictsToSubscriptionModels(
+    currentProvider,
+    "",
+    connectionsForProvider,
+  )
+    ? codexServableModels(currentProvider)
+    : getModelsForProvider(currentProvider);
   const modelOptions = availableModels.map((m) => ({
     value: m.id,
     label: m.displayName,
