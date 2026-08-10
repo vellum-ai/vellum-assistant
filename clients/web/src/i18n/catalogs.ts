@@ -36,6 +36,8 @@
 import enAccount from "@/i18n/locales/en/account.json";
 import enChannels from "@/i18n/locales/en/channels.json";
 import enCredentialRequests from "@/i18n/locales/en/credential-requests.json";
+import enLibrary from "@/i18n/locales/en/library.json";
+import enLogs from "@/i18n/locales/en/logs.json";
 import enRemoteWeb from "@/i18n/locales/en/remote-web.json";
 import enTerminal from "@/i18n/locales/en/terminal.json";
 import enWorkspace from "@/i18n/locales/en/workspace.json";
@@ -73,6 +75,8 @@ export const FALLBACK_CATALOGS: LocaleCatalogs = {
   terminal: enTerminal,
   "remote-web": enRemoteWeb,
   "credential-requests": enCredentialRequests,
+  logs: enLogs,
+  library: enLibrary,
 };
 
 /** Loaders for the locales that are not bundled into the entry chunk. */
@@ -92,6 +96,8 @@ const CATALOG_LOADERS: Record<
     "remote-web": () => import("@/i18n/locales/es/remote-web.json"),
     "credential-requests": () =>
       import("@/i18n/locales/es/credential-requests.json"),
+    logs: () => import("@/i18n/locales/es/logs.json"),
+    library: () => import("@/i18n/locales/es/library.json"),
   },
 };
 

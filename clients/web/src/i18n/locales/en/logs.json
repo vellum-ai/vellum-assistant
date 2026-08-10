@@ -1,0 +1,39 @@
+{
+  "errorRetryRow": { "retrying": "Retrying…", "retry": "Retry" },
+  "emailsTab": {
+    "inbound": "Inbound",
+    "outbound": "Outbound",
+    "noSubject": "(no subject)",
+    "addressesLoadFailed": "Couldn't load email addresses.",
+    "noAddress": "No email address registered yet.",
+    "setUpLink": "Set one up in AI Settings, Email.",
+    "totals": "Totals",
+    "sentToday": "Sent today",
+    "dailyLimitSub": "of {limit, number} daily limit",
+    "receivedToday": "Received today",
+    "sentThisMonth": "Sent this month",
+    "receivedThisMonth": "Received this month",
+    "recentEmails": "Recent Emails",
+    "loading": "Loading…",
+    "emailsLoadFailed": "Couldn't load recent emails.",
+    "noEmails": "No emails yet."
+  },
+  "systemEventsTab": {
+    "longSleep": "Long sleep",
+    "hideDetails": "Hide details",
+    "showDetails": "Show details",
+    "intro": "Lifecycle events for your assistant from the last {days, plural, one {# day} other {# days}}, newest first.",
+    "loading": "Loading system events...",
+    "loadFailed": "Failed to load system events. Please refresh and try again.",
+    "empty": "No system events recorded in the last {days, plural, one {# day} other {# days}}.",
+    "loadingOlder": "Loading older events...",
+    "loadOlder": "Load older events"
+  },
+  "emailsPage": {
+    "platformLoginNotice": "Log in to the Vellum platform to view emails."
+  },
+  "systemEventsPage": {
+    "platformLoginNotice": "Log in to the Vellum platform to view system events.",
+    "notAvailable": "System events aren't available for the current assistant."
+  }
+}
