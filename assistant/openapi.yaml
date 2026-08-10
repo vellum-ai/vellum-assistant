@@ -6594,8 +6594,8 @@ paths:
           description:
             Filter to a single group, so each sidebar section can load independently of the paginated list. Pass
             "system:all" for conversations in no group, "system:pinned" for the Pinned section, or a custom group id. A
-            group-scoped request is ordered by the user's arrangement (display order, then recency) and never has pinned
-            rows appended to it. Omit to span every group.
+            group-scoped request is recency-ordered like every list read (COALESCE(last_message_at, updated_at)
+            descending) and never has pinned rows appended to it. Omit to span every group.
       responses:
         "200":
           description: Successful response
@@ -9382,6 +9382,107 @@ paths:
                 required:
                   - query
                   - results
+                additionalProperties: false
+  /v1/conversations/sections:
+    get:
+      operationId: conversations_sections_get
+      summary: Sidebar section index
+      description:
+        "One row per renderable sidebar section (Pinned, each non-empty custom group, each origin channel with
+        unassigned conversations, Chats) with total and unread counts and no conversation rows. Lets a client know which
+        sections exist, and what their badges say, without fetching any conversation list. Totals follow the standard
+        listing visibility; unread applies the same rules as GET /v1/conversations/unread-count scoped to the section.
+        Chats is always present, even at zero: it is the leftover bucket and renders regardless."
+      tags:
+        - conversations
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  sections:
+                    type: array
+                    items:
+                      oneOf:
+                        - type: object
+                          properties:
+                            kind:
+                              type: string
+                              const: pinned
+                            total:
+                              type: number
+                            unread:
+                              type: number
+                          required:
+                            - kind
+                            - total
+                            - unread
+                          additionalProperties: false
+                        - type: object
+                          properties:
+                            kind:
+                              type: string
+                              const: group
+                            groupId:
+                              type: string
+                            name:
+                              type: string
+                            icon:
+                              anyOf:
+                                - type: string
+                                - type: "null"
+                            sortPosition:
+                              type: number
+                            total:
+                              type: number
+                            unread:
+                              type: number
+                          required:
+                            - kind
+                            - groupId
+                            - name
+                            - icon
+                            - sortPosition
+                            - total
+                            - unread
+                          additionalProperties: false
+                        - type: object
+                          properties:
+                            kind:
+                              type: string
+                              const: channel
+                            channelId:
+                              type: string
+                            total:
+                              type: number
+                            unread:
+                              type: number
+                          required:
+                            - kind
+                            - channelId
+                            - total
+                            - unread
+                          additionalProperties: false
+                        - type: object
+                          properties:
+                            kind:
+                              type: string
+                              const: chats
+                            total:
+                              type: number
+                            unread:
+                              type: number
+                          required:
+                            - kind
+                            - total
+                            - unread
+                          additionalProperties: false
+                      type: object
+                required:
+                  - sections
                 additionalProperties: false
   /v1/conversations/seen:
     post:
