@@ -65,6 +65,10 @@ const fakeConnections = new Map<string, Connection>();
 mock.module("../inference/connections.js", () => ({
   getConnection: (_db: unknown, name: string) =>
     fakeConnections.get(name) ?? null,
+  listConnections: (_db: unknown, filter?: { provider?: string }) =>
+    Array.from(fakeConnections.values()).filter(
+      (c) => !filter?.provider || c.provider === filter.provider,
+    ),
 }));
 
 mock.module("../registry.js", () => ({
@@ -522,5 +526,181 @@ describe("routing identities", () => {
         "gpt-5.5",
       ),
     ).rejects.toMatchObject({ reason: "not_found" });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Entry-name providers — a profile provider naming a connection row directly.
+// Write surfaces reject these until the entries model enables them; dispatch
+// translates them so hand-edited configs (and the collapse migration later)
+// route through the named row.
+// ---------------------------------------------------------------------------
+
+describe("entry-name providers", () => {
+  beforeEach(() => {
+    resolveProviderCalls.length = 0;
+    resolveProviderOpts.length = 0;
+    fakeConnections.clear();
+    fakeProviders.clear();
+    setConfig("llm", {});
+  });
+
+  test("a profile naming an entry dispatches through that row", async () => {
+    registerConnection(
+      {
+        name: "anthropic-work",
+        provider: "anthropic",
+        auth: {
+          type: "api_key",
+          credential: "credential/anthropic-work/api_key",
+        },
+      },
+      { name: "anthropic", tag: "work-key" },
+    );
+    setLlmConfig({
+      profiles: {
+        work: { provider: "anthropic-work", model: "claude-opus-4-8" },
+      },
+    });
+
+    const result = await getConfiguredProvider("mainAgent", {
+      overrideProfile: "work",
+    });
+
+    expect(result).not.toBeNull();
+    expect(resolveProviderCalls.length).toBe(1);
+    expect(resolveProviderCalls[0]?.name).toBe("anthropic-work");
+    // The label is not a vendor: the row's own provider drives dispatch,
+    // so no override is threaded.
+    expect(resolveProviderOpts[0]?.providerOverride).toBeUndefined();
+  });
+
+  test("a vellum-kind entry derives its upstream from the model", async () => {
+    registerConnection(
+      { name: "work-managed", provider: "vellum", auth: { type: "platform" } },
+      { name: "anthropic", tag: "managed-stub" },
+    );
+    setLlmConfig({
+      profiles: {
+        managed: { provider: "work-managed", model: "claude-opus-4-8" },
+      },
+    });
+
+    const result = await getConfiguredProvider("mainAgent", {
+      overrideProfile: "managed",
+    });
+
+    expect(result).not.toBeNull();
+    expect(resolveProviderCalls[0]?.name).toBe("work-managed");
+    expect(resolveProviderOpts[0]?.providerOverride).toBe("anthropic");
+  });
+
+  test("an entry label alongside an explicit provider_connection still dispatches", async () => {
+    // The step-3 collapse migration rewrites provider to an entry name; a
+    // stale provider_connection left beside it must not fail the vendor
+    // equality against a label that is not a vendor.
+    registerConnection(
+      {
+        name: "anthropic-work",
+        provider: "anthropic",
+        auth: {
+          type: "api_key",
+          credential: "credential/anthropic-work/api_key",
+        },
+      },
+      { name: "anthropic", tag: "work-key" },
+    );
+    setLlmConfig({
+      profiles: {
+        work: {
+          provider: "anthropic-work",
+          provider_connection: "anthropic-work",
+          model: "claude-opus-4-8",
+        },
+      },
+    });
+
+    const result = await getConfiguredProvider("mainAgent", {
+      overrideProfile: "work",
+    });
+
+    expect(result).not.toBeNull();
+    expect(resolveProviderCalls[0]?.name).toBe("anthropic-work");
+    expect(resolveProviderOpts[0]?.providerOverride).toBeUndefined();
+  });
+
+  test("a label with a conflicting provider_connection is held to the label's kind", async () => {
+    // The label's row kind threads as the expected vendor, so a stale or
+    // conflicting connection cannot silently dispatch a different vendor:
+    // the equality mismatch auto-recovers to a row matching the kind.
+    registerConnection(
+      {
+        name: "anthropic-work",
+        provider: "anthropic",
+        auth: {
+          type: "api_key",
+          credential: "credential/anthropic-work/api_key",
+        },
+      },
+      { name: "anthropic", tag: "work-key" },
+    );
+    registerConnection(
+      { name: "ollama-local", provider: "ollama", auth: { type: "none" } },
+      { name: "ollama", tag: "local" },
+    );
+    setLlmConfig({
+      profiles: {
+        conflicted: {
+          provider: "anthropic-work",
+          provider_connection: "ollama-local",
+          model: "claude-opus-4-8",
+        },
+      },
+    });
+
+    const result = await getConfiguredProvider("mainAgent", {
+      overrideProfile: "conflicted",
+    });
+
+    expect(result).not.toBeNull();
+    expect(resolveProviderCalls[0]?.name).toBe("anthropic-work");
+  });
+
+  test("a profile naming no row is healed away at selection", async () => {
+    // Selection treats an unresolvable provider like an incomplete profile:
+    // the broken winner loses and the next rung's model AND transport apply
+    // together, restoring the pre-open-schema self-healing. The anchor is
+    // the managed default, so the heal lands on the vellum route.
+    registerConnection(
+      { name: "vellum", provider: "vellum", auth: { type: "platform" } },
+      { name: "anthropic", tag: "managed-anchor" },
+    );
+    setLlmConfig({
+      profiles: {
+        ghost: { provider: "no-such-entry", model: "claude-opus-4-8" },
+      },
+    });
+
+    const result = await getConfiguredProvider("mainAgent", {
+      overrideProfile: "ghost",
+    });
+
+    expect(result).not.toBeNull();
+    expect(resolveProviderCalls[0]?.name).toBe("vellum");
+  });
+
+  test("healing hands off to the anchor, whose own failures stay loud", async () => {
+    // With the broken profile healed away, resolution rests on the managed
+    // anchor; its canonical row missing is a boot-seeding violation and
+    // throws explainably rather than masquerading as the ghost profile.
+    setLlmConfig({
+      profiles: {
+        ghost: { provider: "no-such-entry", model: "claude-opus-4-8" },
+      },
+    });
+
+    await expect(
+      getConfiguredProvider("mainAgent", { overrideProfile: "ghost" }),
+    ).rejects.toMatchObject({ reason: "not_found", connectionName: "vellum" });
   });
 });

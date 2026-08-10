@@ -123,11 +123,14 @@ describe("LLMSchema", () => {
     expect(parsed.profileOrder).toEqual(["fast", "stale"]);
   });
 
-  test("invalid provider rejected", () => {
+  test("an unknown provider parses (read tolerance for entry names)", () => {
+    // The open provider schema keeps the profile; write-time membership is
+    // enforced at the profiles route and the config-write choke point, and
+    // dispatch resolves the value as a connection entry name.
     const result = LLMSchema.safeParse({
       profiles: { mine: { provider: "bogus-provider" } },
     });
-    expect(result.success).toBe(false);
+    expect(result.success).toBe(true);
   });
 
   test("invalid temperature (negative) rejected", () => {

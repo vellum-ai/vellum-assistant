@@ -150,6 +150,25 @@ describe("POST inference/profiles (create) validation", () => {
     ).rejects.toBeInstanceOf(BadRequestError);
   });
 
+  test("rejects an entry-name provider while entry writes are locked", async () => {
+    // Dispatch can translate a provider naming a connection row, but the
+    // write surface stays restricted to the known provider set until the
+    // entries model enables entry binding.
+    seedConnection("anthropic-work", "anthropic", {
+      type: "api_key",
+      credential: "credential/anthropic-work/api_key",
+    });
+    await expect(
+      call("inference_profiles_create", {
+        body: {
+          name: "work-profile",
+          provider: "anthropic-work",
+          model: "claude-opus-4-8",
+        },
+      }),
+    ).rejects.toBeInstanceOf(BadRequestError);
+  });
+
   test("creates a vellum profile for a managed-routable model", async () => {
     seedVellumConnection();
     const result = (await call("inference_profiles_create", {

@@ -11,7 +11,7 @@ import {
 import { create, themes } from "storybook/theming";
 import { addons } from "storybook/preview-api";
 import { GLOBALS_UPDATED } from "storybook/internal/core-events";
-import { MemoryRouter } from "react-router";
+import { MemoryRouter, Route, Routes } from "react-router";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import i18next from "i18next";
 import ICU from "i18next-icu";
@@ -130,13 +130,24 @@ export default definePreview({
       defaultTheme: "light",
       attributeName: "data-theme",
     }),
-    (Story) => (
-      <QueryClientProvider client={storybookQueryClient}>
-        <MemoryRouter>
-          <Story />
-        </MemoryRouter>
-      </QueryClientProvider>
-    ),
+    (Story, context) => {
+      const { initialEntries = ["/"], paths } = context.parameters.router ?? {};
+      return (
+        <QueryClientProvider client={storybookQueryClient}>
+          <MemoryRouter initialEntries={initialEntries}>
+            {paths == null ? (
+              <Story />
+            ) : (
+              <Routes>
+                {paths.map((path) => (
+                  <Route key={path} path={path} element={<Story />} />
+                ))}
+              </Routes>
+            )}
+          </MemoryRouter>
+        </QueryClientProvider>
+      );
+    },
   ],
   /**
    * Start every story at a desktop width.

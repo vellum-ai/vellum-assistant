@@ -192,12 +192,16 @@ function resolveSideColors(
 }
 
 /**
- * One personality avatar peeking in from a screen edge. It's anchored to the
- * true viewport edge via `calc(50% - 50vw)` — the overlay is full-width, so 50%
- * is screen-center and pulling back 50vw lands on the edge — and to `top` for
- * its scattered vertical slot. `progress` (0 at center → 1 at the far end)
- * drives how far it slides in, plus a little grow + fade so the entrance feels
- * alive. Never intercepts pointer events.
+ * One personality avatar peeking in from a stage edge, and `top` for its
+ * scattered vertical slot. `progress` (0 at center to 1 at the far end) drives
+ * how far it slides in, plus a little grow + fade so the entrance feels alive.
+ * Never intercepts pointer events.
+ *
+ * The inset is `0`, resolving against the overlay (`inset-0` on the stage), so
+ * the avatar rests on the edge of the box it lives in. Anchoring to the layout
+ * viewport instead would put it `(stageWidth - viewportWidth) / 2` outside the
+ * stage, where `overflow-hidden` clips it: on a notched device in landscape
+ * that is 46.5px of a 160px avatar. See the `LandscapeWithSideInsets` story.
  */
 function EdgePeekAvatar({
   components,
@@ -224,7 +228,7 @@ function EdgePeekAvatar({
       aria-hidden="true"
       className="pointer-events-none absolute"
       style={{
-        [side]: "calc(50% - 50vw)",
+        [side]: 0,
         top,
         width: size,
         height: size,

@@ -37,8 +37,13 @@ import {
   isConnectionCompatibleWithModel,
 } from "./connection-model-compat.js";
 import {
+  connectionProviderKind,
   ConnectionResolutionError,
+  dispatchProviderResolvable,
+  expectedVendorProvider,
   isManagedConnectionRoute,
+  resolveEntryConnectionName,
+  resolveEntryProviderKind,
   resolveRoutingIdentity,
   tryResolveProviderForConnectionName,
 } from "./connection-resolution.js";
@@ -112,7 +117,7 @@ export class CallSiteRoutingProvider implements Provider {
      */
     private readonly resolveByConnection: (
       connectionName: string,
-      expectedProvider: string,
+      expectedProvider: string | undefined,
       model: string | undefined,
     ) => Promise<Provider | null>,
     private readonly defaultRouteAttribution?: ProviderRouteAttribution,
@@ -203,9 +208,17 @@ export class CallSiteRoutingProvider implements Provider {
       forceOverrideProfile: options?.config?.forceOverrideProfile,
       selectionSeed: options?.config?.selectionSeed,
     });
+    // Capability follows the same row dispatch selects: an explicit
+    // provider_connection wins, then an entry-name label's row, then the
+    // resolved provider itself. Kept in this order so a label paired with a
+    // conflicting connection cannot enable a capability the dispatched
+    // transport lacks.
+    const routedKind = resolved.provider_connection
+      ? connectionProviderKind(resolved.provider_connection, resolved.model)
+      : resolveEntryProviderKind(resolved.provider, resolved.model);
     return shouldUseNativeWebSearch(
       getConfig(),
-      resolved.provider,
+      routedKind ?? resolved.provider,
       resolved.model,
     );
   }
@@ -256,6 +269,7 @@ export class CallSiteRoutingProvider implements Provider {
         overrideProfile,
         forceOverrideProfile,
         selectionSeed,
+        isResolvableProvider: dispatchProviderResolvable,
       },
     );
 
@@ -271,6 +285,16 @@ export class CallSiteRoutingProvider implements Provider {
         resolved.provider,
         resolved.model,
       )?.connectionName;
+    }
+
+    // An entry-name provider IS the connection name: the label points at a
+    // row, and the row's own provider drives dispatch, so no expected
+    // provider is threaded (the label is not a vendor).
+    const entryRoute = connectionName
+      ? null
+      : resolveEntryConnectionName(resolved.provider);
+    if (entryRoute) {
+      connectionName = entryRoute;
     }
 
     // When no connection is set, auto-resolve one for the resolved provider —
@@ -301,9 +325,12 @@ export class CallSiteRoutingProvider implements Provider {
     }
 
     if (connectionName) {
+      // The vendor guard covers both the entry route and a config carrying
+      // an entry label alongside an explicit provider_connection: a label
+      // that is not a vendor never threads into the row-equality check.
       const connectionProvider = await this.resolveByConnection(
         connectionName,
-        resolved.provider,
+        expectedVendorProvider(resolved.provider, resolved.model),
         resolved.model,
       );
       if (connectionProvider) {

@@ -17,6 +17,9 @@ import {
   isConnectionCompatibleWithModel,
 } from "./connection-model-compat.js";
 import {
+  dispatchProviderResolvable,
+  expectedVendorProvider,
+  resolveEntryConnectionName,
   resolveRoutingIdentity,
   tryResolveProviderForConnectionName,
 } from "./connection-resolution.js";
@@ -140,7 +143,10 @@ export async function resolveConfiguredProvider(
     }
   }
 
-  const resolved = resolveCallSiteConfig(callSite, config.llm, opts);
+  const resolved = resolveCallSiteConfig(callSite, config.llm, {
+    ...opts,
+    isResolvableProvider: dispatchProviderResolvable,
+  });
   const inferenceProvider = resolved.provider;
   let connectionName = resolved.provider_connection;
 
@@ -157,6 +163,14 @@ export async function resolveConfiguredProvider(
       inferenceProvider,
       resolved.model,
     )?.connectionName;
+  }
+  // An entry-name provider IS the connection name: the label points at a
+  // row, and the row's own provider drives dispatch.
+  const entryRoute = connectionName
+    ? null
+    : resolveEntryConnectionName(inferenceProvider);
+  if (entryRoute) {
+    connectionName = entryRoute;
   }
   if (!connectionName) {
     if (inferenceProvider) {
@@ -202,7 +216,7 @@ export async function resolveConfiguredProvider(
   const connectionProvider = await tryResolveProviderForConnectionName(
     connectionName,
     config,
-    inferenceProvider,
+    expectedVendorProvider(inferenceProvider, resolved.model),
     resolved.model,
   );
   if (!connectionProvider) {

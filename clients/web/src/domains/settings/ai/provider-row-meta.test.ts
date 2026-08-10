@@ -2,7 +2,10 @@ import { describe, expect, test } from "bun:test";
 
 import { getModelsForProvider } from "@/assistant/llm-model-catalog";
 import { CODEX_SUBSCRIPTION_MODEL_IDS } from "@/domains/settings/ai/codex-subscription-models";
-import { providerRowMeta } from "@/domains/settings/ai/provider-row-meta";
+import {
+  isDefaultProviderId,
+  providerRowMeta,
+} from "@/domains/settings/ai/provider-row-meta";
 import type { ProviderConnection } from "@/generated/daemon/types.gen";
 
 function connection(auth: ProviderConnection["auth"]): ProviderConnection {
@@ -12,6 +15,12 @@ function connection(auth: ProviderConnection["auth"]): ProviderConnection {
     auth,
   } as ProviderConnection;
 }
+
+describe("default-provider eligibility", () => {
+  test("the chatgpt identity row can be set as default", () => {
+    expect(isDefaultProviderId("chatgpt")).toBe(true);
+  });
+});
 
 describe("providerRowMeta model counts", () => {
   test("an api-key openai row counts the full catalog", () => {
