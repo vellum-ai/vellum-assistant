@@ -55,21 +55,7 @@ export function latestAssistantMessage(
   conversationId: string,
   opts?: { db?: MessageReadHandle },
 ): MessageRef | null {
-  const db = opts?.db ?? getDb();
-  const row = db
-    .select({ id: messages.id, createdAt: messages.createdAt })
-    .from(messages)
-    .where(
-      and(
-        eq(messages.conversationId, conversationId),
-        eq(messages.role, "assistant"),
-        eq(messages.finalized, 1),
-      ),
-    )
-    .orderBy(desc(messages.createdAt), desc(messages.id))
-    .limit(1)
-    .get();
-  return row ?? null;
+  return newestFinalizedAssistantRow(conversationId, opts?.db ?? getDb());
 }
 
 /**
@@ -82,7 +68,18 @@ export function latestAssistantMessageBefore(
   createdAt: number,
   opts?: { db?: MessageReadHandle },
 ): MessageRef | null {
-  const db = opts?.db ?? getDb();
+  return newestFinalizedAssistantRow(
+    conversationId,
+    opts?.db ?? getDb(),
+    createdAt,
+  );
+}
+
+function newestFinalizedAssistantRow(
+  conversationId: string,
+  db: MessageReadHandle,
+  strictlyBefore?: number,
+): MessageRef | null {
   const row = db
     .select({ id: messages.id, createdAt: messages.createdAt })
     .from(messages)
@@ -91,7 +88,9 @@ export function latestAssistantMessageBefore(
         eq(messages.conversationId, conversationId),
         eq(messages.role, "assistant"),
         eq(messages.finalized, 1),
-        lt(messages.createdAt, createdAt),
+        ...(strictlyBefore === undefined
+          ? []
+          : [lt(messages.createdAt, strictlyBefore)]),
       ),
     )
     .orderBy(desc(messages.createdAt), desc(messages.id))
