@@ -11,7 +11,7 @@
 
 import { Sparkles } from "lucide-react";
 
-import { Typography } from "@vellumai/design-library";
+import { Skeleton, Typography } from "@vellumai/design-library";
 
 import { CodeBlock, SectionLabel } from "@/components/detail-primitives";
 import { ChatMarkdownMessage } from "@/domains/chat/components/chat-markdown-message";
@@ -55,6 +55,46 @@ function SkillIdentity({
         >
           {status}
         </Typography>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Placeholder for the sections still in flight while `skill_load` runs: the
+ * tool manifest and the instruction body. Mirrors the real layout — bordered
+ * tool cards over staggered prose lines — so the panel doesn't reflow when the
+ * body lands.
+ *
+ * The skill identity row above is NOT skeletonised: the skill id comes from the
+ * call's own input, so it's known immediately and showing it beats a shimmer.
+ */
+function SkillLoadSkeleton() {
+  return (
+    <div
+      role="status"
+      aria-label="Loading skill"
+      className="flex flex-col gap-5"
+    >
+      <div>
+        <SectionLabel>Provides</SectionLabel>
+        <div className="flex flex-col gap-2">
+          {[0, 1].map((row) => (
+            <div
+              key={row}
+              className="rounded-lg border border-[var(--border-base)] bg-[var(--surface-overlay)] p-3"
+            >
+              <Skeleton className="h-3.5 w-32" />
+              <Skeleton className="mt-2 h-3 w-full" />
+              <Skeleton className="mt-1.5 h-3 w-2/3" />
+            </div>
+          ))}
+        </div>
+      </div>
+      <div className="flex flex-col gap-1.5">
+        <Skeleton className="h-3 w-full" />
+        <Skeleton className="h-3 w-11/12" />
+        <Skeleton className="h-3 w-4/5" />
       </div>
     </div>
   );
@@ -120,15 +160,7 @@ export function SkillLoadDetail({
         </DetailDisclosure>
       )}
 
-      {isRunning && !instructions && !errorMessage && (
-        <Typography
-          variant="body-small-default"
-          as="p"
-          className="text-[var(--content-tertiary)]"
-        >
-          Loading…
-        </Typography>
-      )}
+      {isRunning && !instructions && !errorMessage && <SkillLoadSkeleton />}
     </div>
   );
 }
