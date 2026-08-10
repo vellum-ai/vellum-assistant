@@ -141,6 +141,7 @@ import { repairSeedPinnedMemoryV3LiveMigration } from "./140-repair-seed-pinned-
 import { sttEnglishDefaultToMultilingualMigration } from "./141-stt-english-default-to-multilingual.js";
 import { consolidateVoiceFrontDoorMigration } from "./142-consolidate-voice-front-door.js";
 import { repairDeprecatedCodexModelIdMigration } from "./143-repair-deprecated-codex-model-id.js";
+import { convertStrandedSubscriptionOpenaiProfilesMigration } from "./144-convert-stranded-subscription-openai-profiles.js";
 import { migrateToWorkspaceVolumeMigration } from "./migrate-to-workspace-volume.js";
 import type { WorkspaceMigration } from "./types.js";
 
@@ -297,4 +298,5 @@ export const WORKSPACE_MIGRATIONS: WorkspaceMigration[] = [
   sttEnglishDefaultToMultilingualMigration,
   consolidateVoiceFrontDoorMigration,
   repairDeprecatedCodexModelIdMigration,
+  convertStrandedSubscriptionOpenaiProfilesMigration,
 ];
