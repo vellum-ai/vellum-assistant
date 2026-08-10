@@ -765,6 +765,33 @@ export async function listScheduledConversationsFirstPage(
   };
 }
 
+/**
+ * First page of {@link listSectionConversations} (one sidebar section).
+ *
+ * Server order is preserved rather than re-sorted, exactly as the full
+ * section fetcher preserves it: a section renders the server's order as-is
+ * (recency, LUM-3108), and a client-side sort here could disagree with it
+ * on ties.
+ */
+export async function listSectionConversationsFirstPage(
+  assistantId: string,
+  filter: SectionConversationFilter,
+): Promise<ConversationListPage> {
+  const page = await fetchConversationListPage(
+    assistantId,
+    0,
+    "first_page_refresh",
+    filter,
+  );
+  recordFirstPageFetch(
+    assistantId,
+    page,
+    drainListKind(filter),
+    "first_page_refresh",
+  );
+  return { conversations: page.conversations, hasMore: page.hasMore };
+}
+
 // ---------------------------------------------------------------------------
 // queryOptions factories
 //
