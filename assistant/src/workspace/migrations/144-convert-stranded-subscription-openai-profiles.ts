@@ -102,9 +102,14 @@ export const convertStrandedSubscriptionOpenaiProfilesMigration: WorkspaceMigrat
       if (
         defaultProvider !== null &&
         defaultProvider.provider === "openai" &&
-        !("connectionName" in defaultProvider)
+        !isConnectionPin(defaultProvider.connectionName)
       ) {
         defaultProvider.provider = "chatgpt";
+        // An invalid connectionName leaf (null, empty) would fail
+        // DefaultProviderSchema at load, whose catch drops the whole value.
+        if ("connectionName" in defaultProvider) {
+          delete defaultProvider.connectionName;
+        }
         changed = true;
         log.info("Converted stranded openai default provider");
       }
@@ -214,17 +219,35 @@ function isSubscriptionOnlyWorkspace(workspaceDir: string): boolean {
   }
 }
 
+/**
+ * Only a non-empty string names a pinned connection. The config loader
+ * strips `null`, empty, or non-string values as invalid leaves, so runtime
+ * treats fragments carrying them as unpinned; the conversion must judge
+ * them the same way or those fragments stay stranded.
+ */
+function isConnectionPin(value: unknown): boolean {
+  return typeof value === "string" && value.length > 0;
+}
+
 function convertFragment(fragment: Record<string, unknown> | null): boolean {
   if (fragment === null) {
     return false;
   }
-  if (fragment.provider !== "openai" || "provider_connection" in fragment) {
+  if (
+    fragment.provider !== "openai" ||
+    isConnectionPin(fragment.provider_connection)
+  ) {
     return false;
   }
   if (fragment.source === "managed") {
     return false;
   }
   fragment.provider = "chatgpt";
+  // An invalid pin leaf (null, empty) rode along as unpinned; the chatgpt
+  // identity carries no connection reference, so drop it outright.
+  if ("provider_connection" in fragment) {
+    delete fragment.provider_connection;
+  }
   if (
     typeof fragment.model !== "string" ||
     !CODEX_SUBSCRIPTION_MODEL_IDS.has(fragment.model)

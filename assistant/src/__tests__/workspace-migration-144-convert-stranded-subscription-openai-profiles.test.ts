@@ -160,6 +160,36 @@ describe("144-convert-stranded-subscription-openai-profiles migration", () => {
     },
   );
 
+  test("an invalid pin leaf counts as unpinned and is dropped on conversion", () => {
+    writeConfig({
+      llm: {
+        defaultProvider: { provider: "openai", connectionName: null },
+        profiles: {
+          nullPin: {
+            provider: "openai",
+            model: "gpt-5.5",
+            provider_connection: null,
+          },
+          emptyPin: {
+            provider: "openai",
+            model: "gpt-5.5",
+            provider_connection: "",
+          },
+        },
+      },
+    });
+    seedConnections([SUBSCRIPTION_POST_366]);
+
+    convertStrandedSubscriptionOpenaiProfilesMigration.run(workspaceDir);
+
+    const llm = readConfig().llm as Record<string, any>;
+    expect(llm.profiles.nullPin.provider).toBe("chatgpt");
+    expect("provider_connection" in llm.profiles.nullPin).toBe(false);
+    expect(llm.profiles.emptyPin.provider).toBe("chatgpt");
+    expect("provider_connection" in llm.profiles.emptyPin).toBe(false);
+    expect(llm.defaultProvider).toEqual({ provider: "chatgpt" });
+  });
+
   test("a pinned defaultProvider connectionName stays untouched", () => {
     writeConfig({
       llm: {
