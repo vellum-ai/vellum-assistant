@@ -11,6 +11,7 @@ import {
   organizationsBillingSummaryRetrieveOptions,
   organizationsBillingSummaryRetrieveQueryKey,
 } from "@/generated/api/@tanstack/react-query.gen";
+import { useResumeDailyLimit } from "@/hooks/use-daily-limit-skip";
 import { useScrollToAnchor } from "@/hooks/use-scroll-to-anchor";
 import { dailyResetTimePhrase } from "@/utils/daily-reset-time";
 import { Button } from "@vellumai/design-library/components/button";
@@ -80,6 +81,7 @@ export function DailyCreditLimitCard() {
   const updateMutation = useMutation(
     organizationsBillingDailyCreditLimitUpdateMutation(),
   );
+  const resumeMutation = useResumeDailyLimit();
 
   // Deep links (`#daily-credit-limit`) land here once both queries have
   // settled, so the content above the anchor has taken its final height
@@ -127,6 +129,11 @@ export function DailyCreditLimitCard() {
   const summary = summaryQuery.data;
   const dailySpend = summary?.daily_spend_usd ?? config.current_day_spent_usd;
   const limitReached = summary?.daily_limit_reached === true;
+  // Prefer this endpoint's own view of the skip: saving a limit writes it back
+  // here synchronously, while the summary only catches up on its invalidation.
+  const limitSkipped =
+    config.daily_limit_snoozed === true ||
+    summary?.daily_limit_snoozed === true;
   const resetPhrase = dailyResetTimePhrase();
 
   // The backend requires a daily limit while automatic top-ups are on, so the
@@ -202,8 +209,9 @@ export function DailyCreditLimitCard() {
 
   // A rejected clear comes back as a DRF field error explaining the auto
   // top-up dependency; show it verbatim instead of the generic copy.
-  const serverLimitError =
-    extractDrfFieldErrors(updateMutation.error).daily_credit_limit_usd;
+  const serverLimitError = extractDrfFieldErrors(
+    updateMutation.error,
+  ).daily_credit_limit_usd;
   const saveError =
     serverLimitError ??
     (updateMutation.isError
@@ -283,11 +291,29 @@ export function DailyCreditLimitCard() {
               </p>
             )}
 
+            {limitSkipped && (
+              <Notice tone="info" data-testid="daily-credit-limit-skipped">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <span>
+                    Skipped for today — this limit resumes at {resetPhrase}.
+                  </span>
+                  <Button
+                    variant="outlined"
+                    size="compact"
+                    onClick={() => resumeMutation.mutate({})}
+                    disabled={resumeMutation.isPending}
+                    data-testid="daily-credit-limit-resume-button"
+                  >
+                    Resume now
+                  </Button>
+                </div>
+              </Notice>
+            )}
+
             {limitReached && (
               <Notice tone="warning" data-testid="daily-credit-limit-reached">
                 Today&apos;s Vellum credit spend has reached this limit.
-                Generation resumes at {resetPhrase} or when you raise the
-                limit.
+                Generation resumes at {resetPhrase} or when you raise the limit.
               </Notice>
             )}
           </>
