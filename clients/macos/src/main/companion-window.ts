@@ -14,7 +14,10 @@ import {
 } from "@vellumai/ipc-contract";
 
 import { getAvatarPng, getCharacter, onAvatarChange } from "./avatar";
-import { createFloatingWindow, getFloatingWindow } from "./floating-window";
+import {
+  createFloatingWindow,
+  getFloatingWindow,
+} from "@vellumai/electron-desktop/floating-window";
 import { handle, on } from "./ipc";
 import {
   current as currentMainWindow,
