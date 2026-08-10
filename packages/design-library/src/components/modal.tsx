@@ -204,14 +204,18 @@ function Header({
       {...props}
     >
       {Icon ? (
-        <span
-          aria-hidden="true"
-          className="flex h-11 w-11 shrink-0 items-center justify-center rounded-md bg-[var(--surface-base)]"
-        >
-          <Icon className="h-5 w-5 text-[var(--primary-base)]" />
-        </span>
-      ) : null}
-      <div className="flex min-w-0 flex-1 flex-col">{children}</div>
+        <>
+          <span
+            aria-hidden="true"
+            className="flex h-11 w-11 shrink-0 items-center justify-center rounded-md bg-[var(--surface-base)]"
+          >
+            <Icon className="h-5 w-5 text-[var(--primary-base)]" />
+          </span>
+          <div className="flex min-w-0 flex-1 flex-col">{children}</div>
+        </>
+      ) : (
+        children
+      )}
     </div>
   );
 }
