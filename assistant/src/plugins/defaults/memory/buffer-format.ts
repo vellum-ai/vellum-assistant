@@ -90,17 +90,40 @@ export function formatBufferTimestamp(now: Date): string {
 }
 
 /**
+ * Indent applied to a fact's continuation lines. Two spaces is the markdown
+ * convention for content nested under a `- ` bullet, so an entry stays
+ * readable as a list item.
+ */
+const CONTINUATION_INDENT = "  ";
+
+/**
  * Build a timestamped bullet entry for `buffer.md` / `archive/<date>.md`.
  *
  * Format mirrors the long-standing v1 PKB layout so buffers stay
  * human-readable and downstream consumers (sweep, consolidation, the graph
  * view) can parse the same shape regardless of which path produced the entry.
  *
+ * A fact's body is indented, which is what makes the format round-trip. The
+ * buffer is line-delimited and the delimiter is "canonical entry shape at
+ * column 0", so a body line carrying that exact shape would otherwise be
+ * indistinguishable from the start of the next fact and split one entry into
+ * two. Indenting moves every body line off column 0, so no fact content can
+ * imitate a delimiter no matter what the user dictated. Blank lines stay
+ * genuinely blank rather than becoming whitespace.
+ *
+ * Readers strip the indent: {@link matchBufferEntryStart} classifies on the
+ * raw line while `parseBufferEntries` trims continuation lines, so the fact
+ * text a caller gets back is unchanged by this.
+ *
  * Exported so memory sweep / extractor jobs format their auto-remembered
  * entries identically to user-facing `remember()` calls.
  */
 export function formatRememberEntry(content: string, now: Date): string {
-  return `- [${formatBufferTimestamp(now)}] ${content}\n`;
+  const [opening = "", ...body] = content.split("\n");
+  const nested = body.map((line) =>
+    line.trim().length === 0 ? "" : `${CONTINUATION_INDENT}${line}`,
+  );
+  return `- [${formatBufferTimestamp(now)}] ${[opening, ...nested].join("\n")}\n`;
 }
 
 /**
