@@ -16,14 +16,22 @@ export type GroupIndicatorState = "attention" | "processing" | "unread" | null;
  * Derive the highest-priority indicator state for a group of conversations.
  *
  * Priority: attention > processing > unread > null.
+ *
+ * `indexUnread` is the section's unread count per the daemon's section
+ * index. When defined it decides the unread bit outright, in both
+ * directions: the index counts the whole section while `conversations` is
+ * only what the client has loaded, so a scan can miss unread rows beyond
+ * the loaded window and can keep counting a row the server already settled.
+ * Attention and processing are client-only state and always scan.
  */
 export function getGroupIndicatorState(
   conversations: Conversation[],
   processingConversationIds: Set<string> | undefined,
   attentionConversationIds: Set<string> | undefined,
+  indexUnread?: number,
 ): GroupIndicatorState {
   let hasProcessing = false;
-  let hasUnread = false;
+  let hasUnread = indexUnread !== undefined && indexUnread > 0;
 
   for (const c of conversations) {
     if (attentionConversationIds?.has(c.conversationId)) {
@@ -32,7 +40,11 @@ export function getGroupIndicatorState(
     if (!hasProcessing && processingConversationIds?.has(c.conversationId)) {
       hasProcessing = true;
     }
-    if (!hasUnread && c.hasUnseenLatestAssistantMessage) {
+    if (
+      indexUnread === undefined &&
+      !hasUnread &&
+      c.hasUnseenLatestAssistantMessage
+    ) {
       hasUnread = true;
     }
   }

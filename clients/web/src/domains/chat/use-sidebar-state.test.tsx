@@ -665,3 +665,68 @@ describe("useSidebarState with the section index", () => {
     expect(sectionFor(result.current.sections, "recents")).toBeDefined();
   });
 });
+
+describe("useSidebarState index unread threading", () => {
+  test("sections carry the index's unread counts", () => {
+    sidebarSectionsImpl = [
+      { kind: "pinned", total: 3, unread: 2 },
+      { kind: "chats", total: 5, unread: 1 },
+    ];
+
+    const { result } = renderHook(() =>
+      useSidebarState({ assistantId: "asst-1", conversations: [] }),
+    );
+
+    expect(sectionFor(result.current.sections, "pinned")).toMatchObject({
+      unread: 2,
+    });
+  });
+
+  test("the flat view's Chats sums the native and channel buckets", () => {
+    // The index buckets are disjoint, so the flat view's Chats holds all of
+    // them; the derived rows cannot answer this once the list is windowed.
+    sidebarSectionsImpl = [
+      { kind: "chats", total: 2, unread: 1 },
+      { kind: "channel", channelId: "slack", total: 4, unread: 2 },
+    ];
+
+    const { result } = renderHook(() =>
+      useSidebarState({ assistantId: "asst-1", conversations: [] }),
+    );
+
+    expect(sectionFor(result.current.sections, "recents")).toMatchObject({
+      unread: 3,
+    });
+  });
+
+  test("the grouped view's Chats counts the native bucket alone", () => {
+    seedGroupedView();
+    sidebarSectionsImpl = [
+      { kind: "chats", total: 2, unread: 1 },
+      { kind: "channel", channelId: "slack", total: 4, unread: 2 },
+    ];
+
+    const { result } = renderHook(() =>
+      useSidebarState({ assistantId: "asst-1", conversations: [] }),
+    );
+
+    expect(sectionFor(result.current.sections, "recents")).toMatchObject({
+      unread: 1,
+    });
+    expect(sectionFor(result.current.sections, "channel:slack")).toMatchObject({
+      unread: 2,
+    });
+  });
+
+  test("the derived path leaves unread undefined", () => {
+    // No index means no whole-section truth; the indicator scans rows.
+    const { result } = renderHook(() =>
+      useSidebarState({ assistantId: "asst-1", conversations: [] }),
+    );
+
+    expect(sectionFor(result.current.sections, "recents")).not.toHaveProperty(
+      "unread",
+      expect.anything(),
+    );
+  });
+});

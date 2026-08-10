@@ -106,6 +106,14 @@ interface SidebarSectionBase {
   label: string;
   /** Every conversation in the section. */
   all: Conversation[];
+  /**
+   * Unread members per the daemon's section index, when the index is
+   * driving discovery. `undefined` on the derived path, where the unread
+   * bit is scanned from the rows instead. The collapsed indicator prefers
+   * this over the scan: the index counts the whole section, while the rows
+   * here are only what the client has loaded.
+   */
+  unread?: number;
 }
 
 /**
@@ -319,12 +327,14 @@ export function useSidebarState({
       const rowsByChannelId = new Map(
         grouped.channelSections.map((s) => [s.channelId, s.conversations]),
       );
-      if (indexSections.some((s) => s.kind === "pinned")) {
+      const pinnedRow = indexSections.find((s) => s.kind === "pinned");
+      if (pinnedRow) {
         list.push({
           type: "pinned",
           key: "pinned",
           label: "Pinned",
           all: grouped.pinned,
+          unread: pinnedRow.unread,
         });
       }
       const groupRows = indexSections
@@ -336,6 +346,7 @@ export function useSidebarState({
           key: row.groupId,
           label: row.name,
           all: bucketByGroupId.get(row.groupId)?.conversations ?? [],
+          unread: row.unread,
           group: {
             id: row.groupId,
             name: row.name,
@@ -345,17 +356,26 @@ export function useSidebarState({
           },
         });
       }
+      /* The index buckets are disjoint, so the flat view's Chats is the
+         native bucket plus every channel bucket, and the grouped view's is
+         the native bucket alone. */
+      const channelRows = indexSections
+        .filter((s) => s.kind === "channel")
+        .sort((a, b) => a.channelId.localeCompare(b.channelId));
+      const chatsUnread =
+        (indexSections.find((s) => s.kind === "chats")?.unread ?? 0) +
+        (viewMode !== "grouped"
+          ? channelRows.reduce((sum, row) => sum + row.unread, 0)
+          : 0);
       list.push({
         type: "recents",
         key: "recents",
         label: RECENTS_SECTION_LABEL,
         all: grouped.recents,
         holdsChannels: viewMode !== "grouped",
+        unread: chatsUnread,
       });
       if (viewMode === "grouped") {
-        const channelRows = indexSections
-          .filter((s) => s.kind === "channel")
-          .sort((a, b) => a.channelId.localeCompare(b.channelId));
         for (const row of channelRows) {
           list.push({
             type: "channel",
@@ -363,6 +383,7 @@ export function useSidebarState({
             label: getChannelLabel(row.channelId),
             all: rowsByChannelId.get(row.channelId) ?? [],
             channelId: row.channelId,
+            unread: row.unread,
           });
         }
       }
