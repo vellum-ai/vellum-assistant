@@ -184,6 +184,33 @@ mental model: `Platform.select` when only small parts differ, `.ios.tsx` / `.and
 the implementation genuinely diverges. Two files means two things to keep in sync, so this needs a
 reason a variant cannot cover.
 
+### How to tell you picked the wrong rung
+
+The ladder says pick the cheapest rung that expresses the difference, which leaves open how you find
+out you went too cheap. Two signals, both of which show up while you are writing the fix rather than
+in review:
+
+- **You had to add bookkeeping to make it work.** If landing the change means introducing a second
+  copy of something (a listener, a measurement, a piece of derived state) in order for the rung you
+  chose to behave, the difference is wider than that rung can express. Treat it as a stop, not as a
+  caveat for the PR description. A splitter cleanup in the design library learned this the expensive
+  way: extracting the shared *handle* left the sizing logic in four places, and publishing an honest
+  `aria-valuemax` from the extracted piece then required a `ResizeObserver` added to two separate
+  files, because the thing that knew the container was still four separate things. The added
+  duplication was the structure objecting to the seam, and it was written up as a footnote and
+  shipped as a draft PR before anyone read it as the signal it was
+  ([LUM-3200](https://linear.app/vellum/issue/LUM-3200)).
+- **You are wiring N call sites to a new part, rather than replacing N copies with one whole.** The
+  visible, repeated element is the easiest thing to extract and usually the least valuable.
+  Rung 3 says callers describe *intent*; if after the change each caller still assembles the
+  behaviour from pieces you handed it, you built a better piece and left the rung where it was.
+
+Neither signal is about the platform axes. They apply to any shared-behaviour extraction, which is
+why the same pair is recorded in the refactoring rubric
+([LUM-3175](https://linear.app/vellum/issue/LUM-3175)); they are repeated here because rung 3 is the
+one this codebase is in open violation of, and a partial extraction there looks like progress while
+leaving the drift in place.
+
 ---
 
 ## Navigation depth and back affordances
