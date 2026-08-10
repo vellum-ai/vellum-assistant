@@ -245,6 +245,23 @@ interface ActionMenuItemProps {
   className?: string;
 }
 
+/**
+ * Classes that paint a destructive row, per presentation. One place, because a
+ * tone that reads as dangerous in one surface and ordinary in the other is the
+ * drift this component exists to prevent, and because each surface hands its
+ * glyph the row's colour rather than a second colour of its own: a highlighted
+ * or pressed row moves label and icon together.
+ */
+export const actionMenuDestructiveClasses: Record<
+  ActionMenuPresentation,
+  string
+> = {
+  anchored:
+    "text-[var(--system-negative-strong)] data-[highlighted]:text-[var(--system-negative-hover)] [&_[data-slot=menu-item-icon]]:text-inherit",
+  sheet:
+    "text-[var(--system-negative-strong)] [--panel-item-icon-fg:var(--system-negative-strong)]",
+};
+
 function Item({
   icon: Icon,
   label,
@@ -279,8 +296,7 @@ function Item({
         aria-label={typeof label === "string" ? label : undefined}
         disabled={disabled}
         className={cn(
-          isDestructive &&
-            "text-[var(--system-negative-strong)] [&_svg]:text-[var(--system-negative-strong)]",
+          isDestructive && actionMenuDestructiveClasses.sheet,
           className,
         )}
         onSelect={() => {
@@ -293,22 +309,12 @@ function Item({
 
   return (
     <Menu.Item
-      leftIcon={
-        Icon ? (
-          <Icon
-            size={14}
-            className={
-              isDestructive ? "text-[var(--system-negative-strong)]" : undefined
-            }
-          />
-        ) : undefined
-      }
+      leftIcon={Icon ? <Icon size={14} /> : undefined}
       shortcut={shortcut}
       disabled={disabled}
       className={cn(
         "whitespace-nowrap",
-        isDestructive &&
-          "text-[var(--system-negative-strong)] data-[highlighted]:text-[var(--system-negative-hover)]",
+        isDestructive && actionMenuDestructiveClasses.anchored,
         className,
       )}
       onSelect={() => {
