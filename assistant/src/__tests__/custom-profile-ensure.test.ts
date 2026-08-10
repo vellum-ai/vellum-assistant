@@ -53,10 +53,12 @@ describe("ensureCompleteCustomProfiles", () => {
     ensureCompleteCustomProfiles(workspaceDir);
     const saved = readProfiles().partial;
     expect(saved.model).toBe("claude-haiku-4-5-20251001");
-    // The default's binding is inherited IN the provider value (entries
-    // representation), never as a stamped binding field.
-    expect(saved.provider).toBe("anthropic-personal");
-    expect(saved.provider_connection).toBeUndefined();
+    // This workspace has no connection rows, so the binding is unverifiable
+    // and passes through in the legacy field for the collapse migration to
+    // judge; with a verified row it would fold into the provider value (see
+    // profile-materialization.test.ts).
+    expect(saved.provider).toBe("anthropic");
+    expect(saved.provider_connection).toBe("anthropic-personal");
     expect(saved.maxTokens).toBe(12345);
     expect(saved.temperature).toBe(0.7);
     expect(saved.logitBias).toBeUndefined();
@@ -166,7 +168,7 @@ describe("ensureCompleteCustomProfiles", () => {
     });
     ensureCompleteCustomProfiles(workspaceDir);
     expect(readProfiles().partial.futureField).toBe("keep-me");
-    expect(readProfiles().partial.provider).toBe("anthropic-personal");
+    expect(readProfiles().partial.provider).toBe("anthropic");
   });
 
   test("does not bake null default sampling; preserves explicit profile null", () => {

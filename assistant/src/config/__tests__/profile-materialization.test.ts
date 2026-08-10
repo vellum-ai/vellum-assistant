@@ -197,7 +197,7 @@ describe("completeCustomProfile", () => {
     }
   });
 
-  test("a managed default binding passes through when the identity cannot serve the model", () => {
+  test("a managed default binding is not inherited when the identity cannot serve the model", () => {
     const managedDefault = LLMConfigBase.parse({
       ...fullDefault,
       provider_connection: VELLUM_MANAGED_CONNECTION_NAME,
@@ -205,8 +205,10 @@ describe("completeCustomProfile", () => {
     const completed = completeCustomProfile(managedDefault, {
       model: "totally-custom-model",
     });
+    // Dispatch auto-resolves by vendor instead of pinning an unservable
+    // managed route.
     expect(completed.provider).toBe("anthropic");
-    expect(completed.provider_connection).toBe(VELLUM_MANAGED_CONNECTION_NAME);
+    expect(completed.provider_connection).toBeUndefined();
   });
 
   test("passes mix profiles through untouched", () => {

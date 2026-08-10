@@ -116,17 +116,15 @@ export function completeCustomProfile(
     dflt.provider_connection !== undefined
   ) {
     if (dflt.provider_connection === VELLUM_MANAGED_CONNECTION_NAME) {
+      // Only managed-servable pairs inherit the managed binding; anything
+      // else inherits nothing and lets dispatch auto-resolve by vendor,
+      // matching the pre-entries inheritance contract.
       if (
         MANAGED_ROUTABLE_PROVIDERS.has(completed.provider) &&
         completed.model !== undefined &&
         getManagedUpstream(completed.model) !== null
       ) {
         completed.provider = "vellum";
-      } else {
-        // The identity cannot serve this pair; keep the legacy binding so
-        // dispatch keeps its managed routing and the collapse migration's
-        // recovery still sees it.
-        completed.provider_connection = dflt.provider_connection;
       }
     } else if (completed.provider === dflt.provider) {
       // Folding to the entry name is only safe against a verified row; a
