@@ -11,10 +11,10 @@ import { Glob } from "bun";
  * completeness, and each read encodes a visibility decision (completed
  * history vs. any row). `persistence/` owns that contract: named accessors in
  * `message-reads.ts` and the history readers in `conversation-crud.ts` state
- * their decision in their name; everything else should go through them. The
- * fork-corruption and phantom-turn incidents both came from direct readers
- * that silently re-decided visibility, so new direct reads are a reviewed
- * exception, not a default.
+ * their decision in their name; everything else should go through them. A
+ * direct reader that re-decides visibility on its own is how the contract
+ * fails silently, so a new direct read is a reviewed exception, not a
+ * default.
  *
  * The BASELINE lists every file outside `persistence/` that reads the table
  * directly today. Each entry has been audited and carries its visibility
@@ -23,10 +23,10 @@ import { Glob } from "bun";
  * and baseline it with a site comment explaining the decision in your PR),
  * and when a baseline entry goes stale (remove it, so coverage cannot rot).
  *
- * Detection is deliberately shape-based (`.from(messages)` for drizzle,
- * `FROM messages` for raw SQL): this is a ratchet against sprawl, not a
- * proof, and matching the two read shapes keeps it free of false positives
- * from unrelated identifiers.
+ * Detection is deliberately shape-based (from/join of `messages` in drizzle
+ * builders, `FROM messages` / `JOIN messages` in raw SQL): this is a ratchet
+ * against sprawl, not a proof, and matching the read shapes keeps it free of
+ * false positives from unrelated identifiers.
  *
  * Regenerate after an intentional change with:
  *   UPDATE_MESSAGES_READ_BASELINE=1 bun test src/__tests__/messages-read-boundary-guard.test.ts
@@ -71,8 +71,9 @@ const BASELINE: Readonly<Record<string, number>> = {
   "src/workspace/migrations/rebuild-conversation-disk-view.ts": 1,
 };
 
-const DRIZZLE_READ = /\.from\(\s*messages\s*\)/g;
-const RAW_SQL_READ = /FROM\s+messages\b/g;
+const DRIZZLE_READ =
+  /\.(?:from|innerJoin|leftJoin|rightJoin|fullJoin)\(\s*messages\s*[,)]/g;
+const RAW_SQL_READ = /(?:FROM|JOIN)\s+messages\b/g;
 
 function isExempt(relPath: string): boolean {
   const parts = relPath.split(sep);
