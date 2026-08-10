@@ -59,7 +59,7 @@ export const SkillUpdated: Story = {
     entityLinks: [
       {
         kind: "skill",
-        label: "View skill",
+        labelKey: "actions.viewSkill",
         icon: Brain,
         to: routes.skills.detail("weekly-report-export"),
       },
@@ -156,7 +156,7 @@ export const FromSchedule: Story = {
     entityLinks: [
       {
         kind: "schedule",
-        label: "View schedule",
+        labelKey: "actions.viewSchedule",
         icon: Calendar,
         to: routes.schedules.detail("weekly-report"),
       },

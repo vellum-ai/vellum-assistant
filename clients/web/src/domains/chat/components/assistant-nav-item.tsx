@@ -45,19 +45,12 @@ import {
 import {
   SIDEBAR_CHIP_GAP,
   SIDEBAR_CHIP_SIZE as CHIP_SIZE,
-  SIDEBAR_PILL_HEIGHT_CLASS,
 } from "@/components/sidebar-nav-geometry";
 import { useAssistantAvatar } from "@/hooks/use-assistant-avatar";
 import { useInChatOnboardingStore } from "@/stores/in-chat-onboarding-store";
 import { eyeStyleBaseWidth } from "@/utils/assistant-eyes";
 import { contrastForeground } from "@/utils/avatar-tone";
 import { pathBBox, unionBBox } from "@/utils/eye-bbox";
-
-/**
- * One constant for both branches below, because an assistant with no character
- * avatar is still the assistant: colour is the only thing that differs.
- */
-const IDENTITY_PILL_CLASSES = SIDEBAR_PILL_HEIGHT_CLASS;
 
 /** How far the collapsed rail's tile grows the eyes on a pulse. */
 const PULSE_SCALE = 1.35;
@@ -262,7 +255,6 @@ export function AssistantNavItem({
   ) : (
     <PanelItem
       shape="pill"
-      className={SIDEBAR_PILL_HEIGHT_CLASS}
       icon={Plus}
       label="New Chat"
       onSelect={onNewConversation}
@@ -365,7 +357,6 @@ export function AssistantNavItem({
              difference between them. */
           <PanelItem
             shape="pill"
-            className={IDENTITY_PILL_CLASSES}
             icon={Brain}
             leadingSlot={avatarImage ?? undefined}
             label={label}
@@ -503,7 +494,6 @@ export function AssistantNavItem({
     <span style={tintStyle}>
       <PanelItem
         shape="pill"
-        className={IDENTITY_PILL_CLASSES}
         leadingSlot={eyesSlot}
         label={label}
         active={active}

@@ -15,7 +15,7 @@
  * Decorative: `aria-hidden`, `pointer-events-none`, reduced-motion safe.
  */
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo } from "react";
 import { useReducedMotion } from "motion/react";
 
 import { AnimatedAvatar } from "@/components/avatar/animated-avatar";
@@ -28,28 +28,15 @@ import {
   SLOT_ROTATIONS,
 } from "@/domains/onboarding/components/onboarding-character-stage";
 import { useOnboardingAvatarPoolStore } from "@/domains/onboarding/onboarding-avatar-pool-store";
+import { useLayoutViewportSize } from "@/hooks/use-element-size";
 import { useBundledAvatarComponents } from "@/utils/use-bundled-avatar-components";
-
-function useViewport() {
-  const [size, setSize] = useState(() => ({
-    w: typeof window === "undefined" ? 1280 : window.innerWidth,
-    h: typeof window === "undefined" ? 800 : window.innerHeight,
-  }));
-  useEffect(() => {
-    const onResize = () =>
-      setSize({ w: window.innerWidth, h: window.innerHeight });
-    window.addEventListener("resize", onResize);
-    return () => window.removeEventListener("resize", onResize);
-  }, []);
-  return size;
-}
 
 export function OnboardingEdgeCharacters() {
   const components = useBundledAvatarComponents();
   const characters = useOnboardingAvatarPoolStore.use.characters();
   const ensureGenerated = useOnboardingAvatarPoolStore.use.ensureGenerated();
   const reduce = useReducedMotion();
-  const { w, h } = useViewport();
+  const { w, h } = useLayoutViewportSize();
 
   useEffect(() => {
     if (components) {

@@ -18,9 +18,10 @@
  * A route may also declare that its replies carry messages
  * (`IngressRouteSchema.inbound`), which is how a plugin channel receives
  * anything at all. The plugin parses its vendor's delivery and answers with
- * the result; the gateway reads that answer and runs it through the same
- * `handleInbound` every built-in channel uses. See `plugin-inbound.ts` for
- * what of the reply the gateway believes.
+ * the result; the gateway reads that answer, claims it against redelivery,
+ * and runs it through the same `handleInbound` every built-in channel uses.
+ * See `plugin-inbound.ts` for what of the reply the gateway believes, and
+ * `db/inbound-dedup-store.ts` for the claim.
  */
 
 import {
@@ -42,6 +43,11 @@ import { mintServiceToken } from "../../auth/token-exchange.js";
 import type { GatewayConfig } from "../../config.js";
 import type { CredentialCache } from "../../credential-cache.js";
 import { credentialKey } from "../../credential-key.js";
+import {
+  commitInboundEvent,
+  releaseInboundEvent,
+  reserveInboundEvent,
+} from "../../db/inbound-dedup-store.js";
 import {
   resolveCredentialWithRefresh,
   verifySecretWithRefresh,
@@ -346,6 +352,12 @@ export function createPluginWebhookHandler(deps: PluginWebhookHandlerDeps) {
  * the delivery. This is what `processInboundResult` does for the built-in
  * channels; the shape differs only because the plugin's reply, not the
  * vendor's request, is what carries the message here.
+ *
+ * Which makes the dedup claim part of the same decision. Asking for a retry
+ * and keeping the claim that would answer it as a duplicate is how a message
+ * is lost while both sides look correct, so every path that answers 503
+ * releases first, and the claim is only widened to the full dedup window once
+ * the message has actually landed. See `reserveInboundEvent`.
  */
 async function deliverPluginInbound(opts: {
   config: GatewayConfig;
@@ -404,6 +416,35 @@ async function deliverPluginInbound(opts: {
     return ack;
   }
 
+  // Claimed before the handoff, not after it. The assistant dedups on this
+  // same triple in `recordInbound`, but that is on the far side of the
+  // crossing, so without this a vendor's retry still costs a forward and
+  // relies on everything upstream of that record being idempotent. See
+  // `reserveInboundEvent`.
+  //
+  // As early as it can currently be: the message only exists once the plugin
+  // has parsed the delivery, so a redelivery still reaches the plugin, which
+  // must keep its own parse free of side effects. That ends when the gateway
+  // parses the vendor payload itself and the claim can precede the forward.
+  const dedupKey = {
+    sourceChannel: reading.event.sourceChannel,
+    externalChatId: reading.event.message.conversationExternalId,
+    externalMessageId: reading.event.message.externalMessageId,
+  };
+  if (!reserveInboundEvent(dedupKey)) {
+    // Acknowledged, because the delivery did land: the first copy is already
+    // through. Anything else asks the vendor to keep sending it.
+    log.info(
+      {
+        plugin,
+        path: routePath,
+        externalMessageId: dedupKey.externalMessageId,
+      },
+      "Duplicate plugin inbound delivery, acknowledged without forwarding",
+    );
+    return ack;
+  }
+
   let result: InboundResult;
   try {
     result = await handleInboundImpl(config, reading.event, {
@@ -420,6 +461,11 @@ async function deliverPluginInbound(opts: {
       { err, plugin, path: routePath },
       "Plugin inbound message could not be handled",
     );
+    // Answering 503 asks for the delivery again, so the claim has to go with
+    // it. Keeping it would have the retry we just asked for answered as a
+    // duplicate, which is how a message disappears while both sides report
+    // having done the right thing.
+    releaseInboundEvent(dedupKey);
     return retryLater();
   }
 
@@ -447,8 +493,15 @@ async function deliverPluginInbound(opts: {
       { plugin, path: routePath },
       "Plugin inbound message was not forwarded to the runtime",
     );
+    releaseInboundEvent(dedupKey);
     return retryLater();
   }
+
+  // The delivery landed, so the claim stops being a lease and becomes the
+  // dedup window proper. Until this runs the claim is short-lived on purpose:
+  // a gateway that died mid-handoff must not leave a row that answers every
+  // retry as already-delivered.
+  commitInboundEvent(dedupKey);
 
   return ack;
 }

@@ -1,6 +1,13 @@
 import { createHmac } from "node:crypto";
 
-import { describe, expect, it } from "bun:test";
+import {
+  afterAll,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+} from "bun:test";
 
 import "../../__tests__/test-preload.js";
 import { initSigningKey } from "../../auth/token-service.js";
@@ -9,6 +16,16 @@ import type { GatewayInboundEvent } from "../../channels/inbound-event.js";
 import type { PluginIngressResolution } from "../../channels/plugin-ingress-approvals.js";
 import type { IngressRoute } from "../../channels/plugin-ingress.js";
 import type { GatewayConfig } from "../../config.js";
+import {
+  getGatewayDb,
+  initGatewayDb,
+  resetGatewayDb,
+} from "../../db/connection.js";
+import {
+  readInboundEventClaim,
+  INBOUND_CLAIM_LEASE_MS,
+} from "../../db/inbound-dedup-store.js";
+import { inboundSeenEvents } from "../../db/schema.js";
 import type { HandleInboundOptions } from "../../handlers/handle-inbound.js";
 import { createPluginWebhookHandler } from "./plugin-webhook.js";
 
@@ -16,6 +33,25 @@ import { createPluginWebhookHandler } from "./plugin-webhook.js";
 // the key beats mocking token-exchange, which is process-wide in bun and
 // would leak into every other suite in the run.
 initSigningKey(Buffer.from("test-signing-key-at-least-32-bytes-long"));
+
+// Inbound delivery claims each message against redelivery, and that claim is
+// a real row. Standing up the gateway DB beats stubbing the store: the thing
+// under test here is that a second copy of a message does not become a second
+// turn, and a stub would be asserting on the stub.
+beforeAll(async () => {
+  resetGatewayDb();
+  await initGatewayDb();
+});
+
+afterAll(() => {
+  resetGatewayDb();
+});
+
+// Claims outlive a test by design, so the tests below would otherwise dedup
+// against each other rather than against a redelivery.
+beforeEach(() => {
+  getGatewayDb().delete(inboundSeenEvents).run();
+});
 
 const CONFIG = {
   assistantRuntimeBaseUrl: "http://runtime.test:7821",
@@ -1214,5 +1250,223 @@ describe("inbound delivery", () => {
 
     expect(res.status).toBe(409);
     expect(handled).toHaveLength(0);
+  });
+});
+
+describe("inbound dedup", () => {
+  const INBOUND_ROUTE: IngressRoute = {
+    ...ROUTE,
+    path: "events",
+    inbound: IngressInboundSchema.parse({ identity: "phone" }),
+  };
+
+  const MESSAGE = {
+    message: {
+      content: "hello",
+      conversationExternalId: "chat-1",
+      externalMessageId: "msg-1",
+    },
+    actor: { actorExternalId: "(202) 555-0142" },
+  };
+
+  /** What MESSAGE is claimed under, once the plugin scoping is applied. */
+  const DEDUP_KEY = {
+    sourceChannel: "plugin",
+    externalChatId: "meeting-bot:chat-1",
+    externalMessageId: "meeting-bot:msg-1",
+  };
+
+  /**
+   * A handler over a fixed plugin reply, recording what reached the pipeline.
+   *
+   * `handleInboundImpl` is a parameter rather than fixed because what the
+   * pipeline did is exactly what decides whether the claim is kept: a message
+   * it handled stays claimed, a message it could not take is released so the
+   * vendor's retry is not answered as a duplicate.
+   */
+  function handlerFor(
+    handleInboundImpl: NonNullable<
+      Parameters<typeof createPluginWebhookHandler>[0]["handleInboundImpl"]
+    >,
+    reply: unknown = MESSAGE,
+  ) {
+    return createPluginWebhookHandler({
+      config: CONFIG,
+      credentials: CREDENTIALS,
+      resolve: () => approvedWith([INBOUND_ROUTE]),
+      fetchImpl: async () => new Response(JSON.stringify(reply)),
+      handleInboundImpl,
+    });
+  }
+
+  function deliver(handle: ReturnType<typeof createPluginWebhookHandler>) {
+    return handle(
+      post("/webhooks/plugins/meeting-bot/events"),
+      "meeting-bot",
+      "events",
+    );
+  }
+
+  function accepting() {
+    const handled: GatewayInboundEvent[] = [];
+    return {
+      handled,
+      impl: async (_c: GatewayConfig, event: GatewayInboundEvent) => {
+        handled.push(event);
+        return { forwarded: true, rejected: false };
+      },
+    };
+  }
+
+  it("runs a redelivered message once, and acknowledges the second copy", async () => {
+    // Every vendor retries: on a timeout, on a 5xx, on an ack it did not see.
+    // The assistant deduped this already, but on the far side of the handoff,
+    // so without the claim a retry still costs a crossing and lands wherever
+    // the pipeline happens to be idempotent.
+    const { handled, impl } = accepting();
+    const handle = handlerFor(impl);
+
+    const first = await deliver(handle);
+    const second = await deliver(handle);
+
+    expect(handled).toHaveLength(1);
+    expect(first.status).toBe(200);
+    // 200, not an error: the delivery did land, and anything else asks the
+    // vendor to keep sending it.
+    expect(second.status).toBe(200);
+  });
+
+  it("does not treat the next message in a conversation as a retry", async () => {
+    const { handled, impl } = accepting();
+
+    await deliver(handlerFor(impl));
+    await deliver(
+      handlerFor(impl, {
+        ...MESSAGE,
+        message: { ...MESSAGE.message, externalMessageId: "msg-2" },
+      }),
+    );
+
+    expect(handled).toHaveLength(2);
+  });
+
+  it("lets the retry through after the pipeline threw", async () => {
+    // The 503 asked for this delivery again. Keeping the claim would answer
+    // the retry we requested as a duplicate, which is how a message is lost
+    // while both sides report having done the right thing.
+    const failing = await deliver(
+      handlerFor(async () => {
+        throw new Error("runtime is down");
+      }),
+    );
+    expect(failing.status).toBe(503);
+
+    const { handled, impl } = accepting();
+    const retried = await deliver(handlerFor(impl));
+
+    expect(retried.status).toBe(200);
+    expect(handled).toHaveLength(1);
+  });
+
+  it("lets the retry through after the forward quietly failed", async () => {
+    // `handleInbound` reports an unreachable runtime as `forwarded: false`
+    // rather than by throwing, so the quiet path needs the same release.
+    const failing = await deliver(
+      handlerFor(async () => ({ forwarded: false, rejected: false })),
+    );
+    expect(failing.status).toBe(503);
+
+    const { handled, impl } = accepting();
+    await deliver(handlerFor(impl));
+
+    expect(handled).toHaveLength(1);
+  });
+
+  it("holds the claim on a message the pipeline decided against", async () => {
+    // A rejection is a decision the pipeline already made. Re-running it on
+    // every vendor retry would re-run its side effects too, and the denial
+    // reply is one of them.
+    let calls = 0;
+    const handle = handlerFor(async () => {
+      calls += 1;
+      return {
+        forwarded: false,
+        rejected: true,
+        rejectionReason: "admission_no_one",
+      };
+    });
+
+    await deliver(handle);
+    const second = await deliver(handle);
+
+    expect(calls).toBe(1);
+    expect(second.status).toBe(200);
+  });
+
+  it("claims nothing for a reply that carried no message", async () => {
+    // A receipt or an echo is not a delivery to dedup, and claiming one would
+    // put a row in the table for every event a plugin ever declines.
+    const { handled, impl } = accepting();
+    await deliver(handlerFor(impl, { ok: true, ignored: "an echo" }));
+
+    expect(handled).toHaveLength(0);
+    expect(getGatewayDb().select().from(inboundSeenEvents).all()).toHaveLength(
+      0,
+    );
+  });
+
+  it("claims under the plugin-scoped id, not the vendor's", async () => {
+    // One channel id covers every installed plugin, so two vendors both
+    // numbering messages from 1 would otherwise be each other's duplicates.
+    const { impl } = accepting();
+    await deliver(handlerFor(impl));
+
+    expect(getGatewayDb().select().from(inboundSeenEvents).all()).toEqual([
+      expect.objectContaining({
+        sourceChannel: "plugin",
+        externalChatId: "meeting-bot:chat-1",
+        externalMessageId: "meeting-bot:msg-1",
+      }),
+    ] as never);
+  });
+
+  it("commits the claim once the message reached the runtime", async () => {
+    // Committing is what turns the in-flight lease into the dedup window. A
+    // delivery that landed and stayed `pending` would start admitting retries
+    // again the moment its lease lapsed.
+    const { impl } = accepting();
+    await deliver(handlerFor(impl));
+
+    expect(readInboundEventClaim(DEDUP_KEY)?.state).toBe("committed");
+  });
+
+  it("leaves a delivery reclaimable when the gateway dies mid-handoff", async () => {
+    // The failure nothing can roll back: a deploy, an OOM, a host crash
+    // between claiming the delivery and handing it over. Nothing runs, so
+    // nothing releases, and the row survives the restart. If it were the full
+    // window it would answer every retry as already-delivered for a day,
+    // outliving the vendor's retry schedule and losing the message for good.
+    // The lease is what makes that recoverable, so the claim must be short and
+    // uncommitted while the handoff is in flight.
+    // Freeze the handoff at the point the gateway would have died: entered,
+    // never returning. Waiting on `entered` rather than a tick keeps this
+    // deterministic, since the claim is taken just before the pipeline runs.
+    let enter!: () => void;
+    const entered = new Promise<void>((resolve) => {
+      enter = resolve;
+    });
+    void deliver(
+      handlerFor(() => {
+        enter();
+        return new Promise<never>(() => {});
+      }),
+    );
+    await entered;
+
+    const claim = readInboundEventClaim(DEDUP_KEY);
+    expect(claim?.state).toBe("pending");
+    expect(claim!.expiresAt - claim!.seenAt).toBeLessThanOrEqual(
+      INBOUND_CLAIM_LEASE_MS,
+    );
   });
 });

@@ -22,7 +22,7 @@
  * phones) so the Continue button always sits above the eyes.
  */
 
-import { Fragment, useEffect, useMemo, useState } from "react";
+import { Fragment, useMemo } from "react";
 import { ArrowRight } from "lucide-react";
 import * as SliderPrimitive from "@radix-ui/react-slider";
 
@@ -31,6 +31,7 @@ import { OnboardingTopBar } from "@/domains/onboarding/components/onboarding-top
 import { useOnboardingStageSize } from "@/domains/onboarding/hooks/use-onboarding-stage-size";
 import { useOnboardingAvatarPoolStore } from "@/domains/onboarding/onboarding-avatar-pool-store";
 import { useOnboardingTone } from "@/domains/onboarding/onboarding-tone";
+import { useLayoutViewportSize } from "@/hooks/use-element-size";
 import {
   preloadBundledAvatarComponents,
   useBundledAvatarComponents,
@@ -188,19 +189,6 @@ function resolveSideColors(
     resolved.push(alt);
   }
   return resolved;
-}
-
-/** Track a live viewport width so the peeking avatars scale with the screen. */
-function useViewportWidth(): number {
-  const [width, setWidth] = useState(() =>
-    typeof window === "undefined" ? 1280 : window.innerWidth,
-  );
-  useEffect(() => {
-    const onResize = () => setWidth(window.innerWidth);
-    window.addEventListener("resize", onResize);
-    return () => window.removeEventListener("resize", onResize);
-  }, []);
-  return width;
 }
 
 /**
@@ -389,7 +377,7 @@ export function CreatePersonalityStep({
 }: CreatePersonalityStepProps) {
   const tone = useOnboardingTone();
   const components = useBundledAvatarComponents();
-  const viewportWidth = useViewportWidth();
+  const { w: viewportWidth } = useLayoutViewportSize();
   const { w: stageW, h: stageH } = useOnboardingStageSize();
   // Keep the Continue button clear of the backdrop eyes: reserve their visible
   // height (plus a little breathing room) at the bottom of the content column.

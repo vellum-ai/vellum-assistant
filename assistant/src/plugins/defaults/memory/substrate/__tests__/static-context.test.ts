@@ -245,6 +245,74 @@ describe("readMemoryV2StaticContent Buffer cap", () => {
     expect(text).not.toContain("the straddling fact");
   });
 
+  test("keeps the newest entry attributable when its body alone exceeds the cap", () => {
+    // The newest entry has no successor to fall back to: counting back 10
+    // non-empty lines lands inside its body and there is no later timestamped
+    // entry to open on. Dropping it would leave the section with no facts at
+    // all, so the entry's opening line is kept and its head elided.
+    writeMemoryFile(
+      "buffer.md",
+      [
+        ...Array.from(
+          { length: 20 },
+          (_, i) => `- [Jan 1, 9:00 AM] entry-${i}`,
+        ),
+        "- [Jan 2, 9:00 AM] the oversized fact",
+        ...Array.from({ length: 14 }, (_, i) => `  body line ${i}`),
+      ].join("\n"),
+    );
+
+    const text = readMemoryV2StaticContent()!;
+    const body = text
+      .slice(text.indexOf("full backlog.)\n") + "full backlog.)\n".length)
+      .split("\n")
+      .filter((line) => line.trim().length > 0);
+
+    // Opens on the entry's own timestamped line, never on an orphan body line.
+    expect(body[0]).toBe("- [Jan 2, 9:00 AM] the oversized fact");
+    expect(body[1]).toBe(
+      "(This entry's body was trimmed. Read memory/buffer.md for the rest of it.)",
+    );
+    // The retained tail is the newest end of the body, not its head.
+    expect(body.at(-1)).toBe("  body line 13");
+    expect(body).toContain("  body line 4");
+    expect(body).not.toContain("  body line 3");
+    // Bounded at the cap plus exactly the opening line and the marker, so the
+    // oversized entry cannot reintroduce an unbounded injection.
+    expect(body).toHaveLength(12);
+    // The older entries are still dropped.
+    expect(text).not.toContain("entry-19");
+  });
+
+  test("does not claim a trim when the newest entry's body exactly fills the cap", () => {
+    // The cut lands on the line right after the opening, so nothing of the
+    // entry was elided and the marker would be a lie.
+    writeMemoryFile(
+      "buffer.md",
+      [
+        ...Array.from(
+          { length: 20 },
+          (_, i) => `- [Jan 1, 9:00 AM] entry-${i}`,
+        ),
+        "- [Jan 2, 9:00 AM] the exact-fit fact",
+        ...Array.from({ length: 10 }, (_, i) => `  body line ${i}`),
+      ].join("\n"),
+    );
+
+    const text = readMemoryV2StaticContent()!;
+    const body = text
+      .slice(text.indexOf("full backlog.)\n") + "full backlog.)\n".length)
+      .split("\n")
+      .filter((line) => line.trim().length > 0);
+
+    expect(body[0]).toBe("- [Jan 2, 9:00 AM] the exact-fit fact");
+    expect(text).not.toContain("This entry's body was trimmed");
+    // The entry survives whole: opening line plus its full 10-line body.
+    expect(body).toHaveLength(11);
+    expect(body.at(-1)).toBe("  body line 9");
+    expect(body).toContain("  body line 0");
+  });
+
   test("keeps a multiline entry intact when it sits fully inside the cap", () => {
     const multiline = [
       "- [Jan 1, 9:00 AM] a fact with a body",

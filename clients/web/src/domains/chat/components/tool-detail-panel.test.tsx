@@ -136,7 +136,7 @@ describe("ToolDetailPanel", () => {
     expect(queryByText("Technical details")).toBeNull();
   });
 
-  test("renders the Risk Level section with the risk badge but not the raw reason", () => {
+  test("renders the Risk Level notice with the tolerance hint but not the raw reason", () => {
     const { getByTestId, getByText, queryByText } = render(
       <ToolDetailPanel
         detail={makeDetail({ riskReason: "File edit (default)" })}
@@ -145,12 +145,12 @@ describe("ToolDetailPanel", () => {
     );
 
     expect(getByText("Risk Level")).toBeDefined();
-    expect(getByTestId("risk-badge").getAttribute("data-risk-level")).toBe(
+    expect(getByTestId("risk-notice").getAttribute("data-risk-level")).toBe(
       "low",
     );
-    // The tolerance description renders under the chip.
+    // Level and tolerance read as one sentence inside the notice.
     expect(
-      getByText("Auto-approved at Conservative tolerance or higher"),
+      getByText("Low → Auto-approved at Conservative tolerance or higher"),
     ).toBeDefined();
     // The classifier's rule-match string is internal jargon — never shown.
     expect(queryByText("File edit (default)")).toBeNull();
@@ -167,7 +167,7 @@ describe("ToolDetailPanel", () => {
     );
 
     expect(queryByText("Risk Level")).toBeNull();
-    expect(queryByTestId("risk-badge")).toBeNull();
+    expect(queryByTestId("risk-notice")).toBeNull();
   });
 
   test("does not render a Create Trust Rule button even when the call resolves live", () => {

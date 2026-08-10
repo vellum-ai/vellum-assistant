@@ -163,6 +163,22 @@ describe("PanelItem shape", () => {
     );
   });
 
+  /* A pill stands taller than a row, and it takes that height from the panel
+     it is mounted in rather than from a caller: `SideMenu` publishes
+     `--side-menu-tile-size` and draws its collapsed tiles at it, so a pill and
+     the circle it collapses into cannot end up at two heights. Asserted with
+     the row's height absent, since the pill's has to *replace* it: emitting
+     both leaves the winner to stylesheet order.
+
+     `max-md:h-auto` survives, and has to: on a touch-sized viewport a pill
+     grows to its own padding like every other row. */
+  test("pill takes its height from the panel, replacing the row's", () => {
+    const html = renderShaped("pill");
+    expect(html).toContain("h-[var(--side-menu-tile-size,36px)]");
+    expect(html).toContain("max-md:h-auto");
+    expect(html).not.toContain("h-8");
+  });
+
   /* Consumers override the shape's surface, so their className has to win
      over PILL_SHAPE_CLASSES. */
   test("a consumer className overrides the pill surface", () => {

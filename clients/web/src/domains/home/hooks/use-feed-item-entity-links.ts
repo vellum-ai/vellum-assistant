@@ -20,6 +20,7 @@
  * rendering a link to a tombstone.
  */
 import { useQuery } from "@tanstack/react-query";
+import type { ParseKeys } from "i18next";
 import type { LucideIcon } from "lucide-react";
 import { Brain, Calendar } from "lucide-react";
 import { useMemo } from "react";
@@ -35,7 +36,17 @@ import { getFeedItemScheduleId, getFeedItemSkillId } from "../utils";
 export interface FeedItemEntityLink {
   /** Entity kind. Stable across renders, so it doubles as the React key. */
   kind: "schedule" | "skill";
-  label: string;
+  /**
+   * Key into the `home` namespace, not the copy itself. This module is not a
+   * component, so it cannot hold a `useTranslation` binding; resolving the key
+   * at the render site is also what keeps a label live across a language
+   * change rather than freezing whatever was current when the link resolved.
+   *
+   * Typed as `ParseKeys<"home">` rather than `string` so the catalog stays the
+   * authority: a key with no entry in `locales/en/home.json` fails to compile
+   * here instead of rendering the raw key at the user.
+   */
+  labelKey: ParseKeys<"home">;
   icon: LucideIcon;
   /** App path to navigate to. Built here so callers stay route-agnostic. */
   to: string;
@@ -58,21 +69,21 @@ export interface FeedItemEntityLinks {
 const ENTITY_LINKS = [
   {
     kind: "schedule",
-    label: "View schedule",
+    labelKey: "actions.viewSchedule",
     icon: Calendar,
     readId: getFeedItemScheduleId,
     toDetail: (id: string) => routes.schedules.detail(id),
   },
   {
     kind: "skill",
-    label: "View skill",
+    labelKey: "actions.viewSkill",
     icon: Brain,
     readId: getFeedItemSkillId,
     toDetail: (id: string) => routes.skills.detail(id),
   },
 ] as const satisfies ReadonlyArray<{
   kind: FeedItemEntityLink["kind"];
-  label: string;
+  labelKey: FeedItemEntityLink["labelKey"];
   icon: LucideIcon;
   readId: (item: FeedItem | null) => string | null;
   toDetail: (id: string) => string;
@@ -149,7 +160,7 @@ export function useFeedItemEntityLinks(
       }
       links.push({
         kind: entity.kind,
-        label: entity.label,
+        labelKey: entity.labelKey,
         icon: entity.icon,
         to: entity.toDetail(id),
       });

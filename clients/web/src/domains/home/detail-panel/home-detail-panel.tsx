@@ -1,5 +1,6 @@
 import { ArrowLeft, Mail, MailOpen, RotateCcw, Trash2, X } from "lucide-react";
 
+import { useTranslation } from "@/i18n";
 import { formatFullLocalDate, formatRelativeDate } from "@/utils/format-date";
 import type { FeedItem, FeedItemStatus } from "@vellumai/assistant-api";
 import { Button, Tag, Typography } from "@vellumai/design-library";
@@ -7,19 +8,6 @@ import { resolveCategoryStyle } from "../home-feed-filter-bar";
 import type { FeedItemEntityLink } from "../hooks/use-feed-item-entity-links";
 import { HomeGenericDetail } from "./home-generic-detail";
 import { HomeToolPermissionCard } from "./home-tool-permission-card";
-
-// The header shows the item's own title when it has one. Many feed items omit
-// a distinct title — for those, falling back to `summary` (which is also the
-// body) duplicates the same text, so we surface the category label instead.
-function resolveHeaderTitle(item: FeedItem): string {
-  if (item.title) {
-    return item.title;
-  }
-  if (item.category) {
-    return item.category.charAt(0).toUpperCase() + item.category.slice(1);
-  }
-  return "Notification";
-}
 
 export interface HomeDetailPanelProps {
   item: FeedItem | null;
@@ -50,15 +38,27 @@ export function HomeDetailPanel({
   entityLinks,
   onNavigate,
 }: HomeDetailPanelProps) {
+  const { t } = useTranslation("home");
+
   if (!item) {
     return null;
   }
 
   const panelKind = item.detailPanel?.kind;
-  const headerTitle = resolveHeaderTitle(item);
   const categoryStyle = resolveCategoryStyle(item.category);
+  // The header shows the item's own title when it has one. Many feed items
+  // omit a distinct title, and falling back to `summary` (which is also the
+  // body) duplicates the same text, so the category label stands in instead.
+  const headerTitle = item.title
+    ? item.title
+    : item.category
+      ? t(categoryStyle.labelKey)
+      : t("homeDetailPanel.untitled");
   const CategoryIcon = categoryStyle.icon;
   const isUnread = item.status === "new";
+  const readToggleLabel = isUnread
+    ? t("actions.markAsRead")
+    : t("actions.markAsUnread");
   const isDismissed = item.status === "dismissed";
   const hasValidConversation =
     !!item.conversationId && validConversationIds.has(item.conversationId);
@@ -73,15 +73,15 @@ export function HomeDetailPanel({
             variant="ghost"
             iconOnly={<ArrowLeft />}
             onClick={onClose}
-            aria-label="Back"
-            tooltip="Back"
+            aria-label={t("homeDetailPanel.back")}
+            tooltip={t("homeDetailPanel.back")}
           />
 
           <Typography
             variant="body-medium-default"
             className="pointer-events-none absolute inset-x-0 text-center text-[var(--content-secondary)]"
           >
-            Details
+            {t("homeDetailPanel.heading")}
           </Typography>
 
           <div className="ml-auto flex items-center gap-2">
@@ -89,24 +89,24 @@ export function HomeDetailPanel({
               variant="ghost"
               iconOnly={isUnread ? <MailOpen /> : <Mail />}
               onClick={() => onUpdateStatus(item.id, isUnread ? "seen" : "new")}
-              aria-label={isUnread ? "Mark as read" : "Mark as unread"}
-              tooltip={isUnread ? "Mark as read" : "Mark as unread"}
+              aria-label={readToggleLabel}
+              tooltip={readToggleLabel}
             />
             {isDismissed ? (
               <Button
                 variant="ghost"
                 iconOnly={<RotateCcw />}
                 onClick={() => onUpdateStatus(item.id, "seen")}
-                aria-label="Restore"
-                tooltip="Restore"
+                aria-label={t("actions.restore")}
+                tooltip={t("actions.restore")}
               />
             ) : (
               <Button
                 variant="ghost"
                 iconOnly={<Trash2 />}
                 onClick={() => onDismiss(item.id)}
-                aria-label="Dismiss"
-                tooltip="Dismiss"
+                aria-label={t("actions.dismiss")}
+                tooltip={t("actions.dismiss")}
               />
             )}
           </div>
@@ -167,7 +167,7 @@ export function HomeDetailPanel({
                 leftIcon={<link.icon className="size-4" />}
                 onClick={() => onNavigate?.(link.to)}
               >
-                {link.label}
+                {t(link.labelKey)}
               </Button>
             ))}
             {hasValidConversation ? (
@@ -176,7 +176,7 @@ export function HomeDetailPanel({
                 fullWidth
                 onClick={() => onGoToThread(item.conversationId!)}
               >
-                Go to Conversation
+                {t("actions.goToConversation")}
               </Button>
             ) : null}
           </div>
@@ -217,7 +217,7 @@ export function HomeDetailPanel({
             variant="outlined"
             onClick={() => onGoToThread(item.conversationId!)}
           >
-            Go to Convo
+            {t("actions.goToConvo")}
           </Button>
         ) : null}
 
@@ -225,8 +225,8 @@ export function HomeDetailPanel({
           variant="outlined"
           iconOnly={<X />}
           onClick={onClose}
-          aria-label="Close detail panel"
-          tooltip="Close"
+          aria-label={t("homeDetailPanel.closeAriaLabel")}
+          tooltip={t("homeDetailPanel.close")}
         />
       </div>
 
@@ -254,7 +254,7 @@ export function HomeDetailPanel({
               leftIcon={<link.icon className="size-4" />}
               onClick={() => onNavigate?.(link.to)}
             >
-              {link.label}
+              {t(link.labelKey)}
             </Button>
           ))}
         </div>
@@ -264,7 +264,7 @@ export function HomeDetailPanel({
               variant="primary"
               onClick={() => onUpdateStatus(item.id, "seen")}
             >
-              Restore
+              {t("actions.restore")}
             </Button>
           ) : (
             <>
@@ -274,10 +274,10 @@ export function HomeDetailPanel({
                   onUpdateStatus(item.id, isUnread ? "seen" : "new")
                 }
               >
-                {isUnread ? "Mark as read" : "Mark as unread"}
+                {readToggleLabel}
               </Button>
               <Button variant="primary" onClick={() => onDismiss(item.id)}>
-                Dismiss
+                {t("actions.dismiss")}
               </Button>
             </>
           )}

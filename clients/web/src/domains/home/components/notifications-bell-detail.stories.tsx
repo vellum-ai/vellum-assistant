@@ -19,18 +19,19 @@ import {
   FIXTURE_CONVERSATION_ID,
   FIXTURE_VALID_CONVERSATIONS,
 } from "@/domains/home/feed-test-fixtures";
+import type { FeedItemEntityLink } from "@/domains/home/hooks/use-feed-item-entity-links";
 import { routes } from "@/utils/routes";
 
-const SKILL_LINK = {
-  kind: "skill" as const,
-  label: "View skill",
+const SKILL_LINK: FeedItemEntityLink = {
+  kind: "skill",
+  labelKey: "actions.viewSkill",
   icon: Brain,
   to: routes.skills.detail("approved-pr-merge-gate"),
 };
 
-const SCHEDULE_LINK = {
-  kind: "schedule" as const,
-  label: "View schedule",
+const SCHEDULE_LINK: FeedItemEntityLink = {
+  kind: "schedule",
+  labelKey: "actions.viewSchedule",
   icon: Calendar,
   to: routes.schedules.detail("weekly-report"),
 };

@@ -1,5 +1,6 @@
 import { ChevronLeft, Mail, MailOpen, RotateCcw, Trash2 } from "lucide-react";
 
+import { useTranslation } from "@/i18n";
 import {
   formatCompactLocalDate,
   formatFullLocalDate,
@@ -90,8 +91,12 @@ export function NotificationsBellDetail({
   onDismiss,
   onTriggerAction,
 }: NotificationsBellDetailProps) {
+  const { t } = useTranslation("home");
   const conversationId = item.conversationId ?? null;
   const isUnread = item.status === "new";
+  const readToggleLabel = isUnread
+    ? t("actions.markAsRead")
+    : t("actions.markAsUnread");
   const isDismissed = item.status === "dismissed";
   const actions = item.actions ?? [];
 
@@ -130,7 +135,7 @@ export function NotificationsBellDetail({
           variant="ghost"
           iconOnly={<ChevronLeft />}
           onClick={onBack}
-          aria-label="Back to notifications"
+          aria-label={t("notificationsBellDetail.back")}
         />
         <Typography
           variant="body-medium-default"
@@ -152,24 +157,24 @@ export function NotificationsBellDetail({
             variant="ghost"
             iconOnly={isUnread ? <MailOpen /> : <Mail />}
             onClick={() => onUpdateStatus(item.id, isUnread ? "seen" : "new")}
-            aria-label={isUnread ? "Mark as read" : "Mark as unread"}
-            tooltip={isUnread ? "Mark as read" : "Mark as unread"}
+            aria-label={readToggleLabel}
+            tooltip={readToggleLabel}
           />
           {isDismissed ? (
             <Button
               variant="ghost"
               iconOnly={<RotateCcw />}
               onClick={() => onUpdateStatus(item.id, "seen")}
-              aria-label="Restore"
-              tooltip="Restore"
+              aria-label={t("actions.restore")}
+              tooltip={t("actions.restore")}
             />
           ) : (
             <Button
               variant="ghost"
               iconOnly={<Trash2 />}
               onClick={() => onDismiss(item.id)}
-              aria-label="Dismiss"
-              tooltip="Dismiss"
+              aria-label={t("actions.dismiss")}
+              tooltip={t("actions.dismiss")}
             />
           )}
         </div>
@@ -257,7 +262,7 @@ export function NotificationsBellDetail({
               }
               {...pendingLinkProps}
             >
-              {link.label}
+              {t(link.labelKey)}
             </Button>
           ))}
           {linkedConversationId ? (
@@ -270,7 +275,7 @@ export function NotificationsBellDetail({
               }
               {...pendingLinkProps}
             >
-              Go to Conversation
+              {t("actions.goToConversation")}
             </Button>
           ) : null}
         </div>

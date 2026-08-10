@@ -15,18 +15,12 @@
  * falls back to the window size so standalone use never breaks.
  */
 
+import { createContext, useContext, type ReactNode } from "react";
+
 import {
-  createContext,
-  useContext,
-  useEffect,
-  useState,
-  type ReactNode,
-} from "react";
-
-import { windowSize, type StageSize } from "@/hooks/use-element-size";
-
-export { useElementSize } from "@/hooks/use-element-size";
-export type { ElementSize, StageSize } from "@/hooks/use-element-size";
+  useLayoutViewportSize,
+  type StageSize,
+} from "@/hooks/use-element-size";
 
 const OnboardingStageSizeContext = createContext<StageSize | null>(null);
 
@@ -50,14 +44,7 @@ export function OnboardingStageSizeProvider({
  */
 export function useOnboardingStageSize(): StageSize {
   const ctx = useContext(OnboardingStageSizeContext);
-  const [fallback, setFallback] = useState<StageSize>(() => windowSize());
-  useEffect(() => {
-    if (ctx) {
-      return;
-    } // a provider supplies the size; no need to track the window
-    const onResize = () => setFallback(windowSize());
-    window.addEventListener("resize", onResize);
-    return () => window.removeEventListener("resize", onResize);
-  }, [ctx]);
+  // A provider supplies the size; no need to track the window.
+  const fallback = useLayoutViewportSize(!ctx);
   return ctx ?? fallback;
 }

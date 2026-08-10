@@ -3,6 +3,7 @@ import { useCallback, useEffect, useState } from "react";
 import { DetailDrawer, MobileDetailOverlay } from "@/components/detail-drawer";
 import { PageShell } from "@/components/page-shell";
 import { useIsMobile } from "@/hooks/use-is-mobile";
+import { useTranslation } from "@/i18n";
 import { useSupportsBulkFeedStatus } from "@/lib/backwards-compat/bulk-feed-status";
 import type { FeedItem, FeedItemStatus } from "@vellumai/assistant-api";
 import { Button, Skeleton } from "@vellumai/design-library";
@@ -57,6 +58,7 @@ export function HomePage({
   navigationKey,
   onInitialFeedItemConsumed,
 }: HomePageProps) {
+  const { t } = useTranslation("home");
   const isMobile = useIsMobile();
   const feedQuery = useHomeFeedQuery(assistantId);
   useHomeStateQuery(assistantId);
@@ -200,10 +202,11 @@ export function HomePage({
           role="alert"
           className="rounded-md border border-[var(--system-negative-weak)] bg-[var(--system-negative-weak)] px-[var(--app-spacing-lg)] py-[var(--app-spacing-md)] text-[var(--system-negative-strong)]"
         >
-          Couldn't load home feed
           {feedQuery.error instanceof Error
-            ? `: ${feedQuery.error.message}`
-            : "."}
+            ? t("homePage.loadFailedDetail", {
+                message: feedQuery.error.message,
+              })
+            : t("homePage.loadFailed")}
         </div>
       ) : null}
       {supportsBulkStatus && (newCount > 0 || activeCount > 0) && (
@@ -215,7 +218,7 @@ export function HomePage({
               onClick={handleMarkAllRead}
               disabled={feedQuery.markAll.isPending}
             >
-              Mark all as read
+              {t("actions.markAllAsRead")}
             </Button>
           )}
           {activeCount > 0 && (
@@ -225,7 +228,7 @@ export function HomePage({
               onClick={handleClearAll}
               disabled={feedQuery.markAll.isPending}
             >
-              Clear all
+              {t("actions.clearAll")}
             </Button>
           )}
         </div>
