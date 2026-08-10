@@ -10,11 +10,24 @@ export interface McpServerToolInfo {
   tools: McpToolInfo[];
 }
 
+export interface McpStartOptions {
+  /**
+   * Servers that must connect without resolving `mcp:<serverId>:*` from the
+   * workspace credential store. Plugin-declared servers belong here: a
+   * plugin controls both its server key and its URL, so honoring a stored
+   * credential for one would send it to an endpoint the plugin chose.
+   */
+  credentialIsolatedServerIds?: ReadonlySet<string>;
+}
+
 export class McpServerManager {
   private clients = new Map<string, McpClient>();
   private serverConfigs = new Map<string, McpServerConfig>();
 
-  async start(config: McpConfig): Promise<McpServerToolInfo[]> {
+  async start(
+    config: McpConfig,
+    options: McpStartOptions = {},
+  ): Promise<McpServerToolInfo[]> {
     const results: McpServerToolInfo[] = [];
 
     console.log(
@@ -40,7 +53,10 @@ export class McpServerManager {
             "HTTP transport — OAuth provider will be available if server requires authentication",
           );
         }
-        const client = new McpClient(serverId);
+        const client = new McpClient(serverId, {
+          useStoredCredentials:
+            !options.credentialIsolatedServerIds?.has(serverId),
+        });
         await client.connect(serverConfig.transport);
 
         if (!client.isConnected) {

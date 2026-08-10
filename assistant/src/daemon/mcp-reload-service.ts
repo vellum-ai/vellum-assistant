@@ -6,6 +6,7 @@
  */
 
 import { getConfig, invalidateConfigCache } from "../config/loader.js";
+import { buildEffectiveMcpConfig } from "../mcp/effective-config.js";
 import { getMcpServerManager } from "../mcp/manager.js";
 import { migrateLegacyMcpHeaders } from "../mcp/mcp-header-store.js";
 import { createMcpToolsFromServer } from "../tools/mcp/mcp-tool-factory.js";
@@ -74,17 +75,24 @@ async function doReload(): Promise<McpReloadResult> {
     // 2. Stop existing MCP servers + unregister their tools
     await manager.stop();
     unregisterAllMcpTools();
-    const serverIds = config.mcp?.servers
-      ? Object.keys(config.mcp.servers)
-      : [];
+
+    // Plugins are re-read here too: installing or removing one changes the
+    // server set exactly like editing config.json does, and both arrive
+    // through this same reload.
+    const { config: mcpConfig, pluginServerIds } = buildEffectiveMcpConfig(
+      config.mcp,
+    );
+    const serverIds = Object.keys(mcpConfig.servers);
 
     // 3. Restart MCP servers
     let serverCount = 0;
     let toolCount = 0;
     const servers: McpReloadServerResult[] = [];
 
-    if (config.mcp?.servers && Object.keys(config.mcp.servers).length > 0) {
-      const serverToolInfos = await manager.start(config.mcp);
+    if (serverIds.length > 0) {
+      const serverToolInfos = await manager.start(mcpConfig, {
+        credentialIsolatedServerIds: pluginServerIds,
+      });
       for (const { serverId, serverConfig, tools } of serverToolInfos) {
         const mcpTools = createMcpToolsFromServer(
           tools,
@@ -105,7 +113,7 @@ async function doReload(): Promise<McpReloadResult> {
       // Include servers that were configured but failed to connect or are disabled
       for (const id of serverIds) {
         if (!servers.some((s) => s.id === id)) {
-          const serverConfig = config.mcp!.servers![id];
+          const serverConfig = mcpConfig.servers[id];
           const isDisabled = serverConfig?.enabled === false;
           servers.push({
             id,

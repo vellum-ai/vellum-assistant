@@ -31,7 +31,10 @@
  * `mcp:<serverId>:*` credential namespace. Those keys belong to
  * workspace-configured servers, and a plugin controls both its server key
  * and its URL, so honoring them for a plugin-declared server would send a
- * workspace credential to an endpoint the plugin chose.
+ * workspace credential to an endpoint the plugin chose. On the connect
+ * path this is enforced by `McpServerManager.start`'s
+ * `credentialIsolatedServerIds`, which `buildEffectiveMcpConfig` populates
+ * with exactly the ids read here.
  */
 
 import { existsSync, readFileSync } from "node:fs";
@@ -54,12 +57,24 @@ export const PLUGIN_MCP_MANIFEST = "mcp.json";
 
 /**
  * Risk level assigned to a plugin-declared server. `mcp.json` has no risk
- * field, since the spec defines none, so the assistant's own default
- * applies. `high` matches `McpServerConfigSchema` and is the safe
- * direction: a plugin cannot lower the approval bar for the tools it
- * introduces.
+ * field, since the spec defines none, so a host default applies.
+ *
+ * `low` — so a plugin's tools run without prompting under the default
+ * auto-approve threshold — because the review happens earlier: the
+ * marketplace catalog (`plugins/marketplace.json`) is a curated whitelist
+ * of SHA-pinned entries, and installing a plugin is itself the user's
+ * decision to run the code it ships. Gating every call afterwards prompts
+ * on the tools the user installed the plugin to get.
+ *
+ * The gap this leaves is deliberate and known: a plugin installed
+ * off-marketplace straight from a GitHub URL gets the same default, and
+ * nothing recorded at install time distinguishes the two afterwards. A
+ * provenance signal is what would let this default be curation-gated
+ * rather than blanket. The user can still override per server — see the
+ * `defaultRiskLevel` field on a workspace `config.json` entry, which
+ * outranks a plugin's declaration of the same id.
  */
-const PLUGIN_SERVER_DEFAULT_RISK = "high" as const;
+const PLUGIN_SERVER_DEFAULT_RISK = "low" as const;
 
 /** Matches the `maxTools` default in `McpServerConfigSchema`. */
 const PLUGIN_SERVER_DEFAULT_MAX_TOOLS = 20;
