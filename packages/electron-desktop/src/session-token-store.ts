@@ -2,9 +2,17 @@ import { app, safeStorage } from "electron";
 import { readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import path from "node:path";
 
-import log from "./logger";
-
 const TOKEN_FILENAME = "session.enc";
+
+export interface SessionTokenLogger {
+  warn: (...args: unknown[]) => void;
+}
+
+let logger: SessionTokenLogger = console;
+
+export const setSessionTokenLogger = (value: SessionTokenLogger): void => {
+  logger = value;
+};
 
 // In-memory fallback for when safeStorage is unavailable (unsigned
 // local builds). Populated by saveSessionToken, cleared by
@@ -29,7 +37,9 @@ export function onSessionTokenChange(listener: TokenChangeListener): () => void 
 }
 
 function notifyListeners(): void {
-  for (const listener of listeners) listener();
+  for (const listener of listeners) {
+    listener();
+  }
 }
 
 function tokenFilePath(): string {
@@ -40,12 +50,14 @@ function tokenFilePath(): string {
 export function getSessionToken(): string | null {
   try {
     const encrypted = readFileSync(tokenFilePath());
-    if (!safeStorage.isEncryptionAvailable()) return inMemoryToken;
+    if (!safeStorage.isEncryptionAvailable()) {
+      return inMemoryToken;
+    }
     return safeStorage.decryptString(encrypted) || null;
   } catch (err) {
     // Missing or corrupt file — fall back to in-memory token.
     if ((err as NodeJS.ErrnoException)?.code !== "ENOENT") {
-      log.warn("[session-token] failed to read persisted token:", err);
+      logger.warn("[session-token] failed to read persisted token:", err);
     }
     return inMemoryToken;
   }
@@ -55,7 +67,9 @@ export function getSessionToken(): string | null {
 export function saveSessionToken(token: string): void {
   inMemoryToken = token;
   if (!safeStorage.isEncryptionAvailable()) {
-    log.warn("[session-token] OS encryption unavailable; token not persisted");
+    logger.warn(
+      "[session-token] OS encryption unavailable; token not persisted",
+    );
     notifyListeners();
     return;
   }
@@ -72,7 +86,7 @@ export function clearSessionToken(): void {
     unlinkSync(tokenFilePath());
   } catch (err) {
     if ((err as NodeJS.ErrnoException)?.code !== "ENOENT") {
-      log.warn("[session-token] failed to delete persisted token:", err);
+      logger.warn("[session-token] failed to delete persisted token:", err);
     }
   }
   notifyListeners();

@@ -5,6 +5,7 @@ import {
   installHostProxyBridge as installSharedHostProxyBridge,
   type HostProxyRuntime,
 } from "@vellumai/electron-desktop/host-proxy/router";
+import { getDeviceId } from "@vellumai/electron-desktop/device-id";
 import {
   getGuardianAccessToken,
   resolveConfigDir,
@@ -12,7 +13,6 @@ import {
   type CliInvocation,
 } from "@vellumai/local-mode";
 
-import { getDeviceId } from "./device-id";
 import { hostAppControlExecutor } from "./executors/host-app-control-executor";
 import { hostBashExecutor } from "./executors/host-bash-executor";
 import { HostBrowserExecutor } from "./executors/host-browser-executor";
@@ -23,7 +23,7 @@ import { hostUiSnapshotExecutor } from "./executors/host-ui-snapshot-executor";
 import { getWatchedLockfile, onLockfileChange } from "./lockfile-watcher";
 import log from "./logger";
 import { installPresenceMonitor } from "./presence";
-import { getSessionToken } from "./session-token-store";
+import { getSessionToken } from "./session-token-store.client";
 import { shutdownSharedCuHelper } from "./sidecar/shared-cu-helper";
 
 export const installHostProxyBridge = (
