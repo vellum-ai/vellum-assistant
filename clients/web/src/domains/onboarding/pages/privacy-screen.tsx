@@ -13,6 +13,7 @@ import {
   ONBOARDING_FUNNEL_STEPS,
 } from "@/domains/onboarding/funnel-events";
 import { onboardingDestinationAfterConsent } from "@/domains/onboarding/onboarding-destination";
+import { SETUP_NAVIGATE } from "@/domains/onboarding/onboarding-navigation";
 import { ATTRIBUTED_PLUGIN_PARAM } from "@/domains/onboarding/plugin-attribution";
 import { useMarketingPricingTakeover } from "@/hooks/use-marketing-pricing-takeover";
 import { CHECKOUT_CONTINUE_PARAM } from "@/lib/billing/checkout-continuation";
@@ -89,7 +90,7 @@ export function PrivacyScreen() {
       searchParams.get("returnTo"),
     );
     if (paidHatchReturnTo) {
-      void navigate(paidHatchReturnTo);
+      void navigate(paidHatchReturnTo, SETUP_NAVIGATE);
       return;
     }
 
@@ -140,13 +141,16 @@ export function PrivacyScreen() {
         const checkoutParams = checkoutResumeSearch(checkoutIntent);
         if (checkoutParams) {
           checkoutParams.set(CHECKOUT_CONTINUE_PARAM, onboardingNext);
-          void navigate(`${routes.checkout}?${checkoutParams.toString()}`);
+          void navigate(
+            `${routes.checkout}?${checkoutParams.toString()}`,
+            SETUP_NAVIGATE,
+          );
           return;
         }
       }
     }
 
-    void navigate(onboardingNext);
+    void navigate(onboardingNext, SETUP_NAVIGATE);
   }, [
     privacyConsent,
     hasPlatformSession,
@@ -248,6 +252,7 @@ export function PrivacyScreen() {
                 isLocalClient()
                   ? routes.onboarding.hosting
                   : routes.onboarding.start,
+                SETUP_NAVIGATE,
               )
             }
             className={electron ? undefined : "h-11 text-base"}

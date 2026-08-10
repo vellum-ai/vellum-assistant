@@ -4,6 +4,7 @@ import { useNavigate, useSearchParams } from "react-router";
 
 import { OnboardingLayout } from "@/domains/onboarding/components/onboarding-layout";
 import { handleRadioCardArrowNav } from "@/domains/onboarding/components/radio-card-nav";
+import { SETUP_NAVIGATE } from "@/domains/onboarding/onboarding-navigation";
 import { setPendingProviderKey } from "@/domains/onboarding/provider-key";
 import { useOnboardingLogin } from "@/hooks/use-onboarding-login";
 import { clearGatewayToken } from "@/lib/auth/gateway-session";
@@ -100,15 +101,19 @@ export function HostingScreen() {
       // Cloud is managed: drop any provider key staged from a prior
       // Local/Docker visit so it can't leak into a later local hatch.
       setPendingProviderKey(null);
-      void navigate(routes.onboarding.privacy);
+      void navigate(routes.onboarding.privacy, SETUP_NAVIGATE);
     } else {
-      void navigate(`${routes.onboarding.apiKey}?hosting=${selected}`);
+      void navigate(
+        `${routes.onboarding.apiKey}?hosting=${selected}`,
+        SETUP_NAVIGATE,
+      );
     }
   };
 
   const onBack = () => {
     void navigate(
       fromSelectAssistant ? routes.selectAssistant : routes.welcome,
+      SETUP_NAVIGATE,
     );
   };
 
