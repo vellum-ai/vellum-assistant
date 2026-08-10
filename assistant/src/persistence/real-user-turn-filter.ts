@@ -11,6 +11,14 @@ import { sql } from "drizzle-orm";
  * and break "first turn" / "turns per conversation" / parent-attribution
  * math.
  *
+ * The fragment also requires `finalized = 1`. The grouped tool-result row is
+ * a USER-role row reserved in-flight (`ensureToolResultRowReserved`), and
+ * while it streams its content is a `{ ref }` pointer that does not contain
+ * the tool_result text the exclusions match, so without the completeness
+ * predicate it would count as a real user turn mid-tool-execution and stop
+ * counting once finalized. Requiring finalized rows makes the exclusion see
+ * the content it is matching against.
+ *
  * `alias` is interpolated as the SQL identifier for the table whose
  * `content` column is filtered (e.g. `messages` for an outer query, `m2`
  * for a correlated subquery). ESCAPE '\\' makes the underscores match
@@ -20,7 +28,8 @@ export function realUserTurnContentFilter(
   alias: string,
 ): ReturnType<typeof sql> {
   return sql.raw(
-    `${alias}.content NOT LIKE '%"type":"tool\\_result"%' ESCAPE '\\' ` +
+    `${alias}.finalized = 1 ` +
+      `AND ${alias}.content NOT LIKE '%"type":"tool\\_result"%' ESCAPE '\\' ` +
       `AND ${alias}.content NOT LIKE '%"type":"web\\_search\\_tool\\_result"%' ESCAPE '\\'`,
   );
 }
