@@ -131,6 +131,7 @@ import {
 import type { UsageStats } from "./message-protocol.js";
 import type { TrustContext } from "./trust-context-types.js";
 import { resolveTurnCallSite } from "./turn-call-site.js";
+import { createTurnIdentity } from "./turn-identity.js";
 import { runWithLatencySubSpans } from "./turn-latency-sub-spans.js";
 import {
   MEMORY_CONTEXT_PHASE_KEY,
@@ -399,6 +400,20 @@ export async function runAgentLoopImpl(
   // LUM-3148 removes the ambiguity by making trust ride the turn.
   ctx.currentTurnTrustContext = options?.turnTrustContext ?? ctx.trustContext;
   ctx.currentTurnChannelCapabilities = ctx.channelCapabilities;
+
+  // Build the turn's identity here rather than at the call sites that start a
+  // turn. This is the one point every turn passes through, and it pairs with
+  // the single teardown below, so the identity a turn runs under is always the
+  // one resolved for that turn. Assigning unconditionally also overwrites any
+  // identity left by a path that set one and returned without running a loop.
+  ctx.currentTurn = ctx.currentTurnTrustContext
+    ? createTurnIdentity({
+        trust: ctx.currentTurnTrustContext,
+        authContext: ctx.currentTurnAuthContext ?? ctx.authContext,
+        sourceActorPrincipalId: ctx.getTurnActorPrincipalId(),
+        channelCapabilities: ctx.channelCapabilities,
+      })
+    : undefined;
 
   // Re-resolve the system prompt under the snapshots just set and push it into
   // the loop when the persona changed. The loop reuses the prompt frozen at
@@ -781,10 +796,8 @@ export async function runAgentLoopImpl(
     // the release, so a turn that starts against the freed conversation cannot
     // inherit stale turn scope (task-run permissions, allowed tools, override
     // profile, command intent) or observe a half-cleared conversation.
-    // Dropping the turn's identity drops every fact on it. Facts that live on
-    // `TurnIdentity` need no entry in the list below, which is the point: the
-    // list only stays correct while everyone remembers to extend it, and the
-    // fields it forgot are the ones that caused LUM-3135.
+    // Dropping the turn's identity drops every fact on it, so anything held
+    // on `TurnIdentity` needs no entry in the list below.
     ctx.currentTurn = undefined;
     ctx.onConfirmationOutcome = undefined;
     ctx.surfaceActionRequestIds.delete(ctx.currentRequestId ?? "");

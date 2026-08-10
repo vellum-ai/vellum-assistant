@@ -2,34 +2,26 @@
  * The identity a turn executes under: who is acting, with what authorization,
  * over which channel.
  *
- * ## Why this is one object rather than fields on `Conversation`
- *
  * A `Conversation` is long-lived and every inbound message writes to it,
  * including while a turn is running: transport metadata is re-applied before a
  * message is enqueued, so the live `trustContext` / `authContext` /
  * `channelCapabilities` can move under an in-flight turn. Anything a turn
- * reads therefore has to be frozen when the turn starts.
+ * reads therefore has to be captured when the turn starts.
  *
- * That freezing used to be done field by field, and the fields were cleared at
- * turn end by a hand-maintained list. A field the list forgot kept its value
- * into the next turn, and whether that produced the wrong actor or no actor at
- * all depended on whether the conversation happened to still be resident in
- * the cache. Every field on this object is cleared together when the turn
- * ends, because there is only one reference to drop.
+ * Holding those facts on one object is what makes the capture reliable. The
+ * agent loop builds the identity as a turn begins and drops it as the turn
+ * ends, so a fact added here is covered by that teardown with no further
+ * action, and no turn can read a fact belonging to a different one.
  *
- * The security-relevant fields lived in exactly the forgotten set. See
- * LUM-3161 for the inventory and LUM-3135 for what it cost.
+ * A fact belongs here when its correct value is a property of *this message*
+ * rather than of the conversation, and when reading a later message's value
+ * mid-turn would be wrong. Facts that legitimately outlive a turn (history,
+ * workspace state, the conversation's resting trust used to seed a new turn)
+ * stay on `Conversation`.
  *
- * ## What belongs here
- *
- * A fact belongs on the turn when its correct value is a property of *this
- * message* rather than of the conversation, and when reading a later message's
- * value mid-turn would be wrong. Add a field here rather than to
- * `Conversation`; teardown then covers it with no further action.
- *
- * Facts that legitimately outlive a turn (history, workspace state, the
- * conversation's resting trust used to hydrate a fresh turn) stay on
- * `Conversation`.
+ * Capabilities are deliberately absent: `resolveCapabilities` derives them
+ * from `trust.trustClass` at point of use, and caching a derived set here
+ * would give it a lifetime of its own.
  */
 
 import type { AuthContext } from "../runtime/auth/types.js";
@@ -40,10 +32,9 @@ import type { TrustContext } from "./trust-context-types.js";
 
 export interface TurnIdentity {
   /**
-   * Trust the turn runs under, captured when the turn started. Governs
-   * `trustClass`, `executionChannel`, and `requesterExternalUserId` for every
-   * tool call in the turn, so reading a later actor's value here reroutes the
-   * whole approval path.
+   * Trust the turn runs under. Governs `trustClass`, `executionChannel`, and
+   * `requesterExternalUserId` for every tool call in the turn, so the whole
+   * approval path follows whichever actor this names.
    */
   readonly trust: TrustContext;
   /** Auth snapshot for turn-scoped authorization decisions. */
@@ -61,9 +52,8 @@ export interface TurnIdentity {
 /**
  * Build the identity for a turn that is starting.
  *
- * Callers pass what they resolved for *this* message. Anything omitted is
- * absent rather than inherited: a turn that cannot say who is acting must not
- * borrow the answer from whoever acted last.
+ * Anything omitted is absent rather than inherited: a turn that cannot say who
+ * is acting must not borrow the answer from whoever acted last.
  */
 export function createTurnIdentity(input: {
   trust: TrustContext;

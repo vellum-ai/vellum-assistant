@@ -63,7 +63,6 @@ import { preactivateHostProxySkills } from "./host-proxy-preactivation.js";
 import type { UserMessageAttachment } from "./message-protocol.js";
 import { buildTransportHints } from "./transport-hints.js";
 import { sameTrustIdentity, type TrustContext } from "./trust-context-types.js";
-import { createTurnIdentity } from "./turn-identity.js";
 import { resolveVerificationSessionIntent } from "./verification-session-intent.js";
 
 const log = getLogger("conversation-process");
@@ -811,16 +810,6 @@ async function drainSingleMessage(
     next.trustContext ?? conversation.trustContext;
   conversation.currentTurnChannelCapabilities =
     conversation.channelCapabilities;
-  // Only when this turn can actually say who is acting. Fabricating an
-  // identity here would hide the gap the migration signal exists to find.
-  conversation.currentTurn = conversation.currentTurnTrustContext
-    ? createTurnIdentity({
-        trust: conversation.currentTurnTrustContext,
-        authContext: next.authContext,
-        sourceActorPrincipalId: next.sourceActorPrincipalId,
-        channelCapabilities: conversation.channelCapabilities,
-      })
-    : undefined;
 
   // Resolve slash commands for queued messages
   const slashResult = await resolveSlash(
@@ -1424,14 +1413,6 @@ async function drainBatch(
     head.trustContext ?? conversation.trustContext;
   conversation.currentTurnChannelCapabilities =
     conversation.channelCapabilities;
-  conversation.currentTurn = conversation.currentTurnTrustContext
-    ? createTurnIdentity({
-        trust: conversation.currentTurnTrustContext,
-        authContext: head.authContext,
-        sourceActorPrincipalId: head.sourceActorPrincipalId,
-        channelCapabilities: conversation.channelCapabilities,
-      })
-    : undefined;
 
   // Single activity-state transition for the batched turn. Per-message
   // emissions would publish N "thinking" phase transitions to every
@@ -1908,14 +1889,6 @@ export async function processMessage(
     sourceActorPrincipalId ?? conversation.authContext?.actorPrincipalId;
   conversation.currentTurnChannelCapabilities =
     conversation.channelCapabilities;
-  conversation.currentTurn = turnTrustContext
-    ? createTurnIdentity({
-        trust: turnTrustContext,
-        authContext: conversation.authContext,
-        sourceActorPrincipalId: conversation.currentTurnSourceActorPrincipalId,
-        channelCapabilities: conversation.channelCapabilities,
-      })
-    : undefined;
   conversation.currentActiveSurfaceId = activeSurfaceId;
   conversation.currentPage = currentPage;
   const trimmedContent = content.trim();

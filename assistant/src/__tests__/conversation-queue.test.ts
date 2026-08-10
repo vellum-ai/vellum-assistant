@@ -597,6 +597,47 @@ describe("Conversation message queue", () => {
     await new Promise((r) => setTimeout(r, 10));
   });
 
+  test("a turn's identity never carries over from an earlier one", async () => {
+    // The loop builds the identity as each turn begins, so a turn that runs
+    // after a path which left one behind still executes as its own actor.
+    // Without that, a later turn resolves the earlier actor and the elevation
+    // its own entry point captured is ignored.
+    const conversation = makeConversation();
+    await conversation.loadFromDb();
+
+    // Stand in for a path that set an identity and returned without a loop.
+    (conversation as unknown as { currentTurn?: unknown }).currentTurn = {
+      trust: {
+        trustClass: "trusted_contact",
+        sourceChannel: "slack",
+        requesterExternalUserId: "U-stale",
+      },
+    };
+
+    conversation.setTrustContext({
+      trustClass: "guardian",
+      sourceChannel: "vellum",
+      requesterExternalUserId: "guardian-principal",
+    });
+
+    const p1 = conversation.processMessage({
+      content: "msg-1",
+      attachments: [],
+      onEvent: () => {},
+      requestId: "req-1",
+    });
+    await waitForPendingRun(1);
+
+    expect(conversation.currentTurn?.trust.trustClass).toBe("guardian");
+    expect(conversation.currentTurn?.trust.requesterExternalUserId).toBe(
+      "guardian-principal",
+    );
+
+    await resolveRun(0);
+    await p1;
+    await new Promise((r) => setTimeout(r, 10));
+  });
+
   test("the turn's identity is dropped when the turn ends", async () => {
     // The structural property this change exists for. Per-turn facts used to
     // be cleared by a hand-maintained list, and the fields it forgot kept
