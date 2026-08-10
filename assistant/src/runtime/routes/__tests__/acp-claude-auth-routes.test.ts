@@ -298,7 +298,7 @@ describe("acp_claude_auth_start (cloud/manual)", () => {
     expect(url.searchParams.get("code_challenge_method")).toBe("S256");
     expect(url.searchParams.get("state")).toBe(result.state);
     // Manual flow requires `code=true` so the callback page renders the
-    // `code#state` string to paste back (JARVIS-1517).
+    // `code#state` string to paste back.
     expect(url.searchParams.get("code")).toBe("true");
 
     // The manual path must not bind a loopback.

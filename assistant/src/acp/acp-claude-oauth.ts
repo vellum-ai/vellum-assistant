@@ -36,10 +36,11 @@ export const CLAUDE_OAUTH_CONFIG: OAuth2Config = {
   // The claude.ai-account authorize endpoint, matching CLAUDE_AI_AUTHORIZE_URL
   // in Claude Code CLI 2.1.220. Shared by both flows: the loopback path builds
   // its URL from this in `prepareOAuth2Flow`, the manual path in
-  // `buildClaudeAuthorizeUrl`. Do NOT point this at claude.ai/oauth/authorize:
-  // that endpoint's frontend still renders a convincing consent screen, but its
-  // authorize POST rejects every grant with a 400 "Invalid request format", so
-  // sign-in can never complete there (JARVIS-1517).
+  // `buildClaudeAuthorizeUrl`. Only this claude.com/cai host completes a
+  // grant. The legacy claude.ai host still renders a working-looking consent
+  // screen, but its authorize POST rejects every grant with a 400 "Invalid
+  // request format", so a wrong host here looks functional until the final
+  // click of a real sign-in.
   authorizeUrl: "https://claude.com/cai/oauth/authorize",
   tokenExchangeUrl: "https://platform.claude.com/v1/oauth/token",
   clientId: "9d1c250a-e61b-44d9-88ed-5944d1962f5e",
@@ -64,12 +65,11 @@ export const CLAUDE_MANUAL_REDIRECT_URI =
  * Build the Claude authorize URL for the MANUAL (paste) PKCE flow.
  *
  * `code=true` tells Claude to render the `code#state` string on the callback
- * page for the user to copy, which is the whole mechanism of the manual flow.
- * The CLI's own setup-token URL carries it; without it the authorize grant is
- * rejected as an invalid request (JARVIS-1517). The loopback flow performs a
- * real redirect instead and must NOT send it; that URL is built separately in
- * `prepareOAuth2Flow`, which is why this builder can include the param
- * unconditionally.
+ * page for the user to copy, which is the whole mechanism of the manual flow;
+ * Claude rejects a manual-redirect grant without it. The loopback flow
+ * performs a real redirect instead and must NOT send it; that URL is built
+ * separately in `prepareOAuth2Flow`, which is why this builder can include
+ * the param unconditionally.
  */
 export function buildClaudeAuthorizeUrl(
   redirectUri: string,

@@ -106,9 +106,8 @@ describe("buildClaudeAuthorizeUrl", () => {
     expect(params.get("state")).toBe("state-abc");
     expect(params.get("code_challenge")).toBe("challenge-123");
     expect(params.get("code_challenge_method")).toBe("S256");
-    // The manual flow's defining param: tells Claude to render `code#state` on
-    // the callback page. Without it the grant is rejected as an invalid
-    // request, so a sign-in can never complete (JARVIS-1517).
+    // The manual flow's defining param: tells Claude to render `code#state`
+    // on the callback page. Claude rejects a manual-redirect grant without it.
     expect(params.get("code")).toBe("true");
   });
 
