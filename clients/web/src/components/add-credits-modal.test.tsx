@@ -72,6 +72,17 @@ mock.module("@/runtime/browser", () => ({
 
 mock.module("@/runtime/platform-detection", () => ({
   useIsNativeAndroid: () => nativeAndroid,
+  // Mirrors the real implementation: reads the window bridge, and a legacy
+  // bridge without hostOS is a macOS host.
+  detectElectronHostOS: () => {
+    const vellum = (
+      window as { vellum?: { platform?: string; hostOS?: string } }
+    ).vellum;
+    if (vellum?.platform !== "electron") {
+      return null;
+    }
+    return vellum.hostOS ?? "macos";
+  },
 }));
 
 mock.module("@capacitor/core", () => ({
@@ -205,6 +216,19 @@ describe("AddCreditsModal checkout return_target", () => {
     const call = await submitCheckout();
 
     expect(call.body).toMatchObject({ return_target: "native" });
+  });
+
+  test('sends return_target "web" on the Windows Electron shell', async () => {
+    // The Windows preload stubs deepLinks, so a native bounce would land on a
+    // custom-scheme URL nothing consumes.
+    (window as { vellum?: unknown }).vellum = {
+      platform: "electron",
+      hostOS: "windows",
+    };
+
+    const call = await submitCheckout();
+
+    expect(call.body).toMatchObject({ return_target: "web" });
   });
 });
 
