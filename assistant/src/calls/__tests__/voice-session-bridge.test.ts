@@ -73,7 +73,11 @@ mock.module("../../persistence/conversation-crud.js", () => ({
 import { setConfig } from "../../__tests__/helpers/set-config.js";
 import { ABORT_WATCHDOG_MS } from "../../daemon/abort-watchdog.js";
 import { assistantEventHub } from "../../runtime/assistant-event-hub.js";
-import { CALL_OPENING_MARKER } from "../voice-control-protocol.js";
+import {
+  CALL_OPENING_MARKER,
+  ESCALATE_VERDICT_TOKEN,
+  HOLD_VERDICT_TOKEN,
+} from "../voice-control-protocol.js";
 import {
   cutFrontDoorContentAtVerdict,
   preSpeechLanguageRuleFragment,
@@ -1698,6 +1702,174 @@ describe("cutFrontDoorContentAtVerdict", () => {
       { type: "text", text: "It is Tuesday  indeed." },
     ]);
     expect(cut?.spokenText).toBe("It is Tuesday  indeed.");
+  });
+});
+
+/**
+ * The front-door leg's raw stream is a control plane: its leading tokens are
+ * the routing verdict, not speech. The hub broadcast (web / passive devices)
+ * must never carry those tokens, and must still carry every word of real
+ * assistant content: an over-broad filter would leave the shared transcript
+ * silent or truncated, which is worse than the leak it fixes.
+ */
+describe("front-door hub stream gate", () => {
+  beforeEach(resetCrudLog);
+
+  /**
+   * Conversation whose scripted agent loop announces a reserved row, streams
+   * `deltas` in order, then ends the leg with `finalEvent`.
+   */
+  function makeStreamingConversation(
+    deltas: string[],
+    finalEvent:
+      | "message_complete"
+      | "generation_cancelled" = "message_complete",
+  ): void {
+    const fake = makeFakeConversation({ processing: false });
+    fake.conversation.runAgentLoop = async (...args: unknown[]) => {
+      const { onEvent } = args[2] as { onEvent: (msg: unknown) => void };
+      onEvent({
+        type: "assistant_turn_start",
+        messageId: "assistant-row-1",
+        conversationId: "conv-voice-bridge-test",
+      });
+      for (const text of deltas) {
+        onEvent({
+          type: "assistant_text_delta",
+          text,
+          messageId: "assistant-row-1",
+          conversationId: "conv-voice-bridge-test",
+        });
+      }
+      onEvent({
+        type: finalEvent,
+        ...(finalEvent === "message_complete"
+          ? { messageId: "assistant-row-1" }
+          : {}),
+        conversationId: "conv-voice-bridge-test",
+      });
+    };
+    fakeConversation = fake.conversation;
+  }
+
+  /** The text of every `assistant_text_delta` `turn` publishes to the hub. */
+  async function collectBroadcastText(
+    turn: () => Promise<unknown>,
+  ): Promise<string[]> {
+    const texts: string[] = [];
+    const subscription = assistantEventHub.subscribe({
+      type: "process",
+      filter: { conversationId: "conv-voice-bridge-test" },
+      callback: (event) => {
+        const msg = event.message as { type: string; text?: string };
+        if (msg.type === "assistant_text_delta") {
+          texts.push(msg.text ?? "");
+        }
+      },
+    });
+    try {
+      await turn();
+      // The hub publishes off a promise chain, so every broadcast costs a
+      // few microtask hops before it reaches a subscriber.
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      await flushMicrotasks();
+    } finally {
+      subscription.dispose();
+    }
+    return texts;
+  }
+
+  test("an escalating leg broadcasts only the capped bridge, never the verdict token", async () => {
+    makeStreamingConversation([
+      "[1]",
+      " Let me check your calendar.",
+      " weak answer past the cap",
+    ]);
+
+    const texts = await collectBroadcastText(() =>
+      startVoiceTurn({ ...makeTurnOptions(), routingLeg: "front-door" }),
+    );
+
+    expect(texts).toEqual(["Let me check your calendar."]);
+    expect(texts.join("")).not.toContain(ESCALATE_VERDICT_TOKEN);
+  });
+
+  test("a front-door answer reaches the hub in full", async () => {
+    makeStreamingConversation(["It is ", "Tuesday", ", and it is sunny."]);
+
+    const texts = await collectBroadcastText(() =>
+      startVoiceTurn({ ...makeTurnOptions(), routingLeg: "front-door" }),
+    );
+
+    expect(texts.join("")).toBe("It is Tuesday, and it is sunny.");
+  });
+
+  test("an answer that merely opens with a bracket is released in full", async () => {
+    // "[" alone could still become the escalate token, so the gate holds it;
+    // the next delta disproves the token and the whole prefix must come out.
+    makeStreamingConversation(["[", "A] is the option to pick."]);
+
+    const texts = await collectBroadcastText(() =>
+      startVoiceTurn({ ...makeTurnOptions(), routingLeg: "front-door" }),
+    );
+
+    expect(texts.join("")).toBe("[A] is the option to pick.");
+  });
+
+  test("a hold verdict broadcasts nothing", async () => {
+    makeStreamingConversation([HOLD_VERDICT_TOKEN]);
+
+    const texts = await collectBroadcastText(() =>
+      startVoiceTurn({
+        ...makeTurnOptions(),
+        routingLeg: "front-door",
+        unifiedVerdict: true,
+      }),
+    );
+
+    expect(texts).toEqual([]);
+  });
+
+  test("a leg that completes mid-bridge broadcasts what it handed off with", async () => {
+    makeStreamingConversation(["[1] Let me check"]);
+
+    const texts = await collectBroadcastText(() =>
+      startVoiceTurn({ ...makeTurnOptions(), routingLeg: "front-door" }),
+    );
+
+    expect(texts).toEqual(["Let me check"]);
+  });
+
+  test("a leg cancelled mid-bridge never hands off, so it broadcasts nothing", async () => {
+    makeStreamingConversation(["[1] Let me check"], "generation_cancelled");
+
+    const texts = await collectBroadcastText(() =>
+      startVoiceTurn({ ...makeTurnOptions(), routingLeg: "front-door" }),
+    );
+
+    expect(texts).toEqual([]);
+  });
+
+  test("the escalated continuation streams to the hub untouched", async () => {
+    // The leg that produces the real answer is never gated: its deltas are
+    // assistant speech from the first token.
+    makeStreamingConversation(["Your next meeting ", "is at four."]);
+
+    const texts = await collectBroadcastText(() =>
+      startVoiceTurn({ ...makeTurnOptions(), routingLeg: "escalated" }),
+    );
+
+    expect(texts).toEqual(["Your next meeting ", "is at four."]);
+  });
+
+  test("an un-routed voice leg streams to the hub untouched", async () => {
+    makeStreamingConversation(["[1] not a verdict here"]);
+
+    const texts = await collectBroadcastText(() =>
+      startVoiceTurn(makeTurnOptions()),
+    );
+
+    expect(texts).toEqual(["[1] not a verdict here"]);
   });
 });
 

@@ -207,34 +207,12 @@ export const LiveVoiceFrontModelConfigSchema = z
       )
       .default(2)
       .describe("Cap on consecutive 'hold' extensions per utterance"),
-    ackFirstDeltaTimeoutMs: z
-      .number({
-        error: "liveVoice.frontModel.ackFirstDeltaTimeoutMs must be a number",
-      })
-      .int("liveVoice.frontModel.ackFirstDeltaTimeoutMs must be an integer")
-      .positive(
-        "liveVoice.frontModel.ackFirstDeltaTimeoutMs must be a positive integer",
-      )
-      .default(2500)
-      .describe(
-        "Keyword-delay budget (ms): a spoken ack fires if no first assistant delta has arrived by then",
-      ),
-    ackGenerationTimeoutMs: z
-      .number({
-        error: "liveVoice.frontModel.ackGenerationTimeoutMs must be a number",
-      })
-      .int("liveVoice.frontModel.ackGenerationTimeoutMs must be an integer")
-      .positive(
-        "liveVoice.frontModel.ackGenerationTimeoutMs must be a positive integer",
-      )
-      .default(600)
-      .describe("Budget (ms) for LLM-generated ack text"),
     progress: LiveVoiceProgressConfigSchema.default(
       LiveVoiceProgressConfigSchema.parse({}),
     ),
   })
   .describe(
-    "Front-model presence layer tuning for live voice sessions (semantic endpointing + spoken acks + progress narration)",
+    "Voice front-door endpointing and long-turn progress narration tuning",
   );
 
 const LiveVoiceFluxTurnEndConfigSchema = z

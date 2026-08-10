@@ -127,7 +127,7 @@ export const SIDE_MENU_MAX_WIDTH = 400;
  * Exported so a caller drawing its own tile sizes it from here rather than
  * from a matching literal, which is the only way the column stays one width.
  */
-export const SIDE_MENU_TILE_SIZE = 32;
+export const SIDE_MENU_TILE_SIZE = 36;
 
 /**
  * The rail's default horizontal padding, which is also the inset `PanelItem`

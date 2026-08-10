@@ -34,7 +34,10 @@ import {
 import { readPluginInbound } from "../../channels/plugin-inbound.js";
 import type { IngressInbound } from "../../channels/ingress-inbound.js";
 import type { IngressSigner } from "../../channels/plugin-ingress.js";
-import { handleInbound } from "../../handlers/handle-inbound.js";
+import {
+  handleInbound,
+  type InboundResult,
+} from "../../handlers/handle-inbound.js";
 import { mintServiceToken } from "../../auth/token-exchange.js";
 import type { GatewayConfig } from "../../config.js";
 import type { CredentialCache } from "../../credential-cache.js";
@@ -331,11 +334,18 @@ export function createPluginWebhookHandler(deps: PluginWebhookHandlerDeps) {
  * delivery into an event should not thereby echo the sender's message back to
  * the vendor that sent it.
  *
- * Errors here are logged and swallowed. The delivery was authentic and the
- * plugin accepted it, so a failure to interpret the reply is ours; answering
- * the vendor with a 5xx would have them retry a delivery that will fail the
- * same way, which is the retry storm the 409 on unapproved routes exists to
- * avoid.
+ * Two kinds of failure, answered differently. A reply the gateway cannot make
+ * sense of — unreadable, not JSON, half a message — fails the same way on
+ * every retry, so the vendor is acknowledged and the reason goes to the log;
+ * that is the retry storm the 409 on unapproved routes exists to avoid.
+ *
+ * A failure to *forward* is the opposite: the runtime is down, the circuit
+ * breaker is open, the message is well-formed and would land on the next
+ * attempt. Acknowledging that would lose a real message for the length of an
+ * assistant outage, so it answers 503 and lets the vendor's own retry carry
+ * the delivery. This is what `processInboundResult` does for the built-in
+ * channels; the shape differs only because the plugin's reply, not the
+ * vendor's request, is what carries the message here.
  */
 async function deliverPluginInbound(opts: {
   config: GatewayConfig;
@@ -394,30 +404,66 @@ async function deliverPluginInbound(opts: {
     return ack;
   }
 
+  let result: InboundResult;
   try {
-    const result = await handleInboundImpl(config, reading.event, {
+    result = await handleInboundImpl(config, reading.event, {
       // Which plugin, for the runtime and for anyone reading a transcript. The
       // route too: a plugin can declare several, and knowing which one a turn
       // arrived on is the difference between a provider misconfiguration and a
       // plugin bug.
       sourceMetadata: { plugin, ingressRoute: routePath },
     });
-    log.info(
-      {
-        plugin,
-        path: routePath,
-        forwarded: result.forwarded,
-        rejected: result.rejected,
-        rejectionReason: result.rejectionReason,
-      },
-      "Plugin inbound message handled",
-    );
   } catch (err) {
+    // `CircuitBreakerOpenError` reaches here by design: `handleInbound` lets it
+    // through precisely so a caller can answer retryably instead of 500ing.
     log.error(
       { err, plugin, path: routePath },
-      "Failed to handle a plugin inbound message",
+      "Plugin inbound message could not be handled",
     );
+    return retryLater();
+  }
+
+  log.info(
+    {
+      plugin,
+      path: routePath,
+      forwarded: result.forwarded,
+      rejected: result.rejected,
+      rejectionReason: result.rejectionReason,
+    },
+    "Plugin inbound message handled",
+  );
+
+  // Rejected and intercepted are decisions, not failures: the message reached
+  // the pipeline and the pipeline said no, or consumed it. Only a message that
+  // never reached the runtime is worth sending again.
+  const reachedRuntime =
+    result.forwarded ||
+    result.rejected ||
+    result.verificationIntercepted === true ||
+    result.inviteIntercepted === true;
+  if (!reachedRuntime) {
+    log.error(
+      { plugin, path: routePath },
+      "Plugin inbound message was not forwarded to the runtime",
+    );
+    return retryLater();
   }
 
   return ack;
+}
+
+/**
+ * Ask the vendor to send this delivery again.
+ *
+ * 503 with `Retry-After` rather than 500, matching what the built-in webhook
+ * handlers answer when the runtime is unreachable: a vendor reading a 500
+ * often disables the endpoint, while 503 is the one status every retry policy
+ * treats as "later, not never".
+ */
+function retryLater(): Response {
+  return Response.json(
+    { error: "Service Unavailable" },
+    { status: 503, headers: { "Retry-After": "30" } },
+  );
 }

@@ -72,7 +72,7 @@ describe("SideMenu root", () => {
      counting only the tile and its padding spends 2px of itself on the edge
      and comes up short of the tile it is supposed to hold. */
   test("collapsed width holds one tile, its padding, and the rail's border", () => {
-    expect(SIDE_MENU_TILE_SIZE).toBe(32);
+    expect(SIDE_MENU_TILE_SIZE).toBe(36);
     expect(SIDE_MENU_COLLAPSED_INSET).toBe(8);
     expect(SIDE_MENU_BORDER_WIDTH).toBe(1);
     expect(SIDE_MENU_COLLAPSED_WIDTH).toBe(

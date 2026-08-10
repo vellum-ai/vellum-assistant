@@ -22,8 +22,6 @@ const FRONT_MODEL_DEFAULTS = {
   endpointDecisionTimeoutMs: 1200,
   endpointExtensionMs: 1500,
   endpointMaxExtensions: 2,
-  ackFirstDeltaTimeoutMs: 2500,
-  ackGenerationTimeoutMs: 600,
   progress: PROGRESS_DEFAULTS,
 };
 
@@ -134,8 +132,15 @@ describe("LiveVoiceFrontModelConfigSchema", () => {
     expect(parsed.endpointMaxExtensions).toBe(0);
     // Unspecified fields still get defaults
     expect(parsed.endpointExtensionMs).toBe(1500);
-    expect(parsed.ackFirstDeltaTimeoutMs).toBe(2500);
-    expect(parsed.ackGenerationTimeoutMs).toBe(600);
+  });
+
+  test("strips retired generated-ack settings", () => {
+    const parsed = LiveVoiceFrontModelConfigSchema.parse({
+      ackFirstDeltaTimeoutMs: 2500,
+      ackGenerationTimeoutMs: 600,
+    });
+    expect(parsed).not.toHaveProperty("ackFirstDeltaTimeoutMs");
+    expect(parsed).not.toHaveProperty("ackGenerationTimeoutMs");
   });
 
   test("rejects non-positive endpointDecisionTimeoutMs", () => {

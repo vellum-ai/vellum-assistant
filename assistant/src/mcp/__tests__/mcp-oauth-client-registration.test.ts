@@ -183,9 +183,13 @@ describe("McpOAuthProvider client metadata", () => {
     );
   });
 
-  test("omits logo_uri, which has no anonymously fetchable URL", async () => {
+  test("presents an anonymously fetchable logo", async () => {
+    // The consent screen loads this without credentials, so it cannot be
+    // the assistant's own avatar, which is served behind authentication.
     const provider = newProvider();
-    expect(provider.clientMetadata.logo_uri).toBeUndefined();
+    expect(provider.clientMetadata.logo_uri).toEqual(
+      "https://www.vellum.ai/favicon.svg",
+    );
   });
 
   test("registers the resolved callback URL as the redirect URI", async () => {

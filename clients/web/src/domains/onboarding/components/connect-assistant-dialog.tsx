@@ -105,8 +105,8 @@ function ConnectAssistantDialog({
         }}
       >
         <Modal.Content size="sm">
-          <Modal.Header>
-            <Modal.Title icon={Link2}>Pairing Imported</Modal.Title>
+          <Modal.Header icon={Link2}>
+            <Modal.Title>Pairing Imported</Modal.Title>
           </Modal.Header>
           <Modal.Body>
             <Notice tone="warning">
@@ -138,8 +138,8 @@ function ConnectAssistantDialog({
       }}
     >
       <Modal.Content size="md">
-        <Modal.Header>
-          <Modal.Title icon={Link2}>Connect a Remote Assistant</Modal.Title>
+        <Modal.Header icon={Link2}>
+          <Modal.Title>Connect a Remote Assistant</Modal.Title>
           <Modal.Description>
             On the assistant&rsquo;s machine, run{" "}
             <code>vellum pair --url https://...</code> and paste the bundle

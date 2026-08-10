@@ -258,9 +258,9 @@ describe("Button class output", () => {
     expect(html).toContain("text-body-medium-default");
   });
 
-  test("compact size applies text-label-medium-default typography class", () => {
+  test("compact size applies text-body-small-default typography class", () => {
     const html = renderToStaticMarkup(<Button size="compact">C</Button>);
-    expect(html).toContain("text-label-medium-default");
+    expect(html).toContain("text-body-small-default");
   });
 
   test("ghost icon-only button expands to a circular mobile tap target by default", () => {

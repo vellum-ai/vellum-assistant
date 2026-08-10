@@ -1091,7 +1091,10 @@ describe("inbound delivery", () => {
     expect(handled).toHaveLength(0);
   });
 
-  it("still acknowledges the vendor when the pipeline throws", async () => {
+  it("asks the vendor to retry when the pipeline throws", async () => {
+    // A message that never reached the runtime would land on the next attempt.
+    // Acknowledging it loses a real message for the length of an outage, so
+    // this answers retryably and lets the vendor's own retry carry it.
     const { deps } = replyingWith(MESSAGE);
     const handle = createPluginWebhookHandler({
       ...deps,
@@ -1106,7 +1109,67 @@ describe("inbound delivery", () => {
       "events",
     );
 
+    expect(res.status).toBe(503);
+    expect(res.headers.get("Retry-After")).toBe("30");
+  });
+
+  it("asks the vendor to retry when the forward failed", async () => {
+    // `handleInbound` reports a runtime it could not reach as `forwarded:
+    // false` rather than by throwing, so the quiet case needs the same answer
+    // as the loud one.
+    const { deps } = replyingWith(MESSAGE);
+    const handle = createPluginWebhookHandler({
+      ...deps,
+      handleInboundImpl: async () => ({ forwarded: false, rejected: false }),
+    });
+
+    const res = await handle(
+      post("/webhooks/plugins/meeting-bot/events"),
+      "meeting-bot",
+      "events",
+    );
+
+    expect(res.status).toBe(503);
+  });
+
+  it("acknowledges a message the pipeline decided against", async () => {
+    // A rejection is a decision, not a failure: the message reached the
+    // pipeline and the pipeline said no. Sending it again changes nothing.
+    const { deps } = replyingWith(MESSAGE);
+    const handle = createPluginWebhookHandler({
+      ...deps,
+      handleInboundImpl: async () => ({
+        forwarded: false,
+        rejected: true,
+        rejectionReason: "admission_no_one",
+      }),
+    });
+
+    const res = await handle(
+      post("/webhooks/plugins/meeting-bot/events"),
+      "meeting-bot",
+      "events",
+    );
+
     expect(res.status).toBe(200);
+  });
+
+  it("carries the vendor payload the plugin kept", async () => {
+    // The gateway understands only the declared fields, so anything the vendor
+    // sent beyond them survives on `raw` or nowhere.
+    const { handled, deps } = replyingWith({
+      ...MESSAGE,
+      raw: { reactions: ["heart"] },
+    });
+    const handle = createPluginWebhookHandler(deps);
+
+    await handle(
+      post("/webhooks/plugins/meeting-bot/events"),
+      "meeting-bot",
+      "events",
+    );
+
+    expect(handled[0]!.raw).toEqual({ reactions: ["heart"] });
   });
 
   it("delivers nothing from a reply the plugin itself failed", async () => {

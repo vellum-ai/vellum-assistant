@@ -8,7 +8,7 @@
  * script's `full` variants and the live session's `llmFirstDeltaMs`).
  *
  * Variants:
- *   slim-haiku    voiceFrontDecision call site (Haiku pin), slim prompt
+ *   slim-front    voiceFrontDoor call site, slim prompt
  *   slim-flash    cost-optimized profile, same slim prompt
  *   full-notools  cost-optimized, real buildSystemPrompt(), no tools
  *   full-flash    cost-optimized, real buildSystemPrompt() + full tool defs
@@ -170,8 +170,8 @@ async function main(): Promise<void> {
 
   const variants: VariantSpec[] = [
     {
-      name: "slim-haiku",
-      callSite: "voiceFrontDecision",
+      name: "slim-front",
+      callSite: "voiceFrontDoor",
       systemPrompt: () => SLIM_SYSTEM_PROMPT,
     },
     {

@@ -4,7 +4,8 @@ import {
   INBOUND_FIELD_DEFAULTS,
   IngressInboundSchema,
   canonicalInbound,
-  inboundFieldPath,
+  inboundFieldSource,
+  readFieldSource,
   readInboundField,
 } from "./ingress-inbound.js";
 
@@ -20,8 +21,8 @@ describe("IngressInboundSchema", () => {
     const inbound = declare({});
 
     expect(inbound.identity).toBe("opaque");
-    expect(inboundFieldPath(inbound, "content")).toBe("message.content");
-    expect(inboundFieldPath(inbound, "actorExternalId")).toBe(
+    expect(inboundFieldSource(inbound, "content")).toBe("message.content");
+    expect(inboundFieldSource(inbound, "actorExternalId")).toBe(
       "actor.actorExternalId",
     );
   });
@@ -29,8 +30,8 @@ describe("IngressInboundSchema", () => {
   it("keeps the defaults for fields an override did not name", () => {
     const inbound = declare({ fields: { content: "text" } });
 
-    expect(inboundFieldPath(inbound, "content")).toBe("text");
-    expect(inboundFieldPath(inbound, "conversationExternalId")).toBe(
+    expect(inboundFieldSource(inbound, "content")).toBe("text");
+    expect(inboundFieldSource(inbound, "conversationExternalId")).toBe(
       INBOUND_FIELD_DEFAULTS.conversationExternalId,
     );
   });
@@ -89,12 +90,93 @@ describe("canonicalInbound", () => {
     ).not.toBe(canonicalInbound(declare({})));
   });
 
+  it("ignores the order keys were typed in, however deep", () => {
+    // A declaration that reads every field from the same place is the same
+    // grant. Digesting it differently drops an approved declaration back to
+    // pending and stops serving it until a guardian approves the identical
+    // thing again.
+    const a = declare({
+      fields: {
+        chatType: { from: "p", map: { a: "1", b: "2" }, default: "d" },
+      },
+    });
+    const b = declare({
+      fields: {
+        chatType: { default: "d", map: { b: "2", a: "1" }, from: "p" },
+      },
+    });
+
+    expect(canonicalInbound(a)).toBe(canonicalInbound(b));
+  });
+
   it("changes when the identity kind changes", () => {
     // `phone` decides that two spellings of a number are one person, so it
     // decides which stored contact a sender matches.
     expect(canonicalInbound(declare({ identity: "phone" }))).not.toBe(
       canonicalInbound(declare({})),
     );
+  });
+});
+
+describe("value maps", () => {
+  it("matches a key spelled the vendor\'s way", () => {
+    // A declaration should be able to quote what the wire says. Photon sends
+    // `iMessage`, and a lookup that folded only the payload would miss the key
+    // and fall through to the conservative default, silently treating every
+    // blue bubble as the spoofable-sender case.
+    const inbound = declare({
+      fields: {
+        chatType: {
+          from: "platform",
+          map: { iMessage: "imessage" },
+          default: "sms",
+        },
+      },
+    });
+
+    expect(
+      readFieldSource(
+        { platform: "iMessage" },
+        inboundFieldSource(inbound, "chatType"),
+      ),
+    ).toBe("imessage");
+  });
+
+  it("takes the default for a value no key matches", () => {
+    const inbound = declare({
+      fields: {
+        chatType: {
+          from: "platform",
+          map: { imessage: "imessage" },
+          default: "sms",
+        },
+      },
+    });
+
+    expect(
+      readFieldSource(
+        { platform: "RCS" },
+        inboundFieldSource(inbound, "chatType"),
+      ),
+    ).toBe("sms");
+    expect(readFieldSource({}, inboundFieldSource(inbound, "chatType"))).toBe(
+      "sms",
+    );
+  });
+
+  it("tries each path in turn and takes the first with a value", () => {
+    const inbound = declare({
+      fields: { conversationExternalId: ["message.space.id", "space.id"] },
+    });
+    const source = inboundFieldSource(inbound, "conversationExternalId");
+
+    expect(readFieldSource({ space: { id: "outer" } }, source)).toBe("outer");
+    expect(
+      readFieldSource(
+        { message: { space: { id: "inner" } }, space: { id: "outer" } },
+        source,
+      ),
+    ).toBe("inner");
   });
 });
 

@@ -302,9 +302,9 @@ export const OS_BETA_PROFILE_TEMPLATE: DefaultProfileTemplate = {
 /**
  * Profiles whose body is code-owned outright: no workspace overlay, and no
  * user-owned shadow. The shadow rule below lets a user replace a default they
- * can select, but `latency-optimized` fronts every live-voice turn through
- * `voiceFrontDecision`/`voiceFrontDoor`, where a model outside the latency
- * envelope is audible dead air rather than a slow reply. A same-named
+ * can select, but `latency-optimized` serves `voiceFrontDoor` and
+ * `voiceProgressNarration`, where a model outside the latency envelope is
+ * audible dead air rather than a slow reply. A same-named
  * workspace entry stays on disk and stays listed; it just never governs what
  * this name resolves to.
  */

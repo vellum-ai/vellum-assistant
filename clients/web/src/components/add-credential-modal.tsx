@@ -162,8 +162,8 @@ export function AddCredentialModal({
     >
       <Modal.Content size="sm">
         <form onSubmit={handleSave}>
-          <Modal.Header>
-            <Modal.Title icon={KeyRound}>Add credential</Modal.Title>
+          <Modal.Header icon={KeyRound}>
+            <Modal.Title>Add credential</Modal.Title>
             <Modal.Description>
               Add an API key or token to let tools and integrations use it.
             </Modal.Description>

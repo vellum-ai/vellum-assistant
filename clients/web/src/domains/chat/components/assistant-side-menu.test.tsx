@@ -1443,8 +1443,8 @@ describe("AssistantSideMenu · equal section treatment", () => {
 
   // Pinned is the one section that doesn't cap: it grows to fit its own
   // rows (user-curated, expected to stay short). Every derived section -
-  // Chats and each channel section - caps at SIDEBAR_SECTION_MAX_HEIGHT
-  // and scrolls within itself, so a busy section can never push its
+  // Chats and each channel section - claims whatever space is left and
+  // scrolls within itself, so a busy section can never push its
   // neighbours out of reach. Regression guard: a polish pass once unbound
   // Chats onto the sidebar body, which parked the channel sections below
   // hundreds of rows.

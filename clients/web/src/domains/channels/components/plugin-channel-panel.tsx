@@ -3,11 +3,13 @@ import { useNavigate } from "react-router";
 import { Button } from "@vellumai/design-library/components/button";
 import { Tag } from "@vellumai/design-library/components/tag";
 
+import { ChannelTrustFloorSection } from "@/domains/channels/components/channel-trust-floor-section";
 import {
   useChannelIngress,
   type ChannelIngress,
   type IngressPath,
 } from "@/domains/channels/hooks/use-channel-ingress";
+import { usePluginChannelTrustFloor } from "@/domains/channels/hooks/use-plugin-channel-trust-floor";
 import { useTranslation } from "@/i18n";
 import { PluginChannelIcon } from "@/utils/channel-presentation";
 import type { PluginChannelSummary } from "@/types/channel-types";
@@ -15,14 +17,19 @@ import type { PluginChannelSummary } from "@/types/channel-types";
 export interface PluginChannelPanelProps {
   channel: PluginChannelSummary;
   assistantId: string;
+  assistantDisplayName: string;
 }
 
 /**
  * Detail panel for a channel a plugin brings.
  *
- * Two things belong here. The ingress approval, because a plugin channel's
+ * Three things belong here. The ingress approval, because a plugin channel's
  * routes are refused until a guardian grants them and this is where someone
- * would look for that. And a way through to the plugin, because the built-in
+ * would look for that. Who may message the assistant once they are open,
+ * because a plugin channel's floor seeds stricter than any other inbound
+ * channel's — strict enough that a fresh install turns away its first message —
+ * and this is the only surface a plugin channel has to make that an explicit
+ * choice rather than a wall. And a way through to the plugin, because the built-in
  * adapters each render a credential form this client knows the shape of and a
  * plugin's does not exist here: guessing one would be worse than sending the
  * guardian to the plugin, which owns its own setup surface and its own idea of
@@ -36,10 +43,12 @@ export interface PluginChannelPanelProps {
 export function PluginChannelPanel({
   channel,
   assistantId,
+  assistantDisplayName,
 }: PluginChannelPanelProps) {
   const { t } = useTranslation("channels");
   const navigate = useNavigate();
   const ingress = useChannelIngress(assistantId, channel.plugin);
+  const trustFloor = usePluginChannelTrustFloor(assistantId);
 
   return (
     <div className="flex flex-col items-center gap-3 py-10 text-center">
@@ -65,6 +74,19 @@ export function PluginChannelPanel({
       ) : null}
 
       <IngressSection channel={channel} ingress={ingress} />
+
+      {trustFloor.onChange ? (
+        <div className="w-full max-w-[420px] text-left">
+          <ChannelTrustFloorSection
+            assistantDisplayName={assistantDisplayName}
+            policy={trustFloor.policy}
+            saving={trustFloor.isSaving}
+            loading={trustFloor.isLoading}
+            error={trustFloor.isError}
+            onChange={trustFloor.onChange}
+          />
+        </div>
+      ) : null}
 
       <Button
         onClick={() => navigate(`/assistant/plugins/${channel.plugin}`)}

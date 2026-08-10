@@ -55,6 +55,7 @@ import {
   stripInternalSpeechMarkers,
 } from "./voice-control-protocol.js";
 import {
+  createFrontDoorStreamGate,
   escalatedContinuationRule,
   ESCALATION_CONTINUATION_CONTENT,
   frontDoorCapabilityDigest,
@@ -461,32 +462,6 @@ export function preSpeechLanguageRuleFragment(
     : "use the language the Task context implies, if any; otherwise default to English";
 }
 
-/**
- * The pre-speech tail of the speak-the-caller's-language rule. A monolingual
- * `services.stt.language` pin is the strongest pre-speech signal of the
- * caller's language (the transcriber is already listening in it, see
- * media-stream-stt-session.ts and providers/speech-to-text/resolve.ts), so it
- * outranks the English default; "multi" and unset mean auto-detect, where
- * English remains the fallback. The pin only counts when the active provider
- * honors manual language selection (see pinnedListeningLanguage):
- * auto-detecting providers (gemini, whisper) ignore a persisted language
- * entirely, so greeting in it would contradict what the transcriber
- * actually hears. Exported for tests: the default test config exercises
- * only the auto-detect branch.
- */
-export function preSpeechLanguageRuleFragment(
-  sttLanguage: string | undefined,
-  sttProvider?: string,
-): string {
-  const configuredListeningLanguage =
-    sttProvider !== undefined
-      ? pinnedListeningLanguage(sttProvider, sttLanguage)
-      : undefined;
-  return configuredListeningLanguage
-    ? `use the language the Task context implies, if any; otherwise open in the assistant's configured listening language ("${configuredListeningLanguage}"), and default to English only when neither gives a language`
-    : "use the language the Task context implies, if any; otherwise default to English";
-}
-
 function buildVoiceCallControlPrompt(opts: {
   isInbound: boolean;
   task?: string | null;
@@ -580,7 +555,7 @@ function buildVoiceCallControlPrompt(opts: {
     '10. Do not make up information. If you are unsure, use [ASK_GUARDIAN: your question] to consult your guardian. For tool permission requests, use [ASK_GUARDIAN_APPROVAL: {"question":"...","toolName":"...","input":{...}}].',
     `11. Your text is sent directly to a text-to-speech engine. Never use markdown formatting (asterisks, headers, backticks, links) or emojis in your spoken responses. Write plain conversational text only. Protocol markers like ${opts.isCallerGuardian ? "[END_CALL]" : "[ASK_GUARDIAN: ...] and [END_CALL]"} are not spoken text and should still be used normally.`,
     `12. Speak the caller's language: reply in the language of the caller's most recent actual speech, and follow them if they switch languages mid-call. Synthetic user turns (parenthetical markers like the call-connected and verification-completed notices) are not caller speech and never set the language. Before the caller has spoken, such as on the opening greeting turn, ${preSpeechLanguageRuleFragment(config.services.stt.language, config.services.stt.provider)}.`,
-    `13. ${VOICE_NO_SETUP_FLOWS_RULE}`,
+    `13. ${PHONE_NO_SETUP_FLOWS_RULE}`,
   );
 
   // Triage-and-escalate routing rules. The front-door leg decides and may
@@ -1476,6 +1451,34 @@ export async function startVoiceTurn(
   // Set by the handle's discard(): the whole leg must leave no trace.
   let discarded = false;
 
+  // Verdict-first gate on the hub broadcast. A front-door leg's raw stream
+  // carries its routing verdict, so hub subscribers (web, passive devices)
+  // read it through the gate and see only the text the caller heard. Every
+  // other leg, including the escalated continuation that answers for real,
+  // broadcasts its deltas untouched.
+  const frontDoorStreamGate =
+    opts.routingLeg === "front-door"
+      ? createFrontDoorStreamGate(opts.unifiedVerdict === true)
+      : null;
+
+  /**
+   * Broadcast one agent-loop event to hub subscribers, holding a front-door
+   * leg's control-plane text back at the boundary rather than emitting it and
+   * repairing the transcript afterwards. Text released by the gate travels as
+   * an ordinary delta on the leg's own reserved row, so a client that renders
+   * the stream lands on the same text the teardown hygiene pass persists.
+   */
+  const broadcastLegEvent = (msg: AssistantEvent): void => {
+    if (frontDoorStreamGate === null || msg.type !== "assistant_text_delta") {
+      broadcastMessage(msg);
+      return;
+    }
+    const released = frontDoorStreamGate.push(msg.text);
+    if (released.length > 0) {
+      broadcastMessage({ ...msg, text: released });
+    }
+  };
+
   /**
    * Teardown transcript hygiene. Runs after the agent loop has fully
    * settled — including the stranded-content fold that finalizes an aborted
@@ -1503,6 +1506,12 @@ export async function startVoiceTurn(
    * the escalated leg — blocked on this turn's teardown — snapshots it, so
    * the quality model never sees the marker text either. Best-effort: a
    * hiccup here must not escalate into a turn-level failure.
+   *
+   * This pass owns the PERSISTED row, which the agent loop writes from the
+   * model's raw output regardless of what was broadcast. The live hub stream
+   * is gated separately by `broadcastLegEvent`, so the refetch this pass
+   * publishes confirms text a subscriber already holds instead of correcting
+   * it.
    */
   const finalizeVoiceLegTranscript = async (): Promise<void> => {
     if (reservedAssistantRowId == null) {
@@ -1646,7 +1655,24 @@ export async function startVoiceTurn(
           } else if (msg.type === "conversation_error") {
             lastError = msg.userMessage;
           }
-          broadcastMessage(msg);
+          if (frontDoorStreamGate !== null && msg.type === "message_complete") {
+            // A leg that completed mid-bridge (a holding phrase with no
+            // sentence terminator) still hands off and speaks what arrived,
+            // so release it ahead of the completion frame. A cancelled leg
+            // never hands off, and correspondingly never flushes.
+            const trailing = frontDoorStreamGate.finish();
+            if (trailing.length > 0) {
+              broadcastMessage({
+                type: "assistant_text_delta",
+                text: trailing,
+                ...(reservedAssistantRowId !== null
+                  ? { messageId: reservedAssistantRowId }
+                  : {}),
+                conversationId: opts.conversationId,
+              });
+            }
+          }
+          broadcastLegEvent(msg);
 
           // Forward voice-relevant events to the real-time event sink
           if (msg.type === "assistant_text_delta") {

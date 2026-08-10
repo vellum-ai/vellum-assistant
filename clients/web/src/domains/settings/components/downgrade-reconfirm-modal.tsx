@@ -29,8 +29,8 @@ export function DowngradeReconfirmModal({
       }}
     >
       <Modal.Content size="md" hideCloseButton>
-        <Modal.Header>
-          <Modal.Title icon={AlertTriangle}>Downgrade to Base?</Modal.Title>
+        <Modal.Header icon={AlertTriangle}>
+          <Modal.Title>Downgrade to Base?</Modal.Title>
         </Modal.Header>
         <Modal.Body>
           <Typography

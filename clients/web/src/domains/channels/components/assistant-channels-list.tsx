@@ -226,6 +226,7 @@ export function AssistantChannelsList({
       key={selectedPlugin.key}
       channel={selectedPlugin}
       assistantId={assistantId}
+      assistantDisplayName={displayName}
     />
   ) : (
     <ChannelPanel

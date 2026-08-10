@@ -19,7 +19,6 @@ import type {
 } from "../../stt/types.js";
 import { __resetRegistryForTesting } from "../../tools/registry.js";
 import { getWorkspaceSkillsDir } from "../../util/platform.js";
-import type { VoiceFrontDecider } from "../front-decision.js";
 import type { LiveVoiceAudioArchiveResult } from "../live-voice-archive.js";
 import {
   CONTINUATION_DELIVERY_CONTENT,
@@ -182,7 +181,6 @@ function createHarness(options: {
   echoBargeInMargin?: number;
   echoEmaHalfLifeMs?: number;
   echoDrainSlackMs?: number;
-  frontDecider?: VoiceFrontDecider | null;
   frontModelConfig?: Partial<LiveVoiceFrontModelConfig>;
   emitMetrics?: boolean;
   metricsClock?: () => number;
@@ -264,9 +262,6 @@ function createHarness(options: {
       options.echoBargeInMargin ?? (options.viaFactory ? undefined : 1),
     echoEmaHalfLifeMs: options.echoEmaHalfLifeMs,
     echoDrainSlackMs: options.echoDrainSlackMs,
-    ...(options.frontDecider !== undefined
-      ? { frontDecider: options.frontDecider }
-      : {}),
     ...(options.frontModelConfig
       ? { frontModelConfig: options.frontModelConfig }
       : {}),
@@ -3967,15 +3962,6 @@ describe("LiveVoiceSession unified front-door endpointing", () => {
     return { startVoiceTurn, calls, discard };
   }
 
-  // A decider that phrases nothing: the front-door leg IS the endpoint
-  // decision, so these tests only need the decider seam to exist.
-  function makeSilentDecider(): VoiceFrontDecider {
-    return {
-      generateAckText: async () => null,
-      generateProgressText: async () => null,
-    };
-  }
-
   async function startWithPartial(
     session: LiveVoiceSession,
     transcribers: MockStreamingTranscriber[],
@@ -3988,12 +3974,10 @@ describe("LiveVoiceSession unified front-door endpointing", () => {
   }
 
   test("a chatty answer commits: verdict leg replaces the decider, frames follow commit order", async () => {
-    const decider = makeSilentDecider();
     const starter = makeVerdictTurnStarter([["Hey! Not much."]]);
     const { frames, session, transcribers } = createHarness({
       finals: ["hello world"],
       startVoiceTurn: starter.startVoiceTurn,
-      frontDecider: decider,
     });
 
     await startWithPartial(session, transcribers);

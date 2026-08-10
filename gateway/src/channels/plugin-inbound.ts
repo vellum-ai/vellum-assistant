@@ -46,9 +46,10 @@
  */
 
 import {
-  inboundFieldPath,
-  readInboundField,
+  inboundFieldSource,
+  readFieldSource,
   type IngressInbound,
+  type InboundFieldName,
 } from "./ingress-inbound.js";
 import type { PluginInboundEvent } from "./inbound-event.js";
 import { canonicalizeIdentityAs } from "../verification/identity.js";
@@ -62,6 +63,35 @@ import { canonicalizeIdentityAs } from "../verification/identity.js";
  */
 export function pluginScopedId(plugin: string, value: string): string {
   return `${plugin}:${value}`;
+}
+
+/**
+ * The vendor payload the plugin carried forward, if it carried one.
+ *
+ * `raw` is what every other channel's normalizer keeps for a later stage to
+ * re-read — a field the mapping did not cover, a debugging question, a
+ * capability added after the fact. A plugin channel has more reason to keep it
+ * than a built-in one, not less: the gateway understands only the declared
+ * fields, so anything the vendor sent beyond them survives here or nowhere.
+ *
+ * Read as a whole object rather than through the field map, because it is not
+ * a scalar and there is nothing to map. A reply that carries no object there
+ * yields `{}` rather than the reply itself: `raw` means the vendor's payload,
+ * and substituting the envelope would quietly redefine it.
+ */
+function readRaw(body: unknown): Record<string, unknown> {
+  if (body === null || typeof body !== "object") {
+    return {};
+  }
+  const carried = (body as Record<string, unknown>).raw;
+  if (
+    carried === null ||
+    typeof carried !== "object" ||
+    Array.isArray(carried)
+  ) {
+    return {};
+  }
+  return carried as Record<string, unknown>;
 }
 
 export type PluginInboundReading =
@@ -99,8 +129,8 @@ export function readPluginInbound(
   opts: ReadPluginInboundOptions,
 ): PluginInboundReading {
   const { plugin, inbound, body, receivedAt } = opts;
-  const read = (field: Parameters<typeof inboundFieldPath>[1]) =>
-    readInboundField(body, inboundFieldPath(inbound, field));
+  const read = (field: InboundFieldName) =>
+    readFieldSource(body, inboundFieldSource(inbound, field));
 
   const conversation = read("conversationExternalId")?.trim();
   const actor = read("actorExternalId")?.trim();
@@ -155,11 +185,7 @@ export function readPluginInbound(
         messageId: pluginScopedId(plugin, messageId!),
         ...(chatType ? { chatType } : {}),
       },
-      // Deliberately empty. `raw` exists so a channel's normalizer can carry
-      // the vendor payload forward for a later stage to re-read; nothing does
-      // that for plugin channels, and the plugin's reply is unvalidated input
-      // that would otherwise ride along into the runtime unexamined.
-      raw: {},
+      raw: readRaw(body),
     },
   };
 }
