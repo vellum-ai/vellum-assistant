@@ -73,6 +73,7 @@ import type { QdrantSparseVector } from "../persistence/embeddings/qdrant-client
 import type { ConversationGraphMemory } from "../plugins/defaults/memory/graph/conversation-graph-memory.js";
 import userPromptSubmitMemoryRetrieval from "../plugins/defaults/memory/hooks/user-prompt-submit.js";
 import type { Message } from "../providers/types.js";
+import { asConversation } from "./helpers/mock-conversation.js";
 
 /** Canonical metrics payload the graph retriever attaches to a real hit. */
 function makeMetrics() {
@@ -176,11 +177,13 @@ function installConversation(
   },
 ): void {
   currentTrustClass = opts?.trusted === false ? "unknown" : "guardian";
-  currentConversation = {
+  currentConversation = asConversation({
     graphMemory,
     trustContext: undefined,
-    abortController: { signal: opts?.signal ?? new AbortController().signal },
-  } as unknown as Conversation;
+    abortController: (opts?.signal
+      ? { signal: opts.signal }
+      : new AbortController()) as AbortController,
+  });
 }
 
 beforeEach(() => {
