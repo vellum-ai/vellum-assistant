@@ -111,9 +111,9 @@ export const SkillSinceRemoved: Story = {
 };
 
 /**
- * A body past the cap, which is the case the region still scrolls for. Worth
- * looking at next to `SkillUpdated`: the two used to draw the same box, and
- * the point of the cap is that only this one reaches it.
+ * A body past the cap, the one case the region scrolls for. Worth looking at
+ * next to `SkillUpdated`, which sits well under it: the cap is what separates
+ * them, so only this story reaches the full height.
  */
 export const LongBody: Story = {
   args: {

@@ -52,10 +52,7 @@ export interface ActivityLocationState {
 // share it with the timestamp), a 2px gap, and a 21px preview line.
 // 5 * 73 + 4 * 8 = 397. Both views take it as a cap, so each sizes to its own
 // content: a short feed draws a short panel with older notifications reachable
-// by scrolling, and a two line notification draws a two line detail. It was a
-// fixed height for the detail once, to hold one frame across notifications,
-// which bought that consistency at the price of ~400px of empty space under
-// the body of every routine background item (the common case here).
+// by scrolling, and a two line notification draws a two line detail.
 const PANEL_CONTENT_HEIGHT = "397px";
 
 // Ceiling on that budget, so a viewport too short to seat it shrinks the

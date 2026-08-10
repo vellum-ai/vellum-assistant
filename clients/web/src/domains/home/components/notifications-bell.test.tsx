@@ -912,10 +912,10 @@ describe("NotificationsBell detail", () => {
     expect(short.maxHeight).not.toBe("");
     expect(short.maxHeight).toBe(long.maxHeight);
 
-    // And neither is held at it. This is the assertion that fails if a fixed
-    // height comes back: happy-dom runs no layout, so the rendered heights
-    // themselves are not observable here and the absence of the inline
-    // `height` is what stands in for "sized to its content".
+    // And neither is held at it, which a fixed height would fail. happy-dom
+    // runs no layout, so the rendered heights themselves are not observable
+    // here: the absence of the inline `height` stands in for "sized to its
+    // content".
     expect(short.height).toBe("");
     expect(long.height).toBe("");
   });

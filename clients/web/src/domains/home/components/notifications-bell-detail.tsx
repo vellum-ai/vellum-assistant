@@ -8,7 +8,7 @@ import {
 import type { FeedItem, FeedItemStatus } from "@vellumai/assistant-api";
 import { Button, Tag, Typography } from "@vellumai/design-library";
 
-import { resolveCategoryStyle } from "../home-feed-filter-bar";
+import { FeedCategoryIcon } from "../feed-category-icon";
 import { HomeGenericDetail } from "../detail-panel/home-generic-detail";
 import { HomeToolPermissionCard } from "../detail-panel/home-tool-permission-card";
 import type { FeedItemEntityLink } from "../hooks/use-feed-item-entity-links";
@@ -87,10 +87,6 @@ export function NotificationsBellDetail({
   const { t } = useTranslation("home");
   const conversationId = item.conversationId ?? null;
   const title = resolveFeedItemTitle(item);
-  // The category treatment the Activity page's detail header uses, so one
-  // notification reads the same in both places.
-  const categoryStyle = resolveCategoryStyle(item.category);
-  const CategoryIcon = categoryStyle.icon;
   const isUnread = item.status === "new";
   const readToggleLabel = isUnread
     ? t("actions.markAsRead")
@@ -135,21 +131,7 @@ export function NotificationsBellDetail({
           onClick={onBack}
           aria-label={t("notificationsBellDetail.back")}
         />
-        <span
-          className="flex shrink-0 items-center justify-center rounded-full"
-          style={{
-            width: 24,
-            height: 24,
-            backgroundColor: categoryStyle.weak,
-          }}
-          aria-hidden="true"
-        >
-          <CategoryIcon
-            width={12}
-            height={12}
-            style={{ color: categoryStyle.strong }}
-          />
-        </span>
+        <FeedCategoryIcon category={item.category} size="sm" />
 
         {/* `title` puts the untruncated text within reach: three controls and
             the category share this row inside a 384px popover, so a named
@@ -203,9 +185,8 @@ export function NotificationsBellDetail({
         draws a two line region, and only a body longer than the cap scrolls.
         Deliberately a plain overflow container rather than `ScrollShadow`: the
         cap is a runtime value and `ScrollShadow` takes no `style` (it owns that
-        attribute for its mask), so a fade would mean widening its API for a
-        case that is now rare, having been the common one while this frame was
-        a fixed height.
+        attribute for its mask), so a fade would mean widening its API for the
+        rare body that reaches the cap.
       */}
       <div
         data-testid="notifications-bell-detail-content"

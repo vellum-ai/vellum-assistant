@@ -5,6 +5,7 @@ import { formatFullLocalDate, formatRelativeDate } from "@/utils/format-date";
 import type { FeedItem, FeedItemStatus } from "@vellumai/assistant-api";
 import { Button, Tag, Typography } from "@vellumai/design-library";
 import { resolveCategoryStyle } from "../home-feed-filter-bar";
+import { FeedCategoryIcon } from "../feed-category-icon";
 import type { FeedItemEntityLink } from "../hooks/use-feed-item-entity-links";
 import { HomeGenericDetail } from "./home-generic-detail";
 import { HomeToolPermissionCard } from "./home-tool-permission-card";
@@ -54,7 +55,6 @@ export function HomeDetailPanel({
     : item.category
       ? t(categoryStyle.labelKey)
       : t("homeDetailPanel.untitled");
-  const CategoryIcon = categoryStyle.icon;
   const isUnread = item.status === "new";
   const readToggleLabel = isUnread
     ? t("actions.markAsRead")
@@ -113,21 +113,7 @@ export function HomeDetailPanel({
 
         {/* Detail header */}
         <div className="flex items-center gap-3 px-4 py-3">
-          <span
-            className="flex shrink-0 items-center justify-center rounded-full"
-            style={{
-              width: 40,
-              height: 40,
-              backgroundColor: categoryStyle.weak,
-            }}
-            aria-hidden="true"
-          >
-            <CategoryIcon
-              width={18}
-              height={18}
-              style={{ color: categoryStyle.strong }}
-            />
-          </span>
+          <FeedCategoryIcon category={item.category} size="lg" />
           <Typography
             variant="title-small"
             className="min-w-0 text-[var(--content-default)]"
@@ -188,21 +174,7 @@ export function HomeDetailPanel({
     <div className="flex h-full flex-col rounded-[var(--radius-xl)] border border-[var(--border-base)] bg-[var(--surface-overlay)]">
       {/* Header */}
       <div className="flex items-center gap-[var(--app-spacing-sm)] border-b border-[var(--border-base)] p-[var(--app-spacing-lg)]">
-        <span
-          className="flex shrink-0 items-center justify-center rounded-full"
-          style={{
-            width: 28,
-            height: 28,
-            backgroundColor: categoryStyle.weak,
-          }}
-          aria-hidden="true"
-        >
-          <CategoryIcon
-            width={14}
-            height={14}
-            style={{ color: categoryStyle.strong }}
-          />
-        </span>
+        <FeedCategoryIcon category={item.category} size="md" />
 
         <Typography
           variant="title-small"
