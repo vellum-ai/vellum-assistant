@@ -33,19 +33,18 @@ import {
 import { installAbout, openAboutWindow } from "./about.client";
 import { installAutoUpdate } from "./auto-update";
 import {
-  APP_HOST,
-  APP_PROTOCOL,
   BUNDLES_DIR_NAME,
   VELLUMAPP_PROTOCOL,
-} from "./app-config";
+} from "@vellumai/electron-desktop/bundle-platform";
+import { registerVellumAppProtocol } from "@vellumai/electron-desktop/vellumapp-protocol";
+import { APP_HOST, APP_PROTOCOL } from "./app-config";
 import { resolveAllowedOrigin } from "./app-origin";
 import { writeCliLocator } from "./cli-installer";
 import { provisionCliForWrapper } from "./cli-path-installer";
 import { handle, handleSync, on } from "./ipc";
-import { registerVellumAppProtocol } from "./vellumapp-protocol";
 import { installPairedGatewayRequestGuard } from "./paired-gateway-request-guard";
 import { hasPendingDeepLinks, installDeepLinks } from "./deep-links.client";
-import { handleBundleFile, installBundleFlow } from "./bundle-flow";
+import { handleBundleFile, installMacBundleWorkflow } from "./bundles";
 import {
   handleFileOpenArgv,
   hasPendingFiles,
@@ -429,7 +428,7 @@ app
     registerVellumAppProtocol(
       path.join(app.getPath("userData"), BUNDLES_DIR_NAME),
     );
-    installBundleFlow();
+    installMacBundleWorkflow();
     onFileOpen(handleBundleFile);
     installPermissionHandler(resolveAllowedOrigin);
     installCsp();

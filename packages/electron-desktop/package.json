@@ -10,6 +10,11 @@
     "./app-origin": "./src/app-origin.ts",
     "./avatar": "./src/avatar.ts",
     "./avatar-image": "./src/avatar-image.ts",
+    "./bundle-confirmation": "./src/bundle-confirmation.ts",
+    "./bundle-flow": "./src/bundle-flow.ts",
+    "./bundle-manager": "./src/bundle-manager.ts",
+    "./bundle-platform": "./src/bundle-platform.ts",
+    "./bundle-window": "./src/bundle-window.ts",
     "./capability-registry": "./src/capability-registry.ts",
     "./command-palette-window": "./src/command-palette-window.ts",
     "./commands": "./src/commands.ts",
@@ -48,6 +53,7 @@
     "./status-icon": "./src/status-icon.ts",
     "./text-context-menu": "./src/text-context-menu.ts",
     "./tray-model": "./src/tray-model.ts",
+    "./vellumapp-protocol": "./src/vellumapp-protocol.ts",
     "./window-readiness": "./src/window-readiness.ts",
     "./window-state": "./src/window-state.ts",
     "./workos-pkce": "./src/workos-pkce.ts",
@@ -61,7 +67,8 @@
     "@vellumai/electron-utils": "workspace:*",
     "@vellumai/ipc-contract": "workspace:*",
     "@vellumai/local-mode": "workspace:*",
-    "electron-store": "11.0.2"
+    "electron-store": "11.0.2",
+    "jszip": "3.10.1"
   },
   "peerDependencies": {
     "electron": ">=42.2.0",
