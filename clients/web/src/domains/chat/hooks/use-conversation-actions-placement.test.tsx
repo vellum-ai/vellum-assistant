@@ -195,6 +195,56 @@ describe("pin/unpin placement", () => {
     expect(copies(client, "c1")).toBe(1);
   });
 
+  test("a failed move leaves a newer move of the same row alone", async () => {
+    /* Two moves of one conversation overlap whenever the second starts before
+       the first settles, and both write the same fields. A rollback that fires
+       regardless of what happened since would put the row back where it sat
+       before the *older* move, discarding a placement the user made later. */
+    const first = deferred<{ data: undefined; response: { ok: boolean } }>();
+    let call = 0;
+    reorderImpl = () => {
+      call += 1;
+      return call === 1
+        ? first.promise
+        : Promise.resolve({ data: undefined, response: { ok: true } });
+    };
+
+    const { result, client } = setup([
+      [SLACK, [SLACK_ROW]],
+      [PINNED, []],
+    ]);
+
+    // Move A: pin. Still in flight.
+    await act(async () => {
+      result.current.handleTogglePinConversation(SLACK_ROW);
+    });
+    expect(idsIn(client, PINNED)).toEqual(["c1"]);
+
+    // Move B: unpin the row A just placed, before A has settled.
+    const pinnedRow: Conversation = {
+      ...SLACK_ROW,
+      isPinned: true,
+      groupId: "system:pinned",
+    };
+    await act(async () => {
+      result.current.handleTogglePinConversation(pinnedRow);
+    });
+    expect(idsIn(client, SLACK)).toEqual(["c1"]);
+
+    // A now fails. Its rollback would restore the pre-A state, which is the
+    // placement B has already replaced.
+    await act(async () => {
+      first.reject(new Error("nope"));
+      await first.promise.catch(() => {});
+    });
+
+    await waitFor(() => {
+      expect(idsIn(client, SLACK)).toEqual(["c1"]);
+    });
+    expect(idsIn(client, PINNED)).toEqual([]);
+    expect(copies(client, "c1")).toBe(1);
+  });
+
   test("unpinning returns the row to its channel section", async () => {
     const pinnedRow: Conversation = {
       ...SLACK_ROW,

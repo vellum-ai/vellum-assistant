@@ -1,4 +1,4 @@
-import { type MutableRefObject, useCallback } from "react";
+import { type MutableRefObject, useCallback, useRef } from "react";
 import {
   useMutation,
   useQueryClient,
@@ -76,8 +76,18 @@ type MutationContext = { snapshot: ConversationCacheSnapshot };
  *
  * `sectionKeys` is what the optimistic write actually moved, so the settle
  * refetches those sections instead of the whole conversation-list prefix.
+ *
+ * `token` identifies this mutation's optimistic write among the writes to the
+ * same conversation. Writing the previous values back is only correct while
+ * this write is still the one showing: two moves of one conversation overlap
+ * whenever the second is started before the first settles, and an
+ * unconditional rollback of the first would discard the second's placement and
+ * leave the row in a section the user has already moved it out of.
  */
-type PlacementContext = { sectionKeys: readonly (readonly unknown[])[] };
+type PlacementContext = {
+  sectionKeys: readonly (readonly unknown[])[];
+  token: number;
+};
 
 /**
  * Context for the mark-unread mutation, which additionally applies an
@@ -148,6 +158,12 @@ function reconcilePlacement(
  * membership is derived from those fields inside `patchConversation`, undoing
  * the fields undoes the move for free.
  *
+ * That covers overlapping moves of *different* conversations. Overlapping
+ * moves of the *same* conversation need one thing more, because both write the
+ * same fields: a failing move rolls back only while its own write is still the
+ * one showing (`PlacementContext.token`). Otherwise the user's newer placement
+ * would be replaced by whatever preceded the older, failed one.
+ *
  * Batch mutations (archive-all, mark-all-read) follow the same lifecycle
  * manually with per-item rollback.
  *
@@ -175,6 +191,12 @@ export function useConversationActions({
   prePinGroupIdsRef,
 }: UseConversationActionsParams) {
   const queryClient = useQueryClient();
+
+  /* Latest optimistic placement per conversation, so a failed move can tell
+     whether its own write is still the one showing before undoing it. A ref
+     rather than a store: nothing renders from it, and it is read and written
+     inside one mutation's lifecycle. */
+  const placementTokensRef = useRef(new Map<string, number>());
 
   // -------------------------------------------------------------------------
   // Mutations. TanStack-recommended onMutate / onError / onSettled lifecycle:
@@ -326,12 +348,18 @@ export function useConversationActions({
       surfacedAt,
     }) => {
       await cancelConversationQueries(queryClient, aid);
+      /* Claimed immediately before the write, not when `mutate` was called:
+         `onMutate` awaits, so two overlapping moves resume in whatever order
+         their cancellations settle, and the token has to order the writes as
+         they actually land. */
+      const token = (placementTokensRef.current.get(conversationId) ?? 0) + 1;
+      placementTokensRef.current.set(conversationId, token);
       const sectionKeys = patchConversation(queryClient, aid, conversationId, {
         isPinned,
         groupId,
         surfacedAt,
       });
-      return { sectionKeys };
+      return { sectionKeys, token };
     },
     onSuccess: (_data, { conversationId, isPinned }) => {
       if (!isPinned) {
@@ -348,19 +376,32 @@ export function useConversationActions({
         previousGroupId,
         previousSurfacedAt,
       },
+      context,
     ) => {
-      patchConversation(queryClient, aid, conversationId, {
-        isPinned: previousIsPinned,
-        groupId: previousGroupId,
-        surfacedAt: previousSurfacedAt,
-      });
+      /* Only the latest write may undo itself. A move superseded by another
+         move of the same conversation leaves the newer placement alone: the
+         user has already moved the row somewhere else, and restoring what came
+         before this failure would put it back in a section they left. The
+         newer mutation owns the correction from here, and its settle refetch
+         is the backstop if it fails too. */
+      if (placementTokensRef.current.get(conversationId) === context?.token) {
+        patchConversation(queryClient, aid, conversationId, {
+          isPinned: previousIsPinned,
+          groupId: previousGroupId,
+          surfacedAt: previousSurfacedAt,
+        });
+      }
       if (isPinned) {
         prePinGroupIdsRef.current.delete(conversationId);
       }
       captureError(err, { context: "moveToGroup" });
     },
-    onSettled: (_data, _err, { assistantId: aid }, context) =>
-      reconcilePlacement(queryClient, aid, context?.sectionKeys),
+    onSettled: (_data, _err, { assistantId: aid, conversationId }, context) => {
+      if (placementTokensRef.current.get(conversationId) === context?.token) {
+        placementTokensRef.current.delete(conversationId);
+      }
+      return reconcilePlacement(queryClient, aid, context?.sectionKeys);
+    },
   });
 
   // -------------------------------------------------------------------------

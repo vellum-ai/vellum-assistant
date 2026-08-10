@@ -31,7 +31,6 @@ import {
 } from "@/utils/conversation-list-fetchers";
 import { insertByRecency } from "@/utils/conversation-order";
 import {
-  isBackgroundConversation,
   isConversationPinned,
   isCustomGroupId,
 } from "@/utils/conversation-predicates";
@@ -69,25 +68,42 @@ export function patchAffectsMembership(patch: Partial<Conversation>): boolean {
 /**
  * Whether any sidebar section can hold this conversation at all.
  *
- * The daemon's `standardListingVisibilitySql` answers the same question for
- * the same rows: archived conversations live in their own view, and background
- * or scheduled runs are excluded unless they were surfaced or filed into a
- * custom group. Rows failing this belong to no section, so a local placement
- * must not invent one for them.
+ * The three arms of the daemon's `standardListingVisibilitySql`, plus the
+ * archive filter every section query carries. Rows failing all three belong to
+ * no section, so a local placement must not invent one for them.
  *
- * This deliberately stays a *gate on insertion* rather than a rule the
- * mutations consult. Pinning a background conversation is a real open question
- * (LUM-3074 / LUM-3075) about what the daemon should do; answering it here by
- * showing a row the next refetch removes would be this module inventing
- * product behavior instead of mirroring it.
+ * 1. **Foreground**: not a background, scheduled, or private run by type, and
+ *    not routed to the `system:background` / `system:scheduled` groups.
+ * 2. **Surfaced**: promoted through the surface API, or by a placement that
+ *    stamps `surfaced_at` (see `resolvePlacementSurfacedAt`).
+ * 3. **Custom group**: filed into a user-created group, whatever its type,
+ *    because filing is an explicit organizational action.
+ *
+ * Private rows are excluded by all three. Subagent runs are excluded from the
+ * surfaced and custom-group arms only, matching the SQL exactly: the
+ * foreground arm does not test `source`.
  */
 function isSidebarVisible(conversation: Conversation): boolean {
   if (conversation.archivedAt != null) {
     return false;
   }
+  if (conversation.conversationType === "private") {
+    return false;
+  }
+  const isForeground =
+    conversation.conversationType !== "background" &&
+    conversation.conversationType !== "scheduled" &&
+    conversation.groupId !== "system:background" &&
+    conversation.groupId !== "system:scheduled";
+  if (isForeground) {
+    return true;
+  }
+  const isSubagentRun = conversation.source === "subagent";
+  if (isSubagentRun) {
+    return false;
+  }
   return (
-    !isBackgroundConversation(conversation) ||
-    isCustomGroupId(conversation.groupId)
+    conversation.surfacedAt != null || isCustomGroupId(conversation.groupId)
   );
 }
 

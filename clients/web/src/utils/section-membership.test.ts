@@ -148,6 +148,43 @@ describe("matchesSectionFilter", () => {
     }
   });
 
+  test("a private conversation belongs to no section", () => {
+    // Excluded by all three arms of the daemon's visibility predicate.
+    for (const filter of [PINNED, CHATS, CUSTOM]) {
+      expect(
+        matchesSectionFilter(
+          conversation({
+            conversationType: "private",
+            surfacedAt: 5,
+            groupId: filter === CUSTOM ? "group-uuid" : undefined,
+          }),
+          filter,
+        ),
+      ).toBe(false);
+    }
+  });
+
+  test("a subagent run is excluded from the surfaced and filed arms only", () => {
+    /* The foreground arm does not test `source`, so a standard subagent row
+       stays visible; the surfaced and custom-group arms exclude it. Mirrors
+       `surfacedVisibilitySql` / `customGroupVisibilitySql`. */
+    const subagentBackground = conversation({
+      source: "subagent",
+      conversationType: "background",
+      surfacedAt: 5,
+    });
+    expect(matchesSectionFilter(subagentBackground, CHATS)).toBe(false);
+    expect(
+      matchesSectionFilter(
+        { ...subagentBackground, surfacedAt: undefined, groupId: "group-uuid" },
+        CUSTOM,
+      ),
+    ).toBe(false);
+    expect(
+      matchesSectionFilter(conversation({ source: "subagent" }), CHATS),
+    ).toBe(true);
+  });
+
   test("a background run reaches a section only when surfaced or filed", () => {
     const background = conversation({ conversationType: "background" });
     expect(matchesSectionFilter(background, CHATS)).toBe(false);
