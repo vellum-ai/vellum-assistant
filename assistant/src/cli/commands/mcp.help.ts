@@ -138,9 +138,10 @@ Arguments:
 
 Only works with sse or streamable-http transports (stdio servers do not use
 OAuth). On desktop, opens a browser for OAuth authorization with the remote
-server. On web, prints the OAuth URL to the terminal — copy and open it in a
-new browser tab manually. The running assistant handles the OAuth callback
-and token exchange in both cases.
+server. On web, the connected client opens the authorization page
+automatically; if the popup is blocked, an "Open page" toast provides a
+manual fallback, and the URL is also printed to the terminal. The running
+assistant handles the OAuth callback and token exchange in both cases.
 
 The command waits up to 2.5 minutes for the user to complete the browser-based
 OAuth flow. If the server already has valid cached tokens, the command succeeds
