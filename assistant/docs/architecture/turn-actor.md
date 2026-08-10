@@ -30,9 +30,24 @@ Do not read `trustContext` or `currentTurnTrustContext` directly. The accessors 
 
 ## When the acting actor is unknown
 
-`getTurnTrust()` falls back to the resting actor when a turn did not record one. That is deliberate and load-bearing: a deferred wake fires with no inbound actor, and failing closed there denies every sensitive tool in the resumed turn (LUM-2929).
+`getTurnTrust()` returns `undefined`. It does not fall back, because a caller
+asking who is acting should not silently receive who the conversation belongs
+to.
 
-The fallback is a defect in the entry point that did not supply an actor, not a feature of the accessor. It is retained until every entry point supplies one.
+A caller that can accept the conversation's owner instead spells it:
+
+```ts
+conversation.getTurnTrust() ?? conversation.getTrustContext();
+```
+
+Most do today, and that is deliberate rather than tidy. A deferred wake fires
+with no inbound actor, and failing closed there denies every sensitive tool in
+the resumed turn (LUM-2929). Writing the fallback at the call site keeps it
+visible to a reader and reviewable when the entry points are fixed.
+
+A caller that must have the acting actor, and for which the conversation's
+owner would be wrong, calls `getTurnTrust()` alone and handles `undefined`.
+Provenance is the case that wants this.
 
 ## Writers that stamp for a run
 

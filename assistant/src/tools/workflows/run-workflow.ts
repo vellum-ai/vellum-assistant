@@ -55,7 +55,8 @@ export const runWorkflowInputSchema = z.looseObject({
  */
 function resolveTrustContext(context: ToolContext): TrustContext {
   const conversation = findConversation(context.conversationId);
-  const fromConversation = conversation?.getTurnTrust();
+  const fromConversation =
+    conversation?.getTurnTrust() ?? conversation?.getTrustContext();
   if (fromConversation) {
     return fromConversation;
   }

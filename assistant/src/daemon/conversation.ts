@@ -2495,14 +2495,16 @@ export class Conversation {
    * persists, for routing a reply to the requester, and for anything a tool
    * can observe. See `docs/architecture/turn-actor.md`.
    *
-   * Falls back to the conversation's trust when a turn recorded none, which is
-   * a gap in the entry point rather than an answer: a deferred wake fires with
-   * no inbound actor, and denying it one fails its whole turn closed
-   * (LUM-2929). Callers supply their own last-resort value, since they
-   * disagree about what it should be.
+   * `undefined` when no turn recorded one, which is a gap in the entry point
+   * rather than an answer. Deliberately does not fall back to the
+   * conversation's trust: a caller that can accept the conversation's owner
+   * instead should say so, by spelling `?? getTrustContext()` where a reader
+   * can see it. Hiding that inside this method would answer a question nobody
+   * asked and reintroduce, one layer down, exactly the ambiguity these two
+   * accessors exist to remove.
    */
   getTurnTrust(): TrustContext | undefined {
-    return this.currentTurnTrustContext ?? this.trustContext;
+    return this.currentTurnTrustContext;
   }
 
   /**

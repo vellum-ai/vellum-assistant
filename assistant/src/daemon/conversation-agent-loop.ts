@@ -1283,7 +1283,8 @@ export async function runAgentLoopImpl(
     // context, then the fallback — matching the trust the runtime injection
     // assembly resolves for the same turn. The loop's other turn-identity
     // fields self-resolve from its own conversation id.
-    const loopTrust = ctx.getTurnTrust() ?? FALLBACK_TURN_TRUST;
+    const loopTrust =
+      ctx.getTurnTrust() ?? ctx.getTrustContext() ?? FALLBACK_TURN_TRUST;
 
     /**
      * Shared closure: runs the agent loop with the wrapper's turn context and

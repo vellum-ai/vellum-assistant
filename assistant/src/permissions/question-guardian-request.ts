@@ -107,7 +107,8 @@ export async function createGuardianRequestForQuestion(
     const conversation = findConversation(conversationId);
     // The prompter runs inside the emitting turn — bind to the turn's trust
     // snapshot so a concurrent context mutation can't repoint the request.
-    const trustContext = conversation?.getTurnTrust();
+    const trustContext =
+      conversation?.getTurnTrust() ?? conversation?.getTrustContext();
     if (!conversation || !trustContext) {
       return;
     }
