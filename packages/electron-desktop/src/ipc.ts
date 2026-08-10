@@ -63,3 +63,5 @@ export const createIpcRegistrar = (
 
   return { handle, handleSync, on };
 };
+
+export type IpcRegistrar = ReturnType<typeof createIpcRegistrar>;
