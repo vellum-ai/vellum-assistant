@@ -3,9 +3,17 @@
  * narrow viewport driven by a coarse pointer, i.e. a phone rather than a
  * desktop window someone shrank.
  *
- * Both halves are load-bearing. Width alone hands a thumb-sized sheet to a
- * tiled Electron window; pointer alone hands one to a touchscreen laptop that
+ * Both halves are load-bearing here. Width alone hands a thumb-sized sheet to
+ * a tiled Electron window; pointer alone hands one to a touchscreen laptop that
  * has the room for an anchored surface.
+ *
+ * That balance is what makes the compound safe, and it does not hold
+ * everywhere: the width half also excludes roomy touch devices (an iPad in
+ * either orientation, a phone in landscape, Android tablets), so a surface
+ * whose other branch depends on hover must read `pointer` alone. Those devices
+ * report `hover: none`, and an affordance they cannot reveal is unreachable
+ * rather than merely cramped. The compound belongs to a pair of presentations
+ * that are both usable, which the anchored menu and the sheet are.
  *
  * These are the same media features as the `touch-mobile` Tailwind variant in
  * `tokens.css`, so a component that hides one surface in CSS and substitutes
