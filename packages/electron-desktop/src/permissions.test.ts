@@ -31,12 +31,33 @@ mock.module("electron", () => ({
   },
 }));
 
+const permissionPolicy = await import("./permissions");
 const {
   denyAllPermissions,
   installPermissionHandler,
-  shouldGrantPermissionCheck,
-  shouldGrantPermissionRequest,
-} = await import("./permissions");
+} = permissionPolicy;
+
+const allowedOrigin = { protocol: "app:", host: "vellum.ai" };
+const resolveAllowedOrigin = () => allowedOrigin;
+const shouldGrantPermissionCheck = (
+  ...args: Parameters<typeof permissionPolicy.shouldGrantPermissionCheck> extends [
+    infer Permission,
+    infer Origin,
+    infer Details,
+    ...unknown[],
+  ]
+    ? [Permission, Origin, Details]
+    : never
+) => permissionPolicy.shouldGrantPermissionCheck(...args, allowedOrigin);
+const shouldGrantPermissionRequest = (
+  ...args: Parameters<typeof permissionPolicy.shouldGrantPermissionRequest> extends [
+    infer Permission,
+    infer Details,
+    ...unknown[],
+  ]
+    ? [Permission, Details]
+    : never
+) => permissionPolicy.shouldGrantPermissionRequest(...args, allowedOrigin);
 
 beforeEach(() => {
   permissionCheckHandler = null;
@@ -178,7 +199,7 @@ describe("permission policy", () => {
   });
 
   test("installs check and request handlers on the default session", () => {
-    installPermissionHandler();
+    installPermissionHandler(resolveAllowedOrigin);
 
     expect(setPermissionCheckHandlerMock).toHaveBeenCalledTimes(1);
     expect(setPermissionRequestHandlerMock).toHaveBeenCalledTimes(1);
@@ -187,7 +208,7 @@ describe("permission policy", () => {
   });
 
   test("installed request handler grants renderer audio requests", () => {
-    installPermissionHandler();
+    installPermissionHandler(resolveAllowedOrigin);
 
     const handler = permissionRequestHandler;
     if (!handler) throw new Error("expected permission request handler");
