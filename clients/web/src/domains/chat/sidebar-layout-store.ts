@@ -85,7 +85,8 @@ export interface SidebarLayoutActions {
   activateScheduled: () => void;
 }
 
-export type SidebarLayoutStore = SidebarLayoutState & SidebarLayoutActions;
+export type SidebarLayoutStore = SidebarLayoutState &
+  SidebarLayoutActions;
 
 // ---------------------------------------------------------------------------
 // Initial state
@@ -107,78 +108,83 @@ const INITIAL_STATE: SidebarLayoutState = {
 // Store
 // ---------------------------------------------------------------------------
 
-const useSidebarLayoutStoreBase = create<SidebarLayoutStore>()((set, get) => ({
-  ...INITIAL_STATE,
+const useSidebarLayoutStoreBase = create<SidebarLayoutStore>()(
+  (set, get) => ({
+    ...INITIAL_STATE,
 
-  setAssistantId: (assistantId: string) => {
-    if (get().assistantId === assistantId) {
-      return;
-    }
-    const openCategories = loadOpenCategories(assistantId);
-    set({
-      assistantId,
-      openCategories,
-      openCustomGroups: loadOpenCustomGroups(assistantId),
-      openPrimary: loadOpenPrimary(assistantId),
-      sectionOrder: loadSectionOrder(assistantId),
-      // A persisted expanded section counts as a reveal, so each lazy
-      // fetch resumes for assistants the user already had that section
-      // open on - tracked per section so they stay independent.
-      backgroundActivated: openCategories.includes("background"),
-      scheduledActivated: openCategories.includes("scheduled"),
-    });
-  },
+    setAssistantId: (assistantId: string) => {
+      if (get().assistantId === assistantId) {
+        return;
+      }
+      const openCategories = loadOpenCategories(assistantId);
+      set({
+        assistantId,
+        openCategories,
+        openCustomGroups: loadOpenCustomGroups(assistantId),
+        openPrimary: loadOpenPrimary(assistantId),
+        sectionOrder: loadSectionOrder(assistantId),
+        // A persisted expanded section counts as a reveal, so each lazy
+        // fetch resumes for assistants the user already had that section
+        // open on - tracked per section so they stay independent.
+        backgroundActivated: openCategories.includes("background"),
+        scheduledActivated: openCategories.includes("scheduled"),
+      });
+    },
 
-  setOpenCategories: (next: string[]) => {
-    set((prev) => ({
-      openCategories: next,
-      backgroundActivated:
-        prev.backgroundActivated || next.includes("background"),
-      scheduledActivated: prev.scheduledActivated || next.includes("scheduled"),
-    }));
-    const { assistantId } = get();
-    if (assistantId) {
-      saveOpenCategories(assistantId, next);
-    }
-  },
+    setOpenCategories: (next: string[]) => {
+      set((prev) => ({
+        openCategories: next,
+        backgroundActivated:
+          prev.backgroundActivated || next.includes("background"),
+        scheduledActivated:
+          prev.scheduledActivated || next.includes("scheduled"),
+      }));
+      const { assistantId } = get();
+      if (assistantId) {
+        saveOpenCategories(assistantId, next);
+      }
+    },
 
-  setOpenCustomGroups: (next: string[]) => {
-    set({ openCustomGroups: next });
-    const { assistantId } = get();
-    if (assistantId) {
-      saveOpenCustomGroups(assistantId, next);
-    }
-  },
+    setOpenCustomGroups: (next: string[]) => {
+      set({ openCustomGroups: next });
+      const { assistantId } = get();
+      if (assistantId) {
+        saveOpenCustomGroups(assistantId, next);
+      }
+    },
 
-  setOpenPrimary: (next: string[]) => {
-    set({ openPrimary: next });
-    const { assistantId } = get();
-    if (assistantId) {
-      saveOpenPrimary(assistantId, next);
-    }
-  },
+    setOpenPrimary: (next: string[]) => {
+      set({ openPrimary: next });
+      const { assistantId } = get();
+      if (assistantId) {
+        saveOpenPrimary(assistantId, next);
+      }
+    },
 
-  setSectionOrder: (next: string[]) => {
-    set({ sectionOrder: next });
-    const { assistantId } = get();
-    if (assistantId) {
-      saveSectionOrder(assistantId, next);
-    }
-  },
+    setSectionOrder: (next: string[]) => {
+      set({ sectionOrder: next });
+      const { assistantId } = get();
+      if (assistantId) {
+        saveSectionOrder(assistantId, next);
+      }
+    },
 
-  activateBackground: () => {
-    if (get().backgroundActivated) {
-      return;
-    }
-    set({ backgroundActivated: true });
-  },
+    activateBackground: () => {
+      if (get().backgroundActivated) {
+        return;
+      }
+      set({ backgroundActivated: true });
+    },
 
-  activateScheduled: () => {
-    if (get().scheduledActivated) {
-      return;
-    }
-    set({ scheduledActivated: true });
-  },
-}));
+    activateScheduled: () => {
+      if (get().scheduledActivated) {
+        return;
+      }
+      set({ scheduledActivated: true });
+    },
+  }),
+);
 
-export const useSidebarLayoutStore = createSelectors(useSidebarLayoutStoreBase);
+export const useSidebarLayoutStore = createSelectors(
+  useSidebarLayoutStoreBase,
+);

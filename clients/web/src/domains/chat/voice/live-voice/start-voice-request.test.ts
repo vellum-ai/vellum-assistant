@@ -31,14 +31,17 @@ const {
   drainPendingVoiceStart,
   requestVoiceStart,
 } = await import("@/domains/chat/voice/live-voice/start-voice-request");
-const { useLiveVoiceStore } =
-  await import("@/domains/chat/voice/live-voice/live-voice-store");
-const { useAssistantIdentityStore } =
-  await import("@/stores/assistant-identity-store");
+const { useLiveVoiceStore } = await import(
+  "@/domains/chat/voice/live-voice/live-voice-store"
+);
+const { useAssistantIdentityStore } = await import(
+  "@/stores/assistant-identity-store"
+);
 const { __resetPendingDeepLinkForTesting, usePendingDeepLinkStore } =
   await import("@/stores/pending-deep-link-store");
-const { useResolvedAssistantsStore } =
-  await import("@/stores/resolved-assistants-store");
+const { useResolvedAssistantsStore } = await import(
+  "@/stores/resolved-assistants-store"
+);
 
 // ---------------------------------------------------------------------------
 // Harness
@@ -47,8 +50,8 @@ const { useResolvedAssistantsStore } =
 /** New enough to serve `POST /v1/live-voice/preflight`. */
 const SUPPORTED_VERSION = "0.10.12";
 
-const starter = mock(
-  (_assistantId: string, _conversationId: string | null) => undefined,
+const starter = mock((_assistantId: string, _conversationId: string | null) =>
+  undefined,
 );
 
 function registerStarter(): void {

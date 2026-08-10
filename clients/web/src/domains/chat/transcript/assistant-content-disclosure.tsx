@@ -18,7 +18,9 @@ export function AssistantContentDisclosure({
   isStreaming = false,
 }: AssistantContentDisclosureProps) {
   const [animateOnSettle] = useState(isStreaming);
-  const [value, setValue] = useState(isStreaming ? EARLIER_ACTIVITY_VALUE : "");
+  const [value, setValue] = useState(
+    isStreaming ? EARLIER_ACTIVITY_VALUE : "",
+  );
 
   useEffect(() => {
     const frame = requestAnimationFrame(() =>

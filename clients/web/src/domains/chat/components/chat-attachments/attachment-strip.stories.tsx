@@ -58,13 +58,7 @@ const MIXED: DisplayAttachment[] = [
   }),
 ];
 
-function Row({
-  label,
-  children,
-}: {
-  label: string;
-  children: React.ReactNode;
-}) {
+function Row({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div className="flex flex-col gap-2 border-b border-[var(--border-base)] pb-6">
       <span className="text-xs uppercase tracking-wide text-[var(--content-tertiary)]">
@@ -230,10 +224,7 @@ export const Fallbacks: StoryObj = {
       <div className="flex flex-wrap gap-6 bg-[var(--surface-base)] p-8">
         {cases.map(([label, att]) => (
           <div key={att.id} className="flex w-[110px] flex-col gap-2">
-            <MessageAttachments
-              attachments={[att]}
-              messageId={`fb-${att.id}`}
-            />
+            <MessageAttachments attachments={[att]} messageId={`fb-${att.id}`} />
             <span className="text-[11px] uppercase tracking-wide text-[var(--content-tertiary)]">
               {label}
             </span>

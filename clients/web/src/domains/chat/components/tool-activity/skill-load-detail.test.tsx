@@ -32,8 +32,9 @@ const exportNames = [...sdkSource.matchAll(/^export const (\w+)/gm)].map(
 const sdkMock = Object.fromEntries(exportNames.map((n) => [n, sdkStub]));
 mock.module("@/generated/daemon/sdk.gen", () => sdkMock);
 
-const { SkillLoadDetail } =
-  await import("@/domains/chat/components/tool-activity/skill-load-detail");
+const { SkillLoadDetail } = await import(
+  "@/domains/chat/components/tool-activity/skill-load-detail"
+);
 const { useViewerStore } = await import("@/stores/viewer-store");
 import type { ToolDetailPayload } from "@/stores/viewer-store";
 

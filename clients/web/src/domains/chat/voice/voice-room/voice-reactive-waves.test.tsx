@@ -127,9 +127,9 @@ describe("VoiceReactiveWaves", () => {
       ".voice-listening-waves",
     )!;
     await waitFor(() => {
-      expect(
-        Number(band.style.getPropertyValue("--voice-amp")),
-      ).toBeGreaterThan(0);
+      expect(Number(band.style.getPropertyValue("--voice-amp"))).toBeGreaterThan(
+        0,
+      );
     });
   });
 

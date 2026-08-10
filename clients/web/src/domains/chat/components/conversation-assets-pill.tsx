@@ -282,9 +282,7 @@ export function ConversationAssetsPill({
           <BottomSheet.Trigger asChild>{trigger}</BottomSheet.Trigger>
           <BottomSheet.Content>
             <BottomSheet.Header>
-              <BottomSheet.Title>
-                {t("conversationAssets.heading")}
-              </BottomSheet.Title>
+              <BottomSheet.Title>{t("conversationAssets.heading")}</BottomSheet.Title>
             </BottomSheet.Header>
             <BottomSheet.Body className="pt-0">{assetItems}</BottomSheet.Body>
           </BottomSheet.Content>

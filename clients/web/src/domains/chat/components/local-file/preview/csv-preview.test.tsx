@@ -59,17 +59,13 @@ describe("CsvPreview", () => {
       />,
     );
 
-    await waitFor(() =>
-      expect(screen.getByText("2 rows x 2 columns")).toBeTruthy(),
-    );
+    await waitFor(() => expect(screen.getByText("2 rows x 2 columns")).toBeTruthy());
   });
 
   test("a headerless file counts every record as a row", async () => {
     render(<CsvPreview blob={csvBlob("1,2\n3,4\n")} filename="rows.csv" />);
 
-    await waitFor(() =>
-      expect(screen.getByText("2 rows x 2 columns")).toBeTruthy(),
-    );
+    await waitFor(() => expect(screen.getByText("2 rows x 2 columns")).toBeTruthy());
     expect(screen.queryAllByRole("columnheader").length).toBe(0);
   });
 
@@ -79,7 +75,9 @@ describe("CsvPreview", () => {
       lines.push(`row-${i},${i}`);
     }
 
-    render(<CsvPreview blob={csvBlob(lines.join("\n"))} filename="rows.csv" />);
+    render(
+      <CsvPreview blob={csvBlob(lines.join("\n"))} filename="rows.csv" />,
+    );
 
     await waitFor(() =>
       expect(
@@ -91,9 +89,7 @@ describe("CsvPreview", () => {
   test("an empty file says so instead of rendering a grid", async () => {
     render(<CsvPreview blob={csvBlob("")} filename="rows.csv" />);
 
-    await waitFor(() =>
-      expect(screen.getByText("This file is empty")).toBeTruthy(),
-    );
+    await waitFor(() => expect(screen.getByText("This file is empty")).toBeTruthy());
     expect(screen.queryByRole("table")).toBeNull();
   });
 });

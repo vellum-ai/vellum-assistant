@@ -1396,8 +1396,7 @@ describe("VoiceRoom: camera", () => {
   /** Present a camera to the room; `null` removes the API entirely. */
   function stubMediaDevices(
     getUserMedia:
-      | ((constraints?: MediaStreamConstraints) => Promise<unknown>)
-      | null,
+      ((constraints?: MediaStreamConstraints) => Promise<unknown>) | null,
   ) {
     Object.defineProperty(navigator, "mediaDevices", {
       configurable: true,
@@ -1531,8 +1530,9 @@ describe("VoiceRoom: camera", () => {
       deviceId: "camera-device-id",
       groupId: "camera-group-id",
     }));
-    const getUserMedia = mock(async (_constraints?: MediaStreamConstraints) =>
-      fakeStream(getSettings),
+    const getUserMedia = mock(
+      async (_constraints?: MediaStreamConstraints) =>
+        fakeStream(getSettings),
     );
     const consoleDebug = spyOn(console, "debug").mockImplementation(() => {});
     stubMediaDevices(getUserMedia);

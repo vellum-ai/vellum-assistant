@@ -31,7 +31,7 @@ describe("postChatMessage onboarding payload", () => {
     (globalThis as { document?: unknown }).document = {
       cookie: "csrftoken=test",
     };
-    globalThis.fetch = mock(
+    globalThis.fetch = (mock(
       async (input: RequestInfo | URL, init?: RequestInit) => {
         // The heyapi client passes a Request object as `input`; read the body
         // by cloning and calling `.text()` so we can decode the JSON payload.
@@ -67,7 +67,7 @@ describe("postChatMessage onboarding payload", () => {
           { status: 200, headers: { "Content-Type": "application/json" } },
         );
       },
-    ) as unknown as typeof fetch;
+    ) as unknown) as typeof fetch;
   });
 
   afterEach(() => {
@@ -235,7 +235,7 @@ describe("postChatMessage wire-field bilingual cutover", () => {
     (globalThis as { document?: unknown }).document = {
       cookie: "csrftoken=test",
     };
-    globalThis.fetch = mock(
+    globalThis.fetch = (mock(
       async (input: RequestInfo | URL, init?: RequestInit) => {
         const url = input instanceof Request ? input.url : String(input);
         let bodyText: string | undefined;
@@ -254,7 +254,7 @@ describe("postChatMessage wire-field bilingual cutover", () => {
           { status: 200, headers: { "Content-Type": "application/json" } },
         );
       },
-    ) as unknown as typeof fetch;
+    ) as unknown) as typeof fetch;
   });
 
   afterEach(() => {
@@ -363,7 +363,7 @@ describe("postChatMessage server-minted conversation flow", () => {
     (globalThis as { document?: unknown }).document = {
       cookie: "csrftoken=test",
     };
-    globalThis.fetch = mock(
+    globalThis.fetch = (mock(
       async (input: RequestInfo | URL, init?: RequestInit) => {
         const url = input instanceof Request ? input.url : String(input);
         let bodyText: string | undefined;
@@ -378,7 +378,7 @@ describe("postChatMessage server-minted conversation flow", () => {
           headers: { "Content-Type": "application/json" },
         });
       },
-    ) as unknown as typeof fetch;
+    ) as unknown) as typeof fetch;
   });
 
   afterEach(() => {
@@ -504,7 +504,7 @@ describe("postChatMessage clientTimezone payload", () => {
     (globalThis as { document?: unknown }).document = {
       cookie: "csrftoken=test",
     };
-    globalThis.fetch = mock(
+    globalThis.fetch = (mock(
       async (input: RequestInfo | URL, init?: RequestInit) => {
         const url = input instanceof Request ? input.url : String(input);
         let bodyText: string | undefined;
@@ -523,7 +523,7 @@ describe("postChatMessage clientTimezone payload", () => {
           { status: 200, headers: { "Content-Type": "application/json" } },
         );
       },
-    ) as unknown as typeof fetch;
+    ) as unknown) as typeof fetch;
   });
 
   afterEach(() => {
@@ -593,7 +593,7 @@ describe("postChatMessage scripted payload", () => {
     (globalThis as { document?: unknown }).document = {
       cookie: "csrftoken=test",
     };
-    globalThis.fetch = mock(
+    globalThis.fetch = (mock(
       async (input: RequestInfo | URL, init?: RequestInit) => {
         const url = input instanceof Request ? input.url : String(input);
         let bodyText: string | undefined;
@@ -612,7 +612,7 @@ describe("postChatMessage scripted payload", () => {
           { status: 200, headers: { "Content-Type": "application/json" } },
         );
       },
-    ) as unknown as typeof fetch;
+    ) as unknown) as typeof fetch;
   });
 
   afterEach(() => {
@@ -678,7 +678,7 @@ describe("postChatMessage visibleAppId payload", () => {
     (globalThis as { document?: unknown }).document = {
       cookie: "csrftoken=test",
     };
-    globalThis.fetch = mock(
+    globalThis.fetch = (mock(
       async (input: RequestInfo | URL, init?: RequestInit) => {
         const url = input instanceof Request ? input.url : String(input);
         let bodyText: string | undefined;
@@ -697,7 +697,7 @@ describe("postChatMessage visibleAppId payload", () => {
           { status: 200, headers: { "Content-Type": "application/json" } },
         );
       },
-    ) as unknown as typeof fetch;
+    ) as unknown) as typeof fetch;
   });
 
   afterEach(() => {

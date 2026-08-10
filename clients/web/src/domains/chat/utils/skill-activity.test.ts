@@ -134,9 +134,7 @@ describe("parseSkillLoadActivity", () => {
   });
 
   it("carries only the skill id while the call is still running", () => {
-    const activity = parseSkillLoadActivity({
-      input: { skill: "app-builder" },
-    });
+    const activity = parseSkillLoadActivity({ input: { skill: "app-builder" } });
 
     expect(activity).toEqual({
       skillId: "app-builder",

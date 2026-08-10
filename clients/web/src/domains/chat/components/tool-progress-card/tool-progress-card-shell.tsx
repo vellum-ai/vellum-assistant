@@ -21,11 +21,7 @@ import { HeaderStepCarousel } from "@/domains/chat/components/tool-progress-card
  * the two semantics can diverge visually later without a prop break.
  */
 export type ToolProgressCardState =
-  | "loading"
-  | "complete"
-  | "warning"
-  | "denied"
-  | "error";
+  "loading" | "complete" | "warning" | "denied" | "error";
 
 export interface ToolProgressCardShellProps {
   /**

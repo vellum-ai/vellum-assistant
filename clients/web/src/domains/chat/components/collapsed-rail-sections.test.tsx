@@ -43,8 +43,9 @@ mock.module("@/domains/chat/components/collapsed-group-icon", () => ({
     createElement("button", { "data-testid": "rail-tile" }, String(label)),
 }));
 
-const { CollapsedRailSections } =
-  await import("@/domains/chat/components/collapsed-rail-sections");
+const { CollapsedRailSections } = await import(
+  "@/domains/chat/components/collapsed-rail-sections"
+);
 
 function railLabels(sections: SidebarSection[]): string[] {
   const html = renderToStaticMarkup(

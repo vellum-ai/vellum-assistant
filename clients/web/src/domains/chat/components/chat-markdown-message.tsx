@@ -286,10 +286,8 @@ function WorkspaceInlineImage({
   );
 }
 
-export interface ChatMarkdownMessageProps extends Omit<
-  MarkdownMessageProps,
-  "linkComponent" | "imageComponent"
-> {
+export interface ChatMarkdownMessageProps
+  extends Omit<MarkdownMessageProps, "linkComponent" | "imageComponent"> {
   /**
    * Fallback for file links the document drawer cannot open: a reference with
    * no assistant to read it through, or a `vellum://host/` link with no

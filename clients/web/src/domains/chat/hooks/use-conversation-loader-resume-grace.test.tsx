@@ -47,8 +47,9 @@ mock.module("@/lib/sentry/capture-error", () => ({
   captureError: () => {},
 }));
 
-const { useConversationLoader } =
-  await import("@/domains/chat/hooks/use-conversation-loader");
+const { useConversationLoader } = await import(
+  "@/domains/chat/hooks/use-conversation-loader"
+);
 
 const queryClient = new QueryClient();
 

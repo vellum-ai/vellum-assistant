@@ -232,7 +232,9 @@ describe("liveVoiceSurfaceLabel", () => {
     expect(liveVoiceSurfaceLabel("connecting", true, false)).toBe(
       "Reconnecting…",
     );
-    expect(liveVoiceSurfaceLabel("listening", false, false)).toBe("Listening…");
+    expect(liveVoiceSurfaceLabel("listening", false, false)).toBe(
+      "Listening…",
+    );
   });
 });
 

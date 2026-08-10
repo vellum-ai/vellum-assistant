@@ -34,12 +34,7 @@ export type TurnPhase =
   | "errored";
 
 export type TerminalReason =
-  | "complete"
-  | "error"
-  | "cancelled"
-  | "timeout"
-  | "session_error"
-  | null;
+  "complete" | "error" | "cancelled" | "timeout" | "session_error" | null;
 
 export interface TurnState {
   phase: TurnPhase;

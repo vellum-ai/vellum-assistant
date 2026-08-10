@@ -759,11 +759,7 @@ function VoiceThinkingIndicator({
  * listening band at whatever placement the room is already using.
  */
 export type VoiceRespondingStyle =
-  | "waves"
-  | "rings"
-  | "halo"
-  | "waveform"
-  | "pulse";
+  "waves" | "rings" | "halo" | "waveform" | "pulse";
 
 /**
  * Smoothed output-amplitude → `--resp-amp` on a ref, for the responding

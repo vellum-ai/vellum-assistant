@@ -42,8 +42,6 @@ export function resolveSubagentDetailConversationId(
 }
 
 /** Whether a detail fetch for `entry` can be addressed at all. */
-export function canAddressSubagentDetail(
-  entry: SubagentDetailAddress,
-): boolean {
+export function canAddressSubagentDetail(entry: SubagentDetailAddress): boolean {
   return resolveSubagentDetailConversationId(entry) !== undefined;
 }

@@ -25,8 +25,7 @@ type Story = StoryObj<typeof SkillToolList>;
 const appBuilderTools: SkillToolSummary[] = [
   {
     name: "app_create",
-    description:
-      "Create a new app in the user's Library and return its folder path.",
+    description: "Create a new app in the user's Library and return its folder path.",
     fromSkill: null,
     params: [
       {

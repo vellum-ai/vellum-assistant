@@ -36,10 +36,7 @@ import { setToolUseAnchor } from "./store-helpers/by-tool-use-id-index";
 // ---------------------------------------------------------------------------
 
 export type WorkflowLeafStatus =
-  | "running"
-  | "completed"
-  | "failed"
-  | "cancelled";
+  "running" | "completed" | "failed" | "cancelled";
 
 export interface WorkflowLeaf {
   seq: number;

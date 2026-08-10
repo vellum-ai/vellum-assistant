@@ -56,12 +56,10 @@ const BG_BASH: ChatMessageToolCall = {
 function itemsFor(toolCalls: ChatMessageToolCall[]): ToolCallCardItem[] {
   return [
     { kind: "thinking", text: "planning" },
-    ...toolCalls.map(
-      (tc): ToolCallCardItem => ({
-        kind: "toolCall",
-        toolCall: tc,
-      }),
-    ),
+    ...toolCalls.map((tc): ToolCallCardItem => ({
+      kind: "toolCall",
+      toolCall: tc,
+    })),
   ];
 }
 

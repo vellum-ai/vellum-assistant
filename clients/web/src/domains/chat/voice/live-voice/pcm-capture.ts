@@ -72,8 +72,7 @@ export type LiveVoiceCaptureError =
   | "unknown";
 
 export type LiveVoiceCaptureResult =
-  | { ok: true }
-  | { ok: false; error: LiveVoiceCaptureError; cause?: unknown };
+  { ok: true } | { ok: false; error: LiveVoiceCaptureError; cause?: unknown };
 
 export interface LiveVoiceAudioCaptureOptions {
   /** Receives each 16 kHz mono Int16 LE PCM chunk as a transferred buffer. */

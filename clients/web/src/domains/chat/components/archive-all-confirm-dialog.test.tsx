@@ -25,7 +25,10 @@ function Harness({
   requestConversations = CONVERSATIONS,
 }: {
   assistantId: string | null;
-  archiveAllInGroup: (groupName: string, conversations: Conversation[]) => void;
+  archiveAllInGroup: (
+    groupName: string,
+    conversations: Conversation[],
+  ) => void;
   requestConversations?: Conversation[];
 }) {
   const { pending, requestArchiveAll, confirmArchiveAll, cancelArchiveAll } =
@@ -152,7 +155,9 @@ describe("useArchiveAllConfirmation + ArchiveAllConfirmDialog", () => {
     try {
       clickByText("request");
       await waitForDialog();
-      expect(document.body.textContent).toContain("the conversation in “Work”");
+      expect(document.body.textContent).toContain(
+        "the conversation in “Work”",
+      );
     } finally {
       cleanup();
     }

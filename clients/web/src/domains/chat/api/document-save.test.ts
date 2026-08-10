@@ -15,7 +15,7 @@ const documentsPost = mock(async (_options: unknown) => ({
 const workspaceWritePost = mock(async (_options: unknown) => ({
   data: {},
   error: undefined,
-  response: { ok: true } as unknown as Response,
+  response: ({ ok: true } as unknown) as Response,
 }));
 
 const daemonSdk = await import("@/generated/daemon/sdk.gen");
@@ -25,8 +25,9 @@ mock.module("@/generated/daemon/sdk.gen", () => ({
   workspaceWritePost,
 }));
 
-const { markdownWordCount, saveDocumentContent } =
-  await import("@/domains/chat/api/document-save");
+const { markdownWordCount, saveDocumentContent } = await import(
+  "@/domains/chat/api/document-save"
+);
 
 beforeEach(() => {
   documentsPost.mockClear();

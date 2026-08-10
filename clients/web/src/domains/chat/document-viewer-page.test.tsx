@@ -32,8 +32,9 @@ mock.module("./components/document-viewer-container", () => ({
   DocumentViewerContainer: () => <div data-testid="viewer" />,
 }));
 
-const { DocumentViewerPage } =
-  await import("@/domains/chat/document-viewer-page");
+const { DocumentViewerPage } = await import(
+  "@/domains/chat/document-viewer-page"
+);
 
 function documentSurface(
   overrides: Partial<DocumentsByIdGetResponse> = {},

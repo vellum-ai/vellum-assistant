@@ -112,8 +112,7 @@ export interface HistoryPaginationResult {
   latestPage: PaginatedHistoryResult | undefined;
   /** Subagent notifications aggregated across all loaded pages, oldest-first. */
   subagentNotifications:
-    | NonNullable<PaginatedHistoryResult["subagentNotifications"]>
-    | undefined;
+    NonNullable<PaginatedHistoryResult["subagentNotifications"]> | undefined;
   /** Background-task completions aggregated across all loaded pages, oldest-first. */
   backgroundToolCompletions: BackgroundTaskEntry[] | undefined;
   /** First-time load with no cached data available. */

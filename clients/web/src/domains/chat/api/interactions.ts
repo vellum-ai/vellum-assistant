@@ -87,8 +87,7 @@ export async function listConversationIdsWithPendingInteractions(
 }
 
 export type SubmitSecretResponseResult =
-  | { ok: true }
-  | { ok: false; status: number; error: string };
+  { ok: true } | { ok: false; status: number; error: string };
 
 export async function submitSecretResponse(
   assistantId: string,

@@ -7,11 +7,7 @@ import type { LiveVoiceSessionState } from "@/domains/chat/voice/live-voice/live
  * orthogonal `reconnecting` signal promotes `connecting` to `"reconnecting"`.
  */
 export type VoiceAvatarVisual =
-  | "idle"
-  | "listening"
-  | "thinking"
-  | "responding"
-  | "reconnecting";
+  "idle" | "listening" | "thinking" | "responding" | "reconnecting";
 
 /**
  * Pure mapping from a live-voice session phase (plus the orthogonal

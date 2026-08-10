@@ -56,8 +56,9 @@ mock.module("@/domains/chat/api/interactions", () => ({
   listConversationIdsWithPendingInteractions: async () => new Set<string>(),
 }));
 
-const { useAttentionTracking } =
-  await import("@/domains/chat/hooks/use-attention-tracking");
+const { useAttentionTracking } = await import(
+  "@/domains/chat/hooks/use-attention-tracking"
+);
 
 function wrapper({ children }: { children: ReactNode }) {
   const client = new QueryClient({

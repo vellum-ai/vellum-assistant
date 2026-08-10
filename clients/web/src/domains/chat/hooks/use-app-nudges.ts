@@ -173,7 +173,10 @@ export function useAppNudges(
 
     if (newlyCompleted > 0) {
       if (nativeAppPlatform) {
-        incrementNativeAppAssistantTurnsSeen(nativeAppPlatform, newlyCompleted);
+        incrementNativeAppAssistantTurnsSeen(
+          nativeAppPlatform,
+          newlyCompleted,
+        );
       } else {
         incrementMacOsAssistantTurnsSeen(newlyCompleted);
       }
