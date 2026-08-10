@@ -666,7 +666,15 @@ describe("entry-name providers", () => {
     expect(resolveProviderCalls[0]?.name).toBe("anthropic-work");
   });
 
-  test("a label naming no row degrades to the soft null path", async () => {
+  test("a profile naming no row is healed away at selection", async () => {
+    // Selection treats an unresolvable provider like an incomplete profile:
+    // the broken winner loses and the next rung's model AND transport apply
+    // together, restoring the pre-open-schema self-healing. The anchor is
+    // the managed default, so the heal lands on the vellum route.
+    registerConnection(
+      { name: "vellum", provider: "vellum", auth: { type: "platform" } },
+      { name: "anthropic", tag: "managed-anchor" },
+    );
     setLlmConfig({
       profiles: {
         ghost: { provider: "no-such-entry", model: "claude-opus-4-8" },
@@ -677,6 +685,22 @@ describe("entry-name providers", () => {
       overrideProfile: "ghost",
     });
 
-    expect(result).toBeNull();
+    expect(result).not.toBeNull();
+    expect(resolveProviderCalls[0]?.name).toBe("vellum");
+  });
+
+  test("healing hands off to the anchor, whose own failures stay loud", async () => {
+    // With the broken profile healed away, resolution rests on the managed
+    // anchor; its canonical row missing is a boot-seeding violation and
+    // throws explainably rather than masquerading as the ghost profile.
+    setLlmConfig({
+      profiles: {
+        ghost: { provider: "no-such-entry", model: "claude-opus-4-8" },
+      },
+    });
+
+    await expect(
+      getConfiguredProvider("mainAgent", { overrideProfile: "ghost" }),
+    ).rejects.toMatchObject({ reason: "not_found", connectionName: "vellum" });
   });
 });

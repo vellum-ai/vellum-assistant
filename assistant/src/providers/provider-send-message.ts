@@ -17,6 +17,7 @@ import {
   isConnectionCompatibleWithModel,
 } from "./connection-model-compat.js";
 import {
+  dispatchProviderResolvable,
   expectedVendorProvider,
   resolveEntryConnectionName,
   resolveRoutingIdentity,
@@ -142,7 +143,10 @@ export async function resolveConfiguredProvider(
     }
   }
 
-  const resolved = resolveCallSiteConfig(callSite, config.llm, opts);
+  const resolved = resolveCallSiteConfig(callSite, config.llm, {
+    ...opts,
+    isResolvableProvider: dispatchProviderResolvable,
+  });
   const inferenceProvider = resolved.provider;
   let connectionName = resolved.provider_connection;
 

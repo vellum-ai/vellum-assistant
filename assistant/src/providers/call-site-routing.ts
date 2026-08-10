@@ -39,6 +39,7 @@ import {
 import {
   connectionProviderKind,
   ConnectionResolutionError,
+  dispatchProviderResolvable,
   expectedVendorProvider,
   isManagedConnectionRoute,
   resolveEntryConnectionName,
@@ -268,6 +269,7 @@ export class CallSiteRoutingProvider implements Provider {
         overrideProfile,
         forceOverrideProfile,
         selectionSeed,
+        isResolvableProvider: dispatchProviderResolvable,
       },
     );
 

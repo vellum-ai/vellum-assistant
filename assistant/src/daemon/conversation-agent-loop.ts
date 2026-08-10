@@ -62,6 +62,7 @@ import type { ConversationGraphMemory } from "../plugins/defaults/memory/graph/c
 import { enqueueMemoryRetrospectiveOnCompaction } from "../plugins/defaults/memory/memory-retrospective-enqueue.js";
 import { runHook } from "../plugins/pipeline.js";
 import {
+  dispatchProviderResolvable,
   isManagedConnectionRoute,
   resolveEntryConnectionName,
 } from "../providers/connection-resolution.js";
@@ -494,10 +495,13 @@ export async function runAgentLoopImpl(
   const turnErrorAttribution = (): ConversationErrorAttribution => {
     try {
       const overrideProfile = readCurrentOverrideProfile();
+      // Mirrors dispatch's selection (including the resolvable-provider
+      // healing) so attribution names the profile that actually ran.
       const resolveOpts = {
         overrideProfile,
         forceOverrideProfile,
         selectionSeed: ctx.conversationId,
+        isResolvableProvider: dispatchProviderResolvable,
       };
       const { config: resolved, profileName } =
         resolveCallSiteConfigWithProfile(turnCallSite, config.llm, resolveOpts);

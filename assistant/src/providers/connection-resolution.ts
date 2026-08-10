@@ -91,6 +91,23 @@ export function resolveEntryConnectionName(
 }
 
 /**
+ * Selection-time predicate for `ResolveCallSiteOpts.isResolvableProvider`:
+ * a provider value dispatches when it is a known vendor/identity or names a
+ * connection entry row. Permissive on DB unavailability so a transient blip
+ * never heals away a valid entry profile; dispatch soft-fails on its own.
+ */
+export function dispatchProviderResolvable(provider: string): boolean {
+  if (VALID_CONNECTION_PROVIDERS.includes(provider)) {
+    return true;
+  }
+  try {
+    return getConnection(getDb(), provider) != null;
+  } catch {
+    return true;
+  }
+}
+
+/**
  * The vendor a resolved provider value expects its connection row to serve:
  * catalog ids and routing identities pass through, and an entry-name label
  * resolves to its row's dispatchable kind, so a config carrying both an
@@ -433,7 +450,9 @@ async function resolveThroughPlatform(
 export async function resolveDefaultProvider(
   config: ProvidersConfig,
 ): Promise<Provider | null> {
-  const resolved = resolveCallSiteConfig("mainAgent", config.llm);
+  const resolved = resolveCallSiteConfig("mainAgent", config.llm, {
+    isResolvableProvider: dispatchProviderResolvable,
+  });
   let connectionName = resolved.provider_connection;
   // A routing-identity provider names its own connection row; the
   // provider-keyed auto-resolve scan below cannot find it ("chatgpt" rows
