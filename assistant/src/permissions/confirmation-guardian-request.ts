@@ -66,8 +66,8 @@ export async function createGuardianRequestForConfirmation(
 
     const conversation = findConversation(conversationId);
     const trustContext = opts?.preferTurnSnapshot
-      ? (conversation?.currentTurnTrustContext ?? conversation?.trustContext)
-      : conversation?.trustContext;
+      ? conversation?.getTurnTrust()
+      : conversation?.getTrustContext();
     const sourceChannel = trustContext?.sourceChannel ?? "vellum";
     const inputRecord = msg.input as Record<string, unknown>;
     const activityRaw =

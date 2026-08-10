@@ -719,7 +719,7 @@ export async function wakeAgentForOpportunity(
     // Snapshot the conversation's resting trust before the resolver runs, so
     // it can be restored after. The resolver leaves the wake's trust on the
     // conversation, and a following no-trust wake would otherwise read it via
-    // tool setup's `currentTurnTrustContext ?? trustContext` fallback. Null
+    // `getTurnTrust()`, which falls back to the resting trust. Null
     // when the conversation isn't resident yet (a fresh hydrate or a fork).
     let priorPersistentTrust: TrustContext | null = null;
     if (opts.trustContext) {

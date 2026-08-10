@@ -2489,6 +2489,36 @@ export class Conversation {
   }
 
   /**
+   * Trust the in-flight turn is executing under.
+   *
+   * Use this for authorization, for provenance stamped onto anything the turn
+   * persists, for routing a reply to the requester, and for anything a tool
+   * can observe. See `docs/architecture/turn-actor.md`.
+   *
+   * Falls back to the conversation's trust when a turn recorded none, which is
+   * a gap in the entry point rather than an answer: a deferred wake fires with
+   * no inbound actor, and denying it one fails its whole turn closed
+   * (LUM-2929). Callers supply their own last-resort value, since they
+   * disagree about what it should be.
+   */
+  getTurnTrust(): TrustContext | undefined {
+    return this.currentTurnTrustContext ?? this.trustContext;
+  }
+
+  /**
+   * Trust of the actor the conversation belongs to, independent of any turn.
+   *
+   * Use this where there is no turn to speak of: routes reporting on a
+   * conversation, hydration, and persisting conversation-level options. A
+   * caller that wants the conversation's owner *rather than* whoever is
+   * currently acting should be obviously doing so; if it is not obvious,
+   * {@link getTurnTrust} is probably the one meant.
+   */
+  getTrustContext(): TrustContext | undefined {
+    return this.trustContext;
+  }
+
+  /**
    * The actor principal that owns the current turn, for host-proxy routing.
    * Prefers the in-flight turn's actor over the conversation's resting
    * authContext so a /v1/messages turn (which sets only

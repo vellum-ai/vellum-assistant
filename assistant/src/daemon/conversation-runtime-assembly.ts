@@ -2380,8 +2380,7 @@ export async function applyRuntimeInjections(
     turnIndex: options.turnIndex ?? liveConversation?.turnCount ?? 0,
     trust:
       options.trust ??
-      liveConversation?.currentTurnTrustContext ??
-      liveConversation?.trustContext ??
+      liveConversation?.getTurnTrust() ??
       fallbackTurnTrust(channelCapabilities),
     callSite: options.callSite ?? liveConversation?.currentCallSite,
     ...injectionInputs,
