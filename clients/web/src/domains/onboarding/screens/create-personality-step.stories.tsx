@@ -82,7 +82,10 @@ export const Desktop: Story = {
  * the `EDGE_GAP` intends, is the anchor resolving against the wrong box.
  */
 export const LandscapeWithSideInsets: Story = {
-  globals: { viewport: { value: "sbDesktop" } },
+  // Rotated phone: 844x390, wide enough for the avatars to render at all
+  // (they are hidden below 640px) and the shape a notched device is in when
+  // the shell applies left/right insets.
+  globals: { viewport: { value: "sbMobile", isRotated: true } },
   render: function Render(args) {
     const [{ values }, updateArgs] = useArgs<{
       values: Record<string, number>;
