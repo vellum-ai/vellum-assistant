@@ -31,6 +31,7 @@ import { recordDiagnostic } from "@/lib/diagnostics";
 import { emitClientPerfEvent } from "@/lib/telemetry/client-perf";
 import type { Conversation } from "@/types/conversation-types";
 import { readContentLength } from "@/utils/content-length";
+import { byTimestampDesc } from "@/utils/conversation-order";
 import { isScheduledConversation } from "@/utils/conversation-predicates";
 import { toConversation } from "@/utils/conversation-transforms";
 
@@ -95,6 +96,41 @@ export function sectionConversationsQueryKey(
 }
 
 /**
+ * Recover the filter a section cache was keyed by, or `null` when the key
+ * is not a section key.
+ *
+ * The decoder to {@link sectionConversationsQueryKey}'s encoder, and it lives
+ * beside it so the two cannot drift. It exists because a local write has to
+ * answer "does this row belong in *this* cache", and the only statement of
+ * what a cache holds is its own key: TanStack's `setQueriesData` hands its
+ * updater the data alone, never the key it came from, so a membership-aware
+ * write has to walk `getQueriesData` and decode each key itself.
+ *
+ * @see {@link https://tanstack.com/query/latest/docs/reference/QueryClient#queryclientsetqueriesdata}
+ */
+export function parseSectionConversationsQueryKey(
+  queryKey: readonly unknown[],
+): SectionConversationFilter | null {
+  const [prefix, , discriminator, groupId, originChannel] = queryKey;
+  if (
+    prefix !== CONVERSATION_LIST_PREFIX ||
+    discriminator !== "section" ||
+    typeof groupId !== "string" ||
+    typeof originChannel !== "string"
+  ) {
+    return null;
+  }
+  /* The encoder writes "" for an absent axis, so "" decodes back to absent
+     rather than to a filter on the empty string. */
+  return {
+    ...(groupId === "" ? {} : { groupId: groupId as ConversationGroupId }),
+    ...(originChannel === ""
+      ? {}
+      : { originChannel: originChannel as OriginChannel }),
+  };
+}
+
+/**
  * Key for the server-side unread conversation count
  * (`GET /v1/conversations/unread-count`). The cache holds `number | null`
  * (see {@link fetchUnreadConversationCount}).
@@ -108,17 +144,6 @@ export function unreadConversationCountQueryKey(assistantId: string | null) {
   return conversationsUnreadcountGetQueryKey({
     path: { assistant_id: assistantId ?? "" },
   });
-}
-
-// ---------------------------------------------------------------------------
-// Shared sort comparator
-// ---------------------------------------------------------------------------
-
-/** Sort conversations descending by a timestamp field (newest first). */
-function byTimestampDesc(
-  key: "lastMessageAt" | "archivedAt",
-): (a: Conversation, b: Conversation) => number {
-  return (a, b) => (b[key] ?? 0) - (a[key] ?? 0);
 }
 
 // ---------------------------------------------------------------------------

@@ -17,6 +17,9 @@ export async function loadImageRefData(
   const msg = db
     .select({ content: messages.content })
     .from(messages)
+    // No completeness predicate: refs come from the extracted memory graph,
+    // and extraction reads finalized rows only, so an unfinalized id cannot
+    // reach here. Do not copy this shape for ids with other provenance.
     .where(eq(messages.id, ref.messageId))
     .get();
   if (!msg) {

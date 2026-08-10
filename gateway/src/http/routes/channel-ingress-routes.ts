@@ -57,6 +57,13 @@ const IngressRouteViewSchema = z.object({
    * source's state: a `vellum`-signed route is served without approval.
    */
   served: z.boolean(),
+  /**
+   * Whether this route's replies deliver messages into the assistant, rather
+   * than the route being a callback the plugin merely receives. Approving one
+   * of these grants the plugin a way to start conversations, which is a
+   * different decision than opening an address.
+   */
+  deliversInbound: z.boolean(),
   /** Present when the route declares its own verification scheme. */
   verification: z
     .object({ algorithm: z.string(), signatureHeader: z.string() })

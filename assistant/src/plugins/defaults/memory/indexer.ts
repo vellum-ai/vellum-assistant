@@ -123,7 +123,9 @@ export async function indexMessageNow(
   // memory_segments has no cross-file FK to messages, so this call must not
   // leave pieces for a message with no row. Skip early when the source
   // row is already gone, the common case of a backfill job running after the
-  // message was deleted. A post-write re-check below closes the narrower window
+  // message was deleted. Any-state existence check, deliberately: a
+  // streaming row exists, and orphan prevention is about deletion, not
+  // completeness. A post-write re-check below closes the narrower window
   // where the delete lands mid-transaction.
   const sourceMessage = getDb()
     .select({ id: messages.id })

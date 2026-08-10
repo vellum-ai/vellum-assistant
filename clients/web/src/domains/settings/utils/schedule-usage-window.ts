@@ -1,5 +1,8 @@
 import { getEffectiveTimezone } from "@/utils/effective-timezone";
-import { resolveUsageRangeWindow } from "@/utils/usage-window";
+import {
+  resolveUsageRangeWindow,
+  SCHEDULE_USAGE_RANGE,
+} from "@/utils/usage-window";
 
 export interface ScheduleUsageWindow {
   from: number;
@@ -10,5 +13,5 @@ export function resolveScheduleUsageWindow(
   tz: string = getEffectiveTimezone(),
   now: Date | number = Date.now(),
 ): ScheduleUsageWindow {
-  return resolveUsageRangeWindow("7d", tz, now);
+  return resolveUsageRangeWindow(SCHEDULE_USAGE_RANGE, tz, now);
 }

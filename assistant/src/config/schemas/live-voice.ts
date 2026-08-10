@@ -42,6 +42,31 @@ export const LiveVoiceVadConfigSchema = z
       .describe(
         "Sustained speech (ms) required before speech during assistant playback interrupts it — the default 'interrupt sensitivity' (higher = harder to interrupt). 0 disables the guard. Clients may override it per-session via the start frame. Raised from 60 so brief TTS bleed through imperfect echo cancellation no longer self-interrupts the assistant.",
       ),
+    echoBargeInMargin: z
+      .number({ error: "liveVoice.vad.echoBargeInMargin must be a number" })
+      .gt(1, "liveVoice.vad.echoBargeInMargin must be greater than 1")
+      .default(1.5)
+      .describe(
+        "Multiplier over the learned playback echo level that microphone input must exceed to count as speech during playback. Higher values reduce false interruptions but require louder barge-in speech.",
+      ),
+    echoEmaHalfLifeMs: z
+      .number({ error: "liveVoice.vad.echoEmaHalfLifeMs must be a number" })
+      .int("liveVoice.vad.echoEmaHalfLifeMs must be an integer")
+      .positive("liveVoice.vad.echoEmaHalfLifeMs must be a positive integer")
+      .default(400)
+      .describe(
+        "Half-life (ms) of the learned playback echo level. Smaller values adapt faster to changing speaker volume; larger values are steadier against transients.",
+      ),
+    echoDrainSlackMs: z
+      .number({ error: "liveVoice.vad.echoDrainSlackMs must be a number" })
+      .int("liveVoice.vad.echoDrainSlackMs must be an integer")
+      .nonnegative(
+        "liveVoice.vad.echoDrainSlackMs must be a nonnegative integer",
+      )
+      .default(300)
+      .describe(
+        "Time (ms) after the estimated client playback tail during which microphone input can still be classified as playback echo.",
+      ),
   })
   .describe(
     "Voice-activity-detection tuning for live voice sessions (open-mic turn segmentation)",
@@ -182,34 +207,12 @@ export const LiveVoiceFrontModelConfigSchema = z
       )
       .default(2)
       .describe("Cap on consecutive 'hold' extensions per utterance"),
-    ackFirstDeltaTimeoutMs: z
-      .number({
-        error: "liveVoice.frontModel.ackFirstDeltaTimeoutMs must be a number",
-      })
-      .int("liveVoice.frontModel.ackFirstDeltaTimeoutMs must be an integer")
-      .positive(
-        "liveVoice.frontModel.ackFirstDeltaTimeoutMs must be a positive integer",
-      )
-      .default(2500)
-      .describe(
-        "Keyword-delay budget (ms): a spoken ack fires if no first assistant delta has arrived by then",
-      ),
-    ackGenerationTimeoutMs: z
-      .number({
-        error: "liveVoice.frontModel.ackGenerationTimeoutMs must be a number",
-      })
-      .int("liveVoice.frontModel.ackGenerationTimeoutMs must be an integer")
-      .positive(
-        "liveVoice.frontModel.ackGenerationTimeoutMs must be a positive integer",
-      )
-      .default(600)
-      .describe("Budget (ms) for LLM-generated ack text"),
     progress: LiveVoiceProgressConfigSchema.default(
       LiveVoiceProgressConfigSchema.parse({}),
     ),
   })
   .describe(
-    "Front-model presence layer tuning for live voice sessions (semantic endpointing + spoken acks + progress narration)",
+    "Voice front-door endpointing and long-turn progress narration tuning",
   );
 
 const LiveVoiceFluxTurnEndConfigSchema = z

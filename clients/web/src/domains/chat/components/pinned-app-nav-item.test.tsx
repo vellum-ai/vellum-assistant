@@ -3,7 +3,7 @@
  *
  * The design-library `SideMenu.Item` and `ContextMenu` primitives are mocked
  * with lightweight elements so these tests exercise the component's
- * composition and store wiring (open, unpin, collapsed omission) rather than
+ * composition and store wiring (open, unpin, the menu on both shapes) rather than
  * Radix ContextMenu internals. `onSelect` is surfaced as an `onClick` so
  * happy-dom can drive it.
  *
@@ -180,12 +180,43 @@ describe("PinnedAppNavItem", () => {
     expect(button.className).toContain("pointer-coarse:pointer-events-none");
   });
 
-  test("collapsed rail: renders the row without the context-menu wrapper", () => {
+  /* The tile is the shape with the most riding on the menu: no hover button,
+     nothing to swipe, so this is its only route to an unpin. Collapsing the
+     rail changes what a pinned app looks like, not what can be done to it. */
+  test("collapsed rail: keeps the context menu", () => {
     render(<PinnedAppNavItem app={APP} active={false} collapsed />);
 
     expect(screen.getByTestId("app-row").textContent).toBe("My App");
-    expect(screen.queryByTestId("ctx-root")).toBeNull();
-    expect(screen.queryByRole("button", { name: "Unpin" })).toBeNull();
+    expect(screen.getByTestId("ctx-root")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Unpin" })).toBeTruthy();
+  });
+
+  test("collapsed rail: Unpin clears the pin", () => {
+    seedPin(APP);
+    expect(usePinnedAppsStore.getState().isPinned("app-1")).toBe(true);
+
+    render(<PinnedAppNavItem app={APP} active={false} collapsed />);
+    fireEvent.click(screen.getByRole("button", { name: "Unpin" }));
+
+    expect(usePinnedAppsStore.getState().isPinned("app-1")).toBe(false);
+  });
+
+  test("collapsed rail: the colour row rides along with the menu", () => {
+    render(<PinnedAppNavItem app={TEAL_APP} active={false} collapsed />);
+
+    expect(
+      screen
+        .getByRole("menuitemradio", { name: "Teal" })
+        .getAttribute("aria-checked"),
+    ).toBe("true");
+  });
+
+  /* The hover button is expanded-only on purpose: `SideMenu.Item` has no
+     trailing slot, and a 20px button inside a 30px tile would sit on the glyph
+     it is meant to sit beside. */
+  test("collapsed rail: omits the hover unpin button", () => {
+    render(<PinnedAppNavItem app={APP} active={false} collapsed />);
+
     expect(screen.queryByRole("button", { name: "Unpin My App" })).toBeNull();
   });
 
@@ -332,12 +363,6 @@ describe("PinnedAppNavItem", () => {
 
     expect(screen.getByRole("menuitemradio", { name: "Teal" })).toBeTruthy();
     expect(screen.queryByRole("menuitemradio", { name: "teal" })).toBeNull();
-  });
-
-  test("collapsed rail: the colour row is omitted with the rest of the menu", () => {
-    render(<PinnedAppNavItem app={TEAL_APP} active={false} collapsed />);
-
-    expect(screen.queryByRole("menuitemradio", { name: "Teal" })).toBeNull();
   });
 
   /* `aria-current="page"` rather than a `data-active` attribute: the pill's

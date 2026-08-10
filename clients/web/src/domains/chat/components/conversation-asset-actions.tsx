@@ -18,6 +18,7 @@ import {
   toast,
 } from "@vellumai/design-library";
 
+import { useTouchMobile } from "@/hooks/use-touch-mobile";
 import { documentsByIdPdfGet } from "@/generated/daemon/sdk.gen";
 import { usePinnedAppsStore } from "@/stores/pinned-apps-store";
 import type { AppSummary } from "@/types/app-types";
@@ -27,7 +28,8 @@ import { shareApp } from "@/utils/share-app";
 /**
  * Per-row options menu ("dots") for the conversation assets pill, mirroring
  * the gallery's `LibraryAppCardActionsMenu` pattern: a trailing `Ellipsis`
- * button that opens a nested `BottomSheet` on mobile and a `Menu` on desktop.
+ * button that opens a nested `BottomSheet` on touch and a `Menu` under a
+ * pointer (see `docs/PLATFORM_ADAPTATION.md`).
  *
  * Apps get the gallery's actions (Pin / Share / Delete). Documents get
  * Open / Download PDF — the daemon has no document-delete endpoint, so
@@ -35,7 +37,6 @@ import { shareApp } from "@/utils/share-app";
  */
 
 interface MenuShellProps {
-  isMobile: boolean;
   title: string;
   ariaLabel: string;
   children: (close: () => void) => ReactNode;
@@ -43,12 +44,12 @@ interface MenuShellProps {
 }
 
 function MenuShell({
-  isMobile,
   title,
   ariaLabel,
   children,
   desktopItems,
 }: MenuShellProps) {
+  const isTouchMobile = useTouchMobile();
   const [open, setOpen] = useState(false);
   const close = useCallback(() => setOpen(false), []);
 
@@ -70,7 +71,7 @@ function MenuShell({
     />
   );
 
-  if (isMobile) {
+  if (isTouchMobile) {
     return (
       <BottomSheet.Root open={open} onOpenChange={setOpen}>
         <BottomSheet.Trigger asChild>{trigger}</BottomSheet.Trigger>
@@ -102,7 +103,6 @@ function MenuShell({
 interface AppAssetActionsProps {
   assistantId: string;
   app: AppSummary;
-  isMobile: boolean;
   /**
    * Ask the owner to show the delete confirmation. The dialog must be
    * rendered OUTSIDE the hosting Popover/BottomSheet: it portals and steals
@@ -115,7 +115,6 @@ interface AppAssetActionsProps {
 export const AppAssetActions: FC<AppAssetActionsProps> = ({
   assistantId,
   app,
-  isMobile,
   onRequestDelete,
 }) => {
   const togglePin = usePinnedAppsStore.use.togglePin();
@@ -142,7 +141,6 @@ export const AppAssetActions: FC<AppAssetActionsProps> = ({
 
   return (
     <MenuShell
-      isMobile={isMobile}
       title={app.name}
       ariaLabel={`Options for ${app.name}`}
       desktopItems={
@@ -217,14 +215,12 @@ export const AppAssetActions: FC<AppAssetActionsProps> = ({
 interface DocumentAssetActionsProps {
   assistantId: string;
   doc: DocumentSummary;
-  isMobile: boolean;
   onOpen: () => void;
 }
 
 export const DocumentAssetActions: FC<DocumentAssetActionsProps> = ({
   assistantId,
   doc,
-  isMobile,
   onOpen,
 }) => {
   const handleDownloadPdf = useCallback(async () => {
@@ -248,7 +244,6 @@ export const DocumentAssetActions: FC<DocumentAssetActionsProps> = ({
 
   return (
     <MenuShell
-      isMobile={isMobile}
       title={doc.title}
       ariaLabel={`Options for ${doc.title}`}
       desktopItems={

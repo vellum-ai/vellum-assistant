@@ -1,0 +1,9 @@
+{
+  "pairingPage": {
+    "openInApp": "Open in the Vellum app",
+    "continueInBrowser": "Continue in this browser",
+    "pairingCode": "Pairing code",
+    "expiresAt": "Expires {time}.",
+    "cancel": "Cancel"
+  }
+}

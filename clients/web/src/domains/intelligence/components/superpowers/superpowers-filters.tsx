@@ -25,7 +25,7 @@ import {
 import { resolveCategoryIcon } from "@/domains/intelligence/skills/category-icon-map";
 import type { CategoryInfo } from "@/domains/intelligence/skills/use-skill-categories";
 import type { SuperpowerFilter } from "@/domains/intelligence/superpowers/types";
-import { useIsMobile } from "@/hooks/use-is-mobile";
+import { useTouchMobile } from "@/hooks/use-touch-mobile";
 import {
   BottomSheet,
   Button,
@@ -71,7 +71,7 @@ interface FilterBarProps {
   filter: SuperpowerFilter;
   onFilterChange: (f: SuperpowerFilter) => void;
   isSearching: boolean;
-  /** Available categories — surfaced inside the mobile filter sheet. */
+  /** Available categories, surfaced inside the filter sheet. */
   categories: CategoryInfo[];
   /** Currently selected category slug, or `null` for "All". */
   category: string | null;
@@ -87,6 +87,11 @@ interface FilterBarProps {
    * doesn't, the list is skills-only, so the Type group is omitted.
    */
   pluginsSupported: boolean;
+  /**
+   * Whether this control owns category selection, which it does exactly when
+   * the page's category rail is unmounted and categories have no other surface.
+   */
+  showCategories: boolean;
 }
 
 export function FilterBar({
@@ -102,6 +107,7 @@ export function FilterBar({
   totalCount,
   showCounts,
   pluginsSupported,
+  showCategories,
 }: FilterBarProps) {
   const handleChange = (e: ChangeEvent<HTMLInputElement>) => {
     onSearchChange(e.target.value);
@@ -135,6 +141,7 @@ export function FilterBar({
         totalCount={totalCount}
         showCounts={showCounts}
         pluginsSupported={pluginsSupported}
+        showCategories={showCategories}
       />
     </div>
   );
@@ -150,18 +157,18 @@ interface FilterControlProps {
   totalCount: number;
   showCounts: boolean;
   pluginsSupported: boolean;
+  showCategories: boolean;
 }
 
 /**
- * Filter affordance for the My Superpowers page. On mobile the outlined
- * filter button opens a bottom sheet exposing Status, Type, Source, AND
- * Categories (the category sidebar is desktop-only, so the sheet is mobile's
- * sole category surface). On desktop the same button opens a compact popover
- * with Status + Type + Source; the always-visible sidebar owns category
- * selection there.
+ * Filter affordance for the My Superpowers page. On touch the outlined filter
+ * button opens a bottom sheet; otherwise it opens a compact popover. Both
+ * surfaces carry Status, Type, and Source, and both grow a Categories section
+ * when the page's category rail is unmounted, so category selection is reachable
+ * on exactly one surface at any viewport.
  */
 function FilterControl(props: FilterControlProps) {
-  const isMobile = useIsMobile();
+  const isTouchMobile = useTouchMobile();
   const [open, setOpen] = useState(false);
 
   const trigger = (
@@ -170,13 +177,13 @@ function FilterControl(props: FilterControlProps) {
       variant="outlined"
       iconOnly={<Filter aria-hidden />}
       aria-label="Filter superpowers"
-      aria-haspopup={isMobile ? "dialog" : "listbox"}
+      aria-haspopup={isTouchMobile ? "dialog" : "listbox"}
       aria-expanded={open}
       tintColor="var(--primary-base)"
     />
   );
 
-  if (isMobile) {
+  if (isTouchMobile) {
     return (
       <FilterSheet
         {...props}
@@ -231,6 +238,25 @@ function FilterControl(props: FilterControlProps) {
             selected={props.filter}
             onSelect={selectAndClose}
           />
+          {props.showCategories && (
+            <>
+              <div
+                className="border-t"
+                style={{ borderColor: "var(--border-base)" }}
+              />
+              <CategoryGroup
+                categories={props.categories}
+                category={props.category}
+                counts={props.counts}
+                totalCount={props.totalCount}
+                showCounts={props.showCounts}
+                onSelect={(next) => {
+                  props.onCategoryChange(next);
+                  setOpen(false);
+                }}
+              />
+            </>
+          )}
         </ul>
       </Popover.Content>
     </Popover.Root>
@@ -244,7 +270,7 @@ interface FilterSheetProps extends FilterControlProps {
 }
 
 /**
- * Mobile bottom sheet. Status/Type/Source and Categories are independent axes
+ * Touch bottom sheet. Status/Type/Source and Categories are independent axes
  * that both stay applied, so selecting a row updates the results live behind
  * the sheet without closing it — the user dials in both, then taps Done (or
  * outside) to dismiss.
@@ -259,14 +285,11 @@ function FilterSheet({
   totalCount,
   showCounts,
   pluginsSupported,
+  showCategories,
   open,
   onOpenChange,
   trigger,
 }: FilterSheetProps) {
-  const sortedCategories = [...categories].sort((a, b) =>
-    a.label.localeCompare(b.label),
-  );
-
   return (
     <BottomSheet.Root open={open} onOpenChange={onOpenChange}>
       <BottomSheet.Trigger asChild>{trigger}</BottomSheet.Trigger>
@@ -320,25 +343,27 @@ function FilterSheet({
             ))}
           </SheetSection>
 
-          <SheetSection label="Categories">
-            <FilterRow
-              icon={LayoutGrid}
-              label="All"
-              active={category === null}
-              badge={showCounts ? totalCount : undefined}
-              onSelect={() => onCategoryChange(null)}
-            />
-            {sortedCategories.map((cat) => (
+          {showCategories && (
+            <SheetSection label="Categories">
               <FilterRow
-                key={cat.slug}
-                icon={resolveCategoryIcon(cat.icon) ?? LayoutGrid}
-                label={cat.label}
-                active={category === cat.slug}
-                badge={showCounts ? (counts[cat.slug] ?? 0) : undefined}
-                onSelect={() => onCategoryChange(cat.slug)}
+                icon={LayoutGrid}
+                label="All"
+                active={category === null}
+                badge={showCounts ? totalCount : undefined}
+                onSelect={() => onCategoryChange(null)}
               />
-            ))}
-          </SheetSection>
+              {sortCategories(categories).map((cat) => (
+                <FilterRow
+                  key={cat.slug}
+                  icon={resolveCategoryIcon(cat.icon) ?? LayoutGrid}
+                  label={cat.label}
+                  active={category === cat.slug}
+                  badge={showCounts ? (counts[cat.slug] ?? 0) : undefined}
+                  onSelect={() => onCategoryChange(cat.slug)}
+                />
+              ))}
+            </SheetSection>
+          )}
         </BottomSheet.Body>
         <BottomSheet.Footer>
           <Button
@@ -355,7 +380,7 @@ function FilterSheet({
   );
 }
 
-/** Section grouping inside the mobile filter sheet. */
+/** Section grouping inside the filter sheet. */
 function SheetSection({
   label,
   children,
@@ -411,6 +436,74 @@ function FilterRow({
   );
 }
 
+/** Alphabetical by label, leaving the caller's array untouched. */
+function sortCategories(categories: CategoryInfo[]): CategoryInfo[] {
+  return [...categories].sort((a, b) => a.label.localeCompare(b.label));
+}
+
+/**
+ * Categories as popover options, mirroring the sheet's Categories section.
+ * Scrolls independently of the fixed Status/Type/Source groups above it, since
+ * an assistant can carry many categories.
+ */
+function CategoryGroup({
+  categories,
+  category,
+  counts,
+  totalCount,
+  showCounts,
+  onSelect,
+}: {
+  categories: CategoryInfo[];
+  category: string | null;
+  counts: Record<string, number>;
+  totalCount: number;
+  showCounts: boolean;
+  onSelect: (category: string | null) => void;
+}) {
+  const rows: { slug: string | null; label: string; count: number }[] = [
+    { slug: null, label: "All", count: totalCount },
+    ...sortCategories(categories).map((cat) => ({
+      slug: cat.slug,
+      label: cat.label,
+      count: counts[cat.slug] ?? 0,
+    })),
+  ];
+
+  return (
+    <OptionGroup label="Categories">
+      <ul className="max-h-48 overflow-y-auto">
+        {rows.map((row) => {
+          const isSelected = category === row.slug;
+          return (
+            <li key={row.slug ?? "all"}>
+              <button
+                type="button"
+                onClick={() => onSelect(row.slug)}
+                role="option"
+                aria-selected={isSelected}
+                className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-body-medium-lighter transition-colors hover:bg-[var(--surface-hover)]"
+                style={{
+                  color: isSelected
+                    ? "var(--primary-base)"
+                    : "var(--content-default)",
+                }}
+              >
+                <span className="flex-1 truncate">{row.label}</span>
+                {showCounts && (
+                  <span style={{ color: "var(--content-tertiary)" }}>
+                    {row.count}
+                  </span>
+                )}
+              </button>
+            </li>
+          );
+        })}
+      </ul>
+    </OptionGroup>
+  );
+}
+
 function FilterGroup({
   label,
   options,
@@ -423,13 +516,7 @@ function FilterGroup({
   onSelect: (v: SuperpowerFilter) => void;
 }) {
   return (
-    <li>
-      <div
-        className="px-3 pb-1 pt-2 text-body-small-default uppercase tracking-wide"
-        style={{ color: "var(--content-tertiary)" }}
-      >
-        {label}
-      </div>
+    <OptionGroup label={label}>
       <ul>
         {options.map((option) => {
           const Icon = option.icon;
@@ -458,6 +545,31 @@ function FilterGroup({
           );
         })}
       </ul>
+    </OptionGroup>
+  );
+}
+
+/**
+ * One labelled section of a popover listbox. `role="group"` plus the heading as
+ * its accessible name ties the visible label to the options it heads, so a
+ * screen reader announces which axis an option belongs to.
+ */
+function OptionGroup({
+  label,
+  children,
+}: {
+  label: string;
+  children: ReactNode;
+}) {
+  return (
+    <li role="group" aria-label={label}>
+      <div
+        className="px-3 pb-1 pt-2 text-body-small-default uppercase tracking-wide"
+        style={{ color: "var(--content-tertiary)" }}
+      >
+        {label}
+      </div>
+      {children}
     </li>
   );
 }

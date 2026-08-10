@@ -10,6 +10,10 @@ import {
   PROVIDER_DISPLAY_NAMES,
 } from "@/assistant/llm-model-catalog";
 
+import {
+  codexServableModels,
+  restrictsToSubscriptionModels,
+} from "@/domains/settings/ai/codex-subscription-models";
 import { OPENAI_COMPATIBLE_PROVIDER } from "@/domains/settings/ai/constants";
 import {
   endpointPickerValue,
@@ -25,16 +29,6 @@ import type {
   ProviderConnection,
 } from "@/generated/daemon/types.gen";
 
-const CODEX_SUBSCRIPTION_MODEL_IDS = new Set([
-  "gpt-5.6-sol",
-  "gpt-5.6-terra",
-  "gpt-5.6-luna",
-  "gpt-5.5",
-  "gpt-5.4",
-  "gpt-5.4-mini",
-  "gpt-5.3-codex",
-]);
-
 function connectionModelsToCatalog(
   models: ConnectionModel[] | null | undefined,
 ) {
@@ -42,36 +36,6 @@ function connectionModelsToCatalog(
     id: m.id,
     displayName: m.displayName ?? m.id,
   }));
-}
-
-/**
- * Whether the current connection restricts a catalog-backed provider to the
- * Codex-compatible subscription model set. A ChatGPT `oauth_subscription`
- * connection is restricted to `CODEX_SUBSCRIPTION_MODEL_IDS`, so both the
- * model list and the free-text escape hatch must respect that limit — a typed
- * id the endpoint rejects would otherwise be saveable.
- */
-function restrictsToSubscriptionModels(
-  provider: ConnectionProvider | "",
-  providerConnection: string,
-  availableConnectionsForProvider: ProviderConnection[],
-): boolean {
-  if (!provider || getModelsForProvider(provider).length === 0) {
-    return false;
-  }
-  const selectedConn = providerConnection
-    ? availableConnectionsForProvider.find((c) => c.name === providerConnection)
-    : undefined;
-  if (selectedConn?.auth.type === "oauth_subscription") {
-    return true;
-  }
-  return (
-    !providerConnection &&
-    availableConnectionsForProvider.length > 0 &&
-    availableConnectionsForProvider.every(
-      (c) => c.auth.type === "oauth_subscription",
-    )
-  );
 }
 
 /**
@@ -256,9 +220,7 @@ export function ProfileEditorProviderSection({
             availableConnectionsForProvider,
           )
         ) {
-          return catalogModels.filter((m) =>
-            CODEX_SUBSCRIPTION_MODEL_IDS.has(m.id),
-          );
+          return codexServableModels(provider);
         }
         return catalogModels;
       }

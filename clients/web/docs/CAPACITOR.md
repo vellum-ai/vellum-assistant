@@ -80,6 +80,8 @@ Apple's [HIG — Requesting permission](https://developer.apple.com/design/human
 
 ### Keyboard-only affordances on touch devices
 
+Which signal to reach for (viewport size vs pointer capability vs native platform) and where the branch belongs is covered in [`PLATFORM_ADAPTATION.md`](./PLATFORM_ADAPTATION.md).
+
 When the *only* way to act on a UI element is a hardware-keyboard gesture (e.g. `Tab` to accept an inline suggestion, `Cmd+Enter` to submit), gate its rendering on `!isPointerCoarse()` from [`@/utils/pointer`](../src/utils/pointer.ts). Touch soft keyboards on iOS and Android do not expose `Tab` or most modifier-key combinations, so the affordance is non-actionable on coarse-pointer devices and may also overflow narrow viewports if its layout depends on a paired keypress. To support touch as well, add a tap-equivalent (button, gesture) instead of suppressing.
 
 Reference: [MDN: `(pointer)` media feature](https://developer.mozilla.org/en-US/docs/Web/CSS/@media/pointer).
@@ -144,15 +146,15 @@ References:
 
 ## Native voice bridge
 
-Live voice is a web feature with native accessories. The session, including mic capture, the velay socket, TTS playback, and every user-facing string, lives entirely under `src/domains/chat/voice/live-voice/`. iOS adds interruption reporting, a Dynamic Island and Lock Screen presence, and App Intents. Android adds foreground audio focus and an ongoing status notification.
+Live voice is a web feature with native accessories. The session, including mic capture, the velay socket, TTS playback, and every user-facing string, lives under `src/domains/chat/voice/live-voice/`. iOS adds interruption reporting, a Dynamic Island and Lock Screen presence, and App Intents. Android adds foreground audio focus, a microphone foreground service, and an ongoing status notification. The voice-room camera is the capture exception: native mobile shells use `@capacitor-community/camera-preview`, while browsers and older shells use a web `MediaStream` fallback.
 
-The shell registers **six** Capacitor plugins in [`MyViewController.capacitorDidLoad()`](../../../clients/ios/App/App/MyViewController.swift) (count them there, not from prose):
+The shell registers **six app-local** Capacitor plugins in [`MyViewController.capacitorDidLoad()`](../../../clients/ios/App/App/MyViewController.swift) (count them there, not from prose). `CameraPreview` is an external SPM/Gradle dependency that Capacitor discovers automatically, so it is not registered in that method.
 
 | Plugin | Web module | What it does |
 | --- | --- | --- |
 | `NativeAuth` | [`src/runtime/native-auth.ts`](../src/runtime/native-auth.ts) | `ASWebAuthenticationSession` OIDC flow |
 | `NativeBiometric` | [`src/runtime/native-biometric.ts`](../src/runtime/native-biometric.ts) | Face ID / Touch ID Keychain |
-| `VoiceAudioSession` | [`src/runtime/native-audio-session.ts`](../src/runtime/native-audio-session.ts) | iOS interruption events and Android foreground audio focus. See the background-audio contract below |
+| `VoiceAudioSession` | [`src/runtime/native-audio-session.ts`](../src/runtime/native-audio-session.ts) | iOS interruption events and Android audio-focus and microphone-service lifecycle. See the background-audio contract below |
 | `VoiceLiveActivity` | [`src/runtime/native-live-activity.ts`](../src/runtime/native-live-activity.ts) | One ActivityKit activity on iOS or ongoing notification on Android |
 | `ApnsEnvironment` | [`src/runtime/apns-environment.ts`](../src/runtime/apns-environment.ts) | The build's real APNs entitlement environment (`development` / `production` / `unknown`), read from the embedded provisioning profile |
 | `SelfHostedServers` | [`src/runtime/self-hosted-servers.ts`](../src/runtime/self-hosted-servers.ts) | List, add, remove, and switch between self-hosted server origins; `switchTo` swaps the shell's configured origin and reloads in place. See the section below |
@@ -175,9 +177,21 @@ Three things follow from the rule:
 
 **No capability probes.** Neither voice plugin exposes an `isAvailable`, and neither web module wants one: `startVoiceLiveActivity()` resolving `false` already covers every reason there is no native side: outside a native mobile shell, an older shell, or a disabled platform status surface. A probe that can itself be absent just moves the problem, and it is the only answer a caller could act on anyway.
 
+### Native voice-room camera
+
+[`native-voice-camera.ts`](../src/runtime/native-voice-camera.ts) is the only web module that calls `CameraPreview`. The mobile preview is a native camera layer behind the Capacitor web view, not an HTML media element. Opening it makes the web canvas transparent and keeps the voice-room controls visible in front; closing it restores the active theme through the iOS `--surface-overlay` bridge. The dependency is patched so its cleanup does not force an opaque or white web view over the app's own theme.
+
+The camera call has one hard audio rule: `disableAudio: true` is mandatory. Live voice already owns microphone capture, and the viewfinder must not add an audio input or reconfigure the session underneath it. `enableHighResolution: true` requests the iOS high-resolution photo path, `toBack: true` keeps the HTML controls above the preview, and `storeToFile: false` returns captured JPEG bytes directly to the existing attachment pipeline.
+
+Camera permission is declared in both shells: `NSCameraUsageDescription` on iOS and `android.permission.CAMERA` on Android. Android marks camera hardware optional so devices without a camera remain installable and fail through the existing no-device path.
+
+The skew rule applies to every camera call through `callNativeVoice`. `startNativeVoiceCamera()` resolving `false` is the availability result. Do not add a separate probe. When the plugin is missing from an older installed shell, `voice-camera.ts` falls through to video-only `getUserMedia` with ideal 1920 by 1080 constraints and logs the negotiated non-identifying track settings. Desktop web and Electron use that same fallback. The native path renders no `<video>`, so it has no browser playback state or media-element play affordance.
+
+The iOS Simulator does not provide a real camera feed. A native build verifies linking and compilation, but preview sharpness, camera switching, tap focus, audio continuity, and the permission path require a physical handset.
+
 ### The background-audio contract
 
-**Read § "Full-duplex TTS must render through a MediaStream track" before you touch the iOS implementation.** That section warns against reconfiguring the shared `AVAudioSession` around microphone capture. The iOS `activate` method has no production caller by the decision recorded below. Android's `useNativeAudioSessionLifecycle` caller uses the same bridge method only to request audio focus, without reconfiguring WebView capture.
+**Read § "Full-duplex TTS must render through a MediaStream track" before you touch the iOS implementation.** That section warns against reconfiguring the shared `AVAudioSession` around microphone capture. The iOS `activate` method has no production caller by the decision recorded below. Android's `useNativeAudioSessionLifecycle` caller uses the same bridge method to request audio focus and start a microphone foreground service, without reconfiguring WebView capture.
 
 That history is the reason this is device-only territory. A change here that looks obviously correct and passes in the Simulator is precisely the failure mode that has now shipped twice.
 
@@ -185,7 +199,14 @@ That history is the reason this is device-only territory. A change here that loo
 
 **The iOS rule: the web layer does not activate an audio session.** Settled the hard way, because the pattern broke live voice on a handset twice. First as #39331 (no capture at all, reverted in #39345), then again when it returned in #39306, where a session died roughly 60ms after its WebSocket opened while the Simulator sustained one normally against the same backend. The second failure went unattributed for a day because every #39306 upload was rejected by App Store Connect until #39556, so the plugin had never actually run on a device. `useNativeAudioSessionLifecycle` subscribes to iOS interruptions but never calls iOS `activate`. Do not reintroduce iOS activation without a device test, and note that a green Simulator run is not one.
 
-Android's `useNativeAudioSessionLifecycle` calls `activateVoiceAudioSession()` to request transient audio focus for the foreground WebView. It does not move capture into native code or claim screen-lock or app-switching support.
+Android's `useNativeAudioSessionLifecycle` calls `activateVoiceAudioSession()`
+after WebView microphone capture succeeds. The native plugin requests transient
+audio focus and starts a microphone foreground service while the app is still
+visible. Capture, playback, and the voice socket stay in the WebView, while the
+service keeps that process active across screen locks and app switches. The
+service stays active through voice reconnects, stops with audio focus when the
+session ends, and is released before a new top-level page load replaces the web
+session.
 
 The iOS `VoiceAudioSession` plugin stays in the shell: its interruption reporting listens to `AVAudioSession.sharedInstance()`, so it still hears a phone call or Siri taking the input from WebKit's session, which is unrelated to owning a session ourselves.
 
@@ -331,8 +352,9 @@ session around microphone capture. Changing the active session underneath
 WebKit can leave its live capture unit detached from the microphone.
 
 The iOS `VoiceAudioSession` plugin can perform that reconfiguration, but its
-`activate` method has no production caller. Android only requests audio focus;
-it does not change the WebView audio mode or capture path.
+`activate` method has no production caller. Android requests audio focus and
+starts its microphone foreground service, but it does not change the WebView
+audio mode or capture path.
 
 Direct `AudioContext.destination` playback is not supplied to WebKit's capture
 unit as far-end audio for acoustic echo cancellation. On Capacitor iOS, route

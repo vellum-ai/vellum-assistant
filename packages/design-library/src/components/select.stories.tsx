@@ -73,6 +73,7 @@ const meta: Meta<typeof Select> = {
     placeholder: { control: "text" },
     disabled: { control: "boolean" },
     size: { control: "inline-radio", options: ["regular", "compact"] },
+    variant: { control: "inline-radio", options: ["default", "ghost"] },
     menuAlign: { control: "select", options: ["start", "end"] },
     menuMaxHeight: { control: "number" },
     menuMinWidth: { control: "number" },
@@ -219,6 +220,58 @@ export const Compact: Story = {
           onChange={(next) => updateArgs({ value: next })}
           onSelectNone={() => updateArgs({ value: null })}
         />
+      </div>
+    );
+  },
+};
+
+/**
+ * The ghost trigger in the situation it exists for: one editable value in a
+ * run of read-only ones. Its row must stay the same height as its neighbours
+ * and its text must sit on their right edge, so the card reads as a list of
+ * facts until the picker is aimed at.
+ */
+export const Ghost: Story = {
+  args: { value: "apple", variant: "ghost", "aria-label": "Fruit" },
+  render: function GhostSelect(args) {
+    const [{ value }, updateArgs] = useArgs();
+    const row = "flex items-center justify-between gap-4 py-1";
+    return (
+      <div className="w-80 rounded-lg border border-[var(--border-base)] bg-[var(--surface-lift)] px-4 py-2">
+        <div className={row}>
+          <span className="text-body-medium-lighter text-[var(--content-secondary)]">
+            Cadence
+          </span>
+          <span className="text-body-medium-lighter text-[var(--content-default)]">
+            Every day at 4:00 PM
+          </span>
+        </div>
+        <div className={row}>
+          <span className="text-body-medium-lighter text-[var(--content-secondary)]">
+            Fruit
+          </span>
+          <span className="min-w-0 text-right text-body-medium-lighter text-[var(--content-default)]">
+            <Select
+              {...args}
+              value={value}
+              onChange={(next) => updateArgs({ value: next })}
+              onSelectNone={() => updateArgs({ value: null })}
+              menuAlign="end"
+              // Cancels the trigger's own padding so its text lands on the
+              // same right edge as the plain values, and its box does not
+              // make the row taller than they are.
+              className="-my-1 -mr-2"
+            />
+          </span>
+        </div>
+        <div className={row}>
+          <span className="text-body-medium-lighter text-[var(--content-secondary)]">
+            Status
+          </span>
+          <span className="text-body-medium-lighter text-[var(--content-default)]">
+            Enabled
+          </span>
+        </div>
       </div>
     );
   },

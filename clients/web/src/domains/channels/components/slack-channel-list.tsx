@@ -7,6 +7,7 @@ import { ListRow } from "@vellumai/design-library/components/list-row";
 import { Typography } from "@vellumai/design-library/components/typography";
 import { VirtualList } from "@vellumai/design-library/components/virtual-list";
 
+import { Trans, useTranslation } from "@/i18n";
 import { EmptyState } from "@/components/empty-state";
 import { TierPicker } from "@/domains/channels/components/tier-picker";
 import type { RiskThreshold } from "@/utils/threshold-presets";
@@ -90,11 +91,14 @@ export function slackChannelMetaLabel(channel: SlackChannel): string | null {
 
 const CHANNEL_KIND_FILTERS: {
   value: SlackRoomKind | null;
-  label: string;
+  labelKey:
+    | "slackChannelList.filterAll"
+    | "slackChannelList.filterPublic"
+    | "slackChannelList.filterPrivate";
 }[] = [
-  { value: null, label: "All" },
-  { value: "public", label: "Public" },
-  { value: "private", label: "Private" },
+  { value: null, labelKey: "slackChannelList.filterAll" },
+  { value: "public", labelKey: "slackChannelList.filterPublic" },
+  { value: "private", labelKey: "slackChannelList.filterPrivate" },
 ];
 
 const CHANNEL_KIND_ICONS: Record<SlackRoomKind, typeof Hash> = {
@@ -185,6 +189,7 @@ export function SlackChannelList({
   onTierChange,
   onTierReset,
 }: SlackChannelListProps) {
+  const { t } = useTranslation("channels");
   const [search, setSearch] = useState("");
   const [kindFilter, setKindFilter] = useState<SlackRoomKind | null>(null);
 
@@ -200,18 +205,15 @@ export function SlackChannelList({
 
   const handle = slackHandle ?? `@${assistantDisplayName}`;
   const presenceHint = (
-    <>
-      Add with{" "}
-      <code className="text-[color:var(--content-secondary)]">
-        /invite {handle}
-      </code>{" "}
-      or remove with{" "}
-      <code className="text-[color:var(--content-secondary)]">
-        /remove {handle}
-      </code>{" "}
-      in that Slack channel. Only channels {assistantDisplayName} is in appear
-      here.
-    </>
+    <Trans
+      i18nKey="slackChannelList.presenceHint"
+      ns="channels"
+      values={{ handle, assistant: assistantDisplayName }}
+      components={{
+        invite: <code className="text-[color:var(--content-secondary)]" />,
+        remove: <code className="text-[color:var(--content-secondary)]" />,
+      }}
+    />
   );
 
   return (
@@ -229,7 +231,7 @@ export function SlackChannelList({
           variant="body-small-lighter"
           className="text-[color:var(--content-tertiary)]"
         >
-          Loading…
+          {t("slackChannelList.loading")}
         </Typography>
       ) : error ? (
         <Typography
@@ -237,12 +239,12 @@ export function SlackChannelList({
           variant="body-small-lighter"
           className="text-[color:var(--content-negative)]"
         >
-          Couldn’t load channels. Try reopening this page.
+          {t("slackChannelList.loadFailed")}
         </Typography>
       ) : allChannels.length === 0 ? (
         <EmptyState
           icon={<Hash className="h-6 w-6" />}
-          title="No channels yet"
+          title={t("slackChannelList.emptyTitle")}
         />
       ) : (
         <>
@@ -252,8 +254,8 @@ export function SlackChannelList({
                 type="search"
                 value={search}
                 onChange={(event) => setSearch(event.target.value)}
-                placeholder="Search channels"
-                aria-label="Search channels"
+                placeholder={t("slackChannelList.searchPlaceholder")}
+                aria-label={t("slackChannelList.searchAria")}
                 leftIcon={<Search className="h-4 w-4" />}
                 fullWidth
               />
@@ -261,9 +263,9 @@ export function SlackChannelList({
             <div
               className="flex items-center gap-2"
               role="group"
-              aria-label="Filter channels by type"
+              aria-label={t("slackChannelList.filterGroupAria")}
             >
-              {CHANNEL_KIND_FILTERS.map(({ value, label }) => {
+              {CHANNEL_KIND_FILTERS.map(({ value, labelKey }) => {
                 const active = kindFilter === value;
                 const count =
                   value === null ? allChannels.length : kindCounts[value];
@@ -280,7 +282,7 @@ export function SlackChannelList({
                         : "bg-[var(--tag-bg-neutral)] text-[color:var(--content-secondary)] hover:text-[color:var(--content-default)]",
                     )}
                   >
-                    {label} {count}
+                    {t(labelKey, { count })}
                   </button>
                 );
               })}
@@ -292,7 +294,7 @@ export function SlackChannelList({
               variant="body-small-lighter"
               className="py-4 text-center text-[color:var(--content-tertiary)]"
             >
-              No channels match.
+              {t("slackChannelList.noMatches")}
             </Typography>
           ) : visibleChannels.length > VIRTUALIZE_THRESHOLD ? (
             // Virtuoso sizes its scroller to 100% of the wrapper, so the wrapper
@@ -365,6 +367,7 @@ function SlackChannelRow({
   onTierChange: (tier: RiskThreshold) => void;
   onReset: () => void;
 }) {
+  const { t } = useTranslation("channels");
   const kind = classifySlackChannelKind(channel);
   // Rows are rooms only ({@link roomsOnly}); a 1:1 DM row is unreachable.
   if (kind === "dm") {
@@ -411,7 +414,9 @@ function SlackChannelRow({
             disabled={pending || overridesLoading || overridesError}
             onTierChange={onTierChange}
             onReset={onReset}
-            aria-label={`Assistant Access in ${channel.name}`}
+            aria-label={t("slackChannelList.accessAria", {
+              channel: channel.name,
+            })}
           />
         </div>
       }

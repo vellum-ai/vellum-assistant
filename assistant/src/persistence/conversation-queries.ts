@@ -1,4 +1,4 @@
-import { and, count, desc, eq, inArray, isNull, lt, sql } from "drizzle-orm";
+import { and, count, desc, eq, isNull, lt, sql } from "drizzle-orm";
 
 import {
   parseExternalContentEnvelope,
@@ -26,11 +26,14 @@ import {
   parseContentRef,
   resolveMessageContentBlocks,
 } from "./message-content-file.js";
+import {
+  countMessagesByRoleForConversations,
+  latestUserMessageRawContent,
+} from "./message-reads.js";
 import { rawAll } from "./raw-query.js";
 import {
   conversationAssistantAttentionState,
   conversations,
-  messages,
 } from "./schema/index.js";
 
 const log = getLogger("conversation-store");
@@ -438,31 +441,7 @@ export function getMessageRoleStatsByConversation(
   conversationIds: string[],
   role: string = "assistant",
 ): Map<string, { count: number; lastAt: number }> {
-  if (conversationIds.length === 0) {
-    return new Map();
-  }
-  const db = getDb();
-  const rows = db
-    .select({
-      conversationId: messages.conversationId,
-      count: sql<number>`COUNT(*)`.as("count"),
-      lastAt: sql<number>`MAX(${messages.createdAt})`.as("last_at"),
-    })
-    .from(messages)
-    .where(
-      and(
-        inArray(messages.conversationId, conversationIds),
-        eq(messages.role, role),
-      ),
-    )
-    .groupBy(messages.conversationId)
-    .all();
-  return new Map(
-    rows.map((r) => [
-      r.conversationId,
-      { count: Number(r.count), lastAt: Number(r.lastAt) },
-    ]),
-  );
+  return countMessagesByRoleForConversations(conversationIds, role);
 }
 
 export function listPinnedConversations(
@@ -535,6 +514,8 @@ export function listConversationsByTitlePrefix(
   const rows = rawAll<Row>(
     "conversation:listByTitlePrefix",
     `SELECT c.id, c.title,
+            -- Any-state count (streaming rows included): a list-surface size
+            -- hint where a transient +1 during a live turn is immaterial.
             (SELECT COUNT(*) FROM messages WHERE conversation_id = c.id) AS message_count,
             c.created_at
      FROM conversations c
@@ -623,26 +604,14 @@ export function countUnreadConversations(): number {
  * determine if additional exchanges need to be deleted from the DB.
  */
 export function isLastUserMessageToolResult(conversationId: string): boolean {
-  const db = getDb();
-  const lastUserMsg = db
-    .select({ content: messages.content })
-    .from(messages)
-    .where(
-      and(
-        eq(messages.conversationId, conversationId),
-        eq(messages.role, "user"),
-      ),
-    )
-    .orderBy(sql`rowid DESC`)
-    .limit(1)
-    .get();
+  const lastUserContent = latestUserMessageRawContent(conversationId);
 
-  if (!lastUserMsg) {
+  if (lastUserContent === null) {
     return false;
   }
 
   try {
-    const parsed = JSON.parse(lastUserMsg.content);
+    const parsed = JSON.parse(lastUserContent);
     if (
       Array.isArray(parsed) &&
       parsed.length > 0 &&
@@ -816,6 +785,10 @@ export async function searchConversations(
       if (!opts?.includeArchived) {
         whereClauses.push(`c.archived_at IS NULL`);
       }
+      // No completeness predicate: candidate ids come from the lexical
+      // index, which filters finalized = 1 at index time, so an unfinalized
+      // row cannot be a candidate. Do not copy this shape for id sets with
+      // different provenance.
       const visibleRows = rawAll<CandidateRow>(
         "conversation:searchConversations:visibleCandidates",
         `

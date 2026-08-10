@@ -22,7 +22,7 @@ import {
   PanelMenuDivider,
 } from "@/domains/chat/components/panel-menu-item";
 import type { MoveToGroupTarget } from "@/domains/chat/utils/group-conversations";
-import { useIsMobile } from "@/hooks/use-is-mobile";
+import { useTouchMobile } from "@/hooks/use-touch-mobile";
 import { openExternalUrl } from "@/runtime/browser";
 import { useIsNativePlatform } from "@/runtime/native-auth";
 import { BottomSheet, ContextMenu, Menu } from "@vellumai/design-library";
@@ -722,7 +722,7 @@ export function ConversationActionsMenu({
   sideOffset = 4,
   ...itemProps
 }: ConversationActionsMenuProps) {
-  const isMobile = useIsMobile();
+  const isTouchMobile = useTouchMobile();
   const [open, setOpen] = useState(false);
 
   const defaultTrigger = (
@@ -742,7 +742,7 @@ export function ConversationActionsMenu({
 
   const resolvedTrigger = trigger ?? defaultTrigger;
 
-  if (isMobile) {
+  if (isTouchMobile) {
     // The sheet body is the shared controlled surface (ConversationActionsSheet
     // uses the same builder), so the trailing-ellipsis menu and the row
     // long-press never drift. The trigger stays wired through BottomSheet so a

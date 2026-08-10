@@ -51,6 +51,20 @@ mock.module("@/hooks/use-is-org-ready", () => ({
   useIsOrgReady: () => orgReady,
 }));
 
+// Verdict of the BYOK gate; the real hook (own queries, own suite) is
+// replaced so each side of the suppression can be driven directly. The
+// candidate flags are recorded so the lazy-gating contract (the gate only
+// engages when a balance banner would actually show) can be asserted.
+let byokSuppression = false;
+let byokGateCandidates: boolean[] = [];
+
+mock.module("@/hooks/use-byok-credit-banner-gate", () => ({
+  useSuppressCreditBannersForByok: (candidate: boolean) => {
+    byokGateCandidates.push(candidate);
+    return candidate && byokSuppression;
+  },
+}));
+
 const { useBillingBalanceStatus } =
   await import("./use-billing-balance-status");
 const { resolveComposerBillingBanner } =
@@ -79,6 +93,8 @@ function summary(
     daily_limit_reached: false,
     low_balance_threshold_usd: "5.00",
     low_balance_warning: false,
+    credits_expiring_soon_usd: "0.00",
+    next_credit_expiry_at: null,
     ...overrides,
   };
 }
@@ -120,6 +136,8 @@ describe("useBillingBalanceStatus", () => {
     platformGate = "full";
     isPlatformHosted = true;
     orgReady = true;
+    byokSuppression = false;
+    byokGateCandidates = [];
   });
 
   test("normal balance: both flags false, balance exposed", () => {
@@ -322,6 +340,43 @@ describe("useBillingBalanceStatus", () => {
       balance: null,
       enabled: false,
     });
+  });
+
+  test("BYOK suppression clears the balance flags but not the daily limit", () => {
+    byokSuppression = true;
+    const { result } = setup({
+      seed: summary({
+        effective_balance: "0.00",
+        daily_limit_reached: true,
+      }),
+    });
+    expect(result.current).toEqual({
+      isExhausted: false,
+      isLowBalance: false,
+      dailyLimitReached: true,
+      balance: "0.00",
+      enabled: true,
+    });
+  });
+
+  test("BYOK suppression clears the low-balance warning", () => {
+    byokSuppression = true;
+    const { result } = setup({
+      seed: summary({ effective_balance: "3.00", low_balance_warning: true }),
+    });
+    expect(result.current.isLowBalance).toBe(false);
+    expect(result.current.balance).toBe("3.00");
+  });
+
+  test("the BYOK gate only engages when a balance banner would show", () => {
+    setup({
+      seed: summary({ effective_balance: "20.00", low_balance_warning: false }),
+    });
+    expect(byokGateCandidates).not.toContain(true);
+
+    byokGateCandidates = [];
+    setup({ seed: summary({ effective_balance: "0.00" }) });
+    expect(byokGateCandidates).toContain(true);
   });
 
   test("stays inert on cached data when gated off", () => {

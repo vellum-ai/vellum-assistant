@@ -232,6 +232,61 @@ describe("POST inference/provider-connections (create)", () => {
     expect((err as BadRequestError).message).toContain("vellum");
   });
 
+  test("rejects a chatgpt identity row under a non-canonical name", async () => {
+    const err = await call(
+      findHandler("inference_provider_connections_create"),
+      {
+        body: {
+          name: "my-chatgpt",
+          provider: "chatgpt",
+          auth: { type: "oauth_subscription", credential: "credential/x" },
+        },
+      },
+    ).catch((e: unknown) => e);
+
+    expect(err).toBeInstanceOf(BadRequestError);
+    expect((err as BadRequestError).message).toContain("chatgpt-subscription");
+  });
+
+  test("rejects key auth on the chatgpt provider, derived or explicit", async () => {
+    for (const body of [
+      {
+        name: "chatgpt-subscription",
+        provider: "chatgpt",
+        auth: { type: "api_key", credential: "vault/x" },
+      },
+      // No explicit auth: derivation would fall through to api_key.
+      {
+        name: "chatgpt-subscription",
+        provider: "chatgpt",
+        credential: "vault/x",
+      },
+    ]) {
+      const err = await call(
+        findHandler("inference_provider_connections_create"),
+        { body },
+      ).catch((e: unknown) => e);
+      expect(err).toBeInstanceOf(BadRequestError);
+      expect((err as BadRequestError).message).toContain("sign-in");
+    }
+  });
+
+  test("rejects subscription auth on a non-chatgpt provider", async () => {
+    const err = await call(
+      findHandler("inference_provider_connections_create"),
+      {
+        body: {
+          name: "keyed-oauth",
+          provider: "openai",
+          auth: { type: "oauth_subscription", credential: "credential/x" },
+        },
+      },
+    ).catch((e: unknown) => e);
+
+    expect(err).toBeInstanceOf(BadRequestError);
+    expect((err as BadRequestError).message).toContain("chatgpt");
+  });
+
   test("rejects key auth on the vellum provider", async () => {
     const err = await call(
       findHandler("inference_provider_connections_create"),
@@ -677,6 +732,52 @@ describe("PATCH inference/provider-connections/:name (update)", () => {
 
   // The guard must not trap a legacy row in its mismatched state: an auth
   // change that repairs the pairing is exactly what should be allowed.
+  // The canonical subscription row owns the "chatgpt" identity: writing
+  // subscription auth to it stamps the provider (the CLI login-chatgpt path
+  // PATCHes auth through this route on a row the identity migration
+  // deliberately skipped).
+  test("stamps the chatgpt identity when subscription auth lands on the canonical row", async () => {
+    seedConnection({
+      name: "chatgpt-subscription",
+      provider: "openai",
+      auth: { type: "api_key", credential: "vault/openai/key" },
+    });
+
+    const result = (await call(
+      findHandler("inference_provider_connections_update"),
+      {
+        pathParams: { name: "chatgpt-subscription" },
+        body: {
+          auth: {
+            type: "oauth_subscription",
+            credential: "credential/chatgpt/access_token",
+          },
+        },
+      },
+    )) as { provider: string; auth: { type: string } };
+    expect(result.provider).toBe("chatgpt");
+    expect(result.auth.type).toBe("oauth_subscription");
+  });
+
+  test("does not stamp the identity for non-subscription auth on that name", async () => {
+    seedConnection({
+      name: "chatgpt-subscription",
+      provider: "openai",
+      auth: { type: "api_key", credential: "vault/openai/key" },
+    });
+
+    const result = (await call(
+      findHandler("inference_provider_connections_update"),
+      {
+        pathParams: { name: "chatgpt-subscription" },
+        body: {
+          auth: { type: "api_key", credential: "vault/openai/other-key" },
+        },
+      },
+    )) as { provider: string };
+    expect(result.provider).toBe("openai");
+  });
+
   test("allows repairing a legacy mismatched row with a valid auth change", async () => {
     seedConnection({
       name: "legacy-managed-anthropic",

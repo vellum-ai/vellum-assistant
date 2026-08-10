@@ -22,8 +22,6 @@ const FRONT_MODEL_DEFAULTS = {
   endpointDecisionTimeoutMs: 1200,
   endpointExtensionMs: 1500,
   endpointMaxExtensions: 2,
-  ackFirstDeltaTimeoutMs: 2500,
-  ackGenerationTimeoutMs: 600,
   progress: PROGRESS_DEFAULTS,
 };
 
@@ -44,6 +42,9 @@ describe("LiveVoiceVadConfigSchema", () => {
       silenceThresholdMs: 1200,
       maxTurnDurationMs: 30_000,
       bargeInMinSpeechMs: 250,
+      echoBargeInMargin: 1.5,
+      echoEmaHalfLifeMs: 400,
+      echoDrainSlackMs: 300,
     });
   });
 
@@ -85,6 +86,35 @@ describe("LiveVoiceVadConfigSchema", () => {
     });
     expect(result.success).toBe(false);
   });
+
+  test("accepts echo gate overrides", () => {
+    const parsed = LiveVoiceVadConfigSchema.parse({
+      echoBargeInMargin: 2.25,
+      echoEmaHalfLifeMs: 250,
+      echoDrainSlackMs: 500,
+    });
+    expect(parsed.echoBargeInMargin).toBe(2.25);
+    expect(parsed.echoEmaHalfLifeMs).toBe(250);
+    expect(parsed.echoDrainSlackMs).toBe(500);
+  });
+
+  test("rejects an echo margin that cannot exceed its reference", () => {
+    expect(
+      LiveVoiceVadConfigSchema.safeParse({ echoBargeInMargin: 1 }).success,
+    ).toBe(false);
+  });
+
+  test("rejects invalid echo timing values", () => {
+    expect(
+      LiveVoiceVadConfigSchema.safeParse({ echoEmaHalfLifeMs: 0 }).success,
+    ).toBe(false);
+    expect(
+      LiveVoiceVadConfigSchema.safeParse({ echoEmaHalfLifeMs: 250.5 }).success,
+    ).toBe(false);
+    expect(
+      LiveVoiceVadConfigSchema.safeParse({ echoDrainSlackMs: -1 }).success,
+    ).toBe(false);
+  });
 });
 
 describe("LiveVoiceFrontModelConfigSchema", () => {
@@ -102,8 +132,15 @@ describe("LiveVoiceFrontModelConfigSchema", () => {
     expect(parsed.endpointMaxExtensions).toBe(0);
     // Unspecified fields still get defaults
     expect(parsed.endpointExtensionMs).toBe(1500);
-    expect(parsed.ackFirstDeltaTimeoutMs).toBe(2500);
-    expect(parsed.ackGenerationTimeoutMs).toBe(600);
+  });
+
+  test("strips retired generated-ack settings", () => {
+    const parsed = LiveVoiceFrontModelConfigSchema.parse({
+      ackFirstDeltaTimeoutMs: 2500,
+      ackGenerationTimeoutMs: 600,
+    });
+    expect(parsed).not.toHaveProperty("ackFirstDeltaTimeoutMs");
+    expect(parsed).not.toHaveProperty("ackGenerationTimeoutMs");
   });
 
   test("rejects non-positive endpointDecisionTimeoutMs", () => {
@@ -282,6 +319,9 @@ describe("LiveVoiceConfigSchema", () => {
         silenceThresholdMs: 1200,
         maxTurnDurationMs: 30_000,
         bargeInMinSpeechMs: 250,
+        echoBargeInMargin: 1.5,
+        echoEmaHalfLifeMs: 400,
+        echoDrainSlackMs: 300,
       },
       frontModel: FRONT_MODEL_DEFAULTS,
       // Off by default: Flux turn detection is opt-in, so the front-door hold

@@ -76,7 +76,8 @@
  * moment it is taken and runs no turn, so shutter-then-speak and
  * speak-then-shutter behave the same and nothing races the sentence in
  * progress. See `voice-camera.ts` for the capture rules (video-only
- * `getUserMedia`, so the call's audio is never renegotiated) and
+ * native Capacitor preview with a browser-stream fallback, both video-only so
+ * the call's audio is never renegotiated) and
  * `use-voice-room-camera.ts` for the send path, which is the composer's own
  * attachment upload.
  *
@@ -558,6 +559,7 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
   const body = (
     <motion.div
       ref={roomRef}
+      data-native-voice-camera-chrome
       className={cn(
         "z-50 flex items-center justify-center overflow-hidden",
         // z-50 orders the room's own box against the chat layout for the
@@ -621,7 +623,7 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
           the room reads identically for a custom avatar bar the full-screen
           color + eyes. Both draw the waves only while `listening`, from live mic
           amplitude. */}
-      {look ? (
+      {!camera.native && look ? (
         // Held back until the box is measured. That is one pre-paint commit, so the
         // entrance still plays from the room's first painted frame, but it
         // grows inside a real rectangle rather than a zero-sized one.
@@ -642,7 +644,7 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
             viewport={box}
           />
         ) : null
-      ) : (
+      ) : !camera.native ? (
         <>
           <VoiceRoomAmbientBackground />
           {visual === "listening" ? (
@@ -672,15 +674,13 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
             <VoiceStateCaption visual={visual} />
           ) : null}
         </>
-      )}
+      ) : null}
 
-      {/* The viewfinder, when the camera is open.
+      {/* The browser-fallback viewfinder, when the camera is open.
 
-          Full-bleed over the look rather than beside it: the room is one
-          surface at a time, and a camera squeezed into a corner of the avatar
-          would be too small to aim. The look keeps rendering underneath, so
-          closing the camera reveals it already in the right state rather than
-          replaying its entrance.
+          Capacitor mobile shells render their native camera preview behind the
+          transparent web view and need no media element. Browsers and older
+          shells render this full-bleed `<video>` over the look instead.
 
           `z-[2]` puts it above every layer of both looks (the color field and
           the void avatar sit at `z-0`, the giant eyes and the state caption at
@@ -695,11 +695,10 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
           selfie viewfinder on the platform; the rear one is not, because it
           shows the world and a mirrored world is unusable for aiming.
 
-          Muted + playsInline + autoPlay is the combination WebKit requires to
-          play an inline stream without a user gesture per frame; `aria-hidden`
-          because a live camera feed has nothing to announce and the controls
-          below carry the accessible names. */}
-      {cameraOpen ? (
+          Muted + playsInline + autoPlay lets the fallback stream start inline;
+          `aria-hidden` because a live camera feed has nothing to announce and
+          the controls below carry the accessible names. */}
+      {cameraOpen && !camera.native ? (
         <video
           ref={viewfinderRef}
           data-testid="voice-room-viewfinder"
@@ -811,7 +810,7 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
           owns the one-time entry spring); per-state expression is the avatar's
           own CSS loop, which cross-fades in place without re-popping. The
           color look has no centered figure — the bottom eyes are the cast. */}
-      {!look ? (
+      {!camera.native && !look ? (
         <motion.div
           className="relative z-0"
           {...voidAvatarMotion(choreography.entrance)}

@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 
 import { ConfirmDialog } from "@vellumai/design-library/components/confirm-dialog";
 
+import { useTranslation } from "@/i18n";
 import { DetailCard } from "@/components/detail-card";
 import {
   MobileSidebarDrawer,
@@ -146,6 +147,7 @@ export function AssistantChannelsList({
   onSaveTwilioCredentials,
   initialChannel = null,
 }: AssistantChannelsListProps) {
+  const { t } = useTranslation("channels");
   const { selected: selectedAdapter, select: selectAdapter } =
     useChannelRouteSelection();
 
@@ -224,6 +226,7 @@ export function AssistantChannelsList({
       key={selectedPlugin.key}
       channel={selectedPlugin}
       assistantId={assistantId}
+      assistantDisplayName={displayName}
     />
   ) : (
     <ChannelPanel
@@ -274,7 +277,7 @@ export function AssistantChannelsList({
         <MobileSidebarDrawer
           open={drawerOpen}
           onClose={() => setDrawerOpen(false)}
-          title="Channels"
+          title={t("assistantChannelsList.drawerTitle")}
         >
           <ChannelAdapterList
             channels={channels}
@@ -304,9 +307,11 @@ export function AssistantChannelsList({
 
       <ConfirmDialog
         open={pendingDisconnect !== null}
-        title={`Disconnect ${disconnectMeta?.label ?? ""}?`}
-        message={disconnectMeta?.disconnectMessage ?? ""}
-        confirmLabel="Disconnect"
+        title={t("assistantChannelsList.disconnectTitle", {
+          channel: disconnectMeta ? t(disconnectMeta.labelKey) : "",
+        })}
+        message={disconnectMeta ? t(disconnectMeta.disconnectMessageKey) : ""}
+        confirmLabel={t("assistantChannelsList.disconnectConfirm")}
         destructive
         onConfirm={() => {
           if (pendingDisconnect && onDisconnect) {
@@ -322,7 +327,10 @@ export function AssistantChannelsList({
         open={pendingPolicy !== null}
         title={pendingConfirmation?.title ?? ""}
         message={pendingConfirmation?.message ?? ""}
-        confirmLabel={pendingConfirmation?.confirmLabel ?? "Confirm"}
+        confirmLabel={
+          pendingConfirmation?.confirmLabel ??
+          t("assistantChannelsList.confirmFallback")
+        }
         destructive={pendingConfirmation?.destructive ?? false}
         onConfirm={() => {
           if (pendingPolicy) {

@@ -18,7 +18,7 @@ import {
 } from "@/components/file-editor";
 import { FileMarkdown, isMarkdown } from "@/components/file-markdown";
 import { SkillLineageLink } from "@/components/skill-lineage-link";
-import { SkillIcon } from "@/domains/intelligence/components/skills/skill-icon";
+import { SkillIcon } from "@/components/skill-icon";
 import { SkillOriginBadge } from "@/domains/intelligence/components/skills/skill-origin-badge";
 import { SkillRevisionHistory } from "@/domains/intelligence/components/skills/skill-revision-history";
 import {

@@ -40,8 +40,11 @@ const BottomSheetContext = createContext<{
  * `BottomSheet.Close`, `BottomSheet.Header`, `BottomSheet.Body`,
  * `BottomSheet.Footer`.
  *
- * Adoption is consumer-driven — consumers decide whether to mount
- * `BottomSheet.Root` vs `Popover.Root` based on `useIsMobile()`.
+ * Adoption is consumer-driven: consumers decide whether to mount
+ * `BottomSheet.Root` or an anchored surface such as `Popover.Root`. That
+ * choice belongs to the input-capability axis (a narrow viewport with a
+ * coarse pointer), not to viewport width alone, so a narrow desktop window
+ * driven by a mouse keeps the anchored surface.
  *
  * @see https://www.radix-ui.com/primitives/docs/components/dialog
  */

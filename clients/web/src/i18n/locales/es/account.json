@@ -1,0 +1,88 @@
+{
+  "authWaitSpinner": {
+    "loading": "Cargando"
+  },
+  "signupScreen": {
+    "headlineLead": "Conoce a tu nuevo",
+    "headlineRoles": {
+      "personalIntelligence": "Inteligencia personal",
+      "softwareEngineer": "Ingeniero de software",
+      "financeOps": "Operaciones financieras",
+      "householdManager": "Gestor del hogar",
+      "gtmEngineer": "Ingeniero de GTM",
+      "productLead": "Responsable de producto"
+    },
+    "subtitle": "El asistente más potente, capaz de encargarse de tus tareas del trabajo y de la vida diaria.",
+    "continue": "Continuar",
+    "downloadMac": "Descargar para macOS",
+    "haveAccountPrompt": "¿Ya tienes una cuenta? <signIn>Inicia sesión</signIn>"
+  },
+  "accountPage": {
+    "loading": "Cargando...",
+    "welcomeTitle": "Te damos la bienvenida a Vellum",
+    "welcomeSubtitle": "Inicia sesión para empezar.",
+    "signIn": "Iniciar sesión",
+    "signedInTitle": "¡Hola!",
+    "signedInTitleNamed": "¡Hola, {name}!",
+    "signedInSubtitle": "Has iniciado sesión.",
+    "goToAssistant": "Ir a tu asistente",
+    "signOut": "Cerrar sesión"
+  },
+  "loginPage": {
+    "heading": "Inicia sesión en Vellum",
+    "continue": "Continuar",
+    "noAccount": "¿No tienes una cuenta?",
+    "signUp": "Regístrate",
+    "signIn": "Iniciar sesión"
+  },
+  "logoutPage": {
+    "title": "Cerrando sesión..."
+  },
+  "platformLoopbackPage": {
+    "backToWelcome": "Volver al inicio",
+    "completing": "Completando el inicio de sesión..."
+  },
+  "oauthComplete": {
+    "errorCode": "Error: {code}"
+  },
+  "providerCallbackPage": {
+    "signupClosedTitle": "Los registros están cerrados por ahora",
+    "signupClosedSubtitle": "Únete a la comunidad para solicitar acceso o enterarte de cuándo se reabren los registros.",
+    "joinCommunity": "Unirse a la comunidad",
+    "backToSignIn": "Volver al inicio de sesión",
+    "failedTitle": "No se pudo autenticar",
+    "failedSubtitle": "Algo ha ido mal durante el inicio de sesión con redes sociales. Inténtalo de nuevo o usa otro método.",
+    "completingTitle": "Completando el inicio de sesión...",
+    "completingSubtitle": "Espera mientras terminamos de autenticarte."
+  },
+  "providerSignupPage": {
+    "completingTitle": "Completando el registro...",
+    "completingSubtitle": "Espera mientras cargamos tu información.",
+    "headingLine1": "Ya casi está,",
+    "headingLine2": "un detalle más",
+    "firstNameQuestion": "¿Cómo quieres que te llame?",
+    "firstNamePlaceholder": "Nombre",
+    "lastNameQuestion": "¿Y tu apellido?",
+    "lastNamePlaceholder": "Apellido",
+    "roleQuestion": "Tu puesto",
+    "rolePlaceholder": "p. ej. Ingeniero de software",
+    "submitting": "Configurando…",
+    "submit": "Continuar →",
+    "completeAccountTitle": "Completa tu cuenta",
+    "completeAccountSubtitle": "Necesitamos algunos datos más para terminar de configurar tu cuenta.",
+    "backToSignIn": "← Volver al inicio de sesión",
+    "emailPlaceholder": "Correo electrónico",
+    "usernamePlaceholder": "Nombre de usuario",
+    "completeSignup": "Completar el registro",
+    "completingSignup": "Completando..."
+  },
+  "authErrors": {
+    "genericFailure": "Algo ha ido mal. Inténtalo de nuevo.",
+    "signupClosed": "Los registros están cerrados por ahora. Visita {community} para solicitar acceso.",
+    "providerSignup": "Todavía no hay ninguna cuenta de Vellum vinculada a ese inicio de sesión. Regístrate primero y luego inicia sesión.",
+    "loginIncomplete": "Tu cuenta necesita un paso más para terminar de iniciar sesión. Inicia sesión en la web y vuelve a intentarlo.",
+    "loopbackStateMismatch": "No se pudo iniciar sesión: el estado no coincide. Inténtalo de nuevo.",
+    "loopbackNoToken": "No se pudo iniciar sesión: no se recibió ningún token de sesión. Inténtalo de nuevo.",
+    "loopbackInvalidToken": "No se pudo iniciar sesión: el token de sesión no es válido."
+  }
+}

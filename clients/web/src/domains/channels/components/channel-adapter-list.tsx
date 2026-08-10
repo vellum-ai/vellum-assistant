@@ -1,5 +1,7 @@
 import { Plug } from "lucide-react";
 
+import { useTranslation } from "@/i18n";
+
 import { Card } from "@vellumai/design-library/components/card";
 import { PanelItem } from "@vellumai/design-library/components/panel-item";
 import { Tag } from "@vellumai/design-library/components/tag";
@@ -89,10 +91,14 @@ function AdapterRow({ channel, selected, onClick }: AdapterRowProps) {
   const statusLabel = connected ? "Connected" : "Not connected";
 
   return (
-    // `PanelItem` forwards `label` to the button's aria-label, so fold the
-    // status into it — otherwise screen readers announce only "Slack" and miss
-    // the connection state, which is the row's whole point.
-    <PanelItem asChild active={selected} label={`${label}, ${statusLabel}`}>
+    // The status is folded into the accessible name: otherwise screen readers
+    // announce only "Slack" and miss the connection state, which is the row's
+    // whole point.
+    <PanelItem
+      asChild
+      active={selected}
+      aria-label={`${label}, ${statusLabel}`}
+    >
       <button
         type="button"
         onClick={onClick}
@@ -129,6 +135,7 @@ interface PluginRowProps {
  * the one thing this client does know, which is where the channel came from.
  */
 function PluginRow({ channel, selected, onClick }: PluginRowProps) {
+  const { t } = useTranslation("channels");
   return (
     // The plug is decorative, so the aria-label carries the same fact in
     // words. Without it a screen reader announces a plugin channel and a
@@ -136,7 +143,9 @@ function PluginRow({ channel, selected, onClick }: PluginRowProps) {
     <PanelItem
       asChild
       active={selected}
-      label={`${channel.label}, from a plugin`}
+      aria-label={t("channelAdapterList.pluginChannelAria", {
+        channel: channel.label,
+      })}
     >
       <button
         type="button"

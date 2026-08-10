@@ -22,7 +22,7 @@
  * phones) so the Continue button always sits above the eyes.
  */
 
-import { Fragment, useEffect, useMemo, useState } from "react";
+import { Fragment, useMemo } from "react";
 import { ArrowRight } from "lucide-react";
 import * as SliderPrimitive from "@radix-ui/react-slider";
 
@@ -31,6 +31,7 @@ import { OnboardingTopBar } from "@/domains/onboarding/components/onboarding-top
 import { useOnboardingStageSize } from "@/domains/onboarding/hooks/use-onboarding-stage-size";
 import { useOnboardingAvatarPoolStore } from "@/domains/onboarding/onboarding-avatar-pool-store";
 import { useOnboardingTone } from "@/domains/onboarding/onboarding-tone";
+import { useLayoutViewportSize } from "@/hooks/use-element-size";
 import {
   preloadBundledAvatarComponents,
   useBundledAvatarComponents,
@@ -190,26 +191,17 @@ function resolveSideColors(
   return resolved;
 }
 
-/** Track a live viewport width so the peeking avatars scale with the screen. */
-function useViewportWidth(): number {
-  const [width, setWidth] = useState(() =>
-    typeof window === "undefined" ? 1280 : window.innerWidth,
-  );
-  useEffect(() => {
-    const onResize = () => setWidth(window.innerWidth);
-    window.addEventListener("resize", onResize);
-    return () => window.removeEventListener("resize", onResize);
-  }, []);
-  return width;
-}
-
 /**
- * One personality avatar peeking in from a screen edge. It's anchored to the
- * true viewport edge via `calc(50% - 50vw)` — the overlay is full-width, so 50%
- * is screen-center and pulling back 50vw lands on the edge — and to `top` for
- * its scattered vertical slot. `progress` (0 at center → 1 at the far end)
- * drives how far it slides in, plus a little grow + fade so the entrance feels
- * alive. Never intercepts pointer events.
+ * One personality avatar peeking in from a stage edge, and `top` for its
+ * scattered vertical slot. `progress` (0 at center to 1 at the far end) drives
+ * how far it slides in, plus a little grow + fade so the entrance feels alive.
+ * Never intercepts pointer events.
+ *
+ * The inset is `0`, resolving against the overlay (`inset-0` on the stage), so
+ * the avatar rests on the edge of the box it lives in. Anchoring to the layout
+ * viewport instead would put it `(stageWidth - viewportWidth) / 2` outside the
+ * stage, where `overflow-hidden` clips it: on a notched device in landscape
+ * that is 46.5px of a 160px avatar. See the `LandscapeWithSideInsets` story.
  */
 function EdgePeekAvatar({
   components,
@@ -236,7 +228,7 @@ function EdgePeekAvatar({
       aria-hidden="true"
       className="pointer-events-none absolute"
       style={{
-        [side]: "calc(50% - 50vw)",
+        [side]: 0,
         top,
         width: size,
         height: size,
@@ -389,7 +381,7 @@ export function CreatePersonalityStep({
 }: CreatePersonalityStepProps) {
   const tone = useOnboardingTone();
   const components = useBundledAvatarComponents();
-  const viewportWidth = useViewportWidth();
+  const { w: viewportWidth } = useLayoutViewportSize();
   const { w: stageW, h: stageH } = useOnboardingStageSize();
   // Keep the Continue button clear of the backdrop eyes: reserve their visible
   // height (plus a little breathing room) at the bottom of the content column.

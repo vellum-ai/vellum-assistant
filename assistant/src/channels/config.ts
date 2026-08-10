@@ -86,6 +86,19 @@ const CHANNEL_POLICIES = {
       conversationStrategy: "continue_existing_conversation",
     },
   },
+  plugin: {
+    notification: {
+      // Every plugin-brought channel shares this row, so the answer has to
+      // hold for all of them. A reply to an inbound plugin message routes by
+      // `replyCallbackUrl` and does not read this flag; proactive notification
+      // does, and it needs a guardian binding plus a destination resolver to
+      // reach. Neither exists per-plugin, and `NotificationChannel` is derived
+      // from this flag, so enabling it would let the decision engine pick a
+      // channel that resolves to nothing for whichever plugin it landed on.
+      deliveryEnabled: false,
+      conversationStrategy: "continue_existing_conversation",
+    },
+  },
 } as const satisfies Record<ChannelId, ChannelNotificationPolicy>;
 
 export type ChannelPolicies = typeof CHANNEL_POLICIES;

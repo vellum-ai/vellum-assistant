@@ -28,6 +28,7 @@ import {
   useOnboardingTone,
   type OnboardingTone,
 } from "@/domains/onboarding/onboarding-tone";
+import { useLayoutViewportSize } from "@/hooks/use-element-size";
 import { useBundledAvatarComponents } from "@/utils/use-bundled-avatar-components";
 import {
   pluginDisplayName,
@@ -41,20 +42,6 @@ import {
 // yellow would otherwise render dark text, invisible on black). The avatar color
 // is still used where it's intentional (e.g. the plugin pills).
 const DARK_TONE = toneForBg("#17191C");
-
-function useViewportSize() {
-  const [size, setSize] = useState(() => ({
-    w: typeof window === "undefined" ? 1280 : window.innerWidth,
-    h: typeof window === "undefined" ? 800 : window.innerHeight,
-  }));
-  useEffect(() => {
-    const onResize = () =>
-      setSize({ w: window.innerWidth, h: window.innerHeight });
-    window.addEventListener("resize", onResize);
-    return () => window.removeEventListener("resize", onResize);
-  }, []);
-  return size;
-}
 
 /** The chosen avatar's components + traits. */
 function useChosenAvatar() {
@@ -134,7 +121,7 @@ export function MeetingCreatedStep({
 }) {
   const { components, chosen } = useChosenAvatar();
   const reduce = useReducedMotion();
-  const { w, h } = useViewportSize();
+  const { w, h } = useLayoutViewportSize();
 
   const title = scheduledTime
     ? `Check-in scheduled for tomorrow at ${scheduledTime}!`
@@ -965,7 +952,7 @@ export function LetsChatReadyStep({
   const reduce = useReducedMotion();
   const [starting, setStarting] = useState(false);
   const { components, chosen } = useChosenAvatar();
-  const { h: vh } = useViewportSize();
+  const { h: vh } = useLayoutViewportSize();
 
   // Each installed plugin as a card: its display name + (when known) the
   // catalog description. Names without a display label are dropped.

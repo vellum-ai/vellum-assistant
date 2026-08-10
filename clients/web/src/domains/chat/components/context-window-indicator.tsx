@@ -1,10 +1,15 @@
 import { Brain } from "lucide-react";
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import { createPortal } from "react-dom";
+import { useMemo, useState } from "react";
 
-import { useIsMobile } from "@/hooks/use-is-mobile";
 import { showContextWindowIndicator } from "@/utils/composer-settings";
-import { BottomSheet, Button } from "@vellumai/design-library";
+import { isPointerCoarse } from "@/utils/pointer";
+import {
+  BottomSheet,
+  Button,
+  ProgressBar,
+  Tooltip,
+  TooltipProvider,
+} from "@vellumai/design-library";
 
 export interface ContextWindowUsage {
   tokens: number;
@@ -22,8 +27,6 @@ const RING_SIZE = 16;
 const RING_STROKE = 2;
 const RING_RADIUS = (RING_SIZE - RING_STROKE) / 2;
 const RING_CIRCUMFERENCE = 2 * Math.PI * RING_RADIUS;
-const HOVER_DELAY_MS = 200;
-const TOOLTIP_GAP_PX = 8;
 
 function resolveRingColor(ratio: number): string {
   if (ratio >= 0.8) {
@@ -44,24 +47,34 @@ function formatTokens(count: number): string {
   return `${count}`;
 }
 
+/**
+ * The ring's accessible name. Both presentations and the sheet's gauge share
+ * it, so a screen reader hears the same thing whichever one renders.
+ */
+function ringLabel(percentage: number): string {
+  return `Context window ${percentage}% full`;
+}
+
+/**
+ * The ring glyph only. Deliberately carries no name, role, or tab stop: each
+ * branch below wraps it in exactly one focusable, labelled element, and a
+ * labelled ring nested inside a labelled trigger would announce twice and
+ * take two tab stops.
+ */
 function CircularRing({
   ringColor,
   dashOffset,
-  percentage,
 }: {
   ringColor: string;
   dashOffset: number;
-  percentage: number;
 }) {
   return (
     <svg
       width={RING_SIZE}
       height={RING_SIZE}
       viewBox={`0 0 ${RING_SIZE} ${RING_SIZE}`}
-      role="img"
-      aria-label={`Context window ${percentage}% full`}
-      tabIndex={0}
-      className="block outline-none focus-visible:ring-1 focus-visible:ring-[var(--primary-base)] rounded-full"
+      aria-hidden="true"
+      className="block"
     >
       <circle
         cx={RING_SIZE / 2}
@@ -91,7 +104,7 @@ function CircularRing({
   );
 }
 
-function DesktopTooltipContent({
+function PointerTooltipContent({
   percentage,
   ringColor,
   tokens,
@@ -126,7 +139,7 @@ function DesktopTooltipContent({
   );
 }
 
-function MobileSheetContent({
+function TouchSheetContent({
   percentage,
   ringColor,
   ratio,
@@ -160,15 +173,13 @@ function MobileSheetContent({
         </BottomSheet.Title>
 
         <div className="w-full px-2">
-          <div className="relative h-4 w-full overflow-hidden rounded-full bg-[color-mix(in_srgb,var(--content-tertiary)_20%,transparent)]">
-            <div
-              className="h-full rounded-full transition-[width] duration-250 ease-out"
-              style={{
-                width: `${Math.round(ratio * 100)}%`,
-                backgroundColor: ringColor,
-              }}
-            />
-          </div>
+          <ProgressBar
+            value={ratio}
+            height={16}
+            fillColor={ringColor}
+            className="bg-[color-mix(in_srgb,var(--content-tertiary)_20%,transparent)]"
+            aria-label={ringLabel(percentage)}
+          />
         </div>
 
         <div className="flex flex-col items-center gap-2">
@@ -220,41 +231,14 @@ export function ContextWindowIndicator({
 }: ContextWindowIndicatorProps) {
   const assistantDisplayName = assistantName?.trim() || "Your assistant";
   const enabled = showContextWindowIndicator.useValue();
-  const isMobile = useIsMobile();
+  // Input capability, not window size. The other presentation is a
+  // hover-revealed tooltip, and Radix tooltips never open on touch, so a
+  // coarse pointer needs the sheet at any width: a tablet and a phone in
+  // landscape are both roomy and both thumb-driven. Read once, so a
+  // streaming token count cannot flip the presentation mid-turn and remount
+  // an open sheet.
+  const isTouch = useMemo(() => isPointerCoarse(), []);
   const [sheetOpen, setSheetOpen] = useState(false);
-  const [isHovered, setIsHovered] = useState(false);
-  const [tooltipPosition, setTooltipPosition] = useState<{
-    top: number;
-    left: number;
-  } | null>(null);
-  const triggerRef = useRef<HTMLDivElement | null>(null);
-  const tooltipRef = useRef<HTMLDivElement | null>(null);
-  const hoverTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  useEffect(() => {
-    return () => {
-      if (hoverTimerRef.current != null) {
-        clearTimeout(hoverTimerRef.current);
-      }
-    };
-  }, []);
-
-  useLayoutEffect(() => {
-    if (!isHovered || !triggerRef.current || !tooltipRef.current) {
-      return;
-    }
-    const triggerRect = triggerRef.current.getBoundingClientRect();
-    const tooltipRect = tooltipRef.current.getBoundingClientRect();
-    const viewportWidth = window.innerWidth;
-    const idealLeft =
-      triggerRect.left + triggerRect.width / 2 - tooltipRect.width / 2;
-    const clampedLeft = Math.max(
-      8,
-      Math.min(idealLeft, viewportWidth - tooltipRect.width - 8),
-    );
-    const top = triggerRect.top - tooltipRect.height - TOOLTIP_GAP_PX;
-    setTooltipPosition({ top, left: clampedLeft });
-  }, [isHovered, usage]);
 
   if (!enabled || !usage || usage.fillRatio == null) {
     return null;
@@ -266,41 +250,16 @@ export function ContextWindowIndicator({
   const dashOffset = RING_CIRCUMFERENCE * (1 - ratio);
   const { tokens, maxTokens } = usage;
 
-  const handleMouseEnter = () => {
-    if (isMobile) {
-      return;
-    }
-    if (hoverTimerRef.current != null) {
-      clearTimeout(hoverTimerRef.current);
-    }
-    hoverTimerRef.current = setTimeout(() => {
-      setIsHovered(true);
-    }, HOVER_DELAY_MS);
-  };
-
-  const handleMouseLeave = () => {
-    if (hoverTimerRef.current != null) {
-      clearTimeout(hoverTimerRef.current);
-      hoverTimerRef.current = null;
-    }
-    setIsHovered(false);
-    setTooltipPosition(null);
-  };
-
-  if (isMobile) {
+  if (isTouch) {
     return (
       <BottomSheet.Root open={sheetOpen} onOpenChange={setSheetOpen}>
         <BottomSheet.Trigger asChild>
           <button
             type="button"
             className="relative flex items-center px-1.5"
-            aria-label={`Context window ${percentage}% full`}
+            aria-label={ringLabel(percentage)}
           >
-            <CircularRing
-              ringColor={ringColor}
-              dashOffset={dashOffset}
-              percentage={percentage}
-            />
+            <CircularRing ringColor={ringColor} dashOffset={dashOffset} />
           </button>
         </BottomSheet.Trigger>
         <BottomSheet.Content
@@ -311,7 +270,7 @@ export function ContextWindowIndicator({
             <BottomSheet.Title>Context Window</BottomSheet.Title>
           </BottomSheet.Header>
           <BottomSheet.Body className="px-2 pt-8 pb-8">
-            <MobileSheetContent
+            <TouchSheetContent
               percentage={percentage}
               ringColor={ringColor}
               ratio={ratio}
@@ -327,42 +286,34 @@ export function ContextWindowIndicator({
     );
   }
 
+  // Own the provider rather than relying on the app-level one in
+  // `providers.tsx`, so the ring also works in isolation (tests, Storybook).
+  // The design library's own `Tooltip` convenience wrapper does the same, and
+  // documents that a nested provider scopes its subtree with matching
+  // defaults.
   return (
-    <div
-      ref={triggerRef}
-      className="relative flex items-center px-1.5"
-      onMouseEnter={handleMouseEnter}
-      onMouseLeave={handleMouseLeave}
-      onFocus={handleMouseEnter}
-      onBlur={handleMouseLeave}
-    >
-      <CircularRing
-        ringColor={ringColor}
-        dashOffset={dashOffset}
-        percentage={percentage}
-      />
-      {isHovered &&
-        createPortal(
-          <div
-            ref={tooltipRef}
-            role="tooltip"
-            className="fixed z-[9999] flex flex-col gap-2 rounded-[10px] bg-[var(--surface-lift)] p-3 text-left whitespace-nowrap pointer-events-none shadow-[var(--shadow-popover)]"
-            style={{
-              top: tooltipPosition?.top ?? -9999,
-              left: tooltipPosition?.left ?? -9999,
-              opacity: tooltipPosition ? 1 : 0,
-            }}
-          >
-            <DesktopTooltipContent
-              percentage={percentage}
-              ringColor={ringColor}
-              tokens={tokens}
-              maxTokens={maxTokens}
-              assistantDisplayName={assistantDisplayName}
-            />
-          </div>,
-          document.body,
-        )}
-    </div>
+    <TooltipProvider delayDuration={200} skipDelayDuration={300}>
+      <Tooltip.Root>
+        <Tooltip.Trigger
+          type="button"
+          aria-label={ringLabel(percentage)}
+          className="relative flex items-center rounded-full px-1.5 outline-none focus-visible:ring-1 focus-visible:ring-[var(--primary-base)]"
+        >
+          <CircularRing ringColor={ringColor} dashOffset={dashOffset} />
+        </Tooltip.Trigger>
+        <Tooltip.Content
+          side="top"
+          className="flex flex-col gap-2 bg-[var(--surface-lift)] p-3 text-left"
+        >
+          <PointerTooltipContent
+            percentage={percentage}
+            ringColor={ringColor}
+            tokens={tokens}
+            maxTokens={maxTokens}
+            assistantDisplayName={assistantDisplayName}
+          />
+        </Tooltip.Content>
+      </Tooltip.Root>
+    </TooltipProvider>
   );
 }

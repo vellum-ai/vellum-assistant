@@ -33,6 +33,7 @@ import {
 import { conversationsByIdInferenceprofilePut } from "@/generated/daemon/sdk.gen";
 import { useComposerCompact } from "@/domains/chat/components/chat-composer/composer-compact";
 import { useIsMobile } from "@/hooks/use-is-mobile";
+import { useTouchMobile } from "@/hooks/use-touch-mobile";
 import {
   deleteConversationOverride,
   getConversationOverride,
@@ -80,6 +81,7 @@ export function ComposerSettingsMenu({
   segments = "both",
 }: Props) {
   const isMobile = useIsMobile();
+  const isTouchMobile = useTouchMobile();
   // A composer too narrow for two labelled triggers folds both segments into
   // one hamburger menu. The composer mounts a single instance in that mode
   // (see `ChatComposer`'s action row), so `segments` is ignored here: the one
@@ -734,7 +736,7 @@ export function ComposerSettingsMenu({
     );
   }
 
-  if (isMobile) {
+  if (isTouchMobile) {
     return (
       <>
         {showAccess && (

@@ -14,8 +14,10 @@ import type {
   ConversationStreamingMode,
   SttBoundaryId,
   SttProviderId,
+  SttTurnDetectionMode,
   TelephonySttMode,
 } from "../../stt/types.js";
+import { baseLanguageSubtag } from "../../util/language-subtag.js";
 
 // ---------------------------------------------------------------------------
 // Client display metadata
@@ -85,6 +87,14 @@ interface SttProviderEntry {
    * - `"none"` — no streaming support; fall back to batch transcription.
    */
   readonly conversationStreamingMode: ConversationStreamingMode;
+
+  /**
+   * Whether the provider decides end-of-turn itself, in-band with the audio
+   * it transcribes, or leaves the boundary to the session's local silence
+   * timer. A live-voice session reads this to decide whether to arm its
+   * provider turn-end path; it never names a provider directly.
+   */
+  readonly turnDetection: SttTurnDetectionMode;
 
   /**
    * Whether the provider can attribute transcribed speech to distinct
@@ -158,6 +168,7 @@ const CATALOG: ReadonlyMap<SttProviderId, SttProviderEntry> = new Map<
       ]),
       telephonyMode: "realtime-ws",
       conversationStreamingMode: "realtime-ws",
+      turnDetection: "none",
       supportsDiarization: true,
       languageSelection: "manual",
       credentialsGuide: DEEPGRAM_CREDENTIALS_GUIDE,
@@ -183,6 +194,9 @@ const CATALOG: ReadonlyMap<SttProviderId, SttProviderEntry> = new Map<
       // calls at all.
       telephonyMode: "none",
       conversationStreamingMode: "realtime-ws",
+      // Flux emits turn lifecycle events on its transcript stream and numbers
+      // them, so a live-voice session may let them commit the turn.
+      turnDetection: "provider",
       supportsDiarization: false,
       // "no picker", not native detection: the Flux model is English-only and
       // takes no language parameter, so audio in another language transcribes
@@ -208,6 +222,7 @@ const CATALOG: ReadonlyMap<SttProviderId, SttProviderEntry> = new Map<
       ]),
       telephonyMode: "batch-only",
       conversationStreamingMode: "realtime-ws",
+      turnDetection: "none",
       supportsDiarization: false,
       languageSelection: "auto",
       credentialsGuide: {
@@ -234,6 +249,7 @@ const CATALOG: ReadonlyMap<SttProviderId, SttProviderEntry> = new Map<
       ]),
       telephonyMode: "batch-only",
       conversationStreamingMode: "incremental-batch",
+      turnDetection: "none",
       supportsDiarization: false,
       languageSelection: "auto",
       credentialsGuide: {
@@ -260,6 +276,7 @@ const CATALOG: ReadonlyMap<SttProviderId, SttProviderEntry> = new Map<
       ]),
       telephonyMode: "realtime-ws",
       conversationStreamingMode: "realtime-ws",
+      turnDetection: "none",
       supportsDiarization: false,
       // The relay dials Deepgram nova-3 server-side, which takes an explicit
       // language parameter.
@@ -282,6 +299,7 @@ const CATALOG: ReadonlyMap<SttProviderId, SttProviderEntry> = new Map<
       ]),
       telephonyMode: "batch-only",
       conversationStreamingMode: "realtime-ws",
+      turnDetection: "none",
       supportsDiarization: true,
       languageSelection: "manual",
       credentialsGuide: {
@@ -315,6 +333,43 @@ export function getProviderEntry(
  */
 export function listProviderEntries(): readonly SttProviderEntry[] {
   return [...CATALOG.values()];
+}
+
+/**
+ * A base-subtag regex over the pinned listening language. The pin is
+ * free-form workspace config, and it flows into prompt interpolation and
+ * per-language table lookups, so only a plausible ISO 639 base subtag
+ * passes; anything else (junk strings, prototype keys like "constructor")
+ * resolves as no pin.
+ */
+const PINNED_LANGUAGE_SUBTAG_REGEX = /^[a-z]{2,3}$/;
+
+/**
+ * The configured `services.stt.language` pin as the caller's listening
+ * language, or undefined when the pin carries no signal.
+ *
+ * A persisted pin only counts when the provider honors manual language
+ * selection: auto-detecting providers (gemini, whisper) ignore the setting
+ * entirely, so treating it as the caller's language would force every
+ * turn into a stale pin. "multi" and blank mean auto-detect (no pin), and
+ * the value must normalize to a plausible base subtag. Shared by the
+ * telephony pre-speech prompt rule (voice-session-bridge.ts), live
+ * voice's turn language (live-voice-session.ts), and telephony synthesis
+ * (telephony-synthesis-language.ts) so the gate cannot drift.
+ */
+export function pinnedListeningLanguage(
+  provider: string,
+  configuredLanguage: string | undefined,
+): string | undefined {
+  const providerHonorsLanguagePin =
+    getProviderEntry(provider as SttProviderId)?.languageSelection === "manual";
+  if (!providerHonorsLanguagePin || configuredLanguage?.trim() === "multi") {
+    return undefined;
+  }
+  const base = baseLanguageSubtag(configuredLanguage);
+  return base !== undefined && PINNED_LANGUAGE_SUBTAG_REGEX.test(base)
+    ? base
+    : undefined;
 }
 
 /**
@@ -374,6 +429,19 @@ export function batchBoundaryGapReason(id: SttProviderId): string {
  */
 export function supportsDiarization(id: SttProviderId): boolean {
   return CATALOG.get(id)?.supportsDiarization ?? false;
+}
+
+/**
+ * Check whether a provider decides end-of-turn itself.
+ *
+ * Returns `false` for unknown provider IDs, which keeps an unrecognized
+ * provider on the local silence boundary rather than waiting for turn events
+ * that will never arrive. A live-voice session reads this instead of naming a
+ * provider, so a new turn-detecting provider is a catalog entry rather than a
+ * session change.
+ */
+export function supportsProviderTurnDetection(id: SttProviderId): boolean {
+  return CATALOG.get(id)?.turnDetection === "provider";
 }
 
 /**

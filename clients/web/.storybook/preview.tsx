@@ -31,6 +31,7 @@ const themesAddon = themesAddonImport as unknown as () => ReturnType<
 >;
 
 import "./preview.css";
+import { SB_DESKTOP_VIEWPORT, SB_VIEWPORTS } from "./viewports";
 
 // Some surfaces (e.g. OAuthConnectSurface) call `useQueryClient()`, which throws
 // without a provider. Give every story a shared client so Storybook/Chromatic
@@ -48,9 +49,7 @@ const storybookQueryClient = new QueryClient({
 void i18next
   .use(new ICU())
   .use(initReactI18next)
-  .init(
-    i18nextInitOptions("en", { en: FALLBACK_CATALOGS }),
-  );
+  .init(i18nextInitOptions("en", { en: FALLBACK_CATALOGS }));
 
 const lightTheme = create({
   base: "light",
@@ -139,7 +138,24 @@ export default definePreview({
       </QueryClientProvider>
     ),
   ],
+  /**
+   * Start every story at a desktop width.
+   *
+   * The Canvas iframe is otherwise whatever the window leaves it, which on a
+   * split screen or a docs page lands under Tailwind's `md` breakpoint. A
+   * component with `max-md:` variants then silently renders its mobile
+   * treatment while the story says nothing about it, so the drawer's metrics
+   * get reviewed as though they were the rail's.
+   *
+   * `initialGlobals` rather than a `viewport` parameter: this is the starting
+   * value, and the toolbar can still move off it. A parameter would pin every
+   * story open and take the mobile treatments out of reach entirely.
+   */
+  initialGlobals: {
+    viewport: { value: SB_DESKTOP_VIEWPORT, isRotated: false },
+  },
   parameters: {
+    viewport: { options: SB_VIEWPORTS },
     controls: {
       expanded: true,
       matchers: {

@@ -8,6 +8,8 @@ import { type ChangeEvent, type RefObject } from "react";
 
 import { Button } from "@vellumai/design-library";
 
+import { useTranslation } from "@/i18n";
+
 interface LibraryEmptyStateProps {
   /**
    * File-picker `accept` filter. `undefined` leaves the picker unrestricted
@@ -28,6 +30,7 @@ export function LibraryEmptyState({
   onImportBundle,
   onNewConversation,
 }: LibraryEmptyStateProps) {
+  const { t } = useTranslation("library");
   return (
     <div className="flex h-full flex-col items-center justify-center gap-4 px-4 py-24">
       <input
@@ -41,10 +44,10 @@ export function LibraryEmptyState({
         <LayoutGrid size={32} className="text-[var(--content-tertiary)]" />
       </div>
       <h2 className="text-title-medium text-[var(--content-default)]">
-        Your library is empty
+        {t("libraryEmptyState.heading")}
       </h2>
       <p className="max-w-md text-center text-body-medium-lighter text-[color:var(--content-tertiary)]">
-        Ask your assistant to build something, or import a shared app
+        {t("libraryEmptyState.body")}
       </p>
       <div className="flex flex-col items-center gap-3">
         {onNewConversation ? (
@@ -54,10 +57,10 @@ export function LibraryEmptyState({
               size="regular"
               onClick={onNewConversation}
             >
-              New Conversation
+              {t("libraryEmptyState.newConversation")}
             </Button>
             <span className="text-body-small-default text-[color:var(--content-tertiary)]">
-              or
+              {t("libraryEmptyState.separator")}
             </span>
           </>
         ) : null}
@@ -72,7 +75,7 @@ export function LibraryEmptyState({
           ) : (
             <Download size={14} />
           )}
-          <span className="ml-1.5">Import .vellum File</span>
+          <span className="ml-1.5">{t("libraryEmptyState.importFile")}</span>
         </Button>
       </div>
     </div>

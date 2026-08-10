@@ -33,11 +33,14 @@ import { isChannelConversation } from "@/domains/chat/utils/conversation-channel
 import { copyIdToClipboard } from "@/domains/chat/utils/copy-id-to-clipboard";
 import {
   buildMoveToGroupTargets,
-  isConversationPinned,
   isInCustomGroup,
 } from "@/domains/chat/utils/group-conversations";
 import type { Conversation } from "@/types/conversation-types";
-import { canMarkRead, canMarkUnread } from "@/utils/conversation-predicates";
+import {
+  canMarkRead,
+  canMarkUnread,
+  isConversationPinned,
+} from "@/utils/conversation-predicates";
 import { isPointerCoarse } from "@/utils/pointer";
 import type { SwipeAction } from "@/hooks/use-swipe-to-reveal";
 

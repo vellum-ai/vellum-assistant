@@ -210,7 +210,20 @@ describe("PrivacyScreen — Start navigation", () => {
     expect(emitFunnelStepCompletedMock).toHaveBeenCalledWith(PRIVACY_TOS_STEP, {
       userId: "user-1",
     });
-    expect(navigateMock).toHaveBeenCalledWith(routes.onboarding.research);
+    expect(navigateMock).toHaveBeenCalledWith(routes.onboarding.research, {
+      replace: true,
+    });
+  });
+
+  // The funnel is one history entry, so Back can never re-enter it after setup
+  // finishes — a pushed step here would put consent back on the stack.
+  test("advances by replacing the current history entry, never pushing", () => {
+    searchParamsValue = new URLSearchParams("hosting=managed");
+    render(<PrivacyScreen />);
+
+    clickStart();
+
+    expect(navigateMock.mock.calls[0]?.[1]).toEqual({ replace: true });
   });
 
   test("resumes checkout when a pending signup-marked package intent is present", () => {
@@ -465,7 +478,7 @@ describe("PrivacyScreen — Start navigation", () => {
     // Consent is recorded first — the resume never skips it.
     expect(saveConsentMock).toHaveBeenCalledTimes(1);
     expect(navigateMock).toHaveBeenCalledTimes(1);
-    expect(navigateMock).toHaveBeenCalledWith(PAID_HATCH);
+    expect(navigateMock).toHaveBeenCalledWith(PAID_HATCH, { replace: true });
   });
 
   test("the paid hatch wins over a pending signup-marked package intent", () => {
@@ -482,7 +495,7 @@ describe("PrivacyScreen — Start navigation", () => {
 
     clickStart();
 
-    expect(navigateMock).toHaveBeenCalledWith(PAID_HATCH);
+    expect(navigateMock).toHaveBeenCalledWith(PAID_HATCH, { replace: true });
   });
 
   test("ignores a returnTo that is not a paid hatch", () => {
@@ -552,7 +565,9 @@ describe("PrivacyScreen — Back navigation", () => {
 
     fireEvent.click(screen.getByText("Back"));
 
-    expect(navigateMock).toHaveBeenCalledWith(routes.onboarding.hosting);
+    expect(navigateMock).toHaveBeenCalledWith(routes.onboarding.hosting, {
+      replace: true,
+    });
     expect(assignMock).not.toHaveBeenCalled();
   });
 
@@ -562,7 +577,9 @@ describe("PrivacyScreen — Back navigation", () => {
 
     fireEvent.click(screen.getByText("Back"));
 
-    expect(navigateMock).toHaveBeenCalledWith(routes.onboarding.start);
+    expect(navigateMock).toHaveBeenCalledWith(routes.onboarding.start, {
+      replace: true,
+    });
     // Must not leave the SPA for the marketing host — that would switch a
     // Capacitor staging/dev shell onto production.
     expect(assignMock).not.toHaveBeenCalled();
@@ -578,7 +595,9 @@ describe("PrivacyScreen — Back navigation", () => {
 
     fireEvent.click(screen.getByText("Back"));
 
-    expect(navigateMock).toHaveBeenCalledWith(routes.onboarding.start);
+    expect(navigateMock).toHaveBeenCalledWith(routes.onboarding.start, {
+      replace: true,
+    });
     expect(assignMock).not.toHaveBeenCalled();
   });
 });

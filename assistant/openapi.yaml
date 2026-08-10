@@ -3,7 +3,7 @@
 openapi: 3.1.0
 info:
   title: Vellum Assistant API
-  version: 0.11.2
+  version: 0.11.3
   description: Auto-generated OpenAPI specification for the Vellum Assistant runtime HTTP server.
 servers:
   - url: http://127.0.0.1:7821
@@ -4354,6 +4354,7 @@ paths:
                             - platform
                             - a2a
                             - discord
+                            - plugin
                         ready:
                           type: boolean
                         setupStatus:
@@ -4444,6 +4445,7 @@ paths:
                     - platform
                     - a2a
                     - discord
+                    - plugin
                 includeRemote:
                   description: Include remote checks (default true)
                   type: boolean
@@ -4474,6 +4476,7 @@ paths:
                             - platform
                             - a2a
                             - discord
+                            - plugin
                         ready:
                           type: boolean
                         setupStatus:
@@ -6578,6 +6581,7 @@ paths:
               - platform
               - a2a
               - discord
+              - plugin
           description:
             Filter by origin channel. When provided, only conversations with this exact origin_channel value are
             returned. Omit to include all channels.
@@ -6714,6 +6718,7 @@ paths:
                                 - platform
                                 - a2a
                                 - discord
+                                - plugin
                             - type: "null"
                         assistantAttention:
                           type: object
@@ -7077,6 +7082,7 @@ paths:
                               - platform
                               - a2a
                               - discord
+                              - plugin
                           - type: "null"
                       assistantAttention:
                         type: object
@@ -8290,6 +8296,7 @@ paths:
                               - platform
                               - a2a
                               - discord
+                              - plugin
                           - type: "null"
                       assistantAttention:
                         type: object
@@ -14828,7 +14835,7 @@ paths:
             type: string
           description:
             "Filter by provider. One of: anthropic, openai, gemini, ollama, fireworks, together, openrouter,
-            vercel-ai-gateway, litellm, openai-compatible, minimax, atlascloud, baseten, poolside, vellum"
+            vercel-ai-gateway, litellm, openai-compatible, minimax, atlascloud, baseten, poolside, vellum, chatgpt"
       responses:
         "200":
           description: Successful response
@@ -21958,6 +21965,7 @@ paths:
                     - platform
                     - a2a
                     - discord
+                    - plugin
                     - scheduler
                     - watcher
                 sourceContextId:
@@ -34314,6 +34322,7 @@ components:
         - baseten
         - poolside
         - vellum
+        - chatgpt
     Auth:
       oneOf:
         - type: object

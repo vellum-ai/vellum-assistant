@@ -1,6 +1,7 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 
 import { AppleLogo } from "@/components/icons/apple-logo";
+import { Trans, useTranslation } from "@/i18n";
 import { SignupShell } from "@/domains/account/components/signup-shell";
 import { RotatingWord } from "@/domains/account/components/rotating-word";
 import {
@@ -9,14 +10,18 @@ import {
 } from "@/domains/account/login-flow";
 import { startAuthFlow } from "@/runtime/native-auth";
 
-const HEADLINE_WORDS = [
-  "Personal Intelligence",
-  "Software Engineer",
-  "Finance Ops",
-  "Household Manager",
-  "GTM Engineer",
-  "Product Lead",
-];
+/**
+ * Catalog keys for the rotating headline roles. The copy lives in the catalog;
+ * this list only fixes the order they cycle in.
+ */
+const HEADLINE_ROLE_KEYS = [
+  "signupScreen.headlineRoles.personalIntelligence",
+  "signupScreen.headlineRoles.softwareEngineer",
+  "signupScreen.headlineRoles.financeOps",
+  "signupScreen.headlineRoles.householdManager",
+  "signupScreen.headlineRoles.gtmEngineer",
+  "signupScreen.headlineRoles.productLead",
+] as const;
 
 interface SignupScreenProps {
   returnTo: string | null;
@@ -29,6 +34,13 @@ interface SignupScreenProps {
  * lives in `ProviderSignupPage`.
  */
 export function SignupScreen({ returnTo }: SignupScreenProps) {
+  const { t } = useTranslation("account");
+  // Whole keys, not a built suffix: `t()` is typed against the English
+  // catalog, so only a literal key is checked at compile time.
+  const headlineWords = useMemo(
+    () => HEADLINE_ROLE_KEYS.map((key) => t(key)),
+    [t],
+  );
   const [error, setError] = useState<string | null>(null);
   const callbackUrl = buildProviderCallbackUrl(returnTo, {
     authIntent: "signup",
@@ -41,7 +53,7 @@ export function SignupScreen({ returnTo }: SignupScreenProps) {
       intent: "signup",
     }).catch((err) => {
       console.error("[signup] auth flow failed:", err);
-      setError("Something went wrong. Please try again.");
+      setError(t("authErrors.genericFailure"));
     });
   };
 
@@ -53,40 +65,42 @@ export function SignupScreen({ returnTo }: SignupScreenProps) {
       returnTo,
     }).catch((err) => {
       console.error("[signup] sign-in flow failed:", err);
-      setError("Something went wrong. Please try again.");
+      setError(t("authErrors.genericFailure"));
     });
   };
 
   return (
     <SignupShell>
       <h1 className="signup__title">
-        Meet your new
+        {t("signupScreen.headlineLead")}
         <br />
-        <RotatingWord words={HEADLINE_WORDS} />
+        <RotatingWord words={headlineWords} />
       </h1>
-      <p className="signup__subtitle">
-        The most powerful assistant that can handle your work and life admin
-        tasks.
-      </p>
+      <p className="signup__subtitle">{t("signupScreen.subtitle")}</p>
 
       <div className="signup__buttons">
         <button type="button" className="signup__btn" onClick={start}>
-          Continue
+          {t("signupScreen.continue")}
         </button>
       </div>
 
       {error && <p className="signup__error">{error}</p>}
 
       <p className="signup__footer">
-        Already have an account?{" "}
-        <button type="button" className="signup__link" onClick={signIn}>
-          Sign in
-        </button>
+        <Trans
+          i18nKey="signupScreen.haveAccountPrompt"
+          ns="account"
+          components={{
+            signIn: (
+              <button type="button" className="signup__link" onClick={signIn} />
+            ),
+          }}
+        />
       </p>
 
       <a className="signup__download" href="/downloads">
         <AppleLogo size={16} />
-        Download for macOS
+        {t("signupScreen.downloadMac")}
       </a>
     </SignupShell>
   );

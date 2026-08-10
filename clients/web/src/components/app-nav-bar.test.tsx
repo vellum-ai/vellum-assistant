@@ -28,6 +28,12 @@ mock.module("@/hooks/use-is-mobile", () => ({
   MOBILE_MEDIA_QUERY: "(max-width: 767px)",
 }));
 
+let mockIsTouchMobile = false;
+mock.module("@/hooks/use-touch-mobile", () => ({
+  useTouchMobile: () => mockIsTouchMobile,
+  TOUCH_MOBILE_MEDIA_QUERY: "(max-width: 767px) and (pointer: coarse)",
+}));
+
 // ---------------------------------------------------------------------------
 // Design-library mocks for static-markup inspection of the Radix menu /
 // bottom-sheet surfaces. The Radix primitives wrap floating-ui portals that
@@ -136,6 +142,7 @@ const { AppNavBar } = await import("@/components/app-nav-bar");
 
 beforeEach(() => {
   mockIsMobile = false;
+  mockIsTouchMobile = false;
 });
 
 afterEach(() => {
@@ -294,8 +301,8 @@ describe("AppNavBar share + deploy", () => {
     expect(html).toContain("Deploy to Vercel");
   });
 
-  test("the dropdown menu lists Share and Deploy to Vercel (mobile, BottomSheet)", () => {
-    mockIsMobile = true;
+  test("the dropdown menu lists Share and Deploy to Vercel (touch, BottomSheet)", () => {
+    mockIsTouchMobile = true;
     const html = renderToStaticMarkup(
       <AppNavBar
         appName="My App"
@@ -399,8 +406,8 @@ describe("AppNavBar deployed state", () => {
     expect(html).not.toContain(">Deploy to Vercel<");
   });
 
-  test("shows the deployed URL in the mobile sheet", () => {
-    mockIsMobile = true;
+  test("shows the deployed URL in the touch sheet", () => {
+    mockIsTouchMobile = true;
     const html = renderToStaticMarkup(
       <AppNavBar
         appName="My App"

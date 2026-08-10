@@ -1,15 +1,24 @@
-import type { Meta, StoryObj } from "@storybook/react-vite";
-import { useEffect } from "react";
-import { Button } from "@vellumai/design-library";
-
-import { StagedQuotesStrip } from "./staged-quotes-strip";
-import { useQuoteReplyStore } from "@/domains/chat/quote-reply-store";
-
 /**
  * The staged-quotes strip: the quotes the user has pulled from assistant
  * messages, each with an editable reply, rendered above the composer. When a
  * quote is added the strip scrolls to reveal the newest chip.
+ *
+ * The strip's whole job is to sit between the transcript and the composer, so
+ * these stories mount it where `chat-body` mounts it: inside the real
+ * `ChatColumn`, with the real `ChatComposer` as its next sibling. Its own
+ * `mb-2` is the gap to that composer, and its width comes from the column
+ * rather than from itself, so neither is reviewable with the strip standing
+ * alone.
  */
+
+import type { Meta, StoryObj } from "@storybook/react-vite";
+import { useEffect, useRef } from "react";
+import { Button } from "@vellumai/design-library";
+
+import { StagedQuotesStrip } from "./staged-quotes-strip";
+import { ChatColumn } from "@/domains/chat/components/chat-column";
+import { ChatComposer } from "@/domains/chat/components/chat-composer/chat-composer";
+import { useQuoteReplyStore } from "@/domains/chat/quote-reply-store";
 
 const SAMPLE_QUOTES = [
   {
@@ -30,46 +39,75 @@ const SAMPLE_QUOTES = [
   },
 ];
 
-/** Renders the strip plus a button that stages another quote (to test scroll). */
-function StripHarness({ initialCount }: { initialCount: number }) {
+/** Stages the next sample quote, cycling once the samples run out. */
+function stageAnotherQuote() {
+  const n = useQuoteReplyStore.getState().stagedQuotes.length;
+  const quote = SAMPLE_QUOTES[n % SAMPLE_QUOTES.length]!;
+  useQuoteReplyStore
+    .getState()
+    .addStagedQuote({ ...quote, sourceMessageId: `msg-${n}` });
+}
+
+/** Seeds the store with `count` staged quotes, then renders the real strip. */
+function SeededStrip({ count }: { count: number }) {
   useEffect(() => {
     useQuoteReplyStore.setState({ stagedQuotes: [] });
-    for (const q of SAMPLE_QUOTES.slice(0, initialCount)) {
+    for (const quote of SAMPLE_QUOTES.slice(0, count)) {
       useQuoteReplyStore
         .getState()
-        .addStagedQuote({ ...q, sourceMessageId: "msg-1" });
+        .addStagedQuote({ ...quote, sourceMessageId: "msg-1" });
     }
     return () => useQuoteReplyStore.setState({ stagedQuotes: [] });
-  }, [initialCount]);
+  }, [count]);
 
-  const stageAnother = () => {
-    const n = useQuoteReplyStore.getState().stagedQuotes.length;
-    const q = SAMPLE_QUOTES[n % SAMPLE_QUOTES.length]!;
-    useQuoteReplyStore
-      .getState()
-      .addStagedQuote({ ...q, sourceMessageId: `msg-${n}` });
-  };
+  return <StagedQuotesStrip />;
+}
 
+/**
+ * The composer the strip actually sits on. Every required prop is an input the
+ * orchestrator hands down, so the real component mounts on story-supplied
+ * callbacks; nothing here stands in for a value the app derives.
+ */
+function StoryComposer() {
+  const inputRef = useRef<HTMLTextAreaElement | null>(null);
   return (
-    <div className="mx-auto max-w-[720px]">
-      <div className="rounded-[10px] bg-[var(--surface-base)] p-2">
-        <StagedQuotesStrip />
-        <div className="px-4 pt-3 pb-2 text-chat text-[var(--content-disabled)]">
-          What would you like to do?
-        </div>
-      </div>
-      <div className="mt-3">
-        <Button variant="outlined" size="compact" onClick={stageAnother}>
-          Stage another quote
-        </Button>
-      </div>
-    </div>
+    <ChatComposer
+      placeholder="What would you like to do?"
+      onSubmit={(event) => event.preventDefault()}
+      inputRef={inputRef}
+      typingDisabled={false}
+      sendDisabled={false}
+      onAddAttachmentFiles={() => {}}
+      onStopGenerating={() => {}}
+      isAssistantBusy={false}
+      assistantId={null}
+    />
   );
 }
 
 const meta: Meta<typeof StagedQuotesStrip> = {
   title: "Chat/StagedQuotesStrip",
-  parameters: { layout: "padded", controls: { disable: true } },
+  parameters: { layout: "fullscreen", controls: { disable: true } },
+  decorators: [
+    /* The real `ChatColumn` with the composer stack's own vertical padding,
+       inside a bottom-anchored body: the same arrangement `chat-body` builds
+       around the strip. Imported rather than mirrored, so a change to the
+       column reaches this story on its own. */
+    (Story) => (
+      <div className="flex h-screen flex-col justify-end">
+        <ChatColumn className="pt-1 pb-2 sm:pb-0">
+          <Story />
+          <StoryComposer />
+        </ChatColumn>
+        {/* Harness control, deliberately outside the app column. */}
+        <div className="px-3 py-3 sm:px-6">
+          <Button variant="outlined" size="compact" onClick={stageAnotherQuote}>
+            Stage another quote
+          </Button>
+        </div>
+      </div>
+    ),
+  ],
 };
 
 export default meta;
@@ -77,15 +115,15 @@ type Story = StoryObj<typeof StagedQuotesStrip>;
 
 /** A few staged quotes; click "Stage another" to confirm it scrolls to the newest. */
 export const Overflowing: Story = {
-  render: () => <StripHarness initialCount={3} />,
+  render: () => <SeededStrip count={3} />,
 };
 
 /** Single staged quote with an editable reply. */
 export const Single: Story = {
-  render: () => <StripHarness initialCount={1} />,
+  render: () => <SeededStrip count={1} />,
 };
 
 /** Starts empty; click "Stage another" to confirm the very first chip animates in. */
 export const Empty: Story = {
-  render: () => <StripHarness initialCount={0} />,
+  render: () => <SeededStrip count={0} />,
 };

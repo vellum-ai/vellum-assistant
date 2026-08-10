@@ -1876,7 +1876,14 @@ export async function processMessage(
   await conversation.ensureActorScopedHistory();
   // Snapshot persona context at turn start so later tool turns can't pick up
   // a different actor's context if a concurrent request mutates the live fields.
-  conversation.currentTurnTrustContext = conversation.trustContext;
+  //
+  // Held in a local as well as on the conversation: the field is writable
+  // out-of-band while this turn is in flight (`agent-wake` stamps it and
+  // restores the prior value in a `finally`), so reading it back at the agent
+  // loop call below would reintroduce the late read this capture exists to
+  // avoid. The local is what the loop runs under.
+  const turnTrustContext = conversation.trustContext;
+  conversation.currentTurnTrustContext = turnTrustContext;
   conversation.currentTurnAuthContext = conversation.authContext;
   conversation.currentTurnSourceActorPrincipalId =
     sourceActorPrincipalId ?? conversation.authContext?.actorPrincipalId;
@@ -2345,7 +2352,16 @@ export async function processMessage(
     titleText?: string;
     callSite?: LLMCallSite;
     overrideProfile?: string;
-  } = { isUserMessage: true };
+    turnTrustContext?: TrustContext;
+  } = {
+    isUserMessage: true,
+    // Carry the trust captured at turn start into the run. Several awaits sit
+    // between that capture and the loop opening, and both the conversation
+    // slot and the per-turn field are writable throughout that window, so
+    // reading either here would run this turn as whoever wrote last. The
+    // local captured at turn start is the only value no other writer can move.
+    turnTrustContext,
+  };
   if (isInteractive !== undefined) {
     loopOptions.isInteractive = isInteractive;
   }
