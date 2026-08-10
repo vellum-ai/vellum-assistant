@@ -11,7 +11,6 @@ import {
   ContextMenu,
   PanelItem,
   SideMenu,
-  SIDE_MENU_PILL_HEIGHT_CLASS,
 } from "@vellumai/design-library";
 
 export interface PinnedAppNavItemProps {
@@ -98,7 +97,6 @@ export function PinnedAppNavItem({
     <PanelItem
       style={tintStyle}
       shape="pill"
-      className={SIDE_MENU_PILL_HEIGHT_CLASS}
       /* An app's icon is an emoji string on its manifest, so it goes in
          `leadingSlot`; `icon` takes a Lucide component, which is the fallback
          for an app with no emoji. Exactly one of the two is ever set. The

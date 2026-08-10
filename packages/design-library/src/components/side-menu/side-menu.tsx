@@ -126,8 +126,9 @@ export const SIDE_MENU_MAX_WIDTH = 400;
  *
  * Exported so a caller drawing its own tile sizes it from here rather than
  * from a matching literal, which is the only way the column stays one width.
- * A caller sizing a pill wants {@link SIDE_MENU_PILL_HEIGHT_CLASS} instead,
- * which resolves to this same number through CSS.
+ * A `PanelItem` pill needs nothing: the rail publishes this as
+ * `--side-menu-tile-size` and the pill shape reads it, so its height is not a
+ * caller's decision.
  */
 export const SIDE_MENU_TILE_SIZE = 36;
 
@@ -176,14 +177,13 @@ const RAIL_GEOMETRY_VARS = {
 } as CSSProperties;
 
 /**
- * Height utility for a top-level pill a caller mounts in the rail: the
- * assistant identity row, New Chat, a pinned app, a collapsible section's
- * header, Preferences.
+ * Height utility for a top-level rail row a caller draws itself rather than
+ * taking from `PanelItem` - a collapsible section's header is the one such row,
+ * since it wears the rail's small caps and no resting surface.
  *
- * It reads the same property the collapsed tile is drawn from rather than
- * naming the pixels again, so the pill and the circle it becomes cannot end up
- * at two different heights. Only valid inside `SideMenu.Root`, which is where
- * the property is published.
+ * A `PanelItem` pill already resolves its height from the same property, so
+ * passing this to one is redundant. Only valid inside `SideMenu.Root`, which is
+ * where the property is published.
  */
 export const SIDE_MENU_PILL_HEIGHT_CLASS = "h-[var(--side-menu-tile-size)]";
 

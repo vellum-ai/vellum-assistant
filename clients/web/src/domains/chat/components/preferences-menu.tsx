@@ -15,7 +15,6 @@ import {
   PanelItem,
   Popover,
   SideMenu,
-  SIDE_MENU_PILL_HEIGHT_CLASS,
   useSideMenuCollapsed,
 } from "@vellumai/design-library";
 
@@ -130,7 +129,6 @@ export function PreferencesMenu({
          overlay's floating action button. */
       <PanelItem
         shape="pill"
-        className={SIDE_MENU_PILL_HEIGHT_CLASS}
         /* The popover owns the click, so this row takes no handler of its
            own and needs telling that it is still a control. */
         trigger

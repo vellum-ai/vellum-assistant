@@ -52,11 +52,12 @@ import { MarqueeText } from "./marquee-text";
  * ### `shape`
  *
  * - `"row"` (default): a full-width 6px-radius row, for lists and nav trees.
- * - `"pill"`: a capsule that hugs its content and carries a resting
- *   `--surface-lift` surface, for navigation chips that sit inline rather
- *   than filling a column. Everything else (hover, active, badge, trailing
- *   action, link/button semantics) is unchanged, which is the point: a pill
- *   is a differently-shaped row, not a different component.
+ * - `"pill"`: a capsule that hugs its content, stands at the panel's pill
+ *   height, and carries a resting `--surface-lift` surface, for navigation
+ *   chips that sit inline rather than filling a column. Everything else
+ *   (hover, active, badge, trailing action, link/button semantics) is
+ *   unchanged, which is the point: a pill is a differently-shaped row, not a
+ *   different component.
  *
  * ### `activeVariant`
  *
@@ -212,13 +213,21 @@ const PILL_HOVER_CLASS =
 /**
  * {@link PanelItemProps.shape} `"pill"`: a capsule that sizes to its content
  * and carries a resting surface, so it reads as a chip sitting in a column
- * rather than a row filling one. Radius, width, and surface only, so hover,
+ * rather than a row filling one. Radius, width, height, and surface, so hover,
  * active, and every slot behave exactly as they do on a row.
  *
  * `w-fit` rather than `w-auto`: the root is a block-level flex container, and
  * `width: auto` on one fills its containing block, so a pill would stretch to
  * row width in every ordinary layout. `width: fit-content` shrink-wraps while
  * leaving `display: flex` alone, which the row's internal layout depends on.
+ *
+ * A pill is taller than a row, and how much taller is the panel's decision
+ * rather than each caller's: `SideMenu` publishes `--side-menu-tile-size`, the
+ * height its collapsed tiles are drawn at, and a pill mounted in one takes it,
+ * so a pill and the circle it collapses into cannot end up at two heights. The
+ * fallback is the same measurement for a pill mounted anywhere else. The row's
+ * `max-md:h-auto` still wins on a touch-sized viewport, where a pill grows to
+ * its own padding like every other row.
  */
 /**
  * A pill reads three optional custom properties, each falling back to the
@@ -236,6 +245,7 @@ const PILL_HOVER_CLASS =
  */
 const PILL_SHAPE_CLASSES = [
   "w-fit rounded-full",
+  "h-[var(--side-menu-tile-size,36px)]",
   "bg-[var(--panel-item-bg,var(--surface-lift))]",
   "text-[color:var(--panel-item-fg,inherit)]",
 ].join(" ");
@@ -470,7 +480,7 @@ function PanelItem({
       if (Icon || leadingSlot || badge || trailingAction || ExpandChevron) {
         console.warn(
           "PanelItem: icon, leadingSlot, badge, trailingAction, and expandChevron " +
-            "are ignored when asChild is true — the consumer owns all children.",
+            "are ignored when asChild is true: the consumer owns all children.",
         );
       }
     }
