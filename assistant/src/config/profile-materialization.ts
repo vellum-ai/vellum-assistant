@@ -1,4 +1,6 @@
+import { getDb } from "../persistence/db-connection.js";
 import { ROUTING_IDENTITY_PROVIDERS } from "../providers/inference/auth.js";
+import { getConnection } from "../providers/inference/connections.js";
 import {
   getCatalogProviderForModel,
   isModelInCatalog,
@@ -113,21 +115,43 @@ export function completeCustomProfile(
     profile.provider_connection === undefined &&
     dflt.provider_connection !== undefined
   ) {
-    if (
-      dflt.provider_connection === VELLUM_MANAGED_CONNECTION_NAME &&
-      MANAGED_ROUTABLE_PROVIDERS.has(completed.provider) &&
-      completed.model !== undefined &&
-      getManagedUpstream(completed.model) !== null
-    ) {
-      completed.provider = "vellum";
-    } else if (
-      dflt.provider_connection !== VELLUM_MANAGED_CONNECTION_NAME &&
-      completed.provider === dflt.provider
-    ) {
-      completed.provider = dflt.provider_connection;
+    if (dflt.provider_connection === VELLUM_MANAGED_CONNECTION_NAME) {
+      if (
+        MANAGED_ROUTABLE_PROVIDERS.has(completed.provider) &&
+        completed.model !== undefined &&
+        getManagedUpstream(completed.model) !== null
+      ) {
+        completed.provider = "vellum";
+      } else {
+        // The identity cannot serve this pair; keep the legacy binding so
+        // dispatch keeps its managed routing and the collapse migration's
+        // recovery still sees it.
+        completed.provider_connection = dflt.provider_connection;
+      }
+    } else if (completed.provider === dflt.provider) {
+      // Folding to the entry name is only safe against a verified row; a
+      // dangling or kind-disagreeing binding stays in the legacy field,
+      // where the collapse migration's recovery can judge it.
+      if (bindingRowKind(dflt.provider_connection) === completed.provider) {
+        completed.provider = dflt.provider_connection;
+      } else {
+        completed.provider_connection = dflt.provider_connection;
+      }
     }
   }
   return structuredClone(completed);
+}
+
+/**
+ * The provider kind stored on a connection row, or null when the row is
+ * missing or the DB is unavailable (both mean "unverifiable" to callers).
+ */
+function bindingRowKind(name: string): string | null {
+  try {
+    return getConnection(getDb(), name)?.provider ?? null;
+  } catch {
+    return null;
+  }
 }
 
 type PlainObject = Record<string, unknown>;

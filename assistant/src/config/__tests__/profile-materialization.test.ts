@@ -1,4 +1,17 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, mock, test } from "bun:test";
+
+// Entry-name folds are gated on the named row existing with an agreeing
+// kind, so the tests control the row store directly.
+const connectionRows = new Map<string, { name: string; provider: string }>([
+  ["anthropic-personal", { name: "anthropic-personal", provider: "anthropic" }],
+]);
+mock.module("../../persistence/db-connection.js", () => ({
+  getDb: () => ({}),
+}));
+mock.module("../../providers/inference/connections.js", () => ({
+  getConnection: (_db: unknown, name: string) =>
+    connectionRows.get(name) ?? null,
+}));
 
 import { VELLUM_MANAGED_CONNECTION_NAME } from "../../providers/vellum-model-routing.js";
 import { completeCustomProfile } from "../profile-materialization.js";
@@ -148,6 +161,52 @@ describe("completeCustomProfile", () => {
     });
     expect(completed.provider).toBe("anthropic-personal");
     expect(completed.provider_connection).toBeUndefined();
+  });
+
+  test("a dangling default binding passes through as the legacy field", () => {
+    const dangling = LLMConfigBase.parse({
+      ...fullDefault,
+      provider_connection: "deleted-row",
+    });
+    const completed = completeCustomProfile(dangling, {
+      model: "claude-fable-5",
+    });
+    // Folding an unverifiable binding would hide it from the collapse
+    // migration's dangling recovery; the legacy field keeps it visible.
+    expect(completed.provider).toBe("anthropic");
+    expect(completed.provider_connection).toBe("deleted-row");
+  });
+
+  test("a kind-disagreeing default binding passes through as the legacy field", () => {
+    connectionRows.set("mislabeled", {
+      name: "mislabeled",
+      provider: "openai",
+    });
+    try {
+      const mismatched = LLMConfigBase.parse({
+        ...fullDefault,
+        provider_connection: "mislabeled",
+      });
+      const completed = completeCustomProfile(mismatched, {
+        model: "claude-fable-5",
+      });
+      expect(completed.provider).toBe("anthropic");
+      expect(completed.provider_connection).toBe("mislabeled");
+    } finally {
+      connectionRows.delete("mislabeled");
+    }
+  });
+
+  test("a managed default binding passes through when the identity cannot serve the model", () => {
+    const managedDefault = LLMConfigBase.parse({
+      ...fullDefault,
+      provider_connection: VELLUM_MANAGED_CONNECTION_NAME,
+    });
+    const completed = completeCustomProfile(managedDefault, {
+      model: "totally-custom-model",
+    });
+    expect(completed.provider).toBe("anthropic");
+    expect(completed.provider_connection).toBe(VELLUM_MANAGED_CONNECTION_NAME);
   });
 
   test("passes mix profiles through untouched", () => {

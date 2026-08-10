@@ -162,13 +162,15 @@ class ProviderCommitMessageGenerator {
     const providerName = resolved.configuredProviderName;
 
     // Step 2b: API key preflight for the configured provider. Skipped for
-    // keyless providers and for routing identities, which authenticate
-    // through their connection row (platform token / ChatGPT OAuth) — no
-    // provider API key exists for them, and resolution already verified the
-    // connection credential.
+    // keyless providers, for routing identities, and for entry-routed
+    // results, since all three authenticate through their connection row
+    // (platform token / ChatGPT OAuth / the row's own credential slot), so
+    // no generic per-vendor key needs to exist, and resolution already
+    // verified the connection credential.
     if (
       !KEYLESS_PROVIDERS.has(providerName) &&
-      !ROUTING_IDENTITY_PROVIDERS.has(providerName)
+      !ROUTING_IDENTITY_PROVIDERS.has(providerName) &&
+      !resolved.entryRouted
     ) {
       const providerApiKey = await getProviderKeyAsync(providerName);
       if (!providerApiKey) {
