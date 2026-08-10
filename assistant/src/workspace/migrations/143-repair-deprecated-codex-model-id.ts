@@ -10,12 +10,12 @@ import type { WorkspaceMigration } from "./types.js";
  * OpenAI deprecated `gpt-5.3-codex` under ChatGPT sign-in (the Codex
  * endpoint rejects it with HTTP 400), so it is being removed from
  * `CODEX_SUBSCRIPTION_MODEL_IDS`. A workspace can still pin it on
- * `provider: "chatgpt"` fragments — migration 133 wrote exactly that shape
- * for `chatgpt-subscription` entries — and once the ID leaves the allowlist,
+ * `provider: "chatgpt"` fragments (migration 133 wrote exactly that shape
+ * for `chatgpt-subscription` entries), and once the ID leaves the allowlist,
  * `LLMSchema.superRefine` rejects such a fragment. The loader's leaf
  * recovery then deletes the fragment's `model`, which still fails ("chatgpt"
  * requires an explicit model), and per-section salvage resets the whole
- * `llm` section — discarding the user's other LLM settings.
+ * `llm` section, discarding the user's other LLM settings.
  *
  * Repair rewrites the model to `gpt-5.6-terra` (OpenAI's recommended
  * everyday Codex model) on an exact `provider: "chatgpt"` + model match in

@@ -13,7 +13,7 @@ const PROVIDER_DEFAULT_MODELS: Record<string, string> = Object.fromEntries(
 // `cost-optimized` is the cheapest model a provider serves, `latency-optimized`
 // the fastest to first token. On anthropic, ollama, fireworks and openai the
 // same model is both, so those columns repeat by construction rather than by
-// oversight (openai's balanced repeats it too — the default-profile templates
+// oversight (openai's balanced repeats it too: the default-profile templates
 // split those tiers by reasoning effort, not model).
 const PROVIDER_MODEL_INTENTS: Record<string, Record<ModelIntent, string>> = {
   anthropic: {
@@ -96,7 +96,7 @@ for (const [provider, intents] of Object.entries(PROVIDER_MODEL_INTENTS)) {
 // subscription set: the subscription default provider is stored as
 // `llm.defaultProvider = { provider: "openai", connectionName:
 // "chatgpt-subscription" }`, so the materialized default profiles resolve
-// through this column while pinning the subscription connection — which
+// through this column while pinning the subscription connection, which
 // bypasses the auto-resolution compat gate and hard-routes to the Codex
 // endpoint, where a non-Codex model 400s on every request.
 for (const [intent, modelId] of Object.entries(PROVIDER_MODEL_INTENTS.openai)) {

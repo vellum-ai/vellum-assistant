@@ -45,13 +45,21 @@ function readConfig(): Record<string, unknown> {
 }
 
 describe("142-consolidate-voice-front-door migration", () => {
-  test("is registered last", () => {
+  test("is registered in order", () => {
     expect(consolidateVoiceFrontDoorMigration.id).toBe(
       "142-consolidate-voice-front-door",
     );
-    expect(WORKSPACE_MIGRATIONS.at(-1)?.id).toBe(
-      consolidateVoiceFrontDoorMigration.id,
+    // getLastWorkspaceMigrationId() reports the final entry as the registry
+    // ceiling, so ordering matters: this must be registered, and everything
+    // after it must carry a higher id. Asserting it stays literally last
+    // would break on every migration appended after it.
+    const index = WORKSPACE_MIGRATIONS.findIndex(
+      (migration) => migration.id === "142-consolidate-voice-front-door",
     );
+    expect(index).toBeGreaterThan(-1);
+    for (const later of WORKSPACE_MIGRATIONS.slice(index + 1)) {
+      expect(later.id > "142").toBe(true);
+    }
   });
 
   test("moves progress overrides and removes generated-ack tuning", () => {
