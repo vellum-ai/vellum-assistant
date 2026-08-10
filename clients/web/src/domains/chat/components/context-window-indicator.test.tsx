@@ -119,9 +119,8 @@ describe("ContextWindowIndicator presentation axis", () => {
 
   test("a roomy touch window still gets a tappable trigger", () => {
     // GIVEN a tablet in landscape: a coarse pointer with plenty of room.
-    // This is the regression. Forking on the narrow-AND-coarse compound left
-    // this combination on the hover-only branch, where the ring had no tap
-    // path and no way to reach Clear Context.
+    // Roomy and thumb-driven is the combination the two axes only disagree
+    // on, and the one a width check answers wrongly.
     setViewport({ narrow: false, coarsePointer: true });
 
     // WHEN the ring renders
@@ -162,10 +161,10 @@ describe("ContextWindowIndicator presentation axis", () => {
       <ContextWindowIndicator usage={USAGE} assistantName="Vellum" />,
     );
 
-    // THEN the control reveals a tooltip rather than opening a sheet
+    // THEN the control reveals a tooltip rather than opening a sheet, while
+    // remaining named and keyboard-reachable, which is how a desktop user
+    // without a mouse gets at it.
     expect(opensASheet()).toBe(false);
-    // ...but the ring is still named and still reachable by keyboard, which is
-    // the only way a mouse-less desktop user opens it.
     expectOneNamedTabStop(container);
   });
 });

@@ -224,13 +224,12 @@ export function ContextWindowIndicator({
 }: ContextWindowIndicatorProps) {
   const assistantDisplayName = assistantName?.trim() || "Your assistant";
   const enabled = showContextWindowIndicator.useValue();
-  // Input capability, not window size: the other presentation is a
-  // hover-revealed tooltip, and a coarse pointer has no hover to reveal it
-  // with (Radix tooltips deliberately never open on touch). The
-  // narrow-AND-coarse compound would strand every roomy touch device (a
-  // tablet either way up, a phone in landscape) on a branch it cannot
-  // operate. Read once so a streaming token count cannot flip the
-  // presentation mid-turn and remount the open sheet.
+  // Input capability, not window size. The other presentation is a
+  // hover-revealed tooltip, and Radix tooltips never open on touch, so a
+  // coarse pointer needs the sheet at any width: a tablet and a phone in
+  // landscape are both roomy and both thumb-driven. Read once, so a
+  // streaming token count cannot flip the presentation mid-turn and remount
+  // an open sheet.
   const isTouch = useMemo(() => isPointerCoarse(), []);
   const [sheetOpen, setSheetOpen] = useState(false);
 
