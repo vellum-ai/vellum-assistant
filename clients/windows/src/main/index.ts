@@ -12,7 +12,7 @@ import { APP_PROTOCOL, WINDOWS_RELEASE_INFO } from "./app-config";
 import { installMainFeatures } from "./features";
 import { handleSync } from "./ipc.client";
 import log from "./logger";
-import { ensureVisible, installMainWindow } from "./main-window";
+import { ensureVisible } from "./main-window";
 import { installWebContentsSecurity } from "./windows.client";
 
 /**
@@ -28,7 +28,7 @@ import { installWebContentsSecurity } from "./windows.client";
  * Not ported from the macOS client yet (see `clients/macos/src/main/` for the
  * reference implementations): gateway/platform request forwarding for
  * packaged builds, native auth, tray, auto-update, CSP,
- * notifications, hotkeys, local-mode IPC, window-state persistence.
+ * notifications, and local-mode IPC.
  */
 
 // Dev-only: override the package `name` (`@vellumai/windows`) so
@@ -164,7 +164,6 @@ app
       registerAppProtocol();
     }
     installMainFeatures();
-    installMainWindow();
   })
   .catch((err: unknown) => {
     log.error("[app] whenReady setup failed:", err);

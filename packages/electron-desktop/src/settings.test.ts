@@ -1,9 +1,11 @@
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, mock, test } from "bun:test";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
-import { createAppSettingsStore } from "./settings";
+mock.module("electron", () => ({ default: {} }));
+
+const { createAppSettingsStore } = await import("./settings");
 
 let temporaryDirectory: string | null = null;
 

@@ -504,6 +504,7 @@
         "@vellumai/electron-utils": "workspace:*",
         "@vellumai/ipc-contract": "workspace:*",
         "@vellumai/local-mode": "workspace:*",
+        "electron-store": "11.0.2",
       },
       "devDependencies": {
         "@sentry/electron": "7.13.0",

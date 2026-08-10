@@ -16,6 +16,10 @@ import {
   onSettingChange,
   readSetting,
 } from "@vellumai/electron-desktop/settings";
+import {
+  readCompanionHidden,
+  writeCompanionHidden,
+} from "@vellumai/electron-desktop/window-state";
 
 import { getAvatarPng, getCharacter, onAvatarChange } from "./avatar";
 import {
@@ -28,7 +32,6 @@ import {
   dispatchToMain,
   ensureVisible as ensureMainWindowVisible,
 } from "./main-window";
-import { readCompanionHidden, writeCompanionHidden } from "./window-state";
 
 /**
  * The flag the whole surface is behind, evaluated for the signed-in user and

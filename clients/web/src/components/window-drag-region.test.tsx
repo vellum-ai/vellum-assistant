@@ -3,6 +3,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 
 let isElectronMock = false;
 let inlineTitleBarActiveMock = false;
+let hostOSMock: "macos" | "windows" | null = null;
 
 mock.module("@/runtime/is-electron", () => ({
   isElectron: () => isElectronMock,
@@ -14,11 +15,17 @@ mock.module("@/stores/title-bar-store", () => ({
   },
 }));
 
+mock.module("@/runtime/platform-detection", () => ({
+  detectElectronHostOS: () =>
+    isElectronMock ? (hostOSMock ?? "macos") : null,
+}));
+
 import { WindowDragRegion } from "@/components/window-drag-region";
 
 beforeEach(() => {
   isElectronMock = false;
   inlineTitleBarActiveMock = false;
+  hostOSMock = null;
   window.history.replaceState({}, "", "/");
 });
 
@@ -32,6 +39,13 @@ describe("WindowDragRegion", () => {
     isElectronMock = true;
     const html = renderToStaticMarkup(<WindowDragRegion />);
     expect(html).toContain("app-region:drag");
+  });
+
+  test("leaves the Windows title-bar overlay controls unobstructed", () => {
+    isElectronMock = true;
+    hostOSMock = "windows";
+    const html = renderToStaticMarkup(<WindowDragRegion />);
+    expect(html).toContain('style="right:150px"');
   });
 
   test("yields while an inline title bar (the chat header) owns dragging", () => {

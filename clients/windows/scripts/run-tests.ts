@@ -6,5 +6,6 @@ await runIsolatedTests({
   extraFiles: [
     "../../packages/electron-utils/src/app-protocol.test.ts",
     "../../packages/electron-utils/src/auth-popup-session.test.ts",
+    "../../packages/electron-desktop/src/window-state.test.ts",
   ],
 });

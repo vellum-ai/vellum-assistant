@@ -125,11 +125,11 @@ mock.module("@vellumai/electron-desktop/settings", () => ({
   onSettingChange: () => () => {},
 }));
 
-// Full `./window-state` surface, for the same leak-safety reason as
+// Full window-state surface, for the same leak-safety reason as
 // `./settings` above. The companion flag is controllable so the checkbox
 // state can be exercised.
 let companionHidden = false;
-mock.module("./window-state", () => ({
+mock.module("@vellumai/electron-desktop/window-state", () => ({
   readOnboardingActive: () => false,
   readCompanionHidden: () => companionHidden,
   writeCompanionHidden: () => {},
