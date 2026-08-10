@@ -451,7 +451,7 @@ describe("POST inference/provider-connections (create)", () => {
           models: [{ id: "my-model" }],
         },
       }),
-    ).rejects.toThrow(/belongs to a built-in provider/);
+    ).rejects.toThrow(/reserved as a provider id/);
 
     await call(findHandler("inference_provider_connections_create"), {
       body: {

@@ -4,10 +4,6 @@ import {
   isModelInCatalog,
 } from "../providers/model-catalog.js";
 import {
-  MANAGED_ROUTABLE_PROVIDERS,
-  VELLUM_MANAGED_CONNECTION_NAME,
-} from "../providers/vellum-model-routing.js";
-import {
   type LLMConfigBase,
   type ProfileEntry,
   routingIdentityModelIssue,
@@ -97,34 +93,11 @@ export function completeCustomProfile(
     }
   }
 
-  // A provider-specific connection baked onto a different provider would pin
-  // a mismatch (dispatch auto-resolves an absent connection by provider
-  // instead). The Vellum managed connection must survive a provider change —
-  // dispatch routes it via `expectedProvider` — but only onto providers it
-  // can actually route; a non-managed-routable provider (openrouter, ollama)
-  // would hit the mismatch path instead of auto-resolution.
-  // Routing-identity providers resolve their connection per-request from
-  // the provider value; a stamped provider_connection would be dead weight
-  // at best and a misroute at worst.
-  if (
-    completed.provider !== undefined &&
-    ROUTING_IDENTITY_PROVIDERS.has(completed.provider)
-  ) {
-    return structuredClone(completed);
-  }
-
-  const vellumRoutable =
-    dflt.provider_connection === VELLUM_MANAGED_CONNECTION_NAME &&
-    completed.provider !== undefined &&
-    MANAGED_ROUTABLE_PROVIDERS.has(completed.provider);
-  if (
-    profile.provider_connection === undefined &&
-    dflt.provider_connection !== undefined &&
-    (completed.provider === dflt.provider || vellumRoutable)
-  ) {
-    completed.provider_connection = dflt.provider_connection;
-  }
-
+  // Completion never stamps a `provider_connection`: under the entries
+  // model the provider value alone carries the route (a vendor means the
+  // default entry of that kind, an entry name means its row, and
+  // routing-identity providers resolve their connection per-request), so an
+  // inherited binding would only re-introduce the collapsed field on disk.
   return structuredClone(completed);
 }
 

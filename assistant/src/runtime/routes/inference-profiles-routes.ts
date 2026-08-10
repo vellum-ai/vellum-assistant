@@ -31,9 +31,9 @@ import {
 import {
   ProfileEntry,
   routingIdentityModelIssue,
-  unknownLlmProviderIssue,
 } from "../../config/schemas/llm.js";
 import { getDb } from "../../persistence/db-connection.js";
+import { writableProfileProviderIssue } from "../../providers/connection-resolution.js";
 import { ROUTING_IDENTITY_PROVIDERS } from "../../providers/inference/auth.js";
 import type { ConnectionAvailability } from "../../providers/inference/connection-availability.js";
 import {
@@ -150,7 +150,7 @@ const updateRequestSchema = z.object({
 // ---------------------------------------------------------------------------
 
 function assertValidProvider(provider: string): void {
-  const issue = unknownLlmProviderIssue(provider);
+  const issue = writableProfileProviderIssue(provider);
   if (issue) {
     throw new BadRequestError(issue);
   }

@@ -17,6 +17,7 @@ import {
   isConnectionCompatibleWithModel,
 } from "./connection-model-compat.js";
 import {
+  connectionProviderKind,
   dispatchProviderResolvable,
   expectedVendorProvider,
   resolveEntryConnectionName,
@@ -248,7 +249,13 @@ export async function resolveConfiguredProvider(
       opts.overrideProfile,
       opts.forceOverrideProfile,
     ),
-    configuredProviderName: inferenceProvider,
+    // The dispatched vendor kind, not the config label: an entry-name
+    // provider reports its row's kind so provider-keyed consumers
+    // (telemetry, pricing) never see a label that matches no catalog id.
+    configuredProviderName:
+      (entryRoute
+        ? connectionProviderKind(entryRoute, resolved.model)
+        : undefined) ?? inferenceProvider,
   };
 }
 

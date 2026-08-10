@@ -29,7 +29,9 @@ describe("completeCustomProfile", () => {
     });
     expect(completed.model).toBe("claude-fable-5");
     expect(completed.provider).toBe("anthropic");
-    expect(completed.provider_connection).toBe("anthropic-personal");
+    // Completion never stamps a binding: the provider value alone
+    // carries the route under the entries model.
+    expect(completed.provider_connection).toBeUndefined();
     expect(completed.maxTokens).toBe(64000);
     expect(completed.effort).toBe("max");
     expect(completed.speed).toBe("standard");
@@ -83,7 +85,9 @@ describe("completeCustomProfile", () => {
       model: "claude-fable-5",
     });
     expect(completed.provider).toBe("anthropic");
-    expect(completed.provider_connection).toBe("anthropic-personal");
+    // Completion never stamps a binding: the provider value alone
+    // carries the route under the entries model.
+    expect(completed.provider_connection).toBeUndefined();
   });
 
   test("stamps the catalog owner for a model the default provider does not serve, and drops the default's connection", () => {
@@ -123,28 +127,23 @@ describe("completeCustomProfile", () => {
     expect(completed.provider_connection).toBeUndefined();
   });
 
-  test("inherits the vellum managed connection across a provider change, but only onto managed-routable providers", () => {
+  test("never inherits a connection binding, managed default included", () => {
+    // The provider value alone carries the route under the entries model;
+    // completion inheriting the managed binding would re-introduce the
+    // collapsed field on disk.
     const managedDefault = LLMConfigBase.parse({
       ...fullDefault,
       provider_connection: VELLUM_MANAGED_CONNECTION_NAME,
     });
     const implied = completeCustomProfile(managedDefault, { model: "gpt-5.5" });
     expect(implied.provider).toBe("openai");
-    expect(implied.provider_connection).toBe(VELLUM_MANAGED_CONNECTION_NAME);
+    expect(implied.provider_connection).toBeUndefined();
 
     const explicit = completeCustomProfile(managedDefault, {
       provider: "openai",
       model: "gpt-5.4",
     });
-    expect(explicit.provider_connection).toBe(VELLUM_MANAGED_CONNECTION_NAME);
-
-    // The vellum connection can't route a non-managed provider; baking it in
-    // would fail dispatch's mismatch path instead of auto-resolving.
-    const nonRoutable = completeCustomProfile(managedDefault, {
-      provider: "openrouter",
-      model: "minimax/minimax-m3",
-    });
-    expect(nonRoutable.provider_connection).toBeUndefined();
+    expect(explicit.provider_connection).toBeUndefined();
   });
 
   test("keeps the inherited provider for a model unknown to the catalog", () => {
@@ -152,7 +151,9 @@ describe("completeCustomProfile", () => {
       model: "totally-custom-model",
     });
     expect(completed.provider).toBe("anthropic");
-    expect(completed.provider_connection).toBe("anthropic-personal");
+    // Completion never stamps a binding: the provider value alone
+    // carries the route under the entries model.
+    expect(completed.provider_connection).toBeUndefined();
   });
 
   test("passes mix profiles through untouched", () => {

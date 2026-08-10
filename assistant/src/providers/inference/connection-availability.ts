@@ -23,6 +23,10 @@ import {
   describeSubscriptionModelIncompatibility,
   isConnectionCompatibleWithModel,
 } from "../connection-model-compat.js";
+import {
+  connectionProviderKind,
+  resolveEntryConnectionName,
+} from "../connection-resolution.js";
 import { PROVIDER_CATALOG } from "../model-catalog.js";
 import { resolveManagedProxyContext } from "../platform-proxy/context.js";
 import {
@@ -329,6 +333,16 @@ export async function computeProfileAvailability(
             : `Model "${model ?? "<unset>"}" cannot be routed by provider "${provider}".`,
       };
     }
+  }
+
+  // An entry-name provider IS the connection name; judge the row against
+  // its own dispatchable kind, the same translation dispatch uses.
+  const entryName = resolveEntryConnectionName(provider);
+  if (entryName !== null) {
+    return computeConnectionAvailability(
+      connectionProviderKind(entryName, model) ?? provider,
+      entryName,
+    );
   }
 
   const pinned = entry.provider_connection;

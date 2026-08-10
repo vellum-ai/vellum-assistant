@@ -97,6 +97,7 @@ import { type LogRow } from "../../persistence/llm-request-log-store.js";
 import { getMemoryRecallLogByMessageIds } from "../../plugins/defaults/memory/memory-recall-log-store.js";
 import { getMemoryV2ActivationLogByMessageIds } from "../../plugins/defaults/memory/v2/activation-log-store.js";
 import { getMemoryV3SelectionForInspectorByMessageIds } from "../../plugins/defaults/memory/v3/selection-log-store.js";
+import { writableProfileProviderIssue } from "../../providers/connection-resolution.js";
 import { ROUTING_IDENTITY_PROVIDERS } from "../../providers/inference/auth.js";
 import { PROVIDERS_REQUIRING_BASE_URL_AND_MODELS } from "../../providers/inference/auth.js";
 import {
@@ -1397,9 +1398,13 @@ function assertRoutableIdentityEntries(
     // providers this write introduces or changes: a stored value outside
     // the known set is readable and dispatchable by design, and
     // re-validating it on every write would make all later settings saves
-    // fail with no in-product repair path.
+    // fail with no in-product repair path. Profiles accept entry names;
+    // call-site fragments and the legacy default blob stay vendor-only
+    // (overrides become model-only with the entries demolition).
     if (entry.provider !== priorProviders.get(label)) {
-      const providerIssue = unknownLlmProviderIssue(entry.provider);
+      const providerIssue = label.startsWith("llm.profiles.")
+        ? writableProfileProviderIssue(entry.provider)
+        : unknownLlmProviderIssue(entry.provider);
       if (providerIssue) {
         throw new BadRequestError(`${providerIssue} (${label})`);
       }

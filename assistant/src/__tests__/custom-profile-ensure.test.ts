@@ -54,7 +54,8 @@ describe("ensureCompleteCustomProfiles", () => {
     const saved = readProfiles().partial;
     expect(saved.model).toBe("claude-haiku-4-5-20251001");
     expect(saved.provider).toBe("anthropic");
-    expect(saved.provider_connection).toBe("anthropic-personal");
+    // Completion never stamps a binding under the entries model.
+    expect(saved.provider_connection).toBeUndefined();
     expect(saved.maxTokens).toBe(12345);
     expect(saved.temperature).toBe(0.7);
     expect(saved.logitBias).toBeUndefined();
@@ -91,7 +92,7 @@ describe("ensureCompleteCustomProfiles", () => {
       },
     });
     ensureCompleteCustomProfiles(workspaceDir);
-    expect(readProfiles().gpt.provider_connection).toBe("vellum");
+    expect(readProfiles().gpt.provider_connection).toBeUndefined();
     expect(readProfiles().router.provider_connection).toBeUndefined();
   });
 
