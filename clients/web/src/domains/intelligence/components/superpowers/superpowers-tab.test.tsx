@@ -34,6 +34,7 @@ import type {
   PluginsSearchGetResponse,
   SkillsGetResponse,
 } from "@/generated/daemon/types.gen";
+import { stubViewportAxes } from "@/hooks/viewport-axes.test-helper";
 import { MIN_VERSION as PLUGINS_MIN_VERSION } from "@/lib/backwards-compat/plugins-surface";
 import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
 
@@ -303,40 +304,6 @@ function clickFilterOption(label: string): void {
     throw new Error(`expected a "${label}" filter option`);
   }
   fireEvent.click(option);
-}
-
-/**
- * Answers media queries for a given device shape: `narrow` drives the mobile
- * breakpoint (which decides whether the category rail renders at all), and
- * `coarsePointer` drives `useTouchMobile`, which picks the bottom sheet over
- * the popover. Returns a restore fn the caller invokes once done.
- */
-function stubViewport({
-  narrow,
-  coarsePointer,
-}: {
-  narrow: boolean;
-  coarsePointer: boolean;
-}): () => void {
-  const original = window.matchMedia;
-  window.matchMedia = ((query: string) => {
-    const widthOk = query.includes("min-width")
-      ? !narrow
-      : !query.includes("max-width") || narrow;
-    return {
-      matches: widthOk && (!query.includes("pointer: coarse") || coarsePointer),
-      media: query,
-      onchange: null,
-      addEventListener: () => {},
-      removeEventListener: () => {},
-      addListener: () => {},
-      removeListener: () => {},
-      dispatchEvent: () => false,
-    };
-  }) as unknown as typeof window.matchMedia;
-  return () => {
-    window.matchMedia = original;
-  };
 }
 
 beforeEach(() => {
@@ -896,7 +863,7 @@ describe("SuperpowersTab", () => {
     installedCategoryCounts = { email: 1 };
     catalogMatches = [catalog({ name: "sys-cat", category: "system" })];
 
-    const restoreMatchMedia = stubViewport({
+    const restoreMatchMedia = stubViewportAxes({
       narrow: true,
       coarsePointer: true,
     });
@@ -928,7 +895,7 @@ describe("SuperpowersTab", () => {
     // A mouse-driven window narrow enough to hide the category rail: the
     // popover is the only category surface, so it grows the section the sheet
     // carries on touch.
-    const restoreMatchMedia = stubViewport({
+    const restoreMatchMedia = stubViewportAxes({
       narrow: true,
       coarsePointer: false,
     });

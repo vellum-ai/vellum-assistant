@@ -1,9 +1,9 @@
 import { Brain } from "lucide-react";
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
-import { useTouchMobile } from "@/hooks/use-touch-mobile";
 import { showContextWindowIndicator } from "@/utils/composer-settings";
+import { isPointerCoarse } from "@/utils/pointer";
 import { BottomSheet, Button } from "@vellumai/design-library";
 
 export interface ContextWindowUsage {
@@ -91,7 +91,7 @@ function CircularRing({
   );
 }
 
-function DesktopTooltipContent({
+function PointerTooltipContent({
   percentage,
   ringColor,
   tokens,
@@ -126,7 +126,7 @@ function DesktopTooltipContent({
   );
 }
 
-function MobileSheetContent({
+function TouchSheetContent({
   percentage,
   ringColor,
   ratio,
@@ -220,7 +220,13 @@ export function ContextWindowIndicator({
 }: ContextWindowIndicatorProps) {
   const assistantDisplayName = assistantName?.trim() || "Your assistant";
   const enabled = showContextWindowIndicator.useValue();
-  const isTouchMobile = useTouchMobile();
+  // Input capability, not window size: the other presentation is a
+  // hover-revealed tooltip, and a coarse pointer has no hover to reveal it
+  // with. The narrow-AND-coarse compound would strand every roomy touch
+  // device (a tablet either way up, a phone in landscape) on a branch it
+  // cannot operate. Read once so a streaming token count cannot flip the
+  // presentation mid-turn and remount the open sheet.
+  const isTouch = useMemo(() => isPointerCoarse(), []);
   const [sheetOpen, setSheetOpen] = useState(false);
   const [isHovered, setIsHovered] = useState(false);
   const [tooltipPosition, setTooltipPosition] = useState<{
@@ -266,10 +272,9 @@ export function ContextWindowIndicator({
   const dashOffset = RING_CIRCUMFERENCE * (1 - ratio);
   const { tokens, maxTokens } = usage;
 
+  // Only ever wired up on the pointer branch below, which a coarse pointer
+  // never reaches.
   const handleMouseEnter = () => {
-    if (isTouchMobile) {
-      return;
-    }
     if (hoverTimerRef.current != null) {
       clearTimeout(hoverTimerRef.current);
     }
@@ -287,7 +292,7 @@ export function ContextWindowIndicator({
     setTooltipPosition(null);
   };
 
-  if (isTouchMobile) {
+  if (isTouch) {
     return (
       <BottomSheet.Root open={sheetOpen} onOpenChange={setSheetOpen}>
         <BottomSheet.Trigger asChild>
@@ -311,7 +316,7 @@ export function ContextWindowIndicator({
             <BottomSheet.Title>Context Window</BottomSheet.Title>
           </BottomSheet.Header>
           <BottomSheet.Body className="px-2 pt-8 pb-8">
-            <MobileSheetContent
+            <TouchSheetContent
               percentage={percentage}
               ringColor={ringColor}
               ratio={ratio}
@@ -353,7 +358,7 @@ export function ContextWindowIndicator({
               opacity: tooltipPosition ? 1 : 0,
             }}
           >
-            <DesktopTooltipContent
+            <PointerTooltipContent
               percentage={percentage}
               ringColor={ringColor}
               tokens={tokens}
