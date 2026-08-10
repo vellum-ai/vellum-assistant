@@ -230,7 +230,21 @@ it too, per [`clients/AGENTS.md`](../../AGENTS.md).
 
 - **Which overlay a trigger opens** is the input axis. `ConversationActionsMenu` opens a
   `BottomSheet` under a thumb and a `Menu` under a mouse, so it reads `useTouchMobile()`. A narrow
-  desktop window keeps the dropdown, because a mouse can hit it.
+  desktop window keeps the dropdown, because a mouse can hit it. Note this is the compound, not the
+  input axis by itself, which is the known gap described [above](#input-capability): a landscape
+  tablet is coarse but roomy, so it gets the mouse-oriented branch.
+- **Whether a detail is hover-revealed or tap-opened** is the input axis *by itself*, and the case
+  where the compound is not merely imprecise but wrong. `ContextWindowIndicator` reads
+  `isPointerCoarse()`, because its alternative presentation is a hover-revealed tooltip and a coarse
+  pointer has no hover to reveal it with. The size half cannot matter when the other branch is
+  unusable at every width.
+
+  The distinction to draw when choosing between `isPointerCoarse()` and `useTouchMobile()`: ask what
+  the *other* branch does under a thumb. A bottom sheet whose alternative is an anchored popover can
+  use the compound, because a popover still works under a thumb, just less comfortably on a small
+  screen. A bottom sheet whose alternative is hover-only cannot, because there is no degraded
+  experience to fall back to, only a dead control. Reading the compound there strands every roomy
+  touch device: a tablet in either orientation, and a phone in landscape.
 - **Whether a detail pane docks beside the chat or floats over it** is the size axis. A side-by-side
   split cannot fit at 767px whatever the pointer is, so `ChatRouteContent` reads `useIsMobile()`.
 - **Safe-area padding under a full-screen sheet** is the platform axis, resolved in CSS off
