@@ -71,6 +71,11 @@ const BUFFER_INJECTION_NOTICE =
  * (`countBufferLines`), so the two readings of "how big is the buffer" agree.
  * Retained lines keep their original spacing; the notice replaces everything
  * before them.
+ *
+ * The cap is a bound on buffered *content*, not a hard line budget: a single
+ * entry whose body alone exceeds it keeps its opening line and an elision
+ * marker (see {@link retainFromEntryBoundary}), so the output can run to
+ * `maxLines + 2`.
  */
 function capBufferSection(content: string, maxLines: number | null): string {
   if (maxLines === null) {
@@ -91,8 +96,7 @@ function capBufferSection(content: string, maxLines: number | null): string {
   while (start < lines.length && lines[start]!.trim().length === 0) {
     start++;
   }
-  start = alignToEntryStart(lines, start);
-  return `${BUFFER_INJECTION_NOTICE}\n${lines.slice(start).join("\n")}`;
+  return `${BUFFER_INJECTION_NOTICE}\n${retainFromEntryBoundary(lines, start)}`;
 }
 
 /**
@@ -110,30 +114,75 @@ const BUFFER_ENTRY_START_REGEX =
   /^-\s+\[[A-Z][a-z]{2}\s+\d{1,2},\s+\d{1,2}:\d{2}\s+[AP]M\]/;
 
 /**
- * Advance `start` to the next line that begins a buffer entry, so the injected
- * Buffer never opens mid-entry.
+ * Marker replacing the head of an entry whose body alone exceeds the cap, so
+ * the retained tail reads as a fragment of the entry above it rather than as
+ * the whole fact.
+ */
+const ENTRY_BODY_TRIMMED_NOTICE =
+  "(This entry's body was trimmed. Read memory/buffer.md for the rest of it.)";
+
+/**
+ * Render the retained lines from `start`, moved onto an entry boundary so the
+ * injected Buffer never opens on orphan continuation lines.
  *
  * A multiline `remember()` stores its body verbatim after the timestamped
  * first line, and consolidation reads non-timestamped lines as part of the
  * preceding entry. Cutting purely on a line count can therefore land inside a
- * fact and inject orphan continuation lines stripped of the timestamp and
- * opening clause that give them meaning, which is worse than showing one fewer
- * fact. Dropping the partial entry keeps every surviving fact whole and can
- * only shrink the result, so the cap still holds.
+ * fact and inject continuation lines stripped of the timestamp and opening
+ * clause that give them meaning, which is worse than showing one fewer fact.
  *
- * Returns `start` unchanged when no entry start exists at or after it, which
- * is the hand-written buffer that never used `remember()`. There is no entry
- * structure to preserve there, so the line-based cut stands.
+ * Three cases, distinguished by what entry structure surrounds the cut:
+ *
+ * - **A later entry starts at or after the cut.** Drop the straddled entry and
+ *   open on that one. Every surviving fact stays whole and the result can only
+ *   shrink, so the cap still holds. This is the common case.
+ * - **No later entry, but the cut sits inside one.** The newest entry's body is
+ *   itself larger than the cap, so there is no whole entry to fall back to:
+ *   dropping it would leave the section empty of facts, and the newest entry is
+ *   the one most worth injecting. Keep its opening line (the timestamp and
+ *   first clause the tail needs to be readable), then {@link
+ *   ENTRY_BODY_TRIMMED_NOTICE}, then the tail. Costs two lines over the cap and
+ *   attributes every retained line to a timestamped entry. When the cut fell on
+ *   the opening line's immediate successor nothing was actually elided, so the
+ *   whole entry is returned without the marker rather than claiming a trim that
+ *   did not happen.
+ * - **No entry structure at all.** A hand-written buffer that never went
+ *   through `remember()`. Nothing to preserve, so the line cut stands.
  */
-function alignToEntryStart(lines: string[], start: number): number {
-  let aligned = start;
-  while (
-    aligned < lines.length &&
-    !BUFFER_ENTRY_START_REGEX.test(lines[aligned]!)
-  ) {
-    aligned++;
+function retainFromEntryBoundary(lines: string[], start: number): string {
+  const successor = findEntryStart(lines, start, 1);
+  if (successor !== null) {
+    return lines.slice(successor).join("\n");
   }
-  return aligned === lines.length ? start : aligned;
+  const opening = findEntryStart(lines, start - 1, -1);
+  if (opening === null) {
+    return lines.slice(start).join("\n");
+  }
+  const elidedHead = lines
+    .slice(opening + 1, start)
+    .some((line) => line.trim().length > 0);
+  if (!elidedHead) {
+    return lines.slice(opening).join("\n");
+  }
+  return [
+    lines[opening]!,
+    ENTRY_BODY_TRIMMED_NOTICE,
+    ...lines.slice(start),
+  ].join("\n");
+}
+
+/** First index from `from` in direction `step` whose line starts an entry. */
+function findEntryStart(
+  lines: string[],
+  from: number,
+  step: 1 | -1,
+): number | null {
+  for (let i = from; i >= 0 && i < lines.length; i += step) {
+    if (BUFFER_ENTRY_START_REGEX.test(lines[i]!)) {
+      return i;
+    }
+  }
+  return null;
 }
 
 /**
