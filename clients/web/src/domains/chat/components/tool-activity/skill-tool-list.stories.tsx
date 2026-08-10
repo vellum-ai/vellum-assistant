@@ -57,18 +57,29 @@ const appBuilderTools: SkillToolSummary[] = [
   },
 ];
 
-/** The common case: one skill's own tools, each with typed parameters. */
+/**
+ * The common case: one skill's own tools. Parameter schemas are parsed but
+ * intentionally not rendered — see the note on `SkillToolList`.
+ */
 export const Default: Story = {
   args: { tools: appBuilderTools },
 };
 
-/** A tool the daemon printed with no parameter list. */
-export const WithoutParameters: Story = {
+/** Long descriptions wrap rather than clip, and keep an 18px leading. */
+export const LongDescriptions: Story = {
   args: {
     tools: [
       {
-        name: "app_list",
-        description: "List every app in the user's Library.",
+        name: "app_create",
+        description:
+          "Create a new app in the user's Library, scaffold its folder from an optional starter template, register it with the app catalog, and return the absolute path so subsequent writes can target it.",
+        fromSkill: null,
+        params: [],
+      },
+      {
+        name: "app_deploy_preview",
+        description:
+          "Build the app and open a live preview alongside the conversation, rebuilding on every subsequent change until the preview is dismissed.",
         fromSkill: null,
         params: [],
       },

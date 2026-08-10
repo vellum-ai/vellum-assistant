@@ -79,10 +79,16 @@ export function CodeBlock({ text }: { text: string }) {
   );
 }
 
-/** Uppercase section label in `--content-tertiary`. */
+/**
+ * Uppercase section label in `--content-tertiary`.
+ *
+ * `leading-4` is deliberate: the `label-small-default` token ships
+ * `line-height: 1`, which leaves no room below the baseline and clips glyph
+ * tails. Size is unchanged.
+ */
 export function SectionLabel({
   children,
-  className = "mb-1.5",
+  className = "mb-2",
 }: {
   children: string;
   /** Margin override for rows that manage their own spacing. */
@@ -92,7 +98,7 @@ export function SectionLabel({
     <Typography
       variant="label-small-default"
       as="div"
-      className={`uppercase tracking-wider text-[var(--content-tertiary)] ${className}`}
+      className={`uppercase leading-4 tracking-wider text-[var(--content-tertiary)] ${className}`}
     >
       {children}
     </Typography>

@@ -49,9 +49,9 @@ function SkillIdentity({
           {skillId || "Skill"}
         </Typography>
         <Typography
-          variant="body-small-default"
+          variant="body-small-lighter"
           as="div"
-          className="text-[var(--content-secondary)]"
+          className="mt-0.5 text-[var(--content-secondary)]"
         >
           {status}
         </Typography>
@@ -78,20 +78,16 @@ function SkillLoadSkeleton() {
     >
       <div>
         <SectionLabel>Provides</SectionLabel>
-        <div className="flex flex-col gap-2">
+        <div className="flex flex-col gap-4">
           {[0, 1].map((row) => (
-            <div
-              key={row}
-              className="rounded-lg border border-[var(--border-base)] bg-[var(--surface-overlay)] p-3"
-            >
+            <div key={row}>
               <Skeleton className="h-3.5 w-32" />
               <Skeleton className="mt-2 h-3 w-full" />
-              <Skeleton className="mt-1.5 h-3 w-2/3" />
             </div>
           ))}
         </div>
       </div>
-      <div className="flex flex-col gap-1.5">
+      <div className="flex flex-col gap-2">
         <Skeleton className="h-3 w-full" />
         <Skeleton className="h-3 w-11/12" />
         <Skeleton className="h-3 w-4/5" />
@@ -126,9 +122,9 @@ export function SkillLoadDetail({
       <SkillIdentity skillId={skillId} status={status} />
 
       {errorMessage && (
-        <div className="rounded-lg border border-[var(--system-negative-strong)] bg-[var(--system-negative-weak)] p-3">
+        <div className="rounded-lg border border-[var(--system-negative-strong)] bg-[var(--system-negative-weak)] p-4">
           <Typography
-            variant="body-small-default"
+            variant="body-small-lighter"
             as="p"
             className="whitespace-pre-wrap break-words text-[var(--content-default)]"
           >

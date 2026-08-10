@@ -37,10 +37,11 @@ export function DetailDisclosure({
       <Collapsible.Item value={value}>
         <Collapsible.Trigger className="group gap-1.5 py-1 text-left">
           <ChevronRight className="h-3.5 w-3.5 shrink-0 text-[var(--content-tertiary)] transition-transform group-data-[state=open]:rotate-90" />
+          {/* `leading-4` clears the `line-height: 1` on the label token. */}
           <Typography
             variant="label-small-default"
             as="span"
-            className="uppercase tracking-wider text-[var(--content-tertiary)]"
+            className="uppercase leading-4 tracking-wider text-[var(--content-tertiary)]"
           >
             {label}
           </Typography>
@@ -48,7 +49,7 @@ export function DetailDisclosure({
             <Typography
               variant="label-small-default"
               as="span"
-              className="ml-auto pl-2 text-[var(--content-tertiary)]"
+              className="ml-auto pl-2 leading-4 text-[var(--content-tertiary)]"
             >
               {hint}
             </Typography>

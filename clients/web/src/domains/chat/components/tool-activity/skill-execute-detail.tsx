@@ -35,30 +35,33 @@ function ParamRow({ param }: { param: SkillExecuteParam }) {
   return (
     <div
       className={
-        inline ? "flex items-baseline justify-between gap-3" : "flex flex-col"
+        inline ? "flex items-baseline justify-between gap-4" : "flex flex-col"
       }
     >
+      {/* `leading-5` is deliberate: the `body-small-default` token ships
+          `line-height: 1`, which clips the descenders on keys like `template`
+          and `config`. */}
       <Typography
-        variant="label-small-default"
+        variant="body-small-default"
         as="div"
-        className="shrink-0 font-mono text-[var(--content-tertiary)]"
+        className="shrink-0 font-mono leading-5 text-[var(--content-tertiary)]"
       >
         {param.key}
       </Typography>
       {param.scalar !== null ? (
         <Typography
-          variant="body-small-default"
+          variant="body-medium-default"
           as="div"
           className={
             inline
               ? "min-w-0 truncate text-right text-[var(--content-default)]"
-              : "mt-1 whitespace-pre-wrap break-words rounded-lg border border-[var(--border-base)] bg-[var(--surface-overlay)] p-2.5 text-[var(--content-default)]"
+              : "mt-1.5 whitespace-pre-wrap break-words rounded-lg border border-[var(--border-base)] bg-[var(--surface-overlay)] p-3 leading-relaxed text-[var(--content-default)]"
           }
         >
           {param.scalar}
         </Typography>
       ) : (
-        <div className="mt-1">
+        <div className="mt-1.5">
           <CodeBlock text={param.json ?? ""} />
         </div>
       )}
@@ -94,9 +97,9 @@ export function SkillExecuteDetail({
           </Typography>
           {innerToolName && (
             <Typography
-              variant="label-small-default"
+              variant="body-small-lighter"
               as="div"
-              className="truncate font-mono text-[var(--content-tertiary)]"
+              className="mt-0.5 truncate font-mono text-[var(--content-tertiary)]"
             >
               {innerToolName}
               {isRunning ? " · running" : ""}
@@ -107,7 +110,7 @@ export function SkillExecuteDetail({
 
       {subtitle && (
         <Typography
-          variant="body-small-default"
+          variant="body-small-lighter"
           as="p"
           className="text-[var(--content-secondary)]"
         >
@@ -118,7 +121,7 @@ export function SkillExecuteDetail({
       {params.length > 0 && (
         <div>
           <SectionLabel>Parameters</SectionLabel>
-          <div className="flex flex-col gap-2.5 rounded-lg border border-[var(--border-base)] p-3">
+          <div className="flex flex-col gap-4 rounded-lg border border-[var(--border-base)] p-4">
             {params.map((param) => (
               <ParamRow key={param.key} param={param} />
             ))}

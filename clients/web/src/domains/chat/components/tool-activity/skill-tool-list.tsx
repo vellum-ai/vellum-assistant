@@ -1,83 +1,40 @@
 /**
- * Structured renderer for the tools a loaded skill advertises, replacing the
- * daemon's machine-facing "## Available Tools" markdown block with a scannable
- * list (LUM-2999).
+ * The tools a loaded skill advertises, replacing the daemon's machine-facing
+ * "## Available Tools" markdown block with a scannable list (LUM-2999).
  *
- * Each tool is one row: monospace name, prose description, and its parameters
- * as `name type required?` triples. Tools contributed by a nested child skill
- * are grouped under that skill's name so a composite skill's provenance stays
- * visible.
+ * Deliberately minimal: a tool's name and one-line description answer the only
+ * question this panel exists to answer — what can the assistant do now that it
+ * couldn't a moment ago. The manifest's parameter schemas are model-facing API
+ * surface (the user is never going to call `app_create(name, template)`
+ * themselves), so they're parsed but not rendered; showing them tripled each
+ * card's height for detail nobody acts on.
+ *
+ * Tools contributed by a nested child skill are grouped under that skill's name
+ * so a composite skill's provenance stays visible.
  */
 
 import { Typography } from "@vellumai/design-library";
 
-import type { SkillToolParam, SkillToolSummary } from "@/domains/chat/utils/skill-activity";
-
-/** One `name (type, required)` row under a tool. */
-function ParamRow({ param }: { param: SkillToolParam }) {
-  return (
-    <li className="flex flex-wrap items-baseline gap-x-1.5 gap-y-0.5">
-      <Typography
-        variant="label-small-default"
-        as="span"
-        className="font-mono text-[var(--content-default)]"
-      >
-        {param.name}
-      </Typography>
-      <Typography
-        variant="label-small-default"
-        as="span"
-        className="text-[var(--content-tertiary)]"
-      >
-        {param.type}
-      </Typography>
-      {param.required && (
-        <Typography
-          variant="label-small-default"
-          as="span"
-          className="text-[var(--system-mid-strong)]"
-        >
-          required
-        </Typography>
-      )}
-      {param.description && (
-        <Typography
-          variant="body-small-default"
-          as="span"
-          className="w-full text-[var(--content-secondary)]"
-        >
-          {param.description}
-        </Typography>
-      )}
-    </li>
-  );
-}
+import type { SkillToolSummary } from "@/domains/chat/utils/skill-activity";
 
 function SkillToolRow({ tool }: { tool: SkillToolSummary }) {
   return (
-    <li className="rounded-lg border border-[var(--border-base)] bg-[var(--surface-overlay)] p-3">
+    <li>
       <Typography
-        variant="body-small-default"
-        as="span"
-        className="font-mono text-[var(--content-default)]"
+        variant="body-medium-default"
+        as="div"
+        className="font-mono leading-5 text-[var(--content-default)]"
       >
         {tool.name}
       </Typography>
       {tool.description && (
         <Typography
-          variant="body-small-default"
+          variant="body-small-lighter"
           as="p"
           className="mt-1 text-[var(--content-secondary)]"
         >
           {tool.description}
         </Typography>
-      )}
-      {tool.params.length > 0 && (
-        <ul className="mt-2 flex flex-col gap-1.5">
-          {tool.params.map((param) => (
-            <ParamRow key={param.name} param={param} />
-          ))}
-        </ul>
       )}
     </li>
   );
@@ -103,9 +60,9 @@ export function SkillToolList({ tools }: { tools: SkillToolSummary[] }) {
   ];
 
   return (
-    <div className="flex flex-col gap-3">
+    <div className="flex flex-col gap-5">
       {ownTools.length > 0 && (
-        <ul className="flex flex-col gap-2">
+        <ul className="flex flex-col gap-4">
           {ownTools.map((tool) => (
             <SkillToolRow key={tool.name} tool={tool} />
           ))}
@@ -114,13 +71,13 @@ export function SkillToolList({ tools }: { tools: SkillToolSummary[] }) {
       {childSkills.map((skillName) => (
         <div key={skillName}>
           <Typography
-            variant="label-small-default"
+            variant="body-small-lighter"
             as="div"
-            className="mb-1.5 text-[var(--content-tertiary)]"
+            className="mb-3 text-[var(--content-tertiary)]"
           >
             From {skillName}
           </Typography>
-          <ul className="flex flex-col gap-2">
+          <ul className="flex flex-col gap-4">
             {tools
               .filter((tool) => tool.fromSkill === skillName)
               .map((tool) => (
