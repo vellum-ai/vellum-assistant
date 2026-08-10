@@ -151,6 +151,7 @@ const { ACP_CLAUDE_AUTH_REQUIRED_CODE, AcpAuthRequiredError } =
   await import("../../acp/auth-required.js");
 const { hasAcpConnectCardRaised } =
   await import("../../acp/acp-connect-card-state.js");
+const { AcpAgentProcess } = await import("../../acp/agent-process.js");
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -559,14 +560,38 @@ describe("executeAcpSpawn — CLAUDE_CODE_OAUTH_TOKEN injection", () => {
 describe("pre-spawn Claude auth rejection", () => {
   test("raises the recovery surface: errorCode, card guidance, registry mark", async () => {
     // The adapter can reject session creation with auth_required (a stored
-    // credential the server refuses); the typed error reaches this tool's
-    // catch and must produce the same surface the missing-token preflight
-    // does, anchored to this failed tool call.
+    // credential the server refuses). The error thrown here is produced by
+    // the REAL conversion seam, not hand-built: a wire-shaped JSON-RPC
+    // auth_required rejection driven through AcpAgentProcess.createSession's
+    // actual retry path, so this test fails if that seam stops yielding the
+    // typed error the tool boundary maps to the recovery surface.
+    const proc = new AcpAgentProcess(
+      "claude",
+      { command: "claude-agent-acp", args: [] },
+      (() => ({})) as never,
+    );
+    (proc as unknown as { connection: unknown }).connection = {
+      newSession: () =>
+        Promise.reject({ code: -32000, message: "Authentication required" }),
+    };
+    (proc as unknown as { initializeResponse: unknown }).initializeResponse = {
+      authMethods: [
+        {
+          id: "claude-ai-login",
+          name: "Claude Subscription",
+          type: "terminal",
+        },
+      ],
+    };
+    (proc as unknown as { spawnedEnv: unknown }).spawnedEnv = {};
+    const realSeamError: unknown = await proc.createSession("/tmp").then(
+      () => null,
+      (e: unknown) => e,
+    );
+    expect(realSeamError).toBeInstanceOf(AcpAuthRequiredError);
+
     spawnMock.mockImplementationOnce(async () => {
-      throw new AcpAuthRequiredError(
-        "claude",
-        'ACP agent "claude" requires authentication and its stored credential was not accepted.',
-      );
+      throw realSeamError;
     });
 
     const context = { ...makeContext(), conversationId: "conv-prespawn-auth" };
