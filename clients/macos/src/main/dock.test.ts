@@ -49,7 +49,7 @@ mock.module("@vellumai/electron-desktop/avatar", () => ({
 // registered listeners so tests can simulate token changes.
 let mockToken: string | null = null;
 const tokenChangeListeners = new Set<() => void>();
-mock.module("./session-token-store", () => ({
+mock.module("./session-token-store.client", () => ({
   getSessionToken: () => mockToken,
   onSessionTokenChange: (listener: () => void) => {
     tokenChangeListeners.add(listener);

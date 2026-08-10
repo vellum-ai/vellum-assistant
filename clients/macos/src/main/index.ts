@@ -5,6 +5,7 @@ import path from "node:path";
 
 import { installCsp } from "@vellumai/electron-desktop/csp";
 import { installCommandPaletteWindow } from "@vellumai/electron-desktop/command-palette-window";
+import { getDeviceId } from "@vellumai/electron-desktop/device-id";
 import { installDictationOverlay } from "@vellumai/electron-desktop/dictation-overlay-window";
 import {
   authorizePairedGatewayForwardPlan,
@@ -40,7 +41,6 @@ import {
 import { resolveAllowedOrigin } from "./app-origin";
 import { writeCliLocator } from "./cli-installer";
 import { provisionCliForWrapper } from "./cli-path-installer";
-import { getDeviceId } from "./device-id";
 import { handle, handleSync, on } from "./ipc";
 import { registerVellumAppProtocol } from "./vellumapp-protocol";
 import { installPairedGatewayRequestGuard } from "./paired-gateway-request-guard";
@@ -97,7 +97,7 @@ import {
   relocateToApplicationsFolder,
 } from "./move-to-applications";
 import { markRelocationSkipped } from "./install-location";
-import { installNativeAuth } from "./native-auth";
+import { installNativeAuth } from "./native-auth.client";
 import { installNotifications } from "./notifications";
 import { installPermissionsService } from "./permissions-service";
 import {
@@ -143,7 +143,7 @@ const isDev = !app.isPackaged;
 // Dev-only: skip the real macOS Keychain for Chromium's `os_crypt` /
 // Electron `safeStorage`. Without this, the first `safeStorage` call —
 // e.g. persisting the session token after sign-in via
-// `./session-token-store` — makes Chromium prompt for the login
+// `./session-token-store.client` makes Chromium prompt for the login
 // keychain password ("Vellum Electron Safe Storage"). Denying that
 // prompt surfaces as `keychain_password_mac.mm ... userCanceledErr
 // (-128)` and silently drops token persistence. `--use-mock-keychain`

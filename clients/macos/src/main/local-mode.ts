@@ -39,7 +39,7 @@ import {
   getCliBinPath,
 } from "./cli-installer";
 import { refreshLockfileNow } from "./lockfile-watcher.client";
-import { getSessionToken } from "./session-token-store";
+import { getSessionToken } from "./session-token-store.client";
 
 /**
  * Local-mode host bridge: provisions and retires local assistants and reads

@@ -16,7 +16,10 @@ import {
   current as currentMainWindow,
   onMainWindowVisibilityChange,
 } from "./main-window";
-import { getSessionToken, onSessionTokenChange } from "./session-token-store";
+import {
+  getSessionToken,
+  onSessionTokenChange,
+} from "./session-token-store.client";
 
 /**
  * Dock integration: avatar icon + unread-count badge + visibility state

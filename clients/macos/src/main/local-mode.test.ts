@@ -106,7 +106,7 @@ const lockfilePath = path.join(lockfileDir, ".vellum.lock.json");
 const configDir = path.join(configHomeDir, "vellum");
 
 let mockSessionToken: string | null = null;
-mock.module("./session-token-store", () => ({
+mock.module("./session-token-store.client", () => ({
   getSessionToken: () => mockSessionToken,
 }));
 
