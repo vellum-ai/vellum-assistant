@@ -99,6 +99,19 @@ const noopSubscribe = () => () => {};
 /**
  * The layout viewport size, kept live on `resize`.
  *
+ * Reach for CSS first. If what you are writing is a size or a position that
+ * `clamp()`, `vmin`, `vw` or `%` can express, write it in CSS: it resolves
+ * against a defined box automatically, updates without a React render, and
+ * cannot disagree with the `%`-positioned foreground next to it. Most of this
+ * app already sizes that way (`max-w-[min(520px,calc(100vw-8rem))]`,
+ * `w-[90vw] max-w-[800px]`).
+ *
+ * This hook is for the cases CSS genuinely cannot reach: a number handed to
+ * an animation library, or one paired with a `getBoundingClientRect()`. The
+ * onboarding and voice decorative layers currently use it well beyond that,
+ * computing `clamp()` in JavaScript, which is what LUM-3204 tracks. Adding a
+ * consumer that CSS could have expressed makes that worse.
+ *
  * Lives here rather than at the call site so the SSR fallback and the
  * `FALLBACK` dimensions keep one owner: a caller re-deriving this from
  * `window.innerWidth` ends up restating those constants, and then they drift
