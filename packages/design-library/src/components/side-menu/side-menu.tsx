@@ -10,6 +10,7 @@ import {
   type CSSProperties,
   type MouseEvent,
   type PointerEvent,
+  type ReactElement,
   type ReactNode,
   type Ref,
 } from "react";
@@ -478,14 +479,26 @@ function SideMenuSeparator({
 // SectionHeader: the title row of a group of rows
 // ---------------------------------------------------------------------------
 
-export interface SideMenuSectionHeaderProps extends ComponentProps<"div"> {
-  /**
-   * Render the caller's own element instead, typically a disclosure trigger,
-   * with this row's geometry merged onto it.
-   */
-  asChild?: boolean;
+interface SideMenuSectionHeaderOwnProps extends ComponentProps<"div"> {
+  asChild?: false;
   ref?: Ref<HTMLDivElement>;
 }
+
+/**
+ * Render the caller's own element instead, typically a disclosure trigger,
+ * with this row's geometry merged onto it. The child is the rendered element,
+ * so a ref lands on whatever the caller chose rather than on a `div`.
+ */
+interface SideMenuSectionHeaderSlotProps
+  extends Omit<ComponentProps<"div">, "children" | "ref"> {
+  asChild: true;
+  children: ReactElement;
+  ref?: Ref<HTMLElement>;
+}
+
+export type SideMenuSectionHeaderProps =
+  | SideMenuSectionHeaderOwnProps
+  | SideMenuSectionHeaderSlotProps;
 
 /**
  * The title row of a group in the rail. It is a top-level row like a pill or a
@@ -508,7 +521,7 @@ function SideMenuSectionHeader({
   const Component = asChild ? Slot : "div";
   return (
     <Component
-      ref={ref}
+      ref={ref as Ref<HTMLDivElement>}
       data-slot="side-menu-section-header"
       className={cn(
         "flex shrink-0 items-center rounded-[6px]",

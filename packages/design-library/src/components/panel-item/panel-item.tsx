@@ -6,6 +6,7 @@ import {
   type HTMLAttributes,
   type KeyboardEvent,
   type MouseEvent,
+  type ReactElement,
   type ReactNode,
   type Ref,
 } from "react";
@@ -186,7 +187,7 @@ interface PanelItemContentProps extends PanelItemFrameProps {
 interface PanelItemSlotProps extends PanelItemFrameProps {
   asChild: true;
   /** Exactly one element, which becomes the rendered row. */
-  children: ReactNode;
+  children: ReactElement;
   icon?: never;
   leadingSlot?: never;
   label?: never;
