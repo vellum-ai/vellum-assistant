@@ -14,7 +14,10 @@ import {
   snapshotConversationCaches,
   type ConversationCacheSnapshot,
 } from "@/utils/conversation-cache";
-import { adjustUnreadCountCache } from "@/utils/conversation-cache-mutations";
+import {
+  adjustSectionUnreadCache,
+  adjustUnreadCountCache,
+} from "@/utils/conversation-cache-mutations";
 import {
   sectionListPrefix,
   sidebarSectionsQueryKey,
@@ -101,7 +104,11 @@ type PlacementContext = { token: number };
  * The mark-seen counterpart lives in `useMarkConversationSeenMutation`,
  * which two entry points share.
  */
-type MarkUnreadContext = MutationContext & { unreadCountDelta: number };
+type MarkUnreadContext = MutationContext & {
+  unreadCountDelta: number;
+  /** The row the deltas hit, for bucket-exact reversal; see MarkSeenContext. */
+  unreadRow?: Conversation;
+};
 
 // ---------------------------------------------------------------------------
 // Hook
@@ -331,11 +338,16 @@ export function useConversationActions({
       const unreadCountDelta = startsContributing ? 1 : 0;
       if (unreadCountDelta !== 0) {
         adjustUnreadCountCache(queryClient, aid, unreadCountDelta);
+        adjustSectionUnreadCache(queryClient, aid, row!, unreadCountDelta);
       }
       patchConversation(queryClient, aid, conversationId, {
         hasUnseenLatestAssistantMessage: true,
       });
-      return { snapshot, unreadCountDelta };
+      return {
+        snapshot,
+        unreadCountDelta,
+        unreadRow: unreadCountDelta !== 0 ? row : undefined,
+      };
     },
     onError: (err, { assistantId: aid }, context) => {
       if (context?.snapshot) {
@@ -343,6 +355,14 @@ export function useConversationActions({
       }
       if (context && context.unreadCountDelta !== 0) {
         adjustUnreadCountCache(queryClient, aid, -context.unreadCountDelta);
+        if (context.unreadRow) {
+          adjustSectionUnreadCache(
+            queryClient,
+            aid,
+            context.unreadRow,
+            -context.unreadCountDelta,
+          );
+        }
       }
       captureError(err, { context: "markConversationUnread" });
     },
@@ -646,9 +666,12 @@ export function useConversationActions({
       // One optimistic decrement for the rows that count toward the unread
       // badge (foreground, unarchived); rows that fail roll their share
       // back one at a time in `rollbackItem`.
-      const contributingCount = unread.filter(contributesToUnreadCount).length;
-      if (contributingCount > 0) {
-        adjustUnreadCountCache(queryClient, assistantId, -contributingCount);
+      const contributing = unread.filter(contributesToUnreadCount);
+      if (contributing.length > 0) {
+        adjustUnreadCountCache(queryClient, assistantId, -contributing.length);
+        for (const c of contributing) {
+          adjustSectionUnreadCache(queryClient, assistantId, c, -1);
+        }
       }
 
       for (const c of unread) {
@@ -676,6 +699,7 @@ export function useConversationActions({
           });
           if (contributesToUnreadCount(c)) {
             adjustUnreadCountCache(queryClient, assistantId, 1);
+            adjustSectionUnreadCache(queryClient, assistantId, c, 1);
           }
         },
         context: "markAllReadInGroup",
