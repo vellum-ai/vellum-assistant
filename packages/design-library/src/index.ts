@@ -21,6 +21,16 @@ export {
   type ResizablePanelProps,
 } from "./components/resizable-panel";
 export {
+  PaneResizeHandle,
+  type PaneResizeHandleProps,
+} from "./components/pane-resize-handle";
+export {
+  useResizablePane,
+  type UseResizablePaneOptions,
+  type UseResizablePaneResult,
+  type ResizablePaneHandleProps,
+} from "./hooks/use-resizable-pane";
+export {
   ScrollShadow,
   type ScrollShadowProps,
   type ScrollShadowOrientation,
