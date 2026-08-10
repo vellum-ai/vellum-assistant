@@ -23,8 +23,9 @@ const log = getLogger("migration-144");
  * genuinely stranded: the canonical subscription row exists (matched by
  * name + oauth_subscription auth, valid for both the pre- and post-366 row
  * shapes) and no `provider: "openai"` row exists (an API-key row means
- * openai fragments still resolve). When the DB or table is absent or
- * unreadable, nothing converts.
+ * openai fragments still resolve). An absent DB or table converts nothing;
+ * an open or query failure on an existing DB propagates so the runner
+ * records a failed checkpoint and retries on a later boot.
  *
  * A converted fragment gets `provider: "chatgpt"`, and a model outside the
  * Codex subscription set is replaced with `gpt-5.6-terra` (the "chatgpt"
@@ -159,13 +160,11 @@ function isSubscriptionOnlyWorkspace(workspaceDir: string): boolean {
     return false;
   }
 
-  let db: Database;
-  try {
-    db = new Database(dbPath, { readonly: true });
-  } catch {
-    return false;
-  }
-
+  // An open or query failure on an existing DB (locked, I/O error, corrupt
+  // header) is not proof of anything: swallowing it would checkpoint the
+  // migration as completed against unread state. Let it propagate so
+  // retryFailedCheckpoint reattempts on a later boot.
+  const db = new Database(dbPath, { readonly: true });
   try {
     const tableExists = db
       .query(
@@ -210,8 +209,6 @@ function isSubscriptionOnlyWorkspace(workspaceDir: string): boolean {
       )
       .get(SUBSCRIPTION_CONNECTION_NAME, LEGACY_MANAGED_OPENAI_NAME);
     return openaiRow === null;
-  } catch {
-    return false;
   } finally {
     db.close();
   }

@@ -252,6 +252,20 @@ describe("144-convert-stranded-subscription-openai-profiles migration", () => {
     );
   });
 
+  test("an unreadable existing DB throws so the failed checkpoint retries", () => {
+    writeConfig(STRANDED_CONFIG);
+    const dbDir = join(workspaceDir, "data", "db");
+    mkdirSync(dbDir, { recursive: true });
+    writeFileSync(join(dbDir, "assistant.db"), "not a sqlite file");
+
+    expect(() =>
+      convertStrandedSubscriptionOpenaiProfilesMigration.run(workspaceDir),
+    ).toThrow();
+    // Nothing converts on the failed attempt.
+    const llm = readConfig().llm as Record<string, any>;
+    expect(llm.profiles.mine.provider).toBe("openai");
+  });
+
   test("is idempotent and tolerates missing or malformed config", () => {
     expect(() =>
       convertStrandedSubscriptionOpenaiProfilesMigration.run(workspaceDir),
