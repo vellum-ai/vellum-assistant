@@ -44,6 +44,7 @@ import {
   unreadConversationCountQueryKey,
 } from "@/utils/conversation-list-fetchers";
 import {
+  ensureSectionInIndex,
   patchAffectsMembership,
   reconcileSectionMembership,
 } from "@/utils/section-membership";
@@ -375,5 +376,11 @@ export function patchConversation(
   if (!patched || !patchAffectsMembership(patch)) {
     return [];
   }
+  /* The index decides which sections render, so it is a membership cache
+     too: a destination section the index does not know yet must appear with
+     the optimistic write, or the row is visible nowhere until the settle
+     refetch (the first pin, the first conversation moved into an empty
+     group). */
+  ensureSectionInIndex(queryClient, assistantId, patched);
   return reconcileSectionMembership(queryClient, assistantId, patched);
 }

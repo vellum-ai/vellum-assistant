@@ -306,10 +306,11 @@ export function useSidebarState({
        for existence AND for group metadata: it is one consistent snapshot,
        where existence-from-index with names-from-the-groups-query could
        disagree between fetches. The derived buckets stay as each section's
-       `all` fallback rows either way. When the index is `null` (older
-       daemon, or not yet resolved), existence derives from the loaded list
-       exactly as before; that path must remain this untouched code, not a
-       re-implementation, so the fallback cannot drift. */
+       `all` fallback rows either way. When the index is `null` (an assistant
+       without the endpoint, or a read that has not resolved), existence
+       derives from the loaded list in the branch below, the one
+       implementation shared with every assistant that never serves the
+       index. */
     if (indexSections !== null) {
       const list: SidebarSection[] = [];
       const bucketByGroupId = new Map(

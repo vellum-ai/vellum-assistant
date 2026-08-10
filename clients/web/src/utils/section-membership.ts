@@ -21,13 +21,17 @@
 import type { QueryClient } from "@tanstack/react-query";
 
 import type { Conversation } from "@/types/conversation-types";
+import { groupsGetQueryKey } from "@/generated/daemon/@tanstack/react-query.gen";
+import type { GroupsGetResponse } from "@/generated/daemon/types.gen";
 import {
   NATIVE_ORIGIN_CHANNEL,
   SYSTEM_ALL_GROUP_ID,
   SYSTEM_PINNED_GROUP_ID,
   parseSectionConversationsQueryKey,
   sectionListPrefix,
+  sidebarSectionsQueryKey,
   type SectionConversationFilter,
+  type SidebarIndexSection,
 } from "@/utils/conversation-list-fetchers";
 import { insertByRecency } from "@/utils/conversation-order";
 import {
@@ -197,6 +201,80 @@ export function matchesSectionFilter(
  *
  * @see {@link https://tanstack.com/query/latest/docs/reference/QueryClient#queryclientgetqueriesdata}
  */
+/**
+ * Make sure the section `conversation` now belongs to exists in the cached
+ * section index, inserting a stub row when it does not.
+ *
+ * The index decides which sections *render*, so a placement whose
+ * destination has no index row yet (the first pin, the first conversation
+ * moved into an empty group) would otherwise leave the row visible nowhere:
+ * the membership pass removes it from its source section immediately, and
+ * the destination section would not exist until the settle refetch answers.
+ *
+ * Insertion-only, deliberately. The removal directions (a section emptied by
+ * a move, a failed move's stub) merely linger as an empty or extra section
+ * until the settle refetch reconciles, which is benign; counts on the stub
+ * are approximations reconciled the same way. A `null` cache (assistant
+ * without the endpoint) and an absent cache are both left alone.
+ *
+ * Group metadata comes from the cached groups list; a stub for a group the
+ * groups cache does not know cannot be named and is skipped, leaving that
+ * rare case on the settle refetch.
+ */
+export function ensureSectionInIndex(
+  queryClient: QueryClient,
+  assistantId: string | null,
+  conversation: Conversation,
+): void {
+  if (!assistantId) {
+    return;
+  }
+  const queryKey = sidebarSectionsQueryKey(assistantId);
+  const index = queryClient.getQueryData<SidebarIndexSection[] | null>(
+    queryKey,
+  );
+  if (index == null) {
+    return;
+  }
+
+  if (isConversationPinned(conversation)) {
+    if (!index.some((s) => s.kind === "pinned")) {
+      queryClient.setQueryData<SidebarIndexSection[] | null>(queryKey, [
+        { kind: "pinned", total: 1, unread: 0 },
+        ...index,
+      ]);
+    }
+    return;
+  }
+
+  const groupId = conversation.groupId;
+  if (!isCustomGroupId(groupId)) {
+    return;
+  }
+  if (index.some((s) => s.kind === "group" && s.groupId === groupId)) {
+    return;
+  }
+  const groups = queryClient.getQueryData<GroupsGetResponse>(
+    groupsGetQueryKey({ path: { assistant_id: assistantId } }),
+  )?.groups;
+  const meta = groups?.find((g) => g.id === groupId);
+  if (!meta) {
+    return;
+  }
+  queryClient.setQueryData<SidebarIndexSection[] | null>(queryKey, [
+    ...index,
+    {
+      kind: "group",
+      groupId,
+      name: meta.name,
+      icon: meta.icon ?? null,
+      sortPosition: meta.sortPosition ?? 0,
+      total: 1,
+      unread: 0,
+    },
+  ]);
+}
+
 export function reconcileSectionMembership(
   queryClient: QueryClient,
   assistantId: string | null,

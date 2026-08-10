@@ -24,9 +24,13 @@ import type { Conversation } from "@/types/conversation-types";
 import {
   conversationsQueryKey,
   sectionConversationsQueryKey,
+  sidebarSectionsQueryKey,
   type SectionConversationFilter,
+  type SidebarIndexSection,
 } from "@/utils/conversation-list-fetchers";
+import { groupsGetQueryKey } from "@/generated/daemon/@tanstack/react-query.gen";
 import {
+  ensureSectionInIndex,
   matchesSectionFilter,
   patchAffectsMembership,
   reconcileSectionMembership,
@@ -488,5 +492,138 @@ describe("reconcileSectionMembership", () => {
         .getQueryData<Conversation[]>(conversationsQueryKey(ASSISTANT_ID))
         ?.map((c) => c.conversationId),
     ).toEqual(["c1"]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// ensureSectionInIndex
+// ---------------------------------------------------------------------------
+
+describe("ensureSectionInIndex", () => {
+  const INDEX_KEY = sidebarSectionsQueryKey(ASSISTANT_ID);
+  const GROUPS_KEY = groupsGetQueryKey({
+    path: { assistant_id: ASSISTANT_ID },
+  });
+
+  function indexClient(
+    index: SidebarIndexSection[] | null | undefined,
+  ): QueryClient {
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    if (index !== undefined) {
+      client.setQueryData(INDEX_KEY, index);
+    }
+    return client;
+  }
+
+  function kinds(client: QueryClient): string[] {
+    return (
+      client
+        .getQueryData<SidebarIndexSection[]>(INDEX_KEY)
+        ?.map((s) => s.kind) ?? []
+    );
+  }
+
+  test("the first pin inserts a Pinned stub the settle refetch reconciles", () => {
+    /* Without the stub the row is visible nowhere between the optimistic
+       write and the settle: the membership pass removes it from its source
+       section immediately, and no Pinned section renders until the index
+       refetch answers. */
+    const client = indexClient([{ kind: "chats", total: 3, unread: 0 }]);
+
+    ensureSectionInIndex(
+      client,
+      ASSISTANT_ID,
+      conversation({ isPinned: true, groupId: "system:pinned" }),
+    );
+
+    expect(kinds(client)).toContain("pinned");
+  });
+
+  test("an existing Pinned row is left alone", () => {
+    const index: SidebarIndexSection[] = [
+      { kind: "pinned", total: 2, unread: 1 },
+    ];
+    const client = indexClient(index);
+
+    ensureSectionInIndex(
+      client,
+      ASSISTANT_ID,
+      conversation({ isPinned: true, groupId: "system:pinned" }),
+    );
+
+    expect(client.getQueryData<SidebarIndexSection[]>(INDEX_KEY)).toBe(index);
+  });
+
+  test("the first row moved into an empty group inserts a stub with its metadata", () => {
+    const client = indexClient([{ kind: "chats", total: 3, unread: 0 }]);
+    client.setQueryData(GROUPS_KEY, {
+      groups: [
+        {
+          id: "group-uuid",
+          name: "Projects",
+          icon: "folder",
+          sortPosition: 2,
+          isSystemGroup: false,
+        },
+      ],
+    });
+
+    ensureSectionInIndex(
+      client,
+      ASSISTANT_ID,
+      conversation({ groupId: "group-uuid" }),
+    );
+
+    expect(
+      client.getQueryData<SidebarIndexSection[]>(INDEX_KEY),
+    ).toContainEqual({
+      kind: "group",
+      groupId: "group-uuid",
+      name: "Projects",
+      icon: "folder",
+      sortPosition: 2,
+      total: 1,
+      unread: 0,
+    });
+  });
+
+  test("a group the groups cache does not know is left to the settle refetch", () => {
+    // A stub without a name cannot render; the rare gap stays on the
+    // refetch rather than inventing metadata.
+    const client = indexClient([{ kind: "chats", total: 3, unread: 0 }]);
+
+    ensureSectionInIndex(
+      client,
+      ASSISTANT_ID,
+      conversation({ groupId: "group-uuid" }),
+    );
+
+    expect(kinds(client)).toEqual(["chats"]);
+  });
+
+  test("a null index (assistant without the endpoint) is never written", () => {
+    const client = indexClient(null);
+
+    ensureSectionInIndex(
+      client,
+      ASSISTANT_ID,
+      conversation({ isPinned: true, groupId: "system:pinned" }),
+    );
+
+    expect(client.getQueryData(INDEX_KEY)).toBeNull();
+  });
+
+  test("an ungrouped move inserts nothing", () => {
+    const client = indexClient([{ kind: "chats", total: 3, unread: 0 }]);
+
+    ensureSectionInIndex(
+      client,
+      ASSISTANT_ID,
+      conversation({ groupId: "system:all" }),
+    );
+
+    expect(kinds(client)).toEqual(["chats"]);
   });
 });

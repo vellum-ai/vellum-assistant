@@ -247,8 +247,8 @@ function scheduleUnreadCountRefetch(
     void queryClient.invalidateQueries({
       queryKey: unreadConversationCountQueryKey(assistantId),
     });
-    // Seen-state changes move per-section unread; the index carries those
-    // badges now, so it refetches on the same metadata-driven timer.
+    // Seen-state changes move per-section unread, and the index carries
+    // those badges, so it refetches on the same metadata-driven timer.
     void queryClient.invalidateQueries({
       queryKey: sidebarSectionsQueryKey(assistantId),
     });
