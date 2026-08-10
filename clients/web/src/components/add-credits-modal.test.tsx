@@ -57,9 +57,17 @@ const SUMMARY: BillingSummaryResponse = {
   next_credit_expiry_at: null,
 };
 
+// Captures the modal's `browserFinished` subscriber so a test can fire the
+// Capacitor sheet-dismissal signal on demand.
+let browserFinishedCallback: (() => void) | null = null;
 mock.module("@/runtime/browser", () => ({
   openUrl: () => Promise.resolve(),
-  openUrlFinishedListener: () => () => {},
+  openUrlFinishedListener: (callback: () => void) => {
+    browserFinishedCallback = callback;
+    return () => {
+      browserFinishedCallback = null;
+    };
+  },
 }));
 
 mock.module("@/runtime/platform-detection", () => ({
@@ -255,6 +263,27 @@ describe("AddCreditsModal checkout-complete deep-link cleanup", () => {
     });
 
     expect(onOpenChange).not.toHaveBeenCalled();
+    expect(invalidateSpy).not.toHaveBeenCalled();
+  });
+});
+
+describe("AddCreditsModal browserFinished cleanup", () => {
+  // The Capacitor sheet-dismissal signal carries no success/cancel meaning:
+  // completed outcomes (and their summary refetch) arrive via the `flow=top_up`
+  // deep link, so `browserFinished` is close-only. Invalidating here too would
+  // double the refetch on an iOS success and waste one on an abandoned sheet.
+
+  test("closes the modal without invalidating the summary", () => {
+    const onOpenChange = mock((_open: boolean) => undefined);
+    const { client } = renderModal(onOpenChange);
+    const invalidateSpy = spyOn(client, "invalidateQueries");
+    expect(browserFinishedCallback).not.toBeNull();
+
+    act(() => {
+      browserFinishedCallback?.();
+    });
+
+    expect(onOpenChange).toHaveBeenCalledWith(false);
     expect(invalidateSpy).not.toHaveBeenCalled();
   });
 });

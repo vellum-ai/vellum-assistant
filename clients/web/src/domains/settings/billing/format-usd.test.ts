@@ -1,8 +1,9 @@
 /**
  * Tests for the shared short-dollar formatter: whole dollars drop cents,
- * non-zero cents are kept, thousands get locale separators, negatives keep
- * the sign outside the dollar sign, and nullish or unparseable input renders
- * "$0" rather than leaking the raw string.
+ * non-zero cents are kept, thousands get en-US separators (intentional for
+ * USD amounts in every UI locale), negatives keep the sign outside the
+ * dollar sign, and nullish or unparseable input renders "$0" rather than
+ * leaking the raw string.
  */
 
 import { describe, expect, test } from "bun:test";

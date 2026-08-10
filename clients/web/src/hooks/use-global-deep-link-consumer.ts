@@ -208,10 +208,8 @@ export function useGlobalDeepLinkConsumer(): void {
       void ensureMainWindowVisible();
       if (flow === "top_up") {
         if (status === "success") {
-          // The same toast + refetch the web return path shows, shared with
-          // `BillingStatusHandler` so the two cannot drift, with no forced
-          // navigation: a top-up has no onboarding wizard to open, so the
-          // user stays wherever they were.
+          // No forced navigation: a top-up has no onboarding wizard to open,
+          // so the user stays wherever they were.
           notifyCheckoutSuccess(queryClient);
           return;
         }
