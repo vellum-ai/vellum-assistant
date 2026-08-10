@@ -6,6 +6,7 @@ import { isPointerCoarse } from "@/utils/pointer";
 import {
   BottomSheet,
   Button,
+  ProgressBar,
   Tooltip,
   TooltipProvider,
 } from "@vellumai/design-library";
@@ -164,15 +165,13 @@ function TouchSheetContent({
         </BottomSheet.Title>
 
         <div className="w-full px-2">
-          <div className="relative h-4 w-full overflow-hidden rounded-full bg-[color-mix(in_srgb,var(--content-tertiary)_20%,transparent)]">
-            <div
-              className="h-full rounded-full transition-[width] duration-250 ease-out"
-              style={{
-                width: `${Math.round(ratio * 100)}%`,
-                backgroundColor: ringColor,
-              }}
-            />
-          </div>
+          <ProgressBar
+            value={ratio}
+            height={16}
+            fillColor={ringColor}
+            className="bg-[color-mix(in_srgb,var(--content-tertiary)_20%,transparent)]"
+            aria-label={`Context window ${percentage}% full`}
+          />
         </div>
 
         <div className="flex flex-col items-center gap-2">

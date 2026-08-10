@@ -6,6 +6,13 @@ export interface ProgressBarProps {
   value: number;
   "aria-label"?: string;
   className?: string;
+  /**
+   * Fill colour, for bars whose meaning is carried by colour rather than
+   * length alone (a threshold gauge that shifts neutral to amber to red).
+   * Any CSS colour; prefer a token. Defaults to `--content-default`.
+   * Style the track with `className`.
+   */
+  fillColor?: string;
   height?: number;
   ref?: Ref<HTMLDivElement>;
 }
@@ -21,6 +28,7 @@ export function ProgressBar({
   value,
   "aria-label": ariaLabel,
   className,
+  fillColor,
   height = 6,
   ref,
 }: ProgressBarProps) {
@@ -44,9 +52,11 @@ export function ProgressBar({
       style={{ height }}
     >
       <div
+        data-slot="progress-bar-fill"
         className="h-full bg-[var(--content-default)] rounded-full"
         style={{
           width: `${percent}%`,
+          backgroundColor: fillColor,
           transition: "width 400ms cubic-bezier(0.22, 1, 0.36, 1)",
         }}
       />
