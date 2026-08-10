@@ -13,12 +13,28 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 // Mocks — wired BEFORE importing the module via dynamic import.
 // ---------------------------------------------------------------------------
 
+/**
+ * Key-addressed fake vault. The module now touches THREE keys (access token,
+ * refresh token, expiry), so a single shared return value would let a test
+ * pass for the wrong reason: an expiry read that accidentally returns the
+ * access token parses to NaN and silently reads as "no expiry recorded".
+ */
+const vault = new Map<string, string>();
+const ACCESS_KEY = "credential/acp/claude_oauth_token";
+const REFRESH_KEY = "credential/acp/claude_oauth_refresh_token";
+const EXPIRES_KEY = "credential/acp/claude_oauth_expires_at";
+
 let storeReturn = true;
-let getReturn: string | undefined = undefined;
-const setSecureKeyAsync = mock(
-  async (_account: string, _value: string) => storeReturn,
+const setSecureKeyAsync = mock(async (account: string, value: string) => {
+  if (storeReturn) {
+    vault.set(account, value);
+  }
+  return storeReturn;
+});
+const getSecureKeyAsync = mock(async (account: string) => vault.get(account));
+const deleteSecureKeyAsync = mock(async (account: string) =>
+  vault.delete(account),
 );
-const getSecureKeyAsync = mock(async (_account: string) => getReturn);
 const grantAcpSpawnPolicy = mock(
   (_field: string, _usageDescription: string) => {},
 );
@@ -28,8 +44,9 @@ const acpSpawnCanReadCredential = mock((_field: string) => spawnCanRead);
 mock.module("../../security/secure-keys.js", () => ({
   setSecureKeyAsync,
   getSecureKeyAsync,
+  deleteSecureKeyAsync,
 }));
-mock.module("../prepare-agent-env.js", () => ({
+mock.module("../acp-credential-policy.js", () => ({
   grantAcpSpawnPolicy,
   acpSpawnCanReadCredential,
 }));
@@ -39,16 +56,20 @@ const {
   CLAUDE_MANUAL_REDIRECT_URI,
   buildClaudeAuthorizeUrl,
   parseManualClaudeCode,
-  storeAcpClaudeToken,
+  storeAcpClaudeTokens,
   hasAcpClaudeToken,
+  isAcpClaudeTokenExpiring,
+  readAcpClaudeRefreshToken,
+  clearAcpClaudeRefreshMaterial,
 } = await import("../acp-claude-oauth.js");
 
 beforeEach(() => {
+  vault.clear();
   storeReturn = true;
-  getReturn = undefined;
   spawnCanRead = true;
   setSecureKeyAsync.mockClear();
   getSecureKeyAsync.mockClear();
+  deleteSecureKeyAsync.mockClear();
   grantAcpSpawnPolicy.mockClear();
   acpSpawnCanReadCredential.mockClear();
 });
@@ -137,31 +158,92 @@ describe("parseManualClaudeCode", () => {
 });
 
 // ---------------------------------------------------------------------------
-// storeAcpClaudeToken
+// storeAcpClaudeTokens
 // ---------------------------------------------------------------------------
 
-describe("storeAcpClaudeToken", () => {
-  test("writes the token and force-grants the acp_spawn policy (repairs a denied policy)", async () => {
-    await storeAcpClaudeToken("sk-ant-oat-token");
+describe("storeAcpClaudeTokens", () => {
+  test("writes the access token and force-grants the acp_spawn policy (repairs a denied policy)", async () => {
+    await storeAcpClaudeTokens({ accessToken: "sk-ant-oat-token" });
 
-    expect(setSecureKeyAsync).toHaveBeenCalledTimes(1);
     expect(setSecureKeyAsync).toHaveBeenCalledWith(
-      "credential/acp/claude_oauth_token",
+      ACCESS_KEY,
       "sk-ant-oat-token",
     );
-    // grant (union), not merely ensure (preserve) — so an explicit Connect
+    // grant (union), not merely ensure (preserve), so an explicit Connect
     // repairs a credential whose allowedTools omitted acp_spawn.
     expect(grantAcpSpawnPolicy).toHaveBeenCalledTimes(1);
     expect(grantAcpSpawnPolicy.mock.calls[0][0]).toBe("claude_oauth_token");
   });
 
+  test("persists the refresh token and an absolute expiry alongside it", async () => {
+    const before = Date.now();
+    await storeAcpClaudeTokens({
+      accessToken: "sk-ant-oat-token",
+      refreshToken: "refresh-me",
+      expiresIn: 3600,
+    });
+
+    expect(vault.get(REFRESH_KEY)).toBe("refresh-me");
+    const expiresAt = Number(vault.get(EXPIRES_KEY));
+    // Absolute epoch ms roughly one hour out, not the raw `expires_in`.
+    expect(expiresAt).toBeGreaterThanOrEqual(before + 3600 * 1000);
+    expect(expiresAt).toBeLessThan(before + 3600 * 1000 + 5000);
+  });
+
+  test("clears stale refresh material when a reconnect returns none", async () => {
+    vault.set(REFRESH_KEY, "old-refresh");
+    vault.set(EXPIRES_KEY, String(Date.now() + 60_000));
+
+    await storeAcpClaudeTokens({ accessToken: "sk-ant-oat-fresh" });
+
+    // Leaving the old values would pair a NEW access token with the PREVIOUS
+    // connect's refresh token, which renews into the wrong credential.
+    expect(vault.has(REFRESH_KEY)).toBe(false);
+    expect(vault.has(EXPIRES_KEY)).toBe(false);
+  });
+
   test("throws when the secure store rejects the write", async () => {
     storeReturn = false;
 
-    await expect(storeAcpClaudeToken("sk-ant-oat-token")).rejects.toThrow(
-      /Failed to store/,
-    );
+    await expect(
+      storeAcpClaudeTokens({ accessToken: "sk-ant-oat-token" }),
+    ).rejects.toThrow(/Failed to store/);
     expect(grantAcpSpawnPolicy).not.toHaveBeenCalled();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Refresh material accessors
+// ---------------------------------------------------------------------------
+
+describe("refresh material accessors", () => {
+  test("isAcpClaudeTokenExpiring is false when no expiry was recorded", async () => {
+    vault.set(ACCESS_KEY, "sk-ant-oat-token");
+    // Tokens connected before expiry tracking existed must not be treated as
+    // expired, or we would discard a working credential.
+    expect(await isAcpClaudeTokenExpiring()).toBe(false);
+  });
+
+  test("isAcpClaudeTokenExpiring is true once the recorded expiry has passed", async () => {
+    vault.set(EXPIRES_KEY, String(Date.now() - 1000));
+    expect(await isAcpClaudeTokenExpiring()).toBe(true);
+  });
+
+  test("isAcpClaudeTokenExpiring ignores an unparseable expiry", async () => {
+    vault.set(EXPIRES_KEY, "not-a-number");
+    expect(await isAcpClaudeTokenExpiring()).toBe(false);
+  });
+
+  test("clearAcpClaudeRefreshMaterial drops refresh + expiry but keeps the access token", async () => {
+    vault.set(ACCESS_KEY, "sk-ant-oat-token");
+    vault.set(REFRESH_KEY, "refresh-me");
+    vault.set(EXPIRES_KEY, String(Date.now() - 1000));
+
+    await clearAcpClaudeRefreshMaterial();
+
+    expect(await readAcpClaudeRefreshToken()).toBeNull();
+    expect(vault.has(EXPIRES_KEY)).toBe(false);
+    expect(vault.get(ACCESS_KEY)).toBe("sk-ant-oat-token");
   });
 });
 
@@ -171,26 +253,23 @@ describe("storeAcpClaudeToken", () => {
 
 describe("hasAcpClaudeToken", () => {
   test("reads credential/acp/claude_oauth_token and reports true when present", async () => {
-    getReturn = "sk-ant-oat-token";
+    vault.set(ACCESS_KEY, "sk-ant-oat-token");
 
     expect(await hasAcpClaudeToken()).toBe(true);
-    expect(getSecureKeyAsync).toHaveBeenCalledWith(
-      "credential/acp/claude_oauth_token",
-    );
+    expect(getSecureKeyAsync).toHaveBeenCalledWith(ACCESS_KEY);
   });
 
   test("reports false when the vault field is absent", async () => {
-    getReturn = undefined;
     expect(await hasAcpClaudeToken()).toBe(false);
   });
 
   test("reports false for an empty stored value", async () => {
-    getReturn = "";
+    vault.set(ACCESS_KEY, "");
     expect(await hasAcpClaudeToken()).toBe(false);
   });
 
   test("reports false for a legacy Anthropic API key so Connect stays offered", async () => {
-    getReturn = "sk-ant-api03-legacy-bad-entry";
+    vault.set(ACCESS_KEY, "sk-ant-api03-legacy-bad-entry");
     expect(await hasAcpClaudeToken()).toBe(false);
   });
 
@@ -199,8 +278,36 @@ describe("hasAcpClaudeToken", () => {
     // `acp_spawn` means the broker denies the spawn read. Reporting "connected"
     // would self-dismiss the card and trap the user in a missing-token loop, so
     // it stays not-connected to keep the repair CTA visible.
-    getReturn = "sk-ant-oat-token";
+    vault.set(ACCESS_KEY, "sk-ant-oat-token");
     spawnCanRead = false;
     expect(await hasAcpClaudeToken()).toBe(false);
+  });
+
+  test("reports FALSE for an expired token with no refresh token", async () => {
+    // The regression this guards: presence alone used to answer "connected",
+    // so an expired credential reported true and the inline Connect card
+    // self-dismissed on mount, leaving a failed run with no way to act on it.
+    vault.set(ACCESS_KEY, "sk-ant-oat-token");
+    vault.set(EXPIRES_KEY, String(Date.now() - 1000));
+
+    expect(await hasAcpClaudeToken()).toBe(false);
+  });
+
+  test("reports true for an expired token that still has a refresh token", async () => {
+    // Renewable on the next spawn, so there is nothing for the user to do and
+    // no card to show.
+    vault.set(ACCESS_KEY, "sk-ant-oat-token");
+    vault.set(EXPIRES_KEY, String(Date.now() - 1000));
+    vault.set(REFRESH_KEY, "refresh-me");
+
+    expect(await hasAcpClaudeToken()).toBe(true);
+  });
+
+  test("reports true for an unexpired token with no refresh token", async () => {
+    // No refresh token is not itself a problem while the access token is live.
+    vault.set(ACCESS_KEY, "sk-ant-oat-token");
+    vault.set(EXPIRES_KEY, String(Date.now() + 60 * 60 * 1000));
+
+    expect(await hasAcpClaudeToken()).toBe(true);
   });
 });

@@ -15,30 +15,36 @@
  * every caller route through it before calling `manager.spawn`.
  *
  * Credential reads go through the credential broker (`serverUse`) so they
- * are policy-gated (tool allowlist) and audit-logged. This keeps
- * `prepare-agent-env.ts` off the secure-keys import allowlist — the broker
- * owns the plaintext read boundary.
+ * are policy-gated (tool allowlist) and audit-logged. Every value this module
+ * injects into a spawned agent's env comes from the broker; it never reads
+ * secure-keys itself, so the broker keeps the plaintext read boundary.
+ *
+ * One call here does reach storage outside the broker, indirectly:
+ * `ensureFreshAcpClaudeToken` renews an expiring Claude token before the
+ * broker read. It reads the refresh token and rewrites the access token in
+ * place, and returns nothing, so no plaintext crosses back into this module
+ * and the injected value is still whatever the broker hands us. See
+ * `claude-token-refresh.ts` for why the daemon has to do that renewal at all.
  */
 
 import { basename } from "node:path";
 
 import { FailedDependencyError } from "../runtime/routes/errors.js";
 import { credentialBroker } from "../tools/credentials/broker.js";
-import {
-  getCredentialMetadata,
-  upsertCredentialMetadata,
-} from "../tools/credentials/metadata-store.js";
 import { getLogger } from "../util/logger.js";
+import {
+  ACP_SPAWN_TOOL,
+  ensureAcpCredentialPolicy,
+} from "./acp-credential-policy.js";
 import {
   ACP_OAUTH_TOKEN_FIELD,
   ACP_SERVICE,
   classifyAnthropicToken,
 } from "./acp-credentials.js";
+import { ensureFreshAcpClaudeToken } from "./claude-token-refresh.js";
 import type { AcpAgentConfig } from "./types.js";
 
 const log = getLogger("acp:prepare-agent-env");
-
-const ACP_SPAWN_TOOL = "acp_spawn";
 
 /**
  * Stable, machine-readable marker carried on the `FailedDependencyError.details`
@@ -49,83 +55,6 @@ const ACP_SPAWN_TOOL = "acp_spawn";
  * `clients/web/src/domains/chat/transcript/acp-connect-affordance.tsx`.
  */
 export const ACP_CLAUDE_OAUTH_MISSING_CODE = "acp_claude_oauth_missing";
-
-/**
- * Ensure an `acp/<field>` credential has metadata that allows the
- * `acp_spawn` tool to read it, but only for legacy/unmanaged cases:
- *
- * - No metadata at all: create with `allowedTools: ["acp_spawn"]`.
- * - Metadata exists with an empty `allowedTools`: default provisioning
- *   path (user ran `credentials set` without `--allowed-tools`), add it.
- * - Metadata exists with a non-empty `allowedTools`: explicit policy set
- *   by the user/admin. Respect it even if `acp_spawn` is absent; the
- *   broker will deny the read and the caller decides whether that's fatal.
- */
-export function ensureAcpCredentialPolicy(
-  field: string,
-  usageDescription: string,
-): void {
-  const meta = getCredentialMetadata(ACP_SERVICE, field);
-  if (!meta) {
-    upsertCredentialMetadata(ACP_SERVICE, field, {
-      allowedTools: [ACP_SPAWN_TOOL],
-      usageDescription,
-    });
-    return;
-  }
-  const tools = meta.allowedTools ?? [];
-  if (tools.length === 0) {
-    upsertCredentialMetadata(ACP_SERVICE, field, {
-      allowedTools: [ACP_SPAWN_TOOL],
-    });
-  }
-}
-
-/**
- * Force-grant the `acp_spawn` read policy on `acp/<field>`, unioning it into any
- * existing `allowedTools`. Unlike {@link ensureAcpCredentialPolicy} (which
- * PRESERVES an explicit non-empty policy so a passive spawn can't silently widen
- * it), this is for the EXPLICIT Connect flow: a user connecting Claude is a
- * deliberate opt-in to `acp_spawn`, so granting it makes the CTA actually repair
- * a policy-denied credential instead of dead-looping the missing-token card.
- */
-export function grantAcpSpawnPolicy(
-  field: string,
-  usageDescription: string,
-): void {
-  const meta = getCredentialMetadata(ACP_SERVICE, field);
-  if (!meta) {
-    upsertCredentialMetadata(ACP_SERVICE, field, {
-      allowedTools: [ACP_SPAWN_TOOL],
-      usageDescription,
-    });
-    return;
-  }
-  const tools = meta.allowedTools ?? [];
-  if (!tools.includes(ACP_SPAWN_TOOL)) {
-    upsertCredentialMetadata(ACP_SERVICE, field, {
-      allowedTools: [...tools, ACP_SPAWN_TOOL],
-    });
-  }
-}
-
-/**
- * Whether the `acp_spawn` broker read for `acp/<field>` would actually be
- * permitted, mirroring {@link ensureAcpCredentialPolicy}'s grant rules: a
- * missing or empty `allowedTools` is auto-granted `acp_spawn` at spawn time, so
- * it can read; a non-empty explicit policy is respected as-is, so it can read
- * only when it lists `acp_spawn`. Lets a connected-status check avoid reporting
- * "connected" for a token the spawn is policy-denied from reading (which would
- * otherwise hide the repair CTA and trap the user in a missing-token loop).
- */
-export function acpSpawnCanReadCredential(field: string): boolean {
-  const meta = getCredentialMetadata(ACP_SERVICE, field);
-  if (!meta) {
-    return true;
-  }
-  const tools = meta.allowedTools ?? [];
-  return tools.length === 0 || tools.includes(ACP_SPAWN_TOOL);
-}
 
 /**
  * Read an `acp/<field>` credential through the broker and inject it into
@@ -244,6 +173,12 @@ export async function prepareAgentEnv(
 
     dropApiKeyOauthToken();
     if (!env.CLAUDE_CODE_OAUTH_TOKEN) {
+      // Renew an expiring vault token BEFORE the broker read, so the value we
+      // inject is the fresh one. Skipped when a config.json override is in
+      // play: that token is the user's to manage, and we hold no refresh
+      // material for it. Never throws, so a refresh outage cannot fail a spawn
+      // that the stored token might still satisfy.
+      await ensureFreshAcpClaudeToken();
       await injectCredential(
         env,
         ACP_OAUTH_TOKEN_FIELD,

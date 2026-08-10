@@ -104,8 +104,9 @@ mock.module("../../tools/credentials/broker.js", () => ({
   },
 }));
 
-const { prepareAgentEnv, ACP_CLAUDE_OAUTH_MISSING_CODE, grantAcpSpawnPolicy } =
+const { prepareAgentEnv, ACP_CLAUDE_OAUTH_MISSING_CODE } =
   await import("../prepare-agent-env.js");
+const { grantAcpSpawnPolicy } = await import("../acp-credential-policy.js");
 
 beforeEach(() => {
   metadataStore.clear();

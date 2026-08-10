@@ -33,7 +33,7 @@ import {
   CLAUDE_OAUTH_CONFIG,
   hasAcpClaudeToken,
   parseManualClaudeCode,
-  storeAcpClaudeToken,
+  storeAcpClaudeTokens,
 } from "../../acp/acp-claude-oauth.js";
 import { getIsContainerized } from "../../config/env-registry.js";
 import {
@@ -153,7 +153,10 @@ async function handleStartLocalAuth(): Promise<StartResponse> {
   // can react. Runs in the background — the web client opens `authorize_url`.
   void flow.completion
     .then(async (result) => {
-      await storeAcpClaudeToken(result.tokens.accessToken);
+      // Persist the whole token set, not just the access token: the refresh
+      // token is what lets a later spawn renew this credential instead of
+      // dead-ending on an expired-token 401.
+      await storeAcpClaudeTokens(result.tokens);
       markFlow(flow.state, "connected");
       log.info("ACP Claude local OAuth flow connected");
     })
@@ -245,7 +248,8 @@ async function handleExchange(args: RouteHandlerArgs): Promise<{ ok: true }> {
       pending.codeVerifier,
       state,
     );
-    await storeAcpClaudeToken(result.tokens.accessToken);
+    // Whole token set, for the same reason as the loopback path above.
+    await storeAcpClaudeTokens(result.tokens);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     markFlow(state, "error", message);
