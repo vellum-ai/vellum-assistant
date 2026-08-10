@@ -14,7 +14,10 @@ import {
   codexServableModels,
   restrictsToSubscriptionModels,
 } from "@/domains/settings/ai/codex-subscription-models";
-import { OPENAI_COMPATIBLE_PROVIDER } from "@/domains/settings/ai/constants";
+import {
+  CHATGPT_CONNECTION_PROVIDER,
+  OPENAI_COMPATIBLE_PROVIDER,
+} from "@/domains/settings/ai/constants";
 import {
   endpointPickerValue,
   expandEndpointEntries,
@@ -152,7 +155,12 @@ export function ProfileEditorProviderSection({
     providerConnection,
     availableConnectionsForProvider,
   );
-  const allowsCustomModel = provider !== "" && !subscriptionRestricted;
+  // The chatgpt identity validates models against the Codex set at the
+  // schema, so a typed id outside the list could never save.
+  const allowsCustomModel =
+    provider !== "" &&
+    provider !== CHATGPT_CONNECTION_PROVIDER &&
+    !subscriptionRestricted;
 
   // Switching providers reopens the field on the new provider's model list;
   // a connection that bars custom ids also closes the free-text input.
@@ -202,6 +210,23 @@ export function ProfileEditorProviderSection({
   // so they are not told to.
   const noProviderConnections =
     providerOptionsSource.length === 0 && !isReadOnly;
+
+  // A stale openai profile in a workspace whose only OpenAI access is the
+  // subscription: nothing can serve it, but the fix is one picker entry
+  // away. Covers both row shapes (provider "chatgpt", and the pre-366 rows
+  // older daemons still return, where the subscription row stores provider
+  // "openai" with oauth_subscription auth).
+  const subscriptionSteeringHint =
+    provider === "openai" &&
+    !isReadOnly &&
+    availableConnectionsForProvider.length === 0 &&
+    (connections ?? []).some(
+      (c) =>
+        c.provider === CHATGPT_CONNECTION_PROVIDER ||
+        c.auth.type === "oauth_subscription",
+    )
+      ? "Your ChatGPT subscription is available as the ChatGPT provider."
+      : undefined;
 
   // For openai-compatible providers the static catalog is empty — use models
   // from the selected connection instead. When no specific connection is
@@ -337,7 +362,7 @@ export function ProfileEditorProviderSection({
           helperText={
             noProviderConnections && !providerError
               ? NO_PROVIDER_CONNECTIONS_HINT
-              : undefined
+              : subscriptionSteeringHint
           }
           value={
             provider === OPENAI_COMPATIBLE_PROVIDER && providerConnection

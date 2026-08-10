@@ -19,11 +19,13 @@ const LOCAL_ONLY_PROVIDERS = new Set<string>(["ollama"]);
 
 /**
  * Whether a connection (identified by its stored `provider`) can serve
- * requests for `selectedProvider`. Two routing sentinels serve providers
- * other than their own column value: the provider-agnostic `vellum`
- * connection serves every managed-routable provider, and the `chatgpt`
- * subscription connection serves OpenAI (Codex models only; callers gate
- * the model set separately via `restrictsToSubscriptionModels`).
+ * requests for `selectedProvider`. One routing sentinel serves providers
+ * other than its own column value: the provider-agnostic `vellum`
+ * connection serves every managed-routable provider. The `chatgpt`
+ * subscription connection serves only its own identity: dispatch matches
+ * connections by exact provider, so an "openai" fragment cannot route
+ * through the subscription (migration 144 converts stranded ones to the
+ * chatgpt identity instead).
  */
 export function connectionServesProvider(
   connectionProvider: string,
@@ -32,15 +34,9 @@ export function connectionServesProvider(
   if (connectionProvider === selectedProvider) {
     return true;
   }
-  if (
+  return (
     connectionProvider === VELLUM_CONNECTION_PROVIDER &&
     MANAGED_ROUTABLE_PROVIDERS.has(selectedProvider)
-  ) {
-    return true;
-  }
-  return (
-    connectionProvider === CHATGPT_CONNECTION_PROVIDER &&
-    selectedProvider === "openai"
   );
 }
 
@@ -122,11 +118,17 @@ export function providersServedByConnections(
   if (selectable.includes(VELLUM_CONNECTION_PROVIDER)) {
     ordered.push(VELLUM_CONNECTION_PROVIDER);
   }
+  // The subscription identity sits with the other first-class routes rather
+  // than in the version-drift bucket at the end.
+  if (selectable.includes(CHATGPT_CONNECTION_PROVIDER)) {
+    ordered.push(CHATGPT_CONNECTION_PROVIDER);
+  }
   ordered.push(
     ...CONNECTION_PROVIDERS.filter((provider) => selectable.includes(provider)),
     ...selectable.filter(
       (provider) =>
         provider !== VELLUM_CONNECTION_PROVIDER &&
+        provider !== CHATGPT_CONNECTION_PROVIDER &&
         !CONNECTION_PROVIDERS.includes(provider),
     ),
   );

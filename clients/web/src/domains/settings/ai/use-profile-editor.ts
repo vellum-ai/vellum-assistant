@@ -15,6 +15,7 @@ import {
   type LlmCatalogModel,
 } from "@/assistant/llm-model-catalog";
 import {
+  CHATGPT_CONNECTION_PROVIDER,
   MANAGED_ROUTABLE_PROVIDERS,
   VELLUM_CONNECTION_PROVIDER,
 } from "@/domains/settings/ai/constants";
@@ -429,10 +430,15 @@ export function useProfileEditor({
     setModel("");
     // Auto-select connection: if exactly one connection exists for the new
     // provider, select it automatically. If multiple exist, clear so the user
-    // must pick. If zero, clear.
-    const connectionsForProvider = effectiveConnections.filter((c) =>
-      connectionServesProvider(c.provider, newProvider),
-    );
+    // must pick. If zero, clear. The chatgpt identity never binds a
+    // connection: dispatch resolves the canonical subscription row
+    // per-request, and the daemon rejects noncanonical pins.
+    const connectionsForProvider =
+      newProvider === CHATGPT_CONNECTION_PROVIDER
+        ? []
+        : effectiveConnections.filter((c) =>
+            connectionServesProvider(c.provider, newProvider),
+          );
     setProviderConnection(
       connectionsForProvider.length === 1 ? connectionsForProvider[0].name : "",
     );
@@ -625,9 +631,13 @@ export function useProfileEditor({
       // (`provider: "vellum"` + native model, no binding); older daemons get
       // the legacy shape: the model's managed upstream as `provider`, bound
       // to the provider-agnostic vellum connection.
+      // The chatgpt identity needs no version gate: the picker offers it
+      // only when the daemon returned a provider "chatgpt" row, which only
+      // daemons that understand the identity payload do.
       const writesIdentityPayload =
-        provider === VELLUM_CONNECTION_PROVIDER &&
-        (await assistantSupportsVellumProviderProfiles(assistantId));
+        provider === CHATGPT_CONNECTION_PROVIDER ||
+        (provider === VELLUM_CONNECTION_PROVIDER &&
+          (await assistantSupportsVellumProviderProfiles(assistantId)));
       const wireProvider =
         provider === VELLUM_CONNECTION_PROVIDER
           ? writesIdentityPayload
