@@ -486,6 +486,10 @@ Scan namespace sizes. If any namespace has crossed ~12-15 articles with visible 
 - Re-read the buffer (it may have new entries appended during your work).
 - Rewrite to contain ONLY entries with timestamp ≥ \`${CUTOFF_PLACEHOLDER}\`.
 - Smart removal — never wholesale-clear.
+- Copy every surviving entry through byte for byte, including the indented
+  body lines under a multiline entry. An entry opens with its timestamped
+  bullet at column 0 and everything below it is indented; flattening that
+  indentation turns one memory into several.
 
 ${CORE_PAGES_PLACEHOLDER}---
 
@@ -818,6 +822,10 @@ If the corpus has no marked articles, this step is a no-op — skip it.
 - Re-read the buffer (it may have new entries appended during your work).
 - Rewrite to contain ONLY entries with timestamp ≥ \`${CUTOFF_PLACEHOLDER}\`.
 - Smart removal — never wholesale-clear.
+- Copy every surviving entry through byte for byte, including the indented
+  body lines under a multiline entry. An entry opens with its timestamped
+  bullet at column 0 and everything below it is indented; flattening that
+  indentation turns one memory into several.
 
 ${CORE_PAGES_PLACEHOLDER}---
 

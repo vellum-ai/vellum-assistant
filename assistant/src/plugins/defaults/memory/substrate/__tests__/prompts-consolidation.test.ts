@@ -127,6 +127,29 @@ afterEach(() => {
   }
 });
 
+describe("buffer entry preservation", () => {
+  // The trim step is the one place the agent rewrites buffer.md, so it is the
+  // one place that can undo the writer's nesting. An entry's body is indented
+  // precisely so fact content cannot imitate the column-0 delimiter; flattening
+  // it on rewrite splits one memory into several for every buffer reader.
+  const MARKER = "including the indented";
+
+  test("both bundled templates tell the agent to preserve entry bodies", () => {
+    expect(CONSOLIDATION_PROMPT as string).toContain(MARKER);
+    expect(CONSOLIDATION_PROMPT_V3 as string).toContain(MARKER);
+  });
+
+  test("survives rendering for both v2 and v3 article shapes", () => {
+    expect(renderConsolidationPrompt(CUTOFF, NO_CORE)).toContain(MARKER);
+    expect(
+      renderConsolidationPrompt(CUTOFF, {
+        includeCorePagesSection: true,
+        articleShape: "v3",
+      }),
+    ).toContain(MARKER);
+  });
+});
+
 describe("anti-injection framing", () => {
   // The consolidation pass reads buffer.md + existing pages, which can carry
   // text from untrusted sources the assistant ingested earlier. Both templates
