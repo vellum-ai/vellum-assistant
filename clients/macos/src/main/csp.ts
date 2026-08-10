@@ -48,9 +48,18 @@ const WILDCARD_HOST = `*${ROOT_HOSTNAME}`;
 // Google Maps key to the Address Element).
 // frame-src is the only directive that names Stripe hosts alongside 'self';
 // without it frames fall back to `default-src 'self'`, which blocks the
-// Element iframes. The sandboxed srcdoc surfaces (dynamic-page-surface,
-// app-viewer) don't consult frame-src at all: srcdoc inherits the embedder's
-// CSP, so keeping this list to 'self' + Stripe hosts costs them nothing.
+// Element iframes. Keeping the list to 'self' + Stripe hosts costs the
+// sandboxed srcdoc surfaces (visual, dynamic-page, app-viewer) nothing,
+// because a srcdoc document resolves as 'self'.
+//
+// frame-src must not be dropped, and 'self' must stay the floor. It is the
+// only control over where a sandboxed frame can navigate *itself*: no CSP
+// directive constrains a document navigating its own browsing context from
+// the inside (`navigate-to` was never shipped), so a frame rendering
+// model-authored markup would otherwise be free to carry conversation data
+// out in a URL. It is enforced on every navigation of a nested browsing
+// context, not just the first load, which is what makes it work here.
+// See ATL-1197.
 export const CSP_POLICY = [
   "default-src 'self'",
   `script-src 'self' 'unsafe-inline' https://${WILDCARD_HOST} https://js.stripe.com https://*.js.stripe.com`,

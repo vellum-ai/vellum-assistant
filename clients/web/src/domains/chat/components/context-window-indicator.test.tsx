@@ -21,8 +21,8 @@ mock.module("@/utils/composer-settings", () => ({
   },
 }));
 
-mock.module("@/hooks/use-is-mobile", () => ({
-  useIsMobile: () => false,
+mock.module("@/hooks/use-touch-mobile", () => ({
+  useTouchMobile: () => false,
 }));
 
 import { ContextWindowIndicator } from "@/domains/chat/components/context-window-indicator";

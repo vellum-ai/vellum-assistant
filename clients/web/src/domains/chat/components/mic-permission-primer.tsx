@@ -58,8 +58,8 @@ export function MicPermissionPrimer({
       }}
     >
       <Modal.Content size="sm">
-        <Modal.Header>
-          <Modal.Title icon={Mic}>Microphone Access</Modal.Title>
+        <Modal.Header icon={Mic}>
+          <Modal.Title>Microphone Access</Modal.Title>
         </Modal.Header>
         <Modal.Body>
           <Modal.Description>

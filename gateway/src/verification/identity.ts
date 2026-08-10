@@ -53,18 +53,56 @@ export function canonicalizeInboundIdentity(
   channel: string,
   rawId: string,
 ): string | null {
-  const trimmed = rawId.trim();
-  if (trimmed.length === 0) return null;
+  return canonicalizeIdentityAs(identityKindFor(channel), rawId);
+}
 
+/**
+ * What an address on a channel *is*, independent of which channel carries it.
+ *
+ * A built-in channel's answer follows from its name, which is why the sets
+ * above suffice for them. A plugin channel's does not: `plugin` is one id
+ * covering every plugin, and whether its addresses are phone numbers, email
+ * addresses, or opaque handles is the plugin's business. Its ingress manifest
+ * declares the answer, and it arrives here as one of these.
+ */
+export type IdentityKind = "phone" | "email" | "opaque";
+
+function identityKindFor(channel: string): IdentityKind {
   if (PHONE_CHANNELS.has(channel)) {
-    const e164 = normalizePhoneNumber(trimmed);
-    return e164 ?? trimmed;
+    return "phone";
+  }
+  if (EMAIL_CHANNELS.has(channel)) {
+    return "email";
+  }
+  return "opaque";
+}
+
+/**
+ * Canonicalize an address of a known kind.
+ *
+ * Phone-like: E.164 where the input parses as one, the trimmed input where it
+ * does not — a raw id that is not a phone number after all still has to
+ * compare equal to itself. Email: lowercased. Opaque: trimmed, because a
+ * platform-stable id is already canonical and rewriting it would only make it
+ * stop matching what is stored.
+ *
+ * Returns null only for an empty or whitespace-only input.
+ */
+export function canonicalizeIdentityAs(
+  kind: IdentityKind,
+  rawId: string,
+): string | null {
+  const trimmed = rawId.trim();
+  if (trimmed.length === 0) {
+    return null;
   }
 
-  if (EMAIL_CHANNELS.has(channel)) {
+  if (kind === "phone") {
+    return normalizePhoneNumber(trimmed) ?? trimmed;
+  }
+  if (kind === "email") {
     return trimmed.toLowerCase();
   }
-
   return trimmed;
 }
 

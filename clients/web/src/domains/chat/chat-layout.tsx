@@ -13,6 +13,7 @@ import {
   useNavigate,
   useNavigationType,
 } from "react-router";
+import { SIDE_MENU_TILE_SIZE } from "@vellumai/design-library";
 
 import { useAssistantLifecycleStore } from "@/assistant/lifecycle-store";
 import {
@@ -309,7 +310,7 @@ export function ChatLayout({
   // --- Sidebar collapsed / drawer state ---
   const [collapsed, setCollapsed] = useState<boolean>(readPersistedCollapsed);
   const [sidebarWidth, setSidebarWidth] = useState<number>(readPersistedWidth);
-  // The tour walks the sidebar's rows, which a 48px collapsed rail doesn't
+  // The tour walks the sidebar's rows, which the collapsed rail doesn't
   // show — so the tour's whole run forces the rail expanded. Derived (not
   // written through setCollapsed) so the user's persisted preference is
   // untouched and the rail collapses back on its own when the tour ends.
@@ -397,9 +398,14 @@ export function ChatLayout({
       // landing width comes from state, not DOM measurement: skipping the
       // tour un-forces a collapsed rail in this same commit, so the nav's
       // measured width still reads expanded while it is already collapsing
-      // to 48px. No fill, so the wrapper returns to shrink-wrapping the nav
-      // the moment the animation ends.
-      const targetWidth = effectiveCollapsed ? 48 : sidebarWidth;
+      // to the rail width. No fill, so the wrapper returns to shrink-wrapping
+      // the nav the moment the animation ends.
+      //
+      // A collapsed rail is one tile wide here: this layout renders the nav
+      // without the design library's own padding and border (the page draws
+      // that chrome), and the collapsed rail sizes its tile as content, so
+      // nothing is added around it.
+      const targetWidth = effectiveCollapsed ? SIDE_MENU_TILE_SIZE : sidebarWidth;
       railFocusAnimationsRef.current = [
         aside.animate(
           [

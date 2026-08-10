@@ -306,22 +306,34 @@ function clickFilterOption(label: string): void {
 }
 
 /**
- * Force `useIsMobile` true so the filter button opens the BottomSheet (the
- * mobile category surface) instead of the desktop filter popover. Returns a
- * restore fn the caller invokes once done.
+ * Answers media queries for a given device shape: `narrow` drives the mobile
+ * breakpoint (which decides whether the category rail renders at all), and
+ * `coarsePointer` drives `useTouchMobile`, which picks the bottom sheet over
+ * the popover. Returns a restore fn the caller invokes once done.
  */
-function forceMobile(): () => void {
+function stubViewport({
+  narrow,
+  coarsePointer,
+}: {
+  narrow: boolean;
+  coarsePointer: boolean;
+}): () => void {
   const original = window.matchMedia;
-  window.matchMedia = ((query: string) => ({
-    matches: true,
-    media: query,
-    onchange: null,
-    addEventListener: () => {},
-    removeEventListener: () => {},
-    addListener: () => {},
-    removeListener: () => {},
-    dispatchEvent: () => false,
-  })) as unknown as typeof window.matchMedia;
+  window.matchMedia = ((query: string) => {
+    const widthOk = query.includes("min-width")
+      ? !narrow
+      : !query.includes("max-width") || narrow;
+    return {
+      matches: widthOk && (!query.includes("pointer: coarse") || coarsePointer),
+      media: query,
+      onchange: null,
+      addEventListener: () => {},
+      removeEventListener: () => {},
+      addListener: () => {},
+      removeListener: () => {},
+      dispatchEvent: () => false,
+    };
+  }) as unknown as typeof window.matchMedia;
   return () => {
     window.matchMedia = original;
   };
@@ -877,14 +889,17 @@ describe("SuperpowersTab", () => {
     expect(queryByText("mail-skill")).toBeTruthy();
   });
 
-  test("the mobile filter sheet surfaces status, type, source, and categories", async () => {
+  test("the touch filter sheet surfaces status, type, source, and categories", async () => {
     installedPlugins = [
       installed({ id: "mailer", name: "mailer", category: "email" }),
     ];
     installedCategoryCounts = { email: 1 };
     catalogMatches = [catalog({ name: "sys-cat", category: "system" })];
 
-    const restoreMatchMedia = forceMobile();
+    const restoreMatchMedia = stubViewport({
+      narrow: true,
+      coarsePointer: true,
+    });
     try {
       const { findByLabelText } = renderTab();
       // The desktop <aside> rail is hidden on mobile; the sheet is the only
@@ -899,6 +914,33 @@ describe("SuperpowersTab", () => {
       // "All" + each seeded category renders a selectable row.
       expect(within(sheet).getByText("Email")).toBeTruthy();
       expect(within(sheet).getByText("System")).toBeTruthy();
+    } finally {
+      restoreMatchMedia();
+    }
+  });
+
+  test("the filter popover carries categories while the rail is hidden", async () => {
+    installedPlugins = [
+      installed({ id: "mailer", name: "mailer", category: "email" }),
+    ];
+    installedCategoryCounts = { email: 1 };
+
+    // A mouse-driven window narrow enough to hide the category rail: the
+    // popover is the only category surface, so it grows the section the sheet
+    // carries on touch.
+    const restoreMatchMedia = stubViewport({
+      narrow: true,
+      coarsePointer: false,
+    });
+    try {
+      const { findByLabelText } = renderTab();
+      fireEvent.click(await findByLabelText("Filter superpowers"));
+
+      const listbox = await screen.findByRole("listbox");
+      expect(within(listbox).getByText("Categories")).toBeTruthy();
+      expect(
+        within(listbox).getByRole("option", { name: /Email/ }),
+      ).toBeTruthy();
     } finally {
       restoreMatchMedia();
     }

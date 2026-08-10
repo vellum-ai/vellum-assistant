@@ -61,8 +61,11 @@ export async function orchestrateMcpOAuthConnect(args: {
     },
   );
 
-  // Clear stale credentials so the flow starts fresh
-  await provider.invalidateCredentials("client");
+  // Re-discover, but keep the client registration. Discovery is a read and
+  // costs a request; registration is a write on the authorization server,
+  // and remaking it per attempt leaves a record behind every time. The
+  // provider drops a stored registration on its own when the redirect URI
+  // or the authorization server it was made against has changed.
   await provider.invalidateCredentials("discovery");
 
   // Register the pending callback in the daemon heap

@@ -1,3 +1,4 @@
+import { resolveLanguageVoiceOverride } from "../tts/language-voices.js";
 import { createPcmChunkAligner } from "../tts/pcm-chunk-aligner.js";
 import { getTtsProvider } from "../tts/provider-catalog.js";
 import { synthesizeAndEmit } from "../tts/synthesis-stream.js";
@@ -30,6 +31,7 @@ export interface LiveVoiceTtsOptions {
   useCase?: TtsUseCase;
   outputFormat?: TtsSynthesisRequest["outputFormat"];
   sampleRate?: number;
+  language?: string;
   config?: LiveVoiceTtsConfig;
   onAudioChunk: (chunk: LiveVoiceTtsAudioChunk) => void;
 }
@@ -72,11 +74,23 @@ interface ResolvedStreamingTtsProvider {
   providerConfig: Record<string, unknown>;
 }
 
+export { resolveLanguageVoiceOverride };
+
 export async function streamLiveVoiceTtsAudio(
   options: LiveVoiceTtsOptions,
 ): Promise<LiveVoiceTtsResult> {
   const { provider, providerId, providerConfig } =
     await resolveLiveVoiceStreamingTtsProvider(options.config);
+  // An explicit request voice wins outright; otherwise a language-known
+  // turn may select the provider's configured per-language voice. The cast
+  // recovers the schema-typed map that resolveTtsConfig's generic
+  // provider-block lookup erases.
+  const voiceId =
+    options.voiceId ??
+    resolveLanguageVoiceOverride(
+      providerConfig.languageVoices as Record<string, string> | undefined,
+      options.language,
+    );
   const useCase = options.useCase ?? "phone-call";
   const requestedSampleRate = resolveSampleRate(
     options.sampleRate,
@@ -89,9 +103,10 @@ export async function streamLiveVoiceTtsAudio(
   const providerSampleRate = provider.resolveOutputSampleRateHz?.({
     text: options.text,
     useCase,
-    voiceId: options.voiceId,
+    voiceId,
     outputFormat: options.outputFormat,
     sampleRateHz: requestedSampleRate,
+    language: options.language,
     signal: options.signal,
   });
   const sampleRate = providerSampleRate ?? requestedSampleRate;
@@ -138,9 +153,10 @@ export async function streamLiveVoiceTtsAudio(
       provider,
       text: options.text,
       useCase,
-      voiceId: options.voiceId,
+      voiceId,
       outputFormat: options.outputFormat,
       sampleRateHz: requestedSampleRate,
+      language: options.language,
       signal: options.signal,
       onChunk: (chunk) => {
         if (canStreamChunks) {

@@ -377,6 +377,8 @@ function setupController(
     requiresPcmAudio?: boolean;
     /** Simulate a transport that gates teardown on playback drain. */
     awaitPlaybackDrained?: () => Promise<void>;
+    /** Synthesis-language resolver, as the media-stream server wires it. */
+    resolveSynthesisLanguage?: () => string | undefined;
   },
 ) {
   ensureConversation("conv-ctrl-test");
@@ -400,6 +402,7 @@ function setupController(
   const controller = new CallController(session.id, transport, task ?? null, {
     assistantId: opts?.assistantId,
     trustContext: opts?.trustContext,
+    resolveSynthesisLanguage: opts?.resolveSynthesisLanguage,
   });
   return { session, relay: transport, controller };
 }
@@ -3468,6 +3471,123 @@ describe("call-controller", () => {
     expect(lastToken).toEqual({ token: "", last: true });
 
     controller.destroy();
+  });
+
+  test("synthesized provider: the resolved language rides every segment's synthesis request", async () => {
+    const requestLanguages: Array<string | undefined> = [];
+    registerFishAudioSegmentRecorder({
+      onSynthesizeStream: async (_text, request) => {
+        requestLanguages.push(request.language);
+      },
+    });
+    mockStartVoiceTurn.mockImplementation(
+      createMockVoiceTurn(["Hola desde aqui. ", "Segunda frase."]),
+    );
+    const { controller } = setupController(undefined, {
+      resolveSynthesisLanguage: () => "es",
+    });
+
+    await controller.handleCallerUtterance("Hola");
+
+    expect(requestLanguages).toEqual(["es", "es"]);
+
+    controller.destroy();
+  });
+
+  test("synthesized provider: no language on the request when nothing resolves", async () => {
+    const requestLanguages: Array<string | undefined> = [];
+    registerFishAudioSegmentRecorder({
+      onSynthesizeStream: async (_text, request) => {
+        requestLanguages.push(request.language);
+      },
+    });
+    mockStartVoiceTurn.mockImplementation(
+      createMockVoiceTurn(["Hello from here."]),
+    );
+    // Default resolver + default config (multilingual STT pin): no hint.
+    const { controller } = setupController();
+
+    await controller.handleCallerUtterance("Hi");
+
+    expect(requestLanguages).toEqual([undefined]);
+
+    controller.destroy();
+  });
+
+  function registerDeepgramRequestRecorder(): {
+    requests: Array<{ voiceId?: string; language?: string }>;
+  } {
+    const cfg = loadConfig();
+    cfg.services.tts.provider = "deepgram";
+
+    _resetTtsProviderOverridesForTests();
+    const requests: Array<{ voiceId?: string; language?: string }> = [];
+    const deepgramRecorder: TtsProvider = {
+      id: "deepgram",
+      capabilities: {
+        supportsStreaming: false,
+        supportedFormats: ["mp3", "wav", "opus"],
+      },
+      async synthesize(request) {
+        requests.push({
+          voiceId: request.voiceId,
+          language: request.language,
+        });
+        return { audio: Buffer.from("audio"), contentType: "audio/mpeg" };
+      },
+    };
+    _setTtsProviderForTests(deepgramRecorder);
+    return { requests };
+  }
+
+  test("synthesized provider: a configured languageVoices entry for the call language rides the request as voiceId", async () => {
+    const cfg = loadConfig();
+    cfg.services.tts.providers.deepgram.languageVoices = {
+      hi: "aura-2-hindi-voice",
+    };
+    try {
+      const { requests } = registerDeepgramRequestRecorder();
+      mockStartVoiceTurn.mockImplementation(
+        createMockVoiceTurn(["Namaste doston."]),
+      );
+      const { controller } = setupController(undefined, {
+        resolveSynthesisLanguage: () => "hi",
+      });
+
+      await controller.handleCallerUtterance("Namaste");
+
+      expect(requests).toEqual([
+        { voiceId: "aura-2-hindi-voice", language: "hi" },
+      ]);
+
+      controller.destroy();
+    } finally {
+      delete cfg.services.tts.providers.deepgram.languageVoices;
+    }
+  });
+
+  test("synthesized provider: no voiceId when languageVoices has no entry for the call language", async () => {
+    const cfg = loadConfig();
+    cfg.services.tts.providers.deepgram.languageVoices = {
+      hi: "aura-2-hindi-voice",
+    };
+    try {
+      const { requests } = registerDeepgramRequestRecorder();
+      mockStartVoiceTurn.mockImplementation(
+        createMockVoiceTurn(["Hola desde aqui."]),
+      );
+      const { controller } = setupController(undefined, {
+        resolveSynthesisLanguage: () => "es",
+      });
+
+      await controller.handleCallerUtterance("Hola");
+
+      expect(requests).toEqual([{ voiceId: undefined, language: "es" }]);
+
+      controller.destroy();
+    } finally {
+      delete cfg.services.tts.providers.deepgram.languageVoices;
+    }
   });
 
   test("synthesized provider: segments synthesize serially in order even when the first is slow", async () => {

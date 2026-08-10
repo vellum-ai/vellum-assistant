@@ -70,8 +70,8 @@ function ContactMergeDialogInner({
       }}
     >
       <Modal.Content size="md">
-        <Modal.Header>
-          <Modal.Title icon={GitMerge}>
+        <Modal.Header icon={GitMerge}>
+          <Modal.Title>
             {donor
               ? `Merge "${donor.displayName}" into ${survivorLabel}?`
               : `Merge another contact into ${survivorLabel}`}

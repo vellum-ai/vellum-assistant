@@ -48,7 +48,7 @@ import {
   WORKSPACE_TREE_QUERY_KEY,
   workspaceTreeQueryOptions,
 } from "@/lib/workspace-tree-query";
-import { useIsMobile } from "@/hooks/use-is-mobile";
+import { useTouchMobile } from "@/hooks/use-touch-mobile";
 import { BottomSheet } from "@vellumai/design-library/components/bottom-sheet";
 import { Button } from "@vellumai/design-library/components/button";
 import { ConfirmDialog } from "@vellumai/design-library/components/confirm-dialog";
@@ -904,7 +904,7 @@ export function WorkspaceTree({
 }
 
 // ---------------------------------------------------------------------------
-// WorkspaceTreeCreateMenu — desktop popover / mobile bottom-sheet
+// WorkspaceTreeCreateMenu: anchored popover / touch bottom-sheet
 // ---------------------------------------------------------------------------
 
 export interface WorkspaceTreeCreateMenuProps {
@@ -919,9 +919,9 @@ export function WorkspaceTreeCreateMenu({
   onSelectKind,
 }: WorkspaceTreeCreateMenuProps) {
   const { t } = useTranslation("workspace");
-  const isMobile = useIsMobile();
+  const isTouchMobile = useTouchMobile();
 
-  if (isMobile) {
+  if (isTouchMobile) {
     return (
       <BottomSheet.Root open={open} onOpenChange={onOpenChange}>
         <BottomSheet.Trigger asChild>

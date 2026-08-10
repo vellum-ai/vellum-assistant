@@ -10,7 +10,14 @@ import { Globe } from "lucide-react";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 
-import { SideMenu, useSideMenuCollapsed } from "./side-menu";
+import {
+  SIDE_MENU_BORDER_WIDTH,
+  SIDE_MENU_COLLAPSED_INSET,
+  SIDE_MENU_COLLAPSED_WIDTH,
+  SIDE_MENU_TILE_SIZE,
+  SideMenu,
+  useSideMenuCollapsed,
+} from "./side-menu";
 
 describe("SideMenu root", () => {
   test("renders a <nav> with the provided aria-label and data-slot", () => {
@@ -39,7 +46,7 @@ describe("SideMenu root", () => {
     expect(html).toContain("bg-[var(--surface-overlay)]");
   });
 
-  test("collapsed rail shrinks the width", () => {
+  test("collapsed rail is one tile of content plus its own chrome", () => {
     const html = renderToStaticMarkup(
       createElement(
         SideMenu,
@@ -47,8 +54,32 @@ describe("SideMenu root", () => {
         createElement(SideMenu.Body, { key: "body" }, null),
       ),
     );
-    expect(html).toContain("w-[48px]");
+    /* `box-content` is the whole point of the pairing: it makes the padding
+       and border the rail actually renders decide the outer width, so a
+       caller that turns that chrome off gets a rail exactly one tile wide
+       rather than one carrying room for padding it never draws. Room the
+       tile does not fill is room it centres in, and every glyph then steps
+       inward when the rail collapses. */
+    expect(html).toContain("box-content");
+    expect(html).toContain("w-[var(--side-menu-tile-size)]");
+    expect(html).toContain(`--side-menu-tile-size:${SIDE_MENU_TILE_SIZE}px`);
     expect(html).not.toContain("w-[230px]");
+  });
+
+  /* The JS constant is for callers that need the collapsed width as a number
+     and keep the rail's default chrome. It has to agree with what that chrome
+     renders, border included: the rail is a `border-box` element, so a number
+     counting only the tile and its padding spends 2px of itself on the edge
+     and comes up short of the tile it is supposed to hold. */
+  test("collapsed width holds one tile, its padding, and the rail's border", () => {
+    expect(SIDE_MENU_TILE_SIZE).toBe(32);
+    expect(SIDE_MENU_COLLAPSED_INSET).toBe(8);
+    expect(SIDE_MENU_BORDER_WIDTH).toBe(1);
+    expect(SIDE_MENU_COLLAPSED_WIDTH).toBe(
+      SIDE_MENU_TILE_SIZE +
+        SIDE_MENU_COLLAPSED_INSET * 2 +
+        SIDE_MENU_BORDER_WIDTH * 2,
+    );
   });
 
   test("overlay variant is full-bleed with no radius", () => {
@@ -497,7 +528,7 @@ describe("SideMenu.Item collapsed shape", () => {
        it one: a height plus `aspect-square` derives the width instead, and a
        derived width is `auto`, which `align-items: stretch` then overrides
        back to the container's. */
-    expect(html).toContain("size-[30px]");
+    expect(html).toContain("size-[var(--side-menu-tile-size)]");
     expect(html).not.toContain("aspect-square");
   });
 
@@ -525,7 +556,7 @@ describe("SideMenu.Item collapsed shape", () => {
     expect(html).toContain("w-full");
     expect(html).toContain("max-md:h-auto");
     expect(html).toContain("max-md:py-3");
-    expect(html).not.toContain("size-[30px]");
+    expect(html).not.toContain("size-[var(--side-menu-tile-size)]");
   });
 
   test("default shape keeps the 6px row radius", () => {

@@ -37,6 +37,7 @@
     "approvedAddresses": "{channel} recibe mensajes en estas direcciones:",
     "pendingAddresses": "{channel} pide recibir mensajes en estas direcciones. Hasta que lo apruebes, se rechazan las entregas:",
     "ungovernedAddresses": "Estas direcciones están abiertas decidas lo que decidas, porque solo Vellum puede alcanzarlas:",
+    "deliversInbound": "Lo que llegue aquí se convierte en un mensaje para tu asistente, no solo en una llamada de vuelta que {channel} recibe. Quién consigue pasar lo sigue decidiendo a quién permites escribirle.",
     "revokeIngress": "Revocar la entrada",
     "approveIngress": "Aprobar la entrada"
   },

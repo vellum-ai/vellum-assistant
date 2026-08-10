@@ -13,6 +13,7 @@ import {
 import { useState } from "react";
 
 import { useIsMobile } from "@/hooks/use-is-mobile";
+import { useTouchMobile } from "@/hooks/use-touch-mobile";
 import { cn } from "@/utils/misc";
 import {
   BottomSheet,
@@ -118,7 +119,6 @@ export function AppNavBar({
             isDeploying={isDeploying}
             deployedUrl={deployedUrl}
             onCopyDeployedLink={onCopyDeployedLink}
-            isMobile={isMobile}
           />
         ) : (
           <>
@@ -209,7 +209,6 @@ interface ShareDeployMenuTriggerProps {
   isDeploying?: boolean;
   deployedUrl?: string | null;
   onCopyDeployedLink?: () => void;
-  isMobile: boolean;
 }
 
 function ShareDeployMenuTrigger({
@@ -219,8 +218,8 @@ function ShareDeployMenuTrigger({
   isDeploying,
   deployedUrl,
   onCopyDeployedLink,
-  isMobile,
 }: ShareDeployMenuTriggerProps) {
+  const isTouchMobile = useTouchMobile();
   const [open, setOpen] = useState(false);
   const isDeployed =
     deployedUrl != null && deployedUrl !== "" && onCopyDeployedLink != null;
@@ -232,7 +231,7 @@ function ShareDeployMenuTrigger({
     ? "Deploying…"
     : "Share & deploy";
 
-  if (isMobile) {
+  if (isTouchMobile) {
     return (
       <BottomSheet.Root open={open} onOpenChange={setOpen}>
         <BottomSheet.Trigger asChild>

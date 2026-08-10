@@ -114,8 +114,8 @@ function AddRemoteOriginDialog({
       }}
     >
       <Modal.Content size="md">
-        <Modal.Header>
-          <Modal.Title icon={Globe}>Add a Remote Assistant</Modal.Title>
+        <Modal.Header icon={Globe}>
+          <Modal.Title>Add a Remote Assistant</Modal.Title>
           <Modal.Description>
             Paste the https link your assistant&rsquo;s pairing page gave you.
           </Modal.Description>
