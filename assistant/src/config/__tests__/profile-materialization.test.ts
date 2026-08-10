@@ -28,9 +28,9 @@ describe("completeCustomProfile", () => {
       model: "claude-fable-5",
     });
     expect(completed.model).toBe("claude-fable-5");
-    expect(completed.provider).toBe("anthropic");
-    // Completion never stamps a binding: the provider value alone
-    // carries the route under the entries model.
+    // The default's explicit binding is inherited IN the provider value
+    // (the entries-model representation), never as a stamped binding.
+    expect(completed.provider).toBe("anthropic-personal");
     expect(completed.provider_connection).toBeUndefined();
     expect(completed.maxTokens).toBe(64000);
     expect(completed.effort).toBe("max");
@@ -80,13 +80,11 @@ describe("completeCustomProfile", () => {
     expect(completed.contextWindow?.overflowRecovery?.enabled).toBe(true);
   });
 
-  test("keeps the inherited provider when it serves the profile's model", () => {
+  test("inherits the default's binding as the entry name when the provider serves the model", () => {
     const completed = completeCustomProfile(fullDefault, {
       model: "claude-fable-5",
     });
-    expect(completed.provider).toBe("anthropic");
-    // Completion never stamps a binding: the provider value alone
-    // carries the route under the entries model.
+    expect(completed.provider).toBe("anthropic-personal");
     expect(completed.provider_connection).toBeUndefined();
   });
 
@@ -127,32 +125,28 @@ describe("completeCustomProfile", () => {
     expect(completed.provider_connection).toBeUndefined();
   });
 
-  test("never inherits a connection binding, managed default included", () => {
-    // The provider value alone carries the route under the entries model;
-    // completion inheriting the managed binding would re-introduce the
-    // collapsed field on disk.
+  test("a managed default's binding becomes the routing identity, never a stamped field", () => {
     const managedDefault = LLMConfigBase.parse({
       ...fullDefault,
       provider_connection: VELLUM_MANAGED_CONNECTION_NAME,
     });
     const implied = completeCustomProfile(managedDefault, { model: "gpt-5.5" });
-    expect(implied.provider).toBe("openai");
+    expect(implied.provider).toBe("vellum");
     expect(implied.provider_connection).toBeUndefined();
 
     const explicit = completeCustomProfile(managedDefault, {
       provider: "openai",
       model: "gpt-5.4",
     });
+    expect(explicit.provider).toBe("vellum");
     expect(explicit.provider_connection).toBeUndefined();
   });
 
-  test("keeps the inherited provider for a model unknown to the catalog", () => {
+  test("inherits the binding as the entry name even for a model unknown to the catalog", () => {
     const completed = completeCustomProfile(fullDefault, {
       model: "totally-custom-model",
     });
-    expect(completed.provider).toBe("anthropic");
-    // Completion never stamps a binding: the provider value alone
-    // carries the route under the entries model.
+    expect(completed.provider).toBe("anthropic-personal");
     expect(completed.provider_connection).toBeUndefined();
   });
 

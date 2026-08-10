@@ -53,8 +53,9 @@ describe("ensureCompleteCustomProfiles", () => {
     ensureCompleteCustomProfiles(workspaceDir);
     const saved = readProfiles().partial;
     expect(saved.model).toBe("claude-haiku-4-5-20251001");
-    expect(saved.provider).toBe("anthropic");
-    // Completion never stamps a binding under the entries model.
+    // The default's binding is inherited IN the provider value (entries
+    // representation), never as a stamped binding field.
+    expect(saved.provider).toBe("anthropic-personal");
     expect(saved.provider_connection).toBeUndefined();
     expect(saved.maxTokens).toBe(12345);
     expect(saved.temperature).toBe(0.7);
@@ -165,7 +166,7 @@ describe("ensureCompleteCustomProfiles", () => {
     });
     ensureCompleteCustomProfiles(workspaceDir);
     expect(readProfiles().partial.futureField).toBe("keep-me");
-    expect(readProfiles().partial.provider).toBe("anthropic");
+    expect(readProfiles().partial.provider).toBe("anthropic-personal");
   });
 
   test("does not bake null default sampling; preserves explicit profile null", () => {

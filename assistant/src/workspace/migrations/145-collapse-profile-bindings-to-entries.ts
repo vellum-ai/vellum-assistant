@@ -50,6 +50,70 @@ const MANAGED_ROUTABLE = new Set([
   "together",
 ]);
 
+// A binding literally named "vellum" or "chatgpt" folds into the ROUTING
+// IDENTITY value, whose model the read-path schema validates (an unroutable
+// pair strips the whole profile on read). Folding is therefore gated on the
+// model being servable by that identity, judged against frozen snapshots of
+// the routing tables as of 2026-08-10; a model outside the snapshot leaves
+// the profile untouched (dispatch keeps honoring the legacy binding).
+const VELLUM_ROUTABLE_MODELS = new Set([
+  "claude-fable-5",
+  "claude-opus-5",
+  "claude-opus-4-8",
+  "claude-opus-4-7",
+  "claude-opus-4-6",
+  "claude-sonnet-5",
+  "claude-sonnet-4-6",
+  "claude-sonnet-4-5-20250929",
+  "claude-opus-4-5-20251101",
+  "claude-haiku-4-5-20251001",
+  "gpt-5.6-sol",
+  "gpt-5.6-terra",
+  "gpt-5.6-luna",
+  "gpt-5.5",
+  "gpt-5.5-pro",
+  "gpt-5.4",
+  "gpt-5.2",
+  "gpt-5.4-mini",
+  "gpt-5.4-nano",
+  "gemini-3.6-flash",
+  "gemini-3.5-flash",
+  "gemini-3.5-flash-lite",
+  "gemini-3.1-pro-preview",
+  "gemini-3.1-pro-preview-customtools",
+  "gemini-3-flash-preview",
+  "gemini-3.1-flash-lite-preview",
+  "gemini-3.1-flash-lite",
+  "gemini-2.5-flash",
+  "gemini-2.5-flash-lite",
+  "gemini-2.5-pro",
+  "accounts/fireworks/models/kimi-k3",
+  "accounts/fireworks/models/kimi-k2p6",
+  "accounts/fireworks/models/glm-5p2",
+  "accounts/fireworks/models/minimax-m3",
+  "accounts/fireworks/models/minimax-m2p7",
+  "accounts/fireworks/models/deepseek-v4-pro",
+  "accounts/fireworks/models/deepseek-v4-flash",
+  "MiniMaxAI/MiniMax-M3",
+]);
+const CODEX_MODELS = new Set([
+  "gpt-5.6-sol",
+  "gpt-5.6-terra",
+  "gpt-5.6-luna",
+  "gpt-5.5",
+  "gpt-5.4",
+  "gpt-5.4-mini",
+]);
+
+function identitySafeModel(identity: string, model: unknown): boolean {
+  if (typeof model !== "string") {
+    return false;
+  }
+  return identity === "vellum"
+    ? VELLUM_ROUTABLE_MODELS.has(model)
+    : CODEX_MODELS.has(model);
+}
+
 export const collapseProfileBindingsToEntriesMigration: WorkspaceMigration = {
   id: "145-collapse-profile-bindings-to-entries",
   description:
@@ -90,9 +154,12 @@ export const collapseProfileBindingsToEntriesMigration: WorkspaceMigration = {
       return;
     }
 
-    // Bindings exist, so the rewrite needs the rows. An unreadable DB must
-    // fail the run (retried next boot) rather than checkpoint a pass that
-    // would take the destructive dangling path for every binding.
+    // Bindings exist, so the rewrite needs the rows. An ABSENT DB file is a
+    // real state (a config restored into a fresh workspace has no rows, so
+    // every binding is genuinely dangling); an unreadable or unqueryable DB
+    // must instead fail the run (retried next boot) rather than checkpoint
+    // a pass that would take the destructive dangling path for every
+    // binding.
     const rows = readConnectionRows(workspaceDir);
     if (rows === null) {
       throw new Error(
@@ -124,12 +191,45 @@ export const collapseProfileBindingsToEntriesMigration: WorkspaceMigration = {
       }
 
       if (binding === provider) {
+        // A row named exactly like its vendor was an explicit pin under the
+        // old create route; with several rows of that kind, the bare vendor
+        // would auto-resolve differently, so the pin stays until the entry
+        // picker can express it. Without such a row the field is a plain
+        // conventional shape and the bare vendor already means the default.
+        if (rows.has(binding)) {
+          log.info(
+            { profile: key, provider },
+            "Kept self-named binding (an explicit pin among possible siblings)",
+          );
+          continue;
+        }
         delete entry.provider_connection;
         changed = true;
         log.info(
           { profile: key, provider },
           "Deleted self-referential binding (bare vendor means the default entry)",
         );
+        continue;
+      }
+
+      if (ROUTING_IDENTITIES.has(binding)) {
+        // Folding writes the identity VALUE itself; gate on the model the
+        // identity can serve, or the read-path schema would strip the
+        // profile. An unservable model leaves the profile untouched.
+        if (identitySafeModel(binding, entry.model)) {
+          entry.provider = binding;
+          delete entry.provider_connection;
+          changed = true;
+          log.info(
+            { profile: key, previousProvider: provider, identity: binding },
+            "Folded canonical binding into the routing identity",
+          );
+        } else {
+          log.warn(
+            { profile: key, provider, binding, reason: "model_not_servable" },
+            "Left canonical binding in place; the identity cannot serve this model",
+          );
+        }
         continue;
       }
 
@@ -207,7 +307,7 @@ function kindAgrees(rowKind: string, provider: string | undefined): boolean {
 function readConnectionRows(workspaceDir: string): Map<string, string> | null {
   const dbPath = join(workspaceDir, "data", "db", "assistant.db");
   if (!existsSync(dbPath)) {
-    return null;
+    return new Map();
   }
   let db: Database;
   try {

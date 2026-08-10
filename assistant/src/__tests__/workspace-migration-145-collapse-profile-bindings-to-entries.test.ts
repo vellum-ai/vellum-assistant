@@ -180,8 +180,8 @@ describe("145-collapse-profile-bindings-to-entries", () => {
     expect(managed).not.toHaveProperty("provider_connection");
   });
 
-  test("deletes a self-referential binding without rewriting the provider", () => {
-    seedRows([{ name: "anthropic", provider: "anthropic" }]);
+  test("deletes a self-referential binding when no row claims that name", () => {
+    seedRows([{ name: "anthropic-work", provider: "anthropic" }]);
     writeConfig({
       llm: {
         profiles: {
@@ -200,7 +200,7 @@ describe("145-collapse-profile-bindings-to-entries", () => {
     expect(readProfiles().plain).not.toHaveProperty("provider_connection");
   });
 
-  test("throws (for retry) when bindings exist but the DB is unreadable", () => {
+  test("an absent DB file means genuinely dangling bindings (restored config)", () => {
     writeConfig({
       llm: {
         profiles: {
@@ -212,7 +212,30 @@ describe("145-collapse-profile-bindings-to-entries", () => {
         },
       },
     });
-    // No DB seeded at all.
+    // No DB at all: a config restored into a fresh workspace has no rows.
+
+    run();
+
+    const bound = readProfiles().bound;
+    expect(bound.provider).toBe("anthropic");
+    expect(bound).not.toHaveProperty("provider_connection");
+  });
+
+  test("throws (for retry) when bindings exist but the DB is unqueryable", () => {
+    writeConfig({
+      llm: {
+        profiles: {
+          bound: {
+            provider: "anthropic",
+            provider_connection: "anthropic-work",
+            model: "claude-opus-4-8",
+          },
+        },
+      },
+    });
+    // DB file exists but carries no provider_connections table.
+    mkdirSync(join(workspaceDir, "data", "db"), { recursive: true });
+    new Database(join(workspaceDir, "data", "db", "assistant.db")).close();
 
     expect(() => run()).toThrow(/not readable/);
     // Config untouched: no destructive guess was made.
@@ -220,6 +243,61 @@ describe("145-collapse-profile-bindings-to-entries", () => {
     expect(
       collapseProfileBindingsToEntriesMigration.retryFailedCheckpoint,
     ).toBe(true);
+  });
+
+  test("folds a canonical vellum binding only for identity-servable models", () => {
+    seedRows([{ name: "vellum", provider: "vellum" }]);
+    writeConfig({
+      llm: {
+        profiles: {
+          routable: {
+            provider: "anthropic",
+            provider_connection: "vellum",
+            model: "claude-opus-4-8",
+          },
+          stale: {
+            provider: "anthropic",
+            provider_connection: "vellum",
+            model: "claude-ancient-1",
+          },
+        },
+      },
+    });
+
+    run();
+
+    const routable = readProfiles().routable;
+    expect(routable.provider).toBe("vellum");
+    expect(routable).not.toHaveProperty("provider_connection");
+    // An unservable model would be stripped by the read-path schema if
+    // folded to the identity; the profile stays untouched instead.
+    const stale = readProfiles().stale;
+    expect(stale.provider).toBe("anthropic");
+    expect(stale.provider_connection).toBe("vellum");
+  });
+
+  test("keeps a self-named binding when a row by that name exists", () => {
+    seedRows([
+      { name: "anthropic", provider: "anthropic" },
+      { name: "anthropic-2", provider: "anthropic" },
+    ]);
+    writeConfig({
+      llm: {
+        profiles: {
+          pinned: {
+            provider: "anthropic",
+            provider_connection: "anthropic",
+            model: "claude-opus-4-8",
+          },
+        },
+      },
+    });
+
+    run();
+
+    // The explicit pin survives: with sibling rows, the bare vendor would
+    // auto-resolve differently.
+    expect(readProfiles().pinned.provider_connection).toBe("anthropic");
   });
 
   test("no-ops without bindings and is idempotent", () => {

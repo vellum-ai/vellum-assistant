@@ -4,6 +4,11 @@ import {
   isModelInCatalog,
 } from "../providers/model-catalog.js";
 import {
+  getManagedUpstream,
+  MANAGED_ROUTABLE_PROVIDERS,
+  VELLUM_MANAGED_CONNECTION_NAME,
+} from "../providers/vellum-model-routing.js";
+import {
   type LLMConfigBase,
   type ProfileEntry,
   routingIdentityModelIssue,
@@ -93,11 +98,35 @@ export function completeCustomProfile(
     }
   }
 
-  // Completion never stamps a `provider_connection`: under the entries
-  // model the provider value alone carries the route (a vendor means the
-  // default entry of that kind, an entry name means its row, and
-  // routing-identity providers resolve their connection per-request), so an
-  // inherited binding would only re-introduce the collapsed field on disk.
+  // Completion never stamps a `provider_connection`; an inherited binding
+  // would only re-introduce the collapsed field on disk. The default's
+  // explicit binding is instead inherited IN the provider value, the
+  // entries-model representation: the vellum binding becomes the routing
+  // identity (only when it can serve the model, or the read-path schema
+  // would strip the profile), and a same-vendor binding becomes the entry
+  // name, so a completed profile keeps signing with the credential the
+  // workspace default names rather than whatever auto-resolution finds
+  // first.
+  if (
+    completed.provider !== undefined &&
+    !ROUTING_IDENTITY_PROVIDERS.has(completed.provider) &&
+    profile.provider_connection === undefined &&
+    dflt.provider_connection !== undefined
+  ) {
+    if (
+      dflt.provider_connection === VELLUM_MANAGED_CONNECTION_NAME &&
+      MANAGED_ROUTABLE_PROVIDERS.has(completed.provider) &&
+      completed.model !== undefined &&
+      getManagedUpstream(completed.model) !== null
+    ) {
+      completed.provider = "vellum";
+    } else if (
+      dflt.provider_connection !== VELLUM_MANAGED_CONNECTION_NAME &&
+      completed.provider === dflt.provider
+    ) {
+      completed.provider = dflt.provider_connection;
+    }
+  }
   return structuredClone(completed);
 }
 
