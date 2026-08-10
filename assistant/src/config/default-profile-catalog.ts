@@ -155,8 +155,9 @@ const VELLUM_PROFILE_IMPLS: ProfileImpls = {
  * `chatgpt-subscription` row via `resolveRoutingIdentity` with no pinned
  * connection. Models are pinned (never intents): the intent tables are
  * keyed by concrete dispatch providers, and the Codex endpoint serves only
- * `CODEX_SUBSCRIPTION_MODEL_IDS`. Cost and Speed share Balanced's model
- * (the subscription has no cheaper tier); the split is reasoning effort.
+ * `CODEX_SUBSCRIPTION_MODEL_IDS`. Cost and Speed are identical
+ * implementations here: the subscription serves no tier cheaper or faster
+ * than luna, and both profiles advertise reasoning off.
  */
 const CHATGPT_PROFILE_IMPLS: ProfileImpls = {
   balanced: {
@@ -199,7 +200,11 @@ const CHATGPT_PROFILE_IMPLS: ProfileImpls = {
     label: "Speed",
     description: "Fastest responses, with reasoning turned off",
     maxTokens: 8192,
-    effort: "low",
+    // Explicit reasoning opt-out, matching the other columns: this profile
+    // advertises reasoning as off, and OpenAI-compat APIs default reasoning
+    // to "medium" when the field is omitted, so the opt-out has to be stated
+    // rather than implied.
+    effort: "none",
     thinking: { enabled: false, streamThinking: false },
     contextWindow: { maxInputTokens: DEFAULT_CONTEXT_WINDOW_MAX_INPUT_TOKENS },
   },
