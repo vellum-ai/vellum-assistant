@@ -268,7 +268,7 @@ export function HomePage({
   const sections =
     itemDetail && !isMobile ? (
       <DetailDrawer
-        storageKey="homeDetailDrawerWidth"
+        storageKey="homeDetailDrawerWidth.v2"
         detailKey={selectedItem?.id}
         section={notificationsSection}
         detail={itemDetail}

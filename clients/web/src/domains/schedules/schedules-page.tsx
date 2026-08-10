@@ -248,7 +248,7 @@ export function SchedulesPage() {
     <>
       {detail && !isMobile ? (
         <DetailDrawer
-          storageKey="schedulesDetailDrawerWidth"
+          storageKey="schedulesDetailDrawerWidth.v2"
           detailKey={selectedScheduleId ?? selectedSystemTaskKind ?? undefined}
           section={section}
           detail={detail}
