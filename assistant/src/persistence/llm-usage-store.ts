@@ -300,6 +300,9 @@ export function queryUnreportedUsageEvents(
   // branch from a turn far earlier than the fork's creation time, so
   // they anchor on the fork boundary message instead; child creation is
   // the fallback when the boundary message is absent.
+  // The turn-index subqueries below count user-role rows only. User rows are
+  // always written finalized (only assistant turns stream), so no completeness
+  // predicate is needed; do not copy this shape for assistant-row counts.
   const parentTurnCutoffSql = sql<number>`CASE
     WHEN ${conversations.parentConversationId} IS NOT NULL THEN ${conversations.createdAt}
     ELSE COALESCE(
