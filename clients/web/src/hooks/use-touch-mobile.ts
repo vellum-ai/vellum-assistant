@@ -11,9 +11,11 @@ import {
  *
  * The compound is only correct when both halves are load-bearing, which is
  * rarer than it looks. Reading it for a question that turns on input alone
- * excludes every roomy touch device (an iPad in either orientation, a phone in
- * landscape, Android tablets), and if the alternative branch needs hover then
- * those devices get an affordance they cannot operate at all.
+ * excludes every roomy touch device: an iPad in either orientation, a phone in
+ * landscape, Android tablets.
+ *
+ * If the alternative branch needs hover, those devices then get an affordance
+ * they cannot operate at all.
  *
  * The query itself is defined once in the design library, alongside the
  * `touch-mobile` CSS variant it has to agree with, and is re-exported here so
