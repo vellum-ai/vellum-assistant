@@ -59,6 +59,9 @@ beforeEach(() => {
 
 describe("CLAUDE_OAUTH_CONFIG", () => {
   test("matches the verified endpoints, client id, and scope", () => {
+    // The single literal pin for the endpoint. Every other test asserts
+    // against CLAUDE_OAUTH_CONFIG.authorizeUrl, so an endpoint change edits
+    // exactly this one value.
     expect(CLAUDE_OAUTH_CONFIG.authorizeUrl).toBe(
       "https://claude.com/cai/oauth/authorize",
     );
@@ -92,8 +95,10 @@ describe("buildClaudeAuthorizeUrl", () => {
     });
 
     const parsed = new URL(url);
+    // The property under test is that the builder uses the configured
+    // endpoint; the value itself is guarded by the literal pin above.
     expect(`${parsed.origin}${parsed.pathname}`).toBe(
-      "https://claude.com/cai/oauth/authorize",
+      CLAUDE_OAUTH_CONFIG.authorizeUrl,
     );
 
     const params = parsed.searchParams;
