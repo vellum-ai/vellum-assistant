@@ -1150,10 +1150,14 @@ export class AcpSessionManager {
           });
           // The recovery surface (event, model guidance, prompt-dedup marker)
           // is raised as a unit, and only when a spawning tool call exists to
-          // anchor the card; otherwise guidance would point at a card the
-          // client cannot render.
+          // anchor the card AND the user did not already stop the run. A
+          // cancelled run renders no card (the client guards it), so marking
+          // the never-cleared prompt-dedup registry here would suppress the
+          // secure token prompt against a card that never appears.
           const recoveryAnchor =
-            errorCode !== undefined ? current.parentToolUseId : undefined;
+            errorCode !== undefined && current.state.status !== "cancelled"
+              ? current.parentToolUseId
+              : undefined;
           if (errorCode !== undefined && recoveryAnchor !== undefined) {
             current.sendToVellum({
               type: "acp_auth_required",

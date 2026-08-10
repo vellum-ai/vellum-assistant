@@ -330,6 +330,7 @@ describe("AcpSessionManager auth-required recovery surface", () => {
     id: string;
     command: string;
     parentToolUseId?: string;
+    cancelled?: boolean;
   }) {
     const manager = new AcpSessionManager(1);
     const parentId = `parent-${opts.id}`;
@@ -346,19 +347,25 @@ describe("AcpSessionManager auth-required recovery surface", () => {
     entry.command = opts.command;
     (entry as { parentToolUseId?: string }).parentToolUseId =
       opts.parentToolUseId;
+    if (opts.cancelled) {
+      entry.state.status = "cancelled";
+    }
 
     await fire(manager, opts.id, entry).catch(() => {});
-    await loopRan;
+    if (!opts.cancelled) {
+      await loopRan;
+    }
 
     const events = (
       entry.sendToVellum as ReturnType<typeof mock>
     ).mock.calls.map((c) => c[0] as { type: string } & Record<string, unknown>);
+    const firstPersist = persistUserMessage.mock.calls[0] as unknown as
+      | [{ content: string }]
+      | undefined;
     return {
       parentId,
       authEvent: events.find((e) => e.type === "acp_auth_required"),
-      persistedContent: (
-        persistUserMessage.mock.calls[0] as unknown as [{ content: string }]
-      )[0].content,
+      persistedContent: firstPersist?.[0].content,
     };
   }
 
@@ -392,6 +399,23 @@ describe("AcpSessionManager auth-required recovery surface", () => {
     expect(r.authEvent).toBeUndefined();
     expect(hasAcpConnectCardRaised(r.parentId)).toBe(false);
     expect(r.persistedContent).not.toContain("Connect Claude Code");
+  });
+
+  test("a run the user already stopped raises nothing: no event, no registry mark, no parent turn", async () => {
+    // The client never renders a card for a cancelled run, and the
+    // prompt-dedup registry is never cleared, so marking it here would
+    // suppress the secure token prompt for the daemon's lifetime against a
+    // card that does not exist.
+    const r = await driveAuthFailure({
+      id: "sess-auth-cancelled",
+      command: "claude-agent-acp",
+      parentToolUseId: "tool-anchor-3",
+      cancelled: true,
+    });
+
+    expect(r.authEvent).toBeUndefined();
+    expect(hasAcpConnectCardRaised(r.parentId)).toBe(false);
+    expect(r.persistedContent).toBeUndefined();
   });
 
   test("a non-claude adapter never raises the surface, even on an auth-shaped failure", async () => {
