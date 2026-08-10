@@ -1,13 +1,11 @@
-import { BrowserWindow, app } from "electron";
+import { BrowserWindow, type BrowserWindowConstructorOptions } from "electron";
 import { z } from "zod";
 
-import { RENDERER_BASE_PROD, getDevRendererBase } from "./app-config";
-import { handle } from "./ipc";
-import { createWindow } from "./windows";
-import {
-  restoreBounds,
-  track as trackWindowState,
-} from "@vellumai/electron-desktop/window-state";
+import { POPOUT_OPEN } from "@vellumai/ipc-contract";
+
+import type { IpcHandle } from "./ipc";
+import { createModuleConfiguration } from "./module-configuration";
+import type { CreateWindowOptions } from "./windows";
 
 /**
  * Conversation pop-out windows — independent BrowserWindows showing a single
@@ -41,21 +39,39 @@ const POPOUT_DEFAULT_BOUNDS = { width: 720, height: 800 } as const;
 const POPOUT_MIN_WIDTH = 500;
 const POPOUT_MIN_HEIGHT = 400;
 
+type RestoredBounds = Pick<
+  BrowserWindowConstructorOptions,
+  "fullscreen" | "height" | "width" | "x" | "y"
+>;
+
+export interface PopoutWindowDependencies {
+  createWindow: (options: CreateWindowOptions) => BrowserWindow;
+  handle: IpcHandle;
+  resolveRoute: (route: string) => string;
+  restoreBounds?: (
+    key: string,
+    defaults: { width: number; height: number },
+  ) => RestoredBounds;
+  trackWindowState?: (key: string, win: BrowserWindow) => void;
+}
+
+const configuration = createModuleConfiguration<PopoutWindowDependencies>(
+  "Popout window module",
+);
+export const configurePopoutWindows = configuration.configure;
+
 /**
  * Registry of open pop-out windows keyed by conversation ID. Lets us focus an
  * existing pop-out instead of stacking duplicates, and clean up on close.
  */
 const popouts = new Map<string, BrowserWindow>();
 
-const popoutUrl = (conversationId: string): string => {
-  const base = app.isPackaged ? RENDERER_BASE_PROD : getDevRendererBase();
-  return `${base}/conversations/${conversationId}?popout=1`;
-};
-
 /**
  * Open (or focus) a pop-out window for the given conversation.
  */
-const openPopout = (conversationId: string): void => {
+export const openPopout = (conversationId: string): void => {
+  const { createWindow, resolveRoute, restoreBounds, trackWindowState } =
+    configuration.get();
   const existing = popouts.get(conversationId);
   if (existing && !existing.isDestroyed()) {
     if (existing.isMinimized()) {
@@ -66,10 +82,9 @@ const openPopout = (conversationId: string): void => {
     return;
   }
 
-  const sizing = restoreBounds(
-    `thread.${conversationId}`,
-    POPOUT_DEFAULT_BOUNDS,
-  );
+  const stateKey = `thread.${conversationId}`;
+  const sizing = restoreBounds?.(stateKey, POPOUT_DEFAULT_BOUNDS) ??
+    POPOUT_DEFAULT_BOUNDS;
 
   const win = createWindow({
     browserWindow: {
@@ -97,7 +112,7 @@ const openPopout = (conversationId: string): void => {
     },
   });
 
-  trackWindowState(`thread.${conversationId}`, win);
+  trackWindowState?.(stateKey, win);
   popouts.set(conversationId, win);
 
   win.once("ready-to-show", () => {
@@ -114,7 +129,9 @@ const openPopout = (conversationId: string): void => {
   // links to shell.openExternal and allowing OAuth popups. Our custom
   // installGuard intentionally does NOT override it.
 
-  void win.loadURL(popoutUrl(conversationId));
+  void win.loadURL(
+    resolveRoute(`/conversations/${conversationId}?popout=1`),
+  );
 };
 
 /**
@@ -127,11 +144,14 @@ export const openPopoutIds = (): ReadonlySet<string> =>
 let installed = false;
 
 export const installPopoutWindows = (): void => {
-  if (installed) return;
+  if (installed) {
+    return;
+  }
   installed = true;
+  const { handle } = configuration.get();
 
   handle(
-    "vellum:popout:open",
+    POPOUT_OPEN,
     z.tuple([z.string()]),
     ([conversationId]) => {
       openPopout(conversationId);

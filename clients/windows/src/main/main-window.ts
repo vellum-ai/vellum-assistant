@@ -3,6 +3,7 @@ import {
   IDENTITY_NAME,
   MAIN_WINDOW_ENSURE_VISIBLE,
   MAIN_WINDOW_SET_ONBOARDING,
+  type VellumCommand,
 } from "@vellumai/ipc-contract";
 import {
   restoreBounds,
@@ -117,6 +118,13 @@ export const ensureVisible = (): Promise<void> => {
 };
 
 export const current = (): BrowserWindow | null => mainWindow;
+
+export const dispatchToMain = (command: VellumCommand): void => {
+  const win = current();
+  if (win && !win.isDestroyed() && !win.webContents.isDestroyed()) {
+    win.webContents.send("vellum:command", command);
+  }
+};
 
 export const setOnboarding = (active: boolean): void => {
   writeOnboardingActive(active);

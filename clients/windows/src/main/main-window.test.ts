@@ -16,8 +16,10 @@ interface WindowStub {
   emit: (event: string) => void;
   webContents: {
     emit: (event: string) => void;
+    isDestroyed: () => boolean;
     on: ReturnType<typeof mock>;
     once: (event: string, handler: () => void) => void;
+    send: ReturnType<typeof mock>;
   };
   focus: ReturnType<typeof mock>;
   loadURL: ReturnType<typeof mock>;
@@ -61,12 +63,14 @@ const createWindowMock = mock(
             handler();
           }
         },
+        isDestroyed: () => state.destroyed,
         on: mock(() => undefined),
         once(event: string, handler: () => void) {
           const handlers = webListeners.get(event) ?? [];
           handlers.push(handler);
           webListeners.set(event, handlers);
         },
+        send: mock(() => undefined),
       },
       focus: mock(() => undefined),
       loadURL: mock(() => Promise.resolve()),
@@ -148,6 +152,7 @@ mock.module("./ipc.client", () => ({
 
 const {
   __resetForTesting,
+  dispatchToMain,
   ensureVisible,
   installMainWindow,
 } = await import("./main-window");
@@ -255,5 +260,14 @@ describe("Windows main window", () => {
     constructed[0]?.emit("closed");
     void ensureVisible();
     expect(constructed[1]?.setTitle).toHaveBeenCalledWith("Alice");
+  });
+
+  test("dispatches commands to the current renderer", () => {
+    void ensureVisible();
+    dispatchToMain({ kind: "openSettings" });
+    expect(constructed[0]?.webContents.send).toHaveBeenCalledWith(
+      "vellum:command",
+      { kind: "openSettings" },
+    );
   });
 });
