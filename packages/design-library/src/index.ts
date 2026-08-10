@@ -106,6 +106,7 @@ export {
   type ModalSize,
   type ModalContentProps,
   type ModalTitleProps,
+  type ModalHeaderProps,
 } from "./components/modal";
 export {
   BottomSheet,

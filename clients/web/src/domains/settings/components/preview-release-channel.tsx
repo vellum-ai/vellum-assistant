@@ -411,8 +411,8 @@ function OptInModal({
   return (
     <Modal.Root open={open} onOpenChange={(next) => !next && onCancel()}>
       <Modal.Content size="md" hideCloseButton={isPending}>
-        <Modal.Header>
-          <Modal.Title icon={AlertTriangle}>Opt in to Preview</Modal.Title>
+        <Modal.Header icon={AlertTriangle}>
+          <Modal.Title>Opt in to Preview</Modal.Title>
           <Modal.Description>
             Preview releases may be unstable. A 90-day safety backup is taken
             before the image changes.
@@ -483,8 +483,8 @@ function OptOutModal({
   return (
     <Modal.Root open={open} onOpenChange={(next) => !next && onCancel()}>
       <Modal.Content size="md" hideCloseButton={isPending}>
-        <Modal.Header>
-          <Modal.Title icon={AlertTriangle}>Switch back to Stable</Modal.Title>
+        <Modal.Header icon={AlertTriangle}>
+          <Modal.Title>Switch back to Stable</Modal.Title>
           <Modal.Description>
             Choose how this assistant should leave the Preview channel.
           </Modal.Description>

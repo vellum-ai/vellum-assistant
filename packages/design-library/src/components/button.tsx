@@ -112,7 +112,7 @@ const buttonVariants = cva(
       },
       size: {
         regular: "h-8 px-2.5 text-body-medium-default rounded-md",
-        compact: "h-6 px-2 text-label-medium-default rounded-md",
+        compact: "h-6 px-2 text-body-small-default rounded-[6px]",
       },
       iconOnly: {
         true: "p-0",

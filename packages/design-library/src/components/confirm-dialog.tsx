@@ -69,10 +69,8 @@ function ConfirmDialog({
           if (!isPending) onCancel();
         }}
       >
-        <Modal.Header>
-          <Modal.Title icon={destructive ? AlertTriangle : undefined}>
-            {title}
-          </Modal.Title>
+        <Modal.Header icon={destructive ? AlertTriangle : undefined}>
+          <Modal.Title>{title}</Modal.Title>
         </Modal.Header>
         <Modal.Body>
           <Modal.Description>{message}</Modal.Description>
