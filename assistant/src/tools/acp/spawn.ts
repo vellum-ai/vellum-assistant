@@ -3,6 +3,12 @@ import { basename } from "node:path";
 import { z } from "zod";
 
 import { markAcpConnectCardRaised } from "../../acp/acp-connect-card-state.js";
+import {
+  ACP_AUTH_RECOVERY_GUIDANCE,
+  ACP_CLAUDE_AUTH_REQUIRED_CODE,
+  AcpAuthRequiredError,
+  CLAUDE_ACP_COMMAND,
+} from "../../acp/auth-required.js";
 import { resolveAgentWithAutoInstall } from "../../acp/auto-install.js";
 import { getAcpSessionManager } from "../../acp/index.js";
 import {
@@ -147,6 +153,23 @@ export async function executeAcpSpawn(
 
     return { content: payload, isError: false };
   } catch (err) {
+    // A pre-spawn rejection of the stored Claude credential (the adapter
+    // raises auth_required during session creation) gets the same recovery
+    // surface as the missing-token preflight: the errorCode raises the inline
+    // Connect card off this failed tool call, the registry mark dedups a
+    // redundant secure prompt, and the guidance keeps the model pointed at
+    // the card. Adapter-gated: the card repairs Claude credentials only.
+    if (
+      err instanceof AcpAuthRequiredError &&
+      basename(agentConfig.command) === CLAUDE_ACP_COMMAND
+    ) {
+      markAcpConnectCardRaised(context.conversationId);
+      return {
+        content: `${err.message}\n\n${ACP_AUTH_RECOVERY_GUIDANCE}`,
+        isError: true,
+        errorCode: ACP_CLAUDE_AUTH_REQUIRED_CODE,
+      };
+    }
     const msg =
       err instanceof Error
         ? err.message

@@ -83,3 +83,20 @@ export function isClaudeAuthFailureMessage(
 
 /** The adapter whose auth failures the Connect Claude flow can repair. */
 export const CLAUDE_ACP_COMMAND = "claude-agent-acp";
+
+/**
+ * Model-facing text accompanying a Claude auth failure wherever the inline
+ * Connect card is raised (the tool result for a pre-spawn rejection, the
+ * parent notification for a post-spawn one), so the model points at the card
+ * instead of inventing a remedy (CLI commands, pasted tokens, or a card that
+ * is not there). Bans placement words because card position is a UI detail
+ * the model cannot see.
+ */
+export const ACP_AUTH_RECOVERY_GUIDANCE =
+  "The Claude Code connection needs to be re-authorized. The app shows the " +
+  'user an inline "Connect Claude Code" card. Reply with ONE short sentence: ' +
+  "ask them to click Connect to sign in again, and tell them you'll continue " +
+  "automatically once they are connected. Do NOT say where the card is; never " +
+  'say "below", "above", "at the bottom", or "here". Do NOT tell them to run ' +
+  "`claude setup-token`, paste a token in chat, run credential CLI commands, " +
+  "or re-run the agent yourself; the card and auto-continue handle it.";

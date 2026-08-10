@@ -18,6 +18,7 @@ import { getLogger } from "../util/logger.js";
 import { markAcpConnectCardRaised } from "./acp-connect-card-state.js";
 import { AcpAgentProcess } from "./agent-process.js";
 import {
+  ACP_AUTH_RECOVERY_GUIDANCE,
   ACP_CLAUDE_AUTH_REQUIRED_CODE,
   CLAUDE_ACP_COMMAND,
   isAcpAuthRequired,
@@ -32,22 +33,6 @@ import { claudeResumeHint } from "./resume-hint.js";
 import type { AcpAgentConfig, AcpSessionState } from "./types.js";
 
 const log = getLogger("acp:session-manager");
-
-/**
- * Appended to the parent-conversation notification when a run died because its
- * Claude credential needs reconnecting, so the model points at the inline
- * Connect card instead of inventing a remedy (CLI commands, pasted tokens, or
- * a card that is not there). Bans placement words because card position is a
- * UI detail the model cannot see.
- */
-const ACP_AUTH_RECOVERY_GUIDANCE =
-  "The Claude Code connection needs to be re-authorized. The app shows the " +
-  'user an inline "Connect Claude Code" card. Reply with ONE short sentence: ' +
-  "ask them to click Connect to sign in again, and tell them you'll continue " +
-  "automatically once they are connected. Do NOT say where the card is; never " +
-  'say "below", "above", "at the bottom", or "here". Do NOT tell them to run ' +
-  "`claude setup-token`, paste a token in chat, run credential CLI commands, " +
-  "or re-run the agent yourself; the card and auto-continue handle it.";
 
 /**
  * The `authCode` for a run that failed on its Claude credential, or undefined

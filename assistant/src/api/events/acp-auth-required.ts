@@ -21,9 +21,11 @@
 import { z } from "zod";
 
 /**
- * The `authCode` value for a `claude-agent-acp` run whose Claude credential
- * needs to be reconnected. Single source for both sides of the wire: the
- * daemon re-exports it via `acp/auth-required.ts`, the web client via
+ * The code for a `claude-agent-acp` run whose Claude credential needs to be
+ * reconnected: the `authCode` on this event for post-spawn failures, and the
+ * `errorCode` on the failed `acp_spawn` tool result for pre-spawn ones.
+ * Single source for both sides of the wire: the daemon re-exports it via
+ * `acp/auth-required.ts`, the web client via
  * `domains/chat/utils/acp-connect.ts`.
  */
 export const ACP_CLAUDE_AUTH_REQUIRED_CODE = "acp_claude_auth_required";

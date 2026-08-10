@@ -118,6 +118,19 @@ describe("acp connect prompt — raised live, never by reseed", () => {
     });
   });
 
+  test("a pre-spawn rejected-credential failure raises the prompt marked auth_required", () => {
+    // A stored-but-rejected token cannot self-heal on a token-presence check,
+    // so the reason must survive into the store.
+    handleToolResult(
+      missingTokenToolResult({ errorCode: "acp_claude_auth_required" }),
+      stubCtx(),
+    );
+    expect(useInteractionStore.getState().pendingAcpConnect).toEqual({
+      toolUseId: "tc-1",
+      reason: "auth_required",
+    });
+  });
+
   test("a non-missing-token failure does not raise the prompt", () => {
     handleToolResult(
       missingTokenToolResult({ errorCode: "some_other_error" }),

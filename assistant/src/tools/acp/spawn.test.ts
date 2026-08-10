@@ -147,6 +147,10 @@ const { _resetAdapterInstallCacheForTests } =
   await import("../../acp/auto-install.js");
 const { ACP_CLAUDE_OAUTH_MISSING_CODE } =
   await import("../../acp/prepare-agent-env.js");
+const { ACP_CLAUDE_AUTH_REQUIRED_CODE, AcpAuthRequiredError } =
+  await import("../../acp/auth-required.js");
+const { hasAcpConnectCardRaised } =
+  await import("../../acp/acp-connect-card-state.js");
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -545,5 +549,52 @@ describe("executeAcpSpawn — CLAUDE_CODE_OAUTH_TOKEN injection", () => {
     // the inline Connect flow without parsing the human message.
     expect(result.isError).toBe(true);
     expect(result.errorCode).toBe(ACP_CLAUDE_OAUTH_MISSING_CODE);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Pre-spawn Claude auth rejection
+// ---------------------------------------------------------------------------
+
+describe("pre-spawn Claude auth rejection", () => {
+  test("raises the recovery surface: errorCode, card guidance, registry mark", async () => {
+    // The adapter can reject session creation with auth_required (a stored
+    // credential the server refuses); the typed error reaches this tool's
+    // catch and must produce the same surface the missing-token preflight
+    // does, anchored to this failed tool call.
+    spawnMock.mockImplementationOnce(async () => {
+      throw new AcpAuthRequiredError(
+        "claude",
+        'ACP agent "claude" requires authentication and its stored credential was not accepted.',
+      );
+    });
+
+    const context = { ...makeContext(), conversationId: "conv-prespawn-auth" };
+    const result = await executeAcpSpawn(
+      { agent: "claude", task: "do something" },
+      context,
+    );
+
+    expect(result.isError).toBe(true);
+    expect(result.errorCode).toBe(ACP_CLAUDE_AUTH_REQUIRED_CODE);
+    expect(result.content).toContain("Connect Claude Code");
+    expect(hasAcpConnectCardRaised("conv-prespawn-auth")).toBe(true);
+  });
+
+  test("a non-auth spawn failure keeps the plain flattened result", async () => {
+    spawnMock.mockImplementationOnce(async () => {
+      throw new Error("adapter exploded");
+    });
+
+    const context = { ...makeContext(), conversationId: "conv-prespawn-boom" };
+    const result = await executeAcpSpawn(
+      { agent: "claude", task: "do something" },
+      context,
+    );
+
+    expect(result.isError).toBe(true);
+    expect(result.errorCode).toBeUndefined();
+    expect(result.content).toContain("adapter exploded");
+    expect(hasAcpConnectCardRaised("conv-prespawn-boom")).toBe(false);
   });
 });
