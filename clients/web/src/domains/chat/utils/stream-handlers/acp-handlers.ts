@@ -1,4 +1,5 @@
 import type {
+  AcpAuthRequiredEvent,
   AcpSessionSpawnedEvent,
   AcpSessionUpdateEvent,
   AcpSessionUsageEvent,
@@ -88,31 +89,45 @@ export function handleAcpSessionError(event: AcpSessionErrorEvent): void {
   if (store.byId[event.acpSessionId]?.status === "cancelled") {
     return;
   }
-  const entry = store.byId[event.acpSessionId];
   store.setTerminal({
     acpSessionId: event.acpSessionId,
     status: "failed",
     error: event.error,
     completedAt: Date.now(),
   });
+}
 
-  // The run's Claude credential was rejected. Raise the same inline Connect
-  // affordance the missing-token path uses, anchored to the tool call that
-  // spawned this run so it renders under that activity group. Without an
-  // anchor there is nowhere to put it, so an older daemon that omitted
-  // `parentToolUseId` simply keeps the plain failed-run rendering.
-  //
-  // Held in the interaction store rather than on the run entry for the same
-  // reason as the missing-token prompt: it has to survive the routine
-  // post-turn `/messages` reseed, which rebuilds the transcript from
-  // persisted history.
+/**
+ * The run's Claude credential was rejected. Raise the same inline Connect
+ * affordance the missing-token path uses, anchored to the tool call that
+ * spawned the run so it renders under that activity group.
+ *
+ * Arrives as its own event, immediately after the `acp_session_error` that
+ * marked the run failed, so the failure still renders on clients too old to
+ * know this event exists.
+ *
+ * Held in the interaction store rather than on the run entry for the same
+ * reason as the missing-token prompt: it has to survive the routine post-turn
+ * `/messages` reseed, which rebuilds the transcript from persisted history.
+ */
+export function handleAcpAuthRequired(event: AcpAuthRequiredEvent): void {
+  // A run the user already stopped is not a failure to recover from.
   if (
-    event.errorCode === ACP_CLAUDE_AUTH_REQUIRED_CODE &&
-    entry?.parentToolUseId
+    useAcpRunStore.getState().byId[event.acpSessionId]?.status === "cancelled"
   ) {
-    useInteractionStore.getState().showAcpConnect({
-      toolUseId: entry.parentToolUseId,
-      reason: "auth_required",
-    });
+    return;
   }
+  // The daemon sends the anchor, falling back to the run store for a session
+  // spawned before it did. With neither there is nowhere to render the card,
+  // so the run keeps its plain failed rendering.
+  const toolUseId =
+    event.parentToolUseId ??
+    useAcpRunStore.getState().byId[event.acpSessionId]?.parentToolUseId;
+  if (event.authCode !== ACP_CLAUDE_AUTH_REQUIRED_CODE || !toolUseId) {
+    return;
+  }
+  useInteractionStore.getState().showAcpConnect({
+    toolUseId,
+    reason: "auth_required",
+  });
 }

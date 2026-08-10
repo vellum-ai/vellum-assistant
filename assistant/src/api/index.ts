@@ -1,5 +1,6 @@
 import { z } from "zod";
 
+import { AcpAuthRequiredEventSchema } from "./events/acp-auth-required.js";
 import { AcpSessionCompletedEventSchema } from "./events/acp-session-completed.js";
 import { AcpSessionErrorEventSchema } from "./events/acp-session-error.js";
 import { AcpSessionSpawnedEventSchema } from "./events/acp-session-spawned.js";
@@ -149,6 +150,10 @@ export {
   SSE_REPLAY_RING_COUNT_LIMIT,
 } from "./constants/sse-replay.js";
 export { DEFAULT_TOOL_EXECUTION_TIMEOUT_SEC } from "./constants/tool-execution.js";
+export {
+  type AcpAuthRequiredEvent,
+  AcpAuthRequiredEventSchema,
+} from "./events/acp-auth-required.js";
 export {
   type AcpSessionCompletedEvent,
   AcpSessionCompletedEventSchema,
@@ -895,6 +900,7 @@ export {
  * migration recipe.
  */
 export const AssistantEventSchema = z.discriminatedUnion("type", [
+  AcpAuthRequiredEventSchema,
   AcpSessionCompletedEventSchema,
   AcpSessionErrorEventSchema,
   AcpSessionSpawnedEventSchema,
