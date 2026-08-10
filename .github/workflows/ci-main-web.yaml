@@ -53,9 +53,6 @@ jobs:
       - name: Audit cross-domain import allow-list freshness
         run: bun run audit:cross-domain:check
 
-      - name: Audit touch-signal allow-list freshness
-        run: bun run audit:touch-signal:check
-
   typecheck:
     name: Type Check
     runs-on: ubuntu-latest

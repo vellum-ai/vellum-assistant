@@ -2,7 +2,6 @@ import { defineConfig, globalIgnores } from "eslint/config";
 import reactHooks from "eslint-plugin-react-hooks";
 import tseslint from "typescript-eslint";
 
-import { noCompoundTouchSignal } from "./eslint-rules/no-compound-touch-signal.mjs";
 import { noCrossDomainImports } from "./eslint-rules/no-cross-domain-imports.mjs";
 import { noUntranslatedStrings } from "./eslint-rules/no-untranslated-strings.mjs";
 
@@ -214,7 +213,6 @@ const eslintConfig = defineConfig([
     plugins: {
       local: {
         rules: {
-          "no-compound-touch-signal": noCompoundTouchSignal,
           "no-cross-domain-imports": noCrossDomainImports,
           "no-untranslated-strings": noUntranslatedStrings,
         },
@@ -230,7 +228,35 @@ const eslintConfig = defineConfig([
         { argsIgnorePattern: "^_", varsIgnorePattern: "^_" },
       ],
       "local/no-cross-domain-imports": "error",
-      "local/no-compound-touch-signal": "error",
+      // The narrow-AND-coarse compound is closed to new adopters. It ANDs two
+      // axes that PLATFORM_ADAPTATION.md treats as independent, so every call
+      // site must re-derive "do both halves genuinely matter?", and a wrong
+      // answer produced LUM-3197: a hover-only fallback served to every roomy
+      // touch device (tablet either way up, phone in landscape), where the
+      // ring had no hover to reveal it and no tap path to open it.
+      //
+      // Existing call sites are exempted below and disappear with LUM-3177,
+      // which moves overlay presentation into the design library. Known,
+      // accepted gap: an exempted file can still grow another branch on its
+      // already-imported boolean. Those files have already made the choice,
+      // and the migration removes them.
+      "no-restricted-imports": [
+        "error",
+        {
+          patterns: [
+            {
+              group: ["*use-touch-mobile*"],
+              message:
+                "useTouchMobile() is the narrow-AND-coarse compound, not the " +
+                "input axis. Ask what the other branch does under a thumb: " +
+                "hover-only means it is unusable at every width, so read " +
+                "isPointerCoarse() from '@/utils/pointer'. If the question " +
+                "is about room, use useIsMobile(). See " +
+                "docs/PLATFORM_ADAPTATION.md.",
+            },
+          ],
+        },
+      ],
       "no-restricted-syntax": [
         "error",
         ...darkPairedColorScaleRules,
@@ -284,6 +310,35 @@ const eslintConfig = defineConfig([
     },
   },
   // -----------------------------------------------------------------------
+  // Grandfathered readers of the narrow-AND-coarse compound (see the
+  // no-restricted-imports entry above). This list only shrinks: entries leave
+  // as LUM-3177 migrates them, and new files never join it. The hook's own
+  // module and test are here because a module may reference itself.
+  {
+    files: [
+      "src/hooks/use-touch-mobile.{ts,test.tsx}",
+      "src/components/app-nav-bar.tsx",
+      "src/domains/chat/components/composer-settings-menu.tsx",
+      "src/domains/chat/components/conversation-actions-menu.tsx",
+      "src/domains/chat/components/conversation-activity-pill.tsx",
+      "src/domains/chat/components/conversation-asset-actions.tsx",
+      "src/domains/chat/components/conversation-assets-pill.tsx",
+      "src/domains/chat/components/group-actions-menu.tsx",
+      "src/domains/chat/components/inchat-plugin-pill/inchat-plugin-pill.tsx",
+      "src/domains/chat/components/preferences-menu.tsx",
+      "src/domains/chat/components/quote-reply-bubble.tsx",
+      "src/domains/home/components/notifications-bell.tsx",
+      "src/domains/intelligence/components/superpowers/superpowers-filters.tsx",
+      "src/domains/library/components/library-app-card.tsx",
+      "src/domains/settings/components/integration-row.tsx",
+      "src/domains/settings/credentials/credential-row.tsx",
+      "src/domains/workspace/components/workspace-tree.tsx",
+    ],
+    rules: {
+      "no-restricted-imports": "off",
+    },
+  },
+
   // i18n cutover ratchet
   //
   // `local/no-untranslated-strings` is enabled only for the paths below, and

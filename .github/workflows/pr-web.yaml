@@ -62,16 +62,6 @@ jobs:
             exit 1
           fi
 
-      - name: Audit touch-signal allow-list freshness
-        run: |
-          if ! bun run audit:touch-signal:check; then
-            echo "::group::regenerated allow-list diff"
-            bun run audit:touch-signal
-            git -c color.ui=never diff -- .touch-signal-allowlist.json | head -200
-            echo "::endgroup::"
-            exit 1
-          fi
-
   typecheck:
     name: Type Check
     runs-on: ubuntu-latest
