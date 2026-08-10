@@ -4,10 +4,11 @@
  * quote is added the strip scrolls to reveal the newest chip.
  *
  * The strip's whole job is to sit between the transcript and the composer, so
- * these stories mount it where `chat-body` mounts it: inside the footer
- * column, with the real `ChatComposer` as its next sibling. Its own `mb-2` is
- * the gap to that composer, and its width comes from the column rather than
- * from itself, so neither is reviewable with the strip standing alone.
+ * these stories mount it where `chat-body` mounts it: inside the real
+ * `ChatColumn`, with the real `ChatComposer` as its next sibling. Its own
+ * `mb-2` is the gap to that composer, and its width comes from the column
+ * rather than from itself, so neither is reviewable with the strip standing
+ * alone.
  */
 
 import type { Meta, StoryObj } from "@storybook/react-vite";
@@ -15,6 +16,7 @@ import { useEffect, useRef } from "react";
 import { Button } from "@vellumai/design-library";
 
 import { StagedQuotesStrip } from "./staged-quotes-strip";
+import { ChatColumn } from "@/domains/chat/components/chat-column";
 import { ChatComposer } from "@/domains/chat/components/chat-composer/chat-composer";
 import { useQuoteReplyStore } from "@/domains/chat/quote-reply-store";
 
@@ -87,19 +89,17 @@ const meta: Meta<typeof StagedQuotesStrip> = {
   title: "Chat/StagedQuotesStrip",
   parameters: { layout: "fullscreen", controls: { disable: true } },
   decorators: [
-    /* `chat-body`'s footer column, class for class: the bottom-anchored body,
-       the `px-3 pt-1 pb-2 sm:px-6 sm:pb-0` wrapper, and the
-       `mx-auto max-w-[var(--chat-max-width)]` child the strip shares with the
-       composer. Keep in sync with `chat-body.tsx`. */
+    /* The real `ChatColumn` with the composer stack's own vertical padding,
+       inside a bottom-anchored body: the same arrangement `chat-body` builds
+       around the strip. Imported rather than mirrored, so a change to the
+       column reaches this story on its own. */
     (Story) => (
       <div className="flex h-screen flex-col justify-end">
-        <div className="px-3 pt-1 pb-2 sm:px-6 sm:pb-0">
-          <div className="mx-auto max-w-[var(--chat-max-width)]">
-            <Story />
-            <StoryComposer />
-          </div>
-        </div>
-        {/* Harness control, deliberately outside the mirrored app column. */}
+        <ChatColumn className="pt-1 pb-2 sm:pb-0">
+          <Story />
+          <StoryComposer />
+        </ChatColumn>
+        {/* Harness control, deliberately outside the app column. */}
         <div className="px-3 py-3 sm:px-6">
           <Button variant="outlined" size="compact" onClick={stageAnotherQuote}>
             Stage another quote
