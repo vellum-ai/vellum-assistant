@@ -1,13 +1,17 @@
 /**
- * Tests for `useWindowSize`, the live window measurement four onboarding
- * layers read.
+ * Tests for `useWindowSize`, the live window measurement the onboarding and
+ * voice-room decorative layers read.
  *
  * The contract worth pinning is the part callers used to hand-roll: that the
- * size comes from `windowSize` (so the SSR guard and the FALLBACK dimensions
- * have one owner rather than being restated per call site), that it tracks
- * `resize`, that a `resize` reporting unchanged dimensions does not churn a
- * render, and that `enabled: false` opts out of the listener entirely for the
- * caller that already has a size from context.
+ * size comes from `windowSize` (so the fallback dimensions have one owner
+ * rather than being restated per call site), that it tracks `resize`, and
+ * that `enabled: false` opts out for the caller that already has a size from
+ * context.
+ *
+ * The reference-stability test is load-bearing rather than cosmetic:
+ * `useSyncExternalStore` bails out only on reference equality, so a
+ * `getSnapshot` returning a fresh `{ w, h }` each call would re-render
+ * forever. It fails loudly if that caching is ever dropped.
  */
 
 import { afterEach, describe, expect, test } from "bun:test";
@@ -58,40 +62,45 @@ describe("useWindowSize", () => {
     expect(result.current).toEqual({ w: 390, h: 844 });
   });
 
-  test("does not re-render when a resize leaves the dimensions alone", () => {
+  test("keeps the same reference when a resize leaves the dimensions alone", () => {
     setWindowSize(1024, 768);
-    const { result } = renderHook(() => useWindowSize());
+    const { result, rerender } = renderHook(() => useWindowSize());
     const first = result.current;
 
     // `resize` also fires for zoom, the iOS keyboard, and orientation changes
     // that settle back; none of those move the box.
     fireResize();
+    rerender();
 
     expect(result.current).toBe(first);
   });
 
-  test("ignores resizes while disabled", () => {
+  test("shares one snapshot across consumers", () => {
     setWindowSize(1024, 768);
-    const { result } = renderHook(() => useWindowSize(false));
+    const a = renderHook(() => useWindowSize());
+    const b = renderHook(() => useWindowSize());
+
+    expect(a.result.current).toBe(b.result.current);
 
     setWindowSize(390, 844);
     fireResize();
 
-    expect(result.current).toEqual({ w: 1024, h: 768 });
+    expect(a.result.current).toEqual({ w: 390, h: 844 });
+    expect(a.result.current).toBe(b.result.current);
   });
 
-  test("starts tracking when it becomes enabled", () => {
+  test("does not re-subscribe while disabled, but still reports the size", () => {
     setWindowSize(1024, 768);
-    const { result, rerender } = renderHook(
-      ({ enabled }: { enabled: boolean }) => useWindowSize(enabled),
-      { initialProps: { enabled: false } },
-    );
+    const { result } = renderHook(() => useWindowSize(false));
 
+    expect(result.current).toEqual({ w: 1024, h: 768 });
+
+    // No subscription, so a resize does not notify this consumer. The value
+    // is read during render, so it is never stale when something else
+    // re-renders it.
     setWindowSize(390, 844);
-    rerender({ enabled: true });
+    fireResize();
 
-    // Enabling syncs immediately rather than waiting for the next resize:
-    // the window can move while a provider is supplying the size.
-    expect(result.current).toEqual({ w: 390, h: 844 });
+    expect(result.current).toEqual({ w: 1024, h: 768 });
   });
 });
