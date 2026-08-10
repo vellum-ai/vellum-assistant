@@ -113,9 +113,12 @@ export function CallSiteOverrideRow({
   // the pickable set still falls back rather than being offered as a row
   // the picker cannot represent. The `chatgpt` identity is pickable and
   // renders as itself.
-  const storedProvider = isInferenceProvider(draft?.provider)
-    ? draft.provider
-    : draft?.provider === CHATGPT_CONNECTION_PROVIDER
+  const draftProvider = draft?.provider;
+  const storedProvider: PickableProvider | undefined = isInferenceProvider(
+    draftProvider,
+  )
+    ? draftProvider
+    : draftProvider === CHATGPT_CONNECTION_PROVIDER
       ? CHATGPT_CONNECTION_PROVIDER
       : undefined;
   const storedProviderIsSelectable =
@@ -155,6 +158,25 @@ export function CallSiteOverrideRow({
     });
   }
   const hasModelError = !!draft?.provider && !draft?.model;
+  const providerOptions: { value: PickableProvider; label: string }[] = [
+    ...pickableProviders.map((p) => ({
+      value: p,
+      label: PROVIDER_DISPLAY_NAMES[p] ?? p,
+    })),
+    // Keeps the trigger honest and gives the user a way out: the row
+    // renders its real pin, and choosing any other provider is a genuine
+    // change that fires.
+    ...(storedProvider && !storedProviderIsSelectable
+      ? [
+          {
+            value: storedProvider,
+            label: `${
+              PROVIDER_DISPLAY_NAMES[storedProvider] ?? storedProvider
+            } (unavailable)`,
+          },
+        ]
+      : []),
+  ];
 
   function handleProfilePickerChange(val: string) {
     if (val === CUSTOM_SENTINEL) {
@@ -234,26 +256,7 @@ export function CallSiteOverrideRow({
               <Select
                 value={currentProvider ?? ""}
                 onChange={handleProviderChange}
-                options={[
-                  ...pickableProviders.map((p) => ({
-                    value: p,
-                    label: PROVIDER_DISPLAY_NAMES[p] ?? p,
-                  })),
-                  // Keeps the trigger honest and gives the user a way out:
-                  // the row renders its real pin, and choosing any other
-                  // provider is a genuine change that fires.
-                  ...(storedProvider && !storedProviderIsSelectable
-                    ? [
-                        {
-                          value: storedProvider,
-                          label: `${
-                            PROVIDER_DISPLAY_NAMES[storedProvider] ??
-                            storedProvider
-                          } (unavailable)`,
-                        },
-                      ]
-                    : []),
-                ]}
+                options={providerOptions}
               />
             </div>
             <div className="flex-1">
