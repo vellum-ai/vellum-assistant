@@ -35,7 +35,7 @@ export function HomeDetailPanel({
   onGoToThread,
   onUpdateStatus,
   onDismiss,
-  entityLinks,
+  entityLinks = [],
   onNavigate,
 }: HomeDetailPanelProps) {
   const { t } = useTranslation("home");
@@ -62,7 +62,6 @@ export function HomeDetailPanel({
   const isDismissed = item.status === "dismissed";
   const hasValidConversation =
     !!item.conversationId && validConversationIds.has(item.conversationId);
-  const links = onNavigate ? (entityLinks ?? []) : [];
 
   if (isMobile) {
     return (
@@ -157,9 +156,9 @@ export function HomeDetailPanel({
         </div>
 
         {/* Bottom CTA */}
-        {hasValidConversation || links.length > 0 ? (
+        {hasValidConversation || entityLinks.length > 0 ? (
           <div className="flex shrink-0 flex-col gap-2 px-4 pb-4 pt-2">
-            {links.map((link) => (
+            {entityLinks.map((link) => (
               <Button
                 key={link.kind}
                 variant="outlined"
@@ -247,7 +246,7 @@ export function HomeDetailPanel({
       {/* Footer actions */}
       <div className="flex shrink-0 items-center justify-between gap-[var(--app-spacing-sm)] border-t border-[var(--border-base)] p-[var(--app-spacing-lg)]">
         <div className="flex items-center gap-[var(--app-spacing-sm)]">
-          {links.map((link) => (
+          {entityLinks.map((link) => (
             <Button
               key={link.kind}
               variant="outlined"

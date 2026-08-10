@@ -52,7 +52,7 @@ export interface FeedItemEntityLink {
   to: string;
 }
 
-export interface FeedItemEntityLinks {
+export interface FeedItemEntityLinksResult {
   links: FeedItemEntityLink[];
   /**
    * True while a list this item's links actually depend on is still loading.
@@ -62,10 +62,6 @@ export interface FeedItemEntityLinks {
   isPending: boolean;
 }
 
-/**
- * Static per-entity descriptors. The reader pulls the id off the item; the
- * route builder turns it into a path.
- */
 const ENTITY_LINKS = [
   {
     kind: "schedule",
@@ -107,7 +103,7 @@ export function useFeedItemEntityLinks(
   item: FeedItem | null,
   assistantId: string | null | undefined,
   enabled: boolean,
-): FeedItemEntityLinks {
+): FeedItemEntityLinksResult {
   const scheduleQuery = useQuery({
     ...schedulesListQueryOptions(assistantId ?? undefined),
     enabled,
@@ -136,13 +132,16 @@ export function useFeedItemEntityLinks(
       return { links: [], isPending: false };
     }
 
-    const present: Record<FeedItemEntityLink["kind"], Set<string>> = {
-      schedule: new Set((schedules ?? []).map((schedule) => schedule.id)),
-      skill: new Set((skills?.skills ?? []).map((skill) => skill.id)),
-    };
-    const pendingByKind: Record<FeedItemEntityLink["kind"], boolean> = {
-      schedule: scheduleQuery.isPending,
-      skill: skillQuery.isPending,
+    // Joins each descriptor to the list that owns it. An item names at most
+    // one entity of a kind, so membership is tested directly against the list
+    // rather than indexed first: building a Set per kind would cost more than
+    // the lookups it serves, on every recompute, for lists this size.
+    const listByKind: Record<
+      FeedItemEntityLink["kind"],
+      { items?: { id: string }[]; isPending: boolean }
+    > = {
+      schedule: { items: schedules, isPending: scheduleQuery.isPending },
+      skill: { items: skills?.skills, isPending: skillQuery.isPending },
     };
 
     const links: FeedItemEntityLink[] = [];
@@ -153,9 +152,10 @@ export function useFeedItemEntityLinks(
       if (id === null) {
         continue;
       }
-      if (pendingByKind[entity.kind]) {
+      const list = listByKind[entity.kind];
+      if (list.isPending) {
         isPending = true;
-      } else if (!present[entity.kind].has(id)) {
+      } else if (!list.items?.some((candidate) => candidate.id === id)) {
         continue;
       }
       links.push({
