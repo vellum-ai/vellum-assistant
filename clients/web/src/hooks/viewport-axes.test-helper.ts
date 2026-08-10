@@ -21,8 +21,12 @@ function widthHolds(query: string, narrow: boolean): boolean {
 /**
  * Whether a query's hover condition holds.
  *
- * A coarse pointer reports `hover: none`, which is the pairing that makes a
- * hover-revealed affordance unreachable rather than merely cramped.
+ * `coarsePointer` answers `hover` as well, so the device shapes this stubs are
+ * the ones where the two agree: a touchscreen phone or tablet reports
+ * `pointer: coarse` with `hover: none`, and a mouse reports the opposite pair.
+ * A hybrid that is coarse-primary yet hover-capable is not expressible, since
+ * `hover` and `pointer` are independent features in the spec; a test that needs
+ * that shape stubs `matchMedia` itself.
  *
  * @see https://developer.mozilla.org/en-US/docs/Web/CSS/@media/hover
  */
