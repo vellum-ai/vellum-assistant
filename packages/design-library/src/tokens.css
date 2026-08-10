@@ -774,6 +774,26 @@
 }
 
 /* ---------------------------------------------------------------------------
+ * Sidebar section resize — the row list's own height animation, scoped via
+ * the extra `.sidebar-section-list` marker class layered onto the shared
+ * `.collapsible-content` so only the sidebar's own section row lists use
+ * this timing; every other `Collapsible` in the app keeps the plain default
+ * above. The height keyframes are reused by name at a longer, decelerating
+ * duration/easing here so height, width, and radius (`sidebar-section-
+ * card.tsx`) all settle together instead of racing each other at different
+ * paces. No separate content fade: an earlier version staggered the row
+ * list's opacity against the shape (fade out fast, shape keeps shrinking),
+ * which read as the list hanging around empty after collapsing - text and
+ * shape now move as one.
+ * --------------------------------------------------------------------------- */
+.sidebar-section-list.collapsible-content[data-state="open"] {
+  animation: collapsible-slide-down var(--anim-slow) var(--anim-ease-out);
+}
+.sidebar-section-list.collapsible-content[data-state="closed"] {
+  animation: collapsible-slide-up var(--anim-slow) var(--anim-ease-out);
+}
+
+/* ---------------------------------------------------------------------------
  * Streaming-dot pulse — the three animated dots in `GoToNewest`, signalling
  * that content is still arriving out of view. Each dot offsets its
  * `animation-delay` so they read as a travelling wave. Applied through the

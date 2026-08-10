@@ -10,7 +10,15 @@
  */
 
 /** Horizontal row padding before the leading chip. */
-export const SIDEBAR_ROW_PADDING_X = 6;
+export const SIDEBAR_ROW_PADDING_X = 12;
+
+/**
+ * Height of every top-level sidebar pill: the assistant identity row, New
+ * Chat, pinned apps, section headers (collapsed or expanded), and
+ * Preferences. Individual conversation rows inside an expanded section are
+ * their own, smaller size and don't use this.
+ */
+export const SIDEBAR_PILL_HEIGHT_CLASS = "h-9";
 
 /**
  * Width of the leading icon slot. Icons of any size center inside it,
@@ -30,12 +38,14 @@ export const SIDEBAR_CHIP_GAP = 6;
 export const SIDEBAR_SECTION_INDENT = 0;
 
 /**
- * Tallest a single section's row list grows before it scrolls within itself.
- *
- * Without a cap, one busy section pushes every section under it off the
- * screen, and the user has to collapse it to reach anything else. About nine
- * desktop rows (30px each plus their 4px gap), which is enough to read a
- * section as a list rather than a preview while still leaving room for its
+ * Tallest a non-last section's row list grows before it scrolls within
+ * itself. Only the bottom-most section claims the sidebar's actual leftover
+ * space (see `isLast` on `ConversationRowList`) - flex-grow has no notion of
+ * "this section needs the room," so giving every open section a share
+ * stretched a two-row group into a mostly-empty box the same size as a busy
+ * one beside it. Every section above the last one gets this fixed cap
+ * instead: about nine desktop rows (30px each plus their 4px gap), enough to
+ * read as a list rather than a preview while still leaving room for its
  * neighbours.
  */
 export const SIDEBAR_SECTION_MAX_HEIGHT = 300;

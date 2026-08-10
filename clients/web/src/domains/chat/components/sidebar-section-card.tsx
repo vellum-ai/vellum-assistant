@@ -60,7 +60,44 @@ export function SidebarSectionCard({
       bordered={false}
       noPadding
       className={cn(
-        "p-2",
+        /* No padding of its own: the header row is already a self-contained
+           pill (its own height, its own 12px/6px inset) per Figma, and
+           wrapping it in another layer of padding would inflate the pill
+           past its spec. The row list picks up the matching horizontal
+           inset directly (see `CollapsibleNavSection.Section`'s Content). */
+        /* Collapsed, a section is a pill that hugs its own header: nothing
+           inside it needs the full rail width. Its own `Collapsible.Item`
+           descendant carries Radix's `data-state`, so `has-[]` reads that
+           state directly rather than this component tracking open/closed
+           itself. Open, it becomes a full-width rounded rect to hold its
+           row list.
+
+           Radius is the same 18px number in both states - half the pill's
+           own 36px height, which is what makes a 36px-tall box read as
+           fully round in the first place - rather than switching between
+           `rounded-full` and a smaller radius. Same value means nothing
+           needs to transition or interpolate for it at all: it can never
+           lag behind the width/height change since it never moves. */
+        "w-fit rounded-[18px]",
+        "has-[[data-state=open]]:w-full",
+        /* `width` toggles between the sizing keywords `fit-content` (via
+           `w-fit`) and a percentage (via `w-full`), not two plain lengths -
+           not something a transition can interpolate smoothly regardless of
+           easing. It snaps immediately in both directions (`step-start`)
+           rather than waiting for the row list's height to finish: that
+           delay only mattered while `border-radius` was also changing shape
+           and needed the box to still be wide, but radius is now a fixed
+           18px in every state (see above), so there's nothing left for the
+           width snap to wait on. */
+        "transition-[width] duration-[var(--anim-slow)] ease-[step-start]",
+        /* Only the bottom-most section ever claims leftover flex space (see
+           `isLast` on `ConversationRowList`): flex-grow has no notion of
+           "this section needs the room," so giving every open section a
+           share stretched a two-row group into a mostly-empty box the same
+           size as a busy one beside it. */
+        !section.unbounded &&
+          section.isLast &&
+          "has-[[data-state=open]]:flex has-[[data-state=open]]:min-h-0 has-[[data-state=open]]:flex-1 has-[[data-state=open]]:flex-col",
         /* The card is the drag handle, so it says so. Every interactive thing
            inside it sets its own `cursor-pointer`, which wins wherever one is
            actually under the pointer - so the grab cursor shows on the card's

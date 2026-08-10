@@ -45,6 +45,7 @@ import {
 import {
   SIDEBAR_CHIP_GAP,
   SIDEBAR_CHIP_SIZE as CHIP_SIZE,
+  SIDEBAR_PILL_HEIGHT_CLASS,
 } from "@/components/sidebar-nav-geometry";
 import { useAssistantAvatar } from "@/hooks/use-assistant-avatar";
 import { useInChatOnboardingStore } from "@/stores/in-chat-onboarding-store";
@@ -53,15 +54,10 @@ import { contrastForeground } from "@/utils/avatar-tone";
 import { pathBBox, unionBBox } from "@/utils/eye-bbox";
 
 /**
- * Taller than the pills below it: this row is the assistant, not an entry in a
- * list, and at their shared height it reads as the first of several chips
- * rather than the thing they hang off. Height only, so the label stays on the
- * axis it shares with New Chat.
- *
  * One constant for both branches below, because an assistant with no character
  * avatar is still the assistant: colour is the only thing that differs.
  */
-const IDENTITY_PILL_CLASSES = "h-10";
+const IDENTITY_PILL_CLASSES = SIDEBAR_PILL_HEIGHT_CLASS;
 
 /** How far the collapsed rail's tile grows the eyes on a pulse. */
 const PULSE_SCALE = 1.35;
@@ -220,7 +216,16 @@ export function AssistantNavItem({
      content, so one keeping its label overflows the collapsed rail
      entirely. */
   const newConversationTint =
-    !navTourActive && hex ? panelItemWashStyle(hex) : undefined;
+    !navTourActive && hex
+      ? ({
+          ...panelItemWashStyle(hex),
+          // The plus glyph reads as the assistant's own accent, not the
+          // row's usual tertiary-gray icon: the row's other icons are
+          // decorative wayfinding, but this one's action is "start a chat
+          // with this assistant", so it wears the assistant's colour.
+          "--panel-item-icon-fg": hex,
+        } as CSSProperties)
+      : undefined;
   const newConversationRow = !showNewConversation ? null : collapsed ? (
     <button
       type="button"
@@ -243,16 +248,21 @@ export function AssistantNavItem({
     >
       {/* 14px, not the section headers' 12px - the plus glyph carries less
           ink than the pin/chat icons, so it needs the extra 2px to read at
-          the same weight beside them. */}
+          the same weight beside them. Color matches the expanded pill's
+          plus: the assistant's own accent via `--panel-item-icon-fg`
+          (spread into this button's style from `newConversationTint`
+          above), falling back to the usual tertiary gray with no
+          character avatar to draw a hue from. */}
       <Plus
         aria-hidden="true"
         className="h-3.5 w-3.5"
-        style={{ color: "var(--content-tertiary)" }}
+        style={{ color: "var(--panel-item-icon-fg, var(--content-tertiary))" }}
       />
     </button>
   ) : (
     <PanelItem
       shape="pill"
+      className={SIDEBAR_PILL_HEIGHT_CLASS}
       icon={Plus}
       label="New Chat"
       onSelect={onNewConversation}

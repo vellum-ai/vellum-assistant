@@ -260,10 +260,16 @@ const ACTIVE_BRANDED_CLASSES = [
 
 const LEFT_CLUSTER_CLASSES = "flex min-w-0 flex-1 items-center gap-[8px]";
 
+/**
+ * `--panel-item-icon-fg` lets a caller recolor just the leading icon (e.g. the
+ * New Chat row's plus, tinted to the assistant's own accent) without touching
+ * every other icon on the surface: it falls back to the usual tertiary gray,
+ * so a row that never declares it looks exactly as before.
+ */
 const LEADING_ICON_BASE_CLASSES = [
   "shrink-0",
-  "text-[var(--content-tertiary)]",
-  "[@media(hover:hover)]:group-hover:text-[var(--content-secondary)]",
+  "text-[color:var(--panel-item-icon-fg,var(--content-tertiary))]",
+  "[@media(hover:hover)]:group-hover:text-[color:var(--panel-item-icon-fg,var(--content-secondary))]",
 ].join(" ");
 
 const ICON_ACTIVE_DEFAULT =
@@ -310,6 +316,21 @@ const TRAILING_ACTION_CLASSES = [
   "group-focus-within:opacity-100",
   "has-[[aria-expanded=true]]:opacity-100",
   "group-aria-[current=page]:opacity-100",
+].join(" ");
+
+/**
+ * When a row passes both `badge` and `trailingAction` (e.g. a conversation's
+ * unread dot giving way to its "…" menu), the badge fades out under exactly
+ * the conditions that reveal the trailing action - the mirror image of
+ * {@link TRAILING_ACTION_CLASSES} - so the two crossfade in the same spot
+ * instead of sitting side by side.
+ */
+const BADGE_YIELDS_TO_TRAILING_CLASSES = [
+  "transition-opacity",
+  "[@media(hover:hover)]:group-hover:opacity-0",
+  "group-focus-within:opacity-0",
+  "group-has-[[aria-expanded=true]]/panel-item:opacity-0",
+  "group-aria-[current=page]:opacity-0",
 ].join(" ");
 
 // ---------------------------------------------------------------------------
@@ -376,12 +397,15 @@ function PanelItem({
     <ExpandChevron size={12} aria-hidden className={EXPAND_CHEVRON_CLASSES} />
   ) : null;
 
+  const bothPresent = badge != null && trailingAction != null;
+
   const badgeNode =
     badge != null ? (
       <span
         className={cn(
           badgeBare ? BADGE_BARE_CLASSES : BADGE_BASE_CLASSES,
           badgeBare && !trailingAction && BADGE_BARE_ALONE_CLASSES,
+          bothPresent && BADGE_YIELDS_TO_TRAILING_CLASSES,
         )}
       >
         {badge}
@@ -408,8 +432,20 @@ function PanelItem({
         {expandChevronNode}
       </span>
       <span className={RIGHT_CLUSTER_CLASSES}>
-        {badgeNode}
-        {trailingNode}
+        {bothPresent ? (
+          /* One cell, both occupants stacked in it - same trick as the
+             section header's own dot/"…" pair - so the two crossfade in
+             place instead of sitting side by side. */
+          <span className="grid shrink-0 place-items-center [&>*]:[grid-area:1/1]">
+            {badgeNode}
+            {trailingNode}
+          </span>
+        ) : (
+          <>
+            {badgeNode}
+            {trailingNode}
+          </>
+        )}
       </span>
     </>
   );

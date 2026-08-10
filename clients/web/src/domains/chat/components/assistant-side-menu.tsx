@@ -379,7 +379,7 @@ export function AssistantSideMenu({
     });
   };
 
-  const renderSection = (section: SidebarSection) => (
+  const renderSection = (section: SidebarSection, index: number) => (
     <SidebarSectionItem
       key={section.key}
       section={section}
@@ -387,6 +387,12 @@ export function AssistantSideMenu({
       groupMenu={(conversations) => sectionMenu(section, conversations)}
       drag={sectionDragFor(section)}
       collapsedIndicator={collapsedActivityDot}
+      // Only the bottom-most section ever claims the sidebar's leftover
+      // space (see `unbounded` on `ConversationRowList`): flex-grow doesn't
+      // know which open section "needs" the room, so giving every open
+      // section a share stretched a small one (e.g. a two-row group) into a
+      // near-empty box the same size as a busy one beside it.
+      isLast={index === sidebar.sections.length - 1}
     />
   );
 

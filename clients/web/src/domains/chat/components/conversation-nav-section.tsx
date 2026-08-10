@@ -8,12 +8,18 @@
  *   `ConversationRowList`. Used by channel sections and custom groups.
  *
  * Nothing paginates: the rows just keep going. What differs is where they
- * scroll. A section caps at {@link SIDEBAR_SECTION_MAX_HEIGHT} and scrolls
- * within itself, since an uncapped busy section would push its neighbours off
- * screen, unless it opts out via `unbounded` (Pinned: expected to stay
- * short, and grows to fit its rows instead). The flat list instead scrolls
- * against the sidebar body it already fills (`scrollParent`), which keeps
- * the rail to a single scrollbar.
+ * scroll. Only the bottom-most section (`isLast`) grows to fill whatever
+ * space the sidebar has left above the pinned footer, then scrolls within
+ * itself once its rows outgrow that: flex-grow has no notion of "this
+ * section needs the room," so letting every open section claim a share
+ * stretched a two-row group into a mostly-empty box the same size as a busy
+ * one beside it. Every section above the last one caps at a fixed height
+ * and scrolls within itself instead, since an uncapped busy section would
+ * otherwise push its neighbours off screen - unless it opts out via
+ * `unbounded` (Pinned: expected to stay short, and grows to fit its rows
+ * instead). The flat list instead scrolls against the sidebar body it
+ * already fills (`scrollParent`), which keeps the rail to a single
+ * scrollbar.
  *
  * Either way a list past {@link CONVERSATION_LIST_VIRTUALIZE_THRESHOLD} rows
  * windows rather than mounting every one, because an assistant accumulates
@@ -62,20 +68,27 @@ export interface ConversationRowListProps {
    */
   scrollParent?: HTMLElement;
   /**
-   * Skips {@link SIDEBAR_SECTION_MAX_HEIGHT} entirely: the list grows to fit
-   * every row instead of capping and scrolling within itself. Pinned is the
-   * one section that wants this, the user's own curation, expected to stay
-   * short - and (unlike Chats or a channel section, which cap and scroll
-   * internally) not something that should ever push its neighbours off
-   * screen.
+   * Skips the sizing below entirely: the list grows to fit every row
+   * instead. Pinned is the one section that wants this, the user's own
+   * curation, expected to stay short - and (unlike Chats or a channel
+   * section) not something that should ever push its neighbours off screen.
    */
   unbounded?: boolean;
+  /**
+   * Whether this is the bottom-most section in the list. It grows to fill
+   * whatever space the sidebar has left, then scrolls within itself past
+   * that. Every other section caps at {@link SIDEBAR_SECTION_MAX_HEIGHT}
+   * instead and scrolls sooner, so it can't stretch past its own content
+   * just because the flex column had room to give it.
+   */
+  isLast?: boolean;
 }
 
 export function ConversationRowList({
   items,
   scrollParent,
   unbounded,
+  isLast,
 }: ConversationRowListProps) {
   const renderRow = (conversation: Conversation) => (
     <ConversationRow
@@ -93,8 +106,11 @@ export function ConversationRowList({
     if (unbounded) {
       return rows;
     }
-    return scrollParent ? (
-      rows
+    if (scrollParent) {
+      return rows;
+    }
+    return isLast ? (
+      <div className="min-h-0 flex-1 overflow-y-auto">{rows}</div>
     ) : (
       <div
         className="overflow-y-auto"
@@ -117,11 +133,17 @@ export function ConversationRowList({
     />
   );
 
+  if (scrollParent) {
+    return windowed;
+  }
+
   /* Scrolling against an ancestor means no height of our own. Otherwise
-     virtuoso's scroller sizes to 100%, so the wrapper commits to the full
-     height, which is honest here since the list is past the cap. */
-  return scrollParent ? (
-    windowed
+     virtuoso's scroller sizes to 100%: the last section fills whatever
+     height its own flex-fill sizing (see `CollapsibleNavSection.Section`)
+     gives it, every other section gets a fixed height so a busy non-last
+     section still can't push its neighbours off screen. */
+  return isLast ? (
+    <div className="min-h-0 h-full flex-1">{windowed}</div>
   ) : (
     <div style={{ height: SIDEBAR_SECTION_MAX_HEIGHT }}>{windowed}</div>
   );
@@ -187,6 +209,8 @@ export function ConversationNavSection({
       collapsedIndicator={collapsedIndicator}
       drag={drag}
       collapsible={collapsible}
+      unbounded={listProps.unbounded}
+      isLast={listProps.isLast}
     >
       {children ?? <ConversationRowList {...listProps} />}
     </CollapsibleNavSection.Section>
