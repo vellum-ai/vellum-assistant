@@ -88,13 +88,25 @@ describe("ContextWindowIndicator", () => {
 });
 
 describe("ContextWindowIndicator presentation axis", () => {
+  const RING_NAME = "Context window 45% full";
+
   /**
    * The ring's detail is reachable by tap exactly when the pointer is coarse,
    * because the alternative presentation is hover-only. A coarse pointer has
    * no hover, so anything short of a real trigger leaves the ring inert.
    */
   function ringTrigger(): HTMLElement | null {
-    return screen.getByLabelText("Context window 45% full").closest("button");
+    return screen.queryByRole("button", { name: RING_NAME });
+  }
+
+  /**
+   * Whichever branch renders, exactly one element carries the ring's name and
+   * exactly one is focusable. A labelled, tabbable glyph nested inside a
+   * labelled, tabbable trigger announces twice and costs two tab stops.
+   */
+  function expectOneNamedTabStop(container: HTMLElement): void {
+    expect(screen.getAllByLabelText(RING_NAME)).toHaveLength(1);
+    expect(container.querySelectorAll("[tabindex], button")).toHaveLength(1);
   }
 
   beforeEach(() => {
@@ -109,7 +121,7 @@ describe("ContextWindowIndicator presentation axis", () => {
     setViewport({ narrow: false, coarsePointer: true });
 
     // WHEN the ring renders
-    render(
+    const { container } = render(
       <ContextWindowIndicator
         usage={USAGE}
         assistantName="Vellum"
@@ -119,6 +131,7 @@ describe("ContextWindowIndicator presentation axis", () => {
 
     // THEN the ring is a real trigger a thumb can hit, not a hover target
     expect(ringTrigger()).not.toBeNull();
+    expectOneNamedTabStop(container);
   });
 
   test("a phone-sized touch window gets the same tappable trigger", () => {
@@ -126,10 +139,13 @@ describe("ContextWindowIndicator presentation axis", () => {
     setViewport({ narrow: true, coarsePointer: true });
 
     // WHEN the ring renders
-    render(<ContextWindowIndicator usage={USAGE} assistantName="Vellum" />);
+    const { container } = render(
+      <ContextWindowIndicator usage={USAGE} assistantName="Vellum" />,
+    );
 
     // THEN it is the same presentation as the roomy touch case above
     expect(ringTrigger()).not.toBeNull();
+    expectOneNamedTabStop(container);
   });
 
   test("a narrow mouse window keeps the hover presentation", () => {
@@ -138,9 +154,14 @@ describe("ContextWindowIndicator presentation axis", () => {
     setViewport({ narrow: true, coarsePointer: false });
 
     // WHEN the ring renders
-    render(<ContextWindowIndicator usage={USAGE} assistantName="Vellum" />);
+    const { container } = render(
+      <ContextWindowIndicator usage={USAGE} assistantName="Vellum" />,
+    );
 
     // THEN there is no sheet trigger, because hover can still reveal the detail
     expect(ringTrigger()).toBeNull();
+    // ...but the ring is still named and still reachable by keyboard, which is
+    // the only way a mouse-less desktop user opens it.
+    expectOneNamedTabStop(container);
   });
 });

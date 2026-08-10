@@ -44,24 +44,26 @@ function formatTokens(count: number): string {
   return `${count}`;
 }
 
+/**
+ * The ring glyph only. Deliberately carries no name, role, or tab stop: each
+ * branch below wraps it in exactly one focusable, labelled element, and a
+ * labelled ring nested inside a labelled trigger would announce twice and
+ * take two tab stops.
+ */
 function CircularRing({
   ringColor,
   dashOffset,
-  percentage,
 }: {
   ringColor: string;
   dashOffset: number;
-  percentage: number;
 }) {
   return (
     <svg
       width={RING_SIZE}
       height={RING_SIZE}
       viewBox={`0 0 ${RING_SIZE} ${RING_SIZE}`}
-      role="img"
-      aria-label={`Context window ${percentage}% full`}
-      tabIndex={0}
-      className="block outline-none focus-visible:ring-1 focus-visible:ring-[var(--primary-base)] rounded-full"
+      aria-hidden="true"
+      className="block"
     >
       <circle
         cx={RING_SIZE / 2}
@@ -301,11 +303,7 @@ export function ContextWindowIndicator({
             className="relative flex items-center px-1.5"
             aria-label={`Context window ${percentage}% full`}
           >
-            <CircularRing
-              ringColor={ringColor}
-              dashOffset={dashOffset}
-              percentage={percentage}
-            />
+            <CircularRing ringColor={ringColor} dashOffset={dashOffset} />
           </button>
         </BottomSheet.Trigger>
         <BottomSheet.Content
@@ -335,17 +333,16 @@ export function ContextWindowIndicator({
   return (
     <div
       ref={triggerRef}
-      className="relative flex items-center px-1.5"
+      role="img"
+      aria-label={`Context window ${percentage}% full`}
+      tabIndex={0}
+      className="relative flex items-center rounded-full px-1.5 outline-none focus-visible:ring-1 focus-visible:ring-[var(--primary-base)]"
       onMouseEnter={handleMouseEnter}
       onMouseLeave={handleMouseLeave}
       onFocus={handleMouseEnter}
       onBlur={handleMouseLeave}
     >
-      <CircularRing
-        ringColor={ringColor}
-        dashOffset={dashOffset}
-        percentage={percentage}
-      />
+      <CircularRing ringColor={ringColor} dashOffset={dashOffset} />
       {isHovered &&
         createPortal(
           <div
