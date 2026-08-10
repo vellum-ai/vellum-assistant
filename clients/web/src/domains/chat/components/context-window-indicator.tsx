@@ -1,10 +1,14 @@
 import { Brain } from "lucide-react";
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { createPortal } from "react-dom";
+import { useMemo, useState } from "react";
 
 import { showContextWindowIndicator } from "@/utils/composer-settings";
 import { isPointerCoarse } from "@/utils/pointer";
-import { BottomSheet, Button } from "@vellumai/design-library";
+import {
+  BottomSheet,
+  Button,
+  Tooltip,
+  TooltipProvider,
+} from "@vellumai/design-library";
 
 export interface ContextWindowUsage {
   tokens: number;
@@ -22,8 +26,6 @@ const RING_SIZE = 16;
 const RING_STROKE = 2;
 const RING_RADIUS = (RING_SIZE - RING_STROKE) / 2;
 const RING_CIRCUMFERENCE = 2 * Math.PI * RING_RADIUS;
-const HOVER_DELAY_MS = 200;
-const TOOLTIP_GAP_PX = 8;
 
 function resolveRingColor(ratio: number): string {
   if (ratio >= 0.8) {
@@ -224,45 +226,13 @@ export function ContextWindowIndicator({
   const enabled = showContextWindowIndicator.useValue();
   // Input capability, not window size: the other presentation is a
   // hover-revealed tooltip, and a coarse pointer has no hover to reveal it
-  // with. The narrow-AND-coarse compound would strand every roomy touch
-  // device (a tablet either way up, a phone in landscape) on a branch it
-  // cannot operate. Read once so a streaming token count cannot flip the
+  // with (Radix tooltips deliberately never open on touch). The
+  // narrow-AND-coarse compound would strand every roomy touch device (a
+  // tablet either way up, a phone in landscape) on a branch it cannot
+  // operate. Read once so a streaming token count cannot flip the
   // presentation mid-turn and remount the open sheet.
   const isTouch = useMemo(() => isPointerCoarse(), []);
   const [sheetOpen, setSheetOpen] = useState(false);
-  const [isHovered, setIsHovered] = useState(false);
-  const [tooltipPosition, setTooltipPosition] = useState<{
-    top: number;
-    left: number;
-  } | null>(null);
-  const triggerRef = useRef<HTMLDivElement | null>(null);
-  const tooltipRef = useRef<HTMLDivElement | null>(null);
-  const hoverTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  useEffect(() => {
-    return () => {
-      if (hoverTimerRef.current != null) {
-        clearTimeout(hoverTimerRef.current);
-      }
-    };
-  }, []);
-
-  useLayoutEffect(() => {
-    if (!isHovered || !triggerRef.current || !tooltipRef.current) {
-      return;
-    }
-    const triggerRect = triggerRef.current.getBoundingClientRect();
-    const tooltipRect = tooltipRef.current.getBoundingClientRect();
-    const viewportWidth = window.innerWidth;
-    const idealLeft =
-      triggerRect.left + triggerRect.width / 2 - tooltipRect.width / 2;
-    const clampedLeft = Math.max(
-      8,
-      Math.min(idealLeft, viewportWidth - tooltipRect.width - 8),
-    );
-    const top = triggerRect.top - tooltipRect.height - TOOLTIP_GAP_PX;
-    setTooltipPosition({ top, left: clampedLeft });
-  }, [isHovered, usage]);
 
   if (!enabled || !usage || usage.fillRatio == null) {
     return null;
@@ -273,26 +243,6 @@ export function ContextWindowIndicator({
   const ringColor = resolveRingColor(ratio);
   const dashOffset = RING_CIRCUMFERENCE * (1 - ratio);
   const { tokens, maxTokens } = usage;
-
-  // Only ever wired up on the pointer branch below, which a coarse pointer
-  // never reaches.
-  const handleMouseEnter = () => {
-    if (hoverTimerRef.current != null) {
-      clearTimeout(hoverTimerRef.current);
-    }
-    hoverTimerRef.current = setTimeout(() => {
-      setIsHovered(true);
-    }, HOVER_DELAY_MS);
-  };
-
-  const handleMouseLeave = () => {
-    if (hoverTimerRef.current != null) {
-      clearTimeout(hoverTimerRef.current);
-      hoverTimerRef.current = null;
-    }
-    setIsHovered(false);
-    setTooltipPosition(null);
-  };
 
   if (isTouch) {
     return (
@@ -330,41 +280,34 @@ export function ContextWindowIndicator({
     );
   }
 
+  // Own the provider rather than relying on the app-level one in
+  // `providers.tsx`, so the ring also works in isolation (tests, Storybook).
+  // The design library's own `Tooltip` convenience wrapper does the same and
+  // documents that a nested provider scopes its subtree with matching
+  // defaults. The delays match the app-level values.
   return (
-    <div
-      ref={triggerRef}
-      role="img"
-      aria-label={`Context window ${percentage}% full`}
-      tabIndex={0}
-      className="relative flex items-center rounded-full px-1.5 outline-none focus-visible:ring-1 focus-visible:ring-[var(--primary-base)]"
-      onMouseEnter={handleMouseEnter}
-      onMouseLeave={handleMouseLeave}
-      onFocus={handleMouseEnter}
-      onBlur={handleMouseLeave}
-    >
-      <CircularRing ringColor={ringColor} dashOffset={dashOffset} />
-      {isHovered &&
-        createPortal(
-          <div
-            ref={tooltipRef}
-            role="tooltip"
-            className="fixed z-[9999] flex flex-col gap-2 rounded-[10px] bg-[var(--surface-lift)] p-3 text-left whitespace-nowrap pointer-events-none shadow-[var(--shadow-popover)]"
-            style={{
-              top: tooltipPosition?.top ?? -9999,
-              left: tooltipPosition?.left ?? -9999,
-              opacity: tooltipPosition ? 1 : 0,
-            }}
-          >
-            <PointerTooltipContent
-              percentage={percentage}
-              ringColor={ringColor}
-              tokens={tokens}
-              maxTokens={maxTokens}
-              assistantDisplayName={assistantDisplayName}
-            />
-          </div>,
-          document.body,
-        )}
-    </div>
+    <TooltipProvider delayDuration={200} skipDelayDuration={300}>
+      <Tooltip.Root>
+        <Tooltip.Trigger
+          type="button"
+          aria-label={`Context window ${percentage}% full`}
+          className="relative flex items-center rounded-full px-1.5 outline-none focus-visible:ring-1 focus-visible:ring-[var(--primary-base)]"
+        >
+          <CircularRing ringColor={ringColor} dashOffset={dashOffset} />
+        </Tooltip.Trigger>
+        <Tooltip.Content
+          side="top"
+          className="flex flex-col gap-2 bg-[var(--surface-lift)] p-3 text-left"
+        >
+          <PointerTooltipContent
+            percentage={percentage}
+            ringColor={ringColor}
+            tokens={tokens}
+            maxTokens={maxTokens}
+            assistantDisplayName={assistantDisplayName}
+          />
+        </Tooltip.Content>
+      </Tooltip.Root>
+    </TooltipProvider>
   );
 }

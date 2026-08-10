@@ -91,12 +91,16 @@ describe("ContextWindowIndicator presentation axis", () => {
   const RING_NAME = "Context window 45% full";
 
   /**
-   * The ring's detail is reachable by tap exactly when the pointer is coarse,
-   * because the alternative presentation is hover-only. A coarse pointer has
-   * no hover, so anything short of a real trigger leaves the ring inert.
+   * Both branches render a button, so element type cannot tell them apart.
+   * What distinguishes them is whether the control opens something on
+   * activation: the sheet trigger announces `aria-haspopup="dialog"`, the
+   * tooltip trigger announces nothing because a tooltip is revealed, not
+   * opened. That is also the contract a screen-reader user hears, so it is
+   * the right thing to assert.
    */
-  function ringTrigger(): HTMLElement | null {
-    return screen.queryByRole("button", { name: RING_NAME });
+  function opensASheet(): boolean {
+    const trigger = screen.getByRole("button", { name: RING_NAME });
+    return trigger.getAttribute("aria-haspopup") === "dialog";
   }
 
   /**
@@ -130,7 +134,7 @@ describe("ContextWindowIndicator presentation axis", () => {
     );
 
     // THEN the ring is a real trigger a thumb can hit, not a hover target
-    expect(ringTrigger()).not.toBeNull();
+    expect(opensASheet()).toBe(true);
     expectOneNamedTabStop(container);
   });
 
@@ -144,7 +148,7 @@ describe("ContextWindowIndicator presentation axis", () => {
     );
 
     // THEN it is the same presentation as the roomy touch case above
-    expect(ringTrigger()).not.toBeNull();
+    expect(opensASheet()).toBe(true);
     expectOneNamedTabStop(container);
   });
 
@@ -158,8 +162,8 @@ describe("ContextWindowIndicator presentation axis", () => {
       <ContextWindowIndicator usage={USAGE} assistantName="Vellum" />,
     );
 
-    // THEN there is no sheet trigger, because hover can still reveal the detail
-    expect(ringTrigger()).toBeNull();
+    // THEN the control reveals a tooltip rather than opening a sheet
+    expect(opensASheet()).toBe(false);
     // ...but the ring is still named and still reachable by keyboard, which is
     // the only way a mouse-less desktop user opens it.
     expectOneNamedTabStop(container);
