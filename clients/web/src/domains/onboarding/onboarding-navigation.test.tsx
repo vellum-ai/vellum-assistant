@@ -11,6 +11,10 @@
  * these assertions catch — so they check the options argument, not just the
  * destination.
  *
+ * Covers the screens with no test file of their own; `StartScreen` asserts the
+ * same contract in `pages/start-screen.test.tsx`, and `PrivacyScreen` /
+ * `HatchingScreen` in theirs.
+ *
  * Self-contained mocks (run this file solo — `mock.module` leaks across a shared
  * `bun test` run).
  */
@@ -97,9 +101,6 @@ mock.module("@vellumai/design-library/components/input", () => ({
   Input: () => null,
 }));
 
-const { StartScreen } = await import(
-  "@/domains/onboarding/pages/start-screen"
-);
 const { WelcomeScreen } = await import(
   "@/domains/onboarding/pages/welcome-screen"
 );
@@ -128,15 +129,6 @@ describe("onboarding funnel history contract", () => {
     localAssistants = false;
   });
   afterEach(cleanup);
-
-  test("StartScreen's CTA replaces on the way to consent", () => {
-    render(<StartScreen />);
-    click("Create your assistant");
-
-    const { to, opts } = navigatedWith();
-    expect(to).toBe(routes.onboarding.privacy);
-    expect(opts).toEqual({ replace: true });
-  });
 
   test("WelcomeScreen replaces on the way into the funnel", () => {
     render(<WelcomeScreen />);
