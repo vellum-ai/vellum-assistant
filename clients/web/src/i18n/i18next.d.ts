@@ -14,6 +14,9 @@
  */
 import type account from "@/i18n/locales/en/account.json";
 import type channels from "@/i18n/locales/en/channels.json";
+import type credentialRequests from "@/i18n/locales/en/credential-requests.json";
+import type remoteWeb from "@/i18n/locales/en/remote-web.json";
+import type terminal from "@/i18n/locales/en/terminal.json";
 import type workspace from "@/i18n/locales/en/workspace.json";
 import type chat from "@/i18n/locales/en/chat.json";
 import type common from "@/i18n/locales/en/common.json";
@@ -29,6 +32,9 @@ declare module "i18next" {
       account: typeof account;
       channels: typeof channels;
       workspace: typeof workspace;
+      terminal: typeof terminal;
+      "remote-web": typeof remoteWeb;
+      "credential-requests": typeof credentialRequests;
     };
     returnNull: false;
   }
