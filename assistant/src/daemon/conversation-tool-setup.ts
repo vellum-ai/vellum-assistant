@@ -80,6 +80,7 @@ import {
 } from "./doordash-steps.js";
 import { runPostExecutionSideEffects } from "./tool-side-effects.js";
 import { FALLBACK_TURN_TRUST, resolveTrustClass } from "./trust-context.js";
+import { resolveTurnTrust } from "./turn-identity-resolve.js";
 
 const log = getLogger("conversation-tool-setup");
 
@@ -386,11 +387,12 @@ export function createToolExecutor(
       markDoordashStepInProgress(ctx, executionInput);
     }
 
-    // Per-turn trust snapshot: prefer the snapshot captured at turn start so
-    // a concurrent owner meta command (/status, /clean) that mutates the live
-    // trustContext cannot elevate the in-flight turn to guardian.
+    // The acting turn's identity, so a concurrent write to the conversation
+    // (an owner meta command, a newer inbound message re-applying transport
+    // metadata) cannot change who this turn executes as. Falls back only while
+    // entry points are still being migrated, and reports when it does.
     const turnTrust =
-      ctx.currentTurnTrustContext ?? ctx.trustContext ?? FALLBACK_TURN_TRUST;
+      resolveTurnTrust(ctx, "tool-setup").trust ?? FALLBACK_TURN_TRUST;
 
     const toolContext: ToolContext = {
       workingDir: ctx.workingDir,

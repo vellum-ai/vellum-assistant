@@ -86,6 +86,7 @@ import type {
   NonHostProxyTransportMetadata,
 } from "../../daemon/message-types/conversations.js";
 import type { TrustContext } from "../../daemon/trust-context-types.js";
+import { createTurnIdentity } from "../../daemon/turn-identity.js";
 import { HeartbeatService } from "../../heartbeat/heartbeat-service.js";
 import {
   writeOnboardingSidecar,
@@ -2352,6 +2353,17 @@ export async function handleSendMessage(
     assistantMessageInterface: sourceInterface,
   });
   conversation.currentTurnSourceActorPrincipalId = sourceActorPrincipalId;
+  // Same capture as the queue drains, from the trust resolved for this
+  // request rather than the slot, which other paths may move before the loop
+  // opens.
+  conversation.currentTurn = turnTrustContext
+    ? createTurnIdentity({
+        trust: turnTrustContext,
+        authContext: conversation.authContext,
+        sourceActorPrincipalId,
+        channelCapabilities: conversation.channelCapabilities,
+      })
+    : undefined;
 
   await conversation.ensureActorScopedHistory();
 

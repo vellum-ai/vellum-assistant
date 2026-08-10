@@ -266,6 +266,7 @@ import {
   isPersonalMemoryAllowed,
 } from "./trust-context.js";
 import type { TrustContext } from "./trust-context-types.js";
+import type { TurnIdentity } from "./turn-identity.js";
 
 export interface ConversationConstructorOptions {
   maxTokens?: number;
@@ -463,6 +464,18 @@ export class Conversation {
   /** @internal */ currentPage?: string;
   /** @internal */ channelCapabilities?: ChannelCapabilities;
   /** @internal */ trustContext?: TrustContext;
+  /**
+   * Identity the in-flight turn executes under, captured when the turn starts
+   * and dropped when it ends. See {@link TurnIdentity} for why the per-turn
+   * facts live on one object rather than as separate fields: teardown is a
+   * single assignment, so a field added here cannot be forgotten by a
+   * hand-maintained clear list.
+   *
+   * Undefined between turns. A consumer reading it outside a turn is asking
+   * who is acting when nobody is.
+   * @internal
+   */
+  currentTurn?: TurnIdentity;
   /**
    * Per-turn snapshots of persona-relevant context, captured at the start of
    * each message processing turn. The system prompt callback reads these

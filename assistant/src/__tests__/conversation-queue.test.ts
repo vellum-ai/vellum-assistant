@@ -597,6 +597,44 @@ describe("Conversation message queue", () => {
     await new Promise((r) => setTimeout(r, 10));
   });
 
+  test("the turn's identity is dropped when the turn ends", async () => {
+    // The structural property this change exists for. Per-turn facts used to
+    // be cleared by a hand-maintained list, and the fields it forgot kept
+    // their values into the next turn -- which is how a later turn could run
+    // as an earlier turn's actor. Everything on the identity is dropped
+    // together because there is one reference to drop, so a fact added to
+    // TurnIdentity later cannot be forgotten by that list.
+    const conversation = makeConversation();
+    await conversation.loadFromDb();
+
+    conversation.setTrustContext({
+      trustClass: "trusted_contact",
+      sourceChannel: "slack",
+      requesterExternalUserId: "U-contact",
+    });
+
+    const p1 = conversation.processMessage({
+      content: "msg-1",
+      attachments: [],
+      onEvent: () => {},
+      requestId: "req-1",
+    });
+    await waitForPendingRun(1);
+
+    // Present and correct while the turn runs.
+    expect(conversation.currentTurn).toBeDefined();
+    expect(conversation.currentTurn?.trust.requesterExternalUserId).toBe(
+      "U-contact",
+    );
+
+    await resolveRun(0);
+    await p1;
+    await new Promise((r) => setTimeout(r, 10));
+
+    // Gone afterwards. A later turn cannot inherit this actor.
+    expect(conversation.currentTurn).toBeUndefined();
+  });
+
   test("a drained turn keeps its sender's trust once the agent loop is running", async () => {
     // Exercises the real drain -> runAgentLoop ordering against a live
     // Conversation. The loop re-initializes the per-turn trust snapshot on

@@ -781,6 +781,11 @@ export async function runAgentLoopImpl(
     // the release, so a turn that starts against the freed conversation cannot
     // inherit stale turn scope (task-run permissions, allowed tools, override
     // profile, command intent) or observe a half-cleared conversation.
+    // Dropping the turn's identity drops every fact on it. Facts that live on
+    // `TurnIdentity` need no entry in the list below, which is the point: the
+    // list only stays correct while everyone remembers to extend it, and the
+    // fields it forgot are the ones that caused LUM-3135.
+    ctx.currentTurn = undefined;
     ctx.onConfirmationOutcome = undefined;
     ctx.surfaceActionRequestIds.delete(ctx.currentRequestId ?? "");
     ctx.approvedViaPromptThisTurn = false;
