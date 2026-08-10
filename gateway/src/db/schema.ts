@@ -693,6 +693,14 @@ export const pluginIngressApprovals = sqliteTable(
  * one question, so its rows expire. A vendor that retries a day later is
  * sending a new message, not a retry, and holding the key forever would grow
  * a table nothing reads.
+ *
+ * A row means one of two different things, which is what `state` records. A
+ * `pending` row is a delivery in flight and carries a short lease; a
+ * `committed` one reached the assistant and carries the full window. The
+ * distinction is load-bearing rather than descriptive: without it, a gateway
+ * that died between claiming a delivery and forwarding it would leave a row
+ * that answers every retry with "already delivered" for a full day, outliving
+ * the vendor's retry schedule and losing the message for good.
  */
 export const inboundSeenEvents = sqliteTable(
   "inbound_seen_events",
@@ -705,7 +713,14 @@ export const inboundSeenEvents = sqliteTable(
     sourceChannel: text("source_channel").notNull(),
     externalChatId: text("external_chat_id").notNull(),
     externalMessageId: text("external_message_id").notNull(),
+    // `pending` while the delivery is in flight, `committed` once it reached
+    // the assistant. Nothing reclaims on this column (expiry does that on its
+    // own), but the two lifetimes are otherwise indistinguishable from a row,
+    // and an abandoned claim is the thing most worth being able to see.
+    state: text("state").$type<"pending" | "committed">().notNull(),
     seenAt: integer("seen_at").notNull(),
+    // When this row stops blocking a redelivery. Short for `pending`, so a
+    // claim abandoned by a crash frees itself; a full day for `committed`.
     expiresAt: integer("expires_at").notNull(),
   },
   (table) => [

@@ -44,6 +44,7 @@ import type { GatewayConfig } from "../../config.js";
 import type { CredentialCache } from "../../credential-cache.js";
 import { credentialKey } from "../../credential-key.js";
 import {
+  commitInboundEvent,
   releaseInboundEvent,
   reserveInboundEvent,
 } from "../../db/inbound-dedup-store.js";
@@ -355,7 +356,8 @@ export function createPluginWebhookHandler(deps: PluginWebhookHandlerDeps) {
  * Which makes the dedup claim part of the same decision. Asking for a retry
  * and keeping the claim that would answer it as a duplicate is how a message
  * is lost while both sides look correct, so every path that answers 503
- * releases first. See `reserveInboundEvent`.
+ * releases first, and the claim is only widened to the full dedup window once
+ * the message has actually landed. See `reserveInboundEvent`.
  */
 async function deliverPluginInbound(opts: {
   config: GatewayConfig;
@@ -494,6 +496,12 @@ async function deliverPluginInbound(opts: {
     releaseInboundEvent(dedupKey);
     return retryLater();
   }
+
+  // The delivery landed, so the claim stops being a lease and becomes the
+  // dedup window proper. Until this runs the claim is short-lived on purpose:
+  // a gateway that died mid-handoff must not leave a row that answers every
+  // retry as already-delivered.
+  commitInboundEvent(dedupKey);
 
   return ack;
 }

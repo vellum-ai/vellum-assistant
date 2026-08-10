@@ -21,6 +21,10 @@ import {
   initGatewayDb,
   resetGatewayDb,
 } from "../../db/connection.js";
+import {
+  readInboundEventClaim,
+  INBOUND_CLAIM_LEASE_MS,
+} from "../../db/inbound-dedup-store.js";
 import { inboundSeenEvents } from "../../db/schema.js";
 import type { HandleInboundOptions } from "../../handlers/handle-inbound.js";
 import { createPluginWebhookHandler } from "./plugin-webhook.js";
@@ -1265,6 +1269,13 @@ describe("inbound dedup", () => {
     actor: { actorExternalId: "(202) 555-0142" },
   };
 
+  /** What MESSAGE is claimed under, once the plugin scoping is applied. */
+  const DEDUP_KEY = {
+    sourceChannel: "plugin",
+    externalChatId: "meeting-bot:chat-1",
+    externalMessageId: "meeting-bot:msg-1",
+  };
+
   /**
    * A handler over a fixed plugin reply, recording what reached the pipeline.
    *
@@ -1417,5 +1428,45 @@ describe("inbound dedup", () => {
         externalMessageId: "meeting-bot:msg-1",
       }),
     ] as never);
+  });
+
+  it("commits the claim once the message reached the runtime", async () => {
+    // Committing is what turns the in-flight lease into the dedup window. A
+    // delivery that landed and stayed `pending` would start admitting retries
+    // again the moment its lease lapsed.
+    const { impl } = accepting();
+    await deliver(handlerFor(impl));
+
+    expect(readInboundEventClaim(DEDUP_KEY)?.state).toBe("committed");
+  });
+
+  it("leaves a delivery reclaimable when the gateway dies mid-handoff", async () => {
+    // The failure nothing can roll back: a deploy, an OOM, a host crash
+    // between claiming the delivery and handing it over. Nothing runs, so
+    // nothing releases, and the row survives the restart. If it were the full
+    // window it would answer every retry as already-delivered for a day,
+    // outliving the vendor's retry schedule and losing the message for good.
+    // The lease is what makes that recoverable, so the claim must be short and
+    // uncommitted while the handoff is in flight.
+    // Freeze the handoff at the point the gateway would have died: entered,
+    // never returning. Waiting on `entered` rather than a tick keeps this
+    // deterministic, since the claim is taken just before the pipeline runs.
+    let enter!: () => void;
+    const entered = new Promise<void>((resolve) => {
+      enter = resolve;
+    });
+    void deliver(
+      handlerFor(() => {
+        enter();
+        return new Promise<never>(() => {});
+      }),
+    );
+    await entered;
+
+    const claim = readInboundEventClaim(DEDUP_KEY);
+    expect(claim?.state).toBe("pending");
+    expect(claim!.expiresAt - claim!.seenAt).toBeLessThanOrEqual(
+      INBOUND_CLAIM_LEASE_MS,
+    );
   });
 });
