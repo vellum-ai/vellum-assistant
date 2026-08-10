@@ -11,14 +11,6 @@ import { sql } from "drizzle-orm";
  * and break "first turn" / "turns per conversation" / parent-attribution
  * math.
  *
- * The fragment also requires `finalized = 1`. The grouped tool-result row is
- * a USER-role row reserved in-flight (`ensureToolResultRowReserved`), and
- * while it streams its content is a `{ ref }` pointer that does not contain
- * the tool_result text the exclusions match, so without the completeness
- * predicate it would count as a real user turn mid-tool-execution and stop
- * counting once finalized. Requiring finalized rows makes the exclusion see
- * the content it is matching against.
- *
  * `alias` is interpolated as the SQL identifier for the table whose
  * `content` column is filtered (e.g. `messages` for an outer query, `m2`
  * for a correlated subquery). ESCAPE '\\' makes the underscores match
@@ -34,11 +26,16 @@ export function realUserTurnContentFilter(
  * Raw-string form of {@link realUserTurnContentFilter}, for queries built as
  * plain SQL template strings (`rawAll` sites). Same fragment, one source.
  *
- * The `!= '[]'` clause covers the writer-creation fallback: a grouped
- * tool-result row reserved without an in-flight writer is born finalized with
- * placeholder `[]` content, which matches neither NOT LIKE exclusion until
- * the first content write lands. A real user turn never persists as a bare
- * empty array, so excluding it drops only placeholders.
+ * `finalized = 1`: the grouped tool-result row is a USER-role row reserved
+ * in-flight (`ensureToolResultRowReserved`), and while it streams its content
+ * is a `{ ref }` pointer that does not contain the tool_result text the
+ * exclusions match. Without this predicate it counts as a real user turn
+ * mid-tool-execution and stops counting once the content folds inline.
+ *
+ * `!= '[]'`: the writer-creation fallback births that same row finalized with
+ * placeholder `[]` content, which also matches neither exclusion until the
+ * first content write lands. A real user turn never persists as a bare empty
+ * array, so this drops only placeholders.
  */
 export function realUserTurnContentFilterSql(alias: string): string {
   return (
