@@ -1,5 +1,9 @@
 import { type MutableRefObject, useCallback } from "react";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import {
+  useMutation,
+  useQueryClient,
+  type QueryClient,
+} from "@tanstack/react-query";
 
 import {
   cancelConversationQueries,
@@ -11,6 +15,7 @@ import {
   type ConversationCacheSnapshot,
 } from "@/utils/conversation-cache";
 import { adjustUnreadCountCache } from "@/utils/conversation-cache-mutations";
+import { sectionListPrefix } from "@/utils/conversation-list-fetchers";
 import { contributesToUnreadCount } from "@/utils/conversation-predicates";
 import { executeBulkWithFallback } from "@/utils/bulk-with-fallback";
 import {
@@ -37,8 +42,12 @@ import { useMarkConversationSeenMutation } from "@/domains/chat/hooks/use-mark-c
 // Mutation variable types
 // ---------------------------------------------------------------------------
 
-type ArchiveVars = { assistantId: string; conversationId: string };
-type UnarchiveVars = { assistantId: string; conversationId: string };
+type ArchiveVars = {
+  assistantId: string;
+  conversationId: string;
+  previousArchivedAt: number | undefined;
+};
+type UnarchiveVars = ArchiveVars;
 type MarkUnreadVars = { assistantId: string; conversationId: string };
 type MoveToGroupVars = {
   assistantId: string;
@@ -50,6 +59,16 @@ type MoveToGroupVars = {
 };
 
 type MutationContext = { snapshot: ConversationCacheSnapshot };
+
+/**
+ * Context for the mutations that move a row between sections. No snapshot:
+ * they roll back by writing the previous field values, which re-derives
+ * membership through the same path the optimistic write used.
+ *
+ * `sectionKeys` is what the optimistic write actually moved, so the settle
+ * refetches those sections instead of the whole conversation-list prefix.
+ */
+type PlacementContext = { sectionKeys: readonly (readonly unknown[])[] };
 
 /**
  * Context for the mark-unread mutation, which additionally applies an
@@ -68,22 +87,64 @@ type MarkUnreadContext = MutationContext & { unreadCountDelta: number };
 // ---------------------------------------------------------------------------
 
 /**
+ * Reconcile the sections an optimistic placement moved a row between.
+ *
+ * Scoped to those sections rather than the conversation-list prefix. The
+ * prefix reaches every mounted section *and* the foreground list, and each of
+ * those refetches by draining its pages serially, so invalidating it made a
+ * pin cost a full re-read of the sidebar. Nothing else about the row changed:
+ * a move rewrites `groupId` / `isPinned` and the optimistic write already put
+ * the row where those values say it goes.
+ *
+ * Falls back to the whole section prefix when the write moved nothing, which
+ * is the case where the client's idea of the sections is least trustworthy.
+ *
+ * Returned, not fired and forgotten, so the mutation stays pending until the
+ * refetch finishes. TanStack is explicit about this, and it is what makes
+ * `isPending` mean "this action is still settling" for anything watching.
+ *
+ * @see {@link https://tanstack.com/query/latest/docs/framework/react/guides/optimistic-updates}
+ */
+function reconcilePlacement(
+  queryClient: QueryClient,
+  assistantId: string,
+  sectionKeys: readonly (readonly unknown[])[] | undefined,
+): Promise<unknown> {
+  if (!sectionKeys?.length) {
+    return queryClient.invalidateQueries({
+      queryKey: sectionListPrefix(assistantId),
+    });
+  }
+  return Promise.all(
+    sectionKeys.map((queryKey) => queryClient.invalidateQueries({ queryKey })),
+  );
+}
+
+/**
  * Conversation CRUD actions: archive, unarchive, rename, mark read/unread,
  * pin/unpin, and move between groups.
  *
  * Single-item mutations use `useMutation` with the TanStack-recommended
  * optimistic update lifecycle (`onMutate` → `onError` → `onSettled`):
  *   1. Cancel outgoing refetches
- *   2. Snapshot the cache
- *   3. Apply the optimistic update
- *   4. On error: restore the snapshot
- *   5. On settle: invalidate so TanStack refetches
+ *   2. Apply the optimistic update
+ *   3. On error: put the changed fields back
+ *   4. On settle: invalidate so TanStack refetches
+ *
+ * **Rollback is by field, never by snapshot, for anything that can run
+ * concurrently.** Restoring a whole-cache snapshot taken before mutation A
+ * also discards mutation B's successful optimistic write, and pinning two
+ * conversations in quick succession is exactly that case. Writing the previous
+ * field values back leaves every other row alone, and because section
+ * membership is derived from those fields inside `patchConversation`, undoing
+ * the fields undoes the move for free.
  *
  * Batch mutations (archive-all, mark-all-read) follow the same lifecycle
  * manually with per-item rollback.
  *
  * References:
  * - https://tanstack.com/query/latest/docs/framework/react/guides/optimistic-updates
+ * - https://tkdodo.eu/blog/concurrent-optimistic-updates-in-react-query
  *
  * @returns Stable callbacks for each conversation action.
  */
@@ -107,20 +168,23 @@ export function useConversationActions({
   const queryClient = useQueryClient();
 
   // -------------------------------------------------------------------------
-  // Mutations — TanStack-recommended onMutate / onError / onSettled lifecycle
+  // Mutations. TanStack-recommended onMutate / onError / onSettled lifecycle:
   //
-  // Each mutation:
-  //   onMutate  → cancelQueries, snapshot, optimistic setQueryData
-  //   onError   → restore snapshot, captureError
-  //   onSettled → invalidateQueries (refetch from server)
+  //   onMutate  -> cancelQueries, then the optimistic setQueryData
+  //   onError   -> put back what this mutation changed, captureError
+  //   onSettled -> invalidateQueries (refetch from server)
+  //
+  // "Put back what this mutation changed" is the field patch for a placement
+  // and the inverse delta for the unread count. Only mark-unread still keeps a
+  // whole-cache snapshot, because its optimistic write spans a cache the field
+  // patch cannot reach.
   // -------------------------------------------------------------------------
 
-  const archiveMutation = useMutation<
-    void,
-    Error,
-    ArchiveVars,
-    MutationContext
-  >({
+  /* Archive and unarchive are one shape twice: both write `archivedAt`, which
+     is a field every section filter reads, so both are placements. The row
+     leaves every section on archive and rejoins the one that claims it on
+     unarchive, without either path naming a section. */
+  const archiveMutation = useMutation<void, Error, ArchiveVars>({
     mutationFn: async ({ assistantId: aid, conversationId }) => {
       await conversationsByIdArchivePost({
         path: { assistant_id: aid, id: conversationId },
@@ -129,29 +193,27 @@ export function useConversationActions({
     },
     onMutate: async ({ assistantId: aid, conversationId }) => {
       await cancelConversationQueries(queryClient, aid);
-      const snapshot = snapshotConversationCaches(queryClient, aid);
       patchConversation(queryClient, aid, conversationId, {
         archivedAt: Date.now(),
       });
-      return { snapshot };
     },
-    onError: (err, _vars, context) => {
-      if (context?.snapshot) {
-        restoreConversationCaches(queryClient, context.snapshot);
-      }
+    onError: (
+      err,
+      { assistantId: aid, conversationId, previousArchivedAt },
+    ) => {
+      patchConversation(queryClient, aid, conversationId, {
+        archivedAt: previousArchivedAt,
+      });
       captureError(err, { context: "archiveConversation" });
     },
-    onSettled: (_data, _err, { assistantId: aid }) => {
-      void invalidateConversationQueries(queryClient, aid);
-    },
+    /* Still the full prefix, unlike a move: archiving takes the row out of the
+       foreground list and puts it in the archived one, so two caches outside
+       the sections change owners and the client does not write either. */
+    onSettled: (_data, _err, { assistantId: aid }) =>
+      invalidateConversationQueries(queryClient, aid),
   });
 
-  const unarchiveMutation = useMutation<
-    void,
-    Error,
-    UnarchiveVars,
-    MutationContext
-  >({
+  const unarchiveMutation = useMutation<void, Error, UnarchiveVars>({
     mutationFn: async ({ assistantId: aid, conversationId }) => {
       await conversationsByIdUnarchivePost({
         path: { assistant_id: aid, id: conversationId },
@@ -160,21 +222,21 @@ export function useConversationActions({
     },
     onMutate: async ({ assistantId: aid, conversationId }) => {
       await cancelConversationQueries(queryClient, aid);
-      const snapshot = snapshotConversationCaches(queryClient, aid);
       patchConversation(queryClient, aid, conversationId, {
         archivedAt: undefined,
       });
-      return { snapshot };
     },
-    onError: (err, _vars, context) => {
-      if (context?.snapshot) {
-        restoreConversationCaches(queryClient, context.snapshot);
-      }
+    onError: (
+      err,
+      { assistantId: aid, conversationId, previousArchivedAt },
+    ) => {
+      patchConversation(queryClient, aid, conversationId, {
+        archivedAt: previousArchivedAt,
+      });
       captureError(err, { context: "unarchiveConversation" });
     },
-    onSettled: (_data, _err, { assistantId: aid }) => {
-      void invalidateConversationQueries(queryClient, aid);
-    },
+    onSettled: (_data, _err, { assistantId: aid }) =>
+      invalidateConversationQueries(queryClient, aid),
   });
 
   // Shared with the mark-seen-on-open effect so both entry points produce
@@ -235,7 +297,7 @@ export function useConversationActions({
     void,
     Error,
     MoveToGroupVars,
-    MutationContext
+    PlacementContext
   >({
     mutationFn: async ({
       assistantId: aid,
@@ -258,30 +320,43 @@ export function useConversationActions({
       isPinned,
     }) => {
       await cancelConversationQueries(queryClient, aid);
-      const snapshot = snapshotConversationCaches(queryClient, aid);
-      patchConversation(queryClient, aid, conversationId, {
+      /* The whole move, in one write. `patchConversation` puts the row in
+         whichever sections the new `groupId` / `isPinned` place it and takes
+         it out of the ones they do not, so Pinned and the section the row
+         came from both repaint on this render rather than on their next
+         refetch. */
+      const sectionKeys = patchConversation(queryClient, aid, conversationId, {
         isPinned,
         groupId,
       });
-      return { snapshot };
+      return { sectionKeys };
     },
     onSuccess: (_data, { conversationId, isPinned }) => {
       if (!isPinned) {
         prePinGroupIdsRef.current.delete(conversationId);
       }
     },
-    onError: (err, { conversationId, isPinned }, context) => {
-      if (context?.snapshot) {
-        restoreConversationCaches(queryClient, context.snapshot);
-      }
+    onError: (
+      err,
+      {
+        assistantId: aid,
+        conversationId,
+        isPinned,
+        previousIsPinned,
+        previousGroupId,
+      },
+    ) => {
+      patchConversation(queryClient, aid, conversationId, {
+        isPinned: previousIsPinned,
+        groupId: previousGroupId,
+      });
       if (isPinned) {
         prePinGroupIdsRef.current.delete(conversationId);
       }
       captureError(err, { context: "moveToGroup" });
     },
-    onSettled: (_data, _err, { assistantId: aid }) => {
-      void invalidateConversationQueries(queryClient, aid);
-    },
+    onSettled: (_data, _err, { assistantId: aid }, context) =>
+      reconcilePlacement(queryClient, aid, context?.sectionKeys),
   });
 
   // -------------------------------------------------------------------------
@@ -311,6 +386,7 @@ export function useConversationActions({
       archiveMutation.mutate({
         assistantId,
         conversationId: conversation.conversationId,
+        previousArchivedAt: conversation.archivedAt,
       });
     },
     [
@@ -331,6 +407,7 @@ export function useConversationActions({
       unarchiveMutation.mutate({
         assistantId,
         conversationId: conversation.conversationId,
+        previousArchivedAt: conversation.archivedAt,
       });
     },
     [assistantId, unarchiveMutation],

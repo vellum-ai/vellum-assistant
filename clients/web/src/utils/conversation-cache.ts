@@ -13,8 +13,12 @@
  *   when the user reveals the Scheduled sidebar section.
  * - **Archived** (`"archived"`) — archived conversations. Fetched
  *   lazily when the user opens the archive view.
- * - **Channel** (`"channel", channelId`) — origin-channel conversations
- *   (Slack, Telegram, etc.). Each channel section mounts its own cache.
+ * - **Section** (`"section", groupId, originChannel`): one sidebar section's
+ *   rows, fetched through the server filter that defines the section. Pinned,
+ *   each custom group, each channel, and Chats each key their own entry.
+ *   Membership here is the server's answer, not a client-side filter, so a
+ *   local change to the fields that filter reads has to move the row between
+ *   these caches. See `utils/section-membership.ts`.
  *
  * A conversation lives in exactly one cache, so the cross-cache helpers
  * (`findConversation`, `getConversations`, `patchConversation`,
@@ -38,6 +42,10 @@ import {
   scheduledConversationsQueryKey,
   unreadConversationCountQueryKey,
 } from "@/utils/conversation-list-fetchers";
+import {
+  patchAffectsMembership,
+  reconcileSectionMembership,
+} from "@/utils/section-membership";
 import type { Conversation } from "@/types/conversation-types";
 
 // ---------------------------------------------------------------------------
@@ -314,14 +322,32 @@ export function getConversations(
 
 /**
  * Immutably patch the conversation matching `key` in whichever cache holds
- * it, leaving all others untouched. No-op when no cache holds the key.
+ * it, and move it between section caches if the patch changed where it
+ * belongs. No-op when no cache holds the key.
+ *
+ * **Membership is not separable from the fields it is computed from**, which
+ * is why the move happens here rather than in a companion helper the callers
+ * are expected to also call. A section's contents are a server filter over
+ * `groupId` / `isPinned` / `archivedAt` (LUM-2443), so a patch to one of those
+ * fields *is* a membership change; leaving the two as separate steps is what
+ * produced the bug this replaced, where pinning rewrote the row's fields and
+ * no cache moved it, so the sidebar could only correct itself by refetching
+ * every section. A caller that patches a field cannot forget the other half,
+ * because there is no other half to call.
+ *
+ * Patches that touch no membership field (seen state, titles, processing
+ * flags, and every bulk path built on them) skip the pass entirely.
+ *
+ * Returns the section cache keys whose membership actually changed, so a
+ * mutation can reconcile exactly those rather than the whole list prefix.
+ * Empty for the overwhelmingly common case of a field-only patch.
  */
 export function patchConversation(
   queryClient: QueryClient,
   assistantId: string | null,
   key: string,
   patch: Partial<Conversation>,
-): void {
+): readonly (readonly unknown[])[] {
   updateAllConversationCaches(queryClient, assistantId, (conversations) => {
     let changed = false;
     const next = conversations.map((c) => {
@@ -333,4 +359,13 @@ export function patchConversation(
     });
     return changed ? next : conversations;
   });
+
+  if (!patchAffectsMembership(patch)) {
+    return [];
+  }
+  const patched = findConversation(queryClient, assistantId, key);
+  if (!patched) {
+    return [];
+  }
+  return reconcileSectionMembership(queryClient, assistantId, patched);
 }
