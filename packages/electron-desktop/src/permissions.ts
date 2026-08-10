@@ -5,7 +5,7 @@ import {
   type Session,
 } from "electron";
 
-import { isAllowedOrigin, resolveAllowedOrigin } from "./app-origin";
+import { isAllowedOrigin, type AllowedOrigin } from "./app-origin";
 
 type PermissionRequestName = Parameters<
   NonNullable<
@@ -21,7 +21,8 @@ type PermissionCheckName = Parameters<
 
 const isTrustedRendererOrigin = (
   origin: string | URL | null | undefined,
-): boolean => isAllowedOrigin(origin, resolveAllowedOrigin());
+  allowedOrigin: AllowedOrigin,
+): boolean => isAllowedOrigin(origin, allowedOrigin);
 
 /**
  * Audio and video are both capture the product asks for: the microphone for
@@ -60,18 +61,19 @@ const isCaptureMediaRequest = (
 export const shouldGrantPermissionRequest = (
   permission: PermissionRequestName,
   details: Pick<MediaAccessPermissionRequest, "mediaTypes" | "securityOrigin">,
+  allowedOrigin: AllowedOrigin,
   fallbackOrigin?: string,
 ): boolean => {
   const origin = details.securityOrigin ?? fallbackOrigin;
 
   if (permission === "clipboard-sanitized-write") {
-    return isTrustedRendererOrigin(origin);
+    return isTrustedRendererOrigin(origin, allowedOrigin);
   }
 
   return (
     permission === "media" &&
     isCaptureMediaRequest(details) &&
-    isTrustedRendererOrigin(origin)
+    isTrustedRendererOrigin(origin, allowedOrigin)
   );
 };
 
@@ -92,11 +94,12 @@ export const shouldGrantPermissionCheck = (
     PermissionCheckHandlerHandlerDetails,
     "mediaType" | "securityOrigin" | "requestingUrl"
   >,
+  allowedOrigin: AllowedOrigin,
 ): boolean => {
   const isTrusted =
-    isTrustedRendererOrigin(details.securityOrigin) ||
-    isTrustedRendererOrigin(requestingOrigin) ||
-    isTrustedRendererOrigin(details.requestingUrl);
+    isTrustedRendererOrigin(details.securityOrigin, allowedOrigin) ||
+    isTrustedRendererOrigin(requestingOrigin, allowedOrigin) ||
+    isTrustedRendererOrigin(details.requestingUrl, allowedOrigin);
 
   if (permission === "clipboard-sanitized-write") {
     return isTrusted;
@@ -118,10 +121,17 @@ export const denyAllPermissions = (targetSession: Session): void => {
   targetSession.setPermissionCheckHandler(() => false);
 };
 
-export const installPermissionHandler = (): void => {
+export const installPermissionHandler = (
+  resolveAllowedOrigin: () => AllowedOrigin,
+): void => {
   session.defaultSession.setPermissionCheckHandler(
     (_webContents, permission, requestingOrigin, details) =>
-      shouldGrantPermissionCheck(permission, requestingOrigin, details),
+      shouldGrantPermissionCheck(
+        permission,
+        requestingOrigin,
+        details,
+        resolveAllowedOrigin(),
+      ),
   );
 
   session.defaultSession.setPermissionRequestHandler(
@@ -130,6 +140,7 @@ export const installPermissionHandler = (): void => {
         shouldGrantPermissionRequest(
           permission,
           details as MediaAccessPermissionRequest,
+          resolveAllowedOrigin(),
           webContents.getURL(),
         ),
       );

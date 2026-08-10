@@ -10,9 +10,8 @@ import Store, { type Schema } from "electron-store";
  * Note: window geometry (position, size) is intentionally NOT here. It's a
  * main-process-managed concern in Electron (system-managed on iOS,
  * browser-managed on web), and the renderer never reads or writes it.
- * The persistence for that lives in `./window-state.ts`, which uses its
- * own `electron-store` instance keyed by window kind so it doesn't have
- * to share this file's strict schema.
+ * The shared window-state module uses its own `electron-store` instance keyed
+ * by window kind so it doesn't have to share this file's strict schema.
  */
 export interface AppSettings {
   hotkeys: Record<string, string>;
