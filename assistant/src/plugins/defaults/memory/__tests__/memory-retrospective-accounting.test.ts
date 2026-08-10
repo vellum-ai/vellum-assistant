@@ -209,6 +209,38 @@ describe("getRetrospectiveMessagesAfter", () => {
     createConversation({ id: CONV });
   });
 
+  test("truncates at a stale mid-slice unfinalized row so the cursor never passes it", () => {
+    const first = insertRaw({ role: "user", content: TEXT, createdAt: 1_000 });
+    const stale = insertRaw({
+      role: "assistant",
+      content: TEXT,
+      createdAt: 2_000,
+    });
+    insertRaw({ role: "user", content: TEXT, createdAt: 3_000 });
+    insertRaw({ role: "assistant", content: TEXT, createdAt: 4_000 });
+    getDb()
+      .update(messages)
+      .set({ finalized: 0 })
+      .where(eq(messages.id, stale))
+      .run();
+
+    const slice = getRetrospectiveMessagesAfter(CONV, null);
+
+    // The slice stops BEFORE the stale row: taking the later finalized rows
+    // as the cutoff would advance the cursor past the stale row, and once it
+    // finalizes it would sit behind the cursor, unreviewed forever.
+    expect(slice.map((row) => row.id)).toEqual([first]);
+
+    getDb()
+      .update(messages)
+      .set({ finalized: 1 })
+      .where(eq(messages.id, stale))
+      .run();
+
+    // Once the row resolves, the slice continues past it.
+    expect(getRetrospectiveMessagesAfter(CONV, null)).toHaveLength(4);
+  });
+
   test("excludes unfinalized rows so the cutoff stays on rows a fork holds", () => {
     insertRaw({ role: "user", content: TEXT, createdAt: 1_000 });
     const lastFinalized = insertRaw({

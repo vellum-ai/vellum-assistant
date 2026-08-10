@@ -52,27 +52,30 @@ export function isSkillCardMessage(row: { metadata: string | null }): boolean {
 }
 
 /**
- * `getMessagesAfter` minus skill-card rows and unfinalized rows. The
- * retrospective job's new-message slice: a card-only tail yields an empty
- * slice (the job's `no_new_messages` early return), and a mixed tail's
+ * `getMessagesAfter` truncated at the first unfinalized row, minus skill-card
+ * rows. The retrospective job's new-message slice: a card-only tail yields an
+ * empty slice (the job's `no_new_messages` early return), and a mixed tail's
  * cutoff lands on the last real message rather than the card.
  *
- * Unfinalized rows are excluded because the job's cutoff (and therefore
- * `lastProcessedMessageId` on success) is chosen from this slice, while the
- * fork the job reviews skips unfinalized rows. A cutoff on an unfinalized
- * row would advance the cursor past content the fork never contained, and
- * that content would never be reviewed once it finalizes. Keeping the slice
- * to finalized rows pins the cursor to the last row the fork actually holds;
- * the row left out is reviewed by the retrospective that runs after it
- * finalizes.
+ * The slice STOPS BEFORE the first unfinalized row rather than filtering it
+ * out. The job's cutoff (and therefore `lastProcessedMessageId` on success)
+ * is chosen from this slice, while the fork the job reviews skips unfinalized
+ * rows, so the cursor must never move past one: filtering through a stale
+ * mid-slice `finalized = 0` row would advance the cursor beyond it, and once
+ * the row later finalizes its `(createdAt, id)` sits behind the cursor,
+ * unreviewed forever. Truncating parks the cursor before the unfinalized row;
+ * the rows behind it are reviewed by the retrospective that runs after the
+ * row resolves (finalizes, or is repaired away by crash recovery).
  */
 export function getRetrospectiveMessagesAfter(
   conversationId: string,
   afterMessageId: string | null,
 ): MessageRow[] {
-  return getMessagesAfter(conversationId, afterMessageId).filter(
-    (row) => row.finalized === 1 && !isSkillCardMessage(row),
-  );
+  const rows = getMessagesAfter(conversationId, afterMessageId);
+  const firstUnfinalized = rows.findIndex((row) => row.finalized !== 1);
+  const bounded =
+    firstUnfinalized === -1 ? rows : rows.slice(0, firstUnfinalized);
+  return bounded.filter((row) => !isSkillCardMessage(row));
 }
 
 /**
