@@ -254,6 +254,9 @@ function createMultiCycleHarness(startVoiceTurn: LiveVoiceTurnStarter) {
   const session = createLiveVoiceSession(context, {
     // Credential-free harness: every leg is injected, so skip the preflight.
     resolveCredentialReadiness: null,
+    // These cycle mechanics use one discrete mic chunk per utterance. Keep
+    // the adaptive playback classifier out of their timing model.
+    echoBargeInMargin: 1,
     resolveTranscriber,
     startVoiceTurn,
     streamTtsAudio,
@@ -546,6 +549,8 @@ describe("LiveVoiceSession integration smoke harness", () => {
     let turnCount = 0;
     const session = createLiveVoiceSession(context, {
       resolveCredentialReadiness: null,
+      // This cycle mechanic uses one discrete mic chunk per utterance.
+      echoBargeInMargin: 1,
       resolveTranscriber,
       startVoiceTurn,
       streamTtsAudio,

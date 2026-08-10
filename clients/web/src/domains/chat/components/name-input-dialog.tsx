@@ -4,7 +4,6 @@ import { Ban } from "lucide-react";
 
 import { Button, Input, Modal } from "@vellumai/design-library";
 
-import { IconTile } from "@/domains/chat/components/icon-tile";
 import {
   getGroupIcon,
   GROUP_ICON_NAMES,
@@ -54,9 +53,17 @@ interface NameInputDialogProps {
 }
 
 /**
- * Grid of selectable group icons plus a leading "no icon" tile, built from
- * the shared {@link IconTile} (the collapsed sidebar rail uses the same
- * tile), so a group's picker tile and its rail tile render identically.
+ * Grid of selectable group icons plus a leading "no icon" tile.
+ *
+ * These are form controls, not navigation, so they are design-library
+ * {@link Button}s: `ghost` + `iconOnly` for the tile chrome, `active` for the
+ * selected surface. The collapsed rail draws the same group icons from
+ * `SideMenu.Item` instead, because there they are nav rows in the sidebar's
+ * own 30px column. The two surfaces are deliberately not one component.
+ *
+ * `expandOnMobile={false}` keeps the grid a grid: icon-only buttons otherwise
+ * grow to a 40px circular tap target on touch, which would turn a dense
+ * picker into a sparse column of circles inside the dialog.
  */
 function GroupIconPicker({
   value,
@@ -65,33 +72,47 @@ function GroupIconPicker({
   value: string | null;
   onChange: (icon: string | null) => void;
 }) {
+  // The selected tile's `active` surface is `--surface-lift`, which is the
+  // dialog's own background: the ring, not the fill, is what makes a
+  // selection read without hover.
+  const tileClassName =
+    "aria-pressed:ring-1 aria-pressed:ring-[var(--border-active)]";
+
   return (
     <fieldset className="mt-3 border-0 p-0">
       <legend className="mb-1.5 text-sm text-[var(--content-secondary)]">
         Icon
       </legend>
       <div className="flex flex-wrap gap-1">
-        <IconTile
-          label="No icon"
+        <Button
+          variant="ghost"
+          iconOnly={<Ban />}
+          expandOnMobile={false}
+          active={value === null}
           aria-pressed={value === null}
+          aria-label="No icon"
+          tooltip="No icon"
+          className={tileClassName}
           onClick={() => onChange(null)}
-        >
-          <Ban size={14} />
-        </IconTile>
+        />
         {GROUP_ICON_NAMES.map((name) => {
           const Icon = getGroupIcon(name);
           if (!Icon) {
             return null;
           }
           return (
-            <IconTile
+            <Button
               key={name}
-              label={name}
+              variant="ghost"
+              iconOnly={<Icon />}
+              expandOnMobile={false}
+              active={value === name}
               aria-pressed={value === name}
+              aria-label={name}
+              tooltip={name}
+              className={tileClassName}
               onClick={() => onChange(name)}
-            >
-              <Icon size={14} />
-            </IconTile>
+            />
           );
         })}
       </div>

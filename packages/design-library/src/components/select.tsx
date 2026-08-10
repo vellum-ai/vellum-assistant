@@ -11,6 +11,17 @@ export type SelectMenuAlign = "start" | "end";
 
 export type SelectSize = "regular" | "compact";
 
+/**
+ * `"ghost"` shrink-wraps the trigger and drops its border and fill until the
+ * pointer or keyboard focus reaches it.
+ *
+ * Use it where the control sits in a run of read-only values (a detail panel's
+ * fact list, say) and a permanently drawn box would make the one editable row
+ * the heaviest thing on the surface. The chevron still marks it editable at
+ * rest, so the affordance survives the missing border.
+ */
+export type SelectVariant = "default" | "ghost";
+
 export interface SelectOption<T extends string> {
   /**
    * `null` marks the row meaning "no value chosen", where that is a real
@@ -48,6 +59,8 @@ export interface SelectProps<T extends string> {
   readonly disabled?: boolean;
   /** Trigger + option density. Defaults to `"regular"` (36px trigger). */
   readonly size?: SelectSize;
+  /** Trigger chrome. Defaults to `"default"` (border and fill always drawn). */
+  readonly variant?: SelectVariant;
   readonly className?: string;
   readonly style?: CSSProperties;
   readonly id?: string;
@@ -92,6 +105,17 @@ const CHEVRON_SIZE_CLASSES: Record<SelectSize, string> = {
 };
 
 /**
+ * Ghost triggers set padding but no height, so a row of them keeps whatever
+ * rhythm its container already has. A fixed height here would reintroduce the
+ * problem the variant exists to solve: one row standing taller than its
+ * read-only neighbours.
+ */
+const GHOST_TRIGGER_SIZE_CLASSES: Record<SelectSize, string> = {
+  regular: "px-2 py-1 text-body-medium-lighter",
+  compact: "px-1.5 py-0.5 text-body-small-default",
+};
+
+/**
  * Single-select control for choosing one value from a list.
  *
  * Use this when the user is picking a *value* that then shows in the trigger.
@@ -125,6 +149,7 @@ export function Select<T extends string>({
   placeholder,
   disabled = false,
   size = "regular",
+  variant = "default",
   className,
   style,
   id,
@@ -144,6 +169,7 @@ export function Select<T extends string>({
   wrapperClassName,
 }: SelectProps<T>) {
   const portalContainer = usePortalContainer();
+  const ghost = variant === "ghost";
   const reactId = useId();
   const triggerId = id ?? `select-${reactId}`;
   const invalid = Boolean(errorText);
@@ -231,7 +257,10 @@ export function Select<T extends string>({
     >
       <div
         data-slot="select"
-        className={cn("relative", className)}
+        // A ghost trigger sizes to its content, so the wrapper goes inline to
+        // shrink-wrap with it. Left block, it would stretch to the container
+        // and strand the trigger on the left of a right-aligned row.
+        className={cn("relative", ghost && "inline-flex", className)}
         style={style}
       >
         <RadixSelect.Trigger
@@ -248,11 +277,25 @@ export function Select<T extends string>({
           data-testid={dataTestId}
           data-slot="select-trigger"
           className={cn(
-            "flex w-full items-center gap-2 rounded-md border bg-[var(--field-bg)] text-left transition-colors focus:outline-none disabled:cursor-not-allowed disabled:opacity-60",
+            "flex items-center gap-2 rounded-md border text-left transition-colors disabled:cursor-not-allowed disabled:opacity-60",
+            // Ghost draws its own focus ring as an outline, so suppressing the
+            // UA outline here would erase it.
+            ghost || "focus:outline-none",
+            ghost
+              ? "w-auto bg-transparent hover:bg-[var(--field-bg)] data-[state=open]:bg-[var(--field-bg)]"
+              : "w-full bg-[var(--field-bg)]",
             invalid
               ? "border-[var(--system-negative-strong)] data-[state=open]:border-[var(--system-negative-strong)]"
-              : "border-[var(--field-border)] data-[state=open]:border-[var(--border-active)]",
-            TRIGGER_SIZE_CLASSES[size],
+              : ghost
+                ? // The ring is withheld until the control is aimed at, so at
+                  // rest the row reads as one of the values around it. Drawn
+                  // as an outline rather than a border because outlines sit
+                  // outside layout: the trigger keeps the height of a bare
+                  // line of text, so its row matches its read-only
+                  // neighbours and nothing shifts when the ring appears.
+                  "border-0 outline outline-1 -outline-offset-1 outline-transparent hover:outline-[var(--field-border)] focus-visible:outline-[var(--field-border)] data-[state=open]:outline-[var(--border-active)]"
+                : "border-[var(--field-border)] data-[state=open]:border-[var(--border-active)]",
+            ghost ? GHOST_TRIGGER_SIZE_CLASSES[size] : TRIGGER_SIZE_CLASSES[size],
           )}
           style={{
             color: selectedOption

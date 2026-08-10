@@ -8,8 +8,7 @@ import { Select, type SelectOption } from "./select";
 import { Modal } from "./modal";
 import { Tag } from "./tag";
 
-// Deliberately the same fixtures as `dropdown.stories.tsx`, so the two entries
-// can be flipped between in the sidebar to compare them directly.
+// Shared option fixtures for the stories below.
 const fruits: SelectOption<string>[] = [
   { value: "apple", label: "Apple" },
   { value: "banana", label: "Banana" },
@@ -52,14 +51,15 @@ const meta: Meta<typeof Select> = {
           "Use `Menu` instead when the list contains **actions** (Rename, Duplicate, Delete).",
           "Both visually drop down, but they are different controls with different semantics.",
           "",
-          "**This replaces `Dropdown`.** The two render identically; this one is a thin",
-          "wrapper over Radix Select rather than hand-rolled positioning, keyboard",
-          "navigation, outside-click and focus management.",
+          "A thin wrapper over Radix Select, so positioning, keyboard navigation,",
+          "outside-click and focus management come from the primitive.",
           "",
-          "Two behaviour differences when migrating from `Dropdown`: re-selecting the",
-          "value that is already selected does **not** call `onChange` (this reports",
-          "changes, `Dropdown` fired on every click), and an option may not carry an",
-          "empty-string `value`. See the `Dropdown` page and LUM-2959.",
+          "Two things to know. Re-selecting the value already selected does **not**",
+          "call `onChange`: this reports changes, not clicks, so a displayed value",
+          "derived from a fallback rather than held as state cannot be re-picked to",
+          "any effect. And an option may not carry an empty-string `value`, which",
+          'Radix reserves to mean "cleared" and will discard. Use `null` with',
+          '`onSelectNone` for a row meaning "no value chosen".',
         ].join("\n"),
       },
     },
@@ -73,6 +73,7 @@ const meta: Meta<typeof Select> = {
     placeholder: { control: "text" },
     disabled: { control: "boolean" },
     size: { control: "inline-radio", options: ["regular", "compact"] },
+    variant: { control: "inline-radio", options: ["default", "ghost"] },
     menuAlign: { control: "select", options: ["start", "end"] },
     menuMaxHeight: { control: "number" },
     menuMinWidth: { control: "number" },
@@ -224,6 +225,58 @@ export const Compact: Story = {
   },
 };
 
+/**
+ * The ghost trigger in the situation it exists for: one editable value in a
+ * run of read-only ones. Its row must stay the same height as its neighbours
+ * and its text must sit on their right edge, so the card reads as a list of
+ * facts until the picker is aimed at.
+ */
+export const Ghost: Story = {
+  args: { value: "apple", variant: "ghost", "aria-label": "Fruit" },
+  render: function GhostSelect(args) {
+    const [{ value }, updateArgs] = useArgs();
+    const row = "flex items-center justify-between gap-4 py-1";
+    return (
+      <div className="w-80 rounded-lg border border-[var(--border-base)] bg-[var(--surface-lift)] px-4 py-2">
+        <div className={row}>
+          <span className="text-body-medium-lighter text-[var(--content-secondary)]">
+            Cadence
+          </span>
+          <span className="text-body-medium-lighter text-[var(--content-default)]">
+            Every day at 4:00 PM
+          </span>
+        </div>
+        <div className={row}>
+          <span className="text-body-medium-lighter text-[var(--content-secondary)]">
+            Fruit
+          </span>
+          <span className="min-w-0 text-right text-body-medium-lighter text-[var(--content-default)]">
+            <Select
+              {...args}
+              value={value}
+              onChange={(next) => updateArgs({ value: next })}
+              onSelectNone={() => updateArgs({ value: null })}
+              menuAlign="end"
+              // Cancels the trigger's own padding so its text lands on the
+              // same right edge as the plain values, and its box does not
+              // make the row taller than they are.
+              className="-my-1 -mr-2"
+            />
+          </span>
+        </div>
+        <div className={row}>
+          <span className="text-body-medium-lighter text-[var(--content-secondary)]">
+            Status
+          </span>
+          <span className="text-body-medium-lighter text-[var(--content-default)]">
+            Enabled
+          </span>
+        </div>
+      </div>
+    );
+  },
+};
+
 export const InsideTransformedAncestor: Story = {
   args: { value: "apple", "aria-label": "Fruit" },
   render: function TransformedAncestorSelect(args) {
@@ -258,8 +311,8 @@ export const InsideTransformedAncestor: Story = {
 };
 
 /**
- * A trigger low in the viewport opens upward. `Dropdown` always opens
- * downward, so the same trigger puts its menu below the fold.
+ * A trigger low in the viewport opens upward rather than pushing its menu
+ * below the fold.
  */
 export const OpensUpwardWhenLow: Story = {
   args: { value: "apple", "aria-label": "Fruit" },

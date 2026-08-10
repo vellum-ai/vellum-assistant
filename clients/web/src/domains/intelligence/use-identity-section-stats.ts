@@ -105,13 +105,11 @@ export function useIdentitySectionStats(
     ...contactsGetOptions({ path }),
     select: (data) => data.contacts.length,
     ...common,
-    enabled: !isNativeMobile,
   });
   const channels = useQuery({
     ...channelsReadinessGetOptions({ path }),
     select: (data) => data.snapshots.filter((s) => s.ready).length,
     ...common,
-    enabled: !isNativeMobile,
   });
   // Shares the schedules cache entry owned by `fetchSchedules` (Settings
   // and the Activity page key it identically with a `Schedule[]` payload)

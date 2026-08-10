@@ -47,10 +47,8 @@ export const Default: Story = {
         <Button>Open Modal</Button>
       </Modal.Trigger>
       <Modal.Content size={size} hideCloseButton={hideCloseButton}>
-        <Modal.Header>
-          <Modal.Title icon={showIcon ? Settings : undefined}>
-            {title}
-          </Modal.Title>
+        <Modal.Header icon={showIcon ? Settings : undefined}>
+          <Modal.Title>{title}</Modal.Title>
           {description ? (
             <Modal.Description>{description}</Modal.Description>
           ) : null}
@@ -97,10 +95,8 @@ export const NoCloseButton: Story = {
         <Button>Open (no close button)</Button>
       </Modal.Trigger>
       <Modal.Content size={size} hideCloseButton={hideCloseButton}>
-        <Modal.Header>
-          <Modal.Title icon={showIcon ? Settings : undefined}>
-            {title}
-          </Modal.Title>
+        <Modal.Header icon={showIcon ? Settings : undefined}>
+          <Modal.Title>{title}</Modal.Title>
         </Modal.Header>
         <Modal.Body>
           {description ? (
@@ -151,10 +147,8 @@ export const Sizes: Story = {
         ))}
         <Modal.Root open={open} onOpenChange={setOpen}>
           <Modal.Content size={activeSize} hideCloseButton={hideCloseButton}>
-            <Modal.Header>
-              <Modal.Title icon={showIcon ? Settings : undefined}>
-                Size: {activeSize}
-              </Modal.Title>
+            <Modal.Header icon={showIcon ? Settings : undefined}>
+              <Modal.Title>Size: {activeSize}</Modal.Title>
             </Modal.Header>
             <Modal.Body>
               <p className="text-body-medium-default">{body}</p>

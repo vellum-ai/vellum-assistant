@@ -3,7 +3,7 @@
   "skills": {
     "acp": {
       "docsSlug": "acp",
-      "sha256": "ed643e026dc52be08d42cc1b1c41073240009078e5558474e9e44325640bdf8c"
+      "sha256": "721a130b51cc08112b057387fe43a6427d2987c8a36631ed84c6ee2131ea64e9"
     },
     "app-builder": {
       "docsSlug": "app-builder",
@@ -19,7 +19,7 @@
     },
     "document-editor": {
       "docsSlug": "document",
-      "sha256": "95f34b03900851215b2bc153d5e6c92e382476fa361147f31b28d4757ed6c4d3"
+      "sha256": "2932aab14bc1050e9901f1771351ca0c6539edca2acec61ac49e2c3ac6f7b76c"
     },
     "followups": {
       "docsSlug": "followups",

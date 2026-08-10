@@ -13,7 +13,6 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { SSEClientTransport } from "@modelcontextprotocol/sdk/client/sse.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 
-import { getIsContainerized } from "../config/env-registry.js";
 import { reloadMcpServers } from "../daemon/mcp-reload-service.js";
 import { getLogger } from "../util/logger.js";
 import {
@@ -22,10 +21,7 @@ import {
   setMcpAuthPending,
 } from "./mcp-auth-state.js";
 import { getMcpHeaders } from "./mcp-header-store.js";
-import {
-  type McpOAuthCallbackTransport,
-  McpOAuthProvider,
-} from "./mcp-oauth-provider.js";
+import { McpOAuthProvider } from "./mcp-oauth-provider.js";
 
 const log = getLogger("mcp-auth-orchestrator");
 
@@ -53,20 +49,11 @@ export async function orchestrateMcpOAuthConnect(args: {
 }): Promise<OrchestrateMcpOAuthConnectResult> {
   const { serverId, transport } = args;
 
-  // Containerized deployments (platform-managed AND self-hosted Docker) must
-  // use the gateway transport: the browser is outside the daemon container,
-  // so a loopback callback inside the container is unreachable. Bare-metal
-  // daemons can use loopback as before.
-  const callbackTransport: McpOAuthCallbackTransport = getIsContainerized()
-    ? "gateway"
-    : "loopback";
-
   let capturedAuthUrl: string | undefined;
   const provider = new McpOAuthProvider(
     serverId,
     transport.url,
     /* interactive */ false,
-    callbackTransport,
     {
       onAuthorizationUrl: (url) => {
         capturedAuthUrl = url;
@@ -74,8 +61,11 @@ export async function orchestrateMcpOAuthConnect(args: {
     },
   );
 
-  // Clear stale credentials so the flow starts fresh
-  await provider.invalidateCredentials("client");
+  // Re-discover, but keep the client registration. Discovery is a read and
+  // costs a request; registration is a write on the authorization server,
+  // and remaking it per attempt leaves a record behind every time. The
+  // provider drops a stored registration on its own when the redirect URI
+  // or the authorization server it was made against has changed.
   await provider.invalidateCredentials("discovery");
 
   // Register the pending callback in the daemon heap
@@ -146,10 +136,9 @@ export async function orchestrateMcpOAuthConnect(args: {
   // so the daemon can reconnect on the next MCP reload without re-connecting here.
   void (async () => {
     try {
-      // Apply an explicit timeout: the loopback callback path has a built-in
-      // 2-minute timer, but the gateway transport's deferred promise relies on
-      // the caller for time-boxing. Without this race, gateway-mode tails leak
-      // forever if the user never completes the OAuth handshake.
+      // Apply an explicit timeout: the deferred code promise relies on the
+      // caller for time-boxing. Without this race, a tail leaks forever if
+      // the user never completes the OAuth handshake.
       const code = await Promise.race([
         codePromise,
         new Promise<never>((_, reject) => {
@@ -215,6 +204,8 @@ export async function orchestrateMcpOAuthConnect(args: {
   return { auth_url: capturedAuthUrl };
 }
 
-// Matches the loopback callback timeout; keep both in lockstep so loopback
-// and gateway transports time-box OAuth identically.
+// How long a user has to complete the browser handshake before the tail
+// gives up. Shorter than the callback registry's own 5-minute TTL, so the
+// failure surfaces here with a clear message rather than as a registry
+// expiry the caller cannot attribute.
 const CALLBACK_TIMEOUT_MS = 2 * 60 * 1000;

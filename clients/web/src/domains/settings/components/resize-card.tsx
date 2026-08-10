@@ -426,8 +426,8 @@ export function ResizeCard({
         }}
       >
         <Modal.Content size="sm">
-          <Modal.Header>
-            <Modal.Title icon={Server}>Resize Assistant</Modal.Title>
+          <Modal.Header icon={Server}>
+            <Modal.Title>Resize Assistant</Modal.Title>
             <Modal.Description>
               Resize your assistant's compute and storage. Your assistant will
               briefly restart.

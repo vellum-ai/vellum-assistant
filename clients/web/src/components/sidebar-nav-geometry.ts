@@ -10,7 +10,7 @@
  */
 
 /** Horizontal row padding before the leading chip. */
-export const SIDEBAR_ROW_PADDING_X = 6;
+export const SIDEBAR_ROW_PADDING_X = 12;
 
 /**
  * Width of the leading icon slot. Icons of any size center inside it,
@@ -30,12 +30,14 @@ export const SIDEBAR_CHIP_GAP = 6;
 export const SIDEBAR_SECTION_INDENT = 0;
 
 /**
- * Tallest a single section's row list grows before it scrolls within itself.
- *
- * Without a cap, one busy section pushes every section under it off the
- * screen, and the user has to collapse it to reach anything else. About nine
- * desktop rows (30px each plus their 4px gap), which is enough to read a
- * section as a list rather than a preview while still leaving room for its
+ * Tallest a non-last section's row list grows before it scrolls within
+ * itself. Only the bottom-most section claims the sidebar's actual leftover
+ * space (see `isLast` on `ConversationRowList`) - flex-grow has no notion of
+ * "this section needs the room," so giving every open section a share
+ * stretched a two-row group into a mostly-empty box the same size as a busy
+ * one beside it. Every section above the last one gets this fixed cap
+ * instead: about nine desktop rows (30px each plus their 4px gap), enough to
+ * read as a list rather than a preview while still leaving room for its
  * neighbours.
  */
 export const SIDEBAR_SECTION_MAX_HEIGHT = 300;
@@ -47,12 +49,23 @@ export const SIDEBAR_SECTION_MAX_HEIGHT = 300;
  * sidebar body scrolls, so an oversized section degrades to body scrolling
  * the same way a long section list does today.
  */
+/**
+ * The gap between any two stacked entries in the sidebar: the built-in nav's
+ * pills, the section cards, and the scrollport that holds them.
+ *
+ * One constant rather than a `gap-*` at each container, because those
+ * containers nest - the body holds the section root which holds the cards -
+ * so a different value at any level surfaces as a different gap between two
+ * adjacent entries, and which container wins is not locally visible.
+ */
+export const SIDEBAR_STACK_GAP = "gap-2";
+
 export const SIDEBAR_SECTION_RESIZE_MIN_HEIGHT = 64;
 export const SIDEBAR_SECTION_RESIZE_MAX_HEIGHT = 600;
 
 /**
- * Text treatment for a section title (Pinned, Pinned Apps, a custom
- * group, the persistent Conversations header, Group by). `font-[350]!` sits below
+ * Text treatment for a section title (Pinned, a custom group, Chats, a
+ * channel section). `font-[350]!` sits below
  * the `lighter` type-scale tier's own 400 weight, a step past the scale's
  * lightest named weight rather than a new tier of its own (DM Sans is a
  * variable font down to 300). The trailing `!` forces it over the

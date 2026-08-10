@@ -32,8 +32,11 @@ import { isDesktopAttended } from "../runtime/desktop-presence.js";
 import { safeParseRecord } from "../util/json.js";
 import { emitNotificationSignal } from "./emit-signal.js";
 import {
+  describeMedia,
+  mediaEmbeds,
   sanitizeMessagePreview,
   sanitizeNotificationTitle,
+  stripMarkdownForPreview,
 } from "./notification-utils.js";
 
 /** Kill switch for this producer, on by default. */
@@ -51,31 +54,42 @@ function collapseWhitespace(value: string): string {
 }
 
 /**
- * Body for a reply whose only user-visible output is attachments. Generated
- * files and images are linked to the assistant row by
- * `resolveAssistantAttachments` before the turn's terminal SSE, and are
- * exposed separately from the row's content blocks, so a file-generation reply
- * reaches this producer with no text to preview. Reads attachment metadata
- * only (no base64), and only once the text preview has already come up empty.
+ * Body naming every piece of media a reply produced, for a reply whose text
+ * flattened away.
  *
- * Returns an empty string when the row has no attachments either, which is the
- * genuinely-empty reply the caller suppresses.
+ * Two sources, counted together so a reply mixing them is not undercounted.
+ * Attachment rows cover generated files, `<vellum-attachment />` directives,
+ * and `vellum://` embeds alike; they are linked to the assistant row by
+ * `resolveAssistantAttachments` before the turn's terminal SSE and exposed
+ * separately from its content blocks. Remote embeds leave no row, so their alt
+ * text is the only label they have.
+ *
+ * Tracked embeds are dropped from the second source rather than added twice:
+ * a `vellum://` embed is already one of the attachment rows.
+ *
+ * Reads attachment metadata only (no base64), and the caller invokes this only
+ * once the text preview has come up empty.
  */
-function describeAttachmentOnlyReply(assistantMessageId: string): string {
-  const attachments = getAttachmentMetadataForMessage(assistantMessageId);
-  if (attachments.length === 0) {
-    return "";
-  }
-  if (attachments.length > 1) {
-    return `Sent ${attachments.length} attachments`;
-  }
-  // Filenames are model- and tool-authored, so one is sanitized before it can
-  // reach the lock screen. A filename that sanitizes away leaves generic copy
-  // rather than a dangling "Sent ".
-  const filename = sanitizeMessagePreview(
-    collapseWhitespace(attachments[0].originalFilename),
+function describeReplyMedia(text: string, assistantMessageId: string): string {
+  const filenames = getAttachmentMetadataForMessage(assistantMessageId).map(
+    (attachment) => attachment.originalFilename,
   );
-  return filename ? `Sent ${filename}` : "Sent an attachment";
+  const embeds = mediaEmbeds(text);
+  const tracked = embeds.filter((embed) => embed.tracked);
+
+  // Resolution is allowed to fail: `resolveAssistantAttachments` skips a file
+  // that is missing, oversized, unreadable, or denied at the host-read
+  // approval, leaving a tracked embed with no row to stand for it. Rows at
+  // least matching the tracked embeds means each one resolved (any surplus
+  // being generated files); a shortfall is that many embeds falling back to
+  // their own alt rather than vanishing from the count.
+  const unresolved = Math.max(0, tracked.length - filenames.length);
+
+  return describeMedia([
+    ...filenames,
+    ...tracked.slice(tracked.length - unresolved).map((embed) => embed.alt),
+    ...embeds.filter((embed) => !embed.tracked).map((embed) => embed.alt),
+  ]);
 }
 
 /**
@@ -183,14 +197,16 @@ export async function emitAssistantReplyNotification(params: {
       return;
     }
 
-    // A reply whose output is entirely attachments has no text to preview, so
-    // fall back to naming them rather than suppressing a real reply. A reply
-    // with neither text nor attachments stays silent.
+    // A reply whose output is entirely media has no text to preview, so name
+    // the media rather than suppressing a real reply. Markdown is flattened
+    // first: a lock screen renders none of it, and an embed-only reply has to
+    // reduce to empty for the fallback to be reachable. A reply with neither
+    // text nor media stays silent.
+    const text = stringifyMessageContent(assistantRow.content);
     const preview =
       sanitizeMessagePreview(
-        collapseWhitespace(stringifyMessageContent(assistantRow.content)),
-      ) ||
-      sanitizeMessagePreview(describeAttachmentOnlyReply(assistantMessageId));
+        collapseWhitespace(stripMarkdownForPreview(text)),
+      ) || sanitizeMessagePreview(describeReplyMedia(text, assistantMessageId));
     if (!preview) {
       return;
     }

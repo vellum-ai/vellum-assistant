@@ -14,27 +14,46 @@
  * The declaration picks whose secret that is — see `IngressRouteSchema.signer`
  * — and, for a route a third party calls, how the signature is formed at all
  * (`IngressRouteSchema.verification`).
+ *
+ * A route may also declare that its replies carry messages
+ * (`IngressRouteSchema.inbound`), which is how a plugin channel receives
+ * anything at all. The plugin parses its vendor's delivery and answers with
+ * the result; the gateway reads that answer, claims it against redelivery,
+ * and runs it through the same `handleInbound` every built-in channel uses.
+ * See `plugin-inbound.ts` for what of the reply the gateway believes, and
+ * `db/inbound-dedup-store.ts` for the claim.
  */
 
 import {
-  findServableRoute,
+  findDeclaredRoute,
   type PluginIngressResolution,
 } from "../../channels/plugin-ingress-approvals.js";
 import {
   verifyDeclaredSignature,
   type VerificationRejection,
 } from "../../channels/ingress-verification.js";
+import { readPluginInbound } from "../../channels/plugin-inbound.js";
+import type { IngressInbound } from "../../channels/ingress-inbound.js";
 import type { IngressSigner } from "../../channels/plugin-ingress.js";
+import {
+  handleInbound,
+  type InboundResult,
+} from "../../handlers/handle-inbound.js";
 import { mintServiceToken } from "../../auth/token-exchange.js";
 import type { GatewayConfig } from "../../config.js";
 import type { CredentialCache } from "../../credential-cache.js";
 import { credentialKey } from "../../credential-key.js";
 import {
+  commitInboundEvent,
+  releaseInboundEvent,
+  reserveInboundEvent,
+} from "../../db/inbound-dedup-store.js";
+import {
   resolveCredentialWithRefresh,
   verifySecretWithRefresh,
 } from "../../credential-refresh.js";
 import { getLogger } from "../../logger.js";
-import { readLimitedBodyBytes } from "../read-limited-body.js";
+import { readLimitedBody, readLimitedBodyBytes } from "../read-limited-body.js";
 import { verifyVellumSignature } from "../vellum-signature.js";
 import { proxyForwardToResponse } from "@vellumai/assistant-client";
 
@@ -73,6 +92,19 @@ function signingCredentialKey(
 const METHODS_WITHOUT_BODY = new Set(["GET", "HEAD"]);
 
 /**
+ * The answer for a caller who has not proved who they are.
+ *
+ * Every refusal on a route that is declared but not servable returns exactly
+ * this, whatever went wrong: an oversized body, an unreadable one, a missing
+ * secret, a bad signature. Otherwise the differences between those answers
+ * would tell an unauthenticated prober that a route is declared and waiting,
+ * which is the one thing withholding it is for.
+ */
+function notFound(): Response {
+  return Response.json({ error: "Not Found" }, { status: 404 });
+}
+
+/**
  * Upstream path for a plugin route.
  *
  * The `/v1` prefix is load-bearing: the runtime 404s anything outside it
@@ -93,38 +125,62 @@ export interface PluginWebhookHandlerDeps {
     input: string | URL | Request,
     init?: RequestInit,
   ) => Promise<Response>;
+  /**
+   * The inbound pipeline, injected for the same reason `fetchImpl` is: it
+   * reaches the ACL database, the trust resolver, and the runtime, none of
+   * which a test of this route's decisions should have to stand up.
+   */
+  handleInboundImpl?: typeof handleInbound;
 }
 
 /**
  * Handle `/webhooks/plugins/:plugin/:path`.
  *
- * The requested path must equal a servable route's declared path, up to one
- * trailing slash. Matching is exact rather than prefix-based: a declaration
- * covers the paths it listed, so serving `<declared>/anything` would hand out
- * reach nobody granted. Exact matching also disposes of traversal, since no
- * `..` segment equals a declared path, and of percent-encoded spellings,
- * which fail closed rather than being decoded into a match.
+ * The requested path must equal a declared route's path, up to one trailing
+ * slash. Matching is exact rather than prefix-based: a declaration covers the
+ * paths it listed, so serving `<declared>/anything` would hand out reach
+ * nobody granted. Exact matching also disposes of traversal, since no `..`
+ * segment equals a declared path, and of percent-encoded spellings, which
+ * fail closed rather than being decoded into a match.
+ *
+ * The approval gate is consulted after the signature, not before. Both orders
+ * refuse the same requests; they differ only in what the caller is told, and
+ * the reason to withhold that is the prober, who cannot sign. A caller who can
+ * sign with this plugin's own secret is the party the route was declared for,
+ * was handed the URL by us, and gets told the route is waiting on approval
+ * rather than being sent to look for a URL that is already correct. Everyone
+ * else gets {@link notFound}, identically, whatever they got wrong.
+ *
+ * The cost is one HMAC on requests to a route that cannot be served, bounded
+ * by the same body cap as everything else here.
  */
 export function createPluginWebhookHandler(deps: PluginWebhookHandlerDeps) {
-  const { config, resolve, credentials, fetchImpl } = deps;
+  const {
+    config,
+    resolve,
+    credentials,
+    fetchImpl,
+    handleInboundImpl = handleInbound,
+  } = deps;
 
   return async (req: Request, plugin: string, path: string) => {
-    let route: ReturnType<typeof findServableRoute>;
+    let match: ReturnType<typeof findDeclaredRoute>;
     try {
       // WebSocket routes are declared here but upgraded elsewhere; serving one
       // over plain HTTP would be a different thing than was declared.
-      route = findServableRoute(resolve(), plugin, path, "http");
+      match = findDeclaredRoute(resolve(), plugin, path, "http");
     } catch (err) {
       log.error({ err, plugin }, "Failed to resolve plugin ingress");
       return Response.json({ error: "Internal server error" }, { status: 500 });
     }
 
-    if (!route) {
+    if (!match) {
       // Deliberately quiet: this path is reachable by anyone on the internet,
       // so logging every miss at info would hand out a log-flooding lever.
-      log.debug({ plugin, path }, "No servable HTTP ingress route");
-      return Response.json({ error: "Not Found" }, { status: 404 });
+      log.debug({ plugin, path }, "No declared HTTP ingress route");
+      return notFound();
     }
+    const route = match.route;
 
     // Cap the body on the streamed bytes before anything forwards it. The
     // caller is unauthenticated and Content-Length is attacker-controlled
@@ -133,10 +189,14 @@ export function createPluginWebhookHandler(deps: PluginWebhookHandlerDeps) {
     const body = await readLimitedBodyBytes(req, config.maxWebhookPayloadBytes);
     if (body.status === "too_large") {
       log.warn({ plugin, path }, "Plugin webhook payload too large");
-      return Response.json({ error: "Payload Too Large" }, { status: 413 });
+      return match.servable
+        ? Response.json({ error: "Payload Too Large" }, { status: 413 })
+        : notFound();
     }
     if (body.status === "unreadable") {
-      return Response.json({ error: "Bad Request" }, { status: 400 });
+      return match.servable
+        ? Response.json({ error: "Bad Request" }, { status: 400 })
+        : notFound();
     }
 
     // Signature check before the forward, and fail-closed when no secret is
@@ -148,12 +208,14 @@ export function createPluginWebhookHandler(deps: PluginWebhookHandlerDeps) {
     if (!secret) {
       log.warn(
         { plugin, path, signer: route.signer, secretKey },
-        "Plugin webhook secret is not configured — rejecting request",
+        "Plugin webhook secret is not configured, rejecting request",
       );
-      return Response.json(
-        { error: "Webhook secret not configured" },
-        { status: 409 },
-      );
+      return match.servable
+        ? Response.json(
+            { error: "Webhook secret not configured" },
+            { status: 409 },
+          )
+        : notFound();
     }
 
     // Kept for the log line only. The retry inside verifySecretWithRefresh can
@@ -190,7 +252,31 @@ export function createPluginWebhookHandler(deps: PluginWebhookHandlerDeps) {
         },
         "Plugin webhook signature verification failed",
       );
-      return Response.json({ error: "Forbidden" }, { status: 403 });
+      return match.servable
+        ? Response.json({ error: "Forbidden" }, { status: 403 })
+        : notFound();
+    }
+
+    // Verified, and only now does the gate speak. The caller signed with this
+    // plugin's own secret, so they are the party the route was declared for and
+    // already know it exists; 404ing them here is the answer written for a
+    // prober, and it reads as "wrong URL", which sends whoever is debugging to
+    // the one thing that is not wrong.
+    if (!match.servable) {
+      log.info(
+        { plugin, path, signer: route.signer },
+        "Verified delivery to an ingress route awaiting guardian approval",
+      );
+      return Response.json(
+        {
+          error: "Ingress route awaiting approval",
+          detail:
+            `The route "${path}" is declared by the "${plugin}" plugin but a ` +
+            "guardian has not approved its ingress declaration yet, so the " +
+            "gateway is not serving it. Deliveries are refused, not queued.",
+        },
+        { status: 409 },
+      );
     }
 
     // Forward under the declared path, not the requested spelling: matching
@@ -220,13 +306,217 @@ export function createPluginWebhookHandler(deps: PluginWebhookHandlerDeps) {
         { plugin, path, status: response.status, duration },
         "Plugin webhook upstream error",
       );
-    } else if (response.status >= 400) {
+      return response;
+    }
+    if (response.status >= 400) {
       log.warn(
         { plugin, path, status: response.status, duration },
         "Plugin webhook upstream error",
       );
+      return response;
     }
 
-    return response;
+    const inbound = route.inbound;
+    if (!inbound) {
+      return response;
+    }
+    return deliverPluginInbound({
+      config,
+      plugin,
+      routePath: route.path,
+      inbound,
+      response,
+      handleInboundImpl,
+    });
   };
+}
+
+/**
+ * Run a plugin's reply through the inbound pipeline and answer the vendor.
+ *
+ * Only reached for a 2xx, because a reply the plugin itself is reporting a
+ * failure on is not a message. The vendor gets the plugin's status back but
+ * not its body: the body was addressed to us, and a plugin that normalizes a
+ * delivery into an event should not thereby echo the sender's message back to
+ * the vendor that sent it.
+ *
+ * Two kinds of failure, answered differently. A reply the gateway cannot make
+ * sense of — unreadable, not JSON, half a message — fails the same way on
+ * every retry, so the vendor is acknowledged and the reason goes to the log;
+ * that is the retry storm the 409 on unapproved routes exists to avoid.
+ *
+ * A failure to *forward* is the opposite: the runtime is down, the circuit
+ * breaker is open, the message is well-formed and would land on the next
+ * attempt. Acknowledging that would lose a real message for the length of an
+ * assistant outage, so it answers 503 and lets the vendor's own retry carry
+ * the delivery. This is what `processInboundResult` does for the built-in
+ * channels; the shape differs only because the plugin's reply, not the
+ * vendor's request, is what carries the message here.
+ *
+ * Which makes the dedup claim part of the same decision. Asking for a retry
+ * and keeping the claim that would answer it as a duplicate is how a message
+ * is lost while both sides look correct, so every path that answers 503
+ * releases first, and the claim is only widened to the full dedup window once
+ * the message has actually landed. See `reserveInboundEvent`.
+ */
+async function deliverPluginInbound(opts: {
+  config: GatewayConfig;
+  plugin: string;
+  /** The declared path, for logs. Not the requested spelling. */
+  routePath: string;
+  inbound: IngressInbound;
+  response: Response;
+  handleInboundImpl: typeof handleInbound;
+}): Promise<Response> {
+  const { config, plugin, routePath, inbound, response, handleInboundImpl } =
+    opts;
+  const ack = Response.json({ ok: true }, { status: response.status });
+
+  const body = await readLimitedBody(response, config.maxWebhookPayloadBytes);
+  if (body.status !== "ok") {
+    log.warn(
+      { plugin, path: routePath, reason: body.status },
+      "Could not read the plugin's reply for inbound delivery",
+    );
+    return ack;
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = body.text.trim() === "" ? undefined : JSON.parse(body.text);
+  } catch {
+    log.warn(
+      { plugin, path: routePath },
+      "Plugin reply on an inbound route is not JSON",
+    );
+    return ack;
+  }
+
+  const reading = readPluginInbound({
+    plugin,
+    inbound,
+    body: parsed,
+    receivedAt: new Date().toISOString(),
+  });
+
+  if (reading.status === "none") {
+    // The ordinary case: a receipt, an echo, an event the plugin does not
+    // handle. Debug rather than info — every delivery would log otherwise.
+    log.debug(
+      { plugin, path: routePath },
+      "Plugin reply carried no inbound message",
+    );
+    return ack;
+  }
+  if (reading.status === "invalid") {
+    log.warn(
+      { plugin, path: routePath, reason: reading.reason },
+      "Plugin reply on an inbound route is not a usable message",
+    );
+    return ack;
+  }
+
+  // Claimed before the handoff, not after it. The assistant dedups on this
+  // same triple in `recordInbound`, but that is on the far side of the
+  // crossing, so without this a vendor's retry still costs a forward and
+  // relies on everything upstream of that record being idempotent. See
+  // `reserveInboundEvent`.
+  //
+  // As early as it can currently be: the message only exists once the plugin
+  // has parsed the delivery, so a redelivery still reaches the plugin, which
+  // must keep its own parse free of side effects. That ends when the gateway
+  // parses the vendor payload itself and the claim can precede the forward.
+  const dedupKey = {
+    sourceChannel: reading.event.sourceChannel,
+    externalChatId: reading.event.message.conversationExternalId,
+    externalMessageId: reading.event.message.externalMessageId,
+  };
+  if (!reserveInboundEvent(dedupKey)) {
+    // Acknowledged, because the delivery did land: the first copy is already
+    // through. Anything else asks the vendor to keep sending it.
+    log.info(
+      {
+        plugin,
+        path: routePath,
+        externalMessageId: dedupKey.externalMessageId,
+      },
+      "Duplicate plugin inbound delivery, acknowledged without forwarding",
+    );
+    return ack;
+  }
+
+  let result: InboundResult;
+  try {
+    result = await handleInboundImpl(config, reading.event, {
+      // Which plugin, for the runtime and for anyone reading a transcript. The
+      // route too: a plugin can declare several, and knowing which one a turn
+      // arrived on is the difference between a provider misconfiguration and a
+      // plugin bug.
+      sourceMetadata: { plugin, ingressRoute: routePath },
+    });
+  } catch (err) {
+    // `CircuitBreakerOpenError` reaches here by design: `handleInbound` lets it
+    // through precisely so a caller can answer retryably instead of 500ing.
+    log.error(
+      { err, plugin, path: routePath },
+      "Plugin inbound message could not be handled",
+    );
+    // Answering 503 asks for the delivery again, so the claim has to go with
+    // it. Keeping it would have the retry we just asked for answered as a
+    // duplicate, which is how a message disappears while both sides report
+    // having done the right thing.
+    releaseInboundEvent(dedupKey);
+    return retryLater();
+  }
+
+  log.info(
+    {
+      plugin,
+      path: routePath,
+      forwarded: result.forwarded,
+      rejected: result.rejected,
+      rejectionReason: result.rejectionReason,
+    },
+    "Plugin inbound message handled",
+  );
+
+  // Rejected and intercepted are decisions, not failures: the message reached
+  // the pipeline and the pipeline said no, or consumed it. Only a message that
+  // never reached the runtime is worth sending again.
+  const reachedRuntime =
+    result.forwarded ||
+    result.rejected ||
+    result.verificationIntercepted === true ||
+    result.inviteIntercepted === true;
+  if (!reachedRuntime) {
+    log.error(
+      { plugin, path: routePath },
+      "Plugin inbound message was not forwarded to the runtime",
+    );
+    releaseInboundEvent(dedupKey);
+    return retryLater();
+  }
+
+  // The delivery landed, so the claim stops being a lease and becomes the
+  // dedup window proper. Until this runs the claim is short-lived on purpose:
+  // a gateway that died mid-handoff must not leave a row that answers every
+  // retry as already-delivered.
+  commitInboundEvent(dedupKey);
+
+  return ack;
+}
+
+/**
+ * Ask the vendor to send this delivery again.
+ *
+ * 503 with `Retry-After` rather than 500, matching what the built-in webhook
+ * handlers answer when the runtime is unreachable: a vendor reading a 500
+ * often disables the endpoint, while 503 is the one status every retry policy
+ * treats as "later, not never".
+ */
+function retryLater(): Response {
+  return Response.json(
+    { error: "Service Unavailable" },
+    { status: 503, headers: { "Retry-After": "30" } },
+  );
 }

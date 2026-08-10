@@ -541,10 +541,8 @@ export function AdjustPlanModal({
         <Modal.Content size={view === "plans" ? "lg" : "md"}>
           {view === "downgrade-confirm" ? (
             <>
-              <Modal.Header>
-                <Modal.Title icon={AlertTriangle}>
-                  Downgrade to Base?
-                </Modal.Title>
+              <Modal.Header icon={AlertTriangle}>
+                <Modal.Title>Downgrade to Base?</Modal.Title>
               </Modal.Header>
               <Modal.Body>
                 <Typography

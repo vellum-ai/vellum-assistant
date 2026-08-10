@@ -41,12 +41,12 @@ import type {
   VerificationPurpose,
 } from "../db/session-store.js";
 import {
+  claimBootstrapSession,
   consumeSession,
   createInboundSession,
   createOutboundSession as storeCreateOutboundSession,
   findActiveSession,
   findPendingSessionByHash,
-  getSessionById,
   updateSessionStatus,
 } from "../db/session-store.js";
 import { getLogger } from "../logger.js";
@@ -191,46 +191,43 @@ export type GuardedCreateOutboundSessionResult =
  * mints; the rest get a machine-readable conflict instead of revoking the
  * winner's freshly minted code.
  *
- * - `requireSourceSessionPending`: the bootstrap handoff claim. The source
- *   session must still be `pending_bootstrap` (a prior mint revokes it, so a
- *   second claim of the same deep-link token conflicts).
- * - `ifNoneActive`: create-if-absent. Conflicts when the channel already has
- *   an active (pending_bootstrap / awaiting_response, non-expired) session.
+ * - `requireSourceSessionPending`: the bootstrap handoff claim, a single
+ *   status-guarded UPDATE (`claimBootstrapSession`) rather than a read
+ *   followed by a write. Winning the UPDATE is the guard, so a second claim
+ *   of the same deep-link token conflicts. The claim names the row: an
+ *   identity-matched revoke cannot make it single-use, because a bootstrap
+ *   row carries whichever identity was bound onto it last.
  * - `ifNoneActiveForExternalUserId`: sender-scoped create-if-absent.
  *   Conflicts only when the channel's active session is bound to the same
- *   expectedExternalUserId — a different sender's session may be superseded
- *   (the unguarded revoke-prior semantics apply).
+ *   expectedExternalUserId. A different sender's session is neither a
+ *   conflict nor superseded: it is not this sender's to take.
  */
 export function createOutboundSessionGuarded(
   params: Parameters<typeof createOutboundSession>[0] & {
     requireSourceSessionPending?: string;
-    ifNoneActive?: boolean;
     ifNoneActiveForExternalUserId?: string;
   },
 ): GuardedCreateOutboundSessionResult {
-  if (params.requireSourceSessionPending !== undefined) {
-    const source = getSessionById(params.requireSourceSessionPending);
-    if (
-      !source ||
-      source.channel !== params.channel ||
-      source.status !== "pending_bootstrap"
-    ) {
-      return { conflict: true, reason: "source_session_not_pending" };
-    }
-  }
-
-  if (params.ifNoneActive && findActiveSession(params.channel) !== null) {
-    return { conflict: true, reason: "active_session_exists" };
-  }
-
   if (params.ifNoneActiveForExternalUserId !== undefined) {
-    const active = findActiveSession(params.channel);
-    if (
-      active !== null &&
-      active.expectedExternalUserId === params.ifNoneActiveForExternalUserId
-    ) {
+    // Scoped to the actor rather than reading the channel's latest and
+    // comparing: a channel can carry several live sessions, so the latest is
+    // often somebody else's, and this guard would then miss the very session
+    // it exists to find.
+    const active = findActiveSession(params.channel, {
+      expectedExternalUserId: params.ifNoneActiveForExternalUserId,
+    });
+    if (active !== null) {
       return { conflict: true, reason: "active_session_exists" };
     }
+  }
+
+  // Claimed after the other guard, so a mint that is going to conflict
+  // anyway does not burn a bootstrap token on its way out.
+  if (
+    params.requireSourceSessionPending !== undefined &&
+    !claimBootstrapSession(params.requireSourceSessionPending, params.channel)
+  ) {
+    return { conflict: true, reason: "source_session_not_pending" };
   }
 
   return createOutboundSession(params);
@@ -306,10 +303,9 @@ export async function validateAndConsumeSession(
     return CONSUME_FAILURE;
   }
 
-  // Expected-identity binding check (outbound sessions). checkIdentityMatch
-  // carries the daemon's rules verbatim: phone match, the shared-chatId
-  // caveat (externalUserId required when both are set), the
-  // externalUserId-only fallback, and the pending_bootstrap bypass.
+  // Expected-identity binding check (outbound sessions). The session is
+  // bound to one identity, and only that field decides who may redeem;
+  // sessions with no identity, or not yet finally bound, pass.
   if (!checkIdentityMatch(session, actorExternalUserId, actorChatId)) {
     await recordInvalidAttempt(channel, actorExternalUserId, actorChatId);
     return CONSUME_FAILURE;

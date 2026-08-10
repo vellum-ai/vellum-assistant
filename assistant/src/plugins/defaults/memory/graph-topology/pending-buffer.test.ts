@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
+import { formatRememberEntry } from "../buffer-format.js";
 import {
   buildPendingGraph,
   findPendingEntryForContent,
@@ -40,6 +41,39 @@ describe("parseBufferEntries", () => {
       "Migration plan for Alice:\nstep one is the export\n- [ ] follow up on the import\n- final touches",
     );
     expect(entries[1]!.text).toBe("separate fact");
+  });
+
+  test("a written fact stays one node even when its body is entry-shaped at column 0", () => {
+    // Round trip through the real writer. A user can dictate a fact whose body
+    // is itself a dated bullet, and without the writer nesting the body those
+    // lines are byte-identical to the start of the next fact, so one memory
+    // renders as several pending nodes in the Memory tab.
+    const entries = parseBufferEntries(
+      formatRememberEntry(
+        "Rollout plan:\n- [Jul 21, 9:00 AM] cutover window opens\n- [Jul 22, 9:00 AM] rollback deadline",
+        new Date(2026, 6, 20, 15, 15),
+      ),
+    );
+
+    expect(entries).toHaveLength(1);
+    expect(entries[0]!.text).toBe(
+      "Rollout plan:\n- [Jul 21, 9:00 AM] cutover window opens\n- [Jul 22, 9:00 AM] rollback deadline",
+    );
+  });
+
+  test("an indented entry-shaped line stays inside the fact above it", () => {
+    // Only an entry's opening line sits at column 0, so an indented bullet
+    // that happens to carry a timestamp is body text the user wrote. Reading
+    // it as an entry splits one fact into two nodes in the Memory tab.
+    const entries = parseBufferEntries(
+      "- [Jul 20, 3:15 PM] Timeline for the migration:\n" +
+        "  - [Jul 21, 9:00 AM] cutover window opens\n" +
+        "  - [Jul 22, 9:00 AM] rollback deadline\n",
+    );
+    expect(entries).toHaveLength(1);
+    expect(entries[0]!.text).toBe(
+      "Timeline for the migration:\n- [Jul 21, 9:00 AM] cutover window opens\n- [Jul 22, 9:00 AM] rollback deadline",
+    );
   });
 
   test("keeps interior blank lines inside a multiline fact", () => {

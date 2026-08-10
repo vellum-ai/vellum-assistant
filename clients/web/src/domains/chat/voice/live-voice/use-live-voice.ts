@@ -1359,8 +1359,12 @@ function disposeSessionPrimitives(
 function beginCaptureStartup(session: SessionContext): void {
   const generation = session.generation;
   session.capturePromise = session.capture.start().then((result) => {
-    if (result.ok && session.generation !== generation) {
-      void session.capture.stop();
+    if (result.ok) {
+      if (session.generation !== generation) {
+        void session.capture.stop();
+      } else {
+        useLiveVoiceStore.getState().setMicrophoneActive(true);
+      }
     }
     return result;
   });

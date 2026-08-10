@@ -86,24 +86,24 @@ describe("ICU message formatting", () => {
   });
 
   test("selects the singular plural category", () => {
-    expect(t("conversationAssets.label", { count: 1 })).toBe("1 asset");
-    expect(t("conversationAssets.ariaLabel", { count: 1 })).toBe(
+    expect(t("chat:conversationAssets.label", { count: 1 })).toBe("1 asset");
+    expect(t("chat:conversationAssets.ariaLabel", { count: 1 })).toBe(
       "Conversation assets, 1 item",
     );
-    expect(t("conversationAssets.ariaLabelUnseen", { count: 1 })).toBe(
+    expect(t("chat:conversationAssets.ariaLabelUnseen", { count: 1 })).toBe(
       "Conversation assets, 1 item (unseen changes)",
     );
   });
 
   test("selects the plural category for other counts", () => {
-    expect(t("conversationAssets.label", { count: 0 })).toBe("0 assets");
-    expect(t("conversationAssets.label", { count: 7 })).toBe("7 assets");
+    expect(t("chat:conversationAssets.label", { count: 0 })).toBe("0 assets");
+    expect(t("chat:conversationAssets.label", { count: 7 })).toBe("7 assets");
   });
 
   test("pluralizes in the active locale after a switch", async () => {
     await changeLocale("es");
-    expect(t("conversationAssets.label", { count: 1 })).toBe("1 recurso");
-    expect(t("conversationAssets.label", { count: 7 })).toBe("7 recursos");
+    expect(t("chat:conversationAssets.label", { count: 1 })).toBe("1 recurso");
+    expect(t("chat:conversationAssets.label", { count: 7 })).toBe("7 recursos");
   });
 
   test("renders a bare apostrophe literally", () => {

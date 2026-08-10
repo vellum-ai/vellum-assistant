@@ -117,12 +117,14 @@ const ACCEPTED_SCHEMES = resolveAcceptedSchemes(currentEnv);
  *     never logged, and never echoed on an `unknown` URL (which the
  *     renderer breadcrumbs to Sentry).
  *   - `vellum://billing/checkout-complete?status=…&session_id=…` →
- *     `{ kind: "billingCheckoutComplete", status, sessionId }`. The
- *     platform bounces a native-initiated Stripe Checkout here once
- *     the user finishes in the system browser. `status=success`
+ *     `{ kind: "billingCheckoutComplete", status, sessionId, flow }`.
+ *     The platform bounces a native-initiated Stripe Checkout here
+ *     once the user finishes in the system browser. `status=success`
  *     requires a well-formed Checkout Session id; `status=cancel`
- *     carries none. Anything else is `unknown` with the query
- *     stripped, so a stray session id never reaches telemetry.
+ *     carries none. `flow=top_up` marks a credit top-up checkout;
+ *     links without the param are subscription checkouts. Anything
+ *     else is `unknown` with the query stripped, so a stray session
+ *     id never reaches telemetry.
  *   - Malformed URL (unparseable, percent-encoding throws) →
  *     `kind: "unknown"`.
  */
@@ -152,17 +154,25 @@ export const parseVellumUrl = (input: string): DeepLink => {
     if (segment !== "checkout-complete") {
       return { kind: "unknown", url: withoutQuery };
     }
+    const flow: "subscription" | "top_up" =
+      url.searchParams.get("flow") === "top_up" ? "top_up" : "subscription";
     const status = url.searchParams.get("status");
     if (status === "cancel") {
       return {
         kind: "billingCheckoutComplete",
         status: "cancel",
         sessionId: null,
+        flow,
       };
     }
     const sessionId = url.searchParams.get("session_id") ?? "";
     if (status === "success" && CHECKOUT_SESSION_ID_RE.test(sessionId)) {
-      return { kind: "billingCheckoutComplete", status: "success", sessionId };
+      return {
+        kind: "billingCheckoutComplete",
+        status: "success",
+        sessionId,
+        flow,
+      };
     }
     return { kind: "unknown", url: withoutQuery };
   }

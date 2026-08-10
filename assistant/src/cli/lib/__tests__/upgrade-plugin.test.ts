@@ -32,6 +32,7 @@ import { computeFingerprint } from "../plugin-fingerprint.js";
 import { PluginNotInstalledError } from "../uninstall-plugin.js";
 import {
   PluginMergeBaselineError,
+  PluginNotCuratedError,
   PluginNotUpgradableError,
   upgradePlugin,
 } from "../upgrade-plugin.js";
@@ -572,6 +573,44 @@ describe("upgradePlugin — direct GitHub-URL installs", () => {
     expect(meta.source.ref).toBe("main");
     // AND the drift was resolved without cloning first (ls-remote, then fetch)
     expect(calls[0]?.[0]).toBe("ls-remote");
+  });
+
+  test("marketplaceOnly refuses the direct path instead of following the ref", async () => {
+    // GIVEN a direct install tracking `main` at SHA_A, absent from the
+    // marketplace, whose branch has advanced to SHA_B
+    installCopy(pluginsDir, "level-up", { commit: SHA_A, ref: "main" });
+    const fetch = makeFetch({ manifest: undefined });
+    const calls: string[][] = [];
+    const runGit = directGitRunner({ main: SHA_B }, SHA_B, { calls });
+
+    // WHEN a caller that only accepts a curated pin asks for the upgrade
+    const upgrade = upgradePlugin(
+      { name: "level-up", marketplaceOnly: true },
+      { fetch, runGit, workspacePluginsDir: pluginsDir },
+    );
+
+    // THEN it is refused, and the mutable ref is never even resolved
+    await expect(upgrade).rejects.toThrow(PluginNotCuratedError);
+    expect(calls).toEqual([]);
+    // AND the install stays exactly where it was
+    expect(sidecarCommit(pluginsDir, "level-up")).toBe(SHA_A);
+  });
+
+  test("marketplaceOnly still upgrades a plugin the catalog claims", async () => {
+    // GIVEN an install the marketplace pins at SHA_B
+    installCopy(pluginsDir, "level-up", { commit: SHA_A });
+    const fetch = makeFetch({ manifest: manifestWith("level-up", SHA_B) });
+    const runGit = fakeGitRunner(SHA_B);
+
+    // WHEN the same curated-only caller asks for the upgrade
+    const result = await upgradePlugin(
+      { name: "level-up", marketplaceOnly: true },
+      { fetch, runGit, workspacePluginsDir: pluginsDir },
+    );
+
+    // THEN the flag is inert: the curated pin is taken as usual
+    expect(result.outcome).toBe("upgraded");
+    expect(result.toCommit).toBe(SHA_B);
   });
 
   test("is a no-op when the recorded branch still points at the installed commit", async () => {

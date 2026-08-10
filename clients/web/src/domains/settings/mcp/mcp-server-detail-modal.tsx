@@ -124,8 +124,8 @@ export function McpServerDetailModal({
       }}
     >
       <Modal.Content size="lg">
-        <Modal.Header>
-          <Modal.Title icon={Cable}>{server.id}</Modal.Title>
+        <Modal.Header icon={Cable}>
+          <Modal.Title>{server.id}</Modal.Title>
           <Modal.Description>
             {server.transport.type} transport &middot; {server.status}
           </Modal.Description>

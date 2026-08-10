@@ -36,6 +36,7 @@ import { z } from "zod";
 
 import { usesConceptPageMemory } from "../../../../config/memory-v3-gate.js";
 import type { AssistantConfig } from "../../../../config/types.js";
+import { warmGuardianBindings } from "../../../../contacts/guardian-delivery-reader.js";
 import { emitNotificationSignal } from "../../../../notifications/emit-signal.js";
 import { getDb } from "../../../../persistence/db-connection.js";
 import type { MemoryJob } from "../../../../persistence/jobs-store.js";
@@ -43,10 +44,8 @@ import {
   conversations,
   messages,
 } from "../../../../persistence/schema/index.js";
-import {
-  appendBufferAndArchive,
-  formatRememberEntry,
-} from "../graph/tool-handlers.js";
+import { formatRememberEntry } from "../buffer-format.js";
+import { appendBufferAndArchive } from "../graph/tool-handlers.js";
 import {
   extractToolUse,
   type ToolDefinition,
@@ -154,6 +153,12 @@ export async function memoryV2SweepJob(
       log.warn("memoryV2Sweep provider unavailable; sweep skipped");
       return 0;
     }
+
+    // Warm both guardian-delivery cache keys (vellum + unfiltered) so
+    // resolveUserName's sync guardian-file resolution, including its
+    // any-channel fallback, hits fresh keys instead of falling back to
+    // users/default.md on this worker process's cold cache.
+    await warmGuardianBindings();
 
     const systemPrompt = renderSweepPrompt({
       assistantName: getAssistantName(),

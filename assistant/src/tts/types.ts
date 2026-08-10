@@ -113,6 +113,13 @@ export interface TtsSynthesisRequest {
    * on provider-documented behavior (see each provider's format mapping).
    */
   sampleRateHz?: number;
+
+  /**
+   * Optional lowercase BCP-47 base subtag (e.g. `"es"`, `"hi"`) hinting the
+   * language of `text`. Providers that support language enforcement apply
+   * it; providers that cannot use it must ignore it.
+   */
+  language?: string;
 }
 
 /** Output of a completed TTS synthesis call. */

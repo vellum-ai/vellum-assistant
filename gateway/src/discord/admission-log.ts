@@ -36,10 +36,9 @@ export type AdmissionDropLogLevel = "warn" | "info" | "debug";
  * reader cannot use, or when a snowflake is malformed. In each case a human
  * intends the bot to work somewhere and it silently does not, so it warns.
  *
- * `not_a_guild_message` and `bot_not_mentioned` are a person aiming a message
- * somewhere this client does not serve, either a DM or a channel remark that
- * does not address the bot. Neither is a fault, but both are evidence that
- * events reach the client at all.
+ * `bot_not_mentioned` is a person making a channel remark that does not
+ * address the bot. It is not a fault, but it is evidence that events reach the
+ * client at all.
  *
  * `self_authored` and `bot_authored` never promote. They are the bot's own
  * echo and other machines' traffic, they scale with how chatty a room is, and
@@ -47,7 +46,6 @@ export type AdmissionDropLogLevel = "warn" | "info" | "debug";
  */
 const DROP_LOG_SEVERITY: Record<AdmissionDropReason, AdmissionDropLogLevel> = {
   channel_not_allowed: "warn",
-  not_a_guild_message: "info",
   bot_not_mentioned: "info",
   self_authored: "debug",
   bot_authored: "debug",
@@ -57,12 +55,9 @@ const DROP_LOG_SEVERITY: Record<AdmissionDropReason, AdmissionDropLogLevel> = {
  * Channels tracked per reason before that reason stops promoting.
  *
  * The budget is per reason rather than shared because reasons differ in key
- * cardinality. Guild-channel reasons are bounded by how many channels the bot
- * can view, but `not_a_guild_message` is keyed on a DM channel, which is
- * unique per sender and so unbounded by anyone outside the guild. A shared
- * budget lets a stream of DMs exhaust it and silence `channel_not_allowed`,
- * the one reason an operator needs. Separate budgets mean a flood of one
- * reason can only ever silence itself.
+ * cardinality, and a shared budget would let a flood of one reason exhaust it
+ * and silence `channel_not_allowed`, the one reason an operator needs.
+ * Separate budgets mean a flood of one reason can only ever silence itself.
  */
 const MAX_TRACKED_CHANNELS_PER_REASON = 512;
 

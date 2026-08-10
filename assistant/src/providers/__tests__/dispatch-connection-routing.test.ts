@@ -449,9 +449,41 @@ describe("routing identities", () => {
       },
     } as never);
     expect(resolveProviderCalls[0]?.name).toBe("chatgpt-subscription");
-    // No override needed: the subscription row itself carries provider
-    // "openai", so the adapter resolves from the row.
+    // A pre-migration row carries provider "openai": no override needed, the
+    // adapter resolves from the row.
     expect(resolveProviderCalls[0]?.provider).toBe("openai");
+  });
+
+  test("a chatgpt-identity subscription row dispatches with an openai override", async () => {
+    // Migration 366 stamps the row with the "chatgpt" identity; the identity
+    // must never reach adapter construction, so dispatch threads the openai
+    // upstream as providerOverride, mirroring the vellum sentinel.
+    fakeConnections.set("chatgpt-subscription", {
+      name: "chatgpt-subscription",
+      provider: "chatgpt",
+      auth: {
+        type: "oauth_subscription",
+        credential: "credential/chatgpt/access_token",
+      },
+    });
+    fakeProviders.set("conn:chatgpt-subscription", {
+      name: "openai",
+      tag: "subscription",
+    });
+
+    const provider = await tryResolveProviderForConnectionName(
+      "ignored",
+      { llm: {} } as never,
+      "chatgpt",
+      "gpt-5.5",
+    );
+
+    expect(provider?.routeAttribution).toEqual({
+      connectionName: "chatgpt-subscription",
+      isManagedRoute: false,
+    });
+    expect(resolveProviderCalls[0]?.name).toBe("chatgpt-subscription");
+    expect(resolveProviderOpts[0]?.providerOverride).toBe("openai");
   });
 
   // A second managed row is creatable under any non-reserved name: only the

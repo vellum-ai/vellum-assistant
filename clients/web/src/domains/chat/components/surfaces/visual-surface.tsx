@@ -6,7 +6,11 @@ import type { Surface } from "@/domains/chat/types/types";
 import { useDocumentTheme } from "@/hooks/use-document-theme";
 import { useWidgetFontCss } from "@/hooks/use-widget-font-css";
 import { useWidgetTokenStyle } from "@/hooks/use-widget-token-style";
-import { injectWidgetBridge } from "@/utils/sandbox-bridge";
+import { openExternalUrl } from "@/runtime/browser";
+import {
+  injectWidgetBridge,
+  isRelayableExternalHref,
+} from "@/utils/sandbox-bridge";
 
 interface VisualSurfaceData {
   html?: string;
@@ -47,6 +51,28 @@ function hashString(value: string): number {
  * The parent honors it only under an active user activation and routes it
  * through the same `?prompt=` auto-send pathway the app viewer uses, so the
  * relay lands as a real user message.
+ *
+ * The frame gets no popup tokens, so every outbound link arrives here as a
+ * `vellum_open_link` relay the host opens after checking its scheme. A popup
+ * is a top-level navigation that the embedder's `frame-src` cannot constrain,
+ * so routing links through the host is what keeps the frame's only egress
+ * under host control.
+ *
+ * That relay is a known, accepted one-click egress path, and the activation
+ * gate below does not close it. `navigator.userActivation` reports that the
+ * user clicked *somewhere* in the frame, not that they clicked a link: widget
+ * script can wait for any click, then post its own `vellum_open_link` with the
+ * frameId it already knows and a URL carrying conversation-derived data. The
+ * host cannot tell that message apart from one the injected anchor
+ * interceptor sent, because both originate in the same frame.
+ *
+ * Nothing here can distinguish them. Closing it means either refusing to open
+ * frame-chosen URLs at all (a visual is a self-contained illustration, so
+ * links are arguably outside its contract) or confirming the destination with
+ * the user first. Both are product decisions rather than fixes, and the path
+ * is no worse than the popup channel it replaces. Treat the surface as able to
+ * exfiltrate on any click the user makes inside it, and do not add capability
+ * here on the assumption that the activation gate is a security boundary.
  */
 export function VisualSurface({ surface }: { surface: Surface }) {
   const navigate = useNavigate();
@@ -122,6 +148,20 @@ export function VisualSurface({ surface }: { surface: Surface }) {
         handleAppViewerAction({ navigate, isMobile: false }, "relay_prompt", {
           prompt,
         });
+        return;
+      }
+      if (msg.type === "vellum_open_link") {
+        // Stops markup that phones home on load or in a loop, and nothing
+        // more: an activation says the user clicked somewhere in the frame,
+        // not that they clicked this link. See the accepted one-click egress
+        // path in the component docstring before treating this as a boundary.
+        if (!navigator.userActivation?.isActive) {
+          return;
+        }
+        if (!isRelayableExternalHref(msg.href)) {
+          return;
+        }
+        void openExternalUrl(msg.href.trim());
       }
     };
 
@@ -139,7 +179,7 @@ export function VisualSurface({ surface }: { surface: Surface }) {
         ref={iframeRef}
         key={iframeKey}
         srcDoc={srcDoc}
-        sandbox="allow-scripts allow-popups allow-popups-to-escape-sandbox"
+        sandbox="allow-scripts"
         referrerPolicy="no-referrer"
         title={surface.title || "Visual"}
         style={{

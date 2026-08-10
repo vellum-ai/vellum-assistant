@@ -47,12 +47,7 @@ export function EmojiPickerPopup({
       className="mb-1 max-h-[240px] overflow-y-auto overflow-x-hidden rounded-lg border border-[var(--border-base)] bg-[var(--surface-base)] py-1 shadow-[0_-4px_12px_rgba(0,0,0,0.3)]"
     >
       {entries.map((entry, i) => (
-        <PanelItem
-          key={entry.shortcode}
-          asChild
-          active={i === selectedIndex}
-          label=""
-        >
+        <PanelItem key={entry.shortcode} asChild active={i === selectedIndex}>
           <button
             role="option"
             aria-selected={i === selectedIndex}

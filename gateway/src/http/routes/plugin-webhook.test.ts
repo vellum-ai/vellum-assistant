@@ -1,18 +1,57 @@
 import { createHmac } from "node:crypto";
 
-import { describe, expect, it } from "bun:test";
+import {
+  afterAll,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+} from "bun:test";
 
 import "../../__tests__/test-preload.js";
 import { initSigningKey } from "../../auth/token-service.js";
+import { IngressInboundSchema } from "../../channels/ingress-inbound.js";
+import type { GatewayInboundEvent } from "../../channels/inbound-event.js";
 import type { PluginIngressResolution } from "../../channels/plugin-ingress-approvals.js";
 import type { IngressRoute } from "../../channels/plugin-ingress.js";
 import type { GatewayConfig } from "../../config.js";
+import {
+  getGatewayDb,
+  initGatewayDb,
+  resetGatewayDb,
+} from "../../db/connection.js";
+import {
+  readInboundEventClaim,
+  INBOUND_CLAIM_LEASE_MS,
+} from "../../db/inbound-dedup-store.js";
+import { inboundSeenEvents } from "../../db/schema.js";
+import type { HandleInboundOptions } from "../../handlers/handle-inbound.js";
 import { createPluginWebhookHandler } from "./plugin-webhook.js";
 
 // The handler mints a real service token for the upstream hop. Initialising
 // the key beats mocking token-exchange, which is process-wide in bun and
 // would leak into every other suite in the run.
 initSigningKey(Buffer.from("test-signing-key-at-least-32-bytes-long"));
+
+// Inbound delivery claims each message against redelivery, and that claim is
+// a real row. Standing up the gateway DB beats stubbing the store: the thing
+// under test here is that a second copy of a message does not become a second
+// turn, and a stub would be asserting on the stub.
+beforeAll(async () => {
+  resetGatewayDb();
+  await initGatewayDb();
+});
+
+afterAll(() => {
+  resetGatewayDb();
+});
+
+// Claims outlive a test by design, so the tests below would otherwise dedup
+// against each other rather than against a redelivery.
+beforeEach(() => {
+  getGatewayDb().delete(inboundSeenEvents).run();
+});
 
 const CONFIG = {
   assistantRuntimeBaseUrl: "http://runtime.test:7821",
@@ -163,18 +202,69 @@ describe("approved routes", () => {
 });
 
 describe("the gate", () => {
-  it("404s a route the plugin declares but nobody approved", async () => {
-    // The whole point of the gate: pending is not served.
+  /** An unapproved declaration of `routes` for `meeting-bot`. */
+  function pendingWith(routes: IngressRoute[]): PluginIngressResolution {
+    return resolution({
+      pending: [{ plugin: "meeting-bot", routes, digest: "d".repeat(32) }],
+    });
+  }
+
+  it("does not forward a route the plugin declares but nobody approved", async () => {
+    // The whole point of the gate: pending is not served, however well the
+    // delivery is signed.
     const { calls, fetchImpl } = recordingFetch();
     const handle = createPluginWebhookHandler({
       config: CONFIG,
       credentials: CREDENTIALS,
-      resolve: () =>
-        resolution({
-          pending: [
-            { plugin: "meeting-bot", routes: [ROUTE], digest: "d".repeat(32) },
-          ],
-        }),
+      resolve: () => pendingWith([ROUTE]),
+      fetchImpl,
+    });
+
+    const res = await handle(
+      post("/webhooks/plugins/meeting-bot/realtime"),
+      "meeting-bot",
+      "realtime",
+    );
+
+    expect(res.status).toBe(409);
+    expect(await res.json()).toMatchObject({
+      error: "Ingress route awaiting approval",
+    });
+    expect(calls).toEqual([]);
+  });
+
+  it("tells only a verified caller that the route is waiting", async () => {
+    // A prober cannot sign, and the difference between 404 and 409 is exactly
+    // what would tell them a route is declared here. Every way of failing
+    // before the signature has to land on the same answer.
+    const { calls, fetchImpl } = recordingFetch();
+    const handle = createPluginWebhookHandler({
+      config: CONFIG,
+      credentials: CREDENTIALS,
+      resolve: () => pendingWith([ROUTE]),
+      fetchImpl,
+    });
+
+    for (const req of [
+      post("/webhooks/plugins/meeting-bot/realtime", "{}", ""),
+      post("/webhooks/plugins/meeting-bot/realtime", "{}", "wrong-secret"),
+      post("/webhooks/plugins/meeting-bot/realtime", "x".repeat(2048)),
+    ]) {
+      const res = await handle(req, "meeting-bot", "realtime");
+      expect(res.status).toBe(404);
+      expect(await res.json()).toEqual({ error: "Not Found" } as never);
+    }
+    expect(calls).toEqual([]);
+  });
+
+  it("hides a missing secret on an unapproved route", async () => {
+    // 409 "secret not configured" would name the plugin and the route to a
+    // caller who has proved nothing.
+    const { calls, fetchImpl } = recordingFetch();
+    const handle = createPluginWebhookHandler({
+      config: CONFIG,
+      credentials: credentialsFor({}),
+      resolve: () => pendingWith([ROUTE]),
       fetchImpl,
     });
 
@@ -886,5 +976,497 @@ describe("upstream failures", () => {
 
     expect(res.status).toBe(404);
     expect(await res.text()).toBe("no such route");
+  });
+});
+
+describe("inbound delivery", () => {
+  const INBOUND_ROUTE: IngressRoute = {
+    ...ROUTE,
+    path: "events",
+    inbound: IngressInboundSchema.parse({ identity: "phone" }),
+  };
+
+  /** A plugin reply, and a recorder for what reached the inbound pipeline. */
+  function replyingWith(body: unknown, status = 200) {
+    const handled: GatewayInboundEvent[] = [];
+    const options: (HandleInboundOptions | undefined)[] = [];
+    return {
+      handled,
+      options,
+      deps: {
+        config: CONFIG,
+        credentials: CREDENTIALS,
+        resolve: () => approvedWith([INBOUND_ROUTE]),
+        fetchImpl: async () =>
+          new Response(typeof body === "string" ? body : JSON.stringify(body), {
+            status,
+          }),
+        handleInboundImpl: async (
+          _config: GatewayConfig,
+          event: GatewayInboundEvent,
+          opts?: HandleInboundOptions,
+        ) => {
+          handled.push(event);
+          options.push(opts);
+          return { forwarded: true, rejected: false };
+        },
+      },
+    };
+  }
+
+  const MESSAGE = {
+    message: {
+      content: "hello",
+      conversationExternalId: "chat-1",
+      externalMessageId: "msg-1",
+    },
+    actor: { actorExternalId: "(202) 555-0142", displayName: "Ada" },
+  };
+
+  it("runs the plugin's reply through the inbound pipeline", async () => {
+    // The whole point: the delivery the gateway already authenticated is what
+    // produces the message, so nothing new has to be opened to receive one.
+    const { handled, deps } = replyingWith(MESSAGE);
+    const handle = createPluginWebhookHandler(deps);
+
+    const res = await handle(
+      post("/webhooks/plugins/meeting-bot/events"),
+      "meeting-bot",
+      "events",
+    );
+
+    expect(res.status).toBe(200);
+    expect(handled).toHaveLength(1);
+    expect(handled[0]!.sourceChannel).toBe("plugin");
+    expect(handled[0]!.message.content).toBe("hello");
+    expect(handled[0]!.actor.actorExternalId).toBe("meeting-bot:+12025550142");
+  });
+
+  it("tells the pipeline which plugin and which route it came from", async () => {
+    // A plugin can declare several routes, and knowing which one a turn
+    // arrived on separates a provider misconfiguration from a plugin bug.
+    const { options, deps } = replyingWith(MESSAGE);
+    const handle = createPluginWebhookHandler(deps);
+
+    await handle(
+      post("/webhooks/plugins/meeting-bot/events"),
+      "meeting-bot",
+      "events",
+    );
+
+    expect(options[0]?.sourceMetadata).toEqual({
+      plugin: "meeting-bot",
+      ingressRoute: "events",
+    });
+  });
+
+  it("does not echo the plugin's reply back to the vendor", async () => {
+    // The reply was addressed to us. A plugin normalizing a delivery into an
+    // event should not thereby send the sender's message back to the vendor.
+    const { deps } = replyingWith(MESSAGE);
+    const handle = createPluginWebhookHandler(deps);
+
+    const res = await handle(
+      post("/webhooks/plugins/meeting-bot/events"),
+      "meeting-bot",
+      "events",
+    );
+
+    expect(await res.json()).toEqual({ ok: true });
+  });
+
+  it("leaves a route that declares no delivery a plain proxy", async () => {
+    // Every declaration written before `inbound` existed means this, so the
+    // reply has to reach the vendor untouched and nothing may be delivered.
+    const { handled, deps } = replyingWith(MESSAGE);
+    const handle = createPluginWebhookHandler({
+      ...deps,
+      resolve: () => approvedWith([{ ...INBOUND_ROUTE, inbound: undefined }]),
+    });
+
+    const res = await handle(
+      post("/webhooks/plugins/meeting-bot/events"),
+      "meeting-bot",
+      "events",
+    );
+
+    expect(handled).toHaveLength(0);
+    expect(await res.json()).toEqual(MESSAGE as never);
+  });
+
+  it("delivers nothing when the plugin only acknowledged", async () => {
+    // The ordinary case. Receipts, echoes, and events the plugin does not
+    // handle all reply like this, and none of them is a turn.
+    const { handled, deps } = replyingWith({ ok: true, ignored: "an echo" });
+    const handle = createPluginWebhookHandler(deps);
+
+    const res = await handle(
+      post("/webhooks/plugins/meeting-bot/events"),
+      "meeting-bot",
+      "events",
+    );
+
+    expect(res.status).toBe(200);
+    expect(handled).toHaveLength(0);
+  });
+
+  it("still acknowledges the vendor when the reply cannot be read", async () => {
+    // The delivery was authentic and the plugin accepted it, so a failure to
+    // interpret its answer is ours. A 5xx here would have the vendor retry a
+    // delivery that fails the same way every time.
+    const { handled, deps } = replyingWith("not json at all");
+    const handle = createPluginWebhookHandler(deps);
+
+    const res = await handle(
+      post("/webhooks/plugins/meeting-bot/events"),
+      "meeting-bot",
+      "events",
+    );
+
+    expect(res.status).toBe(200);
+    expect(handled).toHaveLength(0);
+  });
+
+  it("asks the vendor to retry when the pipeline throws", async () => {
+    // A message that never reached the runtime would land on the next attempt.
+    // Acknowledging it loses a real message for the length of an outage, so
+    // this answers retryably and lets the vendor's own retry carry it.
+    const { deps } = replyingWith(MESSAGE);
+    const handle = createPluginWebhookHandler({
+      ...deps,
+      handleInboundImpl: async () => {
+        throw new Error("runtime is down");
+      },
+    });
+
+    const res = await handle(
+      post("/webhooks/plugins/meeting-bot/events"),
+      "meeting-bot",
+      "events",
+    );
+
+    expect(res.status).toBe(503);
+    expect(res.headers.get("Retry-After")).toBe("30");
+  });
+
+  it("asks the vendor to retry when the forward failed", async () => {
+    // `handleInbound` reports a runtime it could not reach as `forwarded:
+    // false` rather than by throwing, so the quiet case needs the same answer
+    // as the loud one.
+    const { deps } = replyingWith(MESSAGE);
+    const handle = createPluginWebhookHandler({
+      ...deps,
+      handleInboundImpl: async () => ({ forwarded: false, rejected: false }),
+    });
+
+    const res = await handle(
+      post("/webhooks/plugins/meeting-bot/events"),
+      "meeting-bot",
+      "events",
+    );
+
+    expect(res.status).toBe(503);
+  });
+
+  it("acknowledges a message the pipeline decided against", async () => {
+    // A rejection is a decision, not a failure: the message reached the
+    // pipeline and the pipeline said no. Sending it again changes nothing.
+    const { deps } = replyingWith(MESSAGE);
+    const handle = createPluginWebhookHandler({
+      ...deps,
+      handleInboundImpl: async () => ({
+        forwarded: false,
+        rejected: true,
+        rejectionReason: "admission_no_one",
+      }),
+    });
+
+    const res = await handle(
+      post("/webhooks/plugins/meeting-bot/events"),
+      "meeting-bot",
+      "events",
+    );
+
+    expect(res.status).toBe(200);
+  });
+
+  it("carries the vendor payload the plugin kept", async () => {
+    // The gateway understands only the declared fields, so anything the vendor
+    // sent beyond them survives on `raw` or nowhere.
+    const { handled, deps } = replyingWith({
+      ...MESSAGE,
+      raw: { reactions: ["heart"] },
+    });
+    const handle = createPluginWebhookHandler(deps);
+
+    await handle(
+      post("/webhooks/plugins/meeting-bot/events"),
+      "meeting-bot",
+      "events",
+    );
+
+    expect(handled[0]!.raw).toEqual({ reactions: ["heart"] });
+  });
+
+  it("delivers nothing from a reply the plugin itself failed", async () => {
+    // A plugin reporting a failure is not reporting a message, and the vendor
+    // gets that status back so its own retry logic can act on it.
+    const { handled, deps } = replyingWith(MESSAGE, 500);
+    const handle = createPluginWebhookHandler(deps);
+
+    const res = await handle(
+      post("/webhooks/plugins/meeting-bot/events"),
+      "meeting-bot",
+      "events",
+    );
+
+    expect(res.status).toBe(500);
+    expect(handled).toHaveLength(0);
+  });
+
+  it("delivers nothing from a route awaiting approval", async () => {
+    // The gate stands in front of this like everything else: a declaration
+    // that can start conversations must be one a guardian decided about.
+    const { handled, deps } = replyingWith(MESSAGE);
+    const handle = createPluginWebhookHandler({
+      ...deps,
+      resolve: () =>
+        resolution({
+          pending: [
+            {
+              plugin: "meeting-bot",
+              routes: [INBOUND_ROUTE],
+              digest: "d".repeat(32),
+            },
+          ],
+        }),
+    });
+
+    const res = await handle(
+      post("/webhooks/plugins/meeting-bot/events"),
+      "meeting-bot",
+      "events",
+    );
+
+    expect(res.status).toBe(409);
+    expect(handled).toHaveLength(0);
+  });
+});
+
+describe("inbound dedup", () => {
+  const INBOUND_ROUTE: IngressRoute = {
+    ...ROUTE,
+    path: "events",
+    inbound: IngressInboundSchema.parse({ identity: "phone" }),
+  };
+
+  const MESSAGE = {
+    message: {
+      content: "hello",
+      conversationExternalId: "chat-1",
+      externalMessageId: "msg-1",
+    },
+    actor: { actorExternalId: "(202) 555-0142" },
+  };
+
+  /** What MESSAGE is claimed under, once the plugin scoping is applied. */
+  const DEDUP_KEY = {
+    sourceChannel: "plugin",
+    externalChatId: "meeting-bot:chat-1",
+    externalMessageId: "meeting-bot:msg-1",
+  };
+
+  /**
+   * A handler over a fixed plugin reply, recording what reached the pipeline.
+   *
+   * `handleInboundImpl` is a parameter rather than fixed because what the
+   * pipeline did is exactly what decides whether the claim is kept: a message
+   * it handled stays claimed, a message it could not take is released so the
+   * vendor's retry is not answered as a duplicate.
+   */
+  function handlerFor(
+    handleInboundImpl: NonNullable<
+      Parameters<typeof createPluginWebhookHandler>[0]["handleInboundImpl"]
+    >,
+    reply: unknown = MESSAGE,
+  ) {
+    return createPluginWebhookHandler({
+      config: CONFIG,
+      credentials: CREDENTIALS,
+      resolve: () => approvedWith([INBOUND_ROUTE]),
+      fetchImpl: async () => new Response(JSON.stringify(reply)),
+      handleInboundImpl,
+    });
+  }
+
+  function deliver(handle: ReturnType<typeof createPluginWebhookHandler>) {
+    return handle(
+      post("/webhooks/plugins/meeting-bot/events"),
+      "meeting-bot",
+      "events",
+    );
+  }
+
+  function accepting() {
+    const handled: GatewayInboundEvent[] = [];
+    return {
+      handled,
+      impl: async (_c: GatewayConfig, event: GatewayInboundEvent) => {
+        handled.push(event);
+        return { forwarded: true, rejected: false };
+      },
+    };
+  }
+
+  it("runs a redelivered message once, and acknowledges the second copy", async () => {
+    // Every vendor retries: on a timeout, on a 5xx, on an ack it did not see.
+    // The assistant deduped this already, but on the far side of the handoff,
+    // so without the claim a retry still costs a crossing and lands wherever
+    // the pipeline happens to be idempotent.
+    const { handled, impl } = accepting();
+    const handle = handlerFor(impl);
+
+    const first = await deliver(handle);
+    const second = await deliver(handle);
+
+    expect(handled).toHaveLength(1);
+    expect(first.status).toBe(200);
+    // 200, not an error: the delivery did land, and anything else asks the
+    // vendor to keep sending it.
+    expect(second.status).toBe(200);
+  });
+
+  it("does not treat the next message in a conversation as a retry", async () => {
+    const { handled, impl } = accepting();
+
+    await deliver(handlerFor(impl));
+    await deliver(
+      handlerFor(impl, {
+        ...MESSAGE,
+        message: { ...MESSAGE.message, externalMessageId: "msg-2" },
+      }),
+    );
+
+    expect(handled).toHaveLength(2);
+  });
+
+  it("lets the retry through after the pipeline threw", async () => {
+    // The 503 asked for this delivery again. Keeping the claim would answer
+    // the retry we requested as a duplicate, which is how a message is lost
+    // while both sides report having done the right thing.
+    const failing = await deliver(
+      handlerFor(async () => {
+        throw new Error("runtime is down");
+      }),
+    );
+    expect(failing.status).toBe(503);
+
+    const { handled, impl } = accepting();
+    const retried = await deliver(handlerFor(impl));
+
+    expect(retried.status).toBe(200);
+    expect(handled).toHaveLength(1);
+  });
+
+  it("lets the retry through after the forward quietly failed", async () => {
+    // `handleInbound` reports an unreachable runtime as `forwarded: false`
+    // rather than by throwing, so the quiet path needs the same release.
+    const failing = await deliver(
+      handlerFor(async () => ({ forwarded: false, rejected: false })),
+    );
+    expect(failing.status).toBe(503);
+
+    const { handled, impl } = accepting();
+    await deliver(handlerFor(impl));
+
+    expect(handled).toHaveLength(1);
+  });
+
+  it("holds the claim on a message the pipeline decided against", async () => {
+    // A rejection is a decision the pipeline already made. Re-running it on
+    // every vendor retry would re-run its side effects too, and the denial
+    // reply is one of them.
+    let calls = 0;
+    const handle = handlerFor(async () => {
+      calls += 1;
+      return {
+        forwarded: false,
+        rejected: true,
+        rejectionReason: "admission_no_one",
+      };
+    });
+
+    await deliver(handle);
+    const second = await deliver(handle);
+
+    expect(calls).toBe(1);
+    expect(second.status).toBe(200);
+  });
+
+  it("claims nothing for a reply that carried no message", async () => {
+    // A receipt or an echo is not a delivery to dedup, and claiming one would
+    // put a row in the table for every event a plugin ever declines.
+    const { handled, impl } = accepting();
+    await deliver(handlerFor(impl, { ok: true, ignored: "an echo" }));
+
+    expect(handled).toHaveLength(0);
+    expect(getGatewayDb().select().from(inboundSeenEvents).all()).toHaveLength(
+      0,
+    );
+  });
+
+  it("claims under the plugin-scoped id, not the vendor's", async () => {
+    // One channel id covers every installed plugin, so two vendors both
+    // numbering messages from 1 would otherwise be each other's duplicates.
+    const { impl } = accepting();
+    await deliver(handlerFor(impl));
+
+    expect(getGatewayDb().select().from(inboundSeenEvents).all()).toEqual([
+      expect.objectContaining({
+        sourceChannel: "plugin",
+        externalChatId: "meeting-bot:chat-1",
+        externalMessageId: "meeting-bot:msg-1",
+      }),
+    ] as never);
+  });
+
+  it("commits the claim once the message reached the runtime", async () => {
+    // Committing is what turns the in-flight lease into the dedup window. A
+    // delivery that landed and stayed `pending` would start admitting retries
+    // again the moment its lease lapsed.
+    const { impl } = accepting();
+    await deliver(handlerFor(impl));
+
+    expect(readInboundEventClaim(DEDUP_KEY)?.state).toBe("committed");
+  });
+
+  it("leaves a delivery reclaimable when the gateway dies mid-handoff", async () => {
+    // The failure nothing can roll back: a deploy, an OOM, a host crash
+    // between claiming the delivery and handing it over. Nothing runs, so
+    // nothing releases, and the row survives the restart. If it were the full
+    // window it would answer every retry as already-delivered for a day,
+    // outliving the vendor's retry schedule and losing the message for good.
+    // The lease is what makes that recoverable, so the claim must be short and
+    // uncommitted while the handoff is in flight.
+    // Freeze the handoff at the point the gateway would have died: entered,
+    // never returning. Waiting on `entered` rather than a tick keeps this
+    // deterministic, since the claim is taken just before the pipeline runs.
+    let enter!: () => void;
+    const entered = new Promise<void>((resolve) => {
+      enter = resolve;
+    });
+    void deliver(
+      handlerFor(() => {
+        enter();
+        return new Promise<never>(() => {});
+      }),
+    );
+    await entered;
+
+    const claim = readInboundEventClaim(DEDUP_KEY);
+    expect(claim?.state).toBe("pending");
+    expect(claim!.expiresAt - claim!.seenAt).toBeLessThanOrEqual(
+      INBOUND_CLAIM_LEASE_MS,
+    );
   });
 });

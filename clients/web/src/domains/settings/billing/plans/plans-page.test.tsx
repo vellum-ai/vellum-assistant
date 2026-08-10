@@ -1371,7 +1371,7 @@ function legacyStorageCatalog(): PlanListResponse {
   return catalog;
 }
 
-function openDropdown(ariaLabel: string): void {
+function openSelect(ariaLabel: string): void {
   const trigger = document.querySelector<HTMLButtonElement>(
     `button[role="combobox"][aria-label="${ariaLabel}"]`,
   );
@@ -1382,8 +1382,8 @@ function openDropdown(ariaLabel: string): void {
 }
 
 /** Clicks the open-menu option whose text starts with `label`. */
-function selectOption(dropdownLabel: string, optionLabel: string): void {
-  openDropdown(dropdownLabel);
+function selectOption(selectLabel: string, optionLabel: string): void {
+  openSelect(selectLabel);
   const option = Array.from(
     document.querySelectorAll<HTMLElement>('[role="option"]'),
   ).find((o) => (o.textContent?.trim() ?? "").startsWith(optionLabel));

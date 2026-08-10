@@ -28,6 +28,7 @@ import {
   FileTextarea,
   SourcePre,
 } from "@/components/file-editor";
+import { useTranslation } from "@/i18n";
 import { FileMarkdown, isMarkdown } from "@/components/file-markdown";
 import { isJson, prettifyJson } from "@/domains/workspace/utils/file-json";
 import { formatFileSize } from "@/domains/workspace/utils/format-file-size";
@@ -94,6 +95,7 @@ function HeaderDownloadButton({
   name: string;
   showHidden?: boolean;
 }) {
+  const { t } = useTranslation("workspace");
   const { isDownloading, error, download } = useWorkspaceFileDownload({
     assistantId,
     path,
@@ -113,8 +115,12 @@ function HeaderDownloadButton({
       }
       onClick={() => void download()}
       disabled={isDownloading}
-      aria-label={`Download ${name}`}
-      tooltip={error ? "Download failed. Try again." : "Download"}
+      aria-label={t("workspaceFileViewer.downloadAria", { name })}
+      tooltip={
+        error
+          ? t("workspaceFileViewer.downloadFailed")
+          : t("workspaceFileViewer.download")
+      }
     />
   );
 }
@@ -179,6 +185,7 @@ function ViewModeToggle({
   viewMode: WorkspaceViewMode;
   onChange: (mode: WorkspaceViewMode) => void;
 }) {
+  const { t } = useTranslation("workspace");
   return (
     <div
       className="inline-flex rounded-md p-0.5"
@@ -203,7 +210,9 @@ function ViewModeToggle({
               boxShadow: active ? "0 1px 2px rgba(0,0,0,0.15)" : undefined,
             }}
           >
-            {mode === "preview" ? "Preview" : "Source"}
+            {mode === "preview"
+              ? t("workspaceFileViewer.preview")
+              : t("workspaceFileViewer.source")}
           </Button>
         );
       })}
@@ -352,6 +361,7 @@ function BinaryFileCard({
   modifiedAt?: string | null;
   showHidden?: boolean;
 }) {
+  const { t } = useTranslation("workspace");
   const {
     isDownloading,
     error,
@@ -403,7 +413,8 @@ function BinaryFileCard({
                   color: "var(--content-secondary, var(--content-tertiary))",
                 }}
               >
-                Modified: {new Date(modifiedAt).toLocaleString()}
+                {t("workspaceFileViewer.modifiedLabel")}{" "}
+                {new Date(modifiedAt).toLocaleString()}
               </p>
             )}
           </div>
@@ -419,17 +430,19 @@ function BinaryFileCard({
             }
             onClick={handleDownload}
             disabled={isDownloading}
-            aria-label={`Download ${name}`}
+            aria-label={t("workspaceFileViewer.downloadAria", { name })}
             className="mt-4"
           >
-            {isDownloading ? "Downloading…" : "Download"}
+            {isDownloading
+              ? t("workspaceFileViewer.downloading")
+              : t("workspaceFileViewer.download")}
           </Button>
           {error && (
             <p
               className="mt-2 text-body-small-default"
               style={{ color: "var(--system-error)" }}
             >
-              Download failed. Try again.
+              {t("workspaceFileViewer.downloadFailed")}
             </p>
           )}
         </div>
@@ -459,6 +472,7 @@ export function WorkspaceFileViewer({
   /** Last successful workspace delete, so drafts for the path are discarded. */
   pathDelete?: { path: string } | null;
 }) {
+  const { t } = useTranslation("workspace");
   const queryClient = useQueryClient();
   const { data, isLoading } = useQuery({
     ...workspaceFileRetrieveOptions({
@@ -568,7 +582,7 @@ export function WorkspaceFileViewer({
           className="text-body-medium-lighter"
           style={{ color: "var(--content-tertiary)" }}
         >
-          Select a file to view
+          {t("workspaceFileViewer.selectAFile")}
         </p>
         {onBrowse && (
           <Button
@@ -577,7 +591,7 @@ export function WorkspaceFileViewer({
             leftIcon={<FolderOpen aria-hidden />}
             className="sm:hidden"
           >
-            Browse files
+            {t("workspaceFileViewer.browseFiles")}
           </Button>
         )}
       </div>
@@ -602,7 +616,7 @@ export function WorkspaceFileViewer({
           className="text-body-medium-lighter"
           style={{ color: "var(--content-tertiary)" }}
         >
-          File not found
+          {t("workspaceFileViewer.fileNotFound")}
         </p>
       </div>
     );
@@ -625,7 +639,7 @@ export function WorkspaceFileViewer({
     <EditFooter
       isDirty={isDirty}
       isSaving={saveMutation.isPending}
-      error={saveMutation.isError ? "Save failed" : null}
+      error={saveMutation.isError ? t("workspaceFileViewer.saveFailed") : null}
       onSave={handleSave}
       onDiscard={stopEditing}
     />

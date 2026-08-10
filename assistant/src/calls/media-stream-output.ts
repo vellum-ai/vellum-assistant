@@ -41,7 +41,7 @@ import { extractSpeakableSegments } from "../tts/speakable-segments.js";
 import { synthesizeAndEmit } from "../tts/synthesis-stream.js";
 import { getLogger } from "../util/logger.js";
 import type { CallAudioFormat } from "./audio-store.js";
-import type { CallTransport } from "./call-transport.js";
+import type { CallTransport, SendTextTokenOptions } from "./call-transport.js";
 import {
   chunkMulawToBase64Frames,
   MULAW_FRAME_SIZE,
@@ -54,6 +54,10 @@ import type {
   MediaStreamSendMediaCommand,
 } from "./media-stream-protocol.js";
 import { resolveCallTtsProvider } from "./resolve-call-tts-provider.js";
+import {
+  resolveTelephonyLanguageVoice,
+  resolveTelephonySynthesisLanguage,
+} from "./telephony-synthesis-language.js";
 
 const log = getLogger("media-stream-output");
 
@@ -289,7 +293,7 @@ export type MediaStreamOutputState = "connected" | "closed";
  */
 type PlaybackItem =
   | { type: "frames"; frames: string[] }
-  | { type: "synthesize"; text: string }
+  | { type: "synthesize"; text: string; systemCopy: boolean }
   | { type: "fetch-url"; url: string }
   | { type: "mark"; name: string };
 
@@ -338,6 +342,15 @@ export class MediaStreamOutput implements CallTransport {
    */
   private audioStartCallback: (() => void) | null = null;
 
+  /**
+   * Resolves the language hint passed on synthesis requests. Defaults to
+   * the pin-based resolution; the media-stream server overrides it with
+   * a resolver that consults the STT session's detected dominant
+   * language.
+   */
+  private resolveSynthesisLanguage: () => string | undefined = () =>
+    resolveTelephonySynthesisLanguage();
+
   /** Incremented per end-of-turn mark enqueued. */
   private enqueuedEndOfTurnSeq = 0;
 
@@ -373,8 +386,16 @@ export class MediaStreamOutput implements CallTransport {
    * An empty token with `last: true` signals end-of-turn without TTS:
    * a mark is sent so the session transitions from "assistant speaking"
    * to "caller speaking".
+   *
+   * `opts.systemCopy` marks fixed English system copy: its segments
+   * synthesize without the caller-language hint (see
+   * {@link processSynthesizeItem}).
    */
-  sendTextToken(token: string, last: boolean): void {
+  sendTextToken(
+    token: string,
+    last: boolean,
+    opts?: SendTextTokenOptions,
+  ): void {
     if (this.state === "closed") {
       return;
     }
@@ -388,7 +409,11 @@ export class MediaStreamOutput implements CallTransport {
     );
     this.textBuffer = remainder;
     for (const segment of segments) {
-      this.enqueuePlayback({ type: "synthesize", text: segment });
+      this.enqueuePlayback({
+        type: "synthesize",
+        text: segment,
+        systemCopy: opts?.systemCopy === true,
+      });
       this.turnSegmentEnqueued = true;
     }
 
@@ -425,6 +450,14 @@ export class MediaStreamOutput implements CallTransport {
    */
   setAudioStartCallback(cb: (() => void) | null): void {
     this.audioStartCallback = cb;
+  }
+
+  /**
+   * Override the synthesis-language resolver (see
+   * {@link resolveSynthesisLanguage}).
+   */
+  setSynthesisLanguageResolver(resolver: () => string | undefined): void {
+    this.resolveSynthesisLanguage = resolver;
   }
 
   /**
@@ -778,7 +811,9 @@ export class MediaStreamOutput implements CallTransport {
             break;
 
           case "synthesize":
-            await this.processSynthesizeItem(item.text, version);
+            await this.processSynthesizeItem(item.text, version, {
+              systemCopy: item.systemCopy,
+            });
             break;
 
           case "fetch-url":
@@ -827,10 +862,17 @@ export class MediaStreamOutput implements CallTransport {
    * each streamed chunk becomes frames as it arrives — while other
    * providers accumulate into the whole-buffer conversion path. Falls
    * back to a silent frame if synthesis fails.
+   *
+   * `systemCopy` items are fixed English copy: they synthesize without a
+   * language hint (and therefore without a per-language voice override),
+   * so an enforcing provider never renders English text in the caller's
+   * language (same exemption as call-speech-output's synthesized path).
+   * Model text keeps the resolver's hint.
    */
   private async processSynthesizeItem(
     text: string,
     version: number,
+    { systemCopy }: { systemCopy: boolean },
   ): Promise<void> {
     const abortController = new AbortController();
     this.activePlaybackAbort = abortController;
@@ -876,12 +918,18 @@ export class MediaStreamOutput implements CallTransport {
       // Providers that support it (e.g. ElevenLabs pcm_16000) will
       // return raw PCM; others fall back to their default format and
       // the content-type sniffing below handles the mismatch.
+      const language = systemCopy ? undefined : this.resolveSynthesisLanguage();
+      // A language-known segment may select the synthesizing provider's
+      // configured per-language voice; no entry keeps the provider default.
+      const voiceId = resolveTelephonyLanguageVoice(provider.id, language);
       const result = await synthesizeAndEmit({
         provider,
         text,
         useCase: "phone-call",
         outputFormat: "pcm",
         sampleRateHz: STREAMING_PCM_SAMPLE_RATE_HZ,
+        ...(voiceId !== undefined ? { voiceId } : {}),
+        ...(language !== undefined ? { language } : {}),
         signal: abortController.signal,
         isCurrent,
         onChunk: (chunk) => {

@@ -7,6 +7,13 @@
  * it is deliberately conservative: a message is dropped unless it is a direct
  * mention of the bot in a channel the operator listed.
  *
+ * A DM is the one message that is already addressed to the bot and nobody
+ * else, so it is admitted on a separate lane: no allow-list entry, because a
+ * DM belongs to no guild channel, and no mention, because @-ing a bot in its
+ * own DM is not how anyone writes. What that lane admits is a *room*, not a
+ * person. Who may actually be answered there is the trust-class admission
+ * floor's decision downstream, and Discord's floor admits trusted contacts.
+ *
  * This is admission of *rooms and intent* — distinct from, and evaluated
  * before, the trust-class admission floor that governs *actors* once an event
  * reaches the runtime.
@@ -52,7 +59,6 @@ export interface AdmissionCandidate {
 export type AdmissionDropReason =
   | "self_authored"
   | "bot_authored"
-  | "not_a_guild_message"
   | "channel_not_allowed"
   | "bot_not_mentioned";
 
@@ -96,10 +102,26 @@ export function admitDiscordMessage(
     return drop("bot_authored");
   }
 
-  // Admission is expressed as a list of guild channels, so a DM matches no
-  // entry on it. Admitting DMs is a separate policy decision, not a gap here.
+  // A DM is already addressed to the bot alone, so neither of the two guild
+  // checks below has anything to say about it: it sits on no channel the
+  // allow-list could name, and it needs no mention to be meant for the bot.
+  // The room is admitted; whether this particular person is answered in it is
+  // the runtime's trust-class floor to decide.
+  //
+  // This reads an absent guild as a DM, which makes the absence load-bearing:
+  // it is the only thing standing between "private" and "a public channel
+  // admitted without either control". The ingress schema therefore collapses a
+  // malformed `guild_id` to a sentinel rather than to `undefined`, so a parse
+  // failure stays on the guild path. Do not relax that without moving this
+  // branch onto positive evidence of a DM.
+  //
+  // A Discord *group* DM is also guild-less and would be admitted here. This
+  // app cannot be in one: a bot joins a group DM only via the `gdm.join` OAuth
+  // scope, and the invite the setup skill builds requests `bot` and
+  // `applications.commands` only. Adding that scope would need this branch to
+  // distinguish the two first.
   if (!candidate.guildId) {
-    return drop("not_a_guild_message");
+    return ADMITTED;
   }
 
   // An unset allow-list admits nothing. The operator opting the bot into a

@@ -1,4 +1,4 @@
-import { and, count, desc, eq, inArray, isNull, lt, sql } from "drizzle-orm";
+import { and, count, desc, eq, isNull, lt, sql } from "drizzle-orm";
 
 import {
   parseExternalContentEnvelope,
@@ -16,6 +16,7 @@ import { ensureGroupMigration } from "./conversation-group-migration.js";
 import { searchMessageIdsLexical } from "./conversation-search-lexical.js";
 import {
   type ConversationType,
+  NATIVE_ORIGIN_CHANNEL,
   PINNED_GROUP_ID,
   UNGROUPED_GROUP_ID,
 } from "./conversation-types.js";
@@ -25,11 +26,14 @@ import {
   parseContentRef,
   resolveMessageContentBlocks,
 } from "./message-content-file.js";
+import {
+  countMessagesByRoleForConversations,
+  latestUserMessageRawContent,
+} from "./message-reads.js";
 import { rawAll } from "./raw-query.js";
 import {
   conversationAssistantAttentionState,
   conversations,
-  messages,
 } from "./schema/index.js";
 
 const log = getLogger("conversation-store");
@@ -299,24 +303,28 @@ function groupIdClause(groupId: string) {
 }
 
 /**
- * Order a group's rows the way the user arranged them: by explicit
- * `display_order` first, then by recency. Only meaningful for a real group;
- * the ungrouped bucket is pure recency, since a row that was dragged inside a
- * group and later removed keeps a stale `display_order` that must not
- * resurface as a sort key.
+ * SQL predicate for {@link ConversationListFilter.originChannel}.
+ *
+ * `'vellum'` additionally matches NULL. `origin_channel` is left NULL at
+ * insert precisely so an inbound message can still claim the conversation for
+ * its channel (`setConversationOriginChannelIfUnset` is guarded on `isNull`),
+ * and migration 288 settles whatever was never claimed to `'vellum'` at daemon
+ * startup. NULL is therefore "not yet attributed", and it is what the
+ * overwhelming majority of rows carry between one boot and the next.
+ *
+ * A strict equality would put those rows in no section at all: not native, not
+ * any channel. Reading NULL as native is the self-correcting error of the two,
+ * since the only rows it can misplace are ones whose inbound message has not
+ * arrived yet, and that message moves them the moment it does.
+ *
+ * Every other channel matches exactly. A row is claimed for a channel only by
+ * that channel, so there is no ambiguity to be tolerant about.
  */
-function isUserOrderedGroup(groupId: string | undefined): boolean {
-  if (groupId === undefined) {
-    return false;
+function originChannelClause(originChannel: string) {
+  if (originChannel === NATIVE_ORIGIN_CHANNEL) {
+    return sql`(origin_channel IS NULL OR origin_channel = ${NATIVE_ORIGIN_CHANNEL})`;
   }
-  // Pinned and custom groups are the only drag-reorderable sections, so they
-  // are the only ones whose `display_order` means anything. Every other
-  // system bucket sorts by recency: `batchSetDisplayOrders` writes
-  // `display_order` alongside `group_id` when a row moves into
-  // `system:background` / `system:scheduled`, and that value persists through
-  // later moves, so honouring it would order the same section differently
-  // depending on whether it was fetched by `conversationType` or `groupId`.
-  return groupId === PINNED_GROUP_ID || !groupId.startsWith("system:");
+  return eq(conversations.originChannel, originChannel);
 }
 
 function conversationListWhere(filter: ConversationListFilter) {
@@ -329,7 +337,7 @@ function conversationListWhere(filter: ConversationListFilter) {
   return and(
     conversationTypeClause(conversationType),
     archiveStatusClause(archiveStatus) ?? undefined,
-    originChannel ? eq(conversations.originChannel, originChannel) : undefined,
+    originChannel ? originChannelClause(originChannel) : undefined,
     groupId ? groupIdClause(groupId) : undefined,
   );
 }
@@ -354,14 +362,11 @@ export function listConversations(
   // distinguish a total order from a lucky one. The guarantee becomes
   // observable, and gets its test, with the keyset pagination work.
   const tiebreak = desc(conversations.id);
-  const orderBy = isUserOrderedGroup(filter.groupId)
-    ? [sql`COALESCE(display_order, 999999) ASC`, recency, tiebreak]
-    : [recency, tiebreak];
   return db
     .select()
     .from(conversations)
     .where(conversationListWhere(filter))
-    .orderBy(...orderBy)
+    .orderBy(recency, tiebreak)
     .limit(limit ?? 100)
     .offset(offset)
     .all()
@@ -436,31 +441,7 @@ export function getMessageRoleStatsByConversation(
   conversationIds: string[],
   role: string = "assistant",
 ): Map<string, { count: number; lastAt: number }> {
-  if (conversationIds.length === 0) {
-    return new Map();
-  }
-  const db = getDb();
-  const rows = db
-    .select({
-      conversationId: messages.conversationId,
-      count: sql<number>`COUNT(*)`.as("count"),
-      lastAt: sql<number>`MAX(${messages.createdAt})`.as("last_at"),
-    })
-    .from(messages)
-    .where(
-      and(
-        inArray(messages.conversationId, conversationIds),
-        eq(messages.role, role),
-      ),
-    )
-    .groupBy(messages.conversationId)
-    .all();
-  return new Map(
-    rows.map((r) => [
-      r.conversationId,
-      { count: Number(r.count), lastAt: Number(r.lastAt) },
-    ]),
-  );
+  return countMessagesByRoleForConversations(conversationIds, role);
 }
 
 export function listPinnedConversations(
@@ -487,7 +468,6 @@ export function listPinnedConversations(
       ),
     )
     .orderBy(
-      sql`COALESCE(display_order, 999999) ASC`,
       desc(
         sql`COALESCE(${conversations.lastMessageAt}, ${conversations.updatedAt})`,
       ),
@@ -534,6 +514,8 @@ export function listConversationsByTitlePrefix(
   const rows = rawAll<Row>(
     "conversation:listByTitlePrefix",
     `SELECT c.id, c.title,
+            -- Any-state count (streaming rows included): a list-surface size
+            -- hint where a transient +1 during a live turn is immaterial.
             (SELECT COUNT(*) FROM messages WHERE conversation_id = c.id) AS message_count,
             c.created_at
      FROM conversations c
@@ -622,26 +604,14 @@ export function countUnreadConversations(): number {
  * determine if additional exchanges need to be deleted from the DB.
  */
 export function isLastUserMessageToolResult(conversationId: string): boolean {
-  const db = getDb();
-  const lastUserMsg = db
-    .select({ content: messages.content })
-    .from(messages)
-    .where(
-      and(
-        eq(messages.conversationId, conversationId),
-        eq(messages.role, "user"),
-      ),
-    )
-    .orderBy(sql`rowid DESC`)
-    .limit(1)
-    .get();
+  const lastUserContent = latestUserMessageRawContent(conversationId);
 
-  if (!lastUserMsg) {
+  if (lastUserContent === null) {
     return false;
   }
 
   try {
-    const parsed = JSON.parse(lastUserMsg.content);
+    const parsed = JSON.parse(lastUserContent);
     if (
       Array.isArray(parsed) &&
       parsed.length > 0 &&
@@ -815,6 +785,10 @@ export async function searchConversations(
       if (!opts?.includeArchived) {
         whereClauses.push(`c.archived_at IS NULL`);
       }
+      // No completeness predicate: candidate ids come from the lexical
+      // index, which filters finalized = 1 at index time, so an unfinalized
+      // row cannot be a candidate. Do not copy this shape for id sets with
+      // different provenance.
       const visibleRows = rawAll<CandidateRow>(
         "conversation:searchConversations:visibleCandidates",
         `

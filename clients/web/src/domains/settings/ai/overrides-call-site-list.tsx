@@ -7,6 +7,7 @@ import type { CallSiteDraftMap } from "@/domains/settings/ai/use-override-drafts
 import type {
   CallSiteOverrideDraft,
   ConfigLlmCallsitesGetResponse,
+  ProviderConnection,
 } from "@/generated/daemon/types.gen";
 
 // ---------------------------------------------------------------------------
@@ -36,6 +37,8 @@ export interface OverridesCallSiteListProps {
   ) => ProfileOption[];
   profileLabelFor: (name: string) => string;
   advisorMatchesSearch: boolean;
+  /** Passed through to each row's model picker; see CallSiteOverrideRowProps. */
+  connections?: ProviderConnection[];
   onDraftChange: (id: string, draft: CallSiteOverrideDraft | null) => void;
   onToggle: (id: string, on: boolean) => void;
 }
@@ -54,6 +57,7 @@ export function OverridesCallSiteList({
   buildProfileOptionsForRow,
   profileLabelFor,
   advisorMatchesSearch,
+  connections,
   onDraftChange,
   onToggle,
 }: OverridesCallSiteListProps) {
@@ -109,6 +113,7 @@ export function OverridesCallSiteList({
                         ? null
                         : profileVal,
                     )}
+                    connections={connections}
                     onDraftChange={onDraftChange}
                     onToggle={onToggle}
                   />

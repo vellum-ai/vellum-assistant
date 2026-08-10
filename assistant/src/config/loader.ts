@@ -767,6 +767,11 @@ const DEPRECATED_FIELDS: Record<string, string> = {
     "daemon.reapOrphanedSubprocesses has been removed. The daemon now reaps " +
     "orphaned subprocesses automatically whenever it runs as PID 1 on Linux. " +
     "The field will be removed from your config file.",
+  "calls.voice.language":
+    "calls.voice.language has been removed; it had no effect. Use " +
+    "services.stt.language for the spoken language and " +
+    "services.tts.providers.<id>.languageVoices for per-language voices. " +
+    "The field will be removed from your config file.",
 };
 
 /**

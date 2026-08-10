@@ -52,7 +52,22 @@ describe("DISCORD_GATEWAY_INTENTS", () => {
     );
   });
 
-  test("omits direct messages — admission is scoped to guild channels", () => {
-    expect(DISCORD_GATEWAY_INTENTS & DISCORD_INTENTS.DIRECT_MESSAGES).toBe(0);
+  test("subscribes to direct messages, the private lane to one person", () => {
+    // Verification codes are answered in a DM and guardian outcome notices are
+    // delivered to one, so without this bit the DM half of the channel is
+    // deaf: the assistant can send into a DM and never hear the reply.
+    expect(DISCORD_GATEWAY_INTENTS & DISCORD_INTENTS.DIRECT_MESSAGES).not.toBe(
+      0,
+    );
+  });
+
+  test("DIRECT_MESSAGES is not one of the gated intents", () => {
+    // The reason the lane above costs nothing. If Discord ever moves it into
+    // the privileged set, `PRIVILEGED_DISCORD_INTENTS` gains it and the
+    // no-privileged-intent assertion above starts failing, which is the
+    // intended way to find out.
+    expect([...PRIVILEGED_DISCORD_INTENTS]).not.toContain(
+      DISCORD_INTENTS.DIRECT_MESSAGES,
+    );
   });
 });

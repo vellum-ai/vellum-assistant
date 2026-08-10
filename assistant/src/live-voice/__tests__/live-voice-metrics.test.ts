@@ -274,7 +274,7 @@ describe("LiveVoiceMetricsCollector", () => {
     expect(turn.timestamps.utteranceEndAtMs).toBe(2_000);
   });
 
-  test("accumulates endpoint decisions and records the first ack kind", () => {
+  test("accumulates endpoint decisions", () => {
     const clock = makeClock(0);
     const collector = new LiveVoiceMetricsCollector({
       sessionId: "session-ep",
@@ -295,24 +295,18 @@ describe("LiveVoiceMetricsCollector", () => {
       action: "release",
       latencyMs: 210,
     });
-    collector.markAckSpoken("turn-ep", "tool_use");
-    // First ack kind wins — the per-turn budget allows one spoken ack, so a
-    // second mark must not overwrite the recorded kind.
-    collector.markAckSpoken("turn-ep", "first_delta");
     const completed = collector.completeTurn();
 
     expect(completed).toMatchObject({
       turnId: "turn-ep",
       endpointHoldCount: 2,
       endpointDecisionMaxLatencyMs: 210,
-      ackSpoken: "tool_use",
     });
     expect(
       getLiveVoiceMetricsAggregateFields(collector.getSnapshot(), "turn-ep"),
     ).toMatchObject({
       endpointHoldCount: 2,
       endpointDecisionMaxLatencyMs: 210,
-      ackSpoken: "tool_use",
     });
   });
 
@@ -338,6 +332,70 @@ describe("LiveVoiceMetricsCollector", () => {
     expect(completed).not.toHaveProperty("ackSpoken");
   });
 
+  test("decisions without a source are attributed to the front door", () => {
+    const clock = makeClock(0);
+    const collector = new LiveVoiceMetricsCollector({
+      sessionId: "session-src-default",
+      clock: clock.now,
+    });
+
+    collector.startTurn("turn-src-default");
+    collector.markEndpointDecision("turn-src-default", {
+      action: "hold",
+      latencyMs: 900,
+    });
+    const completed = collector.completeTurn();
+
+    expect(completed).toMatchObject({
+      endpointHoldCount: 1,
+      endpointDecisionMaxLatencyMs: 900,
+      endpointDecisionSource: "front-door",
+    });
+    expect(
+      getLiveVoiceMetricsAggregateFields(
+        collector.getSnapshot(),
+        "turn-src-default",
+      ),
+    ).toMatchObject({ endpointDecisionSource: "front-door" });
+  });
+
+  test("flux decisions report their source with unchanged latency accounting", () => {
+    const clock = makeClock(0);
+    const collector = new LiveVoiceMetricsCollector({
+      sessionId: "session-src-flux",
+      clock: clock.now,
+    });
+
+    collector.startTurn("turn-src-flux");
+    collector.markEndpointDecision("turn-src-flux", {
+      action: "hold",
+      latencyMs: 40,
+      source: "provider",
+    });
+    collector.markEndpointDecision("turn-src-flux", {
+      action: "release",
+      latencyMs: 120,
+      source: "provider",
+    });
+    const completed = collector.completeTurn();
+
+    expect(completed).toMatchObject({
+      endpointHoldCount: 1,
+      endpointDecisionMaxLatencyMs: 120,
+      endpointDecisionSource: "provider",
+    });
+    expect(
+      getLiveVoiceMetricsAggregateFields(
+        collector.getSnapshot(),
+        "turn-src-flux",
+      ),
+    ).toMatchObject({
+      endpointHoldCount: 1,
+      endpointDecisionMaxLatencyMs: 120,
+      endpointDecisionSource: "provider",
+    });
+  });
+
   test("accumulates spoken progress updates on the turn and aggregate fields", () => {
     const clock = makeClock(0);
     const collector = new LiveVoiceMetricsCollector({
@@ -361,7 +419,7 @@ describe("LiveVoiceMetricsCollector", () => {
     ).toMatchObject({ progressUpdatesSpoken: 2 });
   });
 
-  test("omits endpoint, ack, and progress fields for turns that never touch the features", () => {
+  test("omits endpoint and progress fields for turns that never touch the features", () => {
     const clock = makeClock(0);
     const collector = new LiveVoiceMetricsCollector({
       sessionId: "session-off",
@@ -373,8 +431,10 @@ describe("LiveVoiceMetricsCollector", () => {
     collector.markFirstAudio();
     const completed = collector.completeTurn();
 
+    expect(completed).not.toHaveProperty("endpointCommitLatencyMs");
     expect(completed).not.toHaveProperty("endpointHoldCount");
     expect(completed).not.toHaveProperty("endpointDecisionMaxLatencyMs");
+    expect(completed).not.toHaveProperty("endpointDecisionSource");
     expect(completed).not.toHaveProperty("ackSpoken");
     expect(completed).not.toHaveProperty("progressUpdatesSpoken");
 
@@ -382,10 +442,57 @@ describe("LiveVoiceMetricsCollector", () => {
       collector.getSnapshot(),
       "turn-off",
     );
+    expect(aggregateFields).not.toHaveProperty("endpointCommitLatencyMs");
     expect(aggregateFields).not.toHaveProperty("endpointHoldCount");
     expect(aggregateFields).not.toHaveProperty("endpointDecisionMaxLatencyMs");
+    expect(aggregateFields).not.toHaveProperty("endpointDecisionSource");
     expect(aggregateFields).not.toHaveProperty("ackSpoken");
     expect(aggregateFields).not.toHaveProperty("progressUpdatesSpoken");
+  });
+
+  test("markEndpointCommit records the commit latency independently of the decision fields", () => {
+    const clock = makeClock(0);
+    const collector = new LiveVoiceMetricsCollector({
+      sessionId: "session-commit",
+      conversationId: "conversation-commit",
+      clock: clock.now,
+    });
+
+    collector.startTurn("turn-commit");
+    collector.markEndpointCommit("turn-commit", 1_340);
+    const completed = collector.completeTurn();
+
+    expect(completed).toMatchObject({ endpointCommitLatencyMs: 1_340 });
+    // No decision was ever recorded, so the diagnostic trio stays absent: the
+    // comparable number does not depend on the decider having been consulted.
+    expect(completed).not.toHaveProperty("endpointDecisionMaxLatencyMs");
+    expect(
+      getLiveVoiceMetricsAggregateFields(
+        collector.getSnapshot(),
+        "turn-commit",
+      ),
+    ).toMatchObject({ endpointCommitLatencyMs: 1_340 });
+  });
+
+  test("the first commit latency wins and a non-finite one records zero", () => {
+    const clock = makeClock(0);
+    const collector = new LiveVoiceMetricsCollector({
+      sessionId: "session-commit-first",
+      clock: clock.now,
+    });
+
+    collector.startTurn("turn-first");
+    collector.markEndpointCommit("turn-first", 900);
+    collector.markEndpointCommit("turn-first", 4_000);
+    expect(collector.completeTurn()).toMatchObject({
+      endpointCommitLatencyMs: 900,
+    });
+
+    collector.startTurn("turn-nan");
+    collector.markEndpointCommit("turn-nan", Number.NaN);
+    expect(collector.completeTurn()).toMatchObject({
+      endpointCommitLatencyMs: 0,
+    });
   });
 
   test("markBargeIn records a first-wins timestamp on the active turn", () => {

@@ -46,6 +46,14 @@ export type AppResumeSignal = "visibility" | "app_state" | "online";
 export type AppHiddenSignal = "visibility" | "app_state";
 
 /**
+ * Which checkout a completed Stripe session belongs to: a Pro
+ * subscription upgrade or a credit top-up. Carried on
+ * `deeplink.billingCheckoutComplete`; the deep-link parsers in
+ * `runtime/` share this alias.
+ */
+export type BillingCheckoutFlow = "subscription" | "top_up";
+
+/**
  * Map of bus event name → payload type. New event names are added
  * here so subscribers get exact handler types via the `keyof` lookup.
  */
@@ -145,15 +153,21 @@ export interface BusEventMap {
   "deeplink.send": { message: string };
   "deeplink.openThread": { threadId: string };
   /**
-   * Stripe Checkout finished for a checkout the Electron shell started
-   * in the system browser. The platform bounces the browser to
+   * Stripe Checkout finished for a checkout a native shell started
+   * (the Electron shell's system browser or Capacitor iOS's in-app
+   * SFSafariViewController). The platform bounces the browser to
    * `<scheme>://billing/checkout-complete`; the billing domain consumes
-   * this to land the user back on billing (and open the post-checkout
-   * Pro onboarding wizard on success).
+   * this to land the user back on billing. `flow` says which checkout
+   * it was: `subscription` opens the post-checkout Pro onboarding
+   * wizard on success (and the upgrade-cancel page on cancel), while
+   * `top_up` toasts on success and funnels a cancel into the billing
+   * page's server-verified checkout-bonus offer flow. Parsers default
+   * `flow` to `subscription` when the link omits it (all released
+   * clients and current Pro links).
    */
   "deeplink.billingCheckoutComplete":
-    | { status: "success"; sessionId: string }
-    | { status: "cancel"; sessionId: null };
+    | { status: "success"; sessionId: string; flow: BillingCheckoutFlow }
+    | { status: "cancel"; sessionId: null; flow: BillingCheckoutFlow };
   /**
    * The user asked to talk, from outside the SPA:
    * `<scheme>://voice?mode=new|resume&prompt=…`. The single native→SPA

@@ -1,6 +1,7 @@
 import { useNavigate } from "react-router";
 
 import { OnboardingLayout } from "@/domains/onboarding/components/onboarding-layout";
+import { SETUP_NAVIGATE } from "@/domains/onboarding/onboarding-navigation";
 import { routes } from "@/utils/routes";
 import { Button } from "@vellumai/design-library/components/button";
 
@@ -23,8 +24,8 @@ export function StartScreen() {
   const navigate = useNavigate();
 
   return (
-    <OnboardingLayout>
-      <div className="mx-auto flex min-h-screen w-full max-w-xl flex-col items-center px-6 pb-40 text-[var(--content-default)]">
+    <OnboardingLayout showAvatarWave>
+      <div className="mx-auto flex min-h-screen w-full max-w-xl flex-col items-center px-6 pb-40 md:min-h-full md:pb-6 text-[var(--content-default)]">
         <div className="flex flex-1 flex-col items-center justify-center">
           <h1
             className="text-3xl font-semibold tracking-tight"
@@ -48,7 +49,9 @@ export function StartScreen() {
               size="regular"
               fullWidth
               className="h-11 text-base"
-              onClick={() => void navigate(routes.onboarding.privacy)}
+              onClick={() =>
+                void navigate(routes.onboarding.privacy, SETUP_NAVIGATE)
+              }
             >
               Create your assistant
             </Button>

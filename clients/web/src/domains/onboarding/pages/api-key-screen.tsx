@@ -9,6 +9,7 @@ import {
   onboardingProvider,
   type OnboardingProviderId,
 } from "@/domains/onboarding/provider-catalog";
+import { SETUP_NAVIGATE } from "@/domains/onboarding/onboarding-navigation";
 import {
   peekPendingProviderKey,
   setPendingProviderKey,
@@ -80,15 +81,16 @@ export function ApiKeyScreen() {
       hosting
         ? `${routes.onboarding.privacy}?hosting=${hosting}`
         : routes.onboarding.privacy,
+      SETUP_NAVIGATE,
     );
   };
 
   const onBack = () => {
-    void navigate(routes.onboarding.hosting);
+    void navigate(routes.onboarding.hosting, SETUP_NAVIGATE);
   };
 
   return (
-    <OnboardingLayout>
+    <OnboardingLayout showAvatarWave>
       <div
         className={`mx-auto flex w-full max-w-xl flex-col items-center ${electron ? "min-h-full px-8 pt-21 pb-4 electron-prechat-type" : "px-6 py-16"} text-[var(--content-default)]`}
       >

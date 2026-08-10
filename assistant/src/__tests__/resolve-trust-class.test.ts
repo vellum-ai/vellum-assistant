@@ -78,6 +78,26 @@ describe("mapChatTypeToConversationType", () => {
   test("maps DM-shaped chat types to dm", () => {
     expect(mapChatTypeToConversationType("im")).toBe("dm"); // Slack DM
     expect(mapChatTypeToConversationType("private")).toBe("dm"); // Telegram DM
+    expect(mapChatTypeToConversationType("dm")).toBe("dm"); // Discord DM
+  });
+
+  test("every DM-capable channel's own word for a DM lands on the axis", () => {
+    // A missing arm is silent rather than loud: the permission cell stays
+    // settable, because the adapter validates against the channel registry,
+    // and simply never matches. The guardian sets a rule for DMs on that
+    // channel and it does nothing. Stated as a sweep so adding a DM-capable
+    // channel without its arm fails here.
+    const dmChatTypeByChannel = {
+      slack: "im",
+      telegram: "private",
+      whatsapp: "private",
+      discord: "dm",
+    };
+    for (const [channel, chatType] of Object.entries(dmChatTypeByChannel)) {
+      expect(`${channel}:${mapChatTypeToConversationType(chatType)}`).toBe(
+        `${channel}:dm`,
+      );
+    }
   });
 
   test("maps closed-group chat types to private", () => {

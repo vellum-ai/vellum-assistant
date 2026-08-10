@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router";
+import { useTranslation } from "@/i18n";
 import { captureError } from "@/lib/sentry/capture-error";
 
 import { AccountHeading } from "@/components/account/account-form";
@@ -34,6 +35,7 @@ import { routes } from "@/utils/routes";
  * callback to `/accounts/native/callback` without loading any SPA.
  */
 export function ProviderCallbackPage() {
+  const { t } = useTranslation("account");
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
   const refreshSession = useAuthStore.use.refreshSession();
@@ -117,8 +119,8 @@ export function ProviderCallbackPage() {
     return (
       <AccountShell>
         <AccountHeading
-          title="Signups are currently closed"
-          subtitle="Join the community to request access or learn when signups reopen."
+          title={t("providerCallbackPage.signupClosedTitle")}
+          subtitle={t("providerCallbackPage.signupClosedSubtitle")}
         />
         <div className="flex flex-col items-center gap-4">
           <a
@@ -127,13 +129,13 @@ export function ProviderCallbackPage() {
             rel="noopener noreferrer"
             className="inline-flex items-center justify-center gap-2 rounded-lg bg-[var(--primary-base)] px-6 py-3 text-sm font-medium text-[var(--content-inset)] no-underline transition-colors hover:bg-[var(--primary-hover)]"
           >
-            Join the community
+            {t("providerCallbackPage.joinCommunity")}
           </a>
           <Link
             to={routes.account.login}
             className="text-sm font-medium text-[var(--content-emphasised)] hover:underline"
           >
-            Back to sign in
+            {t("providerCallbackPage.backToSignIn")}
           </Link>
         </div>
       </AccountShell>
@@ -144,18 +146,15 @@ export function ProviderCallbackPage() {
     return (
       <AccountShell>
         <AccountHeading
-          title="Authentication failed"
-          subtitle={
-            fallbackError ??
-            "Something went wrong during social sign-in. Please try again or use a different method."
-          }
+          title={t("providerCallbackPage.failedTitle")}
+          subtitle={fallbackError ?? t("providerCallbackPage.failedSubtitle")}
         />
         <div className="flex flex-col items-center gap-4">
           <Link
             to={routes.account.login}
             className="inline-flex items-center justify-center gap-2 rounded-lg bg-[var(--primary-base)] px-6 py-3 text-sm font-medium text-[var(--content-inset)] no-underline transition-colors hover:bg-[var(--primary-hover)]"
           >
-            Back to sign in
+            {t("providerCallbackPage.backToSignIn")}
           </Link>
         </div>
       </AccountShell>
@@ -165,8 +164,8 @@ export function ProviderCallbackPage() {
   return (
     <AccountShell>
       <AccountHeading
-        title="Completing sign-in..."
-        subtitle="Please wait while we finish authenticating you."
+        title={t("providerCallbackPage.completingTitle")}
+        subtitle={t("providerCallbackPage.completingSubtitle")}
       />
     </AccountShell>
   );

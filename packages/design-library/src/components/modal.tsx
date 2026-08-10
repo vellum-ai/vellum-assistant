@@ -127,12 +127,9 @@ function Content({
   );
 }
 
-interface ModalTitleProps extends ComponentProps<typeof Dialog.Title> {
-  icon?: LucideIcon;
-}
+type ModalTitleProps = ComponentProps<typeof Dialog.Title>;
 
 function Title({
-  icon: Icon,
   className,
   children,
   ref,
@@ -143,27 +140,18 @@ function Title({
       ref={ref}
       data-slot="modal-title"
       className={cn(
-        "flex items-center gap-3 text-title-medium text-[var(--content-default)]",
+        "text-title-medium text-[var(--content-emphasised)]",
         className,
       )}
       {...props}
     >
-      {Icon ? (
-        <span
-          aria-hidden="true"
-          className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full"
-          style={{
-            backgroundColor:
-              "color-mix(in oklab, var(--primary-base) 16%, transparent)",
-          }}
-        >
-          <Icon className="h-5 w-5 text-[var(--primary-base)]" />
-        </span>
-      ) : null}
-      {/* `text-title-*` set line-height: 1, leaving no room under the baseline,
-          so `truncate`'s `overflow: hidden` shears glyph descenders (the tail
-          of a g/p/y in a title like "Upgrade to Super?"). `leading-snug` grows
-          the line box to contain them; single-line ellipsis still works. */}
+      {/* `text-title-*` set line-height: 1, leaving no room under the
+          baseline, so `truncate`'s `overflow: hidden` shears glyph
+          descenders (the tail of a g/p/y in a title like "Upgrade to
+          Super?"). `leading-snug` grows the line box to contain them;
+          single-line ellipsis still works. Kept as a child span (rather
+          than truncating the root) so callers can opt a long title back
+          into wrapping via `[&>span]:whitespace-normal`. */}
       <span className="min-w-0 truncate leading-snug">{children}</span>
     </Dialog.Title>
   );
@@ -180,7 +168,7 @@ function Description({
       ref={ref}
       data-slot="modal-description"
       className={cn(
-        "mt-1 whitespace-pre-line text-body-medium-lighter text-[var(--content-secondary)]",
+        "mt-0.5 whitespace-pre-line text-body-small-default text-[var(--content-tertiary)]",
         className,
       )}
       {...props}
@@ -194,18 +182,40 @@ function Close(props: ComponentProps<typeof Dialog.Close>) {
   return <Dialog.Close data-slot="modal-close" {...props} />;
 }
 
+interface ModalHeaderProps extends ComponentProps<"div"> {
+  /**
+   * Leading glyph shown beside the title/description column, sized and
+   * centered against the whole column rather than just the title line:
+   * matches Figma's icon+title+subtitle header layout.
+   */
+  icon?: LucideIcon;
+}
+
 function Header({
+  icon: Icon,
   className,
   children,
   ...props
-}: ComponentProps<"div">) {
+}: ModalHeaderProps) {
   return (
     <div
       data-slot="modal-header"
-      className={cn("flex flex-col gap-1 p-4 pr-10", className)}
+      className={cn("flex items-center gap-3 p-4 pr-10", className)}
       {...props}
     >
-      {children}
+      {Icon ? (
+        <>
+          <span
+            aria-hidden="true"
+            className="flex h-11 w-11 shrink-0 items-center justify-center rounded-md bg-[var(--surface-base)]"
+          >
+            <Icon className="h-5 w-5 text-[var(--primary-base)]" />
+          </span>
+          <div className="flex min-w-0 flex-1 flex-col">{children}</div>
+        </>
+      ) : (
+        children
+      )}
     </div>
   );
 }
@@ -258,4 +268,4 @@ const Modal = {
 };
 
 export { Modal };
-export type { ModalSize, ModalContentProps, ModalTitleProps };
+export type { ModalSize, ModalContentProps, ModalTitleProps, ModalHeaderProps };

@@ -6,7 +6,10 @@ import {
   getModelsForProvider,
   PROVIDER_DISPLAY_NAMES,
 } from "@/assistant/llm-model-catalog";
-import type { CallSiteOverrideDraft } from "@/generated/daemon/types.gen";
+import type {
+  CallSiteOverrideDraft,
+  ProviderConnection,
+} from "@/generated/daemon/types.gen";
 
 import {
   INFERENCE_PROVIDERS,
@@ -16,7 +19,14 @@ import {
   CUSTOM_SENTINEL,
   isDraftActive,
 } from "@/domains/settings/ai/call-site-helpers";
-import { useSelectableInferenceProviders } from "@/domains/settings/ai/provider-availability";
+import {
+  codexServableModels,
+  restrictsToSubscriptionModels,
+} from "@/domains/settings/ai/codex-subscription-models";
+import {
+  connectionServesProvider,
+  useSelectableInferenceProviders,
+} from "@/domains/settings/ai/provider-availability";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -34,6 +44,13 @@ export interface CallSiteOverrideRowProps {
   defaultProfileLabel: string | null;
   draft: CallSiteOverrideDraft | null;
   profileOptions: ProfileOption[];
+  /**
+   * All provider connections, used to limit the model picker to what the
+   * matching connections can dispatch (a ChatGPT subscription serves only
+   * the Codex model set). Absent when the caller has no connection data;
+   * the picker then offers the full catalog.
+   */
+  connections?: ProviderConnection[];
   onDraftChange: (id: string, draft: CallSiteOverrideDraft | null) => void;
   onToggle: (id: string, on: boolean) => void;
 }
@@ -49,6 +66,7 @@ export function CallSiteOverrideRow({
   defaultProfileLabel,
   draft,
   profileOptions,
+  connections,
   onDraftChange,
   onToggle,
 }: CallSiteOverrideRowProps) {
@@ -85,11 +103,38 @@ export function CallSiteOverrideRow({
     storedProvider !== undefined &&
     selectableInferenceProviders.some((p) => p === storedProvider);
   const currentProvider = storedProvider ?? defaultProvider;
-  const availableModels = getModelsForProvider(currentProvider);
+  // A call-site override pins no connection, so dispatch auto-resolves one.
+  // When every connection that can serve the provider is a ChatGPT
+  // subscription (stored as provider "chatgpt" once daemon migration 366 has
+  // run), only Codex models can resolve; offering the rest would save a pin
+  // that fails on every request.
+  const connectionsForProvider = (connections ?? []).filter((c) =>
+    connectionServesProvider(c.provider, currentProvider),
+  );
+  const availableModels = restrictsToSubscriptionModels(
+    currentProvider,
+    "",
+    connectionsForProvider,
+  )
+    ? codexServableModels(currentProvider)
+    : getModelsForProvider(currentProvider);
   const modelOptions = availableModels.map((m) => ({
     value: m.id,
     label: m.displayName,
   }));
+  // A stored pin outside the offered set stays visible as itself, marked
+  // unavailable: hiding it would render a blank trigger while the pin is
+  // still saved (mirrors the provider picker's unavailable-pin handling).
+  const storedModel = typeof draft?.model === "string" ? draft.model : "";
+  if (storedModel && !availableModels.some((m) => m.id === storedModel)) {
+    const displayName =
+      getModelsForProvider(currentProvider).find((m) => m.id === storedModel)
+        ?.displayName ?? storedModel;
+    modelOptions.push({
+      value: storedModel,
+      label: `${displayName} (unavailable)`,
+    });
+  }
   const hasModelError = !!draft?.provider && !draft?.model;
 
   function handleProfilePickerChange(val: string) {

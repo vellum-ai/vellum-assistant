@@ -28,13 +28,14 @@ import {
   getTurnTimeBounds,
   messageMetadataSchema,
 } from "./conversation-crud.js";
-import { type DrizzleDb, getDb, getLogsDb } from "./db-connection.js";
+import { type DrizzleDb, getLogsDb } from "./db-connection.js";
 import { getClickHouseLlmRequestLogSink } from "./llm-request-log-sink-clickhouse.js";
 import type {
   LlmRequestLogWriter,
   LlmRequestLogWriteRow,
 } from "./llm-request-log-writer-types.js";
-import { llmRequestLogs, messages } from "./schema/index.js";
+import { existingMessageIds } from "./message-reads.js";
+import { llmRequestLogs } from "./schema/index.js";
 import { timeSyncSection } from "./slow-sync-log.js";
 
 /**
@@ -593,14 +594,7 @@ function selectOrphanedLogsInRange(
   const candidateMessageIds = [
     ...new Set(candidates.map((c) => c.messageId as string)),
   ];
-  const existing = new Set(
-    getDb()
-      .select({ id: messages.id })
-      .from(messages)
-      .where(inArray(messages.id, candidateMessageIds))
-      .all()
-      .map((r) => r.id),
-  );
+  const existing = existingMessageIds(candidateMessageIds);
 
   // Orphaned = the referenced message no longer exists.
   return candidates.filter((c) => !existing.has(c.messageId as string));

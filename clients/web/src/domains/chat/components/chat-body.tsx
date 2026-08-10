@@ -4,6 +4,7 @@ import { Paperclip } from "lucide-react";
 
 import { useKeyboardOpen } from "@/hooks/use-keyboard-open";
 import { useBannerVisibilityStore } from "@/stores/banner-visibility-store";
+import { ChatColumn } from "@/domains/chat/components/chat-column";
 import { QuestionPromptSlot } from "@/domains/chat/components/question-prompt-slot";
 import { StagedQuotesStrip } from "@/domains/chat/components/staged-quotes-strip";
 import {
@@ -322,41 +323,43 @@ export function ChatBody({
         </div>
       )}
       {bannerRendered && bannerSlot}
-      <div className="relative px-3 pt-1 pb-2 sm:px-6 sm:pb-0">
-        {refreshFeedback && (
-          <div className="pointer-events-none absolute inset-x-0 bottom-full z-10 flex justify-center pb-2">
-            <RefreshFeedbackPill
-              feedback={refreshFeedback}
-              onDismiss={onDismissRefreshFeedback}
-              onRetry={onRetryRefresh}
-            />
+      <ChatColumn
+        className="relative pt-1 pb-2 sm:pb-0"
+        overlay={
+          refreshFeedback && (
+            <div className="pointer-events-none absolute inset-x-0 bottom-full z-10 flex justify-center pb-2">
+              <RefreshFeedbackPill
+                feedback={refreshFeedback}
+                onDismiss={onDismissRefreshFeedback}
+                onRetry={onRetryRefresh}
+              />
+            </div>
+          )
+        }
+      >
+        {genericChatError && (
+          <div className="mb-2">
+            <Notice
+              tone={genericChatError.tone ?? "error"}
+              onDismiss={onDismissChatError}
+              actions={genericChatError.actions}
+            >
+              {genericChatError.message}
+            </Notice>
           </div>
         )}
-        <div className="mx-auto max-w-[var(--chat-max-width)]">
-          {genericChatError && (
-            <div className="mb-2">
-              <Notice
-                tone={genericChatError.tone ?? "error"}
-                onDismiss={onDismissChatError}
-                actions={genericChatError.actions}
-              >
-                {genericChatError.message}
-              </Notice>
-            </div>
+        {queuedDrawerSlot}
+        <QuestionPromptSlot />
+        {channelFooterSlot}
+        <StagedQuotesStrip />
+        {composerSlot}
+        {pluginPillsSlot &&
+          renderKeyboardCollapse(
+            "new-chat-plugins",
+            <div className="mt-4">{pluginPillsSlot}</div>,
           )}
-          {queuedDrawerSlot}
-          <QuestionPromptSlot />
-          {channelFooterSlot}
-          <StagedQuotesStrip />
-          {composerSlot}
-          {pluginPillsSlot &&
-            renderKeyboardCollapse(
-              "new-chat-plugins",
-              <div className="mt-4">{pluginPillsSlot}</div>,
-            )}
-          {trailingStarters}
-        </div>
-      </div>
+        {trailingStarters}
+      </ChatColumn>
     </div>
   );
 
@@ -398,19 +401,11 @@ export function ChatBody({
           {startersSlot &&
             renderKeyboardCollapse(
               "docked-starters",
-              <div className="px-3 pb-3 sm:px-6">
-                <div className="mx-auto max-w-[var(--chat-max-width)]">
-                  {startersSlot}
-                </div>
-              </div>,
+              <ChatColumn className="pb-3">{startersSlot}</ChatColumn>,
             )}
         </div>
         {belowFoldSlot && (
-          <div className="px-3 pt-2 pb-8 sm:px-6">
-            <div className="mx-auto max-w-[var(--chat-max-width)]">
-              {belowFoldSlot}
-            </div>
-          </div>
+          <ChatColumn className="pt-2 pb-8">{belowFoldSlot}</ChatColumn>
         )}
         {dragOverlay}
       </div>

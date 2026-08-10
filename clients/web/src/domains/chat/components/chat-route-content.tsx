@@ -670,8 +670,22 @@ export function ChatMainPanel({
   // -------------------------------------------------------------------------
   // Single balance-status read shared by every proactive billing surface in
   // this component: the transcript's tail card, the empty state's card, and
-  // the low-balance composer banner.
-  const balanceStatus = useBillingBalanceStatus();
+  // the low-balance composer banner. The active conversation is passed so
+  // the BYOK suppression respects a per-conversation managed profile pin. A
+  // client-minted draft has no server row to look up (the lookup would 404
+  // and needlessly fail the gate open); its effective profile lives in the
+  // composer stash, so that is threaded instead.
+  const pendingDraftProfiles = useConversationStore.use.pendingDraftProfiles();
+  const activeDraftId =
+    activeConversationId && draftConversationIds.has(activeConversationId)
+      ? activeConversationId
+      : null;
+  const balanceStatus = useBillingBalanceStatus({
+    conversationId: activeDraftId ? null : activeConversationId,
+    draftProfile: activeDraftId
+      ? (pendingDraftProfiles.get(activeDraftId) ?? null)
+      : null,
+  });
 
   const { sanitizedMessages, transcriptItems } = useTranscriptData({
     messages,
@@ -889,7 +903,6 @@ export function ChatMainPanel({
   // mid-load), its profile lives in the composer stash, not on a server row —
   // feed it in so attachment/vision gating reflects the profile the first
   // message will actually use rather than the global default.
-  const pendingDraftProfiles = useConversationStore.use.pendingDraftProfiles();
   const activeDraftProfile =
     !activeConversation && activeConversationId
       ? (pendingDraftProfiles.get(activeConversationId) ?? undefined)

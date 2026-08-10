@@ -13,6 +13,7 @@ Add a new entry to the `CATALOG` map with:
 - `supportedBoundaries` — the set of `SttBoundaryId` values the provider supports. Valid values are `"daemon-batch"` (post-recording transcription) and `"daemon-streaming"` (real-time streaming transcription during conversation).
 - `conversationStreamingMode` — how the provider handles streaming transcription in conversation mode: `"realtime-ws"` (provider supports real-time streaming natively via WebSocket), `"incremental-batch"` (streaming emulated via throttled polling), or `"none"` (no streaming support). Required for all providers.
 - `telephonyMode` — how the provider participates in real-time telephony STT: `"realtime-ws"`, `"batch-only"`, or `"none"`. The telephony capability resolver (`resolveTelephonySttCapability()` in `src/providers/speech-to-text/resolve.ts`) reads this field plus credential availability to decide whether phone calls can run with the provider.
+- `turnDetection`: whether the provider decides end-of-turn itself, `"provider"` or `"none"`. Use `"provider"` only when the adapter emits `turn-start` / `turn-end` on its transcript stream; a live-voice session reads this via `supportsProviderTurnDetection()` to decide whether to arm its provider turn-end path. Default to `"none"`: a provider that declares `"provider"` but never emits the events makes every turn wait out the fail-open deadline before falling back to the silence boundary. A provider declaring `"provider"` should also number its turns, because the staleness check prefers the turn index on the event and degrades to the session's VAD generation counter without one.
 
 ## 2. Type-system registration
 
@@ -71,10 +72,11 @@ Native clients fetch this metadata at launch via `GET /v1/stt/providers`. No sep
 | ---------------- | -------------------- | ------------- |
 | `openai-whisper` | `openai`             | shared        |
 | `deepgram`       | `deepgram`           | exclusive     |
+| `deepgram-flux`  | `deepgram`           | shared        |
 | `google-gemini`  | `gemini`             | shared        |
 | `xai`            | `xai`                | exclusive     |
 
-When the provider ID differs from the credential provider name (e.g. `google-gemini` maps to `gemini`), the key is **shared** with other services that use the same credential.
+When the provider ID differs from the credential provider name (e.g. `google-gemini` maps to `gemini`), the key is **shared** with other services that use the same credential. Two STT providers may also name the same credential: `deepgram-flux` is a model on the same Deepgram account as `deepgram`, so it reads that key rather than introducing one of its own. Reuse an existing `credentialProvider` whenever the new provider authenticates against an account the catalog already covers, and keep the `credentialsGuide` text identical across them (`DEEPGRAM_CREDENTIALS_GUIDE` is shared by both entries for that reason).
 
 ### Client settings key behavior
 

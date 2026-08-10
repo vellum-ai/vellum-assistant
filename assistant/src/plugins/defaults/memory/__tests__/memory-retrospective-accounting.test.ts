@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, test } from "bun:test";
 
+import { eq } from "drizzle-orm";
+
 import {
   createConversation,
   type MessageRow,
@@ -8,6 +10,7 @@ import { getDb } from "../../../../persistence/db-connection.js";
 import { initializeDb } from "../../../../persistence/db-init.js";
 import { messages } from "../../../../persistence/schema/index.js";
 import {
+  getRetrospectiveMessagesAfter,
   hasQualifyingUserMessageAfter,
   messagesHaveUserActivity,
 } from "../memory-retrospective-accounting.js";
@@ -195,5 +198,74 @@ describe("messagesHaveUserActivity", () => {
       ]),
     ).toBe(false);
     expect(messagesHaveUserActivity([])).toBe(false);
+  });
+});
+
+describe("getRetrospectiveMessagesAfter", () => {
+  beforeEach(() => {
+    const db = getDb();
+    db.run(`DELETE FROM messages`);
+    db.run(`DELETE FROM conversations`);
+    createConversation({ id: CONV });
+  });
+
+  test("truncates at a stale mid-slice unfinalized row so the cursor never passes it", () => {
+    const first = insertRaw({ role: "user", content: TEXT, createdAt: 1_000 });
+    const stale = insertRaw({
+      role: "assistant",
+      content: TEXT,
+      createdAt: 2_000,
+    });
+    insertRaw({ role: "user", content: TEXT, createdAt: 3_000 });
+    insertRaw({ role: "assistant", content: TEXT, createdAt: 4_000 });
+    getDb()
+      .update(messages)
+      .set({ finalized: 0 })
+      .where(eq(messages.id, stale))
+      .run();
+
+    const slice = getRetrospectiveMessagesAfter(CONV, null);
+
+    // The slice stops BEFORE the stale row: taking the later finalized rows
+    // as the cutoff would advance the cursor past the stale row, and once it
+    // finalizes it would sit behind the cursor, unreviewed forever.
+    expect(slice.map((row) => row.id)).toEqual([first]);
+
+    getDb()
+      .update(messages)
+      .set({ finalized: 1 })
+      .where(eq(messages.id, stale))
+      .run();
+
+    // Once the row resolves, the slice continues past it.
+    expect(getRetrospectiveMessagesAfter(CONV, null)).toHaveLength(4);
+  });
+
+  test("excludes unfinalized rows so the cutoff stays on rows a fork holds", () => {
+    insertRaw({ role: "user", content: TEXT, createdAt: 1_000 });
+    const lastFinalized = insertRaw({
+      role: "assistant",
+      content: TEXT,
+      createdAt: 2_000,
+    });
+    const streaming = insertRaw({
+      role: "assistant",
+      content: TEXT,
+      createdAt: 3_000,
+    });
+    getDb()
+      .update(messages)
+      .set({ finalized: 0 })
+      .where(eq(messages.id, streaming))
+      .run();
+
+    const slice = getRetrospectiveMessagesAfter(CONV, null);
+
+    // The invariant: no slice member is unfinalized, and the cutoff the job
+    // would take (the last slice row) is a row the retrospective fork
+    // actually contains.
+    expect(slice.some((row) => row.finalized === 0)).toBe(false);
+    expect(slice.at(-1)?.id).toBe(lastFinalized);
+    expect(slice.map((row) => row.id)).not.toContain(streaming);
   });
 });

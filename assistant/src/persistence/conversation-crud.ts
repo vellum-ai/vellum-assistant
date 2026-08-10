@@ -498,6 +498,25 @@ export function parseMessageMetadata(
   }
 }
 
+/**
+ * Rows a fork may copy: finalized ones. A `finalized = 0` row is mid-write,
+ * its content a `{ ref }` into the source turn's in-flight delta file, which
+ * the source deletes when the turn completes. A copied row would point at a
+ * file another conversation is about to delete, leaving a permanently empty
+ * message that reads as final and is invisible to crash recovery (which scans
+ * `finalized = 0` only). Unfinalized is not "unsent": the message was sent
+ * and is still being written, so there is no completed content to copy. A
+ * fork reflects the conversation at a completed point.
+ *
+ * Callers apply this to `messagesToCopy` itself, upstream of the boundary
+ * timestamp, compaction inheritance, `forkParentMessageId`, and the id map,
+ * so every derivation describes the rows actually copied and the lineage
+ * anchor can never reference a row the fork does not hold.
+ */
+function dropUnfinalizedRows(rows: MessageRow[]): MessageRow[] {
+  return rows.filter((message) => message.finalized === 1);
+}
+
 function cloneForkMessageMetadata(
   metadata: string | null,
   sourceMessageId: string,
@@ -1336,7 +1355,7 @@ export function forkConversation(params: {
 
   const messagesToCopy =
     copyBoundaryIndex >= 0
-      ? sourceMessages.slice(0, copyBoundaryIndex + 1)
+      ? dropUnfinalizedRows(sourceMessages.slice(0, copyBoundaryIndex + 1))
       : ([] as MessageRow[]);
 
   // Inherit the history-strip marker only when the fork boundary is at-or-
@@ -1461,7 +1480,13 @@ export function forkConversation(params: {
       messagesToCopy,
       forkedMessageIds,
       latestForkedAssistant,
-      isFullHistoryFork: copyBoundaryIndex === sourceMessages.length - 1,
+      // The wholesale memory-state carry requires the fork's window to equal
+      // the source's rendered window; a boundary at the tip no longer
+      // guarantees that when the unfinalized filter dropped rows from the
+      // slice, so both conditions gate it.
+      isFullHistoryFork:
+        copyBoundaryIndex === sourceMessages.length - 1 &&
+        messagesToCopy.length === copyBoundaryIndex + 1,
       inheritedCompactedMessageCount:
         inheritedCompaction?.compactedMessageCount ?? 0,
       diskSyncQueue,
@@ -1772,7 +1797,7 @@ export async function forkConversationForRetrospective(params: {
   );
   const messagesToCopy =
     copyBoundaryIndex >= 0
-      ? sourceMessages.slice(0, copyBoundaryIndex + 1)
+      ? dropUnfinalizedRows(sourceMessages.slice(0, copyBoundaryIndex + 1))
       : ([] as MessageRow[]);
 
   const sourceHistoryStrippedAt = sourceConversation.historyStrippedAt ?? null;
@@ -1936,8 +1961,12 @@ export async function forkConversationForRetrospective(params: {
               messagesToCopy: rowsToCopy,
               forkedMessageIds,
               latestForkedAssistant,
+              // Both conditions, for the same reason as `forkConversation`:
+              // a tip boundary no longer implies an equal window once the
+              // unfinalized filter dropped rows from the slice.
               isFullHistoryFork:
-                copyBoundaryIndex === sourceMessages.length - 1,
+                copyBoundaryIndex === sourceMessages.length - 1 &&
+                messagesToCopy.length === copyBoundaryIndex + 1,
               // The copied range already starts at the visible window.
               inheritedCompactedMessageCount: forkCompactedMessageCount,
               skipCompactionLedgerCopy: inheritedCompaction != null,
@@ -4209,13 +4238,19 @@ export function getConversationRecentProvenanceTrustClass(
 }
 
 // ---------------------------------------------------------------------------
-// CRUD functions for display_order and is_pinned
+// Conversation placement (group + pin) and display metadata
 // ---------------------------------------------------------------------------
 
-export function batchSetDisplayOrders(
+/**
+ * Move conversations between sections: set the group, and the pin state
+ * derived from it.
+ *
+ * Writes no ordering. Every list is ordered by recency, so a conversation's
+ * placement is which section holds it, not where it sits inside one.
+ */
+export function batchSetConversationPlacement(
   updates: Array<{
     id: string;
-    displayOrder: number | null;
     isPinned?: boolean;
     groupId?: string | null;
   }>,
@@ -4236,7 +4271,7 @@ export function batchSetDisplayOrders(
           safeGroupId = UNGROUPED_GROUP_ID;
         } else if (
           !rawGet<{ id: string }>(
-            "conversation:batchSetDisplayOrders:groupCheck",
+            "conversation:batchSetConversationPlacement:groupCheck",
             "SELECT id FROM conversation_groups WHERE id = ?",
             safeGroupId,
           )
@@ -4270,13 +4305,8 @@ export function batchSetDisplayOrders(
           safeGroupId !== UNGROUPED_GROUP_ID &&
           (safeGroupId === PINNED_GROUP_ID ||
             !safeGroupId.startsWith("system:"));
-        const setClauses = [
-          "display_order = ?",
-          "is_pinned = ?",
-          "group_id = ?",
-        ];
+        const setClauses = ["is_pinned = ?", "group_id = ?"];
         const params: Array<string | number | null> = [
-          update.displayOrder,
           safeGroupId === PINNED_GROUP_ID ? 1 : 0,
           safeGroupId,
         ];
@@ -4291,31 +4321,22 @@ export function batchSetDisplayOrders(
         }
         params.push(update.id);
         rawRun(
-          "conversation:batchSetDisplayOrders:group",
+          "conversation:batchSetConversationPlacement:group",
           `UPDATE conversations SET ${setClauses.join(", ")} WHERE id = ?`,
           ...params,
         );
-      } else if (update.isPinned === undefined) {
-        // Only displayOrder provided — preserve existing pin state and group.
+      } else if (update.isPinned === true) {
         rawRun(
-          "conversation:batchSetDisplayOrders:orderOnly",
-          "UPDATE conversations SET display_order = ? WHERE id = ?",
-          update.displayOrder,
+          "conversation:batchSetConversationPlacement:pin",
+          "UPDATE conversations SET is_pinned = 1, group_id = 'system:pinned' WHERE id = ?",
           update.id,
         );
-      } else if (update.isPinned) {
-        rawRun(
-          "conversation:batchSetDisplayOrders:pin",
-          "UPDATE conversations SET display_order = ?, is_pinned = 1, group_id = 'system:pinned' WHERE id = ?",
-          update.displayOrder,
-          update.id,
-        );
-      } else {
+      } else if (update.isPinned === false) {
         // Restore system group from source/conversationType when unpinning,
         // instead of clearing to NULL (which would lose provenance).
         rawRun(
-          "conversation:batchSetDisplayOrders:unpin",
-          `UPDATE conversations SET display_order = ?, is_pinned = 0,
+          "conversation:batchSetConversationPlacement:unpin",
+          `UPDATE conversations SET is_pinned = 0,
            group_id = CASE WHEN group_id = 'system:pinned' THEN
              CASE
                WHEN source IN ('schedule', 'reminder') THEN 'system:scheduled'
@@ -4325,7 +4346,6 @@ export function batchSetDisplayOrders(
              END
            ELSE group_id END
            WHERE id = ?`,
-          update.displayOrder,
           update.id,
         );
       }

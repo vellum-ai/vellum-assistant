@@ -1,0 +1,88 @@
+{
+  "authWaitSpinner": {
+    "loading": "Loading"
+  },
+  "signupScreen": {
+    "headlineLead": "Meet your new",
+    "headlineRoles": {
+      "personalIntelligence": "Personal Intelligence",
+      "softwareEngineer": "Software Engineer",
+      "financeOps": "Finance Ops",
+      "householdManager": "Household Manager",
+      "gtmEngineer": "GTM Engineer",
+      "productLead": "Product Lead"
+    },
+    "subtitle": "The most powerful assistant that can handle your work and life admin tasks.",
+    "continue": "Continue",
+    "downloadMac": "Download for macOS",
+    "haveAccountPrompt": "Already have an account? <signIn>Sign in</signIn>"
+  },
+  "accountPage": {
+    "loading": "Loading...",
+    "welcomeTitle": "Welcome to Vellum",
+    "welcomeSubtitle": "Sign in to get started.",
+    "signIn": "Sign in",
+    "signedInTitle": "Welcome!",
+    "signedInTitleNamed": "Welcome, {name}!",
+    "signedInSubtitle": "You are signed in.",
+    "goToAssistant": "Go to your assistant",
+    "signOut": "Sign out"
+  },
+  "loginPage": {
+    "heading": "Sign in to Vellum",
+    "continue": "Continue",
+    "noAccount": "Don't have an account?",
+    "signUp": "Sign up",
+    "signIn": "Sign in"
+  },
+  "logoutPage": {
+    "title": "Signing out..."
+  },
+  "platformLoopbackPage": {
+    "backToWelcome": "Back to Welcome",
+    "completing": "Completing login..."
+  },
+  "oauthComplete": {
+    "errorCode": "Error: {code}"
+  },
+  "providerCallbackPage": {
+    "signupClosedTitle": "Signups are currently closed",
+    "signupClosedSubtitle": "Join the community to request access or learn when signups reopen.",
+    "joinCommunity": "Join the community",
+    "backToSignIn": "Back to sign in",
+    "failedTitle": "Authentication failed",
+    "failedSubtitle": "Something went wrong during social sign-in. Please try again or use a different method.",
+    "completingTitle": "Completing sign-in...",
+    "completingSubtitle": "Please wait while we finish authenticating you."
+  },
+  "providerSignupPage": {
+    "completingTitle": "Completing signup...",
+    "completingSubtitle": "Please wait while we load your information.",
+    "headingLine1": "Almost there,",
+    "headingLine2": "one more detail",
+    "firstNameQuestion": "What should I call you?",
+    "firstNamePlaceholder": "First name",
+    "lastNameQuestion": "And your last name?",
+    "lastNamePlaceholder": "Last name",
+    "roleQuestion": "Your role",
+    "rolePlaceholder": "e.g. Software Engineer",
+    "submitting": "Setting up…",
+    "submit": "Continue →",
+    "completeAccountTitle": "Complete your account",
+    "completeAccountSubtitle": "We need a few more details to finish setting up your account.",
+    "backToSignIn": "← Back to sign in",
+    "emailPlaceholder": "Email",
+    "usernamePlaceholder": "Username",
+    "completeSignup": "Complete signup",
+    "completingSignup": "Completing..."
+  },
+  "authErrors": {
+    "genericFailure": "Something went wrong. Please try again.",
+    "signupClosed": "Sign-ups are currently closed. Visit {community} to request access.",
+    "providerSignup": "No Vellum account is linked to that login yet. Sign up first, then sign in.",
+    "loginIncomplete": "Your account needs another step to finish signing in. Please sign in on the web, then try again.",
+    "loopbackStateMismatch": "Login failed: state mismatch. Please try again.",
+    "loopbackNoToken": "Login failed: no session token received. Please try again.",
+    "loopbackInvalidToken": "Login failed: invalid session token."
+  }
+}

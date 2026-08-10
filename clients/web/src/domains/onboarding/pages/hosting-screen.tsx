@@ -4,6 +4,7 @@ import { useNavigate, useSearchParams } from "react-router";
 
 import { OnboardingLayout } from "@/domains/onboarding/components/onboarding-layout";
 import { handleRadioCardArrowNav } from "@/domains/onboarding/components/radio-card-nav";
+import { SETUP_NAVIGATE } from "@/domains/onboarding/onboarding-navigation";
 import { setPendingProviderKey } from "@/domains/onboarding/provider-key";
 import { useOnboardingLogin } from "@/hooks/use-onboarding-login";
 import { clearGatewayToken } from "@/lib/auth/gateway-session";
@@ -100,22 +101,26 @@ export function HostingScreen() {
       // Cloud is managed: drop any provider key staged from a prior
       // Local/Docker visit so it can't leak into a later local hatch.
       setPendingProviderKey(null);
-      void navigate(routes.onboarding.privacy);
+      void navigate(routes.onboarding.privacy, SETUP_NAVIGATE);
     } else {
-      void navigate(`${routes.onboarding.apiKey}?hosting=${selected}`);
+      void navigate(
+        `${routes.onboarding.apiKey}?hosting=${selected}`,
+        SETUP_NAVIGATE,
+      );
     }
   };
 
   const onBack = () => {
     void navigate(
       fromSelectAssistant ? routes.selectAssistant : routes.welcome,
+      SETUP_NAVIGATE,
     );
   };
 
   return (
-    <OnboardingLayout>
+    <OnboardingLayout showAvatarWave>
       <div
-        className={`mx-auto flex w-full max-w-xl flex-col items-center ${electron ? "min-h-full px-8 pt-21 pb-4 electron-prechat-type" : "min-h-screen px-6 pb-40 pt-6"} text-[var(--content-default)]`}
+        className={`mx-auto flex w-full max-w-xl flex-col items-center ${electron ? "min-h-full px-8 pt-21 pb-4 electron-prechat-type" : "min-h-screen px-6 pb-40 pt-6 md:min-h-full md:pb-6"} text-[var(--content-default)]`}
       >
         {/* The main block floats in the space above the creature footer;
             electron keeps its compact top-aligned flow. */}

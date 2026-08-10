@@ -27,11 +27,11 @@ import type { FeedItem, FeedItemStatus } from "@vellumai/assistant-api";
 
 import { feedItem } from "../feed-test-fixtures";
 
-const isMobileRef = { value: false };
+const isTouchMobileRef = { value: false };
 
-mock.module("@/hooks/use-is-mobile", () => ({
-  useIsMobile: () => isMobileRef.value,
-  MOBILE_MEDIA_QUERY: "(max-width: 767px)",
+mock.module("@/hooks/use-touch-mobile", () => ({
+  useTouchMobile: () => isTouchMobileRef.value,
+  TOUCH_MOBILE_MEDIA_QUERY: "(max-width: 767px) and (pointer: coarse)",
 }));
 
 const feedRef: { items: FeedItem[] } = { items: [] };
@@ -280,7 +280,7 @@ function detailFooter(): HTMLElement {
 }
 
 beforeEach(() => {
-  isMobileRef.value = false;
+  isTouchMobileRef.value = false;
   feedRef.items = [];
   conversationListsRef.foreground = [];
   conversationListsRef.background = [];
@@ -347,7 +347,7 @@ describe("NotificationsBell unread dot", () => {
   });
 
   test("mobile trigger carries the same dot", () => {
-    isMobileRef.value = true;
+    isTouchMobileRef.value = true;
     feedRef.items = [bellItem({ status: "new" })];
     const html = renderBell();
     expect(html).toContain(UNREAD_DOT);
@@ -841,7 +841,7 @@ describe("NotificationsBell detail", () => {
   });
 
   test("mobile opens the detail in the bottom sheet", async () => {
-    isMobileRef.value = true;
+    isTouchMobileRef.value = true;
     feedRef.items = [FIRST];
 
     await openDetail("Watcher job failed");

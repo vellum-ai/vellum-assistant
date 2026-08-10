@@ -22,6 +22,8 @@
 import { randomBytes, randomUUID } from "node:crypto";
 
 import {
+  bindsSameIdentity,
+  boundIdentity,
   hashVerificationSecret,
   VERIFICATION_SESSIONS_IPC_METHODS,
   type VerificationSessionWire,
@@ -62,10 +64,29 @@ function isInterceptable(s: VerificationSessionWire): boolean {
   return (INTERCEPTABLE_STATUSES as readonly string[]).includes(s.status);
 }
 
-function revokeInterceptable(channel: string): void {
+const OUTBOUND_LIVE_STATUSES = ["pending_bootstrap", "awaiting_response"];
+
+/**
+ * Mirrors the gateway store: an outbound mint supersedes only sessions bound
+ * to the same identity, leaving other actors and inbound challenges alone.
+ * The identity rule itself comes from the shared contract, so this cannot
+ * drift from what the gateway does.
+ */
+function revokeSameActorOutbound(
+  channel: string,
+  params: SimCreateOutboundParams,
+): void {
+  const identity = boundIdentity(params);
+  if (identity === null) {
+    return;
+  }
   const now = Date.now();
   for (const s of sessions.values()) {
-    if (s.channel === channel && isInterceptable(s)) {
+    if (
+      s.channel === channel &&
+      OUTBOUND_LIVE_STATUSES.includes(s.status) &&
+      bindsSameIdentity(boundIdentity(s), identity)
+    ) {
       s.status = "revoked";
       s.updatedAt = now;
     }
@@ -164,7 +185,7 @@ export interface SimCreateOutboundResult {
 export function createOutboundSession(
   params: SimCreateOutboundParams,
 ): SimCreateOutboundResult {
-  revokeInterceptable(params.channel);
+  revokeSameActorOutbound(params.channel, params);
 
   const isUnbound = params.identityBindingStatus === "pending_bootstrap";
   const secret = isUnbound
@@ -220,17 +241,30 @@ export type SimGuardedCreateOutboundResult =
 export function createOutboundSessionGuarded(
   params: SimCreateOutboundParams & {
     requireSourceSessionPending?: string;
-    ifNoneActive?: boolean;
     ifNoneActiveForExternalUserId?: string;
   },
 ): SimGuardedCreateOutboundResult {
   const {
     requireSourceSessionPending,
-    ifNoneActive,
     ifNoneActiveForExternalUserId,
     ...createParams
   } = params;
 
+  if (ifNoneActiveForExternalUserId !== undefined) {
+    // Scoped, like the gateway. Reading the channel's latest and comparing
+    // misses this sender's session whenever somebody else started later.
+    const active = findActiveSession(params.channel, {
+      expectedExternalUserId: ifNoneActiveForExternalUserId,
+    });
+    if (active !== null) {
+      return { conflict: true, reason: "active_session_exists" };
+    }
+  }
+
+  // Claim the named source row. Winning the claim IS the guard, so a second
+  // claim of the same deep-link token conflicts. The identity-scoped revoke
+  // cannot do this: a bootstrap row carries whichever identity was bound onto
+  // it last.
   if (requireSourceSessionPending !== undefined) {
     const source = sessions.get(requireSourceSessionPending);
     if (
@@ -240,20 +274,8 @@ export function createOutboundSessionGuarded(
     ) {
       return { conflict: true, reason: "source_session_not_pending" };
     }
-  }
-
-  if (ifNoneActive && findActiveSession(params.channel) !== null) {
-    return { conflict: true, reason: "active_session_exists" };
-  }
-
-  if (ifNoneActiveForExternalUserId !== undefined) {
-    const active = findActiveSession(params.channel);
-    if (
-      active !== null &&
-      active.expectedExternalUserId === ifNoneActiveForExternalUserId
-    ) {
-      return { conflict: true, reason: "active_session_exists" };
-    }
+    source.status = "revoked";
+    source.updatedAt = Date.now();
   }
 
   return createOutboundSession(createParams);
@@ -309,6 +331,10 @@ export function getPendingSession(
 
 export function findActiveSession(
   channel: string,
+  filter: {
+    expectedExternalUserId?: string;
+    verificationPurpose?: "guardian" | "trusted_contact";
+  } = {},
 ): VerificationSessionWire | null {
   const now = Date.now();
   return (
@@ -318,7 +344,11 @@ export function findActiveSession(
           s.channel === channel &&
           (s.status === "pending_bootstrap" ||
             s.status === "awaiting_response") &&
-          s.expiresAt > now,
+          s.expiresAt > now &&
+          (!filter.expectedExternalUserId ||
+            s.expectedExternalUserId === filter.expectedExternalUserId) &&
+          (!filter.verificationPurpose ||
+            s.verificationPurpose === filter.verificationPurpose),
       )
       .sort(newestFirst)[0] ?? null
   );
@@ -475,50 +505,24 @@ function recordInvalidAttempt(key: string): void {
   rateLimits.set(key, entry);
 }
 
+/**
+ * Mirrors the gateway consume path. Both sides read the shared
+ * `boundIdentity`, so the sim cannot accept a code the real service would
+ * refuse. A session bound to no identity, or not yet finally bound
+ * (`pending_bootstrap`), bypasses the check as it does at the gateway.
+ */
 function checkIdentityMatch(
   session: VerificationSessionWire,
   actorExternalUserId: string,
   actorChatId: string,
 ): boolean {
-  const hasExpectedIdentity =
-    session.expectedExternalUserId != null ||
-    session.expectedChatId != null ||
-    session.expectedPhoneE164 != null;
-  // pending_bootstrap (and unbound inbound) sessions bypass the check.
-  if (!hasExpectedIdentity || session.identityBindingStatus !== "bound") {
+  const identity = boundIdentity(session);
+  if (identity === null || session.identityBindingStatus !== "bound") {
     return true;
   }
-
-  if (
-    session.expectedPhoneE164 != null &&
-    (actorExternalUserId === session.expectedPhoneE164 ||
-      actorExternalUserId === session.expectedExternalUserId)
-  ) {
-    return true;
-  }
-
-  // Shared-chatId caveat: when both expected fields are set, require the
-  // externalUserId match — chat IDs can be shared.
-  if (session.expectedChatId != null) {
-    if (session.expectedExternalUserId != null) {
-      if (actorExternalUserId === session.expectedExternalUserId) {
-        return true;
-      }
-    } else if (actorChatId === session.expectedChatId) {
-      return true;
-    }
-  }
-
-  if (
-    session.expectedPhoneE164 == null &&
-    session.expectedChatId == null &&
-    session.expectedExternalUserId != null &&
-    actorExternalUserId === session.expectedExternalUserId
-  ) {
-    return true;
-  }
-
-  return false;
+  return identity.field === "chatId"
+    ? actorChatId === identity.value
+    : actorExternalUserId === identity.value;
 }
 
 export function validateAndConsumeVerification(

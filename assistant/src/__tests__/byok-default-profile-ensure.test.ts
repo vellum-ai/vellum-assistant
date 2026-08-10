@@ -278,6 +278,8 @@ describe("ensureByokDefaultProfiles", () => {
     ["openrouter", "quality-optimized", "anthropic/claude-opus-4.8"],
     ["gemini", "cost-optimized", "gemini-3.1-flash-lite-preview"],
     ["openai", "cost-optimized", "gpt-5.4-nano"],
+    ["openai", "balanced", "gpt-5.4-mini"],
+    ["openai", "quality-optimized", "gpt-5.4"],
     ["fireworks", "balanced", "accounts/fireworks/models/kimi-k2p5"],
     ["fireworks", "balanced", "accounts/fireworks/models/kimi-k2p6"],
     [

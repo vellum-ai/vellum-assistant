@@ -3,7 +3,7 @@
 openapi: 3.1.0
 info:
   title: Vellum Assistant API
-  version: 0.11.2
+  version: 0.11.3
   description: Auto-generated OpenAPI specification for the Vellum Assistant runtime HTTP server.
 servers:
   - url: http://127.0.0.1:7821
@@ -4017,8 +4017,8 @@ paths:
       summary: Get available channels
       description:
         Return the channels this assistant can surface to clients, with display metadata (label, icon, verification
-        capability, setup copy). Today this is a fixed base list plus `email` when an inbox is registered; will become
-        plugin/skill-driven in future.
+        capability, setup copy). A fixed base list plus `email` when an inbox is registered, plus the channels installed
+        plugins bring by declaring ingress routes. Each carries a `source` saying which of those it is.
       tags:
         - channels
       responses:
@@ -4036,16 +4036,9 @@ paths:
                       properties:
                         id:
                           type: string
-                          enum:
-                            - telegram
-                            - phone
-                            - vellum
-                            - whatsapp
-                            - slack
-                            - email
-                            - platform
-                            - a2a
-                            - discord
+                        source:
+                          type: string
+                          description: "`default` for a channel the assistant ships, `plugin:<name>` for one an installed plugin brings"
                         label:
                           type: string
                         subtitle:
@@ -4067,13 +4060,16 @@ paths:
                           additionalProperties: false
                       required:
                         - id
+                        - source
                         - label
                         - subtitle
                         - icon
                         - supportsVerification
                         - setupMessages
                       additionalProperties: false
-                    description: Available channels in display order
+                    description:
+                      "Available channels in display order: the ones the assistant ships, then the ones installed plugins bring
+                      by declaring ingress routes. `source` distinguishes them."
                 required:
                   - channels
                 additionalProperties: false
@@ -4358,6 +4354,7 @@ paths:
                             - platform
                             - a2a
                             - discord
+                            - plugin
                         ready:
                           type: boolean
                         setupStatus:
@@ -4448,6 +4445,7 @@ paths:
                     - platform
                     - a2a
                     - discord
+                    - plugin
                 includeRemote:
                   description: Include remote checks (default true)
                   type: boolean
@@ -4478,6 +4476,7 @@ paths:
                             - platform
                             - a2a
                             - discord
+                            - plugin
                         ready:
                           type: boolean
                         setupStatus:
@@ -6582,6 +6581,7 @@ paths:
               - platform
               - a2a
               - discord
+              - plugin
           description:
             Filter by origin channel. When provided, only conversations with this exact origin_channel value are
             returned. Omit to include all channels.
@@ -6718,6 +6718,7 @@ paths:
                                 - platform
                                 - a2a
                                 - discord
+                                - plugin
                             - type: "null"
                         assistantAttention:
                           type: object
@@ -7081,6 +7082,7 @@ paths:
                               - platform
                               - a2a
                               - discord
+                              - plugin
                           - type: "null"
                       assistantAttention:
                         type: object
@@ -8294,6 +8296,7 @@ paths:
                               - platform
                               - a2a
                               - discord
+                              - plugin
                           - type: "null"
                       assistantAttention:
                         type: object
@@ -9293,8 +9296,10 @@ paths:
   /v1/conversations/reorder:
     post:
       operationId: conversations_reorder_post
-      summary: Reorder conversations
-      description: Batch-update display order and pin state for conversations.
+      summary: Move conversations between sections
+      description:
+        Batch-update which group holds each conversation, and its pin state. Lists are ordered by recency, so this
+        sets placement, not order.
       tags:
         - conversations
       requestBody:
@@ -9311,8 +9316,6 @@ paths:
                     properties:
                       conversationId:
                         type: string
-                      displayOrder:
-                        type: number
                       isPinned:
                         type: boolean
                       groupId:
@@ -14758,7 +14761,7 @@ paths:
             type: string
           description:
             "Filter by provider. One of: anthropic, openai, gemini, ollama, fireworks, together, openrouter,
-            vercel-ai-gateway, litellm, openai-compatible, minimax, atlascloud, baseten, poolside, vellum"
+            vercel-ai-gateway, litellm, openai-compatible, minimax, atlascloud, baseten, poolside, vellum, chatgpt"
       responses:
         "200":
           description: Successful response
@@ -21888,6 +21891,7 @@ paths:
                     - platform
                     - a2a
                     - discord
+                    - plugin
                     - scheduler
                     - watcher
                 sourceContextId:
@@ -22077,6 +22081,11 @@ paths:
                             anyOf:
                               - type: string
                               - type: "null"
+                          acts_as:
+                            type: string
+                            enum:
+                              - user
+                              - assistant
                         required:
                           - provider_key
                           - display_name
@@ -22088,6 +22097,7 @@ paths:
                           - supports_managed_mode
                           - managed_service_is_paid
                           - feature_flag
+                          - acts_as
                         additionalProperties: false
                       - type: "null"
                   apps:
@@ -22605,6 +22615,11 @@ paths:
                           anyOf:
                             - type: string
                             - type: "null"
+                        acts_as:
+                          type: string
+                          enum:
+                            - user
+                            - assistant
                       required:
                         - provider_key
                         - display_name
@@ -22616,6 +22631,7 @@ paths:
                         - supports_managed_mode
                         - managed_service_is_paid
                         - feature_flag
+                        - acts_as
                       additionalProperties: false
                 required:
                   - providers
@@ -24249,8 +24265,9 @@ paths:
         non-conflicting edits from both sides forward and resolving conflicting hunks toward the local edit (`ours`) or
         the target (`theirs`), or writing git conflict markers into the file and reporting them in
         `conflicts`/`binaryConflicts` for the assistant to resolve (`assistant`). A merge strategy whose install-time
-        baseline cannot be reconstructed returns 409. Mirrors the CLI''s `assistant plugins upgrade <name> [--strategy
-        <s>]`.'
+        baseline cannot be reconstructed returns 409. Pass `marketplaceOnly` to refuse the untrusted direct path
+        outright (409), which is what the unattended auto-update sweep does. Mirrors the CLI''s `assistant plugins
+        upgrade <name> [--strategy <s>]`.'
       tags:
         - plugins
       parameters:
@@ -24280,6 +24297,13 @@ paths:
                     - theirs
                     - overwrite
                     - assistant
+                marketplaceOnly:
+                  description:
+                    Refuse the upgrade (409) when the marketplace does not claim this plugin, instead of advancing it to
+                    whatever its recorded GitHub ref now resolves to. Set by unattended callers such as the automatic
+                    update sweep, for which running code no curator reviewed is never an acceptable outcome. Defaults to
+                    false.
+                  type: boolean
       responses:
         "200":
           description: Successful response
@@ -24379,8 +24403,9 @@ paths:
           description: No copy of the plugin is installed, or its source resolves to nothing.
         "409":
           description:
-            The install has neither a marketplace entry nor a recorded GitHub source to advance to, or a merge strategy
-            was requested whose install-time baseline cannot be reconstructed.
+            The install has neither a marketplace entry nor a recorded GitHub source to advance to, a `marketplaceOnly`
+            upgrade was requested for an install the marketplace does not claim, or a merge strategy was requested whose
+            install-time baseline cannot be reconstructed.
         "503":
           description: The plugin source (GitHub) was temporarily unavailable; the upgrade is retryable.
   /v1/plugins/{name}/versions:
@@ -34223,6 +34248,7 @@ components:
         - baseten
         - poolside
         - vellum
+        - chatgpt
     Auth:
       oneOf:
         - type: object

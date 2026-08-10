@@ -10,6 +10,7 @@ type SavedState = {
 
 let savedWindows: Record<string, SavedState> = {};
 let savedOnboardingActive: boolean | undefined = undefined;
+let savedCompanionHidden: boolean | undefined = undefined;
 let workArea = { x: 0, y: 0, width: 1920, height: 1080 };
 const storeSetMock = mock((_key: string, _value: unknown) => {});
 
@@ -23,6 +24,7 @@ mock.module("electron-store", () => ({
       // Mirror electron-store: return the stored value, or the fallback
       // when the key is absent.
       if (key === "onboardingActive") return savedOnboardingActive ?? fallback;
+      if (key === "companionHidden") return savedCompanionHidden ?? fallback;
       if (key === "windows") return savedWindows;
       return fallback;
     }
@@ -42,8 +44,14 @@ mock.module("electron", () => ({
   },
 }));
 
-const { restoreBounds, track, readOnboardingActive, writeOnboardingActive } =
-  await import("./window-state");
+const {
+  restoreBounds,
+  track,
+  readCompanionHidden,
+  readOnboardingActive,
+  writeCompanionHidden,
+  writeOnboardingActive,
+} = await import("./window-state");
 
 const DEFAULTS = { width: 800, height: 600 };
 
@@ -68,6 +76,7 @@ function makeTrackableWindow() {
 beforeEach(() => {
   savedWindows = {};
   savedOnboardingActive = undefined;
+  savedCompanionHidden = undefined;
   workArea = { x: 0, y: 0, width: 1920, height: 1080 };
   storeSetMock.mockClear();
 });
@@ -280,5 +289,27 @@ describe("readOnboardingActive default", () => {
 
     writeOnboardingActive(true);
     expect(storeSetMock).toHaveBeenCalledWith("onboardingActive", true);
+  });
+});
+
+describe("companion surface visibility flag", () => {
+  test("absent flag defaults to shown", () => {
+    expect(readCompanionHidden()).toBe(false);
+  });
+
+  test("an explicit persisted flag wins over the default", () => {
+    savedCompanionHidden = true;
+    expect(readCompanionHidden()).toBe(true);
+
+    savedCompanionHidden = false;
+    expect(readCompanionHidden()).toBe(false);
+  });
+
+  test("writeCompanionHidden skips persisting when the effective value is unchanged", () => {
+    writeCompanionHidden(false);
+    expect(storeSetMock).not.toHaveBeenCalled();
+
+    writeCompanionHidden(true);
+    expect(storeSetMock).toHaveBeenCalledWith("companionHidden", true);
   });
 });

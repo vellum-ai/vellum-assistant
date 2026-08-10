@@ -1,6 +1,7 @@
 import { Mail, MailOpen, MessageSquare, RotateCcw, Trash2 } from "lucide-react";
 import { useMemo, type ReactNode } from "react";
 
+import { useTranslation } from "@/i18n";
 import { formatRelativeDate } from "@/utils/format-date";
 import type { FeedItem, FeedItemStatus } from "@vellumai/assistant-api";
 import {
@@ -109,6 +110,7 @@ export function HomeRecapRow({
   trailingAction = "dismiss",
   density = "comfortable",
 }: HomeRecapRowProps) {
+  const { t } = useTranslation("home");
   const isUnread = item.status === "new";
   const isRestore = trailingAction === "restore";
   const densityStyle = DENSITY_STYLES[density];
@@ -237,18 +239,24 @@ export function HomeRecapRow({
             >
               {isRestore ? (
                 <HoverIconButton
-                  label="Restore"
+                  label={t("actions.restore")}
                   onClick={() => onDismiss(item.id)}
                   className="w-auto gap-[var(--app-spacing-xs)] px-2"
                 >
                   <RotateCcw width={16} height={16} aria-hidden="true" />
-                  <span className="text-body-small-default">Restore</span>
+                  <span className="text-body-small-default">
+                    {t("actions.restore")}
+                  </span>
                 </HoverIconButton>
               ) : (
                 <>
                   {onToggleRead && (
                     <HoverIconButton
-                      label={isUnread ? "Mark as read" : "Mark as unread"}
+                      label={
+                        isUnread
+                          ? t("actions.markAsRead")
+                          : t("actions.markAsUnread")
+                      }
                       onClick={() =>
                         onToggleRead(item.id, isUnread ? "seen" : "new")
                       }
@@ -265,7 +273,7 @@ export function HomeRecapRow({
                     (!validConversationIds ||
                       validConversationIds.has(item.conversationId)) && (
                       <HoverIconButton
-                        label="Go to thread"
+                        label={t("actions.goToThread")}
                         onClick={() => {
                           if (isUnread && onToggleRead) {
                             onToggleRead(item.id, "seen");
@@ -277,7 +285,7 @@ export function HomeRecapRow({
                       </HoverIconButton>
                     )}
                   <HoverIconButton
-                    label="Dismiss"
+                    label={t("actions.dismiss")}
                     onClick={() => onDismiss(item.id)}
                   >
                     <Trash2 width={16} height={16} />

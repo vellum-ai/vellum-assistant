@@ -21,7 +21,12 @@ import {
   SIZE_LABEL,
 } from "@/lib/billing/machine-sizes";
 
-/** Sentinel for the "No extra credits" dropdown entry (Dropdown is generic over string, cannot carry real null). */
+/**
+ * Sentinel for the "No extra credits" entry. `CreditChoice` is a string union,
+ * so the absence of a tier needs a value to carry through the picker and the
+ * diff. `Select` can now express this directly with a `null` option and
+ * `onSelectNone`, which would make the sentinel unnecessary.
+ */
 export const NO_EXTRA_CREDITS = "__none__";
 export type CreditChoice = CreditTierEnum | typeof NO_EXTRA_CREDITS;
 
@@ -31,7 +36,8 @@ export const NO_CREDITS_LABEL = "No extra credits";
 /**
  * Sentinel for the baseline machine. `MachineTierEnum` names only the paid
  * tiers, so the small machine a package with no tier runs on has no value to
- * carry: it is `null` on the wire, which the Dropdown cannot hold either.
+ * carry: it is `null` on the wire. Same note as above: `Select`'s `null`
+ * option would remove the need for a stand-in string.
  */
 export const BASELINE_MACHINE = "__baseline__";
 export type MachineChoice = MachineTierEnum | typeof BASELINE_MACHINE;

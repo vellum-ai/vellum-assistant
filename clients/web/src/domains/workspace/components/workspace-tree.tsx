@@ -29,6 +29,7 @@ import {
 } from "lucide-react";
 import { type FormEvent, useCallback, useMemo, useRef, useState } from "react";
 
+import { Trans, useTranslation } from "@/i18n";
 import { formatFileSize } from "@/domains/workspace/utils/format-file-size";
 import { isHiddenPath } from "@/domains/workspace/utils/is-hidden-path";
 import {
@@ -47,7 +48,7 @@ import {
   WORKSPACE_TREE_QUERY_KEY,
   workspaceTreeQueryOptions,
 } from "@/lib/workspace-tree-query";
-import { useIsMobile } from "@/hooks/use-is-mobile";
+import { useTouchMobile } from "@/hooks/use-touch-mobile";
 import { BottomSheet } from "@vellumai/design-library/components/bottom-sheet";
 import { Button } from "@vellumai/design-library/components/button";
 import { ConfirmDialog } from "@vellumai/design-library/components/confirm-dialog";
@@ -173,6 +174,7 @@ function TreeNode({
   }) => void;
   depth: number;
 }) {
+  const { t } = useTranslation("workspace");
   const entryPath = entry.path ?? "";
   const entryName = entry.name ?? "";
   const isDirectory = entry.type === "directory";
@@ -278,7 +280,7 @@ function TreeNode({
                     onRequestCreate({ kind: "file", parentPath: entryPath })
                   }
                 >
-                  New File
+                  {t("workspaceTree.newFile")}
                 </ContextMenu.Item>
                 <ContextMenu.Item
                   leftIcon={<FolderPlus className="h-3.5 w-3.5" />}
@@ -286,7 +288,7 @@ function TreeNode({
                     onRequestCreate({ kind: "folder", parentPath: entryPath })
                   }
                 >
-                  New Folder
+                  {t("workspaceTree.newFolder")}
                 </ContextMenu.Item>
                 <ContextMenu.Separator />
               </>
@@ -301,7 +303,7 @@ function TreeNode({
                 })
               }
             >
-              Delete
+              {t("workspaceTree.delete")}
             </ContextMenu.Item>
             <ContextMenu.Item
               leftIcon={<Pencil className="h-3.5 w-3.5" />}
@@ -313,7 +315,7 @@ function TreeNode({
                 })
               }
             >
-              Rename
+              {t("workspaceTree.rename")}
             </ContextMenu.Item>
           </ContextMenu.Content>
         </ContextMenu.Root>
@@ -373,6 +375,7 @@ function NameItemDialog({
   pending,
   error,
 }: NameItemDialogProps) {
+  const { t } = useTranslation("workspace");
   const inputRef = useRef<HTMLInputElement>(null);
   const [name, setName] = useState(initialName ?? "");
 
@@ -432,15 +435,13 @@ function NameItemDialog({
           <Modal.Body>
             <Input
               ref={inputRef}
-              label="Name"
+              label={t("workspaceTree.nameLabel")}
               value={name}
               onChange={(e) => setName(e.target.value)}
               placeholder={placeholder}
               errorText={
                 error ??
-                (invalidName
-                  ? "Enter a single file or folder name without slashes."
-                  : undefined)
+                (invalidName ? t("workspaceTree.nameError") : undefined)
               }
               autoComplete="off"
               spellCheck={false}
@@ -454,7 +455,7 @@ function NameItemDialog({
               onClick={onCancel}
               disabled={pending}
             >
-              Cancel
+              {t("workspaceTree.cancel")}
             </Button>
             <Button type="submit" variant="primary" disabled={!canSubmit}>
               {pending ? pendingLabel : confirmLabel}
@@ -497,6 +498,7 @@ export function WorkspaceTree({
   onPathDeleted: (path: string) => void;
   onPathRenamed: (oldPath: string, newPath: string) => void;
 }) {
+  const { t } = useTranslation("workspace");
   const queryClient = useQueryClient();
   const [search, setSearch] = useState("");
   const searchLower = search.trim().toLowerCase();
@@ -677,7 +679,7 @@ export function WorkspaceTree({
           className="text-body-medium-default"
           style={{ color: "var(--content-secondary)" }}
         >
-          Files
+          {t("workspaceTree.heading")}
         </span>
         <div className="flex items-center gap-0.5">
           <Button
@@ -694,11 +696,15 @@ export function WorkspaceTree({
             onClick={() =>
               onChangeSortMode(sortMode === "size" ? "name" : "size")
             }
-            aria-label={sortMode === "size" ? "Sort by name" : "Sort by size"}
+            aria-label={
+              sortMode === "size"
+                ? t("workspaceTree.sortByNameAria")
+                : t("workspaceTree.sortBySizeAria")
+            }
             title={
               sortMode === "size"
-                ? "Sorted by size — switch to name"
-                : "Sorted by name — switch to size"
+                ? t("workspaceTree.sortedBySizeTitle")
+                : t("workspaceTree.sortedByNameTitle")
             }
             tintColor={
               sortMode === "size"
@@ -712,8 +718,16 @@ export function WorkspaceTree({
             size="compact"
             iconOnly={showHidden ? <Eye aria-hidden /> : <EyeOff aria-hidden />}
             onClick={onToggleShowHidden}
-            aria-label={showHidden ? "Hide hidden files" : "Show hidden files"}
-            title={showHidden ? "Hide hidden files" : "Show hidden files"}
+            aria-label={
+              showHidden
+                ? t("workspaceTree.hideHiddenAria")
+                : t("workspaceTree.showHiddenAria")
+            }
+            title={
+              showHidden
+                ? t("workspaceTree.hideHiddenAria")
+                : t("workspaceTree.showHiddenAria")
+            }
             tintColor={
               showHidden ? "var(--content-default)" : "var(--content-tertiary)"
             }
@@ -735,7 +749,7 @@ export function WorkspaceTree({
             type="text"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search files"
+            placeholder={t("workspaceTree.searchPlaceholder")}
             leftIcon={<Search className="h-3.5 w-3.5" aria-hidden />}
             fullWidth
             spellCheck={false}
@@ -748,7 +762,7 @@ export function WorkspaceTree({
               size="compact"
               iconOnly={<X aria-hidden />}
               onClick={() => setSearch("")}
-              aria-label="Clear search"
+              aria-label={t("workspaceTree.clearSearchAria")}
               className="absolute right-1.5 top-1/2 -translate-y-1/2"
               tintColor="var(--content-tertiary)"
             />
@@ -769,7 +783,7 @@ export function WorkspaceTree({
             className="px-3 py-4 text-center text-body-medium-lighter"
             style={{ color: "var(--content-tertiary)" }}
           >
-            No files found
+            {t("workspaceTree.noFilesFound")}
           </p>
         ) : (
           rootEntries.map((entry) => (
@@ -796,10 +810,14 @@ export function WorkspaceTree({
       {dialog?.type === "create" && (
         <NameItemDialog
           key={`create-${dialog.kind}-${dialog.parentPath}`}
-          title={dialog.kind === "file" ? "New File" : "New Folder"}
+          title={
+            dialog.kind === "file"
+              ? t("workspaceTree.newFile")
+              : t("workspaceTree.newFolder")
+          }
           placeholder={dialog.kind === "file" ? "filename.md" : "folder-name"}
-          confirmLabel="Create"
-          pendingLabel="Creating…"
+          confirmLabel={t("workspaceTree.create")}
+          pendingLabel={t("workspaceTree.creating")}
           onCancel={closeDialog}
           onConfirm={(name) => {
             setDialogError(null);
@@ -817,10 +835,10 @@ export function WorkspaceTree({
       {dialog?.type === "rename" && (
         <NameItemDialog
           key={`rename-${dialog.path}`}
-          title="Rename"
+          title={t("workspaceTree.rename")}
           placeholder={dialog.name}
-          confirmLabel="Rename"
-          pendingLabel="Renaming…"
+          confirmLabel={t("workspaceTree.rename")}
+          pendingLabel={t("workspaceTree.renaming")}
           initialName={dialog.name}
           onCancel={closeDialog}
           onConfirm={(name) => {
@@ -838,15 +856,25 @@ export function WorkspaceTree({
 
       <ConfirmDialog
         open={deleteTarget !== null}
-        title={deleteTarget?.isDirectory ? "Delete Folder" : "Delete File"}
+        title={
+          deleteTarget?.isDirectory
+            ? t("workspaceTree.deleteFolderTitle")
+            : t("workspaceTree.deleteFileTitle")
+        }
         message={
           <>
-            Are you sure you want to delete{" "}
-            <span style={{ color: "var(--content-default)" }}>
-              {deleteTarget?.name}
-            </span>
-            {deleteTarget?.isDirectory ? " and all of its contents" : ""}? This
-            cannot be undone.
+            <Trans
+              i18nKey={
+                deleteTarget?.isDirectory
+                  ? "workspaceTree.deleteFolderMessage"
+                  : "workspaceTree.deleteFileMessage"
+              }
+              ns="workspace"
+              values={{ name: deleteTarget?.name ?? "" }}
+              components={{
+                name: <span style={{ color: "var(--content-default)" }} />,
+              }}
+            />
             {deleteMutation.error && (
               <span
                 className="mt-2 block"
@@ -857,7 +885,11 @@ export function WorkspaceTree({
             )}
           </>
         }
-        confirmLabel={deleteMutation.isPending ? "Deleting…" : "Delete"}
+        confirmLabel={
+          deleteMutation.isPending
+            ? t("workspaceTree.deleting")
+            : t("workspaceTree.delete")
+        }
         destructive
         isPending={deleteMutation.isPending}
         onConfirm={() => {
@@ -872,7 +904,7 @@ export function WorkspaceTree({
 }
 
 // ---------------------------------------------------------------------------
-// WorkspaceTreeCreateMenu — desktop popover / mobile bottom-sheet
+// WorkspaceTreeCreateMenu: anchored popover / touch bottom-sheet
 // ---------------------------------------------------------------------------
 
 export interface WorkspaceTreeCreateMenuProps {
@@ -886,9 +918,10 @@ export function WorkspaceTreeCreateMenu({
   onOpenChange,
   onSelectKind,
 }: WorkspaceTreeCreateMenuProps) {
-  const isMobile = useIsMobile();
+  const { t } = useTranslation("workspace");
+  const isTouchMobile = useTouchMobile();
 
-  if (isMobile) {
+  if (isTouchMobile) {
     return (
       <BottomSheet.Root open={open} onOpenChange={onOpenChange}>
         <BottomSheet.Trigger asChild>
@@ -897,24 +930,26 @@ export function WorkspaceTreeCreateMenu({
             variant="ghost"
             size="compact"
             iconOnly={<Plus aria-hidden />}
-            aria-label="Create new file or folder"
-            title="New file or folder"
+            aria-label={t("workspaceTree.createTriggerAria")}
+            title={t("workspaceTree.createTriggerTitle")}
             tintColor="var(--content-tertiary)"
           />
         </BottomSheet.Trigger>
         <BottomSheet.Content>
           <BottomSheet.Header className="sr-only">
-            <BottomSheet.Title>Create new</BottomSheet.Title>
+            <BottomSheet.Title>
+              {t("workspaceTree.creatingHeading")}
+            </BottomSheet.Title>
           </BottomSheet.Header>
           <BottomSheet.Body className="pt-0">
             <PanelItem
               icon={FilePlus}
-              label="New File"
+              label={t("workspaceTree.newFile")}
               onSelect={() => onSelectKind("file")}
             />
             <PanelItem
               icon={FolderPlus}
-              label="New Folder"
+              label={t("workspaceTree.newFolder")}
               onSelect={() => onSelectKind("folder")}
             />
           </BottomSheet.Body>
@@ -931,8 +966,8 @@ export function WorkspaceTreeCreateMenu({
           variant="ghost"
           size="compact"
           iconOnly={<Plus aria-hidden />}
-          aria-label="Create new file or folder"
-          title="New file or folder"
+          aria-label={t("workspaceTree.createTriggerAria")}
+          title={t("workspaceTree.createTriggerTitle")}
           tintColor="var(--content-tertiary)"
         />
       </Menu.Trigger>
@@ -941,13 +976,13 @@ export function WorkspaceTreeCreateMenu({
           leftIcon={<FilePlus className="h-3.5 w-3.5" />}
           onSelect={() => onSelectKind("file")}
         >
-          New File
+          {t("workspaceTree.newFile")}
         </Menu.Item>
         <Menu.Item
           leftIcon={<FolderPlus className="h-3.5 w-3.5" />}
           onSelect={() => onSelectKind("folder")}
         >
-          New Folder
+          {t("workspaceTree.newFolder")}
         </Menu.Item>
       </Menu.Content>
     </Menu.Root>

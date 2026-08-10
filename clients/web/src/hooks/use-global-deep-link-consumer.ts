@@ -2,13 +2,16 @@ import { useLayoutEffect, useRef } from "react";
 import * as Sentry from "@sentry/react";
 import { useNavigate } from "react-router";
 
+import { useQueryClient } from "@tanstack/react-query";
+
 import { useBusSubscription } from "@/hooks/use-bus-subscription";
+import { notifyCheckoutSuccess } from "@/lib/billing/checkout-success";
 import {
   isLiveVoiceSessionActive,
   restoreVoiceRoom,
   useLiveVoiceStore,
 } from "@/domains/chat/voice/live-voice/live-voice-store";
-import { requestVoiceStartFromDeepLink } from "@/domains/chat/voice/live-voice/start-voice-deep-link";
+import { requestVoiceStart } from "@/domains/chat/voice/live-voice/start-voice-request";
 import { ensureMainWindowVisible } from "@/runtime/main-window";
 import { useConnectDialogStore } from "@/stores/connect-dialog-store";
 import { useConversationStore } from "@/stores/conversation-store";
@@ -30,13 +33,18 @@ import { routes } from "@/utils/routes";
  * - `deeplink.send` → `ensureMainWindowVisible()` + navigate to
  *   `/assistant` + park the message in `usePendingDeepLinkStore`
  *   for `ChatPage`'s composer-domain hook to consume on mount.
- * - `deeplink.billingCheckoutComplete` → `ensureMainWindowVisible()`
- *   + navigate to billing carrying the Stripe `session_id` (which
- *   opens the Pro onboarding wizard), or to the upgrade-cancel page
- *   on `status: "cancel"` — the same landing the web flow uses.
+ * - `deeplink.billingCheckoutComplete` → `ensureMainWindowVisible()`,
+ *   then branch on `flow`. A `subscription` checkout navigates to
+ *   billing carrying the Stripe `session_id` (which opens the Pro
+ *   onboarding wizard), or to the upgrade-cancel page on
+ *   `status: "cancel"` (the same landing the web flow uses). A
+ *   `top_up` checkout toasts and refetches the billing summary on
+ *   success (no forced navigation), and on cancel lands on billing
+ *   with `billing_status=cancel`, funneling into the billing page's
+ *   server-verified checkout-bonus offer flow.
  * - `deeplink.startVoice` → `ensureMainWindowVisible()` + navigate,
  *   then hand the request to the live-voice starter (parked for the
- *   cold-launch case — see `start-voice-deep-link.ts`). `mode: "resume"`
+ *   cold-launch case, see `start-voice-request.ts`). `mode: "resume"`
  *   just navigates back to a running session's conversation. A `prompt`
  *   (Siri's "Ask …" intent, which collects the question before the app is
  *   up) is parked in the composer inbox — see below.
@@ -102,6 +110,7 @@ function connectGuidanceMessage(url: string | null): string {
 
 export function useGlobalDeepLinkConsumer(): void {
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const navigateRef = useRef(navigate);
   useLayoutEffect(() => {
     navigateRef.current = navigate;
@@ -190,13 +199,29 @@ export function useGlobalDeepLinkConsumer(): void {
     // The draft composer (no conversation): the session starts without one and
     // the server assigns it on `ready`.
     navigateRef.current(routes.assistant);
-    requestVoiceStartFromDeepLink();
+    requestVoiceStart();
   });
 
   useBusSubscription(
     "deeplink.billingCheckoutComplete",
-    ({ status, sessionId }) => {
+    ({ status, sessionId, flow }) => {
       void ensureMainWindowVisible();
+      if (flow === "top_up") {
+        if (status === "success") {
+          // No forced navigation: a top-up has no onboarding wizard to open,
+          // so the user stays wherever they were.
+          notifyCheckoutSuccess(queryClient);
+          return;
+        }
+        // `billing_status=cancel` funnels into `BillingStatusHandler`, the
+        // single owner of the server-verified checkout-bonus offer flow,
+        // so the native cancel gets the identical treatment as the web one.
+        // `usageBilling` already carries `?tab=billing`, hence the `&`.
+        navigateRef.current(
+          `${routes.settings.usageBilling}&billing_status=cancel`,
+        );
+        return;
+      }
       navigateRef.current(
         status === "success"
           ? routes.settings.usageBillingCheckout(sessionId)

@@ -3,11 +3,12 @@
  *
  * A conversation's system prompt is built once at construction and frozen for
  * every turn (the agent loop never re-resolves it), so the persona slot must
- * resolve correctly here. With no construction-time identity the default-build
- * path must warm the gateway guardian binding BEFORE building (else a cold cache
- * pins `users/default.md`); a channel-routed conversation that already carries
- * the requester's trust context must build with it so the requester's profile
- * resolves instead of the guardian/default one.
+ * resolve correctly here. With no construction-time identity OR a
+ * guardian-class trust context (background/scheduled turns, memory
+ * consolidation, managed desktop) the guardian binding must be warmed BEFORE
+ * building (else a cold cache pins `users/default.md`); a channel-routed
+ * conversation carrying a non-guardian requester trust context must build with
+ * it directly so the requester's profile resolves via the DB contact lookup.
  *
  * Dependency seams are injected so this exercises the sequencing without mocking
  * the widely-imported guardian-delivery / system-prompt modules (those global
@@ -15,10 +16,7 @@
  */
 import { describe, expect, test } from "bun:test";
 
-import {
-  resolveInitialSystemPrompt,
-  warmGuardianBindings,
-} from "../daemon/conversation-initial-prompt.js";
+import { resolveInitialSystemPrompt } from "../daemon/conversation-initial-prompt.js";
 import type { ConversationCreateOptions } from "../daemon/handlers/shared.js";
 import type { TrustContext } from "../daemon/trust-context-types.js";
 
@@ -47,18 +45,22 @@ const REQUESTER_TRUST = {
   requesterExternalUserId: "user-123",
 } as unknown as TrustContext;
 
-describe("warmGuardianBindings", () => {
-  test("warms both the vellum-channel key and the unfiltered fallback key", async () => {
-    const keys: string[] = [];
-    await warmGuardianBindings(async (input) => {
-      keys.push(input?.channelTypes?.join(",") ?? "ALL");
-      return null;
-    });
-    // Both keys the persona resolver reads — peekGuardianForChannel("vellum")
-    // and its peekAnyGuardian() fallback — must be warmed.
-    expect(keys.sort()).toEqual(["ALL", "vellum"]);
-  });
-});
+// The shape scheduler execute/reuse runs, memory consolidation, and other
+// runBackgroundJob callers pass at construction: guardian class, no
+// per-actor identity.
+const GUARDIAN_BACKGROUND_TRUST = {
+  sourceChannel: "vellum",
+  trustClass: "guardian",
+} as unknown as TrustContext;
+
+// Managed desktop: guardian class WITH a requester principal id. The persona
+// resolution may still need the guardian-delivery cache (contact lookup miss
+// or null userFile falls through to the guardian file).
+const GUARDIAN_REQUESTER_TRUST = {
+  sourceChannel: "vellum",
+  trustClass: "guardian",
+  requesterExternalUserId: "principal-123",
+} as unknown as TrustContext;
 
 describe("resolveInitialSystemPrompt", () => {
   test("no construction-time identity: warms the guardian binding, then builds with no trust context", async () => {
@@ -72,7 +74,7 @@ describe("resolveInitialSystemPrompt", () => {
     expect(builtWith).toEqual([undefined]);
   });
 
-  test("channel-routed: threads the requester trust context and skips the guardian warm", async () => {
+  test("non-guardian channel-routed: threads the requester trust context and skips the guardian warm", async () => {
     const { calls, builtWith, deps } = spyDeps();
     const result = await resolveInitialSystemPrompt(
       { trustContext: REQUESTER_TRUST } as ConversationCreateOptions,
@@ -84,6 +86,33 @@ describe("resolveInitialSystemPrompt", () => {
     // guardian-cache warm is needed and the trust context must reach the build.
     expect(calls).toEqual(["build"]);
     expect(builtWith).toEqual([REQUESTER_TRUST]);
+  });
+
+  test("guardian-class background shape: warms the guardian binding, then builds with the trust context", async () => {
+    const { calls, builtWith, deps } = spyDeps();
+    const result = await resolveInitialSystemPrompt(
+      { trustContext: GUARDIAN_BACKGROUND_TRUST } as ConversationCreateOptions,
+      deps,
+    );
+
+    expect(result).toBe("BUILD");
+    // Scheduled tasks and memory consolidation construct conversations in
+    // worker processes whose guardian-delivery cache starts cold; the warm
+    // MUST precede the build or the persona slot pins users/default.md.
+    expect(calls).toEqual(["warm", "build"]);
+    expect(builtWith).toEqual([GUARDIAN_BACKGROUND_TRUST]);
+  });
+
+  test("guardian-class with requester identity (managed desktop): still warms before building", async () => {
+    const { calls, builtWith, deps } = spyDeps();
+    const result = await resolveInitialSystemPrompt(
+      { trustContext: GUARDIAN_REQUESTER_TRUST } as ConversationCreateOptions,
+      deps,
+    );
+
+    expect(result).toBe("BUILD");
+    expect(calls).toEqual(["warm", "build"]);
+    expect(builtWith).toEqual([GUARDIAN_REQUESTER_TRUST]);
   });
 
   test("an explicit override is used verbatim and skips the warm and build", async () => {

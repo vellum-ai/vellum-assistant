@@ -1,3 +1,5 @@
+import type { NoticeTone } from "@vellumai/design-library";
+
 import type { TrustRuleRisk } from "@/types/trust-rules";
 
 const VALID_RISK_LEVELS: ReadonlySet<string> = new Set([
@@ -120,6 +122,27 @@ export function getRiskBadgeWeakStyle(riskLevel?: string): {
           ? riskLevel.charAt(0).toUpperCase() + riskLevel.slice(1)
           : "Unknown",
       };
+  }
+}
+
+/**
+ * `Notice` tone whose weak background / strong foreground match the risk
+ * level's badge colours, so the tool drawer's Risk Level row reads as one
+ * coloured bar (Figma node 7778-163402) instead of a badge on a neutral card.
+ *
+ * Levels with no tolerance tier ("workspace", anything unrecognised) get the
+ * neutral tone rather than being coloured as if they were low risk.
+ */
+export function getRiskNoticeTone(riskLevel?: string): NoticeTone {
+  switch (riskLevel?.toLowerCase()) {
+    case "low":
+      return "success";
+    case "medium":
+      return "warning";
+    case "high":
+      return "error";
+    default:
+      return "neutral";
   }
 }
 
