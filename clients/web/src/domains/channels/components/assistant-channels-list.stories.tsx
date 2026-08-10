@@ -1,6 +1,5 @@
 import type { Decorator, Meta, StoryObj } from "@storybook/react-vite";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { MemoryRouter, Route, Routes } from "react-router";
 
 import type { SetupChannelId } from "@/types/channel-types";
 
@@ -25,19 +24,25 @@ const withQueryClient: Decorator = (Story) => (
 );
 
 /**
- * Pin the master-detail selection for a story. The active adapter is the one
- * named in the URL, so a story mounts at that address rather than seeding
- * state, and the route pattern has to match the app's so `useParams` resolves.
+ * The app's two Channels routes: the bare tab, and an adapter named in the URL.
+ * Selection lives in the URL, so a story needs both patterns for the rail to
+ * move the selection the way it does in the app.
  */
-function withSelectedAdapter(adapter: SetupChannelId): Decorator {
-  return function SelectAdapter(Story) {
-    return (
-      <MemoryRouter initialEntries={[`/assistant/channels/${adapter}`]}>
-        <Routes>
-          <Route path="/assistant/channels/:channelId" element={<Story />} />
-        </Routes>
-      </MemoryRouter>
-    );
+const CHANNELS_ROUTES = [
+  "/assistant/channels",
+  "/assistant/channels/:channelId",
+];
+
+/**
+ * Pin the master-detail selection for a story: it starts at the selected
+ * adapter's address rather than seeding state.
+ */
+function selectedAdapter(adapter: SetupChannelId) {
+  return {
+    router: {
+      initialEntries: [`/assistant/channels/${adapter}`],
+      paths: CHANNELS_ROUTES,
+    },
   };
 }
 
@@ -82,7 +87,7 @@ type Story = StoryObj<typeof AssistantChannelsList>;
 
 /** Default: Slack selected, its consolidated connection card in the detail panel. */
 export const ChannelsTab: Story = {
-  decorators: [withSelectedAdapter("slack")],
+  parameters: selectedAdapter("slack"),
 };
 
 /**
@@ -92,7 +97,7 @@ export const ChannelsTab: Story = {
  * policy handler wired — its floors are managed per conversation type.
  */
 export const ChannelsTabSlackConnected: Story = {
-  decorators: [withSelectedAdapter("slack")],
+  parameters: selectedAdapter("slack"),
   args: {
     slackThreadMode: "mention_then_thread",
     onSlackThreadModeChange: () => {},
@@ -103,7 +108,7 @@ export const ChannelsTabSlackConnected: Story = {
 
 /** Disconnected Slack: the setup wizard in the "Slack setup" card. */
 export const ChannelsTabSlackDisconnected: Story = {
-  decorators: [withSelectedAdapter("slack")],
+  parameters: selectedAdapter("slack"),
   args: {
     channels: [
       { key: "slack", status: "not_configured" },
@@ -115,12 +120,12 @@ export const ChannelsTabSlackDisconnected: Story = {
 
 /** Disconnected Telegram: empty state with guided setup + manual escape hatch. */
 export const ChannelsTabTelegramDisconnected: Story = {
-  decorators: [withSelectedAdapter("telegram")],
+  parameters: selectedAdapter("telegram"),
 };
 
 /** Disconnected Phone: empty state with guided setup + manual escape hatch. */
 export const ChannelsTabPhoneDisconnected: Story = {
-  decorators: [withSelectedAdapter("phone")],
+  parameters: selectedAdapter("phone"),
 };
 
 /**
@@ -129,7 +134,7 @@ export const ChannelsTabPhoneDisconnected: Story = {
  * with Slack's connected card: the token field belongs to the connect flow.
  */
 export const ChannelsTabTelegramConnected: Story = {
-  decorators: [withSelectedAdapter("telegram")],
+  parameters: selectedAdapter("telegram"),
   args: {
     channels: [
       { key: "slack", status: "ready", address: "@example-assistant" },
@@ -146,7 +151,7 @@ export const ChannelsTabTelegramConnected: Story = {
  * Twilio credential fields.
  */
 export const ChannelsTabPhoneConnected: Story = {
-  decorators: [withSelectedAdapter("phone")],
+  parameters: selectedAdapter("phone"),
   args: {
     channels: [
       { key: "slack", status: "ready", address: "@example-assistant" },
@@ -163,6 +168,12 @@ export const ChannelsTabPhoneConnected: Story = {
  * lands on its manual credential form rather than the empty state.
  */
 export const ChannelsTabTelegramSetupHandoff: Story = {
+  parameters: {
+    router: {
+      initialEntries: ["/assistant/channels"],
+      paths: CHANNELS_ROUTES,
+    },
+  },
   args: {
     initialChannel: "telegram",
   },

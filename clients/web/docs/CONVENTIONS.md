@@ -1512,10 +1512,19 @@ renders correctly given the data it actually receives in production.
   applies in **Docs**, and that iframe runs roughly 300px narrower than
   the browser window.
 
+- **One router, configured through `parameters.router`.** The preview mounts
+  the only router a story gets; a story that mounts its own crashes the
+  canvas, since React Router rejects a `<Router>` inside another. A story
+  that needs a particular address or route params declares
+  `parameters: { router: { initialEntries, paths } }`, listing every route
+  pattern it navigates between: a component that navigates to an address no
+  pattern matches renders nothing rather than failing.
+
 References:
 - [Storybook - Writing stories](https://storybook.js.org/docs/writing-stories)
 - [Storybook - Decorators](https://storybook.js.org/docs/writing-stories/decorators)
 - [Storybook - Viewport](https://storybook.js.org/docs/essentials/viewport)
+- [React Router - MemoryRouter](https://reactrouter.com/api/declarative-routers/MemoryRouter)
 
 ---
 
