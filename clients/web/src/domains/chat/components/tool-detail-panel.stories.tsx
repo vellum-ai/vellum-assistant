@@ -84,6 +84,11 @@ const thinkingDetail: ToolDetailPayload = {
  * `formatToolSchemas` emits.
  */
 const skillLoadResult = [
+  "Skill: App Builder",
+  "ID: app-builder",
+  "Description: Build persistent apps in the user's Library.",
+  "Path: /skills/app-builder/SKILL.md",
+  "",
   "# App Builder",
   "",
   "Build **persistent apps** in the user's Library — dashboards, trackers,",
@@ -110,6 +115,11 @@ const skillLoadResult = [
   "Parameters:",
   "- app_id (string, required): Id returned by app_create.",
   "",
+  // Machine-only trailer the daemon appends. Must not leak into the last
+  // tool's description or the rendered instructions.
+  "Included Skills (immediate): none",
+  "",
+  '<loaded_skill id="app-builder" version="abc123" />',
 ].join("\n");
 
 const skillLoadDetail: ToolDetailPayload = {

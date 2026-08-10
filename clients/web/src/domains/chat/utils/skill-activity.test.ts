@@ -138,10 +138,108 @@ describe("parseSkillLoadActivity", () => {
 
     expect(activity).toEqual({
       skillId: "app-builder",
+      displayName: "",
+      description: "",
       instructions: "",
       tools: [],
       errorMessage: null,
     });
+  });
+
+  it("lifts the Skill/ID/Description/Path header out of the instructions", () => {
+    const activity = parseSkillLoadActivity({
+      input: { skill: "app-builder" },
+      result: [
+        "Skill: App Builder",
+        "ID: app-builder",
+        "Description: Build persistent apps in the user's Library.",
+        "Path: /skills/app-builder/SKILL.md",
+        "",
+        "# App Builder",
+        "",
+        "Real instructions start here.",
+      ].join("\n"),
+    });
+
+    expect(activity.displayName).toBe("App Builder");
+    expect(activity.description).toBe(
+      "Build persistent apps in the user's Library.",
+    );
+    expect(activity.instructions).toBe(
+      "# App Builder\n\nReal instructions start here.",
+    );
+    expect(activity.instructions).not.toContain("Path:");
+  });
+
+  it("leaves a body with no header untouched", () => {
+    const activity = parseSkillLoadActivity({
+      input: { skill: "x" },
+      result: "# Just a body\n\nNo header lines.",
+    });
+
+    expect(activity.displayName).toBe("");
+    expect(activity.instructions).toBe("# Just a body\n\nNo header lines.");
+  });
+
+  it("does not absorb the post-manifest trailer into the last tool", () => {
+    // Mirrors the daemon's real tail: child manifests, then include
+    // bookkeeping and `<loaded_skill />` projection markers.
+    const body = [
+      "## Available Tools",
+      "",
+      "### app_create",
+      "Create a new app.",
+      "",
+      "### Tools from charting",
+      "",
+      "#### chart_render",
+      "Render a chart.",
+      "",
+      "Included Skills (immediate):",
+      "  - charting: loaded",
+      "Suggested Included Skills (not loaded):",
+      "  - theming: not installed or unavailable.",
+      "",
+      '<loaded_skill id="app-builder" version="abc123" />',
+      '<loaded_skill id="charting" version="def456" />',
+    ].join("\n");
+
+    const { tools } = parseSkillLoadActivity({
+      input: { skill: "app-builder" },
+      result: body,
+    });
+
+    expect(tools).toHaveLength(2);
+    expect(tools[0]!.description).toBe("Create a new app.");
+    // The trailer must not land on the last tool's description card.
+    expect(tools[1]!.description).toBe("Render a chart.");
+    expect(tools[1]!.fromSkill).toBe("charting");
+    for (const tool of tools) {
+      expect(tool.description).not.toContain("loaded_skill");
+      expect(tool.description).not.toContain("Included Skills");
+    }
+  });
+
+  it("keeps the trailer out of the instructions when there is no manifest", () => {
+    const activity = parseSkillLoadActivity({
+      input: { skill: "document" },
+      result: [
+        "Skill: Document",
+        "ID: document",
+        "Description: Long-form writing.",
+        "Path: /skills/document/SKILL.md",
+        "",
+        "Write long-form prose.",
+        "",
+        "Included Skills (immediate): none",
+        "",
+        '<loaded_skill id="document" />',
+      ].join("\n"),
+    });
+
+    expect(activity.instructions).toBe("Write long-form prose.");
+    expect(activity.instructions).not.toContain("loaded_skill");
+    expect(activity.instructions).not.toContain("Included Skills");
   });
 
   it("tolerates a missing or non-object input bag", () => {

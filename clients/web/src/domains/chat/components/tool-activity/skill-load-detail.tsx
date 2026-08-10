@@ -27,35 +27,52 @@ import type { ToolActivityRendererProps } from "@/domains/chat/components/tool-a
  */
 const INSTRUCTIONS_AUTO_EXPAND_CHARS = 1200;
 
-/** Leading skill identity row: glyph tile, skill id, and load status. */
+/**
+ * Leading skill identity row: glyph tile, the skill's human name, and load
+ * status. Falls back to the raw id from the call's input until the result's
+ * header lands (or when it carries no `Skill:` line).
+ */
 function SkillIdentity({
-  skillId,
+  name,
+  description,
   status,
 }: {
-  skillId: string;
+  name: string;
+  description: string;
   status: string;
 }) {
   return (
-    <div className="flex items-center gap-2.5">
-      <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-[var(--surface-overlay)]">
-        <Sparkles className="h-4 w-4 text-[var(--content-secondary)]" />
+    <div>
+      <div className="flex items-center gap-2.5">
+        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-[var(--surface-overlay)]">
+          <Sparkles className="h-4 w-4 text-[var(--content-secondary)]" />
+        </div>
+        <div className="min-w-0">
+          <Typography
+            variant="body-medium-default"
+            as="div"
+            className="truncate leading-5 text-[var(--content-default)]"
+          >
+            {name}
+          </Typography>
+          <Typography
+            variant="body-small-lighter"
+            as="div"
+            className="mt-0.5 text-[var(--content-secondary)]"
+          >
+            {status}
+          </Typography>
+        </div>
       </div>
-      <div className="min-w-0">
-        <Typography
-          variant="body-medium-default"
-          as="div"
-          className="truncate text-[var(--content-default)]"
-        >
-          {skillId || "Skill"}
-        </Typography>
+      {description && (
         <Typography
           variant="body-small-lighter"
-          as="div"
-          className="mt-0.5 text-[var(--content-secondary)]"
+          as="p"
+          className="mt-3 text-[var(--content-secondary)]"
         >
-          {status}
+          {description}
         </Typography>
-      </div>
+      )}
     </div>
   );
 }
@@ -103,9 +120,8 @@ export function SkillLoadDetail({
   isError,
   assistantId,
 }: ToolActivityRendererProps) {
-  const { skillId, instructions, tools, errorMessage } = parseSkillLoadActivity(
-    { input: detail.input, result, isError },
-  );
+  const { skillId, displayName, description, instructions, tools, errorMessage } =
+    parseSkillLoadActivity({ input: detail.input, result, isError });
 
   const status = isRunning
     ? "Loading skill…"
@@ -119,7 +135,11 @@ export function SkillLoadDetail({
 
   return (
     <div className="flex flex-col gap-5">
-      <SkillIdentity skillId={skillId} status={status} />
+      <SkillIdentity
+        name={displayName || skillId || "Skill"}
+        description={description}
+        status={status}
+      />
 
       {errorMessage && (
         <div className="rounded-lg border border-[var(--system-negative-strong)] bg-[var(--system-negative-weak)] p-4">

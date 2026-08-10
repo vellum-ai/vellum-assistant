@@ -45,9 +45,17 @@ export interface SkillLoadActivity {
   /** Skill id/name requested via `input.skill`. Empty when absent. */
   skillId: string;
   /**
-   * The skill's instruction markdown with the machine-facing
-   * "## Available Tools" section removed — that section is rendered as
-   * structured tool cards instead of prose.
+   * Human-readable skill name from the result header's `Skill:` line
+   * (the daemon's `skill.displayName`). Empty until the result lands.
+   */
+  displayName: string;
+  /** One-line skill summary from the header's `Description:` line. */
+  description: string;
+  /**
+   * The skill's instruction markdown, with the `Skill:`/`ID:`/`Description:`/
+   * `Path:` header, the machine-facing "## Available Tools" section, and the
+   * trailing include bookkeeping all removed — each is surfaced structurally
+   * (or dropped) rather than rendered as prose.
    */
   instructions: string;
   /** Tools parsed out of the "## Available Tools" section, in document order. */
@@ -97,6 +105,29 @@ const TOOLS_PREAMBLE = /^Use `skill_execute` to call these tools\.\s*$/;
 /** Literal `Parameters:` line that opens a tool's parameter list. */
 const PARAMS_LABEL = /^Parameters:\s*$/;
 
+/**
+ * Lines that mark the end of the human-relevant part of a `skill_load` body.
+ *
+ * After the tool manifest the daemon appends pure bookkeeping — the immediate
+ * include listing, the not-installed suggestions, and `<loaded_skill … />`
+ * projection markers (`assistant/src/tools/skills/load.ts:617-620`). None of it
+ * is for a reader, and because the manifest parser treats any non-heading line
+ * after a tool as description, leaving it in would glue all of it onto the last
+ * tool's description card.
+ *
+ * Note this deliberately does NOT terminate on `### Tools from …`: those child
+ * manifests (`includedBodies`) sit between the parent manifest and this trailer
+ * and are legitimate tool content the parser attributes via `fromSkill`.
+ */
+const MANIFEST_TERMINATORS = [
+  /^Included Skills \(immediate\):/,
+  /^Suggested Included Skills \(not loaded\):/,
+  /^<loaded_skill\b/,
+];
+
+/** `Skill:` / `ID:` / `Description:` / `Path:` header line at the body's head. */
+const HEADER_LINE = /^(Skill|ID|Description|Path):\s*(.*)$/;
+
 /** Read a trimmed string property from an input bag, else `""`. */
 function readString(bag: Record<string, unknown>, key: string): string {
   const value = bag[key];
@@ -131,6 +162,59 @@ function splitAtToolsSection(body: string): {
   return {
     instructions: lines.slice(0, headingIndex).join("\n").trimEnd(),
     toolsSection: lines.slice(headingIndex + 1).join("\n"),
+  };
+}
+
+/**
+ * Drop the machine-only trailer the daemon appends after the manifest. Cuts at
+ * the first {@link MANIFEST_TERMINATORS} match; a body without one is returned
+ * unchanged. Applied before any other split so the trailer can't leak into the
+ * tool descriptions OR — for a manifest-less skill, which has no
+ * "## Available Tools" heading to split on — into the rendered instructions.
+ */
+function stripMachineTrailer(body: string): string {
+  const lines = body.split("\n");
+  const cut = lines.findIndex((line) =>
+    MANIFEST_TERMINATORS.some((pattern) => pattern.test(line)),
+  );
+  return cut === -1 ? body : lines.slice(0, cut).join("\n").trimEnd();
+}
+
+/**
+ * Pull the `Skill:` / `ID:` / `Description:` / `Path:` header off the front of
+ * a load body, returning the parsed fields and the remaining instructions.
+ *
+ * The daemon emits these four lines ahead of the skill body
+ * (`assistant/src/tools/skills/load.ts:598-601`). They're the source of the
+ * human-readable name, but rendered as markdown they read as four stray
+ * key-value lines above the real content — so they're lifted out here and shown
+ * structurally instead.
+ */
+function splitHeader(body: string): {
+  displayName: string;
+  description: string;
+  rest: string;
+} {
+  const lines = body.split("\n");
+  const fields: Record<string, string> = {};
+  let index = 0;
+  while (index < lines.length) {
+    const match = HEADER_LINE.exec(lines[index]!);
+    if (!match) {
+      break;
+    }
+    fields[match[1]!] = match[2]!.trim();
+    index++;
+  }
+  // Nothing recognised — leave the body untouched rather than eating a line
+  // that merely happened to start with a colon-suffixed word.
+  if (index === 0) {
+    return { displayName: "", description: "", rest: body };
+  }
+  return {
+    displayName: fields.Skill ?? "",
+    description: fields.Description ?? "",
+    rest: lines.slice(index).join("\n").replace(/^\n+/, ""),
   };
 }
 
@@ -252,21 +336,35 @@ export function parseSkillLoadActivity({
   const body = typeof result === "string" ? result : "";
 
   if (!body) {
-    return { skillId, instructions: "", tools: [], errorMessage: null };
+    return {
+      skillId,
+      displayName: "",
+      description: "",
+      instructions: "",
+      tools: [],
+      errorMessage: null,
+    };
   }
 
   if (isErrorBody(body, isError)) {
     return {
       skillId,
+      displayName: "",
+      description: "",
       instructions: "",
       tools: [],
       errorMessage: body.trim(),
     };
   }
 
-  const { instructions, toolsSection } = splitAtToolsSection(body);
+  const { displayName, description, rest } = splitHeader(
+    stripMachineTrailer(body),
+  );
+  const { instructions, toolsSection } = splitAtToolsSection(rest);
   return {
     skillId,
+    displayName,
+    description,
     instructions,
     tools: parseToolsSection(toolsSection),
     errorMessage: null,
