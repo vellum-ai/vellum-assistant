@@ -204,6 +204,19 @@ const i18nEnforcedPaths = [
   "src/domains/logs/**/*.{ts,tsx}",
   "src/domains/library/**/*.{ts,tsx}",
   "src/domains/home/**/*.{ts,tsx}",
+  // Converted file by file: the merge and link dialogs and the channels
+  // section split sentences across elements and need `Trans`, so they follow
+  // in their own pass and this becomes a directory glob then.
+  "src/domains/contacts/contacts-page.tsx",
+  "src/domains/contacts/connect-page.tsx",
+  "src/domains/contacts/channel-type-labels.ts",
+  "src/domains/contacts/draft-contact.ts",
+  "src/domains/contacts/hooks/**/*.{ts,tsx}",
+  "src/domains/contacts/components/assistant-channels-detail.tsx",
+  "src/domains/contacts/components/assistant-contact-channels.tsx",
+  "src/domains/contacts/components/contact-detail-view.tsx",
+  "src/domains/contacts/components/contacts-list.tsx",
+  "src/domains/contacts/components/guardian-detail-view.tsx",
 ];
 
 const eslintConfig = defineConfig([

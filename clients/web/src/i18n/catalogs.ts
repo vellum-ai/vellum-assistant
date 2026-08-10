@@ -35,6 +35,7 @@
  */
 import enAccount from "@/i18n/locales/en/account.json";
 import enChannels from "@/i18n/locales/en/channels.json";
+import enContacts from "@/i18n/locales/en/contacts.json";
 import enCredentialRequests from "@/i18n/locales/en/credential-requests.json";
 import enHome from "@/i18n/locales/en/home.json";
 import enLibrary from "@/i18n/locales/en/library.json";
@@ -79,6 +80,7 @@ export const FALLBACK_CATALOGS: LocaleCatalogs = {
   logs: enLogs,
   library: enLibrary,
   home: enHome,
+  contacts: enContacts,
 };
 
 /** Loaders for the locales that are not bundled into the entry chunk. */
@@ -101,6 +103,7 @@ const CATALOG_LOADERS: Record<
     logs: () => import("@/i18n/locales/es/logs.json"),
     library: () => import("@/i18n/locales/es/library.json"),
     home: () => import("@/i18n/locales/es/home.json"),
+    contacts: () => import("@/i18n/locales/es/contacts.json"),
   },
 };
 

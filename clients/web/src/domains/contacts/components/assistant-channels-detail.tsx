@@ -1,4 +1,5 @@
 import { DetailCard } from "@/components/detail-card";
+import { useTranslation } from "@/i18n";
 import { assistantDisplayName } from "@/utils/assistant-display-name";
 import {
   AssistantContactChannels,
@@ -21,19 +22,22 @@ export function AssistantChannelsDetail({
   assistantName,
   ...channelsProps
 }: AssistantChannelsDetailProps) {
+  const { t } = useTranslation("contacts");
   const displayName = assistantDisplayName(assistantName);
 
   return (
     <div className="flex flex-col gap-6">
       <DetailCard
-        title={`${displayName} (Your Assistant)`}
+        title={t("assistantChannelsDetail.title", { name: displayName })}
         accessory={<ContactTypeBadge role="assistant" />}
         compactAccessory
       />
 
       <DetailCard
-        title="Channels"
-        subtitle={`Where ${displayName} can be reached.`}
+        title={t("assistantChannelsDetail.channelsTitle")}
+        subtitle={t("assistantChannelsDetail.channelsSubtitle", {
+          name: displayName,
+        })}
       >
         <AssistantContactChannels {...channelsProps} />
       </DetailCard>

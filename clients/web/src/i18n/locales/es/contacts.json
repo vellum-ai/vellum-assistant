@@ -1,0 +1,99 @@
+{
+  "actions": {
+    "save": "Guardar",
+    "saving": "Guardando…",
+    "merge": "Combinar…",
+    "merging": "Combinando…",
+    "delete": "Eliminar",
+    "deleting": "Eliminando…",
+    "connect": "Conectar",
+    "connecting": "Conectando…",
+    "disconnect": "Desconectar",
+    "disconnecting": "Desconectando…",
+    "cancel": "Cancelar"
+  },
+  "channelType": {
+    "slack": "Slack",
+    "telegram": "Telegram",
+    "whatsapp": "WhatsApp",
+    "a2a": "A2A",
+    "phone": "Teléfono",
+    "email": "Correo"
+  },
+  "contact": {
+    "nameLabel": "Nombre",
+    "notesLabel": "Notas",
+    "draftName": "Contacto nuevo",
+    "interactions": "{count, plural, one {# interacción} other {# interacciones}}",
+    "mergeBlockedNoCandidates": "No hay otros contactos con los que combinar",
+    "mergeBlockedUnsaved": "Guarda los cambios antes de combinar"
+  },
+  "contactsPage": {
+    "title": "Contactos",
+    "mergeSucceeded": "Contactos combinados",
+    "mergeFailed": "No se pudieron combinar los contactos",
+    "createFailed": "No se pudo crear el contacto",
+    "deleteFailed": "No se pudo eliminar el contacto",
+    "saveFailed": "No se pudo guardar el contacto",
+    "verifyFailed": "No se pudo verificar el canal",
+    "rosterLoadFailed": "No se pudo cargar el directorio del espacio de trabajo. Comprueba la conexión con Slack y vuelve a intentarlo.",
+    "emptyBody": "Selecciona un contacto"
+  },
+  "contactsList": {
+    "heading": "Entradas",
+    "addAriaLabel": "Añadir contacto",
+    "searchPlaceholder": "Buscar contactos",
+    "noMatches": "No hay contactos que coincidan",
+    "add": "Añadir contacto",
+    "verified": "Verificado",
+    "unverified": "Sin verificar",
+    "you": "Tú",
+    "youNamed": "{name} (tú)",
+    "assistantFallback": "Tu asistente"
+  },
+  "contactDetailView": {
+    "namePlaceholder": "Ponle un nombre a esta persona",
+    "notesPlaceholder": "Notas opcionales sobre la persona que la IA tendrá en cuenta",
+    "mergeBlockedUnsavedDraft": "Guarda este contacto antes de combinar",
+    "delete": "Eliminar contacto",
+    "linkedAccountsTitle": "Cuentas vinculadas",
+    "linkedAccountsSubtitle": "Dónde reconoce el asistente a este contacto. Vincula las cuentas que conozcas e invita a las que no.",
+    "deleteConfirmTitle": "¿Eliminar a {name}?",
+    "deleteConfirmMessage": "Esto eliminará permanentemente este contacto y todos sus canales. Esta acción no se puede deshacer."
+  },
+  "guardianDetailView": {
+    "namePlaceholder": "Tu nombre",
+    "notesPlaceholder": "Notas sobre ti que la IA tendrá en cuenta",
+    "channelsTitle": "Canales",
+    "channelsSubtitle": "Una vez verificado, tu asistente te reconocerá cuando escribas desde estos canales.",
+    "setupLabel": "Verificarme"
+  },
+  "assistantChannelsDetail": {
+    "title": "{name} (tu asistente)",
+    "channelsTitle": "Canales",
+    "channelsSubtitle": "Dónde se puede contactar con {name}."
+  },
+  "assistantContactChannels": {
+    "connected": "Conectado",
+    "disconnectConfirmTitle": "¿Desconectar {channel}?",
+    "disconnectConfirmMessage": "Esto borra las credenciales guardadas de este canal. Puedes volver a conectarlo más tarde."
+  },
+  "accountLink": {
+    "linked": "Vinculado como @{username}",
+    "linkFailed": "No se pudo vincular la cuenta"
+  },
+  "connectPage": {
+    "invalidTitle": "Enlace de invitación no válido",
+    "invalidBody": "Al enlace que has seguido le faltan parámetros obligatorios y no se puede usar.",
+    "goToContacts": "Ir a Contactos",
+    "title": "Conectar asistentes",
+    "body": "Aceptar este enlace creará una conexión A2A de confianza entre tu asistente y el del remitente.",
+    "alreadyConnected": "Ya está conectado",
+    "connected": "¡Conectado!",
+    "errorExpired": "Este enlace de invitación ha caducado o ya se ha usado.",
+    "errorAlreadyRedeemed": "Otra persona ya ha reclamado esta invitación.",
+    "errorSenderNotFound": "No se ha encontrado el asistente del remitente.",
+    "errorNotPlatformManaged": "Los enlaces de invitación A2A solo se admiten en asistentes alojados en la plataforma.",
+    "errorGeneric": "Algo ha salido mal. Vuelve a intentarlo."
+  }
+}

@@ -8,6 +8,7 @@ import { ContactChannelsSection } from "@/domains/contacts/components/contact-ch
 import { ContactTypeBadge } from "@/domains/contacts/components/contact-type-badge";
 import { ShareConnectionLinkButton } from "@/components/share-connection-link-button";
 import type { ChannelInfo, ContactPayload } from "@/domains/contacts/types";
+import { useTranslation } from "@/i18n";
 
 interface GuardianDetailViewProps {
   contact: ContactPayload;
@@ -44,6 +45,7 @@ function GuardianDetailViewInner({
   onRevokeChannel,
   onGenerateInviteLink,
 }: GuardianDetailViewProps) {
+  const { t } = useTranslation("contacts");
   const principalId = contact.displayName.startsWith("vellum-principal-");
   const initialName = principalId ? "" : contact.displayName;
   const [name, setName] = useState(initialName);
@@ -56,8 +58,14 @@ function GuardianDetailViewInner({
     trimmedNotes !== (contact.notes ?? "").trim();
   const canSave = dirty && !savePending;
 
-  const interactionLabel = `${contact.interactionCount} interaction${contact.interactionCount === 1 ? "" : "s"}`;
-  const headerName = principalId ? "You" : `${contact.displayName} (You)`;
+  // ICU `plural` picks the category through `Intl.PluralRules`, so the count
+  // agrees in languages with more than the two forms English has.
+  const interactionLabel = t("contact.interactions", {
+    count: contact.interactionCount,
+  });
+  const headerName = principalId
+    ? t("contactsList.you")
+    : t("contactsList.youNamed", { name: contact.displayName });
 
   return (
     <div className="flex flex-col gap-6">
@@ -69,21 +77,21 @@ function GuardianDetailViewInner({
       >
         <div className="flex flex-col gap-4">
           <Input
-            label="Name"
+            label={t("contact.nameLabel")}
             type="text"
             value={name}
             onChange={(e) => setName(e.target.value)}
-            placeholder="Your name"
+            placeholder={t("guardianDetailView.namePlaceholder")}
             disabled={savePending}
             fullWidth
           />
 
           <Input
-            label="Notes"
+            label={t("contact.notesLabel")}
             type="text"
             value={notes}
             onChange={(e) => setNotes(e.target.value)}
-            placeholder="Notes about yourself which AI will take into account"
+            placeholder={t("guardianDetailView.notesPlaceholder")}
             disabled={savePending}
             fullWidth
           />
@@ -99,7 +107,7 @@ function GuardianDetailViewInner({
               }
               disabled={!canSave}
             >
-              {savePending ? "Saving…" : "Save"}
+              {savePending ? t("actions.saving") : t("actions.save")}
             </Button>
             {onMerge ? (
               <Button
@@ -108,13 +116,13 @@ function GuardianDetailViewInner({
                 disabled={!canMerge || dirty || mergePending || savePending}
                 title={
                   !canMerge
-                    ? "No other contacts available to merge"
+                    ? t("contact.mergeBlockedNoCandidates")
                     : dirty
-                      ? "Save your changes before merging"
+                      ? t("contact.mergeBlockedUnsaved")
                       : undefined
                 }
               >
-                {mergePending ? "Merging…" : "Merge…"}
+                {mergePending ? t("actions.merging") : t("actions.merge")}
               </Button>
             ) : null}
           </div>
@@ -122,14 +130,14 @@ function GuardianDetailViewInner({
       </DetailCard>
 
       <DetailCard
-        title="Channels"
-        subtitle="Once verified, your assistant will recognize you when you message from these channels."
+        title={t("guardianDetailView.channelsTitle")}
+        subtitle={t("guardianDetailView.channelsSubtitle")}
       >
         <ContactChannelsSection
           contactChannels={contact.channels}
           availableChannels={availableChannels}
           a2aEnabled={a2aEnabled}
-          setupLabel="Verify me"
+          setupLabel={t("guardianDetailView.setupLabel")}
           verifyLoading={verifyPending}
           onSetupChannel={onSetupChannel}
           onVerifyChannel={onVerifyChannel}
