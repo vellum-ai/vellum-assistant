@@ -598,6 +598,100 @@ export function countUnreadConversations(): number {
   return total;
 }
 
+/** Totals for one sidebar section: every member, and the unread among them. */
+export interface ConversationSectionCount {
+  total: number;
+  unread: number;
+}
+
+/**
+ * Row counts for every non-empty sidebar section, with no rows fetched.
+ *
+ * Two axes, disjoint by construction because `group_id` is single-valued:
+ *
+ * - `groups`: rows filed somewhere, bucketed by `group_id`. Contains
+ *   `'system:pinned'` and custom-group ids; the background/scheduled system
+ *   buckets are excluded because no section renders them.
+ * - `channels`: rows filed nowhere, bucketed by effective origin channel,
+ *   where NULL reads as {@link NATIVE_ORIGIN_CHANNEL} exactly as
+ *   {@link originChannelClause} reads it. The native bucket is the Chats
+ *   section; each other bucket is that channel's section.
+ *
+ * Only buckets with at least one row appear: GROUP BY cannot emit an empty
+ * bucket, and an empty section renders no card.
+ *
+ * `total` follows the standard-listing visibility
+ * ({@link conversationTypeClause}), active rows only, so it counts exactly
+ * the rows `GET /v1/conversations` would return for that section's filter.
+ * `unread` applies the same rules as {@link countUnreadConversations} on top
+ * (not an unsurfaced background/scheduled row, unseen per the attention
+ * projection), composed from the same predicates rather than restated, so
+ * the per-section numbers always sum against the global count.
+ */
+export interface ConversationSectionCounts {
+  groups: Array<{ groupId: string } & ConversationSectionCount>;
+  channels: Array<{ channel: string } & ConversationSectionCount>;
+}
+
+export function countConversationSections(): ConversationSectionCounts {
+  ensureGroupMigration();
+  const db = getDb();
+
+  /* `countUnreadConversations` gets the same effect with an INNER JOIN and
+     the unseen conditions in its WHERE; here every row must be counted and
+     only unread rows summed, so the join is LEFT and the conditions move
+     into the CASE. A row with no attention projection has NULL columns,
+     fails the conditions, and sums 0: identical membership. */
+  const unread = sql<number>`SUM(CASE WHEN ${and(
+    sql.raw(notBackgroundVisibilitySql()),
+    ...unseenAttentionStateConditions(),
+  )} THEN 1 ELSE 0 END)`;
+
+  const attentionJoin = eq(
+    conversationAssistantAttentionState.conversationId,
+    conversations.id,
+  );
+
+  const groups = db
+    .select({
+      groupId: sql<string>`group_id`,
+      total: count(),
+      unread,
+    })
+    .from(conversations)
+    .leftJoin(conversationAssistantAttentionState, attentionJoin)
+    .where(
+      and(
+        conversationTypeClause("standard"),
+        isNull(conversations.archivedAt),
+        sql`(group_id = ${PINNED_GROUP_ID} OR (group_id IS NOT NULL AND group_id NOT LIKE 'system:%'))`,
+      ),
+    )
+    .groupBy(sql`group_id`)
+    .all();
+
+  const effectiveChannel = sql<string>`COALESCE(${conversations.originChannel}, ${NATIVE_ORIGIN_CHANNEL})`;
+  const channels = db
+    .select({
+      channel: effectiveChannel,
+      total: count(),
+      unread,
+    })
+    .from(conversations)
+    .leftJoin(conversationAssistantAttentionState, attentionJoin)
+    .where(
+      and(
+        conversationTypeClause("standard"),
+        isNull(conversations.archivedAt),
+        groupIdClause(UNGROUPED_GROUP_ID),
+      ),
+    )
+    .groupBy(effectiveChannel)
+    .all();
+
+  return { groups, channels };
+}
+
 /**
  * Check whether the last user message in a conversation is a tool_result-only
  * message (i.e., not a real user-typed message). This is used by undo() to

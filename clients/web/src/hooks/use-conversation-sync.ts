@@ -36,7 +36,6 @@ import { useBusSubscription } from "@/hooks/use-bus-subscription";
 import { groupsGetQueryKey } from "@/generated/daemon/@tanstack/react-query.gen";
 import {
   archivedConversationsQueryKey,
-  sectionListPrefix,
   unreadConversationCountQueryKey,
 } from "@/utils/conversation-list-fetchers";
 import { getClientId } from "@/lib/telemetry/client-identity";
@@ -188,8 +187,15 @@ function scheduleConversationListRefetch(
   debounceTimerRef: MutableRefObject<ReturnType<typeof setTimeout> | null>,
 ): void {
   scheduleDebounced(debounceTimerRef, () => {
-    // One first-page GET per populated list bucket — never a full
-    // paginated drain (see refreshConversationListWindows).
+    // One first-page GET per populated list cache, including every
+    // per-section cache, never a full paginated drain (see
+    // refreshConversationListWindows). Sections must NOT be prefix-
+    // invalidated here instead: a section refetches by draining all of its
+    // pages, so that costs a full drain per mounted section per signal,
+    // which is the exact cost this window refresh exists to avoid. The
+    // helper itself invalidates the caches it cannot merge (tracked but
+    // holding no data, e.g. a failed first fetch), so a signal is still
+    // the retry path for a section stranded on its derived fallback.
     void refreshConversationListWindows(queryClient, assistantId).catch(
       (err: unknown) => {
         captureError(err, {
@@ -199,14 +205,12 @@ function scheduleConversationListRefetch(
         });
       },
     );
-    // Non-paginated caches (archived, origin-channel) use plain
-    // invalidation — they refetch only while their observer is mounted.
-    // Groups are a single unpaginated GET.
+    // The archive list stays on plain invalidation: it also drains, but
+    // its query is mounted only while the archive view is open, and
+    // invalidation refetches active queries alone. Groups are a single
+    // unpaginated GET.
     void queryClient.invalidateQueries({
       queryKey: archivedConversationsQueryKey(assistantId),
-    });
-    void queryClient.invalidateQueries({
-      queryKey: sectionListPrefix(assistantId),
     });
     void queryClient.invalidateQueries({
       queryKey: groupsGetQueryKey({

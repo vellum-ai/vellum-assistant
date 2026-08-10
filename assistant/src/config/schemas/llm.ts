@@ -28,31 +28,53 @@ import {
 // Provider enum
 // ---------------------------------------------------------------------------
 
-export const LLMProvider = z
-  .enum([
-    "anthropic",
-    "openai",
-    "gemini",
-    "ollama",
-    "fireworks",
-    "openrouter",
-    "vercel-ai-gateway",
-    "openai-compatible",
-    "minimax",
-    "atlascloud",
-    "together",
-    "litellm",
-    "baseten",
-    "poolside",
-    // Routing identities rather than adapters: "vellum" = the platform-managed
-    // route (upstream derived from the model at dispatch), "chatgpt" = the
-    // subscription route to OpenAI. Neither has a PROVIDER_CATALOG entry;
-    // dispatch substitutes the real upstream before any adapter lookup.
-    "vellum",
-    "chatgpt",
-  ])
-  .meta({ id: "LLMProvider" });
+/**
+ * The provider values the write surfaces accept today: adapter-backed
+ * catalog providers plus the two routing identities. The schema itself is
+ * an open string so a stored provider outside this list parses instead of
+ * stripping its profile; dispatch resolves such a label as a connection
+ * entry name and fails with an explainable resolution error when no row
+ * carries it. Write-time membership is enforced at the profiles route and
+ * the `commitConfigWrite` choke point (`unknownLlmProviderIssue`), which
+ * is where entry names unlock when the entries model enables them.
+ */
+export const KNOWN_LLM_PROVIDERS = [
+  "anthropic",
+  "openai",
+  "gemini",
+  "ollama",
+  "fireworks",
+  "openrouter",
+  "vercel-ai-gateway",
+  "openai-compatible",
+  "minimax",
+  "atlascloud",
+  "together",
+  "litellm",
+  "baseten",
+  "poolside",
+  // Routing identities rather than adapters: "vellum" = the platform-managed
+  // route (upstream derived from the model at dispatch), "chatgpt" = the
+  // subscription route to OpenAI. Neither has a PROVIDER_CATALOG entry;
+  // dispatch substitutes the real upstream before any adapter lookup.
+  "vellum",
+  "chatgpt",
+] as const;
+
+export const LLMProvider = z.string().min(1).meta({ id: "LLMProvider" });
 export type LLMProvider = z.infer<typeof LLMProvider>;
+
+/**
+ * Write-surface membership check for a provider value. Returns a message
+ * when the value is outside {@link KNOWN_LLM_PROVIDERS}, null when it is
+ * allowed. Pure and sync so the profiles route and the config-write choke
+ * point share one rule.
+ */
+export function unknownLlmProviderIssue(provider: string): string | null {
+  return (KNOWN_LLM_PROVIDERS as readonly string[]).includes(provider)
+    ? null
+    : `Invalid provider "${provider}". Valid providers: ${KNOWN_LLM_PROVIDERS.join(", ")}.`;
+}
 
 /**
  * Providers that can back `llm.defaultProvider`: the named columns of the
@@ -73,10 +95,10 @@ export const DEFAULT_PROVIDER_CHOICES: readonly LLMProvider[] = [
         entry.defaultModel !== "",
     )
       .map((entry) => entry.id)
-      // A catalog provider absent from `LLMProvider` cannot be referenced by
-      // any profile, so it cannot back the defaults either.
+      // A catalog provider outside the known provider set cannot be
+      // referenced by any profile, so it cannot back the defaults either.
       .filter((id): id is LLMProvider =>
-        (LLMProvider.options as readonly string[]).includes(id),
+        (KNOWN_LLM_PROVIDERS as readonly string[]).includes(id),
       ),
   ]),
 ];

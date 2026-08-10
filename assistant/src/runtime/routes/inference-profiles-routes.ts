@@ -29,9 +29,9 @@ import {
   loadRawConfig,
 } from "../../config/loader.js";
 import {
-  LLMProvider,
   ProfileEntry,
   routingIdentityModelIssue,
+  unknownLlmProviderIssue,
 } from "../../config/schemas/llm.js";
 import { getDb } from "../../persistence/db-connection.js";
 import { ROUTING_IDENTITY_PROVIDERS } from "../../providers/inference/auth.js";
@@ -150,10 +150,9 @@ const updateRequestSchema = z.object({
 // ---------------------------------------------------------------------------
 
 function assertValidProvider(provider: string): void {
-  if (!LLMProvider.safeParse(provider).success) {
-    throw new BadRequestError(
-      `Invalid provider "${provider}". Valid providers: ${LLMProvider.options.join(", ")}.`,
-    );
+  const issue = unknownLlmProviderIssue(provider);
+  if (issue) {
+    throw new BadRequestError(issue);
   }
 }
 

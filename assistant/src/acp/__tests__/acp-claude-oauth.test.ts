@@ -59,8 +59,11 @@ beforeEach(() => {
 
 describe("CLAUDE_OAUTH_CONFIG", () => {
   test("matches the verified endpoints, client id, and scope", () => {
+    // The single literal pin for the endpoint. Every other test asserts
+    // against CLAUDE_OAUTH_CONFIG.authorizeUrl, so an endpoint change edits
+    // exactly this one value.
     expect(CLAUDE_OAUTH_CONFIG.authorizeUrl).toBe(
-      "https://claude.ai/oauth/authorize",
+      "https://claude.com/cai/oauth/authorize",
     );
     expect(CLAUDE_OAUTH_CONFIG.tokenExchangeUrl).toBe(
       "https://platform.claude.com/v1/oauth/token",
@@ -92,8 +95,10 @@ describe("buildClaudeAuthorizeUrl", () => {
     });
 
     const parsed = new URL(url);
+    // The property under test is that the builder uses the configured
+    // endpoint; the value itself is guarded by the literal pin above.
     expect(`${parsed.origin}${parsed.pathname}`).toBe(
-      "https://claude.ai/oauth/authorize",
+      CLAUDE_OAUTH_CONFIG.authorizeUrl,
     );
 
     const params = parsed.searchParams;
@@ -106,6 +111,9 @@ describe("buildClaudeAuthorizeUrl", () => {
     expect(params.get("state")).toBe("state-abc");
     expect(params.get("code_challenge")).toBe("challenge-123");
     expect(params.get("code_challenge_method")).toBe("S256");
+    // The manual flow's defining param: tells Claude to render `code#state`
+    // on the callback page. Claude rejects a manual-redirect grant without it.
+    expect(params.get("code")).toBe("true");
   });
 
   test("works with the manual redirect URI too", () => {
