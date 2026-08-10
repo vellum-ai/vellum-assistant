@@ -14,6 +14,8 @@ export interface RemoteProcess {
   command: string;
 }
 
+const VELLUM_PROCESS_MARKER = /vellum|qdrant|openclaw/i;
+
 export function classifyProcess(command: string): string {
   if (/qdrant/.test(command)) return "qdrant";
   if (/vellum-gateway/.test(command)) return "gateway";
@@ -206,6 +208,7 @@ export async function detectOrphanedProcesses(
     for (const p of procs) {
       if (p.pid === ownPid || seenPids.has(p.pid)) continue;
       if (knownPids.has(p.pid)) continue;
+      if (!VELLUM_PROCESS_MARKER.test(p.command)) continue;
       // Live interactive sessions are spared before classification so that
       // service substrings in their argv cannot mark them as orphans.
       if (isInteractiveCliSession(p.command)) {
