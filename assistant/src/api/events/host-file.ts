@@ -21,8 +21,8 @@ const HostFileReadRequestSchema = z.object({
   targetClientId: z.string().optional(),
   operation: z.literal("read"),
   path: z.string(),
-  offset: z.number().optional(),
-  limit: z.number().optional(),
+  startIndex: z.number().optional(),
+  maxChars: z.number().optional(),
 });
 
 const HostFileWriteRequestSchema = z.object({

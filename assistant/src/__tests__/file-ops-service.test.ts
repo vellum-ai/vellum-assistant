@@ -10,10 +10,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, test } from "bun:test";
 
+import { THRESHOLD_CHARS } from "../context/post-turn-tool-result-truncation.js";
 import {
-  DEFAULT_READ_LINE_LIMIT,
   FileSystemOps,
   type PathPolicy,
+  READ_CHAR_BUDGET,
 } from "../tools/shared/filesystem/file-ops-service.js";
 import { sandboxPolicy } from "../tools/shared/filesystem/path-policy.js";
 
@@ -111,34 +112,28 @@ describe("FileSystemOps.readFileSafe", () => {
     expect(result.error.code).toBe("PATH_OUT_OF_BOUNDS");
   });
 
-  test("respects offset and limit", async () => {
+  test("respects startIndex and maxChars", async () => {
     const dir = makeTempDir();
     writeFileSync(join(dir, "lines.txt"), "a\nb\nc\nd\ne\n");
     const ops = new FileSystemOps(sandboxPolicyFor(dir));
 
     const result = await ops.readFileSafe({
       path: "lines.txt",
-      offset: 2,
-      limit: 2,
+      startIndex: 3,
+      maxChars: 3,
     });
     expect(result.ok).toBe(true);
     if (!result.ok) {
       return;
     }
-    // Assert on the numbered lines rather than bare letters: the truncation
-    // notice is prose, so a bare `toContain("d")` matches its wording.
     const [body] = result.value.content.split("\n\n[Truncated:");
-    expect(body).toContain("     2  b");
-    expect(body).toContain("     3  c");
-    expect(body).not.toContain("     1  a");
-    expect(body).not.toContain("     4  d");
+    expect(body).toBe("b\nc");
   });
 
-  test("caps an unbounded read at the default line limit and says so", async () => {
+  test("caps an unbounded read at the character budget and says so", async () => {
     const dir = makeTempDir();
-    const total = DEFAULT_READ_LINE_LIMIT + 500;
-    const lines = Array.from({ length: total }, (_, i) => `line${i + 1}`);
-    writeFileSync(join(dir, "big.txt"), lines.join("\n"));
+    const total = READ_CHAR_BUDGET + 500;
+    writeFileSync(join(dir, "big.txt"), "x".repeat(total));
     const ops = new FileSystemOps(sandboxPolicyFor(dir));
 
     const result = await ops.readFileSafe({ path: "big.txt" });
@@ -146,36 +141,74 @@ describe("FileSystemOps.readFileSafe", () => {
     if (!result.ok) {
       return;
     }
-    const content = result.value.content;
-    expect(content).toContain(`  ${DEFAULT_READ_LINE_LIMIT}  line2000`);
-    expect(content).not.toContain("line2001");
-    expect(content).toContain(
-      `[Truncated: showing through line ${DEFAULT_READ_LINE_LIMIT} of ${total}. Read on with offset=${DEFAULT_READ_LINE_LIMIT + 1}`,
+    const [body] = result.value.content.split("\n\n[Truncated:");
+    expect(body).toHaveLength(READ_CHAR_BUDGET);
+    expect(result.value.content).toContain(
+      `[Truncated: characters 1-${READ_CHAR_BUDGET} of ${total}. Read on with start_index=${READ_CHAR_BUDGET + 1}.]`,
     );
   });
 
-  test("an explicit limit is honored rather than replaced by the default", async () => {
+  test("a maxChars above the budget is clamped to it", async () => {
     const dir = makeTempDir();
-    const lines = Array.from(
-      { length: DEFAULT_READ_LINE_LIMIT + 500 },
-      (_, i) => `line${i + 1}`,
-    );
-    writeFileSync(join(dir, "big.txt"), lines.join("\n"));
+    const total = READ_CHAR_BUDGET + 500;
+    writeFileSync(join(dir, "big.txt"), "x".repeat(total));
     const ops = new FileSystemOps(sandboxPolicyFor(dir));
 
     const result = await ops.readFileSafe({
       path: "big.txt",
-      limit: DEFAULT_READ_LINE_LIMIT + 500,
+      maxChars: total,
     });
     expect(result.ok).toBe(true);
     if (!result.ok) {
       return;
     }
-    expect(result.value.content).toContain("line2500");
-    expect(result.value.content).not.toContain("[Truncated:");
+    const [body] = result.value.content.split("\n\n[Truncated:");
+    expect(body).toHaveLength(READ_CHAR_BUDGET);
   });
 
-  test("a read that reaches the last line carries no truncation notice", async () => {
+  test("a maxChars below the budget is honored as given", async () => {
+    const dir = makeTempDir();
+    writeFileSync(join(dir, "big.txt"), "x".repeat(500));
+    const ops = new FileSystemOps(sandboxPolicyFor(dir));
+
+    const result = await ops.readFileSafe({ path: "big.txt", maxChars: 10 });
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      return;
+    }
+    const [body] = result.value.content.split("\n\n[Truncated:");
+    expect(body).toHaveLength(10);
+    expect(result.value.content).toContain(
+      "[Truncated: characters 1-10 of 500. Read on with start_index=11.]",
+    );
+  });
+
+  test("paging with the offset from a notice returns the next window", async () => {
+    const dir = makeTempDir();
+    writeFileSync(join(dir, "big.txt"), "abcdefghij");
+    const ops = new FileSystemOps(sandboxPolicyFor(dir));
+
+    const first = await ops.readFileSafe({ path: "big.txt", maxChars: 4 });
+    expect(first.ok).toBe(true);
+    if (!first.ok) {
+      return;
+    }
+    expect(first.value.content).toContain("start_index=5");
+
+    const second = await ops.readFileSafe({
+      path: "big.txt",
+      startIndex: 5,
+      maxChars: 4,
+    });
+    expect(second.ok).toBe(true);
+    if (!second.ok) {
+      return;
+    }
+    const [body] = second.value.content.split("\n\n[Truncated:");
+    expect(body).toBe("efgh");
+  });
+
+  test("a read that reaches the end carries no truncation notice", async () => {
     const dir = makeTempDir();
     writeFileSync(join(dir, "small.txt"), "a\nb\nc");
     const ops = new FileSystemOps(sandboxPolicyFor(dir));
@@ -193,12 +226,19 @@ describe("FileSystemOps.readFileSafe", () => {
     writeFileSync(join(dir, "small.txt"), "a\nb\nc");
     const ops = new FileSystemOps(sandboxPolicyFor(dir));
 
-    const result = await ops.readFileSafe({ path: "small.txt", offset: 100 });
+    const result = await ops.readFileSafe({
+      path: "small.txt",
+      startIndex: 100,
+    });
     expect(result.ok).toBe(true);
     if (!result.ok) {
       return;
     }
     expect(result.value.content).not.toContain("[Truncated:");
+  });
+
+  test("the read budget stays under the tool-result spool threshold", () => {
+    expect(READ_CHAR_BUDGET).toBeLessThan(THRESHOLD_CHARS);
   });
 });
 

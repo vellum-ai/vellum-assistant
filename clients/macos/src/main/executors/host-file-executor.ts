@@ -23,13 +23,13 @@ const MAX_FILE_SIZE_BYTES = 100 * 1024 * 1024;
 const DENIED_BASENAMES = new Set([".backup.key", "backup.key"]);
 
 /**
- * Lines returned by a read that names no `limit`. The daemon resolves this
- * same default before proxying, so this covers a client driven by an older
- * daemon that still sends none. Mirrors `DEFAULT_READ_LINE_LIMIT` in the
- * assistant's `tools/shared/filesystem/file-ops-service.ts`, which owns the
- * value and the wording of the notice below.
+ * Characters returned by a read that names no `maxChars`. The daemon resolves
+ * this same default before proxying, so this covers a client driven by an
+ * older daemon that sends none. Mirrors `READ_CHAR_BUDGET` in the assistant's
+ * `tools/shared/filesystem/file-ops-service.ts`, which owns the value and the
+ * wording of the notice below.
  */
-const DEFAULT_READ_LINE_LIMIT = 2000;
+const READ_CHAR_BUDGET = 20_000;
 
 function formatBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
@@ -257,8 +257,8 @@ function detectAudioByMagicBytes(buf: Buffer): AudioDetection | null {
 
 interface ReadFields {
   path: string;
-  offset?: number;
-  limit?: number;
+  startIndex?: number;
+  maxChars?: number;
 }
 
 function executeRead(fields: ReadFields): {
@@ -291,18 +291,18 @@ function executeRead(fields: ReadFields): {
     return { audioData: raw.toString("base64"), audioMimeType: audio.mimeType };
   }
 
-  // Text file — apply line-based offset/limit
+  // Text file — apply the character window
   const text = raw.toString("utf-8");
-  const lines = text.split("\n");
-  const offset = (fields.offset ?? 1) - 1;
-  const start = Math.max(0, offset);
-  const limit = fields.limit ?? DEFAULT_READ_LINE_LIMIT;
-  const sliced = lines.slice(start, offset + limit);
-  const lastLineReturned = start + sliced.length;
-  const content = sliced.join("\n");
-  if (sliced.length > 0 && lastLineReturned < lines.length) {
+  const start = Math.max(0, (fields.startIndex ?? 1) - 1);
+  const maxChars = Math.min(
+    READ_CHAR_BUDGET,
+    Math.max(0, fields.maxChars ?? READ_CHAR_BUDGET),
+  );
+  const content = text.slice(start, start + maxChars);
+  const end = start + content.length;
+  if (content.length > 0 && end < text.length) {
     return {
-      content: `${content}\n\n[Truncated: showing through line ${lastLineReturned} of ${lines.length}. Read on with offset=${lastLineReturned + 1}, or pass an explicit limit.]`,
+      content: `${content}\n\n[Truncated: characters ${start + 1}-${end} of ${text.length}. Read on with start_index=${end + 1}.]`,
     };
   }
   return { content };
@@ -440,8 +440,8 @@ function handleRequest(
       case "read":
         result = executeRead({
           path: filePath,
-          offset: message.offset as number | undefined,
-          limit: message.limit as number | undefined,
+          startIndex: message.startIndex as number | undefined,
+          maxChars: message.maxChars as number | undefined,
         });
         break;
       case "write":

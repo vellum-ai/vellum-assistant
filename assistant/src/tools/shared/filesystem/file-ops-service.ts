@@ -78,26 +78,24 @@ function pathError(
 }
 
 /**
- * Lines returned by a read that names no `limit`. Without a default the read
- * returns the whole file, and a file-read result is honored in full for the
- * rest of the turn (see `isSpoolEligible` in `context/tool-result-spool.ts`),
- * so one unbounded read of a large file rides every subsequent LLM call in
- * that turn. The cap bounds that; `offset`/`limit` page past it, and
- * {@link truncationNotice} tells the model when it is looking at a window
- * rather than the whole file.
+ * Characters returned by a read that names no `max_chars`. Stays under
+ * `THRESHOLD_CHARS` in `context/post-turn-tool-result-truncation.ts`, which
+ * spools any larger tool result to disk and replaces it inline with a short
+ * stub, so a default read returns content rather than a stub.
  */
-export const DEFAULT_READ_LINE_LIMIT = 2000;
+export const READ_CHAR_BUDGET = 20_000;
 
 /**
- * Trailing marker appended when a read stops short of the last line. Silent
- * truncation is the failure mode worth avoiding: a model that cannot tell a
- * window from a whole file reasons about code it never saw.
+ * Trailing marker appended when a read stops short of the end of the file. A
+ * model that cannot tell a window from a whole file reasons about code it
+ * never saw.
  */
 function truncationNotice(
-  lastLineReturned: number,
-  totalLines: number,
+  start: number,
+  end: number,
+  totalChars: number,
 ): string {
-  return `\n\n[Truncated: showing through line ${lastLineReturned} of ${totalLines}. Read on with offset=${lastLineReturned + 1}, or pass an explicit limit.]`;
+  return `\n\n[Truncated: characters ${start + 1}-${end} of ${totalChars}. Read on with start_index=${end + 1}.]`;
 }
 
 export class FileSystemOps {
@@ -139,28 +137,23 @@ export class FileSystemOps {
 
     try {
       const raw = await readFile(filePath, "utf-8");
-      const lines = raw.split("\n");
 
-      const offset = (input.offset ?? 1) - 1;
-      const start = Math.max(0, offset);
-      const limit = input.limit ?? DEFAULT_READ_LINE_LIMIT;
-      const selected = lines.slice(start, offset + limit);
+      const start = Math.max(0, (input.startIndex ?? 1) - 1);
+      // A ceiling, not just a default: a larger window would be spooled to
+      // disk and replaced with a stub, returning less than this.
+      const maxChars = Math.min(
+        READ_CHAR_BUDGET,
+        Math.max(0, input.maxChars ?? READ_CHAR_BUDGET),
+      );
+      const window = raw.slice(start, start + maxChars);
+      const end = start + window.length;
 
-      const numbered = selected
-        .map((line, i) => {
-          const lineNum = offset + i + 1;
-          return `${String(lineNum).padStart(6)}  ${line}`;
-        })
-        .join("\n");
-
-      // Only when the window stops before the last line. An empty window means
-      // the caller paged past the end or asked for nothing, which is not a
-      // truncated read.
-      const lastLineReturned = start + selected.length;
+      // An empty window means the caller paged past the end or asked for
+      // nothing, which is not a truncated read.
       const content =
-        selected.length > 0 && lastLineReturned < lines.length
-          ? numbered + truncationNotice(lastLineReturned, lines.length)
-          : numbered;
+        window.length > 0 && end < raw.length
+          ? window + truncationNotice(start, end, raw.length)
+          : window;
 
       return { ok: true, value: { content } };
     } catch (err) {

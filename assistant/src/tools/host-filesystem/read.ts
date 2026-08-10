@@ -11,8 +11,8 @@ import {
   readAudioFile,
 } from "../shared/filesystem/audio-read.js";
 import {
-  DEFAULT_READ_LINE_LIMIT,
   FileSystemOps,
+  READ_CHAR_BUDGET,
 } from "../shared/filesystem/file-ops-service.js";
 import {
   IMAGE_EXTENSIONS,
@@ -32,9 +32,9 @@ import type {
 /**
  * Model-input schema, the single source for both runtime validation (via
  * `TOOL_INPUT_SCHEMAS`) and the advertised `input_schema` below — mirrors
- * `filesystem/read.ts`. `offset`/`limit` catch to `undefined` so a
- * non-numeric value falls back to the default line window instead of failing
- * the call; `target_client_id` catches so a non-string (or empty) value means
+ * `filesystem/read.ts`. `start_index`/`max_chars` catch to `undefined` so a
+ * non-numeric value falls back to the default character window instead of
+ * failing the call; `target_client_id` catches so a non-string (or empty) value means
  * "untargeted".
  */
 export const hostFileReadInputSchema = z.looseObject({
@@ -44,14 +44,16 @@ export const hostFileReadInputSchema = z.looseObject({
     .describe(
       "Absolute path on the guardian's device, which is a separate filesystem from your workspace, to read.",
     ),
-  offset: z
+  start_index: z
     .number()
-    .describe("Line number to start reading from (1-indexed)")
+    .describe("Character to start reading from (1-indexed). Text files only.")
     .optional()
     .catch(undefined),
-  limit: z
+  max_chars: z
     .number()
-    .describe("Maximum number of lines to read (defaults to 2000)")
+    .describe(
+      "Maximum number of characters to read. Defaults to 20000, which is also the ceiling. Text files only.",
+    )
     .optional()
     .catch(undefined),
   target_client_id: z
@@ -66,7 +68,7 @@ export const hostFileReadInputSchema = z.looseObject({
 export const hostFileReadTool = {
   name: "host_file_read",
   description:
-    "Read the contents of a file on your guardian's device, including images (JPEG, PNG, GIF, WebP) and audio (MP3, WAV, OGG, FLAC, AAC, M4A). Text reads return the first 2000 lines unless you pass `limit`; when a read stops short the result says so, and `offset` pages on from there. For files on your own machine, use file_read instead.",
+    "Read the contents of a file on your guardian's device, including images (JPEG, PNG, GIF, WebP) and audio (MP3, WAV, OGG, FLAC, AAC, M4A). Text reads return the first 20000 characters unless you pass `max_chars`; when a read stops short the result says so, and `start_index` pages on from there. For files on your own machine, use file_read instead.",
   category: "host-filesystem",
   executionTarget: "host",
   defaultRiskLevel: RiskLevel.Medium,
@@ -81,12 +83,12 @@ export const hostFileReadTool = {
     if (!parsed.success) {
       return invalidToolInputResult("host_file_read", parsed.error);
     }
-    const { path: rawPath, offset } = parsed.data;
+    const { path: rawPath, start_index: startIndex } = parsed.data;
     // Resolve the default here rather than leaving it to the read, so the
     // proxied branch below is bounded by the same window as the local one. A
-    // proxied read that sent no limit would stream a whole host file across
+    // proxied read that sent no budget would stream a whole host file across
     // the bridge before anything could trim it.
-    const limit = parsed.data.limit ?? DEFAULT_READ_LINE_LIMIT;
+    const maxChars = parsed.data.max_chars ?? READ_CHAR_BUDGET;
 
     const targetClientId =
       parsed.data.target_client_id !== ""
@@ -153,8 +155,8 @@ export const hostFileReadTool = {
         {
           operation: "read",
           path: rawPath,
-          offset,
-          limit,
+          startIndex,
+          maxChars,
           targetClientId,
         },
         context.conversationId,
@@ -183,7 +185,11 @@ export const hostFileReadTool = {
 
     const ops = new FileSystemOps(hostPolicy);
 
-    const result = await ops.readFileSafe({ path: rawPath, offset, limit });
+    const result = await ops.readFileSafe({
+      path: rawPath,
+      startIndex,
+      maxChars,
+    });
 
     if (!result.ok) {
       const { error } = result;

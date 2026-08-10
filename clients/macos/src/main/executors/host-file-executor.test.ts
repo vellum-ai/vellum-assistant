@@ -211,34 +211,31 @@ describe("host-file-executor", () => {
       expect(result.content).toContain("exceeds the 100.0 MB limit");
     });
 
-    test("caps an unbounded read at the default line limit and says so", () => {
+    test("caps an unbounded read at the character budget and says so", () => {
       const dir = freshTmpDir();
       const filePath = path.join(dir, "big.txt");
-      const total = 2500;
-      fs.writeFileSync(
-        filePath,
-        Array.from({ length: total }, (_, i) => `line${i + 1}`).join("\n"),
-      );
+      const total = 20_500;
+      fs.writeFileSync(filePath, "x".repeat(total));
 
       const result = __testing.executeRead({ path: filePath });
-      expect(result.content).toContain("line2000");
-      expect(result.content).not.toContain("line2001");
+      const [body] = result.content!.split("\n\n[Truncated:");
+      expect(body).toHaveLength(20_000);
       expect(result.content).toContain(
-        `[Truncated: showing through line 2000 of ${total}. Read on with offset=2001`,
+        `[Truncated: characters 1-20000 of ${total}. Read on with start_index=20001.]`,
       );
     });
 
-    test("an explicit limit is honored rather than replaced by the default", () => {
+    test("a maxChars above the budget is clamped to it", () => {
       const dir = freshTmpDir();
       const filePath = path.join(dir, "big.txt");
-      fs.writeFileSync(
-        filePath,
-        Array.from({ length: 2500 }, (_, i) => `line${i + 1}`).join("\n"),
-      );
+      fs.writeFileSync(filePath, "x".repeat(20_500));
 
-      const result = __testing.executeRead({ path: filePath, limit: 2500 });
-      expect(result.content).toContain("line2500");
-      expect(result.content).not.toContain("[Truncated:");
+      const result = __testing.executeRead({
+        path: filePath,
+        maxChars: 20_500,
+      });
+      const [body] = result.content!.split("\n\n[Truncated:");
+      expect(body).toHaveLength(20_000);
     });
 
     test("reads text file and returns content", () => {
@@ -251,15 +248,15 @@ describe("host-file-executor", () => {
       expect(result.imageData).toBeUndefined();
     });
 
-    test("respects offset and limit", () => {
+    test("respects startIndex and maxChars", () => {
       const dir = freshTmpDir();
       const filePath = path.join(dir, "lines.txt");
       fs.writeFileSync(filePath, "a\nb\nc\nd\ne");
 
       const result = __testing.executeRead({
         path: filePath,
-        offset: 2,
-        limit: 2,
+        startIndex: 3,
+        maxChars: 3,
       });
       const [body] = result.content!.split("\n\n[Truncated:");
       expect(body).toBe("b\nc");
