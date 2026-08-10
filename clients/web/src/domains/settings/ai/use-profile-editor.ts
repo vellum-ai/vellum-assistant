@@ -16,10 +16,10 @@ import {
 } from "@/assistant/llm-model-catalog";
 import {
   CHATGPT_CONNECTION_PROVIDER,
-  MANAGED_ROUTABLE_PROVIDERS,
   VELLUM_CONNECTION_PROVIDER,
 } from "@/domains/settings/ai/constants";
 import { resolveModelDisplayName } from "@/domains/settings/ai/model-display";
+import { connectionServesProvider } from "@/domains/settings/ai/provider-availability";
 import { deriveProfileDefaults } from "@/domains/settings/ai/profile-prefill";
 import {
   isGeminiThinkingLevel,
@@ -46,27 +46,6 @@ import { badRequestMessage } from "@/utils/api-errors";
 
 export type ProfileEditorMode = "create" | "edit" | "view";
 export type EffortSelection = "inherit" | NonNullable<ProfileEntry["effort"]>;
-
-/**
- * Whether a connection (identified by its stored `provider`) can back a profile
- * whose provider is `selectedProvider`. The provider-agnostic Vellum-managed
- * connection stores the `vellum` sentinel but serves every managed-routable
- * provider, so it counts as available for those.
- */
-function connectionServesProvider(
-  connectionProvider: string,
-  selectedProvider: string,
-): boolean {
-  if (connectionProvider === selectedProvider) {
-    return true;
-  }
-  // Legacy wire shape: a managed profile stores its real upstream (e.g.
-  // "fireworks") while binding to the provider-agnostic vellum connection.
-  return (
-    connectionProvider === VELLUM_CONNECTION_PROVIDER &&
-    MANAGED_ROUTABLE_PROVIDERS.has(selectedProvider)
-  );
-}
 
 export interface UseProfileEditorArgs {
   mode: ProfileEditorMode;
@@ -211,11 +190,10 @@ export function useProfileEditor({
   // upstream is derived from the model at save time. The form opens on the
   // stored upstream and only promotes to Vellum once the loaded connections
   // prove the bound row is the managed sentinel (see the effect below).
-  // A stored "chatgpt" provider (written via the API or CLI) opens with no
-  // provider selected - ChatGPT is a connection sub-option, never a provider
-  // selection here.
+  // A stored "chatgpt" provider (migration 144 output, the picker, or the
+  // API) opens as the ChatGPT selection.
   const [provider, setProvider] = useState<ConnectionProvider | "">(
-    initialValues?.provider && initialValues.provider !== "chatgpt"
+    initialValues?.provider
       ? // The wire type is an open string (the daemon accepts entry names in
         // storage); the editor's selection set is the connection-provider
         // union, and a value outside it renders as no selection.
@@ -363,11 +341,21 @@ export function useProfileEditor({
   const availableConnectionsForProvider = useMemo(
     () =>
       provider
-        ? effectiveConnections.filter((c) =>
-            connectionServesProvider(c.provider, provider),
+        ? effectiveConnections.filter(
+            (c) =>
+              connectionServesProvider(c.provider, provider) ||
+              // Legacy pinned pairing dispatch still accepts: an openai
+              // profile bound by name to the canonical subscription row,
+              // whose stored provider is "chatgpt" once DB migration 366
+              // has run. Migration 144 leaves these pins in place; without
+              // this the editor reads the binding as missing and clears it
+              // on save.
+              (provider === "openai" &&
+                c.name === providerConnection &&
+                c.provider === CHATGPT_CONNECTION_PROVIDER),
           )
         : [],
-    [provider, effectiveConnections],
+    [provider, effectiveConnections, providerConnection],
   );
 
   // Saved binding no longer points at any known connection. The save handler

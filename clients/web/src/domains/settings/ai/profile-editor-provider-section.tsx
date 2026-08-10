@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 
+import { useTranslation } from "@/i18n";
+
 import { Button } from "@vellumai/design-library/components/button";
 import { Select } from "@vellumai/design-library/components/select";
 import { Input } from "@vellumai/design-library/components/input";
@@ -148,6 +150,7 @@ export function ProfileEditorProviderSection({
   // for a text input whose value is sent to the connection verbatim. It's
   // withheld from subscription-restricted connections, which only accept a
   // fixed model set.
+  const { t } = useTranslation("settings");
   const [isEnteringCustomModel, setIsEnteringCustomModel] = useState(false);
 
   const subscriptionRestricted = restrictsToSubscriptionModels(
@@ -225,7 +228,7 @@ export function ProfileEditorProviderSection({
         c.provider === CHATGPT_CONNECTION_PROVIDER ||
         c.auth.type === "oauth_subscription",
     )
-      ? "Your ChatGPT subscription is available as the ChatGPT provider."
+      ? t("profileEditor.subscriptionSteeringHint")
       : undefined;
 
   // For openai-compatible providers the static catalog is empty — use models

@@ -12,5 +12,8 @@
     "grantedToast": "Se añadieron {amount} en créditos a tu cuenta.",
     "unavailableToast": "Esta oferta ya no está disponible.",
     "errorToast": "No se pudieron añadir los créditos. Inténtalo de nuevo."
+  },
+  "profileEditor": {
+    "subscriptionSteeringHint": "Tu suscripción a ChatGPT está disponible como el proveedor ChatGPT."
   }
 }
