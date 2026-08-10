@@ -691,7 +691,9 @@ describe("mergeListFirstPage", () => {
       hasMore: false,
     };
 
-    expect(mergeListFirstPage(prev, page)).toBe(page.conversations);
+    expect(mergeListFirstPage(prev, page, { pinnedInjected: true })).toBe(
+      page.conversations,
+    );
   });
 
   test("drops cached rows inside the window that vanished from the page, keeps older rows", () => {
@@ -709,10 +711,11 @@ describe("mergeListFirstPage", () => {
       makeConversation({ conversationId: "c-created", lastMessageAt: 4900 }),
     ];
 
-    const merged = mergeListFirstPage(prev, {
-      conversations: fresh,
-      hasMore: true,
-    });
+    const merged = mergeListFirstPage(
+      prev,
+      { conversations: fresh, hasMore: true },
+      { pinnedInjected: true },
+    );
 
     expect(merged.map((c) => c.conversationId)).toEqual([
       "c-new",
@@ -722,7 +725,7 @@ describe("mergeListFirstPage", () => {
     expect(merged[0].title).toBe("Renamed");
   });
 
-  test("excludes pinned rows from the window cutoff", () => {
+  test("excludes injected pinned rows from the window cutoff", () => {
     // The daemon appends every pinned conversation to page 1 regardless of
     // age. An ancient pinned row must not collapse the cutoff and drop
     // live cached rows.
@@ -738,10 +741,11 @@ describe("mergeListFirstPage", () => {
       }),
     ];
 
-    const merged = mergeListFirstPage(prev, {
-      conversations: fresh,
-      hasMore: true,
-    });
+    const merged = mergeListFirstPage(
+      prev,
+      { conversations: fresh, hasMore: true },
+      { pinnedInjected: true },
+    );
 
     expect(merged.map((c) => c.conversationId)).toEqual([
       "c-top",
@@ -762,15 +766,16 @@ describe("mergeListFirstPage", () => {
       makeConversation({ conversationId: "c-top", lastMessageAt: 5000 }),
     ];
 
-    const merged = mergeListFirstPage(prev, {
-      conversations: fresh,
-      hasMore: true,
-    });
+    const merged = mergeListFirstPage(
+      prev,
+      { conversations: fresh, hasMore: true },
+      { pinnedInjected: true },
+    );
 
     expect(merged.map((c) => c.conversationId)).toEqual(["c-top", "c-draft"]);
   });
 
-  test("returns the cache unchanged when every fresh row is pinned", () => {
+  test("returns the cache unchanged when every injected fresh row is pinned", () => {
     const prev = [
       makeConversation({ conversationId: "c1", lastMessageAt: 4000 }),
     ];
@@ -783,7 +788,48 @@ describe("mergeListFirstPage", () => {
     ];
 
     expect(
-      mergeListFirstPage(prev, { conversations: fresh, hasMore: true }),
+      mergeListFirstPage(
+        prev,
+        { conversations: fresh, hasMore: true },
+        { pinnedInjected: true },
+      ),
     ).toBe(prev);
+  });
+
+  test("a section page counts its pinned rows toward the cutoff", () => {
+    /* A section page has no injection, so its pinned rows are genuine
+       window members. In the Pinned section every row is pinned; excluding
+       them under the injection rule would leave no window at all, and the
+       refresh would silently do nothing. */
+    const prev = [
+      makeConversation({ conversationId: "c-stale", lastMessageAt: 4000 }),
+      makeConversation({ conversationId: "c-older", lastMessageAt: 100 }),
+    ];
+    const fresh = [
+      makeConversation({
+        conversationId: "c-pin-a",
+        lastMessageAt: 5000,
+        isPinned: true,
+      }),
+      makeConversation({
+        conversationId: "c-pin-b",
+        lastMessageAt: 3000,
+        isPinned: true,
+      }),
+    ];
+
+    const merged = mergeListFirstPage(
+      prev,
+      { conversations: fresh, hasMore: true },
+      { pinnedInjected: false },
+    );
+
+    // c-stale sits inside the window (>= 3000) but vanished from the page,
+    // so it is dropped; c-older sorts below the window and survives.
+    expect(merged.map((c) => c.conversationId)).toEqual([
+      "c-pin-a",
+      "c-pin-b",
+      "c-older",
+    ]);
   });
 });

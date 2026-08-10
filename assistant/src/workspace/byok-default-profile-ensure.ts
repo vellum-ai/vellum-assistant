@@ -18,6 +18,7 @@ import {
   type LLMProvider,
   type ProfileEntry,
 } from "../config/schemas/llm.js";
+import { ROUTING_IDENTITY_PROVIDERS } from "../providers/inference/auth.js";
 import { getLogger } from "../util/logger.js";
 import { completedProfileBody } from "./custom-profile-ensure.js";
 
@@ -267,11 +268,13 @@ export function ensureByokDefaultProfiles(workspaceDir: string): void {
   const completionBase = LLMConfigBase.safeParse(llm.default ?? {}).data;
 
   // The default provider on a BYOK default, or the uniform hatch provider
-  // across the complete copy set on a vellum default; null converts nothing.
-  const candidateProvider =
-    parsedDefault.data.provider !== "vellum"
-      ? parsedDefault.data.provider
-      : uniformCopyProvider(profiles);
+  // across the complete copy set on a routing-identity default (vellum,
+  // chatgpt); null converts nothing.
+  const candidateProvider = ROUTING_IDENTITY_PROVIDERS.has(
+    parsedDefault.data.provider,
+  )
+    ? uniformCopyProvider(profiles)
+    : parsedDefault.data.provider;
   const convertibleProvider =
     candidateProvider !== null && isByokDefaultProviderChoice(candidateProvider)
       ? candidateProvider

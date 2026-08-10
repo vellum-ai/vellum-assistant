@@ -432,6 +432,31 @@ describe("PUT config/llm/default-provider", () => {
     expect(availability(result)).toEqual({ status: "ok" });
   });
 
+  test("chatgpt persists and resolves the canonical subscription row", async () => {
+    seedConnection({
+      name: "chatgpt-subscription",
+      provider: "chatgpt",
+      auth: {
+        type: "oauth_subscription",
+        credential: "credential/chatgpt/access_token",
+      },
+    });
+    secureKeyResults["credential/chatgpt/access_token"] = {
+      value: "token",
+      unreachable: false,
+    };
+
+    const result = (await put({ provider: "chatgpt" })) as Record<
+      string,
+      unknown
+    >;
+
+    expect(persistedDefaultProvider()).toEqual({ provider: "chatgpt" });
+    expect(result.provider).toBe("chatgpt");
+    expect(result.resolvedConnectionName).toBe("chatgpt-subscription");
+    expect(availability(result)).toEqual({ status: "ok" });
+  });
+
   test("persists an explicit connectionName", async () => {
     await put({ provider: "openai", connectionName: "work-openai" });
     expect(persistedDefaultProvider()).toEqual({
@@ -447,6 +472,42 @@ describe("PUT config/llm/default-provider", () => {
     >;
     expect(persistedDefaultProvider()).toEqual({ provider: "gemini" });
     expect(availability(result).status).toBe("missing_connection");
+  });
+
+  test("a noncanonical pin on a routing identity → 400 naming the canonical row", async () => {
+    for (const [provider, canonical] of [
+      ["chatgpt", "chatgpt-subscription"],
+      ["vellum", "vellum"],
+    ] as const) {
+      const err = await put({
+        provider,
+        connectionName: "some-other-row",
+      }).catch((e: unknown) => e);
+      expect(String(err)).toContain(canonical);
+    }
+  });
+
+  test("the canonical pin on a routing identity is accepted", async () => {
+    seedConnection({
+      name: "chatgpt-subscription",
+      provider: "chatgpt",
+      auth: {
+        type: "oauth_subscription",
+        credential: "credential/chatgpt/access_token",
+      },
+    });
+    secureKeyResults["credential/chatgpt/access_token"] = {
+      value: "token",
+      unreachable: false,
+    };
+
+    const result = (await put({
+      provider: "chatgpt",
+      connectionName: "chatgpt-subscription",
+    })) as Record<string, unknown>;
+
+    expect(result.resolvedConnectionName).toBe("chatgpt-subscription");
+    expect(availability(result)).toEqual({ status: "ok" });
   });
 
   test("invalid provider → 400 naming the allowed providers", async () => {

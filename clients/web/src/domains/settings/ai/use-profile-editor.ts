@@ -215,7 +215,10 @@ export function useProfileEditor({
   // selection here.
   const [provider, setProvider] = useState<ConnectionProvider | "">(
     initialValues?.provider && initialValues.provider !== "chatgpt"
-      ? initialValues.provider
+      ? // The wire type is an open string (the daemon accepts entry names in
+        // storage); the editor's selection set is the connection-provider
+        // union, and a value outside it renders as no selection.
+        (initialValues.provider as ConnectionProvider)
       : "",
   );
   const [model, setModel] = useState(initialValues?.model ?? "");

@@ -1,7 +1,11 @@
 /**
- * Fetch wrappers for user-created schedule CRUD (list, create, update, toggle,
+ * Fetch wrappers for user-created schedule CRUD (create, update, toggle,
  * delete, runs, usage summary). System-task queries (heartbeat, consolidation,
- * retrospective) use generated SDK options directly — see use-system-tasks.ts.
+ * retrospective) use generated SDK options directly, see use-system-tasks.ts.
+ *
+ * Reading the schedule list is not here: `@/utils/schedules` owns it, because
+ * its consumers span domains (settings, schedules, home, intelligence) and a
+ * domain may not import a peer's internals.
  */
 import {
   schedulesByIdDelete,
@@ -18,10 +22,8 @@ import {
   assertHasResponse,
   extractErrorMessage,
 } from "@/utils/api-errors";
-import { fetchSchedules as fetchSharedSchedules } from "@/utils/schedules";
 
 import type {
-  Schedule,
   ScheduleRun,
   ScheduleUsageSummary,
 } from "@/domains/settings/types/schedules";
@@ -94,10 +96,6 @@ export async function updateSchedule(
   }
 }
 
-export async function fetchSchedules(assistantId: string): Promise<Schedule[]> {
-  return fetchSharedSchedules(assistantId);
-}
-
 const REASSIGN_PROFILE_ERROR =
   "Failed to move schedules to the selected profile.";
 
@@ -133,13 +131,6 @@ export async function reassignScheduleInferenceProfile(
   }
   return data?.reassigned ?? 0;
 }
-
-/**
- * Re-exported from `@/utils/schedules`, which owns the list's query key +
- * staleTime so that consumers in other domains (the Activity feed's entity
- * links) can read the same cache entry without importing this module.
- */
-export { schedulesListQueryOptions } from "@/utils/schedules";
 
 export async function fetchScheduleRuns(
   assistantId: string,

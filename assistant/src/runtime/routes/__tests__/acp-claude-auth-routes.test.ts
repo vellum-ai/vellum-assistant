@@ -47,7 +47,7 @@ mock.module("../../../security/oauth2.js", () => ({
 }));
 
 const actualClaudeOauth = await import("../../../acp/acp-claude-oauth.js");
-const { CLAUDE_MANUAL_REDIRECT_URI } = actualClaudeOauth;
+const { CLAUDE_MANUAL_REDIRECT_URI, CLAUDE_OAUTH_CONFIG } = actualClaudeOauth;
 const storeAcpClaudeTokenMock = mock(async (_token: string) => {});
 // The connect-status route reads token presence; mock it so the route test
 // doesn't reach real secure storage.
@@ -125,7 +125,7 @@ function deferredFlow(state: string): {
     reject = rej;
   });
   prepareOAuth2FlowMock.mockImplementationOnce(async () => ({
-    authorizeUrl: `https://claude.com/cai/oauth/authorize?state=${state}`,
+    authorizeUrl: `${CLAUDE_OAUTH_CONFIG.authorizeUrl}?state=${state}`,
     state,
     completion,
   }));
@@ -153,7 +153,7 @@ describe("acp_claude_auth_start", () => {
 
     const url = new URL(result.authorize_url);
     expect(`${url.origin}${url.pathname}`).toBe(
-      "https://claude.com/cai/oauth/authorize",
+      CLAUDE_OAUTH_CONFIG.authorizeUrl,
     );
     expect(url.searchParams.get("client_id")).toBe(CLAUDE_CLIENT_ID);
     expect(url.searchParams.get("code_challenge_method")).toBe("S256");
@@ -289,7 +289,7 @@ describe("acp_claude_auth_start (cloud/manual)", () => {
     expect(result.mode).toBe("manual");
     const url = new URL(result.authorize_url);
     expect(`${url.origin}${url.pathname}`).toBe(
-      "https://claude.com/cai/oauth/authorize",
+      CLAUDE_OAUTH_CONFIG.authorizeUrl,
     );
     expect(url.searchParams.get("redirect_uri")).toBe(
       CLAUDE_MANUAL_REDIRECT_URI,
@@ -298,7 +298,7 @@ describe("acp_claude_auth_start (cloud/manual)", () => {
     expect(url.searchParams.get("code_challenge_method")).toBe("S256");
     expect(url.searchParams.get("state")).toBe(result.state);
     // Manual flow requires `code=true` so the callback page renders the
-    // `code#state` string to paste back (JARVIS-1517).
+    // `code#state` string to paste back.
     expect(url.searchParams.get("code")).toBe("true");
 
     // The manual path must not bind a loopback.
