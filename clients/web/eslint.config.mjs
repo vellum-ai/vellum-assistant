@@ -2,6 +2,7 @@ import { defineConfig, globalIgnores } from "eslint/config";
 import reactHooks from "eslint-plugin-react-hooks";
 import tseslint from "typescript-eslint";
 
+import { noCompoundTouchSignal } from "./eslint-rules/no-compound-touch-signal.mjs";
 import { noCrossDomainImports } from "./eslint-rules/no-cross-domain-imports.mjs";
 import { noUntranslatedStrings } from "./eslint-rules/no-untranslated-strings.mjs";
 
@@ -213,6 +214,7 @@ const eslintConfig = defineConfig([
     plugins: {
       local: {
         rules: {
+          "no-compound-touch-signal": noCompoundTouchSignal,
           "no-cross-domain-imports": noCrossDomainImports,
           "no-untranslated-strings": noUntranslatedStrings,
         },
@@ -228,6 +230,7 @@ const eslintConfig = defineConfig([
         { argsIgnorePattern: "^_", varsIgnorePattern: "^_" },
       ],
       "local/no-cross-domain-imports": "error",
+      "local/no-compound-touch-signal": "error",
       "no-restricted-syntax": [
         "error",
         ...darkPairedColorScaleRules,

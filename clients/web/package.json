@@ -16,6 +16,8 @@
     "lint": "eslint",
     "audit:cross-domain": "node scripts/audit-cross-domain-imports.mjs",
     "audit:cross-domain:check": "node scripts/audit-cross-domain-imports.mjs --check",
+    "audit:touch-signal": "node scripts/audit-touch-signal-allowlist.mjs",
+    "audit:touch-signal:check": "node scripts/audit-touch-signal-allowlist.mjs --check",
     "pretypecheck": "bun run openapi-ts",
     "typecheck": "bunx tsc --noEmit",
     "postinstall": "bun run openapi-ts",
