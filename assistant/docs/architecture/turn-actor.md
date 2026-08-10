@@ -25,7 +25,9 @@ per-turn values (`getTurnActorPrincipalId`, `getTurnChannelContext`), plain
 
 Do not read `trustContext` or `currentTurnTrustContext` directly. The accessors exist so that every call site states which question it is asking; a raw field read states nothing, and the wrong answer is silent.
 
-**Use `getTurnTrust()`** for authorization, for anything stamped onto a persisted row (see `provenanceFromTrustContext`), for routing a reply back to the requester, and for anything a tool can observe.
+**Use `getTurnTrust()`** for authorization decisions and for routing a reply back to the requester: cases where substituting the conversation's owner would be wrong rather than approximate, so `undefined` must surface and be handled.
+
+**Use `getTurnOrRestingTrust()`** for provenance stamped onto persisted rows (see `provenanceFromTrustContext`). Provenance is read back by the memory indexer, which runs extraction only for guardian rows, and by the transcript assembly, which wraps non-guardian user content before it reaches the model. The turn's actor is correct when a turn is running; rows persisted with no turn in flight (wake notices) must keep the owner's class, because stamping `"unknown"` there silently stops memory extraction for the owner's own flows.
 
 **Use `getTrustContext()`** when there is no turn: HTTP routes reporting conversation state, hydration, and persistence of conversation-level options. Also when a caller deliberately wants the conversation's owner rather than whoever is currently acting; that intent should be obvious from the call site, and if it is not, it is probably the wrong accessor.
 
@@ -46,8 +48,10 @@ tool in the resumed turn (LUM-2929). The substitution lives in one named
 method, so it is greppable, and removable in one place once every entry point
 records a turn actor.
 
-Callers for which the owner would be wrong rather than approximate, provenance
-above all, call `getTurnTrust()` alone and handle `undefined`.
+Callers for which the owner would be wrong rather than approximate, such as
+authorization, call `getTurnTrust()` alone and handle `undefined`. Provenance
+is deliberately not in that set: its readers treat an absent class more
+permissively than `"unknown"`, so failing closed there fails open downstream.
 
 ## Writers that stamp for a run
 

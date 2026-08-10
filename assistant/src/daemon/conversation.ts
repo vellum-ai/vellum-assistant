@@ -2491,9 +2491,10 @@ export class Conversation {
   /**
    * Trust the in-flight turn is executing under.
    *
-   * Use this for authorization, for provenance stamped onto anything the turn
-   * persists, for routing a reply to the requester, and for anything a tool
-   * can observe. See `docs/architecture/turn-actor.md`.
+   * Use this for authorization and for routing a reply to the requester:
+   * cases where substituting the conversation's owner would be wrong rather
+   * than approximate. Provenance is not such a case; see
+   * {@link getTurnOrRestingTrust} and `docs/architecture/turn-actor.md`.
    *
    * `undefined` when no turn recorded one, which is a gap in the entry point
    * rather than an answer. Deliberately does not fall back to the
@@ -2521,9 +2522,10 @@ export class Conversation {
   /**
    * Trust of the in-flight turn, or the conversation's owner when the turn
    * recorded none. The substitution is in the name: callers that can accept
-   * the owner as a stand-in ask this, callers for which the owner would be
-   * wrong rather than approximate (provenance) call {@link getTurnTrust} and
-   * handle `undefined`.
+   * the owner as a stand-in ask this, including provenance stamping, whose
+   * readers treat an absent trust class as more trusted than `"unknown"`.
+   * Callers for which the owner would be wrong rather than approximate call
+   * {@link getTurnTrust} and handle `undefined`.
    *
    * The fallback half is load-bearing, not transitional politeness: a
    * deferred wake fires with no inbound actor, and refusing it an answer
