@@ -1,21 +1,26 @@
 import path from "node:path";
 
-import { describe, expect, test } from "bun:test";
+import { describe, expect, mock, test } from "bun:test";
 
 import { resolveRelativePath } from "@vellumai/electron-utils/app-protocol";
-import { mimeTypeForPath, resolveBundlePath } from "./vellumapp-protocol";
+
+mock.module("electron", () => ({
+  net: { fetch: mock(async () => new Response()) },
+  protocol: { handle: mock(() => undefined) },
+}));
+
+const { mimeTypeForPath, resolveBundlePath } = await import(
+  "./vellumapp-protocol"
+);
 
 const BUNDLES_ROOT = "/data/bundles";
 const VALID_UUID = "a1b2c3d4-e5f6-7890-abcd-ef1234567890";
 const BUNDLE_ROOT = path.join(BUNDLES_ROOT, VALID_UUID);
 
-describe("resolveBundlePath — valid inputs", () => {
+describe("resolveBundlePath valid inputs", () => {
   test("resolves a top-level file inside the bundle", () => {
     expect(
-      resolveBundlePath(
-        BUNDLES_ROOT,
-        `vellumapp://${VALID_UUID}/index.html`,
-      ),
+      resolveBundlePath(BUNDLES_ROOT, `vellumapp://${VALID_UUID}/index.html`),
     ).toEqual({
       kind: "ok",
       uuid: VALID_UUID,
@@ -52,7 +57,7 @@ describe("resolveBundlePath — valid inputs", () => {
 // reach `resolveRelativePath` with any `..` left to escape. This is the
 // first line of defense; these tests document its behavior. The
 // `resolveRelativePath` guard (tested below) is defense-in-depth.
-describe("resolveBundlePath — URL parser collapses `..` segments", () => {
+describe("resolveBundlePath URL parser handling", () => {
   test("literal `..` resolves to a safe in-bundle path", () => {
     expect(
       resolveBundlePath(
@@ -93,9 +98,9 @@ describe("resolveBundlePath — URL parser collapses `..` segments", () => {
   });
 });
 
-// Direct probes of `resolveRelativePath` scoped to a bundle root —
+// Direct probes of `resolveRelativePath` scoped to a bundle root.
 // bypasses URL normalization to exercise the `startsWith` guard for real.
-describe("resolveRelativePath — bundle-root guard (defense-in-depth)", () => {
+describe("resolveRelativePath bundle-root guard", () => {
   test("`..` segments surviving normalization are rejected", () => {
     expect(resolveRelativePath(BUNDLE_ROOT, "../etc/passwd")).toEqual({
       kind: "forbidden",
@@ -115,7 +120,7 @@ describe("resolveRelativePath — bundle-root guard (defense-in-depth)", () => {
   });
 });
 
-describe("resolveBundlePath — invalid UUID", () => {
+describe("resolveBundlePath invalid UUID", () => {
   test("malformed UUID returns forbidden", () => {
     expect(
       resolveBundlePath(BUNDLES_ROOT, "vellumapp://not-a-uuid/index.html"),
@@ -132,9 +137,9 @@ describe("resolveBundlePath — invalid UUID", () => {
   });
 
   test("empty hostname returns forbidden", () => {
-    expect(
-      resolveBundlePath(BUNDLES_ROOT, "vellumapp:///index.html"),
-    ).toEqual({ kind: "forbidden" });
+    expect(resolveBundlePath(BUNDLES_ROOT, "vellumapp:///index.html")).toEqual({
+      kind: "forbidden",
+    });
   });
 });
 

@@ -1,5 +1,5 @@
 /**
- * Protocol handler for `vellumapp://` — serves bundle assets from
+ * Protocol handler for `vellumapp://`. Serves bundle assets from
  * `userData/bundles/{uuid}/`. The hostname of the URL is the bundle
  * UUID; the pathname maps to a file inside that bundle directory.
  *
@@ -14,7 +14,7 @@ import { pathToFileURL } from "node:url";
 
 import { net, protocol } from "electron";
 
-import { VELLUMAPP_PROTOCOL } from "./app-config";
+import { VELLUMAPP_PROTOCOL } from "./bundle-platform";
 import { resolveRelativePath } from "@vellumai/electron-utils/app-protocol";
 
 const MIME_TYPES: Record<string, string> = {
@@ -42,8 +42,7 @@ const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export type ResolveBundleResult =
-  | { kind: "ok"; uuid: string; resolved: string }
-  | { kind: "forbidden" };
+  { kind: "ok"; uuid: string; resolved: string } | { kind: "forbidden" };
 
 export const resolveBundlePath = (
   bundlesRoot: string,

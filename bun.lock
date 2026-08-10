@@ -166,7 +166,6 @@
         "electron-log": "5.4.4",
         "electron-store": "11.0.2",
         "electron-updater": "6.8.9",
-        "jszip": "3.10.1",
         "zod": "4.3.6",
       },
       "devDependencies": {
@@ -505,6 +504,7 @@
         "@vellumai/ipc-contract": "workspace:*",
         "@vellumai/local-mode": "workspace:*",
         "electron-store": "11.0.2",
+        "jszip": "3.10.1",
       },
       "devDependencies": {
         "@sentry/electron": "7.13.0",

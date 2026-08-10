@@ -1,19 +1,9 @@
-import { BrowserWindow, app } from "electron";
+import { BrowserWindow } from "electron";
 import { z } from "zod";
 
-import { RENDERER_BASE_PROD, getDevRendererBase } from "./app-config";
+import { getBundlePlatform } from "./bundle-platform";
 import type { BundleScanData } from "./bundle-manager";
-import { handle, on } from "./ipc";
 import { createWindow } from "./windows";
-
-// Mirrors `routes.bundleConfirm` in `clients/web/src/utils/routes.ts`.
-// Duplicated rather than imported — same convention as `about.ts`.
-const CONFIRM_PATH = "/bundle/confirm";
-
-const confirmWindowUrl = (): string => {
-  const base = app.isPackaged ? RENDERER_BASE_PROD : getDevRendererBase();
-  return `${base}${CONFIRM_PATH}`;
-};
 
 let confirmationWindow: BrowserWindow | null = null;
 let pendingResolve: ((accepted: boolean) => void) | null = null;
@@ -61,15 +51,21 @@ export const openBundleConfirmation = (
     }
   });
 
-  void confirmationWindow.loadURL(confirmWindowUrl());
+  void confirmationWindow.loadURL(
+    `${getBundlePlatform().rendererBase()}/bundle/confirm`,
+  );
 
   return promise;
 };
 
 export const installBundleConfirmation = (): void => {
-  handle("vellum:bundleConfirm:getData", z.tuple([]), () => pendingData);
-
-  on(
+  const bundlePlatform = getBundlePlatform();
+  bundlePlatform.ipc.handle(
+    "vellum:bundleConfirm:getData",
+    z.tuple([]),
+    () => pendingData,
+  );
+  bundlePlatform.ipc.on(
     "vellum:bundleConfirm:respond",
     z.tuple([z.boolean()]),
     ([accepted]) => {
