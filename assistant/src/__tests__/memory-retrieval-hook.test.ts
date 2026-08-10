@@ -173,16 +173,14 @@ function installConversation(
   graphMemory: ConversationGraphMemory,
   opts?: {
     trusted?: boolean;
-    signal?: AbortSignal;
+    abortController?: AbortController;
   },
 ): void {
   currentTrustClass = opts?.trusted === false ? "unknown" : "guardian";
   currentConversation = asConversation({
     graphMemory,
     trustContext: undefined,
-    abortController: (opts?.signal
-      ? { signal: opts.signal }
-      : new AbortController()) as AbortController,
+    abortController: opts?.abortController ?? new AbortController(),
   });
 }
 
@@ -495,7 +493,7 @@ describe("user-prompt-submit hook (memory retrieval)", () => {
     const controller = new AbortController();
     installConversation(graphMemory, {
       trusted: true,
-      signal: controller.signal,
+      abortController: controller,
     });
     const ctx = makeHookCtx();
 
