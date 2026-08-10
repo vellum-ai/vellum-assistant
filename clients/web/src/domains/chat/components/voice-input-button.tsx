@@ -195,7 +195,11 @@ export function errorCodeForReason(reason: SttFailureReason): string {
 // ---------------------------------------------------------------------------
 
 type DictationSessionOutcome =
-  "completed" | "empty" | "error" | "cancelled" | "aborted";
+  | "completed"
+  | "empty"
+  | "error"
+  | "cancelled"
+  | "aborted";
 
 interface NativeFinalResult {
   text: string | null;

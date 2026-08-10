@@ -11,9 +11,8 @@ mock.module("@/runtime/platform-detection", () => ({
   useIsNativeAndroid: () => nativeAndroid,
 }));
 
-const { DiskPressureBannerSlot } = await import(
-  "@/domains/chat/components/disk-pressure-banner-slot"
-);
+const { DiskPressureBannerSlot } =
+  await import("@/domains/chat/components/disk-pressure-banner-slot");
 
 const warningStatus: DiskPressureStatus = {
   enabled: true,

@@ -1,5 +1,6 @@
 export type InlineThinkingSegment =
-  { type: "text"; text: string } | { type: "thinking"; thinking: string };
+  | { type: "text"; text: string }
+  | { type: "thinking"; thinking: string };
 
 // <think>/</think> is MiniMax's format; <thinking>/</thinking> is the
 // standard format. `<thinking>` never matches the `<think>` needle because

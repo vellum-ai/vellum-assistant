@@ -11,9 +11,8 @@ import { useChatSessionStore } from "@/domains/chat/chat-session-store";
 // Stub the TanStack Query layer so the test drives the initial-page error
 // state directly. `isSuccess: false` marks it as an initial-page (not
 // older-page) failure and keeps the data-apply effect dormant.
-const realPaginationModule = await import(
-  "@/domains/chat/transcript/use-history-pagination"
-);
+const realPaginationModule =
+  await import("@/domains/chat/transcript/use-history-pagination");
 
 let paginationIsError = false;
 
@@ -48,9 +47,8 @@ mock.module("@/lib/sentry/capture-error", () => ({
   captureError: () => {},
 }));
 
-const { useConversationHistory } = await import(
-  "@/domains/chat/hooks/use-conversation-history"
-);
+const { useConversationHistory } =
+  await import("@/domains/chat/hooks/use-conversation-history");
 
 const DEFAULT_RESUME_GRACE_MS = 15_000;
 const queryClient = new QueryClient();

@@ -35,16 +35,10 @@ const log = getLogger("acp:session-manager");
 
 /**
  * Appended to the parent-conversation notification when a run died because its
- * Claude credential needs reconnecting, so the assistant relays the recovery
- * the app is actually offering.
- *
- * Without this the model receives only the adapter's raw failure text (for an
- * expired token, a bare "401 ... Re-authenticate to continue") and invents a
- * remedy: typically `claude setup-token`, pasting a token into chat, or a
- * Connect card it has not been told exists. Mirrors the wording discipline of
- * the missing-token message in `prepare-agent-env.ts`, including the ban on
- * describing where the card is, since placement is a UI detail the model
- * cannot see.
+ * Claude credential needs reconnecting, so the model points at the inline
+ * Connect card instead of inventing a remedy (CLI commands, pasted tokens, or
+ * a card that is not there). Bans placement words because card position is a
+ * UI detail the model cannot see.
  */
 const ACP_AUTH_RECOVERY_GUIDANCE =
   "The Claude Code connection needs to be re-authorized. The app shows the " +
@@ -56,19 +50,12 @@ const ACP_AUTH_RECOVERY_GUIDANCE =
   "or re-run the agent yourself; the card and auto-continue handle it.";
 
 /**
- * The client-facing marker for a run that failed because its Claude credential
- * was rejected or missing, or undefined when this failure is anything else.
- *
- * Gated on the adapter FIRST: the signals below are Claude-specific, and the
- * marker promises a repair only the Connect Claude flow can perform. Raising it
- * for a codex run would offer a card that fixes nothing.
- *
- * Both auth-failure shapes are checked (see `auth-required.ts`): the structured
- * ACP `auth_required` rejection for the no-credentials case, and the CLI's
- * authored failure text for a present-but-rejected credential, which the
- * adapter relays as a generic internal error. The text check runs against both
- * the raw rejection message and the derived failure message, since
- * `deriveFailureError` may replace one with the other.
+ * The `authCode` for a run that failed on its Claude credential, or undefined
+ * for any other failure. Adapter-gated first: the signals are Claude-specific,
+ * and the marker promises a repair only the Connect Claude flow can perform.
+ * Checks both auth-failure shapes (see `auth-required.ts`) against both the
+ * raw rejection and the derived failure message, since `deriveFailureError`
+ * may replace one with the other.
  */
 function claudeAuthRequiredCode(
   err: unknown,
@@ -1153,11 +1140,6 @@ export class AcpSessionManager {
             err.message,
             current.process.stderrSince(stderrMark),
           );
-          // Classify BEFORE the message is flattened. `deriveFailureError`
-          // answers "what should a human read", and for an expired Claude
-          // token it returns the provider's raw 401 text, which says nothing
-          // about how to recover. Whether this was an auth failure is a
-          // separate question, and only the structured error can answer it.
           const errorCode = claudeAuthRequiredCode(
             err,
             failureMessage,
@@ -1173,21 +1155,18 @@ export class AcpSessionManager {
             { acpSessionId, error: err.message, failureMessage, errorCode },
             "ACP prompt failed",
           );
-          // The failure event keeps its exact pre-existing shape so an older
-          // packaged client still parses it and renders the failure. The
-          // recovery signal rides a SEPARATE event, which such a client
-          // ignores rather than choking on; see `api/events/acp-auth-required.ts`.
+          // `acp_session_error` keeps its pre-existing shape so older packaged
+          // clients still parse it; the recovery signal rides its own event
+          // below (see `api/events/acp-auth-required.ts`).
           current.sendToVellum({
             type: "acp_session_error",
             acpSessionId,
             error: failureMessage,
           });
-          // The recovery surface (the event, the model guidance, and the
-          // prompt-dedup marker) is raised as a unit, and only when the client
-          // can actually render the card: it anchors to the spawning tool
-          // call, so a run started without one (the HTTP spawn route) keeps
-          // the plain failure rather than guidance pointing at a card that
-          // cannot appear.
+          // The recovery surface (event, model guidance, prompt-dedup marker)
+          // is raised as a unit, and only when a spawning tool call exists to
+          // anchor the card; otherwise guidance would point at a card the
+          // client cannot render.
           const recoveryAnchor =
             errorCode !== undefined ? current.parentToolUseId : undefined;
           if (errorCode !== undefined && recoveryAnchor !== undefined) {
@@ -1198,10 +1177,9 @@ export class AcpSessionManager {
               agent: current.state.agentId,
               parentToolUseId: recoveryAnchor,
             });
-            // Same registry write as the missing-token spawn path: the
-            // credential-prompt route consults it to redirect a redundant
-            // `acp/claude_oauth_token` secure prompt at the card instead of
-            // stacking a second collection surface on top of it.
+            // Same registry as the missing-token spawn path, so the
+            // credential-prompt route redirects a redundant secure prompt at
+            // the card instead of stacking a second one.
             markAcpConnectCardRaised(current.parentConversationId);
           }
 

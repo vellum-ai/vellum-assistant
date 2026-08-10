@@ -105,7 +105,7 @@ describe("SurfaceRouter error boundary", () => {
 });
 
 describe("SurfaceRouter — visual surfaces", () => {
-  test("routes surfaceType \"visual\" to the sandboxed widget iframe", () => {
+  test('routes surfaceType "visual" to the sandboxed widget iframe', () => {
     const { container } = render(
       // VisualSurface relays widget prompts through useNavigate.
       <MemoryRouter>

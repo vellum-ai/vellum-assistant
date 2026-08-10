@@ -74,12 +74,10 @@ function AcpConnectAffordanceInner({ assistantId }: { assistantId: string }) {
   // `idle`), so a fresh in-card connect keeps showing its "connected"
   // confirmation instead of unmounting out from under the user.
   //
-  // Skipped entirely for an `auth_required` prompt. That check answers "is a
-  // usable token stored", which is the right question only when the card was
-  // raised because none was. Here the daemon raised it because the token that
-  // IS stored got rejected by the agent, so a "yes" would retire the card over
-  // the very failure it exists to repair. Such a prompt clears by finishing the
-  // flow or by the user dismissing it, nothing else.
+  // Skipped for an `auth_required` prompt: that check asks "is a token
+  // stored", the wrong question when the stored token itself was rejected. A
+  // "yes" would retire the card over the failure it exists to repair; those
+  // prompts clear only via the flow or explicit dismissal.
   useEffect(() => {
     if (reason === "auth_required") {
       return;

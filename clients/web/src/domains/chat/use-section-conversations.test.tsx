@@ -59,9 +59,8 @@ mock.module("@/assistant/lifecycle-store", () => ({
     selector({ assistantState: { kind: "active" } }),
 }));
 
-const { useSectionConversations } = await import(
-  "@/domains/chat/use-section-conversations"
-);
+const { useSectionConversations } =
+  await import("@/domains/chat/use-section-conversations");
 
 function conv(conversationId: string): Conversation {
   return { conversationId, hasUnseenLatestAssistantMessage: false };

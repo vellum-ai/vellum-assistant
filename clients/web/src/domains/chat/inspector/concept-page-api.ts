@@ -22,7 +22,8 @@ import { assertHasResponse } from "@/utils/api-errors";
  */
 
 export type ConceptPageResult =
-  { kind: "loaded"; rendered: string } | { kind: "missing" };
+  | { kind: "loaded"; rendered: string }
+  | { kind: "missing" };
 
 export function conceptPageQueryOptions(assistantId: string, slug: string) {
   return queryOptions<ConceptPageResult>({

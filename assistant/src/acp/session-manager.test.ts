@@ -325,98 +325,83 @@ describe("AcpSessionManager auth-required recovery surface", () => {
       ),
     );
 
-  function eventsOf(entry: ReturnType<typeof injectSession>) {
-    return (entry.sendToVellum as ReturnType<typeof mock>).mock.calls.map(
-      (c) => c[0] as { type: string } & Record<string, unknown>,
-    );
-  }
-
-  test("claude failure with an anchor raises the full surface: event, registry mark, guidance", async () => {
+  /** Drives an auth-shaped prompt failure through firePromptInBackground. */
+  async function driveAuthFailure(opts: {
+    id: string;
+    command: string;
+    parentToolUseId?: string;
+  }) {
     const manager = new AcpSessionManager(1);
+    const parentId = `parent-${opts.id}`;
     const { conversation, persistUserMessage, loopRan } = mockConversation();
-    setConversation("parent-auth-anchor", conversation);
-    registered.push("parent-auth-anchor");
+    setConversation(parentId, conversation);
+    registered.push(parentId);
 
     const entry = injectSession(
       manager,
-      "sess-auth-anchor",
-      "parent-auth-anchor",
+      opts.id,
+      parentId,
       fakeProcess(authFailure),
     );
-    entry.command = "claude-agent-acp";
-    (entry as { parentToolUseId?: string }).parentToolUseId = "tool-anchor-1";
+    entry.command = opts.command;
+    (entry as { parentToolUseId?: string }).parentToolUseId =
+      opts.parentToolUseId;
 
-    await fire(manager, "sess-auth-anchor", entry).catch(() => {});
+    await fire(manager, opts.id, entry).catch(() => {});
     await loopRan;
 
-    const auth = eventsOf(entry).find((e) => e.type === "acp_auth_required");
-    expect(auth).toMatchObject({
+    const events = (
+      entry.sendToVellum as ReturnType<typeof mock>
+    ).mock.calls.map((c) => c[0] as { type: string } & Record<string, unknown>);
+    return {
+      parentId,
+      authEvent: events.find((e) => e.type === "acp_auth_required"),
+      persistedContent: (
+        persistUserMessage.mock.calls[0] as unknown as [{ content: string }]
+      )[0].content,
+    };
+  }
+
+  test("claude failure with an anchor raises the full surface: event, registry mark, guidance", async () => {
+    const r = await driveAuthFailure({
+      id: "sess-auth-anchor",
+      command: "claude-agent-acp",
+      parentToolUseId: "tool-anchor-1",
+    });
+
+    expect(r.authEvent).toMatchObject({
       acpSessionId: "sess-auth-anchor",
       authCode: "acp_claude_auth_required",
       agent: "claude",
       parentToolUseId: "tool-anchor-1",
     });
     // The credential-prompt route consults this registry to redirect a
-    // redundant secure prompt at the card instead of stacking a second
-    // collection surface (the missing-token spawn path marks it the same way).
-    expect(hasAcpConnectCardRaised("parent-auth-anchor")).toBe(true);
-    const persistArg = (
-      persistUserMessage.mock.calls[0] as unknown as [{ content: string }]
-    )[0];
-    expect(persistArg.content).toContain("Connect Claude Code");
+    // redundant secure prompt at the card instead of stacking a second one.
+    expect(hasAcpConnectCardRaised(r.parentId)).toBe(true);
+    expect(r.persistedContent).toContain("Connect Claude Code");
   });
 
   test("claude failure without an anchor keeps the plain failure: no event, no mark, no guidance", async () => {
-    // No spawning tool call (the HTTP spawn route) means no transcript row to
-    // render the card under. Raising guidance anyway would tell the model to
-    // point the user at a card that cannot appear.
-    const manager = new AcpSessionManager(1);
-    const { conversation, persistUserMessage, loopRan } = mockConversation();
-    setConversation("parent-auth-noanchor", conversation);
-    registered.push("parent-auth-noanchor");
+    // No spawning tool call means no transcript row to render the card under;
+    // guidance would point the model at a card that cannot appear.
+    const r = await driveAuthFailure({
+      id: "sess-auth-noanchor",
+      command: "claude-agent-acp",
+    });
 
-    const entry = injectSession(
-      manager,
-      "sess-auth-noanchor",
-      "parent-auth-noanchor",
-      fakeProcess(authFailure),
-    );
-    entry.command = "claude-agent-acp";
-
-    await fire(manager, "sess-auth-noanchor", entry).catch(() => {});
-    await loopRan;
-
-    expect(
-      eventsOf(entry).find((e) => e.type === "acp_auth_required"),
-    ).toBeUndefined();
-    expect(hasAcpConnectCardRaised("parent-auth-noanchor")).toBe(false);
-    const persistArg = (
-      persistUserMessage.mock.calls[0] as unknown as [{ content: string }]
-    )[0];
-    expect(persistArg.content).not.toContain("Connect Claude Code");
+    expect(r.authEvent).toBeUndefined();
+    expect(hasAcpConnectCardRaised(r.parentId)).toBe(false);
+    expect(r.persistedContent).not.toContain("Connect Claude Code");
   });
 
   test("a non-claude adapter never raises the surface, even on an auth-shaped failure", async () => {
-    const manager = new AcpSessionManager(1);
-    const { conversation, loopRan } = mockConversation();
-    setConversation("parent-auth-codex", conversation);
-    registered.push("parent-auth-codex");
+    const r = await driveAuthFailure({
+      id: "sess-auth-codex",
+      command: "codex-acp",
+      parentToolUseId: "tool-anchor-2",
+    });
 
-    const entry = injectSession(
-      manager,
-      "sess-auth-codex",
-      "parent-auth-codex",
-      fakeProcess(authFailure),
-    );
-    entry.command = "codex-acp";
-    (entry as { parentToolUseId?: string }).parentToolUseId = "tool-anchor-2";
-
-    await fire(manager, "sess-auth-codex", entry).catch(() => {});
-    await loopRan;
-
-    expect(
-      eventsOf(entry).find((e) => e.type === "acp_auth_required"),
-    ).toBeUndefined();
-    expect(hasAcpConnectCardRaised("parent-auth-codex")).toBe(false);
+    expect(r.authEvent).toBeUndefined();
+    expect(hasAcpConnectCardRaised(r.parentId)).toBe(false);
   });
 });

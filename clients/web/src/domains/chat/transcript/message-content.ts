@@ -324,7 +324,8 @@ export function isBackgroundBashCall(toolCall: ChatMessageToolCall): boolean {
  */
 export function isTaskProgressSurface(surface: Surface): boolean {
   const data = surface.data as
-    { template?: string; templateData?: { steps?: unknown } } | undefined;
+    | { template?: string; templateData?: { steps?: unknown } }
+    | undefined;
   return (
     data?.template === "task_progress" &&
     Array.isArray(data.templateData?.steps) &&

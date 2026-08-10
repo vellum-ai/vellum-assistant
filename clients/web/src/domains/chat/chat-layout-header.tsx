@@ -120,7 +120,10 @@ export function ChatLayoutHeader({
   // neutral band across the top. Off native mobile, and on any route that
   // publishes nothing, this resolves to the usual neutral chrome.
   const pageSurface = usePageSurfaceStore.use.surface();
-  const headerBackground = resolveShellBackground(pageSurface, isNativeMobile());
+  const headerBackground = resolveShellBackground(
+    pageSurface,
+    isNativeMobile(),
+  );
 
   return (
     <header

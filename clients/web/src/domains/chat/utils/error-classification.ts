@@ -9,7 +9,9 @@ export interface ChatErrorLike {
 }
 
 export type ChatBillingBannerDecision =
-  "managed_credits" | "provider_billing" | "daily_limit";
+  | "managed_credits"
+  | "provider_billing"
+  | "daily_limit";
 
 const PROVIDER_BILLING_CODE = "PROVIDER_BILLING";
 const PROVIDER_NOT_CONFIGURED_CODE = "PROVIDER_NOT_CONFIGURED";
@@ -93,7 +95,9 @@ export function getChatBillingBannerDecision(
 }
 
 export type ComposerBillingBanner =
-  "daily_limit" | "provider_billing" | "low_balance";
+  | "daily_limit"
+  | "provider_billing"
+  | "low_balance";
 
 /**
  * Which banner the composer's billing slot renders, from three inputs in

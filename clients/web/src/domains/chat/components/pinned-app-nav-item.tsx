@@ -7,11 +7,7 @@ import { usePinnedAppsStore } from "@/stores/pinned-apps-store";
 import type { PinnedAppEntry } from "@/utils/app-pin-storage";
 import { isPointerCoarse } from "@/utils/pointer";
 import type { SwipeAction } from "@/hooks/use-swipe-to-reveal";
-import {
-  ContextMenu,
-  PanelItem,
-  SideMenu,
-} from "@vellumai/design-library";
+import { ContextMenu, PanelItem, SideMenu } from "@vellumai/design-library";
 
 export interface PinnedAppNavItemProps {
   app: PinnedAppEntry;

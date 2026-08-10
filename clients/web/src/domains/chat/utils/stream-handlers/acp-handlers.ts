@@ -98,17 +98,11 @@ export function handleAcpSessionError(event: AcpSessionErrorEvent): void {
 }
 
 /**
- * The run's Claude credential was rejected. Raise the same inline Connect
- * affordance the missing-token path uses, anchored to the tool call that
- * spawned the run so it renders under that activity group.
- *
- * Arrives as its own event, immediately after the `acp_session_error` that
- * marked the run failed, so the failure still renders on clients too old to
- * know this event exists.
- *
- * Held in the interaction store rather than on the run entry for the same
- * reason as the missing-token prompt: it has to survive the routine post-turn
- * `/messages` reseed, which rebuilds the transcript from persisted history.
+ * Raise the inline Connect affordance for a run whose Claude credential was
+ * rejected, anchored to the tool call that spawned the run. Arrives as its
+ * own event right after the `acp_session_error` that marked the run failed.
+ * Held in the interaction store (not on the run entry) so it survives the
+ * routine post-turn `/messages` reseed.
  */
 export function handleAcpAuthRequired(event: AcpAuthRequiredEvent): void {
   // A run the user already stopped is not a failure to recover from.
@@ -117,9 +111,9 @@ export function handleAcpAuthRequired(event: AcpAuthRequiredEvent): void {
   ) {
     return;
   }
-  // The daemon sends the anchor, falling back to the run store for a session
-  // spawned before it did. With neither there is nowhere to render the card,
-  // so the run keeps its plain failed rendering.
+  // The daemon always sends the anchor when it emits this event; the
+  // run-store lookup is defensive. With neither, there is nowhere to render
+  // the card and the run keeps its plain failed rendering.
   const toolUseId =
     event.parentToolUseId ??
     useAcpRunStore.getState().byId[event.acpSessionId]?.parentToolUseId;

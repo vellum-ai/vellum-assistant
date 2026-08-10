@@ -40,9 +40,8 @@ mock.module("@sentry/react", () => ({
   addBreadcrumb: () => {},
 }));
 
-const { useMarkSeenOnOpen } = await import(
-  "@/domains/chat/hooks/use-mark-seen-on-open"
-);
+const { useMarkSeenOnOpen } =
+  await import("@/domains/chat/hooks/use-mark-seen-on-open");
 
 const ASSISTANT_ID = "asst-1";
 

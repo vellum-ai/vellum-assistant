@@ -213,8 +213,7 @@ export function meshDisplacement(
   // them (the first cut) made a standing pattern whose nodes only oscillated
   // around fixed centres, which is what read as static.
   return (
-    0.6 *
-      Math.sin(u * Math.PI * 2 * config.cyclesA + phase + swirl + wanderA) +
+    0.6 * Math.sin(u * Math.PI * 2 * config.cyclesA + phase + swirl + wanderA) +
     0.4 *
       Math.sin(
         u * Math.PI * 2 * config.cyclesB +
@@ -236,7 +235,10 @@ const AURORA_HEX = "#22D3EE";
  * else falls back rather than throwing — a decorative layer must never take the
  * room down.
  */
-function toRgb(color: string, fallback: [number, number, number]): [number, number, number] {
+function toRgb(
+  color: string,
+  fallback: [number, number, number],
+): [number, number, number] {
   const value = color.trim();
   const hex = value.match(/^#([0-9a-f]{3}|[0-9a-f]{6})$/i);
   if (hex) {
@@ -256,7 +258,10 @@ function toRgb(color: string, fallback: [number, number, number]): [number, numb
   }
   const rgb = value.match(/^rgba?\(([^)]+)\)$/i);
   if (rgb) {
-    const parts = rgb[1].split(/[,\s/]+/).filter(Boolean).map(Number);
+    const parts = rgb[1]
+      .split(/[,\s/]+/)
+      .filter(Boolean)
+      .map(Number);
     if (parts.length >= 3 && parts.slice(0, 3).every(Number.isFinite)) {
       return [parts[0], parts[1], parts[2]];
     }
@@ -298,7 +303,9 @@ function resolveStroke(
  * Chosen from perceived luminance rather than exposed as a knob, because
  * getting it wrong does not look worse, it looks like nothing at all.
  */
-function compositeFor(stroke: [number, number, number]): GlobalCompositeOperation {
+function compositeFor(
+  stroke: [number, number, number],
+): GlobalCompositeOperation {
   const [r, g, b] = stroke;
   // Rec. 601 luma, which is close enough for a light/dark decision.
   const luma = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
@@ -343,7 +350,10 @@ export function VoiceMeshWaves({
   // not tear down and restart the draw loop 60 times a second.
   const tuningKey = JSON.stringify(tuning ?? {});
   const config = useMemo(
-    () => ({ ...DEFAULT_MESH_TUNING, ...(JSON.parse(tuningKey) as Partial<VoiceMeshTuning>) }),
+    () => ({
+      ...DEFAULT_MESH_TUNING,
+      ...(JSON.parse(tuningKey) as Partial<VoiceMeshTuning>),
+    }),
     [tuningKey],
   );
 

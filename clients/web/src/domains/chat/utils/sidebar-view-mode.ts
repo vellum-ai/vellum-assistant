@@ -50,9 +50,6 @@ export function useViewMode(assistantId: string): SidebarViewMode {
   return viewModeStorage.useValue(assistantId);
 }
 
-export function saveViewMode(
-  assistantId: string,
-  mode: SidebarViewMode,
-): void {
+export function saveViewMode(assistantId: string, mode: SidebarViewMode): void {
   viewModeStorage.save(assistantId, mode);
 }

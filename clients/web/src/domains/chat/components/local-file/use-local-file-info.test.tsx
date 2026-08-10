@@ -29,9 +29,8 @@ mock.module("@/generated/daemon/sdk.gen", () => ({
   workspaceFileContentGet,
 }));
 
-const { useLocalFileInfo } = await import(
-  "@/domains/chat/components/local-file/use-local-file-info"
-);
+const { useLocalFileInfo } =
+  await import("@/domains/chat/components/local-file/use-local-file-info");
 
 function streamOf(bytes: Uint8Array): ReadableStream<Uint8Array> {
   return new ReadableStream<Uint8Array>({

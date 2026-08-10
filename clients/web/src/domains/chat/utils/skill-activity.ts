@@ -413,7 +413,9 @@ function formatParamValue(
  * `tool`/`activity`. Matching that leniency keeps the drawer readable for
  * exactly the calls that most need explaining.
  */
-export function parseSkillExecuteActivity(input: unknown): SkillExecuteActivity {
+export function parseSkillExecuteActivity(
+  input: unknown,
+): SkillExecuteActivity {
   const bag = toBag(input);
   const innerToolName = readString(bag, "tool");
   const activity = readString(bag, "activity");

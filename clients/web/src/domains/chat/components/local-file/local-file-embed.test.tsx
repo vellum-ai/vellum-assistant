@@ -348,7 +348,10 @@ describe("LocalFileEmbed cards", () => {
 
   test("no assistant id renders a card instead of probing", async () => {
     const { container } = render(
-      <LocalFileEmbed href="vellum://workspace/scratch/chart.png" alt="chart" />,
+      <LocalFileEmbed
+        href="vellum://workspace/scratch/chart.png"
+        alt="chart"
+      />,
       { wrapper },
     );
 

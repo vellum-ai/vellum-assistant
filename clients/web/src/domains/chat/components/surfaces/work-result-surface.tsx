@@ -23,7 +23,11 @@ import { cn } from "@/utils/misc";
 type WorkResultStatus = "completed" | "partial" | "failed" | "in_progress";
 type WorkResultTone = "neutral" | "positive" | "warning" | "negative";
 type WorkResultSectionType =
-  "items" | "timeline" | "diff" | "artifacts" | "warnings";
+  | "items"
+  | "timeline"
+  | "diff"
+  | "artifacts"
+  | "warnings";
 
 interface WorkResultMetric {
   label: string;

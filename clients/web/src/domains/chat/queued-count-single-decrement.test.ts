@@ -22,9 +22,7 @@ import {
 import { useConversationStore } from "@/stores/conversation-store";
 
 /** Context wired to the REAL turn-store actions so the arithmetic is exercised. */
-function ctxWithRealTurnActions(
-  overrides: Parameters<typeof makeCtx>[0] = {},
-) {
+function ctxWithRealTurnActions(overrides: Parameters<typeof makeCtx>[0] = {}) {
   return makeCtx({ turnActions: useTurnStore.getState(), ...overrides });
 }
 

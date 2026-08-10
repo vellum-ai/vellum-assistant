@@ -77,14 +77,10 @@ export interface PendingAcpConnectState {
    *  the spawn succeeded, so it is the call that started the failed run. */
   toolUseId: string;
   /**
-   * Why Connect is being offered, which decides whether the affordance may
-   * self-dismiss once a token is present.
-   *
-   * - `missing` (default): no token was stored, so a token appearing means the
-   *   problem is solved and a stale card should retire itself.
-   * - `auth_required`: a token WAS stored and the agent rejected it. Presence
-   *   proves nothing here, so the card must not retire on a connected check;
-   *   only finishing the flow (or dismissing it) clears it.
+   * Why Connect is being offered. `missing` (default): no token was stored,
+   * so the affordance may retire itself once one appears. `auth_required`:
+   * the stored token was REJECTED, so presence proves nothing and only
+   * completing or dismissing the flow clears the card.
    */
   reason?: "missing" | "auth_required";
 }

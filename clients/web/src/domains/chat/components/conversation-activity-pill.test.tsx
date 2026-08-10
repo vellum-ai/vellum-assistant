@@ -41,16 +41,16 @@ const {
 const { useSubagentStore } = await import("@/domains/chat/subagent-store");
 const { useAcpRunStore } = await import("@/domains/chat/acp-run-store");
 const { useViewerStore } = await import("@/stores/viewer-store");
-const { useResolvedAssistantsStore } = await import(
-  "@/stores/resolved-assistants-store"
-);
+const { useResolvedAssistantsStore } =
+  await import("@/stores/resolved-assistants-store");
 
 const CONV = "conv-A";
 const OTHER = "conv-B";
 const T0 = 1_700_000_000_000;
 
-const openProcessDetail =
-  mock<(ref: { kind: string; id: string }) => void>(() => {});
+const openProcessDetail = mock<(ref: { kind: string; id: string }) => void>(
+  () => {},
+);
 const abortSubagent = mock(async (_id: string) => {});
 
 beforeEach(() => {
@@ -113,7 +113,11 @@ function spawnUnfetchedCompletedSubagent(id: string) {
   });
 }
 
-function spawnAcpRun(id: string, parentConversationId = CONV, terminal = false) {
+function spawnAcpRun(
+  id: string,
+  parentConversationId = CONV,
+  terminal = false,
+) {
   useAcpRunStore.getState().spawnRun({
     acpSessionId: id,
     agent: "claude",
@@ -181,8 +185,9 @@ describe("ConversationActivityPill: trigger", () => {
 
     renderPill();
 
-    expect(screen.getByTestId(ACTIVITY_PILL_TESTID).getAttribute("aria-label"))
-      .toBe("Conversation activity, 1 running");
+    expect(
+      screen.getByTestId(ACTIVITY_PILL_TESTID).getAttribute("aria-label"),
+    ).toBe("Conversation activity, 1 running");
     expect(screen.getByTestId(RUNNING_GROUP_TESTID)).toBeTruthy();
     expect(screen.queryByTestId(COMPLETED_GROUP_TESTID)).toBeNull();
   });
@@ -193,8 +198,9 @@ describe("ConversationActivityPill: trigger", () => {
 
     renderPill();
 
-    expect(screen.getByTestId(ACTIVITY_PILL_TESTID).getAttribute("aria-label"))
-      .toBe("Conversation activity, 2 finished");
+    expect(
+      screen.getByTestId(ACTIVITY_PILL_TESTID).getAttribute("aria-label"),
+    ).toBe("Conversation activity, 2 finished");
     expect(screen.queryByTestId(RUNNING_GROUP_TESTID)).toBeNull();
     expect(screen.getByTestId(COMPLETED_GROUP_TESTID)).toBeTruthy();
   });
@@ -209,8 +215,9 @@ describe("ConversationActivityPill: trigger", () => {
 
     const group = screen.getByTestId(RUNNING_GROUP_TESTID);
     expect(group.querySelectorAll("img, svg").length).toBeGreaterThan(1);
-    expect(screen.getByTestId(ACTIVITY_PILL_TESTID).getAttribute("aria-label"))
-      .toBe("Conversation activity, 2 running");
+    expect(
+      screen.getByTestId(ACTIVITY_PILL_TESTID).getAttribute("aria-label"),
+    ).toBe("Conversation activity, 2 running");
   });
 });
 

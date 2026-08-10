@@ -179,7 +179,10 @@ describe("mapRuntimeToDisplayMessage", () => {
     const m = makeMessage({
       id: "m-err",
       role: "assistant",
-      providerError: { code: "PROVIDER_BILLING", category: "credits_exhausted" },
+      providerError: {
+        code: "PROVIDER_BILLING",
+        category: "credits_exhausted",
+      },
     });
     expect(mapRuntimeToDisplayMessage(m).providerError).toEqual({
       code: "PROVIDER_BILLING",

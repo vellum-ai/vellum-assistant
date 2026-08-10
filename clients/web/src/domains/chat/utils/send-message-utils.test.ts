@@ -207,11 +207,7 @@ describe("completeSubmittedSurface", () => {
     ];
 
     expect(
-      completeSubmittedSurface(
-        messages,
-        "s-first-run-scope",
-        "scope_work",
-      ),
+      completeSubmittedSurface(messages, "s-first-run-scope", "scope_work"),
     ).toBe(messages);
   });
 

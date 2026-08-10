@@ -1,4 +1,11 @@
-import { beforeEach, describe, expect, it, mock, setSystemTime } from "bun:test";
+import {
+  beforeEach,
+  describe,
+  expect,
+  it,
+  mock,
+  setSystemTime,
+} from "bun:test";
 import type { SubagentInnerEvent } from "@vellumai/assistant-api";
 
 let selfLookupSupported = true;
@@ -43,13 +50,19 @@ const subagentsReconcileGet = mock(
       data: reconcileReply.ok
         ? { subagents: reconcileReply.subagents ?? {} }
         : undefined,
-      response: { ok: reconcileReply.ok, status: reconcileReply.ok ? 200 : 500 },
+      response: {
+        ok: reconcileReply.ok,
+        status: reconcileReply.ok ? 200 : 500,
+      },
     };
   },
 );
 mock.module("@/generated/daemon/sdk.gen", () => ({
   subagentsReconcileGet,
-  subagentsByIdAbortPost: mock(async () => ({ data: undefined, response: { ok: true } })),
+  subagentsByIdAbortPost: mock(async () => ({
+    data: undefined,
+    response: { ok: true },
+  })),
 }));
 
 const actualDiagnostics = await import("@/lib/diagnostics");
@@ -66,13 +79,11 @@ mock.module("@/lib/diagnostics", () => ({
 
 const { useSubagentStore } = await import("@/domains/chat/subagent-store");
 // Imported after the SDK mock so it binds to the same mocked store module.
-const { reconcileSubagentStoreFromNotifications } = await import(
-  "@/domains/chat/hooks/reconcile-subagent-hydration"
-);
+const { reconcileSubagentStoreFromNotifications } =
+  await import("@/domains/chat/hooks/reconcile-subagent-hydration");
 const { useConversationStore } = await import("@/stores/conversation-store");
-const { useResolvedAssistantsStore } = await import(
-  "@/stores/resolved-assistants-store"
-);
+const { useResolvedAssistantsStore } =
+  await import("@/stores/resolved-assistants-store");
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -2223,7 +2234,10 @@ describe("reconcileFromDaemon", () => {
   it("leaves an entry spawned after the request went out alone", async () => {
     reconcileReply = { ok: true, subagents: {} };
 
-    const pending = getState().reconcileFromDaemon("assistant-1", "conv-parent");
+    const pending = getState().reconcileFromDaemon(
+      "assistant-1",
+      "conv-parent",
+    );
     getState().spawnSubagent({
       subagentId: "sa-late",
       label: "Agent",
@@ -2243,7 +2257,10 @@ describe("reconcileFromDaemon", () => {
     // evidence: the next pass, which does see them, decides.
     reconcileReply = { ok: true, subagents: {} };
 
-    const pending = getState().reconcileFromDaemon("assistant-1", "conv-parent");
+    const pending = getState().reconcileFromDaemon(
+      "assistant-1",
+      "conv-parent",
+    );
     reconcileSubagentStoreFromNotifications(
       getState(),
       [{ subagentId: "sa-hydrated", label: "Agent", status: "running" }],
@@ -2285,7 +2302,10 @@ describe("reconcileFromDaemon", () => {
     });
     reconcileReply = { ok: true, subagents: {} };
 
-    const pending = getState().reconcileFromDaemon("assistant-1", "conv-parent");
+    const pending = getState().reconcileFromDaemon(
+      "assistant-1",
+      "conv-parent",
+    );
     // The terminal event the snapshot predates.
     getState().changeStatus({ subagentId: "sa-1", status: "completed" });
     await pending;
@@ -2389,7 +2409,11 @@ describe("reconcileFromDaemon", () => {
     // The dropped stream may have straddled a terminal status, and a reconcile
     // skipped here is never retried, the row would stay `running` forever.
     await getState().reconcileFromDaemon("assistant-1", "conv-parent");
-    await getState().reconcileFromDaemon("assistant-1", "conv-parent", "reopen");
+    await getState().reconcileFromDaemon(
+      "assistant-1",
+      "conv-parent",
+      "reopen",
+    );
 
     expect(subagentsReconcileGet).toHaveBeenCalledTimes(2);
   });
@@ -2404,14 +2428,22 @@ describe("reconcileFromDaemon", () => {
   });
 
   it("lets a reopen take the window so the reconnect's load pass is a no-op", async () => {
-    await getState().reconcileFromDaemon("assistant-1", "conv-parent", "reopen");
+    await getState().reconcileFromDaemon(
+      "assistant-1",
+      "conv-parent",
+      "reopen",
+    );
     await getState().reconcileFromDaemon("assistant-1", "conv-parent");
 
     expect(subagentsReconcileGet).toHaveBeenCalledTimes(1);
   });
 
   it("keeps each parent's reopen on its own window", async () => {
-    await getState().reconcileFromDaemon("assistant-1", "conv-parent", "reopen");
+    await getState().reconcileFromDaemon(
+      "assistant-1",
+      "conv-parent",
+      "reopen",
+    );
     await getState().reconcileFromDaemon("assistant-1", "conv-other");
 
     expect(reconcileRequests).toHaveLength(2);
@@ -2431,7 +2463,10 @@ describe("reconcileFromDaemon", () => {
     });
     reconcileReply = { ok: true, subagents: {} };
 
-    const pending = getState().reconcileFromDaemon("assistant-1", "conv-parent");
+    const pending = getState().reconcileFromDaemon(
+      "assistant-1",
+      "conv-parent",
+    );
     getState().setParentConversationId("sa-moved", "conv-other");
     await pending;
 
@@ -2452,9 +2487,17 @@ describe("reconcileFromDaemon", () => {
     // nothing.
     await Promise.all([
       getState().reconcileFromDaemon("assistant-1", "conv-parent"),
-      getState().reconcileFromDaemon("assistant-1", "conv-parent", "unknown_id"),
+      getState().reconcileFromDaemon(
+        "assistant-1",
+        "conv-parent",
+        "unknown_id",
+      ),
     ]);
-    await getState().reconcileFromDaemon("assistant-1", "conv-parent", "reopen");
+    await getState().reconcileFromDaemon(
+      "assistant-1",
+      "conv-parent",
+      "reopen",
+    );
 
     expect(reconcileKicks().map((event) => event.details.trigger)).toEqual([
       "mount",
@@ -2518,7 +2561,10 @@ describe("reconcileFromDaemon", () => {
       } as SubagentInnerEvent,
       timestamp: NOW,
     });
-    reconcileReply = { ok: true, subagents: { "sa-1": { status: "completed" } } };
+    reconcileReply = {
+      ok: true,
+      subagents: { "sa-1": { status: "completed" } },
+    };
 
     await getState().reconcileFromDaemon("assistant-1", "conv-parent");
 
@@ -2646,7 +2692,10 @@ describe("reconcileFromDaemon", () => {
       },
     };
 
-    const pending = getState().reconcileFromDaemon("assistant-1", "conv-parent");
+    const pending = getState().reconcileFromDaemon(
+      "assistant-1",
+      "conv-parent",
+    );
     // The user switched conversation (or assistant) mid-round-trip.
     getState().reset();
     await pending;
@@ -2666,7 +2715,10 @@ describe("reconcileFromDaemon", () => {
     });
     reconcileReply = { ok: true, subagents: {} };
 
-    const pending = getState().reconcileFromDaemon("assistant-1", "conv-parent");
+    const pending = getState().reconcileFromDaemon(
+      "assistant-1",
+      "conv-parent",
+    );
     getState().reset();
     // A row the newly-active context spawned, absent from the stale snapshot.
     getState().spawnSubagent({
@@ -2701,7 +2753,10 @@ describe("reconcileFromDaemon", () => {
       timestamp: NOW,
     });
 
-    const pending = getState().reconcileFromDaemon("assistant-1", "conv-parent");
+    const pending = getState().reconcileFromDaemon(
+      "assistant-1",
+      "conv-parent",
+    );
     // History for the SAME conversation arrives while the request is out.
     // Hydration is a pure upsert, it never resets, so it cannot invalidate
     // the snapshot that recovers a run history never heard about.
@@ -2719,7 +2774,10 @@ describe("reconcileFromDaemon", () => {
   });
 
   it("re-requests after a reset instead of joining the invalidated call", async () => {
-    const pending = getState().reconcileFromDaemon("assistant-1", "conv-parent");
+    const pending = getState().reconcileFromDaemon(
+      "assistant-1",
+      "conv-parent",
+    );
     getState().reset();
     reconcileReply = {
       ok: true,
@@ -2993,7 +3051,9 @@ describe("attachParentMessage", () => {
     getState().attachParentMessage("sa-early", "msg-1");
 
     expect(
-      getState().byParent.get("msg-1")?.map((e) => e.subagentId),
+      getState()
+        .byParent.get("msg-1")
+        ?.map((e) => e.subagentId),
     ).toEqual(["sa-early", "sa-late"]);
   });
 

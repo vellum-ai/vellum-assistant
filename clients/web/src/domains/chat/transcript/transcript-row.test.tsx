@@ -63,8 +63,9 @@ describe("TranscriptRow creditsUpsell dispatch", () => {
 
     const anchor = container.querySelector("#msg-m1");
     expect(anchor).toBeTruthy();
-    expect(anchor!.querySelector('[data-testid="credits-upsell-card-stub"]'))
-      .toBeTruthy();
+    expect(
+      anchor!.querySelector('[data-testid="credits-upsell-card-stub"]'),
+    ).toBeTruthy();
   });
 
   test("the proactive card (no backing message) renders without a msg anchor", () => {

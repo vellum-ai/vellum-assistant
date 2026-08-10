@@ -1,11 +1,7 @@
 /**
- * Tests for the ACP auth-required signal.
- *
- * The point of this module is that the classification survives its trip from
- * the agent's JSON-RPC rejection to the session manager, where it becomes an
- * event the UI can act on. These pin both shapes it travels in, because losing
- * either one silently degrades an actionable "reconnect Claude" failure back
- * into an opaque one.
+ * Pins the two shapes a Claude auth failure travels in, plus the
+ * wire-contract literals. Losing either shape silently degrades an actionable
+ * "reconnect Claude" failure into an opaque one.
  */
 
 import { describe, expect, test } from "bun:test";
@@ -105,13 +101,9 @@ describe("AcpAuthRequiredError", () => {
 
 describe("event shape is additive-safe for older clients", () => {
   test("acp_session_error rejects unknown keys, which is why the signal is not a field on it", () => {
-    // Clients parse with AssistantEventSchema.safeParse and fall back to an
-    // inert `unknown` event when it fails. A packaged client (iOS and macOS
-    // bundle the web app, so they can lag the daemon) carries whatever version
-    // of this schema it shipped with. Adding a field here would make such a
-    // client drop the whole event and leave the run rendering as still active,
-    // which is worse than the plain failure. This asserts the strictness that
-    // forces new signals into their own event type instead.
+    // Clients drop a whole event over an unknown key (strict schemas plus a
+    // safeParse fallback to `unknown`), so new signals must ride new event
+    // types; this pins the strictness that forces that.
     const result = AcpSessionErrorEventSchema.safeParse({
       type: "acp_session_error",
       acpSessionId: "acp-1",

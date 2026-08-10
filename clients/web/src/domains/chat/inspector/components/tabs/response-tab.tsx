@@ -214,7 +214,11 @@ function MetadataChip({ label }: { label: string }): ReactNode {
 }
 
 type PresentationKind =
-  "assistantText" | "reasoning" | "toolCall" | "result" | "other";
+  | "assistantText"
+  | "reasoning"
+  | "toolCall"
+  | "result"
+  | "other";
 
 interface ResponseSectionModel {
   id: number;

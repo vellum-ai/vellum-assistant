@@ -253,11 +253,13 @@ describe("renderConversationMenuItems", () => {
   test("renders Copy conversation ID in both variants when wired", () => {
     for (const variant of ["sidebar", "header"] as const) {
       const html = renderToStaticMarkup(
-        <>{renderConversationMenuItems({
-          Primitive: Menu as unknown as ConversationMenuPrimitive,
-          variant,
-          onCopyConversationId: () => {},
-        })}</>,
+        <>
+          {renderConversationMenuItems({
+            Primitive: Menu as unknown as ConversationMenuPrimitive,
+            variant,
+            onCopyConversationId: () => {},
+          })}
+        </>,
       );
       expect(html).toContain("Copy conversation ID");
     }
@@ -265,10 +267,12 @@ describe("renderConversationMenuItems", () => {
 
   test("omits Copy conversation ID when not wired", () => {
     const html = renderToStaticMarkup(
-      <>{renderConversationMenuItems({
-        Primitive: Menu as unknown as ConversationMenuPrimitive,
-        onRename: () => {},
-      })}</>,
+      <>
+        {renderConversationMenuItems({
+          Primitive: Menu as unknown as ConversationMenuPrimitive,
+          onRename: () => {},
+        })}
+      </>,
     );
     expect(html).not.toContain("Copy conversation ID");
   });

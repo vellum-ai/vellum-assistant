@@ -151,6 +151,7 @@ export {
 } from "./constants/sse-replay.js";
 export { DEFAULT_TOOL_EXECUTION_TIMEOUT_SEC } from "./constants/tool-execution.js";
 export {
+  ACP_CLAUDE_AUTH_REQUIRED_CODE,
   type AcpAuthRequiredEvent,
   AcpAuthRequiredEventSchema,
 } from "./events/acp-auth-required.js";

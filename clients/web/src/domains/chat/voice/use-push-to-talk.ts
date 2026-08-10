@@ -26,7 +26,8 @@ export interface PushToTalkTarget {
 }
 
 type PushToTalkTargetSource =
-  RefObject<PushToTalkTarget | null> | (() => PushToTalkTarget | null);
+  | RefObject<PushToTalkTarget | null>
+  | (() => PushToTalkTarget | null);
 
 function resolvePushToTalkTarget(
   source: PushToTalkTargetSource,

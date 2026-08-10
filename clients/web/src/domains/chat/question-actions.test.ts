@@ -82,15 +82,12 @@ mock.module("@/lib/sentry/capture-error", () => ({
   },
 }));
 
-const { handleQuestionResponse, handleDismissPendingQuestion } = await import(
-  "@/domains/chat/question-actions"
-);
-const { useInteractionStore } = await import(
-  "@/domains/chat/interaction-store"
-);
-const { useChatSessionStore } = await import(
-  "@/domains/chat/chat-session-store"
-);
+const { handleQuestionResponse, handleDismissPendingQuestion } =
+  await import("@/domains/chat/question-actions");
+const { useInteractionStore } =
+  await import("@/domains/chat/interaction-store");
+const { useChatSessionStore } =
+  await import("@/domains/chat/chat-session-store");
 const { useStreamStore } = await import("@/domains/chat/stream-store");
 
 function seedPendingQuestion(requestId: string): void {
