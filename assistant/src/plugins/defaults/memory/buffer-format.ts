@@ -34,18 +34,23 @@ export interface BufferEntryStart {
  * Matches an entry opening line: `- [Mon D, h:mm AM/PM] fact`, the shape
  * {@link formatRememberEntry} writes.
  *
- * Anchored at column 0 and requiring a space after the dash, because that is
- * what the writer emits. Everything else in the file is a continuation line
- * belonging to the entry above it, which is how a multiline fact keeps its
- * body: `remember()` stores the body verbatim after the timestamped first
- * line. That rule is what makes a bullet carrying other bracketed text (a
- * `- [ ]` checklist item, a `- [[wikilink]]` bullet) read as continuation
- * rather than as a new fact.
+ * Anchored at column 0, requiring a space after the dash, and spelling the
+ * timestamp with the single spaces {@link formatBufferTimestamp} emits.
+ * Everything else in the file is a continuation line belonging to the entry
+ * above it, which is how a multiline fact keeps its body: `remember()` stores
+ * the body verbatim after the timestamped first line. That rule is what makes
+ * a bullet carrying other bracketed text (a `- [ ]` checklist item, a
+ * `- [[wikilink]]` bullet) read as continuation rather than as a new fact.
+ *
+ * Matching the writer's exact shape is the conservative choice in both
+ * directions: a line the writer could not have produced stays body text, so an
+ * odd hand-edit merges into the fact around it instead of splitting that fact
+ * or supplying a malformed timestamp to a caller that treats one as a cutoff.
  *
  * Group 1 is the timestamp, group 2 the fact text.
  */
 const BUFFER_ENTRY_REGEX =
-  /^-\s+\[([A-Z][a-z]{2}\s+\d{1,2},\s+\d{1,2}:\d{2}\s+[AP]M)\]\s*(.*)$/;
+  /^- \[([A-Z][a-z]{2} \d{1,2}, \d{1,2}:\d{2} [AP]M)\]\s*(.*)$/;
 
 /**
  * Parse `line` as an entry opening, or `null` if it is a continuation line.

@@ -55,8 +55,33 @@ describe("matchBufferEntryStart", () => {
     expect(isBufferEntryStart("\t- [Jan 1, 9:00 AM] tab-indented")).toBe(false);
   });
 
-  test("a bullet with no space after the dash is not an entry", () => {
-    expect(isBufferEntryStart("-[Jan 1, 9:00 AM] no space")).toBe(false);
+  test("only the writer's exact spacing counts as an entry", () => {
+    // A line the writer could not have produced is body text. Recognizing it
+    // would either split the fact holding it or hand a caller a timestamp in a
+    // shape that no real entry uses, which matters because the consolidation
+    // cutoff is compared against entry timestamps textually.
+    expect(isBufferEntryStart("-[Jan 1, 9:00 AM] no space after dash")).toBe(
+      false,
+    );
+    expect(isBufferEntryStart("-  [Jan 1, 9:00 AM] two spaces")).toBe(false);
+    expect(isBufferEntryStart("- [Jan  1, 9:00 AM] double-spaced date")).toBe(
+      false,
+    );
+    expect(
+      isBufferEntryStart("- [Jan 1, 9:00AM] no space before meridiem"),
+    ).toBe(false);
+  });
+
+  test("day and month widths the writer produces all match", () => {
+    // `formatBufferTimestamp` pads neither the day nor the hour, so single and
+    // double digit forms both occur on disk.
+    for (const line of [
+      "- [Jan 1, 9:00 AM] single-digit day and hour",
+      "- [Dec 31, 12:05 PM] double-digit day and hour",
+      "- [Sep 9, 11:59 PM] boundary",
+    ]) {
+      expect(isBufferEntryStart(line)).toBe(true);
+    }
   });
 
   test("continuation bullets carrying other bracketed text are not entries", () => {
