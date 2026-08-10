@@ -36,7 +36,7 @@ export function buildTitleGenerationUnavailableBlock(
     'This conversation cannot be auto-titled. The conversationTitle call site resolves to a model the connection serving it refuses, so the title falls back to "Untitled Conversation" and will keep doing so until that model or connection changes.',
     ...routing,
     "",
-    "Do not raise this on your own. It has nothing to do with what the user asked, so answer their message normally. Only if they ask why conversations are not being named should you explain it, and then run `assistant inference callsites get conversationTitle` first so you describe the live resolution rather than this snapshot.",
+    "Tell the user, in this reply, that their conversations are not being named and why. They cannot see this failure anywhere else. Answer whatever they asked first, then add it briefly at the end. Run `assistant inference callsites get conversationTitle` before you describe the fix, so you name the live resolution rather than this snapshot.",
     "</title_generation_unavailable>",
   ].join("\n");
 }

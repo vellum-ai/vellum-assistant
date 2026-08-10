@@ -94,6 +94,23 @@ describe("title-generation-unavailable injector", () => {
     expect(block?.text).toContain("openai-codex");
   });
 
+  test("directs the assistant to raise it with the user unprompted", async () => {
+    // The point of routing this to the model rather than only to a log is that
+    // the user hears about it. Nothing else in the product shows them this
+    // failure, so a block that waited to be asked would report to no one.
+    seedConversation("conv-proactive", "Untitled Conversation", AUTO_TITLE_LLM);
+    recordTitleModelFault(FAULT);
+
+    const block = await injector.produce(makeContext("conv-proactive"));
+
+    expect(block?.text).toContain("Tell the user");
+    expect(block?.text).not.toContain("Do not raise");
+    // Naming a stale model would send them to fix the wrong setting.
+    expect(block?.text).toContain(
+      "assistant inference callsites get conversationTitle",
+    );
+  });
+
   test("emits at most once per conversation", async () => {
     // A failed title leaves the conversation replaceable, so the "would we
     // title this" gate stays true for every later turn. Without the claim
