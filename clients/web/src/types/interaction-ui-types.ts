@@ -71,9 +71,22 @@ export interface PendingQuestionState {
 }
 
 export interface PendingAcpConnectState {
-  /** The failed `acp_spawn` tool call this Connect prompt is anchored to, so
-   *  the inline affordance renders under the right activity group. */
+  /** The `acp_spawn` tool call this Connect prompt is anchored to, so the
+   *  inline affordance renders under the right activity group. For a
+   *  missing-token failure that is the call that failed; for `auth_required`
+   *  the spawn succeeded, so it is the call that started the failed run. */
   toolUseId: string;
+  /**
+   * Why Connect is being offered, which decides whether the affordance may
+   * self-dismiss once a token is present.
+   *
+   * - `missing` (default): no token was stored, so a token appearing means the
+   *   problem is solved and a stale card should retire itself.
+   * - `auth_required`: a token WAS stored and the agent rejected it. Presence
+   *   proves nothing here, so the card must not retire on a connected check;
+   *   only finishing the flow (or dismissing it) clears it.
+   */
+  reason?: "missing" | "auth_required";
 }
 
 // ---------------------------------------------------------------------------
