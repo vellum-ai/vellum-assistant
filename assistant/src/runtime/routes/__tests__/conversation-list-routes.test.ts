@@ -25,7 +25,7 @@ import { createConversation } from "../../../persistence/conversation-crud.js";
 import { getDb } from "../../../persistence/db-connection.js";
 import { initializeDb } from "../../../persistence/db-init.js";
 import { createGroup } from "../../../persistence/group-crud.js";
-import { rawRun } from "../../../persistence/raw-query.js";
+import { rawExec, rawRun } from "../../../persistence/raw-query.js";
 import {
   conversationAssistantAttentionState,
   conversationAttentionEvents,
@@ -961,10 +961,21 @@ describe("GET /v1/conversations/sections", () => {
   });
 
   test("a dangling group id is skipped, not surfaced", () => {
-    fileIntoGroup(
-      createConversation({ title: "dangling" }).id,
-      "00000000-0000-4000-8000-00000000dead",
-    );
+    /* Live write paths cannot create this state: group_id carries a foreign
+       key, and the placement write sanitizes unknown groups precisely to
+       avoid violating it. A restored snapshot can, though: in-place restore
+       swaps the SQLite file without running migrations in-process (the same
+       window that lets legacy private rows exist transiently), so the
+       fixture creates the state the way reality does, with enforcement off. */
+    rawExec("PRAGMA foreign_keys = OFF");
+    try {
+      fileIntoGroup(
+        createConversation({ title: "dangling" }).id,
+        "00000000-0000-4000-8000-00000000dead",
+      );
+    } finally {
+      rawExec("PRAGMA foreign_keys = ON");
+    }
 
     const sections = invokeSections();
 
