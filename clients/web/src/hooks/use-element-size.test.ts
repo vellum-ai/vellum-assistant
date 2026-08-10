@@ -2,10 +2,9 @@
  * Tests for `useLayoutViewportSize`, the live layout-viewport measurement the
  * onboarding and voice-room decorative layers read.
  *
- * The contract worth pinning is the part callers used to hand-roll: that the
- * size comes from `layoutViewportSize` (so the fallback dimensions have one owner
- * rather than being restated per call site), that it tracks `resize`, and
- * that `enabled: false` opts out for the caller that already has a size from
+ * The contract: the size comes from `layoutViewportSize`, so the fallback
+ * dimensions have one owner rather than one per call site; it tracks `resize`;
+ * and `enabled: false` opts out for a caller that already has a size from
  * context.
  *
  * The reference-stability test is load-bearing rather than cosmetic:

@@ -108,7 +108,7 @@ const noopSubscribe = () => () => {};
  *
  * This hook is for the cases CSS genuinely cannot reach: a number handed to
  * an animation library, or one paired with a `getBoundingClientRect()`. The
- * onboarding and voice decorative layers currently use it well beyond that,
+ * onboarding and voice decorative layers use it well beyond that,
  * computing `clamp()` in JavaScript, which is what LUM-3204 tracks. Adding a
  * consumer that CSS could have expressed makes that worse.
  *
