@@ -245,6 +245,109 @@ describe("pin/unpin placement", () => {
     expect(copies(client, "c1")).toBe(1);
   });
 
+  test("a settled move does not free its ownership claim for reuse", async () => {
+    /* A owns a token, B takes a newer one and settles first. If the next
+       token were derived from what the conversation currently holds rather
+       than from a counter that only increases, C would reissue A's token and
+       A's failure would then pass its ownership check against C's write. */
+    const a = deferred<{ data: undefined; response: { ok: boolean } }>();
+    let call = 0;
+    reorderImpl = () => {
+      call += 1;
+      return call === 1
+        ? a.promise
+        : Promise.resolve({ data: undefined, response: { ok: true } });
+    };
+
+    const { result, client } = setup([
+      [SLACK, [SLACK_ROW]],
+      [PINNED, []],
+    ]);
+
+    // A: pin, left in flight.
+    await act(async () => {
+      result.current.handleTogglePinConversation(SLACK_ROW);
+    });
+    const pinnedRow: Conversation = {
+      ...SLACK_ROW,
+      isPinned: true,
+      groupId: "system:pinned",
+    };
+
+    // B: unpin, settles immediately and releases the conversation's entry.
+    await act(async () => {
+      result.current.handleTogglePinConversation(pinnedRow);
+    });
+    await waitFor(() => {
+      expect(idsIn(client, SLACK)).toEqual(["c1"]);
+    });
+
+    // C: pin again, on a freshly empty entry.
+    await act(async () => {
+      result.current.handleTogglePinConversation(SLACK_ROW);
+    });
+    expect(idsIn(client, PINNED)).toEqual(["c1"]);
+
+    // A finally fails. It must not undo C.
+    await act(async () => {
+      a.reject(new Error("nope"));
+      await a.promise.catch(() => {});
+    });
+
+    await waitFor(() => {
+      expect(idsIn(client, PINNED)).toEqual(["c1"]);
+    });
+    expect(idsIn(client, SLACK)).toEqual([]);
+    expect(copies(client, "c1")).toBe(1);
+  });
+
+  test("an older move does not refetch while a newer one is in flight", async () => {
+    /* A refetch started by a superseded move brings back server state the
+       newer move has not been applied to yet, and it lands on top of the
+       newer optimistic write: the cancel that guards an optimistic write runs
+       when that write is made, so it cannot reach a request started later. */
+    const b = deferred<{ data: undefined; response: { ok: boolean } }>();
+    let call = 0;
+    reorderImpl = () => {
+      call += 1;
+      return call === 1
+        ? Promise.resolve({ data: undefined, response: { ok: true } })
+        : b.promise;
+    };
+
+    const { result, client } = setup([
+      [SLACK, [SLACK_ROW]],
+      [PINNED, []],
+    ]);
+    const pinnedKey = sectionConversationsQueryKey(ASSISTANT_ID, PINNED);
+
+    // A: pin. Its request resolves, but B starts before A settles.
+    await act(async () => {
+      result.current.handleTogglePinConversation(SLACK_ROW);
+      result.current.handleTogglePinConversation({
+        ...SLACK_ROW,
+        isPinned: true,
+        groupId: "system:pinned",
+      });
+    });
+
+    // A has settled and B is still pending: nothing is invalidated yet,
+    // because only the latest placement reconciles.
+    expect(client.getQueryState(pinnedKey)?.isInvalidated).toBe(false);
+
+    await act(async () => {
+      b.resolve({ data: undefined, response: { ok: true } });
+      await b.promise;
+    });
+
+    // Once B settles it reconciles, covering the sections A touched too.
+    await waitFor(() => {
+      expect(client.getQueryState(pinnedKey)?.isInvalidated).toBe(true);
+    });
+    expect(idsIn(client, SLACK)).toEqual(["c1"]);
+    expect(copies(client, "c1")).toBe(1);
+  });
+
   test("unpinning returns the row to its channel section", async () => {
     const pinnedRow: Conversation = {
       ...SLACK_ROW,

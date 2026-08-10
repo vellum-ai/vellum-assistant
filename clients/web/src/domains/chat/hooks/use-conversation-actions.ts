@@ -74,20 +74,19 @@ type MutationContext = { snapshot: ConversationCacheSnapshot };
  * the previous field values, which re-derives membership through the same
  * path the optimistic write used.
  *
- * `sectionKeys` is what the optimistic write actually moved, so the settle
- * refetches those sections instead of the whole conversation-list prefix.
- *
  * `token` identifies this mutation's optimistic write among the writes to the
- * same conversation. Writing the previous values back is only correct while
- * this write is still the one showing: two moves of one conversation overlap
- * whenever the second is started before the first settles, and an
- * unconditional rollback of the first would discard the second's placement and
- * leave the row in a section the user has already moved it out of.
+ * same conversation, and both the rollback and the settle refetch are gated on
+ * it still being the current one. Two moves of one conversation overlap
+ * whenever the second starts before the first settles, and either action taken
+ * by the older move lands on top of the newer placement: a rollback restores
+ * what preceded the older move, and a refetch brings back server state the
+ * newer move has not reached yet.
+ *
+ * The section keys live in the hook's placement record rather than here,
+ * because the move that ends up reconciling has to refetch what its
+ * predecessors touched as well as its own.
  */
-type PlacementContext = {
-  sectionKeys: readonly (readonly unknown[])[];
-  token: number;
-};
+type PlacementContext = { token: number };
 
 /**
  * Context for the mark-unread mutation, which additionally applies an
@@ -192,11 +191,27 @@ export function useConversationActions({
 }: UseConversationActionsParams) {
   const queryClient = useQueryClient();
 
-  /* Latest optimistic placement per conversation, so a failed move can tell
-     whether its own write is still the one showing before undoing it. A ref
+  /* The latest optimistic placement of each conversation, so a move that
+     settles can tell whether its own write is still the one showing. A ref
      rather than a store: nothing renders from it, and it is read and written
-     inside one mutation's lifecycle. */
-  const placementTokensRef = useRef(new Map<string, number>());
+     inside the mutation lifecycle.
+
+     Tokens come from one counter that only ever increases, and never from the
+     map's current value. Deriving the next token from the entry would let a
+     conversation whose entry was cleaned up reissue a token an older in-flight
+     move still holds, and that move's ownership check would then pass against
+     someone else's write.
+
+     Each entry also carries the section keys of every placement folded into
+     it, so the move that ends up owning the reconciliation refetches the
+     sections its predecessors touched as well as its own. */
+  const placementTokenRef = useRef(0);
+  const placementsRef = useRef(
+    new Map<
+      string,
+      { token: number; sectionKeys: Map<string, readonly unknown[]> }
+    >(),
+  );
 
   // -------------------------------------------------------------------------
   // Mutations. TanStack-recommended onMutate / onError / onSettled lifecycle:
@@ -352,14 +367,23 @@ export function useConversationActions({
          `onMutate` awaits, so two overlapping moves resume in whatever order
          their cancellations settle, and the token has to order the writes as
          they actually land. */
-      const token = (placementTokensRef.current.get(conversationId) ?? 0) + 1;
-      placementTokensRef.current.set(conversationId, token);
+      const token = ++placementTokenRef.current;
       const sectionKeys = patchConversation(queryClient, aid, conversationId, {
         isPinned,
         groupId,
         surfacedAt,
       });
-      return { sectionKeys, token };
+      const inherited =
+        placementsRef.current.get(conversationId)?.sectionKeys ??
+        new Map<string, readonly unknown[]>();
+      for (const queryKey of sectionKeys) {
+        inherited.set(JSON.stringify(queryKey), queryKey);
+      }
+      placementsRef.current.set(conversationId, {
+        token,
+        sectionKeys: inherited,
+      });
+      return { token };
     },
     onSuccess: (_data, { conversationId, isPinned }) => {
       if (!isPinned) {
@@ -384,7 +408,7 @@ export function useConversationActions({
          before this failure would put it back in a section they left. The
          newer mutation owns the correction from here, and its settle refetch
          is the backstop if it fails too. */
-      if (placementTokensRef.current.get(conversationId) === context?.token) {
+      if (placementsRef.current.get(conversationId)?.token === context?.token) {
         patchConversation(queryClient, aid, conversationId, {
           isPinned: previousIsPinned,
           groupId: previousGroupId,
@@ -396,11 +420,30 @@ export function useConversationActions({
       }
       captureError(err, { context: "moveToGroup" });
     },
+    /* Refetching is the latest placement's job too, for the same reason the
+       rollback is. A superseded move that invalidated its own sections would
+       refetch state the server has not applied the newer move to yet, and that
+       response would land on top of the newer optimistic write: the cancel
+       that protects an optimistic write runs when that write is made, so it
+       cannot reach a refetch an older move starts afterwards. The owner
+       refetches the accumulated sections, so nothing a superseded move touched
+       goes unreconciled. */
     onSettled: (_data, _err, { assistantId: aid, conversationId }, context) => {
-      if (placementTokensRef.current.get(conversationId) === context?.token) {
-        placementTokensRef.current.delete(conversationId);
+      if (!context) {
+        /* `onMutate` did not finish, so there is no optimistic write to own
+           and nothing accumulated to refetch. The request may still have
+           reached the server, so reconcile broadly rather than not at all. */
+        return reconcilePlacement(queryClient, aid, undefined);
       }
-      return reconcilePlacement(queryClient, aid, context?.sectionKeys);
+      const placement = placementsRef.current.get(conversationId);
+      if (placement?.token !== context.token) {
+        /* Superseded, or the owner has already settled and reconciled. */
+        return;
+      }
+      placementsRef.current.delete(conversationId);
+      return reconcilePlacement(queryClient, aid, [
+        ...placement.sectionKeys.values(),
+      ]);
     },
   });
 
