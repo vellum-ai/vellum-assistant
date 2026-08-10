@@ -21,7 +21,7 @@ import {
 } from "./cli-installer";
 import { handle } from "./ipc";
 import { refreshLockfileNow } from "./lockfile-watcher.client";
-import { getSessionToken } from "./session-token-store";
+import { getSessionToken } from "./session-token-store.client";
 
 export const resolveCliInvocation = async (): Promise<CliInvocation> => {
   const envPath = process.env.VELLUM_CLI_PATH;
