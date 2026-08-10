@@ -150,6 +150,8 @@ describe("detectOrphanedProcesses", () => {
       "103 1 vellum --plain logs foo",
       "104 1 bun /x/bin/vellum-gateway --port 7830",
       "105 1 vellum hatch",
+      "106 1 node /opt/unrelated-service/daemon/main.ts",
+      "107 1 node ./tools daemon start",
     ].join("\n");
     mock.module("./step-runner", () => ({
       ...realStepRunner,
