@@ -27,9 +27,24 @@ import { sql } from "drizzle-orm";
 export function realUserTurnContentFilter(
   alias: string,
 ): ReturnType<typeof sql> {
-  return sql.raw(
+  return sql.raw(realUserTurnContentFilterSql(alias));
+}
+
+/**
+ * Raw-string form of {@link realUserTurnContentFilter}, for queries built as
+ * plain SQL template strings (`rawAll` sites). Same fragment, one source.
+ *
+ * The `!= '[]'` clause covers the writer-creation fallback: a grouped
+ * tool-result row reserved without an in-flight writer is born finalized with
+ * placeholder `[]` content, which matches neither NOT LIKE exclusion until
+ * the first content write lands. A real user turn never persists as a bare
+ * empty array, so excluding it drops only placeholders.
+ */
+export function realUserTurnContentFilterSql(alias: string): string {
+  return (
     `${alias}.finalized = 1 ` +
-      `AND ${alias}.content NOT LIKE '%"type":"tool\\_result"%' ESCAPE '\\' ` +
-      `AND ${alias}.content NOT LIKE '%"type":"web\\_search\\_tool\\_result"%' ESCAPE '\\'`,
+    `AND ${alias}.content != '[]' ` +
+    `AND ${alias}.content NOT LIKE '%"type":"tool\\_result"%' ESCAPE '\\' ` +
+    `AND ${alias}.content NOT LIKE '%"type":"web\\_search\\_tool\\_result"%' ESCAPE '\\'`
   );
 }
