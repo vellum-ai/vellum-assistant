@@ -73,7 +73,10 @@ export function SkillLoadOutput({
             value={activeMode}
             onChange={setMode}
             ariaLabel="Output format"
-            size="sm"
+            // The control defaults to `w-full` for full-width pickers; here it
+            // trails the section label, so it hugs its two segments instead.
+            // The segments keep `flex-1`, so they stay equal width.
+            className="w-auto shrink-0"
           />
         )}
       </div>
