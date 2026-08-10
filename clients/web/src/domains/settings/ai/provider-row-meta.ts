@@ -1,6 +1,9 @@
 import { getModelsForProvider } from "@/assistant/llm-model-catalog";
 import { codexServableModels } from "@/domains/settings/ai/codex-subscription-models";
-import { VELLUM_CONNECTION_PROVIDER } from "@/domains/settings/ai/constants";
+import {
+  CHATGPT_CONNECTION_PROVIDER,
+  VELLUM_CONNECTION_PROVIDER,
+} from "@/domains/settings/ai/constants";
 import type {
   DefaultProviderStatus,
   ProviderConnection,
@@ -88,11 +91,15 @@ export function providerRowMeta(conn: ProviderConnection): string {
   const parts: string[] = [];
   // A subscription connection hard-routes to the Codex endpoint, which
   // serves only the Codex model set; counting the full catalog would
-  // advertise models the connection cannot dispatch.
+  // advertise models the connection cannot dispatch. The row's models come
+  // from the OpenAI catalog whether it stores provider "openai" or the
+  // "chatgpt" identity daemon migration 366 stamps.
+  const catalogProvider =
+    conn.provider === CHATGPT_CONNECTION_PROVIDER ? "openai" : conn.provider;
   const catalogModels =
     conn.auth.type === "oauth_subscription"
-      ? codexServableModels(conn.provider)
-      : getModelsForProvider(conn.provider);
+      ? codexServableModels(catalogProvider)
+      : getModelsForProvider(catalogProvider);
   const modelCount = conn.models?.length ?? catalogModels.length;
   if (modelCount > 0) {
     parts.push(`${modelCount} ${modelCount === 1 ? "model" : "models"}`);

@@ -23,7 +23,10 @@ import {
   codexServableModels,
   restrictsToSubscriptionModels,
 } from "@/domains/settings/ai/codex-subscription-models";
-import { useSelectableInferenceProviders } from "@/domains/settings/ai/provider-availability";
+import {
+  connectionServesProvider,
+  useSelectableInferenceProviders,
+} from "@/domains/settings/ai/provider-availability";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -101,11 +104,12 @@ export function CallSiteOverrideRow({
     selectableInferenceProviders.some((p) => p === storedProvider);
   const currentProvider = storedProvider ?? defaultProvider;
   // A call-site override pins no connection, so dispatch auto-resolves one.
-  // When every connection for the provider is a ChatGPT subscription, only
-  // Codex models can resolve; offering the rest would save a pin that fails
-  // on every request.
-  const connectionsForProvider = (connections ?? []).filter(
-    (c) => c.provider === currentProvider,
+  // When every connection that can serve the provider is a ChatGPT
+  // subscription (stored as provider "chatgpt" once daemon migration 366 has
+  // run), only Codex models can resolve; offering the rest would save a pin
+  // that fails on every request.
+  const connectionsForProvider = (connections ?? []).filter((c) =>
+    connectionServesProvider(c.provider, currentProvider),
   );
   const availableModels = restrictsToSubscriptionModels(
     currentProvider,

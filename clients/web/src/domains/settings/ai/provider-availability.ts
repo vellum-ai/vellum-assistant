@@ -2,7 +2,9 @@ import { MODELS_BY_PROVIDER } from "@/assistant/llm-model-catalog";
 import { useActiveAssistantIsSelfHosted } from "@/hooks/use-platform-gate";
 
 import {
+  CHATGPT_CONNECTION_PROVIDER,
   INFERENCE_PROVIDERS,
+  MANAGED_ROUTABLE_PROVIDERS,
   OPENAI_COMPATIBLE_PROVIDER,
   VELLUM_CONNECTION_PROVIDER,
 } from "@/domains/settings/ai/constants";
@@ -14,6 +16,33 @@ import type {
 } from "@/generated/daemon/types.gen";
 
 const LOCAL_ONLY_PROVIDERS = new Set<string>(["ollama"]);
+
+/**
+ * Whether a connection (identified by its stored `provider`) can serve
+ * requests for `selectedProvider`. Two routing sentinels serve providers
+ * other than their own column value: the provider-agnostic `vellum`
+ * connection serves every managed-routable provider, and the `chatgpt`
+ * subscription connection serves OpenAI (Codex models only; callers gate
+ * the model set separately via `restrictsToSubscriptionModels`).
+ */
+export function connectionServesProvider(
+  connectionProvider: string,
+  selectedProvider: string,
+): boolean {
+  if (connectionProvider === selectedProvider) {
+    return true;
+  }
+  if (
+    connectionProvider === VELLUM_CONNECTION_PROVIDER &&
+    MANAGED_ROUTABLE_PROVIDERS.has(selectedProvider)
+  ) {
+    return true;
+  }
+  return (
+    connectionProvider === CHATGPT_CONNECTION_PROVIDER &&
+    selectedProvider === "openai"
+  );
+}
 
 export function isProviderSelectableForAssistant(
   provider: string,

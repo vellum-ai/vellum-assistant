@@ -23,6 +23,22 @@ describe("providerRowMeta model counts", () => {
     ).toBe(`${total} models  •  Own API key`);
   });
 
+  test("a migrated subscription row (provider chatgpt) counts against the openai catalog", () => {
+    const servable = getModelsForProvider("openai").filter((m) =>
+      CODEX_SUBSCRIPTION_MODEL_IDS.has(m.id),
+    ).length;
+    expect(
+      providerRowMeta({
+        name: "chatgpt-subscription",
+        provider: "chatgpt",
+        auth: {
+          type: "oauth_subscription",
+          credential: "credential/chatgpt",
+        },
+      } as ProviderConnection),
+    ).toBe(`${servable} models  •  ChatGPT subscription`);
+  });
+
   test("a subscription openai row counts only Codex-servable models", () => {
     const servable = getModelsForProvider("openai").filter((m) =>
       CODEX_SUBSCRIPTION_MODEL_IDS.has(m.id),
