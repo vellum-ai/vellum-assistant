@@ -14,8 +14,9 @@ They coincide most of the time, which is why one field answering both went unnot
 ## Read through the accessors
 
 ```ts
-conversation.getTurnTrust(); // who this turn is for
+conversation.getTurnTrust(); // who this turn is for; undefined if unrecorded
 conversation.getTrustContext(); // who the conversation belongs to
+conversation.getTurnOrRestingTrust(); // the turn's actor, else the owner
 ```
 
 The names follow the existing convention on `Conversation`: `getTurn*` for
@@ -30,24 +31,23 @@ Do not read `trustContext` or `currentTurnTrustContext` directly. The accessors 
 
 ## When the acting actor is unknown
 
-`getTurnTrust()` returns `undefined`. It does not fall back, because a caller
-asking who is acting should not silently receive who the conversation belongs
-to.
+`getTurnTrust()` returns `undefined`. It does not substitute the owner, because
+a caller asking who is acting should not silently receive someone else.
 
-A caller that can accept the conversation's owner instead spells it:
+Callers that can accept the owner as a stand-in ask for that by name:
 
 ```ts
-conversation.getTurnTrust() ?? conversation.getTrustContext();
+conversation.getTurnOrRestingTrust();
 ```
 
-Most do today, and that is deliberate rather than tidy. A deferred wake fires
-with no inbound actor, and failing closed there denies every sensitive tool in
-the resumed turn (LUM-2929). Writing the fallback at the call site keeps it
-visible to a reader and reviewable when the entry points are fixed.
+That fallback is load-bearing, not transitional politeness: a deferred wake
+fires with no inbound actor, and refusing it an answer denies every sensitive
+tool in the resumed turn (LUM-2929). The substitution lives in one named
+method, so it is greppable, and removable in one place once every entry point
+records a turn actor.
 
-A caller that must have the acting actor, and for which the conversation's
-owner would be wrong, calls `getTurnTrust()` alone and handles `undefined`.
-Provenance is the case that wants this.
+Callers for which the owner would be wrong rather than approximate, provenance
+above all, call `getTurnTrust()` alone and handle `undefined`.
 
 ## Writers that stamp for a run
 

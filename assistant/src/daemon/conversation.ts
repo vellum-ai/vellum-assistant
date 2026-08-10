@@ -2519,6 +2519,22 @@ export class Conversation {
   }
 
   /**
+   * Trust of the in-flight turn, or the conversation's owner when the turn
+   * recorded none. The substitution is in the name: callers that can accept
+   * the owner as a stand-in ask this, callers for which the owner would be
+   * wrong rather than approximate (provenance) call {@link getTurnTrust} and
+   * handle `undefined`.
+   *
+   * The fallback half is load-bearing, not transitional politeness: a
+   * deferred wake fires with no inbound actor, and refusing it an answer
+   * denies every sensitive tool in the resumed turn (LUM-2929). It becomes
+   * removable in one place when every entry point records a turn actor.
+   */
+  getTurnOrRestingTrust(): TrustContext | undefined {
+    return this.currentTurnTrustContext ?? this.trustContext;
+  }
+
+  /**
    * The actor principal that owns the current turn, for host-proxy routing.
    * Prefers the in-flight turn's actor over the conversation's resting
    * authContext so a /v1/messages turn (which sets only
