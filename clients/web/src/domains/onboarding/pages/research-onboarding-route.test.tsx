@@ -381,14 +381,11 @@ mock.module("@/domains/onboarding/hooks/use-onboarding-stage-size", () => ({
   OnboardingStageSizeProvider: ({ children }: { children: ReactNode }) => (
     <>{children}</>
   ),
-  useElementSize: () => ({
-    ref: { current: null },
-    size: { width: 0, height: 0 },
-  }),
 }));
 
-const { ResearchOnboardingRoute } =
-  await import("@/domains/onboarding/pages/research-onboarding-route");
+const { ResearchOnboardingRoute } = await import(
+  "@/domains/onboarding/pages/research-onboarding-route"
+);
 
 function postFormSnapshot(
   overrides: Partial<ResearchOnboardingSnapshot> = {},
@@ -1054,7 +1051,9 @@ describe("ResearchOnboardingRoute claim-credits skip", () => {
 
     // Straight to the research reveal: the calendar steps are skipped for
     // self-hosted too, so nothing renders between.
-    await waitFor(() => expect(screen.getByTestId("looking-step")).toBeTruthy());
+    await waitFor(() =>
+      expect(screen.getByTestId("looking-step")).toBeTruthy(),
+    );
     expect(screen.queryByTestId("integration-step")).toBeNull();
   });
 
@@ -1101,7 +1100,9 @@ describe("ResearchOnboardingRoute claim-credits skip", () => {
     platformSessionSettled = true;
     rerender(<ResearchOnboardingRoute />);
 
-    await waitFor(() => expect(screen.getByTestId("looking-step")).toBeTruthy());
+    await waitFor(() =>
+      expect(screen.getByTestId("looking-step")).toBeTruthy(),
+    );
   });
 
   test("a snapshot resuming onto the skipped claim-credits step remaps to the research reveal", async () => {
@@ -1111,7 +1112,9 @@ describe("ResearchOnboardingRoute claim-credits skip", () => {
 
     render(<ResearchOnboardingRoute />);
 
-    await waitFor(() => expect(screen.getByTestId("looking-step")).toBeTruthy());
+    await waitFor(() =>
+      expect(screen.getByTestId("looking-step")).toBeTruthy(),
+    );
     expect(screen.queryByTestId("integration-step")).toBeNull();
   });
 });

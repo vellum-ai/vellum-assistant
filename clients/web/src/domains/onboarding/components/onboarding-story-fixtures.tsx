@@ -23,8 +23,7 @@ import { useBundledAvatarComponents } from "@/utils/use-bundled-avatar-component
  * (minus the safe-area padding) whose route slot is `flex: 1 1 0%` with
  * `min-height: 0`. Mounted without that chain the stage measures zero tall,
  * every layer resolves against a zero-height box, and the whole arrangement
- * collapses to the origin without erroring. That is what these stories did the
- * first time they ran, which is the argument for having them.
+ * collapses to the origin without erroring.
  *
  * `insetTop` / `insetBottom` stand in for `env(safe-area-inset-*)`, which the
  * shell applies and Storybook cannot produce. That is the one thing here

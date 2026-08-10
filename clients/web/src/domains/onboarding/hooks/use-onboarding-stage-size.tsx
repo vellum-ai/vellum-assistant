@@ -25,9 +25,6 @@ import {
 
 import { windowSize, type StageSize } from "@/hooks/use-element-size";
 
-export { useElementSize } from "@/hooks/use-element-size";
-export type { ElementSize, StageSize } from "@/hooks/use-element-size";
-
 const OnboardingStageSizeContext = createContext<StageSize | null>(null);
 
 export function OnboardingStageSizeProvider({
