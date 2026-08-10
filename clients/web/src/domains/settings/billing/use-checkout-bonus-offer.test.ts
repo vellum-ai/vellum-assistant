@@ -8,9 +8,15 @@
  *    so hand-typed cancel URLs stay quiet
  *  - triggered + server says eligible: the offer shows with the
  *    server-returned amount
- *  - a second trigger behind the app's 10s default staleTime: the cached
- *    ineligible answer from a previous probe is not reused; each trigger
- *    re-asks the server
+ *  - a first cancel arriving on an already-mounted tab: exactly one request
+ *    (the enabled transition fetches; the repeat-trigger invalidation must
+ *    not double up)
+ *  - a repeat cancel on the same persistent mount (the Electron/iOS case:
+ *    no document reload, no remount): re-asks the server once per trigger,
+ *    and a stale `eligible: true` from the previous cancel is not re-shown
+ *    while the fresh verification is in flight
+ *  - a repeat cancel across a remount (the web case): the cached ineligible
+ *    answer behind the app's 10s default staleTime is not reused
  *
  * The GET is mocked at the SDK boundary so the real generated query factory
  * stays in the loop, mirroring checkout-bonus-modal.test.tsx.
@@ -27,15 +33,23 @@ import type { CheckoutBonusEligibilityResponse } from "@/generated/api/types.gen
 let retrieveCalls = 0;
 let eligibilityResponse: CheckoutBonusEligibilityResponse;
 let orgReady = true;
+// When set, in-flight responses wait until the test releases them.
+let releaseResponse: (() => void) | null = null;
+let holdResponses = false;
 
 mock.module("@/generated/api/sdk.gen", () => ({
   ...sdkGen,
-  organizationsBillingCheckoutBonusRetrieve: () => {
+  organizationsBillingCheckoutBonusRetrieve: async () => {
     retrieveCalls += 1;
-    return Promise.resolve({
+    if (holdResponses) {
+      await new Promise<void>((resolve) => {
+        releaseResponse = resolve;
+      });
+    }
+    return {
       data: eligibilityResponse,
       response: { ok: true },
-    });
+    };
   },
 }));
 
@@ -45,7 +59,7 @@ mock.module("@/hooks/use-is-org-ready", () => ({
 
 const { useCheckoutBonusOffer } = await import("./use-checkout-bonus-offer");
 
-function setup(triggered: boolean, client?: QueryClient) {
+function setup(cancelledAt: number | null, client?: QueryClient) {
   const queryClient =
     client ??
     new QueryClient({
@@ -53,19 +67,23 @@ function setup(triggered: boolean, client?: QueryClient) {
     });
   const wrapper = ({ children }: { children: ReactNode }) =>
     createElement(QueryClientProvider, { client: queryClient }, children);
-  return renderHook((props) => useCheckoutBonusOffer(props.triggered), {
-    initialProps: { triggered },
+  return renderHook((props) => useCheckoutBonusOffer(props.cancelledAt), {
+    initialProps: { cancelledAt },
     wrapper,
   });
 }
 
 // Lets any wrongly-enabled fetch land before asserting a call count of zero.
+// Also long enough that a `Date.now()` taken after it postdates any response
+// that already resolved, so successive triggers get distinct timestamps.
 const flush = () => new Promise((resolve) => setTimeout(resolve, 10));
 
 beforeEach(() => {
   retrieveCalls = 0;
   eligibilityResponse = { eligible: true, amount_usd: "5.00" };
   orgReady = true;
+  releaseResponse = null;
+  holdResponses = false;
 });
 
 afterEach(() => {
@@ -74,7 +92,7 @@ afterEach(() => {
 
 describe("useCheckoutBonusOffer", () => {
   test("no cancel signal: never queries, never offers", async () => {
-    const { result } = setup(false);
+    const { result } = setup(null);
 
     await flush();
     expect(retrieveCalls).toBe(0);
@@ -83,14 +101,15 @@ describe("useCheckoutBonusOffer", () => {
 
   test("triggered before the org settles: waits, then fires once", async () => {
     orgReady = false;
-    const { result, rerender } = setup(true);
+    const cancelledAt = Date.now();
+    const { result, rerender } = setup(cancelledAt);
 
     await flush();
     expect(retrieveCalls).toBe(0);
     expect(result.current.showOffer).toBe(false);
 
     orgReady = true;
-    rerender({ triggered: true });
+    rerender({ cancelledAt });
 
     await waitFor(() => expect(result.current.showOffer).toBe(true));
     expect(retrieveCalls).toBe(1);
@@ -98,7 +117,7 @@ describe("useCheckoutBonusOffer", () => {
 
   test("triggered + ineligible: one request, no offer", async () => {
     eligibilityResponse = { eligible: false, amount_usd: "0.00" };
-    const { result } = setup(true);
+    const { result } = setup(Date.now());
 
     await waitFor(() => expect(retrieveCalls).toBe(1));
     await flush();
@@ -107,22 +126,76 @@ describe("useCheckoutBonusOffer", () => {
 
   test("triggered + eligible: offers the server-returned amount", async () => {
     eligibilityResponse = { eligible: true, amount_usd: "7.50" };
-    const { result } = setup(true);
+    const { result } = setup(Date.now());
 
     await waitFor(() => expect(result.current.showOffer).toBe(true));
     expect(result.current.amountUsd).toBe("7.50");
     expect(retrieveCalls).toBe(1);
   });
 
-  test("repeat trigger: refetches past the app's 10s default staleTime", async () => {
-    // Mirror the app QueryClient (providers.tsx): a 10s default staleTime
-    // would otherwise let a cached ineligible probe answer a real cancel.
+  test("first cancel on an already-mounted tab: exactly one request", async () => {
+    const { result, rerender } = setup(null);
+
+    await flush();
+    expect(retrieveCalls).toBe(0);
+
+    rerender({ cancelledAt: Date.now() });
+
+    await waitFor(() => expect(result.current.showOffer).toBe(true));
+    await flush();
+    expect(retrieveCalls).toBe(1);
+  });
+
+  test("repeat cancel on a persistent mount: re-asks the server", async () => {
+    // Mirror the app QueryClient (providers.tsx): a 10s default staleTime.
+    // The mount never cycles, so `enabled` never re-transitions; the hook
+    // must refetch off the trigger itself.
     const client = new QueryClient({
       defaultOptions: { queries: { retry: false, staleTime: 10_000 } },
     });
 
     eligibilityResponse = { eligible: false, amount_usd: "0.00" };
-    const first = setup(true, client);
+    const { result, rerender } = setup(Date.now(), client);
+    await waitFor(() => expect(retrieveCalls).toBe(1));
+    await flush();
+    expect(result.current.showOffer).toBe(false);
+
+    // A real abandoned checkout lands moments later, on the same mount.
+    eligibilityResponse = { eligible: true, amount_usd: "5.00" };
+    rerender({ cancelledAt: Date.now() });
+
+    await waitFor(() => expect(result.current.showOffer).toBe(true));
+    expect(result.current.amountUsd).toBe("5.00");
+    expect(retrieveCalls).toBe(2);
+  });
+
+  test("repeat cancel: stale eligible answer stays hidden until re-verified", async () => {
+    const { result, rerender } = setup(Date.now());
+    await waitFor(() => expect(result.current.showOffer).toBe(true));
+    await flush();
+
+    // Second cancel on the same mount; hold the fresh answer in flight.
+    holdResponses = true;
+    rerender({ cancelledAt: Date.now() });
+
+    await waitFor(() => expect(retrieveCalls).toBe(2));
+    // The previous `eligible: true` predates this trigger, so no offer yet.
+    expect(result.current.showOffer).toBe(false);
+
+    eligibilityResponse = { eligible: true, amount_usd: "5.00" };
+    releaseResponse?.();
+
+    await waitFor(() => expect(result.current.showOffer).toBe(true));
+    expect(retrieveCalls).toBe(2);
+  });
+
+  test("repeat trigger across a remount: refetches past the app's 10s default staleTime", async () => {
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false, staleTime: 10_000 } },
+    });
+
+    eligibilityResponse = { eligible: false, amount_usd: "0.00" };
+    const first = setup(Date.now(), client);
     await waitFor(() => expect(retrieveCalls).toBe(1));
     await flush();
     expect(first.result.current.showOffer).toBe(false);
@@ -130,7 +203,7 @@ describe("useCheckoutBonusOffer", () => {
 
     // A real abandoned checkout lands within the staleness window.
     eligibilityResponse = { eligible: true, amount_usd: "5.00" };
-    const second = setup(true, client);
+    const second = setup(Date.now(), client);
 
     await waitFor(() => expect(second.result.current.showOffer).toBe(true));
     expect(second.result.current.amountUsd).toBe("5.00");

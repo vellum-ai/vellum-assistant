@@ -161,14 +161,20 @@ function BillingTabContent() {
 
   // Abandoned-checkout bonus: the cancel signal lives in state (not the URL)
   // because BillingStatusHandler immediately navigate-replaces the query
-  // string away. The hook only queries once a cancel actually happened, and
-  // the server's answer alone decides whether the offer shows. Local
-  // dismissal keeps a declined offer closed while the eligibility answer is
-  // still cached.
-  const [checkoutCancelled, setCheckoutCancelled] = useState(false);
-  const onCheckoutCancelled = useCallback(() => setCheckoutCancelled(true), []);
+  // string away. It's a timestamp, not a boolean: this tab is a persistent
+  // mount on Electron/iOS, so a second cancel must read as a fresh trigger
+  // (the hook re-asks the server) instead of latching after the first. The
+  // server's answer alone decides whether the offer shows. Local dismissal
+  // keeps a declined offer closed until the next cancel re-arms it.
+  const [checkoutCancelledAt, setCheckoutCancelledAt] = useState<number | null>(
+    null,
+  );
   const [bonusDismissed, setBonusDismissed] = useState(false);
-  const { showOffer, amountUsd } = useCheckoutBonusOffer(checkoutCancelled);
+  const onCheckoutCancelled = useCallback(() => {
+    setCheckoutCancelledAt(Date.now());
+    setBonusDismissed(false);
+  }, []);
+  const { showOffer, amountUsd } = useCheckoutBonusOffer(checkoutCancelledAt);
   const onBonusOpenChange = useCallback((open: boolean) => {
     if (!open) {
       setBonusDismissed(true);
