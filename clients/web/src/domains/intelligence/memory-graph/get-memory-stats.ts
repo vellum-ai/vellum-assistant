@@ -8,7 +8,7 @@
  * `{ kind: "unsupported" }` — a success-shaped result, mirroring
  * `memoryGraphOptions` — so callers omit the count entirely rather than showing
  * a wrong "0 memories" (an older daemon may hold plenty of concepts; it just
- * can't count them here). See `docs/BACKWARDS_COMPAT.md`. Other non-2xx /
+ * can't count them here). See `docs/CONVENTIONS.md`. Other non-2xx /
  * transport errors throw.
  */
 
@@ -87,7 +87,7 @@ export function memoryStatsOptions(assistantId: string) {
 
       // An assistant/daemon predating the `/memory/stats` route answers 404;
       // treat that as "not supported here" so the card omits its count instead
-      // of showing a wrong 0 (BACKWARDS_COMPAT read rule).
+      // of showing a wrong 0 (absent-endpoint read rule).
       if (response.status === 404) {
         return { kind: "unsupported" };
       }

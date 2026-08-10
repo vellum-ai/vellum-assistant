@@ -5,7 +5,7 @@
  * success-shaped result so React Query does not treat "this backend has no
  * graph" as a retryable failure. A 404 (an older assistant predating the route)
  * maps to `unsupported` too, so it degrades to the feature-off empty state
- * rather than an error (see `docs/BACKWARDS_COMPAT.md`). Other non-2xx / transport
+ * rather than an error (see `docs/CONVENTIONS.md`). Other non-2xx / transport
  * errors throw.
  */
 
@@ -38,7 +38,7 @@ export function memoryGraphOptions(assistantId: string) {
 
       // An assistant/daemon predating the `/memory-graph` route answers 404;
       // treat that as "not supported here" so an older assistant shows the
-      // graceful empty state instead of an error (BACKWARDS_COMPAT read rule).
+      // graceful empty state instead of an error (absent-endpoint read rule).
       if (response.status === 404) {
         return { kind: "unsupported" };
       }

@@ -1,28 +1,16 @@
 /**
- * Backwards-compat helpers for assistant version asymmetry.
+ * Gate primitives for the legacy assistant-version gates in this directory.
  *
- * The web app always serves the latest bundle from Vellum's infra,
- * but the assistant side can be running any version the
- * user has installed locally. New web features routinely ship before
- * every assistant out there has been upgraded, so the web app needs to
- * detect the assistant's version and either light up the new code path
- * or fall back to whatever the assistant understood before.
+ * Legacy: do not add a gate. A `MIN_VERSION` is a prediction about which
+ * release will carry the feature, and a wrong prediction withholds the
+ * feature from everyone with no signal at all. New features call the
+ * endpoint and let the read degrade to the feature-off state instead. See
+ * `clients/web/AGENTS.md` ("No assistant-version gating") and
+ * `docs/BACKWARDS_COMPAT.md` for how to read and remove the gates that
+ * remain.
  *
- * This directory is the centralized home for all such gates. Every
- * module here is delete-on-sight the day we solve serving the matching
- * web bundle per assistant version. Until then, group all of the
- * "if assistant < X.Y.Z, do the old thing" logic here so we can grep
- * for `lib/backwards-compat` to find everything that can go away.
- *
- * Conventions:
- * - File per feature area (e.g. `flag-query-freshness.ts`).
- * - Each file's module-level `MIN_VERSION` declares the minimum
- *   assistant version it gates against and what the old vs. new
- *   behavior looks like.
- * - Use `useAssistantSupports(MIN_VERSION)` for the gate so semver
- *   parsing + pre-release stripping is consistent across modules.
- *   (Hook name follows React's rules-of-hooks since the active
- *   assistant version is read off the identity store.)
+ * Every module here holds a dead legacy code path alongside the current
+ * one, so `lib/backwards-compat` greps up the whole backlog.
  */
 import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
 import { compareParsed, comparePreRelease, parseSemver } from "@/utils/semver";

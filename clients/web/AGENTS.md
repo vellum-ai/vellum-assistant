@@ -18,11 +18,12 @@ Read these before making changes:
 
 ## No assistant-version gating
 
-The web app and the assistant/daemon ship together in the same release, so the bundle in the browser and the assistant it talks to are the same version. Do not gate web features on the connected assistant's version.
+A release cuts the web bundle and the assistant from the same commit, and a platform-hosted assistant moves with the release. Do not gate web features on the connected assistant's version.
 
 - Do not add modules to `src/lib/backwards-compat/`, and do not add `MIN_VERSION` semver checks anywhere else. Call the endpoint, read the wire field, render the feature.
 - The gates already in `src/lib/backwards-compat/` are legacy. When you touch the feature a gate guards, delete the gate instead of extending it.
-- A `MIN_VERSION` is a guess about which release will carry the feature, and a wrong guess fails silently: a gate pinned to a version number that never ships leaves the feature dark in production for every user. Coupled releases make the whole mechanism unnecessary, so the safest gate is no gate.
+- A `MIN_VERSION` is a prediction about which release will carry the feature, and a wrong prediction fails silently: a gate pinned to a version that never ships leaves the feature dark in production for every user, with nothing to notice. The schedule-profile-move gate pinned `0.12.0` for a route that shipped in `0.11.3` and never opened at all ([#40475](https://github.com/vellum-ai/vellum-assistant/pull/40475)).
+- Where an assistant can still lag its bundle (a self-hosted install, a desktop shell whose CLI floats to a dist-tag), make the feature degrade instead of gating it: [An absent endpoint degrades to the feature-off state](./docs/CONVENTIONS.md#an-absent-endpoint-degrades-to-the-feature-off-state). One unretried 404 is a better failure than a feature silently withheld from everyone.
 
 ## Common pitfalls
 

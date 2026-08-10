@@ -10,7 +10,8 @@
  *     an assistant without the route (older, or rolled back from a themed
  *     version) 404s the read, which `fetchWorkspaceTheme` maps to the unthemed
  *     state so a rollback clears any applied theme rather than stranding a
- *     stale one — see "When a gate is unnecessary" in BACKWARDS_COMPAT.md.
+ *     stale one. See "An absent endpoint degrades to the feature-off state"
+ *     in CONVENTIONS.md.
  *  2. Refetch on the `assistant:self:theme` sync tag and on non-fresh SSE
  *     reconnect, so a theme the assistant (or another client) writes shows up
  *     without a reload — the daemon's config watcher emits the invalidation.

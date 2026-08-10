@@ -12,7 +12,8 @@
  * receives only its own rows.
  *
  * This is why the gate exists rather than shipping gateless. The
- * "when a gate is unnecessary" rule in `docs/BACKWARDS_COMPAT.md` requires
+ * "an absent endpoint degrades to the feature-off state" rule in
+ * `docs/CONVENTIONS.md` requires
  * an older assistant to 404 into exactly the feature-off state; here it
  * answers 200 with a superset, which renders as a plausible-looking but
  * wrong section. Silent, and worse than the feature being absent. Sections

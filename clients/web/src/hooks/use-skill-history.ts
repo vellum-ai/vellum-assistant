@@ -4,8 +4,9 @@
  * Deliberately not version-gated. This is a read whose only fallback is "the
  * feature is absent", which is exactly what an assistant without the route
  * produces: `fetchSkillHistory` maps its 404 to `null` and the detail page
- * renders just the files card. That is the documented exemption in
- * BACKWARDS_COMPAT.md ("When a gate is unnecessary"), and it lets same-source
+ * renders just the files card. That is the documented pattern in
+ * CONVENTIONS.md ("An absent endpoint degrades to the feature-off state"),
+ * and it lets same-source
  * self-hosted setups (which report the last released version while running
  * unreleased code) get the tab without a debug override.
  *

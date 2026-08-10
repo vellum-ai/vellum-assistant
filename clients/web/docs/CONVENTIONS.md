@@ -1033,6 +1033,29 @@ the endpoint has no generated function or type, it is missing from
 `platform.yaml` — tag it with `PLATFORM_API_CLIENT_EXTENSION` in the
 platform repo and regenerate, rather than hand-rolling the request.
 
+### An absent endpoint degrades to the feature-off state
+
+A read whose route the assistant might not answer (a self-hosted build made
+from a source tree that predates the route, a rollback) has to render as if
+the feature were simply absent, with no error surfaced to the user. Three
+things hold that together:
+
+- **Map the missing route to the feature-off value inside the `queryFn`**
+  instead of letting it throw. TanStack Query keeps the last successful data
+  on error, so a query that succeeds and only later 404s would otherwise
+  strand a stale success on screen.
+- **Do not retry it.** The app QueryClient never retries 4xx (see
+  `providers.tsx`). Do not opt a query back in.
+- **Keep it quiet.** Disable the refetch triggers that would re-issue the
+  failing request, for example `refetchOnWindowFocus: false` where changes
+  arrive through `sync_changed` invalidations anyway.
+
+The whole cost is then one unretried 404 per trigger. `useWorkspaceTheme` is
+the reference example. This is not version gating, which the web app does
+not do (see [`clients/web/AGENTS.md`](../AGENTS.md#no-assistant-version-gating)):
+nothing here reads a version, and the same code runs against every
+assistant.
+
 ### Generated types are the source of truth
 
 Never hand-write a type for a value the codegen produces — a request

@@ -643,7 +643,8 @@ export async function listArchivedConversations(
  * An assistant without `GET /v1/conversations/unread-count` 404s this read;
  * resolving `null` lets consumers fall back to the client-derived count and
  * lets a refetch clear a count from a since-rolled-back assistant instead of
- * stranding it (see "When a gate is unnecessary" in BACKWARDS_COMPAT.md).
+ * stranding it (see "An absent endpoint degrades to the feature-off state" in
+ * CONVENTIONS.md).
  * Every other HTTP failure throws a status-carrying {@link ApiError} so the
  * app-level no-retry-4xx policy applies; a missing response (network error)
  * rethrows raw and retries as transient.
