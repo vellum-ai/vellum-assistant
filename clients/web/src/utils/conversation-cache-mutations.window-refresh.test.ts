@@ -30,7 +30,9 @@ type Page = { conversations: Conversation[]; hasMore: boolean };
 const NOOP_PAGE: Page = { conversations: [], hasMore: true };
 
 const sectionCalls: SectionConversationFilter[] = [];
-let sectionPages: (filter: SectionConversationFilter) => Page = () => NOOP_PAGE;
+let sectionPages: (
+  filter: SectionConversationFilter,
+) => Page | Promise<Page> = () => NOOP_PAGE;
 let foregroundCalls = 0;
 let foregroundPage: Page = NOOP_PAGE;
 
@@ -168,6 +170,66 @@ describe("refreshConversationListWindows and sections", () => {
 
     expect(foregroundCalls).toBe(1);
     expect(sectionCalls).toEqual([SLACK]);
+  });
+
+  test("a response that lost the race to a newer cache write is dropped", async () => {
+    /* The window fetch runs outside TanStack, so an optimistic placement's
+       `cancelQueries` cannot cancel it. A page fetched before a pin landing
+       after it would resurrect the old placement; the guard drops any
+       response the cache was written past. */
+    const client = reset();
+    const slackKey = sectionConversationsQueryKey(ASSISTANT_ID, SLACK);
+    client.setQueryData(slackKey, [conversation({ conversationId: "s1" })]);
+
+    let resolvePage!: (page: Page) => void;
+    sectionPages = () =>
+      new Promise<Page>((resolve) => {
+        resolvePage = resolve;
+      });
+
+    const inFlight = refreshConversationListWindows(client, ASSISTANT_ID);
+    // An optimistic move lands while the fetch is out: s1 leaves the
+    // section, s2 joins it.
+    client.setQueryData(slackKey, [conversation({ conversationId: "s2" })]);
+    // The response arrives carrying the pre-move server state.
+    resolvePage({
+      conversations: [conversation({ conversationId: "s1" })],
+      hasMore: false,
+    });
+    await inFlight;
+
+    expect(rowsIn(client, SLACK)).toEqual(["s2"]);
+  });
+
+  test("a slower refresh cannot overwrite a faster newer one", async () => {
+    const client = reset();
+    const slackKey = sectionConversationsQueryKey(ASSISTANT_ID, SLACK);
+    client.setQueryData(slackKey, [conversation({ conversationId: "s-old" })]);
+
+    // Refresh A: response deferred.
+    let resolveA!: (page: Page) => void;
+    sectionPages = () =>
+      new Promise<Page>((resolve) => {
+        resolveA = resolve;
+      });
+    const refreshA = refreshConversationListWindows(client, ASSISTANT_ID);
+
+    // Refresh B: resolves immediately with newer server state and commits.
+    sectionPages = () => ({
+      conversations: [conversation({ conversationId: "s-newer" })],
+      hasMore: false,
+    });
+    await refreshConversationListWindows(client, ASSISTANT_ID);
+    expect(rowsIn(client, SLACK)).toEqual(["s-newer"]);
+
+    // A's older response arrives last and must not win.
+    resolveA({
+      conversations: [conversation({ conversationId: "s-old" })],
+      hasMore: false,
+    });
+    await refreshA;
+
+    expect(rowsIn(client, SLACK)).toEqual(["s-newer"]);
   });
 
   test("a section whose first fetch failed is invalidated for retry", async () => {

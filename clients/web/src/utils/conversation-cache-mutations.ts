@@ -412,7 +412,20 @@ export async function refreshConversationListWindows(
       }
       return;
     }
+    /* The cache's write clock, read before the request leaves. This fetch
+       runs outside TanStack, so nothing that protects the cache from
+       in-flight *queries* protects it from this response: an optimistic
+       placement's `cancelQueries` cannot cancel it, and a second refresh
+       cannot dedupe against it. Any write that lands while the request is
+       in flight (an optimistic move, a newer refresh, a real refetch) makes
+       this response the older account of the cache, so it is dropped rather
+       than merged. The writer that outran it carries its own
+       reconciliation; the next sync signal re-refreshes regardless. */
+    const fetchedAt = queryClient.getQueryState(queryKey)?.dataUpdatedAt;
     const page = await fetchFirstPage();
+    if (queryClient.getQueryState(queryKey)?.dataUpdatedAt !== fetchedAt) {
+      return;
+    }
     queryClient.setQueryData<Conversation[]>(
       queryKey,
       (prev: Conversation[] | undefined) =>
