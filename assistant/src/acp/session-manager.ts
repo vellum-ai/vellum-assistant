@@ -15,6 +15,7 @@ import { getDb } from "../persistence/db-connection.js";
 import { acpSessionHistory } from "../persistence/schema/index.js";
 import * as pendingInteractions from "../runtime/pending-interactions.js";
 import { getLogger } from "../util/logger.js";
+import { markAcpConnectCardRaised } from "./acp-connect-card-state.js";
 import { AcpAgentProcess } from "./agent-process.js";
 import {
   ACP_CLAUDE_AUTH_REQUIRED_CODE,
@@ -1181,16 +1182,27 @@ export class AcpSessionManager {
             acpSessionId,
             error: failureMessage,
           });
-          if (errorCode) {
+          // The recovery surface (the event, the model guidance, and the
+          // prompt-dedup marker) is raised as a unit, and only when the client
+          // can actually render the card: it anchors to the spawning tool
+          // call, so a run started without one (the HTTP spawn route) keeps
+          // the plain failure rather than guidance pointing at a card that
+          // cannot appear.
+          const recoveryAnchor =
+            errorCode !== undefined ? current.parentToolUseId : undefined;
+          if (errorCode !== undefined && recoveryAnchor !== undefined) {
             current.sendToVellum({
               type: "acp_auth_required",
               acpSessionId,
               authCode: errorCode,
               agent: current.state.agentId,
-              ...(current.parentToolUseId
-                ? { parentToolUseId: current.parentToolUseId }
-                : {}),
+              parentToolUseId: recoveryAnchor,
             });
+            // Same registry write as the missing-token spawn path: the
+            // credential-prompt route consults it to redirect a redundant
+            // `acp/claude_oauth_token` secure prompt at the card instead of
+            // stacking a second collection surface on top of it.
+            markAcpConnectCardRaised(current.parentConversationId);
           }
 
           // Persist the terminal row before teardown clears the buffer.
@@ -1208,7 +1220,9 @@ export class AcpSessionManager {
             this.notifyParent(
               current,
               `[ACP agent "${current.state.agentId}" failed]\n\n${failureMessage}` +
-                (errorCode ? `\n\n${ACP_AUTH_RECOVERY_GUIDANCE}` : ""),
+                (recoveryAnchor !== undefined
+                  ? `\n\n${ACP_AUTH_RECOVERY_GUIDANCE}`
+                  : ""),
             );
           }
         }
