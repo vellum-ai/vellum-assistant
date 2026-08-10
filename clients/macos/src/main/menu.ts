@@ -21,12 +21,12 @@ import {
   closeCommandPaletteWindow,
   isCommandPaletteWindowFocused,
   openCommandPaletteWindow,
-} from "./command-palette-window";
+} from "./command-palette.client";
 import { areChromeDevToolsEnabled } from "./devtools";
 import { handle } from "./ipc";
 import { dispatchToMain } from "./main-window";
 import { onSettingChange, readSetting } from "./settings";
-import { readOnboardingActive } from "./window-state";
+import { readOnboardingActive } from "@vellumai/electron-desktop/window-state";
 
 interface MenuState {
   hasPlatformSession: boolean;

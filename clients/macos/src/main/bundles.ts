@@ -6,6 +6,7 @@ import {
   configureBundlePlatform,
   type ActiveBundleGateway,
 } from "@vellumai/electron-desktop/bundle-platform";
+import { denyAllPermissions } from "@vellumai/electron-desktop/permissions";
 import {
   handleBundleFile,
   installBundleFlow,
@@ -20,7 +21,6 @@ import {
 import { RENDERER_BASE_PROD, getDevRendererBase } from "./app-config";
 import { handle, on } from "./ipc";
 import { resolveCliInvocation } from "./local-mode";
-import { denyAllPermissions } from "./permissions";
 
 const resolveActiveGateway = (): ActiveBundleGateway | null => {
   const result = getLockfileData(resolveLockfilePaths(process.env));

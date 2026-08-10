@@ -41,6 +41,15 @@ mock.module("electron", () => ({
     isMinimized() {
       return false;
     }
+    isMaximized() {
+      return false;
+    }
+    isFullScreen() {
+      return false;
+    }
+    getNormalBounds() {
+      return { x: 0, y: 0, width: 1280, height: 800 };
+    }
     restore() {}
     show() {}
     focus() {}
