@@ -220,6 +220,29 @@ describe("preflightResolvedConfig", () => {
     ).resolves.toBeUndefined();
   });
 
+  test("an explicit connection outranks an entry-name provider, matching dispatch", async () => {
+    // A healthy entry row must not mask the row the request actually uses.
+    connectionsByName["anthropic-work"] = {
+      name: "anthropic-work",
+      provider: "anthropic",
+      auth: {
+        type: "api_key",
+        credential: "credential/anthropic-work/api_key",
+      },
+    };
+    secureKeys["credential/anthropic-work/api_key"] = "healthy";
+
+    const err = await preflightError(
+      resolved({
+        provider: "anthropic-work",
+        provider_connection: "deleted-row",
+        model: "claude-opus-4-8",
+      }),
+    );
+    expect(err?.reason).toBe("not_found");
+    expect(err?.connectionName).toBe("deleted-row");
+  });
+
   test("a chatgpt-identity subscription row preflights the same way", async () => {
     // Migration 366 stamps the row with provider "chatgpt"; preflight judges
     // its subscription credential, not a provider equality with the openai

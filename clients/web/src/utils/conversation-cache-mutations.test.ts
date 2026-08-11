@@ -11,10 +11,13 @@ import {
   backgroundConversationsQueryKey,
   scheduledConversationsQueryKey,
   archivedConversationsQueryKey,
+  sidebarSectionsQueryKey,
+  type SidebarIndexSection,
 } from "@/utils/conversation-list-fetchers";
 import { groupsGetQueryKey } from "@/generated/daemon/@tanstack/react-query.gen";
 
 import {
+  adjustSectionUnreadCache,
   markConversationSeenLocal,
   mergeListFirstPage,
   prependConversation,
@@ -831,5 +834,153 @@ describe("mergeListFirstPage", () => {
       "c-pin-b",
       "c-older",
     ]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// adjustSectionUnreadCache
+// ---------------------------------------------------------------------------
+
+describe("adjustSectionUnreadCache", () => {
+  const INDEX_KEY = sidebarSectionsQueryKey(ASSISTANT_ID);
+
+  function seedIndex(client: QueryClient): SidebarIndexSection[] {
+    const index: SidebarIndexSection[] = [
+      { kind: "pinned", total: 2, unread: 1 },
+      {
+        kind: "group",
+        groupId: "grp-1",
+        name: "G",
+        icon: null,
+        sortPosition: 0,
+        total: 3,
+        unread: 2,
+      },
+      { kind: "channel", channelId: "slack", total: 4, unread: 1 },
+      { kind: "chats", total: 5, unread: 3 },
+    ];
+    client.setQueryData<SidebarIndexSection[] | null>(INDEX_KEY, index);
+    return index;
+  }
+
+  function unreadOf(
+    client: QueryClient,
+    match: (s: SidebarIndexSection) => boolean,
+  ): number | undefined {
+    return client.getQueryData<SidebarIndexSection[]>(INDEX_KEY)?.find(match)
+      ?.unread;
+  }
+
+  test("a pinned row adjusts the Pinned bucket", () => {
+    const client = new QueryClient();
+    seedIndex(client);
+
+    const applied = adjustSectionUnreadCache(
+      client,
+      ASSISTANT_ID,
+      makeConversation({
+        conversationId: "c1",
+        isPinned: true,
+        groupId: "system:pinned",
+        // Bucket precedence: pinned wins even for a row that also carries a
+        // channel, mirroring the daemon's group-axis-first aggregation.
+        originChannel: "slack",
+      }),
+      -1,
+    );
+
+    expect(applied).toBe(true);
+    expect(unreadOf(client, (s) => s.kind === "pinned")).toBe(0);
+    expect(unreadOf(client, (s) => s.kind === "channel")).toBe(1);
+  });
+
+  test("a grouped row adjusts its group's bucket", () => {
+    const client = new QueryClient();
+    seedIndex(client);
+
+    adjustSectionUnreadCache(
+      client,
+      ASSISTANT_ID,
+      makeConversation({ conversationId: "c1", groupId: "grp-1" }),
+      -1,
+    );
+
+    expect(unreadOf(client, (s) => s.kind === "group")).toBe(1);
+  });
+
+  test("unattributed and vellum rows adjust the Chats bucket", () => {
+    const client = new QueryClient();
+    seedIndex(client);
+
+    adjustSectionUnreadCache(
+      client,
+      ASSISTANT_ID,
+      makeConversation({ conversationId: "c1" }),
+      -1,
+    );
+    adjustSectionUnreadCache(
+      client,
+      ASSISTANT_ID,
+      makeConversation({ conversationId: "c2", originChannel: "vellum" }),
+      -1,
+    );
+
+    expect(unreadOf(client, (s) => s.kind === "chats")).toBe(1);
+  });
+
+  test("a channel row adjusts its channel's bucket", () => {
+    const client = new QueryClient();
+    seedIndex(client);
+
+    adjustSectionUnreadCache(
+      client,
+      ASSISTANT_ID,
+      makeConversation({ conversationId: "c1", originChannel: "slack" }),
+      1,
+    );
+
+    expect(unreadOf(client, (s) => s.kind === "channel")).toBe(2);
+  });
+
+  test("a null index (assistant without the endpoint) is a no-op", () => {
+    const client = new QueryClient();
+    client.setQueryData<SidebarIndexSection[] | null>(INDEX_KEY, null);
+
+    expect(
+      adjustSectionUnreadCache(
+        client,
+        ASSISTANT_ID,
+        makeConversation({ conversationId: "c1" }),
+        -1,
+      ),
+    ).toBe(false);
+    expect(client.getQueryData(INDEX_KEY)).toBeNull();
+  });
+
+  test("a bucket the index does not carry is left to the settle refetch", () => {
+    const client = new QueryClient();
+    client.setQueryData<SidebarIndexSection[] | null>(INDEX_KEY, [
+      { kind: "chats", total: 5, unread: 3 },
+    ]);
+
+    expect(
+      adjustSectionUnreadCache(
+        client,
+        ASSISTANT_ID,
+        makeConversation({ conversationId: "c1", groupId: "grp-none" }),
+        -1,
+      ),
+    ).toBe(false);
+  });
+
+  test("a delta and its inverse restore the original counts exactly", () => {
+    const client = new QueryClient();
+    seedIndex(client);
+    const row = makeConversation({ conversationId: "c1", groupId: "grp-1" });
+
+    adjustSectionUnreadCache(client, ASSISTANT_ID, row, -1);
+    adjustSectionUnreadCache(client, ASSISTANT_ID, row, 1);
+
+    expect(unreadOf(client, (s) => s.kind === "group")).toBe(2);
   });
 });

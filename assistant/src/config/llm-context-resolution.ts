@@ -1,3 +1,4 @@
+import { resolveEntryProviderKind } from "../providers/connection-resolution.js";
 import { ROUTING_IDENTITY_PROVIDERS } from "../providers/inference/auth.js";
 import {
   getCatalogProviderForModel,
@@ -54,11 +55,18 @@ export function resolveEffectiveContextWindow({
     forceOverrideProfile,
     selectionSeed,
   });
-  // Routing identities are not catalog providers; the model's catalog owner
-  // carries its context-window limits.
+  // Routing identities dispatch built-in catalog models, so the model's
+  // catalog owner carries their limits. An entry-name provider resolves
+  // through its row's kind instead: a custom-endpoint kind has no catalog
+  // models, so its models keep the conservative default even when a model
+  // id collides with a built-in one (the custom endpoint's "gpt-5.5" is not
+  // OpenAI's). Labels with no row fall back to the model's catalog owner.
   const catalogProviderId = ROUTING_IDENTITY_PROVIDERS.has(resolved.provider)
     ? getCatalogProviderForModel(resolved.model)
-    : resolved.provider;
+    : PROVIDER_CATALOG.some((p) => p.id === resolved.provider)
+      ? resolved.provider
+      : (resolveEntryProviderKind(resolved.provider, resolved.model) ??
+        getCatalogProviderForModel(resolved.model));
   const catalogModel = PROVIDER_CATALOG.find(
     (provider) => provider.id === catalogProviderId,
   )?.models.find((model) => model.id === resolved.model);

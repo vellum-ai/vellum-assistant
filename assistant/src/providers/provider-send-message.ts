@@ -17,6 +17,7 @@ import {
   isConnectionCompatibleWithModel,
 } from "./connection-model-compat.js";
 import {
+  connectionProviderKind,
   dispatchProviderResolvable,
   expectedVendorProvider,
   resolveEntryConnectionName,
@@ -40,6 +41,13 @@ const log = getLogger("provider-send-message");
 export interface ConfiguredProviderResult {
   provider: Provider;
   configuredProviderName: string;
+  /**
+   * True when the profile's provider was an entry label and dispatch routed
+   * through that row. The row's own credential already signed resolution, so
+   * vendor-keyed preflights (which check the generic per-vendor key slot)
+   * do not apply to this result.
+   */
+  entryRouted: boolean;
 }
 
 export type ConfiguredProviderOptions = Pick<
@@ -248,7 +256,14 @@ export async function resolveConfiguredProvider(
       opts.overrideProfile,
       opts.forceOverrideProfile,
     ),
-    configuredProviderName: inferenceProvider,
+    // The dispatched vendor kind, not the config label: an entry-name
+    // provider reports its row's kind so provider-keyed consumers
+    // (telemetry, pricing) never see a label that matches no catalog id.
+    configuredProviderName:
+      (entryRoute
+        ? connectionProviderKind(entryRoute, resolved.model)
+        : undefined) ?? inferenceProvider,
+    entryRouted: entryRoute !== null,
   };
 }
 

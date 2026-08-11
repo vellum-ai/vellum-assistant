@@ -22,6 +22,7 @@ import {
   isBackgroundConversation,
   isScheduledConversation,
 } from "@/utils/conversation-predicates";
+import { matchesIndexBucket } from "@/utils/section-membership";
 import {
   findConversation,
   updateAllConversationCaches,
@@ -35,7 +36,9 @@ import {
   parseSectionConversationsQueryKey,
   scheduledConversationsQueryKey,
   sectionListPrefix,
+  sidebarSectionsQueryKey,
   unreadConversationCountQueryKey,
+  type SidebarIndexSection,
 } from "@/utils/conversation-list-fetchers";
 import {
   type ConversationListPage,
@@ -119,6 +122,47 @@ export function adjustUnreadCountCache(
     return false;
   }
   queryClient.setQueryData<number | null>(queryKey, current + delta);
+  return true;
+}
+
+/**
+ * Apply a delta to one section's `unread` in the cached sidebar section
+ * index. Optimistic companion to {@link adjustUnreadCountCache}: wherever a
+ * seen/unseen mutation adjusts the global count for a row, the row's own
+ * section adjusts by the same delta, so the collapsed dot answers with the
+ * badge instead of one settle refetch behind it.
+ *
+ * The bucket mirrors the daemon's section aggregation: pinned wins, then a
+ * custom group, then the effective origin channel with NULL reading as
+ * native (the Chats bucket). Deliberately unclamped like the global count,
+ * so `+n` and `-n` are exact inverses; the dot lights on `> 0`, which reads
+ * a briefly negative value as dark.
+ *
+ * Returns `true` when a bucket row was adjusted. No-ops on a `null` index
+ * (assistant without the endpoint), an unfetched index, or a bucket the
+ * index does not carry; the settle refetch reconciles those.
+ */
+export function adjustSectionUnreadCache(
+  queryClient: QueryClient,
+  assistantId: string | null,
+  conversation: Conversation,
+  delta: number,
+): boolean {
+  const queryKey = sidebarSectionsQueryKey(assistantId);
+  const index = queryClient.getQueryData<SidebarIndexSection[] | null>(
+    queryKey,
+  );
+  if (index == null) {
+    return false;
+  }
+
+  const at = index.findIndex((row) => matchesIndexBucket(conversation, row));
+  if (at === -1) {
+    return false;
+  }
+  const next = [...index];
+  next[at] = { ...next[at], unread: next[at].unread + delta };
+  queryClient.setQueryData<SidebarIndexSection[] | null>(queryKey, next);
   return true;
 }
 

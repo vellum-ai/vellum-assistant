@@ -603,6 +603,48 @@ describe("ensureSectionInIndex", () => {
     expect(kinds(client)).toEqual(["chats"]);
   });
 
+  test("an unpinned channel row restores its emptied channel bucket", () => {
+    /* Pinning a channel's only conversation empties its bucket out of the
+       index; the unpin returning the row targets a section the index no
+       longer carries, and without the stub the row is visible nowhere until
+       the settle refetch. */
+    const client = indexClient([
+      { kind: "pinned", total: 1, unread: 0 },
+      { kind: "chats", total: 0, unread: 0 },
+    ]);
+
+    ensureSectionInIndex(
+      client,
+      ASSISTANT_ID,
+      conversation({ originChannel: "slack", groupId: "system:all" }),
+    );
+
+    expect(
+      client.getQueryData<SidebarIndexSection[]>(INDEX_KEY),
+    ).toContainEqual({
+      kind: "channel",
+      channelId: "slack",
+      total: 1,
+      unread: 0,
+    });
+  });
+
+  test("a native ungrouped row needs no stub", () => {
+    // Chats renders regardless and the daemon always indexes it.
+    const index: SidebarIndexSection[] = [
+      { kind: "chats", total: 0, unread: 0 },
+    ];
+    const client = indexClient(index);
+
+    ensureSectionInIndex(
+      client,
+      ASSISTANT_ID,
+      conversation({ groupId: "system:all" }),
+    );
+
+    expect(client.getQueryData<SidebarIndexSection[]>(INDEX_KEY)).toBe(index);
+  });
+
   test("a null index (assistant without the endpoint) is never written", () => {
     const client = indexClient(null);
 

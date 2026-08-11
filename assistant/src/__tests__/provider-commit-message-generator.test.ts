@@ -62,6 +62,7 @@ const mockProvider: Provider = {
 let resolvedProvider: {
   provider: Provider;
   configuredProviderName: string;
+  entryRouted?: boolean;
 } | null = {
   provider: mockProvider,
   configuredProviderName: "anthropic",
@@ -344,6 +345,25 @@ describe("ProviderCommitMessageGenerator", () => {
       configuredProviderName: "vellum",
     };
     const commitMsg = "fix: managed-route commit";
+    mockSendMessage.mockResolvedValueOnce(makeSuccessResponse(commitMsg));
+    const gen = getCommitMessageGenerator();
+    const result = await gen.generateCommitMessage(baseContext, {
+      changedFiles: baseContext.changedFiles,
+    });
+    expect(result.source).toBe("llm");
+    expect(result.message).toBe(commitMsg);
+  });
+
+  // 14. Entry-routed profile — the row's own credential signed resolution,
+  // so no generic per-vendor key needs to exist for the preflight to pass.
+  test("entry-routed result — skips the vendor API-key preflight", async () => {
+    mockSecureKeys = {};
+    resolvedProvider = {
+      provider: mockProvider,
+      configuredProviderName: "anthropic",
+      entryRouted: true,
+    };
+    const commitMsg = "fix: entry-route commit";
     mockSendMessage.mockResolvedValueOnce(makeSuccessResponse(commitMsg));
     const gen = getCommitMessageGenerator();
     const result = await gen.generateCommitMessage(baseContext, {

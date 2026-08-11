@@ -207,7 +207,8 @@ export function matchesSectionFilter(
  *
  * The index decides which sections *render*, so a placement whose
  * destination has no index row yet (the first pin, the first conversation
- * moved into an empty group) would otherwise leave the row visible nowhere:
+ * moved into an empty group, an unpin returning a channel's only
+ * conversation) would otherwise leave the row visible nowhere:
  * the membership pass removes it from its source section immediately, and
  * the destination section would not exist until the settle refetch answers.
  *
@@ -221,6 +222,30 @@ export function matchesSectionFilter(
  * groups cache does not know cannot be named and is skipped, leaving that
  * rare case on the settle refetch.
  */
+/**
+ * Whether `row` is the index bucket holding `conversation`, mirroring the
+ * daemon's aggregation axes: the group axis wins (pinned, then a custom
+ * group), then the effective origin channel with NULL reading as native
+ * (the Chats bucket). The one bucket rule, shared by the stub insertion
+ * here and the unread deltas in `conversation-cache-mutations.ts`.
+ */
+export function matchesIndexBucket(
+  conversation: Conversation,
+  row: SidebarIndexSection,
+): boolean {
+  if (isConversationPinned(conversation)) {
+    return row.kind === "pinned";
+  }
+  if (isCustomGroupId(conversation.groupId)) {
+    return row.kind === "group" && row.groupId === conversation.groupId;
+  }
+  const channel = conversation.originChannel;
+  if (channel == null || channel === NATIVE_ORIGIN_CHANNEL) {
+    return row.kind === "chats";
+  }
+  return row.kind === "channel" && row.channelId === channel;
+}
+
 export function ensureSectionInIndex(
   queryClient: QueryClient,
   assistantId: string | null,
@@ -233,45 +258,57 @@ export function ensureSectionInIndex(
   const index = queryClient.getQueryData<SidebarIndexSection[] | null>(
     queryKey,
   );
-  if (index == null) {
+  if (
+    index == null ||
+    index.some((row) => matchesIndexBucket(conversation, row))
+  ) {
     return;
   }
 
   if (isConversationPinned(conversation)) {
-    if (!index.some((s) => s.kind === "pinned")) {
-      queryClient.setQueryData<SidebarIndexSection[] | null>(queryKey, [
-        { kind: "pinned", total: 1, unread: 0 },
-        ...index,
-      ]);
-    }
+    queryClient.setQueryData<SidebarIndexSection[] | null>(queryKey, [
+      { kind: "pinned", total: 1, unread: 0 },
+      ...index,
+    ]);
     return;
   }
 
   const groupId = conversation.groupId;
-  if (!isCustomGroupId(groupId)) {
+  if (isCustomGroupId(groupId)) {
+    const groups = queryClient.getQueryData<GroupsGetResponse>(
+      groupsGetQueryKey({ path: { assistant_id: assistantId } }),
+    )?.groups;
+    const meta = groups?.find((g) => g.id === groupId);
+    if (!meta) {
+      return;
+    }
+    queryClient.setQueryData<SidebarIndexSection[] | null>(queryKey, [
+      ...index,
+      {
+        kind: "group",
+        groupId,
+        name: meta.name,
+        icon: meta.icon ?? null,
+        sortPosition: meta.sortPosition ?? 0,
+        total: 1,
+        unread: 0,
+      },
+    ]);
     return;
   }
-  if (index.some((s) => s.kind === "group" && s.groupId === groupId)) {
-    return;
-  }
-  const groups = queryClient.getQueryData<GroupsGetResponse>(
-    groupsGetQueryKey({ path: { assistant_id: assistantId } }),
-  )?.groups;
-  const meta = groups?.find((g) => g.id === groupId);
-  if (!meta) {
+
+  /* An ungrouped row's destination is its channel section, and that bucket
+     can be missing too: pinning a channel's only conversation empties its
+     bucket out of the index, so the unpin returning the row targets a
+     section the index no longer carries. The native bucket needs no stub;
+     Chats renders regardless and the daemon always indexes it. */
+  const channel = conversation.originChannel;
+  if (channel == null || channel === NATIVE_ORIGIN_CHANNEL) {
     return;
   }
   queryClient.setQueryData<SidebarIndexSection[] | null>(queryKey, [
     ...index,
-    {
-      kind: "group",
-      groupId,
-      name: meta.name,
-      icon: meta.icon ?? null,
-      sortPosition: meta.sortPosition ?? 0,
-      total: 1,
-      unread: 0,
-    },
+    { kind: "channel", channelId: channel, total: 1, unread: 0 },
   ]);
 }
 

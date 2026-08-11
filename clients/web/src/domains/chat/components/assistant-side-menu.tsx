@@ -303,11 +303,15 @@ export function AssistantSideMenu({
   // Activity dot for a collapsed section header — surfaces processing/unread
   // conversations that live in a collapsed section (attention already
   // force-opens the section via effectiveOpen*). Null when the section is idle.
-  const collapsedActivityDot = (conversations: Conversation[]): ReactNode => {
+  const collapsedActivityDot = (
+    conversations: Conversation[],
+    section: SidebarSection,
+  ): ReactNode => {
     const state = getGroupIndicatorState(
       conversations,
       processingConversationIds,
       attentionConversationIds,
+      section.unread,
     );
     return state ? <GroupIndicatorDot state={state} /> : null;
   };

@@ -9,6 +9,7 @@ import {
   type ComponentProps,
   type CSSProperties,
   type MouseEvent,
+  type ReactElement,
   type ReactNode,
   type Ref,
 } from "react";
@@ -20,6 +21,7 @@ import { Tooltip } from "../tooltip";
 import { PaneResizeHandle } from "../pane-resize-handle";
 import { useResizablePane } from "../../hooks/use-resizable-pane";
 import { cn } from "../../utils/cn";
+import { reportUnmergeableSlotChild } from "../../utils/slot-child";
 
 /**
  * SideMenu primitive — a docked application navigation rail.
@@ -431,14 +433,26 @@ function SideMenuSeparator({
 // SectionHeader: the title row of a group of rows
 // ---------------------------------------------------------------------------
 
-export interface SideMenuSectionHeaderProps extends ComponentProps<"div"> {
-  /**
-   * Render the caller's own element instead, typically a disclosure trigger,
-   * with this row's geometry merged onto it.
-   */
-  asChild?: boolean;
+interface SideMenuSectionHeaderOwnProps extends ComponentProps<"div"> {
+  asChild?: false;
   ref?: Ref<HTMLDivElement>;
 }
+
+/**
+ * Render the caller's own element instead, typically a disclosure trigger,
+ * with this row's geometry merged onto it. The child is the rendered element,
+ * so a ref lands on whatever the caller chose rather than on a `div`.
+ */
+interface SideMenuSectionHeaderSlotProps
+  extends Omit<ComponentProps<"div">, "children" | "ref"> {
+  asChild: true;
+  children: ReactElement;
+  ref?: Ref<HTMLElement>;
+}
+
+export type SideMenuSectionHeaderProps =
+  | SideMenuSectionHeaderOwnProps
+  | SideMenuSectionHeaderSlotProps;
 
 /**
  * The title row of a group in the rail. It is a top-level row like a pill or a
@@ -452,22 +466,38 @@ export interface SideMenuSectionHeaderProps extends ComponentProps<"div"> {
  * it. Typography, horizontal insets, and whatever sits on the trailing edge
  * stay with the caller, whose sidebar decides those.
  */
-function SideMenuSectionHeader({
-  asChild = false,
-  className,
-  ref,
-  ...rest
-}: SideMenuSectionHeaderProps) {
-  const Component = asChild ? Slot : "div";
+function SideMenuSectionHeader(props: SideMenuSectionHeaderProps) {
+  const className = cn(
+    "flex shrink-0 items-center rounded-[6px]",
+    "h-[var(--side-menu-tile-size)] max-md:h-auto",
+    props.className,
+  );
+  if (props.asChild === true) {
+    const {
+      asChild: _asChild,
+      className: _className,
+      children,
+      ref,
+      ...rest
+    } = props;
+    reportUnmergeableSlotChild("SideMenu.SectionHeader", children);
+    return (
+      <Slot
+        ref={ref}
+        data-slot="side-menu-section-header"
+        className={className}
+        {...rest}
+      >
+        {children}
+      </Slot>
+    );
+  }
+  const { asChild: _asChild, className: _className, ref, ...rest } = props;
   return (
-    <Component
+    <div
       ref={ref}
       data-slot="side-menu-section-header"
-      className={cn(
-        "flex shrink-0 items-center rounded-[6px]",
-        "h-[var(--side-menu-tile-size)] max-md:h-auto",
-        className,
-      )}
+      className={className}
       {...rest}
     />
   );

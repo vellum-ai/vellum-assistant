@@ -1,16 +1,18 @@
 import { Slot } from "@radix-ui/react-slot";
 import type { LucideIcon } from "lucide-react";
 import {
-  type AnchorHTMLAttributes,
+  type ComponentProps,
   type CSSProperties,
   type HTMLAttributes,
   type KeyboardEvent,
   type MouseEvent,
+  type ReactElement,
   type ReactNode,
   type Ref,
 } from "react";
 
 import { cn } from "../../utils/cn";
+import { reportUnmergeableSlotChild } from "../../utils/slot-child";
 import { CrossfadeStack } from "../crossfade-stack";
 
 import { MarqueeText } from "./marquee-text";
@@ -36,11 +38,12 @@ import { MarqueeText } from "./marquee-text";
  *
  * Label typography uses the `body-medium-lighter` token (14/400/18).
  *
- * Renders `<a href>` when `href` is provided, `<div role="button">` when
- * `onSelect` is provided (the row container hosts interactive children in
- * `leadingSlot` / `trailingAction`, which HTML forbids inside a native
- * `<button>`), or a non-interactive `<div>` when neither is supplied
- * (useful for pure readout rows).
+ * Renders `<div role="button">` when `onSelect` is provided (the row container
+ * hosts interactive children in `leadingSlot` / `trailingAction`, which HTML
+ * forbids inside a native `<button>`), or a non-interactive `<div>` when it is
+ * not (useful for pure readout rows). A row that navigates supplies its own
+ * anchor through `asChild`, so the link's target and routing stay with the
+ * router the app uses.
  *
  * ### `asChild` (composition pattern)
  *
@@ -50,7 +53,7 @@ import { MarqueeText } from "./marquee-text";
  * provides the interactive state layer (hover, active, focus-ring,
  * aria-current, `group` modifier). It is the state layer alone, so the props
  * that describe a row's contents (`icon`, `label`, `badge`, `trailingAction`,
- * `href`, `onSelect`) belong to the child and are rejected here.
+ * `onSelect`) belong to the child and are rejected here.
  *
  * ### `shape`
  *
@@ -96,11 +99,12 @@ interface PanelItemFrameProps {
   className?: string;
   /** Optional accessible label override (defaults to `label` when it's a string). */
   "aria-label"?: string;
-  ref?: Ref<HTMLAnchorElement | HTMLDivElement | HTMLElement>;
 }
 
 /** PanelItem renders the row's contents from these props. */
-interface PanelItemContentProps extends PanelItemFrameProps {
+interface PanelItemContentProps
+  extends PanelItemFrameProps,
+    Omit<ComponentProps<"div">, "children" | "className" | "aria-label"> {
   asChild?: false;
   /** Ignored: this variant builds its own children from the props below. */
   children?: never;
@@ -147,13 +151,11 @@ interface PanelItemContentProps extends PanelItemFrameProps {
   /**
    * Disabled state for the `onSelect` variant. Blocks click and Enter/Space
    * activation, removes the row from the tab order, and sets `aria-disabled`.
-   * No effect on the anchor (`href`) / `asChild` / non-interactive variants.
+   * No effect on the `asChild` / non-interactive variants.
    */
   disabled?: boolean;
   /** Click handler for the row itself (not `trailingAction`). */
   onSelect?: () => void;
-  /** Render as `<a href>` for navigation rows. */
-  href?: string;
   /**
    * When true, wrap the label in `MarqueeText` so an overflowing single-line
    * label scrolls horizontally on row hover and snaps back to the start when
@@ -183,10 +185,17 @@ interface PanelItemContentProps extends PanelItemFrameProps {
  * `never`s make that a type error at the call site instead of a prop that is
  * silently dropped at runtime.
  */
-interface PanelItemSlotProps extends PanelItemFrameProps {
+interface PanelItemSlotProps
+  extends PanelItemFrameProps,
+    Omit<HTMLAttributes<HTMLElement>, "children" | "className" | "aria-label"> {
   asChild: true;
-  /** Exactly one element, which becomes the rendered row. */
-  children: ReactNode;
+  /**
+   * The one element that becomes the rendered row, and the one this row's ref
+   * points at. A fragment type-checks and cannot work: see
+   * {@link reportUnmergeableSlotChild}.
+   */
+  children: ReactElement;
+  ref?: Ref<HTMLElement>;
   icon?: never;
   leadingSlot?: never;
   label?: never;
@@ -197,7 +206,6 @@ interface PanelItemSlotProps extends PanelItemFrameProps {
   marqueeOnHover?: never;
   disabled?: never;
   onSelect?: never;
-  href?: never;
   trigger?: never;
 }
 
@@ -380,12 +388,80 @@ const BADGE_YIELDS_TO_TRAILING_CLASSES = [
 // Component
 // ---------------------------------------------------------------------------
 
-type SharedAnchorProps = Omit<
-  AnchorHTMLAttributes<HTMLAnchorElement>,
-  "href" | "children"
->;
+/** The row shell: geometry, active treatment, and whether it answers a pointer. */
+function rowClasses({
+  shape,
+  active,
+  activeVariant,
+  interactive,
+  className,
+}: {
+  shape: "row" | "pill";
+  active: boolean;
+  activeVariant: "default" | "branded";
+  interactive: boolean;
+  className: string | undefined;
+}): string {
+  return cn(
+    ROW_BASE_CLASSES,
+    interactive && INTERACTIVE_CLASSES,
+    interactive && (shape === "pill" ? PILL_HOVER_CLASS : ROW_HOVER_CLASS),
+    activeVariant === "branded"
+      ? ACTIVE_BRANDED_CLASSES
+      : ACTIVE_DEFAULT_CLASSES,
+    shape === "pill" && PILL_SHAPE_CLASSES,
+    className,
+  );
+}
 
-function PanelItem({
+/**
+ * Dispatches on where the row's content comes from, which is the same question
+ * as what element it renders. Each branch takes one variant's props, so the
+ * attributes it spreads and the element its ref points at agree by
+ * construction rather than by assertion.
+ */
+function PanelItem(props: PanelItemProps) {
+  if (props.asChild === true) {
+    return <PanelItemSlotRow {...props} />;
+  }
+  return <PanelItemContentRow {...props} />;
+}
+
+function PanelItemSlotRow({
+  asChild: _asChild,
+  shape = "row",
+  active = false,
+  activeVariant = "default",
+  className,
+  "aria-label": ariaLabel,
+  children,
+  ref,
+  ...rest
+}: PanelItemSlotProps) {
+  reportUnmergeableSlotChild("PanelItem", children);
+  return (
+    <Slot
+      data-slot="panel-item"
+      ref={ref}
+      className={rowClasses({
+        shape,
+        active,
+        activeVariant,
+        interactive: true,
+        className,
+      })}
+      aria-current={active ? "page" : undefined}
+      aria-label={ariaLabel}
+      {...rest}
+    >
+      {children}
+    </Slot>
+  );
+}
+
+function PanelItemContentRow({
+  asChild: _asChild,
+  children: _children,
   icon: Icon,
   leadingSlot,
   label,
@@ -398,16 +474,15 @@ function PanelItem({
   activeVariant = "default",
   disabled = false,
   onSelect,
-  href,
   marqueeOnHover = false,
   className,
   "aria-label": ariaLabel,
   trigger = false,
-  asChild = false,
-  children,
   ref,
+  onClick,
+  onKeyDown,
   ...rest
-}: PanelItemProps & SharedAnchorProps & HTMLAttributes<HTMLDivElement>) {
+}: PanelItemContentProps) {
   const ariaCurrent = active ? ("page" as const) : undefined;
   const resolvedAriaLabel =
     ariaLabel ?? (typeof label === "string" ? label : undefined);
@@ -490,97 +565,50 @@ function PanelItem({
     </>
   );
 
-  const activeClasses =
-    activeVariant === "branded"
-      ? ACTIVE_BRANDED_CLASSES
-      : ACTIVE_DEFAULT_CLASSES;
-  const isInteractive = asChild || !!href || !!onSelect || trigger;
-  const rowClasses = cn(
-    ROW_BASE_CLASSES,
-    isInteractive && INTERACTIVE_CLASSES,
-    isInteractive && (shape === "pill" ? PILL_HOVER_CLASS : ROW_HOVER_CLASS),
-    activeClasses,
-    shape === "pill" && PILL_SHAPE_CLASSES,
+  const interactive = onSelect != null || trigger;
+  const classes = rowClasses({
+    shape,
+    active,
+    activeVariant,
+    interactive,
     className,
-  );
+  });
 
-  // ── asChild variant ──────────────────────────────────────────────────
-  if (asChild) {
-    return (
-      <Slot
-        data-slot="panel-item"
-        ref={ref as Ref<HTMLElement>}
-        className={rowClasses}
-        aria-current={ariaCurrent}
-        aria-label={resolvedAriaLabel}
-        {...(rest as HTMLAttributes<HTMLElement>)}
-      >
-        {children}
-      </Slot>
-    );
-  }
-
-  // ── Anchor variant ─────────────────────────────────────────────────
-  if (href) {
-    const { onClick: anchorOnClick, ...anchorProps } =
-      rest as SharedAnchorProps;
-    return (
-      <a
-        {...anchorProps}
-        data-slot="panel-item"
-        ref={ref as Ref<HTMLAnchorElement>}
-        href={href}
-        className={rowClasses}
-        aria-current={ariaCurrent}
-        aria-label={resolvedAriaLabel}
-        onClick={(event) => {
-          anchorOnClick?.(event);
-          if (!event.defaultPrevented) {
-            onSelect?.();
-          }
-        }}
-      >
-        {innerMarkup}
-      </a>
-    );
-  }
-
-  // ── Button variant ─────────────────────────────────────────────────
   // Rendered as `<div role="button">` rather than `<button>` because rows
-  // commonly host interactive children (pin toggles, ellipsis menus) in
-  // their `leadingSlot` / `trailingAction` slots. HTML forbids nesting
-  // interactive elements inside `<button>`, which React 19 flags as a
-  // hydration error. The same `Enter`/`Space` activation, tab focus, and
-  // screen-reader semantics are preserved via `role="button"` + `tabIndex`.
-  // `disabled` is honored via `aria-disabled` + skipped activation +
-  // `tabIndex={-1}`, matching native `<button disabled>` behavior.
-  if (onSelect || trigger) {
-    const {
-      onClick: rowOnClick,
-      onKeyDown: rowOnKeyDown,
-      ...divProps
-    } = rest as HTMLAttributes<HTMLDivElement>;
-
+  // commonly host interactive children (pin toggles, ellipsis menus) in their
+  // `leadingSlot` / `trailingAction` slots. HTML forbids nesting interactive
+  // elements inside `<button>`, which React 19 flags as a hydration error. The
+  // same `Enter`/`Space` activation, tab focus, and screen-reader semantics are
+  // preserved via `role="button"` + `tabIndex`. `disabled` is honored via
+  // `aria-disabled` + skipped activation + `tabIndex={-1}`, matching native
+  // `<button disabled>` behavior.
+  if (interactive) {
     const composedOnClick = (event: MouseEvent<HTMLDivElement>) => {
       if (disabled) {
         event.preventDefault();
         return;
       }
-      rowOnClick?.(event);
+      onClick?.(event);
       if (!event.defaultPrevented) {
         onSelect?.();
       }
     };
 
     const composedOnKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
-      if (disabled) return;
-      rowOnKeyDown?.(event);
-      if (event.defaultPrevented) return;
+      if (disabled) {
+        return;
+      }
+      onKeyDown?.(event);
+      if (event.defaultPrevented) {
+        return;
+      }
       if (event.key === "Enter" || event.key === " ") {
         /* A trigger has no handler of its own; the parent's `onKeyDown` above
            has already run and is what opens it. Preventing default here would
            swallow the space key for it. */
-        if (!onSelect) return;
+        if (!onSelect) {
+          return;
+        }
         event.preventDefault();
         onSelect();
       }
@@ -588,13 +616,13 @@ function PanelItem({
 
     return (
       <div
-        {...divProps}
+        {...rest}
         data-slot="panel-item"
-        ref={ref as Ref<HTMLDivElement>}
+        ref={ref}
         role="button"
         tabIndex={disabled ? -1 : 0}
         aria-disabled={disabled || undefined}
-        className={rowClasses}
+        className={classes}
         aria-current={ariaCurrent}
         aria-label={resolvedAriaLabel}
         onClick={composedOnClick}
@@ -605,16 +633,16 @@ function PanelItem({
     );
   }
 
-  // ── Non-interactive fallback ────────────────────────────────────────
-  const divProps = rest as HTMLAttributes<HTMLDivElement>;
   return (
     <div
       data-slot="panel-item"
-      ref={ref as Ref<HTMLDivElement>}
-      className={rowClasses}
+      ref={ref}
+      className={classes}
       aria-current={ariaCurrent}
       aria-label={resolvedAriaLabel}
-      {...divProps}
+      onClick={onClick}
+      onKeyDown={onKeyDown}
+      {...rest}
     >
       {innerMarkup}
     </div>

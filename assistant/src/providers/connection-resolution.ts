@@ -32,6 +32,7 @@ import {
   resolveCallSiteConfig,
   selectWinningProfile,
 } from "../config/llm-resolver.js";
+import { unknownLlmProviderIssue } from "../config/schemas/llm.js";
 import { getDb } from "../persistence/db-connection.js";
 import { credentialKey } from "../security/credential-key.js";
 import { ProviderNotConfiguredError } from "../util/errors.js";
@@ -88,6 +89,30 @@ export function resolveEntryConnectionName(
   } catch {
     return null;
   }
+}
+
+/**
+ * Write-surface membership for a PROFILE provider value: the known vendor
+ * and identity set, plus existing connection entry rows. Fail-closed on DB
+ * unavailability (an unverifiable entry name is rejected; the write is
+ * retryable), unlike the selection-time predicate below, which is
+ * fail-open so a DB blip never heals away a valid profile. Call-site
+ * fragments keep vendor-only membership: overrides become model-only with
+ * the entries demolition, so entries must not leak into them meanwhile.
+ */
+export function writableProfileProviderIssue(provider: string): string | null {
+  const issue = unknownLlmProviderIssue(provider);
+  if (issue === null) {
+    return null;
+  }
+  try {
+    if (getConnection(getDb(), provider) != null) {
+      return null;
+    }
+  } catch {
+    // Unverifiable: fall through to the rejection.
+  }
+  return `Invalid provider "${provider}". Use a known provider or the name of an existing connection.`;
 }
 
 /**
@@ -564,9 +589,21 @@ export async function preflightResolvedConfig(
   // upstream; an unroutable vellum model throws here — it is statically
   // detectable, exactly what preflight exists to surface.
   const identity = resolveRoutingIdentity(resolved.provider, resolved.model);
-  const provider = identity?.expectedProvider ?? resolved.provider;
+  // An entry-name provider IS the connection name, and the row's kind is
+  // what the checks below judge against (same translation dispatch uses).
+  // Precedence matches dispatch exactly: an explicit provider_connection
+  // wins over the entry name, so preflight judges the row the request
+  // actually uses rather than a healthy entry the request ignores.
+  const entryName = identity
+    ? null
+    : resolveEntryConnectionName(resolved.provider);
+  const provider = identity
+    ? identity.expectedProvider
+    : entryName
+      ? (connectionProviderKind(entryName, resolved.model) ?? resolved.provider)
+      : resolved.provider;
   const connectionName =
-    identity?.connectionName ?? resolved.provider_connection;
+    identity?.connectionName ?? resolved.provider_connection ?? entryName;
   if (!connectionName) {
     return;
   }
