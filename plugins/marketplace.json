@@ -426,8 +426,8 @@
       "name": "unabyss",
       "source": {
         "source": "github",
-        "repo": "vellum-ai/unabyss-vellum",
-        "ref": "bc2c6d815fdbb36b58ca78ca4bb28f507fc415c3"
+        "repo": "Unabyss/unabyss-vellum",
+        "ref": "9f0bb0753dad09dace8578e242961bc2da912af3"
       },
       "description": "Personal and company context from Unabyss, available to your agent through the Unabyss MCP server.",
       "category": "memory",
