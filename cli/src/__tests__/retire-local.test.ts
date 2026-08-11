@@ -16,10 +16,11 @@ import {
   getDaemonPidPath,
   type AssistantEntry,
 } from "../lib/assistant-config.js";
+import { getLockfilePath } from "../lib/environments/paths.js";
+import { getCurrentEnvironment } from "../lib/environments/resolve.js";
 
 const testDir = mkdtempSync(join(tmpdir(), "retire-local-test-"));
 const originalLockfileDir = process.env.VELLUM_LOCKFILE_DIR;
-const originalEnvironment = process.env.VELLUM_ENVIRONMENT;
 
 // Snapshot the real modules before mocking so the module-scoped `afterAll`
 // below can restore them. Bun runs every test file in one process with a
@@ -86,7 +87,7 @@ function makeEntry(assistantId: string): AssistantEntry {
 
 function writeLockfile(entries: AssistantEntry[]): void {
   writeFileSync(
-    join(testDir, ".vellum.lock.json"),
+    getLockfilePath(getCurrentEnvironment()),
     JSON.stringify({ assistants: entries }, null, 2) + "\n",
   );
 }
@@ -94,7 +95,6 @@ function writeLockfile(entries: AssistantEntry[]): void {
 describe("retireLocal — CES sibling stop", () => {
   beforeAll(() => {
     process.env.VELLUM_LOCKFILE_DIR = testDir;
-    process.env.VELLUM_ENVIRONMENT = "production";
   });
 
   beforeEach(() => {
@@ -120,11 +120,6 @@ describe("retireLocal — CES sibling stop", () => {
       delete process.env.VELLUM_LOCKFILE_DIR;
     } else {
       process.env.VELLUM_LOCKFILE_DIR = originalLockfileDir;
-    }
-    if (originalEnvironment === undefined) {
-      delete process.env.VELLUM_ENVIRONMENT;
-    } else {
-      process.env.VELLUM_ENVIRONMENT = originalEnvironment;
     }
     rmSync(testDir, { recursive: true, force: true });
   });

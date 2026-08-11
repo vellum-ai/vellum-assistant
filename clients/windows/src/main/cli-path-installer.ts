@@ -39,7 +39,8 @@ export const systemRegistryRunner: RegistryRunner = (command, args) =>
   });
 
 const sameWindowsPath = (left: string, right: string): boolean =>
-  path.win32.resolve(left) === path.win32.resolve(right);
+  path.win32.resolve(left).toLowerCase() ===
+  path.win32.resolve(right).toLowerCase();
 
 export function resolveCliLauncherPaths(
   localAppData: string,

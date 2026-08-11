@@ -165,6 +165,19 @@ test("reports a launcher shadowed by the machine PATH", () => {
   ).toBe("shadowed");
 });
 
+test("treats Windows PATH entries as case-insensitive", () => {
+  const root = makeTempDir();
+  const paths = resolveCliLauncherPaths(path.join(root, "Local App Data"));
+  const source = writeRuntime(path.join(root, "runtime"), "1.0.0");
+  const registeredBinDir = paths.binDir.toUpperCase();
+  const userRegistry = registry(registeredBinDir);
+
+  expect(installCliLauncher(source, "1.0.0", paths, userRegistry.run)).toBe(
+    "installed",
+  );
+  expect(userRegistry.value()).toBe(registeredBinDir);
+});
+
 test("restores the last launcher when PATH registration fails", () => {
   const root = makeTempDir();
   const paths = resolveCliLauncherPaths(path.join(root, "Local App Data"));
