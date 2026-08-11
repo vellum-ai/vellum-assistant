@@ -136,6 +136,18 @@ export {
   type ConfirmDialogProps,
 } from "./components/confirm-dialog";
 export {
+  ActionMenu,
+  type ActionMenuPresentation,
+  type ActionMenuRootProps,
+  type ActionMenuTriggerProps,
+  type ActionMenuContentProps,
+  type ActionMenuItemProps,
+} from "./components/action-menu";
+export {
+  TOUCH_SURFACE_MEDIA_QUERY,
+  useTouchSurface,
+} from "./utils/touch-surface";
+export {
   Menu,
   type MenuContentProps,
   type MenuItemProps,
@@ -253,6 +265,7 @@ export {
   type ShortcutKeysProps,
 } from "./components/shortcut-keys";
 export { cn } from "./utils/cn";
+export type { CustomPropertyStyle } from "./utils/custom-property-style";
 export {
   hoverRevealClasses,
   hoverRevealYieldClasses,
