@@ -8,12 +8,13 @@
  *   `ConversationRowList`. Used by channel sections and custom groups.
  *
  * Nothing paginates: the rows just keep going. What differs is where they
- * scroll. A section caps at {@link SIDEBAR_SECTION_MAX_HEIGHT} and scrolls
- * within itself, since an uncapped busy section would push its neighbours off
- * screen, unless it opts out via `unbounded` (Pinned: expected to stay
- * short, and grows to fit its rows instead). The flat list instead scrolls
- * against the sidebar body it already fills (`scrollParent`), which keeps
- * the rail to a single scrollbar.
+ * scroll. By default a section caps at {@link SIDEBAR_SECTION_MAX_HEIGHT} and
+ * scrolls within itself, since an uncapped busy section would push the
+ * sections under it off screen. Two things opt out, and both are the sidebar's
+ * call rather than this component's: `unbounded` (Pinned - curated, expected
+ * to stay short, grows to fit its rows) and `scrollParent` (the last section -
+ * nothing sits under it, so it scrolls against the sidebar body it already
+ * reaches the bottom of, which also keeps the rail to a single scrollbar).
  *
  * Either way a list past {@link CONVERSATION_LIST_VIRTUALIZE_THRESHOLD} rows
  * windows rather than mounting every one, because an assistant accumulates
@@ -56,9 +57,11 @@ export const CONVERSATION_LIST_VIRTUALIZE_THRESHOLD = 30;
 export interface ConversationRowListProps {
   items: Conversation[];
   /**
-   * Scroll against this ancestor rather than bounding the list. Only the flat
-   * list passes it: it already fills the sidebar body, so opening a scroller
-   * of its own would put a second scrollbar in the rail.
+   * Scroll against this ancestor rather than bounding the list. The sidebar
+   * passes its body for the last section, which has nothing under it to
+   * protect and so should run to the bottom of the rail instead of stopping
+   * at the cap; bounding it there would also put a second scrollbar in the
+   * rail. Ignored when `unbounded` is set - that already skips the cap.
    */
   scrollParent?: HTMLElement;
   /**

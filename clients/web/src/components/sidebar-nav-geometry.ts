@@ -37,6 +37,12 @@ export const SIDEBAR_SECTION_INDENT = 0;
  * desktop rows (30px each plus their 4px gap), which is enough to read a
  * section as a list rather than a preview while still leaving room for its
  * neighbours.
+ *
+ * Applies only to a section with something under it to protect: the last
+ * section runs to the bottom of the rail instead (`scrollParent`, see
+ * `assistant-side-menu.tsx`). Capping it too is what left the rail's lower
+ * half empty in 0.11.3, since Chats sits last and holds everything whenever
+ * channel grouping is off.
  */
 export const SIDEBAR_SECTION_MAX_HEIGHT = 300;
 

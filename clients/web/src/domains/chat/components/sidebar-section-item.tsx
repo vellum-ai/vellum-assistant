@@ -13,9 +13,11 @@
  * a custom group adds rename/delete/copy-id, Chats and the channel sections add
  * the channel-grouping toggle.
  *
- * The row list is the one real exception: every section caps and scrolls within
- * itself except Pinned, which grows to fit its own rows instead (see
- * `unbounded` on `ConversationRowList`).
+ * The row list is the one real exception: a section caps and scrolls within
+ * itself unless it is Pinned, which grows to fit its own rows (`unbounded`),
+ * or the last section, which scrolls against the sidebar body instead
+ * (`scrollParent`, decided by position in `assistant-side-menu.tsx`). Both are
+ * ways of saying "nothing here needs protecting from this section's length".
  */
 
 import type { ReactNode } from "react";
@@ -46,6 +48,13 @@ export interface SidebarSectionItemProps {
   drag?: CollapsibleNavSectionDrag;
   /** Activity dot shown in the header only while the section is collapsed. */
   collapsedIndicator?: (conversations: Conversation[]) => ReactNode;
+  /**
+   * Scroll this section's rows against this ancestor instead of capping them
+   * at `SIDEBAR_SECTION_MAX_HEIGHT`. The sidebar passes its body for the last
+   * section only; the reasoning for that lives at the call site, since
+   * position is something only the list can see.
+   */
+  scrollParent?: HTMLElement;
 }
 
 export function SidebarSectionItem({
@@ -54,6 +63,7 @@ export function SidebarSectionItem({
   groupMenu: buildGroupMenu,
   drag,
   collapsedIndicator,
+  scrollParent,
 }: SidebarSectionItemProps) {
   const conversations = useSectionConversations(assistantId, section);
 
@@ -84,6 +94,7 @@ export function SidebarSectionItem({
       // rest). It is the one section that never caps/scrolls internally:
       // it grows to fit its own rows instead.
       unbounded={section.type === "pinned"}
+      scrollParent={scrollParent}
       items={conversations}
     />
   );

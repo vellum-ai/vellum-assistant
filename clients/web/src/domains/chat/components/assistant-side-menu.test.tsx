@@ -1441,16 +1441,17 @@ describe("AssistantSideMenu · equal section treatment", () => {
     usePinnedAppsStore.setState({ pinnedApps: [], pinnedAppIds: new Set() });
   });
 
-  // Pinned is the one section that doesn't cap: it grows to fit its own
-  // rows (user-curated, expected to stay short). Every derived section -
-  // Chats and each channel section - caps at SIDEBAR_SECTION_MAX_HEIGHT
-  // and scrolls within itself, so a busy section can never push its
-  // neighbours out of reach. Regression guard: a polish pass once unbound
-  // Chats onto the sidebar body, which parked the channel sections below
-  // hundreds of rows.
-  test("Chats and channel sections cap/scroll internally; Pinned doesn't", () => {
-    // A real DOM render, not `parse`: `scrollParent` only takes effect once
-    // the sidebar body's ref has mounted.
+  /**
+   * Renders the rail for real (not `parse`): `scrollParent` only takes effect
+   * once the sidebar body's ref has mounted, so the cap can't be read off
+   * static markup. Returns each section's own element by label.
+   *
+   * `openSections` clicks the named headers first - only Pinned and Chats
+   * default open, so any other section's row list isn't mounted (and so has
+   * no cap to assert on) until its header opens it. Going through the title
+   * also exercises the whole-header toggle.
+   */
+  function renderSectionsForCapCheck(openSections: string[] = []) {
     const { container } = render(
       createElement(AssistantSideMenu, {
         assistantId: "asst-1",
@@ -1461,31 +1462,62 @@ describe("AssistantSideMenu · equal section treatment", () => {
         onSelectConversation: () => {},
       }),
     );
-    try {
-      // Channel sections default closed (only Pinned/Chats default open),
-      // so Slack's row list isn't mounted until its header opens it. Going
-      // through the title also exercises the whole-header toggle.
-      const slackTrigger = Array.from(
+    for (const label of openSections) {
+      const trigger = Array.from(
         container.querySelectorAll<HTMLElement>(
           '[data-slot="collapsible-nav-section-title"]',
         ),
-      ).find((el) => el.textContent?.includes("Slack"));
+      ).find((el) => el.textContent?.includes(label));
       act(() => {
-        slackTrigger?.click();
+        trigger?.click();
       });
-
-      const sections = sectionElements(container);
-      const labels = sectionLabels(container);
-      const pinned = sections[labels.indexOf("Pinned")];
-      const chats = sections[labels.indexOf("Chats")];
-      const slack = sections[labels.indexOf("Slack")];
-      if (!pinned || !chats || !slack) {
-        throw new Error("expected Pinned, Chats, and Slack sections");
+    }
+    const sections = sectionElements(container);
+    const labels = sectionLabels(container);
+    return (label: string): HTMLElement => {
+      const section = sections[labels.indexOf(label)];
+      if (!section) {
+        throw new Error(`expected a "${label}" section`);
       }
+      return section;
+    };
+  }
 
-      expect(pinned.querySelector(".overflow-y-auto")).toBeNull();
-      expect(chats.querySelector(".overflow-y-auto")).not.toBeNull();
-      expect(slack.querySelector(".overflow-y-auto")).not.toBeNull();
+  /** A section caps when it owns a scroller; uncapped ones just list rows. */
+  const capsInternally = (section: HTMLElement) =>
+    section.querySelector(".overflow-y-auto") != null;
+
+  // A section caps at SIDEBAR_SECTION_MAX_HEIGHT so it can't push the
+  // sections *under* it out of reach. Two kinds of section have nothing to
+  // protect and so don't cap: Pinned (user-curated, grows to fit its own
+  // rows) and whichever section is last. Regression guard both ways - a
+  // polish pass once unbound Chats onto the sidebar body and parked the
+  // channel sections below hundreds of rows, and the card conversion then
+  // capped every section unconditionally, which left the rail's lower half
+  // empty whenever Chats sat last.
+  test("a section caps only when something sits under it; Pinned never does", () => {
+    const section = renderSectionsForCapCheck(["Slack"]);
+    try {
+      // Grouped: Pinned, Alpha, Chats, Slack. Slack is last.
+      expect(capsInternally(section("Pinned"))).toBe(false);
+      expect(capsInternally(section("Chats"))).toBe(true);
+      expect(capsInternally(section("Slack"))).toBe(false);
+    } finally {
+      cleanup();
+    }
+  });
+
+  // The reported 0.11.3 regression: ungrouped, Chats is the last section and
+  // holds every conversation the curated sections didn't claim, so capping it
+  // at 300px stopped the list a few rows down a full-height rail.
+  test("ungrouped, Chats runs to the bottom instead of capping", () => {
+    localStorage.setItem("vellum:sidebar-view-mode:asst-1", "all");
+    const section = renderSectionsForCapCheck(["Alpha"]);
+    try {
+      // Ungrouped: Pinned, Alpha, Chats. No channel sections, so Chats is
+      // last - and Alpha still caps, since Chats sits under it.
+      expect(capsInternally(section("Chats"))).toBe(false);
+      expect(capsInternally(section("Alpha"))).toBe(true);
     } finally {
       cleanup();
     }

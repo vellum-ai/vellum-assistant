@@ -379,7 +379,20 @@ export function AssistantSideMenu({
     });
   };
 
-  const renderSection = (section: SidebarSection) => (
+  /* The last section scrolls against the sidebar body rather than capping at
+     `SIDEBAR_SECTION_MAX_HEIGHT`. The cap is there so a busy section cannot
+     push the sections *under* it out of reach (LUM-3040) - the last section
+     has none, so the cap buys nothing there and costs the rail everything
+     below the cap. Ungrouped, Chats is that section and holds every
+     conversation, which is how the card conversion shipped a 300px list on a
+     900px rail.
+
+     Positional rather than per-type: "is anything below me" is the question
+     the cap is actually asking, and asking it that way keeps holding when the
+     user reorders the sections, without this having to know which kinds of
+     section run long. Pinned ignores it either way - `unbounded` already
+     grows it to fit its own rows. */
+  const renderSection = (section: SidebarSection, isLast: boolean) => (
     <SidebarSectionItem
       key={section.key}
       section={section}
@@ -387,6 +400,7 @@ export function AssistantSideMenu({
       groupMenu={(conversations) => sectionMenu(section, conversations)}
       drag={sectionDragFor(section)}
       collapsedIndicator={collapsedActivityDot}
+      scrollParent={isLast ? (bodyElement ?? undefined) : undefined}
     />
   );
 
@@ -535,7 +549,12 @@ export function AssistantSideMenu({
                     no wrapping header. Each section's menu carries the
                     Group by toggle, which is why removing the persistent
                     "Conversations" header loses nothing. */}
-                  {sidebar.sections.map(renderSection)}
+                  {sidebar.sections.map((section, index) =>
+                    renderSection(
+                      section,
+                      index === sidebar.sections.length - 1,
+                    ),
+                  )}
                 </CollapsibleNavSection.Root>
               </SidebarListContextMenu>
               <SidebarBackToTop
