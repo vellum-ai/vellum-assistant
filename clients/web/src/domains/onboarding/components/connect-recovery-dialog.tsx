@@ -1,12 +1,10 @@
+import { Loader2 } from "lucide-react";
 import { useEffect, useState } from "react";
 
 import { Button } from "@vellumai/design-library/components/button";
-import { ConfirmDialog } from "@vellumai/design-library/components/confirm-dialog";
 import { Modal } from "@vellumai/design-library/components/modal";
 
 import { RetireConfirmDialog } from "@/components/retire-confirm-dialog";
-
-type RecoveryStep = "menu" | "confirm-repair" | "confirm-retire";
 
 interface ConnectRecoveryDialogProps {
   open: boolean;
@@ -17,7 +15,7 @@ interface ConnectRecoveryDialogProps {
   /** Failure from a repair/retire attempt, shown inline. */
   errorMessage?: string;
   onCancel: () => void;
-  /** Fired only after the nested repair confirmation. */
+  /** Fired directly by the primary action. */
   onRepair: () => void;
   /** Fired only after the nested retire confirmation. */
   onRetire: () => void;
@@ -25,10 +23,18 @@ interface ConnectRecoveryDialogProps {
 
 /**
  * Recovery dialog for a local assistant whose guardian token is missing or
- * can no longer be refreshed. Offers three paths: cancel back to the chooser,
- * wake-and-repair (re-provisions the token — revokes the assistant's other
- * device-bound tokens, so it sits behind an explicit confirmation), or retire
- * (destructive, also confirmed).
+ * can no longer be refreshed. Offers three paths: wake-and-repair, cancel back
+ * to the chooser, or retire.
+ *
+ * Repair is the way back in and fires on a single click. It re-provisions the
+ * token and so revokes the assistant's other device-bound tokens; that
+ * consequence is stated in the body copy, which is where a user reaching this
+ * dialog on every launch will actually read it, rather than behind a second
+ * confirmation step they learn to click through.
+ *
+ * Retire is destructive and unrelated to getting back in, so it sits below a
+ * divider in a compact, low-emphasis form instead of adjacent to the primary
+ * button, and keeps its own confirmation.
  */
 function ConnectRecoveryDialog({
   open,
@@ -39,11 +45,11 @@ function ConnectRecoveryDialog({
   onRepair,
   onRetire,
 }: ConnectRecoveryDialogProps) {
-  const [step, setStep] = useState<RecoveryStep>("menu");
+  const [confirmingRetire, setConfirmingRetire] = useState(false);
 
   useEffect(() => {
     if (open) {
-      setStep("menu");
+      setConfirmingRetire(false);
     }
   }, [open]);
 
@@ -54,35 +60,14 @@ function ConnectRecoveryDialog({
     </span>
   ) : null;
 
-  if (step === "confirm-repair") {
-    return (
-      <ConfirmDialog
-        open={open}
-        title="Repair Assistant?"
-        message={
-          <>
-            Repairing re-provisions this assistant&rsquo;s authentication token.
-            Any other devices or browser sessions connected to it will be signed
-            out and need to reconnect.
-            {errorLine}
-          </>
-        }
-        confirmLabel="Repair"
-        isPending={isPending}
-        onConfirm={onRepair}
-        onCancel={() => setStep("menu")}
-      />
-    );
-  }
-
-  if (step === "confirm-retire") {
+  if (confirmingRetire) {
     return (
       <RetireConfirmDialog
         open={open}
         isPending={isPending}
         extraMessage={errorLine}
         onConfirm={onRetire}
-        onCancel={() => setStep("menu")}
+        onCancel={() => setConfirmingRetire(false)}
       />
     );
   }
@@ -113,8 +98,10 @@ function ConnectRecoveryDialog({
         <Modal.Body>
           <Modal.Description>
             The authentication token for {assistantName} is missing or can no
-            longer be refreshed, so this assistant can&rsquo;t be connected. You
-            can repair it, retire it, or pick a different assistant.
+            longer be refreshed, so this assistant can&rsquo;t be connected.
+            Repairing wakes it and re-provisions the token; any other devices or
+            browser sessions connected to it will be signed out and need to
+            reconnect.
           </Modal.Description>
           {errorLine}
           <div className="mt-5 flex w-full flex-col gap-2">
@@ -122,17 +109,12 @@ function ConnectRecoveryDialog({
               variant="primary"
               fullWidth
               disabled={isPending}
-              onClick={() => setStep("confirm-repair")}
+              leftIcon={
+                isPending ? <Loader2 className="animate-spin" /> : undefined
+              }
+              onClick={onRepair}
             >
-              Wake &amp; Repair
-            </Button>
-            <Button
-              variant="dangerOutline"
-              fullWidth
-              disabled={isPending}
-              onClick={() => setStep("confirm-retire")}
-            >
-              Retire Assistant
+              {isPending ? "Repairing…" : "Wake & Repair"}
             </Button>
             <Button
               variant="outlined"
@@ -141,6 +123,16 @@ function ConnectRecoveryDialog({
               onClick={onCancel}
             >
               Cancel
+            </Button>
+          </div>
+          <div className="mt-4 flex justify-center border-t border-[var(--border-base)] pt-3">
+            <Button
+              variant="dangerGhost"
+              size="compact"
+              disabled={isPending}
+              onClick={() => setConfirmingRetire(true)}
+            >
+              Retire Assistant…
             </Button>
           </div>
         </Modal.Body>

@@ -244,6 +244,61 @@ describe("primeLocalGatewayConnectionWithRepair", () => {
     expect(fetchGuardianTokenHost).toHaveBeenCalledTimes(3);
   });
 
+  test("rides out a post-wake guardian refresh 401, then reconnects", async () => {
+    // The reopen-the-app symptom: with the gateway down, the host's guardian
+    // refresh comes back empty and is reported as a 401. Wake restarts the
+    // gateway, but the refresh that follows can still land before it answers.
+    // Riding that out is what keeps a plain reopen from dead-ending on the
+    // recovery dialog.
+    let fetches = 0;
+    fetchGuardianTokenHost = mock(async (_id: string) => {
+      fetches++;
+      if (fetches <= 2) {
+        throw new GuardianTokenError(401, "Failed to refresh guardian token");
+      }
+      return "tok";
+    });
+
+    await primeLocalGatewayConnectionWithRepair();
+
+    expect(wakeLocalAssistantHost).toHaveBeenCalledTimes(1);
+    // One pre-wake fetch, one post-wake fetch ridden out, then the success.
+    expect(fetches).toBe(3);
+  });
+
+  test("a spent refresh token surfaces after a short window, not the full budget", async () => {
+    // A 401 that never clears is a genuinely spent refresh token: only the
+    // user-confirmed guardian re-provision fixes it, so the recovery controls
+    // must appear promptly rather than after the whole ride-out budget.
+    fetchGuardianTokenHost = mock(async (_id: string) => {
+      throw new GuardianTokenError(401, "Failed to refresh guardian token");
+    });
+
+    const err = await primeLocalGatewayConnectionWithRepair().catch(
+      (e: unknown) => e,
+    );
+
+    expect(err).toBeInstanceOf(GuardianTokenError);
+    expect(wakeLocalAssistantHost).toHaveBeenCalledTimes(1);
+    // One pre-wake fetch plus a three-attempt post-wake window, well short of
+    // the eight-attempt budget a still-starting gateway gets.
+    expect(fetchGuardianTokenHost).toHaveBeenCalledTimes(4);
+    expect(LOCAL_GATEWAY_STARTUP_RETRY.attempts).toBeGreaterThan(4);
+  });
+
+  test("a post-wake 404 never rides out — wake would already have written the token", async () => {
+    primeShouldSucceed = () => false;
+
+    const err = await primeLocalGatewayConnectionWithRepair().catch(
+      (e: unknown) => e,
+    );
+
+    expect(err).toBeInstanceOf(GuardianTokenError);
+    expect((err as InstanceType<typeof GuardianTokenError>).status).toBe(404);
+    // One pre-wake fetch and a single post-wake retry.
+    expect(fetchGuardianTokenHost).toHaveBeenCalledTimes(2);
+  });
+
   test("a wake-restarted gateway stuck starting surfaces the last error after the budget", async () => {
     // Wake succeeds but the gateway never finishes starting — the ride-out
     // exhausts its budget and the last transient error propagates so the recovery

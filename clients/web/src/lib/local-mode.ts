@@ -931,16 +931,29 @@ function isGatewayStillStarting(error: unknown): boolean {
 }
 
 /**
- * A `wake`-restarted gateway that hasn't finished coming back up: it refuses
- * connections (a thrown transport error), answers `503`/`5xx`, or rejects the
- * mint with a repairable `401` while it re-provisions its guardian binding. A
- * `403` loopback-boundary refusal is terminal, and a missing/expired guardian
- * token or an unresolved gateway won't heal by waiting (the just-run `wake`
- * already re-seeded the token and recorded the port), so those fall through.
+ * How many of the ride-out's attempts a post-wake guardian-refresh `401` is
+ * retried for. The host reports `401` both for a refresh token that is
+ * genuinely spent and for a `vellum gateway token refresh` that simply came
+ * back empty, which is what happens while the just-restarted gateway is not
+ * answering yet. Retrying a short prefix of the budget covers the restart race
+ * without making a truly spent token sit through the whole window before the
+ * recovery controls appear.
  */
-function isGatewayRestartTransient(error: unknown): boolean {
+const GUARDIAN_REFRESH_RIDEOUT_ATTEMPTS = 3;
+
+/**
+ * A `wake`-restarted gateway that hasn't finished coming back up: it refuses
+ * connections (a thrown transport error), answers `503`/`5xx`, rejects the mint
+ * with a repairable `401` while it re-provisions its guardian binding, or fails
+ * the guardian refresh with a `401` for the first
+ * {@link GUARDIAN_REFRESH_RIDEOUT_ATTEMPTS} attempts. A `403` loopback-boundary
+ * refusal is terminal, and a missing guardian token (`404`) or an unresolved
+ * gateway won't heal by waiting (the just-run `wake` already re-seeded the token
+ * and recorded the port), so those fall through.
+ */
+function isGatewayRestartTransient(error: unknown, attempt: number): boolean {
   if (error instanceof GuardianTokenError) {
-    return false;
+    return error.status === 401 && attempt < GUARDIAN_REFRESH_RIDEOUT_ATTEMPTS;
   }
   if (error instanceof UnresolvedLocalGatewayError) {
     return false;
@@ -961,10 +974,13 @@ function isGatewayRestartTransient(error: unknown): boolean {
  * respects the "app launch never spawns daemon processes" boot contract. The
  * last error propagates once the retry budget is spent or the failure is not a
  * ride-out-able one, so the existing connect-error classification is preserved.
+ *
+ * `shouldRideOut` receives the 1-based attempt that just failed, so a classifier
+ * can hold a failure class to a shorter window than the full budget.
  */
 async function primeLocalGatewayWithStartupRideout(
   target: LockfileAssistant | undefined,
-  shouldRideOut: (error: unknown) => boolean,
+  shouldRideOut: (error: unknown, attempt: number) => boolean,
 ): Promise<void> {
   const { attempts, intervalMs } = LOCAL_GATEWAY_STARTUP_RETRY;
   for (let attempt = 1; attempt <= attempts; attempt++) {
@@ -972,7 +988,7 @@ async function primeLocalGatewayWithStartupRideout(
       await primeLocalGatewayConnection(target);
       return;
     } catch (error) {
-      if (attempt >= attempts || !shouldRideOut(error)) {
+      if (attempt >= attempts || !shouldRideOut(error, attempt)) {
         throw error;
       }
       await new Promise((resolve) => setTimeout(resolve, intervalMs));

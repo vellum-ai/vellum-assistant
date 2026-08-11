@@ -8,8 +8,9 @@
  * rendered so the destructive styling and `isPending` behavior asserted
  * here are the actual shipped behavior, not a mock's.
  *
- * What matters: the step machine. `onRepair`/`onRetire` must only ever
- * fire from their nested confirmation steps, never from the menu.
+ * What matters: repair is a single click (the reconnect path a user walks on
+ * every launch), while retire stays behind its destructive confirmation and
+ * out of the primary button stack.
  */
 
 import { afterEach, describe, expect, mock, test } from "bun:test";
@@ -20,22 +21,29 @@ import { ConnectRecoveryDialog } from "@/domains/onboarding/components/connect-r
 
 afterEach(cleanup);
 
-function getButton(label: string): HTMLButtonElement {
+function findButton(label: string): HTMLButtonElement | undefined {
   // Modals portal into document.body, so query the document rather than
   // the render container.
-  const buttons = Array.from(
+  return Array.from(
     document.querySelectorAll<HTMLButtonElement>("button"),
-  );
-  const match = buttons.find((b) => b.textContent?.trim() === label);
+  ).find((b) => b.textContent?.trim() === label);
+}
+
+function getButton(label: string): HTMLButtonElement {
+  const match = findButton(label);
   if (!match) {
     throw new Error(
-      `expected to find a "${label}" button — saw: ${buttons
+      `expected to find a "${label}" button — saw: ${Array.from(
+        document.querySelectorAll<HTMLButtonElement>("button"),
+      )
         .map((b) => `"${b.textContent?.trim()}"`)
         .join(", ")}`,
     );
   }
   return match;
 }
+
+const RETIRE_ACTION = "Retire Assistant…";
 
 function renderDialog(
   overrides: Partial<Parameters<typeof ConnectRecoveryDialog>[0]> = {},
@@ -70,8 +78,27 @@ describe("Menu step", () => {
       "The authentication token for Local Assistant",
     );
     expect(getButton("Wake & Repair")).toBeTruthy();
-    expect(getButton("Retire Assistant")).toBeTruthy();
+    expect(getButton(RETIRE_ACTION)).toBeTruthy();
     expect(getButton("Cancel")).toBeTruthy();
+  });
+
+  test("states the repair side effect up front, since repair is one click", () => {
+    renderDialog();
+    expect(document.body.textContent).toContain(
+      "signed out and need to reconnect",
+    );
+  });
+
+  test("retire sits apart from the primary stack, compact and low-emphasis", () => {
+    renderDialog();
+    const repair = getButton("Wake & Repair");
+    const retire = getButton(RETIRE_ACTION);
+    // Not a sibling of the primary button: a stray click below "Wake & Repair"
+    // lands on Cancel, never on the destructive action.
+    expect(retire.parentElement).not.toBe(repair.parentElement);
+    expect(repair.parentElement?.contains(retire)).toBe(false);
+    expect(retire.className).toContain("h-6");
+    expect(retire.className).not.toContain("w-full");
   });
 
   test("renders nothing when open=false", () => {
@@ -88,49 +115,36 @@ describe("Menu step", () => {
   });
 });
 
-describe("Repair confirmation", () => {
-  test("Wake & Repair advances to the confirmation instead of firing onRepair", () => {
-    const { onRepair } = renderDialog();
+describe("Repair", () => {
+  test("Wake & Repair fires onRepair on a single click", () => {
+    const { onRepair, onRetire, onCancel } = renderDialog();
     fireEvent.click(getButton("Wake & Repair"));
-    expect(onRepair).not.toHaveBeenCalled();
-    expect(document.body.textContent).toContain("Repair Assistant?");
-    // The confirmation states the real side effect.
-    expect(document.body.textContent).toContain(
-      "signed out and need to reconnect",
-    );
-  });
-
-  test("confirming fires onRepair", () => {
-    const { onRepair } = renderDialog();
-    fireEvent.click(getButton("Wake & Repair"));
-    fireEvent.click(getButton("Repair"));
     expect(onRepair).toHaveBeenCalledTimes(1);
-  });
-
-  test("canceling the confirmation returns to the menu without firing callbacks", () => {
-    const { onRepair, onCancel } = renderDialog();
-    fireEvent.click(getButton("Wake & Repair"));
-    fireEvent.click(getButton("Cancel"));
-    expect(document.body.textContent).toContain("Can’t Authenticate Assistant");
-    expect(onRepair).not.toHaveBeenCalled();
+    expect(onRetire).not.toHaveBeenCalled();
     expect(onCancel).not.toHaveBeenCalled();
+    // No confirmation step stands between the click and the repair.
+    expect(document.body.textContent).not.toContain("Repair Assistant?");
   });
 
-  test("isPending disables the confirm button", () => {
-    const { rerender, onRepair } = renderDialog();
-    fireEvent.click(getButton("Wake & Repair"));
+  test("isPending shows progress and blocks a second repair", () => {
+    const { rerender, onRepair, onCancel } = renderDialog();
     rerender({ isPending: true });
-    const repair = getButton("Repair");
-    expect(repair.disabled).toBe(true);
-    fireEvent.click(repair);
+    expect(findButton("Wake & Repair")).toBeUndefined();
+    const repairing = getButton("Repairing…");
+    expect(repairing.disabled).toBe(true);
+    fireEvent.click(repairing);
     expect(onRepair).not.toHaveBeenCalled();
+    // The escape hatches are held too, so a click can't race the repair.
+    expect(getButton("Cancel").disabled).toBe(true);
+    expect(getButton(RETIRE_ACTION).disabled).toBe(true);
+    expect(onCancel).not.toHaveBeenCalled();
   });
 });
 
 describe("Retire confirmation", () => {
-  test("Retire Assistant advances to a destructive confirmation instead of firing onRetire", () => {
+  test("retire advances to a destructive confirmation instead of firing onRetire", () => {
     const { onRetire } = renderDialog();
-    fireEvent.click(getButton("Retire Assistant"));
+    fireEvent.click(getButton(RETIRE_ACTION));
     expect(onRetire).not.toHaveBeenCalled();
     expect(document.body.textContent).toContain(
       "This will permanently retire this assistant and all of its data.",
@@ -144,19 +158,19 @@ describe("Retire confirmation", () => {
 
   test("confirming fires onRetire; canceling returns to the menu", () => {
     const { onRetire } = renderDialog();
-    fireEvent.click(getButton("Retire Assistant"));
+    fireEvent.click(getButton(RETIRE_ACTION));
     fireEvent.click(getButton("Cancel"));
     expect(getButton("Wake & Repair")).toBeTruthy();
     expect(onRetire).not.toHaveBeenCalled();
 
-    fireEvent.click(getButton("Retire Assistant"));
+    fireEvent.click(getButton(RETIRE_ACTION));
     fireEvent.click(getButton("Retire"));
     expect(onRetire).toHaveBeenCalledTimes(1);
   });
 
   test("isPending disables the confirm button", () => {
     const { rerender, onRetire } = renderDialog();
-    fireEvent.click(getButton("Retire Assistant"));
+    fireEvent.click(getButton(RETIRE_ACTION));
     rerender({ isPending: true });
     const retire = getButton("Retire");
     expect(retire.disabled).toBe(true);
@@ -173,14 +187,13 @@ describe("Error display", () => {
     );
   });
 
-  test("errorMessage renders inside the active confirmation step", () => {
+  test("errorMessage renders inside the retire confirmation", () => {
     const { rerender } = renderDialog();
-    fireEvent.click(getButton("Wake & Repair"));
-    rerender({ errorMessage: "Repair failed. Please try again." });
-    // Still on the confirmation step, with the failure shown inline.
-    expect(document.body.textContent).toContain("Repair Assistant?");
+    fireEvent.click(getButton(RETIRE_ACTION));
+    rerender({ errorMessage: "Failed to retire assistant. Please try again." });
+    expect(document.body.textContent).toContain("Retire Assistant");
     expect(document.body.textContent).toContain(
-      "Repair failed. Please try again.",
+      "Failed to retire assistant. Please try again.",
     );
   });
 });
@@ -188,8 +201,10 @@ describe("Error display", () => {
 describe("Reset on reopen", () => {
   test("reopening lands on the menu even if closed mid-confirmation", () => {
     const { rerender } = renderDialog();
-    fireEvent.click(getButton("Wake & Repair"));
-    expect(document.body.textContent).toContain("Repair Assistant?");
+    fireEvent.click(getButton(RETIRE_ACTION));
+    expect(document.body.textContent).toContain(
+      "This will permanently retire this assistant",
+    );
 
     rerender({ open: false });
     rerender({ open: true });
