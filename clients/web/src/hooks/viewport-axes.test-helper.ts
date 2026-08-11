@@ -65,7 +65,7 @@ export function stubViewportAxes({
   coarsePointer: boolean;
 }): () => void {
   const original = window.matchMedia;
-  window.matchMedia = ((query: string) => {
+  window.matchMedia = (query: string): MediaQueryList => {
     return {
       matches:
         widthHolds(query, narrow) &&
@@ -79,7 +79,7 @@ export function stubViewportAxes({
       removeListener: () => {},
       dispatchEvent: () => false,
     };
-  }) as unknown as typeof window.matchMedia;
+  };
   return () => {
     window.matchMedia = original;
   };
