@@ -63,22 +63,24 @@ function readWindowsProcesses(pid?: number): TasklistProcess[] {
   return parseTasklistCsv(output);
 }
 
+export function windowsCommandLineLookupArgs(pid: number): string[] {
+  if (!Number.isSafeInteger(pid) || pid <= 0) {
+    throw new Error(`Invalid process ID: ${pid}`);
+  }
+  return [
+    "-NoProfile",
+    "-NonInteractive",
+    "-Command",
+    `(Get-CimInstance Win32_Process -Filter 'ProcessId = ${pid}').CommandLine`,
+  ];
+}
+
 function readWindowsCommandLine(pid: number): string {
-  return execFileSync(
-    "powershell.exe",
-    [
-      "-NoProfile",
-      "-NonInteractive",
-      "-Command",
-      '(Get-CimInstance Win32_Process -Filter ("ProcessId=" + $args[0])).CommandLine',
-      String(pid),
-    ],
-    {
-      encoding: "utf8",
-      timeout: 3000,
-      stdio: ["ignore", "pipe", "ignore"],
-    },
-  );
+  return execFileSync("powershell.exe", windowsCommandLineLookupArgs(pid), {
+    encoding: "utf8",
+    timeout: 3000,
+    stdio: ["ignore", "pipe", "ignore"],
+  });
 }
 
 export function isVellumProcess(
