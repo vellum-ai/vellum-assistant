@@ -8,7 +8,7 @@
  * it: a control the device cannot reveal has to be present, and the thumbnail
  * still has to be readable.
  *
- * The thumbnail must carry `group/attachment` for the hover and focus
+ * The thumbnail must carry Tailwind's `group` class for the hover and focus
  * conditions to resolve, and must be a positioning context.
  *
  * @see https://developer.mozilla.org/en-US/docs/Web/CSS/@media/hover
@@ -19,6 +19,7 @@ import { Download } from "lucide-react";
 import type { MouseEvent } from "react";
 import { Tooltip } from "@vellumai/design-library/components/tooltip";
 import { cn } from "@vellumai/design-library/utils/cn";
+import { hoverRevealClasses } from "@vellumai/design-library/utils/hover-reveal";
 
 interface AttachmentDownloadOverlayProps {
   /** Names the control, since the icon alone does not say what it downloads. */
@@ -27,14 +28,6 @@ interface AttachmentDownloadOverlayProps {
   /** Matches the thumbnail's own corner radius. */
   className?: string;
 }
-
-/** Visible on hover, and unconditionally where the device cannot hover. */
-const revealedOnHover = [
-  "opacity-0 transition-opacity",
-  "[@media(hover:none)]:opacity-100",
-  "[@media(hover:hover)]:group-hover/attachment:opacity-100",
-  "group-focus-within/attachment:opacity-100",
-].join(" ");
 
 export function AttachmentDownloadOverlay({
   filename,
@@ -47,8 +40,8 @@ export function AttachmentDownloadOverlay({
         aria-hidden
         className={cn(
           "absolute inset-0 rounded-[inherit] bg-black/50 opacity-0 transition-opacity",
-          "[@media(hover:hover)]:group-hover/attachment:opacity-100",
-          "group-focus-within/attachment:opacity-100",
+          "[@media(hover:hover)]:group-hover:opacity-100",
+          "group-focus-within:opacity-100",
         )}
       />
       <Tooltip content="Download">
@@ -58,13 +51,13 @@ export function AttachmentDownloadOverlay({
           onKeyDown={(e) => e.stopPropagation()}
           aria-label={`Download ${filename}`}
           className={cn(
-            "pointer-events-auto absolute bottom-1 right-1 flex h-6 w-6",
+            "absolute bottom-1 right-1 flex h-6 w-6",
             "items-center justify-center rounded-md text-white/80",
             "transition-colors hover:bg-white/20 hover:text-white",
             // The chip carries the contrast the scrim gives on a hovering
             // device, so the icon stays legible over pale artwork.
             "[@media(hover:none)]:bg-black/50",
-            revealedOnHover,
+            hoverRevealClasses,
           )}
         >
           <Download className="h-3.5 w-3.5" />

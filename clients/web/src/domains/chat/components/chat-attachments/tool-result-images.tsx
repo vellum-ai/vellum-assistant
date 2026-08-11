@@ -338,7 +338,7 @@ export const ToolResultImages: FC<ToolResultImagesProps> = ({
                 openPreview(att);
               }
             }}
-            className="group/attachment relative w-fit cursor-pointer"
+            className="group relative w-fit cursor-pointer"
           >
             <ToolResultImageThumb attachment={att} assistantId={assistantId} />
             <AttachmentDownloadOverlay

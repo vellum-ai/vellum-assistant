@@ -111,7 +111,7 @@ export function MessageAttachmentSquare({
             }
           : undefined
       }
-      className={`group/attachment flex flex-col gap-1${isClickable ? " cursor-pointer" : ""}`}
+      className={`group flex flex-col gap-1${isClickable ? " cursor-pointer" : ""}`}
     >
       <div className="relative w-fit">
         <div
