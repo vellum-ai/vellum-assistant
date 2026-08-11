@@ -123,7 +123,7 @@ function ChannelRow({
           <>
             <span className="inline-flex items-center gap-1 h-8 px-2.5 rounded-md whitespace-nowrap select-none text-body-small-emphasised leading-none bg-[var(--content-default)] text-[var(--surface-base)]">
               <CheckCircle className="h-3 w-3" />
-              {t("assistantContactChannels.connected")}
+              {t("channelStatus.connected")}
             </span>
             <Button
               variant="danger"

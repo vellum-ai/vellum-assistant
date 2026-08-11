@@ -10,7 +10,11 @@
     "connecting": "Connecting…",
     "disconnect": "Disconnect",
     "disconnecting": "Disconnecting…",
-    "cancel": "Cancel"
+    "cancel": "Cancel",
+    "back": "Back",
+    "verify": "Verify",
+    "verifying": "Verifying…",
+    "revoke": "Revoke"
   },
   "channelType": {
     "slack": "Slack",
@@ -74,7 +78,6 @@
     "channelsSubtitle": "Where {name} can be reached."
   },
   "assistantContactChannels": {
-    "connected": "Connected",
     "disconnectConfirmTitle": "Disconnect {channel}?",
     "disconnectConfirmMessage": "This clears the stored credentials for this channel. You can reconnect later."
   },
@@ -95,5 +98,50 @@
     "errorSenderNotFound": "The sender's assistant could not be found.",
     "errorNotPlatformManaged": "A2A invite links are only supported for platform-hosted assistants.",
     "errorGeneric": "Something went wrong. Please try again."
+  },
+  "channelStatus": {
+    "connected": "Connected",
+    "verified": "Verified"
+  },
+  "contactChannelsSection": {
+    "verifyConfirmTitle": "Verify {channel}",
+    "verifyConfirmMessageContact": "This will mark this contact's {channel} channel as verified. Your assistant will recognize them when they reach out from it.",
+    "verifyConfirmMessageGuardian": "This will mark your {channel} channel as verified. Your assistant will recognize you when you reach out from it.",
+    "revokeConfirmTitle": "Revoke {channel}",
+    "revokeConfirmMessage": "This will disconnect the verified channel. The contact will need to re-verify to use this channel again.",
+    "linkAccount": "Link account",
+    "setupDefault": "Invite"
+  },
+  "linkAccountDialog": {
+    "title": "Link {channel} account",
+    "description": "Search your {channel} workspace and pick <contact>{name}</contact>’s account.",
+    "searchPlaceholder": "Search by name or @handle",
+    "searchAriaLabel": "Search {channel} workspace accounts",
+    "loading": "Loading workspace members…",
+    "noMembers": "No workspace members found.",
+    "noMatches": "No members match.",
+    "linking": "Linking…",
+    "guardianLinkNote": "Picking marks this account as <emphasis>guardian-linked</emphasis>: you vouch for the identity, no handshake needed.",
+    "inviteInstead": "Or send an invite instead"
+  },
+  "contactMergeDialog": {
+    "titlePicked": "Merge \"{donor}\" into {survivor}?",
+    "titlePicking": "Merge another contact into {survivor}",
+    "descriptionPicked": "Channels and notes from the merged contact will move over. The merged contact will be deleted.",
+    "descriptionPicking": "The contact you pick will be deleted. Its channels and notes will be added to this one.",
+    "confirm": "Merge",
+    "searchPlaceholder": "Search contacts",
+    "listAriaLabel": "Select a contact to merge",
+    "empty": "No other contacts available to merge.",
+    "donorDeleted": "<donor>“{donor}”</donor> will be deleted.",
+    "channelsMoved": "{count, plural, =0 {No new channels will move to {survivor}.} one {# channel will move to {survivor}: {channels}.} other {# channels will move to {survivor}: {channels}.}}",
+    "duplicatesSkipped": "{count, plural, one {# duplicate channel already on {survivor} (skipped).} other {# duplicate channels already on {survivor} (skipped).}}",
+    "notesAppended": "Notes from the merged contact will be appended.",
+    "irreversible": "This cannot be undone."
+  },
+  "survivorName": {
+    "you": "you",
+    "youNamed": "{name} (you)",
+    "thisContact": "this contact"
   }
 }

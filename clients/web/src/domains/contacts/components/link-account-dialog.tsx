@@ -6,6 +6,7 @@ import { Input } from "@vellumai/design-library/components/input";
 import { Modal } from "@vellumai/design-library/components/modal";
 
 import type { RosterAccount } from "@/domains/contacts/channel-linking";
+import { Trans, useTranslation } from "@/i18n";
 
 /** Name/@handle search over the roster (leading `@` optional). */
 export function filterRosterAccounts(
@@ -50,7 +51,7 @@ export interface LinkAccountDialogProps {
 
 /**
  * Roster picker behind a linkable channel row's "Link account" action.
- * Picking an account marks it guardian-linked — the guardian vouches for
+ * Picking an account marks it guardian-linked: the guardian vouches for
  * the identity, no handshake needed. Channel-agnostic: the adapter supplies
  * the roster (see `domains/contacts/channel-linking.ts`).
  */
@@ -66,6 +67,7 @@ export function LinkAccountDialog({
   onClose,
   onInviteInstead,
 }: LinkAccountDialogProps) {
+  const { t } = useTranslation("contacts");
   const [search, setSearch] = useState("");
 
   // A fresh open starts with a clean search, not the previous session's.
@@ -86,13 +88,23 @@ export function LinkAccountDialog({
     <Modal.Root open={open} onOpenChange={(next) => !next && onClose()}>
       <Modal.Content size="sm">
         <Modal.Header>
-          <Modal.Title>Link {channelLabel} account</Modal.Title>
+          <Modal.Title>
+            {t("linkAccountDialog.title", { channel: channelLabel })}
+          </Modal.Title>
           <Modal.Description>
-            Search your {channelLabel} workspace and pick{" "}
-            <span className="text-[color:var(--content-default)]">
-              {contactName}
-            </span>
-            &rsquo;s account.
+            {/* One sentence with the contact's name styled mid-clause, so it
+                has to stay one catalog entry: a language that puts the
+                possessive somewhere else can move the tag with it. */}
+            <Trans
+              i18nKey="linkAccountDialog.description"
+              ns="contacts"
+              values={{ channel: channelLabel, name: contactName }}
+              components={{
+                contact: (
+                  <span className="text-[color:var(--content-default)]" />
+                ),
+              }}
+            />
           </Modal.Description>
         </Modal.Header>
         <Modal.Body className="flex flex-col gap-3">
@@ -100,8 +112,10 @@ export function LinkAccountDialog({
             type="search"
             value={search}
             onChange={(event) => setSearch(event.target.value)}
-            placeholder="Search by name or @handle"
-            aria-label={`Search ${channelLabel} workspace accounts`}
+            placeholder={t("linkAccountDialog.searchPlaceholder")}
+            aria-label={t("linkAccountDialog.searchAriaLabel", {
+              channel: channelLabel,
+            })}
             leftIcon={<Search className="h-4 w-4" />}
             fullWidth
           />
@@ -113,13 +127,13 @@ export function LinkAccountDialog({
           <div className="max-h-80 overflow-y-auto">
             {loading ? (
               <p className="py-4 text-center text-body-small-default text-[color:var(--content-tertiary)]">
-                Loading workspace members…
+                {t("linkAccountDialog.loading")}
               </p>
             ) : visibleAccounts.length === 0 ? (
               <p className="py-4 text-center text-body-small-default text-[color:var(--content-tertiary)]">
                 {(accounts?.length ?? 0) === 0
-                  ? "No workspace members found."
-                  : "No members match."}
+                  ? t("linkAccountDialog.noMembers")
+                  : t("linkAccountDialog.noMatches")}
               </p>
             ) : (
               <ul className="flex flex-col">
@@ -155,7 +169,7 @@ export function LinkAccountDialog({
                       </span>
                       {pendingAccountId === account.id ? (
                         <span className="ml-auto shrink-0 text-body-small-default text-[color:var(--content-tertiary)]">
-                          Linking…
+                          {t("linkAccountDialog.linking")}
                         </span>
                       ) : null}
                     </button>
@@ -167,11 +181,15 @@ export function LinkAccountDialog({
         </Modal.Body>
         <Modal.Footer className="items-center justify-between gap-3 border-t border-[var(--border-base)]">
           <p className="text-body-small-default text-[color:var(--content-tertiary)]">
-            Picking marks this account as{" "}
-            <span className="text-[color:var(--content-secondary)]">
-              guardian-linked
-            </span>{" "}
-            — you vouch for the identity, no handshake needed.
+            <Trans
+              i18nKey="linkAccountDialog.guardianLinkNote"
+              ns="contacts"
+              components={{
+                emphasis: (
+                  <span className="text-[color:var(--content-secondary)]" />
+                ),
+              }}
+            />
           </p>
           {onInviteInstead ? (
             <Button
@@ -180,7 +198,7 @@ export function LinkAccountDialog({
               onClick={onInviteInstead}
               disabled={linking}
             >
-              Or send an invite instead
+              {t("linkAccountDialog.inviteInstead")}
               <ArrowRight className="h-3.5 w-3.5" />
             </Button>
           ) : null}
