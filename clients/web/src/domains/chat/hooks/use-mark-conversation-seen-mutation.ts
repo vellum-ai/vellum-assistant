@@ -73,24 +73,21 @@ export function useMarkConversationSeenMutation() {
       // Read the row before the patch flips its seen state: only a row that
       // was contributing to the badge should decrement it.
       const row = findConversation(queryClient, assistantId, conversationId);
-      const unreadCountDelta =
-        row !== undefined && contributesToUnreadCount(row) ? -1 : 0;
-      if (unreadCountDelta !== 0) {
+      const unreadRow =
+        row !== undefined && contributesToUnreadCount(row) ? row : undefined;
+      const unreadCountDelta = unreadRow ? -1 : 0;
+      if (unreadRow) {
         adjustUnreadCountCache(queryClient, assistantId, unreadCountDelta);
         adjustSectionUnreadCache(
           queryClient,
           assistantId,
-          row!,
+          unreadRow,
           unreadCountDelta,
         );
       }
 
       markConversationSeenLocal(queryClient, assistantId, conversationId);
-      return {
-        snapshot,
-        unreadCountDelta,
-        unreadRow: unreadCountDelta !== 0 ? row : undefined,
-      };
+      return { snapshot, unreadCountDelta, unreadRow };
     },
     onError: (err, { assistantId }, context) => {
       if (context?.snapshot) {

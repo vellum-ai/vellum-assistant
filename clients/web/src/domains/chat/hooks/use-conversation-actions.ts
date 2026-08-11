@@ -335,19 +335,16 @@ export function useConversationActions({
           ...row,
           hasUnseenLatestAssistantMessage: true,
         });
-      const unreadCountDelta = startsContributing ? 1 : 0;
-      if (unreadCountDelta !== 0) {
+      const unreadRow = startsContributing ? row : undefined;
+      const unreadCountDelta = unreadRow ? 1 : 0;
+      if (unreadRow) {
         adjustUnreadCountCache(queryClient, aid, unreadCountDelta);
-        adjustSectionUnreadCache(queryClient, aid, row!, unreadCountDelta);
+        adjustSectionUnreadCache(queryClient, aid, unreadRow, unreadCountDelta);
       }
       patchConversation(queryClient, aid, conversationId, {
         hasUnseenLatestAssistantMessage: true,
       });
-      return {
-        snapshot,
-        unreadCountDelta,
-        unreadRow: unreadCountDelta !== 0 ? row : undefined,
-      };
+      return { snapshot, unreadCountDelta, unreadRow };
     },
     onError: (err, { assistantId: aid }, context) => {
       if (context?.snapshot) {

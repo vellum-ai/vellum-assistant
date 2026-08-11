@@ -20,10 +20,9 @@ import type {
 } from "@/types/conversation-types";
 import {
   isBackgroundConversation,
-  isConversationPinned,
-  isCustomGroupId,
   isScheduledConversation,
 } from "@/utils/conversation-predicates";
+import { matchesIndexBucket } from "@/utils/section-membership";
 import {
   findConversation,
   updateAllConversationCaches,
@@ -157,21 +156,7 @@ export function adjustSectionUnreadCache(
     return false;
   }
 
-  const matchesBucket = (row: SidebarIndexSection): boolean => {
-    if (isConversationPinned(conversation)) {
-      return row.kind === "pinned";
-    }
-    if (isCustomGroupId(conversation.groupId)) {
-      return row.kind === "group" && row.groupId === conversation.groupId;
-    }
-    const channel = conversation.originChannel;
-    if (channel == null || channel === "vellum") {
-      return row.kind === "chats";
-    }
-    return row.kind === "channel" && row.channelId === channel;
-  };
-
-  const at = index.findIndex(matchesBucket);
+  const at = index.findIndex((row) => matchesIndexBucket(conversation, row));
   if (at === -1) {
     return false;
   }

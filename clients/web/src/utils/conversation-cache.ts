@@ -380,7 +380,7 @@ export function patchConversation(
      too: a destination section the index does not know yet must appear with
      the optimistic write, or the row is visible nowhere until the settle
      refetch (the first pin, the first conversation moved into an empty
-     group). */
+     group, an unpin returning a channel's only conversation). */
   ensureSectionInIndex(queryClient, assistantId, patched);
   return reconcileSectionMembership(queryClient, assistantId, patched);
 }
