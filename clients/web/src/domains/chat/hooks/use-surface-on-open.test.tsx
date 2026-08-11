@@ -20,7 +20,7 @@ import type { Conversation } from "@/types/conversation-types";
 import { conversationsQueryKey } from "@/utils/conversation-list-fetchers";
 
 const surfaceCalls: Array<{ assistantId: string; conversationId: string }> = [];
-let surfaceImpl: () => Promise<number> = async () => 4242;
+let surfaceImpl: (conversationId: string) => Promise<number> = async () => 4242;
 
 mock.module(
   "@/domains/chat/api/conversations",
@@ -30,7 +30,7 @@ mock.module(
       conversationId: string,
     ) => {
       surfaceCalls.push({ assistantId, conversationId });
-      return surfaceImpl();
+      return surfaceImpl(conversationId);
     },
   }),
 );
@@ -181,6 +181,59 @@ describe("useSurfaceOnOpen", () => {
     });
     await waitFor(() => {
       expect(surfaceCalls).toHaveLength(2);
+    });
+  });
+
+  test("one run's settle does not release another run's in-flight guard", async () => {
+    /* Open A, then open B while A is still out. A settling must delete only
+       its own guard entry: releasing B's would let B's next identity churn
+       fire a duplicate promotion for a run already being promoted. */
+    const client = new QueryClient();
+    client.setQueryData<Conversation[]>(
+      conversationsQueryKey(ASSISTANT_ID),
+      [],
+    );
+    const resolvers = new Map<string, (at: number) => void>();
+    surfaceImpl = (conversationId) =>
+      new Promise<number>((resolve) => {
+        resolvers.set(conversationId, resolve);
+      });
+
+    const runA = conversation({
+      conversationId: "run-a",
+      conversationType: "background",
+    });
+    const { rerender } = renderSurfaceOnOpen(client, runA);
+    await waitFor(() => {
+      expect(surfaceCalls).toHaveLength(1);
+    });
+
+    rerender({
+      activeConversation: conversation({
+        conversationId: "run-b",
+        conversationType: "background",
+      }),
+    });
+    await waitFor(() => {
+      expect(surfaceCalls).toHaveLength(2);
+    });
+
+    // A settles while B is still in flight.
+    await act(async () => {
+      resolvers.get("run-a")!(4242);
+    });
+
+    // B's identity churns (a cache write elsewhere): still guarded.
+    rerender({
+      activeConversation: conversation({
+        conversationId: "run-b",
+        conversationType: "background",
+      }),
+    });
+    expect(surfaceCalls).toHaveLength(2);
+
+    await act(async () => {
+      resolvers.get("run-b")!(4242);
     });
   });
 

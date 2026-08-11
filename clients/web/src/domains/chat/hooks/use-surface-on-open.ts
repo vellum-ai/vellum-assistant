@@ -25,10 +25,12 @@ import {
  *
  * Server-first, like the send path: the POST carries the authoritative
  * `surfacedAt`, and the caches are written only from its response, so a
- * failed request leaves nothing to roll back. The guard ref keeps one
- * request in flight per conversation and releases on failure so the next
- * effect evaluation retries; on success the row's own `surfacedAt` makes
- * the predicate false and the effect quiesces.
+ * failed request leaves nothing to roll back. The in-flight set keeps one
+ * request per conversation (the send path's idiom: each settle deletes only
+ * its own entry, so overlapping opens of different runs cannot release each
+ * other's guard) and releases on settle so a failed request retries on the
+ * next effect evaluation; on success the row's own `surfacedAt` makes the
+ * predicate false and the effect quiesces.
  */
 export function useSurfaceOnOpen({
   assistantId,
@@ -42,7 +44,7 @@ export function useSurfaceOnOpen({
   activeConversation: Conversation | undefined;
 }) {
   const queryClient = useQueryClient();
-  const surfacingConversationIdRef = useRef<string | null>(null);
+  const surfacingConversationIdsRef = useRef(new Set<string>());
 
   useEffect(() => {
     if (
@@ -61,11 +63,11 @@ export function useSurfaceOnOpen({
     if (!shouldSurfaceConversation(activeConversation)) {
       return;
     }
-    if (surfacingConversationIdRef.current === activeConversationId) {
+    if (surfacingConversationIdsRef.current.has(activeConversationId)) {
       return;
     }
 
-    surfacingConversationIdRef.current = activeConversationId;
+    surfacingConversationIdsRef.current.add(activeConversationId);
     const conversation = activeConversation;
 
     void surfaceConversation(assistantId, activeConversationId)
@@ -85,7 +87,7 @@ export function useSurfaceOnOpen({
         });
       })
       .finally(() => {
-        surfacingConversationIdRef.current = null;
+        surfacingConversationIdsRef.current.delete(activeConversationId);
       });
   }, [
     activeConversation,

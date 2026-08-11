@@ -314,6 +314,20 @@ describe("removeConversation", () => {
 // ---------------------------------------------------------------------------
 
 describe("shouldSurfaceConversation", () => {
+  test("a subagent-sourced run is never surfaceable", () => {
+    // The daemon's surfaced visibility arm excludes subagent runs; a
+    // surface POST could never make one listable.
+    expect(
+      shouldSurfaceConversation(
+        makeConversation({
+          conversationId: "sub1",
+          conversationType: "background",
+          source: "subagent",
+        }),
+      ),
+    ).toBe(false);
+  });
+
   test("allows unsurfaced scheduled and background conversations", () => {
     expect(
       shouldSurfaceConversation(
@@ -1027,6 +1041,29 @@ describe("applySurfacedConversation", () => {
 
     expect(getForeground(qc)).toHaveLength(1);
     expect(getForeground(qc)[0].surfacedAt).toBe(4242);
+  });
+
+  test("a write landing mid-request is not replayed backwards by the snapshot", () => {
+    /* Mark-seen-on-open fires from the same render as the surface, so the
+       seen patch lands while the POST is out. The captured snapshot still
+       says unseen; applying it verbatim would resurrect the flag. */
+    const stale = makeConversation({
+      conversationId: "bg1",
+      conversationType: "background",
+      hasUnseenLatestAssistantMessage: true,
+    });
+    seedBackground(qc, [stale]);
+    // The mark-seen patch lands before the surface response.
+    seedBackground(qc, [{ ...stale, hasUnseenLatestAssistantMessage: false }]);
+    seedForeground(qc, []);
+
+    applySurfacedConversation(qc, ASSISTANT_ID, stale, 4242);
+
+    expect(getForeground(qc)[0]).toMatchObject({
+      conversationId: "bg1",
+      hasUnseenLatestAssistantMessage: false,
+      surfacedAt: 4242,
+    });
   });
 
   test("the surfaced row joins its section cache through the membership pass", () => {

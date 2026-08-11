@@ -195,6 +195,13 @@ export function shouldSurfaceConversation(conversation: Conversation): boolean {
   if (conversation.archivedAt != null) {
     return false;
   }
+  /* The daemon's surfaced visibility arm excludes subagent runs, so a
+     surface can never make one listable; firing it would insert a row the
+     next refetch drops. Mirrors `isSidebarVisible` and
+     `surfacedVisibilitySql`. */
+  if (conversation.source === "subagent") {
+    return false;
+  }
   if (conversation.surfacedAt != null) {
     return false;
   }
@@ -233,7 +240,17 @@ export function applySurfacedConversation(
   conversation: Conversation,
   surfacedAt: number,
 ): void {
-  const surfaced: Conversation = { ...conversation, surfacedAt };
+  /* The caller captured `conversation` before its POST left, and other
+     writes land while the request is out: mark-seen-on-open fires from the
+     same render and patches the row's seen state. Inserting the captured
+     snapshot would replay those fields backwards, and the membership pass
+     would spread the resurrected values into every section cache. The
+     freshest cached row wins; the snapshot is only the fallback when no
+     cache holds the row at all. */
+  const latest =
+    findConversation(queryClient, assistantId, conversation.conversationId) ??
+    conversation;
+  const surfaced: Conversation = { ...latest, surfacedAt };
   updateConversationsCache(queryClient, assistantId, (conversations) =>
     conversations.some((c) => c.conversationId === conversation.conversationId)
       ? conversations
