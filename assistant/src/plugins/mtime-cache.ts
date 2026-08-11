@@ -300,6 +300,18 @@ export async function reconcilePluginSourcesNow(): Promise<void> {
     } catch (err) {
       log.error({ err }, "plugin schedule reconcile failed");
     }
+    // Converge plugin-declared MCP servers the same way, so an install
+    // brings its `mcp.json` servers up and an uninstall/disable takes their
+    // connected clients and registered tools back down. Reloads only when
+    // the declared set actually moved. Lazily imported for the same reason
+    // as the schedule reconciler, and equally self-contained.
+    try {
+      const { reconcilePluginMcpServers } =
+        await import("../daemon/mcp-reload-service.js");
+      await reconcilePluginMcpServers();
+    } catch (err) {
+      log.error({ err }, "plugin MCP reconcile failed");
+    }
   })().finally(() => {
     reconcileInFlight = null;
   });

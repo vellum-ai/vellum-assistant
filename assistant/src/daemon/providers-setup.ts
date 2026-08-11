@@ -64,15 +64,11 @@ export async function initializeProvidersAndTools(
 
   // Start MCP servers — workspace-configured and plugin-declared alike —
   // and register their tools.
-  const { config: mcpConfig, pluginServerIds } = buildEffectiveMcpConfig(
-    config.mcp,
-  );
+  const mcpConfig = buildEffectiveMcpConfig(config.mcp);
   if (Object.keys(mcpConfig.servers).length > 0) {
     const manager = getMcpServerManager();
     try {
-      const serverToolInfos = await manager.start(mcpConfig, {
-        credentialIsolatedServerIds: pluginServerIds,
-      });
+      const serverToolInfos = await manager.start(mcpConfig);
       for (const { serverId, serverConfig, tools } of serverToolInfos) {
         const mcpTools = createMcpToolsFromServer(
           tools,

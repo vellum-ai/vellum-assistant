@@ -31,10 +31,9 @@
  * `mcp:<serverId>:*` credential namespace. Those keys belong to
  * workspace-configured servers, and a plugin controls both its server key
  * and its URL, so honoring them for a plugin-declared server would send a
- * workspace credential to an endpoint the plugin chose. On the connect
- * path this is enforced by `McpServerManager.start`'s
- * `credentialIsolatedServerIds`, which `buildEffectiveMcpConfig` populates
- * with exactly the ids read here.
+ * workspace credential to an endpoint the plugin chose. Every config built
+ * here carries `source: "plugin"`, which is what `McpClient` reads to
+ * decide, so the rule travels with the server rather than with the caller.
  */
 
 import { existsSync, readFileSync } from "node:fs";
@@ -47,7 +46,10 @@ import {
   listAllPlugins,
   type ListInstalledPluginsOptions,
 } from "../cli/lib/list-installed-plugins.js";
-import type { McpServerConfig, McpTransport } from "../config/schemas/mcp.js";
+import type {
+  McpTransport,
+  ResolvedMcpServerConfig,
+} from "../config/schemas/mcp.js";
 import { getLogger } from "../util/logger.js";
 
 const log = getLogger("plugin-mcp-servers");
@@ -119,7 +121,7 @@ export interface PluginMcpServer {
   /** Key this server appears under in the plugin's `mcp.json`. */
   readonly serverKey: string;
   /** Projected onto the assistant's own server-config shape. */
-  readonly config: McpServerConfig;
+  readonly config: ResolvedMcpServerConfig;
 }
 
 /** A plugin's `mcp.json` that could not be used, in whole or in part. */
@@ -288,6 +290,7 @@ export function readPluginMcpServers(
           enabled: true,
           defaultRiskLevel: PLUGIN_SERVER_DEFAULT_RISK,
           maxTools: PLUGIN_SERVER_DEFAULT_MAX_TOOLS,
+          source: "plugin",
         },
       });
     }

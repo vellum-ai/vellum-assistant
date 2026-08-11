@@ -8,28 +8,28 @@
  * `config.mcp` directly — a path that only reads the workspace half
  * leaves a plugin's tools silently missing.
  *
- * Plugin servers are projected onto the same `McpServerConfig` shape by
- * `readPluginMcpServers`, so past this point nothing downstream needs to
- * know where a server came from, with one exception: credentials. A
- * plugin controls both its server key and its URL, so a plugin server
- * must never resolve `mcp:<serverId>:*` from the credential store. That
- * is why the plugin ids are returned alongside the merged config rather
- * than folded into it — callers pass them to
- * `McpServerManager.start` as `credentialIsolatedServerIds`.
+ * Every server comes out attributed with its {@link McpServerSource}, so
+ * the one place origin still matters downstream — a plugin server must
+ * never resolve `mcp:<serverId>:*` from the credential store — reads it
+ * off the server rather than from a caller-supplied list.
  */
 
-import { type McpConfig, McpConfigSchema } from "../config/schemas/mcp.js";
+import {
+  type McpConfig,
+  McpConfigSchema,
+  type ResolvedMcpConfig,
+  type ResolvedMcpServerConfig,
+} from "../config/schemas/mcp.js";
 import { readPluginMcpServers } from "../plugins/mcp-servers.js";
 import { getLogger } from "../util/logger.js";
 
 const log = getLogger("mcp-effective-config");
 
-export interface EffectiveMcpConfig {
-  /** Workspace servers merged with every plugin-declared server. */
-  readonly config: McpConfig;
-  /** Ids within `config.servers` that came from a plugin's `mcp.json`. */
-  readonly pluginServerIds: ReadonlySet<string>;
-}
+/**
+ * Fingerprint of the plugin-declared servers in the config last built here.
+ * Null until the first build, which happens during daemon startup.
+ */
+let lastBuiltPluginFingerprint: string | null = null;
 
 /**
  * Merge the workspace MCP config with the servers plugins declare.
@@ -41,12 +41,14 @@ export interface EffectiveMcpConfig {
  */
 export function buildEffectiveMcpConfig(
   workspaceConfig?: McpConfig,
-): EffectiveMcpConfig {
+): ResolvedMcpConfig {
   // An absent `mcp` key still has to yield the schema's own defaults
   // (`globalMaxTools`), since plugin servers alone are enough to need them.
   const base = workspaceConfig ?? McpConfigSchema.parse({});
-  const servers: McpConfig["servers"] = { ...base.servers };
-  const pluginServerIds = new Set<string>();
+  const servers: Record<string, ResolvedMcpServerConfig> = {};
+  for (const [id, config] of Object.entries(base.servers)) {
+    servers[id] = { ...config, source: "workspace" };
+  }
 
   const { servers: pluginServers, issues } = readPluginMcpServers();
   for (const issue of issues) {
@@ -68,11 +70,44 @@ export function buildEffectiveMcpConfig(
       continue;
     }
     servers[server.id] = server.config;
-    pluginServerIds.add(server.id);
   }
 
-  return {
-    config: { ...base, servers },
-    pluginServerIds,
-  };
+  lastBuiltPluginFingerprint = fingerprintPluginServers();
+
+  return { ...base, servers };
+}
+
+/**
+ * Whether the plugin-declared servers on disk differ from the ones in the
+ * config last built by {@link buildEffectiveMcpConfig}.
+ *
+ * The plugin source reconcile asks this after an install / uninstall /
+ * upgrade / enable / disable, so an MCP reload happens exactly when a
+ * plugin actually changed the server set — not on every unrelated plugin
+ * edit, which would tear down healthy workspace connections for nothing.
+ *
+ * True before the first build, since nothing has been applied yet.
+ */
+export function pluginMcpServersChangedSinceLastBuild(): boolean {
+  return fingerprintPluginServers() !== lastBuiltPluginFingerprint;
+}
+
+/**
+ * Stable digest of every plugin-declared server: its id and the config it
+ * resolves to. Covers a server appearing, disappearing, or changing its
+ * transport — a disabled or uninstalled plugin contributes nothing, so it
+ * drops out of the digest the same way a deleted `mcp.json` entry does.
+ */
+function fingerprintPluginServers(): string {
+  const { servers } = readPluginMcpServers();
+  return JSON.stringify(
+    [...servers]
+      .sort((a, b) => a.id.localeCompare(b.id))
+      .map((s) => [s.id, s.config]),
+  );
+}
+
+/** Test seam: forget the last built config, as on a fresh daemon. */
+export function resetEffectiveMcpConfigForTests(): void {
+  lastBuiltPluginFingerprint = null;
 }

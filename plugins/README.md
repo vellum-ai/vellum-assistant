@@ -656,8 +656,10 @@ The daemon connects these servers on start and registers their tools as
 `mcp__<serverId>__<tool>`, alongside workspace-configured ones. The server id
 is `<pluginName>__<serverKey>`, collapsed to just the name when the two match
 (the `unabyss` plugin above yields `mcp__unabyss__<tool>`, not
-`mcp__unabyss__unabyss__<tool>`). Installing or removing a plugin reconnects
-the set, exactly like editing `config.json` does.
+`mcp__unabyss__unabyss__<tool>`). Installing, removing, upgrading, enabling, or
+disabling a plugin reconnects the set as part of that operation — its servers
+come up and go down with the plugin, no restart involved — exactly like editing
+`config.json` does.
 
 Three host behaviours worth knowing when authoring one:
 
