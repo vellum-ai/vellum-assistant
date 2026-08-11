@@ -423,6 +423,19 @@
       "icon": "✈️"
     },
     {
+      "name": "unabyss",
+      "source": {
+        "source": "github",
+        "repo": "vellum-ai/unabyss-vellum",
+        "ref": "bc2c6d815fdbb36b58ca78ca4bb28f507fc415c3"
+      },
+      "description": "Personal and company context from Unabyss, available to your agent through the Unabyss MCP server.",
+      "category": "memory",
+      "homepage": "https://unabyss.com",
+      "license": "MIT",
+      "icon": "🌊"
+    },
+    {
       "name": "vellum-client-qa",
       "source": {
         "source": "github",
