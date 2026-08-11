@@ -197,6 +197,7 @@ export function installCliLauncher(
   version: string,
   paths: CliLauncherPaths,
   run: RegistryRunner = systemRegistryRunner,
+  renameFile: typeof renameSync = renameSync,
 ): CliLauncherState {
   const initialState = getCliLauncherState(paths, sourcePath);
   if (initialState === "foreign") {
@@ -233,14 +234,27 @@ export function installCliLauncher(
       writeFileSync(file.staging, file.contents ?? "", "utf8");
     }
   }
-  const replaced: typeof pending = [];
+  const replaced: Array<{
+    file: (typeof pending)[number];
+    hadBackup: boolean;
+  }> = [];
   try {
     for (const file of pending) {
-      replaced.push(file);
-      if (existsSync(file.target)) {
-        renameSync(file.target, file.backup);
+      const hadBackup = existsSync(file.target);
+      if (hadBackup) {
+        renameFile(file.target, file.backup);
       }
-      renameSync(file.staging, file.target);
+      try {
+        renameFile(file.staging, file.target);
+      } catch (error) {
+        if (hadBackup && !existsSync(file.target) && existsSync(file.backup)) {
+          try {
+            renameFile(file.backup, file.target);
+          } catch {}
+        }
+        throw error;
+      }
+      replaced.push({ file, hadBackup });
     }
     ensureUserPath(paths.binDir, run);
     const effectivePath = readEffectivePath(run);
@@ -252,12 +266,22 @@ export function installCliLauncher(
     }
     return getCliLauncherState(paths, sourcePath, effectivePath);
   } catch (error) {
-    for (const file of replaced.reverse()) {
-      rmSync(file.staging, { force: true });
-      rmSync(file.target, { force: true });
-      if (existsSync(file.backup)) {
-        renameSync(file.backup, file.target);
+    for (const { file, hadBackup } of replaced.reverse()) {
+      try {
+        rmSync(file.target, { force: true });
+      } catch {
+        continue;
       }
+      if (hadBackup && existsSync(file.backup)) {
+        try {
+          renameFile(file.backup, file.target);
+        } catch {}
+      }
+    }
+    for (const file of pending) {
+      try {
+        rmSync(file.staging, { force: true });
+      } catch {}
     }
     throw error;
   }

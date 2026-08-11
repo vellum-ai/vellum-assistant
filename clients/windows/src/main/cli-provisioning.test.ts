@@ -3,6 +3,7 @@ import {
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  renameSync,
   rmSync,
   writeFileSync,
 } from "node:fs";
@@ -30,7 +31,7 @@ const makeTempDir = (): string => {
 const writeRuntime = (dir: string, version: string): string => {
   mkdirSync(dir, { recursive: true });
   writeFileSync(path.join(dir, "vellum.exe"), `vellum-${version}`, "utf8");
-  writeFileSync(path.join(dir, "bun.exe"), "bun", "utf8");
+  writeFileSync(path.join(dir, "bun.exe"), `bun-${version}`, "utf8");
   writeFileSync(
     path.join(dir, "runtime.json"),
     JSON.stringify({ version, bunVersion: "1.3.11" }),
@@ -207,10 +208,33 @@ test("restores the last launcher when PATH registration fails", () => {
     installCliLauncher(second, "2.0.0", paths, failingRegistry),
   ).toThrow("registry unavailable");
   expect(readFileSync(paths.executable, "utf8")).toBe("vellum-v1");
-  expect(readFileSync(paths.bunExecutable, "utf8")).toBe("bun");
+  expect(readFileSync(paths.bunExecutable, "utf8")).toBe("bun-v1");
   expect(getCliLauncherState(paths, first)).toBe("installed");
   const malformed: RegistryRunner = () => "Path REG_EXPAND_SZ";
   expect(() => ensureUserPath("C:\\Vellum", malformed)).toThrow(
     "Unable to read the Windows user PATH",
   );
+});
+
+test("restores earlier launchers when a later executable is locked", () => {
+  const root = makeTempDir();
+  const paths = resolveCliLauncherPaths(path.join(root, "Local App Data"));
+  const first = writeRuntime(path.join(root, "v1"), "v1");
+  const second = writeRuntime(path.join(root, "v2"), "v2");
+  const userRegistry = registry();
+  installCliLauncher(first, "1.0.0", paths, userRegistry.run);
+  const bunStaging = `${paths.bunExecutable}.${process.pid}.tmp`;
+  const failLockedBun: typeof renameSync = (source, target) => {
+    if (source === bunStaging && target === paths.bunExecutable) {
+      throw new Error("bun.exe is locked");
+    }
+    renameSync(source, target);
+  };
+
+  expect(() =>
+    installCliLauncher(second, "2.0.0", paths, userRegistry.run, failLockedBun),
+  ).toThrow("bun.exe is locked");
+  expect(readFileSync(paths.executable, "utf8")).toBe("vellum-v1");
+  expect(readFileSync(paths.bunExecutable, "utf8")).toBe("bun-v1");
+  expect(getCliLauncherState(paths, first)).toBe("installed");
 });
