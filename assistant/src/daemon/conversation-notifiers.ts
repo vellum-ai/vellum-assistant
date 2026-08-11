@@ -34,6 +34,8 @@ export interface NotifierConversationContext {
   sendToClient: (msg: AssistantEvent) => void;
   messages: Message[];
   trustContext?: TrustContext;
+  /** See Conversation.getTurnOrRestingTrust: the acting turn's trust, else the owner's. */
+  getTurnOrRestingTrust: () => TrustContext | undefined;
 }
 
 /**
@@ -58,7 +60,7 @@ export function registerConversationNotifiers(
         JSON.stringify([{ type: "text", text: questionText }]),
         {
           metadata: {
-            ...provenanceFromTrustContext(ctx.trustContext),
+            ...provenanceFromTrustContext(ctx.getTurnOrRestingTrust()),
             userMessageChannel: "phone",
             assistantMessageChannel: "phone",
             userMessageInterface: "phone",

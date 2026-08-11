@@ -455,7 +455,10 @@ export async function processMessage(
   if (slashResult.kind === "unknown") {
     const serverTurnCtx = conversation.getTurnChannelContext();
     const serverProvenance = provenanceFromTrustContext(
-      conversation.trustContext,
+      // Ingress persists before any per-turn stamp; the slot was just written
+      // by this message's own resolution, and the per-turn field may still
+      // hold the previous turn's actor.
+      conversation.getTrustContext(),
     );
     const imageSourcePaths: Record<string, string> = {};
     for (let i = 0; i < attachments.length; i++) {
@@ -557,7 +560,10 @@ export async function processMessage(
   if (slashResult.kind === "compact") {
     const serverTurnCtx = conversation.getTurnChannelContext();
     const serverProvenance = provenanceFromTrustContext(
-      conversation.trustContext,
+      // Ingress persists before any per-turn stamp; the slot was just written
+      // by this message's own resolution, and the per-turn field may still
+      // hold the previous turn's actor.
+      conversation.getTrustContext(),
     );
     const compactChannelMeta = {
       ...serverProvenance,
@@ -612,7 +618,10 @@ export async function processMessage(
   if (slashResult.kind === "clean") {
     const serverTurnCtx = conversation.getTurnChannelContext();
     const serverProvenance = provenanceFromTrustContext(
-      conversation.trustContext,
+      // Ingress persists before any per-turn stamp; the slot was just written
+      // by this message's own resolution, and the per-turn field may still
+      // hold the previous turn's actor.
+      conversation.getTrustContext(),
     );
     const cleanChannelMeta = {
       ...serverProvenance,

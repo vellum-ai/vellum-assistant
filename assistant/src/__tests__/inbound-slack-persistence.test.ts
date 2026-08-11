@@ -111,6 +111,7 @@ function createTestContext(
       processing = value;
     },
     abortController: null,
+    getTrustContext: () => undefined,
     queue: queueStub,
     getTurnChannelContext: () => turnChannel,
     getTurnInterfaceContext: () => turnIfCtx,

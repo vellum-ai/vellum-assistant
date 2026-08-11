@@ -100,6 +100,7 @@ function createSlackTurnContext(): MessagingConversationContext {
       processing = value;
     },
     abortController: null,
+    getTrustContext: () => undefined,
     queue: queueStub,
     getTurnChannelContext: () => channel,
     getTurnInterfaceContext: () => iface,

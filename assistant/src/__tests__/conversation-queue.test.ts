@@ -79,10 +79,12 @@ mock.module("../persistence/conversation-crud.js", () => ({
   setConversationOriginInterfaceIfUnset: () => {},
   updateConversationContextWindow: () => {},
   deleteMessageById: () => {},
-  provenanceFromTrustContext: () => ({
-    source: "user",
-    trustContext: undefined,
-  }),
+  // Mirrors the real mapping so provenance assertions observe what production
+  // would stamp, rather than a placeholder.
+  provenanceFromTrustContext: (ctx?: { trustClass?: string }) =>
+    ctx
+      ? { provenanceTrustClass: ctx.trustClass }
+      : { provenanceTrustClass: "unknown" },
   getConversationOriginInterface: () => null,
   getConversationOriginChannel: () => null,
   getMessages: () => [],
@@ -595,6 +597,55 @@ describe("Conversation message queue", () => {
     await resolveRun(0);
     await p1;
     await new Promise((r) => setTimeout(r, 10));
+  });
+
+  test("a drained slash exchange is stamped with its sender's provenance, not the slot's", async () => {
+    // Provenance gates memory extraction and untrusted-content wrapping, so
+    // the stamped class must be the actor whose message this is. The unknown-
+    // slash drain branch persists an exchange for the queued sender; if the
+    // guardian wrote the conversation slot while that message waited, the
+    // rows must still carry the sender's class.
+    const conversation = makeConversation();
+    await conversation.loadFromDb();
+
+    conversation.setTrustContext({
+      trustClass: "trusted_contact",
+      sourceChannel: "slack",
+      requesterExternalUserId: "U-contact",
+    });
+
+    const p1 = conversation.processMessage({
+      content: "msg-1",
+      attachments: [],
+      onEvent: () => {},
+      requestId: "req-1",
+    });
+    await waitForPendingRun(1);
+
+    conversation.enqueueMessage({
+      content: "/definitely-not-a-command",
+      requestId: "req-slash",
+    });
+
+    // The guardian moves the slot while the contact's message waits.
+    conversation.setTrustContext({
+      trustClass: "guardian",
+      sourceChannel: "vellum",
+      requesterExternalUserId: "guardian-principal",
+    });
+
+    capturedAddMessages.length = 0;
+    await resolveRun(0);
+    await p1;
+    await new Promise((r) => setTimeout(r, 20));
+
+    const exchange = capturedAddMessages.filter((m) =>
+      m.content.includes("definitely-not-a-command"),
+    );
+    expect(exchange.length).toBeGreaterThan(0);
+    for (const row of exchange) {
+      expect(row.metadata?.provenanceTrustClass).toBe("trusted_contact");
+    }
   });
 
   test("a drained turn keeps its sender's trust once the agent loop is running", async () => {

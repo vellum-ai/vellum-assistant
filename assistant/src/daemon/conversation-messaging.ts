@@ -213,6 +213,8 @@ export interface MessagingConversationContext {
   currentRequestId?: string;
   readonly queue: MessageQueue;
   trustContext?: TrustContext;
+  /** See Conversation.getTrustContext: the owner's trust, independent of any turn. */
+  getTrustContext: () => TrustContext | undefined;
   authContext?: AuthContext;
   currentTurnAuthContext?: AuthContext;
   currentTurnSourceActorPrincipalId?: string;
@@ -863,7 +865,10 @@ export async function persistQueuedMessageBody(
     const turnIfCtx =
       extractTurnInterfaceContext(metadata) ?? ctx.getTurnInterfaceContext();
     const provenance = provenanceFromTrustContext(
-      options.trustContext ?? ctx.trustContext,
+      // Callers that own a turn pass the sender's trust; the fallback serves
+      // ingress paths that persist before any per-turn stamp exists, where
+      // the slot their own resolution just wrote is the right actor.
+      options.trustContext ?? ctx.getTrustContext(),
     );
     const imageSourcePaths = extractImageSourcePaths(attachments);
 

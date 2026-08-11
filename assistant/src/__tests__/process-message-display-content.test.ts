@@ -168,6 +168,7 @@ function makeTestConversation() {
       processing = value;
     },
     abortController: null,
+    getTrustContext: () => undefined,
     queue: queueStub,
     getTurnChannelContext: () => turnChannelContext,
     getTurnInterfaceContext: () => turnInterfaceContext,

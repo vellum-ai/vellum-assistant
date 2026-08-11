@@ -1414,7 +1414,7 @@ export async function runAgentLoopImpl(
     // row here rather than writing a duplicate.
     if (state.pendingToolResults.size > 0) {
       const toolResultMetadata = {
-        ...provenanceFromTrustContext(ctx.trustContext),
+        ...provenanceFromTrustContext(ctx.getTurnOrRestingTrust()),
         userMessageChannel: capturedTurnChannelContext.userMessageChannel,
         assistantMessageChannel:
           capturedTurnChannelContext.assistantMessageChannel,
@@ -1441,7 +1441,7 @@ export async function runAgentLoopImpl(
         budgetYieldClassification.userMessage,
       );
       const yieldNoticeMetadata = {
-        ...provenanceFromTrustContext(ctx.trustContext),
+        ...provenanceFromTrustContext(ctx.getTurnOrRestingTrust()),
         userMessageChannel: capturedTurnChannelContext.userMessageChannel,
         assistantMessageChannel:
           capturedTurnChannelContext.assistantMessageChannel,
@@ -1575,7 +1575,7 @@ export async function runAgentLoopImpl(
         state.lastAssistantMessageId = undefined;
       } else {
         const errChannelMeta = {
-          ...provenanceFromTrustContext(ctx.trustContext),
+          ...provenanceFromTrustContext(ctx.getTurnOrRestingTrust()),
           userMessageChannel: capturedTurnChannelContext.userMessageChannel,
           assistantMessageChannel:
             capturedTurnChannelContext.assistantMessageChannel,

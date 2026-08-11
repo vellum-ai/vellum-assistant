@@ -1330,7 +1330,7 @@ function buildAssistantChannelMetadata(
   deps: EventHandlerDeps,
 ): Record<string, unknown> {
   const metadata: Record<string, unknown> = {
-    ...provenanceFromTrustContext(deps.ctx.trustContext),
+    ...provenanceFromTrustContext(deps.ctx.getTurnOrRestingTrust()),
     userMessageChannel: deps.turnChannelContext.userMessageChannel,
     assistantMessageChannel: deps.turnChannelContext.assistantMessageChannel,
     userMessageInterface: deps.turnInterfaceContext.userMessageInterface,
@@ -1896,7 +1896,7 @@ function buildToolResultMetadata(
   deps: EventHandlerDeps,
 ): Record<string, unknown> {
   return {
-    ...provenanceFromTrustContext(deps.ctx.trustContext),
+    ...provenanceFromTrustContext(deps.ctx.getTurnOrRestingTrust()),
     userMessageChannel: deps.turnChannelContext.userMessageChannel,
     assistantMessageChannel: deps.turnChannelContext.assistantMessageChannel,
     userMessageInterface: deps.turnInterfaceContext.userMessageInterface,
