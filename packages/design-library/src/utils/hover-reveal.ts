@@ -14,8 +14,12 @@
  * sits inside the portalled content, where `group-focus-within` alone would
  * let it fade mid-interaction.
  *
- * The row itself must carry Tailwind's `group` class for the hover and focus
- * conditions to resolve.
+ * The row itself must carry Tailwind's unnamed `group` class for the hover and
+ * focus conditions to resolve. A row whose group is named cannot simply add the
+ * unnamed one alongside it: `group-*` compiles to an ancestor selector, so
+ * every unnamed group in the subtree would then also answer to a hover
+ * anywhere on the row. Such a row spells these conditions out against its own
+ * group name instead.
  *
  * @see https://developer.mozilla.org/en-US/docs/Web/CSS/@media/hover
  * @see https://developer.mozilla.org/en-US/docs/Web/CSS/@media/pointer

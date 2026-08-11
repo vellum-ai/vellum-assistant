@@ -221,6 +221,54 @@ describe("CollapsibleNavSection", () => {
     expect(slots.at(-1)).toBe("collapsible-nav-section-chevron");
   });
 
+  /* The reveal is keyed on the hover capability it depends on. `hover` is
+     independent of viewport width, so a roomy touch surface reports
+     `hover: none` at a desktop width, and a control hidden behind a hover the
+     device cannot perform is unreachable rather than merely tucked away. */
+  test("the trailing control stays visible where the device cannot hover", () => {
+    const html = renderSingleSection({
+      value: "pinned",
+      label: "Pinned",
+      trailing: "4",
+    });
+    expect(html).toContain("[@media(hover:none)]:opacity-100");
+    expect(html).toContain(
+      "[@media(hover:hover)]:group-hover/header:opacity-100",
+    );
+  });
+
+  /* The indicator and the trailing control crossfade in one cell, so the
+     indicator has to leave under exactly the conditions that bring the
+     control in. Where the device cannot hover the control is permanently
+     shown, and an indicator that only left on hover would sit underneath it. */
+  test("the collapsed indicator yields the cell where there is no hover", () => {
+    const html = renderToStaticMarkup(
+      createElement(
+        CollapsibleNavSection.Root,
+        { type: "multiple", defaultValue: [] },
+        createElement(
+          CollapsibleNavSection.Section,
+          {
+            value: "pinned",
+            label: "Pinned",
+            icon: Clock,
+            trailing: createElement("button", { type: "button" }, "action"),
+            collapsedIndicator: createElement("span", null, "3"),
+          },
+          createElement("div", null, "child-content"),
+        ),
+      ),
+    );
+    const container = document.createElement("div");
+    container.innerHTML = html;
+    const indicator = container.querySelector(
+      '[data-slot="collapsible-nav-section-indicator"]',
+    );
+    const cls = indicator?.getAttribute("class") ?? "";
+    expect(cls).toContain("[@media(hover:none)]:opacity-0");
+    expect(cls).toContain("[@media(hover:hover)]:group-hover/header:opacity-0");
+  });
+
   test("composes on top of design library Collapsible", () => {
     const html = renderSingleSection({ value: "recents", label: "Recents" });
     expect(html).toContain('data-slot="collapsible"');

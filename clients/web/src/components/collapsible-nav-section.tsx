@@ -162,8 +162,10 @@ export interface CollapsibleNavSectionDrag {
   dropEdge: "before" | "after" | null;
 }
 
-export interface CollapsibleNavSectionSectionProps
-  extends Omit<CollapsibleItemProps, "children"> {
+export interface CollapsibleNavSectionSectionProps extends Omit<
+  CollapsibleItemProps,
+  "children"
+> {
   value: string;
   icon?: LucideIcon;
   label: string;
@@ -333,9 +335,13 @@ function CollapsibleNavSectionSection({
                   data-slot="collapsible-nav-section-indicator"
                   className={cn(
                     "pointer-events-none flex items-center",
-                    "transition-opacity",
-                    "group-hover/header:opacity-0",
-                    "max-md:opacity-0",
+                    "opacity-100 transition-opacity",
+                    // Yields the cell on exactly the conditions that bring the
+                    // trailing control in, or the two paint over each other.
+                    "[@media(hover:none)]:opacity-0",
+                    "[@media(hover:hover)]:group-hover/header:opacity-0",
+                    "group-focus-within/header:opacity-0",
+                    "group-has-[[aria-expanded=true]]/header:opacity-0",
                     "group-data-[state=open]/section:hidden",
                   )}
                 >
@@ -352,14 +358,21 @@ function CollapsibleNavSectionSection({
                  It stays up while its own menu is open (`aria-expanded`), or
                  the control would vanish the moment it was clicked, and while
                  anything inside holds focus, so it is keyboard reachable.
-                 Touch has no hover and the header's long-press sheet is the
-                 equivalent there, so below `md` it simply stays visible. */
+                 Where the device cannot hover the control would be
+                 unreachable, so there it simply stays visible.
+
+                 This is `hoverRevealClasses` spelled out against the header's
+                 named group: the header cannot also carry an unnamed `group`,
+                 since Tailwind's `group-*` matches any ancestor and the title
+                 trigger's own unnamed group would then fire from a hover
+                 anywhere on the row. */
                   className={cn(
                     "flex items-center shrink-0 empty:hidden",
                     "opacity-0 transition-opacity",
-                    "group-hover/header:opacity-100 focus-within:opacity-100",
+                    "[@media(hover:none)]:opacity-100",
+                    "[@media(hover:hover)]:group-hover/header:opacity-100",
+                    "group-focus-within/header:opacity-100",
                     "has-[[aria-expanded=true]]:opacity-100",
-                    "max-md:opacity-100",
                   )}
                   onClick={(event) => event.stopPropagation()}
                 >
