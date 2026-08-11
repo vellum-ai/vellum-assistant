@@ -18,6 +18,7 @@ import {
   initSentryMain,
   setShareDiagnostics,
 } from "@vellumai/electron-desktop/sentry";
+import { getSessionToken } from "@vellumai/electron-desktop/session-token-store";
 import {
   readSetting,
   writeSetting,
@@ -44,7 +45,7 @@ const feedback: FeedbackDependencies = {
   }),
   getLogFilePaths,
   getFeatureFlags: () => readSetting("featureFlags"),
-  hasSession: () => false,
+  hasSession: () => getSessionToken() !== null,
 };
 
 configureFeedback(feedback);
