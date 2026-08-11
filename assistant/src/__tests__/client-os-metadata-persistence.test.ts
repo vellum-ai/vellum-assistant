@@ -92,7 +92,6 @@ function createWebTurnContext(
       processing = value;
     },
     abortController: null,
-    getTrustContext: () => undefined,
     queue: queueStub,
     clientOs,
     getTurnChannelContext: () => channel,

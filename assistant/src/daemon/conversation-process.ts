@@ -63,6 +63,7 @@ import { preactivateHostProxySkills } from "./host-proxy-preactivation.js";
 import type { UserMessageAttachment } from "./message-protocol.js";
 import { buildTransportHints } from "./transport-hints.js";
 import { sameTrustIdentity, type TrustContext } from "./trust-context-types.js";
+import { turnOrRestingTrust } from "./trust-context-types.js";
 import { resolveVerificationSessionIntent } from "./verification-session-intent.js";
 
 const log = getLogger("conversation-process");
@@ -823,7 +824,7 @@ async function drainSingleMessage(
   if (slashResult.kind === "unknown") {
     try {
       const drainProvenance = provenanceFromTrustContext(
-        conversation.getTurnOrRestingTrust(),
+        turnOrRestingTrust(conversation),
       );
       const drainImageSourcePaths: Record<string, string> = {};
       for (let i = 0; i < next.attachments.length; i++) {
@@ -938,7 +939,7 @@ async function drainSingleMessage(
     let persistedCompactMessage = false;
     try {
       const drainProvenance = provenanceFromTrustContext(
-        conversation.getTurnOrRestingTrust(),
+        turnOrRestingTrust(conversation),
       );
       const drainChannelMeta = {
         ...drainProvenance,
@@ -1031,7 +1032,7 @@ async function drainSingleMessage(
     let persistedCleanMessage = false;
     try {
       const drainProvenance = provenanceFromTrustContext(
-        conversation.getTurnOrRestingTrust(),
+        turnOrRestingTrust(conversation),
       );
       const drainChannelMeta = {
         ...drainProvenance,
@@ -2025,7 +2026,7 @@ export async function processMessage(
     const pmTurnCtx = conversation.getTurnChannelContext();
     const pmInterfaceCtx = conversation.getTurnInterfaceContext();
     const pmProvenance = provenanceFromTrustContext(
-      conversation.getTurnOrRestingTrust(),
+      turnOrRestingTrust(conversation),
     );
     const pmImageSourcePaths: Record<string, string> = {};
     for (let i = 0; i < attachments.length; i++) {
@@ -2118,7 +2119,7 @@ export async function processMessage(
       const pmTurnCtx = conversation.getTurnChannelContext();
       const pmInterfaceCtx = conversation.getTurnInterfaceContext();
       const pmProvenance = provenanceFromTrustContext(
-        conversation.getTurnOrRestingTrust(),
+        turnOrRestingTrust(conversation),
       );
       const pmChannelMeta = {
         ...pmProvenance,
@@ -2199,7 +2200,7 @@ export async function processMessage(
       const pmTurnCtx = conversation.getTurnChannelContext();
       const pmInterfaceCtx = conversation.getTurnInterfaceContext();
       const pmProvenance = provenanceFromTrustContext(
-        conversation.getTurnOrRestingTrust(),
+        turnOrRestingTrust(conversation),
       );
       const pmChannelMeta = {
         ...pmProvenance,

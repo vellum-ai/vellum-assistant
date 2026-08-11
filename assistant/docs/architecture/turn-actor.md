@@ -23,7 +23,7 @@ The names follow the existing convention on `Conversation`: `getTurn*` for
 per-turn values (`getTurnActorPrincipalId`, `getTurnChannelContext`), plain
 `get*` for conversation-level ones (`getAuthContext`).
 
-Do not read `trustContext` or `currentTurnTrustContext` directly. The accessors exist so that every call site states which question it is asking; a raw field read states nothing, and the wrong answer is silent.
+Do not read `trustContext` or `currentTurnTrustContext` directly. Call sites handed a conversation-shaped context rather than the class (handler deps, the messaging context) use the structural counterparts `turnOrRestingTrust(ctx)` / `restingTrust(ctx)` from `trust-context-types.ts`, which read the same fields and carry the same names. The accessors exist so that every call site states which question it is asking; a raw field read states nothing, and the wrong answer is silent.
 
 **Use `getTurnTrust()`** for authorization decisions and for routing a reply back to the requester: cases where substituting the conversation's owner would be wrong rather than approximate, so `undefined` must surface and be handled.
 

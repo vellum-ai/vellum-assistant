@@ -143,6 +143,7 @@ import type {
   WebSearchResultItem,
 } from "./message-types/web-activity.js";
 import { referenceMediaBlocksForPersist } from "./persist-media-references.js";
+import { turnOrRestingTrust } from "./trust-context-types.js";
 import type { TurnLatencyTracker } from "./turn-latency-tracker.js";
 
 const log = getLogger("agent-loop-handlers");
@@ -1330,7 +1331,7 @@ function buildAssistantChannelMetadata(
   deps: EventHandlerDeps,
 ): Record<string, unknown> {
   const metadata: Record<string, unknown> = {
-    ...provenanceFromTrustContext(deps.ctx.getTurnOrRestingTrust()),
+    ...provenanceFromTrustContext(turnOrRestingTrust(deps.ctx)),
     userMessageChannel: deps.turnChannelContext.userMessageChannel,
     assistantMessageChannel: deps.turnChannelContext.assistantMessageChannel,
     userMessageInterface: deps.turnInterfaceContext.userMessageInterface,
@@ -1896,7 +1897,7 @@ function buildToolResultMetadata(
   deps: EventHandlerDeps,
 ): Record<string, unknown> {
   return {
-    ...provenanceFromTrustContext(deps.ctx.getTurnOrRestingTrust()),
+    ...provenanceFromTrustContext(turnOrRestingTrust(deps.ctx)),
     userMessageChannel: deps.turnChannelContext.userMessageChannel,
     assistantMessageChannel: deps.turnChannelContext.assistantMessageChannel,
     userMessageInterface: deps.turnInterfaceContext.userMessageInterface,

@@ -97,7 +97,6 @@ function createContext(): MessagingConversationContext {
       processing = value;
     },
     abortController: null,
-    getTrustContext: () => undefined,
     queue: queueStub,
     clientOs: undefined,
     getTurnChannelContext: () => channel,

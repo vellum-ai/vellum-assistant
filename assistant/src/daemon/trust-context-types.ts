@@ -106,3 +106,32 @@ export function sameTrustIdentity(
     a.guardianPrincipalId === b.guardianPrincipalId
   );
 }
+
+/** The two trust fields a conversation-shaped value carries. */
+export interface TrustCarrier {
+  currentTurnTrustContext?: TrustContext;
+  trustContext?: TrustContext;
+}
+
+/**
+ * The acting turn's trust, else the owner's. Structural counterpart of
+ * `Conversation.getTurnOrRestingTrust` for call sites handed a
+ * conversation-shaped context rather than the class, so a partial test double
+ * needs only the fields it already has.
+ */
+export function turnOrRestingTrust(
+  carrier: TrustCarrier | undefined,
+): TrustContext | undefined {
+  return carrier?.currentTurnTrustContext ?? carrier?.trustContext;
+}
+
+/**
+ * The owner's trust, independent of any turn. Structural counterpart of
+ * `Conversation.getTrustContext`; see `docs/architecture/turn-actor.md` for
+ * when the owner is the right actor.
+ */
+export function restingTrust(
+  carrier: Pick<TrustCarrier, "trustContext"> | undefined,
+): TrustContext | undefined {
+  return carrier?.trustContext;
+}

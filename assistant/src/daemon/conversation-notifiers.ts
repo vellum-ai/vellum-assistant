@@ -25,6 +25,7 @@ import {
 } from "../persistence/conversation-crud.js";
 import type { Message } from "../providers/types.js";
 import type { TrustContext } from "./trust-context-types.js";
+import { turnOrRestingTrust } from "./trust-context-types.js";
 
 /**
  * Subset of Conversation state that notifier callbacks need to read at
@@ -34,8 +35,6 @@ export interface NotifierConversationContext {
   sendToClient: (msg: AssistantEvent) => void;
   messages: Message[];
   trustContext?: TrustContext;
-  /** See Conversation.getTurnOrRestingTrust: the acting turn's trust, else the owner's. */
-  getTurnOrRestingTrust: () => TrustContext | undefined;
 }
 
 /**
@@ -60,7 +59,7 @@ export function registerConversationNotifiers(
         JSON.stringify([{ type: "text", text: questionText }]),
         {
           metadata: {
-            ...provenanceFromTrustContext(ctx.getTurnOrRestingTrust()),
+            ...provenanceFromTrustContext(turnOrRestingTrust(ctx)),
             userMessageChannel: "phone",
             assistantMessageChannel: "phone",
             userMessageInterface: "phone",

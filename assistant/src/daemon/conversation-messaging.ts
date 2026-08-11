@@ -68,6 +68,7 @@ import type { SlackInboundMessageMetadata } from "./handlers/shared.js";
 import type { UserMessageAttachment } from "./message-protocol.js";
 import type { ConversationTransportMetadata } from "./message-types/conversations.js";
 import type { TrustContext } from "./trust-context-types.js";
+import { restingTrust } from "./trust-context-types.js";
 
 const log = getLogger("conversation-messaging");
 
@@ -213,8 +214,6 @@ export interface MessagingConversationContext {
   currentRequestId?: string;
   readonly queue: MessageQueue;
   trustContext?: TrustContext;
-  /** See Conversation.getTrustContext: the owner's trust, independent of any turn. */
-  getTrustContext: () => TrustContext | undefined;
   authContext?: AuthContext;
   currentTurnAuthContext?: AuthContext;
   currentTurnSourceActorPrincipalId?: string;
@@ -868,7 +867,7 @@ export async function persistQueuedMessageBody(
       // Callers that own a turn pass the sender's trust; the fallback serves
       // ingress paths that persist before any per-turn stamp exists, where
       // the slot their own resolution just wrote is the right actor.
-      options.trustContext ?? ctx.getTrustContext(),
+      options.trustContext ?? restingTrust(ctx),
     );
     const imageSourcePaths = extractImageSourcePaths(attachments);
 

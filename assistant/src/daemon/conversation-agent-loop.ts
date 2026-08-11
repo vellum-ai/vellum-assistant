@@ -134,6 +134,7 @@ import {
 } from "./inflight-turn-registry.js";
 import type { UsageStats } from "./message-protocol.js";
 import type { TrustContext } from "./trust-context-types.js";
+import { turnOrRestingTrust } from "./trust-context-types.js";
 import { resolveTurnCallSite } from "./turn-call-site.js";
 import { runWithLatencySubSpans } from "./turn-latency-sub-spans.js";
 import {
@@ -1414,7 +1415,7 @@ export async function runAgentLoopImpl(
     // row here rather than writing a duplicate.
     if (state.pendingToolResults.size > 0) {
       const toolResultMetadata = {
-        ...provenanceFromTrustContext(ctx.getTurnOrRestingTrust()),
+        ...provenanceFromTrustContext(turnOrRestingTrust(ctx)),
         userMessageChannel: capturedTurnChannelContext.userMessageChannel,
         assistantMessageChannel:
           capturedTurnChannelContext.assistantMessageChannel,
@@ -1441,7 +1442,7 @@ export async function runAgentLoopImpl(
         budgetYieldClassification.userMessage,
       );
       const yieldNoticeMetadata = {
-        ...provenanceFromTrustContext(ctx.getTurnOrRestingTrust()),
+        ...provenanceFromTrustContext(turnOrRestingTrust(ctx)),
         userMessageChannel: capturedTurnChannelContext.userMessageChannel,
         assistantMessageChannel:
           capturedTurnChannelContext.assistantMessageChannel,
@@ -1575,7 +1576,7 @@ export async function runAgentLoopImpl(
         state.lastAssistantMessageId = undefined;
       } else {
         const errChannelMeta = {
-          ...provenanceFromTrustContext(ctx.getTurnOrRestingTrust()),
+          ...provenanceFromTrustContext(turnOrRestingTrust(ctx)),
           userMessageChannel: capturedTurnChannelContext.userMessageChannel,
           assistantMessageChannel:
             capturedTurnChannelContext.assistantMessageChannel,
