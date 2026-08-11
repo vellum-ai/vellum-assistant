@@ -11,11 +11,7 @@ import {
 import path from "node:path";
 
 export type CliLauncherState =
-  | "missing"
-  | "foreign"
-  | "installed"
-  | "shadowed"
-  | "stale";
+  "missing" | "foreign" | "installed" | "shadowed" | "stale";
 
 type LauncherOwnership = { sourcePath: string; version: string };
 
@@ -181,7 +177,7 @@ function writeUserPath(value: string, run: RegistryRunner): void {
 export function ensureUserPath(
   binDir: string,
   run: RegistryRunner = systemRegistryRunner,
-): void {
+): string | undefined {
   const current = readUserPath(run);
   if (current === undefined) {
     throw new Error("Unable to read the Windows user PATH.");
@@ -189,7 +185,9 @@ export function ensureUserPath(
   const entries = current.split(";").filter(Boolean);
   if (!entries.some((entry) => sameWindowsPath(entry, binDir))) {
     writeUserPath([...entries, binDir].join(";"), run);
+    return current;
   }
+  return undefined;
 }
 
 export function installCliLauncher(
@@ -238,6 +236,7 @@ export function installCliLauncher(
     file: (typeof pending)[number];
     hadBackup: boolean;
   }> = [];
+  let previousUserPath: string | undefined;
   try {
     for (const file of pending) {
       const hadBackup = existsSync(file.target);
@@ -256,7 +255,7 @@ export function installCliLauncher(
       }
       replaced.push({ file, hadBackup });
     }
-    ensureUserPath(paths.binDir, run);
+    previousUserPath = ensureUserPath(paths.binDir, run);
     const effectivePath = readEffectivePath(run);
     if (effectivePath === undefined) {
       throw new Error("Unable to read the effective Windows PATH.");
@@ -266,6 +265,11 @@ export function installCliLauncher(
     }
     return getCliLauncherState(paths, sourcePath, effectivePath);
   } catch (error) {
+    if (previousUserPath !== undefined) {
+      try {
+        writeUserPath(previousUserPath, run);
+      } catch {}
+    }
     for (const { file, hadBackup } of replaced.reverse()) {
       try {
         rmSync(file.target, { force: true });

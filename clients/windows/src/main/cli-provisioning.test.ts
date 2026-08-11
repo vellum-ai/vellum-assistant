@@ -216,6 +216,33 @@ test("restores the last launcher when PATH registration fails", () => {
   );
 });
 
+test("restores PATH when effective PATH validation fails", () => {
+  const root = makeTempDir();
+  const paths = resolveCliLauncherPaths(path.join(root, "Local App Data"));
+  const source = writeRuntime(path.join(root, "runtime"), "1.0.0");
+  const originalUserPath = "C:\\Windows\\System32";
+  let userPath = originalUserPath;
+  const run: RegistryRunner = (command, args) => {
+    if (command === "powershell.exe") {
+      return "";
+    }
+    if (args[0] === "QUERY") {
+      if (args[1].startsWith("HKLM")) {
+        throw new Error("machine PATH unavailable");
+      }
+      return `    Path    REG_EXPAND_SZ    ${userPath}\r\n`;
+    }
+    userPath = args[args.indexOf("/d") + 1];
+    return "";
+  };
+
+  expect(() => installCliLauncher(source, "1.0.0", paths, run)).toThrow(
+    "Unable to read the effective Windows PATH",
+  );
+  expect(userPath).toBe(originalUserPath);
+  expect(getCliLauncherState(paths, source)).toBe("missing");
+});
+
 test("restores earlier launchers when a later executable is locked", () => {
   const root = makeTempDir();
   const paths = resolveCliLauncherPaths(path.join(root, "Local App Data"));
