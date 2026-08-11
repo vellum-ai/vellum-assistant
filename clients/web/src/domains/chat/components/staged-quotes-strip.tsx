@@ -18,9 +18,9 @@ import {
   Card,
   ScrollShadow,
   Typography,
-  cn,
-  hoverRevealClasses,
 } from "@vellumai/design-library";
+import { cn } from "@vellumai/design-library/utils/cn";
+import { hoverRevealClasses } from "@vellumai/design-library/utils/hover-reveal";
 import {
   quoteBlockquoteAccentClassName,
   quoteBlockquoteClassName,
