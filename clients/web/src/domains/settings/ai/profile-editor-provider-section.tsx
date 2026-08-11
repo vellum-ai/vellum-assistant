@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 
+import { useTranslation } from "@/i18n";
+
 import { Button } from "@vellumai/design-library/components/button";
 import { Select } from "@vellumai/design-library/components/select";
 import { Input } from "@vellumai/design-library/components/input";
@@ -14,11 +16,15 @@ import {
   codexServableModels,
   restrictsToSubscriptionModels,
 } from "@/domains/settings/ai/codex-subscription-models";
-import { OPENAI_COMPATIBLE_PROVIDER } from "@/domains/settings/ai/constants";
 import {
-  endpointPickerValue,
+  CHATGPT_CONNECTION_PROVIDER,
+  OPENAI_COMPATIBLE_PROVIDER,
+  VELLUM_CONNECTION_PROVIDER,
+} from "@/domains/settings/ai/constants";
+import {
+  entryPickerValue,
   expandEndpointEntries,
-  parseEndpointPickerValue,
+  parseEntryPickerValue,
   providersServedByConnections,
   useSelectableCatalogProviders,
 } from "@/domains/settings/ai/provider-availability";
@@ -145,6 +151,7 @@ export function ProfileEditorProviderSection({
   // for a text input whose value is sent to the connection verbatim. It's
   // withheld from subscription-restricted connections, which only accept a
   // fixed model set.
+  const { t } = useTranslation("settings");
   const [isEnteringCustomModel, setIsEnteringCustomModel] = useState(false);
 
   const subscriptionRestricted = restrictsToSubscriptionModels(
@@ -152,7 +159,12 @@ export function ProfileEditorProviderSection({
     providerConnection,
     availableConnectionsForProvider,
   );
-  const allowsCustomModel = provider !== "" && !subscriptionRestricted;
+  // The chatgpt identity validates models against the Codex set at the
+  // schema, so a typed id outside the list could never save.
+  const allowsCustomModel =
+    provider !== "" &&
+    provider !== CHATGPT_CONNECTION_PROVIDER &&
+    !subscriptionRestricted;
 
   // Switching providers reopens the field on the new provider's model list;
   // a connection that bars custom ids also closes the free-text input.
@@ -202,6 +214,23 @@ export function ProfileEditorProviderSection({
   // so they are not told to.
   const noProviderConnections =
     providerOptionsSource.length === 0 && !isReadOnly;
+
+  // A stale openai profile in a workspace whose only OpenAI access is the
+  // subscription: nothing can serve it, but the fix is one picker entry
+  // away. Covers both row shapes (provider "chatgpt", and the pre-366 rows
+  // older daemons still return, where the subscription row stores provider
+  // "openai" with oauth_subscription auth).
+  const subscriptionSteeringHint =
+    provider === "openai" &&
+    !isReadOnly &&
+    availableConnectionsForProvider.length === 0 &&
+    (connections ?? []).some(
+      (c) =>
+        c.provider === CHATGPT_CONNECTION_PROVIDER ||
+        c.auth.type === "oauth_subscription",
+    )
+      ? t("profileEditor.subscriptionSteeringHint")
+      : undefined;
 
   // For openai-compatible providers the static catalog is empty — use models
   // from the selected connection instead. When no specific connection is
@@ -316,6 +345,88 @@ export function ProfileEditorProviderSection({
     }
   }, [model, availableModels, onModelChange, provider, isEnteringCustomModel]);
 
+  const defaultEntryMetaLabel = t("aiProviderPicker.defaultEntryMeta");
+
+  // Options are computed ahead of the JSX so the trigger value can be
+  // membership-checked below: a value with no matching option makes the
+  // Select render its placeholder, which reads as an empty picker on a
+  // working profile (stale binding among surviving siblings, or a
+  // cross-kind binding such as a chatgpt row serving openai).
+  const providerOptions = useMemo(() => {
+    const base = expandEndpointEntries(
+      providerOptionsSource,
+      connections ?? [],
+      (p) => PROVIDER_DISPLAY_NAMES[p] ?? p,
+      defaultEntryMetaLabel,
+    ).map(({ value, label, meta }) => ({
+      value,
+      label,
+      suffix: meta ? <PickerMeta text={meta} /> : undefined,
+    }));
+    // A bound endpoint whose row was deleted still renders on the
+    // trigger; the warning below explains the state.
+    if (
+      connectionNotFound &&
+      provider === OPENAI_COMPATIBLE_PROVIDER &&
+      providerConnection
+    ) {
+      base.push({
+        value: entryPickerValue(OPENAI_COMPATIBLE_PROVIDER, providerConnection),
+        label: `${providerConnection} (not found)`,
+        suffix: undefined,
+      });
+    }
+    // An unbound openai-compatible profile has no endpoint entry to
+    // select; the bare protocol value keeps the trigger labeled.
+    // Picking an endpoint entry from this same list binds it.
+    if (provider === OPENAI_COMPATIBLE_PROVIDER && !providerConnection) {
+      base.push({
+        value: OPENAI_COMPATIBLE_PROVIDER,
+        label:
+          PROVIDER_DISPLAY_NAMES[OPENAI_COMPATIBLE_PROVIDER] ??
+          OPENAI_COMPATIBLE_PROVIDER,
+        suffix: undefined,
+      });
+    }
+    return base;
+  }, [
+    providerOptionsSource,
+    connections,
+    connectionNotFound,
+    provider,
+    providerConnection,
+    defaultEntryMetaLabel,
+  ]);
+
+  const entryValue =
+    provider && providerConnection
+      ? entryPickerValue(provider, providerConnection)
+      : null;
+  // A binding to an identity row (a chatgpt row serving openai, a vellum
+  // row serving a managed-routable vendor) has no entry option of its own:
+  // identity rows never expand. The identity's bare option names the route
+  // the profile actually dispatches through, so the trigger shows it
+  // rather than the vendor.
+  const boundIdentityKind = (() => {
+    if (!providerConnection) {
+      return null;
+    }
+    const row = connections?.find((c) => c.name === providerConnection);
+    return row &&
+      (row.provider === VELLUM_CONNECTION_PROVIDER ||
+        row.provider === CHATGPT_CONNECTION_PROVIDER)
+      ? row.provider
+      : null;
+  })();
+  const optionExists = (value: string) =>
+    providerOptions.some((option) => option.value === value);
+  const selectValue =
+    entryValue !== null && optionExists(entryValue)
+      ? entryValue
+      : boundIdentityKind !== null && optionExists(boundIdentityKind)
+        ? boundIdentityKind
+        : provider;
+
   return (
     <>
       {/* Provider — required. Filtered to providers with at least one
@@ -337,62 +448,30 @@ export function ProfileEditorProviderSection({
           helperText={
             noProviderConnections && !providerError
               ? NO_PROVIDER_CONNECTIONS_HINT
-              : undefined
+              : subscriptionSteeringHint
           }
-          value={
-            provider === OPENAI_COMPATIBLE_PROVIDER && providerConnection
-              ? endpointPickerValue(providerConnection)
-              : provider
-          }
+          value={selectValue}
           onChange={(next) => {
-            const endpoint = parseEndpointPickerValue(next);
-            if (endpoint) {
-              // Each endpoint entry implies the openai-compatible
-              // provider plus its binding.
-              onProviderChange(OPENAI_COMPATIBLE_PROVIDER);
-              onConnectionChange(endpoint);
+            const entry = parseEntryPickerValue(next);
+            if (entry) {
+              // An entry row implies its kind plus the binding; a same-kind
+              // entry switch keeps the model (onProviderChange no-ops).
+              onProviderChange(entry.provider);
+              onConnectionChange(entry.connectionName);
               return;
             }
             onProviderChange(next as ConnectionProvider);
+            // Re-picking the current kind's bare row means "the default
+            // entry": the explicit binding must clear, and the provider
+            // change above no-ops so it won't do it. A different provider
+            // resolves its own binding there instead.
+            if (next === provider) {
+              onConnectionChange("");
+            }
           }}
           disabled={isReadOnly}
           placeholder="Select a provider…"
-          options={[
-            ...expandEndpointEntries(
-              providerOptionsSource,
-              connections ?? [],
-              (p) => PROVIDER_DISPLAY_NAMES[p] ?? p,
-            ).map(({ value, label, meta }) => ({
-              value,
-              label,
-              suffix: meta ? <PickerMeta text={meta} /> : undefined,
-            })),
-            // A bound endpoint whose row was deleted still renders on the
-            // trigger; the warning below explains the state.
-            ...(connectionNotFound &&
-            provider === OPENAI_COMPATIBLE_PROVIDER &&
-            providerConnection
-              ? [
-                  {
-                    value: endpointPickerValue(providerConnection),
-                    label: `${providerConnection} (not found)`,
-                  },
-                ]
-              : []),
-            // An unbound openai-compatible profile has no endpoint entry to
-            // select; the bare protocol value keeps the trigger labeled.
-            // Picking an endpoint entry from this same list binds it.
-            ...(provider === OPENAI_COMPATIBLE_PROVIDER && !providerConnection
-              ? [
-                  {
-                    value: OPENAI_COMPATIBLE_PROVIDER,
-                    label:
-                      PROVIDER_DISPLAY_NAMES[OPENAI_COMPATIBLE_PROVIDER] ??
-                      OPENAI_COMPATIBLE_PROVIDER,
-                  },
-                ]
-              : []),
-          ]}
+          options={providerOptions}
         />
       )}
 

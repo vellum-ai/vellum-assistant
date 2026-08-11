@@ -38,9 +38,13 @@ import {
   conversationListOptions,
   sectionConversationListOptions,
   scheduledConversationListOptions,
+  sidebarSectionsOptions,
   unreadConversationCountOptions,
 } from "@/utils/conversation-list-fetchers";
-import type { SectionConversationFilter } from "@/utils/conversation-list-fetchers";
+import type {
+  SectionConversationFilter,
+  SidebarIndexSection,
+} from "@/utils/conversation-list-fetchers";
 
 // ---------------------------------------------------------------------------
 // Queries
@@ -215,6 +219,32 @@ export function useSectionConversationListQuery(
     isError: query.isError,
     hasData: query.data !== undefined,
   };
+}
+
+/**
+ * Subscribe to the sidebar section index
+ * (`GET /v1/conversations/sections`).
+ *
+ * Returns the daemon's per-section rows, or `null` while unresolved and when
+ * the connected assistant does not serve the endpoint (pre-index daemons 404
+ * the read, which the fetcher maps to `null`). `null` is the signal to keep
+ * deriving section existence from the loaded conversation list; the two
+ * sources must never be mixed within one render.
+ *
+ * Freshness comes from the same channels as the unread count:
+ * `sync_changed`-driven invalidation and mutation settles, never focus
+ * refetches.
+ */
+export function useSidebarSectionsQuery(
+  assistantId: string | null,
+  enabled: boolean = true,
+): SidebarIndexSection[] | null {
+  const isOrgReady = useIsOrgReady();
+  const query = useQuery({
+    ...sidebarSectionsOptions(assistantId!),
+    enabled: enabled && Boolean(assistantId) && isOrgReady,
+  });
+  return query.data ?? null;
 }
 
 /**

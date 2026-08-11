@@ -64,6 +64,9 @@ export async function resolveSurfaceConversation(
   const escaped = surfaceId.replace(/[\\%_]/g, "\\$&");
   const row = rawGet<{ conversation_id: string }>(
     "surfaceResolver:resolveConversation",
+    // Unfinalized rows cannot match: their content is a { ref } pointer,
+    // never inline surface JSON, so the LIKE probes below see finalized
+    // content only by shape. No completeness predicate needed.
     `SELECT conversation_id FROM messages
      WHERE content LIKE ? ESCAPE '\\'
      ORDER BY created_at DESC

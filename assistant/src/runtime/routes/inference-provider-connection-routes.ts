@@ -336,6 +336,15 @@ async function handleCreateConnection({ body = {} }: RouteHandlerArgs) {
       `Connection name "${name}" is reserved for the Vellum-managed connection. Pick another name.`,
     );
   }
+  // Provider ids and routing identities are labels in profile config, so an
+  // entry under one of those names could never be referenced by name (the
+  // label reads as the vendor), and a future catalog addition must never
+  // capture an existing user name. Reserve the whole vocabulary.
+  if (VALID_CONNECTION_PROVIDERS.includes(name)) {
+    throw new BadRequestError(
+      `Connection name "${name}" is reserved as a provider id. Pick another name.`,
+    );
+  }
 
   const providerResult = ConnectionProviderSchema.safeParse(provider);
   if (!providerResult.success) {
@@ -616,10 +625,21 @@ async function handleDeleteConnection({ pathParams = {} }: RouteHandlerArgs) {
   // above; this keeps the scan a faithful backstop rather than one that
   // silently skips the defaults.
   const profiles = getEffectiveProfilesForProvider(config.llm?.profiles, dp);
+  // A binding lives in `provider` (the entry name) under the entries model,
+  // or in the legacy `provider_connection` field; both count, or deleting a
+  // bound entry would dangle the profile behind selection's silent healing.
+  // Provider values count only for non-vendor names: a profile saying
+  // "vellum" references the routing identity, never a row that happens to
+  // claim that name, and the claiming-row delete is the recovery path.
+  const nameIsEntryName = !VALID_CONNECTION_PROVIDERS.includes(name);
   const referencingProfiles = Object.entries(profiles)
-    .filter(
-      ([, p]) => (p as Record<string, unknown>).provider_connection === name,
-    )
+    .filter(([, p]) => {
+      const entry = p as Record<string, unknown>;
+      return (
+        entry.provider_connection === name ||
+        (nameIsEntryName && entry.provider === name)
+      );
+    })
     .map(([profileName]) => profileName);
 
   const result = deleteConnection(getDb(), name, {

@@ -20,8 +20,12 @@ export async function runIsolatedTests({
     args.length > 0
       ? args
       : [
+          // `dot` is off by default, and the walker skips dot-directories even
+          // when a pattern spells one out, so suites under `.storybook/` need
+          // it on to be found at all.
+          // https://bun.sh/docs/api/glob#scan
           ...patterns.flatMap((pattern) => [
-            ...new Glob(pattern).scanSync(cwd),
+            ...new Glob(pattern).scanSync({ cwd, dot: true }),
           ]),
           ...extraFiles,
         ].sort();
@@ -31,7 +35,13 @@ export async function runIsolatedTests({
   const failures: string[] = [];
 
   async function runFile(file: string): Promise<boolean> {
-    const proc = Bun.spawn(["bun", "test", file], {
+    // `bun test` reads a bare argument as a filename filter, and a filter never
+    // matches a path under a dot-directory, so every file is passed as an
+    // explicit relative path.
+    // https://bun.sh/docs/cli/test#run-specific-tests
+    const path =
+      file.startsWith("./") || file.startsWith("/") ? file : `./${file}`;
+    const proc = Bun.spawn(["bun", "test", path], {
       stdout: "pipe",
       stderr: "pipe",
       cwd,

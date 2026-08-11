@@ -398,11 +398,19 @@ describe("AssistantConfigSchema", () => {
     }
   });
 
-  test("rejects invalid provider", () => {
+  test("parses an unknown provider (read tolerance for entry names)", () => {
+    // The provider schema is an open string: a stored value outside the
+    // known set parses instead of stripping its profile, and dispatch
+    // resolves it as a connection entry name (or fails explainably).
+    // Write-time membership is enforced at the profiles route and the
+    // config-write choke point.
     const result = AssistantConfigSchema.safeParse({
-      llm: { profiles: { custom: { provider: "invalid" } } },
+      llm: { profiles: { custom: { provider: "anthropic-work" } } },
     });
-    expect(result.success).toBe(false);
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.llm.profiles.custom?.provider).toBe("anthropic-work");
+    }
   });
 
   test("accepts the vellum and chatgpt routing identities with a routable model", () => {
@@ -2346,16 +2354,17 @@ describe("loadConfig with schema validation", () => {
     expect(config.llm.callSites?.mainAgent?.maxTokens).toBe(4096);
   });
 
-  test("falls back to default for invalid provider", () => {
-    // Leaf-deletion recovery: the invalid provider leaf is stripped and the
-    // rest of the profile survives.
+  test("keeps an unknown provider on load (read tolerance for entry names)", () => {
+    // The open provider schema keeps the whole profile: an unknown value is
+    // resolved as a connection entry name at dispatch (or fails there
+    // explainably) rather than being leaf-stripped on read.
     writeConfig({
       llm: {
-        profiles: { custom: { provider: "invalid-provider", model: "gpt-4" } },
+        profiles: { custom: { provider: "unknown-provider", model: "gpt-4" } },
       },
     });
     const config = loadConfig();
-    expect(config.llm.profiles.custom?.provider).toBeUndefined();
+    expect(config.llm.profiles.custom?.provider).toBe("unknown-provider");
     expect(config.llm.profiles.custom?.model).toBe("gpt-4");
   });
 

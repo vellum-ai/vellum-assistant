@@ -1,9 +1,12 @@
+import { getDb } from "../persistence/db-connection.js";
 import { ROUTING_IDENTITY_PROVIDERS } from "../providers/inference/auth.js";
+import { getConnection } from "../providers/inference/connections.js";
 import {
   getCatalogProviderForModel,
   isModelInCatalog,
 } from "../providers/model-catalog.js";
 import {
+  getManagedUpstream,
   MANAGED_ROUTABLE_PROVIDERS,
   VELLUM_MANAGED_CONNECTION_NAME,
 } from "../providers/vellum-model-routing.js";
@@ -97,35 +100,56 @@ export function completeCustomProfile(
     }
   }
 
-  // A provider-specific connection baked onto a different provider would pin
-  // a mismatch (dispatch auto-resolves an absent connection by provider
-  // instead). The Vellum managed connection must survive a provider change —
-  // dispatch routes it via `expectedProvider` — but only onto providers it
-  // can actually route; a non-managed-routable provider (openrouter, ollama)
-  // would hit the mismatch path instead of auto-resolution.
-  // Routing-identity providers resolve their connection per-request from
-  // the provider value; a stamped provider_connection would be dead weight
-  // at best and a misroute at worst.
+  // Completion never stamps a `provider_connection`; an inherited binding
+  // would only re-introduce the collapsed field on disk. The default's
+  // explicit binding is instead inherited IN the provider value, the
+  // entries-model representation: the vellum binding becomes the routing
+  // identity (only when it can serve the model, or the read-path schema
+  // would strip the profile), and a same-vendor binding becomes the entry
+  // name, so a completed profile keeps signing with the credential the
+  // workspace default names rather than whatever auto-resolution finds
+  // first.
   if (
     completed.provider !== undefined &&
-    ROUTING_IDENTITY_PROVIDERS.has(completed.provider)
-  ) {
-    return structuredClone(completed);
-  }
-
-  const vellumRoutable =
-    dflt.provider_connection === VELLUM_MANAGED_CONNECTION_NAME &&
-    completed.provider !== undefined &&
-    MANAGED_ROUTABLE_PROVIDERS.has(completed.provider);
-  if (
+    !ROUTING_IDENTITY_PROVIDERS.has(completed.provider) &&
     profile.provider_connection === undefined &&
-    dflt.provider_connection !== undefined &&
-    (completed.provider === dflt.provider || vellumRoutable)
+    dflt.provider_connection !== undefined
   ) {
-    completed.provider_connection = dflt.provider_connection;
+    if (dflt.provider_connection === VELLUM_MANAGED_CONNECTION_NAME) {
+      // Only managed-servable pairs inherit the managed binding; anything
+      // else inherits nothing and lets dispatch auto-resolve by vendor,
+      // matching the pre-entries inheritance contract.
+      if (
+        MANAGED_ROUTABLE_PROVIDERS.has(completed.provider) &&
+        completed.model !== undefined &&
+        getManagedUpstream(completed.model) !== null
+      ) {
+        completed.provider = "vellum";
+      }
+    } else if (completed.provider === dflt.provider) {
+      // Folding to the entry name is only safe against a verified row; a
+      // dangling or kind-disagreeing binding stays in the legacy field,
+      // where the collapse migration's recovery can judge it.
+      if (bindingRowKind(dflt.provider_connection) === completed.provider) {
+        completed.provider = dflt.provider_connection;
+      } else {
+        completed.provider_connection = dflt.provider_connection;
+      }
+    }
   }
-
   return structuredClone(completed);
+}
+
+/**
+ * The provider kind stored on a connection row, or null when the row is
+ * missing or the DB is unavailable (both mean "unverifiable" to callers).
+ */
+function bindingRowKind(name: string): string | null {
+  try {
+    return getConnection(getDb(), name)?.provider ?? null;
+  } catch {
+    return null;
+  }
 }
 
 type PlainObject = Record<string, unknown>;

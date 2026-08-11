@@ -23,6 +23,15 @@ export function byTimestampDesc(
 /**
  * Recency order, newest first.
  *
+ * This matches the server's sort key exactly, and the reason is one hop
+ * away from here: the SQL orders by `COALESCE(last_message_at, updated_at)`
+ * (`listConversations` in the daemon's `conversation-queries.ts`), and
+ * `toConversation` bakes that same coalesce into `lastMessageAt`
+ * (`raw.lastMessageAt ?? raw.updatedAt`), so a row with no messages yet
+ * still carries the value the server sorted it by. The `?? 0` fallback can
+ * only fire for client-minted draft stubs, which never came from the server
+ * and are separately protected wherever this order prunes.
+ *
  * No tiebreak. `Array.prototype.sort` is stable, so rows sharing a
  * `lastMessageAt` (or both missing one) keep the order they arrived in, which
  * is the server's. Adding an id tiebreak here would reorder them against it.

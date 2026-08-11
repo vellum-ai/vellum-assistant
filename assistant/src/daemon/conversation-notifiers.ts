@@ -25,6 +25,7 @@ import {
 } from "../persistence/conversation-crud.js";
 import type { Message } from "../providers/types.js";
 import type { TrustContext } from "./trust-context-types.js";
+import { restingTrust } from "./trust-context-types.js";
 
 /**
  * Subset of Conversation state that notifier callbacks need to read at
@@ -58,7 +59,14 @@ export function registerConversationNotifiers(
         JSON.stringify([{ type: "text", text: questionText }]),
         {
           metadata: {
-            ...provenanceFromTrustContext(ctx.trustContext),
+            ...provenanceFromTrustContext(
+              // This callback fires after the voice turn has settled: the
+              // per-turn field may still hold that turn's actor (nothing
+              // clears it at release), while voice cleanup has restored the
+              // conversation's resting trust. The owner is the right actor
+              // for a row persisted outside any turn.
+              restingTrust(ctx),
+            ),
             userMessageChannel: "phone",
             assistantMessageChannel: "phone",
             userMessageInterface: "phone",

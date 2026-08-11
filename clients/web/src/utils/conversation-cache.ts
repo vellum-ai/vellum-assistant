@@ -40,9 +40,11 @@ import {
   conversationListPrefix,
   conversationsQueryKey,
   scheduledConversationsQueryKey,
+  sidebarSectionsQueryKey,
   unreadConversationCountQueryKey,
 } from "@/utils/conversation-list-fetchers";
 import {
+  ensureSectionInIndex,
   patchAffectsMembership,
   reconcileSectionMembership,
 } from "@/utils/section-membership";
@@ -126,10 +128,12 @@ export function restoreConversationCaches(
  * server. Used in `onSettled` to reconcile optimistic values with the
  * server-authoritative state regardless of mutation success or failure.
  *
- * Includes the unread-count cache (own key, see
- * `cancelConversationQueries`) so optimistic count deltas always
- * reconcile against the authoritative server count after a mutation
- * settles.
+ * Includes the unread-count cache and the sidebar section index (own keys,
+ * see `cancelConversationQueries`) so optimistic count deltas and section
+ * existence always reconcile against the authoritative server state after a
+ * mutation settles. The index needs the local settle path in particular:
+ * the daemon suppresses sync echo to the originating client, so nothing
+ * else refreshes it for the client that made the change.
  */
 export async function invalidateConversationQueries(
   queryClient: QueryClient,
@@ -141,6 +145,9 @@ export async function invalidateConversationQueries(
     }),
     queryClient.invalidateQueries({
       queryKey: unreadConversationCountQueryKey(assistantId),
+    }),
+    queryClient.invalidateQueries({
+      queryKey: sidebarSectionsQueryKey(assistantId),
     }),
   ]);
 }
@@ -369,5 +376,11 @@ export function patchConversation(
   if (!patched || !patchAffectsMembership(patch)) {
     return [];
   }
+  /* The index decides which sections render, so it is a membership cache
+     too: a destination section the index does not know yet must appear with
+     the optimistic write, or the row is visible nowhere until the settle
+     refetch (the first pin, the first conversation moved into an empty
+     group, an unpin returning a channel's only conversation). */
+  ensureSectionInIndex(queryClient, assistantId, patched);
   return reconcileSectionMembership(queryClient, assistantId, patched);
 }

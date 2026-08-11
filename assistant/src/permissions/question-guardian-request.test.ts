@@ -7,7 +7,10 @@
 
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
+import { mockTrustContext } from "../__tests__/helpers/mock-actor-context.js";
+import { asConversation } from "../__tests__/helpers/mock-conversation.js";
 import type { QuestionRequestEvent } from "../api/events/question-request.js";
+import type { TrustContext } from "../daemon/trust-context-types.js";
 
 const createGuardianRequestMock = mock(
   (params: Record<string, unknown>): Promise<Record<string, unknown>> =>
@@ -21,13 +24,18 @@ const withdrawCardsMock = mock((_params: Record<string, unknown>) =>
   Promise.resolve(),
 );
 
-let trustContext: Record<string, unknown> | undefined;
+let trustContext: TrustContext | undefined;
 let pendingInteraction: { kind: string } | undefined;
 let rowAfterExpire: Record<string, unknown> | null = null;
 
 mock.module("../daemon/conversation-registry.js", () => ({
   findConversation: (_id: string) =>
-    trustContext ? { trustContext, assistantId: "self" } : undefined,
+    trustContext
+      ? asConversation({
+          trustContext,
+          assistantId: "self",
+        })
+      : undefined,
 }));
 mock.module("../channels/gateway-guardian-requests.js", () => ({
   createGuardianRequest: (params: Record<string, unknown>) =>
@@ -77,9 +85,9 @@ function makeEvent(
 }
 
 function guardianTrustContext(
-  overrides: Record<string, unknown> = {},
-): Record<string, unknown> {
-  return {
+  overrides: Partial<TrustContext> = {},
+): TrustContext {
+  return mockTrustContext({
     trustClass: "guardian",
     sourceChannel: "telegram",
     guardianPrincipalId: "prin-guardian",
@@ -87,7 +95,7 @@ function guardianTrustContext(
     requesterExternalUserId: "tg-guardian",
     requesterChatId: "chat-1",
     ...overrides,
-  };
+  });
 }
 
 beforeEach(() => {

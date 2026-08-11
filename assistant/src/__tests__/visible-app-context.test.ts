@@ -25,6 +25,7 @@ import {
 import { registerDefaultPluginInjectors } from "../plugins/defaults/index.js";
 import type { Message } from "../providers/types.js";
 import { getWorkspacePluginsDir } from "../util/platform.js";
+import { asConversation } from "./helpers/mock-conversation.js";
 
 // The injector chain is registered by the daemon bootstrap in production; do
 // the same here so `applyRuntimeInjections` walks a non-empty chain.
@@ -151,15 +152,21 @@ describe("visible_app injection", () => {
   ];
 
   function seedConversation(currentTurnVisibleAppId: string | undefined): void {
-    setConversation(CONVERSATION_ID, {
-      conversationId: CONVERSATION_ID,
-      workingDir: "/sandbox",
-      workspaceTopLevelContext: "",
-      workspaceTopLevelDirty: false,
-      surfaceState: new Map(),
-      currentTurnVisibleAppId,
-      currentTurnTemporalSnapshot: { clientTimezone: null },
-    } as never);
+    setConversation(
+      CONVERSATION_ID,
+      asConversation({
+        conversationId: CONVERSATION_ID,
+        workingDir: "/sandbox",
+        workspaceTopLevelContext: "",
+        workspaceTopLevelDirty: false,
+        surfaceState: new Map(),
+        currentTurnVisibleAppId,
+        currentTurnTemporalSnapshot: {
+          clientTimezone: null,
+          timeSinceLastMessage: null,
+        },
+      }),
+    );
   }
 
   afterEach(() => {

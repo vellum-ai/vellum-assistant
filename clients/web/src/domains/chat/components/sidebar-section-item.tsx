@@ -46,7 +46,10 @@ export interface SidebarSectionItemProps {
   /** Section drag-reorder wiring; omit to pin the section in place. */
   drag?: CollapsibleNavSectionDrag;
   /** Activity dot shown in the header only while the section is collapsed. */
-  collapsedIndicator?: (conversations: Conversation[]) => ReactNode;
+  collapsedIndicator?: (
+    conversations: Conversation[],
+    section: SidebarSection,
+  ) => ReactNode;
   /**
    * Whether this is the bottom-most section in the list. Only it claims the
    * sidebar's leftover space when open; every section above it always sizes
@@ -88,7 +91,7 @@ export function SidebarSectionItem({
          (the channel-grouping toggle) on top of the bulk ones. */
       trailing={<GroupActionsMenu label={section.label} {...groupMenu} />}
       groupMenu={groupMenu}
-      collapsedIndicator={collapsedIndicator?.(conversations)}
+      collapsedIndicator={collapsedIndicator?.(conversations, section)}
       drag={drag}
       // Pinned collapses like every other section (one component, one
       // behavior; its open state defaults open and persists like the

@@ -1712,3 +1712,55 @@ describe("config invariant flag enrichment", () => {
     }
   });
 });
+
+describe("provider membership at the write choke point", () => {
+  const configPatchRoute = ROUTES.find(
+    (r) => r.operationId === "config_patch",
+  )!;
+
+  test("a pre-existing unknown provider does not block unrelated writes", async () => {
+    // Read tolerance means a stored entry-name provider is legal on disk;
+    // re-validating it on every write would make all later settings saves
+    // fail with no in-product repair path.
+    rawConfigFixture = {
+      llm: {
+        profiles: {
+          work: {
+            source: "user",
+            provider: "anthropic-work",
+            model: "claude-opus-4-8",
+          },
+        },
+      },
+    };
+    seedRawConfig();
+
+    await configPatchRoute.handler({
+      body: { llm: { callSites: { mainAgent: { maxTokens: 2048 } } } },
+    });
+
+    const llm = loadRawConfig().llm as {
+      callSites?: Record<string, { maxTokens?: number }>;
+      profiles?: Record<string, { provider?: string }>;
+    };
+    expect(llm.callSites?.mainAgent?.maxTokens).toBe(2048);
+    expect(llm.profiles?.work?.provider).toBe("anthropic-work");
+  });
+
+  test("introducing an unknown provider is rejected", async () => {
+    rawConfigFixture = { llm: {} };
+    seedRawConfig();
+
+    await expect(
+      configPatchRoute.handler({
+        body: {
+          llm: {
+            profiles: {
+              rogue: { source: "user", provider: "not-a-provider", model: "m" },
+            },
+          },
+        },
+      }),
+    ).rejects.toThrow(/Invalid provider/);
+  });
+});

@@ -325,6 +325,8 @@ mock.module("../persistence/llm-request-log-store.js", () => ({
 
 import type { Conversation } from "../daemon/conversation.js";
 import { runAgentLoopImpl } from "../daemon/conversation-agent-loop.js";
+import type { QueueDrainReason } from "../daemon/conversation-queue-manager.js";
+import { asConversation } from "./helpers/mock-conversation.js";
 
 // ── Test helpers ─────────────────────────────────────────────────────
 
@@ -363,7 +365,7 @@ function makeCtx(
     ];
   };
 
-  return {
+  return asConversation({
     conversationId: "test-conv",
     messages: [
       { role: "user", content: [{ type: "text", text: "Hello" }] },
@@ -433,12 +435,7 @@ function makeCtx(
     skillProjectionCache:
       new Map() as unknown as Conversation["skillProjectionCache"],
 
-    usageStats: {
-      totalInputTokens: 0,
-      totalOutputTokens: 0,
-      totalEstimatedCost: 0,
-      model: "",
-    },
+    usageStats: { inputTokens: 0, outputTokens: 0, estimatedCost: 0 },
     turnCount: 0,
 
     lastAssistantAttachments: [],
@@ -456,12 +453,12 @@ function makeCtx(
     getQueueDepth: () => 0,
     hasQueuedMessages: () => false,
     canHandoffAtCheckpoint: () => false,
-    drainQueue: (_reason?: string) => {},
+    drainQueue: async (_reason?: QueueDrainReason) => {},
     // Forwards to drainQueue so tests that spy the drain observe the agent
     // loop's post-turn kick through the guarded entry point.
     kickDrainQueue(
-      this: { drainQueue: (reason?: string) => unknown },
-      reason: string = "loop_complete",
+      this: { drainQueue: (reason?: QueueDrainReason) => Promise<void> },
+      reason: QueueDrainReason = "loop_complete",
       _origin?: string,
     ) {
       return this.drainQueue(reason);
@@ -493,7 +490,7 @@ function makeCtx(
     } as unknown as Conversation["graphMemory"],
 
     ...overrides,
-  } as unknown as Conversation;
+  });
 }
 
 // ── Tests ────────────────────────────────────────────────────────────

@@ -14,8 +14,14 @@ import {
   snapshotConversationCaches,
   type ConversationCacheSnapshot,
 } from "@/utils/conversation-cache";
-import { adjustUnreadCountCache } from "@/utils/conversation-cache-mutations";
-import { sectionListPrefix } from "@/utils/conversation-list-fetchers";
+import {
+  adjustSectionUnreadCache,
+  adjustUnreadCountCache,
+} from "@/utils/conversation-cache-mutations";
+import {
+  sectionListPrefix,
+  sidebarSectionsQueryKey,
+} from "@/utils/conversation-list-fetchers";
 import { contributesToUnreadCount } from "@/utils/conversation-predicates";
 import { executeBulkWithFallback } from "@/utils/bulk-with-fallback";
 import {
@@ -98,7 +104,11 @@ type PlacementContext = { token: number };
  * The mark-seen counterpart lives in `useMarkConversationSeenMutation`,
  * which two entry points share.
  */
-type MarkUnreadContext = MutationContext & { unreadCountDelta: number };
+type MarkUnreadContext = MutationContext & {
+  unreadCountDelta: number;
+  /** The row the deltas hit, for bucket-exact reversal; see MarkSeenContext. */
+  unreadRow?: Conversation;
+};
 
 // ---------------------------------------------------------------------------
 // Hook
@@ -128,14 +138,27 @@ function reconcilePlacement(
   assistantId: string,
   sectionKeys: readonly (readonly unknown[])[] | undefined,
 ): Promise<unknown> {
+  /* The section index rides every placement settle: a move can create or
+     empty a section and always shifts its counts, and the daemon suppresses
+     sync echo to the originating client, so this settle is the only local
+     refresh the index gets. */
+  const refreshIndex = queryClient.invalidateQueries({
+    queryKey: sidebarSectionsQueryKey(assistantId),
+  });
   if (!sectionKeys?.length) {
-    return queryClient.invalidateQueries({
-      queryKey: sectionListPrefix(assistantId),
-    });
+    return Promise.all([
+      refreshIndex,
+      queryClient.invalidateQueries({
+        queryKey: sectionListPrefix(assistantId),
+      }),
+    ]);
   }
-  return Promise.all(
-    sectionKeys.map((queryKey) => queryClient.invalidateQueries({ queryKey })),
-  );
+  return Promise.all([
+    refreshIndex,
+    ...sectionKeys.map((queryKey) =>
+      queryClient.invalidateQueries({ queryKey }),
+    ),
+  ]);
 }
 
 /**
@@ -312,14 +335,16 @@ export function useConversationActions({
           ...row,
           hasUnseenLatestAssistantMessage: true,
         });
-      const unreadCountDelta = startsContributing ? 1 : 0;
-      if (unreadCountDelta !== 0) {
+      const unreadRow = startsContributing ? row : undefined;
+      const unreadCountDelta = unreadRow ? 1 : 0;
+      if (unreadRow) {
         adjustUnreadCountCache(queryClient, aid, unreadCountDelta);
+        adjustSectionUnreadCache(queryClient, aid, unreadRow, unreadCountDelta);
       }
       patchConversation(queryClient, aid, conversationId, {
         hasUnseenLatestAssistantMessage: true,
       });
-      return { snapshot, unreadCountDelta };
+      return { snapshot, unreadCountDelta, unreadRow };
     },
     onError: (err, { assistantId: aid }, context) => {
       if (context?.snapshot) {
@@ -327,6 +352,14 @@ export function useConversationActions({
       }
       if (context && context.unreadCountDelta !== 0) {
         adjustUnreadCountCache(queryClient, aid, -context.unreadCountDelta);
+        if (context.unreadRow) {
+          adjustSectionUnreadCache(
+            queryClient,
+            aid,
+            context.unreadRow,
+            -context.unreadCountDelta,
+          );
+        }
       }
       captureError(err, { context: "markConversationUnread" });
     },
@@ -630,9 +663,12 @@ export function useConversationActions({
       // One optimistic decrement for the rows that count toward the unread
       // badge (foreground, unarchived); rows that fail roll their share
       // back one at a time in `rollbackItem`.
-      const contributingCount = unread.filter(contributesToUnreadCount).length;
-      if (contributingCount > 0) {
-        adjustUnreadCountCache(queryClient, assistantId, -contributingCount);
+      const contributing = unread.filter(contributesToUnreadCount);
+      if (contributing.length > 0) {
+        adjustUnreadCountCache(queryClient, assistantId, -contributing.length);
+        for (const c of contributing) {
+          adjustSectionUnreadCache(queryClient, assistantId, c, -1);
+        }
       }
 
       for (const c of unread) {
@@ -660,6 +696,7 @@ export function useConversationActions({
           });
           if (contributesToUnreadCount(c)) {
             adjustUnreadCountCache(queryClient, assistantId, 1);
+            adjustSectionUnreadCache(queryClient, assistantId, c, 1);
           }
         },
         context: "markAllReadInGroup",

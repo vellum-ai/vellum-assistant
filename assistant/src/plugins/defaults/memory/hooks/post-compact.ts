@@ -70,10 +70,7 @@ const postCompact: HookFunction<PostCompactContext> = async (ctx) => {
   // concurrent request's actor and the contact/member registry the actor
   // context derives from can be mutated by contact tools. The snapshots are the
   // values the turn's initial assembly resolved.
-  const trust =
-    conversation?.currentTurnTrustContext ??
-    conversation?.trustContext ??
-    FALLBACK_TURN_TRUST;
+  const trust = conversation?.getTurnOrRestingTrust() ?? FALLBACK_TURN_TRUST;
   const actorContext = conversation?.currentTurnInboundActorContext ?? null;
   // Render the `model_profile:` label from the turn-start notice key, using
   // the call site self-resolved from the live conversation — the same
