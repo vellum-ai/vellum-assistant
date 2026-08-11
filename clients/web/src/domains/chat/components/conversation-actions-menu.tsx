@@ -37,9 +37,10 @@ import { BottomSheet, ContextMenu, Menu } from "@vellumai/design-library";
  * exported from this module — both surfaces stay byte-identical because
  * they consume one source of truth.
  *
- * On mobile (`useIsMobile() === true`), the dropdown is replaced with a
- * `BottomSheet` that slides up from the viewport bottom — see
- * `renderConversationMenuItemsAsPanelItems` for the parallel item builder.
+ * On a touch-first surface (`useTouchMobile()`: narrow viewport and coarse
+ * pointer), the dropdown is replaced with a `BottomSheet` that slides up from
+ * the viewport bottom. See `renderConversationMenuItemsAsPanelItems` for the
+ * parallel item builder.
  *
  * The ellipsis button is hidden by default and revealed via `group-hover`
  * on the parent `PanelItem`'s row. When the menu is open the button stays
