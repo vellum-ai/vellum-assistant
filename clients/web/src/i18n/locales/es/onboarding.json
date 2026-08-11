@@ -1,0 +1,122 @@
+{
+  "actions": {
+    "continue": "Continuar",
+    "back": "Atrás",
+    "forward": "Adelante",
+    "cancel": "Cancelar",
+    "start": "Empezar",
+    "add": "Añadir",
+    "adding": "Añadiendo…",
+    "connect": "Conectar",
+    "connecting": "Conectando…",
+    "tryAgain": "Volver a intentarlo",
+    "remove": "Quitar {value}",
+    "logIn": "Iniciar sesión",
+    "logOut": "Cerrar sesión",
+    "loginToUse": "Inicia sesión para usar",
+    "downloadMacApp": "Descargar la app de macOS"
+  },
+  "welcome": {
+    "title": "Te damos la bienvenida a Vellum",
+    "body": "Tu propia inteligencia personal está a un paso.",
+    "continueWithoutAccount": "Continuar sin cuenta"
+  },
+  "startScreen": {
+    "createAssistant": "Crear tu asistente"
+  },
+  "privacyScreen": {
+    "title": "Antes de empezar",
+    "body": "Elige tus preferencias de privacidad. Puedes cambiarlas cuando quieras en los ajustes."
+  },
+  "hostingScreen": {
+    "title": "Alojamiento",
+    "body": "Elige dónde quieres que viva tu asistente.",
+    "needHelp": "¿Necesitas ayuda para decidir?",
+    "optionsAriaLabel": "Opciones de alojamiento"
+  },
+  "apiKeyScreen": {
+    "title": "Conectar un proveedor de modelos",
+    "body": "Elige el proveedor de modelos que debe usar tu asistente.",
+    "providerLabel": "Proveedor",
+    "modelLabel": "Modelo",
+    "baseUrlLabel": "URL base",
+    "modelsLabel": "Modelos",
+    "modelsPlaceholder": "modelo-1, modelo-2",
+    "modelsHelp": "Identificadores de modelo separados por comas que expone tu endpoint.",
+    "apiKeyLabel": "Clave de API de {provider}",
+    "apiKeyPlaceholder": "Introduce tu clave de API",
+    "noKeyPrompt": "¿No la tienes?",
+    "getKeyLink": "Consigue una clave de API aquí"
+  },
+  "selectAssistantScreen": {
+    "title": "Elige un asistente",
+    "listAriaLabel": "Asistentes",
+    "createNew": "Crear un asistente nuevo",
+    "connectRemote": "Conectar un asistente remoto",
+    "addRemote": "Añadir un asistente remoto",
+    "unnamedAssistant": "el asistente",
+    "connectingToAssistant": "Conectando con tu asistente…",
+    "rowActionsAriaLabel": "Acciones de {name}",
+    "removeFromDevice": "Quitar de este dispositivo…"
+  },
+  "hatchingScreen": {
+    "apiKeyFailed": "Tu clave de API no ha funcionado",
+    "genericFailure": "Algo ha salido mal",
+    "localFallbackPitch": "Empieza hoy con un asistente local",
+    "updateApiKey": "Actualizar la clave de API",
+    "ready": "¡Tu asistente está listo!",
+    "waking": "Despertando…",
+    "wakingBody": "Un momento, tu asistente te hará algunas preguntas en cuanto esté en marcha.",
+    "progressAriaLabel": "Progreso del arranque del asistente",
+    "phase": {
+      "initializing": "Preparándolo todo…",
+      "provisioning": "Configurando tu asistente…",
+      "connecting": "Conectando con tu asistente…",
+      "resizing": "Preparando tu máquina…",
+      "ready": "Listo"
+    }
+  },
+  "addRemoteOriginDialog": {
+    "title": "Añadir un asistente remoto",
+    "body": "Pega el enlace https que te dio la página de emparejamiento de tu asistente.",
+    "addressLabel": "Dirección del asistente"
+  },
+  "connectAssistantDialog": {
+    "importedTitle": "Emparejamiento importado",
+    "importedBody": "Este emparejamiento es solo de acceso: su acceso caduca y no puede renovarse por sí solo. Vuelve a ejecutar vellum pair en la máquina del asistente e importa el nuevo paquete cuando caduque.",
+    "title": "Conectar un asistente remoto",
+    "bundleLabel": "Paquete de emparejamiento",
+    "nameLabel": "Nombre (opcional)",
+    "instruction": "En la máquina del asistente, ejecuta <code>vellum pair --url https://...</code> y pega aquí el paquete."
+  },
+  "connectRecoveryDialog": {
+    "repairTitle": "¿Reparar el asistente?",
+    "repairBody": "Reparar vuelve a aprovisionar el token de autenticación de este asistente. Se cerrará la sesión en cualquier otro dispositivo o navegador conectado y tendrán que volver a conectarse.",
+    "repairConfirm": "Reparar",
+    "authFailedTitle": "No se puede autenticar el asistente",
+    "authFailedBody": "Falta el token de autenticación de {name} o ya no se puede renovar, así que no es posible conectar este asistente. Puedes repararlo, retirarlo o elegir otro asistente.",
+    "wakeAndRepair": "Despertar y reparar",
+    "retire": "Retirar el asistente"
+  },
+  "consentControls": {
+    "agreeTo": "Acepto <link>{policy}</link>",
+    "whatsChanged": "Qué ha cambiado",
+    "privacyPreferences": "Preferencias de privacidad",
+    "analyticsLabel": "Compartir analíticas",
+    "analyticsHelp": "Enviar datos agregados de uso del producto",
+    "diagnosticsLabel": "Compartir diagnósticos",
+    "diagnosticsHelp": "Enviar informes de fallos, trazas de conversación y datos de repetición de sesión",
+    "agreements": "Acuerdos"
+  },
+  "onboardingAutocomplete": {
+    "addOption": "Añadir «{value}»",
+    "enterHint": "↵ Intro",
+    "freeTextHint": "Escribe lo que quieras y pulsa ↵ para añadirlo"
+  },
+  "stepIndicator": {
+    "ariaLabel": "Paso {current} de {total}"
+  },
+  "googleCalendar": {
+    "authorizationFailed": "No se pudo iniciar la autorización de Google Calendar."
+  }
+}

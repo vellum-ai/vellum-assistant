@@ -4,10 +4,12 @@ import { OnboardingLayout } from "@/domains/onboarding/components/onboarding-lay
 import { SETUP_NAVIGATE } from "@/domains/onboarding/onboarding-navigation";
 import { useOnboardingLogin } from "@/hooks/use-onboarding-login";
 import { hasAssistants } from "@/lib/local-mode";
+import { useTranslation } from "@/i18n";
 import { routes } from "@/utils/routes";
 import { Button } from "@vellumai/design-library/components/button";
 
 export function WelcomeScreen() {
+  const { t } = useTranslation("onboarding");
   const navigate = useNavigate();
   const { loading, error, login, cancel } = useOnboardingLogin();
 
@@ -41,13 +43,13 @@ export function WelcomeScreen() {
               animation: "fadeInUp 0.5s ease-out 0.1s both",
             }}
           >
-            Welcome to Vellum
+            {t("welcome.title")}
           </h1>
           <p
             className="mt-3 text-body-large-lighter text-[var(--content-tertiary)]"
             style={{ animation: "fadeInUp 0.5s ease-out 0.3s both" }}
           >
-            Your own personal intelligence is just a step away.
+            {t("welcome.body")}
           </p>
 
           {error && (
@@ -67,7 +69,7 @@ export function WelcomeScreen() {
               className="h-11 text-base"
               onClick={loading ? cancel : () => void login()}
             >
-              {loading ? "Cancel" : "Log In"}
+              {loading ? t("actions.cancel") : t("actions.logIn")}
             </Button>
             <Button
               variant="ghost"
@@ -76,7 +78,7 @@ export function WelcomeScreen() {
               className="h-11 text-base"
               onClick={handleContinueWithoutAccount}
             >
-              Continue without account
+              {t("welcome.continueWithoutAccount")}
             </Button>
           </div>
         </div>

@@ -1,0 +1,122 @@
+{
+  "actions": {
+    "continue": "Continue",
+    "back": "Back",
+    "forward": "Forward",
+    "cancel": "Cancel",
+    "start": "Start",
+    "add": "Add",
+    "adding": "Adding…",
+    "connect": "Connect",
+    "connecting": "Connecting…",
+    "tryAgain": "Try again",
+    "remove": "Remove {value}",
+    "logIn": "Log In",
+    "logOut": "Log out",
+    "loginToUse": "Log in to use",
+    "downloadMacApp": "Download the macOS app"
+  },
+  "welcome": {
+    "title": "Welcome to Vellum",
+    "body": "Your own personal intelligence is just a step away.",
+    "continueWithoutAccount": "Continue without account"
+  },
+  "startScreen": {
+    "createAssistant": "Create your assistant"
+  },
+  "privacyScreen": {
+    "title": "Before You Start",
+    "body": "Choose your privacy preferences. You can update these anytime in the Settings."
+  },
+  "hostingScreen": {
+    "title": "Hosting",
+    "body": "Choose where you want your assistant to live.",
+    "needHelp": "Need help deciding?",
+    "optionsAriaLabel": "Hosting options"
+  },
+  "apiKeyScreen": {
+    "title": "Connect a Model Provider",
+    "body": "Choose the model provider your assistant should use.",
+    "providerLabel": "Provider",
+    "modelLabel": "Model",
+    "baseUrlLabel": "Base URL",
+    "modelsLabel": "Models",
+    "modelsPlaceholder": "model-1, model-2",
+    "modelsHelp": "Comma-separated model identifiers exposed by your endpoint.",
+    "apiKeyLabel": "{provider} API Key",
+    "apiKeyPlaceholder": "Enter your API key",
+    "noKeyPrompt": "Don't have it?",
+    "getKeyLink": "Get an API key here"
+  },
+  "selectAssistantScreen": {
+    "title": "Choose an Assistant",
+    "listAriaLabel": "Assistants",
+    "createNew": "Create a new assistant",
+    "connectRemote": "Connect a remote assistant",
+    "addRemote": "Add a remote assistant",
+    "unnamedAssistant": "the assistant",
+    "connectingToAssistant": "Connecting to your assistant…",
+    "rowActionsAriaLabel": "Actions for {name}",
+    "removeFromDevice": "Remove from this device…"
+  },
+  "hatchingScreen": {
+    "apiKeyFailed": "Your API key didn't work",
+    "genericFailure": "Something went wrong",
+    "localFallbackPitch": "Get started today with a local assistant",
+    "updateApiKey": "Update API key",
+    "ready": "Your assistant is ready!",
+    "waking": "Waking up…",
+    "wakingBody": "Hang tight, your assistant will have a few questions for you once it's up.",
+    "progressAriaLabel": "Assistant startup progress",
+    "phase": {
+      "initializing": "Getting things ready…",
+      "provisioning": "Setting up your assistant…",
+      "connecting": "Connecting to your assistant…",
+      "resizing": "Setting up your machine…",
+      "ready": "Ready"
+    }
+  },
+  "addRemoteOriginDialog": {
+    "title": "Add a Remote Assistant",
+    "body": "Paste the https link your assistant’s pairing page gave you.",
+    "addressLabel": "Assistant address"
+  },
+  "connectAssistantDialog": {
+    "importedTitle": "Pairing Imported",
+    "importedBody": "This pairing is access-only: its access expires and cannot renew itself. Re-run vellum pair on the assistant’s machine and import the new bundle when it expires.",
+    "title": "Connect a Remote Assistant",
+    "bundleLabel": "Pairing bundle",
+    "nameLabel": "Name (optional)",
+    "instruction": "On the assistant’s machine, run <code>vellum pair --url https://...</code> and paste the bundle here."
+  },
+  "connectRecoveryDialog": {
+    "repairTitle": "Repair Assistant?",
+    "repairBody": "Repairing re-provisions this assistant’s authentication token. Any other devices or browser sessions connected to it will be signed out and need to reconnect.",
+    "repairConfirm": "Repair",
+    "authFailedTitle": "Can’t Authenticate Assistant",
+    "authFailedBody": "The authentication token for {name} is missing or can no longer be refreshed, so this assistant can’t be connected. You can repair it, retire it, or pick a different assistant.",
+    "wakeAndRepair": "Wake & Repair",
+    "retire": "Retire Assistant"
+  },
+  "consentControls": {
+    "whatsChanged": "What's changed",
+    "privacyPreferences": "Privacy preferences",
+    "analyticsLabel": "Share Analytics",
+    "analyticsHelp": "Send aggregated product usage data",
+    "diagnosticsLabel": "Share Diagnostics",
+    "diagnosticsHelp": "Send crash reports, conversation traces, and session replay data",
+    "agreements": "Agreements",
+    "agreeTo": "I agree to the <link>{policy}</link>"
+  },
+  "onboardingAutocomplete": {
+    "addOption": "Add “{value}”",
+    "enterHint": "↵ Enter",
+    "freeTextHint": "Type anything and press ↵ to add your own"
+  },
+  "stepIndicator": {
+    "ariaLabel": "Step {current} of {total}"
+  },
+  "googleCalendar": {
+    "authorizationFailed": "Failed to start Google Calendar authorization."
+  }
+}

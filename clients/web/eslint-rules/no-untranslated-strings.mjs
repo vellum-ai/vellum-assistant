@@ -52,6 +52,7 @@ const STRUCTURAL_PROPS = new Set([
   "clipPath",
   "d",
   "fill",
+  "fontFamily",
   "points",
   "stroke",
   "transform",
