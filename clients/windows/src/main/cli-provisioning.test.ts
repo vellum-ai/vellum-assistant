@@ -50,7 +50,12 @@ const registry = (
   machinePath = "C:\\Windows\\System32",
 ) => {
   let userPath = initialUserPath;
-  const run: RegistryRunner = (_command, args) => {
+  let broadcastCount = 0;
+  const run: RegistryRunner = (command, args) => {
+    if (command === "powershell.exe") {
+      broadcastCount += 1;
+      return "";
+    }
     if (args[0] === "QUERY") {
       const value = args[1].startsWith("HKLM") ? machinePath : userPath;
       return `    Path    REG_EXPAND_SZ    ${value}\r\n`;
@@ -58,7 +63,11 @@ const registry = (
     userPath = args[args.indexOf("/d") + 1];
     return "";
   };
-  return { run, value: () => userPath };
+  return {
+    broadcasts: () => broadcastCount,
+    run,
+    value: () => userPath,
+  };
 };
 
 afterEach(() => {
@@ -143,12 +152,14 @@ test("repairs stale ownership and updates the user PATH", () => {
   expect(installCliLauncher(source, "1.0.0", paths, userRegistry.run)).toBe(
     "shadowed",
   );
+  expect(userRegistry.broadcasts()).toBe(1);
   expect(userRegistry.value().split(";")).toContain(paths.binDir);
   rmSync(path.join(collisionDir, "vellum.exe"));
   expect(installCliLauncher(source, "1.0.0", paths, userRegistry.run)).toBe(
     "installed",
   );
   expect(uninstallCliLauncher(paths, userRegistry.run)).toBeTrue();
+  expect(userRegistry.broadcasts()).toBe(2);
   expect(userRegistry.value().split(";")).not.toContain(paths.binDir);
 });
 
@@ -175,6 +186,7 @@ test("treats Windows PATH entries as case-insensitive", () => {
   expect(installCliLauncher(source, "1.0.0", paths, userRegistry.run)).toBe(
     "installed",
   );
+  expect(userRegistry.broadcasts()).toBe(0);
   expect(userRegistry.value()).toBe(registeredBinDir);
 });
 

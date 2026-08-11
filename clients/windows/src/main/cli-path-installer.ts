@@ -42,6 +42,13 @@ const sameWindowsPath = (left: string, right: string): boolean =>
   path.win32.resolve(left).toLowerCase() ===
   path.win32.resolve(right).toLowerCase();
 
+const ENVIRONMENT_CHANGE_SCRIPT = [
+  "$signature = '[System.Runtime.InteropServices.DllImport(\"user32.dll\", SetLastError = true, CharSet = System.Runtime.InteropServices.CharSet.Auto)] public static extern System.IntPtr SendMessageTimeout(System.IntPtr hWnd, uint message, System.UIntPtr wParam, string lParam, uint flags, uint timeout, out System.UIntPtr result);'",
+  "$native = Add-Type -MemberDefinition $signature -Name NativeMethods -Namespace Vellum -PassThru",
+  "$result = [UIntPtr]::Zero",
+  '$native::SendMessageTimeout([IntPtr]0xffff, 0x001a, [UIntPtr]::Zero, "Environment", 0x0002, 5000, [ref]$result) | Out-Null',
+].join("; ");
+
 export function resolveCliLauncherPaths(
   localAppData: string,
 ): CliLauncherPaths {
@@ -161,6 +168,14 @@ function writeUserPath(value: string, run: RegistryRunner): void {
     value,
     "/f",
   ]);
+  try {
+    run("powershell.exe", [
+      "-NoProfile",
+      "-NonInteractive",
+      "-Command",
+      ENVIRONMENT_CHANGE_SCRIPT,
+    ]);
+  } catch {}
 }
 
 export function ensureUserPath(
