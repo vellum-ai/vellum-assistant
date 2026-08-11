@@ -52,7 +52,13 @@ function stubCtx(): StreamHandlerContext {
 }
 
 afterEach(() => {
+  // resetAll intentionally preserves the Connect prompt (it must survive
+  // conversation switches), so test isolation clears it explicitly.
   useInteractionStore.getState().resetAll();
+  useInteractionStore.setState({
+    pendingAcpConnect: null,
+    dismissedAcpConnectToolUseIds: new Set<string>(),
+  });
 });
 
 describe("acp connect prompt — store lifecycle", () => {
@@ -63,12 +69,6 @@ describe("acp connect prompt — store lifecycle", () => {
     });
 
     useInteractionStore.getState().dismissAcpConnect();
-    expect(useInteractionStore.getState().pendingAcpConnect).toBeNull();
-  });
-
-  test("resetAll clears the prompt (conversation switch)", () => {
-    useInteractionStore.getState().showAcpConnect({ toolUseId: "tc-9" });
-    useInteractionStore.getState().resetAll();
     expect(useInteractionStore.getState().pendingAcpConnect).toBeNull();
   });
 
