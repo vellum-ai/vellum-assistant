@@ -120,6 +120,67 @@ function pluginRouteUpstreamPath(plugin: string, path: string): string {
   return `/v1/x/plugins/${plugin}/${path}`;
 }
 
+/**
+ * What a forward to the plugin needs, gathered once at the route.
+ */
+interface PluginForward {
+  config: GatewayConfig;
+  plugin: string;
+  /** The declared path, not the requested spelling. */
+  routePath: string;
+  req: Request;
+  /** The vendor's payload, as accepted. */
+  body: Uint8Array<ArrayBuffer>;
+  search: string;
+  fetchImpl?: (
+    input: string | URL | Request,
+    init?: RequestInit,
+  ) => Promise<Response>;
+}
+
+/**
+ * Hand the vendor's delivery to the plugin, verbatim.
+ *
+ * The plugin gets what the vendor sent rather than the gateway's reading of
+ * it: only the plugin knows which of its vendor's events this is, and the
+ * declaration covers just the few fields the gate needs. Re-parsing on the far
+ * side is the plugin doing the job it exists for.
+ */
+async function forwardToPlugin(forward: PluginForward): Promise<Response> {
+  const { config, plugin, routePath, req, body, search, fetchImpl } = forward;
+  const start = performance.now();
+  // The body is already drained, so hand the proxy a request carrying the
+  // bytes we accepted rather than the consumed original.
+  const forwardable = new Request(req.url, {
+    method: req.method,
+    headers: req.headers,
+    body: METHODS_WITHOUT_BODY.has(req.method) ? undefined : body,
+  });
+  const forwarded = await proxyForwardToResponse(forwardable, {
+    baseUrl: config.assistantRuntimeBaseUrl,
+    // Forward under the declared path, not the requested spelling: matching
+    // ignores a trailing slash, and the plugin serves the path it declared.
+    path: pluginRouteUpstreamPath(plugin, routePath),
+    search: search || undefined,
+    serviceToken: mintServiceToken(),
+    timeoutMs: config.runtimeTimeoutMs,
+    fetchImpl,
+  });
+  const duration = Math.round(performance.now() - start);
+  if (forwarded.status >= 500) {
+    log.error(
+      { plugin, path: routePath, status: forwarded.status, duration },
+      "Plugin webhook upstream error",
+    );
+  } else if (forwarded.status >= 400) {
+    log.warn(
+      { plugin, path: routePath, status: forwarded.status, duration },
+      "Plugin webhook upstream error",
+    );
+  }
+  return forwarded;
+}
+
 export interface PluginWebhookHandlerDeps {
   config: GatewayConfig;
   /** Approved-ingress view; cached by the caller so this stays off the disk. */
@@ -130,12 +191,6 @@ export interface PluginWebhookHandlerDeps {
     input: string | URL | Request,
     init?: RequestInit,
   ) => Promise<Response>;
-  /**
-   * The gate, injected for the same reason `fetchImpl` is: it reaches the ACL
-   * database and the trust resolver, neither of which a test of this route's
-   * decisions should have to stand up.
-   */
-  admitInboundImpl?: typeof admitInbound;
 }
 
 /**
@@ -160,13 +215,7 @@ export interface PluginWebhookHandlerDeps {
  * by the same body cap as everything else here.
  */
 export function createPluginWebhookHandler(deps: PluginWebhookHandlerDeps) {
-  const {
-    config,
-    resolve,
-    credentials,
-    fetchImpl,
-    admitInboundImpl = admitInbound,
-  } = deps;
+  const { config, resolve, credentials, fetchImpl } = deps;
 
   return async (req: Request, plugin: string, path: string) => {
     let match: ReturnType<typeof findDeclaredRoute>;
@@ -284,67 +333,26 @@ export function createPluginWebhookHandler(deps: PluginWebhookHandlerDeps) {
       );
     }
 
-    // Forward under the declared path, not the requested spelling: matching
-    // ignores a trailing slash, and the plugin serves the path it declared.
-    const upstreamPath = pluginRouteUpstreamPath(plugin, route.path);
     const search = new URL(req.url).search;
 
-    /**
-     * Hand the vendor's delivery to the plugin, verbatim.
-     *
-     * The plugin gets what the vendor sent rather than the gateway's reading
-     * of it: only the plugin knows which of its vendor's events this is, and
-     * the declaration covers just the few fields the gate needs. Re-parsing
-     * on the far side is the plugin doing the job it exists for.
-     */
-    const forwardToPlugin = async (): Promise<Response> => {
-      const start = performance.now();
-      // The body is already drained, so hand the proxy a request carrying the
-      // bytes we accepted rather than the consumed original.
-      const forwardable = new Request(req.url, {
-        method: req.method,
-        headers: req.headers,
-        body: METHODS_WITHOUT_BODY.has(req.method) ? undefined : body.bytes,
-      });
-      const forwarded = await proxyForwardToResponse(forwardable, {
-        baseUrl: config.assistantRuntimeBaseUrl,
-        path: upstreamPath,
-        search: search || undefined,
-        serviceToken: mintServiceToken(),
-        timeoutMs: config.runtimeTimeoutMs,
-        fetchImpl,
-      });
-      const duration = Math.round(performance.now() - start);
-      if (forwarded.status >= 500) {
-        log.error(
-          { plugin, path, status: forwarded.status, duration },
-          "Plugin webhook upstream error",
-        );
-      } else if (forwarded.status >= 400) {
-        log.warn(
-          { plugin, path, status: forwarded.status, duration },
-          "Plugin webhook upstream error",
-        );
-      }
-      return forwarded;
+    const forward = {
+      config,
+      plugin,
+      routePath: route.path,
+      req,
+      body: body.bytes,
+      search,
+      fetchImpl,
     };
 
     const inbound = route.inbound;
     if (!inbound) {
       // A route that receives no messages is a plain proxy: nothing to read,
       // nothing to gate.
-      return forwardToPlugin();
+      return forwardToPlugin(forward);
     }
 
-    return deliverGatedInbound({
-      config,
-      plugin,
-      routePath: route.path,
-      inbound,
-      body: body.bytes,
-      forwardToPlugin,
-      admitInboundImpl,
-    });
+    return deliverGatedInbound({ inbound, forward });
   };
 }
 
@@ -370,25 +378,11 @@ export function createPluginWebhookHandler(deps: PluginWebhookHandlerDeps) {
  * ungated, because there is nobody to admit and nothing to admit them to.
  */
 async function deliverGatedInbound(opts: {
-  config: GatewayConfig;
-  plugin: string;
-  /** The declared path, for logs. Not the requested spelling. */
-  routePath: string;
   inbound: IngressInbound;
-  /** The vendor's payload, as accepted. */
-  body: Uint8Array;
-  forwardToPlugin: () => Promise<Response>;
-  admitInboundImpl: typeof admitInbound;
+  forward: PluginForward;
 }): Promise<Response> {
-  const {
-    config,
-    plugin,
-    routePath,
-    inbound,
-    body,
-    forwardToPlugin,
-    admitInboundImpl,
-  } = opts;
+  const { inbound, forward } = opts;
+  const { config, plugin, routePath, body } = forward;
 
   let parsed: unknown;
   try {
@@ -402,7 +396,7 @@ async function deliverGatedInbound(opts: {
       { plugin, path: routePath },
       "Plugin webhook payload is not JSON, forwarding ungated",
     );
-    return forwardToPlugin();
+    return forwardToPlugin(forward);
   }
 
   const reading = readPluginInbound({
@@ -420,7 +414,7 @@ async function deliverGatedInbound(opts: {
       { plugin, path: routePath },
       "Delivery carries no sender, forwarding ungated",
     );
-    return forwardToPlugin();
+    return forwardToPlugin(forward);
   }
   if (reading.status === "invalid") {
     // Some of a message but not enough of one. Declining to gate a delivery
@@ -454,7 +448,7 @@ async function deliverGatedInbound(opts: {
 
   let admission: InboundAdmission;
   try {
-    admission = await admitInboundImpl(config, reading.event, {
+    admission = await admitInbound(config, reading.event, {
       // Which plugin, for the runtime and for anyone reading a transcript. The
       // route too: a plugin can declare several, and knowing which one a turn
       // arrived on is the difference between a provider misconfiguration and a
@@ -516,7 +510,7 @@ async function deliverGatedInbound(opts: {
     return Response.json({ ok: true }, { status: 200 });
   }
 
-  const pluginResponse = await forwardToPlugin();
+  const pluginResponse = await forwardToPlugin(forward);
   if (pluginResponse.status >= 400) {
     // The gate said yes and the plugin could not take it. Acknowledging would
     // lose a message the sender was entitled to have delivered.

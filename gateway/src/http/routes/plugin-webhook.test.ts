@@ -7,6 +7,7 @@ import {
   describe,
   expect,
   it,
+  mock,
 } from "bun:test";
 
 import "../../__tests__/test-preload.js";
@@ -30,10 +31,38 @@ import type {
   HandleInboundOptions,
   InboundAdmission,
 } from "../../handlers/handle-inbound.js";
-import {
-  createPluginWebhookHandler,
-  type PluginWebhookHandlerDeps,
-} from "./plugin-webhook.js";
+
+/**
+ * The gate reaches the ACL database and the trust resolver, neither of which a
+ * test of this route's decisions should have to stand up. Mocked at the module
+ * rather than injected, so the route calls it the way production does.
+ */
+let admitImpl: (
+  config: GatewayConfig,
+  event: GatewayInboundEvent,
+  options?: HandleInboundOptions,
+) => Promise<InboundAdmission> = async () => ADMIT_GUARDIAN;
+const gateCalls: {
+  events: GatewayInboundEvent[];
+  options: (HandleInboundOptions | undefined)[];
+} = { events: [], options: [] };
+
+mock.module("../../handlers/handle-inbound.js", () => ({
+  admitInbound: (
+    config: GatewayConfig,
+    event: GatewayInboundEvent,
+    options?: HandleInboundOptions,
+  ) => {
+    gateCalls.events.push(event);
+    gateCalls.options.push(options);
+    return admitImpl(config, event, options);
+  },
+}));
+
+const { createPluginWebhookHandler } = await import("./plugin-webhook.js");
+type PluginWebhookHandlerDeps = Parameters<
+  typeof createPluginWebhookHandler
+>[0];
 
 // The handler mints a real service token for the upstream hop. Initialising
 // the key beats mocking token-exchange, which is process-wide in bun and
@@ -57,7 +86,18 @@ afterAll(() => {
 // against each other rather than against a redelivery.
 beforeEach(() => {
   getGatewayDb().delete(inboundSeenEvents).run();
+  gateCalls.events.length = 0;
+  gateCalls.options.length = 0;
 });
+
+/** An admitted delivery from a guardian, which clears every floor. */
+const ADMIT_GUARDIAN = {
+  admitted: true,
+  routing: { assistantId: "self" },
+  trustVerdict: { trustClass: "guardian" },
+  admissionPolicy: "trusted_contacts",
+  displayName: undefined,
+} as unknown as InboundAdmission;
 
 const CONFIG = {
   assistantRuntimeBaseUrl: "http://runtime.test:7821",
@@ -1024,14 +1064,17 @@ describe("inbound delivery", () => {
    */
   function harness(
     opts: {
-      admitInboundImpl?: PluginWebhookHandlerDeps["admitInboundImpl"];
+      admit?: typeof admitImpl;
       pluginStatus?: number;
       route?: IngressRoute;
     } = {},
   ) {
-    const handled: GatewayInboundEvent[] = [];
-    const options: (HandleInboundOptions | undefined)[] = [];
     const forwards: { url: string; body: string }[] = [];
+    // A fresh harness is a fresh scenario, so what the gate saw under the
+    // previous one is not this one's evidence.
+    gateCalls.events.length = 0;
+    gateCalls.options.length = 0;
+    admitImpl = opts.admit ?? (async () => ADMIT_GUARDIAN);
 
     const deps: PluginWebhookHandlerDeps = {
       config: CONFIG,
@@ -1047,25 +1090,13 @@ describe("inbound delivery", () => {
         });
         return new Response("{}", { status: opts.pluginStatus ?? 200 });
       },
-      admitInboundImpl:
-        opts.admitInboundImpl ??
-        (async (
-          _config: GatewayConfig,
-          event: GatewayInboundEvent,
-          o?: HandleInboundOptions,
-        ): Promise<InboundAdmission> => {
-          handled.push(event);
-          options.push(o);
-          return {
-            admitted: true,
-            routing: { assistantId: "self" } as never,
-            trustVerdict: { trustClass: "guardian" } as never,
-            admissionPolicy: "trusted_contacts",
-            displayName: undefined,
-          };
-        }),
     };
-    return { handled, options, forwards, deps };
+    return {
+      handled: gateCalls.events,
+      options: gateCalls.options,
+      forwards,
+      deps,
+    };
   }
 
   function deliver(
@@ -1112,7 +1143,7 @@ describe("inbound delivery", () => {
     // The point of gating first. A rejected sender must not reach a plugin
     // that would otherwise run a turn for them.
     const { forwards, deps } = harness({
-      admitInboundImpl: async () => ({
+      admit: async () => ({
         admitted: false,
         result: {
           forwarded: false,
@@ -1134,7 +1165,7 @@ describe("inbound delivery", () => {
     // runtime's admission stage; here there is nothing downstream but the
     // plugin, so a floor unenforced here is a floor unenforced at all.
     const { forwards, deps } = harness({
-      admitInboundImpl: async () => ({
+      admit: async () => ({
         admitted: true,
         routing: { assistantId: "self" } as never,
         trustVerdict: { trustClass: "unknown" } as never,
@@ -1151,7 +1182,7 @@ describe("inbound delivery", () => {
 
   it("reaches the plugin when the sender clears the floor", async () => {
     const { forwards, deps } = harness({
-      admitInboundImpl: async () => ({
+      admit: async () => ({
         admitted: true,
         routing: { assistantId: "self" } as never,
         trustVerdict: { trustClass: "trusted_contact" } as never,
@@ -1169,7 +1200,7 @@ describe("inbound delivery", () => {
     // Verdict resolution can fail. Reading that as "no constraint" would
     // admit exactly the sender the floor exists to stop.
     const { forwards, deps } = harness({
-      admitInboundImpl: async () => ({
+      admit: async () => ({
         admitted: true,
         routing: { assistantId: "self" } as never,
         trustVerdict: undefined,
@@ -1256,7 +1287,7 @@ describe("inbound delivery", () => {
 
   it("asks the vendor to retry when the pipeline throws", async () => {
     const { deps } = harness({
-      admitInboundImpl: async () => {
+      admit: async () => {
         throw new Error("runtime is down");
       },
     });
@@ -1329,7 +1360,7 @@ describe("inbound delivery", () => {
 
     it("lets the retry through after the pipeline threw", async () => {
       const failing = harness({
-        admitInboundImpl: async () => {
+        admit: async () => {
           throw new Error("runtime is down");
         },
       });
@@ -1363,7 +1394,7 @@ describe("inbound delivery", () => {
         enter = resolve;
       });
       const { deps } = harness({
-        admitInboundImpl: () => {
+        admit: () => {
           enter();
           return new Promise<never>(() => {});
         },
