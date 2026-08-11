@@ -65,7 +65,7 @@ afterAll(() => {
   mock.module("../lib/retire-archive.js", () => realRetireArchive);
 });
 
-import { retireLocal } from "../lib/retire-local.js";
+import { getRetireArchiveCommand, retireLocal } from "../lib/retire-local.js";
 
 const instanceDir = join(testDir, "test-instance");
 const vellumDir = join(instanceDir, ".vellum");
@@ -206,5 +206,26 @@ describe("retireLocal — CES sibling stop", () => {
     expect(stopOrphanedDaemonProcessesMock).toHaveBeenCalledTimes(1);
     const excludedPids = stopOrphanedDaemonProcessesMock.mock.calls[0]?.[0];
     expect(excludedPids?.has(otherPid)).toBeTrue();
+  });
+});
+
+test("uses a Windows-native archive process", () => {
+  const archivePath =
+    "C:\\Users\\Example User\\Vellum\\retired\\assistant & data.tar.gz";
+  const stagingDir = `${archivePath}.staging`;
+  const archiveCommand = getRetireArchiveCommand(
+    archivePath,
+    stagingDir,
+    "win32",
+  );
+
+  expect(archiveCommand.command).toBe("powershell.exe");
+  expect(archiveCommand.args.join(" ")).toContain("tar.exe");
+  expect(archiveCommand.args.join(" ")).not.toContain(archivePath);
+  expect(archiveCommand.env).toMatchObject({
+    VELLUM_RETIRE_ARCHIVE_PATH: archivePath,
+    VELLUM_RETIRE_ARCHIVE_PARENT: "C:\\Users\\Example User\\Vellum\\retired",
+    VELLUM_RETIRE_STAGING_NAME: "assistant & data.tar.gz.staging",
+    VELLUM_RETIRE_STAGING_DIR: stagingDir,
   });
 });
