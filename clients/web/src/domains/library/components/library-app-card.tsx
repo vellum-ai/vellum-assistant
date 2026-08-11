@@ -29,6 +29,7 @@ import {
   Button,
   Menu,
   PanelItem,
+  hoverRevealClasses,
   toast,
 } from "@vellumai/design-library";
 
@@ -162,10 +163,8 @@ export function LibraryAppCard({
 
         <div
           className={cn(
-            "absolute right-2 top-2 z-20 transition-opacity",
-            "max-md:opacity-100",
-            "md:group-hover:opacity-100 md:group-focus-within:opacity-100",
-            menuOpen ? "opacity-100" : "md:opacity-0",
+            "absolute right-2 top-2 z-20",
+            hoverRevealClasses,
           )}
         >
           <LibraryAppCardActionsMenu

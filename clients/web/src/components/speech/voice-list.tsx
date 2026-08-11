@@ -24,7 +24,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 
 import { Check, Square, Volume2 } from "lucide-react";
 
-import { cn } from "@vellumai/design-library";
+import { cn, hoverRevealClasses } from "@vellumai/design-library";
 import { Button } from "@vellumai/design-library/components/button";
 import { Select } from "@vellumai/design-library/components/select";
 
@@ -276,9 +276,7 @@ export function VoiceList({
                         }
                         className={cn(
                           "absolute inset-0 transition-opacity",
-                          isPreviewing
-                            ? "opacity-100"
-                            : "opacity-0 group-hover:opacity-100 focus-visible:opacity-100 touch-mobile:opacity-100",
+                          isPreviewing ? "opacity-100" : hoverRevealClasses,
                         )}
                         // Preview / stop only — don't let the row's select fire.
                         onClick={(event) => {

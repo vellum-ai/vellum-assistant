@@ -12,6 +12,7 @@ import {
 } from "react";
 
 import { cn } from "../../utils/cn";
+import { hoverRevealClasses } from "../../utils/hover-reveal";
 import { reportUnmergeableSlotChild } from "../../utils/slot-child";
 import { CrossfadeStack } from "../crossfade-stack";
 
@@ -359,13 +360,9 @@ const BADGE_BARE_ALONE_CLASSES = "mr-2";
 
 const TRAILING_ACTION_CLASSES = [
   "flex items-center shrink-0",
-  "opacity-0 transition-opacity",
-  "[@media(hover:hover)]:group-hover:opacity-100",
-  // Keyboard path: reveal when the row or the action itself has focus, and
-  // keep it visible while its menu is open (focus moves into the portal'd
-  // menu content, so focus-within alone would let it fade mid-interaction).
-  "group-focus-within:opacity-100",
-  "has-[[aria-expanded=true]]:opacity-100",
+  hoverRevealClasses,
+  // The row a nav item marks as the current page keeps its action visible:
+  // it is the row the user is already in.
   "group-aria-[current=page]:opacity-100",
 ].join(" ");
 
@@ -532,7 +529,7 @@ function PanelItemContentRow({
 
   const trailingNode = trailingAction ? (
     <span
-      className={cn(TRAILING_ACTION_CLASSES, "pointer-coarse:opacity-100")}
+      className={TRAILING_ACTION_CLASSES}
       onClick={(event: MouseEvent<HTMLSpanElement>) => {
         event.stopPropagation();
         event.preventDefault();
