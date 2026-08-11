@@ -2078,6 +2078,52 @@ describe("entries wire shape", () => {
     }
   });
 
+  test("a vendor id is never read as an entry name, even when a row carries it", async () => {
+    // Self-named rows predate the daemon's reservation guard. Opening a
+    // plain unbound profile must not pin it to the same-named row.
+    const selfNamed = makeConnection("anthropic");
+    const { saveCalls, onSave } = collectSaves();
+    renderEdit(
+      {
+        name: "plain",
+        label: "Plain",
+        provider: "anthropic",
+        model: "claude-opus-4-8",
+      },
+      onSave,
+      [selfNamed, anthropicPersonal],
+    );
+
+    fireEvent.click(getSaveBtn());
+    await waitFor(() => {
+      expect(saveCalls.length).toBe(1);
+    });
+    expect(saveCalls[0].entry.provider).toBe("anthropic");
+    // Two siblings, so no auto-resolve: the profile stays unbound instead
+    // of quietly adopting the self-named row.
+    expect(saveCalls[0].entry.provider_connection).toBeNull();
+  });
+
+  test("a stale binding among surviving siblings still labels the trigger", async () => {
+    renderEdit(
+      {
+        name: "stale",
+        label: "Stale",
+        provider: "anthropic",
+        provider_connection: "deleted-key",
+        model: "claude-opus-4-8",
+      },
+      undefined,
+      [anthropicWork, anthropicPersonal],
+    );
+
+    // The encoded value matches no option, so the trigger must fall back
+    // to the bare kind rather than the placeholder.
+    await waitFor(() => {
+      expect(providerTrigger().textContent).toContain("Anthropic");
+    });
+  });
+
   test("a stored entry-name profile opens translated and round-trips", async () => {
     const store = await gateOn();
     try {

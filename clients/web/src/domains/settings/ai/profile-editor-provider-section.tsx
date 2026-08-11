@@ -23,7 +23,6 @@ import {
 import {
   entryPickerValue,
   expandEndpointEntries,
-  multiEntryProviderKinds,
   parseEntryPickerValue,
   providersServedByConnections,
   useSelectableCatalogProviders,
@@ -345,6 +344,69 @@ export function ProfileEditorProviderSection({
     }
   }, [model, availableModels, onModelChange, provider, isEnteringCustomModel]);
 
+  const defaultEntryMetaLabel = t("aiProviderPicker.defaultEntryMeta");
+
+  // Options are computed ahead of the JSX so the trigger value can be
+  // membership-checked below: a value with no matching option makes the
+  // Select render its placeholder, which reads as an empty picker on a
+  // working profile (stale binding among surviving siblings, or a
+  // cross-kind binding such as a chatgpt row serving openai).
+  const providerOptions = useMemo(() => {
+    const base = expandEndpointEntries(
+      providerOptionsSource,
+      connections ?? [],
+      (p) => PROVIDER_DISPLAY_NAMES[p] ?? p,
+      defaultEntryMetaLabel,
+    ).map(({ value, label, meta }) => ({
+      value,
+      label,
+      suffix: meta ? <PickerMeta text={meta} /> : undefined,
+    }));
+    // A bound endpoint whose row was deleted still renders on the
+    // trigger; the warning below explains the state.
+    if (
+      connectionNotFound &&
+      provider === OPENAI_COMPATIBLE_PROVIDER &&
+      providerConnection
+    ) {
+      base.push({
+        value: entryPickerValue(OPENAI_COMPATIBLE_PROVIDER, providerConnection),
+        label: `${providerConnection} (not found)`,
+        suffix: undefined,
+      });
+    }
+    // An unbound openai-compatible profile has no endpoint entry to
+    // select; the bare protocol value keeps the trigger labeled.
+    // Picking an endpoint entry from this same list binds it.
+    if (provider === OPENAI_COMPATIBLE_PROVIDER && !providerConnection) {
+      base.push({
+        value: OPENAI_COMPATIBLE_PROVIDER,
+        label:
+          PROVIDER_DISPLAY_NAMES[OPENAI_COMPATIBLE_PROVIDER] ??
+          OPENAI_COMPATIBLE_PROVIDER,
+        suffix: undefined,
+      });
+    }
+    return base;
+  }, [
+    providerOptionsSource,
+    connections,
+    connectionNotFound,
+    provider,
+    providerConnection,
+    defaultEntryMetaLabel,
+  ]);
+
+  const entryValue =
+    provider && providerConnection
+      ? entryPickerValue(provider, providerConnection)
+      : null;
+  const selectValue =
+    entryValue !== null &&
+    providerOptions.some((option) => option.value === entryValue)
+      ? entryValue
+      : provider;
+
   return (
     <>
       {/* Provider — required. Filtered to providers with at least one
@@ -368,14 +430,7 @@ export function ProfileEditorProviderSection({
               ? NO_PROVIDER_CONNECTIONS_HINT
               : subscriptionSteeringHint
           }
-          value={
-            provider &&
-            providerConnection &&
-            (provider === OPENAI_COMPATIBLE_PROVIDER ||
-              multiEntryProviderKinds(connections ?? []).has(provider))
-              ? entryPickerValue(provider, providerConnection)
-              : provider
-          }
+          value={selectValue}
           onChange={(next) => {
             const entry = parseEntryPickerValue(next);
             if (entry) {
@@ -396,45 +451,7 @@ export function ProfileEditorProviderSection({
           }}
           disabled={isReadOnly}
           placeholder="Select a provider…"
-          options={[
-            ...expandEndpointEntries(
-              providerOptionsSource,
-              connections ?? [],
-              (p) => PROVIDER_DISPLAY_NAMES[p] ?? p,
-            ).map(({ value, label, meta }) => ({
-              value,
-              label,
-              suffix: meta ? <PickerMeta text={meta} /> : undefined,
-            })),
-            // A bound endpoint whose row was deleted still renders on the
-            // trigger; the warning below explains the state.
-            ...(connectionNotFound &&
-            provider === OPENAI_COMPATIBLE_PROVIDER &&
-            providerConnection
-              ? [
-                  {
-                    value: entryPickerValue(
-                      OPENAI_COMPATIBLE_PROVIDER,
-                      providerConnection,
-                    ),
-                    label: `${providerConnection} (not found)`,
-                  },
-                ]
-              : []),
-            // An unbound openai-compatible profile has no endpoint entry to
-            // select; the bare protocol value keeps the trigger labeled.
-            // Picking an endpoint entry from this same list binds it.
-            ...(provider === OPENAI_COMPATIBLE_PROVIDER && !providerConnection
-              ? [
-                  {
-                    value: OPENAI_COMPATIBLE_PROVIDER,
-                    label:
-                      PROVIDER_DISPLAY_NAMES[OPENAI_COMPATIBLE_PROVIDER] ??
-                      OPENAI_COMPATIBLE_PROVIDER,
-                  },
-                ]
-              : []),
-          ]}
+          options={providerOptions}
         />
       )}
 

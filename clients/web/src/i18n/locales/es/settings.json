@@ -15,5 +15,8 @@
   },
   "profileEditor": {
     "subscriptionSteeringHint": "Tu suscripción a ChatGPT está disponible como el proveedor ChatGPT."
+  },
+  "aiProviderPicker": {
+    "defaultEntryMeta": "Predeterminado"
   }
 }

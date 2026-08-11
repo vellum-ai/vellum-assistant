@@ -21,6 +21,7 @@ import {
 } from "@/domains/settings/ai/constants";
 import { resolveModelDisplayName } from "@/domains/settings/ai/model-display";
 import { connectionServesProvider } from "@/domains/settings/ai/provider-availability";
+import { CONNECTION_PROVIDERS } from "@/domains/settings/ai/provider-editor-constants";
 import { deriveProfileDefaults } from "@/domains/settings/ai/profile-prefill";
 import {
   isGeminiThinkingLevel,
@@ -412,6 +413,17 @@ export function useProfileEditor({
     if (!stored || provider !== stored) {
       return;
     }
+    // A provider id is never an entry name, even when a legacy row carries
+    // that exact name (self-named rows predate the daemon's reservation
+    // guard): a bare id means "the kind's default entry", and treating it
+    // as a name would pin or even re-vendor the profile on open.
+    if (
+      CONNECTION_PROVIDERS.includes(stored as ConnectionProvider) ||
+      stored === VELLUM_CONNECTION_PROVIDER ||
+      stored === CHATGPT_CONNECTION_PROVIDER
+    ) {
+      return;
+    }
     const row = connections?.find((c) => c.name === stored);
     if (
       !row ||
@@ -665,12 +677,12 @@ export function useProfileEditor({
       // legacy-shape binding left on the stored profile.
       let wireBinding = writesIdentityPayload ? "" : effectiveBinding;
       // Entries wire shape (version-gated): gated daemons store the binding
-      // IN the provider value — the entry name when the user picked a named
-      // row among siblings (openai-compatible endpoints always), the bare
-      // vendor id (the kind's default entry) otherwise — and never a
-      // provider_connection. Identity-bound rows keep their existing
-      // payloads: rewriting a vellum/chatgpt binding as an entry name would
-      // change what the daemon bills the request to.
+      // IN the provider value (the entry name when the user picked a named
+      // row among siblings and always for openai-compatible endpoints, the
+      // bare vendor id meaning the kind's default entry otherwise) and
+      // never a provider_connection. Identity-bound rows keep their
+      // existing payloads: rewriting a vellum/chatgpt binding as an entry
+      // name would change what the daemon bills the request to.
       const boundRow =
         effectiveBinding !== ""
           ? effectiveConnections.find((c) => c.name === effectiveBinding)

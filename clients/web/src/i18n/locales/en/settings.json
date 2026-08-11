@@ -15,5 +15,8 @@
   },
   "profileEditor": {
     "subscriptionSteeringHint": "Your ChatGPT subscription is available as the ChatGPT provider."
+  },
+  "aiProviderPicker": {
+    "defaultEntryMeta": "Default"
   }
 }

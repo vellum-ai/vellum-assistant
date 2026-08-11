@@ -16,7 +16,6 @@ import {
 import {
   entryPickerValue,
   expandEndpointEntries,
-  multiEntryProviderKinds,
   parseEntryPickerValue,
   providersServedByConnections,
   unconnectedSelectableProviders,
@@ -29,6 +28,7 @@ import type {
   ProviderConnection,
 } from "@/generated/daemon/types.gen";
 import { useActiveAssistantIsSelfHosted } from "@/hooks/use-platform-gate";
+import { useTranslation } from "@/i18n";
 
 // Sentinel value for the "+ Create new provider" option in the create-mode
 // Provider dropdown. Picking it mounts the inline ProviderCreateForm instead
@@ -210,6 +210,7 @@ export function ProfileEditorFields({
   // Every provider this assistant can dispatch through, connected ones first,
   // then the rest annotated with what they still need, then the always-present
   // "+ Create new provider" sentinel for custom endpoints.
+  const { t } = useTranslation("settings");
   const createModeProviderOptions = useMemo(() => {
     const opts: { value: string; label: string; suffix?: ReactNode }[] =
       expandEndpointEntries(
@@ -219,6 +220,7 @@ export function ProfileEditorFields({
         ),
         editor.effectiveConnections,
         (p) => PROVIDER_DISPLAY_NAMES[p] ?? p,
+        t("aiProviderPicker.defaultEntryMeta"),
       ).map(({ value, label, meta }) => ({
         value,
         label,
@@ -240,6 +242,7 @@ export function ProfileEditorFields({
     activeAssistantIsSelfHosted,
     editor.effectiveConnections,
     unconnectedProviders,
+    t,
   ]);
 
   const createProviderSection = (
@@ -257,10 +260,14 @@ export function ProfileEditorFields({
               ? (editor.pendingCreateProvider ?? CREATE_NEW_PROVIDER_SENTINEL)
               : editor.provider &&
                   editor.providerConnection &&
-                  (editor.provider === OPENAI_COMPATIBLE_PROVIDER ||
-                    multiEntryProviderKinds(editor.effectiveConnections).has(
-                      editor.provider,
-                    ))
+                  createModeProviderOptions.some(
+                    (option) =>
+                      option.value ===
+                      entryPickerValue(
+                        editor.provider,
+                        editor.providerConnection,
+                      ),
+                  )
                 ? entryPickerValue(editor.provider, editor.providerConnection)
                 : editor.provider
           }

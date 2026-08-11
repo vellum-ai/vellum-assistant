@@ -204,8 +204,8 @@ const ROUTING_IDENTITY_KINDS = new Set<string>([
 /**
  * Catalog kinds with two or more connections of that same kind. These expand
  * into per-entry picker rows so a profile can name WHICH key it uses. The
- * identity rows (vellum/chatgpt) never expand — they are canonical
- * singletons — and openai-compatible always expands regardless of count.
+ * identity rows (vellum/chatgpt) never expand, being canonical singletons,
+ * and openai-compatible always expands regardless of count.
  */
 export function multiEntryProviderKinds(
   connections: ProviderConnection[],
@@ -237,6 +237,9 @@ export function expandEndpointEntries(
   providers: readonly ConnectionProvider[],
   connections: ProviderConnection[],
   labelFor: (provider: ConnectionProvider) => string,
+  // User-facing copy is caller-supplied so it can come from the locale
+  // catalog; the fallback keeps the pure helper usable in tests.
+  defaultEntryMetaLabel = "Default",
 ): { value: string; label: string; meta?: string }[] {
   const multiEntryKinds = multiEntryProviderKinds(connections);
   const entries: { value: string; label: string; meta?: string }[] = [];
@@ -271,7 +274,7 @@ export function expandEndpointEntries(
     entries.push({
       value: provider,
       label: labelFor(provider),
-      meta: "Default",
+      meta: defaultEntryMetaLabel,
     });
     for (const c of connections) {
       if (c.provider !== provider) {
