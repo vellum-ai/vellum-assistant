@@ -413,10 +413,9 @@ export function useProfileEditor({
     if (!stored || provider !== stored) {
       return;
     }
-    // A provider id is never an entry name, even when a legacy row carries
-    // that exact name (self-named rows predate the daemon's reservation
-    // guard): a bare id means "the kind's default entry", and treating it
-    // as a name would pin or even re-vendor the profile on open.
+    // A provider id is never an entry name: the daemon reads a bare id as
+    // "the kind's default entry", so a row that happens to carry such a
+    // name must not pin or re-vendor the profile on open.
     if (
       CONNECTION_PROVIDERS.includes(stored as ConnectionProvider) ||
       stored === VELLUM_CONNECTION_PROVIDER ||
@@ -687,18 +686,24 @@ export function useProfileEditor({
         effectiveBinding !== ""
           ? effectiveConnections.find((c) => c.name === effectiveBinding)
           : undefined;
-      const boundRowIsIdentity =
+      // A binding is only expressible as an entry name when the daemon
+      // would read that name back as this row. Identity rows dispatch by
+      // their own rules, and a row named after a provider id or identity
+      // value reads as "the kind's default entry" or the identity, not as
+      // the row: all of those keep the legacy shape so the pin survives.
+      const bindingInexpressibleAsEntryName =
         boundRow !== undefined &&
         (boundRow.provider === VELLUM_CONNECTION_PROVIDER ||
           boundRow.provider === CHATGPT_CONNECTION_PROVIDER ||
           boundRow.name === VELLUM_CONNECTION_PROVIDER ||
-          boundRow.name === CHATGPT_CONNECTION_PROVIDER);
+          boundRow.name === CHATGPT_CONNECTION_PROVIDER ||
+          CONNECTION_PROVIDERS.includes(boundRow.name as ConnectionProvider));
       let entryWireProvider = wireProvider;
       if (
         !writesIdentityPayload &&
         provider !== "" &&
         provider !== VELLUM_CONNECTION_PROVIDER &&
-        !boundRowIsIdentity &&
+        !bindingInexpressibleAsEntryName &&
         (await assistantSupportsEntryProviderBinding(assistantId))
       ) {
         const kindSiblings = effectiveConnections.filter(

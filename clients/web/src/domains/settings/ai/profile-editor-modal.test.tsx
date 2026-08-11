@@ -2079,8 +2079,8 @@ describe("entries wire shape", () => {
   });
 
   test("a vendor id is never read as an entry name, even when a row carries it", async () => {
-    // Self-named rows predate the daemon's reservation guard. Opening a
-    // plain unbound profile must not pin it to the same-named row.
+    // A row can carry its vendor's own name; opening a plain unbound
+    // profile must not pin it to that row.
     const selfNamed = makeConnection("anthropic");
     const { saveCalls, onSave } = collectSaves();
     renderEdit(
@@ -2102,6 +2102,61 @@ describe("entries wire shape", () => {
     // Two siblings, so no auto-resolve: the profile stays unbound instead
     // of quietly adopting the self-named row.
     expect(saveCalls[0].entry.provider_connection).toBeNull();
+  });
+
+  test("an explicit pin to a self-named row keeps the legacy shape under the gate", async () => {
+    const store = await gateOn();
+    try {
+      // A row named exactly after its vendor cannot be written as an entry
+      // name (the daemon reads the bare id as "the kind's default entry"),
+      // so the explicit pin must stay in the legacy binding field.
+      const selfNamed = makeConnection("anthropic");
+      const { saveCalls, onSave } = collectSaves();
+      renderEdit(
+        {
+          name: "pinned",
+          label: "Pinned",
+          provider: "anthropic",
+          provider_connection: "anthropic",
+          model: "claude-opus-4-8",
+        },
+        onSave,
+        [selfNamed, anthropicPersonal],
+      );
+
+      fireEvent.click(getSaveBtn());
+      await waitFor(() => {
+        expect(saveCalls.length).toBe(1);
+      });
+      expect(saveCalls[0].entry.provider).toBe("anthropic");
+      expect(saveCalls[0].entry.provider_connection).toBe("anthropic");
+    } finally {
+      store.getState().clearIdentity();
+    }
+  });
+
+  test("a cross-kind identity binding shows the identity in the trigger", async () => {
+    const chatgptRow = {
+      ...makeConnection("chatgpt", "chatgpt"),
+      auth: { type: "oauth_subscription", credential: "credential/chatgpt" },
+    } as unknown as ProviderConnection;
+    renderEdit(
+      {
+        name: "codex",
+        label: "Codex",
+        provider: "openai",
+        provider_connection: "chatgpt",
+        model: "gpt-5.6-sol",
+      },
+      undefined,
+      [chatgptRow, makeConnection("openai-work", "openai")],
+    );
+
+    // The profile dispatches through the ChatGPT row, so the trigger names
+    // that route rather than bare OpenAI.
+    await waitFor(() => {
+      expect(providerTrigger().textContent).toContain("ChatGPT");
+    });
   });
 
   test("a stale binding among surviving siblings still labels the trigger", async () => {
