@@ -3,9 +3,14 @@ import { homedir } from "os";
 import { existsSync, mkdirSync, renameSync, writeFileSync } from "fs";
 import { basename, dirname, join } from "path";
 
-import { getDaemonPidPath, loadAllAssistants } from "./assistant-config.js";
+import {
+  getDaemonPidPath,
+  loadAllAssistants,
+  loadAllAssistantsAcrossEnvs,
+} from "./assistant-config.js";
 import type { AssistantEntry } from "./assistant-config.js";
 import { stopIngressNginx } from "./nginx-ingress.js";
+import { getKnownPidsFromAssistants } from "./orphan-detection.js";
 import {
   stopOrphanedDaemonProcesses,
   stopProcessByPidFile,
@@ -99,7 +104,14 @@ export async function retireLocal(
   // If the PID file didn't track a running daemon, scan for orphaned
   // daemon processes that may have been started without writing a PID.
   if (!daemonStopped) {
-    await stopOrphanedDaemonProcesses();
+    const otherAssistantPids = getKnownPidsFromAssistants(
+      [...loadAllAssistantsAcrossEnvs(), ...loadAllAssistants()].filter(
+        (other) =>
+          other.assistantId !== name ||
+          other.resources?.instanceDir !== resources.instanceDir,
+      ),
+    );
+    await stopOrphanedDaemonProcesses(otherAssistantPids);
   }
 
   // For named instances (instanceDir differs from the base directory),

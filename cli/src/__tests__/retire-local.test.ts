@@ -12,10 +12,14 @@ import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import type { AssistantEntry } from "../lib/assistant-config.js";
+import {
+  getDaemonPidPath,
+  type AssistantEntry,
+} from "../lib/assistant-config.js";
 
 const testDir = mkdtempSync(join(tmpdir(), "retire-local-test-"));
 const originalLockfileDir = process.env.VELLUM_LOCKFILE_DIR;
+const originalEnvironment = process.env.VELLUM_ENVIRONMENT;
 
 // Snapshot the real modules before mocking so the module-scoped `afterAll`
 // below can restore them. Bun runs every test file in one process with a
@@ -31,7 +35,7 @@ const stopProcessByPidFileMock = mock(
   async (_pidFile: string, _label: string): Promise<boolean> => true,
 );
 const stopOrphanedDaemonProcessesMock = mock(
-  async (): Promise<boolean> => false,
+  async (_excludePids?: ReadonlySet<string>): Promise<boolean> => false,
 );
 const stopIngressNginxMock = mock(async (): Promise<boolean> => false);
 
@@ -90,6 +94,7 @@ function writeLockfile(entries: AssistantEntry[]): void {
 describe("retireLocal — CES sibling stop", () => {
   beforeAll(() => {
     process.env.VELLUM_LOCKFILE_DIR = testDir;
+    process.env.VELLUM_ENVIRONMENT = "production";
   });
 
   beforeEach(() => {
@@ -115,6 +120,11 @@ describe("retireLocal — CES sibling stop", () => {
       delete process.env.VELLUM_LOCKFILE_DIR;
     } else {
       process.env.VELLUM_LOCKFILE_DIR = originalLockfileDir;
+    }
+    if (originalEnvironment === undefined) {
+      delete process.env.VELLUM_ENVIRONMENT;
+    } else {
+      process.env.VELLUM_ENVIRONMENT = originalEnvironment;
     }
     rmSync(testDir, { recursive: true, force: true });
   });
@@ -173,5 +183,33 @@ describe("retireLocal — CES sibling stop", () => {
         label === "credential-executor",
     );
     expect(cesStopCall).toBeDefined();
+  });
+
+  test("protects other assistants during orphan cleanup", async () => {
+    const otherInstanceDir = join(testDir, "other-instance");
+    const otherEntry = makeEntry("other-assistant");
+    otherEntry.resources!.instanceDir = otherInstanceDir;
+    const otherPid = "4242";
+    const otherPidFile = getDaemonPidPath(otherEntry.resources);
+    mkdirSync(join(otherInstanceDir, ".vellum", "workspace"), {
+      recursive: true,
+    });
+    writeFileSync(otherPidFile, otherPid);
+    writeLockfile([makeEntry("test-assistant"), otherEntry]);
+    stopProcessByPidFileMock.mockImplementation(
+      async (_pidFile: string, label: string): Promise<boolean> =>
+        label !== "daemon",
+    );
+
+    await retireLocal("test-assistant", makeEntry("test-assistant"), {
+      progress: () => {},
+      log: () => {},
+      warn: () => {},
+      error: () => {},
+    });
+
+    expect(stopOrphanedDaemonProcessesMock).toHaveBeenCalledTimes(1);
+    const excludedPids = stopOrphanedDaemonProcessesMock.mock.calls[0]?.[0];
+    expect(excludedPids?.has(otherPid)).toBeTrue();
   });
 });

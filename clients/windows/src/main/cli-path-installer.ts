@@ -11,7 +11,11 @@ import {
 import path from "node:path";
 
 export type CliLauncherState =
-  "missing" | "foreign" | "installed" | "shadowed" | "stale";
+  | "missing"
+  | "foreign"
+  | "installed"
+  | "shadowed"
+  | "stale";
 
 type LauncherOwnership = { sourcePath: string; version: string };
 
@@ -107,8 +111,24 @@ export function getCliLauncherState(
 export function readUserPath(
   run: RegistryRunner = systemRegistryRunner,
 ): string | undefined {
+  return readRegistryPath("HKCU\\Environment", run);
+}
+
+export function readMachinePath(
+  run: RegistryRunner = systemRegistryRunner,
+): string | undefined {
+  return readRegistryPath(
+    "HKLM\\SYSTEM\\CurrentControlSet\\Control\\Session Manager\\Environment",
+    run,
+  );
+}
+
+function readRegistryPath(
+  key: string,
+  run: RegistryRunner,
+): string | undefined {
   try {
-    const output = run("reg.exe", ["QUERY", "HKCU\\Environment"]);
+    const output = run("reg.exe", ["QUERY", key]);
     const match = output?.match(/\bPath\s+REG_(?:EXPAND_)?SZ\s+(.+)$/im);
     if (match) {
       return match[1].trim();
@@ -117,6 +137,15 @@ export function readUserPath(
   } catch {
     return undefined;
   }
+}
+
+function readEffectivePath(run: RegistryRunner): string | undefined {
+  const machinePath = readMachinePath(run);
+  const userPath = readUserPath(run);
+  if (machinePath === undefined || userPath === undefined) {
+    return undefined;
+  }
+  return [machinePath, userPath].filter(Boolean).join(";");
 }
 
 function writeUserPath(value: string, run: RegistryRunner): void {
@@ -198,10 +227,14 @@ export function installCliLauncher(
       renameSync(file.staging, file.target);
     }
     ensureUserPath(paths.binDir, run);
+    const effectivePath = readEffectivePath(run);
+    if (effectivePath === undefined) {
+      throw new Error("Unable to read the effective Windows PATH.");
+    }
     for (const file of pending) {
       rmSync(file.backup, { force: true });
     }
-    return getCliLauncherState(paths, sourcePath, readUserPath(run));
+    return getCliLauncherState(paths, sourcePath, effectivePath);
   } catch (error) {
     for (const file of replaced.reverse()) {
       rmSync(file.staging, { force: true });

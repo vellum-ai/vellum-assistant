@@ -78,6 +78,20 @@ function writeState(installRoot: string, state: InstallState): void {
   }
 }
 
+function selectPreviousInstallDir(
+  state: InstallState | undefined,
+  currentInstallDir: string,
+): string | undefined {
+  return [state?.currentInstallDir, state?.previousInstallDir].find(
+    (candidate): candidate is string =>
+      Boolean(
+        candidate &&
+        path.resolve(candidate) !== path.resolve(currentInstallDir) &&
+        isValidCliRuntime(candidate),
+      ),
+  );
+}
+
 export function provisionCliRuntime(paths: CliRuntimePaths) {
   const { sourceDir, installRoot, version } = paths;
   mkdirSync(installRoot, { recursive: true });
@@ -85,13 +99,14 @@ export function provisionCliRuntime(paths: CliRuntimePaths) {
   const priorState = readState(installRoot);
 
   if (isValidCliRuntime(target, version)) {
+    const previousInstallDir = selectPreviousInstallDir(priorState, target);
     writeState(installRoot, {
       currentInstallDir: target,
-      previousInstallDir: priorState?.previousInstallDir,
+      previousInstallDir,
     });
     return {
       installDir: target,
-      previousInstallDir: priorState?.previousInstallDir,
+      previousInstallDir,
       reused: true,
     };
   }
@@ -104,7 +119,7 @@ export function provisionCliRuntime(paths: CliRuntimePaths) {
       if (fallback && isValidCliRuntime(fallback)) {
         return {
           installDir: fallback,
-          previousInstallDir: priorState?.previousInstallDir,
+          previousInstallDir: selectPreviousInstallDir(priorState, fallback),
           reused: true,
         };
       }
@@ -130,17 +145,15 @@ export function provisionCliRuntime(paths: CliRuntimePaths) {
     }
     renameSync(staging, target);
     installedTarget = true;
+    const previousInstallDir = selectPreviousInstallDir(priorState, target);
     writeState(installRoot, {
       currentInstallDir: target,
-      previousInstallDir:
-        priorState && isValidCliRuntime(priorState.currentInstallDir)
-          ? priorState.currentInstallDir
-          : priorState?.previousInstallDir,
+      previousInstallDir,
     });
     rmSync(displaced, { recursive: true, force: true });
     return {
       installDir: target,
-      previousInstallDir: priorState?.currentInstallDir,
+      previousInstallDir,
       reused: false,
     };
   } catch (error) {

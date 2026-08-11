@@ -45,11 +45,15 @@ const runtimePaths = (root: string, version: string): CliRuntimePaths => ({
   version,
 });
 
-const registry = (initial = "C:\\Windows\\System32") => {
-  let userPath = initial;
+const registry = (
+  initialUserPath = "C:\\Windows\\System32",
+  machinePath = "C:\\Windows\\System32",
+) => {
+  let userPath = initialUserPath;
   const run: RegistryRunner = (_command, args) => {
     if (args[0] === "QUERY") {
-      return `    Path    REG_EXPAND_SZ    ${userPath}\r\n`;
+      const value = args[1].startsWith("HKLM") ? machinePath : userPath;
+      return `    Path    REG_EXPAND_SZ    ${value}\r\n`;
     }
     userPath = args[args.indexOf("/d") + 1];
     return "";
@@ -83,6 +87,27 @@ test("installs, upgrades, and falls back from paths with spaces", () => {
   const fallback = provisionCliRuntime(runtimePaths(root, "3.0.0"));
   expect(fallback.installDir).toBe(v1.installDir);
   expect(fallback.reused).toBeTrue();
+});
+
+test("preserves the newer runtime when reusing an older version", () => {
+  const root = makeTempDir();
+  const first = runtimePaths(root, "1.0.0");
+  writeRuntime(first.sourceDir, first.version);
+  const v1 = provisionCliRuntime(first);
+
+  rmSync(first.sourceDir, { recursive: true });
+  const second = runtimePaths(root, "2.0.0");
+  writeRuntime(second.sourceDir, second.version);
+  const v2 = provisionCliRuntime(second);
+
+  const rollback = provisionCliRuntime(first);
+  expect(rollback.installDir).toBe(v1.installDir);
+  expect(rollback.previousInstallDir).toBe(v2.installDir);
+
+  rmSync(second.sourceDir, { recursive: true });
+  rmSync(path.join(v1.installDir, "vellum.exe"));
+  const fallback = provisionCliRuntime(runtimePaths(root, "3.0.0"));
+  expect(fallback.installDir).toBe(v2.installDir);
 });
 
 test("does not replace a foreign launcher", () => {
@@ -125,6 +150,19 @@ test("repairs stale ownership and updates the user PATH", () => {
   );
   expect(uninstallCliLauncher(paths, userRegistry.run)).toBeTrue();
   expect(userRegistry.value().split(";")).not.toContain(paths.binDir);
+});
+
+test("reports a launcher shadowed by the machine PATH", () => {
+  const root = makeTempDir();
+  const paths = resolveCliLauncherPaths(path.join(root, "Local App Data"));
+  const source = writeRuntime(path.join(root, "runtime"), "1.0.0");
+  const collisionDir = path.join(root, "Machine CLI");
+  mkdirSync(collisionDir, { recursive: true });
+  writeFileSync(path.join(collisionDir, "vellum.exe"), "foreign", "utf8");
+
+  expect(
+    installCliLauncher(source, "1.0.0", paths, registry("", collisionDir).run),
+  ).toBe("shadowed");
 });
 
 test("restores the last launcher when PATH registration fails", () => {
