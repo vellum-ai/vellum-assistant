@@ -98,8 +98,8 @@ describe("chatgpt identity catalog", () => {
     expect(models.some((m) => m.id === "gpt-5.4-nano")).toBe(false);
   });
 
-  test("defaults to the recommended everyday Codex model", () => {
-    expect(getDefaultModelForProvider("chatgpt")).toBe("gpt-5.6-terra");
+  test("defaults to the Balanced profile's model on the chatgpt column", () => {
+    expect(getDefaultModelForProvider("chatgpt")).toBe("gpt-5.6-luna");
   });
 });
 

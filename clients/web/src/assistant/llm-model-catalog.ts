@@ -1101,9 +1101,10 @@ export function getModelsForProvider(
 export function getDefaultModelForProvider(
   provider: string,
 ): string | undefined {
-  // OpenAI's recommended everyday Codex model.
+  // Matches the Balanced default profile's model on the chatgpt column so
+  // users see one consistent "default" for the subscription.
   if (provider === "chatgpt") {
-    return "gpt-5.6-terra";
+    return "gpt-5.6-luna";
   }
   return DEFAULT_MODEL_BY_PROVIDER[provider as LlmProviderId];
 }
