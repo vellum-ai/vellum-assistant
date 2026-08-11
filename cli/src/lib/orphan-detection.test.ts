@@ -152,6 +152,7 @@ describe("detectOrphanedProcesses", () => {
       "105 1 vellum hatch",
       "106 1 node /opt/unrelated-service/daemon/main.ts",
       "107 1 node ./tools daemon start",
+      "108 1 node /opt/VELLUM/daemon/main.ts",
     ].join("\n");
     mock.module("./step-runner", () => ({
       ...realStepRunner,
