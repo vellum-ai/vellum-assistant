@@ -6,14 +6,17 @@ import { pathToFileURL } from "node:url";
 import path from "node:path";
 
 import { resolveAppProtocolPath } from "@vellumai/electron-utils/app-protocol";
+import { getDeviceId } from "@vellumai/electron-desktop/device-id";
 import { resolveLocalConfigFromEnv } from "@vellumai/local-mode";
+
+import { VELLUMAPP_PROTOCOL } from "@vellumai/electron-desktop/bundle-platform";
 
 import { APP_PROTOCOL } from "./app-config";
 import { provisionCliForCurrentUser } from "./cli-path-flow";
 import { installMainFeatures } from "./features";
 import { handleSync } from "./ipc.client";
 import log from "./logger";
-import { ensureVisible, installMainWindow } from "./main-window";
+import { ensureVisible } from "./main-window";
 import { installWebContentsSecurity } from "./windows.client";
 
 /**
@@ -28,8 +31,8 @@ import { installWebContentsSecurity } from "./windows.client";
  *
  * Not ported from the macOS client yet (see `clients/macos/src/main/` for the
  * reference implementations): gateway/platform request forwarding for
- * packaged builds, native auth, deep links, tray, auto-update, CSP,
- * notifications, local-mode IPC, window-state persistence.
+ * packaged builds, native auth, tray, auto-update, CSP,
+ * notifications, and local-mode IPC.
  */
 
 // Dev-only: override the package `name` (`@vellumai/windows`) so
@@ -74,6 +77,16 @@ if (!app.requestSingleInstanceLock()) {
 protocol.registerSchemesAsPrivileged([
   {
     scheme: APP_PROTOCOL,
+    privileges: {
+      standard: true,
+      secure: true,
+      supportFetchAPI: true,
+      stream: true,
+      corsEnabled: true,
+    },
+  },
+  {
+    scheme: VELLUMAPP_PROTOCOL,
     privileges: {
       standard: true,
       secure: true,
@@ -145,8 +158,7 @@ const fileExists = async (candidate: string): Promise<boolean> => {
 };
 
 // Synchronous config snapshot the preload reads at startup and exposes to the
-// renderer as `window.__VELLUM_CONFIG__`. `deviceId` is null until the
-// device-id store is ported from the macOS client.
+// renderer as `window.__VELLUM_CONFIG__`.
 const resolvedConfig = resolveLocalConfigFromEnv(process.env);
 handleSync("vellum:config:get", () => ({
   webUrl: resolvedConfig.webUrl,
@@ -155,7 +167,7 @@ handleSync("vellum:config:get", () => ({
     ["true", "1"].includes(
       (process.env.VELLUM_DISABLE_PLATFORM ?? "").toLowerCase(),
     ) || undefined,
-  deviceId: null,
+  deviceId: getDeviceId(),
 }));
 
 // ---------------------------------------------------------------------------
@@ -186,16 +198,12 @@ app
       }
     }
     installMainFeatures();
-    installMainWindow();
   })
   .catch((err: unknown) => {
     log.error("[app] whenReady setup failed:", err);
   });
 
 app.on("second-instance", () => {
-  // TODO(windows): deep links arrive via second-instance argv on Windows.
-  // Port `extractDeepLinkFromArgv` from `clients/macos/src/main/deep-links.ts`
-  // when the `vellum://` protocol registration lands here.
   ensureVisible();
 });
 

@@ -52,7 +52,7 @@ mock.module("./commands.client", () => ({
   dispatchToFocused: () => undefined,
 }));
 
-mock.module("./command-palette-window", () => ({
+mock.module("./command-palette.client", () => ({
   closeCommandPaletteWindow: () => undefined,
   isCommandPaletteWindowFocused: () => false,
   openCommandPaletteWindow: () => undefined,
@@ -78,7 +78,7 @@ mock.module("./settings", () => ({
   onSettingChange: () => () => {},
 }));
 
-mock.module("./window-state", () => ({
+mock.module("@vellumai/electron-desktop/window-state", () => ({
   readOnboardingActive: () => false,
 }));
 

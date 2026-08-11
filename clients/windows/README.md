@@ -15,12 +15,15 @@ it serves a bundled `resources/web-dist` over a privileged `app://` protocol.
 - Sender-validated IPC seam (`packages/electron-desktop/src/ipc.ts`) with a
   Windows adapter in `src/main/ipc.client.ts` and a minimal bridge:
   `window.vellum.app` (version info, open website), `window.vellum.commands`,
-  `mainWindow.ensureVisible`, plus the `__VELLUM_CONFIG__` /
+  `window.vellum.identity.setName`, and functional `mainWindow.ensureVisible` /
+  `mainWindow.setOnboarding`, plus the `__VELLUM_CONFIG__` /
   `__VELLUM_FLAG_OVERRIDES__` globals. Namespaces the renderer dereferences
   unguarded when `platform` is `"electron"` (`power`, `deepLinks`, `dock`,
-  `menu`, `localMode`, `mainWindow.setOnboarding`) ship as documented no-op
-  stubs; the rest are feature-detected by the renderer's runtime wrappers and
-  degrade to web behavior until ported.
+  `menu`, `localMode`) ship as documented no-op stubs; the rest are
+  feature-detected by the renderer's runtime wrappers and degrade to web
+  behavior until ported.
+- Persisted main-window geometry and maximized state, load/show readiness,
+  dynamic assistant titles, and frameless title-bar overlay controls.
 - Packaged static serving of the renderer from `src/main/index.ts`, with
   path-traversal protection from `@vellumai/electron-utils/app-protocol`,
   single-instance lock, per-environment `userData` separation, and
@@ -55,7 +58,7 @@ use the existing POSIX archive process.
   unaffected because the Vite dev server proxies both.
 - Native auth / OAuth sign-in chain, deep links (`vellum://`), tray,
   notifications, auto-update, CSP, hotkeys, local-mode IPC (hatch/wake/
-  retire), window-state persistence, device id, frameless title bar.
+  retire), and device id.
 
 ## Development
 

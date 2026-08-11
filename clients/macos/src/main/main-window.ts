@@ -1,5 +1,12 @@
 import { BrowserWindow, app, shell } from "electron";
 import { z } from "zod";
+import { createWindowReadiness } from "@vellumai/electron-desktop/window-readiness";
+import {
+  readOnboardingActive,
+  restoreBounds,
+  track as trackWindowState,
+  writeOnboardingActive,
+} from "@vellumai/electron-desktop/window-state";
 
 import { getRendererRootUrl } from "./app-config";
 import { resolveAllowedOrigin } from "./app-origin";
@@ -8,12 +15,6 @@ import { type VellumCommand } from "@vellumai/electron-desktop/commands";
 import { getName, onNameChange } from "./identity";
 import { handle } from "./ipc";
 import { createWindow } from "./windows";
-import {
-  readOnboardingActive,
-  restoreBounds,
-  track as trackWindowState,
-  writeOnboardingActive,
-} from "./window-state";
 
 // Default state for the main window once onboarding is done: maximized — a
 // normal window filling the display's work area, deliberately NOT native
@@ -125,33 +126,7 @@ const fireVisibilityChange = (): void => {
 // instance via a `WeakMap` so two near-simultaneous `createWindow`
 // calls can't have the second's `armRenderReady` overwrite the
 // first's resolver (or vice versa).
-interface ReadyState {
-  promise: Promise<void>;
-  resolve: () => void;
-  didFinishLoad: boolean;
-  didShow: boolean;
-}
-const readyStates = new WeakMap<BrowserWindow, ReadyState>();
-
-const armReadyState = (win: BrowserWindow): ReadyState => {
-  let resolve: () => void = () => {};
-  const promise = new Promise<void>((res) => {
-    resolve = res;
-  });
-  const state: ReadyState = {
-    promise,
-    resolve,
-    didFinishLoad: false,
-    didShow: false,
-  };
-  readyStates.set(win, state);
-  return state;
-};
-
-// Already-resolved sentinel for the "no window exists" path —
-// `ensureVisible` returns a Promise even when there's nothing to
-// wait for, so callers can compose `await` uniformly.
-const ALREADY_READY: Promise<void> = Promise.resolve();
+const readiness = createWindowReadiness<BrowserWindow>();
 
 const installSameOriginNavigationGuard = (win: BrowserWindow): void => {
   const allowedOrigin = resolveAllowedOrigin();
@@ -185,8 +160,12 @@ const createMainWindow = (): BrowserWindow => {
   // client's `contentMinSize`). The persisted onboarding flag now only drives
   // the traffic-light position (compact surfaces have no inline title bar).
   const onboardingActive = readOnboardingActive();
+  const { maximized: _maximized, ...restoredBounds } = restoreBounds(
+    "main",
+    MAIN_DEFAULT_STATE,
+  );
   const sizing = {
-    ...restoreBounds("main", MAIN_DEFAULT_STATE),
+    ...restoredBounds,
     minWidth: MAIN_MIN_SIZE.width,
     minHeight: MAIN_MIN_SIZE.height,
   };
@@ -229,20 +208,15 @@ const createMainWindow = (): BrowserWindow => {
   // WeakMap so concurrent `createWindow` calls can't cross-resolve
   // each other's promise (the prior module-scope `resolveRenderReady`
   // had that race).
-  const ready = armReadyState(win);
-  const maybeResolveReady = (): void => {
-    if (ready.didFinishLoad && ready.didShow) ready.resolve();
-  };
+  const ready = readiness.arm(win);
   win.webContents.once("did-finish-load", () => {
-    ready.didFinishLoad = true;
-    maybeResolveReady();
+    ready.markLoaded();
   });
 
   win.once("ready-to-show", () => {
     win.show();
     win.focus();
-    ready.didShow = true;
-    maybeResolveReady();
+    ready.markShown();
   });
 
   // Visibility transitions feed the dock state machine (via
@@ -258,7 +232,7 @@ const createMainWindow = (): BrowserWindow => {
     // dispatch then sees `current() === null` and no-ops; that's the
     // right semantics — the user closed the window, nothing should
     // happen.
-    ready.resolve();
+    ready.release();
     if (mainWindow === win) mainWindow = null;
     // Subscribers (dock) re-read `current()` which is now null →
     // `isMainWindowVisible()` returns false.
@@ -296,7 +270,7 @@ const createMainWindow = (): BrowserWindow => {
 export const ensureVisible = (): Promise<void> => {
   if (!mainWindow || mainWindow.isDestroyed()) {
     const win = createMainWindow();
-    return readyStates.get(win)?.promise ?? ALREADY_READY;
+    return readiness.wait(win);
   }
   if (mainWindow.isMinimized()) mainWindow.restore();
   mainWindow.show();
@@ -306,7 +280,7 @@ export const ensureVisible = (): Promise<void> => {
   // so return its stored readiness instead of a fresh resolved
   // promise. If it's already loaded, the stored promise has already
   // resolved and the await is effectively free.
-  return readyStates.get(mainWindow)?.promise ?? ALREADY_READY;
+  return readiness.wait(mainWindow);
 };
 
 export const hide = (): void => {
