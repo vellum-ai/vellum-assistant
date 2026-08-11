@@ -27,6 +27,8 @@
  * `deliverGatedInbound` below for the ordering.
  */
 
+import { meetsAdmissionFloor } from "@vellumai/gateway-client";
+
 import {
   findDeclaredRoute,
   type PluginIngressResolution,
@@ -39,8 +41,8 @@ import { readPluginInbound } from "../../channels/plugin-inbound.js";
 import type { IngressInbound } from "../../channels/ingress-inbound.js";
 import type { IngressSigner } from "../../channels/plugin-ingress.js";
 import {
-  handleInbound,
-  type InboundResult,
+  admitInbound,
+  type InboundAdmission,
 } from "../../handlers/handle-inbound.js";
 import { mintServiceToken } from "../../auth/token-exchange.js";
 import type { GatewayConfig } from "../../config.js";
@@ -129,11 +131,11 @@ export interface PluginWebhookHandlerDeps {
     init?: RequestInit,
   ) => Promise<Response>;
   /**
-   * The inbound pipeline, injected for the same reason `fetchImpl` is: it
-   * reaches the ACL database, the trust resolver, and the runtime, none of
-   * which a test of this route's decisions should have to stand up.
+   * The gate, injected for the same reason `fetchImpl` is: it reaches the ACL
+   * database and the trust resolver, neither of which a test of this route's
+   * decisions should have to stand up.
    */
-  handleInboundImpl?: typeof handleInbound;
+  admitInboundImpl?: typeof admitInbound;
 }
 
 /**
@@ -163,7 +165,7 @@ export function createPluginWebhookHandler(deps: PluginWebhookHandlerDeps) {
     resolve,
     credentials,
     fetchImpl,
-    handleInboundImpl = handleInbound,
+    admitInboundImpl = admitInbound,
   } = deps;
 
   return async (req: Request, plugin: string, path: string) => {
@@ -341,7 +343,7 @@ export function createPluginWebhookHandler(deps: PluginWebhookHandlerDeps) {
       inbound,
       body: body.bytes,
       forwardToPlugin,
-      handleInboundImpl,
+      admitInboundImpl,
     });
   };
 }
@@ -376,7 +378,7 @@ async function deliverGatedInbound(opts: {
   /** The vendor's payload, as accepted. */
   body: Uint8Array;
   forwardToPlugin: () => Promise<Response>;
-  handleInboundImpl: typeof handleInbound;
+  admitInboundImpl: typeof admitInbound;
 }): Promise<Response> {
   const {
     config,
@@ -385,7 +387,7 @@ async function deliverGatedInbound(opts: {
     inbound,
     body,
     forwardToPlugin,
-    handleInboundImpl,
+    admitInboundImpl,
   } = opts;
 
   let parsed: unknown;
@@ -450,41 +452,21 @@ async function deliverGatedInbound(opts: {
     return Response.json({ ok: true }, { status: 200 });
   }
 
-  // Set by `deliver` below, which only runs for a message the gate admitted.
-  let pluginResponse: Response | undefined;
-
-  let result: InboundResult;
+  let admission: InboundAdmission;
   try {
-    result = await handleInboundImpl(config, reading.event, {
+    admission = await admitInboundImpl(config, reading.event, {
       // Which plugin, for the runtime and for anyone reading a transcript. The
       // route too: a plugin can declare several, and knowing which one a turn
       // arrived on is the difference between a provider misconfiguration and a
       // plugin bug.
       sourceMetadata: { plugin, ingressRoute: routePath },
-      deliver: async () => {
-        pluginResponse = await forwardToPlugin();
-        if (pluginResponse.status >= 400) {
-          throw new Error(
-            `Plugin route answered ${pluginResponse.status} for an admitted delivery`,
-          );
-        }
-        // `handleInbound` reports on the delivery through this shape. The
-        // plugin owns the turn, so there is no runtime event id to carry and
-        // no assistant reply to hand back; the delivery is accepted and never
-        // a duplicate, the gateway's own claim having already settled that.
-        return {
-          accepted: true,
-          duplicate: false,
-          eventId: dedupKey.externalMessageId,
-        };
-      },
     });
   } catch (err) {
-    // `CircuitBreakerOpenError` reaches here by design: `handleInbound` lets it
+    // `CircuitBreakerOpenError` reaches here by design: the gate lets it
     // through precisely so a caller can answer retryably instead of 500ing.
     log.error(
       { err, plugin, path: routePath },
-      "Plugin inbound message could not be handled",
+      "Plugin inbound message could not be gated",
     );
     // Answering 503 asks for the delivery again, so the claim has to go with
     // it. Keeping it would have the retry we just asked for answered as a
@@ -494,29 +476,53 @@ async function deliverGatedInbound(opts: {
     return retryLater();
   }
 
-  log.info(
-    {
-      plugin,
-      path: routePath,
-      forwarded: result.forwarded,
-      rejected: result.rejected,
-      rejectionReason: result.rejectionReason,
-    },
-    "Plugin inbound message handled",
-  );
+  if (!admission.admitted) {
+    // A decision, not a failure: the message reached the gate and the gate
+    // said no, or consumed it. Sending it again changes nothing, so the
+    // vendor is acknowledged and the claim stands.
+    log.info(
+      {
+        plugin,
+        path: routePath,
+        rejected: admission.result.rejected,
+        rejectionReason: admission.result.rejectionReason,
+      },
+      "Plugin inbound message was not admitted",
+    );
+    commitInboundEvent(dedupKey);
+    return Response.json({ ok: true }, { status: 200 });
+  }
 
-  // Rejected and intercepted are decisions, not failures: the message reached
-  // the pipeline and the pipeline said no, or consumed it. Only a message that
-  // never reached the plugin is worth sending again.
-  const settled =
-    result.forwarded ||
-    result.rejected ||
-    result.verificationIntercepted === true ||
-    result.inviteIntercepted === true;
-  if (!settled) {
+  // The ranked admission floor, which the gate deliberately leaves to whoever
+  // receives the message. For a built-in channel that is the runtime's own
+  // admission stage; here there is nothing downstream but the plugin, so a
+  // floor unenforced here is a floor unenforced at all, and an unknown sender
+  // would reach a plugin free to answer them.
+  const { admissionPolicy, trustVerdict } = admission;
+  if (
+    admissionPolicy &&
+    !meetsAdmissionFloor(admissionPolicy, trustVerdict?.trustClass ?? "unknown")
+  ) {
+    log.info(
+      {
+        plugin,
+        path: routePath,
+        admissionPolicy,
+        trustClass: trustVerdict?.trustClass ?? "unknown",
+      },
+      "Plugin inbound message denied by the admission floor",
+    );
+    commitInboundEvent(dedupKey);
+    return Response.json({ ok: true }, { status: 200 });
+  }
+
+  const pluginResponse = await forwardToPlugin();
+  if (pluginResponse.status >= 400) {
+    // The gate said yes and the plugin could not take it. Acknowledging would
+    // lose a message the sender was entitled to have delivered.
     log.error(
-      { plugin, path: routePath },
-      "Plugin inbound message was not delivered",
+      { plugin, path: routePath, status: pluginResponse.status },
+      "Plugin refused an admitted delivery",
     );
     releaseInboundEvent(dedupKey);
     return retryLater();

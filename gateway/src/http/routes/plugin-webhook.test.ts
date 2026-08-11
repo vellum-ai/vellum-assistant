@@ -26,7 +26,10 @@ import {
   INBOUND_CLAIM_LEASE_MS,
 } from "../../db/inbound-dedup-store.js";
 import { inboundSeenEvents } from "../../db/schema.js";
-import type { HandleInboundOptions } from "../../handlers/handle-inbound.js";
+import type {
+  HandleInboundOptions,
+  InboundAdmission,
+} from "../../handlers/handle-inbound.js";
 import {
   createPluginWebhookHandler,
   type PluginWebhookHandlerDeps,
@@ -1021,7 +1024,7 @@ describe("inbound delivery", () => {
    */
   function harness(
     opts: {
-      handleInboundImpl?: PluginWebhookHandlerDeps["handleInboundImpl"];
+      admitInboundImpl?: PluginWebhookHandlerDeps["admitInboundImpl"];
       pluginStatus?: number;
       route?: IngressRoute;
     } = {},
@@ -1044,19 +1047,22 @@ describe("inbound delivery", () => {
         });
         return new Response("{}", { status: opts.pluginStatus ?? 200 });
       },
-      handleInboundImpl:
-        opts.handleInboundImpl ??
+      admitInboundImpl:
+        opts.admitInboundImpl ??
         (async (
           _config: GatewayConfig,
           event: GatewayInboundEvent,
           o?: HandleInboundOptions,
-        ) => {
+        ): Promise<InboundAdmission> => {
           handled.push(event);
           options.push(o);
-          // Stand in for the real pipeline's admit path: run whatever the
-          // gateway wants delivered, exactly as `handleInbound` would.
-          await o?.deliver?.(_config, {} as never, undefined);
-          return { forwarded: true, rejected: false };
+          return {
+            admitted: true,
+            routing: { assistantId: "self" } as never,
+            trustVerdict: { trustClass: "guardian" } as never,
+            admissionPolicy: "trusted_contacts",
+            displayName: undefined,
+          };
         }),
     };
     return { handled, options, forwards, deps };
@@ -1106,10 +1112,13 @@ describe("inbound delivery", () => {
     // The point of gating first. A rejected sender must not reach a plugin
     // that would otherwise run a turn for them.
     const { forwards, deps } = harness({
-      handleInboundImpl: async () => ({
-        forwarded: false,
-        rejected: true,
-        rejectionReason: "admission_no_one",
+      admitInboundImpl: async () => ({
+        admitted: false,
+        result: {
+          forwarded: false,
+          rejected: true,
+          rejectionReason: "admission_no_one",
+        },
       }),
     });
 
@@ -1117,6 +1126,61 @@ describe("inbound delivery", () => {
 
     expect(forwards).toEqual([]);
     expect(res.status).toBe(200);
+  });
+
+  it("does not reach the plugin when the sender is below the admission floor", async () => {
+    // The gate stops at the kill switch and leaves the ranked floors to
+    // whoever receives the message. For a built-in channel that is the
+    // runtime's admission stage; here there is nothing downstream but the
+    // plugin, so a floor unenforced here is a floor unenforced at all.
+    const { forwards, deps } = harness({
+      admitInboundImpl: async () => ({
+        admitted: true,
+        routing: { assistantId: "self" } as never,
+        trustVerdict: { trustClass: "unknown" } as never,
+        admissionPolicy: "trusted_contacts",
+        displayName: undefined,
+      }),
+    });
+
+    const res = await deliver(deps);
+
+    expect(forwards).toEqual([]);
+    expect(res.status).toBe(200);
+  });
+
+  it("reaches the plugin when the sender clears the floor", async () => {
+    const { forwards, deps } = harness({
+      admitInboundImpl: async () => ({
+        admitted: true,
+        routing: { assistantId: "self" } as never,
+        trustVerdict: { trustClass: "trusted_contact" } as never,
+        admissionPolicy: "trusted_contacts",
+        displayName: undefined,
+      }),
+    });
+
+    await deliver(deps);
+
+    expect(forwards).toHaveLength(1);
+  });
+
+  it("treats a missing verdict as the least trusted sender", async () => {
+    // Verdict resolution can fail. Reading that as "no constraint" would
+    // admit exactly the sender the floor exists to stop.
+    const { forwards, deps } = harness({
+      admitInboundImpl: async () => ({
+        admitted: true,
+        routing: { assistantId: "self" } as never,
+        trustVerdict: undefined,
+        admissionPolicy: "trusted_contacts",
+        displayName: undefined,
+      }),
+    });
+
+    await deliver(deps);
+
+    expect(forwards).toEqual([]);
   });
 
   it("tells the pipeline which plugin and which route it came from", async () => {
@@ -1192,7 +1256,7 @@ describe("inbound delivery", () => {
 
   it("asks the vendor to retry when the pipeline throws", async () => {
     const { deps } = harness({
-      handleInboundImpl: async () => {
+      admitInboundImpl: async () => {
         throw new Error("runtime is down");
       },
     });
@@ -1265,7 +1329,7 @@ describe("inbound delivery", () => {
 
     it("lets the retry through after the pipeline threw", async () => {
       const failing = harness({
-        handleInboundImpl: async () => {
+        admitInboundImpl: async () => {
           throw new Error("runtime is down");
         },
       });
@@ -1299,7 +1363,7 @@ describe("inbound delivery", () => {
         enter = resolve;
       });
       const { deps } = harness({
-        handleInboundImpl: () => {
+        admitInboundImpl: () => {
           enter();
           return new Promise<never>(() => {});
         },
