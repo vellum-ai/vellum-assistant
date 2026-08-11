@@ -52,14 +52,14 @@ const isDev = !app.isPackaged;
 // dev/staging/production installs can run side-by-side; production keeps the
 // original path for backwards compatibility.
 declare const __VELLUM_ENVIRONMENT__: string;
+const releaseChannel =
+  typeof __VELLUM_ENVIRONMENT__ === "string"
+    ? __VELLUM_ENVIRONMENT__
+    : "production";
 if (app.isPackaged) {
-  const env =
-    typeof __VELLUM_ENVIRONMENT__ === "string"
-      ? __VELLUM_ENVIRONMENT__
-      : "production";
-  if (env !== "production") {
+  if (releaseChannel !== "production") {
     const base = app.getPath("userData");
-    app.setPath("userData", `${base}-${env}`);
+    app.setPath("userData", `${base}-${releaseChannel}`);
   }
 }
 
@@ -188,6 +188,7 @@ app
           localAppData:
             process.env.LOCALAPPDATA ??
             path.join(app.getPath("home"), "AppData", "Local"),
+          releaseChannel,
           version: app.getVersion(),
         });
         if (["foreign", "shadowed"].includes(result.launcherState)) {

@@ -69,8 +69,17 @@ const ENVIRONMENT_CHANGE_SCRIPT = [
 
 export function resolveCliLauncherPaths(
   localAppData: string,
+  releaseChannel = "production",
 ): CliLauncherPaths {
-  const binDir = path.join(localAppData, "Vellum", "bin");
+  const channelSegment = releaseChannel
+    .trim()
+    .replace(/[^A-Za-z0-9._-]+/g, "-")
+    .replace(/^[._-]+|[._-]+$/g, "");
+  const installName =
+    releaseChannel === "production"
+      ? "Vellum"
+      : `Vellum-${channelSegment || "nonproduction"}`;
+  const binDir = path.join(localAppData, installName, "bin");
   return {
     binDir,
     executable: path.join(binDir, "vellum.exe"),
@@ -214,6 +223,28 @@ export function ensureUserPath(
   return undefined;
 }
 
+function ensureLauncherPath(
+  paths: CliLauncherPaths,
+  sourcePath: string,
+  run: RegistryRunner,
+): CliLauncherState {
+  const previousUserPath = ensureUserPath(paths.binDir, run);
+  try {
+    const effectivePath = readEffectivePath(run);
+    if (effectivePath === undefined) {
+      throw new Error("Unable to read the effective Windows PATH.");
+    }
+    return getCliLauncherState(paths, sourcePath, effectivePath);
+  } catch (error) {
+    if (previousUserPath !== undefined) {
+      try {
+        writeUserPath(previousUserPath, run);
+      } catch {}
+    }
+    throw error;
+  }
+}
+
 export function installCliLauncher(
   sourcePath: string,
   version: string,
@@ -226,6 +257,10 @@ export function installCliLauncher(
   const initialState = getCliLauncherState(paths, sourcePath);
   if (initialState === "foreign") {
     return initialState;
+  }
+  const ownership = readOwnership(paths);
+  if (initialState === "installed" && ownership?.version === version) {
+    return ensureLauncherPath(paths, sourcePath, run);
   }
   mkdirSync(paths.binDir, { recursive: true });
   const files: Array<{ source?: string; contents?: string; target: string }> = [
@@ -262,7 +297,6 @@ export function installCliLauncher(
     file: (typeof pending)[number];
     hadBackup: boolean;
   }> = [];
-  let previousUserPath: string | undefined;
   try {
     for (const file of pending) {
       const hadBackup = existsSync(file.target);
@@ -281,23 +315,14 @@ export function installCliLauncher(
       }
       replaced.push({ file, hadBackup });
     }
-    previousUserPath = ensureUserPath(paths.binDir, run);
-    const effectivePath = readEffectivePath(run);
-    if (effectivePath === undefined) {
-      throw new Error("Unable to read the effective Windows PATH.");
-    }
+    const launcherState = ensureLauncherPath(paths, sourcePath, run);
     for (const file of pending) {
       try {
         removeBackupFile(file.backup, { force: true });
       } catch {}
     }
-    return getCliLauncherState(paths, sourcePath, effectivePath);
+    return launcherState;
   } catch (error) {
-    if (previousUserPath !== undefined) {
-      try {
-        writeUserPath(previousUserPath, run);
-      } catch {}
-    }
     for (const { file, hadBackup } of replaced.reverse()) {
       try {
         rmSync(file.target, { force: true });

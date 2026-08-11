@@ -134,6 +134,42 @@ test("does not replace a foreign launcher", () => {
   expect(readFileSync(paths.executable, "utf8")).toBe("foreign");
 });
 
+test("isolates non-production launchers from the production PATH entry", () => {
+  const localAppData = path.join(makeTempDir(), "Local App Data");
+  const production = resolveCliLauncherPaths(localAppData);
+  const staging = resolveCliLauncherPaths(localAppData, "staging");
+  const development = resolveCliLauncherPaths(localAppData, "development");
+
+  expect(production.binDir).toBe(path.join(localAppData, "Vellum", "bin"));
+  expect(staging.binDir).toBe(
+    path.join(localAppData, "Vellum-staging", "bin"),
+  );
+  expect(development.binDir).not.toBe(staging.binDir);
+  expect(development.binDir).not.toBe(production.binDir);
+});
+
+test("reuses an unchanged launcher without replacing its executables", () => {
+  const root = makeTempDir();
+  const paths = resolveCliLauncherPaths(path.join(root, "Local App Data"));
+  const source = writeRuntime(path.join(root, "runtime"), "1.0.0");
+  const userRegistry = registry();
+  installCliLauncher(source, "1.0.0", paths, userRegistry.run);
+  const repairedRegistry = registry();
+
+  const rejectReplacement: typeof renameSync = () => {
+    throw new Error("unchanged launchers must not be replaced");
+  };
+  expect(
+    installCliLauncher(source, "1.0.0", paths, repairedRegistry.run, {
+      renameFile: rejectReplacement,
+    }),
+  ).toBe("installed");
+  expect(repairedRegistry.broadcasts()).toBe(1);
+  expect(repairedRegistry.value().split(";")).toContain(paths.binDir);
+  expect(readFileSync(paths.executable, "utf8")).toBe("vellum-1.0.0");
+  expect(readFileSync(paths.bunExecutable, "utf8")).toBe("bun-1.0.0");
+});
+
 test("repairs stale ownership and updates the user PATH", () => {
   const root = makeTempDir();
   const paths = resolveCliLauncherPaths(path.join(root, "Local App Data"));

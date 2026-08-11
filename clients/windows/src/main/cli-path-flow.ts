@@ -11,13 +11,20 @@ export interface CliPathFlowOptions {
   userDataDir: string;
   resourcesDir: string;
   localAppData: string;
+  releaseChannel: string;
   version: string;
   registryRunner?: RegistryRunner;
 }
 
 export function provisionCliForCurrentUser(options: CliPathFlowOptions) {
-  const { userDataDir, resourcesDir, localAppData, version, registryRunner } =
-    options;
+  const {
+    userDataDir,
+    resourcesDir,
+    localAppData,
+    releaseChannel,
+    version,
+    registryRunner,
+  } = options;
   const runtime = provisionCliRuntime(
     resolveCliRuntimePaths(userDataDir, resourcesDir, version),
   );
@@ -25,7 +32,7 @@ export function provisionCliForCurrentUser(options: CliPathFlowOptions) {
   const launcherState = installCliLauncher(
     sourcePath,
     version,
-    resolveCliLauncherPaths(localAppData),
+    resolveCliLauncherPaths(localAppData, releaseChannel),
     registryRunner,
   );
   return {
