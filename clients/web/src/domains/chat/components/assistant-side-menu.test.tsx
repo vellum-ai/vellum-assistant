@@ -78,20 +78,6 @@ mock.module(
   (): Partial<typeof ConversationQueries> => ({
     /* Feature-off: these tests exercise the derived-discovery path. */
     useSidebarSectionsQuery: () => null,
-    useBackgroundConversationListQuery: () => ({
-      conversations: [],
-      isLoading: false,
-      isPending: false,
-      isError: false,
-      refetch: () => {},
-    }),
-    useScheduledConversationListQuery: () => ({
-      conversations: [],
-      isLoading: false,
-      isPending: false,
-      isError: false,
-      refetch: () => {},
-    }),
     useSectionConversationListQuery: (
       _assistantId: string | null,
       filter: { groupId?: string; originChannel?: string },

@@ -1,10 +1,10 @@
 // Persist the sidebar conversation group expand/collapse state to localStorage
 // so that the user's last-known toggle state for each collapsible group
-// (Scheduled, Background, per-channel sections, and custom groups) survives
+// (per-channel sections and custom groups) survives
 // page reloads.
 //
-// Primary sections (Pinned / Chats), built-in sections (scheduled / background
-// / per-channel), and custom groups are stored under SEPARATE keys, chiefly
+// Primary sections (Pinned / Chats), built-in sections (the per-channel
+// sections), and custom groups are stored under SEPARATE keys, chiefly
 // because they have different defaults: primary sections default to OPEN, the
 // other two to closed.
 //
@@ -18,8 +18,6 @@
 
 import { parseStringArray } from "@/domains/chat/utils/storage-validators";
 import { createKeyedStorageAccessor } from "@/utils/typed-storage";
-
-const OPEN_CATEGORY_KEYS = new Set(["scheduled", "background"]);
 
 /**
  * The always-present primary sections (Pinned, Chats). Unlike the built-in
@@ -56,13 +54,16 @@ export function isChannelSectionKey(key: string): boolean {
 }
 
 /**
- * True for the built-in collapsible categories (Scheduled, Background, and
- * every `channel:` section). Exported so the sidebar can route a key from the
+ * True for the built-in collapsible categories (every `channel:` section).
+ * Exported so the sidebar can route a key from the
  * shared accordion root into the right storage bucket: primary, category, or
  * - matching neither - a custom group id.
  */
 export function isKnownCategoryKey(category: string): boolean {
-  return OPEN_CATEGORY_KEYS.has(category) || isChannelSectionKey(category);
+  /* Channel sections are the only built-in category keys. Legacy persisted
+     "background"/"scheduled" entries fail this check, so `loadOpenCategories`
+     drops them at load and the next save rewrites storage without them. */
+  return isChannelSectionKey(category);
 }
 
 const categoriesStorage = createKeyedStorageAccessor<string[]>({

@@ -9,10 +9,7 @@ import { useSidebarLayoutStore } from "@/domains/chat/sidebar-layout-store";
    the dynamic `import` below is still what supplies the implementation. */
 import type { SidebarState } from "@/domains/chat/use-sidebar-state";
 
-/* The Background/Scheduled sections own their lazy queries; stub both so the
-   hook resolves without a QueryClient.
-
-   No section query is stubbed here: each section fetches its own rows where
+/* No section query is stubbed here: each section fetches its own rows where
    it renders (`useSectionConversations`). What this hook owns is the section
    *list* and the derived fallback rows, which is what these tests cover. */
 /* Controls the stubbed section index per test. `null` is the feature-off
@@ -24,20 +21,6 @@ mock.module(
   "@/hooks/conversation-queries",
   (): Partial<typeof ConversationQueries> => ({
     useSidebarSectionsQuery: () => sidebarSectionsImpl,
-    useBackgroundConversationListQuery: () => ({
-      conversations: [],
-      isLoading: false,
-      isPending: false,
-      isError: false,
-      refetch: () => {},
-    }),
-    useScheduledConversationListQuery: () => ({
-      conversations: [],
-      isLoading: false,
-      isPending: false,
-      isError: false,
-      refetch: () => {},
-    }),
   }),
 );
 

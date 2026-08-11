@@ -231,7 +231,7 @@ export function useAttentionTracking({
     if (!assistantId || cause === "fresh") {
       return;
     }
-    void reconcileAttentionKeys(assistantId, queryClient, {
+    void reconcileAttentionKeys(assistantId, {
       pruneStale: true,
     });
   });
@@ -252,6 +252,6 @@ export function useAttentionTracking({
     }
     initialAttentionSweepDoneRef.current = true;
 
-    void reconcileAttentionKeys(assistantId, queryClient);
+    void reconcileAttentionKeys(assistantId);
   }, [assistantId, conversations, queryClient]);
 }
