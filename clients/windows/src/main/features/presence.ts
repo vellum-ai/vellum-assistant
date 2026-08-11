@@ -24,7 +24,7 @@ import { installFeatureFlagsIpc, isFeatureEnabled } from "../feature-flags";
 import log from "../logger";
 import { current } from "../main-window";
 import { installTaskbar } from "../taskbar";
-import { getTrayIcon, installWindowsTray } from "../tray";
+import { installWindowsTray } from "../tray";
 
 const presence: CapabilityModule<DesktopCapabilityRegistry> = {
   id: "presence",
@@ -43,7 +43,7 @@ const presence: CapabilityModule<DesktopCapabilityRegistry> = {
     const stopLockfileWatcher = installLockfileWatcher();
     app.once("before-quit", stopLockfileWatcher);
     installWindowsTray(isFeatureEnabled);
-    installTaskbar({ getWindow: current, overlayIcon: getTrayIcon() });
+    installTaskbar({ getWindow: current });
   },
 };
 
