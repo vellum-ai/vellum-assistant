@@ -51,7 +51,7 @@ import {
   prependConversation,
   removeConversation,
   resolveDraftKey,
-  shouldSurfaceConversationOnUserSend,
+  shouldSurfaceConversation,
   surfaceConversationInCaches,
 } from "@/utils/conversation-cache-mutations";
 import {
@@ -281,7 +281,7 @@ export function useSendMessage({
         }
       }
 
-      if (!shouldSurfaceConversationOnUserSend(conversation)) {
+      if (!shouldSurfaceConversation(conversation)) {
         return;
       }
 

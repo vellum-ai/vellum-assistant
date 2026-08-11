@@ -18,11 +18,12 @@ import { groupsGetQueryKey } from "@/generated/daemon/@tanstack/react-query.gen"
 
 import {
   adjustSectionUnreadCache,
+  applySurfacedConversation,
   markConversationSeenLocal,
   mergeListFirstPage,
   prependConversation,
   removeConversation,
-  shouldSurfaceConversationOnUserSend,
+  shouldSurfaceConversation,
   surfaceConversationInCaches,
   resolveDraftKey,
   appendGroup,
@@ -312,10 +313,10 @@ describe("removeConversation", () => {
 // surfaceConversationInCaches
 // ---------------------------------------------------------------------------
 
-describe("shouldSurfaceConversationOnUserSend", () => {
+describe("shouldSurfaceConversation", () => {
   test("allows unsurfaced scheduled and background conversations", () => {
     expect(
-      shouldSurfaceConversationOnUserSend(
+      shouldSurfaceConversation(
         makeConversation({
           conversationId: "scheduled-1",
           conversationType: "scheduled",
@@ -323,7 +324,7 @@ describe("shouldSurfaceConversationOnUserSend", () => {
       ),
     ).toBe(true);
     expect(
-      shouldSurfaceConversationOnUserSend(
+      shouldSurfaceConversation(
         makeConversation({
           conversationId: "background-1",
           conversationType: "background",
@@ -331,7 +332,7 @@ describe("shouldSurfaceConversationOnUserSend", () => {
       ),
     ).toBe(true);
     expect(
-      shouldSurfaceConversationOnUserSend(
+      shouldSurfaceConversation(
         makeConversation({
           conversationId: "legacy-scheduled-1",
           groupId: "system:scheduled",
@@ -342,12 +343,12 @@ describe("shouldSurfaceConversationOnUserSend", () => {
 
   test("skips conversations already displayed outside run buckets", () => {
     expect(
-      shouldSurfaceConversationOnUserSend(
+      shouldSurfaceConversation(
         makeConversation({ conversationId: "standard-1" }),
       ),
     ).toBe(false);
     expect(
-      shouldSurfaceConversationOnUserSend(
+      shouldSurfaceConversation(
         makeConversation({
           conversationId: "surfaced-1",
           conversationType: "scheduled",
@@ -356,7 +357,7 @@ describe("shouldSurfaceConversationOnUserSend", () => {
       ),
     ).toBe(false);
     expect(
-      shouldSurfaceConversationOnUserSend(
+      shouldSurfaceConversation(
         makeConversation({
           conversationId: "pinned-1",
           conversationType: "background",
@@ -365,7 +366,7 @@ describe("shouldSurfaceConversationOnUserSend", () => {
       ),
     ).toBe(false);
     expect(
-      shouldSurfaceConversationOnUserSend(
+      shouldSurfaceConversation(
         makeConversation({
           conversationId: "custom-1",
           conversationType: "scheduled",
@@ -374,7 +375,7 @@ describe("shouldSurfaceConversationOnUserSend", () => {
       ),
     ).toBe(false);
     expect(
-      shouldSurfaceConversationOnUserSend(
+      shouldSurfaceConversation(
         makeConversation({
           conversationId: "archived-1",
           conversationType: "background",
@@ -982,5 +983,72 @@ describe("adjustSectionUnreadCache", () => {
     adjustSectionUnreadCache(client, ASSISTANT_ID, row, 1);
 
     expect(unreadOf(client, (s) => s.kind === "group")).toBe(2);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// applySurfacedConversation
+// ---------------------------------------------------------------------------
+
+describe("applySurfacedConversation", () => {
+  test("a background-cache row reaches the foreground at its recency position", () => {
+    const bg = makeConversation({
+      conversationId: "bg1",
+      conversationType: "background",
+      lastMessageAt: 3000,
+    });
+    seedBackground(qc, [bg]);
+    seedForeground(qc, [
+      makeConversation({ conversationId: "newer", lastMessageAt: 5000 }),
+      makeConversation({ conversationId: "older", lastMessageAt: 1000 }),
+    ]);
+
+    applySurfacedConversation(qc, ASSISTANT_ID, bg, 4242);
+
+    // Recency position, not the top: the server writes only surfaced_at on
+    // a bare surface, so nothing about the row's ordering moves.
+    expect(getForeground(qc).map((c) => c.conversationId)).toEqual([
+      "newer",
+      "bg1",
+      "older",
+    ]);
+    expect(getBackground(qc)[0].surfacedAt).toBe(4242);
+    expect(getForeground(qc)[1].surfacedAt).toBe(4242);
+  });
+
+  test("a row already in the foreground is not duplicated", () => {
+    const row = makeConversation({
+      conversationId: "c1",
+      conversationType: "scheduled",
+    });
+    seedForeground(qc, [row]);
+
+    applySurfacedConversation(qc, ASSISTANT_ID, row, 4242);
+
+    expect(getForeground(qc)).toHaveLength(1);
+    expect(getForeground(qc)[0].surfacedAt).toBe(4242);
+  });
+
+  test("the surfaced row joins its section cache through the membership pass", () => {
+    const bg = makeConversation({
+      conversationId: "bg1",
+      conversationType: "background",
+    });
+    seedBackground(qc, [bg]);
+    // Chats section contents cache: {groupId: system:all, no channel}.
+    const chatsKey = [
+      "conversation-list",
+      ASSISTANT_ID,
+      "section",
+      "system:all",
+      "vellum",
+    ] as const;
+    qc.setQueryData(chatsKey, []);
+
+    applySurfacedConversation(qc, ASSISTANT_ID, bg, 4242);
+
+    expect(
+      qc.getQueryData<Conversation[]>(chatsKey)?.map((c) => c.conversationId),
+    ).toEqual(["bg1"]);
   });
 });

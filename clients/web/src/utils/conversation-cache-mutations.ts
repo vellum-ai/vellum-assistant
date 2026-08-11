@@ -23,8 +23,10 @@ import {
   isScheduledConversation,
 } from "@/utils/conversation-predicates";
 import { matchesIndexBucket } from "@/utils/section-membership";
+import { insertByRecency } from "@/utils/conversation-order";
 import {
   findConversation,
+  patchConversation,
   updateAllConversationCaches,
   updateBackgroundConversationsCache,
   updateConversationsCache,
@@ -189,9 +191,7 @@ export function removeConversation(
   updateAllConversationCaches(queryClient, assistantId, drop);
 }
 
-export function shouldSurfaceConversationOnUserSend(
-  conversation: Conversation,
-): boolean {
+export function shouldSurfaceConversation(conversation: Conversation): boolean {
   if (conversation.archivedAt != null) {
     return false;
   }
@@ -211,6 +211,37 @@ export function shouldSurfaceConversationOnUserSend(
     isScheduledConversation(conversation) ||
     isBackgroundConversation(conversation)
   );
+}
+
+/**
+ * Write a just-surfaced conversation into the caches for the open path.
+ *
+ * Differs from {@link surfaceConversationInCaches} (the send path) on the
+ * two axes where a bare surface differs from a send: the server writes only
+ * `surfaced_at` on surface, so neither `lastMessageAt` nor `groupId` moves,
+ * and the row takes its recency position rather than the top of the list.
+ *
+ * The row reaches the foreground cache if no list held it yet (a background
+ * run opened from the activity feed lives in the background cache at most),
+ * because the foreground cache is the standard listing and a surfaced row
+ * belongs to it. Section membership and the index stub ride
+ * `patchConversation`, which `surfacedAt` triggers as a membership field.
+ */
+export function applySurfacedConversation(
+  queryClient: QueryClient,
+  assistantId: string | null,
+  conversation: Conversation,
+  surfacedAt: number,
+): void {
+  const surfaced: Conversation = { ...conversation, surfacedAt };
+  updateConversationsCache(queryClient, assistantId, (conversations) =>
+    conversations.some((c) => c.conversationId === conversation.conversationId)
+      ? conversations
+      : insertByRecency(conversations, surfaced),
+  );
+  patchConversation(queryClient, assistantId, conversation.conversationId, {
+    surfacedAt,
+  });
 }
 
 export function surfaceConversationInCaches(

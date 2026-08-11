@@ -12,6 +12,7 @@ import { reconcileAttentionKeys } from "@/domains/chat/utils/reconcile-attention
 
 import { useActiveConversation } from "./use-active-conversation";
 import { useMarkSeenOnOpen } from "./use-mark-seen-on-open";
+import { useSurfaceOnOpen } from "./use-surface-on-open";
 
 interface UseAttentionTrackingParams {
   /** From `useAssistantLifecycle` in `ChatLayout`. */
@@ -74,6 +75,16 @@ export function useAttentionTracking({
   // Mark conversation as seen when opened
   // -------------------------------------------------------------------------
   useMarkSeenOnOpen({
+    assistantId,
+    assistantStateKind,
+    activeConversationId,
+    activeConversation,
+  });
+
+  // -------------------------------------------------------------------------
+  // Surface a background/scheduled run when opened
+  // -------------------------------------------------------------------------
+  useSurfaceOnOpen({
     assistantId,
     assistantStateKind,
     activeConversationId,
