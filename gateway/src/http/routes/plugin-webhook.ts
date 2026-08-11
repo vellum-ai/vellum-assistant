@@ -15,13 +15,16 @@
  * — and, for a route a third party calls, how the signature is formed at all
  * (`IngressRouteSchema.verification`).
  *
- * A route may also declare that its replies carry messages
+ * A route may also declare that its deliveries carry messages
  * (`IngressRouteSchema.inbound`), which is how a plugin channel receives
- * anything at all. The plugin parses its vendor's delivery and answers with
- * the result; the gateway reads that answer, claims it against redelivery,
- * and runs it through the same `handleInbound` every built-in channel uses.
- * See `plugin-inbound.ts` for what of the reply the gateway believes, and
- * `db/inbound-dedup-store.ts` for the claim.
+ * anything at all. The declaration says where the sender and the chat sit in
+ * the vendor's payload, which is the whole reason it exists: with those the
+ * gateway can run the same `handleInbound` every built-in channel runs
+ * *before* the plugin sees anything. The plugin is then free to act on a
+ * delivery the moment it arrives, because everything that could refuse it
+ * already has. See `plugin-inbound.ts` for what the gateway reads,
+ * `db/inbound-dedup-store.ts` for the redelivery claim, and
+ * `deliverGatedInbound` below for the ordering.
  */
 
 import {
@@ -53,7 +56,7 @@ import {
   verifySecretWithRefresh,
 } from "../../credential-refresh.js";
 import { getLogger } from "../../logger.js";
-import { readLimitedBody, readLimitedBodyBytes } from "../read-limited-body.js";
+import { readLimitedBodyBytes } from "../read-limited-body.js";
 import { verifyVellumSignature } from "../vellum-signature.js";
 import { proxyForwardToResponse } from "@vellumai/assistant-client";
 
@@ -283,113 +286,121 @@ export function createPluginWebhookHandler(deps: PluginWebhookHandlerDeps) {
     // ignores a trailing slash, and the plugin serves the path it declared.
     const upstreamPath = pluginRouteUpstreamPath(plugin, route.path);
     const search = new URL(req.url).search;
-    const start = performance.now();
-    // The body is already drained, so hand the proxy a request carrying the
-    // bytes we accepted rather than the consumed original.
-    const forwardable = new Request(req.url, {
-      method: req.method,
-      headers: req.headers,
-      body: METHODS_WITHOUT_BODY.has(req.method) ? undefined : body.bytes,
-    });
-    const response = await proxyForwardToResponse(forwardable, {
-      baseUrl: config.assistantRuntimeBaseUrl,
-      path: upstreamPath,
-      search: search || undefined,
-      serviceToken: mintServiceToken(),
-      timeoutMs: config.runtimeTimeoutMs,
-      fetchImpl,
-    });
-    const duration = Math.round(performance.now() - start);
 
-    if (response.status >= 500) {
-      log.error(
-        { plugin, path, status: response.status, duration },
-        "Plugin webhook upstream error",
-      );
-      return response;
-    }
-    if (response.status >= 400) {
-      log.warn(
-        { plugin, path, status: response.status, duration },
-        "Plugin webhook upstream error",
-      );
-      return response;
-    }
+    /**
+     * Hand the vendor's delivery to the plugin, verbatim.
+     *
+     * The plugin gets what the vendor sent rather than the gateway's reading
+     * of it: only the plugin knows which of its vendor's events this is, and
+     * the declaration covers just the few fields the gate needs. Re-parsing
+     * on the far side is the plugin doing the job it exists for.
+     */
+    const forwardToPlugin = async (): Promise<Response> => {
+      const start = performance.now();
+      // The body is already drained, so hand the proxy a request carrying the
+      // bytes we accepted rather than the consumed original.
+      const forwardable = new Request(req.url, {
+        method: req.method,
+        headers: req.headers,
+        body: METHODS_WITHOUT_BODY.has(req.method) ? undefined : body.bytes,
+      });
+      const forwarded = await proxyForwardToResponse(forwardable, {
+        baseUrl: config.assistantRuntimeBaseUrl,
+        path: upstreamPath,
+        search: search || undefined,
+        serviceToken: mintServiceToken(),
+        timeoutMs: config.runtimeTimeoutMs,
+        fetchImpl,
+      });
+      const duration = Math.round(performance.now() - start);
+      if (forwarded.status >= 500) {
+        log.error(
+          { plugin, path, status: forwarded.status, duration },
+          "Plugin webhook upstream error",
+        );
+      } else if (forwarded.status >= 400) {
+        log.warn(
+          { plugin, path, status: forwarded.status, duration },
+          "Plugin webhook upstream error",
+        );
+      }
+      return forwarded;
+    };
 
     const inbound = route.inbound;
     if (!inbound) {
-      return response;
+      // A route that receives no messages is a plain proxy: nothing to read,
+      // nothing to gate.
+      return forwardToPlugin();
     }
-    return deliverPluginInbound({
+
+    return deliverGatedInbound({
       config,
       plugin,
       routePath: route.path,
       inbound,
-      response,
+      body: body.bytes,
+      forwardToPlugin,
       handleInboundImpl,
     });
   };
 }
 
 /**
- * Run a plugin's reply through the inbound pipeline and answer the vendor.
+ * Gate a delivery, then hand it to the plugin once.
  *
- * Only reached for a 2xx, because a reply the plugin itself is reporting a
- * failure on is not a message. The vendor gets the plugin's status back but
- * not its body: the body was addressed to us, and a plugin that normalizes a
- * delivery into an event should not thereby echo the sender's message back to
- * the vendor that sent it.
+ * The ordering is the point. The gateway reads the sender and the chat out of
+ * the vendor's payload with the route's declaration, runs the same
+ * `handleInbound` every built-in channel runs, and only then forwards. A
+ * plugin that receives a delivery may therefore act on it immediately, up to
+ * and including running an agent turn, because by the time it sees anything
+ * the kill switch, the trust verdict and the intercepts have already had their
+ * say. Gating after the forward would make all of that advisory.
  *
- * Two kinds of failure, answered differently. A reply the gateway cannot make
- * sense of — unreadable, not JSON, half a message — fails the same way on
- * every retry, so the vendor is acknowledged and the reason goes to the log;
- * that is the retry storm the 409 on unapproved routes exists to avoid.
+ * One crossing, not two. The plugin is the only thing downstream, so the
+ * runtime hop `handleInbound` would otherwise make is replaced by the forward
+ * to the plugin's own route (see `HandleInboundOptions.deliver`), and the
+ * plugin owns what happens next: which of its vendor's events this is, whether
+ * it becomes a turn, and how a reply goes back out over its own transport.
  *
- * A failure to *forward* is the opposite: the runtime is down, the circuit
- * breaker is open, the message is well-formed and would land on the next
- * attempt. Acknowledging that would lose a real message for the length of an
- * assistant outage, so it answers 503 and lets the vendor's own retry carry
- * the delivery. This is what `processInboundResult` does for the built-in
- * channels; the shape differs only because the plugin's reply, not the
- * vendor's request, is what carries the message here.
- *
- * Which makes the dedup claim part of the same decision. Asking for a retry
- * and keeping the claim that would answer it as a duplicate is how a message
- * is lost while both sides look correct, so every path that answers 503
- * releases first, and the claim is only widened to the full dedup window once
- * the message has actually landed. See `reserveInboundEvent`.
+ * A delivery carrying no sender is not a message the gateway can gate. A
+ * vendor's delivery probe is the usual case, and it reaches the plugin
+ * ungated, because there is nobody to admit and nothing to admit them to.
  */
-async function deliverPluginInbound(opts: {
+async function deliverGatedInbound(opts: {
   config: GatewayConfig;
   plugin: string;
   /** The declared path, for logs. Not the requested spelling. */
   routePath: string;
   inbound: IngressInbound;
-  response: Response;
+  /** The vendor's payload, as accepted. */
+  body: Uint8Array;
+  forwardToPlugin: () => Promise<Response>;
   handleInboundImpl: typeof handleInbound;
 }): Promise<Response> {
-  const { config, plugin, routePath, inbound, response, handleInboundImpl } =
-    opts;
-  const ack = Response.json({ ok: true }, { status: response.status });
-
-  const body = await readLimitedBody(response, config.maxWebhookPayloadBytes);
-  if (body.status !== "ok") {
-    log.warn(
-      { plugin, path: routePath, reason: body.status },
-      "Could not read the plugin's reply for inbound delivery",
-    );
-    return ack;
-  }
+  const {
+    config,
+    plugin,
+    routePath,
+    inbound,
+    body,
+    forwardToPlugin,
+    handleInboundImpl,
+  } = opts;
 
   let parsed: unknown;
   try {
-    parsed = body.text.trim() === "" ? undefined : JSON.parse(body.text);
+    const text = new TextDecoder().decode(body);
+    parsed = text.trim() === "" ? undefined : JSON.parse(text);
   } catch {
+    // Authentic but unreadable. The signature checked out, so this is the
+    // vendor sending something we cannot parse rather than an attacker; the
+    // plugin may still recognise it.
     log.warn(
       { plugin, path: routePath },
-      "Plugin reply on an inbound route is not JSON",
+      "Plugin webhook payload is not JSON, forwarding ungated",
     );
-    return ack;
+    return forwardToPlugin();
   }
 
   const reading = readPluginInbound({
@@ -400,32 +411,26 @@ async function deliverPluginInbound(opts: {
   });
 
   if (reading.status === "none") {
-    // The ordinary case: a receipt, an echo, an event the plugin does not
-    // handle. Debug rather than info — every delivery would log otherwise.
+    // The ordinary case for a probe or a receipt: no sender, so no admission
+    // decision to make. Debug rather than info, since every such delivery
+    // would log otherwise.
     log.debug(
       { plugin, path: routePath },
-      "Plugin reply carried no inbound message",
+      "Delivery carries no sender, forwarding ungated",
     );
-    return ack;
+    return forwardToPlugin();
   }
   if (reading.status === "invalid") {
+    // Some of a message but not enough of one. Declining to gate a delivery
+    // the declaration half-matched would hand the plugin a sender the gateway
+    // never checked, so this is refused outright.
     log.warn(
       { plugin, path: routePath, reason: reading.reason },
-      "Plugin reply on an inbound route is not a usable message",
+      "Delivery matched the inbound declaration only partly, refusing",
     );
-    return ack;
+    return Response.json({ error: "Bad Request" }, { status: 400 });
   }
 
-  // Claimed before the handoff, not after it. The assistant dedups on this
-  // same triple in `recordInbound`, but that is on the far side of the
-  // crossing, so without this a vendor's retry still costs a forward and
-  // relies on everything upstream of that record being idempotent. See
-  // `reserveInboundEvent`.
-  //
-  // As early as it can currently be: the message only exists once the plugin
-  // has parsed the delivery, so a redelivery still reaches the plugin, which
-  // must keep its own parse free of side effects. That ends when the gateway
-  // parses the vendor payload itself and the claim can precede the forward.
   const dedupKey = {
     sourceChannel: reading.event.sourceChannel,
     externalChatId: reading.event.message.conversationExternalId,
@@ -442,8 +447,11 @@ async function deliverPluginInbound(opts: {
       },
       "Duplicate plugin inbound delivery, acknowledged without forwarding",
     );
-    return ack;
+    return Response.json({ ok: true }, { status: 200 });
   }
+
+  // Set by `deliver` below, which only runs for a message the gate admitted.
+  let pluginResponse: Response | undefined;
 
   let result: InboundResult;
   try {
@@ -453,6 +461,23 @@ async function deliverPluginInbound(opts: {
       // arrived on is the difference between a provider misconfiguration and a
       // plugin bug.
       sourceMetadata: { plugin, ingressRoute: routePath },
+      deliver: async () => {
+        pluginResponse = await forwardToPlugin();
+        if (pluginResponse.status >= 400) {
+          throw new Error(
+            `Plugin route answered ${pluginResponse.status} for an admitted delivery`,
+          );
+        }
+        // `handleInbound` reports on the delivery through this shape. The
+        // plugin owns the turn, so there is no runtime event id to carry and
+        // no assistant reply to hand back; the delivery is accepted and never
+        // a duplicate, the gateway's own claim having already settled that.
+        return {
+          accepted: true,
+          duplicate: false,
+          eventId: dedupKey.externalMessageId,
+        };
+      },
     });
   } catch (err) {
     // `CircuitBreakerOpenError` reaches here by design: `handleInbound` lets it
@@ -482,16 +507,16 @@ async function deliverPluginInbound(opts: {
 
   // Rejected and intercepted are decisions, not failures: the message reached
   // the pipeline and the pipeline said no, or consumed it. Only a message that
-  // never reached the runtime is worth sending again.
-  const reachedRuntime =
+  // never reached the plugin is worth sending again.
+  const settled =
     result.forwarded ||
     result.rejected ||
     result.verificationIntercepted === true ||
     result.inviteIntercepted === true;
-  if (!reachedRuntime) {
+  if (!settled) {
     log.error(
       { plugin, path: routePath },
-      "Plugin inbound message was not forwarded to the runtime",
+      "Plugin inbound message was not delivered",
     );
     releaseInboundEvent(dedupKey);
     return retryLater();
@@ -503,7 +528,10 @@ async function deliverPluginInbound(opts: {
   // retry as already-delivered.
   commitInboundEvent(dedupKey);
 
-  return ack;
+  // The vendor gets a bare acknowledgement, never the plugin's body: that was
+  // addressed to us, and a plugin handling a delivery should not thereby echo
+  // the sender's own message back to the vendor that sent it.
+  return Response.json({ ok: true }, { status: pluginResponse?.status ?? 200 });
 }
 
 /**

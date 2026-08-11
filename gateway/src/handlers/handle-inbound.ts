@@ -63,6 +63,23 @@ export type HandleInboundOptions = {
    * result, and preserves the resolved verdict.
    */
   senderAuthenticated?: boolean;
+  /**
+   * Where an admitted message goes, when that is not the assistant runtime.
+   *
+   * The gate is everything above the forward: the kill switch, the trust
+   * verdict, identity canonicalization, the verification and invite
+   * intercepts. A channel that delivers its own messages still has to pass
+   * all of it, and the way to guarantee that is for it to change only the
+   * destination and share the rest of this function verbatim. A second
+   * pipeline that re-implemented the ordering would be free to drift, and the
+   * drift would be silent, since a gate that is skipped looks exactly like a
+   * gate that admitted.
+   *
+   * Receives the same payload the runtime would have, so a caller sees the
+   * normalized message plus the verdict on `sourceMetadata`, and answers with
+   * the same shape so the outcome reads identically either way.
+   */
+  deliver?: typeof forwardToRuntime;
 };
 
 function normalizeTransportHints(hints: string[] | undefined): string[] {
@@ -262,8 +279,12 @@ export async function handleInbound(
   const transportUxBrief = options?.transportMetadata?.uxBrief?.trim();
   const sourceChannelName = event.source.channelName?.trim();
 
+  // Everything above this point is the gate. `deliver` only changes where an
+  // admitted message goes, never whether it is admitted.
+  const deliver = options?.deliver ?? forwardToRuntime;
+
   try {
-    const response = await forwardToRuntime(
+    const response = await deliver(
       config,
       {
         sourceChannel: event.sourceChannel,
