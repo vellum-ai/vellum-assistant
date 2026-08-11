@@ -336,12 +336,22 @@ function CollapsibleNavSectionSection({
                   className={cn(
                     "pointer-events-none flex items-center",
                     "opacity-100 transition-opacity",
-                    // Yields the cell on exactly the conditions that bring the
-                    // trailing control in, or the two paint over each other.
-                    "[@media(hover:none)]:opacity-0",
-                    "[@media(hover:hover)]:group-hover/header:opacity-0",
-                    "group-focus-within/header:opacity-0",
-                    "group-has-[[aria-expanded=true]]/header:opacity-0",
+                    /* Yields the cell on exactly the conditions that bring the
+                       trailing control in, or the two paint over each other.
+                       Focus and the open-menu state are read off the trailing
+                       slot rather than the whole header, since the header's own
+                       trigger takes focus on a toggle click and carries an
+                       `aria-expanded` of its own.
+
+                       With no trailing control there is nothing to yield to,
+                       and a section whose only header signal is this dot keeps
+                       it wherever the device cannot hover. */
+                    trailing && [
+                      "[@media(hover:none)]:opacity-0",
+                      "[@media(hover:hover)]:group-hover/header:opacity-0",
+                      "group-has-[[data-slot=collapsible-nav-section-trailing]:focus-within]/header:opacity-0",
+                      "group-has-[[data-slot=collapsible-nav-section-trailing]:has([aria-expanded=true])]/header:opacity-0",
+                    ],
                     "group-data-[state=open]/section:hidden",
                   )}
                 >
@@ -361,17 +371,18 @@ function CollapsibleNavSectionSection({
                  Where the device cannot hover the control would be
                  unreachable, so there it simply stays visible.
 
-                 This is `hoverRevealClasses` spelled out against the header's
-                 named group: the header cannot also carry an unnamed `group`,
-                 since Tailwind's `group-*` matches any ancestor and the title
-                 trigger's own unnamed group would then fire from a hover
-                 anywhere on the row. */
+                 `hoverRevealClasses` spelled out because the header's group is
+                 named: Tailwind's `group-*` matches any ancestor, so an
+                 unnamed `group` here would also answer to the title trigger's
+                 own. Focus is read off this slot rather than the group, since
+                 the trigger filling the rest of the row takes focus on a
+                 toggle click. */
                   className={cn(
                     "flex items-center shrink-0 empty:hidden",
                     "opacity-0 transition-opacity",
                     "[@media(hover:none)]:opacity-100",
                     "[@media(hover:hover)]:group-hover/header:opacity-100",
-                    "group-focus-within/header:opacity-100",
+                    "focus-within:opacity-100",
                     "has-[[aria-expanded=true]]:opacity-100",
                   )}
                   onClick={(event) => event.stopPropagation()}

@@ -9,7 +9,7 @@
 import { describe, expect, test } from "bun:test";
 import { act, cleanup, render } from "@testing-library/react";
 import { Clock } from "lucide-react";
-import { createElement } from "react";
+import { createElement, type ReactNode } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 
 import { CollapsibleNavSection } from "./collapsible-nav-section";
@@ -37,6 +37,37 @@ function renderSingleSection(opts: {
         createElement("div", null, "child-content"),
       ),
     ),
+  );
+}
+
+/** The indicator's classes, for the slot compositions that decide them. */
+function indicatorClasses(slots: {
+  trailing?: ReactNode;
+  collapsedIndicator: ReactNode;
+}) {
+  const html = renderToStaticMarkup(
+    createElement(
+      CollapsibleNavSection.Root,
+      { type: "multiple", defaultValue: [] },
+      createElement(
+        CollapsibleNavSection.Section,
+        {
+          value: "pinned",
+          label: "Pinned",
+          icon: Clock,
+          trailing: slots.trailing,
+          collapsedIndicator: slots.collapsedIndicator,
+        },
+        createElement("div", null, "child-content"),
+      ),
+    ),
+  );
+  const container = document.createElement("div");
+  container.innerHTML = html;
+  return (
+    container
+      .querySelector('[data-slot="collapsible-nav-section-indicator"]')
+      ?.getAttribute("class") ?? ""
   );
 }
 
@@ -242,31 +273,43 @@ describe("CollapsibleNavSection", () => {
      control in. Where the device cannot hover the control is permanently
      shown, and an indicator that only left on hover would sit underneath it. */
   test("the collapsed indicator yields the cell where there is no hover", () => {
-    const html = renderToStaticMarkup(
-      createElement(
-        CollapsibleNavSection.Root,
-        { type: "multiple", defaultValue: [] },
-        createElement(
-          CollapsibleNavSection.Section,
-          {
-            value: "pinned",
-            label: "Pinned",
-            icon: Clock,
-            trailing: createElement("button", { type: "button" }, "action"),
-            collapsedIndicator: createElement("span", null, "3"),
-          },
-          createElement("div", null, "child-content"),
-        ),
-      ),
-    );
-    const container = document.createElement("div");
-    container.innerHTML = html;
-    const indicator = container.querySelector(
-      '[data-slot="collapsible-nav-section-indicator"]',
-    );
-    const cls = indicator?.getAttribute("class") ?? "";
+    const cls = indicatorClasses({
+      trailing: createElement("button", { type: "button" }, "action"),
+      collapsedIndicator: createElement("span", null, "3"),
+    });
     expect(cls).toContain("[@media(hover:none)]:opacity-0");
     expect(cls).toContain("[@media(hover:hover)]:group-hover/header:opacity-0");
+  });
+
+  /* The trailing control is revealed by focus inside the control itself, so the
+     indicator has to yield on the same reading. Keyed on the whole header it
+     would also fire on a toggle click, which focuses the title trigger and
+     would leave the dot suppressed with the pointer nowhere near the row. */
+  test("the indicator yields to focus in the trailing control, not the header", () => {
+    const cls = indicatorClasses({
+      trailing: createElement("button", { type: "button" }, "action"),
+      collapsedIndicator: createElement("span", null, "3"),
+    });
+    expect(cls).toContain(
+      "group-has-[[data-slot=collapsible-nav-section-trailing]:focus-within]/header:opacity-0",
+    );
+    expect(cls).not.toContain("group-focus-within/header:opacity-0");
+  });
+
+  /* The yield exists only to keep two occupants of one cell from painting over
+     each other. A section with no trailing control has the cell to itself, and
+     an unconditional yield would delete its only header status signal on every
+     device that cannot hover. */
+  test("the collapsed indicator keeps the cell when there is no trailing control", () => {
+    const cls = indicatorClasses({
+      collapsedIndicator: createElement("span", null, "3"),
+    });
+    expect(cls).toContain("opacity-100");
+    expect(cls).not.toContain("[@media(hover:none)]:opacity-0");
+    expect(cls).not.toContain(
+      "[@media(hover:hover)]:group-hover/header:opacity-0",
+    );
+    expect(cls).not.toContain("group-focus-within/header:opacity-0");
   });
 
   test("composes on top of design library Collapsible", () => {
