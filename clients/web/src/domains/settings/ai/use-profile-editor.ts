@@ -16,6 +16,7 @@ import {
 } from "@/assistant/llm-model-catalog";
 import {
   CHATGPT_CONNECTION_PROVIDER,
+  OPENAI_COMPATIBLE_PROVIDER,
   VELLUM_CONNECTION_PROVIDER,
 } from "@/domains/settings/ai/constants";
 import { resolveModelDisplayName } from "@/domains/settings/ai/model-display";
@@ -41,6 +42,7 @@ import type {
   ProfileStatus,
   ProviderConnection,
 } from "@/generated/daemon/types.gen";
+import { assistantSupportsEntryProviderBinding } from "@/lib/backwards-compat/entry-provider-binding";
 import { assistantSupportsVellumProviderProfiles } from "@/lib/backwards-compat/vellum-profile-provider";
 import { badRequestMessage } from "@/utils/api-errors";
 
@@ -401,6 +403,29 @@ export function useProfileEditor({
     }
   }, [connections, provider, initialValues]);
 
+  // Open a stored entry-name provider (the entries model: the binding lives
+  // IN the provider value) as its row's kind plus the row as the binding,
+  // so the picker and model logic stay vendor-keyed. Skipped once the user
+  // changes the provider; identity rows keep their own flows above.
+  useEffect(() => {
+    const stored = initialValues?.provider;
+    if (!stored || provider !== stored) {
+      return;
+    }
+    const row = connections?.find((c) => c.name === stored);
+    if (
+      !row ||
+      row.provider === VELLUM_CONNECTION_PROVIDER ||
+      row.provider === CHATGPT_CONNECTION_PROVIDER
+    ) {
+      return;
+    }
+    setProvider(row.provider);
+    if (providerConnection === "") {
+      setProviderConnection(row.name);
+    }
+  }, [connections, provider, providerConnection, initialValues]);
+
   // Reset dirty tracking when the editor re-opens with new values.
   useEffect(() => {
     resetDirty();
@@ -638,13 +663,48 @@ export function useProfileEditor({
       const wireModel = nativeModel;
       // Identity payloads carry no binding; sending null on edit clears a
       // legacy-shape binding left on the stored profile.
-      const wireBinding = writesIdentityPayload ? "" : effectiveBinding;
+      let wireBinding = writesIdentityPayload ? "" : effectiveBinding;
+      // Entries wire shape (version-gated): gated daemons store the binding
+      // IN the provider value — the entry name when the user picked a named
+      // row among siblings (openai-compatible endpoints always), the bare
+      // vendor id (the kind's default entry) otherwise — and never a
+      // provider_connection. Identity-bound rows keep their existing
+      // payloads: rewriting a vellum/chatgpt binding as an entry name would
+      // change what the daemon bills the request to.
+      const boundRow =
+        effectiveBinding !== ""
+          ? effectiveConnections.find((c) => c.name === effectiveBinding)
+          : undefined;
+      const boundRowIsIdentity =
+        boundRow !== undefined &&
+        (boundRow.provider === VELLUM_CONNECTION_PROVIDER ||
+          boundRow.provider === CHATGPT_CONNECTION_PROVIDER ||
+          boundRow.name === VELLUM_CONNECTION_PROVIDER ||
+          boundRow.name === CHATGPT_CONNECTION_PROVIDER);
+      let entryWireProvider = wireProvider;
+      if (
+        !writesIdentityPayload &&
+        provider !== "" &&
+        provider !== VELLUM_CONNECTION_PROVIDER &&
+        !boundRowIsIdentity &&
+        (await assistantSupportsEntryProviderBinding(assistantId))
+      ) {
+        const kindSiblings = effectiveConnections.filter(
+          (c) => c.provider === provider,
+        ).length;
+        entryWireProvider =
+          boundRow !== undefined &&
+          (provider === OPENAI_COMPATIBLE_PROVIDER || kindSiblings >= 2)
+            ? boundRow.name
+            : provider;
+        wireBinding = "";
+      }
       if (effectiveMode === "edit") {
         // In edit mode send null for cleared fields so the server deep-merges
         // them as cleared rather than silently preserving the old value.
         entry.label = label.trim() || null;
         entry.description = description.trim() || null;
-        entry.provider = wireProvider || null;
+        entry.provider = entryWireProvider || null;
         entry.model = wireModel || null;
         entry.provider_connection = wireBinding || null;
       } else {
@@ -655,8 +715,8 @@ export function useProfileEditor({
         if (description.trim()) {
           entry.description = description.trim();
         }
-        if (wireProvider) {
-          entry.provider = wireProvider;
+        if (entryWireProvider) {
+          entry.provider = entryWireProvider;
         }
         if (wireModel) {
           entry.model = wireModel;

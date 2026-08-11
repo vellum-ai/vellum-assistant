@@ -21,9 +21,10 @@ import {
   OPENAI_COMPATIBLE_PROVIDER,
 } from "@/domains/settings/ai/constants";
 import {
-  endpointPickerValue,
+  entryPickerValue,
   expandEndpointEntries,
-  parseEndpointPickerValue,
+  multiEntryProviderKinds,
+  parseEntryPickerValue,
   providersServedByConnections,
   useSelectableCatalogProviders,
 } from "@/domains/settings/ai/provider-availability";
@@ -368,20 +369,30 @@ export function ProfileEditorProviderSection({
               : subscriptionSteeringHint
           }
           value={
-            provider === OPENAI_COMPATIBLE_PROVIDER && providerConnection
-              ? endpointPickerValue(providerConnection)
+            provider &&
+            providerConnection &&
+            (provider === OPENAI_COMPATIBLE_PROVIDER ||
+              multiEntryProviderKinds(connections ?? []).has(provider))
+              ? entryPickerValue(provider, providerConnection)
               : provider
           }
           onChange={(next) => {
-            const endpoint = parseEndpointPickerValue(next);
-            if (endpoint) {
-              // Each endpoint entry implies the openai-compatible
-              // provider plus its binding.
-              onProviderChange(OPENAI_COMPATIBLE_PROVIDER);
-              onConnectionChange(endpoint);
+            const entry = parseEntryPickerValue(next);
+            if (entry) {
+              // An entry row implies its kind plus the binding; a same-kind
+              // entry switch keeps the model (onProviderChange no-ops).
+              onProviderChange(entry.provider);
+              onConnectionChange(entry.connectionName);
               return;
             }
             onProviderChange(next as ConnectionProvider);
+            // Re-picking the current kind's bare row means "the default
+            // entry": the explicit binding must clear, and the provider
+            // change above no-ops so it won't do it. A different provider
+            // resolves its own binding there instead.
+            if (next === provider) {
+              onConnectionChange("");
+            }
           }}
           disabled={isReadOnly}
           placeholder="Select a provider…"
@@ -402,7 +413,10 @@ export function ProfileEditorProviderSection({
             providerConnection
               ? [
                   {
-                    value: endpointPickerValue(providerConnection),
+                    value: entryPickerValue(
+                      OPENAI_COMPATIBLE_PROVIDER,
+                      providerConnection,
+                    ),
                     label: `${providerConnection} (not found)`,
                   },
                 ]

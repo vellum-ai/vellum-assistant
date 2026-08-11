@@ -161,40 +161,84 @@ export function unconnectedSelectableProviders(
 }
 
 // ---------------------------------------------------------------------------
-// Per-endpoint picker entries
+// Per-entry picker entries
 // ---------------------------------------------------------------------------
 
 /**
- * Picker-value encoding for one openai-compatible endpoint presented as its
- * own provider-like entry. Each custom endpoint is a named entry; the
- * profile pickers list them individually (labeled by the endpoint) instead
- * of one generic "OpenAI-compatible" entry plus a second field. The `::`
- * separator cannot collide with provider ids, which contain no colons.
+ * Picker-value encoding for one connection (entry) presented as its own
+ * provider-like row: `<provider>::<connection name>`. Every openai-compatible
+ * endpoint is a named entry; a catalog provider expands into named entries
+ * only when it has more than one connection (a single-key user never sees
+ * entry naming). The `::` separator cannot collide with provider ids, which
+ * contain no colons.
  */
-const ENDPOINT_PICKER_PREFIX = `${OPENAI_COMPATIBLE_PROVIDER}::`;
+const ENTRY_PICKER_SEPARATOR = "::";
 
-export function endpointPickerValue(connectionName: string): string {
-  return `${ENDPOINT_PICKER_PREFIX}${connectionName}`;
+export function entryPickerValue(
+  provider: string,
+  connectionName: string,
+): string {
+  return `${provider}${ENTRY_PICKER_SEPARATOR}${connectionName}`;
 }
 
-/** The endpoint name inside a picker value, or null for plain provider ids. */
-export function parseEndpointPickerValue(value: string): string | null {
-  return value.startsWith(ENDPOINT_PICKER_PREFIX)
-    ? value.slice(ENDPOINT_PICKER_PREFIX.length)
-    : null;
+/** The provider and entry name inside a picker value, or null for plain
+ * provider ids. */
+export function parseEntryPickerValue(
+  value: string,
+): { provider: ConnectionProvider; connectionName: string } | null {
+  const index = value.indexOf(ENTRY_PICKER_SEPARATOR);
+  if (index <= 0) {
+    return null;
+  }
+  return {
+    provider: value.slice(0, index) as ConnectionProvider,
+    connectionName: value.slice(index + ENTRY_PICKER_SEPARATOR.length),
+  };
+}
+
+const ROUTING_IDENTITY_KINDS = new Set<string>([
+  VELLUM_CONNECTION_PROVIDER,
+  CHATGPT_CONNECTION_PROVIDER,
+]);
+
+/**
+ * Catalog kinds with two or more connections of that same kind. These expand
+ * into per-entry picker rows so a profile can name WHICH key it uses. The
+ * identity rows (vellum/chatgpt) never expand — they are canonical
+ * singletons — and openai-compatible always expands regardless of count.
+ */
+export function multiEntryProviderKinds(
+  connections: ProviderConnection[],
+): Set<ConnectionProvider> {
+  const counts = new Map<ConnectionProvider, number>();
+  for (const c of connections) {
+    if (
+      ROUTING_IDENTITY_KINDS.has(c.provider) ||
+      c.provider === OPENAI_COMPATIBLE_PROVIDER
+    ) {
+      continue;
+    }
+    counts.set(c.provider, (counts.get(c.provider) ?? 0) + 1);
+  }
+  return new Set(
+    [...counts.entries()].filter(([, n]) => n >= 2).map(([p]) => p),
+  );
 }
 
 /**
- * Provider dropdown entries with openai-compatible expanded per endpoint:
- * every other provider is one entry keyed by its id; each openai-compatible
- * connection is its own entry keyed by `endpointPickerValue(name)` and
- * labeled by the endpoint's label (falling back to its name).
+ * Provider dropdown entries with multi-entry kinds expanded per connection:
+ * a single-connection catalog provider is one entry keyed by its id; each
+ * openai-compatible connection is its own entry; a catalog provider with two
+ * or more connections keeps its bare id row (the kind's default entry) and
+ * adds one row per named entry, labeled by the entry's label (falling back
+ * to its name).
  */
 export function expandEndpointEntries(
   providers: readonly ConnectionProvider[],
   connections: ProviderConnection[],
   labelFor: (provider: ConnectionProvider) => string,
 ): { value: string; label: string; meta?: string }[] {
+  const multiEntryKinds = multiEntryProviderKinds(connections);
   const entries: { value: string; label: string; meta?: string }[] = [];
   for (const provider of providers) {
     if (provider === VELLUM_CONNECTION_PROVIDER) {
@@ -205,18 +249,38 @@ export function expandEndpointEntries(
       });
       continue;
     }
-    if (provider !== OPENAI_COMPATIBLE_PROVIDER) {
+    if (provider === OPENAI_COMPATIBLE_PROVIDER) {
+      for (const c of connections) {
+        if (c.provider !== OPENAI_COMPATIBLE_PROVIDER) {
+          continue;
+        }
+        entries.push({
+          value: entryPickerValue(provider, c.name),
+          label: c.label && c.label.trim() !== "" ? c.label : c.name,
+          meta: "Custom",
+        });
+      }
+      continue;
+    }
+    if (!multiEntryKinds.has(provider)) {
       entries.push({ value: provider, label: labelFor(provider) });
       continue;
     }
+    // The bare id row stays selectable: it means "the kind's default
+    // entry", which is how unbound profiles dispatch.
+    entries.push({
+      value: provider,
+      label: labelFor(provider),
+      meta: "Default",
+    });
     for (const c of connections) {
-      if (c.provider !== OPENAI_COMPATIBLE_PROVIDER) {
+      if (c.provider !== provider) {
         continue;
       }
       entries.push({
-        value: endpointPickerValue(c.name),
+        value: entryPickerValue(provider, c.name),
         label: c.label && c.label.trim() !== "" ? c.label : c.name,
-        meta: "Custom",
+        meta: labelFor(provider),
       });
     }
   }
