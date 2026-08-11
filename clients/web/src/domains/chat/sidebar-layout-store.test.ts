@@ -28,7 +28,7 @@ describe("SidebarLayoutStore", () => {
   test("setAssistantId hydrates from localStorage", () => {
     localStorage.setItem(
       "vellum:sidebar-open-categories:asst-1",
-      JSON.stringify(["scheduled", "background"]),
+      JSON.stringify([channelSectionKey("slack"), channelSectionKey("email")]),
     );
     localStorage.setItem(
       "vellum:sidebar-open-custom-groups:asst-1",
@@ -39,18 +39,38 @@ describe("SidebarLayoutStore", () => {
 
     const state = useSidebarLayoutStore.getState();
     expect(state.assistantId).toBe("asst-1");
-    expect(state.openCategories).toEqual(["scheduled", "background"]);
+    expect(state.openCategories).toEqual([
+      channelSectionKey("slack"),
+      channelSectionKey("email"),
+    ]);
     expect(state.openCustomGroups).toEqual(["grp-abc"]);
   });
 
-  test("setAssistantId no-ops when assistantId is unchanged", () => {
-    useSidebarLayoutStore.getState().setAssistantId("asst-1");
-    useSidebarLayoutStore.getState().setOpenCategories(["scheduled"]);
+  test("legacy background/scheduled open-keys are dropped at hydration", () => {
+    // No section carries those keys; loading filters them, and the next
+    // save rewrites storage without them.
+    localStorage.setItem(
+      "vellum:sidebar-open-categories:asst-1",
+      JSON.stringify(["background", "scheduled", channelSectionKey("slack")]),
+    );
 
     useSidebarLayoutStore.getState().setAssistantId("asst-1");
 
     expect(useSidebarLayoutStore.getState().openCategories).toEqual([
-      "scheduled",
+      channelSectionKey("slack"),
+    ]);
+  });
+
+  test("setAssistantId no-ops when assistantId is unchanged", () => {
+    useSidebarLayoutStore.getState().setAssistantId("asst-1");
+    useSidebarLayoutStore
+      .getState()
+      .setOpenCategories([channelSectionKey("slack")]);
+
+    useSidebarLayoutStore.getState().setAssistantId("asst-1");
+
+    expect(useSidebarLayoutStore.getState().openCategories).toEqual([
+      channelSectionKey("slack"),
     ]);
   });
 
@@ -58,13 +78,12 @@ describe("SidebarLayoutStore", () => {
     useSidebarLayoutStore.getState().setAssistantId("asst-1");
     useSidebarLayoutStore
       .getState()
-      .setOpenCategories(["scheduled", "background"]);
+      .setOpenCategories([channelSectionKey("slack")]);
 
     const raw = localStorage.getItem("vellum:sidebar-open-categories:asst-1");
-    expect(JSON.parse(raw!)).toEqual(["scheduled", "background"]);
+    expect(JSON.parse(raw!)).toEqual([channelSectionKey("slack")]);
     expect(useSidebarLayoutStore.getState().openCategories).toEqual([
-      "scheduled",
-      "background",
+      channelSectionKey("slack"),
     ]);
   });
 
@@ -81,21 +100,20 @@ describe("SidebarLayoutStore", () => {
   test("switching assistant re-hydrates from new assistant's storage", () => {
     localStorage.setItem(
       "vellum:sidebar-open-categories:asst-1",
-      JSON.stringify(["scheduled"]),
+      JSON.stringify([channelSectionKey("email")]),
     );
     localStorage.setItem(
       "vellum:sidebar-open-categories:asst-2",
-      JSON.stringify(["background", channelSectionKey("slack")]),
+      JSON.stringify([channelSectionKey("slack")]),
     );
 
     useSidebarLayoutStore.getState().setAssistantId("asst-1");
     expect(useSidebarLayoutStore.getState().openCategories).toEqual([
-      "scheduled",
+      channelSectionKey("email"),
     ]);
 
     useSidebarLayoutStore.getState().setAssistantId("asst-2");
     expect(useSidebarLayoutStore.getState().openCategories).toEqual([
-      "background",
       channelSectionKey("slack"),
     ]);
   });
@@ -109,10 +127,12 @@ describe("SidebarLayoutStore", () => {
   });
 
   test("setOpenCategories does not persist when no assistantId is set", () => {
-    useSidebarLayoutStore.getState().setOpenCategories(["scheduled"]);
+    useSidebarLayoutStore
+      .getState()
+      .setOpenCategories([channelSectionKey("slack")]);
 
     expect(useSidebarLayoutStore.getState().openCategories).toEqual([
-      "scheduled",
+      channelSectionKey("slack"),
     ]);
     expect(localStorage.length).toBe(0);
   });

@@ -1,5 +1,4 @@
 import { useEffect, useRef } from "react";
-import { useQueryClient } from "@tanstack/react-query";
 
 import { useConversationStore } from "@/stores/conversation-store";
 import { useConversationListQuery } from "@/hooks/conversation-queries";
@@ -51,7 +50,6 @@ export function useAttentionTracking({
   assistantId,
   assistantStateKind,
 }: UseAttentionTrackingParams) {
-  const queryClient = useQueryClient();
   const { conversations } = useConversationListQuery(
     assistantId,
     assistantStateKind === "active",
@@ -253,5 +251,5 @@ export function useAttentionTracking({
     initialAttentionSweepDoneRef.current = true;
 
     void reconcileAttentionKeys(assistantId);
-  }, [assistantId, conversations, queryClient]);
+  }, [assistantId, conversations]);
 }
