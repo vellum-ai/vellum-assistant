@@ -28,3 +28,20 @@ export const hoverRevealClasses = [
   "group-focus-within:opacity-100",
   "has-[[aria-expanded=true]]:opacity-100",
 ].join(" ");
+
+/**
+ * The inverse of {@link hoverRevealClasses}, for an element that occupies the
+ * same slot as the revealed affordance and must yield it: a selected-state
+ * check a preview button takes over from, a timestamp a row's actions replace.
+ *
+ * The two conditions have to be the same condition. A slot whose occupant
+ * appears wherever the device cannot hover, beside one that only leaves on
+ * hover, shows both at once and stacks them.
+ */
+export const hoverRevealYieldClasses = [
+  "opacity-100 transition-opacity",
+  "[@media(hover:none)]:opacity-0",
+  "[@media(hover:hover)]:group-hover:opacity-0",
+  "group-focus-within:opacity-0",
+  "group-has-[[aria-expanded=true]]:opacity-0",
+].join(" ");

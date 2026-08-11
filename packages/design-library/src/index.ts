@@ -253,7 +253,10 @@ export {
   type ShortcutKeysProps,
 } from "./components/shortcut-keys";
 export { cn } from "./utils/cn";
-export { hoverRevealClasses } from "./utils/hover-reveal";
+export {
+  hoverRevealClasses,
+  hoverRevealYieldClasses,
+} from "./utils/hover-reveal";
 export { initInputModality } from "./utils/input-modality";
 export {
   PANEL_ITEM_WASH,

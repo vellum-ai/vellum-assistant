@@ -12,7 +12,10 @@ import {
 } from "react";
 
 import { cn } from "../../utils/cn";
-import { hoverRevealClasses } from "../../utils/hover-reveal";
+import {
+  hoverRevealClasses,
+  hoverRevealYieldClasses,
+} from "../../utils/hover-reveal";
 import { reportUnmergeableSlotChild } from "../../utils/slot-child";
 import { CrossfadeStack } from "../crossfade-stack";
 
@@ -374,10 +377,7 @@ const TRAILING_ACTION_CLASSES = [
  * instead of sitting side by side.
  */
 const BADGE_YIELDS_TO_TRAILING_CLASSES = [
-  "transition-opacity",
-  "[@media(hover:hover)]:group-hover:opacity-0",
-  "group-focus-within:opacity-0",
-  "group-has-[[aria-expanded=true]]/panel-item:opacity-0",
+  hoverRevealYieldClasses,
   "group-aria-[current=page]:opacity-0",
 ].join(" ");
 

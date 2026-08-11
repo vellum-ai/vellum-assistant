@@ -93,6 +93,15 @@ describe("PanelItem badge", () => {
     const html = renderWithBadge(true, createElement("button", {}, "⋯"));
     expect(html).not.toContain("mr-2");
   });
+
+  test("yields the slot where there is no hover, since the action is shown there", () => {
+    // The badge and the trailing action crossfade in one cell, so the badge
+    // has to leave under exactly the conditions that bring the action in.
+    // Where the device cannot hover the action is permanently shown, so a
+    // badge that only left on hover would sit underneath it.
+    const html = renderWithBadge(false, createElement("button", {}, "⋯"));
+    expect(html).toContain("[@media(hover:none)]:opacity-0");
+  });
 });
 
 describe("PanelItem shape", () => {
