@@ -33,13 +33,12 @@ import { Brain, Plus } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { motion, useAnimationControls, useReducedMotion } from "motion/react";
 
-import type { CSSProperties } from "react";
-
 import {
   cn,
   PanelItem,
   panelItemWashStyle,
   SIDE_MENU_TILE_SIZE,
+  type CustomPropertyStyle,
 } from "@vellumai/design-library";
 
 import {
@@ -208,16 +207,16 @@ export function AssistantNavItem({
      it uses rather than a pill with its label dropped: a pill is sized by its
      content, so one keeping its label overflows the collapsed rail
      entirely. */
-  const newConversationTint =
+  const newConversationTint: CustomPropertyStyle | undefined =
     !navTourActive && hex
-      ? ({
+      ? {
           ...panelItemWashStyle(hex),
           // The plus glyph reads as the assistant's own accent, not the
           // row's usual tertiary-gray icon: the row's other icons are
           // decorative wayfinding, but this one's action is "start a chat
           // with this assistant", so it wears the assistant's colour.
           "--panel-item-icon-fg": hex,
-        } as CSSProperties)
+        }
       : undefined;
   const newConversationRow = !showNewConversation ? null : collapsed ? (
     <button
@@ -402,13 +401,13 @@ export function AssistantNavItem({
      `brightness-105`. While the tour owns the nav the colour drains away
      entirely: nothing is declared, so the pill falls back to its plain
      surface and the tour's flood is the only colour on screen. */
-  const tintStyle =
+  const tintStyle: CustomPropertyStyle | undefined =
     !navTourActive && hex
-      ? ({
+      ? {
           "--panel-item-bg": hex,
           "--panel-item-fg": fg,
           "--panel-item-hover": `color-mix(in srgb, #fff 8%, ${hex})`,
-        } as CSSProperties)
+        }
       : undefined;
 
   /* The eyes, holding still in the pill's leading slot: centred in the same

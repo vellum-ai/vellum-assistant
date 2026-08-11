@@ -26,9 +26,7 @@ describe("panelItemWashStyle", () => {
      the current page. */
   test("hover and current page land on the same raised surface", () => {
     const style = panelItemWashStyle("#118a7e");
-    expect(style["--panel-item-active" as keyof typeof style]).toBe(
-      style["--panel-item-hover" as keyof typeof style],
-    );
+    expect(style["--panel-item-active"]).toBe(style["--panel-item-hover"]);
   });
 
   /* A wash moves the surface too little to need a paired foreground, so the

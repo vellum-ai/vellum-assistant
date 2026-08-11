@@ -7,7 +7,7 @@
  * ancestor) and an undeclared row keeps its plain surface.
  */
 
-import type { CSSProperties } from "react";
+import type { CustomPropertyStyle } from "./custom-property-style";
 
 /** How much of the colour reaches the surface, at rest and raised. */
 export interface PanelItemWash {
@@ -39,11 +39,11 @@ export const PANEL_ITEM_WASH: PanelItemWash = { rest: 15, raised: 24 };
 export function panelItemWashStyle(
   hex: string,
   { rest, raised }: PanelItemWash = PANEL_ITEM_WASH,
-): CSSProperties {
+): CustomPropertyStyle {
   const raisedMix = `color-mix(in srgb, ${hex} ${raised}%, var(--surface-lift))`;
   return {
     "--panel-item-bg": `color-mix(in srgb, ${hex} ${rest}%, var(--surface-lift))`,
     "--panel-item-hover": raisedMix,
     "--panel-item-active": raisedMix,
-  } as CSSProperties;
+  };
 }

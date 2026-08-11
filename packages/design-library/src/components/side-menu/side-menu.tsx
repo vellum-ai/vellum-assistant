@@ -7,7 +7,6 @@ import {
   useRef,
   useState,
   type ComponentProps,
-  type CSSProperties,
   type MouseEvent,
   type ReactElement,
   type ReactNode,
@@ -22,6 +21,7 @@ import { PaneResizeHandle } from "../pane-resize-handle";
 import { useResizablePane } from "../../hooks/use-resizable-pane";
 import { cn } from "../../utils/cn";
 import { reportUnmergeableSlotChild } from "../../utils/slot-child";
+import type { CustomPropertyStyle } from "../../utils/custom-property-style";
 
 /**
  * SideMenu primitive — a docked application navigation rail.
@@ -177,10 +177,10 @@ export const SIDE_MENU_COLLAPSED_WIDTH =
  * time, which cannot be checked against the constants and is what lets the
  * rail and its tiles disagree.
  */
-const RAIL_GEOMETRY_VARS = {
+const RAIL_GEOMETRY_VARS: CustomPropertyStyle = {
   "--side-menu-tile-size": `${SIDE_MENU_TILE_SIZE}px`,
   "--side-menu-collapsed-inset": `${SIDE_MENU_COLLAPSED_INSET}px`,
-} as CSSProperties;
+};
 
 export interface SideMenuProps extends ComponentProps<"nav"> {
   /** Ignored when `variant="overlay"`. */
@@ -443,16 +443,17 @@ interface SideMenuSectionHeaderOwnProps extends ComponentProps<"div"> {
  * with this row's geometry merged onto it. The child is the rendered element,
  * so a ref lands on whatever the caller chose rather than on a `div`.
  */
-interface SideMenuSectionHeaderSlotProps
-  extends Omit<ComponentProps<"div">, "children" | "ref"> {
+interface SideMenuSectionHeaderSlotProps extends Omit<
+  ComponentProps<"div">,
+  "children" | "ref"
+> {
   asChild: true;
   children: ReactElement;
   ref?: Ref<HTMLElement>;
 }
 
 export type SideMenuSectionHeaderProps =
-  | SideMenuSectionHeaderOwnProps
-  | SideMenuSectionHeaderSlotProps;
+  SideMenuSectionHeaderOwnProps | SideMenuSectionHeaderSlotProps;
 
 /**
  * The title row of a group in the rail. It is a top-level row like a pill or a

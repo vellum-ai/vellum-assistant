@@ -253,6 +253,7 @@ export {
   type ShortcutKeysProps,
 } from "./components/shortcut-keys";
 export { cn } from "./utils/cn";
+export type { CustomPropertyStyle } from "./utils/custom-property-style";
 export {
   hoverRevealClasses,
   hoverRevealYieldClasses,
