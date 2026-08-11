@@ -41,9 +41,11 @@ export {
 export {
   DEFAULT_LOCALE,
   LOCALE_LABELS,
+  PSEUDO_LOCALE,
   SUPPORTED_LOCALES,
   isSupportedLocale,
   negotiateLocale,
+  type ActiveLocale,
   type SupportedLocale,
 } from "@/i18n/supported-locales";
 

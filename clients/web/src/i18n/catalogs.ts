@@ -48,7 +48,12 @@ import enCommon from "@/i18n/locales/en/common.json";
 import enSchedules from "@/i18n/locales/en/schedules.json";
 import enSettings from "@/i18n/locales/en/settings.json";
 import { NAMESPACES, type Namespace } from "@/i18n/namespaces";
-import { DEFAULT_LOCALE, type SupportedLocale } from "@/i18n/supported-locales";
+import {
+  DEFAULT_LOCALE,
+  isPseudoLocale,
+  type ActiveLocale,
+  type SupportedLocale,
+} from "@/i18n/supported-locales";
 
 /**
  * A parsed catalog. Values are ICU MessageFormat strings; nesting mirrors the
@@ -115,12 +120,22 @@ const CATALOG_LOADERS: Record<
  * treat that as "stay on {@link FALLBACK_CATALOGS}". Namespaces load together
  * rather than on demand because they are small and first paint can draw from
  * any of them; split this if a namespace ever grows large enough to matter.
+ *
+ * The pseudolocale is derived from English rather than loaded, so it cannot
+ * drift from it. Its transform is reached through a dynamic import for the
+ * same reason the other locales are: nobody who stays on a shipped locale
+ * should pay for it, and this keeps it in a chunk of its own.
  */
 export async function loadCatalogs(
-  locale: SupportedLocale,
+  locale: ActiveLocale,
 ): Promise<LocaleCatalogs> {
   if (locale === DEFAULT_LOCALE) {
     return FALLBACK_CATALOGS;
+  }
+
+  if (isPseudoLocale(locale)) {
+    const { pseudoCatalogs } = await import("@/i18n/pseudo-locale");
+    return pseudoCatalogs(FALLBACK_CATALOGS);
   }
 
   const loaders = CATALOG_LOADERS[locale];

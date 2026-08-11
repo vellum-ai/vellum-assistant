@@ -43,9 +43,9 @@ import { NAMESPACES } from "@/i18n/namespaces";
 import { systemLocales } from "@/i18n/system-locale";
 import {
   DEFAULT_LOCALE,
-  isSupportedLocale,
+  isActiveLocale,
   negotiateLocale,
-  type SupportedLocale,
+  type ActiveLocale,
 } from "@/i18n/supported-locales";
 import { captureError } from "@/lib/sentry/capture-error";
 import { getDeviceSetting, setDeviceSetting } from "@/utils/device-settings";
@@ -55,9 +55,12 @@ import { getDeviceSetting, setDeviceSetting } from "@/utils/device-settings";
  * host, then the default. Pure apart from the storage read, and exported so
  * tests and a future language picker can ask without initializing i18next.
  */
-export function resolveInitialLocale(): SupportedLocale {
+export function resolveInitialLocale(): ActiveLocale {
   const stored = getDeviceSetting("locale", "");
-  if (isSupportedLocale(stored)) {
+  // The stored preference is the one route to the pseudolocale: it is not in
+  // `SUPPORTED_LOCALES`, so `negotiateLocale` below can never return it and no
+  // host signal can select it.
+  if (isActiveLocale(stored)) {
     return stored;
   }
   return negotiateLocale(systemLocales());
@@ -78,7 +81,7 @@ export function resolveInitialLocale(): SupportedLocale {
  * - https://www.w3.org/International/questions/qa-html-language-declarations
  * - https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Intl/Locale/getTextInfo
  */
-function applyDocumentLocale(locale: SupportedLocale): void {
+function applyDocumentLocale(locale: ActiveLocale): void {
   if (typeof document === "undefined") {
     return;
   }
@@ -105,7 +108,7 @@ function applyDocumentLocale(locale: SupportedLocale): void {
 }
 
 /** Load a locale's catalogs into i18next unless they are already registered. */
-async function ensureCatalogs(locale: SupportedLocale): Promise<void> {
+async function ensureCatalogs(locale: ActiveLocale): Promise<void> {
   const missing = NAMESPACES.filter(
     (namespace) => !i18next.hasResourceBundle(locale, namespace),
   );
@@ -132,7 +135,7 @@ async function ensureCatalogs(locale: SupportedLocale): Promise<void> {
  * the call site beyond staying on the locale already rendering, so it is a
  * warning rather than an error.
  */
-function reportCatalogFailure(error: unknown, locale: SupportedLocale): void {
+function reportCatalogFailure(error: unknown, locale: ActiveLocale): void {
   captureError(error, {
     context: "i18n_catalog_load",
     level: "warning",
@@ -149,7 +152,7 @@ function reportCatalogFailure(error: unknown, locale: SupportedLocale): void {
  * reachable. Returns the locale actually activated, which is English when the
  * preferred locale's catalog could not be loaded.
  */
-export async function initI18n(): Promise<SupportedLocale> {
+export async function initI18n(): Promise<ActiveLocale> {
   const requested = resolveInitialLocale();
 
   if (i18next.isInitialized) {
@@ -169,7 +172,7 @@ export async function initI18n(): Promise<SupportedLocale> {
   const resources: Record<string, LocaleCatalogs> = {
     [DEFAULT_LOCALE]: FALLBACK_CATALOGS,
   };
-  let locale: SupportedLocale = DEFAULT_LOCALE;
+  let locale: ActiveLocale = DEFAULT_LOCALE;
 
   if (requested !== DEFAULT_LOCALE) {
     try {
@@ -201,7 +204,7 @@ export async function initI18n(): Promise<SupportedLocale> {
  * active. Unlike {@link initI18n} this is user-initiated, so the caller is the
  * one that can say something useful about the failure.
  */
-export async function changeLocale(locale: SupportedLocale): Promise<void> {
+export async function changeLocale(locale: ActiveLocale): Promise<void> {
   await ensureCatalogs(locale);
   await i18next.changeLanguage(locale);
   setDeviceSetting("locale", locale);
@@ -209,9 +212,9 @@ export async function changeLocale(locale: SupportedLocale): Promise<void> {
 }
 
 /** The active locale, or `DEFAULT_LOCALE` before initialization. */
-export function currentLocale(): SupportedLocale {
+export function currentLocale(): ActiveLocale {
   const language = i18next.resolvedLanguage ?? i18next.language;
-  return isSupportedLocale(language) ? language : DEFAULT_LOCALE;
+  return isActiveLocale(language) ? language : DEFAULT_LOCALE;
 }
 
 export { i18next };
