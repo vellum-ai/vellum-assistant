@@ -22,6 +22,11 @@ export interface CliLauncherPaths {
   ownership: string;
 }
 
+export interface CliLauncherFileOperations {
+  removeBackupFile?: typeof rmSync;
+  renameFile?: typeof renameSync;
+}
+
 export type RegistryRunner = (
   command: string,
   args: string[],
@@ -34,9 +39,26 @@ export const systemRegistryRunner: RegistryRunner = (command, args) =>
     windowsHide: true,
   });
 
+export function normalizeWindowsPathEntry(
+  entry: string,
+  environment: NodeJS.ProcessEnv = process.env,
+): string {
+  const trimmed = entry.trim();
+  const unquoted =
+    trimmed.startsWith('"') && trimmed.endsWith('"')
+      ? trimmed.slice(1, -1)
+      : trimmed;
+  return unquoted.replace(/%([^%]+)%/g, (match, name: string) => {
+    const key = Object.keys(environment).find(
+      (candidate) => candidate.toLowerCase() === name.toLowerCase(),
+    );
+    return key ? (environment[key] ?? match) : match;
+  });
+}
+
 const sameWindowsPath = (left: string, right: string): boolean =>
-  path.win32.resolve(left).toLowerCase() ===
-  path.win32.resolve(right).toLowerCase();
+  path.win32.resolve(normalizeWindowsPathEntry(left)).toLowerCase() ===
+  path.win32.resolve(normalizeWindowsPathEntry(right)).toLowerCase();
 
 const ENVIRONMENT_CHANGE_SCRIPT = [
   "$signature = '[System.Runtime.InteropServices.DllImport(\"user32.dll\", SetLastError = true, CharSet = System.Runtime.InteropServices.CharSet.Auto)] public static extern System.IntPtr SendMessageTimeout(System.IntPtr hWnd, uint message, System.UIntPtr wParam, string lParam, uint flags, uint timeout, out System.UIntPtr result);'",
@@ -101,7 +123,9 @@ export function getCliLauncherState(
       ownIndex < 0 ? entries.length : ownIndex,
     );
     if (
-      earlierEntries.some((entry) => existsSync(path.join(entry, "vellum.exe")))
+      earlierEntries.some((entry) =>
+        existsSync(path.join(normalizeWindowsPathEntry(entry), "vellum.exe")),
+      )
     ) {
       return "shadowed";
     }
@@ -195,8 +219,10 @@ export function installCliLauncher(
   version: string,
   paths: CliLauncherPaths,
   run: RegistryRunner = systemRegistryRunner,
-  renameFile: typeof renameSync = renameSync,
+  fileOperations: CliLauncherFileOperations = {},
 ): CliLauncherState {
+  const renameFile = fileOperations.renameFile ?? renameSync;
+  const removeBackupFile = fileOperations.removeBackupFile ?? rmSync;
   const initialState = getCliLauncherState(paths, sourcePath);
   if (initialState === "foreign") {
     return initialState;
@@ -261,7 +287,9 @@ export function installCliLauncher(
       throw new Error("Unable to read the effective Windows PATH.");
     }
     for (const file of pending) {
-      rmSync(file.backup, { force: true });
+      try {
+        removeBackupFile(file.backup, { force: true });
+      } catch {}
     }
     return getCliLauncherState(paths, sourcePath, effectivePath);
   } catch (error) {

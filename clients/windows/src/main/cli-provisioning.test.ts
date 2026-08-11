@@ -177,6 +177,29 @@ test("reports a launcher shadowed by the machine PATH", () => {
   ).toBe("shadowed");
 });
 
+test("expands and unquotes PATH entries before collision checks", () => {
+  const root = makeTempDir();
+  const paths = resolveCliLauncherPaths(path.join(root, "Local App Data"));
+  const source = writeRuntime(path.join(root, "runtime"), "1.0.0");
+  const collisionDir = path.join(root, "Expanded Machine CLI");
+  mkdirSync(collisionDir, { recursive: true });
+  writeFileSync(path.join(collisionDir, "vellum.exe"), "foreign", "utf8");
+  process.env.VELLUM_TEST_COLLISION_DIR = collisionDir;
+
+  try {
+    expect(
+      installCliLauncher(
+        source,
+        "1.0.0",
+        paths,
+        registry("", '"%VELLUM_TEST_COLLISION_DIR%"').run,
+      ),
+    ).toBe("shadowed");
+  } finally {
+    delete process.env.VELLUM_TEST_COLLISION_DIR;
+  }
+});
+
 test("treats Windows PATH entries as case-insensitive", () => {
   const root = makeTempDir();
   const paths = resolveCliLauncherPaths(path.join(root, "Local App Data"));
@@ -259,9 +282,36 @@ test("restores earlier launchers when a later executable is locked", () => {
   };
 
   expect(() =>
-    installCliLauncher(second, "2.0.0", paths, userRegistry.run, failLockedBun),
+    installCliLauncher(second, "2.0.0", paths, userRegistry.run, {
+      renameFile: failLockedBun,
+    }),
   ).toThrow("bun.exe is locked");
   expect(readFileSync(paths.executable, "utf8")).toBe("vellum-v1");
   expect(readFileSync(paths.bunExecutable, "utf8")).toBe("bun-v1");
   expect(getCliLauncherState(paths, first)).toBe("installed");
+});
+
+test("keeps installed launchers when backup cleanup is blocked", () => {
+  const root = makeTempDir();
+  const paths = resolveCliLauncherPaths(path.join(root, "Local App Data"));
+  const first = writeRuntime(path.join(root, "v1"), "v1");
+  const second = writeRuntime(path.join(root, "v2"), "v2");
+  const userRegistry = registry();
+  installCliLauncher(first, "1.0.0", paths, userRegistry.run);
+  const lockedBackup = `${paths.executable}.${process.pid}.backup`;
+  const removeUnlockedBackup: typeof rmSync = (target, options) => {
+    if (target === lockedBackup) {
+      throw new Error("backup is locked");
+    }
+    rmSync(target, options);
+  };
+
+  expect(
+    installCliLauncher(second, "2.0.0", paths, userRegistry.run, {
+      removeBackupFile: removeUnlockedBackup,
+    }),
+  ).toBe("installed");
+  expect(readFileSync(paths.executable, "utf8")).toBe("vellum-v2");
+  expect(readFileSync(paths.bunExecutable, "utf8")).toBe("bun-v2");
+  expect(getCliLauncherState(paths, second)).toBe("installed");
 });
