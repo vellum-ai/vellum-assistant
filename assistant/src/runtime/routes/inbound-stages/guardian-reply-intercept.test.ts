@@ -51,7 +51,6 @@ function makeParams(
     callbackData: undefined,
     rawSenderId: "user-42",
     canonicalSenderId: "user-42",
-    canonicalAssistantId: "self",
     sourceChannel: "slack" as const,
     conversationExternalId: "chat-123",
     conversationId: "conv-abc",

@@ -101,7 +101,6 @@ import {
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../assistant-scope.js";
 import { deliverChannelReply } from "../gateway-client.js";
 import { trustContextFromVerdict } from "../trust-verdict-consumer.js";
-import { canonicalChannelAssistantId } from "./channel-route-shared.js";
 import { BadRequestError } from "./errors.js";
 import { handleApprovalInterception } from "./guardian-approval-interception.js";
 import {
@@ -371,16 +370,6 @@ export async function handleChannelInbound({
     throw new BadRequestError("content or attachmentIds is required");
   }
 
-  // Canonicalize the assistant ID so all DB-facing operations use the
-  // consistent 'self' key regardless of what the gateway sent.
-  const canonicalAssistantId = canonicalChannelAssistantId(assistantId);
-  if (canonicalAssistantId !== assistantId) {
-    log.debug(
-      { raw: assistantId, canonical: canonicalAssistantId },
-      "Canonicalized channel assistant ID",
-    );
-  }
-
   // Coerce actorExternalId to a string at the boundary — the field
   // comes from unvalidated JSON and may be a number, object, or other
   // non-string type. Non-string truthy values would throw inside
@@ -438,7 +427,6 @@ export async function handleChannelInbound({
       sourceInterface,
       conversationExternalId,
       externalMessageId,
-      canonicalAssistantId,
       rawSenderId,
       canonicalSenderId,
       actorDisplayName: body.actorDisplayName,
@@ -486,7 +474,6 @@ export async function handleChannelInbound({
     rawSenderId,
     sourceChannel,
     conversationExternalId,
-    canonicalAssistantId,
     trimmedContent,
     sourceMetadata: body.sourceMetadata,
     actorDisplayName: body.actorDisplayName,
@@ -839,7 +826,6 @@ export async function handleChannelInbound({
     if (isCallbackInteraction) {
       if (floorSenderId) {
         handshakeInProgress = await isApprovalHandshakeInProgress({
-          canonicalAssistantId,
           sourceChannel,
           actorExternalId: floorSenderId,
         });
@@ -847,7 +833,6 @@ export async function handleChannelInbound({
     } else {
       try {
         const accessResult = await notifyGuardianOfAccessRequest({
-          canonicalAssistantId,
           sourceChannel,
           conversationExternalId,
           actorExternalId: floorSenderId,
@@ -920,7 +905,7 @@ export async function handleChannelInbound({
       const replyPayload: Parameters<typeof deliverChannelReply>[1] = {
         chatId: conversationExternalId,
         text: replyText,
-        assistantId: canonicalAssistantId,
+        assistantId: DAEMON_INTERNAL_ASSISTANT_ID,
       };
       if (sourceChannel === "slack" && (canonicalSenderId ?? rawSenderId)) {
         replyPayload.ephemeral = true;
@@ -982,7 +967,7 @@ export async function handleChannelInbound({
       const replyPayload: Parameters<typeof deliverChannelReply>[1] = {
         chatId: conversationExternalId,
         text: DISK_PRESSURE_REMOTE_BLOCK_REPLY,
-        assistantId: canonicalAssistantId,
+        assistantId: DAEMON_INTERNAL_ASSISTANT_ID,
       };
       if (sourceChannel === "slack" && (canonicalSenderId ?? rawSenderId)) {
         replyPayload.ephemeral = true;
@@ -1054,7 +1039,6 @@ export async function handleChannelInbound({
     isDuplicate: result.duplicate,
     commandIntent,
     rawSenderId,
-    canonicalAssistantId,
     sourceChannel,
     conversationExternalId,
     eventId: result.eventId,
@@ -1076,7 +1060,6 @@ export async function handleChannelInbound({
     callbackData: body.callbackData,
     rawSenderId,
     canonicalSenderId,
-    canonicalAssistantId,
     sourceChannel,
     conversationExternalId,
     conversationId: result.conversationId,
@@ -1118,7 +1101,7 @@ export async function handleChannelInbound({
       actorExternalId: canonicalSenderId ?? rawSenderId,
       replyCallbackUrl,
       trustCtx,
-      assistantId: canonicalAssistantId,
+      assistantId: DAEMON_INTERNAL_ASSISTANT_ID,
       approvalCopyGenerator,
       approvalConversationGenerator,
       approvalMessageTs,
@@ -1214,7 +1197,7 @@ export async function handleChannelInbound({
           chatId: conversationExternalId,
           text: "This approval request has been resolved.",
           messageTs: approvalMessageTs,
-          assistantId: canonicalAssistantId,
+          assistantId: DAEMON_INTERNAL_ASSISTANT_ID,
         }).catch((err) => {
           log.error(
             { err, conversationId: result.conversationId },
@@ -1250,7 +1233,6 @@ export async function handleChannelInbound({
       actorUsername: body.actorUsername,
       trustCtx,
       replyCallbackUrl,
-      canonicalAssistantId,
     });
 
     if (ingressResult.blocked) {
@@ -1291,7 +1273,6 @@ export async function handleChannelInbound({
         const admittedSenderId = canonicalSenderId ?? rawSenderId;
         if (admittedSenderId) {
           void maybeNotifyGuardianOfAdmittedContact({
-            canonicalAssistantId,
             sourceChannel,
             conversationExternalId,
             actorExternalId: admittedSenderId,
@@ -1492,7 +1473,7 @@ export async function handleChannelInbound({
         commandIntent,
         sourceLanguageCode,
         replyCallbackUrl,
-        assistantId: canonicalAssistantId,
+        assistantId: DAEMON_INTERNAL_ASSISTANT_ID,
         approvalCopyGenerator,
         chatType: sourceChatType,
         clientTimezone: inboundClientTimezone,
