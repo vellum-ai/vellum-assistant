@@ -1,16 +1,35 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { ArrowUp, Ellipsis, Pin, Trash2 } from "lucide-react";
 import { useState } from "react";
+import { useArgs } from "storybook/preview-api";
 import { expect, screen, userEvent, waitFor, within } from "storybook/test";
 
-import { ActionMenu, type ActionMenuPresentation } from "./action-menu";
+import {
+  ActionMenu,
+  type ActionMenuPresentation,
+  type ActionMenuRootProps,
+} from "./action-menu";
 import { Button } from "./button";
 
-interface ActionMenuStoryArgs {
-  presentation?: ActionMenuPresentation;
+/**
+ * Every `Root` prop is an arg, so a prop added to the component reaches Controls
+ * without a story edit. `children` is the command list a story composes, which
+ * is not something to type into a control.
+ */
+type ActionMenuStoryArgs = Omit<ActionMenuRootProps, "children"> & {
   title: string;
   showTitle: boolean;
   disableDelete: boolean;
+};
+
+/** The args `Root` owns, apart from the ones the surrounding markup reads. */
+function rootArgs({
+  title: _title,
+  showTitle: _showTitle,
+  disableDelete: _disableDelete,
+  ...root
+}: ActionMenuStoryArgs): Omit<ActionMenuRootProps, "children"> {
+  return root;
 }
 
 /**
@@ -51,19 +70,18 @@ const meta: Meta<ActionMenuStoryArgs> = {
       control: "inline-radio",
       options: [undefined, "anchored", "sheet"],
     },
+    open: { control: "boolean" },
+    defaultOpen: { control: "boolean" },
+    onOpenChange: { control: false },
     title: { control: "text" },
     showTitle: { control: "boolean" },
     disableDelete: { control: "boolean" },
   },
-  render: function RenderActionMenu({
-    presentation,
-    title,
-    showTitle,
-    disableDelete,
-  }) {
+  render: function RenderActionMenu(args) {
+    const { title, showTitle, disableDelete } = args;
     const [pinned, setPinned] = useState(false);
     return (
-      <ActionMenu.Root presentation={presentation}>
+      <ActionMenu.Root {...rootArgs(args)}>
         <ActionMenu.Trigger asChild>
           <Button variant="ghost" iconOnly={<Ellipsis />} aria-label={title} />
         </ActionMenu.Trigger>
@@ -113,12 +131,12 @@ export const SheetWithVisibleTitle: Story = {
 export const WithGroupLabel: Story = {
   args: { title: "Conversation actions" },
   parameters: { controls: { disable: true } },
-  render: ({ title }) => (
-    <ActionMenu.Root>
+  render: (args) => (
+    <ActionMenu.Root {...rootArgs(args)}>
       <ActionMenu.Trigger asChild>
         <Button variant="outlined">Actions</Button>
       </ActionMenu.Trigger>
-      <ActionMenu.Content title={title}>
+      <ActionMenu.Content title={args.title}>
         <ActionMenu.Label>This conversation</ActionMenu.Label>
         <ActionMenu.Item label="Rename" />
         <ActionMenu.Item label="Duplicate" shortcut="⌘D" />
@@ -136,9 +154,50 @@ export const WithGroupLabel: Story = {
  * its own dismissals back through `onOpenChange`.
  */
 export const Controlled: Story = {
+  args: { presentation: "anchored", open: false },
+  render: function RenderControlled(args) {
+    const [{ open }, updateArgs] = useArgs<ActionMenuStoryArgs>();
+    return (
+      <div className="flex flex-col items-center gap-3">
+        <Button variant="outlined" onClick={() => updateArgs({ open: true })}>
+          Open from outside
+        </Button>
+        <ActionMenu.Root
+          {...rootArgs(args)}
+          open={open}
+          onOpenChange={(next) => updateArgs({ open: next })}
+        >
+          <ActionMenu.Trigger asChild>
+            <Button
+              variant="ghost"
+              iconOnly={<Ellipsis />}
+              aria-label={args.title}
+            />
+          </ActionMenu.Trigger>
+          <ActionMenu.Content title={args.title}>
+            <ActionMenu.Item icon={Pin} label="Pin" />
+          </ActionMenu.Content>
+        </ActionMenu.Root>
+        <span>{open ? "Menu open" : "Menu closed"}</span>
+      </div>
+    );
+  },
+};
+
+/**
+ * A controlled caller is told about a dismissal once, though the item and the
+ * surface each ask for the close, so a caller counting dismissals to reveal its
+ * trigger is not told twice about one of them.
+ *
+ * Open state is local rather than an arg here: `updateArgs` reaches the canvas
+ * through the preview channel, which the story runner does not turn, so an
+ * args-backed story cannot assert its own state transitions. `Controlled` above
+ * is the args-backed one, and this covers the behaviour a control cannot show.
+ */
+export const ControlledReportsOneClose: Story = {
   args: { presentation: "anchored" },
   parameters: { controls: { disable: true } },
-  render: function RenderControlled({ presentation, title }) {
+  render: function RenderReportsOneClose(args) {
     const [open, setOpen] = useState(false);
     const [closes, setCloses] = useState(0);
     return (
@@ -147,7 +206,7 @@ export const Controlled: Story = {
           Open from outside
         </Button>
         <ActionMenu.Root
-          presentation={presentation}
+          {...rootArgs(args)}
           open={open}
           onOpenChange={(next) => {
             setOpen(next);
@@ -160,10 +219,10 @@ export const Controlled: Story = {
             <Button
               variant="ghost"
               iconOnly={<Ellipsis />}
-              aria-label={title}
+              aria-label={args.title}
             />
           </ActionMenu.Trigger>
-          <ActionMenu.Content title={title}>
+          <ActionMenu.Content title={args.title}>
             <ActionMenu.Item icon={Pin} label="Pin" />
           </ActionMenu.Content>
         </ActionMenu.Root>
@@ -184,8 +243,6 @@ export const Controlled: Story = {
       expect(screen.getByText("Menu closed")).toBeVisible();
     });
 
-    // Once, though the item and the surface each ask for the close, so a
-    // caller counting dismissals is not told twice about one of them.
     expect(screen.getByText("Closes reported: 1")).toBeVisible();
   },
 };
