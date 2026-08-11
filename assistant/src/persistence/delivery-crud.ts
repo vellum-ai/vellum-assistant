@@ -48,15 +48,9 @@ const THREAD_SCOPED_CHANNELS = new Set(["slack", "telegram"]);
 /**
  * Scope prefix on every conversation key.
  *
- * An assistant id used to be interpolated here, but the daemon is
- * single-tenant and the only value that ever reached it was `self`: channel
- * inbound runs every caller through `canonicalChannelAssistantId`, which
- * discards its argument and answers `self`. The parameter named one value,
- * so it is gone.
- *
- * The literal stays, because this is a stored key format rather than an
- * internal detail. Rows already written under `asst:self:...` have to keep
- * matching, so the prefix is not ours to tidy.
+ * Part of the stored key format, so it is fixed: rows are written under
+ * `asst:self:` and stop resolving if it changes. The daemon is single-tenant
+ * and scopes all its storage to `self` (`DAEMON_INTERNAL_ASSISTANT_ID`).
  */
 const CONVERSATION_KEY_SCOPE = "asst:self";
 

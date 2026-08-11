@@ -40,6 +40,7 @@ mock.module("../runtime/sync/resource-sync-events.js", () => ({
 let lastProcessMessageConversationId: string | undefined;
 let lastProcessMessageOptions: Record<string, unknown> | undefined;
 let lastEnqueueOptions: Record<string, unknown> | undefined;
+let lastTurnChannelContext: unknown;
 let conversationIsProcessing = false;
 mock.module("../daemon/conversation-store.js", () => ({
   getOrCreateConversation: async (
@@ -60,6 +61,9 @@ mock.module("../daemon/conversation-store.js", () => ({
     }
     return {
       abortController: undefined,
+      setTurnChannelContext: (ctx: unknown) => {
+        lastTurnChannelContext = ctx;
+      },
       isProcessing: () => conversationIsProcessing,
       async processMessage(processOptions: Record<string, unknown>) {
         // The row must already exist by the time the turn persists its user
@@ -98,6 +102,7 @@ describe("runConversationTurn persistence", () => {
     lastProcessMessageConversationId = undefined;
     lastProcessMessageOptions = undefined;
     lastEnqueueOptions = undefined;
+    lastTurnChannelContext = undefined;
     conversationIsProcessing = false;
   });
 
@@ -221,6 +226,10 @@ describe("runConversationTurn channel binding", () => {
     db.run("DELETE FROM conversation_keys");
     db.run("DELETE FROM conversations");
     listChangedCalls.length = 0;
+    lastProcessMessageOptions = undefined;
+    lastEnqueueOptions = undefined;
+    lastTurnChannelContext = undefined;
+    conversationIsProcessing = false;
   });
 
   test("resolves the chat to the conversation inbound would have used", async () => {
@@ -299,6 +308,96 @@ describe("runConversationTurn channel binding", () => {
     expect(getBindingByConversation(result.conversationId)?.displayName).toBe(
       "Ada L.",
     );
+  });
+
+  test("runs the turn on the channel it was addressed by", async () => {
+    // Runtime assembly reads the per-turn channel first and only then the
+    // conversation's origin, so a turn into a conversation whose origin was
+    // never recorded would otherwise run as `vellum`. That is the wrong
+    // channel for the message row and for the permission cascade the tools
+    // are approved against.
+    await runConversationTurn({
+      channel: CHANNEL,
+      content: [{ type: "text", text: "hello" }],
+    });
+
+    expect(lastTurnChannelContext).toEqual({
+      userMessageChannel: "plugin",
+      assistantMessageChannel: "plugin",
+    });
+    expect(lastProcessMessageOptions?.metadata).toMatchObject({
+      userMessageChannel: "plugin",
+      assistantMessageChannel: "plugin",
+    });
+  });
+
+  test("a queued turn carries its own channel rather than inheriting one", async () => {
+    // The drain happens after this call returns and reads the channel off the
+    // queued message, falling back to whichever turn was in flight. On a
+    // conversation shared with another channel that fallback is someone
+    // else's channel.
+    conversationIsProcessing = true;
+
+    const result = await runConversationTurn({
+      channel: CHANNEL,
+      content: [{ type: "text", text: "hello" }],
+    });
+
+    expect(result.queued).toBe(true);
+    expect(lastEnqueueOptions?.metadata).toMatchObject({
+      userMessageChannel: "plugin",
+      assistantMessageChannel: "plugin",
+    });
+  });
+
+  test("leaves the channel unset when the turn names none", async () => {
+    // Clearing rather than leaving whatever the last turn set: a stale
+    // context would report this turn on a channel it has nothing to do with.
+    await runConversationTurn({
+      content: [{ type: "text", text: "hello" }],
+    });
+
+    expect(lastTurnChannelContext).toBeNull();
+    expect(lastProcessMessageOptions?.metadata).toEqual({ automated: true });
+  });
+
+  test("keeps a known sender when a later turn omits it", async () => {
+    // A plugin that knows only the chat coordinates this time is silent about
+    // the sender, not asserting it has none. Erasing the stored name on that
+    // silence drops it from the conversation and session APIs.
+    await runConversationTurn({
+      channel: { ...CHANNEL, externalUserId: "+12025550142" },
+      content: [{ type: "text", text: "hello" }],
+    });
+
+    const result = await runConversationTurn({
+      channel: {
+        sourceChannel: CHANNEL.sourceChannel,
+        externalChatId: CHANNEL.externalChatId,
+      },
+      content: [{ type: "text", text: "still me" }],
+    });
+
+    expect(getBindingByConversation(result.conversationId)).toMatchObject({
+      externalUserId: "+12025550142",
+      displayName: "Ada",
+    });
+  });
+
+  test("clears a sender the caller explicitly says is gone", async () => {
+    await runConversationTurn({
+      channel: CHANNEL,
+      content: [{ type: "text", text: "hello" }],
+    });
+
+    const result = await runConversationTurn({
+      channel: { ...CHANNEL, displayName: null },
+      content: [{ type: "text", text: "anonymous now" }],
+    });
+
+    expect(
+      getBindingByConversation(result.conversationId)?.displayName,
+    ).toBeNull();
   });
 
   test("an explicit conversation id wins over the address", async () => {

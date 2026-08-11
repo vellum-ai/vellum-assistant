@@ -198,11 +198,11 @@ async function resolveChannelConversation(
   const { upsertBinding } =
     await import("../persistence/external-conversation-store.js");
 
-  // Asked before resolving, because resolving is what creates it. The caller
-  // needs to know a conversation is new to announce it, and by the time it
-  // holds the id there is nothing left to distinguish. This is the read-only
-  // mirror of the resolution below, so the two agree on what "already bound"
-  // means, including the Slack flat-key alias.
+  // Asked before resolving, because resolving is what creates it: once the id
+  // is in hand a new conversation is indistinguishable from an existing one,
+  // and the caller announces only the new. `findInboundConversationId` is the
+  // read-only mirror of the resolution below, so the two agree on what
+  // "already bound" means, including the Slack flat-key alias.
   const created =
     findInboundConversationId(
       channel.sourceChannel,
@@ -225,16 +225,19 @@ async function resolveChannelConversation(
 
   // Refreshed on every turn rather than only on creation, because the sender's
   // display name and the chat's name are the vendor's to change and the
-  // conversation list shows whichever we last heard.
+  // conversation list shows whichever we last heard. The optional fields pass
+  // through as given: a caller that omits one on a later turn knows only the
+  // chat coordinates this time, which `upsertBinding` reads as silence rather
+  // than as the sender having no name.
   upsertBinding({
     conversationId,
     sourceChannel: channel.sourceChannel,
     externalChatId: channel.externalChatId,
-    externalChatName: channel.externalChatName ?? null,
+    externalChatName: channel.externalChatName,
     externalThreadId: channel.externalThreadId ?? null,
-    externalUserId: channel.externalUserId ?? null,
-    displayName: channel.displayName ?? null,
-    username: channel.username ?? null,
+    externalUserId: channel.externalUserId,
+    displayName: channel.displayName,
+    username: channel.username,
   });
 
   return { conversationId, created };
@@ -298,9 +301,9 @@ export async function runConversationTurn(
       : undefined;
   const conversationId =
     options.conversationId ?? channelConversation?.conversationId ?? uuidv7();
-  // Resolving a channel address already created the row, so asking the DB
-  // whether it existed would answer yes for a conversation minted a line ago
-  // and swallow the announcement it is owed.
+  // A channel address reports its own novelty, since resolving it creates the
+  // row: asking the DB here answers yes for a conversation minted a line ago
+  // and swallows the announcement it is owed.
   const rowExisted = channelConversation
     ? !channelConversation.created
     : getConversation(conversationId) != null;
@@ -335,6 +338,28 @@ export async function runConversationTurn(
     resolveMediaSourceData,
   );
 
+  // The channel this turn speaks on. Runtime assembly reads the per-turn
+  // context first and falls back to the conversation's `originChannel`, then
+  // to `vellum`, so a turn into a conversation carrying no origin runs as
+  // `vellum` without this: the wrong channel for the message row and for the
+  // channel-permission cascade the tools are approved against. Null when the
+  // caller names no channel, which both restores that fallback and clears any
+  // context left by a previous turn.
+  const turnChannelContext = options.channel
+    ? {
+        userMessageChannel: options.channel.sourceChannel,
+        assistantMessageChannel: options.channel.sourceChannel,
+      }
+    : null;
+  // Carried on the metadata as well, because a queued turn is drained after
+  // this call returns and reads its channel from there. Without it the drain
+  // inherits whichever turn was in flight, which on a shared conversation is
+  // some other channel entirely.
+  const metadata = {
+    ...PLUGIN_TURN_MESSAGE_METADATA,
+    ...(turnChannelContext ?? {}),
+  };
+
   // Build the event emitter: fan out to SSE/event-hub subscribers via
   // broadcastMessage, then invoke the collector callback. This mirrors the
   // buildEventEmitter pattern from process-message.ts so plugin-driven
@@ -357,7 +382,7 @@ export async function runConversationTurn(
       onEvent,
       requestId,
       isInteractive: false,
-      metadata: { ...PLUGIN_TURN_MESSAGE_METADATA },
+      metadata,
     });
     if (enqueueResult.rejected) {
       throw new Error(
@@ -372,12 +397,14 @@ export async function runConversationTurn(
     };
   }
 
+  conversation.setTurnChannelContext(turnChannelContext);
+
   const userMessageId = await conversation.processMessage({
     content: text,
     attachments,
     onEvent,
     isInteractive: false,
-    metadata: { ...PLUGIN_TURN_MESSAGE_METADATA },
+    metadata,
     ...(options.callSite ? { callSite: options.callSite } : {}),
   });
 

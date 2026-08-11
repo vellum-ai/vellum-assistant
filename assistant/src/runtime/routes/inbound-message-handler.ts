@@ -728,13 +728,8 @@ export async function handleChannelInbound({
 
   const replyCallbackUrl = body.replyCallbackUrl;
 
-  // `external_conversation_bindings` is assistant-agnostic, and this write was
-  // gated on the caller resolving to self so assistant-scoped legacy routes
-  // could not overwrite each other's binding for one chat. The gate could not
-  // decide anything: `canonicalChannelAssistantId` discards its argument and
-  // answers self for every caller, so there is no second writer to guard
-  // against and the binding was either written or silently skipped for
-  // nobody.
+  // `external_conversation_bindings` is assistant-agnostic: one row per chat,
+  // whichever caller writes it.
   upsertBinding({
     conversationId: result.conversationId,
     sourceChannel,
