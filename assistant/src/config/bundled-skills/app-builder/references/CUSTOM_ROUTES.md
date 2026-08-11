@@ -6,7 +6,7 @@ When the app needs server-side persistence, custom API logic, or workspace file 
 
 ## Handler file convention
 
-Each handler file exports named functions for the HTTP methods it supports (`GET`, `POST`, `PUT`, `PATCH`, `DELETE`). Handlers take the standard Web API `Request`. To reach daemon capabilities (publishing events, running a conversation turn), import them from `@vellumai/plugin-api` — that is the supported way, and it works identically in-process and in the route-host subprocess.
+Each handler file exports named functions for the HTTP methods it supports (`GET`, `POST`, `PUT`, `PATCH`, `DELETE`). A handler takes the standard Web API `Request` and returns a `Response`. To reach daemon state (publish an event, run a conversation turn), import the relevant helper from `@vellumai/plugin-api` — see [Reaching daemon state](#reaching-daemon-state) below.
 
 ```
 {workspaceDir}/routes/
@@ -86,13 +86,13 @@ Don't hand-declare `window.vellum` in a local `vellum.d.ts`. If the app depends 
 
 Equivalently, add `"@vellumai/plugin-api/app"` to `compilerOptions.types` in `tsconfig.json`. Both are types-only — do **not** `import` from `@vellumai/plugin-api` to get the global; a runtime bare import isn't supported for sandboxed apps. If you want to name a type, use `import type { VellumAppBridge } from "@vellumai/plugin-api/app"`.
 
-## Reaching daemon capabilities (`@vellumai/plugin-api`)
+## Reaching daemon state
 
-To reach a daemon capability from a handler, import it from `@vellumai/plugin-api`. These imports work the same way in-process and in the route-host subprocess.
+Handlers are pure `Request → Response`. When one needs to reach live daemon state — push a real-time event to connected clients, or drive a conversation turn — it imports the purpose-built helper from `@vellumai/plugin-api`.
 
 ### Publishing events to the client
 
-Use `publishEvent` to push a real-time event to connected desktop/mobile clients. This is how a route triggers client-side navigation, updates UI, or delivers a notification.
+Use `publishEvent` to push a real-time event to connected desktop/mobile clients. This is how a route triggers client-side navigation, updates UI, or delivers a notification — and how the [`window.vellum.subscribe`](#live-updates) live-update flow works: the route publishes a `sync_changed` event and subscribed tabs re-fetch.
 
 ```typescript
 // routes/open-conversation.ts
@@ -103,7 +103,6 @@ export async function POST(request: Request): Promise<Response> {
 
   await publishEvent({
     id: crypto.randomUUID(),
-    assistantId: "self",
     conversationId,
     emittedAt: new Date().toISOString(),
     message: { type: "open_conversation", conversationId },
@@ -115,9 +114,9 @@ export async function POST(request: Request): Promise<Response> {
 
 `publishEvent` rejects daemon-to-client host-proxy control events (`host_*`); everything else — including your own `sync_changed` invalidation tags — flows to subscribed clients.
 
-### Posting into a conversation
+### Driving a conversation turn
 
-Use `runConversationTurn` to surface an inbound event as a real assistant turn — the way a webhook receiver, a scheduled job, or a device callback turns "your deploy finished" or "payment received" into a message the assistant actually responds to (not just a client-side event).
+Use `runConversationTurn` to surface an inbound event as a real assistant turn — the way a webhook receiver, a scheduled job, or a device callback turns "your deploy finished" or "payment received" into a message the assistant actually responds to (not just a client-side event). Pass an existing `conversationId` to run the turn there, or omit it to create a new (optionally `background`) conversation.
 
 ```typescript
 // routes/deploy-webhook.ts — an external CI system POSTs here when a build finishes
@@ -125,28 +124,22 @@ import { runConversationTurn } from "@vellumai/plugin-api";
 
 export async function POST(request: Request): Promise<Response> {
   const { conversationId, status } = await request.json();
-
-  await runConversationTurn({
+  const result = await runConversationTurn({
     conversationId,
     content: [{ type: "text", text: `Your deploy finished: ${status}.` }],
   });
-
-  return Response.json({ ok: true });
+  return Response.json({ ok: true, conversationId: result.conversationId });
 }
 ```
 
-Omit `conversationId` to start a fresh conversation (the new id is returned). If the conversation is mid-turn the message is queued and runs when the current turn finishes.
-
-### Deprecated: the `context` argument
-
-Older routes were written with a second `context` argument (`context.assistantEventHub.publish(...)`, `context.conversations.postMessage(...)`). That argument still works in-process but is **deprecated** and will be removed — it isn't available in the route-host subprocess, and its use is tracked so remaining callers can be migrated. Port these to the `@vellumai/plugin-api` imports above: `context.assistantEventHub.publish` → `publishEvent`, `context.conversations.postMessage(id, text)` → `runConversationTurn({ conversationId: id, content: [{ type: "text", text }] })`.
+If the conversation is mid-turn the message is queued and runs when the current turn finishes.
 
 ## Key rules
 
 - Always create the route handler files via `file_write` before calling `app_refresh`
 - Export an optional `description` string for CLI discoverability (`assistant routes list`)
 - Handlers have full Node.js API access — `fs`, `path`, `crypto`, etc.
-- Handlers get a 30-second timeout per request
+- Handlers get a 2-minute timeout per request; a handler that blocks past it is hard-killed and the request returns 504
 - Files are hot-reloaded on change (mtime-based cache)
 - Use `.ts` (preferred) or `.js` extensions
 - Route resolution: `routes/foo.ts` → `/v1/x/foo`, `routes/bar/index.ts` → `/v1/x/bar`
