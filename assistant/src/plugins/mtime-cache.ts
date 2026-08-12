@@ -213,12 +213,17 @@ let reconcileInFlight: Promise<void> | null = null;
  * workspace hooks, from the hook loader's in-memory cache. Plugin hooks run
  * in install-date order, the workspace hook runs last.
  *
- * This is a pure cache read: it never scans disk, activates a plugin, or
- * runs `init`. Activation happens only at boot ({@link populateCacheAtBoot})
- * and through the imperative install/uninstall poke
- * ({@link reconcilePluginSourcesNow}) — both main-daemon paths — so a
- * sidecar process that dispatches hooks (a worker running conversation
- * turns) can never bring a plugin up in its own process.
+ * This read never activates a plugin or runs `init`. Activation happens only
+ * at boot ({@link populateCacheAtBoot}) and through the imperative
+ * install/uninstall poke ({@link reconcilePluginSourcesNow}) — both
+ * main-daemon paths — so a sidecar process that dispatches hooks (a worker
+ * running conversation turns) can never bring a plugin up in its own process.
+ *
+ * It does ensure the plugin set is *discovered* first
+ * ({@link ensureUserPluginsDiscovered}), which is what lets those same sidecar
+ * processes resolve user-plugin hooks at all. That walk is memoized per
+ * process and is a no-op in the daemon, so this stays a map read in the steady
+ * state.
  *
  * `effectiveEnabledPlugins` carries the per-chat plugin scope: when non-null,
  * user plugins outside the set are skipped (standalone workspace hooks always
@@ -228,6 +233,7 @@ export async function getUserHookEntriesFor<TCtx = unknown>(
   hookName: string,
   effectiveEnabledPlugins?: Set<string> | null,
 ): Promise<HookEntry<TCtx>[]> {
+  await ensureUserPluginsDiscovered();
   return collectUserHookEntries<TCtx>(
     hookName,
     discoveredPluginDirs.values(),
@@ -285,6 +291,10 @@ export async function reconcilePluginSourcesNow(): Promise<void> {
   reconcileInFlight = (async () => {
     try {
       await applySourceVersions(collectSourceVersions());
+      // This apply is authoritative for the discovered set, so settle the
+      // lazy-discovery latch against it rather than leaving a stale walk (or
+      // an un-run one) to fight it on the next dispatch.
+      discoveryPromise = Promise.resolve();
     } catch (err) {
       log.error({ err }, "imperative plugin reconcile failed");
     }
@@ -713,6 +723,156 @@ export function getActiveUserPluginTools(): Map<string, ActivePluginTools> {
 // ─── Plugin discovery ────────────────────────────────────────────────────────
 
 /**
+ * What a directory under the plugins root turns out to be. Deciding this is
+ * read-only — a few `stat`s and a manifest parse — which is what lets the
+ * discovery-only walk ({@link ensureUserPluginsDiscovered}) and the full scan
+ * ({@link scanPlugins}) share it without the former inheriting the latter's
+ * eviction and activation side effects.
+ */
+type PluginDirClassification =
+  | { kind: "skip" }
+  | { kind: "disabled"; pluginName: string }
+  | {
+      kind: "active";
+      pluginName: string;
+      credentialKeyPatterns?: PluginCredentialKeyPattern[];
+    };
+
+/**
+ * Classify one directory under the plugins root: not a plugin, disabled via
+ * the `.disabled` sentinel, or an active plugin (with its manifest name and
+ * declared credential key patterns).
+ *
+ * Read-only by construction — it mutates no module state and runs no plugin
+ * code. Callers own whatever their result implies.
+ */
+async function classifyPluginDir(
+  pluginDir: string,
+  pluginsDir: string,
+  entry: string,
+): Promise<PluginDirClassification> {
+  try {
+    if (!statSync(pluginDir).isDirectory()) {
+      return { kind: "skip" };
+    }
+  } catch {
+    return { kind: "skip" };
+  }
+  // Judge the entry by where it resolves. A symlinked plugin root pointing
+  // out of the plugins directory is not an install, and activating one at
+  // boot would run code that enumeration and the reload path both refuse to
+  // touch.
+  if (!isInsidePluginRoot(pluginDir, pluginsDir)) {
+    log.warn(
+      { pluginDir },
+      "plugin root resolves outside the plugins directory, skipping",
+    );
+    return { kind: "skip" };
+  }
+  if (!existsSync(join(pluginDir, "package.json"))) {
+    return { kind: "skip" };
+  }
+
+  // A plugin is disabled when a file named `.disabled` exists inside its
+  // plugin directory. Disabled plugins contribute nothing — no hooks, no
+  // tools, no cache entries.
+  if (existsSync(join(pluginDir, ".disabled"))) {
+    const manifest = await parsePluginManifest(pluginDir);
+    return { kind: "disabled", pluginName: manifest?.name ?? entry };
+  }
+
+  const manifest = await parsePluginManifest(pluginDir);
+  if (manifest === undefined) {
+    return { kind: "skip" };
+  }
+  return {
+    kind: "active",
+    pluginName: manifest.name,
+    credentialKeyPatterns: manifest.credentialKeyPatterns,
+  };
+}
+
+/**
+ * Memoized discovery-only walk — see {@link ensureUserPluginsDiscovered}.
+ * `null` until the first caller needs it; `populateCacheAtBoot` settles it so
+ * the daemon never runs the lazy walk on top of its own scan.
+ */
+let discoveryPromise: Promise<void> | null = null;
+
+/**
+ * Populate {@link discoveredPluginDirs} if no full scan has done so already.
+ *
+ * Discovery answers only "which plugin directories exist, in what order" — a
+ * readdir, a few `stat`s, and a manifest parse per entry. That is all a hook
+ * dispatch needs: {@link collectUserHookEntries} resolves each
+ * `(plugin, hookName)` from disk on demand, so with the set populated a
+ * sidecar worker resolves user-plugin hooks the same way the daemon does.
+ *
+ * Deliberately NOT activation. It registers no tools, evicts nothing, and
+ * runs no `init` — those stay owned by the boot scan and the imperative poke,
+ * both daemon-only, so a worker can never bring a plugin up in its own
+ * process against daemon-owned plugin storage.
+ *
+ * Memoized per process, so the walk is paid once rather than per dispatch. In
+ * the daemon it never runs at all: `populateCacheAtBoot` settles the latch,
+ * and runtime plugin changes reach the cache through
+ * {@link reconcilePluginSourcesNow}, which re-arms it. A sidecar worker sees
+ * no such poke, so it holds the plugin set it discovered on first dispatch
+ * until it restarts — a worker is torn down with the daemon, and the daemon
+ * restarts on plugin install, so the staleness window is bounded.
+ *
+ * Never rejects: a discovery failure must not fail the turn that happened to
+ * dispatch first.
+ */
+export function ensureUserPluginsDiscovered(): Promise<void> {
+  if (discoveryPromise === null) {
+    discoveryPromise = discoverPluginDirs().catch((err: unknown) => {
+      discoveryPromise = null;
+      log.error(
+        { err },
+        "user-plugin discovery failed; hook dispatch continues without user plugins",
+      );
+    });
+  }
+  return discoveryPromise;
+}
+
+/**
+ * The discovery-only walk itself: classify every entry under the plugins root
+ * and record the active ones, in install-date order. Writes
+ * {@link discoveredPluginDirs} and nothing else.
+ */
+async function discoverPluginDirs(): Promise<void> {
+  const pluginsDir = getWorkspacePluginsDir();
+  if (!existsSync(pluginsDir)) {
+    return;
+  }
+  let entries: string[];
+  try {
+    entries = readdirSync(pluginsDir);
+  } catch {
+    log.warn(
+      { pluginsDir },
+      "discoverPluginDirs: failed to read plugins directory",
+    );
+    return;
+  }
+
+  for (const entry of entries) {
+    const pluginDir = join(pluginsDir, entry);
+    const classification = await classifyPluginDir(
+      pluginDir,
+      pluginsDir,
+      entry,
+    );
+    if (classification.kind === "active") {
+      discoveredPluginDirs.set(pluginDir, classification.pluginName);
+    }
+  }
+  sortDiscoveredPluginDirs();
+}
+
+/**
  * Scan the plugins directory, update the discovered set, and reconcile
  * tools for each plugin. Also evicts cache entries for deleted plugins.
  *
@@ -748,35 +908,20 @@ async function scanPlugins(): Promise<void> {
 
   for (const entry of entries) {
     const pluginDir = join(pluginsDir, entry);
-    try {
-      if (!statSync(pluginDir).isDirectory()) {
-        continue;
-      }
-    } catch {
-      continue;
-    }
-    // Judge the entry by where it resolves. A symlinked plugin root pointing
-    // out of the plugins directory is not an install, and activating one at
-    // boot would run code that enumeration and the reload path both refuse to
-    // touch.
-    if (!isInsidePluginRoot(pluginDir, pluginsDir)) {
-      log.warn(
-        { pluginDir },
-        "plugin root resolves outside the plugins directory, skipping",
-      );
-      continue;
-    }
-    if (!existsSync(join(pluginDir, "package.json"))) {
+    const classification = await classifyPluginDir(
+      pluginDir,
+      pluginsDir,
+      entry,
+    );
+
+    if (classification.kind === "skip") {
       continue;
     }
 
-    // Check for the .disabled sentinel. A plugin is disabled when a file
-    // named `.disabled` exists inside its plugin directory. Disabled
-    // plugins are skipped entirely — no hooks, no tools, no cache entries.
-    // If the plugin was previously active, its cache entries are evicted.
-    if (existsSync(join(pluginDir, ".disabled"))) {
-      const manifest = await parsePluginManifest(pluginDir);
-      const pluginName = manifest?.name ?? entry;
+    // Disabled plugins are skipped entirely. If the plugin was previously
+    // active, its cache entries are evicted.
+    if (classification.kind === "disabled") {
+      const { pluginName } = classification;
       if (discoveredPluginDirs.has(pluginDir)) {
         await deactivatePlugin(pluginName, "disable");
         await evictPlugin(pluginDir, pluginName);
@@ -791,14 +936,13 @@ async function scanPlugins(): Promise<void> {
       continue;
     }
 
-    const manifest = await parsePluginManifest(pluginDir);
-    if (manifest === undefined) {
-      continue;
-    }
-    const { name: pluginName } = manifest;
+    const { pluginName } = classification;
 
     currentDirs.set(pluginDir, pluginName);
-    credentialPatternsByDir.set(pluginDir, manifest.credentialKeyPatterns);
+    credentialPatternsByDir.set(
+      pluginDir,
+      classification.credentialKeyPatterns,
+    );
     disabledPluginDirs.delete(pluginDir);
 
     if (!discoveredPluginDirs.has(pluginDir)) {
@@ -922,10 +1066,10 @@ const activatedPlugins: Array<{ kind: HookOwnerKind; name: string }> = [];
 
 /**
  * Names in {@link activatedPlugins}, kept as a set for O(1) membership and —
- * critically — reserved *synchronously* at the top of `activatePlugin`. The
- * per-turn hook dispatch reaches `scanPlugins` on every turn (sometimes
- * concurrently), so the synchronous reservation is what prevents a second scan
- * from double-activating a plugin while its async `init()` is still in flight.
+ * critically — reserved *synchronously* at the top of `activatePlugin`. Two
+ * activation paths can overlap (the boot scan and an install poke, or two
+ * concurrent pokes), so the synchronous reservation is what prevents one from
+ * double-activating a plugin while the other's async `init()` is in flight.
  */
 const activatedNames = new Set<string>();
 
@@ -939,8 +1083,8 @@ const activatedNames = new Set<string>();
  * failures are logged and the plugin still counts as activated so the shutdown
  * teardown handles whatever came up (mirrors boot semantics).
  *
- * Called from `scanPlugins`, which runs both at boot and on every subsequent
- * scan — so a plugin whose files appear at runtime (installed via the CLI or
+ * Called from `scanPlugins` at boot and from the imperative install/uninstall
+ * poke — so a plugin whose files appear at runtime (installed via the CLI or
  * provisioned out-of-band) becomes live without a daemon restart.
  */
 async function activatePlugin(
@@ -1093,6 +1237,11 @@ export async function populateCacheAtBoot(
   // Scans + activates every discovered plugin (tools registered + `init` run).
   await scanPlugins();
 
+  // The boot scan has populated `discoveredPluginDirs` authoritatively, so
+  // settle the lazy-discovery latch: in the daemon the discovery-only walk
+  // must never run on top of this.
+  discoveryPromise = Promise.resolve();
+
   // Activate standalone workspace hooks under `<workspace>/hooks/`. These
   // carry no package.json, no tools, and no install-date ordering — just hook
   // files. Running their `init` hook resolves the workspace `init`/`shutdown`,
@@ -1133,6 +1282,10 @@ export function resetPluginCacheForTests(): void {
   disabledPluginDirs.clear();
   lastVersions = {};
   reconcileInFlight = null;
+  // Re-arm lazy discovery alongside the set it populates, so a test that
+  // clears the caches and then dispatches rediscovers instead of reading an
+  // empty map behind a settled promise.
+  discoveryPromise = null;
 }
 
 /**

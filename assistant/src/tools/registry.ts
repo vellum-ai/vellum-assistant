@@ -1055,11 +1055,12 @@ export function getAllToolDefinitions(): Tool[] {
  * without repeating it, so it is safe to call from multiple entry points or
  * lazily on demand.
  *
- * This is the tool-registry analogue of the hook registry's
- * `maybeReconcileFromSentinel()` — the lazy "make sure the registry is
- * populated" step. As the registry read getters migrate to async (mirroring
- * `getHooksFor`), they will `await` this before reading the map, so a read can
- * no longer observe an un-initialized registry.
+ * This is the tool-registry analogue of the hook registry's lazy "make sure
+ * the registry is populated" step (`ensureDefaultHooksRegistered` in
+ * `hooks/registry.ts`, plus `ensureUserPluginsDiscovered` in
+ * `plugins/mtime-cache.ts`). As the registry read getters migrate to async
+ * (mirroring `getHooksFor`), they will `await` this before reading the map, so
+ * a read can no longer observe an un-initialized registry.
  */
 export function initializeTools(): Promise<void> {
   if (!toolsInitPromise) {

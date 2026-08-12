@@ -8,18 +8,25 @@
  * User-land hooks (from the filesystem) are owned by
  * {@link ./hook-loader.ts} and surfaced through `getUserHooksFor` in
  * `plugins/mtime-cache.ts`. This module owns only the in-process hooks that
- * default plugins register at boot.
+ * default plugins register.
  *
  * {@link getHooksFor} combines both sources: in-process hooks from this
  * registry (filtered by `isPluginDisabled` at read time) and user-land hooks
  * from the plugin cache. The read-time filtering is what makes `assistant
  * plugins disable default-*` take effect immediately in a running assistant
  * — the hooks stay registered but are filtered out on the next turn.
+ *
+ * Reads are self-populating: a dispatch in a process that never ran plugin
+ * bootstrap registers the defaults on its first read
+ * ({@link ensureDefaultHooksRegistered}), so the sidecar workers that host
+ * agent conversations run the same hook chain the daemon does without an
+ * entry-point registration call. Registration only — `init` stays daemon-only.
  */
 
 import { isPluginDisabled } from "../plugins/disabled-state.js";
 import { getUserHookEntriesFor } from "../plugins/mtime-cache.js";
 import type { HookEntry, HookFunction } from "../plugins/types.js";
+import { getLogger } from "../util/logger.js";
 
 // ─── Internal state ──────────────────────────────────────────────────────────
 
@@ -31,6 +38,74 @@ const hookRegistry = new Map<
   string,
   Array<{ fn: HookFunction; pluginName: string }>
 >();
+
+/**
+ * Whether anything has registered hooks into this process's registry. Set by
+ * {@link registerPluginHooks}, so it is true as soon as a real bootstrap (or a
+ * test fixture) has claimed ownership — see
+ * {@link ensureDefaultHooksRegistered}.
+ */
+let hasRegisteredHooks = false;
+
+/**
+ * Memoized lazy registration of the first-party defaults — see
+ * {@link ensureDefaultHooksRegistered}. `null` until the first read asks for
+ * it; afterwards the settled promise is returned without repeating the work.
+ */
+let defaultRegistrationPromise: Promise<void> | null = null;
+
+/**
+ * Populate the registry with the first-party defaults when nothing else has.
+ *
+ * The rule is "whoever registered first owns the registry". A process that
+ * runs plugin bootstrap (the daemon, via `initializePlugins()`) has already
+ * registered the defaults before it ever dispatches, so this is a no-op there.
+ * A process that does NOT run bootstrap gets them here, on its first dispatch:
+ * the memory jobs worker and the schedule worker both host real agent
+ * conversations, and those turns run the same `agent/loop.ts` hook chain, so
+ * without this their dispatches resolve against an empty registry and silently
+ * skip every default.
+ *
+ * Gating on {@link hasRegisteredHooks} rather than populating unconditionally
+ * is what keeps the registry controllable: a caller that has deliberately
+ * registered a specific set (every hook test that drives `runHook` over one
+ * fixture plugin) still sees exactly that set, instead of having eighteen
+ * defaults appear underneath it.
+ *
+ * Registration is NOT activation. This only inserts each default's hook
+ * functions into the map; it never runs `init`, which must stay confined to
+ * the daemon (see `plugins/mtime-cache.ts`). Running `init` here would be
+ * actively harmful — `default-memory`'s `init` calls `runMemoryStartup`, which
+ * starts the memory jobs worker, so the memory worker would try to spawn a
+ * memory worker from inside itself.
+ *
+ * Imported dynamically so the default plugins' implementation graph stays out
+ * of this module's static imports, and out of module evaluation — this runs at
+ * hook-dispatch, well after boot, and the module cache makes repeat calls free.
+ *
+ * Never rejects. A failure here must not take down the turn that happened to
+ * be the first dispatcher, so it is logged and the latch is cleared for a
+ * later retry; that dispatch proceeds with whatever is registered.
+ */
+function ensureDefaultHooksRegistered(): Promise<void> {
+  if (hasRegisteredHooks) {
+    return Promise.resolve();
+  }
+  if (defaultRegistrationPromise === null) {
+    defaultRegistrationPromise = (async () => {
+      const { registerDefaultPlugins } =
+        await import("../plugins/defaults/index.js");
+      registerDefaultPlugins();
+    })().catch((err: unknown) => {
+      defaultRegistrationPromise = null;
+      getLogger("hook-registry").error(
+        { err },
+        "Failed to register default plugin hooks; dispatch continues without them",
+      );
+    });
+  }
+  return defaultRegistrationPromise;
+}
 
 // ─── Registration ────────────────────────────────────────────────────────────
 
@@ -48,6 +123,9 @@ export function registerPluginHooks(
     if (typeof fn !== "function") {
       continue;
     }
+    // Someone is populating the registry explicitly, so the lazy default
+    // registration must stand down — see `ensureDefaultHooksRegistered`.
+    hasRegisteredHooks = true;
     let list = hookRegistry.get(hookName);
     if (!list) {
       list = [];
@@ -103,6 +181,10 @@ export async function getHookEntriesFor<TCtx = unknown>(
   name: string,
   options?: { conversationId?: string },
 ): Promise<HookEntry<TCtx>[]> {
+  // Make sure the defaults are in the map before reading it. In the daemon
+  // they already are (boot registered them); in a sidecar worker this first
+  // read is what puts them there. Registration only — never activation.
+  await ensureDefaultHooksRegistered();
   // Resolve the per-chat scope through a lazy import: a static import of the
   // daemon resolver would add `hooks/ → daemon/conversation-tool-setup` to the
   // module-init graph and perturb the capability-seed init order. Importing at
@@ -178,4 +260,10 @@ export function resetHookRegistryForTests(): void {
     );
   }
   hookRegistry.clear();
+  // Drop the lazy-registration state too, so a reset genuinely returns the
+  // process to "nobody owns this registry": a test that resets and dispatches
+  // without registering anything gets the defaults, and one that resets and
+  // registers its own fixtures keeps seeing only those.
+  hasRegisteredHooks = false;
+  defaultRegistrationPromise = null;
 }
