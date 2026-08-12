@@ -256,6 +256,7 @@ export {
 export {
   Combobox,
   type ComboboxRootProps,
+  type ComboboxListProps,
   type ComboboxGroupProps,
   type ComboboxOptionProps,
 } from "./components/combobox";

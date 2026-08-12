@@ -56,13 +56,24 @@ function matches(city: string, query: string): boolean {
  * role promises: focus stays in the field, ArrowDown/ArrowUp/Home/End move the
  * highlight, Enter commits it, Escape closes the list.
  *
- * Both stories are interactive and own their own state, so the keyboard can be
- * tried directly in the canvas.
+ * Both stories own the query and the selection locally, so the keyboard can be
+ * tried directly in the canvas; every other `Root` prop comes from args, so
+ * `autoActivateFirst` and the inline/popup shape are Controls.
  */
 const meta: Meta<typeof Combobox.Root> = {
   title: "Components/Combobox",
   component: Combobox.Root,
-  parameters: { controls: { disable: true } },
+  args: {
+    autoActivateFirst: true,
+  },
+  argTypes: {
+    options: { control: false },
+    value: { control: false },
+    onSelect: { control: false },
+    onOpenChange: { control: false },
+    children: { control: false },
+    open: { control: "boolean" },
+  },
   decorators: [
     (Story) => (
       <div className="w-[320px] p-6">
@@ -81,7 +92,7 @@ type Story = StoryObj<typeof Combobox.Root>;
  * Escape, a press outside, or a pick.
  */
 export const Popup: Story = {
-  render: function Render() {
+  render: function Render(args) {
     const [query, setQuery] = useState("");
     const [city, setCity] = useState("London");
     const filtered = useMemo(
@@ -92,13 +103,13 @@ export const Popup: Story = {
     return (
       <div className="flex flex-col gap-3">
         <Combobox.Root
+          {...args}
           options={filtered}
           value={city}
           onSelect={(next) => {
             setCity(next);
             setQuery("");
           }}
-          autoActivateFirst={query.trim().length > 0}
         >
           <Combobox.Input
             aria-label="Search cities"
@@ -108,28 +119,31 @@ export const Popup: Story = {
             onChange={(event) => setQuery(event.target.value)}
             fullWidth
           />
-          {filtered.length > 0 && (
-            <Combobox.List
-              aria-label="Cities"
-              className="absolute inset-x-0 top-full z-20 mt-1 max-h-60 rounded-md border border-[var(--border-base)] bg-[var(--surface-lift)] p-1 shadow-[var(--shadow-popover)]"
-            >
-              {filtered.map((option) => (
-                <Combobox.Option
-                  key={option}
-                  value={option}
-                  className={OPTION_CLASS}
-                >
-                  {option}
-                  {option === city && (
-                    <Check
-                      aria-hidden
-                      className="size-4 text-[var(--system-positive-strong)]"
-                    />
-                  )}
-                </Combobox.Option>
-              ))}
-            </Combobox.List>
-          )}
+          <Combobox.List
+            aria-label="Cities"
+            className="absolute inset-x-0 top-full z-20 mt-1 max-h-60 rounded-md border border-[var(--border-base)] bg-[var(--surface-lift)] p-1 shadow-[var(--shadow-popover)]"
+            emptyState={
+              <p className="px-3 py-2 text-body-medium-lighter text-[var(--content-tertiary)]">
+                No matching cities
+              </p>
+            }
+          >
+            {filtered.map((option) => (
+              <Combobox.Option
+                key={option}
+                value={option}
+                className={OPTION_CLASS}
+              >
+                {option}
+                {option === city && (
+                  <Check
+                    aria-hidden
+                    className="size-4 text-[var(--system-positive-strong)]"
+                  />
+                )}
+              </Combobox.Option>
+            ))}
+          </Combobox.List>
         </Combobox.Root>
         <span className="text-body-small-default text-[var(--content-tertiary)]">
           {city}
@@ -145,7 +159,8 @@ export const Popup: Story = {
  * pinned section renders.
  */
 export const InlineGrouped: Story = {
-  render: function Render() {
+  args: { open: true },
+  render: function Render(args) {
     const [query, setQuery] = useState("");
     const [city, setCity] = useState("Tokyo");
     const filtering = query.trim().length > 0;
@@ -176,11 +191,10 @@ export const InlineGrouped: Story = {
     return (
       <div className="flex flex-col gap-2">
         <Combobox.Root
+          {...args}
           options={visible}
           value={city}
           onSelect={setCity}
-          open
-          autoActivateFirst={filtering}
         >
           <Combobox.Input
             aria-label="Search cities"
@@ -190,7 +204,15 @@ export const InlineGrouped: Story = {
             onChange={(event) => setQuery(event.target.value)}
             fullWidth
           />
-          <Combobox.List aria-label="Cities" className="mt-2 max-h-60">
+          <Combobox.List
+            aria-label="Cities"
+            className="mt-2 max-h-60"
+            emptyState={
+              <p className="px-3 py-2 text-body-medium-lighter text-[var(--content-tertiary)]">
+                No matching cities
+              </p>
+            }
+          >
             {filtering ? (
               visible.map(option)
             ) : (

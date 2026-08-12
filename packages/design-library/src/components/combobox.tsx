@@ -40,7 +40,8 @@ import { cn } from "../utils/cn";
  *   stop, not one per row.
  * - ArrowDown / ArrowUp / Home / End move the highlight (no wrap: from no
  *   highlight, Up reaches the last option), Enter commits it, Escape closes
- *   the list and keeps focus in the field.
+ *   the list and keeps focus in the field, including when the query matches
+ *   nothing.
  * - The active option is scrolled into view as the highlight moves, and the
  *   selected option is scrolled into view when the list opens.
  *
@@ -147,6 +148,11 @@ function Root({
 
   const setOpen = useCallback(
     (next: boolean) => {
+      if (!next) {
+        // The highlight dies with the list it points into: leaving it set
+        // would leave `aria-activedescendant` naming an unmounted option.
+        setActiveValue(null);
+      }
       if (ownsOpenState) {
         setUncontrolledOpen(next);
       }
@@ -170,7 +176,6 @@ function Root({
   const select = useCallback(
     (option: string) => {
       onSelect(option);
-      setActiveValue(null);
       setOpen(false);
     },
     [onSelect, setOpen],
@@ -262,7 +267,12 @@ function ComboboxInput({ onKeyDown, onFocus, onChange, ...rest }: InputProps) {
 
   const handleKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
     onKeyDown?.(event);
-    if (event.defaultPrevented || options.length === 0) {
+    if (event.defaultPrevented) {
+      return;
+    }
+    // Dismissal is the one key that still has work to do with nothing to
+    // move through: a query that matches nothing must stay closeable.
+    if (options.length === 0 && event.key !== "Escape") {
       return;
     }
     const current = activeValue === null ? -1 : indexOf(activeValue);
@@ -320,7 +330,7 @@ function ComboboxInput({ onKeyDown, onFocus, onChange, ...rest }: InputProps) {
       aria-controls={open ? listboxId : undefined}
       aria-autocomplete="list"
       aria-activedescendant={
-        activeValue === null ? undefined : optionId(activeValue)
+        open && activeValue !== null ? optionId(activeValue) : undefined
       }
       autoComplete="off"
       onFocus={(event) => {
@@ -338,12 +348,22 @@ function ComboboxInput({ onKeyDown, onFocus, onChange, ...rest }: InputProps) {
   );
 }
 
+export interface ComboboxListProps extends ComponentProps<"div"> {
+  /**
+   * What the list says when the query matches nothing. Rendered in place of
+   * `children`, inside the listbox, so an open combobox always points at a
+   * listbox that exists.
+   */
+  emptyState?: ReactNode;
+}
+
 /**
- * The option list. Renders nothing while the combobox is closed, so a caller
- * never has to gate it themselves.
+ * The option list. Renders exactly when the combobox is open, so a caller
+ * never gates it themselves: gating it on having rows is what leaves the
+ * field claiming `aria-expanded` over a listbox that was never rendered.
  */
-function List({ className, children, ...rest }: ComponentProps<"div">) {
-  const { listboxId, open, activeValue, value, optionId } =
+function List({ className, children, emptyState, ...rest }: ComboboxListProps) {
+  const { listboxId, open, options, activeValue, value, optionId } =
     useComboboxContext("List");
 
   // Follow the highlight, and show the current selection when the list opens
@@ -372,7 +392,7 @@ function List({ className, children, ...rest }: ComponentProps<"div">) {
       data-slot="combobox-list"
       className={cn("flex flex-col overflow-y-auto", className)}
     >
-      {children}
+      {options.length === 0 ? emptyState : children}
     </div>
   );
 }

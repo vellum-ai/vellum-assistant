@@ -182,15 +182,14 @@ export function SttLanguagePicker({
           // follow-up pick, which the hook queues behind it.
           selecting && "opacity-70",
         )}
+        emptyState={
+          <p className="px-3 py-2.5 text-body-medium-default text-[var(--content-tertiary)]">
+            No languages match.
+          </p>
+        }
       >
         {filtering ? (
-          visibleOptions.length > 0 ? (
-            visibleOptions.map(renderOption)
-          ) : (
-            <p className="px-3 py-2.5 text-body-medium-default text-[var(--content-tertiary)]">
-              No languages match.
-            </p>
-          )
+          visibleOptions.map(renderOption)
         ) : (
           <>
             <Combobox.Group label="Featured">

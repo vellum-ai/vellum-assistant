@@ -234,40 +234,43 @@ export function TimezonePicker({ value, onChange }: TimezonePickerProps) {
             onChange={(event) => setSearchText(event.target.value)}
             fullWidth
           />
-          {visible.length > 0 && (
-            <Combobox.List
-              aria-label="Cities"
-              className="absolute left-0 right-0 top-full z-20 mt-1 max-h-[240px] rounded-md border border-[var(--border-base)] bg-[var(--surface-lift)] shadow-lg"
-            >
-              {visible.map((entry) => (
-                <Combobox.Option
-                  key={entry.identifier}
-                  value={entry.identifier}
-                  className={cn(
-                    "flex w-full items-center justify-between gap-3 px-3 py-2",
-                    "text-body-medium-lighter text-[var(--content-default)] transition-colors",
-                    "hover:bg-[var(--surface-active)]",
-                    "data-[active]:bg-[var(--surface-active)] aria-selected:bg-[var(--surface-active)]",
-                  )}
-                >
-                  <div className="min-w-0 flex-1">
-                    <div className="truncate text-body-medium-default">
-                      {entry.city}
+          <Combobox.List
+            aria-label="Cities"
+            className="absolute left-0 right-0 top-full z-20 mt-1 max-h-[240px] rounded-md border border-[var(--border-base)] bg-[var(--surface-lift)] shadow-lg"
+            emptyState={
+              <p className="px-3 py-2 text-body-medium-lighter text-[var(--content-tertiary)]">
+                No matching cities
+              </p>
+            }
+          >
+            {visible.map((entry) => (
+              <Combobox.Option
+                key={entry.identifier}
+                value={entry.identifier}
+                className={cn(
+                  "flex w-full items-center justify-between gap-3 px-3 py-2",
+                  "text-body-medium-lighter text-[var(--content-default)] transition-colors",
+                  "hover:bg-[var(--surface-active)]",
+                  "data-[active]:bg-[var(--surface-active)] aria-selected:bg-[var(--surface-active)]",
+                )}
+              >
+                <div className="min-w-0 flex-1">
+                  <div className="truncate text-body-medium-default">
+                    {entry.city}
+                  </div>
+                  {entry.region && (
+                    <div className="truncate text-body-small-default text-[var(--content-tertiary)]">
+                      {entry.region}
                     </div>
-                    {entry.region && (
-                      <div className="truncate text-body-small-default text-[var(--content-tertiary)]">
-                        {entry.region}
-                      </div>
-                    )}
-                  </div>
-                  <div className="flex shrink-0 flex-col items-end gap-0.5 text-body-small-default text-[var(--content-tertiary)]">
-                    <span>{formatCurrentTime(entry.identifier)}</span>
-                    <span>{entry.offsetLabel}</span>
-                  </div>
-                </Combobox.Option>
-              ))}
-            </Combobox.List>
-          )}
+                  )}
+                </div>
+                <div className="flex shrink-0 flex-col items-end gap-0.5 text-body-small-default text-[var(--content-tertiary)]">
+                  <span>{formatCurrentTime(entry.identifier)}</span>
+                  <span>{entry.offsetLabel}</span>
+                </div>
+              </Combobox.Option>
+            ))}
+          </Combobox.List>
         </Combobox.Root>
       </div>
 
