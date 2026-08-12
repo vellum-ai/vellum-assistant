@@ -15,13 +15,15 @@
  *
  * Measurement is synchronous in `useLayoutEffect`, before paint, so the room's
  * entrance animation starts from a real box on its first painted frame rather
- * than growing from a zero-sized one. After mount a `ResizeObserver` tracks the
- * panel's own size (the sidebar collapsing, a rail drag), and a window `resize`
- * listener catches offset changes the observer does not fire for, since the box
- * can slide without changing size.
+ * than growing from a zero-sized one. After mount `observeViewportRect` keeps it
+ * live: the box slides without changing size (the sidebar collapsing, a rail
+ * drag, the mobile sheet riding the iOS shell down as the keyboard opens), so
+ * the room's own `ResizeObserver` is only one of the signals that matter.
  */
 
 import { useCallback, useLayoutEffect, useRef, useState } from "react";
+
+import { observeViewportRect } from "@/lib/observe-viewport-rect";
 
 export interface RoomBox {
   /** Room width in CSS px. The look's geometry scales against this. */
@@ -110,15 +112,7 @@ export function useRoomBox(): {
       return;
     }
     measure();
-    const observer = new ResizeObserver(measure);
-    observer.observe(node);
-    // A ResizeObserver only fires on size changes; the panel's viewport offset
-    // also moves when the window itself resizes around a same-sized room.
-    window.addEventListener("resize", measure);
-    return () => {
-      observer.disconnect();
-      window.removeEventListener("resize", measure);
-    };
+    return observeViewportRect(node, measure);
   }, [measure]);
 
   return { ref, box };

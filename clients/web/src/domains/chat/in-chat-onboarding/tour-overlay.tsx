@@ -4,6 +4,7 @@ import { createPortal } from "react-dom";
 
 import { ChatComposer } from "@/domains/chat/components/chat-composer/chat-composer";
 import { type VoiceInputButtonHandle } from "@/domains/chat/components/voice-input-button";
+import { observeViewportRect } from "@/lib/observe-viewport-rect";
 
 import { TourNarration } from "./tour-narration";
 import { TOUR_COMPOSER, TOUR_VOICE, type TourStep } from "./tour-steps";
@@ -58,8 +59,9 @@ export function TourOverlay({
   // callback never fires.
   const sceneryVoiceInputRef = useRef<VoiceInputButtonHandle | null>(null);
 
-  // The sidebar bounces in mid-tour, so these edges are re-measured on
-  // every beat (and window resizes), not once.
+  // The sidebar bounces in mid-tour and the header's viewport offset moves with
+  // the notch inset and the iOS keyboard, so these edges are re-measured on
+  // every beat and on every signal that can move either element, not once.
   useEffect(() => {
     if (onIntroBeat) {
       setClearLeft(0);
@@ -67,11 +69,11 @@ export function TourOverlay({
       setColumnTop(0);
       return;
     }
+    const header = document.querySelector<HTMLElement>("header");
+    const menu = document.querySelector<HTMLElement>("#chat-side-menu");
     const update = () => {
-      const header = document.querySelector<HTMLElement>("header");
       setClearTop(header ? header.getBoundingClientRect().bottom : 0);
 
-      const menu = document.querySelector<HTMLElement>("#chat-side-menu");
       if (!menu) {
         setClearLeft(0);
         setColumnTop(0);
@@ -84,8 +86,7 @@ export function TourOverlay({
       setColumnTop(rect.top);
     };
     update();
-    window.addEventListener("resize", update);
-    return () => window.removeEventListener("resize", update);
+    return observeViewportRect([header, menu], update);
   }, [onIntroBeat, step]);
 
   return createPortal(

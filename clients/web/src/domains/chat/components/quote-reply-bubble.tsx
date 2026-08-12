@@ -36,6 +36,7 @@ import {
 } from "@vellumai/design-library/components/markdown-message";
 
 import { useTouchMobile } from "@/hooks/use-touch-mobile";
+import { observeViewportRect } from "@/lib/observe-viewport-rect";
 import { useQuoteReplyStore } from "@/domains/chat/quote-reply-store";
 
 interface QuoteReplyBubbleProps {
@@ -69,20 +70,7 @@ function useComposerTopOffset(enabled: boolean): number {
       setOffset(window.innerHeight - rect.top);
     };
     measure();
-    const resizeObserver = new ResizeObserver(measure);
-    resizeObserver.observe(composer);
-    window.visualViewport?.addEventListener("resize", measure);
-    // iOS shifts layout via visualViewport scroll (keyboard offsetTop change)
-    // with no resize event; the root shell moves on this same signal, so the
-    // dock must remeasure here too or it drifts from the composer.
-    window.visualViewport?.addEventListener("scroll", measure);
-    window.addEventListener("resize", measure);
-    return () => {
-      resizeObserver.disconnect();
-      window.visualViewport?.removeEventListener("resize", measure);
-      window.visualViewport?.removeEventListener("scroll", measure);
-      window.removeEventListener("resize", measure);
-    };
+    return observeViewportRect(composer, measure);
   }, [enabled]);
 
   return offset;

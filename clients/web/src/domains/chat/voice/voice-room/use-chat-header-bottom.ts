@@ -26,6 +26,8 @@
 
 import { useEffect, useState } from "react";
 
+import { observeViewportRect } from "@/lib/observe-viewport-rect";
+
 /** The header's own `data-slot`, set in `chat-layout-header.tsx`. */
 const HEADER_SELECTOR = '[data-slot="chat-layout-header"]';
 
@@ -42,20 +44,7 @@ export function useChatHeaderBottom(): number {
       setBottom(header.getBoundingClientRect().bottom);
     };
     measure();
-    const observer = new ResizeObserver(measure);
-    observer.observe(header);
-    // The observer covers the header's own box changing. Its viewport offset
-    // moves for reasons the observer never sees: a rotation changing the notch
-    // inset, or the iOS keyboard opening and shifting the whole shell down.
-    window.addEventListener("resize", measure);
-    window.visualViewport?.addEventListener("resize", measure);
-    window.visualViewport?.addEventListener("scroll", measure);
-    return () => {
-      observer.disconnect();
-      window.removeEventListener("resize", measure);
-      window.visualViewport?.removeEventListener("resize", measure);
-      window.visualViewport?.removeEventListener("scroll", measure);
-    };
+    return observeViewportRect(header, measure);
   }, []);
 
   return bottom;

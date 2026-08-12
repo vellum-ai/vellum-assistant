@@ -24,6 +24,10 @@
  *   from it would resize the artwork every time a field is focused.
  * - `useOnboardingWindowSize` (`use-onboarding-window-size.ts`) is the Electron
  *   OS window, driven over IPC. Nothing to do with either viewport.
+ * - `observeViewportRect` (`lib/observe-viewport-rect.ts`) is where an element
+ *   *sits* rather than how big it is. A position needs signals a size does not
+ *   (the iOS shell shifting under a same-sized element), so anything measuring
+ *   a `getBoundingClientRect()` live subscribes through there, not here.
  *
  * @see https://developer.mozilla.org/en-US/docs/Web/API/Visual_Viewport_API#visual_viewport_vs._layout_viewport
  */
