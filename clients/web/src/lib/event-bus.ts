@@ -153,6 +153,18 @@ export interface BusEventMap {
   "deeplink.send": { message: string };
   "deeplink.openThread": { threadId: string };
   /**
+   * Open a conversation AND relay a message into it:
+   * `<scheme>://thread/<id>?message=…`, produced by the iOS
+   * `SendMessageToChatIntent` (the "Send Message to Chat" Shortcuts
+   * action). Split from `deeplink.openThread` because the consumer does
+   * more than navigate: it rides the `?prompt=` auto-send pathway
+   * (`routes.conversationWithPrompt`), so the message is actually sent.
+   * `message` is bounded and sanitized by `parseOpenThreadDeepLink`;
+   * a thread link whose message fails sanitization publishes plain
+   * `deeplink.openThread` instead.
+   */
+  "deeplink.sendToThread": { threadId: string; message: string };
+  /**
    * Stripe Checkout finished for a checkout a native shell started
    * (the Electron shell's system browser or Capacitor iOS's in-app
    * SFSafariViewController). The platform bounces the browser to

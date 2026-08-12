@@ -233,6 +233,97 @@ describe("deeplink.openThread", () => {
   });
 });
 
+describe("deeplink.sendToThread", () => {
+  /** The prompt-relay URL split into route and params for assertion. */
+  function lastNavigation(): { path: string; params: URLSearchParams } {
+    const call = navigateMock.mock.calls.at(-1);
+    if (!call) {
+      throw new Error("navigate was not called");
+    }
+    const [path, query] = (call[0] as string).split("?");
+    return { path: path!, params: new URLSearchParams(query) };
+  }
+
+  test("navigates to the conversation with the message on the ?prompt= relay pathway", () => {
+    renderConsumer();
+
+    act(() => {
+      publish("deeplink.sendToThread", {
+        threadId: "abc-123",
+        message: "gym done",
+      });
+    });
+
+    const { path, params } = lastNavigation();
+    expect(path).toBe("/assistant/conversations/abc-123");
+    expect(params.get("prompt")).toBe("gym done");
+    // A relay token must be present: it is what lets a repeated identical
+    // message (a daily automation) re-fire instead of deduping on text.
+    expect(params.get("relay")).not.toBeNull();
+    expect(ensureMainWindowVisibleMock).toHaveBeenCalledTimes(1);
+  });
+
+  test("mints a fresh relay token per delivery so identical messages re-fire", () => {
+    renderConsumer();
+
+    act(() => {
+      publish("deeplink.sendToThread", {
+        threadId: "abc-123",
+        message: "gym done",
+      });
+    });
+    const first = lastNavigation().params.get("relay");
+    act(() => {
+      publish("deeplink.sendToThread", {
+        threadId: "abc-123",
+        message: "gym done",
+      });
+    });
+    const second = lastNavigation().params.get("relay");
+
+    expect(first).not.toBeNull();
+    expect(second).not.toBeNull();
+    expect(second).not.toBe(first);
+  });
+
+  test("runs the conversation-switch path when targeting another thread", () => {
+    useSubagentStore.setState({ orderedIds: ["sub-1"] });
+    useConversationStore.setState({ activeConversationId: "old-conversation" });
+    renderConsumer();
+
+    act(() => {
+      publish("deeplink.sendToThread", {
+        threadId: "abc-123",
+        message: "gym done",
+      });
+    });
+
+    expect(useSubagentStore.getState().orderedIds).toEqual([]);
+    expect(useConversationStore.getState().activeConversationId).toBe(
+      "abc-123",
+    );
+  });
+
+  test("same-thread delivery keeps live state and still relays the message", () => {
+    useSubagentStore.setState({ orderedIds: ["sub-1"] });
+    useConversationStore.setState({ activeConversationId: "abc-123" });
+    renderConsumer();
+
+    act(() => {
+      publish("deeplink.sendToThread", {
+        threadId: "abc-123",
+        message: "gym done",
+      });
+    });
+
+    expect(useSubagentStore.getState().orderedIds).toEqual(["sub-1"]);
+    const { path, params } = lastNavigation();
+    expect(path).toBe("/assistant/conversations/abc-123");
+    expect(params.get("prompt")).toBe("gym done");
+    expect(params.get("relay")).not.toBeNull();
+  });
+});
+
 describe("deeplink.billingCheckoutComplete", () => {
   test("subscription success navigates to billing carrying the session id so the wizard opens", () => {
     renderConsumer();

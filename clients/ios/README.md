@@ -714,6 +714,7 @@ clients/
     │   │   ├── ApnsEnvironmentPlugin.swift # APNs entitlement environment
     │   │   ├── SelfHostedServer.swift      # Active + remembered self-hosted origins
     │   │   ├── SelfHostedServersPlugin.swift # Server list / origin switching bridge
+    │   │   ├── RecentChatsPlugin.swift # Conversation-list cache for the Shortcuts chat picker
     │   │   ├── Intents/              # App Intents + AppShortcutsProvider
     │   │   ├── Shared/               # Compiled into app + widget extension
     │   │   └── Info.plist

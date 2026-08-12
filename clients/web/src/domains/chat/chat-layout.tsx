@@ -40,6 +40,7 @@ import {
 
 import { useChatLayoutSlotsStore } from "@/components/layout/chat-layout-slots-store";
 import { useElectronDockSync } from "@/domains/chat/hooks/use-electron-dock-sync";
+import { useNativeRecentChatsSync } from "@/domains/chat/hooks/use-native-recent-chats-sync";
 import { useOpenAppFromChat } from "@/domains/chat/hooks/use-open-app-from-chat";
 import {
   EDGE_SWIPE_EASING,
@@ -238,6 +239,11 @@ export function ChatLayout({
   // conversation list this layout already subscribes to; see
   // `./hooks/use-electron-dock-sync.ts`.
   useElectronDockSync(assistantId, conversations, isAssistantActive);
+
+  // Mirror the same list into the iOS shell's recent-chats cache, which backs
+  // the Shortcuts app's chat picker ("Send Message to Chat"). No-op off
+  // Capacitor iOS; see the hook for the sync/dedupe contract.
+  useNativeRecentChatsSync(conversations);
 
   // Header slots come from a module-level store so gated routes
   // (which see `ActiveAssistantGate`'s `<Outlet />` as their

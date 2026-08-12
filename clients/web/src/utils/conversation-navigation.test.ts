@@ -116,6 +116,29 @@ describe("navigateToConversation", () => {
     );
   });
 
+  test("prompt relays the message via ?prompt= with a fresh relay token per call", () => {
+    const navigate = mock((_to: string) => {});
+    navigateToConversation(navigate as unknown as NavigateFunction, "conv-3", {
+      prompt: "gym done",
+    });
+    navigateToConversation(navigate as unknown as NavigateFunction, "conv-3", {
+      prompt: "gym done",
+    });
+
+    const relays = navigate.mock.calls.map(([to]) => {
+      const [path, query] = (to as string).split("?");
+      const params = new URLSearchParams(query);
+      expect(path).toBe(routes.conversation("conv-3"));
+      expect(params.get("prompt")).toBe("gym done");
+      return params.get("relay");
+    });
+    // Distinct tokens are the whole point: identical repeated messages must
+    // re-fire the auto-send instead of deduping on text.
+    expect(relays[0]).not.toBeNull();
+    expect(relays[1]).not.toBeNull();
+    expect(relays[1]).not.toBe(relays[0]);
+  });
+
   test("same-conversation navigation keeps subagent/workflow state (LUM-2875)", () => {
     activeConversationId = "conv-1";
     const navigate = mock((_to: string) => {});

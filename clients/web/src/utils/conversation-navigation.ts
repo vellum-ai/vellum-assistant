@@ -19,6 +19,14 @@ export interface NavigateToConversationOptions {
    * at action start (e.g. fork), so the navigation doesn't double-buzz.
    */
   silent?: boolean;
+  /**
+   * Auto-send this message in the conversation once it mounts, via the
+   * `?prompt=` pathway (`useAutoSendEffects`), with a fresh relay token per
+   * call so repeated identical messages re-fire. Ignored when `messageId` is
+   * set: anchoring to a message and relaying one are different gestures, and
+   * no caller does both.
+   */
+  prompt?: string;
 }
 
 /**
@@ -49,11 +57,19 @@ export function navigateToConversation(
     useViewerStore.getState().clearTranscriptPanelPayloads();
   }
   useConversationStore.getState().setActiveConversationId(conversationId);
-  void navigate(
-    options?.messageId
-      ? routes.conversationAtMessage(conversationId, options.messageId)
-      : routes.conversation(conversationId),
-  );
+  let path: string;
+  if (options?.messageId) {
+    path = routes.conversationAtMessage(conversationId, options.messageId);
+  } else if (options?.prompt !== undefined) {
+    path = routes.conversationWithPrompt(
+      conversationId,
+      options.prompt,
+      crypto.randomUUID(),
+    );
+  } else {
+    path = routes.conversation(conversationId);
+  }
+  void navigate(path);
 }
 
 export interface NavigateToNewConversationOptions {

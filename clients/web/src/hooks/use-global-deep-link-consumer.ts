@@ -30,6 +30,9 @@ import { routes } from "@/utils/routes";
  *
  * - `deeplink.openThread` → `ensureMainWindowVisible()` +
  *   `navigateToConversation()`
+ * - `deeplink.sendToThread` → same navigation, carrying the message on
+ *   the conversation URL's `?prompt=` param (with a relay token), which
+ *   `useAutoSendEffects` dispatches once the conversation mounts.
  * - `deeplink.send` → `ensureMainWindowVisible()` + navigate to
  *   `/assistant` + park the message in `usePendingDeepLinkStore`
  *   for `ChatPage`'s composer-domain hook to consume on mount.
@@ -122,19 +125,34 @@ export function useGlobalDeepLinkConsumer(): void {
     navigateRef.current(routes.assistant);
   });
 
-  const openThread = (threadId: string) => {
+  const openThread = (threadId: string, prompt?: string) => {
     // Same thread: skip store resets — the id doesn't change, so re-seed effects wouldn't re-run and live cards would vanish.
     if (threadId === useConversationStore.getState().activeConversationId) {
       useViewerStore.getState().setMainView("chat");
-      navigateRef.current(routes.conversation(threadId));
+      navigateRef.current(
+        prompt !== undefined
+          ? routes.conversationWithPrompt(threadId, prompt, crypto.randomUUID())
+          : routes.conversation(threadId),
+      );
       return;
     }
-    navigateToConversation(navigateRef.current, threadId);
+    navigateToConversation(navigateRef.current, threadId, { prompt });
   };
 
   useBusSubscription("deeplink.openThread", ({ threadId }) => {
     void ensureMainWindowVisible();
     openThread(threadId);
+  });
+
+  // The iOS "Send Message to Chat" Shortcuts action. The message rides the
+  // `?prompt=` auto-send pathway (the same relay `routes.conversationWithPrompt`
+  // callers use), so it is sent, not parked in the composer: the intent's whole
+  // point is a hands-off send, and the parser already bounded and sanitized the
+  // text. The relay token keeps repeated identical messages re-firing (a daily
+  // "log this" automation sends the same words every day).
+  useBusSubscription("deeplink.sendToThread", ({ threadId, message }) => {
+    void ensureMainWindowVisible();
+    openThread(threadId, message);
   });
 
   // `mode` is deliberately not read. The two modes have collapsed onto the

@@ -67,7 +67,7 @@ Dynamic Island / Lock Screen tap          →  .widgetURL(VoiceModeDeepLink.resu
 Safari, a test link, another app          →  application(_:open:) / launchOptions[.url]
         │                        all of them produce  <scheme>://voice?mode=…
         ▼
-AppDelegate.deliverVoiceCommand(_:)  →  ApplicationDelegateProxy  →  Capacitor `appUrlOpen`
+AppDelegate.deliverCommandURL(_:)  →  ApplicationDelegateProxy  →  Capacitor `appUrlOpen`
         ▼
 capacitor-deep-links.ts  →  parseStartVoiceDeepLink  →  bus `deeplink.startVoice`
         ▼
@@ -266,7 +266,7 @@ otherwise arrive as a `prompt` of `Ben ` plus a stray parameter.
 
 Intents run **in the app process** and never pass through
 `application(_:open:)`, so `VoiceModeDeepLink.route()` hands the URL directly to
-`AppDelegate.deliverVoiceCommand(_:)`. That method stashes the URL and replays it
+`AppDelegate.deliverCommandURL(_:)`. That method stashes the URL and replays it
 through `ApplicationDelegateProxy` — the exact channel a warm open uses — once
 the bridge web view exists, so the URL surfaces to JS as Capacitor's `appUrlOpen`
 and needs no new web code. `AppPlugin` posts that event with
@@ -407,7 +407,7 @@ by it: `VoiceModeDeepLink.route()`.
 #if VOICE_ACTIVITY_EXTENSION
 assertionFailure("Voice intents are performed in the app process, not the appex")
 #else
-(UIApplication.shared.delegate as? AppDelegate)?.deliverVoiceCommand(url)
+(UIApplication.shared.delegate as? AppDelegate)?.deliverCommandURL(url)
 #endif
 ```
 
