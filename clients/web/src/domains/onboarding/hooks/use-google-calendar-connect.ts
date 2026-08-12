@@ -37,6 +37,7 @@ import type { OAuthCompleteDeepLinkPayload } from "@/runtime/native-deep-link";
 import { extractErrorMessage } from "@/utils/api-errors";
 import { wait } from "@/utils/oauth-connection-utils";
 import { routes } from "@/utils/routes";
+import { t } from "@/i18n";
 
 const GOOGLE_PROVIDER_KEY = "google";
 
@@ -333,7 +334,9 @@ export function useGoogleCalendarConnect({
         toast.error(
           error instanceof Error
             ? error.message
-            : "Failed to start Google Calendar authorization.",
+            : t("googleCalendar.authorizationFailed", {
+                ns: "onboarding",
+              }),
         );
         return;
       }

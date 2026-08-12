@@ -375,19 +375,24 @@ describe("scoped-approval-grants / expiry", () => {
   });
 
   test("already-consumed grants are not affected by expiry sweep", () => {
-    const _pastExpiry = Date.now() - 1_000;
+    const expiresAt = Date.now() + 60_000;
     createScopedApprovalGrant(
       grantParams({
         scopeMode: "request_id",
         requestId: "req-consumed",
-        expiresAt: Date.now() + 60_000,
+        expiresAt,
       }),
     );
-    consumeScopedApprovalGrantByRequestId("req-consumed", "c1");
+    const consumed = consumeScopedApprovalGrantByRequestId(
+      "req-consumed",
+      "c1",
+      expiresAt - 1,
+    );
+    expect(consumed.ok).toBe(true);
 
-    // Force the expiry time to the past for the consumed grant (simulating time passing)
-    // The sweep should not touch consumed grants
-    const count = expireScopedApprovalGrants();
+    // Sweep after the grant's expiresAt. Status is consumed, so the active-only
+    // expiry update must leave it alone.
+    const count = expireScopedApprovalGrants(expiresAt);
     expect(count).toBe(0);
   });
 });

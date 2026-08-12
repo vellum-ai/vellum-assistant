@@ -1,0 +1,147 @@
+{
+  "actions": {
+    "save": "Guardar",
+    "saving": "Guardando…",
+    "merge": "Combinar…",
+    "merging": "Combinando…",
+    "delete": "Eliminar",
+    "deleting": "Eliminando…",
+    "connect": "Conectar",
+    "connecting": "Conectando…",
+    "disconnect": "Desconectar",
+    "disconnecting": "Desconectando…",
+    "cancel": "Cancelar",
+    "back": "Atrás",
+    "verify": "Verificar",
+    "verifying": "Verificando…",
+    "revoke": "Revocar"
+  },
+  "channelType": {
+    "slack": "Slack",
+    "telegram": "Telegram",
+    "whatsapp": "WhatsApp",
+    "a2a": "A2A",
+    "phone": "Teléfono",
+    "email": "Correo"
+  },
+  "contact": {
+    "nameLabel": "Nombre",
+    "notesLabel": "Notas",
+    "draftName": "Contacto nuevo",
+    "interactions": "{count, plural, one {# interacción} other {# interacciones}}",
+    "mergeBlockedNoCandidates": "No hay otros contactos con los que combinar",
+    "mergeBlockedUnsaved": "Guarda los cambios antes de combinar"
+  },
+  "contactsPage": {
+    "title": "Contactos",
+    "mergeSucceeded": "Contactos combinados",
+    "mergeFailed": "No se pudieron combinar los contactos",
+    "createFailed": "No se pudo crear el contacto",
+    "deleteFailed": "No se pudo eliminar el contacto",
+    "saveFailed": "No se pudo guardar el contacto",
+    "verifyFailed": "No se pudo verificar el canal",
+    "rosterLoadFailed": "No se pudo cargar el directorio del espacio de trabajo. Comprueba la conexión con Slack y vuelve a intentarlo.",
+    "emptyBody": "Selecciona un contacto"
+  },
+  "contactsList": {
+    "heading": "Entradas",
+    "addAriaLabel": "Añadir contacto",
+    "searchPlaceholder": "Buscar contactos",
+    "noMatches": "No hay contactos que coincidan",
+    "add": "Añadir contacto",
+    "verified": "Verificado",
+    "unverified": "Sin verificar",
+    "you": "Tú",
+    "youNamed": "{name} (tú)",
+    "assistantFallback": "Tu asistente"
+  },
+  "contactDetailView": {
+    "namePlaceholder": "Ponle un nombre a esta persona",
+    "notesPlaceholder": "Notas opcionales sobre la persona que la IA tendrá en cuenta",
+    "mergeBlockedUnsavedDraft": "Guarda este contacto antes de combinar",
+    "delete": "Eliminar contacto",
+    "linkedAccountsTitle": "Cuentas vinculadas",
+    "linkedAccountsSubtitle": "Dónde reconoce el asistente a este contacto. Vincula las cuentas que conozcas e invita a las que no.",
+    "deleteConfirmTitle": "¿Eliminar a {name}?",
+    "deleteConfirmMessage": "Esto eliminará permanentemente este contacto y todos sus canales. Esta acción no se puede deshacer."
+  },
+  "guardianDetailView": {
+    "namePlaceholder": "Tu nombre",
+    "notesPlaceholder": "Notas sobre ti que la IA tendrá en cuenta",
+    "channelsTitle": "Canales",
+    "channelsSubtitle": "Una vez verificado, tu asistente te reconocerá cuando escribas desde estos canales.",
+    "setupLabel": "Verificarme"
+  },
+  "assistantChannelsDetail": {
+    "title": "{name} (tu asistente)",
+    "channelsTitle": "Canales",
+    "channelsSubtitle": "Dónde se puede contactar con {name}."
+  },
+  "assistantContactChannels": {
+    "disconnectConfirmTitle": "¿Desconectar {channel}?",
+    "disconnectConfirmMessage": "Esto borra las credenciales guardadas de este canal. Puedes volver a conectarlo más tarde."
+  },
+  "accountLink": {
+    "linked": "Vinculado como @{username}",
+    "linkFailed": "No se pudo vincular la cuenta"
+  },
+  "connectPage": {
+    "invalidTitle": "Enlace de invitación no válido",
+    "invalidBody": "Al enlace que has seguido le faltan parámetros obligatorios y no se puede usar.",
+    "goToContacts": "Ir a Contactos",
+    "title": "Conectar asistentes",
+    "body": "Aceptar este enlace creará una conexión A2A de confianza entre tu asistente y el del remitente.",
+    "alreadyConnected": "Ya está conectado",
+    "connected": "¡Conectado!",
+    "errorExpired": "Este enlace de invitación ha caducado o ya se ha usado.",
+    "errorAlreadyRedeemed": "Otra persona ya ha reclamado esta invitación.",
+    "errorSenderNotFound": "No se ha encontrado el asistente del remitente.",
+    "errorNotPlatformManaged": "Los enlaces de invitación A2A solo se admiten en asistentes alojados en la plataforma.",
+    "errorGeneric": "Algo ha salido mal. Vuelve a intentarlo."
+  },
+  "channelStatus": {
+    "connected": "Conectado",
+    "verified": "Verificado"
+  },
+  "contactChannelsSection": {
+    "verifyConfirmTitle": "Verificar {channel}",
+    "verifyConfirmMessageContact": "Esto marcará el canal de {channel} de este contacto como verificado. Tu asistente lo reconocerá cuando escriba desde ahí.",
+    "verifyConfirmMessageGuardian": "Esto marcará tu canal de {channel} como verificado. Tu asistente te reconocerá cuando escribas desde ahí.",
+    "revokeConfirmTitle": "Revocar {channel}",
+    "revokeConfirmMessage": "Esto desconectará el canal verificado. El contacto tendrá que volver a verificarse para usarlo de nuevo.",
+    "linkAccount": "Vincular cuenta",
+    "setupDefault": "Invitar"
+  },
+  "linkAccountDialog": {
+    "title": "Vincular una cuenta de {channel}",
+    "description": "Busca en tu espacio de trabajo de {channel} y elige la cuenta de <contact>{name}</contact>.",
+    "searchPlaceholder": "Buscar por nombre o @usuario",
+    "searchAriaLabel": "Buscar cuentas del espacio de trabajo de {channel}",
+    "loading": "Cargando los miembros del espacio de trabajo…",
+    "noMembers": "No se han encontrado miembros del espacio de trabajo.",
+    "noMatches": "Ningún miembro coincide.",
+    "linking": "Vinculando…",
+    "guardianLinkNote": "Elegirla marca esta cuenta como <emphasis>vinculada por el tutor</emphasis>: tú respondes por la identidad, sin necesidad de confirmación.",
+    "inviteInstead": "O enviar una invitación"
+  },
+  "contactMergeDialog": {
+    "titlePicked": "¿Combinar «{donor}» con {survivor}?",
+    "titlePicking": "Combinar otro contacto con {survivor}",
+    "descriptionPicked": "Los canales y las notas del contacto combinado se trasladarán. El contacto combinado se eliminará.",
+    "descriptionPicking": "El contacto que elijas se eliminará. Sus canales y sus notas se añadirán a este.",
+    "confirm": "Combinar",
+    "searchPlaceholder": "Buscar contactos",
+    "listAriaLabel": "Selecciona un contacto para combinar",
+    "empty": "No hay otros contactos con los que combinar.",
+    "donorDeleted": "<donor>«{donor}»</donor> se eliminará.",
+    "channelsMoved": "{count, plural, =0 {No se trasladará ningún canal nuevo a {survivor}.} one {# canal se trasladará a {survivor}: {channels}.} other {# canales se trasladarán a {survivor}: {channels}.}}",
+    "duplicatesSkipped": "{count, plural, one {# canal duplicado ya está en {survivor} (omitido).} other {# canales duplicados ya están en {survivor} (omitidos).}}",
+    "notesAppended": "Las notas del contacto combinado se añadirán al final.",
+    "irreversible": "Esta acción no se puede deshacer."
+  },
+  "survivorName": {
+    "you": "ti",
+    "youNamed": "{name} (tú)",
+    "thisContact": "este contacto"
+  }
+}

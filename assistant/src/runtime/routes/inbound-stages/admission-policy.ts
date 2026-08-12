@@ -27,6 +27,7 @@ import {
   ADMISSION_FLOOR,
   type AdmissionPolicy,
   isAdmissionPolicyExemptChannel,
+  TRUST_CLASS_RANK,
 } from "@vellumai/gateway-client";
 
 import type { ChannelId } from "../../../channels/types.js";
@@ -72,23 +73,6 @@ export type AdmissionPolicyResult =
 // ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
-
-/**
- * Trust-class ordinal compared against {@link ADMISSION_FLOOR} to make the
- * admission decision (`rank >= floor`). Higher rank = more trusted.
- * Blocked/revoked never reach this comparison — they short-circuit to deny on
- * member status above — so they carry no rank here.
- *
- * The two halves of the floor check: this table is keyed by `TrustClass`,
- * `ADMISSION_FLOOR` (from `@vellumai/gateway-client`) by `AdmissionPolicy`.
- * They are only ever read together, here, so they live next to their use.
- */
-const TRUST_CLASS_RANK: Record<TrustClass, number> = {
-  guardian: 4,
-  trusted_contact: 3,
-  unverified_contact: 2,
-  unknown: 1,
-};
 
 /**
  * Policies under which completing verification could lift the sender past

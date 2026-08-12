@@ -41,7 +41,10 @@ import {
   withSuppressedConfigDiskWrites,
   withSuppressedConfigDiskWritesSync,
 } from "../../config/loader.js";
-import { completeCustomProfile } from "../../config/profile-materialization.js";
+import {
+  completeCustomProfile,
+  mergePreservingUnknownKeys,
+} from "../../config/profile-materialization.js";
 import { AssistantConfigSchema } from "../../config/schema.js";
 import { getSchemaAtPath } from "../../config/schema-utils.js";
 import {
@@ -1252,30 +1255,6 @@ function assertInvariantProfilesPreserved(
       );
     }
   }
-}
-
-/**
- * `{...raw, ...completed}` recursively: completed (schema-known) values win,
- * raw keys the schema stripped survive at every depth.
- */
-function mergePreservingUnknownKeys(
-  raw: Record<string, unknown>,
-  completed: Record<string, unknown>,
-): Record<string, unknown> {
-  const out: Record<string, unknown> = { ...raw, ...completed };
-  for (const [key, value] of Object.entries(completed)) {
-    const rawValue = raw[key];
-    if (
-      readPlainObject(value) !== undefined &&
-      readPlainObject(rawValue) !== undefined
-    ) {
-      out[key] = mergePreservingUnknownKeys(
-        rawValue as Record<string, unknown>,
-        value as Record<string, unknown>,
-      );
-    }
-  }
-  return out;
 }
 
 /**

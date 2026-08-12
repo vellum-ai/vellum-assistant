@@ -20,7 +20,7 @@
   "libraryAppCard": {
     "exported": "App exported",
     "shareFailed": "Failed to share app",
-    "actionsAria": "App actions",
+    "actionsTitle": "Options for {appName}",
     "unpin": "Unpin",
     "pin": "Pin",
     "share": "Share",

@@ -2,18 +2,12 @@
  * Shared types, constants, and utilities used across channel route modules.
  */
 import type { ChannelId } from "../../channels/types.js";
-import { DAEMON_INTERNAL_ASSISTANT_ID } from "../assistant-scope.js";
 import {
   type ApprovalAction,
   type ApprovalDecisionResult,
   type ApprovalUIMetadata,
   isApprovalAction,
 } from "../channel-approval-types.js";
-
-/** Canonicalize assistantId for channel ingress paths. */
-export function canonicalChannelAssistantId(_assistantId: string): string {
-  return DAEMON_INTERNAL_ASSISTANT_ID;
-}
 
 // ---------------------------------------------------------------------------
 // Actor role

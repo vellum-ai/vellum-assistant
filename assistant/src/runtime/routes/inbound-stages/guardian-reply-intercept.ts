@@ -15,6 +15,7 @@ import {
 } from "../../../channels/gateway-guardian-requests.js";
 import type { ChannelId } from "../../../channels/types.js";
 import { getLogger } from "../../../util/logger.js";
+import { DAEMON_INTERNAL_ASSISTANT_ID } from "../../assistant-scope.js";
 import { deliverChannelReply } from "../../gateway-client.js";
 import {
   type GuardianPendingScope,
@@ -41,7 +42,6 @@ export interface GuardianReplyInterceptParams {
   reactedMessageTs?: string;
   rawSenderId: string | undefined;
   canonicalSenderId: string | null;
-  canonicalAssistantId: string;
   sourceChannel: ChannelId;
   conversationExternalId: string;
   conversationId: string;
@@ -77,7 +77,6 @@ export async function handleGuardianReplyIntercept(
     reactedMessageTs,
     rawSenderId,
     canonicalSenderId,
-    canonicalAssistantId,
     sourceChannel,
     conversationExternalId,
     conversationId,
@@ -178,7 +177,7 @@ export async function handleGuardianReplyIntercept(
     channelDeliveryContext: {
       replyCallbackUrl,
       guardianChatId: conversationExternalId,
-      assistantId: canonicalAssistantId,
+      assistantId: DAEMON_INTERNAL_ASSISTANT_ID,
     },
   });
 
@@ -188,7 +187,7 @@ export async function handleGuardianReplyIntercept(
       const routerReplyPayload: Parameters<typeof deliverChannelReply>[1] = {
         chatId: conversationExternalId,
         text: routerResult.replyText,
-        assistantId: canonicalAssistantId,
+        assistantId: DAEMON_INTERNAL_ASSISTANT_ID,
       };
       // On Slack, send guardian management replies (disambiguation, pending
       // request lists, etc.) as ephemeral so only the guardian sees them.

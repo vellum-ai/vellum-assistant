@@ -13,6 +13,7 @@ import { isElectron } from "@/runtime/is-electron";
 import { useHasPlatformSession } from "@/stores/auth-store";
 import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
+import { useTranslation } from "@/i18n";
 import { docsUrl, routes } from "@/utils/routes";
 import { Button } from "@vellumai/design-library/components/button";
 
@@ -64,6 +65,7 @@ function useHostingOptions(): HostingOption[] {
 }
 
 export function HostingScreen() {
+  const { t } = useTranslation("onboarding");
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const fromSelectAssistant = searchParams.get("from") === "select-assistant";
@@ -135,20 +137,20 @@ export function HostingScreen() {
           }
           style={{ animation: "fadeInUp 0.5s ease-out 0.1s both" }}
         >
-          Hosting
+          {t("hostingScreen.title")}
         </h1>
         <p
           className={`text-body-medium-lighter text-[var(--content-tertiary)] ${electron ? "mt-3.5" : "mt-3"}`}
           style={{ animation: "fadeInUp 0.5s ease-out 0.3s both" }}
         >
-          Choose where you want your assistant to live.{" "}
+          {t("hostingScreen.body")}{" "}
           <a
             href={docsUrl(routes.docs.hostingOptions)}
             target="_blank"
             rel="noreferrer"
             className="underline transition-colors hover:text-[var(--content-default)]"
           >
-            Need help deciding?
+            {t("hostingScreen.needHelp")}
           </a>
         </p>
 
@@ -160,7 +162,7 @@ export function HostingScreen() {
 
         <div
           role="radiogroup"
-          aria-label="Hosting options"
+          aria-label={t("hostingScreen.optionsAriaLabel")}
           onKeyDown={handleRadioCardArrowNav}
           className={`grid w-full ${electron ? "mt-8 gap-2" : "auto-rows-fr mt-10 gap-3"}`}
           style={{ animation: "fadeInUp 0.5s ease-out 0.4s both" }}
@@ -176,7 +178,9 @@ export function HostingScreen() {
                   setSelected(opt.mode);
                 }
               }}
-              loginLabel={loginLoading ? "Cancel" : "Log in to use"}
+              loginLabel={
+                loginLoading ? t("actions.cancel") : t("actions.loginToUse")
+              }
               onLogin={
                 opt.disabled && opt.mode === "vellum-cloud" && showLogin
                   ? loginLoading
@@ -199,7 +203,7 @@ export function HostingScreen() {
             className={electron ? undefined : "h-11 text-base"}
             onClick={onContinue}
           >
-            Continue
+            {t("actions.continue")}
           </Button>
         </div>
         <div
@@ -214,7 +218,7 @@ export function HostingScreen() {
             onClick={onBack}
             disabled={loginLoading}
           >
-            Back
+            {t("actions.back")}
           </Button>
         </div>
 

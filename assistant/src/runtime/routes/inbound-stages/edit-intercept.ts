@@ -45,7 +45,6 @@ export interface EditInterceptParams {
   externalMessageId: string;
   sourceMessageId: string;
   sourceThreadId?: string;
-  canonicalAssistantId: string;
   assistantId: string;
   content: string | undefined;
   /** Channel ID for channel-level interaction tracking. */
@@ -68,7 +67,6 @@ export async function handleEditIntercept(
     externalMessageId,
     sourceMessageId,
     sourceThreadId,
-    canonicalAssistantId,
     assistantId,
     content,
   } = params;
@@ -78,7 +76,7 @@ export async function handleEditIntercept(
     sourceChannel,
     conversationExternalId,
     externalMessageId,
-    { sourceMessageId, sourceThreadId, assistantId: canonicalAssistantId },
+    { sourceMessageId, sourceThreadId },
   );
 
   if (editResult.duplicate) {

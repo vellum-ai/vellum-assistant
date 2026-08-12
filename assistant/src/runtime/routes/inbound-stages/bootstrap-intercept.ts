@@ -24,6 +24,7 @@ import {
 import type { ChannelId } from "../../../channels/types.js";
 import { sendTelegramReply } from "../../../messaging/providers/telegram-bot/send.js";
 import { getLogger } from "../../../util/logger.js";
+import { DAEMON_INTERNAL_ASSISTANT_ID } from "../../assistant-scope.js";
 import { RESEND_COOLDOWN_MS } from "../../verification-outbound-actions.js";
 import {
   composeVerificationText,
@@ -40,7 +41,6 @@ export interface BootstrapInterceptParams {
   isDuplicate: boolean;
   commandIntent: Record<string, unknown> | undefined;
   rawSenderId: string | undefined;
-  canonicalAssistantId: string;
   sourceChannel: ChannelId;
   conversationExternalId: string;
   eventId: string;
@@ -96,7 +96,6 @@ export async function handleBootstrapIntercept(
     isDuplicate,
     commandIntent,
     rawSenderId,
-    canonicalAssistantId,
     sourceChannel,
     conversationExternalId,
     eventId,
@@ -208,7 +207,7 @@ export async function handleBootstrapIntercept(
   deliverBootstrapVerificationTelegram(
     conversationExternalId,
     telegramBody,
-    canonicalAssistantId,
+    DAEMON_INTERNAL_ASSISTANT_ID,
   );
 
   // Update delivery tracking (best-effort — the code is already on its way)

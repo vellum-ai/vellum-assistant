@@ -204,6 +204,8 @@ const i18nEnforcedPaths = [
   "src/domains/logs/**/*.{ts,tsx}",
   "src/domains/library/**/*.{ts,tsx}",
   "src/domains/home/**/*.{ts,tsx}",
+  "src/domains/contacts/**/*.{ts,tsx}",
+  "src/domains/onboarding/**/*.{ts,tsx}",
 ];
 
 const eslintConfig = defineConfig([

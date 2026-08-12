@@ -1393,7 +1393,6 @@ export class CallSetupFlow {
 
     try {
       const accessResult = await ndeps.notifyGuardianOfAccessRequest({
-        canonicalAssistantId: accessRequest.assistantId,
         sourceChannel: "phone",
         conversationExternalId: accessRequest.fromNumber,
         actorExternalId: accessRequest.fromNumber,

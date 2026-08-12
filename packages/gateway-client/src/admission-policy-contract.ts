@@ -10,6 +10,8 @@
 
 import { z } from "zod";
 
+import type { TrustClass } from "./trust-verdict-contract.js";
+
 /**
  * Per-channel inbound admission policy — ordered from most-restrictive
  * (`no_one`, hard kill switch) to most-permissive (`strangers`, admits any
@@ -100,4 +102,36 @@ export function isAdmissionPolicy(value: unknown): value is AdmissionPolicy {
     typeof value === "string" &&
     (ADMISSION_POLICY_VALUES as readonly string[]).includes(value)
   );
+}
+
+/**
+ * Trust-class ordinal compared against {@link ADMISSION_FLOOR} to make the
+ * admission decision. Higher rank = more trusted. Blocked and revoked members
+ * never reach this comparison, short-circuiting to deny on member status, so
+ * they carry no rank.
+ */
+export const TRUST_CLASS_RANK: Record<TrustClass, number> = {
+  guardian: 4,
+  trusted_contact: 3,
+  unverified_contact: 2,
+  unknown: 1,
+};
+
+/**
+ * Whether a sender of this trust class clears a channel's admission floor.
+ *
+ * The two halves of the check live together because they are meaningless
+ * apart: this compares a table keyed by {@link TrustClass} against one keyed
+ * by {@link AdmissionPolicy}, and a floor added to one without a rank in the
+ * other silently admits or denies everyone.
+ *
+ * Both enforcement points read this. The runtime's admission stage answers for
+ * every channel it receives; the gateway answers for a channel it delivers
+ * somewhere other than the runtime, where there is no later stage to ask.
+ */
+export function meetsAdmissionFloor(
+  policy: AdmissionPolicy,
+  trustClass: TrustClass,
+): boolean {
+  return TRUST_CLASS_RANK[trustClass] >= ADMISSION_FLOOR[policy];
 }

@@ -162,8 +162,10 @@ export interface CollapsibleNavSectionDrag {
   dropEdge: "before" | "after" | null;
 }
 
-export interface CollapsibleNavSectionSectionProps
-  extends Omit<CollapsibleItemProps, "children"> {
+export interface CollapsibleNavSectionSectionProps extends Omit<
+  CollapsibleItemProps,
+  "children"
+> {
   value: string;
   icon?: LucideIcon;
   label: string;
@@ -333,9 +335,23 @@ function CollapsibleNavSectionSection({
                   data-slot="collapsible-nav-section-indicator"
                   className={cn(
                     "pointer-events-none flex items-center",
-                    "transition-opacity",
-                    "group-hover/header:opacity-0",
-                    "max-md:opacity-0",
+                    "opacity-100 transition-opacity",
+                    /* Yields the cell on exactly the conditions that bring the
+                       trailing control in, or the two paint over each other.
+                       Focus and the open-menu state are read off the trailing
+                       slot rather than the whole header, since the header's own
+                       trigger takes focus on a toggle click and carries an
+                       `aria-expanded` of its own.
+
+                       With no trailing control there is nothing to yield to,
+                       and a section whose only header signal is this dot keeps
+                       it wherever the device cannot hover. */
+                    trailing && [
+                      "[@media(hover:none)]:opacity-0",
+                      "[@media(hover:hover)]:group-hover/header:opacity-0",
+                      "group-has-[[data-slot=collapsible-nav-section-trailing]:focus-within]/header:opacity-0",
+                      "group-has-[[data-slot=collapsible-nav-section-trailing]:has([aria-expanded=true])]/header:opacity-0",
+                    ],
                     "group-data-[state=open]/section:hidden",
                   )}
                 >
@@ -352,14 +368,22 @@ function CollapsibleNavSectionSection({
                  It stays up while its own menu is open (`aria-expanded`), or
                  the control would vanish the moment it was clicked, and while
                  anything inside holds focus, so it is keyboard reachable.
-                 Touch has no hover and the header's long-press sheet is the
-                 equivalent there, so below `md` it simply stays visible. */
+                 Where the device cannot hover the control would be
+                 unreachable, so there it simply stays visible.
+
+                 `hoverRevealClasses` spelled out because the header's group is
+                 named: Tailwind's `group-*` matches any ancestor, so an
+                 unnamed `group` here would also answer to the title trigger's
+                 own. Focus is read off this slot rather than the group, since
+                 the trigger filling the rest of the row takes focus on a
+                 toggle click. */
                   className={cn(
                     "flex items-center shrink-0 empty:hidden",
                     "opacity-0 transition-opacity",
-                    "group-hover/header:opacity-100 focus-within:opacity-100",
+                    "[@media(hover:none)]:opacity-100",
+                    "[@media(hover:hover)]:group-hover/header:opacity-100",
+                    "focus-within:opacity-100",
                     "has-[[aria-expanded=true]]:opacity-100",
-                    "max-md:opacity-100",
                   )}
                   onClick={(event) => event.stopPropagation()}
                 >
