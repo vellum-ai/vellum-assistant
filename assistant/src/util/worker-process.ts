@@ -126,7 +126,8 @@ export type PackagedWorkerEntry =
   | "monitoring"
   | "schedule"
   | "memory"
-  | "routes";
+  | "routes"
+  | "db-integrity";
 
 interface WorkerCommandRuntime {
   platform: NodeJS.Platform;

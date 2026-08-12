@@ -15,6 +15,16 @@ describe("resolveWorkerCommand", () => {
     ).toEqual(["/runtime/vellum-worker.exe", "monitoring"]);
   });
 
+  test("routes integrity checks through the packaged worker", () => {
+    expect(
+      resolveWorkerCommand(entry, "db-integrity", {
+        platform: "win32",
+        execPath: "/runtime/vellum-worker.exe",
+        executableExists: () => true,
+      }),
+    ).toEqual(["/runtime/vellum-worker.exe", "db-integrity"]);
+  });
+
   test("falls back to the source entry outside a packaged runtime", () => {
     expect(
       resolveWorkerCommand(entry, "monitoring", {

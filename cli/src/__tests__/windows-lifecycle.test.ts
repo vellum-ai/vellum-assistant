@@ -12,6 +12,7 @@ import {
   parseTasklistCsv,
   stopProcess,
   stopProcessByPidFile,
+  windowsCommandLineLookupArgs,
 } from "../lib/process";
 import {
   isInteractiveCliSession,
@@ -33,6 +34,13 @@ test("parses tasklist rows and ignores informational output", () => {
   expect(parseTasklistCsv(output)).toEqual([
     { imageName: "vellum-daemon.exe", pid: 4812 },
   ]);
+});
+
+test("passes the PID inside the PowerShell command", () => {
+  const args = windowsCommandLineLookupArgs(4812);
+  expect(args).toHaveLength(4);
+  expect(args[3]).toContain("ProcessId = 4812");
+  expect(args[3]).not.toContain("$args");
 });
 
 test("selects a direct process-table command with fixed arguments", () => {

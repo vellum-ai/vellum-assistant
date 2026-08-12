@@ -185,6 +185,7 @@ let tempDir: string;
 let originalArgv: string[];
 let logSpy: ReturnType<typeof spyOn>;
 let warnSpy: ReturnType<typeof spyOn>;
+let localEntry: AssistantEntry;
 
 function makeLocalEntry(): AssistantEntry {
   tempDir = mkdtempSync(join(tmpdir(), "vellum-wake-test-"));
@@ -211,9 +212,9 @@ beforeEach(() => {
   logSpy = spyOn(console, "log").mockImplementation(() => {});
   warnSpy = spyOn(console, "warn").mockImplementation(() => {});
 
-  const entry = makeLocalEntry();
+  localEntry = makeLocalEntry();
   resolveTargetAssistantMock.mockReset();
-  resolveTargetAssistantMock.mockReturnValue(entry);
+  resolveTargetAssistantMock.mockReturnValue(localEntry);
   saveAssistantEntryMock.mockReset();
   getDaemonPidPathMock.mockReset();
   getDaemonPidPathMock.mockImplementation((resources) =>
@@ -402,8 +403,73 @@ describe("vellum wake", () => {
     // startLocalDaemon should NOT be called (daemon already running).
     expect(startLocalDaemonMock).not.toHaveBeenCalled();
   });
-});
 
+  test("does not duplicate an assistant already classified as stuck", async () => {
+    localEntry.guardianBootstrapSecret = "existing-bootstrap-secret";
+    resolveProcessStateMock.mockImplementation(
+      async (_pidFile, _port, label) =>
+        label === "Assistant"
+          ? { status: "stuck", pid: 123 }
+          : { status: "healthy", pid: 456 },
+    );
+
+    await wake();
+
+    expect(startLocalDaemonMock).not.toHaveBeenCalled();
+    expect(logSpy).toHaveBeenCalledWith(
+      expect.stringContaining("could not be stopped"),
+    );
+  });
+
+  test("does not duplicate an assistant when a watch restart cannot stop it", async () => {
+    localEntry.guardianBootstrapSecret = "existing-bootstrap-secret";
+    isAssistantWatchModeAvailableMock.mockReturnValue(true);
+    stopProcessByPidFileMock.mockResolvedValue(false);
+    isProcessAliveMock.mockReturnValue({ alive: true, pid: 123 });
+
+    await wake();
+
+    expect(startLocalDaemonMock).not.toHaveBeenCalled();
+    expect(logSpy).toHaveBeenCalledWith(
+      expect.stringContaining("could not be stopped for watch mode"),
+    );
+  });
+
+  test("does not duplicate a gateway already classified as stuck", async () => {
+    localEntry.guardianBootstrapSecret = "existing-bootstrap-secret";
+    resolveProcessStateMock.mockImplementation(
+      async (_pidFile, _port, label) =>
+        label === "Gateway"
+          ? { status: "stuck", pid: 456 }
+          : { status: "healthy", pid: 123 },
+    );
+
+    await wake();
+
+    expect(startGatewayMock).not.toHaveBeenCalled();
+    expect(logSpy).toHaveBeenCalledWith(
+      expect.stringContaining("Gateway running"),
+    );
+  });
+
+  test("does not duplicate a gateway when a watch restart cannot stop it", async () => {
+    localEntry.guardianBootstrapSecret = "existing-bootstrap-secret";
+    isGatewayWatchModeAvailableMock.mockReturnValue(true);
+    stopProcessByPidFileMock.mockResolvedValue(false);
+    isProcessAliveMock.mockImplementation((pidFile) =>
+      pidFile.endsWith("gateway.pid")
+        ? { alive: true, pid: 456 }
+        : { alive: false, pid: null },
+    );
+
+    await wake();
+
+    expect(startGatewayMock).not.toHaveBeenCalled();
+    expect(logSpy).toHaveBeenCalledWith(
+      expect.stringContaining("Gateway running"),
+    );
+  });
+});
 
 describe("vellum wake — tunnel edge restore", () => {
   const webhookConfig = { telegram: { botUsername: "bot" } };

@@ -14,7 +14,7 @@ export interface RemoteProcess {
   command: string;
 }
 
-const VELLUM_PROCESS_MARKER = /vellum|qdrant|openclaw/i;
+const VELLUM_PROCESS_MARKER = /vellum|qdrant|openclaw/;
 
 export function classifyProcess(command: string): string {
   if (/qdrant/.test(command)) return "qdrant";

@@ -16,6 +16,7 @@ export type CliLauncherState =
   "missing" | "foreign" | "installed" | "shadowed" | "stale";
 
 type LauncherOwnership = {
+  launcherVersion?: number;
   ownerId?: string;
   sourcePath: string;
   version: string;
@@ -26,6 +27,17 @@ export interface CliLauncherPaths {
   executable: string;
   ownership: string;
 }
+
+export interface CliLauncherFileOperations {
+  removeBackupFile?: typeof rmSync;
+  renameFile?: typeof renameSync;
+}
+
+export interface CliLauncherInstallOptions extends CliLauncherFileOperations {
+  ownerId?: string;
+}
+
+const LAUNCHER_VERSION = 1;
 
 export type RegistryRunner = (
   command: string,
@@ -39,13 +51,47 @@ export const systemRegistryRunner: RegistryRunner = (command, args) =>
     windowsHide: true,
   });
 
+export function normalizeWindowsPathEntry(
+  entry: string,
+  environment: NodeJS.ProcessEnv = process.env,
+): string {
+  const trimmed = entry.trim();
+  const unquoted =
+    trimmed.startsWith('"') && trimmed.endsWith('"')
+      ? trimmed.slice(1, -1)
+      : trimmed;
+  return unquoted.replace(/%([^%]+)%/g, (match, name: string) => {
+    const key = Object.keys(environment).find(
+      (candidate) => candidate.toLowerCase() === name.toLowerCase(),
+    );
+    return key ? (environment[key] ?? match) : match;
+  });
+}
+
 const sameWindowsPath = (left: string, right: string): boolean =>
-  path.win32.resolve(left) === path.win32.resolve(right);
+  path.win32.resolve(normalizeWindowsPathEntry(left)).toLowerCase() ===
+  path.win32.resolve(normalizeWindowsPathEntry(right)).toLowerCase();
+
+const ENVIRONMENT_CHANGE_SCRIPT = [
+  "$signature = '[System.Runtime.InteropServices.DllImport(\"user32.dll\", SetLastError = true, CharSet = System.Runtime.InteropServices.CharSet.Auto)] public static extern System.IntPtr SendMessageTimeout(System.IntPtr hWnd, uint message, System.UIntPtr wParam, string lParam, uint flags, uint timeout, out System.UIntPtr result);'",
+  "$native = Add-Type -MemberDefinition $signature -Name NativeMethods -Namespace Vellum -PassThru",
+  "$result = [UIntPtr]::Zero",
+  '$native::SendMessageTimeout([IntPtr]0xffff, 0x001a, [UIntPtr]::Zero, "Environment", 0x0002, 5000, [ref]$result) | Out-Null',
+].join("; ");
 
 export function resolveCliLauncherPaths(
   localAppData: string,
+  releaseChannel = "production",
 ): CliLauncherPaths {
-  const binDir = path.join(localAppData, "Vellum", "bin");
+  const channelSegment = releaseChannel
+    .trim()
+    .replace(/[^A-Za-z0-9._-]+/g, "-")
+    .replace(/^[._-]+|[._-]+$/g, "");
+  const installName =
+    releaseChannel === "production"
+      ? "Vellum"
+      : `Vellum-${channelSegment || "nonproduction"}`;
+  const binDir = path.join(localAppData, installName, "bin");
   return {
     binDir,
     executable: path.join(binDir, "vellum.exe"),
@@ -73,18 +119,15 @@ export function getCliLauncherState(
   sourcePath?: string,
   userPath?: string,
 ): CliLauncherState {
-  const runtimeExists = CLI_RUNTIME_ENTRIES.every((name) =>
+  const launcherExists = existsSync(paths.executable);
+  const legacyRuntimeExists = CLI_RUNTIME_ENTRIES.some((name) =>
     existsSync(path.join(paths.binDir, name)),
   );
   const ownership = readOwnership(paths);
   if (!ownership) {
-    return CLI_RUNTIME_ENTRIES.some((name) =>
-      existsSync(path.join(paths.binDir, name)),
-    )
-      ? "foreign"
-      : "missing";
+    return launcherExists || legacyRuntimeExists ? "foreign" : "missing";
   }
-  if (!runtimeExists) {
+  if (!launcherExists) {
     return "stale";
   }
   if (
@@ -103,7 +146,9 @@ export function getCliLauncherState(
       ownIndex < 0 ? entries.length : ownIndex,
     );
     if (
-      earlierEntries.some((entry) => existsSync(path.join(entry, "vellum.exe")))
+      earlierEntries.some((entry) =>
+        existsSync(path.join(normalizeWindowsPathEntry(entry), "vellum.exe")),
+      )
     ) {
       return "shadowed";
     }
@@ -117,8 +162,24 @@ export function getCliLauncherState(
 export function readUserPath(
   run: RegistryRunner = systemRegistryRunner,
 ): string | undefined {
+  return readRegistryPath("HKCU\\Environment", run);
+}
+
+export function readMachinePath(
+  run: RegistryRunner = systemRegistryRunner,
+): string | undefined {
+  return readRegistryPath(
+    "HKLM\\SYSTEM\\CurrentControlSet\\Control\\Session Manager\\Environment",
+    run,
+  );
+}
+
+function readRegistryPath(
+  key: string,
+  run: RegistryRunner,
+): string | undefined {
   try {
-    const output = run("reg.exe", ["QUERY", "HKCU\\Environment"]);
+    const output = run("reg.exe", ["QUERY", key]);
     const match = output?.match(/\bPath\s+REG_(?:EXPAND_)?SZ\s+(.+)$/im);
     if (match) {
       return match[1].trim();
@@ -127,6 +188,15 @@ export function readUserPath(
   } catch {
     return undefined;
   }
+}
+
+function readEffectivePath(run: RegistryRunner): string | undefined {
+  const machinePath = readMachinePath(run);
+  const userPath = readUserPath(run);
+  if (machinePath === undefined || userPath === undefined) {
+    return undefined;
+  }
+  return [machinePath, userPath].filter(Boolean).join(";");
 }
 
 function writeUserPath(value: string, run: RegistryRunner): void {
@@ -141,12 +211,20 @@ function writeUserPath(value: string, run: RegistryRunner): void {
     value,
     "/f",
   ]);
+  try {
+    run("powershell.exe", [
+      "-NoProfile",
+      "-NonInteractive",
+      "-Command",
+      ENVIRONMENT_CHANGE_SCRIPT,
+    ]);
+  } catch {}
 }
 
 export function ensureUserPath(
   binDir: string,
   run: RegistryRunner = systemRegistryRunner,
-): void {
+): string | undefined {
   const current = readUserPath(run);
   if (current === undefined) {
     throw new Error("Unable to read the Windows user PATH.");
@@ -154,6 +232,41 @@ export function ensureUserPath(
   const entries = current.split(";").filter(Boolean);
   if (!entries.some((entry) => sameWindowsPath(entry, binDir))) {
     writeUserPath([...entries, binDir].join(";"), run);
+    return current;
+  }
+  return undefined;
+}
+
+function ensureLauncherPath(
+  paths: CliLauncherPaths,
+  sourcePath: string,
+  run: RegistryRunner,
+): CliLauncherState {
+  const previousUserPath = ensureUserPath(paths.binDir, run);
+  try {
+    const effectivePath = readEffectivePath(run);
+    if (effectivePath === undefined) {
+      throw new Error("Unable to read the effective Windows PATH.");
+    }
+    return getCliLauncherState(paths, sourcePath, effectivePath);
+  } catch (error) {
+    if (previousUserPath !== undefined) {
+      try {
+        writeUserPath(previousUserPath, run);
+      } catch {}
+    }
+    throw error;
+  }
+}
+
+function removeLegacyRuntimeEntries(paths: CliLauncherPaths): void {
+  for (const name of CLI_RUNTIME_ENTRIES) {
+    if (name === "vellum.exe") {
+      continue;
+    }
+    try {
+      rmSync(path.join(paths.binDir, name), { recursive: true, force: true });
+    } catch {}
   }
 }
 
@@ -162,20 +275,32 @@ export function installCliLauncher(
   version: string,
   paths: CliLauncherPaths,
   run: RegistryRunner = systemRegistryRunner,
-  ownerId?: string,
+  options: CliLauncherInstallOptions = {},
 ): CliLauncherState {
+  const renameFile = options.renameFile ?? renameSync;
+  const removeBackupFile = options.removeBackupFile ?? rmSync;
   const initialState = getCliLauncherState(paths, sourcePath);
   if (initialState === "foreign") {
     return initialState;
   }
+  const ownership = readOwnership(paths);
+  if (
+    initialState === "installed" &&
+    ownership?.launcherVersion === LAUNCHER_VERSION &&
+    ownership.version === version
+  ) {
+    const launcherState = ensureLauncherPath(paths, sourcePath, run);
+    removeLegacyRuntimeEntries(paths);
+    return launcherState;
+  }
   mkdirSync(paths.binDir, { recursive: true });
   const files: Array<{ source?: string; contents?: string; target: string }> = [
-    ...CLI_RUNTIME_ENTRIES.map((name) => ({
-      source: path.join(path.dirname(sourcePath), name),
-      target: path.join(paths.binDir, name),
-    })),
     {
-      contents: `${JSON.stringify({ ownerId, sourcePath, version })}\n`,
+      source: path.join(path.dirname(sourcePath), "cli-launcher.exe"),
+      target: paths.executable,
+    },
+    {
+      contents: `${JSON.stringify({ launcherVersion: LAUNCHER_VERSION, ownerId: options.ownerId, sourcePath, version })}\n`,
       target: paths.ownership,
     },
   ];
@@ -198,27 +323,53 @@ export function installCliLauncher(
       writeFileSync(file.staging, file.contents ?? "", "utf8");
     }
   }
-  const replaced: typeof pending = [];
+  const replaced: Array<{
+    file: (typeof pending)[number];
+    hadBackup: boolean;
+  }> = [];
   try {
     for (const file of pending) {
-      replaced.push(file);
-      if (existsSync(file.target)) {
-        renameSync(file.target, file.backup);
+      const hadBackup = existsSync(file.target);
+      if (hadBackup) {
+        renameFile(file.target, file.backup);
       }
-      renameSync(file.staging, file.target);
+      try {
+        renameFile(file.staging, file.target);
+      } catch (error) {
+        if (hadBackup && !existsSync(file.target) && existsSync(file.backup)) {
+          try {
+            renameFile(file.backup, file.target);
+          } catch {}
+        }
+        throw error;
+      }
+      replaced.push({ file, hadBackup });
     }
-    ensureUserPath(paths.binDir, run);
+    const launcherState = ensureLauncherPath(paths, sourcePath, run);
     for (const file of pending) {
-      rmSync(file.backup, { recursive: true, force: true });
+      try {
+        removeBackupFile(file.backup, { recursive: true, force: true });
+      } catch {}
     }
-    return getCliLauncherState(paths, sourcePath, readUserPath(run));
+    removeLegacyRuntimeEntries(paths);
+    return launcherState;
   } catch (error) {
-    for (const file of replaced.reverse()) {
-      rmSync(file.staging, { recursive: true, force: true });
-      rmSync(file.target, { recursive: true, force: true });
-      if (existsSync(file.backup)) {
-        renameSync(file.backup, file.target);
+    for (const { file, hadBackup } of replaced.reverse()) {
+      try {
+        rmSync(file.target, { recursive: true, force: true });
+      } catch {
+        continue;
       }
+      if (hadBackup && existsSync(file.backup)) {
+        try {
+          renameFile(file.backup, file.target);
+        } catch {}
+      }
+    }
+    for (const file of pending) {
+      try {
+        rmSync(file.staging, { recursive: true, force: true });
+      } catch {}
     }
     throw error;
   }
@@ -242,12 +393,17 @@ export function uninstallCliLauncher(
   if (userPath === undefined) {
     throw new Error("Unable to read the Windows user PATH.");
   }
-  const pending = CLI_RUNTIME_ENTRIES.filter((name) =>
-    existsSync(path.join(paths.binDir, name)),
-  ).map((name) => ({
-    target: path.join(paths.binDir, name),
-    staging: path.join(paths.binDir, `.${name}.${process.pid}.uninstalling`),
-  }));
+  const pending = existsSync(paths.executable)
+    ? [
+        {
+          target: paths.executable,
+          staging: path.join(
+            paths.binDir,
+            `.vellum.exe.${process.pid}.uninstalling`,
+          ),
+        },
+      ]
+    : [];
   const moved: typeof pending = [];
   const restoreMoved = (): void => {
     for (const file of moved.reverse()) {

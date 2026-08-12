@@ -4,6 +4,7 @@ import {
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  renameSync,
   rmSync,
   writeFileSync,
 } from "node:fs";
@@ -36,7 +37,7 @@ const makeTempDir = (): string => {
   return dir;
 };
 
-const writeRuntime = (dir: string, version: string): string => {
+const writeRuntimeEntries = (dir: string, version: string): void => {
   mkdirSync(dir, { recursive: true });
   for (const name of CLI_RUNTIME_EXECUTABLES) {
     const contents = name === "vellum.exe" ? `vellum-${version}` : name;
@@ -51,6 +52,10 @@ const writeRuntime = (dir: string, version: string): string => {
       writeFileSync(path.join(target, "fixture.txt"), name, "utf8");
     }
   }
+};
+
+const writeRuntime = (dir: string, version: string): string => {
+  writeRuntimeEntries(dir, version);
   writeFileSync(
     path.join(dir, "runtime.json"),
     JSON.stringify({ version, bunVersion: "1.3.11" }),
@@ -70,16 +75,29 @@ const runtimePaths = (root: string, version: string): CliRuntimePaths => ({
   version,
 });
 
-const registry = (initial = "C:\\Windows\\System32") => {
-  let userPath = initial;
-  const run: RegistryRunner = (_command, args) => {
+const registry = (
+  initialUserPath = "C:\\Windows\\System32",
+  machinePath = "C:\\Windows\\System32",
+) => {
+  let userPath = initialUserPath;
+  let broadcastCount = 0;
+  const run: RegistryRunner = (command, args) => {
+    if (command === "powershell.exe") {
+      broadcastCount += 1;
+      return "";
+    }
     if (args[0] === "QUERY") {
-      return `    Path    REG_EXPAND_SZ    ${userPath}\r\n`;
+      const value = args[1].startsWith("HKLM") ? machinePath : userPath;
+      return `    Path    REG_EXPAND_SZ    ${value}\r\n`;
     }
     userPath = args[args.indexOf("/d") + 1];
     return "";
   };
-  return { run, value: () => userPath };
+  return {
+    broadcasts: () => broadcastCount,
+    run,
+    value: () => userPath,
+  };
 };
 
 afterEach(() => {
@@ -87,6 +105,10 @@ afterEach(() => {
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+const readLauncherSource = (ownershipPath: string): string =>
+  (JSON.parse(readFileSync(ownershipPath, "utf8")) as { sourcePath: string })
+    .sourcePath;
 
 test("installs, upgrades, and falls back from paths with spaces", () => {
   const root = makeTempDir();
@@ -155,6 +177,27 @@ test("does not trust fallback paths outside the install root", () => {
   expect(existsSync(outside)).toBeTrue();
 });
 
+test("preserves the newer runtime when reusing an older version", () => {
+  const root = makeTempDir();
+  const first = runtimePaths(root, "1.0.0");
+  writeRuntime(first.sourceDir, first.version);
+  const v1 = provisionCliRuntime(first);
+
+  rmSync(first.sourceDir, { recursive: true });
+  const second = runtimePaths(root, "2.0.0");
+  writeRuntime(second.sourceDir, second.version);
+  const v2 = provisionCliRuntime(second);
+
+  const rollback = provisionCliRuntime(first);
+  expect(rollback.installDir).toBe(v1.installDir);
+  expect(rollback.previousInstallDir).toBe(v2.installDir);
+
+  rmSync(second.sourceDir, { recursive: true });
+  rmSync(path.join(v1.installDir, "vellum.exe"));
+  const fallback = provisionCliRuntime(runtimePaths(root, "3.0.0"));
+  expect(fallback.installDir).toBe(v2.installDir);
+});
+
 test("does not replace a foreign launcher", () => {
   const root = makeTempDir();
   const paths = resolveCliLauncherPaths(path.join(root, "Local App Data"));
@@ -167,6 +210,40 @@ test("does not replace a foreign launcher", () => {
     "foreign",
   );
   expect(readFileSync(paths.executable, "utf8")).toBe("foreign");
+});
+
+test("isolates non-production launchers from the production PATH entry", () => {
+  const localAppData = path.join(makeTempDir(), "Local App Data");
+  const production = resolveCliLauncherPaths(localAppData);
+  const staging = resolveCliLauncherPaths(localAppData, "staging");
+  const development = resolveCliLauncherPaths(localAppData, "development");
+
+  expect(production.binDir).toBe(path.join(localAppData, "Vellum", "bin"));
+  expect(staging.binDir).toBe(path.join(localAppData, "Vellum-staging", "bin"));
+  expect(development.binDir).not.toBe(staging.binDir);
+  expect(development.binDir).not.toBe(production.binDir);
+});
+
+test("reuses an unchanged launcher without replacing its executables", () => {
+  const root = makeTempDir();
+  const paths = resolveCliLauncherPaths(path.join(root, "Local App Data"));
+  const source = writeRuntime(path.join(root, "runtime"), "1.0.0");
+  const userRegistry = registry();
+  installCliLauncher(source, "1.0.0", paths, userRegistry.run);
+  const repairedRegistry = registry();
+
+  const rejectReplacement: typeof renameSync = () => {
+    throw new Error("unchanged launchers must not be replaced");
+  };
+  expect(
+    installCliLauncher(source, "1.0.0", paths, repairedRegistry.run, {
+      renameFile: rejectReplacement,
+    }),
+  ).toBe("installed");
+  expect(repairedRegistry.broadcasts()).toBe(1);
+  expect(repairedRegistry.value().split(";")).toContain(paths.binDir);
+  expect(readFileSync(paths.executable, "utf8")).toBe("cli-launcher.exe");
+  expect(readLauncherSource(paths.ownership)).toBe(source);
 });
 
 test("repairs stale ownership and updates the user PATH", () => {
@@ -188,17 +265,19 @@ test("repairs stale ownership and updates the user PATH", () => {
   expect(installCliLauncher(source, "1.0.0", paths, userRegistry.run)).toBe(
     "shadowed",
   );
+  expect(userRegistry.broadcasts()).toBe(1);
   expect(userRegistry.value().split(";")).toContain(paths.binDir);
   rmSync(path.join(collisionDir, "vellum.exe"));
   expect(installCliLauncher(source, "1.0.0", paths, userRegistry.run)).toBe(
     "installed",
   );
   expect(uninstallCliLauncher(paths, userRegistry.run)).toBeTrue();
+  expect(userRegistry.broadcasts()).toBe(2);
   expect(userRegistry.value().split(";")).not.toContain(paths.binDir);
   expect(getCliLauncherState(paths, source)).toBe("missing");
 });
 
-test("requires and removes every packaged runtime entry", () => {
+test("requires every packaged entry but puts only the launcher on PATH", () => {
   const root = makeTempDir();
   const runtimeDir = path.join(root, "runtime");
   const source = writeRuntime(runtimeDir, "1.0.0");
@@ -211,18 +290,22 @@ test("requires and removes every packaged runtime entry", () => {
     writeRuntime(runtimeDir, "1.0.0");
   }
 
+  writeRuntimeEntries(paths.binDir, "legacy");
+  writeFileSync(
+    paths.ownership,
+    JSON.stringify({ sourcePath: source, version: "0.9.0" }),
+    "utf8",
+  );
   installCliLauncher(source, "1.0.0", paths, userRegistry.run);
+  expect(readFileSync(paths.executable, "utf8")).toBe("cli-launcher.exe");
+  expect(readLauncherSource(paths.ownership)).toBe(source);
   expect(
-    CLI_RUNTIME_ENTRIES.every((name) =>
-      existsSync(path.join(paths.binDir, name)),
-    ),
-  ).toBeTrue();
-  expect(uninstallCliLauncher(paths, userRegistry.run)).toBeTrue();
-  expect(
-    CLI_RUNTIME_ENTRIES.every(
+    CLI_RUNTIME_ENTRIES.filter((name) => name !== "vellum.exe").every(
       (name) => !existsSync(path.join(paths.binDir, name)),
     ),
   ).toBeTrue();
+  expect(uninstallCliLauncher(paths, userRegistry.run)).toBeTrue();
+  expect(existsSync(paths.executable)).toBeFalse();
 });
 
 test("preserves a launcher owned by another installed environment", () => {
@@ -233,13 +316,9 @@ test("preserves a launcher owned by another installed environment", () => {
   const productionResources = path.join(root, "Vellum", "resources");
   const stagingResources = path.join(root, "Vellum Staging", "resources");
 
-  installCliLauncher(
-    source,
-    "1.0.0",
-    paths,
-    userRegistry.run,
-    stagingResources,
-  );
+  installCliLauncher(source, "1.0.0", paths, userRegistry.run, {
+    ownerId: stagingResources,
+  });
   expect(
     uninstallCliLauncher(paths, userRegistry.run, productionResources),
   ).toBeFalse();
@@ -267,12 +346,59 @@ test("restores owned entries when uninstall cannot update PATH", () => {
   expect(() => uninstallCliLauncher(paths, failingRegistry)).toThrow(
     "registry unavailable",
   );
-  expect(
-    CLI_RUNTIME_ENTRIES.every((name) =>
-      existsSync(path.join(paths.binDir, name)),
-    ),
-  ).toBeTrue();
+  expect(existsSync(paths.executable)).toBeTrue();
+  expect(existsSync(paths.ownership)).toBeTrue();
   expect(userRegistry.value().split(";")).toContain(paths.binDir);
+});
+
+test("reports a launcher shadowed by the machine PATH", () => {
+  const root = makeTempDir();
+  const paths = resolveCliLauncherPaths(path.join(root, "Local App Data"));
+  const source = writeRuntime(path.join(root, "runtime"), "1.0.0");
+  const collisionDir = path.join(root, "Machine CLI");
+  mkdirSync(collisionDir, { recursive: true });
+  writeFileSync(path.join(collisionDir, "vellum.exe"), "foreign", "utf8");
+
+  expect(
+    installCliLauncher(source, "1.0.0", paths, registry("", collisionDir).run),
+  ).toBe("shadowed");
+});
+
+test("expands and unquotes PATH entries before collision checks", () => {
+  const root = makeTempDir();
+  const paths = resolveCliLauncherPaths(path.join(root, "Local App Data"));
+  const source = writeRuntime(path.join(root, "runtime"), "1.0.0");
+  const collisionDir = path.join(root, "Expanded Machine CLI");
+  mkdirSync(collisionDir, { recursive: true });
+  writeFileSync(path.join(collisionDir, "vellum.exe"), "foreign", "utf8");
+  process.env.VELLUM_TEST_COLLISION_DIR = collisionDir;
+
+  try {
+    expect(
+      installCliLauncher(
+        source,
+        "1.0.0",
+        paths,
+        registry("", '"%VELLUM_TEST_COLLISION_DIR%"').run,
+      ),
+    ).toBe("shadowed");
+  } finally {
+    delete process.env.VELLUM_TEST_COLLISION_DIR;
+  }
+});
+
+test("treats Windows PATH entries as case-insensitive", () => {
+  const root = makeTempDir();
+  const paths = resolveCliLauncherPaths(path.join(root, "Local App Data"));
+  const source = writeRuntime(path.join(root, "runtime"), "1.0.0");
+  const registeredBinDir = paths.binDir.toUpperCase();
+  const userRegistry = registry(registeredBinDir);
+
+  expect(installCliLauncher(source, "1.0.0", paths, userRegistry.run)).toBe(
+    "installed",
+  );
+  expect(userRegistry.broadcasts()).toBe(0);
+  expect(userRegistry.value()).toBe(registeredBinDir);
 });
 
 test("restores the last launcher when PATH registration fails", () => {
@@ -291,13 +417,86 @@ test("restores the last launcher when PATH registration fails", () => {
   expect(() =>
     installCliLauncher(second, "2.0.0", paths, failingRegistry),
   ).toThrow("registry unavailable");
-  expect(readFileSync(paths.executable, "utf8")).toBe("vellum-v1");
-  expect(readFileSync(path.join(paths.binDir, "bun.exe"), "utf8")).toBe(
-    "bun.exe",
-  );
+  expect(readLauncherSource(paths.ownership)).toBe(first);
   expect(getCliLauncherState(paths, first)).toBe("installed");
   const malformed: RegistryRunner = () => "Path REG_EXPAND_SZ";
   expect(() => ensureUserPath("C:\\Vellum", malformed)).toThrow(
     "Unable to read the Windows user PATH",
   );
+});
+
+test("restores PATH when effective PATH validation fails", () => {
+  const root = makeTempDir();
+  const paths = resolveCliLauncherPaths(path.join(root, "Local App Data"));
+  const source = writeRuntime(path.join(root, "runtime"), "1.0.0");
+  const originalUserPath = "C:\\Windows\\System32";
+  let userPath = originalUserPath;
+  const run: RegistryRunner = (command, args) => {
+    if (command === "powershell.exe") {
+      return "";
+    }
+    if (args[0] === "QUERY") {
+      if (args[1].startsWith("HKLM")) {
+        throw new Error("machine PATH unavailable");
+      }
+      return `    Path    REG_EXPAND_SZ    ${userPath}\r\n`;
+    }
+    userPath = args[args.indexOf("/d") + 1];
+    return "";
+  };
+
+  expect(() => installCliLauncher(source, "1.0.0", paths, run)).toThrow(
+    "Unable to read the effective Windows PATH",
+  );
+  expect(userPath).toBe(originalUserPath);
+  expect(getCliLauncherState(paths, source)).toBe("missing");
+});
+
+test("restores the launcher when ownership replacement is locked", () => {
+  const root = makeTempDir();
+  const paths = resolveCliLauncherPaths(path.join(root, "Local App Data"));
+  const first = writeRuntime(path.join(root, "v1"), "v1");
+  const second = writeRuntime(path.join(root, "v2"), "v2");
+  const userRegistry = registry();
+  installCliLauncher(first, "1.0.0", paths, userRegistry.run);
+  const ownershipStaging = `${paths.ownership}.${process.pid}.tmp`;
+  const failLockedOwnership: typeof renameSync = (source, target) => {
+    if (source === ownershipStaging && target === paths.ownership) {
+      throw new Error("ownership is locked");
+    }
+    renameSync(source, target);
+  };
+
+  expect(() =>
+    installCliLauncher(second, "2.0.0", paths, userRegistry.run, {
+      renameFile: failLockedOwnership,
+    }),
+  ).toThrow("ownership is locked");
+  expect(readLauncherSource(paths.ownership)).toBe(first);
+  expect(getCliLauncherState(paths, first)).toBe("installed");
+});
+
+test("keeps installed launchers when backup cleanup is blocked", () => {
+  const root = makeTempDir();
+  const paths = resolveCliLauncherPaths(path.join(root, "Local App Data"));
+  const first = writeRuntime(path.join(root, "v1"), "v1");
+  const second = writeRuntime(path.join(root, "v2"), "v2");
+  const userRegistry = registry();
+  installCliLauncher(first, "1.0.0", paths, userRegistry.run);
+  const lockedBackup = `${paths.executable}.${process.pid}.backup`;
+  const removeUnlockedBackup: typeof rmSync = (target, options) => {
+    if (target === lockedBackup) {
+      throw new Error("backup is locked");
+    }
+    rmSync(target, options);
+  };
+
+  expect(
+    installCliLauncher(second, "2.0.0", paths, userRegistry.run, {
+      removeBackupFile: removeUnlockedBackup,
+    }),
+  ).toBe("installed");
+  expect(readFileSync(paths.executable, "utf8")).toBe("cli-launcher.exe");
+  expect(readLauncherSource(paths.ownership)).toBe(second);
+  expect(getCliLauncherState(paths, second)).toBe("installed");
 });

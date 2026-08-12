@@ -5,6 +5,7 @@ import { spawnSync } from "node:child_process";
 const windowsDir = path.resolve(import.meta.dir, "..");
 const repoRoot = path.resolve(windowsDir, "..", "..");
 const outputDir = path.join(windowsDir, "resources", "cli-runtime");
+const releaseChannel = process.env.VELLUM_ENVIRONMENT || "local";
 const appPackage = (await Bun.file(
   path.join(windowsDir, "package.json"),
 ).json()) as { version: string };
@@ -63,6 +64,7 @@ const targets = [
     ["chromium-bidi/*"],
   ],
   ["credential-executor.exe", "credential-executor/src/main.ts"],
+  ["cli-launcher.exe", "clients/windows/scripts/launch-cli.ts"],
   ["cli-uninstaller.exe", "clients/windows/scripts/uninstall-cli.ts"],
 ] as const;
 for (const [name, entry, externals] of targets) {
@@ -89,6 +91,7 @@ for (const [source, name] of [
   ["assistant/src/config/bundled-skills", "bundled-skills"],
   ["assistant/src/runtime/routes/brain-graph", "brain-graph"],
   ["assistant/src/plugins/defaults", "default-plugins"],
+  ["skills", "first-party-skills"],
 ] as const) {
   cpSync(path.join(repoRoot, source), path.join(outputDir, name), {
     recursive: true,
@@ -127,5 +130,5 @@ if (pluginApiShim.status !== 0) {
 copyFileSync(process.execPath, path.join(outputDir, "bun.exe"));
 await Bun.write(
   path.join(outputDir, "runtime.json"),
-  `${JSON.stringify({ version: appPackage.version, bunVersion })}\n`,
+  `${JSON.stringify({ version: appPackage.version, bunVersion, releaseChannel })}\n`,
 );

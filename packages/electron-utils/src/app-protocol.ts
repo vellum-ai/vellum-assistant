@@ -1,9 +1,20 @@
+import { stat } from "node:fs/promises";
 import path from "node:path";
 
 /** Resolves renderer paths without allowing traversal outside the root. */
 export type ResolveResult =
   | { kind: "ok"; resolved: string }
   | { kind: "forbidden" };
+
+export interface AppProtocolOrigin {
+  protocol: string;
+  host: string;
+}
+
+export type AppProtocolAssetPlan =
+  | { kind: "fetch"; path: string }
+  | { kind: "forbidden" }
+  | { kind: "not-found" };
 
 export const resolveRelativePath = (
   rendererRoot: string,
@@ -24,8 +35,20 @@ export const resolveAppProtocolPath = (
   rendererRoot: string,
   requestUrl: string,
   mountPrefix?: string,
+  allowedOrigin?: AppProtocolOrigin,
 ): ResolveResult => {
-  const url = new URL(requestUrl);
+  let url: URL;
+  try {
+    url = new URL(requestUrl);
+  } catch {
+    return { kind: "forbidden" };
+  }
+  if (
+    allowedOrigin &&
+    (url.protocol !== allowedOrigin.protocol || url.host !== allowedOrigin.host)
+  ) {
+    return { kind: "forbidden" };
+  }
   // Strip the renderer's URL mount before resolving against its disk root.
   let pathname = url.pathname;
   if (mountPrefix) {
@@ -43,4 +66,40 @@ export const resolveAppProtocolPath = (
     return { kind: "forbidden" };
   }
   return resolveRelativePath(rendererRoot, relativePath);
+};
+
+export const planAppProtocolAssetRequest = async (options: {
+  rendererRoot: string;
+  indexHtml: string;
+  requestUrl: string;
+  mountPrefix?: string;
+  allowedOrigin?: AppProtocolOrigin;
+  isFile?: (candidate: string) => Promise<boolean>;
+}): Promise<AppProtocolAssetPlan> => {
+  const result = resolveAppProtocolPath(
+    options.rendererRoot,
+    options.requestUrl,
+    options.mountPrefix,
+    options.allowedOrigin,
+  );
+  if (result.kind === "forbidden") {
+    return result;
+  }
+  const isFile =
+    options.isFile ??
+    (async (candidate: string): Promise<boolean> => {
+      try {
+        return (await stat(candidate)).isFile();
+      } catch {
+        return false;
+      }
+    });
+  if (await isFile(result.resolved)) {
+    return { kind: "fetch", path: result.resolved };
+  }
+  const extension = path.extname(result.resolved);
+  if (extension === "" || extension === ".html") {
+    return { kind: "fetch", path: options.indexHtml };
+  }
+  return { kind: "not-found" };
 };

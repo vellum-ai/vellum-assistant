@@ -126,7 +126,6 @@ export async function wake(): Promise<void> {
   let daemonRunning = false;
   let daemonUnready = false;
   let daemonMigrationsFailed = false;
-  let daemonStuck = false;
   const daemonState = await resolveProcessState(
     pidFile,
     resources.daemonPort,
@@ -135,23 +134,31 @@ export async function wake(): Promise<void> {
     "readyz",
   );
   if (daemonState.status !== "needs_start") {
-    if (watch && isAssistantWatchModeAvailable()) {
+    if (daemonState.status === "stuck") {
+      daemonRunning = true;
+      daemonUnready = true;
+      console.log(
+        `Assistant running (pid ${daemonState.pid}) but is not responding and could not be stopped.`,
+      );
+    } else if (watch && isAssistantWatchModeAvailable()) {
       console.log(
         `Assistant running (pid ${daemonState.pid}) — restarting in watch mode...`,
       );
-      await stopProcessByPidFile(pidFile, "assistant");
+      const stopped = await stopProcessByPidFile(pidFile, "assistant");
+      if (!stopped && isProcessAlive(pidFile).alive) {
+        daemonRunning = true;
+        daemonUnready = true;
+        console.log(
+          `Assistant running (pid ${daemonState.pid}) but could not be stopped for watch mode.`,
+        );
+      }
     } else {
       daemonRunning = true;
       daemonUnready = daemonState.status !== "healthy";
       daemonMigrationsFailed = daemonState.status === "migration_failed";
-      daemonStuck = daemonState.status === "stuck";
       if (watch) {
         console.log(
           `Assistant running (pid ${daemonState.pid}) — watch mode not available (no source files). Keeping existing process.`,
-        );
-      } else if (daemonStuck) {
-        console.log(
-          `Assistant running (pid ${daemonState.pid}) but is not responding and could not be stopped.`,
         );
       } else if (daemonMigrationsFailed) {
         console.log(
@@ -255,8 +262,29 @@ export async function wake(): Promise<void> {
       "Gateway",
     );
     const gatewayAlive = gatewayState.status === "healthy";
+    const gatewayStuck = gatewayState.status === "stuck";
+    const restartGateway = async (
+      restartWithWatch: boolean,
+    ): Promise<boolean> => {
+      const stopped = await stopProcessByPidFile(gatewayPidFile, "gateway");
+      if (!stopped && isProcessAlive(gatewayPidFile).alive) {
+        console.log(
+          `Gateway running (pid ${gatewayState.pid}) but could not be stopped.`,
+        );
+        return false;
+      }
+      await startGateway(restartWithWatch, resources, {
+        signingKey,
+        bootstrapSecret,
+      });
+      return true;
+    };
     const needsRestart = bootstrapSecretBackfilled && gatewayAlive;
-    if (needsRestart) {
+    if (gatewayStuck) {
+      console.log(
+        `Gateway running (pid ${gatewayState.pid}) but is not responding and could not be stopped.`,
+      );
+    } else if (needsRestart) {
       const restartWithWatch = watch && isGatewayWatchModeAvailable();
       if (restartWithWatch) {
         console.log(
@@ -267,20 +295,13 @@ export async function wake(): Promise<void> {
           `Gateway running (pid ${gatewayState.pid}) — restarting without watch mode to apply bootstrap secret...`,
         );
       }
-      await stopProcessByPidFile(gatewayPidFile, "gateway");
-      await startGateway(restartWithWatch, resources, {
-        signingKey,
-        bootstrapSecret,
-      });
-      gatewayStarted = true;
+      gatewayStarted = await restartGateway(restartWithWatch);
     } else if (gatewayAlive) {
       if (watch && isGatewayWatchModeAvailable()) {
         console.log(
           `Gateway running (pid ${gatewayState.pid}) — restarting in watch mode...`,
         );
-        await stopProcessByPidFile(gatewayPidFile, "gateway");
-        await startGateway(watch, resources, { signingKey, bootstrapSecret });
-        gatewayStarted = true;
+        gatewayStarted = await restartGateway(watch);
       } else {
         if (watch) {
           console.log(

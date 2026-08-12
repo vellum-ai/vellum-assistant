@@ -1,5 +1,6 @@
 import path from "node:path";
 
+import { readRuntimeManifest } from "../src/main/cli-installer";
 import {
   resolveCliLauncherPaths,
   uninstallCliLauncher,
@@ -7,9 +8,12 @@ import {
 
 const localAppData = process.env.LOCALAPPDATA;
 if (localAppData) {
+  const runtimeDir = path.dirname(process.execPath);
+  const releaseChannel =
+    readRuntimeManifest(runtimeDir)?.releaseChannel ?? "production";
   uninstallCliLauncher(
-    resolveCliLauncherPaths(localAppData),
+    resolveCliLauncherPaths(localAppData, releaseChannel),
     undefined,
-    path.dirname(path.dirname(process.execPath)),
+    path.dirname(runtimeDir),
   );
 }

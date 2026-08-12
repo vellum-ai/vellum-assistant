@@ -18,6 +18,12 @@ switch (worker) {
     await import("./embedded/plugin-api.js");
     await import("./routes/worker.js");
     break;
+  case "db-integrity": {
+    const { runIntegrityCheck } =
+      await import("./monitoring/db-integrity-check.js");
+    console.log(JSON.stringify(runIntegrityCheck(process.argv[3] ?? "")));
+    break;
+  }
   default:
     throw new Error(`Unknown Windows worker entry: ${worker ?? "missing"}`);
 }

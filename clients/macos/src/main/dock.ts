@@ -15,7 +15,7 @@ import {
 import {
   getSessionToken,
   onSessionTokenChange,
-} from "./session-token-store";
+} from "./session-token-store.client";
 
 /**
  * Dock integration: avatar icon + unread-count badge + visibility state

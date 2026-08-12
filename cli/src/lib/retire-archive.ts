@@ -1,6 +1,20 @@
 import { mkdirSync } from "fs";
 import { homedir } from "os";
-import { basename, join, resolve } from "path";
+import { join, posix, win32 } from "path";
+
+function isPathInside(
+  parent: string,
+  candidate: string,
+  pathApi: typeof posix,
+): boolean {
+  const relativePath = pathApi.relative(parent, candidate);
+  return (
+    relativePath !== "" &&
+    relativePath !== ".." &&
+    !relativePath.startsWith(`..${pathApi.sep}`) &&
+    !pathApi.isAbsolute(relativePath)
+  );
+}
 
 export function getRetiredDir(): string {
   const xdgData =
@@ -23,21 +37,37 @@ export function validateAssistantName(name: string): void {
   }
 }
 
-function safeName(assistantId: string): string {
+function safeName(
+  assistantId: string,
+  retiredDir: string,
+  pathApi: typeof posix,
+): string {
   validateAssistantName(assistantId);
   // Canonicalize and verify the result stays inside the retired directory
-  const retiredDir = getRetiredDir();
-  const candidate = resolve(retiredDir, basename(assistantId));
-  if (!candidate.startsWith(retiredDir + "/")) {
+  const candidate = pathApi.resolve(retiredDir, pathApi.basename(assistantId));
+  if (!isPathInside(retiredDir, candidate, pathApi)) {
     throw new Error(`Invalid assistant name: '${assistantId}'`);
   }
-  return basename(assistantId);
+  return pathApi.basename(assistantId);
+}
+
+export function resolveRetiredFilePath(
+  assistantId: string,
+  extension: "tar.gz" | "json",
+  retiredDir: string,
+  hostPlatform: NodeJS.Platform = process.platform,
+): string {
+  const pathApi = hostPlatform === "win32" ? win32 : posix;
+  return pathApi.join(
+    retiredDir,
+    `${safeName(assistantId, retiredDir, pathApi)}.${extension}`,
+  );
 }
 
 export function getArchivePath(assistantId: string): string {
-  return join(getRetiredDir(), `${safeName(assistantId)}.tar.gz`);
+  return resolveRetiredFilePath(assistantId, "tar.gz", getRetiredDir());
 }
 
 export function getMetadataPath(assistantId: string): string {
-  return join(getRetiredDir(), `${safeName(assistantId)}.json`);
+  return resolveRetiredFilePath(assistantId, "json", getRetiredDir());
 }

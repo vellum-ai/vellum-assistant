@@ -11,7 +11,11 @@ import {
 } from "node:fs";
 import path from "node:path";
 
-type CliRuntimeManifest = { version: string; bunVersion: string };
+type CliRuntimeManifest = {
+  version: string;
+  bunVersion: string;
+  releaseChannel?: string;
+};
 
 export interface CliRuntimePaths {
   sourceDir: string;
@@ -36,12 +40,14 @@ export const CLI_RUNTIME_EXECUTABLES = [
   "vellum-gateway.exe",
   "vellum-worker.exe",
   "credential-executor.exe",
+  "cli-launcher.exe",
 ] as const;
 export const CLI_RUNTIME_ASSETS = [
   "templates",
   "bundled-skills",
   "brain-graph",
   "default-plugins",
+  "first-party-skills",
   "node_modules",
   "feature-flag-registry.json",
   "web-tree-sitter.wasm",
@@ -219,22 +225,34 @@ export function provisionCliRuntime(paths: CliRuntimePaths) {
     ? priorState.previousInstallDir
     : undefined;
 
+  const selectPreviousInstallDir = (
+    currentInstallDir: string,
+  ): string | undefined =>
+    [priorCurrent, priorPrevious].find((candidate): candidate is string =>
+      Boolean(
+        candidate &&
+        normalizeRuntimePath(candidate) !==
+          normalizeRuntimePath(currentInstallDir),
+      ),
+    );
+
   if (
     isValidInstalledRuntime(installRoot, target) &&
     isValidCliRuntime(target, version)
   ) {
+    const previousInstallDir = selectPreviousInstallDir(target);
     writeOwnershipMarker(target, version);
     writeState(installRoot, {
       currentInstallDir: target,
-      previousInstallDir: priorPrevious,
+      previousInstallDir,
     });
     pruneOldCliRuntimes(
       installRoot,
-      [target, priorPrevious].filter((dir): dir is string => Boolean(dir)),
+      [target, previousInstallDir].filter((dir): dir is string => Boolean(dir)),
     );
     return {
       installDir: target,
-      previousInstallDir: priorPrevious,
+      previousInstallDir,
       reused: true,
     };
   }
@@ -250,8 +268,7 @@ export function provisionCliRuntime(paths: CliRuntimePaths) {
       }
       return {
         installDir: fallback,
-        previousInstallDir:
-          fallback === priorCurrent ? priorPrevious : undefined,
+        previousInstallDir: selectPreviousInstallDir(fallback),
         reused: true,
       };
     }
@@ -277,12 +294,12 @@ export function provisionCliRuntime(paths: CliRuntimePaths) {
     }
     renameSync(staging, target);
     installedTarget = true;
+    const previousInstallDir = selectPreviousInstallDir(target);
     writeState(installRoot, {
       currentInstallDir: target,
-      previousInstallDir: priorCurrent ?? priorPrevious,
+      previousInstallDir,
     });
     rmSync(displaced, { recursive: true, force: true });
-    const previousInstallDir = priorCurrent ?? priorPrevious;
     pruneOldCliRuntimes(
       installRoot,
       [target, previousInstallDir].filter((dir): dir is string => Boolean(dir)),

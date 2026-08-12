@@ -63,22 +63,24 @@ function readWindowsProcesses(pid?: number): TasklistProcess[] {
   return parseTasklistCsv(output);
 }
 
+export function windowsCommandLineLookupArgs(pid: number): string[] {
+  if (!Number.isSafeInteger(pid) || pid <= 0) {
+    throw new Error(`Invalid process ID: ${pid}`);
+  }
+  return [
+    "-NoProfile",
+    "-NonInteractive",
+    "-Command",
+    `(Get-CimInstance Win32_Process -Filter 'ProcessId = ${pid}').CommandLine`,
+  ];
+}
+
 function readWindowsCommandLine(pid: number): string {
-  return execFileSync(
-    "powershell.exe",
-    [
-      "-NoProfile",
-      "-NonInteractive",
-      "-Command",
-      '(Get-CimInstance Win32_Process -Filter ("ProcessId=" + $args[0])).CommandLine',
-      String(pid),
-    ],
-    {
-      encoding: "utf8",
-      timeout: 3000,
-      stdio: ["ignore", "pipe", "ignore"],
-    },
-  );
+  return execFileSync("powershell.exe", windowsCommandLineLookupArgs(pid), {
+    encoding: "utf8",
+    timeout: 3000,
+    stdio: ["ignore", "pipe", "ignore"],
+  });
 }
 
 export function isVellumWindowsProcess(
@@ -401,6 +403,7 @@ export async function stopProcessByPidFile(
  * Returns true if at least one process was stopped.
  */
 export async function stopOrphanedDaemonProcesses(
+  excludePids: ReadonlySet<string> = new Set(),
   hostPlatform: NodeJS.Platform = platform(),
 ): Promise<boolean> {
   if (hostPlatform === "win32") {
@@ -410,6 +413,7 @@ export async function stopOrphanedDaemonProcesses(
           .filter(
             ({ imageName, pid }) =>
               pid !== process.pid &&
+              !excludePids.has(String(pid)) &&
               (/^vellum-daemon\.exe$/i.test(imageName) ||
                 (/^bun\.exe$/i.test(imageName) &&
                   /vellum-daemon|[\\/]assistant[\\/]src[\\/](?:index|daemon[\\/]main)\.ts/i.test(
@@ -443,7 +447,9 @@ export async function stopOrphanedDaemonProcesses(
     const spaceIdx = trimmed.indexOf(" ");
     if (spaceIdx === -1) continue;
     const pid = parseInt(trimmed.slice(0, spaceIdx), 10);
-    if (isNaN(pid) || pid === process.pid) continue;
+    if (isNaN(pid) || pid === process.pid || excludePids.has(String(pid))) {
+      continue;
+    }
     const cmd = trimmed.slice(spaceIdx + 1);
 
     if (cmd.includes("vellum-daemon")) {
