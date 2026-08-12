@@ -38,10 +38,11 @@ import { cn } from "../utils/cn";
  *   `aria-activedescendant`, options carry `tabIndex={-1}`, and a pointer
  *   press on an option keeps the field focused. A filtered list is one Tab
  *   stop, not one per row.
- * - ArrowDown / ArrowUp / Home / End move the highlight (no wrap: from no
- *   highlight, Up reaches the last option), Enter commits it, Escape closes
- *   the list and keeps focus in the field, including when the query matches
- *   nothing.
+ * - ArrowDown / ArrowUp move the highlight (no wrap: from no highlight, Up
+ *   reaches the last option), Enter commits it, Escape closes the list and
+ *   keeps focus in the field, including when the query matches nothing.
+ *   Home and End stay with the text cursor, as the pattern specifies for an
+ *   editable combobox.
  * - The active option is scrolled into view as the highlight moves, and the
  *   selected option is scrolled into view when the list opens.
  *
@@ -289,18 +290,10 @@ function ComboboxInput({ onKeyDown, onFocus, onChange, ...rest }: InputProps) {
         // steps back and stops at the first.
         moveTo(current < 0 ? options.length - 1 : current - 1);
         return;
-      case "Home":
-        if (open) {
-          event.preventDefault();
-          moveTo(0);
-        }
-        return;
-      case "End":
-        if (open) {
-          event.preventDefault();
-          moveTo(options.length - 1);
-        }
-        return;
+      // Home and End are deliberately absent. This combobox is editable, and
+      // the pattern gives those keys to the text cursor there: taking them
+      // for the list would cost a Windows or Linux user the only way to jump
+      // to the start or end of what they typed.
       case "Enter":
         if (open && activeValue !== null) {
           event.preventDefault();

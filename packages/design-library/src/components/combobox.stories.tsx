@@ -1,6 +1,7 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { useMemo, useState } from "react";
 import { Check, Search } from "lucide-react";
+import { expect, screen, userEvent, waitFor } from "storybook/test";
 
 import { Combobox } from "./combobox";
 
@@ -229,5 +230,96 @@ export const InlineGrouped: Story = {
         </Combobox.Root>
       </div>
     );
+  },
+};
+
+/** The field the interaction stories below drive. */
+function cityField(): HTMLElement {
+  return screen.getByRole("combobox", { name: "Search cities" });
+}
+
+/**
+ * A query that matches nothing is still a popup: the listbox stays mounted
+ * with its empty state, so the field's `aria-expanded` and `aria-controls`
+ * describe something that exists, and Escape still closes it.
+ *
+ * The regression this pins: gating the list on having rows, which leaves the
+ * field pointing at an id that was never rendered, and guarding the whole key
+ * handler on a non-empty list, which swallows Escape.
+ */
+export const NoMatchesStaysDismissable: Story = {
+  ...Popup,
+  play: async () => {
+    const field = cityField();
+    await userEvent.click(field);
+    await userEvent.type(field, "zzzz");
+
+    const list = await screen.findByRole("listbox", { name: "Cities" });
+    expect(list).toHaveTextContent("No matching cities");
+    expect(screen.queryAllByRole("option")).toHaveLength(0);
+    // The relationship the field advertises has to resolve to this element.
+    expect(field).toHaveAttribute("aria-expanded", "true");
+    expect(field).toHaveAttribute("aria-controls", list.id);
+
+    await userEvent.keyboard("{Escape}");
+
+    await waitFor(() => {
+      expect(screen.queryByRole("listbox")).toBeNull();
+    });
+    expect(field).toHaveAttribute("aria-expanded", "false");
+    expect(field).not.toHaveAttribute("aria-controls");
+    expect(field).toHaveValue("");
+    expect(field).toHaveFocus();
+  },
+};
+
+/**
+ * Closing takes the highlight with it: an `aria-activedescendant` left behind
+ * names an option that unmounted with the list.
+ */
+export const DismissClearsTheHighlight: Story = {
+  ...Popup,
+  play: async () => {
+    const field = cityField();
+    await userEvent.click(field);
+    await userEvent.type(field, "lon");
+    await userEvent.keyboard("{ArrowDown}");
+
+    const active = field.getAttribute("aria-activedescendant");
+    expect(active).not.toBeNull();
+    // Pointing at a real option is what makes clearing it meaningful.
+    expect(document.getElementById(active!)).toHaveAttribute("role", "option");
+
+    await userEvent.keyboard("{Escape}");
+
+    await waitFor(() => {
+      expect(field).not.toHaveAttribute("aria-activedescendant");
+    });
+  },
+};
+
+/**
+ * Home and End belong to the text cursor in an editable combobox, so they
+ * must not move the option highlight.
+ *
+ * @see https://www.w3.org/WAI/ARIA/apg/patterns/combobox/
+ */
+export const HomeAndEndEditTheQuery: Story = {
+  ...Popup,
+  play: async () => {
+    const field = cityField();
+    await userEvent.click(field);
+    await userEvent.type(field, "lon");
+    await userEvent.keyboard("{ArrowDown}");
+    const active = field.getAttribute("aria-activedescendant");
+
+    await userEvent.keyboard("{Home}");
+    expect(field).toHaveAttribute("aria-activedescendant", active!);
+    await userEvent.keyboard("{End}");
+    expect(field).toHaveAttribute("aria-activedescendant", active!);
+
+    // The keys reached the input instead: typing lands where the cursor is.
+    await userEvent.keyboard("{Home}g");
+    expect(field).toHaveValue("glon");
   },
 };
