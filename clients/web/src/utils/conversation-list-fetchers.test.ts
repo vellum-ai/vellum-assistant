@@ -9,6 +9,8 @@
  */
 
 import { afterEach, describe, expect, mock, test } from "bun:test";
+import { QueryClient } from "@tanstack/react-query";
+import { listPage } from "@/utils/conversation-list.test-helper";
 
 import { client as daemonClient } from "@/generated/daemon/client.gen";
 import { getDiagnosticsEvents, type DiagnosticsEvent } from "@/lib/diagnostics";
@@ -37,19 +39,21 @@ const {
   drainSectionConversations,
   listSectionConversationsFirstPage,
   listSectionConversationsPage,
+  sectionConversationListOptions,
+  sectionConversationsQueryKey,
   listScheduledConversations,
   listScheduledConversationsFirstPage,
 } = await import("@/utils/conversation-list-fetchers");
 
 const ASSISTANT_ID = "assistant-1";
 
-function makeRaw(id: string): RawConversationSummary {
+function makeRaw(id: string, lastMessageAt = 0): RawConversationSummary {
   return {
     id,
     title: "",
     createdAt: 0,
     updatedAt: 0,
-    lastMessageAt: 0,
+    lastMessageAt,
     conversationType: "standard",
     source: "vellum",
     groupId: "",
@@ -58,7 +62,8 @@ function makeRaw(id: string): RawConversationSummary {
 }
 
 type PageFixture = {
-  ids: string[];
+  /** Row ids, or `[id, lastMessageAt]` where a test's logic needs recency. */
+  ids: Array<string | [string, number]>;
   hasMore: boolean;
   status?: number;
   contentLength?: string;
@@ -86,7 +91,9 @@ function stubPages(fixtures: PageFixture[]): {
       const status = fixture.status ?? 200;
       const ok = status < 400;
       const body = {
-        conversations: fixture.ids.map(makeRaw),
+        conversations: fixture.ids.map((entry) =>
+          typeof entry === "string" ? makeRaw(entry) : makeRaw(...entry),
+        ),
         hasMore: fixture.hasMore,
       };
       return {
@@ -670,6 +677,54 @@ describe("section list filters", () => {
       originChannel: "slack",
     });
     expect(page.hasMore).toBe(true);
+  });
+
+  test("a plain refetch keeps the scrolled-in window", async () => {
+    /* The queryFn merges the fresh first page over the cached window. A
+       bare page-one return here would mean every focus refetch and every
+       settle invalidation truncated a scrolled window back to 50 rows
+       under the user's scrollbar. */
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    const filter = { groupId: "grp-a" };
+    client.setQueryData(
+      sectionConversationsQueryKey(ASSISTANT_ID, filter),
+      listPage(
+        [
+          {
+            conversationId: "c-top",
+            title: "",
+            createdAt: 0,
+            lastMessageAt: 5000,
+          },
+          {
+            conversationId: "c-scrolled-in",
+            title: "",
+            createdAt: 0,
+            lastMessageAt: 100,
+          },
+        ],
+        true,
+      ),
+    );
+    // The fresh page holds only the window top; the scrolled-in row sorts
+    // below the page's cutoff, so the merge must keep it.
+    stubPages([{ ids: [["c-top", 5000]], hasMore: true }]);
+
+    // staleTime 0: the seeded cache is seconds old, and fetchQuery serves
+    // fresh data without running the queryFn, which would pass this test
+    // without exercising the merge at all.
+    const result = await client.fetchQuery({
+      ...sectionConversationListOptions(client, ASSISTANT_ID, filter),
+      staleTime: 0,
+    });
+
+    expect(result.conversations.map((c) => c.conversationId)).toEqual([
+      "c-top",
+      "c-scrolled-in",
+    ]);
+    expect(result.hasMore).toBe(true);
   });
 
   test("a load-more page carries the filter and its offset", async () => {

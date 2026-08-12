@@ -14,7 +14,7 @@
  * - https://tanstack.com/query/latest/docs/eslint/prefer-query-options
  */
 
-import { queryOptions } from "@tanstack/react-query";
+import { queryOptions, type QueryClient } from "@tanstack/react-query";
 import {
   conversationsGet,
   conversationsSectionsGet,
@@ -38,7 +38,10 @@ import { recordDiagnostic } from "@/lib/diagnostics";
 import { emitClientPerfEvent } from "@/lib/telemetry/client-perf";
 import type { Conversation } from "@/types/conversation-types";
 import { readContentLength } from "@/utils/content-length";
-import { byTimestampDesc } from "@/utils/conversation-order";
+import {
+  byTimestampDesc,
+  mergeListFirstPage,
+} from "@/utils/conversation-order";
 import { isScheduledConversation } from "@/utils/conversation-predicates";
 import { toConversation } from "@/utils/conversation-transforms";
 
@@ -947,17 +950,37 @@ export function archivedConversationListOptions(assistantId: string) {
  *
  * The fetch is one page, not a drain (LUM-2444): a cold section costs a
  * single GET, `hasMore` marks the cache as a window, and older rows arrive
- * through `loadMoreSectionConversations` as the user scrolls. Refreshes go
- * through `refreshConversationListWindows`, which merges a fresh first page
- * into the window instead of refetching every loaded row.
+ * through `loadMoreSectionConversations` as the user scrolls.
+ *
+ * The queryFn is *window-preserving*, which is why it takes the query
+ * client: a windowed cache holds every page the user scrolled in, and a
+ * plain refetch (focus past staleTime, the settle invalidation after every
+ * placement) that returned page one bare would truncate the window back to
+ * 50 rows under the user's scrollbar. Merging the fresh page over the
+ * cached window (`mergeListFirstPage`, the same rule the sync refresh
+ * uses) makes every refresh path "refresh the top, keep the window". The
+ * cache read happens after the response so it merges against the freshest
+ * rows, and a mutation that lands mid-fetch cancels this query outright
+ * (`cancelConversationQueries`), so the merge cannot land on top of an
+ * optimistic write.
  */
 export function sectionConversationListOptions(
+  queryClient: QueryClient,
   assistantId: string,
   filter: SectionConversationFilter,
 ) {
+  const queryKey = sectionConversationsQueryKey(assistantId, filter);
   return queryOptions({
-    queryKey: sectionConversationsQueryKey(assistantId, filter),
-    queryFn: () => listSectionConversationsFirstPage(assistantId, filter),
+    queryKey,
+    queryFn: async () => {
+      const page = await listSectionConversationsFirstPage(assistantId, filter);
+      const prev = queryClient.getQueryData<ConversationListPage>(queryKey);
+      /* A section page has no daemon pinned-row injection; see
+         mergeListFirstPage. */
+      return prev
+        ? mergeListFirstPage(prev, page, { pinnedInjected: false })
+        : page;
+    },
     staleTime: QUERY_STALE_TIME_MS,
   });
 }

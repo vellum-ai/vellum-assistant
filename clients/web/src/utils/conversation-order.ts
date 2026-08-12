@@ -102,3 +102,56 @@ export function insertIntoWindow(
     hasMore,
   };
 }
+
+/**
+ * Reconcile one fetched first page into a cached newest-first list.
+ *
+ * - `hasMore === false`: the page is the complete list, so it replaces the
+ *   cache.
+ * - Otherwise the fresh rows win, and cached rows absent from the page
+ *   survive only when they sort strictly below the page's window (older
+ *   than the oldest fresh row). A cached row whose timestamp falls inside
+ *   the window but is missing from the page no longer lives there (deleted
+ *   or archived), so it is dropped.
+ * - Client-local draft rows always survive; the server doesn't know them.
+ *
+ * `pinnedInjected` says whether this page came from the one request the
+ * daemon appends every pinned conversation to (the unfiltered foreground
+ * list; the compatibility shim in `handleListConversations`). There the
+ * pinned rows are excluded from the cutoff, since an ancient injected pin
+ * would collapse it and drop live rows. A section page has no injection
+ * (the daemon skips it for every group- and channel-scoped request), so its
+ * pinned rows are genuine window members: in the Pinned section every row
+ * is pinned, and excluding them would leave no cutoff at all.
+ *
+ * The fresh window leads the result; surviving rows keep their existing
+ * relative order.
+ *
+ * @internal Exported for testing.
+ */
+export function mergeListFirstPage(
+  prev: ConversationListPage,
+  page: ConversationListPage,
+  { pinnedInjected }: { pinnedInjected: boolean },
+): ConversationListPage {
+  if (!page.hasMore) {
+    return page;
+  }
+  const windowRows = pinnedInjected
+    ? page.conversations.filter((c) => c.isPinned !== true)
+    : page.conversations;
+  if (windowRows.length === 0) {
+    return prev;
+  }
+  const cutoff = Math.min(...windowRows.map((c) => c.lastMessageAt ?? 0));
+  const freshIds = new Set(page.conversations.map((c) => c.conversationId));
+  const kept = prev.conversations.filter(
+    (c) =>
+      !freshIds.has(c.conversationId) &&
+      (c.draft === true || (c.lastMessageAt ?? 0) < cutoff),
+  );
+  return {
+    conversations: [...page.conversations, ...kept],
+    hasMore: page.hasMore,
+  };
+}

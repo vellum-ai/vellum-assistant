@@ -18,11 +18,11 @@ import {
 import { listPage } from "@/utils/conversation-list.test-helper";
 import { groupsGetQueryKey } from "@/generated/daemon/@tanstack/react-query.gen";
 
+import { mergeListFirstPage } from "@/utils/conversation-order";
 import {
   adjustSectionUnreadCache,
   applySurfacedConversation,
   markConversationSeenLocal,
-  mergeListFirstPage,
   prependConversation,
   removeConversation,
   shouldSurfaceConversation,
