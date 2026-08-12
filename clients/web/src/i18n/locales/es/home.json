@@ -1,0 +1,66 @@
+{
+  "actions": {
+    "markAsRead": "Marcar como leída",
+    "markAsUnread": "Marcar como no leída",
+    "restore": "Restaurar",
+    "dismiss": "Descartar",
+    "goToThread": "Ir al hilo",
+    "goToConversation": "Ir a la conversación",
+    "goToConvo": "Ir a la conversación",
+    "viewSchedule": "Ver programación",
+    "viewSkill": "Ver habilidad",
+    "markAllAsRead": "Marcar todas como leídas",
+    "clearAll": "Borrar todas"
+  },
+  "category": {
+    "all": "Todas",
+    "security": "Seguridad",
+    "email": "Correo",
+    "scheduling": "Programación",
+    "background": "Segundo plano",
+    "system": "Sistema"
+  },
+  "homeTopHeader": { "title": "Actividad" },
+  "homeFeedFilterBar": { "ariaLabel": "Filtrar notificaciones" },
+  "homeFeedList": {
+    "today": "Hoy",
+    "yesterday": "Ayer",
+    "older": "Anteriores",
+    "noMatches": "Ningún elemento coincide con el filtro seleccionado.",
+    "emptyTitle": "Todavía no hay notificaciones",
+    "emptyBody": "Las novedades y la actividad de tu asistente aparecerán aquí.",
+    "earlier": "Anteriores ({count, number})",
+    "dismissed": "Descartadas ({count, number})"
+  },
+  "homePage": {
+    "loadFailed": "No se pudo cargar la actividad.",
+    "loadFailedDetail": "No se pudo cargar la actividad: {message}"
+  },
+  "homeDetailPanel": {
+    "back": "Atrás",
+    "heading": "Detalles",
+    "close": "Cerrar",
+    "closeAriaLabel": "Cerrar el panel de detalles",
+    "untitled": "Notificación"
+  },
+  "homeToolPermissionCard": {
+    "missingScopes": "Permisos faltantes",
+    "status": {
+      "revoked": "Revocado",
+      "expired": "Caducado",
+      "missingScopes": "Permisos faltantes",
+      "missingToken": "Falta el token",
+      "pingFailed": "Error de conexión",
+      "unreachable": "Inaccesible"
+    }
+  },
+  "notificationsBell": {
+    "ariaLabel": "Notificaciones",
+    "ariaLabelUnread": "Notificaciones (sin leer)",
+    "heading": "Notificaciones",
+    "loadFailed": "No se pudieron cargar las notificaciones.",
+    "empty": "Todavía no hay notificaciones.",
+    "actionFailed": "No se pudo iniciar esa conversación. Vuelve a intentarlo."
+  },
+  "notificationsBellDetail": { "back": "Volver a las notificaciones" }
+}

@@ -3,6 +3,7 @@ import { Notice } from "@vellumai/design-library/components/notice";
 import { createPortal } from "react-dom";
 
 import { PLATFORM_HOSTED_DISABLED_MESSAGE } from "@/assistant/lifecycle";
+import { useTranslation } from "@/i18n";
 
 interface HatchErrorOverlayProps {
   /** Terminal failure message from the background hatch. */
@@ -31,23 +32,24 @@ interface HatchErrorOverlayProps {
  * `h-10`), so it clears both them and the notch.
  */
 export function HatchErrorOverlay({ error, onRetry }: HatchErrorOverlayProps) {
+  const { t } = useTranslation("onboarding");
   const platformHostedDisabled = error === PLATFORM_HOSTED_DISABLED_MESSAGE;
   return createPortal(
     <div className="pointer-events-none fixed inset-x-0 top-0 z-50 flex justify-center px-4 pt-[calc(var(--safe-area-inset-top,env(safe-area-inset-top,0px))+5rem)]">
       <Notice
         tone="error"
-        title="Something went wrong"
+        title={t("hatchingScreen.genericFailure")}
         className="pointer-events-auto w-auto max-w-[480px] shadow-xl"
         actions={
           platformHostedDisabled ? (
             <Button asChild variant="primary" size="regular">
               <a href={`${window.location.origin}/download`}>
-                Download the macOS app
+                {t("actions.downloadMacApp")}
               </a>
             </Button>
           ) : (
             <Button variant="primary" size="regular" onClick={onRetry}>
-              Try again
+              {t("actions.tryAgain")}
             </Button>
           )
         }
@@ -55,7 +57,7 @@ export function HatchErrorOverlay({ error, onRetry }: HatchErrorOverlayProps) {
         {error}
         {platformHostedDisabled ? (
           <p className="mt-1 text-[color:var(--content-default)]">
-            Get started today with a local assistant
+            {t("hatchingScreen.localFallbackPitch")}
           </p>
         ) : null}
       </Notice>

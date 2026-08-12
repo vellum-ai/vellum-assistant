@@ -7,7 +7,9 @@ import { Input } from "@vellumai/design-library/components/input";
 import { DetailCard } from "@/components/detail-card";
 import { ContactChannelsSection } from "@/domains/contacts/components/contact-channels-section";
 import { ContactTypeBadge } from "@/domains/contacts/components/contact-type-badge";
+import { isDraftContactName } from "@/domains/contacts/draft-contact";
 import type { ChannelInfo, ContactPayload } from "@/domains/contacts/types";
+import { useTranslation } from "@/i18n";
 
 interface ContactDetailViewProps {
   contact: ContactPayload;
@@ -49,7 +51,8 @@ function ContactDetailViewInner({
   onRevokeChannel,
   onLinkAccount,
 }: ContactDetailViewProps) {
-  const isNewContactDraft = contact.displayName === "New Contact";
+  const { t } = useTranslation("contacts");
+  const isNewContactDraft = isDraftContactName(contact.displayName);
   const [displayName, setDisplayName] = useState(
     isNewContactDraft ? "" : contact.displayName,
   );
@@ -69,8 +72,13 @@ function ContactDetailViewInner({
     contact.channels.length === 0 &&
     contact.interactionCount === 0;
 
-  const headerName = trimmedName || contact.displayName;
-  const interactionLabel = `${contact.interactionCount} interaction${contact.interactionCount === 1 ? "" : "s"}`;
+  const headerName =
+    trimmedName || (isNewContactDraft ? t("contact.draftName") : contact.displayName);
+  // ICU `plural` picks the category through `Intl.PluralRules`, so the count
+  // agrees in languages with more than the two forms English has.
+  const interactionLabel = t("contact.interactions", {
+    count: contact.interactionCount,
+  });
 
   const requestDelete = () => {
     if (isEmptyDraft) {
@@ -95,22 +103,22 @@ function ContactDetailViewInner({
       >
         <div className="flex flex-col gap-4">
           <Input
-            label="Name"
+            label={t("contact.nameLabel")}
             type="text"
             value={displayName}
             onChange={(e) => setDisplayName(e.target.value)}
-            placeholder="Give this human a name"
+            placeholder={t("contactDetailView.namePlaceholder")}
             autoFocus={isNewContactDraft}
             disabled={savePending || deletePending}
             fullWidth
           />
 
           <Input
-            label="Notes"
+            label={t("contact.notesLabel")}
             type="text"
             value={notes}
             onChange={(e) => setNotes(e.target.value)}
-            placeholder="Optional notes about the human which AI will take into account"
+            placeholder={t("contactDetailView.notesPlaceholder")}
             disabled={savePending || deletePending}
             fullWidth
           />
@@ -123,7 +131,7 @@ function ContactDetailViewInner({
               }
               disabled={!canSave}
             >
-              {savePending ? "Saving…" : "Save"}
+              {savePending ? t("actions.saving") : t("actions.save")}
             </Button>
             {onMerge ? (
               <Button
@@ -140,15 +148,15 @@ function ContactDetailViewInner({
                 }
                 title={
                   !canMerge
-                    ? "No other contacts available to merge"
+                    ? t("contact.mergeBlockedNoCandidates")
                     : isEmptyDraft
-                      ? "Save this contact before merging"
+                      ? t("contactDetailView.mergeBlockedUnsavedDraft")
                       : dirty
-                        ? "Save your changes before merging"
+                        ? t("contact.mergeBlockedUnsaved")
                         : undefined
                 }
               >
-                {mergePending ? "Merging…" : "Merge…"}
+                {mergePending ? t("actions.merging") : t("actions.merge")}
               </Button>
             ) : null}
             <Button
@@ -157,15 +165,17 @@ function ContactDetailViewInner({
               onClick={requestDelete}
               disabled={deletePending}
             >
-              {deletePending ? "Deleting…" : "Delete Contact"}
+              {deletePending
+                ? t("actions.deleting")
+                : t("contactDetailView.delete")}
             </Button>
           </div>
         </div>
       </DetailCard>
 
       <DetailCard
-        title="Linked accounts"
-        subtitle="Where the assistant recognizes this contact. Link accounts you know, invite the ones you don't."
+        title={t("contactDetailView.linkedAccountsTitle")}
+        subtitle={t("contactDetailView.linkedAccountsSubtitle")}
       >
         <ContactChannelsSection
           contactChannels={contact.channels}
@@ -182,9 +192,11 @@ function ContactDetailViewInner({
 
       <ConfirmDialog
         open={confirmOpen}
-        title={`Delete ${contact.displayName}?`}
-        message="This will permanently delete this contact and all their channels. This action cannot be undone."
-        confirmLabel="Delete"
+        title={t("contactDetailView.deleteConfirmTitle", {
+          name: headerName,
+        })}
+        message={t("contactDetailView.deleteConfirmMessage")}
+        confirmLabel={t("actions.delete")}
         destructive
         onConfirm={() => {
           setConfirmOpen(false);

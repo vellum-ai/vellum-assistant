@@ -91,10 +91,14 @@ function AdapterRow({ channel, selected, onClick }: AdapterRowProps) {
   const statusLabel = connected ? "Connected" : "Not connected";
 
   return (
-    // `PanelItem` forwards `label` to the button's aria-label, so fold the
-    // status into it — otherwise screen readers announce only "Slack" and miss
-    // the connection state, which is the row's whole point.
-    <PanelItem asChild active={selected} label={`${label}, ${statusLabel}`}>
+    // The status is folded into the accessible name: otherwise screen readers
+    // announce only "Slack" and miss the connection state, which is the row's
+    // whole point.
+    <PanelItem
+      asChild
+      active={selected}
+      aria-label={`${label}, ${statusLabel}`}
+    >
       <button
         type="button"
         onClick={onClick}
@@ -139,7 +143,7 @@ function PluginRow({ channel, selected, onClick }: PluginRowProps) {
     <PanelItem
       asChild
       active={selected}
-      label={t("channelAdapterList.pluginChannelAria", {
+      aria-label={t("channelAdapterList.pluginChannelAria", {
         channel: channel.label,
       })}
     >

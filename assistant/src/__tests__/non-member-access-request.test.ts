@@ -501,7 +501,6 @@ describe("access-request-helper unit tests", () => {
 
   test("notifyGuardianOfAccessRequest returns no_sender_id when actorExternalId is absent", async () => {
     const result = await notifyGuardianOfAccessRequest({
-      canonicalAssistantId: "self",
       sourceChannel: "telegram",
       conversationExternalId: "chat-123",
       actorExternalId: undefined,
@@ -522,7 +521,6 @@ describe("access-request-helper unit tests", () => {
 
   test("notifyGuardianOfAccessRequest creates request with self-healed principal when no binding exists", async () => {
     const result = await notifyGuardianOfAccessRequest({
-      canonicalAssistantId: "self",
       sourceChannel: "telegram",
       conversationExternalId: "chat-123",
       actorExternalId: "unknown-user",
@@ -565,7 +563,6 @@ describe("access-request-helper unit tests", () => {
     });
 
     const result = await notifyGuardianOfAccessRequest({
-      canonicalAssistantId: "self",
       sourceChannel: "telegram",
       conversationExternalId: "tg-chat",
       actorExternalId: "unknown-tg-user",
@@ -619,7 +616,6 @@ describe("access-request-helper unit tests", () => {
     });
 
     const result = await notifyGuardianOfAccessRequest({
-      canonicalAssistantId: "self",
       sourceChannel: "telegram",
       conversationExternalId: "chat-123",
       actorExternalId: "unknown-user",
@@ -660,7 +656,6 @@ describe("access-request-helper unit tests", () => {
     });
 
     const result = await notifyGuardianOfAccessRequest({
-      canonicalAssistantId: "self",
       sourceChannel: "telegram",
       conversationExternalId: "chat-123",
       actorExternalId: "unknown-user",
@@ -688,7 +683,6 @@ describe("access-request-helper unit tests", () => {
   test("notifyGuardianOfAccessRequest resolves the vellum anchor from the gateway delivery", async () => {
     // Only the vellum anchor (seeded in resetState) is served by the gateway.
     const result = await notifyGuardianOfAccessRequest({
-      canonicalAssistantId: "self",
       sourceChannel: "telegram",
       conversationExternalId: "chat-123",
       actorExternalId: "unknown-user",
@@ -722,7 +716,6 @@ describe("access-request-helper unit tests", () => {
 
     await expect(
       notifyGuardianOfAccessRequest({
-        canonicalAssistantId: "self",
         sourceChannel: "telegram",
         conversationExternalId: "chat-123",
         actorExternalId: "unknown-user",
@@ -739,7 +732,6 @@ describe("access-request-helper unit tests", () => {
 
   test("notifyGuardianOfAccessRequest for voice channel includes actorDisplayName in contextPayload", async () => {
     const result = await notifyGuardianOfAccessRequest({
-      canonicalAssistantId: "self",
       sourceChannel: "phone",
       conversationExternalId: "+15559998888",
       actorExternalId: "+15559998888",
@@ -770,7 +762,6 @@ describe("access-request-helper unit tests", () => {
 
   test("notifyGuardianOfAccessRequest includes requestCode in contextPayload", async () => {
     const result = await notifyGuardianOfAccessRequest({
-      canonicalAssistantId: "self",
       sourceChannel: "telegram",
       conversationExternalId: "chat-123",
       actorExternalId: "unknown-user",
@@ -794,7 +785,6 @@ describe("access-request-helper unit tests", () => {
     // is created and the status is forwarded to the card payload. (A `revoked`
     // status would instead suppress — covered by the keep-out tests.)
     const result = await notifyGuardianOfAccessRequest({
-      canonicalAssistantId: "self",
       sourceChannel: "telegram",
       conversationExternalId: "chat-123",
       actorExternalId: "pending-user",
@@ -834,7 +824,6 @@ describe("access-request-helper unit tests", () => {
     };
 
     const result = await notifyGuardianOfAccessRequest({
-      canonicalAssistantId: "self",
       sourceChannel: "phone",
       conversationExternalId: "+15556667777",
       actorExternalId: "+15556667777",
@@ -897,7 +886,6 @@ describe("access-request-helper unit tests", () => {
     };
 
     const result = await notifyGuardianOfAccessRequest({
-      canonicalAssistantId: "self",
       sourceChannel: "telegram",
       conversationExternalId: "chat-123",
       actorExternalId: "unknown-user",
@@ -929,7 +917,6 @@ describe("access-request-helper unit tests", () => {
     // request row. A revoked/blocked contact is deliberately kept out — no new
     // prompt, signal, or pending request.
     const result = await notifyGuardianOfAccessRequest({
-      canonicalAssistantId: "self",
       sourceChannel: "telegram",
       conversationExternalId: "chat-kept-out",
       actorExternalId: "revoked-user",
@@ -969,7 +956,6 @@ describe("access-request-helper unit tests", () => {
     });
 
     const result = await notifyGuardianOfAccessRequest({
-      canonicalAssistantId: "self",
       sourceChannel: "telegram",
       conversationExternalId: "chat-parked",
       actorExternalId: "parked-user",
@@ -1006,7 +992,6 @@ describe("access-request-helper unit tests", () => {
     });
 
     const result = await notifyGuardianOfAccessRequest({
-      canonicalAssistantId: "self",
       sourceChannel: "telegram",
       conversationExternalId: "chat-approved",
       actorExternalId: "approved-user",
@@ -1047,7 +1032,6 @@ describe("access-request-helper unit tests", () => {
     bridgeState.requests.get(requestId)!.updatedAt = staleUpdatedAt;
 
     const result = await notifyGuardianOfAccessRequest({
-      canonicalAssistantId: "self",
       sourceChannel: "telegram",
       conversationExternalId: "chat-stale",
       actorExternalId: "stale-user",
@@ -1082,7 +1066,6 @@ describe("access-request-helper unit tests", () => {
     });
 
     const result = await notifyGuardianOfAccessRequest({
-      canonicalAssistantId: "self",
       sourceChannel: "telegram",
       conversationExternalId: "chat-flip",
       actorExternalId: "flip-user",
@@ -1101,7 +1084,6 @@ describe("access-request-helper unit tests", () => {
     // Suppression is scoped to the sender via their own contact status, so a
     // kept-out contact never bleeds into a different sender's prompt.
     const keptOut = await notifyGuardianOfAccessRequest({
-      canonicalAssistantId: "self",
       sourceChannel: "telegram",
       conversationExternalId: "chat-kept",
       actorExternalId: "revoked-user",
@@ -1112,7 +1094,6 @@ describe("access-request-helper unit tests", () => {
 
     // A different sender with no keep-out still gets a fresh prompt.
     const result = await notifyGuardianOfAccessRequest({
-      canonicalAssistantId: "self",
       sourceChannel: "telegram",
       conversationExternalId: "chat-fresh",
       actorExternalId: "fresh-user",
@@ -1141,7 +1122,6 @@ describe("maybeNotifyGuardianOfAdmittedContact", () => {
   });
 
   const baseParams = {
-    canonicalAssistantId: "self",
     sourceChannel: "telegram" as const,
     conversationExternalId: "chat-123",
     actorExternalId: "user-unknown-456",

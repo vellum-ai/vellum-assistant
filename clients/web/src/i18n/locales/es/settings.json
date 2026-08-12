@@ -1,0 +1,22 @@
+{
+  "billingStatusHandler": {
+    "successToast": "¡Pago recibido! Tu saldo de créditos se actualizará en breve.",
+    "upgradeCancelToast": "Mejora cancelada. No hay cambios en tu plan.",
+    "topUpCancelToast": "Se canceló el pago. No se añadieron créditos."
+  },
+  "checkoutBonusModal": {
+    "title": "Aquí tienes {amount} de nuestra parte",
+    "body": "Reclama un crédito único de {amount} y lo añadiremos directamente al saldo de tu cuenta. No se requiere ningún pago.",
+    "decline": "No, gracias",
+    "claim": "Reclamar {amount} en créditos",
+    "grantedToast": "Se añadieron {amount} en créditos a tu cuenta.",
+    "unavailableToast": "Esta oferta ya no está disponible.",
+    "errorToast": "No se pudieron añadir los créditos. Inténtalo de nuevo."
+  },
+  "profileEditor": {
+    "subscriptionSteeringHint": "Tu suscripción a ChatGPT está disponible como el proveedor ChatGPT."
+  },
+  "aiProviderPicker": {
+    "defaultEntryMeta": "Predeterminado"
+  }
+}

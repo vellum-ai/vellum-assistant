@@ -33,7 +33,14 @@ import {
  * `CLAUDE_CODE_OAUTH_TOKEN` requires.
  */
 export const CLAUDE_OAUTH_CONFIG: OAuth2Config = {
-  authorizeUrl: "https://claude.ai/oauth/authorize",
+  // The claude.ai-account authorize endpoint, matching the Claude Code CLI's
+  // own CLAUDE_AI_AUTHORIZE_URL. Shared by both flows: the loopback path
+  // builds its URL from this in `prepareOAuth2Flow`, the manual path in
+  // `buildClaudeAuthorizeUrl`. Only the claude.com/cai host completes a
+  // grant; the legacy claude.ai host still renders a working-looking consent
+  // screen but rejects every authorize POST, so a wrong host here looks
+  // functional until the final click of a real sign-in.
+  authorizeUrl: "https://claude.com/cai/oauth/authorize",
   tokenExchangeUrl: "https://platform.claude.com/v1/oauth/token",
   clientId: "9d1c250a-e61b-44d9-88ed-5944d1962f5e",
   scopes: ["user:inference"],
@@ -53,12 +60,22 @@ export const CLAUDE_OAUTH_CONFIG: OAuth2Config = {
 export const CLAUDE_MANUAL_REDIRECT_URI =
   "https://platform.claude.com/oauth/code/callback";
 
-/** Build the Claude authorize URL for a PKCE flow. */
+/**
+ * Build the Claude authorize URL for the MANUAL (paste) PKCE flow.
+ *
+ * `code=true` tells Claude to render the `code#state` string on the callback
+ * page for the user to copy, which is the whole mechanism of the manual flow;
+ * Claude rejects a manual-redirect grant without it. The loopback flow
+ * performs a real redirect instead and must NOT send it; that URL is built
+ * separately in `prepareOAuth2Flow`, which is why this builder can include
+ * the param unconditionally.
+ */
 export function buildClaudeAuthorizeUrl(
   redirectUri: string,
   pkce: { codeChallenge: string; state: string },
 ): string {
   const params = new URLSearchParams({
+    code: "true",
     response_type: "code",
     client_id: CLAUDE_OAUTH_CONFIG.clientId,
     redirect_uri: redirectUri,

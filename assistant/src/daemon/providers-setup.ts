@@ -1,6 +1,7 @@
 import { maybeDefaultSpeechToManaged } from "../config/managed-speech-defaults.js";
 import { rehydratePlatformCredentials } from "../config/platform-rehydration.js";
 import type { AssistantConfig } from "../config/types.js";
+import { buildEffectiveMcpConfig } from "../mcp/effective-config.js";
 import { getMcpServerManager } from "../mcp/manager.js";
 import { gmailMessagingProvider } from "../messaging/providers/gmail/adapter.js";
 import { outlookMessagingProvider } from "../messaging/providers/outlook/adapter.js";
@@ -61,11 +62,13 @@ export async function initializeProvidersAndTools(
     );
   }
 
-  // Start MCP servers and register their tools
-  if (config.mcp?.servers && Object.keys(config.mcp.servers).length > 0) {
+  // Start MCP servers — workspace-configured and plugin-declared alike —
+  // and register their tools.
+  const mcpConfig = buildEffectiveMcpConfig(config.mcp);
+  if (Object.keys(mcpConfig.servers).length > 0) {
     const manager = getMcpServerManager();
     try {
-      const serverToolInfos = await manager.start(config.mcp);
+      const serverToolInfos = await manager.start(mcpConfig);
       for (const { serverId, serverConfig, tools } of serverToolInfos) {
         const mcpTools = createMcpToolsFromServer(
           tools,

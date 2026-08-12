@@ -268,7 +268,18 @@ const setConversationHistoryStrippedAtMock = mock(
 const updateConversationSlackContextWatermarkMock = mock(
   (_conversationId: string, _watermarkTs: string, _compactedAt?: number) => {},
 );
-let mockConversationRow: Record<string, unknown> = {
+interface MockConversationRow {
+  conversationType?: string;
+  source?: string;
+  contextSummary?: string | null;
+  contextCompactedMessageCount?: number;
+  contextCompactedAt?: number | null;
+  slackContextCompactionWatermarkTs?: string | null;
+  lastNotifiedInferenceProfile?: string | null;
+  processingStartedAt?: string | null;
+  [key: string]: unknown;
+}
+let mockConversationRow: MockConversationRow = {
   id: "conv-1",
   createdAt: 1_700_000_000_000,
   contextSummary: null,
@@ -675,7 +686,9 @@ import {
   applyCompactionResult,
   runAgentLoopImpl,
 } from "../daemon/conversation-agent-loop.js";
+import type { QueueDrainReason } from "../daemon/conversation-queue-manager.js";
 import { settleTurnTail } from "../daemon/turn-tail-chain.js";
+import { asConversation } from "./helpers/mock-conversation.js";
 import {
   createMockProvider,
   type ScriptedResponse,
@@ -731,7 +744,7 @@ function makeCtx(
     toolExecutor,
   });
 
-  const ctx = {
+  const ctx = asConversation({
     conversationId: "test-conv",
     messages: [
       { role: "user", content: [{ type: "text", text: "Hello" }] },
@@ -791,12 +804,7 @@ function makeCtx(
     skillProjectionCache:
       new Map() as unknown as Conversation["skillProjectionCache"],
 
-    usageStats: {
-      totalInputTokens: 0,
-      totalOutputTokens: 0,
-      totalEstimatedCost: 0,
-      model: "",
-    },
+    usageStats: { inputTokens: 0, outputTokens: 0, estimatedCost: 0 },
     turnCount: 0,
 
     lastAssistantAttachments: [],
@@ -814,12 +822,12 @@ function makeCtx(
     getQueueDepth: () => 0,
     hasQueuedMessages: () => false,
     canHandoffAtCheckpoint: () => false,
-    drainQueue: (_reason?: string) => {},
+    drainQueue: async (_reason?: QueueDrainReason) => {},
     // Forwards to drainQueue so tests that spy the drain observe the agent
     // loop's post-turn kick through the guarded entry point.
     kickDrainQueue(
-      this: { drainQueue: (reason?: string) => unknown },
-      reason: string = "loop_complete",
+      this: { drainQueue: (reason?: QueueDrainReason) => Promise<void> },
+      reason: QueueDrainReason = "loop_complete",
       _origin?: string,
     ) {
       return this.drainQueue(reason);
@@ -851,7 +859,7 @@ function makeCtx(
     } as unknown as Conversation["graphMemory"],
 
     ...ctxOverrides,
-  } as unknown as Conversation;
+  });
   // Reactive overflow recovery resolves the turn-scoped reduction ladder off
   // the manager; give every fake manager the ladder methods unless a test
   // supplied its own.
@@ -1795,7 +1803,7 @@ describe("session-agent-loop", () => {
         ],
         toolExecutor: async () => ({ content: "file content", isError: false }),
         canHandoffAtCheckpoint: () => true,
-      } as unknown as Partial<Conversation>);
+      });
 
       await runAgentLoopImpl(ctx, "hello", "msg-1", (msg) => events.push(msg));
 
@@ -1826,7 +1834,7 @@ describe("session-agent-loop", () => {
         ],
         toolExecutor: async () => ({ content: "content", isError: false }),
         canHandoffAtCheckpoint: () => false,
-      } as unknown as Partial<Conversation>);
+      });
 
       await runAgentLoopImpl(ctx, "hello", "msg-1", (msg) => events.push(msg));
 
@@ -1975,13 +1983,13 @@ describe("session-agent-loop", () => {
 
     test("drains queue after completion", async () => {
       // GIVEN a real loop that answers in a single text turn
-      let drainReason: string | undefined;
+      let drainReason: QueueDrainReason | undefined;
       const ctx = makeCtx({
         providerResponses: [textResponse("ok")],
-        drainQueue: (reason: string) => {
+        drainQueue: async (reason?: QueueDrainReason) => {
           drainReason = reason;
         },
-      } as unknown as Partial<Conversation>);
+      });
 
       // WHEN the orchestrator runs the turn to completion
       await runAgentLoopImpl(ctx, "hi", "msg-1", () => {});
@@ -2018,10 +2026,10 @@ describe("session-agent-loop", () => {
         abortController,
         // Fire the watchdog quickly instead of the ~45s production default.
         abortWatchdogMs: 30,
-        drainQueue: (reason: string) => {
+        drainQueue: async (reason?: QueueDrainReason) => {
           drainReason = reason;
         },
-      } as unknown as Partial<Conversation>);
+      });
 
       try {
         // WHEN the orchestrator runs the turn
@@ -2520,7 +2528,7 @@ describe("session-agent-loop", () => {
           },
         ],
         toolExecutor: async () => ({ content: "file content", isError: false }),
-      } as unknown as Partial<Conversation>);
+      });
 
       await runAgentLoopImpl(ctx, "hello", "msg-user-daily", () => {});
 

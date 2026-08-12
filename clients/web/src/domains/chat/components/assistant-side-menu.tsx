@@ -303,11 +303,15 @@ export function AssistantSideMenu({
   // Activity dot for a collapsed section header — surfaces processing/unread
   // conversations that live in a collapsed section (attention already
   // force-opens the section via effectiveOpen*). Null when the section is idle.
-  const collapsedActivityDot = (conversations: Conversation[]): ReactNode => {
+  const collapsedActivityDot = (
+    conversations: Conversation[],
+    section: SidebarSection,
+  ): ReactNode => {
     const state = getGroupIndicatorState(
       conversations,
       processingConversationIds,
       attentionConversationIds,
+      section.unread,
     );
     return state ? <GroupIndicatorDot state={state} /> : null;
   };
@@ -379,20 +383,7 @@ export function AssistantSideMenu({
     });
   };
 
-  /* The last section scrolls against the sidebar body rather than capping at
-     `SIDEBAR_SECTION_MAX_HEIGHT`. The cap is there so a busy section cannot
-     push the sections *under* it out of reach (LUM-3040) - the last section
-     has none, so the cap buys nothing there and costs the rail everything
-     below the cap. Ungrouped, Chats is that section and holds every
-     conversation, which is how the card conversion shipped a 300px list on a
-     900px rail.
-
-     Positional rather than per-type: "is anything below me" is the question
-     the cap is actually asking, and asking it that way keeps holding when the
-     user reorders the sections, without this having to know which kinds of
-     section run long. Pinned ignores it either way - `unbounded` already
-     grows it to fit its own rows. */
-  const renderSection = (section: SidebarSection, isLast: boolean) => (
+  const renderSection = (section: SidebarSection, index: number) => (
     <SidebarSectionItem
       key={section.key}
       section={section}
@@ -400,7 +391,12 @@ export function AssistantSideMenu({
       groupMenu={(conversations) => sectionMenu(section, conversations)}
       drag={sectionDragFor(section)}
       collapsedIndicator={collapsedActivityDot}
-      scrollParent={isLast ? (bodyElement ?? undefined) : undefined}
+      // Only the bottom-most section ever claims the sidebar's leftover
+      // space (see `unbounded` on `ConversationRowList`): flex-grow doesn't
+      // know which open section "needs" the room, so giving every open
+      // section a share stretched a small one (e.g. a two-row group) into a
+      // near-empty box the same size as a busy one beside it.
+      isLast={index === sidebar.sections.length - 1}
     />
   );
 
@@ -549,12 +545,7 @@ export function AssistantSideMenu({
                     no wrapping header. Each section's menu carries the
                     Group by toggle, which is why removing the persistent
                     "Conversations" header loses nothing. */}
-                  {sidebar.sections.map((section, index) =>
-                    renderSection(
-                      section,
-                      index === sidebar.sections.length - 1,
-                    ),
-                  )}
+                  {sidebar.sections.map(renderSection)}
                 </CollapsibleNavSection.Root>
               </SidebarListContextMenu>
               <SidebarBackToTop

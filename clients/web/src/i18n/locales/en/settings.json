@@ -1,0 +1,22 @@
+{
+  "billingStatusHandler": {
+    "successToast": "Payment received! Your credit balance will update shortly.",
+    "upgradeCancelToast": "Upgrade canceled. No changes to your plan.",
+    "topUpCancelToast": "Checkout was cancelled. No credits were added."
+  },
+  "checkoutBonusModal": {
+    "title": "Here's {amount} on us",
+    "body": "Claim a one-time {amount} credit and we'll add it straight to your account balance. No payment required.",
+    "decline": "No thanks",
+    "claim": "Claim {amount} in credits",
+    "grantedToast": "{amount} in credits added to your account.",
+    "unavailableToast": "This offer is no longer available.",
+    "errorToast": "Could not add the credits. Please try again."
+  },
+  "profileEditor": {
+    "subscriptionSteeringHint": "Your ChatGPT subscription is available as the ChatGPT provider."
+  },
+  "aiProviderPicker": {
+    "defaultEntryMeta": "Default"
+  }
+}

@@ -307,7 +307,7 @@ function StepDetailLevel({
           assistantId={assistantId}
         />
       ) : (
-        <ToolDetailBody detail={detail} />
+        <ToolDetailBody detail={detail} assistantId={assistantId} />
       )}
     </div>
   );

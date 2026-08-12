@@ -877,13 +877,13 @@ describe("loadConfig startup behavior", () => {
       raw.llm.defaultProvider,
     );
     expect(effective.balanced?.provider).toBe("openai");
-    expect(effective.balanced?.model).toBe("gpt-5.4-mini");
+    expect(effective.balanced?.model).toBe("gpt-5.6-luna");
     expect(effective.balanced?.provider_connection).toBe("openai-personal");
     expect(effective.balanced?.source).toBe("managed");
     expect(effective["quality-optimized"]?.provider).toBe("openai");
-    expect(effective["quality-optimized"]?.model).toBe("gpt-5.4");
+    expect(effective["quality-optimized"]?.model).toBe("gpt-5.6-sol");
     expect(effective["cost-optimized"]?.provider).toBe("openai");
-    expect(effective["cost-optimized"]?.model).toBe("gpt-5.4-nano");
+    expect(effective["cost-optimized"]?.model).toBe("gpt-5.6-luna");
   });
 
   test("off-platform hatch with a provider outside the named matrix columns resolves through the shared BYOK templates", () => {

@@ -10,7 +10,10 @@ import {
 import { routes } from "@/utils/routes";
 import { Notice } from "@vellumai/design-library/components/notice";
 
+import { useTranslation } from "@/i18n";
+
 export function SystemEventsPage() {
+  const { t } = useTranslation("logs");
   const platformGate = usePlatformGate({ platformHostedOnly: true });
   const isPlatformHosted = useActiveAssistantIsPlatformHosted();
   const assistantId = useActiveAssistantId();
@@ -22,17 +25,13 @@ export function SystemEventsPage() {
   if (platformGate === "disabled") {
     return (
       <PlatformLoginNotice>
-        Log in to the Vellum platform to view system events.
+        {t("systemEventsPage.platformLoginNotice")}
       </PlatformLoginNotice>
     );
   }
 
   if (!isPlatformHosted) {
-    return (
-      <Notice tone="warning">
-        System events aren&apos;t available for the current assistant.
-      </Notice>
-    );
+    return <Notice tone="warning">{t("systemEventsPage.notAvailable")}</Notice>;
   }
 
   return <SystemEventsTab assistantId={assistantId} />;

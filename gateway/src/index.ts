@@ -230,6 +230,7 @@ import { AvatarChannelSyncer } from "./avatar-sync/avatar-channel-syncer.js";
 import { AvatarSyncWatcher } from "./avatar-sync/avatar-sync-watcher.js";
 import { SlackAvatarSyncer } from "./avatar-sync/slack-avatar-syncer.js";
 import { initGatewayDb } from "./db/connection.js";
+import { cleanupExpiredInboundEvents } from "./db/inbound-dedup-store.js";
 import { runPostAssistantReady } from "./post-assistant-ready.js";
 import {
   clearManagedPublicBaseUrl,
@@ -347,6 +348,15 @@ function getClientIp(
   const addr = server.requestIP(req);
   return addr?.address ?? "unknown";
 }
+
+/**
+ * How often expired inbound dedup claims are swept.
+ *
+ * Hourly, because nothing depends on the sweep being timely: an expired claim
+ * is already reclaimed in place by the next delivery on the same key, so this
+ * is a size bound, not a correctness one.
+ */
+const INBOUND_DEDUP_CLEANUP_INTERVAL_MS = 60 * 60 * 1_000;
 
 async function main() {
   const config = loadConfig();
@@ -2189,6 +2199,21 @@ async function main() {
   whatsappDedupCache.startCleanup();
   emailDedupCache.startCleanup();
 
+  // The persistent inbound claims sweep too, more slowly. Expired rows are
+  // already reclaimed in place by the next claim on the same key, so this only
+  // keeps the table from growing a row per message that nothing will read
+  // again.
+  const inboundDedupCleanup = setInterval(() => {
+    try {
+      const evicted = cleanupExpiredInboundEvents();
+      if (evicted > 0) {
+        log.debug({ evicted }, "Evicted expired inbound dedup claims");
+      }
+    } catch (err) {
+      log.warn({ err }, "Inbound dedup cleanup failed");
+    }
+  }, INBOUND_DEDUP_CLEANUP_INTERVAL_MS);
+
   const telegramCaches = {
     credentials: credentialCache,
     configFile: configFileCache,
@@ -2971,6 +2996,7 @@ async function main() {
     telegramDedupCache.stopCleanup();
     whatsappDedupCache.stopCleanup();
     emailDedupCache.stopCleanup();
+    clearInterval(inboundDedupCleanup);
     if (slackSocketClient) {
       slackSocketClient.stop();
       slackSocketClient = null;

@@ -2,7 +2,10 @@ import { useLayoutEffect, useRef } from "react";
 import * as Sentry from "@sentry/react";
 import { useNavigate } from "react-router";
 
+import { useQueryClient } from "@tanstack/react-query";
+
 import { useBusSubscription } from "@/hooks/use-bus-subscription";
+import { notifyCheckoutSuccess } from "@/lib/billing/checkout-success";
 import {
   isLiveVoiceSessionActive,
   restoreVoiceRoom,
@@ -30,10 +33,15 @@ import { routes } from "@/utils/routes";
  * - `deeplink.send` → `ensureMainWindowVisible()` + navigate to
  *   `/assistant` + park the message in `usePendingDeepLinkStore`
  *   for `ChatPage`'s composer-domain hook to consume on mount.
- * - `deeplink.billingCheckoutComplete` → `ensureMainWindowVisible()`
- *   + navigate to billing carrying the Stripe `session_id` (which
- *   opens the Pro onboarding wizard), or to the upgrade-cancel page
- *   on `status: "cancel"` — the same landing the web flow uses.
+ * - `deeplink.billingCheckoutComplete` → `ensureMainWindowVisible()`,
+ *   then branch on `flow`. A `subscription` checkout navigates to
+ *   billing carrying the Stripe `session_id` (which opens the Pro
+ *   onboarding wizard), or to the upgrade-cancel page on
+ *   `status: "cancel"` (the same landing the web flow uses). A
+ *   `top_up` checkout toasts and refetches the billing summary on
+ *   success (no forced navigation), and on cancel lands on billing
+ *   with `billing_status=cancel`, funneling into the billing page's
+ *   server-verified checkout-bonus offer flow.
  * - `deeplink.startVoice` → `ensureMainWindowVisible()` + navigate,
  *   then hand the request to the live-voice starter (parked for the
  *   cold-launch case, see `start-voice-request.ts`). `mode: "resume"`
@@ -102,6 +110,7 @@ function connectGuidanceMessage(url: string | null): string {
 
 export function useGlobalDeepLinkConsumer(): void {
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const navigateRef = useRef(navigate);
   useLayoutEffect(() => {
     navigateRef.current = navigate;
@@ -195,8 +204,24 @@ export function useGlobalDeepLinkConsumer(): void {
 
   useBusSubscription(
     "deeplink.billingCheckoutComplete",
-    ({ status, sessionId }) => {
+    ({ status, sessionId, flow }) => {
       void ensureMainWindowVisible();
+      if (flow === "top_up") {
+        if (status === "success") {
+          // No forced navigation: a top-up has no onboarding wizard to open,
+          // so the user stays wherever they were.
+          notifyCheckoutSuccess(queryClient);
+          return;
+        }
+        // `billing_status=cancel` funnels into `BillingStatusHandler`, the
+        // single owner of the server-verified checkout-bonus offer flow,
+        // so the native cancel gets the identical treatment as the web one.
+        // `usageBilling` already carries `?tab=billing`, hence the `&`.
+        navigateRef.current(
+          `${routes.settings.usageBilling}&billing_status=cancel`,
+        );
+        return;
+      }
       navigateRef.current(
         status === "success"
           ? routes.settings.usageBillingCheckout(sessionId)

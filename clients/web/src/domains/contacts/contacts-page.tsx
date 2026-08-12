@@ -9,6 +9,8 @@ import {
   MobileSidebarTrigger,
 } from "@/components/mobile-sidebar-drawer";
 import { isVerifiedContactChannel } from "@/domains/contacts/channel-linking";
+import { channelTypeLabel } from "@/domains/contacts/channel-type-labels";
+import { DRAFT_CONTACT_NAME } from "@/domains/contacts/draft-contact";
 import { AssistantChannelsDetail } from "@/domains/contacts/components/assistant-channels-detail";
 import { ContactDetailView } from "@/domains/contacts/components/contact-detail-view";
 import { ContactMergeDialog } from "@/domains/contacts/components/contact-merge-dialog";
@@ -39,6 +41,7 @@ import {
 } from "@/generated/daemon/@tanstack/react-query.gen";
 import { channelsAvailableGet } from "@/generated/daemon/sdk.gen";
 import type { ChannelsAvailableGetResponse } from "@/generated/daemon/types.gen";
+import { useTranslation } from "@/i18n";
 import { assistantDisplayName } from "@/utils/assistant-display-name";
 import { useAssistantChannels } from "@/hooks/use-assistant-channels";
 import { useInviteLinkDialog } from "@/hooks/use-invite-link-dialog";
@@ -109,6 +112,7 @@ export function ContactsPage({
   assistantId,
   onStartSetupConversation,
 }: ContactsPageProps) {
+  const { t } = useTranslation("contacts");
   const a2aChannel = useAssistantFeatureFlagStore.use.a2aChannel();
   const identityName = useAssistantIdentityStore.use.name();
   const queryClient = useQueryClient();
@@ -227,7 +231,7 @@ export function ContactsPage({
 
   const createMutation = useMutation({
     mutationFn: () =>
-      upsertContact(assistantId, { displayName: "New Contact" }),
+      upsertContact(assistantId, { displayName: DRAFT_CONTACT_NAME }),
     onMutate: async () => {
       await queryClient.cancelQueries({ queryKey: contactsQueryKey });
     },
@@ -237,7 +241,7 @@ export function ContactsPage({
       );
       setSelection({ kind: "contact", contactId: contact.id });
     },
-    onError: toastOnError("Failed to create contact"),
+    onError: toastOnError(t("contactsPage.createFailed")),
     onSettled: () => invalidateContacts(),
   });
 
@@ -255,7 +259,7 @@ export function ContactsPage({
       );
       setSelection({ kind: "assistant" });
     },
-    onError: toastOnError("Failed to delete contact"),
+    onError: toastOnError(t("contactsPage.deleteFailed")),
     onSettled: () => invalidateContacts(),
   });
 
@@ -284,7 +288,7 @@ export function ContactsPage({
           : undefined,
       );
     },
-    onError: toastOnError("Failed to save contact"),
+    onError: toastOnError(t("contactsPage.saveFailed")),
     onSettled: () => invalidateContacts(),
   });
 
@@ -309,7 +313,7 @@ export function ContactsPage({
         setSelection({ kind: "contact", contactId: mergedContact.id });
       }
       setMergeDialogOpen(false);
-      toast.success("Contacts merged");
+      toast.success(t("contactsPage.mergeSucceeded"));
     },
     onSettled: () => invalidateContacts(),
   });
@@ -392,7 +396,7 @@ export function ContactsPage({
     mutationFn: (args: { channelId: string }) =>
       verifyContactChannel(assistantId, args.channelId),
     onSuccess: () => invalidateContacts(),
-    onError: toastOnError("Failed to verify channel"),
+    onError: toastOnError(t("contactsPage.verifyFailed")),
   });
 
   const handleVerifyChannel = useCallback(
@@ -517,7 +521,7 @@ export function ContactsPage({
       <MobileSidebarDrawer
         open={drawerOpen}
         onClose={() => setDrawerOpen(false)}
-        title="Contacts"
+        title={t("contactsPage.title")}
       >
         <ContactsList {...contactsListProps} onSelect={handleSelect} />
       </MobileSidebarDrawer>
@@ -606,7 +610,7 @@ export function ContactsPage({
             mergeMutation.error instanceof Error
               ? mergeMutation.error.message
               : mergeMutation.error
-                ? "Failed to merge contacts"
+                ? t("contactsPage.mergeFailed")
                 : null
           }
           onMerge={(donorId) =>
@@ -624,13 +628,13 @@ export function ContactsPage({
 
       <LinkAccountDialog
         open={slackLink.dialogOpen}
-        channelLabel="Slack"
+        channelLabel={channelTypeLabel("slack")}
         contactName={selectedContact?.displayName ?? ""}
         accounts={slackRosterQuery.data}
         loading={slackRosterQuery.isLoading}
         errorMessage={
           slackRosterQuery.isError
-            ? "Couldn’t load the workspace roster. Check the Slack connection and try again."
+            ? t("contactsPage.rosterLoadFailed")
             : slackLink.linkErrorMessage
         }
         pendingAccountId={slackLink.pendingAccountId}
@@ -656,26 +660,19 @@ export function ContactsPage({
 }
 
 function ContactsEmptyState() {
+  const { t } = useTranslation("contacts");
+
   return (
     <div className="flex h-full items-center justify-center py-16">
       <p
         className="text-body-medium-lighter"
         style={{ color: "var(--content-tertiary)" }}
       >
-        Select a contact
+        {t("contactsPage.emptyBody")}
       </p>
     </div>
   );
 }
-
-const CHANNEL_TYPE_LABEL: Record<string, string> = {
-  slack: "Slack",
-  telegram: "Telegram",
-  phone: "Phone",
-  email: "Email",
-  whatsapp: "WhatsApp",
-  a2a: "A2A",
-};
 
 /**
  * A contact reads as verified when any non-revoked channel is verified, or is
@@ -707,7 +704,7 @@ function channelTypeLabels(
       continue;
     }
     seen.add(key);
-    labels.push(CHANNEL_TYPE_LABEL[key] ?? ch.type);
+    labels.push(channelTypeLabel(key));
   }
   return labels;
 }

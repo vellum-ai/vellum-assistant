@@ -61,6 +61,7 @@ import { routes } from "@/utils/routes";
 import { pairedHostLabel } from "@vellumai/local-mode/contract";
 import { Button } from "@vellumai/design-library/components/button";
 import { Menu } from "@vellumai/design-library/components/menu";
+import { useTranslation } from "@/i18n";
 
 function assistantLabel(a: ResolvedAssistant): string {
   if (a.name) {
@@ -126,6 +127,7 @@ function withoutRegisterParams(params: URLSearchParams): URLSearchParams {
 }
 
 export function SelectAssistantScreen() {
+  const { t } = useTranslation("onboarding");
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const fromLogin = searchParams.get("fromLogin") === "1";
@@ -688,7 +690,7 @@ export function SelectAssistantScreen() {
             animation: "fadeInUp 0.5s ease-out 0.1s both",
           }}
         >
-          Choose an Assistant
+          {t("selectAssistantScreen.title")}
         </h1>
 
         {displayError && (
@@ -699,7 +701,7 @@ export function SelectAssistantScreen() {
 
         <div
           role="radiogroup"
-          aria-label="Assistants"
+          aria-label={t("selectAssistantScreen.listAriaLabel")}
           onKeyDown={handleRadioCardArrowNav}
           className={`flex w-full flex-col ${electron ? "mt-8 gap-2" : "mt-10 gap-3"}`}
           style={{ animation: "fadeInUp 0.5s ease-out 0.3s both" }}
@@ -722,7 +724,9 @@ export function SelectAssistantScreen() {
                     setSelected(assistant.id);
                   }
                 }}
-                loginLabel={loginLoading ? "Cancel" : "Log in to use"}
+                loginLabel={
+                  loginLoading ? t("actions.cancel") : t("actions.loginToUse")
+                }
                 loginDisabled={connecting}
                 onLogin={
                   !accessible && assistant.isPlatformHosted
@@ -787,7 +791,7 @@ export function SelectAssistantScreen() {
           {localClient && (
             <DashedActionButton
               icon={<Plus className="h-4 w-4" />}
-              label="Create a new assistant"
+              label={t("selectAssistantScreen.createNew")}
               disabled={connecting || loginLoading}
               onClick={() =>
                 void navigate(
@@ -799,7 +803,7 @@ export function SelectAssistantScreen() {
           {localModeHostAvailable && (
             <DashedActionButton
               icon={<Link2 className="h-4 w-4" />}
-              label="Connect a remote assistant"
+              label={t("selectAssistantScreen.connectRemote")}
               disabled={connecting || loginLoading}
               onClick={() =>
                 useConnectDialogStore.getState().openConnectDialog()
@@ -812,7 +816,7 @@ export function SelectAssistantScreen() {
           {assistantSwitcher && !localModeHostAvailable && (
             <DashedActionButton
               icon={<Globe className="h-4 w-4" />}
-              label="Add a remote assistant"
+              label={t("selectAssistantScreen.addRemote")}
               disabled={connecting || loginLoading}
               onClick={() => setAddOriginOpen(true)}
             />
@@ -832,7 +836,7 @@ export function SelectAssistantScreen() {
               onClick={onContinue}
               disabled={!selected || connecting}
             >
-              {connecting ? "Connecting…" : "Continue"}
+              {connecting ? t("actions.connecting") : t("actions.continue")}
             </Button>
           </div>
         )}
@@ -847,7 +851,7 @@ export function SelectAssistantScreen() {
             onClick={onBack}
             disabled={connecting || loginLoading}
           >
-            Back
+            {t("actions.back")}
           </Button>
         </div>
         </div>
@@ -879,7 +883,9 @@ export function SelectAssistantScreen() {
         open={removeTarget != null}
         kind={removeTarget?.isPaired ? "paired" : "platform"}
         assistantName={
-          removeTarget ? assistantLabel(removeTarget) : "the assistant"
+          removeTarget
+            ? assistantLabel(removeTarget)
+            : t("selectAssistantScreen.unnamedAssistant")
         }
         errorMessage={removeError ?? undefined}
         isPending={removePending}
@@ -890,7 +896,9 @@ export function SelectAssistantScreen() {
         open={removeOriginTarget != null}
         kind="origin"
         assistantName={
-          removeOriginTarget ? originLabel(removeOriginTarget) : "the assistant"
+          removeOriginTarget
+            ? originLabel(removeOriginTarget)
+            : t("selectAssistantScreen.unnamedAssistant")
         }
         errorMessage={removeOriginError ?? undefined}
         isPending={removeOriginPending}
@@ -903,11 +911,12 @@ export function SelectAssistantScreen() {
 
 /** Full-screen "Connecting…" hold shown while a decision or connect lands. */
 function ConnectingHold() {
+  const { t } = useTranslation("onboarding");
   return (
     <OnboardingLayout showAvatarWave>
       <div className="mx-auto flex min-h-screen w-full max-w-xl flex-col items-center justify-center px-6 text-[var(--content-default)]">
         <p className="text-body-medium-lighter text-[var(--content-tertiary)]">
-          Connecting to your assistant…
+          {t("selectAssistantScreen.connectingToAssistant")}
         </p>
       </div>
     </OnboardingLayout>
@@ -960,6 +969,7 @@ function RemoveCardMenu({
   label: string;
   onRemove: () => void;
 }) {
+  const { t } = useTranslation("onboarding");
   return (
     <Menu.Root>
       <Menu.Trigger asChild>
@@ -968,7 +978,9 @@ function RemoveCardMenu({
           size="regular"
           className="text-[var(--content-tertiary)]"
           iconOnly={<EllipsisVertical />}
-          aria-label={`Actions for ${label}`}
+          aria-label={t("selectAssistantScreen.rowActionsAriaLabel", {
+            name: label,
+          })}
         />
       </Menu.Trigger>
       <Menu.Content align="end" sideOffset={4}>
@@ -976,7 +988,7 @@ function RemoveCardMenu({
           onSelect={onRemove}
           className="text-[var(--system-negative-strong)] data-[highlighted]:text-[var(--system-negative-strong)]"
         >
-          Remove from this device…
+          {t("selectAssistantScreen.removeFromDevice")}
         </Menu.Item>
       </Menu.Content>
     </Menu.Root>

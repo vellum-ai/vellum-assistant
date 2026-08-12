@@ -24,7 +24,11 @@ import { useEffect, useMemo, useRef, useState } from "react";
 
 import { Check, Square, Volume2 } from "lucide-react";
 
-import { cn } from "@vellumai/design-library";
+import {
+  cn,
+  hoverRevealClasses,
+  hoverRevealYieldClasses,
+} from "@vellumai/design-library";
 import { Button } from "@vellumai/design-library/components/button";
 import { Select } from "@vellumai/design-library/components/select";
 
@@ -276,9 +280,7 @@ export function VoiceList({
                         }
                         className={cn(
                           "absolute inset-0 transition-opacity",
-                          isPreviewing
-                            ? "opacity-100"
-                            : "opacity-0 group-hover:opacity-100 focus-visible:opacity-100 touch-mobile:opacity-100",
+                          isPreviewing ? "opacity-100" : hoverRevealClasses,
                         )}
                         // Preview / stop only — don't let the row's select fire.
                         onClick={(event) => {
@@ -295,13 +297,13 @@ export function VoiceList({
                       <Check
                         aria-hidden
                         className={cn(
-                          "pointer-events-none size-4 text-[var(--system-positive-strong)] transition-opacity",
-                          // Hide the check whenever the speaker is showing (hover
-                          // /focus or previewing), so they never stack.
+                          "pointer-events-none size-4 text-[var(--system-positive-strong)]",
+                          // The check yields the slot whenever the speaker is
+                          // showing, so they never stack.
                           isPreviewing
-                            ? "opacity-0"
+                            ? "opacity-0 transition-opacity"
                             : voice.sampleUrl !== ""
-                              ? "opacity-100 group-hover:opacity-0 group-focus-within:opacity-0"
+                              ? hoverRevealYieldClasses
                               : "opacity-100",
                         )}
                       />

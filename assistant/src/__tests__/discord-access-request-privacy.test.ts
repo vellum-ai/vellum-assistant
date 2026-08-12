@@ -342,7 +342,11 @@ describe("Discord access-request decisions stay out of the guild channel", () =>
   test("no Discord delivery is ever addressed to the originating conversation", async () => {
     // The umbrella invariant, swept across every decision this resolver takes,
     // so a newly added action cannot quietly reintroduce the leak.
-    for (const action of ["verify_code", "block", "leave_unverified"] as const) {
+    for (const action of [
+      "verify_code",
+      "block",
+      "leave_unverified",
+    ] as const) {
       resetState();
       const req = makeDiscordAccessRequest();
 

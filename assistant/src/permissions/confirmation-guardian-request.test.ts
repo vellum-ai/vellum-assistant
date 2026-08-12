@@ -19,17 +19,19 @@ mock.module("../util/logger.js", () => ({
 }));
 
 mock.module("../daemon/conversation-registry.js", () => ({
-  findConversation: () => ({
-    assistantId: "self",
-    trustContext: {
-      sourceChannel: "telegram",
-      requesterExternalUserId: "tg-user-1",
-      requesterChatId: "tg-chat-1",
-      guardianExternalUserId: "tg-guardian-1",
-      guardianPrincipalId: "principal-1",
-    },
-    hasPendingConfirmation: () => confirmationPending,
-  }),
+  findConversation: () =>
+    asConversation({
+      assistantId: "self",
+      trustContext: {
+        trustClass: "trusted_contact",
+        sourceChannel: "telegram",
+        requesterExternalUserId: "tg-user-1",
+        requesterChatId: "tg-chat-1",
+        guardianExternalUserId: "tg-guardian-1",
+        guardianPrincipalId: "principal-1",
+      } satisfies TrustContext,
+      hasPendingConfirmation: () => confirmationPending,
+    }),
 }));
 
 mock.module("../channels/gateway-guardian-requests.js", () => ({
@@ -50,7 +52,9 @@ mock.module("../runtime/confirmation-request-guardian-bridge.js", () => ({
   },
 }));
 
+import { asConversation } from "../__tests__/helpers/mock-conversation.js";
 import type { AssistantEvent } from "../api/index.js";
+import type { TrustContext } from "../daemon/trust-context-types.js";
 import { createGuardianRequestForConfirmation } from "./confirmation-guardian-request.js";
 
 const MSG = {

@@ -2489,6 +2489,54 @@ export class Conversation {
   }
 
   /**
+   * Trust the in-flight turn is executing under.
+   *
+   * Use this for authorization and for routing a reply to the requester:
+   * cases where substituting the conversation's owner would be wrong rather
+   * than approximate. Provenance is not such a case; see
+   * {@link getTurnOrRestingTrust} and `docs/architecture/turn-actor.md`.
+   *
+   * `undefined` when no turn recorded one, which is a gap in the entry point
+   * rather than an answer. Deliberately does not fall back to the
+   * conversation's trust: a caller that can accept the conversation's owner
+   * instead spells `?? getTrustContext()`, so the substitution is visible
+   * where it happens.
+   */
+  getTurnTrust(): TrustContext | undefined {
+    return this.currentTurnTrustContext;
+  }
+
+  /**
+   * Trust of the actor the conversation belongs to, independent of any turn.
+   *
+   * Use this where there is no turn to speak of: routes reporting on a
+   * conversation, hydration, and persisting conversation-level options. A
+   * caller that wants the conversation's owner *rather than* whoever is
+   * currently acting should be obviously doing so; if it is not obvious,
+   * {@link getTurnTrust} is probably the one meant.
+   */
+  getTrustContext(): TrustContext | undefined {
+    return this.trustContext;
+  }
+
+  /**
+   * Trust of the in-flight turn, or the conversation's owner when the turn
+   * recorded none. The substitution is in the name: callers that can accept
+   * the owner as a stand-in ask this, including provenance stamping, whose
+   * readers treat an absent trust class as more trusted than `"unknown"`.
+   * Callers for which the owner would be wrong rather than approximate call
+   * {@link getTurnTrust} and handle `undefined`.
+   *
+   * The fallback half is load-bearing, not transitional politeness: a
+   * deferred wake fires with no inbound actor, and refusing it an answer
+   * denies every sensitive tool in the resumed turn (LUM-2929). It becomes
+   * removable in one place when every entry point records a turn actor.
+   */
+  getTurnOrRestingTrust(): TrustContext | undefined {
+    return this.currentTurnTrustContext ?? this.trustContext;
+  }
+
+  /**
    * The actor principal that owns the current turn, for host-proxy routing.
    * Prefers the in-flight turn's actor over the conversation's resting
    * authContext so a /v1/messages turn (which sets only

@@ -75,9 +75,8 @@ const connection: ProviderConnection = {
 
 const { configGetQueryKey, inferenceProviderconnectionsGetQueryKey } =
   await import("@/generated/daemon/@tanstack/react-query.gen");
-const { ProfileDetailPanel } = await import(
-  "@/domains/settings/ai/profile-detail-panel"
-);
+const { ProfileDetailPanel } =
+  await import("@/domains/settings/ai/profile-detail-panel");
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -100,7 +99,10 @@ function Wrapper({ children }: { children: ReactNode }) {
   return createElement(QueryClientProvider, { client }, children);
 }
 
-function renderPanel(profileName: string | null, onClose: () => void = () => {}) {
+function renderPanel(
+  profileName: string | null,
+  onClose: () => void = () => {},
+) {
   return render(
     <Wrapper>
       <ProfileDetailPanel
@@ -174,14 +176,23 @@ function selectModel(label: string): void {
   throw new Error(`expected a Model dropdown offering "${label}"`);
 }
 
-beforeEach(() => {
+beforeEach(async () => {
   toastSuccessCalls = [];
   configPatchBodies = [];
   profilesState = {};
+  // Seed a hydrated version: the save path awaits
+  // whenAssistantVersionKnown(), and an unhydrated store would stall each
+  // save until that helper's timeout.
+  const { useAssistantIdentityStore } =
+    await import("@/stores/assistant-identity-store");
+  useAssistantIdentityStore.getState().setIdentity("test-asst", "0.11.3");
 });
 
-afterEach(() => {
+afterEach(async () => {
   cleanup();
+  const { useAssistantIdentityStore } =
+    await import("@/stores/assistant-identity-store");
+  useAssistantIdentityStore.getState().clearIdentity();
 });
 
 // ---------------------------------------------------------------------------

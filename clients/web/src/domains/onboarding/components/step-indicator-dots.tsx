@@ -1,3 +1,5 @@
+import { useTranslation } from "@/i18n";
+
 interface StepIndicatorDotsProps {
   current: number;
   total: number;
@@ -15,11 +17,15 @@ export function StepIndicatorDots({
   total,
   color,
 }: StepIndicatorDotsProps) {
+  const { t } = useTranslation("onboarding");
   return (
     <div
       className="flex items-center gap-1.5"
       role="group"
-      aria-label={`Step ${current + 1} of ${total}`}
+      aria-label={t("stepIndicator.ariaLabel", {
+        current: current + 1,
+        total,
+      })}
     >
       {Array.from({ length: total }, (_, i) => (
         <div

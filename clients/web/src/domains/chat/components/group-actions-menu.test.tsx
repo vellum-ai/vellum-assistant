@@ -14,7 +14,7 @@ import { createElement } from "react";
 let mockIsTouchMobile = false;
 mock.module("@/hooks/use-touch-mobile", () => ({
   useTouchMobile: () => mockIsTouchMobile,
-  TOUCH_MOBILE_MEDIA_QUERY: "(max-width: 767px) and (pointer: coarse)",
+  TOUCH_MOBILE_MEDIA_QUERY: "(width < 48rem) and (pointer: coarse)",
 }));
 
 import {

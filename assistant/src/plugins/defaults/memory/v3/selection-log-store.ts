@@ -97,6 +97,8 @@ function forkSourceIdsOf(messageIds: string[]): string[] {
     .query(
       /*sql*/ `
       SELECT json_extract(metadata, '$.forkSourceMessageId') AS src
+      -- No completeness predicate: ids come from this store's own selection
+      -- log, written for rows the injection pipeline already processed.
       FROM messages
       WHERE id IN (${placeholders})
     `,

@@ -33,9 +33,9 @@ Write and edit long-form documents using the built-in rich text editor. Document
 
 This is the default path when the user asks you to write something.
 
-1. **Create the document**: Call `document_create` with a title (inferred from the request). Call the tool immediately, not after conversational preamble.
+1. **Create the document**: Call `document_create` with a title (inferred from the request). Call the tool immediately, not after conversational preamble. Anything you pass as `initial_content` is saved right then, so the first `document_update` must start with the next chunk rather than repeating it.
 2. **Write content in Markdown**: Use proper structure (`#` for titles, `##` for sections), **bold**, _italic_, code blocks, tables, lists, blockquotes as appropriate.
-3. **CRITICAL - Stream content in chunks**: Call `document_update` MULTIPLE times, not just once. Break content into logical chunks (paragraphs, sections, or every 200-300 words). Call `document_update` with `mode: "append"` for EACH chunk separately. When you are streaming into the document you just created, `surface_id` is optional — omit it and pass only `content`, and the update targets that document. The user experiences real-time content appearing as you write.
+3. **CRITICAL - Stream content in chunks**: Call `document_update` MULTIPLE times, not just once. Break content into logical chunks (paragraphs, sections, or every 200-300 words). Call `document_update` with `mode: "append"` for EACH chunk separately. Each append carries ONLY that chunk: content already in the document is committed, and resending it would print it twice. When you are streaming into the document you just created, `surface_id` is optional: omit it and pass only `content`, and the update targets that document. The user experiences real-time content appearing as you write.
 
 ### Recovering from a failed update
 

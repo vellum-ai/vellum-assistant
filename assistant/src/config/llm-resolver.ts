@@ -77,6 +77,15 @@ import {
 export interface ResolveCallSiteOpts {
   overrideProfile?: string;
   /**
+   * Whether a profile's provider value can actually dispatch: a known
+   * vendor, or a connection entry row. Selection is pure and DB-blind, so
+   * dispatch-side callers supply this (see `dispatchProviderResolvable` in
+   * `connection-resolution.ts`); a profile failing it is unusable and
+   * selection falls through to the next rung, keeping model and transport
+   * coherent. When absent, every provider is assumed resolvable.
+   */
+  isResolvableProvider?: (provider: string) => boolean;
+  /**
    * Float `overrideProfile` above the call-site layers for non-main-agent call
    * sites. Retained for API compatibility; under single-winner selection the
    * override already sits at the top of the chain, so this is effectively a
@@ -112,7 +121,11 @@ export interface ResolveCallSiteOpts {
   }) => void;
 }
 
-export type ResolutionFallbackReason = "missing" | "disabled" | "incomplete";
+export type ResolutionFallbackReason =
+  | "missing"
+  | "disabled"
+  | "incomplete"
+  | "unresolvable";
 
 export interface ResolvedCallSiteConfig {
   config: z.infer<typeof LLMConfigBase>;
@@ -311,6 +324,20 @@ function usableEntry(
   }
   if (entry.provider == null || entry.model == null) {
     report(name, "incomplete");
+    return undefined;
+  }
+  // A provider the caller cannot resolve (not a known vendor, not an entry
+  // row) makes the profile unusable, and selection falls through to the
+  // next rung the same way an incomplete profile does: the fallback keeps
+  // model and transport coherent, where a dispatch-time fallback would pair
+  // this profile's model with the default transport. Selection is DB-blind,
+  // so the predicate is supplied by dispatch-side callers; when absent,
+  // every provider is assumed resolvable.
+  if (
+    opts.isResolvableProvider != null &&
+    !opts.isResolvableProvider(entry.provider)
+  ) {
+    report(name, "unresolvable");
     return undefined;
   }
   return { name, entry };

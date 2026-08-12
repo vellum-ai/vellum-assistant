@@ -8,6 +8,7 @@ const meta: Meta<typeof ProgressBar> = {
   argTypes: {
     value: { control: { type: "range", min: 0, max: 1, step: 0.01 } },
     height: { control: { type: "number", min: 2, max: 24 } },
+    fillColor: { control: { type: "text" } },
   },
   decorators: [
     (Story) => (
@@ -36,6 +37,20 @@ export const Full: Story = {
 
 export const CustomHeight: Story = {
   args: { value: 0.45, height: 12, "aria-label": "Thick progress bar" },
+};
+
+/**
+ * A threshold gauge, where colour carries meaning that length alone does not.
+ * `fillColor` tints the fill; the track is styled with `className`.
+ */
+export const Tinted: Story = {
+  args: {
+    value: 0.88,
+    height: 16,
+    fillColor: "var(--system-negative-strong)",
+    className: "bg-[color-mix(in_srgb,var(--content-tertiary)_20%,transparent)]",
+    "aria-label": "Context window 88% full",
+  },
 };
 
 export const Increments: Story = {

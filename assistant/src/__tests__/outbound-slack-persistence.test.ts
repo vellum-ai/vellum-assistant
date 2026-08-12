@@ -103,7 +103,10 @@ mock.module("../persistence/conversation-crud.js", () => ({
   },
   // The handler treats provenance as a flat spread; returning {} keeps the
   // metadata snapshot focused on the fields under test.
-  provenanceFromTrustContext: () => ({}),
+  // Mirrors the real mapping so provenance assertions observe what production
+  // stamps rather than a placeholder.
+  provenanceFromTrustContext: (ctx?: { trustClass?: string }) =>
+    ctx ? { provenanceTrustClass: ctx.trustClass } : {},
   reserveMessage: mock(
     async (
       conversationId: string,
@@ -187,6 +190,8 @@ function makeDeps(
     requesterTimezoneLabel?: string;
     clientTimezone?: string;
     sourceThreadId?: string;
+    /** Turn-local trust; when set, the live slot below diverges from it. */
+    currentTurnTrustContext?: Record<string, unknown>;
   } = {},
 ): EventHandlerDeps {
   const assistantMessageChannel = overrides.assistantMessageChannel ?? "slack";
@@ -195,6 +200,7 @@ function makeDeps(
       conversationId,
       provider: { name: "anthropic" },
       currentTurnSurfaces: [],
+      currentTurnTrustContext: overrides.currentTurnTrustContext,
       trustContext: {
         sourceChannel: assistantMessageChannel,
         trustClass: "guardian",
@@ -437,6 +443,39 @@ describe("outbound assistant Slack metadata persistence", () => {
     expect(slackMeta.threadTs).toBeUndefined();
     // channelTs is still absent for the same persistence-vs-send reason.
     expect(slackMeta.channelTs).toBeUndefined();
+  });
+
+  test("envelope resolves from the turn's actor when the slot has moved", async () => {
+    // Provenance class and Slack routing must come from ONE actor: the turn's.
+    // A queued Slack turn runs while the guardian has since written the live
+    // slot; the assistant row must carry the sender's class AND the sender's
+    // channel/thread, not a mixed envelope.
+    const conversationId = "conv-slack-moved-slot";
+    const deps = makeDeps(conversationId, {
+      assistantMessageChannel: "slack",
+      // Live slot: the guardian, on a different chat, no thread.
+      requesterChatId: "C-GUARDIAN",
+      currentTurnTrustContext: {
+        sourceChannel: "slack",
+        trustClass: "trusted_contact",
+        requesterChatId: "C-CONTACT",
+        sourceThreadId: "1723300000.000100",
+      },
+    });
+    await handleLlmCallStarted(state, deps);
+    await handleMessageComplete(
+      state,
+      deps,
+      makeMessageCompleteEvent("reply to the contact"),
+    );
+
+    const persisted = lastAssistantPersisted();
+    expect(persisted.metadata?.provenanceTrustClass).toBe("trusted_contact");
+    const slackMeta = JSON.parse(
+      persisted.metadata?.slackMeta as string,
+    ) as Record<string, unknown>;
+    expect(slackMeta.channelId).toBe("C-CONTACT");
+    expect(slackMeta.threadTs).toBe("1723300000.000100");
   });
 
   test("ignores a non-ts sourceThreadId", async () => {

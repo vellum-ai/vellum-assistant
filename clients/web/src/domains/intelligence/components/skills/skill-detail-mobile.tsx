@@ -24,8 +24,8 @@ import {
 } from "@/hooks/use-skill-detail-files";
 import { isRemovableSkill } from "@/utils/skills";
 import { Button, Card, Menu, SegmentControl } from "@vellumai/design-library";
+import { SkillIcon } from "@/components/skill-icon";
 import { SkillFileContent } from "./skill-file-content";
-import { SkillIcon } from "./skill-icon";
 import { SkillOriginBadge } from "./skill-origin-badge";
 
 interface SkillDetailMobileProps {

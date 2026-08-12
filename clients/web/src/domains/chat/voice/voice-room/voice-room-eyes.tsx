@@ -48,7 +48,7 @@
  * Everything here is sized against the box it is given, not the window. The
  * room is an inset panel on desktop (see `voice-room.tsx`), so "the screen" the
  * avatar grows to BE is the panel; the room measures itself and passes that
- * box, and Storybook passes its frame. `useViewportSize` remains only as the
+ * box, and Storybook passes its frame. `useLayoutViewportSize` remains only as the
  * fallback for callers that render at full-viewport scale.
  */
 
@@ -60,6 +60,7 @@ import {
   useReducedMotion,
 } from "motion/react";
 
+import { useLayoutViewportSize } from "@/hooks/use-element-size";
 import { pathBBox, unionBBox, type BBox } from "@/utils/eye-bbox";
 import type { CharacterComponents, CharacterTraits } from "@/types/avatar";
 
@@ -301,25 +302,6 @@ function eyeDisplayHeight(art: VoiceRoomEyeArt, w: number, h: number): number {
   );
 }
 
-function windowSize(): { w: number; h: number } {
-  return { w: window.innerWidth, h: window.innerHeight };
-}
-
-/**
- * The window box, kept live on resize. The fallback for callers that render at
- * full-viewport scale. The room itself measures its own panel and passes it in
- * as `viewport`; see `use-room-box.ts`.
- */
-function useViewportSize(): { w: number; h: number } {
-  const [size, setSize] = useState(windowSize);
-  useEffect(() => {
-    const onResize = () => setSize(windowSize());
-    window.addEventListener("resize", onResize);
-    return () => window.removeEventListener("resize", onResize);
-  }, []);
-  return size;
-}
-
 /**
  * The full color look: dark base, screen-covering body grow, color fade,
  * listening waves, peeking eyes. Mount = session start (the room only mounts
@@ -375,7 +357,7 @@ export function VoiceRoomColorLook({
   viewport?: { w: number; h: number };
 }) {
   const reduce = useReducedMotion();
-  const measured = useViewportSize();
+  const measured = useLayoutViewportSize();
   const { w, h } = viewport ?? measured;
   const entrance = withReducedMotion(requestedEntrance, reduce === true);
 
@@ -976,7 +958,7 @@ export function VoiceRespondingRings({
   /** The room box to size against; omitted, falls back to the window. */
   viewport?: { w: number; h: number };
 }) {
-  const measured = useViewportSize();
+  const measured = useLayoutViewportSize();
   return (
     <VoiceRespondingTreatment
       style="rings"

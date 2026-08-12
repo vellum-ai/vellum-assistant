@@ -222,6 +222,108 @@ export function classifyFrontDoorLeading(
 }
 
 /**
+ * Verdict-first gate over a front-door leg's delta stream: given the leg's
+ * raw deltas in order, it releases only the text the caller actually hears.
+ * A front-door leg's raw stream is a control plane, not assistant speech,
+ * until its leading tokens classify, so anything downstream of the model
+ * that shows text to a person reads the stream through this gate.
+ *
+ * `push` returns the text released by that delta (empty while the gate is
+ * holding). `finish` is called when the leg completes normally and releases
+ * a bridge that stopped short of a sentence terminator. A leg that is
+ * cancelled instead spoke nothing past what `push` already released, so it
+ * simply never calls `finish`.
+ */
+export interface FrontDoorStreamGate {
+  push(deltaText: string): string;
+  finish(): string;
+}
+
+/**
+ * Build a {@link FrontDoorStreamGate}. `holdEnabled` mirrors
+ * {@link classifyFrontDoorLeading}: true only for speculative (unified
+ * front-door) legs, whose decision rule is the only one that teaches the
+ * hold token.
+ *
+ * The three verdicts release differently, matching what the caller hears:
+ *
+ * - `hold`: the leg is discarded and its row deleted, so nothing is ever
+ *   released.
+ * - `escalate`: the only spoken text is the capped holding phrase, released
+ *   in one piece once the bridge is complete (exactly what
+ *   {@link capEscalationBridge} yields, so the released text, the audio, and
+ *   the persisted row agree). The verdict token and anything streamed past
+ *   the cap are dropped. A bridge shorter than
+ *   {@link MIN_SPOKEN_BRIDGE_CHARS} releases nothing at all: the session
+ *   substitutes an audio-only canned fallback for it, so there is no
+ *   displayed text for the gate to agree with.
+ * - `answer`: the leg's output IS the reply, so every delta passes through,
+ *   including the leading text held back while the verdict was pending.
+ */
+export function createFrontDoorStreamGate(
+  holdEnabled: boolean,
+): FrontDoorStreamGate {
+  let raw = "";
+  let stage: "deciding" | "answer" | "bridging" | "done" = "deciding";
+  let bridgeRaw = "";
+  let releasedChars = 0;
+
+  const releaseBridge = (): string => {
+    stage = "done";
+    const capped = capEscalationBridge(bridgeRaw);
+    // Below the spoken threshold the session throws the model's bridge away
+    // and plays a canned fallback that is audio-only, deleting the row rather
+    // than persisting a phrase the model never really produced (see
+    // `usesFallbackBridge` in `live-voice-session.ts`). Releasing the capped
+    // text here would put words on a subscriber's screen that the caller never
+    // heard, which is the same spoken/displayed divergence this gate exists to
+    // prevent.
+    return capped.length < MIN_SPOKEN_BRIDGE_CHARS ? "" : capped;
+  };
+
+  return {
+    push(deltaText: string): string {
+      raw += deltaText;
+      if (stage === "done") {
+        return "";
+      }
+      if (stage === "bridging") {
+        bridgeRaw += deltaText;
+        return isEscalationBridgeComplete(bridgeRaw) ? releaseBridge() : "";
+      }
+      if (stage === "deciding") {
+        const verdict = classifyFrontDoorLeading(raw.trimStart(), holdEnabled);
+        if (verdict === "pending") {
+          return "";
+        }
+        if (verdict === "hold") {
+          stage = "done";
+          return "";
+        }
+        if (verdict === "escalate") {
+          stage = "bridging";
+          bridgeRaw = raw.trimStart().slice(ESCALATE_VERDICT_TOKEN.length);
+          return isEscalationBridgeComplete(bridgeRaw) ? releaseBridge() : "";
+        }
+        stage = "answer";
+      }
+      // Answer stage: release everything not yet released, which on the
+      // transition includes the leading text the pending verdict held.
+      const chunk = raw.slice(releasedChars);
+      releasedChars = raw.length;
+      return chunk;
+    },
+    finish(): string {
+      if (stage === "bridging") {
+        return releaseBridge();
+      }
+      stage = "done";
+      return "";
+    },
+  };
+}
+
+/**
  * The escalated leg runs as its own voice turn. Rather than re-persist the
  * caller's utterance (it is already in history from the front-door leg), the
  * escalated leg is driven by this synthetic, echo-suppressed continuation

@@ -33,13 +33,12 @@ import { Brain, Plus } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { motion, useAnimationControls, useReducedMotion } from "motion/react";
 
-import type { CSSProperties } from "react";
-
 import {
   cn,
   PanelItem,
   panelItemWashStyle,
   SIDE_MENU_TILE_SIZE,
+  type CustomPropertyStyle,
 } from "@vellumai/design-library";
 
 import {
@@ -51,17 +50,6 @@ import { useInChatOnboardingStore } from "@/stores/in-chat-onboarding-store";
 import { eyeStyleBaseWidth } from "@/utils/assistant-eyes";
 import { contrastForeground } from "@/utils/avatar-tone";
 import { pathBBox, unionBBox } from "@/utils/eye-bbox";
-
-/**
- * Taller than the pills below it: this row is the assistant, not an entry in a
- * list, and at their shared height it reads as the first of several chips
- * rather than the thing they hang off. Height only, so the label stays on the
- * axis it shares with New Chat.
- *
- * One constant for both branches below, because an assistant with no character
- * avatar is still the assistant: colour is the only thing that differs.
- */
-const IDENTITY_PILL_CLASSES = "h-10";
 
 /** How far the collapsed rail's tile grows the eyes on a pulse. */
 const PULSE_SCALE = 1.35;
@@ -219,8 +207,17 @@ export function AssistantNavItem({
      it uses rather than a pill with its label dropped: a pill is sized by its
      content, so one keeping its label overflows the collapsed rail
      entirely. */
-  const newConversationTint =
-    !navTourActive && hex ? panelItemWashStyle(hex) : undefined;
+  const newConversationTint: CustomPropertyStyle | undefined =
+    !navTourActive && hex
+      ? {
+          ...panelItemWashStyle(hex),
+          // The plus glyph reads as the assistant's own accent, not the
+          // row's usual tertiary-gray icon: the row's other icons are
+          // decorative wayfinding, but this one's action is "start a chat
+          // with this assistant", so it wears the assistant's colour.
+          "--panel-item-icon-fg": hex,
+        }
+      : undefined;
   const newConversationRow = !showNewConversation ? null : collapsed ? (
     <button
       type="button"
@@ -243,11 +240,15 @@ export function AssistantNavItem({
     >
       {/* 14px, not the section headers' 12px - the plus glyph carries less
           ink than the pin/chat icons, so it needs the extra 2px to read at
-          the same weight beside them. */}
+          the same weight beside them. Color matches the expanded pill's
+          plus: the assistant's own accent via `--panel-item-icon-fg`
+          (spread into this button's style from `newConversationTint`
+          above), falling back to the usual tertiary gray with no
+          character avatar to draw a hue from. */}
       <Plus
         aria-hidden="true"
         className="h-3.5 w-3.5"
-        style={{ color: "var(--content-tertiary)" }}
+        style={{ color: "var(--panel-item-icon-fg, var(--content-tertiary))" }}
       />
     </button>
   ) : (
@@ -355,7 +356,6 @@ export function AssistantNavItem({
              difference between them. */
           <PanelItem
             shape="pill"
-            className={IDENTITY_PILL_CLASSES}
             icon={Brain}
             leadingSlot={avatarImage ?? undefined}
             label={label}
@@ -401,13 +401,13 @@ export function AssistantNavItem({
      `brightness-105`. While the tour owns the nav the colour drains away
      entirely: nothing is declared, so the pill falls back to its plain
      surface and the tour's flood is the only colour on screen. */
-  const tintStyle =
+  const tintStyle: CustomPropertyStyle | undefined =
     !navTourActive && hex
-      ? ({
+      ? {
           "--panel-item-bg": hex,
           "--panel-item-fg": fg,
           "--panel-item-hover": `color-mix(in srgb, #fff 8%, ${hex})`,
-        } as CSSProperties)
+        }
       : undefined;
 
   /* The eyes, holding still in the pill's leading slot: centred in the same
@@ -493,7 +493,6 @@ export function AssistantNavItem({
     <span style={tintStyle}>
       <PanelItem
         shape="pill"
-        className={IDENTITY_PILL_CLASSES}
         leadingSlot={eyesSlot}
         label={label}
         active={active}

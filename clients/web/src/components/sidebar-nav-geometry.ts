@@ -10,7 +10,7 @@
  */
 
 /** Horizontal row padding before the leading chip. */
-export const SIDEBAR_ROW_PADDING_X = 6;
+export const SIDEBAR_ROW_PADDING_X = 12;
 
 /**
  * Width of the leading icon slot. Icons of any size center inside it,
@@ -30,19 +30,15 @@ export const SIDEBAR_CHIP_GAP = 6;
 export const SIDEBAR_SECTION_INDENT = 0;
 
 /**
- * Tallest a single section's row list grows before it scrolls within itself.
- *
- * Without a cap, one busy section pushes every section under it off the
- * screen, and the user has to collapse it to reach anything else. About nine
- * desktop rows (30px each plus their 4px gap), which is enough to read a
- * section as a list rather than a preview while still leaving room for its
+ * Tallest a non-last section's row list grows before it scrolls within
+ * itself. Only the bottom-most section claims the sidebar's actual leftover
+ * space (see `isLast` on `ConversationRowList`) - flex-grow has no notion of
+ * "this section needs the room," so giving every open section a share
+ * stretched a two-row group into a mostly-empty box the same size as a busy
+ * one beside it. Every section above the last one gets this fixed cap
+ * instead: about nine desktop rows (30px each plus their 4px gap), enough to
+ * read as a list rather than a preview while still leaving room for its
  * neighbours.
- *
- * Applies only to a section with something under it to protect: the last
- * section runs to the bottom of the rail instead (`scrollParent`, see
- * `assistant-side-menu.tsx`). Capping it too is what left the rail's lower
- * half empty in 0.11.3, since Chats sits last and holds everything whenever
- * channel grouping is off.
  */
 export const SIDEBAR_SECTION_MAX_HEIGHT = 300;
 

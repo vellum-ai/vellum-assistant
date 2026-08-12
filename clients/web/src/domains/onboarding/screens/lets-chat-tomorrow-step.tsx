@@ -21,6 +21,7 @@ import { Loader2 } from "lucide-react";
 import { OnboardingTopBar } from "@/domains/onboarding/components/onboarding-top-bar";
 import { useGoogleCalendarConnect } from "@/domains/onboarding/hooks/use-google-calendar-connect";
 import { useOnboardingTone } from "@/domains/onboarding/onboarding-tone";
+import { useTranslation } from "@/i18n";
 
 interface LetsChatTomorrowStepProps {
   /** Hatched assistant id; null until the background hatch resolves. */
@@ -61,6 +62,7 @@ export function LetsChatTomorrowStep({
   onRetry,
   hatchError = null,
 }: LetsChatTomorrowStepProps) {
+  const { t } = useTranslation("onboarding");
   const tone = useOnboardingTone();
   const { handleConnect, oauthInProgress } = useGoogleCalendarConnect({
     assistantId: assistantId ?? "",
@@ -87,17 +89,17 @@ export function LetsChatTomorrowStep({
           style={{ fontFamily: "var(--font-serif)" }}
         >
           {waitingForAssistant
-            ? "Waking up"
+            ? t("letsChatTomorrowStep.wakingTitle")
             : missingCalendarScope
-              ? "Access not enabled"
-              : "Let me make this easy"}
+              ? t("letsChatTomorrowStep.missingScopeTitle")
+              : t("letsChatTomorrowStep.title")}
         </h1>
         <p className="text-[16px]" style={{ color: tone.fgMuted }}>
           {waitingForAssistant
-            ? "Your assistant is getting ready"
+            ? t("letsChatTomorrowStep.wakingBody")
             : missingCalendarScope
-              ? "Check the box next to the Google Calendar permission so I can book the check-in."
-              : "Connect your Google Calendar so I can find time to check in and start helping."}
+              ? t("letsChatTomorrowStep.missingScopeBody")
+              : t("letsChatTomorrowStep.body")}
         </p>
 
         <div className="mt-6 flex w-[234px] flex-col items-center gap-4">
@@ -114,17 +116,17 @@ export function LetsChatTomorrowStep({
             {waitingForAssistant ? (
               <>
                 <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
-                Starting assistant…
+                {t("letsChatTomorrowStep.startingAssistant")}
               </>
             ) : oauthInProgress ? (
               <>
                 <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
-                Waiting for authorization…
+                {t("letsChatTomorrowStep.waitingAuthorization")}
               </>
             ) : missingCalendarScope ? (
-              "Try again"
+              t("actions.tryAgain")
             ) : (
-              "Connect Calendar →"
+              t("letsChatTomorrowStep.connectCalendar")
             )}
           </button>
           {/* Skip sits directly under the connect button. Hidden while the
@@ -139,7 +141,7 @@ export function LetsChatTomorrowStep({
               className="cursor-pointer text-body-small-default transition-opacity hover:opacity-100 disabled:opacity-60"
               style={{ color: tone.fgMuted }}
             >
-              Skip for now
+              {t("actions.skipForNow")}
             </button>
           )}
         </div>

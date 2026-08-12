@@ -7,6 +7,8 @@ import {
 import type { Terminal as TerminalType, IDisposable } from "xterm";
 import "xterm/css/xterm.css";
 
+import { useTranslation } from "@/i18n";
+
 export interface TerminalDimensions {
   cols: number;
   rows: number;
@@ -27,6 +29,7 @@ export function TerminalConsole({
   readOnly = false,
   writeRef,
 }: TerminalConsoleProps) {
+  const { t } = useTranslation("terminal");
   const containerRef = useRef<HTMLDivElement | null>(null);
   const terminalRef = useRef<TerminalType | null>(null);
   const onDataRef = useRef(onData);
@@ -179,7 +182,7 @@ export function TerminalConsole({
       className={className}
       style={{ width: "100%", height: "100%", overflow: "hidden" }}
       role="region"
-      aria-label="Terminal console"
+      aria-label={t("terminalConsole.consoleAria")}
     />
   );
 }

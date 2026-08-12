@@ -143,6 +143,9 @@ async function handleExport({
         ? [eq(messages.conversationId, conversationId)]
         : [];
 
+      // Any-state export, deliberately: this is a diagnostic surface, and an
+      // in-flight row (finalized = 0, content a { ref } into the turn's delta
+      // file) is often exactly what a bug report needs to show.
       const messageRows = capRows(
         db
           .select()

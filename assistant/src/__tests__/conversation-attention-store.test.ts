@@ -832,3 +832,66 @@ describe("conversation-attention-store", () => {
     });
   });
 });
+
+describe("attention watermarks and streaming rows", () => {
+  test("state init from an upgraded database anchors on the latest finalized reply", () => {
+    clearTables();
+    ensureConversation("conv-1");
+    insertAssistantMessage("conv-1", "msg-done", 1_000);
+    getDb()
+      .insert(messages)
+      .values({
+        id: "msg-streaming",
+        conversationId: "conv-1",
+        role: "assistant",
+        content: "still being written",
+        createdAt: 2_000,
+        metadata: null,
+        finalized: 0,
+      })
+      .run();
+
+    // No attention row exists, so the seen signal initializes state from the
+    // messages table. The streaming row is newest but is not a reply yet;
+    // anchoring the watermark on it would classify the finished reply as
+    // already seen the moment it completes.
+    recordConversationSeenSignal({
+      conversationId: "conv-1",
+      sourceChannel: "vellum",
+      signalType: "macos_conversation_opened",
+      confidence: "explicit",
+      source: "desktop-client",
+    });
+
+    const state = getAttentionStateByConversationIds(["conv-1"]).get("conv-1")!;
+    expect(state.latestAssistantMessageId).toBe("msg-done");
+    expect(state.lastSeenAssistantMessageId).toBe("msg-done");
+  });
+});
+
+describe("markConversationUnread with only a streaming reply", () => {
+  test("reports no assistant message rather than rewinding onto the streaming row", () => {
+    clearTables();
+    ensureConversation("conv-1");
+    getDb()
+      .insert(messages)
+      .values({
+        id: "msg-streaming-only",
+        conversationId: "conv-1",
+        role: "assistant",
+        content: "still being written",
+        createdAt: 1_000,
+        metadata: null,
+        finalized: 0,
+      })
+      .run();
+
+    // The write-path projection anchors at the finalize seam
+    // (`reserveMessage` deliberately skips it), so attention state for this
+    // conversation says "no reply yet". The rewind fallback must agree with
+    // the projection rather than anchoring on the streaming row.
+    expect(() => markConversationUnread("conv-1")).toThrow(
+      /no assistant message/i,
+    );
+  });
+});

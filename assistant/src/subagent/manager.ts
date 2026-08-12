@@ -705,9 +705,7 @@ export class SubagentManager {
     // Inherit the parent's *turn* trust ahead of its conversation-level slot:
     // the slot holds whichever actor sent most recently, so a spawn during one
     // actor's turn would otherwise run under another's privileges.
-    const parentTurnTrust =
-      parentConversation?.currentTurnTrustContext ??
-      parentConversation?.trustContext;
+    const parentTurnTrust = parentConversation?.getTurnOrRestingTrust();
     if (config.trustContext) {
       conversation.setTrustContext({ ...config.trustContext });
     } else if (parentTurnTrust) {
