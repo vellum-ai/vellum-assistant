@@ -47,11 +47,17 @@ type ProbeTarget =
 
 function resolveProbeTarget(lockfilePaths: string[]): ProbeTarget {
   const result = getLockfileData(lockfilePaths);
-  if (!result.ok) return { kind: "unknown" };
+  if (!result.ok) {
+    return { kind: "unknown" };
+  }
   const { assistants, activeAssistant } = result.data;
-  if (!activeAssistant) return { kind: "unknown" };
+  if (!activeAssistant) {
+    return { kind: "unknown" };
+  }
   const entry = assistants.find((a) => a.assistantId === activeAssistant);
-  if (!entry) return { kind: "unknown" };
+  if (!entry) {
+    return { kind: "unknown" };
+  }
   // Cloud wins over resources: merges can leave a stale gatewayPort on a
   // non-local entry, and it must not be loopback-probed.
   if (!isLoopbackGatewayCloud(entry.cloud)) {
@@ -78,11 +84,15 @@ function resolveProbeTarget(lockfilePaths: string[]): ProbeTarget {
 }
 
 async function runProbeOnce(lockfilePaths: string[]): Promise<void> {
-  if (probing) return;
+  if (probing) {
+    return;
+  }
   probing = true;
   try {
     const target = resolveProbeTarget(lockfilePaths);
-    if (target.kind === "unknown") return;
+    if (target.kind === "unknown") {
+      return;
+    }
     if (target.kind === "non-local") {
       setBackendReachable(true);
       return;
@@ -119,7 +129,9 @@ function hasVisibleWindow(): boolean {
 }
 
 function startProbing(lockfilePaths: string[]): void {
-  if (probeTimer) return;
+  if (probeTimer) {
+    return;
+  }
   void runProbeOnce(lockfilePaths);
   probeTimer = setInterval(
     () => void runProbeOnce(lockfilePaths),
@@ -128,7 +140,9 @@ function startProbing(lockfilePaths: string[]): void {
 }
 
 function stopProbing(): void {
-  if (!probeTimer) return;
+  if (!probeTimer) {
+    return;
+  }
   clearInterval(probeTimer);
   probeTimer = null;
 }
@@ -144,11 +158,15 @@ export function installConnectivityProbe(
   powerMonitor.on("resume", () => startProbing(lockfilePaths));
 
   app.on("browser-window-focus", () => {
-    if (!probeTimer) startProbing(lockfilePaths);
+    if (!probeTimer) {
+      startProbing(lockfilePaths);
+    }
   });
 
   app.on("browser-window-blur", () => {
-    if (!hasVisibleWindow()) stopProbing();
+    if (!hasVisibleWindow()) {
+      stopProbing();
+    }
   });
 
   startProbing(lockfilePaths);

@@ -15,13 +15,13 @@ it serves a bundled `resources/web-dist` over a privileged `app://` protocol.
 - Sender-validated IPC seam (`packages/electron-desktop/src/ipc.ts`) with a
   Windows adapter in `src/main/ipc.client.ts` and a minimal bridge:
   `window.vellum.app` (version info, open website), `window.vellum.commands`,
-  `window.vellum.identity.setName`, and functional `mainWindow.ensureVisible` /
-  `mainWindow.setOnboarding`, plus the `__VELLUM_CONFIG__` /
-  `__VELLUM_FLAG_OVERRIDES__` globals. Namespaces the renderer dereferences
-  unguarded when `platform` is `"electron"` (`power`, `deepLinks`, `dock`,
-  `menu`, `localMode`) ship as documented no-op stubs; the rest are
-  feature-detected by the renderer's runtime wrappers and degrade to web
-  behavior until ported.
+  functional main-window controls, presence, connectivity, identity, avatar,
+  unread badge, and power-event capabilities, plus the `__VELLUM_CONFIG__` /
+  `__VELLUM_FLAG_OVERRIDES__` globals. Unavailable required capabilities ship
+  as documented no-op stubs; optional capabilities degrade to web behavior.
+- Notification-area tray with live assistant status, window recovery,
+  assistant and conversation actions, restart, and explicit quit. Unread and
+  attention state appear on the Windows taskbar.
 - Persisted main-window geometry and maximized state, load/show readiness,
   dynamic assistant titles, and frameless title-bar overlay controls.
 - Packaged static serving of the renderer from `src/main/index.ts`, with
@@ -56,9 +56,8 @@ use the existing POSIX archive process.
   `/_allauth/*`, `/accounts/*`) request forwarding. Packaged builds can't
   reach local gateways or the cloud platform until this lands; dev runs are
   unaffected because the Vite dev server proxies both.
-- Native auth / OAuth sign-in chain, deep links (`vellum://`), tray,
-  notifications, auto-update, CSP, hotkeys, local-mode IPC (hatch/wake/
-  retire), and device id.
+- Native auth / OAuth sign-in chain, notifications, auto-update, CSP, hotkeys,
+  local-mode IPC (hatch/wake/retire), and device id.
 
 ## Development
 
