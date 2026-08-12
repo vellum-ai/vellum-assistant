@@ -12,12 +12,11 @@
  */
 
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import { useEffect, useRef } from "react";
+import { useEffect } from "react";
 import { Button } from "@vellumai/design-library";
 
 import { StagedQuotesStrip } from "./staged-quotes-strip";
-import { ChatColumn } from "@/domains/chat/components/chat-column";
-import { ChatComposer } from "@/domains/chat/components/chat-composer/chat-composer";
+import { ChatFooterShell } from "@/domains/chat/components/chat-footer-fixtures";
 import { useQuoteReplyStore } from "@/domains/chat/quote-reply-store";
 
 const SAMPLE_QUOTES = [
@@ -63,49 +62,24 @@ function SeededStrip({ count }: { count: number }) {
   return <StagedQuotesStrip />;
 }
 
-/**
- * The composer the strip actually sits on. Every required prop is an input the
- * orchestrator hands down, so the real component mounts on story-supplied
- * callbacks; nothing here stands in for a value the app derives.
- */
-function StoryComposer() {
-  const inputRef = useRef<HTMLTextAreaElement | null>(null);
-  return (
-    <ChatComposer
-      placeholder="What would you like to do?"
-      onSubmit={(event) => event.preventDefault()}
-      inputRef={inputRef}
-      typingDisabled={false}
-      sendDisabled={false}
-      onAddAttachmentFiles={() => {}}
-      onStopGenerating={() => {}}
-      isAssistantBusy={false}
-      assistantId={null}
-    />
-  );
-}
-
 const meta: Meta<typeof StagedQuotesStrip> = {
   title: "Chat/StagedQuotesStrip",
   parameters: { layout: "fullscreen", controls: { disable: true } },
   decorators: [
-    /* The real `ChatColumn` with the composer stack's own vertical padding,
-       inside a bottom-anchored body: the same arrangement `chat-body` builds
-       around the strip. Imported rather than mirrored, so a change to the
-       column reaches this story on its own. */
+    /* The real footer stack: `ChatColumn` on the real `ChatComposer`, inside a
+       bottom-anchored body, the same arrangement `chat-body` builds around the
+       strip. Shared with the quote-reply-bubble story, which has its own
+       contract against that composer. */
     (Story) => (
-      <div className="flex h-screen flex-col justify-end">
-        <ChatColumn className="pt-1 pb-2 sm:pb-0">
-          <Story />
-          <StoryComposer />
-        </ChatColumn>
-        {/* Harness control, deliberately outside the app column. */}
-        <div className="px-3 py-3 sm:px-6">
+      <ChatFooterShell
+        harness={
           <Button variant="outlined" size="compact" onClick={stageAnotherQuote}>
             Stage another quote
           </Button>
-        </div>
-      </div>
+        }
+      >
+        <Story />
+      </ChatFooterShell>
     ),
   ],
 };
