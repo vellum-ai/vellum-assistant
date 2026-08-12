@@ -1,5 +1,10 @@
 import { describe, test, expect } from "bun:test";
-import { validateAssistantName } from "../lib/retire-archive.js";
+import { win32 } from "node:path";
+
+import {
+  resolveRetiredFilePath,
+  validateAssistantName,
+} from "../lib/retire-archive.js";
 
 describe("validateAssistantName", () => {
   test("accepts valid names", () => {
@@ -31,4 +36,11 @@ describe("validateAssistantName", () => {
   test("rejects single dot", () => {
     expect(() => validateAssistantName(".")).toThrow("Invalid assistant name");
   });
+});
+
+test("accepts a Windows archive path inside the retired directory", () => {
+  const retiredDir = "C:\\Users\\Example User\\AppData\\Local\\Vellum\\retired";
+  expect(
+    resolveRetiredFilePath("assistant", "tar.gz", retiredDir, "win32"),
+  ).toBe(win32.join(retiredDir, "assistant.tar.gz"));
 });
