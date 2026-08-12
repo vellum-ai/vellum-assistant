@@ -8,10 +8,7 @@ on:
 
 concurrency:
   group: dev-release
-  # Serialize releases. A newer hourly tick waits rather than killing an
-  # in-progress deploy: GitHub keeps the newest pending run and drops older
-  # queued ones. The idle gate still self-cancels when HEAD has not moved.
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 env:
   ASSISTANT_IMAGE_NAME: sandbox-images/assistant-server
@@ -23,14 +20,11 @@ jobs:
   # The schedule fires hourly regardless of repo activity. Rebuilding an
   # unchanged HEAD wastes CI minutes and republishes byte-identical images, so
   # cancel the run when nothing has landed since the last *successful* dev
-  # release. "Successful" means register-release succeeded on a run that was
-  # not cancelled (the same anchor notify-dev-release uses for its changelog).
-  # A run that registered a real release but failed in a later job (e.g.
-  # build-electron) still counts. A cancelled run does not, even if
-  # register-release finished before the cancel landed: that deploy did not
-  # complete, and treating it as done would skip every later attempt of the
-  # same SHA. Manual workflow_dispatch runs always proceed: the operator
-  # explicitly asked for a build.
+  # release. "Successful" is keyed off the register-release job conclusion —
+  # the same anchor notify-dev-release uses for its changelog — so a run that
+  # registered a real release but failed in a later job (e.g. build-electron)
+  # still counts as the last release. Manual workflow_dispatch runs always
+  # proceed: the operator explicitly asked for a build.
   #
   # All root jobs (compute-version + the ci-* jobs) gate on this job's
   # has_new_commits output so they never spin up runners on an idle run. The
@@ -64,13 +58,10 @@ jobs:
             exit 0
           fi
 
-          # Walk recent completed, non-cancelled runs newest-first and pick
-          # the first whose register-release job succeeded; that run's head
-          # SHA is the last released commit. Cancelled runs are excluded even
-          # when register-release completed: a cancel mid-workflow is not a
-          # finished deploy. (See notify-dev-release for why a later job
-          # failure, e.g. build-electron, still counts.) Keep this walk-back
-          # in sync with the copy in notify-dev-release.
+          # Walk recent completed runs newest-first and pick the first whose
+          # register-release job succeeded; that run's head SHA is the last
+          # released commit. (See notify-dev-release for why we key off the job
+          # conclusion rather than the overall run conclusion.)
           #
           # The jobs listing MUST be paginated: this workflow has >30 jobs and
           # the API defaults to 30 per page, so register-release lands on page 2
@@ -828,9 +819,9 @@ jobs:
   # gating in release.yml, where a UI ahead of its backend actually matters.
   #
   # !cancelled() (rather than always()) keeps this quiet when a run is
-  # cancelled (idle-gate self-cancel, or a user cancel). No has_new_commits
-  # check is needed: ci-web is itself gated on that job, so an idle run skips
-  # ci-web and this job with it.
+  # superseded by the next hourly release via concurrency.cancel-in-progress.
+  # No has_new_commits check is needed: ci-web is itself gated on that job, so
+  # an idle run skips ci-web and this job with it.
   deploy-web-spa:
     name: Deploy Web SPA (dev)
     needs: [ci-web, register-release]
@@ -1302,7 +1293,7 @@ jobs:
   # clients — which is exactly the toggle behaviour we want here. The channel
   # stays tidy even when a release spans many commits. The diff is taken
   # since the last *successful* dev release (skipping any intervening failed
-  # or cancelled runs), so no commits are dropped.
+  # runs), so no commits are dropped.
   #
   # On failure: posts a short alert without a changelog.
   #
@@ -1315,8 +1306,8 @@ jobs:
   notify-dev-release:
     needs: [compute-version, register-release, register-preview-release, build-electron, upload-electron-updates, deploy-web-spa]
     # Run on success and failure alike, but not when the run was cancelled
-    # (idle-gate self-cancel, or a user cancel). A cancelled run is not a
-    # real failure and should not alert the channel.
+    # (e.g. superseded by a newer hourly run via cancel-in-progress) — a
+    # cancelled run is not a real failure and should not alert the channel.
     if: ${{ always() && !cancelled() }}
     runs-on: ubuntu-latest
     # A Slack outage must not fail the release run: that would both mar the run
@@ -1399,10 +1390,8 @@ jobs:
           # …), so a later failure leaves a real release on a run
           # whose conclusion is "failure". Keying off the run would then diff from
           # an older SHA and re-announce already-released commits. Walk recent
-          # completed, non-cancelled runs newest-first and pick the first whose
-          # register-release job succeeded. Cancelled runs are excluded even when
-          # register-release completed: a cancel mid-workflow is not a finished
-          # deploy. Keep this walk-back in sync with check-for-new-commits.
+          # completed runs newest-first and pick the first whose register-release
+          # job succeeded.
           #
           # The jobs listing MUST be paginated: this workflow has >30 jobs and
           # the API defaults to 30 per page, so register-release lands on page 2
