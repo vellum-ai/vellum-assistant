@@ -91,6 +91,11 @@ type Story = StoryObj<typeof Combobox.Root>;
 /**
  * The popup shape: no `open` prop, so the list opens on focus and closes on
  * Escape, a press outside, or a pick.
+ *
+ * Dropping the query on close is the caller's call, not the primitive's, and
+ * this is how a caller makes it: the pattern leaves clearing an editable
+ * combobox optional, so `onOpenChange` is where a search field that should
+ * come back empty says so. `TimezonePicker` does exactly this.
  */
 export const Popup: Story = {
   render: function Render(args) {
@@ -107,9 +112,11 @@ export const Popup: Story = {
           {...args}
           options={filtered}
           value={city}
-          onSelect={(next) => {
-            setCity(next);
-            setQuery("");
+          onSelect={setCity}
+          onOpenChange={(open) => {
+            if (!open) {
+              setQuery("");
+            }
           }}
         >
           <Combobox.Input
@@ -268,8 +275,10 @@ export const NoMatchesStaysDismissable: Story = {
     });
     expect(field).toHaveAttribute("aria-expanded", "false");
     expect(field).not.toHaveAttribute("aria-controls");
-    expect(field).toHaveValue("");
     expect(field).toHaveFocus();
+    // The close was reported, so a caller that clears its query on close (as
+    // `TimezonePicker` does, and this story's `onOpenChange`) still gets to.
+    expect(field).toHaveValue("");
   },
 };
 
