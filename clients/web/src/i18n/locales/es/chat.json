@@ -15,5 +15,9 @@
       "teal": "Turquesa",
       "yellow": "Amarillo"
     }
+  },
+  "sidebarConversationError": {
+    "message": "No se pudieron cargar tus conversaciones.",
+    "retry": "Reintentar"
   }
 }

@@ -316,19 +316,39 @@ describe("isServingOperationalStatus", () => {
     expect(isServingOperationalStatus(status("waking"))).toBe(false);
   });
 
-  test("closes for every other non-serving state", () => {
+  test("closes for every state where the daemon cannot answer", () => {
     for (const state of [
       "sleeping",
       "initializing",
       "provisioning",
       "migrating",
       "restarting",
+      "restoring_backup",
+      "upgrading_assistant_version",
+      "resizing_machine",
+      "resizing_storage",
+      "maintenance_mode",
       "crash_loop",
-      "unreachable",
       "not_found",
+      "retiring",
     ]) {
       expect(isServingOperationalStatus(status(state))).toBe(false);
     }
+  });
+
+  test("stays open when the control plane cannot reach the pod", () => {
+    // `unreachable` is the control plane failing to confirm reachability, not
+    // evidence the pod is down. Paired with a live SSE connection it is this
+    // module's split-brain fingerprint: daemon requests succeed while the
+    // status pipeline cannot see the pod. Closing here would blank the sidebar
+    // of an assistant that is answering perfectly well.
+    expect(isServingOperationalStatus(status("unreachable"))).toBe(true);
+  });
+
+  test("stays open for a state this client's schema predates", () => {
+    // `state` is an open string on the wire. A platform that adds one must not
+    // silently lock every client below it out of its own conversations.
+    expect(isServingOperationalStatus(status("some_future_state"))).toBe(true);
   });
 
   test("opens when status is absent", () => {

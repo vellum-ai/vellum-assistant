@@ -198,6 +198,42 @@ export function isHealthyOperationalStatus(
 }
 
 /**
+ * Whether the daemon can serve requests in each operational state.
+ *
+ * Exhaustive over the generated enum, so a state added to the platform schema
+ * is a compile error here rather than picking up a silent default. Which way a
+ * new state goes is a real decision, and the two mistakes are not symmetric:
+ * wrongly closing the gate blanks a working assistant's sidebar until the
+ * control plane changes its mind, while wrongly opening it costs one failed
+ * request that surfaces with a retry.
+ *
+ * `unreachable` is open deliberately. It means the control plane could not
+ * confirm reachability, which is absence of knowledge rather than evidence the
+ * pod is down. `unreachable` while SSE is connected is this module's
+ * documented split-brain fingerprint: the pod's events are flowing and its
+ * requests succeed while the status pipeline cannot see it (see
+ * {@link recordOperationalStatusTransition}).
+ */
+const DAEMON_SERVES_IN_STATE: Record<OperationalStatusStateEnum, boolean> = {
+  active: true,
+  unreachable: true,
+  waking: false,
+  sleeping: false,
+  initializing: false,
+  provisioning: false,
+  migrating: false,
+  restarting: false,
+  restoring_backup: false,
+  upgrading_assistant_version: false,
+  resizing_machine: false,
+  resizing_storage: false,
+  maintenance_mode: false,
+  crash_loop: false,
+  not_found: false,
+  retiring: false,
+};
+
+/**
  * Whether data-plane requests to this assistant's daemon should be allowed to
  * run: either the pod is serving, or its health is not knowable from here.
  *
@@ -208,8 +244,8 @@ export function isHealthyOperationalStatus(
  * Treating any of those as "not serving" would strand every assistant whose
  * health lives somewhere else (`LocalAssistantHealth`, maintained by the
  * lifecycle service's heartbeat probes) behind a signal that will never
- * arrive. So absence opens the gate and only a present, non-`active` status
- * closes it.
+ * arrive. So absence opens the gate, and so does a state that carries no
+ * verdict; only a state that means the daemon cannot answer closes it.
  *
  * `state: "waking"` is the case this exists for. The daemon 503s every request
  * while the pod warms, and the assistant record stays `status: "active"`
@@ -221,7 +257,9 @@ export function isServingOperationalStatus(
   if (status === null || status === undefined) {
     return true;
   }
-  return isHealthyOperationalStatus(status);
+  // `state` is an open string on the wire, so a value this client's schema
+  // predates lands here as `undefined` and opens the gate.
+  return DAEMON_SERVES_IN_STATE[status.state] ?? true;
 }
 
 /**

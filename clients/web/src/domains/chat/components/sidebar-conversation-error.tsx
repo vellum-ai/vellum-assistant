@@ -16,7 +16,15 @@
 
 import { Button } from "@vellumai/design-library";
 
-export function SidebarConversationError({ onRetry }: { onRetry?: () => void }) {
+import { useTranslation } from "@/i18n";
+
+export function SidebarConversationError({
+  onRetry,
+}: {
+  onRetry?: () => void;
+}) {
+  const { t } = useTranslation("chat");
+
   return (
     <div
       className="flex flex-col items-start gap-2 px-1.5 py-2"
@@ -24,11 +32,11 @@ export function SidebarConversationError({ onRetry }: { onRetry?: () => void }) 
       role="status"
     >
       <p className="text-muted-foreground text-xs">
-        Your conversations didn't load. They're still here.
+        {t("sidebarConversationError.message")}
       </p>
       {onRetry ? (
         <Button variant="ghost" size="compact" onClick={onRetry}>
-          Try again
+          {t("sidebarConversationError.retry")}
         </Button>
       ) : null}
     </div>
