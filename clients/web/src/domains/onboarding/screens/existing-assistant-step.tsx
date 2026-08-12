@@ -12,6 +12,7 @@ import { Button } from "@vellumai/design-library/components/button";
 
 import { OnboardingTopBar } from "@/domains/onboarding/components/onboarding-top-bar";
 import { ONBOARDING_STEP_CONTENT } from "@/domains/onboarding/onboarding-step-layout";
+import { useTranslation } from "@/i18n";
 
 interface ExistingAssistantStepProps {
   /** Current name of the established assistant, when known. */
@@ -29,9 +30,9 @@ export function ExistingAssistantStep({
   onRedo,
   onBack,
 }: ExistingAssistantStepProps) {
+  const { t } = useTranslation("onboarding");
   const name = assistantName?.trim() || "";
-  const subject = name || "your assistant";
-  const possessive = name ? `${name}'s` : "its";
+  const hasName = name.length > 0;
 
   return (
     <div
@@ -50,17 +51,17 @@ export function ExistingAssistantStep({
             className="text-[2.2rem] leading-none"
             style={{ fontFamily: "var(--font-serif)" }}
           >
-            {name
-              ? `${name} is already up and running`
-              : "Your assistant is already up and running"}
+            {hasName
+              ? t("existingAssistantStep.titleNamed", { name })
+              : t("existingAssistantStep.title")}
           </h1>
           <p
             className="text-[15px]"
             style={{ color: "var(--content-secondary)" }}
           >
-            You two have history — a personality, memories, and past
-            conversations. Running setup again would overwrite who {subject} is
-            now.
+            {hasName
+              ? t("existingAssistantStep.bodyNamed", { name })
+              : t("existingAssistantStep.body")}
           </p>
         </div>
 
@@ -72,7 +73,9 @@ export function ExistingAssistantStep({
             onClick={onKeep}
             className="h-11 text-base"
           >
-            Keep {subject} and start chatting
+            {hasName
+              ? t("existingAssistantStep.keepNamed", { name })
+              : t("existingAssistantStep.keep")}
             <ArrowRight className="h-4 w-4" />
           </Button>
           <Button
@@ -82,7 +85,9 @@ export function ExistingAssistantStep({
             onClick={onRedo}
             className="h-11 text-base"
           >
-            Start over and rebuild {possessive} personality
+            {hasName
+              ? t("existingAssistantStep.redoNamed", { name })
+              : t("existingAssistantStep.redo")}
           </Button>
         </div>
       </div>

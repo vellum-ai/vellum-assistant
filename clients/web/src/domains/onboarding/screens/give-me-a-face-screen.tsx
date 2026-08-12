@@ -36,6 +36,7 @@ import { randomCharacterTraits } from "@/utils/avatar-random";
 import { useBundledAvatarComponents } from "@/utils/use-bundled-avatar-components";
 import type { CharacterTraits } from "@/types/avatar";
 import { Button } from "@vellumai/design-library/components/button";
+import { useTranslation } from "@/i18n";
 
 export interface GiveMeAFaceValues {
   traits: CharacterTraits;
@@ -86,6 +87,7 @@ export function GiveMeAFaceScreen({
   onForward,
   canAuditionVoice = true,
 }: GiveMeAFaceScreenProps) {
+  const { t } = useTranslation("onboarding");
   const components = useBundledAvatarComponents();
   const characters = useOnboardingAvatarPoolStore.use.characters();
   const ensureGenerated = useOnboardingAvatarPoolStore.use.ensureGenerated();
@@ -290,13 +292,13 @@ export function GiveMeAFaceScreen({
           animation: "fadeInUp 0.4s ease-out both",
         }}
       >
-        Give me a face and a name
+        {t("giveMeAFaceScreen.title")}
       </h1>
 
       {/* Cycle arrows, flanking the centered avatar */}
       <button
         type="button"
-        aria-label="Previous character"
+        aria-label={t("giveMeAFaceScreen.previousCharacter")}
         onClick={goPrev}
         className={`absolute left-[calc(50%-170px)] top-[43%] -translate-y-1/2 ${arrowClass}`}
       >
@@ -304,7 +306,7 @@ export function GiveMeAFaceScreen({
       </button>
       <button
         type="button"
-        aria-label="Next character"
+        aria-label={t("giveMeAFaceScreen.nextCharacter")}
         onClick={goNext}
         className={`absolute right-[calc(50%-170px)] top-[43%] -translate-y-1/2 ${arrowClass}`}
       >
@@ -329,8 +331,8 @@ export function GiveMeAFaceScreen({
                   setEditingName(false);
                 }
               }}
-              placeholder="Name your assistant"
-              aria-label="Assistant name"
+              placeholder={t("giveMeAFaceScreen.namePlaceholder")}
+              aria-label={t("giveMeAFaceScreen.nameAriaLabel")}
               className="w-[234px] rounded-2xl border border-[var(--border-element)] bg-transparent px-4 py-2.5 text-center text-lg text-[var(--content-default)] placeholder:text-[var(--content-tertiary)] outline-none transition-colors duration-150 focus:border-[var(--border-active)]"
             />
           ) : (
@@ -338,21 +340,21 @@ export function GiveMeAFaceScreen({
               <button
                 type="button"
                 onClick={() => setEditingName(true)}
-                aria-label="Edit name"
+                aria-label={t("giveMeAFaceScreen.editName")}
                 className="flex cursor-pointer items-center gap-2.5"
               >
                 <span
                   className={`text-2xl font-medium ${name ? "text-[var(--content-default)]" : "text-[var(--content-tertiary)]"}`}
                 >
-                  {name || "Name your assistant"}
+                  {name || t("giveMeAFaceScreen.namePlaceholder")}
                 </span>
                 <Pencil className="h-5 w-5 text-[var(--content-tertiary)]" />
               </button>
               <button
                 type="button"
                 onClick={randomizeCharacter}
-                aria-label="Shuffle name and appearance"
-                title="Shuffle name and appearance"
+                aria-label={t("giveMeAFaceScreen.shuffle")}
+                title={t("giveMeAFaceScreen.shuffle")}
                 className="cursor-pointer text-[var(--content-tertiary)] transition-[transform,color] duration-300 hover:rotate-180 hover:text-[var(--content-default)]"
               >
                 <Dices className="h-5 w-5" />
@@ -371,9 +373,11 @@ export function GiveMeAFaceScreen({
               type="button"
               onClick={toggleVoice}
               disabled={!centeredVoice}
-              title="Hear my voice"
+              title={t("giveMeAFaceScreen.hearVoice")}
               aria-label={
-                auditioning ? "Stop the voice sample" : "Hear my voice"
+                auditioning
+                  ? t("giveMeAFaceScreen.stopVoice")
+                  : t("giveMeAFaceScreen.hearVoice")
               }
               aria-busy={voicePending}
               className={`flex cursor-pointer items-center gap-2 rounded-full border border-[color-mix(in_srgb,var(--content-default)_22%,transparent)] px-4 py-2 text-sm text-[var(--content-default)] transition-colors duration-150 hover:bg-[color-mix(in_srgb,var(--content-default)_10%,transparent)] disabled:cursor-default ${voicePending ? "disabled:opacity-70" : "disabled:opacity-40"}`}
@@ -385,7 +389,7 @@ export function GiveMeAFaceScreen({
               ) : (
                 <Volume2 className="h-4 w-4" />
               )}
-              Hear my voice
+              {t("giveMeAFaceScreen.hearVoice")}
             </button>
           )}
         </div>
@@ -399,7 +403,7 @@ export function GiveMeAFaceScreen({
           onClick={handleContinue}
           className="h-11 w-[234px] text-base"
         >
-          Continue
+          {t("actions.continue")}
         </Button>
       </div>
     </OnboardingStage>

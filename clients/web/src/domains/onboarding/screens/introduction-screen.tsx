@@ -16,6 +16,7 @@ import { ArrowRight } from "lucide-react";
 import { motion, useReducedMotion } from "motion/react";
 import { Button } from "@vellumai/design-library/components/button";
 
+import { useTranslation } from "@/i18n";
 import { ONBOARDING_STEP_CONTENT } from "@/domains/onboarding/onboarding-step-layout";
 import { OnboardingPeekingEyes } from "@/domains/onboarding/components/onboarding-peeking-eyes";
 import { OnboardingStage } from "@/domains/onboarding/components/onboarding-stage";
@@ -94,6 +95,7 @@ export function IntroductionScreen({
   onBack,
   onForward,
 }: IntroductionScreenProps) {
+  const { t } = useTranslation("onboarding");
   const components = useBundledAvatarComponents();
   const characters = useOnboardingAvatarPoolStore.use.characters();
   const selectedIndex = useOnboardingAvatarPoolStore.use.selectedIndex();
@@ -114,10 +116,14 @@ export function IntroductionScreen({
     return { body, color: color.hex };
   }, [components, chosen]);
 
-  const greeting = firstName.trim() ? `Hey, ${firstName.trim()}!` : "Hey!";
-  const intro = assistantName?.trim()
-    ? `I’m ${assistantName.trim()}, your new AI assistant.`
-    : "I’m your new AI assistant.";
+  const trimmedFirstName = firstName.trim();
+  const trimmedAssistantName = assistantName?.trim() ?? "";
+  const greeting = trimmedFirstName
+    ? t("introductionScreen.greetingNamed", { name: trimmedFirstName })
+    : t("introductionScreen.greeting");
+  const intro = trimmedAssistantName
+    ? t("introductionScreen.introNamed", { name: trimmedAssistantName })
+    : t("introductionScreen.intro");
 
   if (!art) {
     return (
@@ -197,7 +203,7 @@ export function IntroductionScreen({
             onClick={onContinue}
             className="h-11 w-[234px] text-base"
           >
-            Continue
+            {t("actions.continue")}
           </Button>
         </motion.div>
       </div>

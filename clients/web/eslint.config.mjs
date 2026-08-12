@@ -205,10 +205,7 @@ const i18nEnforcedPaths = [
   "src/domains/library/**/*.{ts,tsx}",
   "src/domains/home/**/*.{ts,tsx}",
   "src/domains/contacts/**/*.{ts,tsx}",
-  // `screens/` follows in its own pass; this becomes a directory glob then.
-  "src/domains/onboarding/pages/**/*.{ts,tsx}",
-  "src/domains/onboarding/components/**/*.{ts,tsx}",
-  "src/domains/onboarding/hooks/**/*.{ts,tsx}",
+  "src/domains/onboarding/**/*.{ts,tsx}",
 ];
 
 const eslintConfig = defineConfig([

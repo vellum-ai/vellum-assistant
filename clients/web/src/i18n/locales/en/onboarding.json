@@ -14,7 +14,10 @@
     "logIn": "Log In",
     "logOut": "Log out",
     "loginToUse": "Log in to use",
-    "downloadMacApp": "Download the macOS app"
+    "downloadMacApp": "Download the macOS app",
+    "claim": "Claim",
+    "skipForNow": "Skip for now",
+    "starting": "Starting…"
   },
   "welcome": {
     "title": "Welcome to Vellum",
@@ -118,5 +121,160 @@
   },
   "googleCalendar": {
     "authorizationFailed": "Failed to start Google Calendar authorization."
+  },
+  "introductionScreen": {
+    "greetingNamed": "Hey, {name}!",
+    "greeting": "Hey!",
+    "introNamed": "I’m {name}, your new AI assistant.",
+    "intro": "I’m your new AI assistant."
+  },
+  "pitchStep": {
+    "setupLine": "You’ve used AI that just answers questions.",
+    "helpLine": "The more I help,",
+    "punchLine": "I’m different.",
+    "betterLine": "the better I get,",
+    "lessLine": "and the less you have to do."
+  },
+  "createPersonalityStep": {
+    "title": "Create my personality",
+    "lockedBody": "Personality locked, chat with your assistant to make any more updates",
+    "axisAriaLabel": "{left} to {right}",
+    "axes": {
+      "companionCoworker": {
+        "left": "Companion",
+        "right": "Coworker"
+      },
+      "genzBoomer": {
+        "left": "Gen Z",
+        "right": "Baby Boomer"
+      },
+      "executeCollaborate": {
+        "left": "Independent",
+        "right": "Collaborative"
+      },
+      "playfulSerious": {
+        "left": "Playful",
+        "right": "Serious"
+      },
+      "politeUnfiltered": {
+        "left": "Polite",
+        "right": "Unfiltered"
+      }
+    }
+  },
+  "giveMeAFaceScreen": {
+    "title": "Give me a face and a name",
+    "previousCharacter": "Previous character",
+    "nextCharacter": "Next character",
+    "namePlaceholder": "Name your assistant",
+    "nameAriaLabel": "Assistant name",
+    "editName": "Edit name",
+    "shuffle": "Shuffle name and appearance",
+    "hearVoice": "Hear my voice",
+    "stopVoice": "Stop the voice sample"
+  },
+  "integrationStep": {
+    "title": "Here are some free credits<br></br> to get started."
+  },
+  "researchOnboardingScreen": {
+    "title": "Let's start with you.",
+    "body": "A few details so I can get to know you.",
+    "firstNameLabel": "What should I call you?",
+    "firstNamePlaceholder": "Your name",
+    "lastNameLabel": "And your last name?",
+    "lastNamePlaceholder": "Your last name (optional)",
+    "roleLabel": "Your role",
+    "rolePlaceholder": "What do you do for work?",
+    "hobbiesLabel": "Any hobbies?",
+    "hobbiesPlaceholder": "Cars, books, growing tomatoes?"
+  },
+  "letsChatTomorrowStep": {
+    "wakingTitle": "Waking up",
+    "missingScopeTitle": "Access not enabled",
+    "title": "Let me make this easy",
+    "wakingBody": "Your assistant is getting ready",
+    "missingScopeBody": "Check the box next to the Google Calendar permission so I can book the check-in.",
+    "body": "Connect your Google Calendar so I can find time to check in and start helping.",
+    "startingAssistant": "Starting assistant…",
+    "waitingAuthorization": "Waiting for authorization…",
+    "connectCalendar": "Connect Calendar →"
+  },
+  "existingAssistantStep": {
+    "titleNamed": "{name} is already up and running",
+    "title": "Your assistant is already up and running",
+    "bodyNamed": "You two have history: a personality, memories, and past conversations. Running setup again would overwrite who {name} is now.",
+    "body": "You two have history: a personality, memories, and past conversations. Running setup again would overwrite who your assistant is now.",
+    "keepNamed": "Keep {name} and start chatting",
+    "keep": "Keep your assistant and start chatting",
+    "redoNamed": "Start over and rebuild {name}'s personality",
+    "redo": "Start over and rebuild its personality"
+  },
+  "checkinConnectScreen": {
+    "title": "Let's chat tomorrow",
+    "body": "Add a meeting in your calendar so we can pick up where we left off.",
+    "permissionBody": "{name} will add a single Day 2 Check-in event. It gets permission to manage your calendar events and see your email address, not your inbox or files, and you can disconnect at any time.",
+    "unnamedAssistant": "your assistant",
+    "waitingAuthorization": "Waiting for authorization...",
+    "connectGoogleCalendar": "Connect Google Calendar"
+  },
+  "meetingCreatedStep": {
+    "titleWithTime": "Check-in scheduled for tomorrow at {time}!",
+    "title": "Check-in scheduled!"
+  },
+  "lookingYouUpStep": {
+    "searching": "Searching the web to get to know you…",
+    "readingProfiles": "Reading public profiles…",
+    "skimming": "Skimming the highlights…",
+    "connectingDots": "Connecting the dots…",
+    "piecing": "Piecing it together…",
+    "almostThere": "Almost there…"
+  },
+  "finishingUpStep": {
+    "updatingPersonality": "Updating my personality…",
+    "findingVoice": "Finding my voice…",
+    "gettingIntoCharacter": "Getting into character…",
+    "almostThere": "Almost there…"
+  },
+  "researchResultsStep": {
+    "title": "This is what I found about you",
+    "bodyLoadingWithClaims": "Still checking the rest. You can review these as they come in.",
+    "bodyReadyWithClaims": "I searched the web. Feel free to remove anything that isn’t true.",
+    "bodyLoadingEmpty": "Still putting this together…",
+    "bodyReadyEmpty": "I didn’t turn up much, we can fill it in as we chat.",
+    "removeClaim": "Remove \"{claim}\"",
+    "notMe": "This is not me",
+    "stillSearching": "Still searching…"
+  },
+  "suggestionsStep": {
+    "title": "Here’s what we could do first",
+    "pickOne": "Pick one to jump in, or start your own thing. <skip>Skip to Chat</skip>",
+    "loading": "Putting together a few ideas…",
+    "alreadySetUp": "Already set up the <plugins></plugins> {count, plural, one {plugin} other {plugins}} to help with your work",
+    "listAnd": " and ",
+    "listCommaAnd": ", and ",
+    "listComma": ", ",
+    "fallbacks": {
+      "brief": {
+        "suggestion": "I'll pull together a quick brief on what's new in your field",
+        "prompt": "Give me a quick brief on what's new in my field right now."
+      },
+      "weekly": {
+        "suggestion": "I'll send a weekly briefing on news in your space",
+        "prompt": "Set up a weekly briefing on news in my space."
+      },
+      "week": {
+        "suggestion": "I'll help you get on top of your week",
+        "prompt": "Help me get on top of my week."
+      },
+      "draft": {
+        "suggestion": "I'll draft something from a few rough notes",
+        "prompt": "Draft something from a few rough notes I'll give you."
+      }
+    }
+  },
+  "letsChatReadyStep": {
+    "title": "You’re all set",
+    "setupNote": "I’ve set myself up with plugins around who you are.",
+    "letsChat": "Let's chat"
   }
 }
