@@ -125,6 +125,31 @@ export const NoChangesYet: Story = {
   args: { revisions: [] },
 };
 
+/**
+ * Prose edits arrive as single 300+ character lines. The row must soft-wrap
+ * with continuation lines aligned after the gutter, never scroll horizontally.
+ */
+export const LongProseLines: Story = {
+  args: {
+    revisions: [
+      {
+        id: "b3e90dc",
+        changedAt: daysAgo(3),
+        files: ["SKILL.md"],
+        diff: `diff --git a/skills/release-triage/SKILL.md b/skills/release-triage/SKILL.md
+index eee5555..fff6666 100644
+--- a/skills/release-triage/SKILL.md
++++ b/skills/release-triage/SKILL.md
+@@ -12,3 +12,3 @@
+ ## Escalation
+-Escalate to the on-call only when the failure blocks the release train, because a page for a flaky test erodes trust in the rotation and the next real page gets a slower response from someone who has been woken twice this week for nothing.
++Escalate to the on-call only when the failure blocks the release train and the owning team has not acknowledged within thirty minutes, because a page for a flaky test erodes trust in the rotation and the next real page gets a slower response from someone who has been woken twice this week for nothing at all.
+`,
+      },
+    ],
+  },
+};
+
 /** A diff with more than one hunk, so the gap separator is visible. */
 export const MultipleHunks: Story = {
   args: {

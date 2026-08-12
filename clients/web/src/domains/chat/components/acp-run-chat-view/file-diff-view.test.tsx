@@ -36,7 +36,7 @@ describe("FileDiffView", () => {
     expect(add?.className).toContain("var(--system-positive-strong)");
 
     const ctx = container.querySelector('[data-diff-type="ctx"]');
-    expect(ctx?.className).toContain("var(--content-tertiary)");
+    expect(ctx?.className).toContain("var(--content-secondary)");
   });
 
   test("new file renders only additions", () => {
