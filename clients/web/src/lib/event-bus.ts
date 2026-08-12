@@ -182,7 +182,9 @@ export interface BusEventMap {
    * `prompt` is what the user already said before the app was up (Siri's
    * "Ask …" intent). It is `null` unless the link carried usable text —
    * `parseStartVoiceDeepLink` bounds and sanitizes it, so subscribers get
-   * either trustworthy text or nothing.
+   * either trustworthy text or nothing. A non-null prompt with no call in
+   * progress is submitted as a text turn in a fresh conversation instead
+   * of starting a voice session (see `useGlobalDeepLinkConsumer`).
    */
   "deeplink.startVoice": { mode: "new" | "resume"; prompt: string | null };
   /**

@@ -55,6 +55,13 @@ mock.module("@/runtime/main-window", () => ({
   ensureMainWindowVisible: ensureMainWindowVisibleMock,
 }));
 
+// The prompt path routes through `navigateToNewConversation`, which plays the
+// new-conversation sound; no audio pipeline exists here. Same minimal shape as
+// the other consumers of this stub (`use-notification-intent-sync.test.tsx`).
+mock.module("@/lib/sounds/sound-manager", () => ({
+  getSoundManager: () => ({ play: async () => {} }),
+}));
+
 // Stub the toaster: the top-up success branch toasts, and no <Toaster /> is
 // mounted here. Full toast surface: `mock.module` is process-global in bun,
 // so a partial shape would shadow the other methods for later test files.
@@ -620,10 +627,11 @@ describe("deeplink.startVoice", () => {
     expect(isVoiceRoomVisible()).toBe(false);
   });
 
-  test("a prompt is parked in the composer inbox and the session starts as for mode=new", async () => {
+  test("a prompt with nothing running becomes a text conversation, not a voice session", async () => {
     // The live-voice wire protocol has no text-turn frame (see the hook's
-    // docstring), so the spoken question surfaces in the composer while the
-    // session starts exactly as a plain `mode=new` link starts it.
+    // docstring), so the question is auto-sent as an ordinary text turn in a
+    // fresh conversation instead of parking invisibly behind a listening
+    // session that cannot hear it (LUM-3229).
     seedEligibleAssistant();
     const starter = mock((_a: string, _c: string | null) => undefined);
     useLiveVoiceStore.getState().setStarter(asStarter(starter));
@@ -637,11 +645,45 @@ describe("deeplink.startVoice", () => {
     });
     await flush();
 
-    expect(navigateMock).toHaveBeenCalledWith("/assistant");
-    expect(starter).toHaveBeenCalledWith("assistant-1", null);
-    expect(usePendingDeepLinkStore.getState().pendingComposerMessage).toBe(
-      "what's on my calendar?",
+    // `navigateToNewConversation` minted a draft conversation and carried the
+    // question as the `?prompt=` auto-send `useAutoSendEffects` consumes.
+    const draftId = useConversationStore.getState().activeConversationId;
+    expect(draftId).not.toBeNull();
+    const params = new URLSearchParams({ prompt: "what's on my calendar?" });
+    expect(navigateMock).toHaveBeenCalledWith(
+      `/assistant/conversations/${draftId}?${params.toString()}`,
     );
+    // No voice session, no composer park, no parked voice start: the URL
+    // param is the single carrier of the question.
+    expect(starter).not.toHaveBeenCalled();
+    expect(usePendingDeepLinkStore.getState().pendingComposerMessage).toBe(
+      null,
+    );
+    expect(usePendingDeepLinkStore.getState().pendingVoiceStartAt).toBeNull();
+    expect(ensureMainWindowVisibleMock).toHaveBeenCalledTimes(1);
+  });
+
+  test("the prompt is asked even when the assistant can't serve live voice", async () => {
+    // A text turn has no live-voice version gate, so the question path must
+    // not inherit one: an assistant too old for voice still gets asked.
+    seedEligibleAssistant("0.10.11");
+    const starter = mock((_a: string, _c: string | null) => undefined);
+    useLiveVoiceStore.getState().setStarter(asStarter(starter));
+    renderConsumer();
+
+    act(() => {
+      publish("deeplink.startVoice", { mode: "new", prompt: "still works?" });
+    });
+    await flush();
+
+    const draftId = useConversationStore.getState().activeConversationId;
+    expect(draftId).not.toBeNull();
+    expect(navigateMock).toHaveBeenCalledWith(
+      `/assistant/conversations/${draftId}?${new URLSearchParams({
+        prompt: "still works?",
+      }).toString()}`,
+    );
+    expect(starter).not.toHaveBeenCalled();
   });
 
   test("a null prompt behaves identically to a plain mode=new link", async () => {
@@ -663,7 +705,10 @@ describe("deeplink.startVoice", () => {
     );
   });
 
-  test("the prompt is delivered exactly once - re-rendering the hook does not replay it", async () => {
+  test("the prompt is dispatched exactly once - re-rendering the hook does not replay it", async () => {
+    // Once-only past this point is `useAutoSendEffects`' job: it strips
+    // `?prompt=` from the URL after the send, and that path has its own tests.
+    // This guards the dispatch itself against effect re-subscription replays.
     seedEligibleAssistant();
     const starter = mock((_a: string, _c: string | null) => undefined);
     useLiveVoiceStore.getState().setStarter(asStarter(starter));
@@ -674,18 +719,14 @@ describe("deeplink.startVoice", () => {
     });
     await flush();
 
-    // The chat domain consumes and clears the one-shot inbox.
-    expect(
-      usePendingDeepLinkStore.getState().consumePendingComposerMessage(),
-    ).toBe("ask me once");
+    const navigations = navigateMock.mock.calls.length;
+    expect(navigations).toBe(1);
 
     rerender();
     await flush();
 
-    expect(usePendingDeepLinkStore.getState().pendingComposerMessage).toBe(
-      null,
-    );
-    expect(starter).toHaveBeenCalledTimes(1);
+    expect(navigateMock.mock.calls.length).toBe(navigations);
+    expect(starter).not.toHaveBeenCalled();
   });
 
   test("a prompt on a resume link that rejoins a running session is still not dropped", async () => {

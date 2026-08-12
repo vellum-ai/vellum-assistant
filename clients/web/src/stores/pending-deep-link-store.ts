@@ -26,7 +26,12 @@ import { create } from "zustand";
 import { createSelectors } from "@/utils/create-selectors";
 
 export interface PendingDeepLinkState {
-  /** Latest pending `deeplink.send` message text, or `null` if none. */
+  /**
+   * Latest pending composer pre-fill text, or `null` if none. Written for a
+   * `deeplink.send` message, and for a `deeplink.startVoice` prompt that
+   * arrives while a live-voice call is running (the one start-voice case
+   * that still pre-fills instead of auto-sending).
+   */
   pendingComposerMessage: string | null;
   /**
    * When a `deeplink.startVoice` was parked waiting for a live-voice session

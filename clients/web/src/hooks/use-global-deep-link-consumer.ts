@@ -17,7 +17,10 @@ import { useConnectDialogStore } from "@/stores/connect-dialog-store";
 import { useConversationStore } from "@/stores/conversation-store";
 import { usePendingDeepLinkStore } from "@/stores/pending-deep-link-store";
 import { useViewerStore } from "@/stores/viewer-store";
-import { navigateToConversation } from "@/utils/conversation-navigation";
+import {
+  navigateToConversation,
+  navigateToNewConversation,
+} from "@/utils/conversation-navigation";
 import { routes } from "@/utils/routes";
 
 /**
@@ -47,7 +50,7 @@ import { routes } from "@/utils/routes";
  *   cold-launch case, see `start-voice-request.ts`). `mode: "resume"`
  *   just navigates back to a running session's conversation. A `prompt`
  *   (Siri's "Ask …" intent, which collects the question before the app is
- *   up) is parked in the composer inbox — see below.
+ *   up) is submitted as a text turn in a fresh conversation; see below.
  * - `deeplink.connect` → `ensureMainWindowVisible()` + park the request
  *   in the connect-dialog store + navigate to the assistant chooser,
  *   which opens its Connect a Remote Assistant dialog off that store: a
@@ -56,32 +59,40 @@ import { routes } from "@/utils/routes";
  *   pairing) gets guidance naming the host instead.
  * - `deeplink.unknown` → Sentry breadcrumb.
  *
- * ## Why a start-voice `prompt` goes to the composer, not into the session
+ * ## Why a start-voice `prompt` becomes a text conversation, not a session turn
  *
  * A live-voice session has no representation of a *text* user turn. Its wire
  * protocol (`domains/chat/voice/live-voice/protocol.ts`, mirroring
- * `assistant/src/live-voice/protocol.ts`) carries exactly five client frames —
- * `start`, `ptt_release`, `interrupt`, `end`, `update_config` — plus raw PCM on
- * binary frames. A user turn *is* the audio: the daemon's server-VAD turn
+ * `assistant/src/live-voice/protocol.ts`) carries control frames plus raw PCM
+ * on binary frames. A user turn *is* the audio: the daemon's server-VAD turn
  * detector segments the PCM stream and transcribes it. There is no seam that
  * accepts words, and the `start` frame carries no seed prompt.
  *
  * The two ways to invent one are both wrong for this change. Routing the text
- * through `processMessage` would widen the very divergence that live voice
- * deliberately avoids and that has already produced a bug class of its own
- * (missing `user_message_echo`, an unpersisted conversation row, a missing
- * `trustContext`). Adding a text client frame is a daemon protocol change with
- * its own compatibility gate, not something to smuggle in behind a Siri phrase.
+ * through `processMessage` into the conversation a live session owns would
+ * widen the very divergence that live voice deliberately avoids and that has
+ * already produced a bug class of its own (missing `user_message_echo`, an
+ * unpersisted conversation row, a missing `trustContext`). Adding a text
+ * client frame is a daemon protocol change with its own compatibility gate,
+ * not something to smuggle in behind a Siri phrase.
  *
- * So the session starts exactly as a plain `mode=new` link starts it, and the
- * spoken text is surfaced in the composer where the user can send it — visible
- * and under their control rather than silently dropped. When a text-turn frame
- * exists, this is the one line that changes.
+ * So a prompt with no call in progress skips the voice session entirely: the
+ * question is submitted as an ordinary text turn in a fresh conversation
+ * (`navigateToNewConversation`'s `?prompt=` auto-send, consumed by
+ * `useAutoSendEffects`). Asked and answered beats a silent listening session
+ * with the question invisibly parked behind the full-screen room, which read
+ * to users as the shortcut dropping their input (LUM-3229). Voice-first
+ * handling (the session speaking the answer) needs the protocol seam above,
+ * tracked as JARVIS-1522; when a text-turn frame exists, this is the branch
+ * that changes.
  *
- * The composer pre-fill itself stays in the chat domain
- * (`useDeepLinkConsumer`) because it owns `setInput`. This hook stays
- * generic — chat-specific store handling lives in the shared
- * `navigateToConversation` util.
+ * A prompt arriving while a call is already live keeps the composer-inbox
+ * hand-off instead: yanking the user out of their running session into a new
+ * conversation would be worse than surfacing the text, so the prompt is
+ * parked for the owning composer to pre-fill and the call is surfaced. The
+ * composer pre-fill itself stays in the chat domain (`useDeepLinkConsumer`)
+ * because it owns `setInput`. This hook stays generic; chat-specific store
+ * handling lives in the shared `navigateToConversation` util.
  */
 
 /**
@@ -146,14 +157,6 @@ export function useGlobalDeepLinkConsumer(): void {
   // and because the URL contract is shared with the native producers.
   useBusSubscription("deeplink.startVoice", ({ prompt }) => {
     void ensureMainWindowVisible();
-    // The composer inbox rather than the session — see the note above the hook.
-    // Reusing `deeplink.send`'s one-shot store buys exactly-once delivery: the
-    // chat domain consumes and clears, so no re-render or reconnect replays it.
-    // Parked ahead of the mode branch so a `resume` link carrying text does not
-    // drop what the user said on its early return.
-    if (prompt !== null) {
-      usePendingDeepLinkStore.getState().setPendingComposerMessage(prompt);
-    }
     const session = useLiveVoiceStore.getState();
     // A running session is surfaced, never doubled — for *either* mode. The
     // room renders itself off `useIsVoiceRoomVisible` once the owning composer
@@ -170,6 +173,14 @@ export function useGlobalDeepLinkConsumer(): void {
     // user is already in is the honest behavior: nothing is lost and the
     // command visibly did something.
     if (isLiveVoiceSessionActive(session.state)) {
+      // Text cannot become a turn in the running session (see the note above
+      // the hook), and tearing the user out of their call over it would be
+      // worse. Park it in `deeplink.send`'s one-shot store, which buys
+      // exactly-once delivery: the chat domain consumes and clears, so no
+      // re-render or reconnect replays it into the composer.
+      if (prompt !== null) {
+        usePendingDeepLinkStore.getState().setPendingComposerMessage(prompt);
+      }
       // Un-minimize first. The room is what the user tapped the island *for*,
       // and `useIsVoiceRoomVisible` gates on `!roomMinimized` — so without this
       // a session minimized before the phone was locked lands back on the
@@ -194,6 +205,14 @@ export function useGlobalDeepLinkConsumer(): void {
         // Pre-`ready` draft session — the draft composer owns it.
         navigateRef.current(routes.assistant);
       }
+      return;
+    }
+    // A prompt with no call in progress is a question, not a request to talk:
+    // submit it as a text turn in a fresh conversation (the `?prompt=`
+    // auto-send `useAutoSendEffects` consumes) instead of opening a silent
+    // listening session that cannot hear it. See the note above the hook.
+    if (prompt !== null) {
+      navigateToNewConversation(navigateRef.current, { prompt });
       return;
     }
     // The draft composer (no conversation): the session starts without one and
