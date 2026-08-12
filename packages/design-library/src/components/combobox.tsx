@@ -42,7 +42,10 @@ import { cn } from "../utils/cn";
  *   reaches the last option), Enter commits it, Escape closes the list and
  *   keeps focus in the field, including when the query matches nothing.
  *   Home and End stay with the text cursor, as the pattern specifies for an
- *   editable combobox.
+ *   editable combobox, and every key is left alone while an input method is
+ *   composing.
+ * - A polite live region reports the size of the filtered list as it changes,
+ *   since narrowing a list is otherwise a silent event.
  * - The active option is scrolled into view as the highlight moves, and the
  *   selected option is scrolled into view when the list opens.
  *
@@ -106,7 +109,19 @@ export interface ComboboxRootProps extends Omit<
    * it when the query clears, so Enter on an unfiltered list picks nothing.
    */
   autoActivateFirst?: boolean;
+  /**
+   * What the live region says when the number of options changes. A filtered
+   * list is a silent change on screen for anyone who cannot see it, so the
+   * count is announced. Override to translate it, or return an empty string
+   * to say nothing.
+   */
+  announceResults?: (count: number) => string;
   children?: ReactNode;
+}
+
+function defaultAnnouncement(count: number): string {
+  const results = count === 1 ? "1 result is" : `${count} results are`;
+  return `${results} available. Use the up and down arrow keys to move through them, Enter to choose one.`;
 }
 
 function Root({
@@ -116,6 +131,7 @@ function Root({
   open,
   onOpenChange,
   autoActivateFirst = false,
+  announceResults = defaultAnnouncement,
   className,
   children,
   ...rest
@@ -197,6 +213,24 @@ function Root({
     return () => document.removeEventListener("pointerdown", onPointerDown);
   }, [ownsOpenState, isOpen, setOpen]);
 
+  // Announce the size of the filtered list, but only when it changes and only
+  // while the list is on screen: repeating an unchanged count on every
+  // keystroke is noise, and a closed list has nothing to report.
+  const [announcement, setAnnouncement] = useState("");
+  const lastAnnouncedCount = useRef<number | null>(null);
+  useEffect(() => {
+    if (!isOpen) {
+      lastAnnouncedCount.current = null;
+      setAnnouncement("");
+      return;
+    }
+    if (lastAnnouncedCount.current === options.length) {
+      return;
+    }
+    lastAnnouncedCount.current = options.length;
+    setAnnouncement(announceResults(options.length));
+  }, [isOpen, options.length, announceResults]);
+
   const context = useMemo<ComboboxContextValue>(
     () => ({
       options,
@@ -236,6 +270,14 @@ function Root({
         className={cn("relative", className)}
       >
         {children}
+        <div
+          data-slot="combobox-status"
+          role="status"
+          aria-live="polite"
+          className="sr-only"
+        >
+          {announcement}
+        </div>
       </div>
     </ComboboxContext>
   );
@@ -269,6 +311,13 @@ function ComboboxInput({ onKeyDown, onFocus, onChange, ...rest }: InputProps) {
   const handleKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
     onKeyDown?.(event);
     if (event.defaultPrevented) {
+      return;
+    }
+    // Mid-composition, the keys belong to the input method: arrows walk the
+    // candidate list and Enter accepts a candidate. Taking Enter here would
+    // commit an option to anyone typing Japanese, Chinese or Korean the
+    // moment they accept a word.
+    if (event.nativeEvent.isComposing) {
       return;
     }
     // Dismissal is the one key that still has work to do with nothing to

@@ -283,6 +283,34 @@ export const NoMatchesStaysDismissable: Story = {
 };
 
 /**
+ * Filtering a list is silent to anyone who cannot see it, so the live region
+ * reports the new size. It reports a change, not a keystroke: typing that
+ * leaves the count alone says nothing.
+ */
+export const FilteringAnnouncesTheCount: Story = {
+  ...Popup,
+  play: async () => {
+    const field = cityField();
+    const status = () => screen.getByRole("status");
+
+    await userEvent.click(field);
+    await waitFor(() => {
+      expect(status()).toHaveTextContent(`${CITIES.length} results are`);
+    });
+
+    await userEvent.type(field, "lon");
+    await waitFor(() => {
+      expect(status()).toHaveTextContent("1 result is available");
+    });
+
+    await userEvent.keyboard("{Escape}");
+    await waitFor(() => {
+      expect(status()).toBeEmptyDOMElement();
+    });
+  },
+};
+
+/**
  * Closing takes the highlight with it: an `aria-activedescendant` left behind
  * names an option that unmounted with the list.
  */
