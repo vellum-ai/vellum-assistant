@@ -503,8 +503,8 @@ export function daemonUnreachableInterceptor(response: Response): Response {
  * does not, because a gateway that is still rejecting every token would
  * otherwise earn a fresh budget out of every quiet spell and retry forever
  * in bursts. A recovery that genuinely fixed the session produces that 2xx
- * on its next request, so a transient rejection is not charged for
- * recovering.
+ * on the replay or on its next request, so a transient rejection is not
+ * charged for recovering.
  *
  * Both keys live in sessionStorage, so quitting and reopening the app also
  * grants a fresh budget.
