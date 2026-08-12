@@ -83,7 +83,7 @@ function useComboboxContext(part: string): ComboboxContextValue {
 
 export interface ComboboxRootProps extends Omit<
   ComponentProps<"div">,
-  "onSelect"
+  "onSelect" | "ref"
 > {
   /**
    * Every option the list currently renders, in the order it renders them.
@@ -116,7 +116,6 @@ function Root({
   autoActivateFirst = false,
   className,
   children,
-  ref,
   ...rest
 }: ComboboxRootProps) {
   const baseId = useId();
@@ -224,15 +223,9 @@ function Root({
     <ComboboxContext value={context}>
       <div
         {...rest}
-        ref={(node) => {
-          rootRef.current = node;
-          if (typeof ref === "function") {
-            return ref(node);
-          }
-          if (ref) {
-            ref.current = node;
-          }
-        }}
+        // The root's own ref: it is what "outside" is measured against, so
+        // the element is not the caller's to take.
+        ref={rootRef}
         data-slot="combobox"
         className={cn("relative", className)}
       >
@@ -444,13 +437,16 @@ export interface ComboboxOptionProps extends Omit<
 /**
  * One option. A real button so a mouse pick works natively, kept out of the
  * Tab order because the field holds focus for the whole interaction.
+ *
+ * The pointer does not move the highlight: that would re-render the whole
+ * list on every row the mouse crosses, and a hover treatment in CSS says the
+ * same thing for free.
  */
 function Option({
   value,
   className,
   onClick,
   onMouseDown,
-  onMouseEnter,
   ...rest
 }: ComboboxOptionProps) {
   const context = useComboboxContext("Option");
@@ -474,10 +470,6 @@ function Option({
           // the list, and the combobox role says focus stays put.
           event.preventDefault();
         }
-      }}
-      onMouseEnter={(event: MouseEvent<HTMLButtonElement>) => {
-        onMouseEnter?.(event);
-        context.setActiveValue(value);
       }}
       onClick={(event: MouseEvent<HTMLButtonElement>) => {
         onClick?.(event);

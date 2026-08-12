@@ -246,6 +246,7 @@ export function TimezonePicker({ value, onChange }: TimezonePickerProps) {
                   className={cn(
                     "flex w-full items-center justify-between gap-3 px-3 py-2",
                     "text-body-medium-lighter text-[var(--content-default)] transition-colors",
+                    "hover:bg-[var(--surface-active)]",
                     "data-[active]:bg-[var(--surface-active)] aria-selected:bg-[var(--surface-active)]",
                   )}
                 >

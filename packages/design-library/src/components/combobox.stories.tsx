@@ -42,6 +42,7 @@ const FEATURED = ["London", "New York", "Tokyo"];
 const OPTION_CLASS = [
   "flex w-full items-center justify-between gap-3 rounded-md px-3 py-2",
   "text-body-medium-default text-[var(--content-default)]",
+  "hover:bg-[var(--surface-hover)]",
   "data-[active]:bg-[var(--surface-hover)]",
   "aria-selected:bg-[var(--surface-active)]",
 ].join(" ");
