@@ -708,6 +708,90 @@ describe("ChatComposer — send/stop button visibility", () => {
     expect(shouldSubmitOnEnter(ENTER, false, READY_POLICY)).toBe("submit");
   });
 
+  // The whole adaptation matrix in one assertion, since the named cases above
+  // are instances of a single invariant: the busy row offers exactly one
+  // control, and never a disabled one. Counted rather than probed for presence,
+  // so a row that grows a second control, loses its only one, or keeps a send
+  // nobody can press reads as BROKEN here instead of quietly passing.
+  //
+  // The blocked-draft rows are the ones that invariant is load-bearing for. A
+  // send disabled by an in-flight upload or a prompt holding the send, in a row
+  // that has already given up stop, leaves a running turn with no usable
+  // control at all. Both are reachable on a phone as much as a tablet: the
+  // attachment drop zone is not gated on `isAssistantBusy`, so an upload can
+  // start mid-turn. `shouldSubmitOnEnter` refuses both above, and pinning the
+  // row to the same three conditions is what keeps the two in agreement.
+  test("the busy row always offers exactly one usable control", () => {
+    const AXES = [
+      { name: "desktop", narrow: false, coarsePointer: false },
+      { name: "narrow mouse window", narrow: true, coarsePointer: false },
+      { name: "phone", narrow: true, coarsePointer: true },
+      { name: "tablet", narrow: false, coarsePointer: true },
+    ];
+    const DRAFTS = [
+      { name: "no draft", props: { input: "" } },
+      { name: "draft", props: { input: "hello" } },
+      {
+        name: "draft, attachment uploading",
+        props: { input: "hello", attachmentsUploadingCount: 1 },
+      },
+      {
+        name: "draft, send blocked",
+        props: { input: "hello", sendDisabled: true },
+      },
+      {
+        name: "attachment only",
+        props: { input: "", canSendAttachments: true },
+      },
+    ];
+
+    const offered: Record<string, string> = {};
+    for (const axis of AXES) {
+      for (const draft of DRAFTS) {
+        cleanup();
+        viewport.set({
+          narrow: axis.narrow,
+          coarsePointer: axis.coarsePointer,
+        });
+        const html = renderComposer({ isAssistantBusy: true, ...draft.props });
+        const controls = [
+          ...html.matchAll(/aria-label="(Stop generating|Send message)"/g),
+        ].map((match) => match[1]!);
+        const usable =
+          controls.length === 1 && !sendButtonHasDisabledAttr(html);
+        offered[`${axis.name} / ${draft.name}`] = usable
+          ? controls[0]!
+          : `BROKEN: [${controls.join(", ")}]`;
+      }
+    }
+
+    // A fine pointer submits from the keyboard, so stop keeps the slot
+    // throughout. A coarse pointer hands it to send exactly when pressing send
+    // would queue the draft, which is never true for the two blocked rows.
+    expect(offered).toEqual({
+      "desktop / no draft": "Stop generating",
+      "desktop / draft": "Stop generating",
+      "desktop / draft, attachment uploading": "Stop generating",
+      "desktop / draft, send blocked": "Stop generating",
+      "desktop / attachment only": "Stop generating",
+      "narrow mouse window / no draft": "Stop generating",
+      "narrow mouse window / draft": "Stop generating",
+      "narrow mouse window / draft, attachment uploading": "Stop generating",
+      "narrow mouse window / draft, send blocked": "Stop generating",
+      "narrow mouse window / attachment only": "Stop generating",
+      "phone / no draft": "Stop generating",
+      "phone / draft": "Send message",
+      "phone / draft, attachment uploading": "Stop generating",
+      "phone / draft, send blocked": "Stop generating",
+      "phone / attachment only": "Send message",
+      "tablet / no draft": "Stop generating",
+      "tablet / draft": "Send message",
+      "tablet / draft, attachment uploading": "Stop generating",
+      "tablet / draft, send blocked": "Stop generating",
+      "tablet / attachment only": "Send message",
+    });
+  });
+
   test("isAssistantBusy=false keeps the Send button even during awaiting_user_input", () => {
     useTurnStore.setState({
       ...INITIAL_TURN_STATE,

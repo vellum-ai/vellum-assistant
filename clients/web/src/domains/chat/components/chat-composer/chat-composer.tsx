@@ -601,6 +601,19 @@ export function ChatComposer({
   const hasStagedQuotes = useQuoteReplyStore.use.stagedQuotes().length > 0;
   const canSendMessageContent =
     Boolean(input.trim()) || canSendAttachments || hasStagedQuotes;
+  // The busy row holds exactly one control, and stop is the default: it is the
+  // only escape from a turn already running. Send takes the slot only where it
+  // is strictly better, which is where the keyboard cannot submit AND pressing
+  // it would actually queue the draft. Those are the same three conditions
+  // `shouldSubmitOnEnter` requires before it answers "submit", so the two paths
+  // to sending open and close together, and a draft that cannot go anywhere yet
+  // (an attachment still uploading, a prompt holding the send) leaves stop in
+  // place rather than a send nobody can press.
+  const sendReplacesStop =
+    !keyboardCanSubmit &&
+    canSendMessageContent &&
+    !sendDisabled &&
+    attachmentsUploadingCount === 0;
   // Voice mode occupies the send slot while there is nothing to send: the
   // send arrow only earns that spot once the message has content. Eligibility
   // is a voice-enabled composer + a bound assistant new enough to serve live
@@ -1009,42 +1022,26 @@ export function ChatComposer({
                   </div>
                   <div className="flex shrink-0 items-center gap-2">
                     {isAssistantBusy ? (
-                      <>
-                        {/* Stop holds the slot wherever the keyboard can send
-                          the draft instead. Where it cannot, the send button
-                          takes the slot as soon as there is something to
-                          queue, since it is the only way to send it. */}
-                        {(keyboardCanSubmit || !canSendMessageContent) && (
-                          <Button
-                            variant="primary"
-                            iconOnly={
-                              <Square className="h-3 w-3" fill="currentColor" />
-                            }
-                            onClick={onStopGenerating}
-                            aria-label="Stop generating"
-                          />
-                        )}
-                        {!keyboardCanSubmit && canSendMessageContent && (
-                          <Button
-                            variant="primary"
-                            iconOnly={
-                              <ArrowUp className="h-4 w-4" strokeWidth={2.5} />
-                            }
-                            type="submit"
-                            disabled={
-                              sendDisabled || attachmentsUploadingCount > 0
-                            }
-                            title={
-                              sendDisabled
-                                ? "Type a message to send"
-                                : attachmentsUploadingCount > 0
-                                  ? "Uploading attachments…"
-                                  : "Send message"
-                            }
-                            aria-label="Send message"
-                          />
-                        )}
-                      </>
+                      sendReplacesStop ? (
+                        <Button
+                          variant="primary"
+                          iconOnly={
+                            <ArrowUp className="h-4 w-4" strokeWidth={2.5} />
+                          }
+                          type="submit"
+                          title="Send message"
+                          aria-label="Send message"
+                        />
+                      ) : (
+                        <Button
+                          variant="primary"
+                          iconOnly={
+                            <Square className="h-3 w-3" fill="currentColor" />
+                          }
+                          onClick={onStopGenerating}
+                          aria-label="Stop generating"
+                        />
+                      )
                     ) : (
                       <>
                         {/* Compact: the model profile moves into the left
