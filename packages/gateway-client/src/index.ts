@@ -71,6 +71,8 @@ export {
   isAdmissionPolicy,
   isAdmissionPolicyExemptChannel,
   isAdmissionPolicyHiddenChannel,
+  meetsAdmissionFloor,
+  TRUST_CLASS_RANK,
 } from "./admission-policy-contract.js";
 
 export type { AdmissionPolicy } from "./admission-policy-contract.js";

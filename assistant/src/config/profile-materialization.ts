@@ -141,6 +141,30 @@ export function completeCustomProfile(
 }
 
 /**
+ * `{...raw, ...completed}` recursively: completed (schema-known) values win,
+ * raw keys the schema stripped survive at every depth. Used by boot
+ * materialization and the config write path so both preserve unknown keys
+ * the same way after `safeParse`.
+ */
+export function mergePreservingUnknownKeys(
+  raw: Record<string, unknown>,
+  completed: Record<string, unknown>,
+): Record<string, unknown> {
+  const out: Record<string, unknown> = { ...raw, ...completed };
+  for (const [key, value] of Object.entries(completed)) {
+    const rawValue = raw[key];
+    if (isRecord(value) && isRecord(rawValue)) {
+      out[key] = mergePreservingUnknownKeys(rawValue, value);
+    }
+  }
+  return out;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+/**
  * The provider kind stored on a connection row, or null when the row is
  * missing or the DB is unavailable (both mean "unverifiable" to callers).
  */

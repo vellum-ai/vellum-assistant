@@ -29,10 +29,12 @@ import {
   saveConsent,
 } from "@/lib/consent/consent-persistence";
 import { sanitizeReturnTo } from "@/utils/return-to";
+import { useTranslation } from "@/i18n";
 import { routes } from "@/utils/routes";
 import { Button } from "@vellumai/design-library/components/button";
 
 export function ReviewTermsScreen() {
+  const { t } = useTranslation("onboarding");
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const userId = useAuthStore.use.user()?.id ?? null;
@@ -233,7 +235,7 @@ export function ReviewTermsScreen() {
             onClick={onContinue}
             className={electron ? undefined : "h-11 text-base"}
           >
-            Continue
+            {t("actions.continue")}
           </Button>
           <Button
             variant="outlined"
@@ -242,7 +244,7 @@ export function ReviewTermsScreen() {
             onClick={handleLogout}
             className={electron ? undefined : "h-11 text-base"}
           >
-            Log out
+            {t("actions.logOut")}
           </Button>
         </div>
       </div>

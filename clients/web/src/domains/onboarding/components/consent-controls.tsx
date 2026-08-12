@@ -4,6 +4,7 @@ import { SettingRow } from "@/components/setting-row";
 import { legalUrl, routes } from "@/utils/routes";
 import { Card } from "@vellumai/design-library/components/card";
 import { Checkbox } from "@vellumai/design-library/components/checkbox";
+import { Trans, useTranslation } from "@/i18n";
 
 /**
  * Consent controls shared by the onboarding privacy screen and the
@@ -58,15 +59,23 @@ function ConsentCheckbox({
       onCheckedChange={(next) => onChange(next === true)}
       label={
         <span className="text-body-medium-lighter text-[var(--content-default)]">
-          I agree to the{" "}
-          <a
-            href={legalUrl(link.href)}
-            target="_blank"
-            rel="noreferrer"
-            className="underline"
-          >
-            {link.text}
-          </a>
+          {/* The policy's name is data, so the sentence keeps it as a value
+              inside the link rather than being split around the anchor. */}
+          <Trans
+            i18nKey="consentControls.agreeTo"
+            ns="onboarding"
+            values={{ policy: link.text }}
+            components={{
+              link: (
+                <a
+                  href={legalUrl(link.href)}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="underline"
+                />
+              ),
+            }}
+          />
         </span>
       }
       aria-label={link.aria}
@@ -86,13 +95,14 @@ function Divider() {
 // change itself to the most legible line in the card — it's why the user is
 // here. Renders nothing when there are no notes.
 function PolicyChangeNotes({ notes }: { notes?: string[] }) {
+  const { t } = useTranslation("onboarding");
   if (!notes || notes.length === 0) {
     return null;
   }
   return (
     <div className="rounded-r-md border-l-2 border-[var(--content-secondary)] bg-[var(--surface-base)] py-3 pl-3.5 pr-3.5">
       <p className="text-body-small-default font-medium text-[var(--content-secondary)]">
-        What&apos;s changed
+        {t("consentControls.whatsChanged")}
       </p>
       {notes.length === 1 ? (
         <p className="mt-1.5 text-body-medium-lighter text-[var(--content-default)]">
@@ -139,15 +149,18 @@ export function PrivacyPreferencesCard({
   className?: string;
   style?: CSSProperties;
 }) {
+  const { t } = useTranslation("onboarding");
   return (
     <section className={className} style={style}>
-      <p className={SECTION_LABEL_CLASS}>Privacy preferences</p>
+      <p className={SECTION_LABEL_CLASS}>
+        {t("consentControls.privacyPreferences")}
+      </p>
       <Card padding={electron ? "sm" : "md"} className="w-full">
         <div className={`flex flex-col ${electron ? "gap-3" : "gap-4"}`}>
           {showAnalytics && (
             <SettingRow
-              label="Share Analytics"
-              helperText="Send aggregated product usage data"
+              label={t("consentControls.analyticsLabel")}
+              helperText={t("consentControls.analyticsHelp")}
               checked={shareAnalytics}
               onChange={onShareAnalyticsChange}
             />
@@ -155,8 +168,8 @@ export function PrivacyPreferencesCard({
           {showAnalytics && showDiagnostics && <Divider />}
           {showDiagnostics && (
             <SettingRow
-              label="Share Diagnostics"
-              helperText="Send crash reports, conversation traces, and session replay data"
+              label={t("consentControls.diagnosticsLabel")}
+              helperText={t("consentControls.diagnosticsHelp")}
               checked={shareDiagnostics}
               onChange={onShareDiagnosticsChange}
             />
@@ -192,9 +205,10 @@ export function AgreementsCard({
   className?: string;
   style?: CSSProperties;
 }) {
+  const { t } = useTranslation("onboarding");
   return (
     <section className={className} style={style}>
-      <p className={SECTION_LABEL_CLASS}>Agreements</p>
+      <p className={SECTION_LABEL_CLASS}>{t("consentControls.agreements")}</p>
       <Card padding={electron ? "sm" : "md"} className="w-full">
         <div className={`flex flex-col ${electron ? "gap-3.5" : "gap-4"}`}>
           {showPrivacy && (

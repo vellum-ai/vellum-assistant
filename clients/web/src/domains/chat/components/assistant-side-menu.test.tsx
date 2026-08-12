@@ -18,7 +18,10 @@ import { act, cleanup, render, waitFor } from "@testing-library/react";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 
-import { SIDEBAR_STACK_GAP } from "@/components/sidebar-nav-geometry";
+import {
+  SIDEBAR_SECTION_MAX_HEIGHT,
+  SIDEBAR_STACK_GAP,
+} from "@/components/sidebar-nav-geometry";
 
 mock.module("@/hooks/use-is-mobile", () => ({
   useIsMobile: () => false,
@@ -1488,6 +1491,89 @@ describe("AssistantSideMenu · equal section treatment", () => {
       expect(pinned.querySelector(".overflow-y-auto")).toBeNull();
       expect(chats.querySelector(".overflow-y-auto")).not.toBeNull();
       expect(slack.querySelector(".overflow-y-auto")).not.toBeNull();
+    } finally {
+      cleanup();
+    }
+  });
+
+  /**
+   * Renders the rail for real (not `parse`): the sizing is decided by
+   * `isLast`, and a section that defaults closed has no row list to size
+   * until its header mounts one. `openSections` clicks the named headers
+   * first - only Pinned and Chats default open.
+   */
+  function renderRail(openSections: string[] = []) {
+    const { container } = render(
+      createElement(AssistantSideMenu, {
+        assistantId: "asst-1",
+        collapsed: false,
+        variant: "rail",
+        conversations: LAYOUT_CONVERSATIONS,
+        conversationGroups: LAYOUT_GROUPS,
+        onSelectConversation: () => {},
+      }),
+    );
+    for (const label of openSections) {
+      const trigger = Array.from(
+        container.querySelectorAll<HTMLElement>(
+          '[data-slot="collapsible-nav-section-title"]',
+        ),
+      ).find((el) => el.textContent?.includes(label));
+      act(() => {
+        trigger?.click();
+      });
+    }
+    const sections = sectionElements(container);
+    const labels = sectionLabels(container);
+    return (label: string): HTMLElement => {
+      const scroller =
+        sections[labels.indexOf(label)]?.querySelector<HTMLElement>(
+          ".overflow-y-auto",
+        );
+      if (!scroller) {
+        throw new Error(`expected a scrolling row list in "${label}"`);
+      }
+      return scroller;
+    };
+  }
+
+  /*
+   * The test above asks only whether a section scrolls, and every sized
+   * section does - so it passes whether the bottom-most one fills the rail or
+   * caps at 300px like the rest. That is the difference users see: capping the
+   * bottom-most section is what left the rail's lower half empty in 0.11.3,
+   * since Chats sits there and holds everything whenever channel grouping is
+   * off. These two pin the difference itself.
+   */
+  test("the bottom-most section fills the rail; the ones above it cap", () => {
+    // Grouped: Pinned, Alpha, Chats, Slack. Slack is bottom-most.
+    const scroller = renderRail(["Slack"]);
+    try {
+      expect(scroller("Chats").style.maxHeight).toBe(
+        `${SIDEBAR_SECTION_MAX_HEIGHT}px`,
+      );
+      // Fills what the flex column has left rather than committing to a
+      // height of its own, so it reaches the footer on a tall rail.
+      expect(scroller("Slack").classList.contains("flex-1")).toBe(true);
+      expect(scroller("Slack").style.maxHeight).toBe("");
+    } finally {
+      cleanup();
+    }
+  });
+
+  test("ungrouped, Chats is bottom-most and fills instead of capping", () => {
+    // The reported 0.11.3 case: no channel sections, so Chats sits last and
+    // holds every conversation the curated sections didn't claim.
+    localStorage.setItem("vellum:sidebar-view-mode:asst-1", "all");
+    const scroller = renderRail(["Alpha"]);
+    try {
+      expect(scroller("Chats").classList.contains("flex-1")).toBe(true);
+      expect(scroller("Chats").style.maxHeight).toBe("");
+      // Still capped, since Chats sits under it - the fill is positional, not
+      // "every section grows now".
+      expect(scroller("Alpha").style.maxHeight).toBe(
+        `${SIDEBAR_SECTION_MAX_HEIGHT}px`,
+      );
     } finally {
       cleanup();
     }

@@ -14,6 +14,7 @@ import {
 } from "../../../persistence/delivery-crud.js";
 import { checkIngressForSecrets } from "../../../security/secret-ingress.js";
 import { getLogger } from "../../../util/logger.js";
+import { DAEMON_INTERNAL_ASSISTANT_ID } from "../../assistant-scope.js";
 
 const log = getLogger("runtime-http");
 
@@ -36,7 +37,6 @@ export interface SecretIngressCheckParams {
   actorUsername: string | undefined;
   trustCtx: TrustContext;
   replyCallbackUrl: string | undefined;
-  canonicalAssistantId: string;
 }
 
 export interface SecretIngressCheckResult {
@@ -69,7 +69,6 @@ export function runSecretIngressCheck(
     actorUsername,
     trustCtx,
     replyCallbackUrl,
-    canonicalAssistantId,
   } = params;
 
   // Persist the raw payload so dead-lettered events can always be replayed.
@@ -85,7 +84,7 @@ export function runSecretIngressCheck(
     senderUsername: actorUsername,
     trustCtx,
     replyCallbackUrl,
-    assistantId: canonicalAssistantId,
+    assistantId: DAEMON_INTERNAL_ASSISTANT_ID,
   });
 
   // ── Secret ingress scan ──

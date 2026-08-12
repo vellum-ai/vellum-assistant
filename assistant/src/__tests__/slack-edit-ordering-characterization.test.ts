@@ -59,7 +59,6 @@ async function applyEdit(eventId: string, content: string): Promise<void> {
     conversationExternalId: CHANNEL,
     externalMessageId: eventId,
     sourceMessageId: ORIGINAL_TS,
-    canonicalAssistantId: "self",
     assistantId: "self",
     content,
   });

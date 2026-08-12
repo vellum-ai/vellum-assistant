@@ -25,6 +25,7 @@ import type {
   MemoryEvalTallyResult,
 } from "../../../plugins/defaults/memory/src/memory-eval-routes.js";
 import type {
+  GateStatsResponse,
   MemoryV3BackfillSectionsResult,
   MemoryV3RebuildIndexResult,
 } from "../../../plugins/defaults/memory/src/memory-v3-routes.js";
@@ -50,6 +51,36 @@ const EVAL_IPC_TIMEOUT_MS = 30 * 60 * 1000;
 /** Commander accumulator for a repeatable `--exclude-conversation <id>` flag. */
 function collectRepeatable(value: string, acc: string[]): string[] {
   return [...acc, value];
+}
+
+/** Render gate-stats as a human-readable table. */
+function formatGateStats(r: GateStatsResponse): string {
+  const lines: string[] = [
+    `Gate-stats (last ${r.lookbackDays} day${r.lookbackDays === 1 ? "" : "s"}, ${r.totalRuns} run${r.totalRuns === 1 ? "" : "s"})`,
+    "",
+    `Bucket     Total  Scored  Passed  ScoredPassRate  Top reasons`,
+  ];
+  for (const b of r.buckets) {
+    const rate =
+      b.scoredPassRate !== null
+        ? `${(b.scoredPassRate * 100).toFixed(1)}%`
+        : "n/a";
+    const topReasons = Object.entries(b.reasons)
+      .sort(([, a], [, bv]) => (bv as number) - (a as number))
+      .slice(0, 3)
+      .map(([k, v]) => `${k}: ${v}`)
+      .join(", ");
+    lines.push(
+      `${b.pageCountRange.padEnd(10)} ${String(b.total).padStart(5)}  ${String(b.scored).padStart(6)}  ${String(b.passed).padStart(6)}  ${rate.padStart(14)}  ${topReasons}`,
+    );
+  }
+  if (r.unknownPageCount.total > 0) {
+    lines.push("");
+    lines.push(
+      `Unknown page count: ${r.unknownPageCount.total} total, ${r.unknownPageCount.passed} passed`,
+    );
+  }
+  return lines.join("\n");
 }
 
 /**
@@ -269,6 +300,39 @@ export function registerMemoryV3Command(memory: Command): void {
         return;
       }
       log.info(formatTally(payload));
+    },
+  );
+
+  // ── gate-stats ────────────────────────────────────────────────────────
+  // Reads the telemetry DB directly — no daemon required.
+
+  subcommand(v3, "gate-stats").action(
+    async (opts: { lookbackDays: string; json?: boolean }) => {
+      const lookbackDays = Number(opts.lookbackDays);
+      const [{ handleMemoryV3GateStats }, { getTelemetrySqlite }] =
+        await Promise.all([
+          import("../../../plugins/defaults/memory/src/memory-v3-routes.js"),
+          import("../../../persistence/db-connection.js"),
+        ]);
+      let payload;
+      try {
+        payload = handleMemoryV3GateStats(
+          Number.isFinite(lookbackDays) ? lookbackDays : 30,
+          getTelemetrySqlite(),
+        );
+      } catch (err) {
+        log.error(
+          "Failed to read gate stats: %s",
+          err instanceof Error ? err.message : String(err),
+        );
+        process.exitCode = 1;
+        return;
+      }
+      if (opts.json === true) {
+        log.info(JSON.stringify(payload, null, 2));
+        return;
+      }
+      log.info(formatGateStats(payload));
     },
   );
 }

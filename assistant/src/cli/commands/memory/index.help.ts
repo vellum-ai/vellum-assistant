@@ -606,7 +606,9 @@ that live state safely.
 
 Examples:
   $ assistant memory v3 rebuild-index
-  $ assistant memory v3 backfill-sections`,
+  $ assistant memory v3 backfill-sections
+  $ assistant memory v3 gate-stats
+  $ assistant memory v3 gate-stats --lookback-days 7 --json`,
       subcommands: [
         {
           name: "rebuild-index",
@@ -716,6 +718,46 @@ Examples:
   $ assistant memory v3 eval --snapshot .mv3/snapshot/concepts --staging .mv3/staging --out .mv3/eval
   $ assistant memory v3 eval --snapshot .mv3/snapshot/concepts --staging .mv3/staging --out .mv3/eval --turns-file .mv3/eval/key.json
   $ assistant memory v3 eval --snapshot .mv3/snapshot/concepts --staging .mv3/staging --out .mv3/eval --exclude-conversation <migration-conv-id>`,
+        },
+        {
+          name: "gate-stats",
+          description:
+            "Show injection gate pass rates bucketed by corpus size (read-only)",
+          options: [
+            {
+              flags: "--lookback-days <n>",
+              description: "Days of telemetry to aggregate (1–90, default 30)",
+              defaultValue: "30",
+            },
+            {
+              flags: "--json",
+              description: "Emit raw JSON instead of a formatted table",
+            },
+          ],
+          helpText: `
+Reads the memory v3 injection gate telemetry outbox and prints pass rates
+and reason distributions grouped by concept page count bucket
+(0–9 / 10–49 / 50–199 / 200+). Scored runs (dense lane was available and
+actually weighed scores) are reported separately from pass-open shortcuts
+(dense disabled / unavailable / gate threw) so scoredPassRate reflects
+only contested gate decisions — the signal relevant for threshold calibration.
+
+Coverage is limited to runs still pending platform flush. In a healthy system
+the outbox holds only the last few minutes to hours of events, so
+--lookback-days is an upper bound, not a guarantee; long-window aggregation
+lives on the platform side on top of flushed watchdog events.
+
+Reads the telemetry database directly — the assistant does not need to be
+running.
+
+Intended use: verify that gate firing rates shift as expected after a
+config or threshold change, and check whether the bm25-auto-calibration
+flag is worth enabling for large corpora.
+
+Examples:
+  $ assistant memory v3 gate-stats
+  $ assistant memory v3 gate-stats --lookback-days 7
+  $ assistant memory v3 gate-stats --json | jq '.buckets[] | select(.pageCountRange == "200+")'`,
         },
         {
           name: "eval-tally",

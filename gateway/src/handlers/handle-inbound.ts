@@ -1,4 +1,5 @@
 import {
+  type AdmissionPolicy,
   makeResolutionFailedVerdict,
   makeUnauthenticatedSenderVerdict,
   type SourceMetadata,
@@ -39,6 +40,24 @@ export type InboundResult = {
   rejectionReason?: string;
 };
 
+/**
+ * What the gate decided, and what an admitted message carries with it.
+ *
+ * `admissionPolicy` and `trustVerdict` are the two halves a caller needs to
+ * apply the ranked floor itself (see {@link admitInbound}); the runtime gets
+ * them stamped on `sourceMetadata` and does the same comparison there.
+ */
+export type InboundAdmission =
+  | { admitted: false; result: InboundResult }
+  | {
+      admitted: true;
+      routing: RouteResult;
+      trustVerdict: TrustVerdict | undefined;
+      /** Null on a channel exempt from the floor entirely. */
+      admissionPolicy: AdmissionPolicy | null;
+      displayName: string | undefined;
+    };
+
 export type TransportMetadataOverrides = {
   hints?: string[];
   uxBrief?: string;
@@ -78,11 +97,27 @@ function normalizeTransportHints(hints: string[] | undefined): string[] {
   return normalized;
 }
 
-export async function handleInbound(
+/**
+ * Everything that decides whether an inbound message may reach the assistant.
+ *
+ * Split out from {@link handleInbound} because a channel that delivers its own
+ * messages still has to pass all of it. Sharing this function is what makes
+ * that guaranteed rather than intended: a second implementation would be free
+ * to drift, and the drift would be silent, since a gate that is skipped looks
+ * exactly like a gate that admitted.
+ *
+ * What it does **not** decide is the ranked admission floor. `no_one` is
+ * enforced here as a kill switch, but `guardian_only` and below are compared
+ * against the sender's trust rank by whoever receives the message: the runtime
+ * does it in its admission stage, and a caller delivering somewhere else owes
+ * the same check with {@link meetsAdmissionFloor}, because nothing downstream
+ * of it will.
+ */
+export async function admitInbound(
   config: GatewayConfig,
   event: GatewayInboundEvent,
   options?: HandleInboundOptions,
-): Promise<InboundResult> {
+): Promise<InboundAdmission> {
   // ── Admission policy: `no_one` kill switch ──
   // Channel-global hard-deny, evaluated BEFORE routing so a channel set to
   // `no_one` denies every inbound with the kill-switch reason — even an
@@ -107,9 +142,12 @@ export async function handleInbound(
       "Inbound event hard-denied by admission policy 'no_one'",
     );
     return {
-      forwarded: false,
-      rejected: true,
-      rejectionReason: "admission_no_one",
+      admitted: false,
+      result: {
+        forwarded: false,
+        rejected: true,
+        rejectionReason: "admission_no_one",
+      },
     };
   }
 
@@ -130,9 +168,12 @@ export async function handleInbound(
       "Inbound event rejected by routing",
     );
     return {
-      forwarded: false,
-      rejected: true,
-      rejectionReason: routing.reason,
+      admitted: false,
+      result: {
+        forwarded: false,
+        rejected: true,
+        rejectionReason: routing.reason,
+      },
     };
   }
 
@@ -162,10 +203,13 @@ export async function handleInbound(
       "Text verification intercepted — not forwarding to runtime",
     );
     return {
-      forwarded: false,
-      rejected: false,
-      verificationIntercepted: true,
-      verificationReplyText: verificationResult.pendingReplyText,
+      admitted: false,
+      result: {
+        forwarded: false,
+        rejected: false,
+        verificationIntercepted: true,
+        verificationReplyText: verificationResult.pendingReplyText,
+      },
     };
   }
 
@@ -248,13 +292,35 @@ export async function handleInbound(
         "Invite redemption intercepted — not forwarding to runtime",
       );
       return {
-        forwarded: false,
-        rejected: false,
-        inviteIntercepted: true,
-        inviteReplyText: inviteResult.pendingReplyText,
+        admitted: false,
+        result: {
+          forwarded: false,
+          rejected: false,
+          inviteIntercepted: true,
+          inviteReplyText: inviteResult.pendingReplyText,
+        },
       };
     }
   }
+  return {
+    admitted: true,
+    routing,
+    trustVerdict,
+    admissionPolicy,
+    displayName,
+  };
+}
+
+export async function handleInbound(
+  config: GatewayConfig,
+  event: GatewayInboundEvent,
+  options?: HandleInboundOptions,
+): Promise<InboundResult> {
+  const admission = await admitInbound(config, event, options);
+  if (!admission.admitted) {
+    return admission.result;
+  }
+  const { routing, trustVerdict, admissionPolicy, displayName } = admission;
 
   const transportHints = normalizeTransportHints(
     options?.transportMetadata?.hints,

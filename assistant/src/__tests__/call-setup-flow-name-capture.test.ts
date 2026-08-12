@@ -360,7 +360,6 @@ describe("CallSetupFlow name capture", () => {
     ).toEqual({ from: PHONE_NUMBER, callerName: CALLER_NAME });
     expect(f.notifyCalls).toEqual([
       {
-        canonicalAssistantId: "self",
         sourceChannel: "phone",
         conversationExternalId: PHONE_NUMBER,
         actorExternalId: PHONE_NUMBER,

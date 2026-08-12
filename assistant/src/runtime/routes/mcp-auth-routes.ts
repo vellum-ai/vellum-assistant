@@ -19,6 +19,7 @@ import type { McpConfig, McpServerConfig } from "../../config/schemas/mcp.js";
 import { estimateToolDefinitionTokens } from "../../context/token-estimator.js";
 import { reloadMcpServers } from "../../daemon/mcp-reload-service.js";
 import { McpClient } from "../../mcp/client.js";
+import { getMcpServerManager } from "../../mcp/manager.js";
 import { orchestrateMcpOAuthConnect } from "../../mcp/mcp-auth-orchestrator.js";
 import { getMcpAuthState } from "../../mcp/mcp-auth-state.js";
 import {
@@ -237,17 +238,18 @@ interface McpServerEntry {
 }
 
 /**
- * Status reported for a plugin-declared server.
+ * Status reported for a plugin-declared server the MCP manager holds no
+ * live client for — it has not been started yet, or its connection failed.
  *
- * Plugin servers are listed but not managed: the MCP manager does not
- * connect them, so none of the health states describe them accurately.
- * They are also deliberately not health-checked. `McpClient.connect`
+ * A plugin server is never health-checked the way a workspace server is.
+ * `checkMachineReadableHealth` constructs its own `McpClient`, which
  * resolves `mcp:<serverId>:headers` and `mcp:<serverId>:tokens` from the
  * credential store, and a plugin controls both its server key and its URL,
  * so probing one would send workspace-owned credentials to an endpoint the
  * plugin chose whenever an id happens to match a stored key. Skipping the
  * probe also avoids spawning a plugin's declared stdio command as a side
- * effect of listing.
+ * effect of listing. The manager's own client — started with credentials
+ * isolated — is the only thing consulted instead.
  */
 const PLUGIN_SERVER_STATUS = "declared";
 
@@ -331,8 +333,9 @@ async function handleMcpList(_args: {
  * Project plugin-declared servers onto listing entries.
  *
  * Nothing here touches the credential store or the network: a plugin
- * server carries no auth state the assistant owns, and its status is fixed
- * (see {@link PLUGIN_SERVER_STATUS}).
+ * server carries no auth state the assistant owns, and its status comes
+ * from the manager's in-memory client rather than a probe (see
+ * {@link PLUGIN_SERVER_STATUS}).
  */
 function listPluginServerEntries(
   configEntries: [string, McpServerConfig][],
@@ -350,8 +353,10 @@ function listPluginServerEntries(
 
   // A workspace entry outranks a plugin's declaration of the same id: the
   // user's own configuration is the more specific statement, and it is the
-  // one they can edit.
+  // one they can edit. `buildEffectiveMcpConfig` applies the same
+  // precedence, so this listing describes the set the daemon actually runs.
   const workspaceIds = new Set(configEntries.map(([id]) => id));
+  const manager = getMcpServerManager();
 
   return servers
     .filter((server) => {
@@ -369,7 +374,9 @@ function listPluginServerEntries(
         .transport as Record<string, unknown>;
       return {
         id: server.id,
-        status: PLUGIN_SERVER_STATUS,
+        status: manager.getClient(server.id)?.isConnected
+          ? "connected"
+          : PLUGIN_SERVER_STATUS,
         transport: safeTransport as McpServerEntry["transport"],
         enabled: true,
         defaultRiskLevel: server.config.defaultRiskLevel,
