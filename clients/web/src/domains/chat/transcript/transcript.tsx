@@ -16,6 +16,7 @@ import { isSending, useTurnStore } from "@/domains/chat/turn-store";
 
 import { LatestTurnRow } from "@/domains/chat/transcript/latest-turn-row";
 import { PullRefreshSpinner } from "@/domains/chat/transcript/pull-refresh-spinner";
+import { TranscriptColumn } from "@/domains/chat/transcript/transcript-column";
 import { TranscriptRow } from "@/domains/chat/transcript/transcript-row";
 import { PULL_THRESHOLD_PX } from "@/domains/chat/transcript/pull-to-refresh-utils";
 import { usePullToRefresh } from "@/domains/chat/transcript/use-pull-to-refresh";
@@ -326,14 +327,14 @@ export const Transcript = forwardRef<TranscriptHandle, TranscriptProps>(
            *  the latest turn owns the flag instead (see `LatestTurnRow`). */}
           {partition.historyItems.map((item, i) => (
             <Fragment key={item.key}>
-              <div className="mx-auto w-full max-w-[var(--chat-max-width)] contain-content px-4 sm:px-6">
+              <TranscriptColumn>
                 <TranscriptRow
                   item={item}
                   {...rowProps}
                   changedDocumentIds={changedDocumentIdsByKey.get(item.key)}
                   isLatestMessage={i === latestHistoryMessageIndex}
                 />
-              </div>
+              </TranscriptColumn>
             </Fragment>
           ))}
           {/* Latest-edge region: contains the latest-turn cluster and the
@@ -367,12 +368,10 @@ export const Transcript = forwardRef<TranscriptHandle, TranscriptProps>(
            *  transition because React's reconciler tracks `fiber.index` (see
            *  the `transcript.test.tsx` regression test). */}
           {(partition.anchorMessage || rest.renderAvatar) && (
-            <div
-              className="mx-auto flex w-full max-w-[var(--chat-max-width)] flex-col contain-content px-4 sm:px-6"
-              style={
-                partition.anchorMessage
-                  ? { minHeight: viewportMinHeight }
-                  : undefined
+            <TranscriptColumn
+              className="flex flex-col"
+              minHeight={
+                partition.anchorMessage ? viewportMinHeight : undefined
               }
             >
               {partition.anchorMessage && (
@@ -399,7 +398,7 @@ export const Transcript = forwardRef<TranscriptHandle, TranscriptProps>(
                 />
               )}
               <div aria-hidden data-latest-edge="true" />
-            </div>
+            </TranscriptColumn>
           )}
           {/* Spinner last = visual bottom in flex-col. Only rendered when
            *  the gesture is feature-flag-enabled so the flag-off path has
