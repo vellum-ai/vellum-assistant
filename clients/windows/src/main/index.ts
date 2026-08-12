@@ -1,19 +1,19 @@
 import "./env-seed";
 
-import { app, net, protocol, shell } from "electron";
+import { app, net, protocol, session, shell } from "electron";
 import fs from "node:fs/promises";
 import { pathToFileURL } from "node:url";
 import path from "node:path";
 
 import { resolveAppProtocolPath } from "@vellumai/electron-utils/app-protocol";
 import { resolveLocalConfigFromEnv } from "@vellumai/local-mode";
-import { z } from "zod";
 
 import { APP_PROTOCOL } from "./app-config";
-import { handle, handleSync } from "./ipc";
+import { installMainFeatures } from "./features";
+import { handleSync } from "./ipc.client";
 import log from "./logger";
 import { ensureVisible, installMainWindow } from "./main-window";
-import { hardenedWebPreferences } from "./windows";
+import { installWebContentsSecurity } from "./windows.client";
 
 /**
  * Minimal Windows shell for the Vellum Assistant.
@@ -28,7 +28,7 @@ import { hardenedWebPreferences } from "./windows";
  * Not ported from the macOS client yet (see `clients/macos/src/main/` for the
  * reference implementations): gateway/platform request forwarding for
  * packaged builds, native auth, deep links, tray, auto-update, CSP,
- * notifications, hotkeys, local-mode IPC, window-state persistence.
+ * notifications, local-mode IPC, window-state persistence.
  */
 
 // Dev-only: override the package `name` (`@vellumai/windows`) so
@@ -157,29 +157,6 @@ handleSync("vellum:config:get", () => ({
   deviceId: null,
 }));
 
-const WEBSITE = "https://vellum.ai";
-
-// Injected by `electron.vite.config.ts` at build time.
-declare const __VELLUM_BUILD_SHA__: string;
-
-const installAppInfoIpc = (): void => {
-  handle("vellum:app:versionInfo", z.tuple([]), () => ({
-    appName: app.getName(),
-    version: app.getVersion(),
-    commitSha:
-      typeof __VELLUM_BUILD_SHA__ === "string" ? __VELLUM_BUILD_SHA__ : "unknown",
-    copyright: `© ${new Date().getFullYear()} Vellum AI`,
-    website: WEBSITE,
-  }));
-
-  // The renderer is sandboxed - `shell.openExternal` only works from main.
-  // The target is a fixed constant, never a renderer-supplied URL, so there's
-  // no open-redirect surface here.
-  handle("vellum:app:openWebsite", z.tuple([]), () =>
-    shell.openExternal(WEBSITE),
-  );
-};
-
 // ---------------------------------------------------------------------------
 // App lifecycle
 // ---------------------------------------------------------------------------
@@ -190,7 +167,7 @@ app
     if (!isDev) {
       registerAppProtocol();
     }
-    installAppInfoIpc();
+    installMainFeatures();
     installMainWindow();
   })
   .catch((err: unknown) => {
@@ -205,70 +182,10 @@ app.on("second-instance", () => {
 });
 
 app.on("web-contents-created", (_event, contents) => {
-  // Mirror renderer console output (info and up) into the main log file.
-  // The packaged app has no devtools, so without this the renderer's
-  // diagnostics are invisible in the field; `vellum.log` is the only
-  // artifact a debugging session can read.
-  contents.on("console-message", (event) => {
-    if (event.level === "debug") {
-      return;
-    }
-    const line = `[renderer wc=${contents.id}] ${event.message}`;
-    if (event.level === "error") {
-      log.error(line);
-    } else if (event.level === "warning") {
-      log.warn(line);
-    } else {
-      log.info(line);
-    }
-  });
-
-  contents.setWindowOpenHandler(({ url, disposition }) => {
-    if (disposition === "new-window" && url === "about:blank") {
-      return {
-        action: "allow",
-        overrideBrowserWindowOptions: {
-          webPreferences: {
-            ...hardenedWebPreferences(),
-            preload: undefined,
-          },
-        },
-      };
-    }
-
-    // Only http(s) is ever opened - file:, javascript:, custom schemes are
-    // denied with no fallback.
-    let parsed: URL;
-    try {
-      parsed = new URL(url);
-    } catch {
-      return { action: "deny" };
-    }
-    if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
-      return { action: "deny" };
-    }
-
-    // Programmatic popups (`window.open(url, name, features)` with size
-    // hints) come through as `new-window` disposition. The web app's OAuth /
-    // connect flows rely on the returned popup handle for postMessage
-    // callbacks, so allow these as in-app child windows that inherit the
-    // hardened webPreferences from the parent (preload intentionally
-    // omitted - these are OAuth/connect popups, not Vellum-bridge surfaces).
-    if (disposition === "new-window") {
-      return {
-        action: "allow",
-        overrideBrowserWindowOptions: {
-          webPreferences: {
-            ...hardenedWebPreferences(),
-            preload: undefined,
-          },
-        },
-      };
-    }
-
-    // Plain target=_blank link clicks → system browser.
-    void shell.openExternal(url);
-    return { action: "deny" };
+  installWebContentsSecurity(contents, {
+    cookies: () => session.defaultSession.cookies,
+    logger: log,
+    openExternal: (url) => shell.openExternal(url),
   });
 });
 

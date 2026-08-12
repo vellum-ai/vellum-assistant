@@ -4,6 +4,7 @@ import { Button } from "@vellumai/design-library/components/button";
 import { ListRow } from "@vellumai/design-library/components/list-row";
 import { Menu } from "@vellumai/design-library/components/menu";
 import { Tag } from "@vellumai/design-library/components/tag";
+import { Tooltip } from "@vellumai/design-library/components/tooltip";
 
 import { resolveModelDisplayName } from "@/domains/settings/ai/model-display";
 import type {
@@ -19,6 +20,12 @@ interface ProfileRowProps {
   selected: boolean;
   /** Connection rows, for resolving openai-compatible model display names. */
   connections?: ProviderConnection[];
+  /**
+   * A delete of this profile is scanning for references. The row dims and
+   * stops responding until the scan resolves, so the round trip does not read
+   * as a dead menu item.
+   */
+  deletePending?: boolean;
   /** Open the profile in the sidepanel (view for managed, edit for user). */
   onOpen: () => void;
   onMakeActive: () => void;
@@ -46,6 +53,7 @@ export function ProfileRow({
   isActiveProfile,
   selected,
   connections,
+  deletePending = false,
   onOpen,
   onMakeActive,
   onSetStatus,
@@ -70,9 +78,15 @@ export function ProfileRow({
   }
 
   const availability = profile.availability;
+  // This row opens the profile editor, which is where a missing provider or
+  // model is filled in. A connection or credential problem is repaired
+  // elsewhere, and those messages already name where, so only the
+  // `incomplete` case invites a click: promising a fix the editor cannot
+  // perform would send the user somewhere that does not help.
+  const fixableHere = availability?.status === "incomplete";
   const availabilityProblem =
     availability != null && availability.status !== "ok"
-      ? (availability.message ?? "This profile's provider is not available.")
+      ? `${availability.message ?? "This profile's provider is not available."}${fixableHere ? " Click to fix." : ""}`
       : null;
 
   return (
@@ -88,18 +102,35 @@ export function ProfileRow({
       onClick={onOpen}
       showChevron={false}
       selected={selected}
+      disabled={deletePending}
       contentAriaLabel={`Open profile ${displayName}`}
       trailingInteractive
       trailing={
         <>
           {availabilityProblem != null ? (
-            <span title={availabilityProblem} className="inline-flex">
-              <AlertCircle
-                className="h-4 w-4 text-[var(--system-mid-strong)]"
-                aria-label={availabilityProblem}
-                role="img"
-              />
-            </span>
+            <Tooltip content={availabilityProblem}>
+              {fixableHere ? (
+                <button
+                  type="button"
+                  onClick={onOpen}
+                  aria-label={availabilityProblem}
+                  className="inline-flex cursor-pointer rounded-sm p-0.5 keyboard-focus:ring-2 keyboard-focus:ring-[var(--ring)]"
+                >
+                  <AlertCircle
+                    className="h-4 w-4 text-[var(--system-mid-strong)]"
+                    aria-hidden="true"
+                  />
+                </button>
+              ) : (
+                <span className="inline-flex p-0.5" tabIndex={0}>
+                  <AlertCircle
+                    className="h-4 w-4 text-[var(--system-mid-strong)]"
+                    aria-label={availabilityProblem}
+                    role="img"
+                  />
+                </span>
+              )}
+            </Tooltip>
           ) : null}
           {isDisabled ? <Tag tone="neutral">Disabled</Tag> : null}
           {isActiveProfile ? <Tag tone="positive">Default</Tag> : null}
@@ -110,6 +141,9 @@ export function ProfileRow({
                 size="compact"
                 iconOnly={<EllipsisVertical />}
                 aria-label={`Actions for ${displayName}`}
+                // The kebab sits outside the row's interactive content area,
+                // so ListRow's own `disabled` does not reach it.
+                disabled={deletePending}
               />
             </Menu.Trigger>
             <Menu.Content align="end" sideOffset={4}>

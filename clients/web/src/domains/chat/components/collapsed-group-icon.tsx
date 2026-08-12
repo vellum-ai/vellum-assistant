@@ -2,9 +2,8 @@ import { useCallback, useState, type ReactNode } from "react";
 
 import type { LucideIcon } from "lucide-react";
 
-import { IconTile } from "@/domains/chat/components/icon-tile";
 import type { Conversation } from "@/types/conversation-types";
-import { Popover, Tooltip } from "@vellumai/design-library";
+import { Popover, SideMenu } from "@vellumai/design-library";
 import { cn } from "@vellumai/design-library/utils/cn";
 
 // ---------------------------------------------------------------------------
@@ -17,14 +16,22 @@ export type GroupIndicatorState = "attention" | "processing" | "unread" | null;
  * Derive the highest-priority indicator state for a group of conversations.
  *
  * Priority: attention > processing > unread > null.
+ *
+ * `indexUnread` is the section's unread count per the daemon's section
+ * index. When defined it decides the unread bit outright, in both
+ * directions: the index counts the whole section while `conversations` is
+ * only what the client has loaded, so a scan can miss unread rows beyond
+ * the loaded window and can keep counting a row the server already settled.
+ * Attention and processing are client-only state and always scan.
  */
 export function getGroupIndicatorState(
   conversations: Conversation[],
   processingConversationIds: Set<string> | undefined,
   attentionConversationIds: Set<string> | undefined,
+  indexUnread?: number,
 ): GroupIndicatorState {
   let hasProcessing = false;
-  let hasUnread = false;
+  let hasUnread = indexUnread !== undefined && indexUnread > 0;
 
   for (const c of conversations) {
     if (attentionConversationIds?.has(c.conversationId)) {
@@ -33,7 +40,11 @@ export function getGroupIndicatorState(
     if (!hasProcessing && processingConversationIds?.has(c.conversationId)) {
       hasProcessing = true;
     }
-    if (!hasUnread && c.hasUnseenLatestAssistantMessage) {
+    if (
+      indexUnread === undefined &&
+      !hasUnread &&
+      c.hasUnseenLatestAssistantMessage
+    ) {
       hasUnread = true;
     }
   }
@@ -75,6 +86,7 @@ export function GroupIndicatorDot({
   return (
     <span
       aria-hidden
+      data-slot="group-indicator-dot"
       className={cn(
         "h-2.5 w-2.5 rounded-full",
         INDICATOR_CLASS[state],
@@ -135,32 +147,42 @@ export function CollapsedGroupIcon({
   const close = useCallback(() => setOpen(false), []);
 
   if (disabled) {
-    // Empty group: a muted, non-interactive icon. The tooltip explains why it
-    // does nothing rather than repeating the group name the icon already
-    // conveys. No popover and nothing to click, so the plain convenience
-    // `Tooltip` (matching the active path) is all we need.
+    // Empty group: the same tile, minus the popover it would open. Its
+    // tooltip explains why it does nothing rather than repeating the group
+    // name the icon already conveys, so `tooltip` diverges from `label`
+    // (which still names the tile for assistive tech).
     return (
-      <Tooltip content="No conversations" side="right">
-        <div
-          aria-label={label}
-          className="relative flex h-[30px] w-[30px] items-center justify-center rounded-[6px] text-[var(--content-disabled)]"
-        >
-          <Icon size={14} />
-        </div>
-      </Tooltip>
+      <SideMenu.Item
+        icon={Icon}
+        label={label}
+        tooltip="No conversations"
+        shape="tile"
+        disabled
+      />
     );
   }
 
   return (
     <Popover.Root open={open} onOpenChange={handleOpenChange}>
       <Popover.Trigger asChild>
-        <IconTile label={label} side="right" aria-haspopup="dialog">
-          <Icon size={14} />
-          <GroupIndicatorDot
-            state={indicatorState}
-            className="absolute right-0 top-0 border-2 border-[var(--surface-overlay)]"
-          />
-        </IconTile>
+        <SideMenu.Item
+          icon={Icon}
+          label={label}
+          showCollapsedTooltip
+          shape="tile"
+          active={open}
+          // `active` is the open-flyout surface here, not a location. This
+          // tile opens a popover over the rail rather than navigating, so it
+          // drops the `aria-current="page"` that a real destination row sets.
+          aria-current={undefined}
+          aria-haspopup="dialog"
+          indicator={
+            <GroupIndicatorDot
+              state={indicatorState}
+              className="absolute right-0 top-0 border-2 border-[var(--surface-overlay)]"
+            />
+          }
+        />
       </Popover.Trigger>
       <Popover.Content
         ref={setContentEl}

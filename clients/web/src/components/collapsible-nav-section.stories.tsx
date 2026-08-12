@@ -22,6 +22,7 @@ import type { ReactNode } from "react";
 import { SideMenu } from "@vellumai/design-library";
 
 import { CollapsibleNavSection } from "./collapsible-nav-section";
+import { SectionActionsButton } from "./section-actions-button";
 
 interface NavSectionStoryArgs {
   label: string;
@@ -32,29 +33,16 @@ interface NavSectionStoryArgs {
 
 const meta: Meta<NavSectionStoryArgs> = {
   title: "Components/CollapsibleNavSection",
-  globals: {
-    viewport: { value: "sbDesktop", isRotated: false },
-  },
   parameters: {
     layout: "padded",
-    viewport: {
-      options: {
-        sbDesktop: {
-          name: "Desktop",
-          styles: { width: "1280px", height: "760px" },
-          type: "desktop",
-        },
-      },
-    },
     /* Section headers and rows carry `max-md:` variants for the mobile drawer
        (16px type, 46px rows instead of 14px/30px). Those key off the
-       *viewport*, so at a narrow browser window these stories would render the
-       mobile drawer's metrics while still showing the `rail` variant, a
-       combination the app never ships. The pinned viewport above holds the
-       Canvas at desktop width regardless of window size.
+       *viewport*, and the desktop width every story starts at (see
+       `.storybook/preview.tsx`) keeps the Canvas above the `md` breakpoint
+       regardless of window size.
 
-       It does not reach the Docs canvas: every story on a docs page shares one
-       iframe, so no per-story viewport applies there, and that iframe runs
+       That does not reach the Docs canvas: every story on a docs page shares
+       one iframe, so no viewport global applies there, and that iframe runs
        roughly 300px narrower than the window. Read these in Canvas, or widen
        the window past ~1070px for Docs. Tracked in LUM-2921. */
   },
@@ -85,15 +73,6 @@ function SideMenuFrame({ children }: { children: ReactNode }) {
   );
 }
 
-/** A count chip, the one trailing affordance these sections use. */
-function CountBadge({ children }: { children: ReactNode }) {
-  return (
-    <span className="text-body-small-default text-[var(--content-tertiary)]">
-      {children}
-    </span>
-  );
-}
-
 export const Default: Story = {
   args: {
     label: "Recents",
@@ -112,7 +91,9 @@ export const Default: Story = {
           value="section"
           icon={showIcon ? Clock : undefined}
           label={label}
-          trailing={showTrailing ? <CountBadge>12</CountBadge> : undefined}
+          trailing={
+            showTrailing ? <SectionActionsButton label={label} /> : undefined
+          }
         >
           <SideMenu.SubList>
             <SideMenu.Item label="New conversation" />
@@ -147,7 +128,7 @@ export const MultipleSections: Story = {
           value="pinned"
           icon={Pin}
           label="Pinned"
-          trailing={<CountBadge>3</CountBadge>}
+          trailing={<SectionActionsButton label="Pinned" />}
         >
           <SideMenu.SubList>
             <SideMenu.Item label="Daily standup" />
@@ -196,7 +177,9 @@ export const NoIcon: Story = {
         <CollapsibleNavSection.Section
           value={label}
           label={label}
-          trailing={showTrailing ? <CountBadge>5</CountBadge> : undefined}
+          trailing={
+            showTrailing ? <SectionActionsButton label={label} /> : undefined
+          }
         >
           <SideMenu.SubList>
             {/* `icon` and `indent` are the shipped way to align rows with and

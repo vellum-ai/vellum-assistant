@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 import { setConfig } from "../../../__tests__/helpers/set-config.js";
 import { getConfig } from "../../../config/loader.js";
+import { SttError } from "../../../stt/types.js";
 
 // ---------------------------------------------------------------------------
 // Mocks — must be declared before any subject imports
@@ -58,9 +59,27 @@ mock.module("../../../security/credential-key.js", () => ({
 
 let mockVellumAvailable = false;
 
+/**
+ * Arguments the managed batch adapter was called with. The managed path has
+ * no constructor to spy on (the platform connection is the credential), so
+ * the language it forwards is observable only at the transcribe call.
+ */
+const vellumManagedTranscribeCalls: Array<{
+  mimeType: string;
+  language: string | undefined;
+}> = [];
+
 mock.module("../vellum-managed.js", () => ({
   vellumManagedSpeechAvailable: async () => mockVellumAvailable,
-  vellumManagedTranscribe: async () => ({ text: "" }),
+  vellumManagedTranscribe: async (
+    _audio: Buffer,
+    mimeType: string,
+    _signal?: AbortSignal,
+    language?: string,
+  ) => {
+    vellumManagedTranscribeCalls.push({ mimeType, language });
+    return { text: "" };
+  },
   sttErrorFromManagedSpeech: (failure: unknown) => new Error(String(failure)),
 }));
 
@@ -172,6 +191,7 @@ mock.module("../xai-realtime.js", () => ({
 // ---------------------------------------------------------------------------
 
 const {
+  effectiveSttLanguage,
   resolveBatchTranscriber,
   sttCredentialGapReason,
   resolveConversationStreamingSttCapability,
@@ -472,7 +492,12 @@ describe("resolveTelephonySttCapability", () => {
 // Tests — telephony capability alignment with provider catalog
 // ---------------------------------------------------------------------------
 
-import { getProviderEntry, listProviderIds } from "../provider-catalog.js";
+import type { SttProviderId } from "../../../stt/types.js";
+import {
+  getProviderEntry,
+  listProviderIds,
+  supportsBoundary,
+} from "../provider-catalog.js";
 
 describe("telephony capability catalog alignment", () => {
   /**
@@ -482,6 +507,16 @@ describe("telephony capability catalog alignment", () => {
    * telephonyMode or a new provider is added, these tests will catch
    * misalignment early.
    */
+
+  /**
+   * Providers that deliberately sit out telephony (`telephonyMode: "none"`).
+   * `deepgram-flux` is a streaming-only spike, and telephony is out of its
+   * scope. Nothing reroutes a call to another provider, so opting out here
+   * means a Flux-configured assistant does not transcribe calls.
+   */
+  const TELEPHONY_OPT_OUT: ReadonlySet<SttProviderId> = new Set([
+    "deepgram-flux",
+  ]);
 
   test("deepgram catalog entry has realtime-ws telephonyMode", () => {
     const entry = getProviderEntry("deepgram");
@@ -516,15 +551,31 @@ describe("telephony capability catalog alignment", () => {
     expect(entry!.credentialProvider).toBe("openai");
   });
 
-  test("every catalog provider has a non-none telephonyMode", () => {
-    // The telephony capability resolver assumes all known providers
-    // participate in telephony over the media-stream transport. If a
-    // provider with telephonyMode: "none" is added, the resolver reports
-    // it as unsupported.
+  test("every catalog provider has a non-none telephonyMode unless it opts out", () => {
+    // The telephony capability resolver assumes known providers participate
+    // in telephony over the media-stream transport. A provider with
+    // telephonyMode: "none" is reported as unsupported, so opting out has to
+    // be a deliberate, listed choice rather than an oversight.
     for (const id of listProviderIds()) {
       const entry = getProviderEntry(id);
       expect(entry).toBeDefined();
+      if (TELEPHONY_OPT_OUT.has(id)) {
+        expect(entry!.telephonyMode).toBe("none");
+        continue;
+      }
       expect(entry!.telephonyMode).not.toBe("none");
+    }
+  });
+
+  test("telephony opt-out providers resolve as unsupported", async () => {
+    for (const id of TELEPHONY_OPT_OUT) {
+      const entry = getProviderEntry(id);
+      mockVellumAvailable = false;
+      mockProviderKeys = { [entry!.credentialProvider]: `test-key-${id}` };
+      applyConfig({ provider: id });
+
+      const result = await resolveTelephonySttCapability();
+      expect(result.status).toBe("unsupported");
     }
   });
 
@@ -555,6 +606,9 @@ describe("telephony capability catalog alignment", () => {
     };
 
     for (const id of listProviderIds()) {
+      if (TELEPHONY_OPT_OUT.has(id)) {
+        continue;
+      }
       const credKey = credentialMap[id];
       expect(credKey).toBeDefined();
 
@@ -1044,7 +1098,9 @@ describe("vellum managed resolution", () => {
     expect(vellumStreamCtorCalls).toEqual([
       {
         connection: mockVelayConnection,
-        options: { sampleRate: 24000 },
+        // No language is configured here, so the managed default rides along
+        // with the connection plumbing this test is about.
+        options: { sampleRate: 24000, language: "multi" },
       },
     ]);
   });
@@ -1178,16 +1234,76 @@ describe("resolveStreamingTranscriber language plumbing", () => {
     expect(deepgramCtorCalls[0]?.options).toMatchObject({ language: "hi" });
   });
 
-  test("no configured language leaves the option off entirely", async () => {
-    // Regression guard for the default path: adapters must see no `language`
-    // key at all, so behavior for existing users is byte-identical.
+  test("no configured language falls to multilingual on BYOK Deepgram", async () => {
+    // Unset is not a neutral state on Deepgram: sending no language decodes
+    // as English, so an unconfigured Hindi speaker gets English-sounding
+    // nonsense. The default fills that gap with code-switching, which also
+    // pins nova-3 the way any explicit language does.
     mockProviderKeys = { deepgram: "dg-key" };
     applyConfig({ provider: "deepgram" });
 
     await resolveStreamingTranscriber({ sampleRate: 16000 });
 
     expect(deepgramCtorCalls).toHaveLength(1);
-    expect(deepgramCtorCalls[0]?.options).not.toHaveProperty("language");
+    expect(deepgramCtorCalls[0]?.options).toMatchObject({
+      language: "multi",
+      model: "nova-3",
+    });
+  });
+
+  test("no configured language falls to multilingual on the managed relay", async () => {
+    // The relay dials Deepgram server-side, so it inherits the same English
+    // default and needs the same fill-in.
+    mockVellumAvailable = true;
+    mockVelayConnection = {
+      wsBaseUrl: "ws://gateway.test",
+      httpBaseUrl: "http://gateway.test",
+      mintServiceToken: () => "vk-test",
+    };
+    applyConfig({ provider: "vellum" });
+
+    await resolveStreamingTranscriber({ sampleRate: 24000 });
+
+    expect(vellumStreamCtorCalls).toEqual([
+      {
+        connection: mockVelayConnection,
+        options: { sampleRate: 24000, language: "multi" },
+      },
+    ]);
+  });
+
+  test("an explicitly configured language still wins over the default", async () => {
+    // The default only fills the unset case: someone who picked Tamil (off
+    // the code-switching roster entirely) must keep it.
+    mockProviderKeys = { deepgram: "dg-key" };
+    applyConfig({ provider: "deepgram", language: "ta" });
+
+    await resolveStreamingTranscriber({ sampleRate: 16000 });
+
+    expect(deepgramCtorCalls[0]?.options).toMatchObject({ language: "ta" });
+  });
+
+  test("an explicit English pin is honored rather than treated as unset", async () => {
+    // "en" is what the settings picker writes for a deliberate English pin,
+    // so it must not collapse back into the multilingual default.
+    mockProviderKeys = { deepgram: "dg-key" };
+    applyConfig({ provider: "deepgram", language: "en" });
+
+    await resolveStreamingTranscriber({ sampleRate: 16000 });
+
+    expect(deepgramCtorCalls[0]?.options).toMatchObject({ language: "en" });
+  });
+
+  test("providers that detect natively keep receiving no language when unset", async () => {
+    // xAI reads unset as native auto-detection, so the multilingual default
+    // would replace a broader capability with a ten-language one.
+    mockProviderKeys = { xai: "xai-key" };
+    applyConfig({ provider: "xai" });
+
+    await resolveStreamingTranscriber({ sampleRate: 16000 });
+
+    expect(xaiCtorCalls).toHaveLength(1);
+    expect(xaiCtorCalls[0]?.options).not.toHaveProperty("language");
   });
 
   test("providers that auto-detect natively never receive a language", async () => {
@@ -1245,6 +1361,305 @@ describe("resolveStreamingTranscriber language plumbing", () => {
       model: "nova-3",
     });
   });
+
+  test("managed batch forwards the configured language to the platform", async () => {
+    // The platform proxy passes it to Deepgram server-side, so a managed
+    // voice note decodes in the same language the live session does.
+    vellumManagedTranscribeCalls.length = 0;
+    mockVellumAvailable = true;
+    applyConfig({ provider: "vellum", language: "ta" });
+
+    const transcriber = await resolveBatchTranscriber();
+    await transcriber!.transcribe({
+      audio: Buffer.from("fake-audio"),
+      mimeType: "audio/ogg",
+    });
+
+    expect(vellumManagedTranscribeCalls).toHaveLength(1);
+    expect(vellumManagedTranscribeCalls[0]?.language).toBe("ta");
+  });
+
+  test("managed batch falls to multilingual when no language is configured", async () => {
+    // The gap this closes: managed voice notes used to decode as English no
+    // matter what the user had chosen, because nothing was forwarded.
+    vellumManagedTranscribeCalls.length = 0;
+    mockVellumAvailable = true;
+    applyConfig({ provider: "vellum" });
+
+    const transcriber = await resolveBatchTranscriber();
+    await transcriber!.transcribe({
+      audio: Buffer.from("fake-audio"),
+      mimeType: "audio/ogg",
+    });
+
+    expect(vellumManagedTranscribeCalls).toHaveLength(1);
+    expect(vellumManagedTranscribeCalls[0]?.language).toBe("multi");
+  });
+
+  test("batch resolution falls to multilingual when no language is configured", async () => {
+    // Dictation and voice notes ride the batch path, and they read the same
+    // config the live session does. A user whose spoken language works in
+    // voice mode must not find it broken in a voice note.
+    deepgramBatchCtorCalls.length = 0;
+    mockProviderKeys = { deepgram: "dg-key" };
+    applyConfig({ provider: "deepgram" });
+
+    const transcriber = await resolveBatchTranscriber();
+    await transcriber!.transcribe({
+      audio: Buffer.from("fake-audio"),
+      mimeType: "audio/ogg",
+    });
+
+    expect(deepgramBatchCtorCalls).toHaveLength(1);
+    expect(deepgramBatchCtorCalls[0]?.options).toMatchObject({
+      language: "multi",
+      model: "nova-3",
+    });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Tests: advertised streaming capability vs. what the factory can build
+// ---------------------------------------------------------------------------
+
+describe("streaming capability matches the streaming factory", () => {
+  /**
+   * The catalog's `daemon-streaming` boundary is load-bearing in three
+   * places that must never disagree:
+   *
+   * 1. `resolveConversationStreamingSttCapability`, which preflight reports
+   *    as `supported`.
+   * 2. `resolveStreamingTranscriber`, which has to actually build an adapter.
+   * 3. The two user-facing "streaming-capable providers" strings, which list
+   *    exactly `listProviderIds().filter(id => supportsBoundary(id,
+   *    "daemon-streaming"))`: `stt/stt-stream-session.ts` and
+   *    `live-voice/live-voice-session.ts`.
+   *
+   * A provider that is advertised by (1) and (3) but resolves to `null` in
+   * (2) makes preflight lie and sends the session down the provider-error
+   * path, and the error message it lands on names the very provider that
+   * just failed as a supported alternative. This suite is the guard: every
+   * advertised provider must build.
+   *
+   * `deepgram-flux-realtime.js` is deliberately NOT mocked in this file, so
+   * the Flux case constructs the real adapter.
+   */
+  const STREAMING_CREDENTIAL: Record<string, string> = {
+    deepgram: "deepgram",
+    "deepgram-flux": "deepgram",
+    "google-gemini": "gemini",
+    "openai-whisper": "openai",
+    xai: "xai",
+    // vellum's credential is the platform connection, mocked below.
+    vellum: "vellum",
+  };
+
+  /** The exact list both user-facing error strings advertise. */
+  function advertisedStreamingProviders(): readonly SttProviderId[] {
+    return listProviderIds().filter((id) =>
+      supportsBoundary(id, "daemon-streaming"),
+    );
+  }
+
+  function seedCredentialsFor(id: SttProviderId): void {
+    const credential = STREAMING_CREDENTIAL[id];
+    expect(credential).toBeDefined();
+    mockVellumAvailable = id === "vellum";
+    mockVelayConnection =
+      id === "vellum"
+        ? {
+            wsBaseUrl: "ws://gateway.test",
+            httpBaseUrl: "http://gateway.test",
+            mintServiceToken: () => "vk-test",
+          }
+        : null;
+    mockProviderKeys = id === "vellum" ? {} : { [credential!]: `key-${id}` };
+    applyConfig({ provider: id });
+  }
+
+  beforeEach(() => {
+    mockVellumAvailable = false;
+    mockVelayConnection = null;
+    mockProviderKeys = {};
+    loggerWarnings.length = 0;
+  });
+
+  test("the advertised list includes deepgram-flux", () => {
+    // Guards the suite below against passing vacuously: if Flux dropped out of
+    // the advertised list, those loops would assert nothing about it.
+    expect(advertisedStreamingProviders()).toContain("deepgram-flux");
+  });
+
+  test("every advertised provider reports supported AND builds a transcriber", async () => {
+    for (const id of advertisedStreamingProviders()) {
+      seedCredentialsFor(id);
+
+      const capability = await resolveConversationStreamingSttCapability();
+      expect(capability.status).toBe("supported");
+
+      const transcriber = await resolveStreamingTranscriber();
+      expect(transcriber).not.toBeNull();
+      expect(transcriber!.boundaryId).toBe("daemon-streaming");
+    }
+  });
+
+  test("every advertised provider reports missing credentials AND builds nothing without them", async () => {
+    for (const id of advertisedStreamingProviders()) {
+      mockVellumAvailable = false;
+      mockVelayConnection = null;
+      mockProviderKeys = {};
+      applyConfig({ provider: id });
+
+      const capability = await resolveConversationStreamingSttCapability();
+      expect(capability.status).toBe("missing-credentials");
+      expect(await resolveStreamingTranscriber()).toBeNull();
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Tests: deepgram-flux streaming resolution
+// ---------------------------------------------------------------------------
+
+describe("deepgram-flux streaming resolution", () => {
+  beforeEach(() => {
+    mockVellumAvailable = false;
+    mockVelayConnection = null;
+    mockProviderKeys = {};
+    loggerWarnings.length = 0;
+  });
+
+  test("resolves a real Flux transcriber on the shared Deepgram key", async () => {
+    mockProviderKeys = { deepgram: "dg-key" };
+    applyConfig({ provider: "deepgram-flux" });
+
+    const transcriber = await resolveStreamingTranscriber({
+      sampleRate: 16_000,
+    });
+
+    expect(transcriber).not.toBeNull();
+    expect(transcriber!.providerId).toBe("deepgram-flux");
+    expect(transcriber!.boundaryId).toBe("daemon-streaming");
+    // Flux owns turn boundaries, so callers feature-detecting this method
+    // must fall back to stop().
+    expect(transcriber!.finalizeUtterance).toBeUndefined();
+  });
+
+  test("resolves from an explicit providerId, the way live voice asks", async () => {
+    // Live voice derives its provider itself and passes it in rather than
+    // letting the resolver re-read config.
+    mockProviderKeys = { deepgram: "dg-key" };
+    applyConfig({ provider: "openai-whisper" });
+
+    const transcriber = await resolveStreamingTranscriber({
+      providerId: "deepgram-flux",
+    });
+
+    expect(transcriber?.providerId).toBe("deepgram-flux");
+  });
+
+  test("resolves null without a Deepgram key", async () => {
+    mockProviderKeys = { openai: "sk-key" };
+    applyConfig({ provider: "deepgram-flux" });
+
+    expect(await resolveStreamingTranscriber()).toBeNull();
+  });
+
+  test("telephony callers resolve to null without a Flux-specific conditional", async () => {
+    // The catalog's telephonyMode: "none" is the only gate. Boundary-
+    // requiring callers fall back to per-turn batch transcription.
+    mockProviderKeys = { deepgram: "dg-key" };
+    applyConfig({ provider: "deepgram-flux" });
+
+    const transcriber = await resolveStreamingTranscriber({
+      utteranceBoundaryFinals: true,
+    });
+
+    expect(transcriber).toBeNull();
+    expect(loggerWarnings).toHaveLength(1);
+    expect(
+      (loggerWarnings[0]!.data as { providerId?: unknown }).providerId,
+    ).toBe("deepgram-flux");
+  });
+
+  test("telephony capability reports Flux as unsupported", async () => {
+    mockProviderKeys = { deepgram: "dg-key" };
+    applyConfig({ provider: "deepgram-flux" });
+
+    const result = await resolveTelephonySttCapability();
+
+    expect(result.status).toBe("unsupported");
+  });
+
+  test("diarize: 'required' rejects Flux rather than silently dropping labels", async () => {
+    mockProviderKeys = { deepgram: "dg-key" };
+    applyConfig({ provider: "deepgram-flux" });
+
+    const transcriber = await resolveStreamingTranscriber({
+      diarize: "required",
+    });
+
+    expect(transcriber).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Tests: batch resolution against a streaming-only provider
+// ---------------------------------------------------------------------------
+
+describe("deepgram-flux batch resolution", () => {
+  beforeEach(() => {
+    mockVellumAvailable = false;
+    mockVelayConnection = null;
+    mockProviderKeys = {};
+    loggerWarnings.length = 0;
+  });
+
+  /**
+   * Every batch caller pairs a `null` resolve with "no speech-to-text
+   * provider is configured". Flux is configured, and the operator who set it
+   * needs to be told which of the two Deepgram entries batch runs on, so the
+   * resolver raises a typed error instead of returning that `null`.
+   */
+  test("throws a named error rather than resolving null", async () => {
+    mockProviderKeys = { deepgram: "dg-key" };
+    applyConfig({ provider: "deepgram-flux" });
+
+    await expect(resolveBatchTranscriber()).rejects.toThrow(
+      'Deepgram Flux is streaming-only. Batch transcription requires the deepgram provider: set services.stt.provider to "deepgram".',
+    );
+  });
+
+  test("marks the error user-facing so friendly copy does not overwrite it", async () => {
+    mockProviderKeys = { deepgram: "dg-key" };
+    applyConfig({ provider: "deepgram-flux" });
+
+    const err = await resolveBatchTranscriber().catch((e: unknown) => e);
+
+    expect(err).toBeInstanceOf(SttError);
+    expect((err as SttError).category).toBe("provider-error");
+    expect((err as SttError).userFacing).toBe(true);
+  });
+
+  test("logs the gap so a degrading caller still leaves a daemon-side trace", async () => {
+    mockProviderKeys = { deepgram: "dg-key" };
+    applyConfig({ provider: "deepgram-flux" });
+
+    await resolveBatchTranscriber().catch(() => undefined);
+
+    expect(loggerWarnings).toHaveLength(1);
+    expect(
+      (loggerWarnings[0]!.data as { providerId?: unknown }).providerId,
+    ).toBe("deepgram-flux");
+  });
+
+  test("a provider that is absent from the catalog still resolves null", async () => {
+    // "Unknown provider" is a different situation from "known provider,
+    // wrong boundary", and only the latter has a fix worth naming.
+    applyConfig({ provider: "not-a-provider" });
+
+    expect(await resolveBatchTranscriber()).toBeNull();
+  });
 });
 
 describe("sttCredentialGapReason", () => {
@@ -1252,5 +1667,50 @@ describe("sttCredentialGapReason", () => {
     expect(sttCredentialGapReason("vellum")).toContain("platform connect");
     expect(sttCredentialGapReason("vellum")).not.toContain("API key");
     expect(sttCredentialGapReason("deepgram")).toContain("API key");
+  });
+});
+
+describe("effectiveSttLanguage", () => {
+  test("fills the unset case only where unset would mean English", () => {
+    // Deepgram and the managed relay decode language-less audio as English,
+    // so leaving them unset is a silent pin rather than a neutral state.
+    expect(effectiveSttLanguage("deepgram", undefined)).toBe("multi");
+    expect(effectiveSttLanguage("vellum", undefined)).toBe("multi");
+    // Everyone else detects natively from the audio; filling in a ten-language
+    // roster would narrow what they can already do.
+    expect(effectiveSttLanguage("xai", undefined)).toBeUndefined();
+    expect(effectiveSttLanguage("google-gemini", undefined)).toBeUndefined();
+    expect(effectiveSttLanguage("openai-whisper", undefined)).toBeUndefined();
+  });
+
+  test("a configured language always wins, including English", () => {
+    // The default decides what happens when nobody has chosen, nothing more.
+    expect(effectiveSttLanguage("deepgram", "ta")).toBe("ta");
+    expect(effectiveSttLanguage("deepgram", "en")).toBe("en");
+    expect(effectiveSttLanguage("vellum", "multi")).toBe("multi");
+    expect(effectiveSttLanguage("xai", "hi")).toBe("hi");
+  });
+});
+
+describe("the multilingual default reaches configs with no stt block", () => {
+  test("a config that omits services.stt entirely still resolves multilingual", () => {
+    // The services-level default supplies the stt block for a fresh
+    // workspace. Handing that default a literal would short-circuit the
+    // inner parse and leave `language` undefined, so the block is parsed
+    // through its own schema and the field default materializes.
+    setConfig("services", {});
+    expect(getConfig().services.stt.language).toBe("multi");
+  });
+
+  test("a config that omits only the language gets it filled", () => {
+    setConfig("services", { stt: { provider: "deepgram", providers: {} } });
+    expect(getConfig().services.stt.language).toBe("multi");
+  });
+
+  test("an explicit language is never overwritten by the default", () => {
+    setConfig("services", {
+      stt: { provider: "deepgram", language: "ta", providers: {} },
+    });
+    expect(getConfig().services.stt.language).toBe("ta");
   });
 });

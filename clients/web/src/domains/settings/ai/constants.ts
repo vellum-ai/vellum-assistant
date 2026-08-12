@@ -26,11 +26,33 @@ export const INFERENCE_PROVIDERS = [
 ] as const;
 
 /**
+ * Narrows a stored provider to the picker's domain. `LlmProvider` is wider:
+ * it also carries routing sentinels (`openai-compatible`, `vellum`,
+ * `chatgpt`) that deliberately never appear in the provider picker.
+ */
+export function isInferenceProvider(
+  provider: string | null | undefined,
+): provider is (typeof INFERENCE_PROVIDERS)[number] {
+  return (
+    provider != null &&
+    (INFERENCE_PROVIDERS as readonly string[]).includes(provider)
+  );
+}
+
+/**
  * `provider` value stored on the single Vellum-managed connection. It is a
  * routing sentinel, not a real LLM provider, so it never appears in the profile
  * provider picker.
  */
 export const VELLUM_CONNECTION_PROVIDER = "vellum";
+
+/**
+ * `provider` value stored on the canonical ChatGPT-subscription connection
+ * (daemon migration 366 stamps the row identity). Like `vellum`, a routing
+ * sentinel rather than a real LLM provider: the row dispatches OpenAI Codex
+ * models through the subscription endpoint.
+ */
+export const CHATGPT_CONNECTION_PROVIDER = "chatgpt";
 
 /**
  * Providers the single Vellum-managed (`vellum`) connection can serve. Mirrors

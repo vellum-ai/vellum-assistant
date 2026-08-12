@@ -42,6 +42,7 @@ import {
   isSubagentSpawnCall,
 } from "@/domains/chat/transcript/message-content";
 import { AcpConnectAffordance } from "@/domains/chat/transcript/acp-connect-affordance";
+import { DocumentReopenLink } from "@/domains/chat/transcript/document-reopen-link";
 import { hasRenderableAnswer } from "@/domains/chat/answered-question";
 import { AnsweredQuestionCard } from "@/domains/chat/components/answered-question-card";
 import { useCoarsePointerReveal } from "@/domains/chat/transcript/use-coarse-pointer-reveal";
@@ -138,6 +139,7 @@ export function TranscriptMessageBody({
   onStopSubagent,
   onWorkflowClick,
   onStopWorkflow,
+  changedDocumentIds,
   isStreaming = false,
   isLatestMessage = false,
 }: TranscriptMessageBodyProps) {
@@ -738,19 +740,21 @@ export function TranscriptMessageBody({
   const renderSurfaceNode = (
     surface: ConversationMessageSurface,
     key: string,
-  ): ReactNode => (
-    <div key={key} className="w-full">
-      <SurfaceRouter
-        surface={wireSurfaceToDisplay(surface)}
-        onAction={onSurfaceAction}
-        onOpenApp={onOpenApp}
-        onOpenDocument={onOpenDocument}
-        assistantId={assistantId}
-        toolCalls={message.toolCalls}
-        onVellumLinkClick={handleVellumLinkClick}
-      />
-    </div>
-  );
+  ): ReactNode => {
+    return (
+      <div key={key} className="w-full">
+        <SurfaceRouter
+          surface={wireSurfaceToDisplay(surface)}
+          onAction={onSurfaceAction}
+          onOpenApp={onOpenApp}
+          onOpenDocument={onOpenDocument}
+          assistantId={assistantId}
+          toolCalls={message.toolCalls}
+          onVellumLinkClick={handleVellumLinkClick}
+        />
+      </div>
+    );
+  };
 
   // Render one `activity` group (a contiguous thinking + tool run) into its
   // combined `MultiActivityGroup`, a lone inline link, or a bare thinking
@@ -1075,32 +1079,66 @@ export function TranscriptMessageBody({
         return hasVisibleOutputOrControl ? [] : [groupIndex];
       })
     : [];
-  const collapsibleGroupIndexSet = new Set(collapsibleGroupIndexes);
-  const assistantContent =
-    collapsibleGroupIndexes.length > 0
-      ? renderedGroups.map((renderedGroup, groupIndex) => {
-          if (
-            collapsibleGroupIndexSet.has(groupIndex) &&
-            !collapsibleGroupIndexSet.has(groupIndex - 1)
-          ) {
-            let runEndIndex = groupIndex + 1;
-            while (collapsibleGroupIndexSet.has(runEndIndex)) {
-              runEndIndex += 1;
-            }
-            return (
-              <AssistantContentDisclosure
-                key={`earlier-activity-${groupIndex}`}
-                isStreaming={isStreaming}
-              >
-                {renderedGroups.slice(groupIndex, runEndIndex)}
-              </AssistantContentDisclosure>
-            );
-          }
-          return collapsibleGroupIndexSet.has(groupIndex)
-            ? null
-            : renderedGroup;
-        })
-      : renderedGroups;
+  // One entry per contiguous run a single disclosure would cover. Relies on
+  // `collapsibleGroupIndexes` being ascending (it is built by walking `groups`
+  // in order), so a gap means a new run. `end` is exclusive, matching `slice`.
+  const collapsibleRuns: Array<{ start: number; end: number }> = [];
+  for (const groupIndex of collapsibleGroupIndexes) {
+    const openRun = collapsibleRuns[collapsibleRuns.length - 1];
+    if (openRun?.end === groupIndex) {
+      openRun.end = groupIndex + 1;
+    } else {
+      collapsibleRuns.push({ start: groupIndex, end: groupIndex + 1 });
+    }
+  }
+  // A run that is one lone activity group does not earn a disclosure. Every
+  // activity rendering is already a single one-line row (`SingleActivity`'s
+  // bare "Thinking" / tool link, or `MultiActivityGroup`'s header) that keeps
+  // its reasoning and step timeline in a drawer rather than inline. Collapsing
+  // one swaps a one-line row for the one-line "Earlier activity" trigger:
+  // chrome with no text wall removed. Runs spanning two or more groups, and
+  // any run containing prose, still collapse.
+  const disclosedRuns = collapsibleRuns.filter(
+    (run) => run.end - run.start > 1 || groups[run.start]?.type !== "activity",
+  );
+  const disclosedRunByStart = new Map(
+    disclosedRuns.map((run) => [run.start, run.end]),
+  );
+  const assistantContent: ReactNode[] = [];
+  for (let groupIndex = 0; groupIndex < renderedGroups.length; ) {
+    const runEndIndex = disclosedRunByStart.get(groupIndex);
+    if (runEndIndex === undefined) {
+      assistantContent.push(renderedGroups[groupIndex]);
+      groupIndex += 1;
+      continue;
+    }
+    assistantContent.push(
+      <AssistantContentDisclosure
+        key={`earlier-activity-${groupIndex}`}
+        isStreaming={isStreaming}
+      >
+        {renderedGroups.slice(groupIndex, runEndIndex)}
+      </AssistantContentDisclosure>,
+    );
+    // The disclosure renders the rest of its run, so resume past it.
+    groupIndex = runEndIndex;
+  }
+
+  // Resolved across the whole response by `Transcript` and handed only to the
+  // message that ends it. Without a handler the link opens nothing, so it does
+  // not render.
+  const documentReopenLinks =
+    isAssistant && onOpenDocument
+      ? changedDocumentIds?.map((surfaceId) => (
+          <DocumentReopenLink
+            key={`document-reopen-${surfaceId}`}
+            surfaceId={surfaceId}
+            assistantId={assistantId}
+            conversationId={conversationId}
+            onOpenDocument={onOpenDocument}
+          />
+        ))
+      : null;
 
   return (
     <div
@@ -1128,6 +1166,9 @@ export function TranscriptMessageBody({
             messageId={message.id}
           />
         )}
+        {/* Outside the `AssistantContentDisclosure` collapse, so a turn whose
+            document edit lands in "Earlier activity" still ends with the link. */}
+        {documentReopenLinks}
         {trailer}
       </div>
       {vellumFileModal}

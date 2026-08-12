@@ -27,7 +27,6 @@ export interface UseChatBannerSlotsParams {
   onCancelAllQueued: () => void;
   onSteerMessage: (messageId: string) => void;
   onEditQueueTail: () => void;
-  queueSteering: boolean;
 }
 
 export interface ChatBannerSlots {
@@ -46,7 +45,6 @@ export function useChatBannerSlots({
   onCancelAllQueued,
   onSteerMessage,
   onEditQueueTail,
-  queueSteering,
 }: UseChatBannerSlotsParams): ChatBannerSlots {
   const {
     showBanner,
@@ -61,7 +59,7 @@ export function useChatBannerSlots({
   const mainBannerSlot = useMemo((): ReactNode => {
     if (showBanner) {
       return (
-        <div className="pointer-events-auto w-full px-3 pb-2 sm:px-6">
+        <div className="w-full px-3 pb-2 sm:px-6">
           {nativeAppPlatform ? (
             <NativeAppBanner
               platform={nativeAppPlatform}
@@ -79,7 +77,7 @@ export function useChatBannerSlots({
     }
     if (showGitHubBanner) {
       return (
-        <div className="pointer-events-auto w-full px-3 pb-2 sm:px-6">
+        <div className="w-full px-3 pb-2 sm:px-6">
           <GitHubNudgeBanner
             onStar={githubNudge.handleStar}
             onDismiss={githubNudge.handleBannerDismiss}
@@ -89,7 +87,7 @@ export function useChatBannerSlots({
     }
     if (showDiscordBanner) {
       return (
-        <div className="pointer-events-auto w-full px-3 pb-1 sm:px-6">
+        <div className="w-full px-3 pb-1 sm:px-6">
           <DiscordNudgeBanner
             onJoin={discordNudge.handleJoin}
             onDismiss={discordNudge.handleBannerDismiss}
@@ -115,7 +113,6 @@ export function useChatBannerSlots({
         onCancelMessage={onCancelQueuedMessage}
         onCancelAll={onCancelAllQueued}
         onSteer={onSteerMessage}
-        showSteer={queueSteering}
         onEditTail={onEditQueueTail}
       />
     ),
@@ -124,7 +121,6 @@ export function useChatBannerSlots({
       onCancelQueuedMessage,
       onCancelAllQueued,
       onSteerMessage,
-      queueSteering,
       onEditQueueTail,
     ],
   );

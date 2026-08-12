@@ -1,0 +1,23 @@
+{
+  "terminalToolbar": {
+    "heading": "Terminal",
+    "recoveryTitle": "Modo de recuperación activo, sesión conectada al terminal de depuración",
+    "recoveryTag": "Recuperación",
+    "clearTitle": "Borrar la salida del terminal",
+    "clear": "Borrar",
+    "disconnectTitle": "Desconectar la sesión del terminal",
+    "disconnect": "Desconectar",
+    "connectTitle": "Conectar la sesión del terminal",
+    "connect": "Conectar",
+    "statusAria": "Estado del terminal: {status}"
+  },
+  "terminalStatus": {
+    "idle": "Inactivo",
+    "connecting": "Conectando",
+    "connected": "Conectado",
+    "reconnecting": "Reconectando",
+    "error": "Error",
+    "closed": "Cerrado"
+  },
+  "terminalConsole": { "consoleAria": "Consola del terminal" }
+}

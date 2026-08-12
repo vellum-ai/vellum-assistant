@@ -6,6 +6,10 @@
  */
 
 import { getConfig, invalidateConfigCache } from "../config/loader.js";
+import {
+  buildEffectiveMcpConfig,
+  pluginMcpServersChangedSinceLastBuild,
+} from "../mcp/effective-config.js";
 import { getMcpServerManager } from "../mcp/manager.js";
 import { migrateLegacyMcpHeaders } from "../mcp/mcp-header-store.js";
 import { createMcpToolsFromServer } from "../tools/mcp/mcp-tool-factory.js";
@@ -52,6 +56,29 @@ export function reloadMcpServers(): Promise<McpReloadResult> {
   return reloadInProgress;
 }
 
+/**
+ * Reload MCP servers if — and only if — the plugin-declared set moved.
+ *
+ * Called by the plugin source reconcile, which every install / uninstall /
+ * upgrade / enable / disable already funnels through, so a plugin's MCP
+ * tools come up and go down with the plugin instead of lingering until an
+ * explicit reload, a config edit, or a restart.
+ *
+ * The guard matters: a reconcile also fires for plugin edits that touch no
+ * `mcp.json` at all, and an unconditional reload would tear down every
+ * healthy workspace connection to re-establish it for nothing.
+ *
+ * Never throws — the reconcile is best-effort and must not fail an install
+ * whose files already landed on disk.
+ */
+export async function reconcilePluginMcpServers(): Promise<void> {
+  if (!pluginMcpServersChangedSinceLastBuild()) {
+    return;
+  }
+  log.info("Plugin-declared MCP servers changed; reloading");
+  await reloadMcpServers();
+}
+
 async function doReload(): Promise<McpReloadResult> {
   try {
     const manager = getMcpServerManager();
@@ -74,17 +101,20 @@ async function doReload(): Promise<McpReloadResult> {
     // 2. Stop existing MCP servers + unregister their tools
     await manager.stop();
     unregisterAllMcpTools();
-    const serverIds = config.mcp?.servers
-      ? Object.keys(config.mcp.servers)
-      : [];
+
+    // Plugins are re-read here too: installing or removing one changes the
+    // server set exactly like editing config.json does, and both arrive
+    // through this same reload.
+    const mcpConfig = buildEffectiveMcpConfig(config.mcp);
+    const serverIds = Object.keys(mcpConfig.servers);
 
     // 3. Restart MCP servers
     let serverCount = 0;
     let toolCount = 0;
     const servers: McpReloadServerResult[] = [];
 
-    if (config.mcp?.servers && Object.keys(config.mcp.servers).length > 0) {
-      const serverToolInfos = await manager.start(config.mcp);
+    if (serverIds.length > 0) {
+      const serverToolInfos = await manager.start(mcpConfig);
       for (const { serverId, serverConfig, tools } of serverToolInfos) {
         const mcpTools = createMcpToolsFromServer(
           tools,
@@ -105,7 +135,7 @@ async function doReload(): Promise<McpReloadResult> {
       // Include servers that were configured but failed to connect or are disabled
       for (const id of serverIds) {
         if (!servers.some((s) => s.id === id)) {
-          const serverConfig = config.mcp!.servers![id];
+          const serverConfig = mcpConfig.servers[id];
           const isDisabled = serverConfig?.enabled === false;
           servers.push({
             id,

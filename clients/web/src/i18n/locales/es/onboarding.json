@@ -1,0 +1,280 @@
+{
+  "actions": {
+    "continue": "Continuar",
+    "back": "Atrás",
+    "forward": "Adelante",
+    "cancel": "Cancelar",
+    "start": "Empezar",
+    "add": "Añadir",
+    "adding": "Añadiendo…",
+    "connect": "Conectar",
+    "connecting": "Conectando…",
+    "tryAgain": "Volver a intentarlo",
+    "remove": "Quitar {value}",
+    "logIn": "Iniciar sesión",
+    "logOut": "Cerrar sesión",
+    "loginToUse": "Inicia sesión para usar",
+    "downloadMacApp": "Descargar la app de macOS",
+    "claim": "Reclamar",
+    "skipForNow": "Omitir por ahora",
+    "starting": "Empezando…"
+  },
+  "welcome": {
+    "title": "Te damos la bienvenida a Vellum",
+    "body": "Tu propia inteligencia personal está a un paso.",
+    "continueWithoutAccount": "Continuar sin cuenta"
+  },
+  "startScreen": {
+    "createAssistant": "Crear tu asistente"
+  },
+  "privacyScreen": {
+    "title": "Antes de empezar",
+    "body": "Elige tus preferencias de privacidad. Puedes cambiarlas cuando quieras en los ajustes."
+  },
+  "hostingScreen": {
+    "title": "Alojamiento",
+    "body": "Elige dónde quieres que viva tu asistente.",
+    "needHelp": "¿Necesitas ayuda para decidir?",
+    "optionsAriaLabel": "Opciones de alojamiento"
+  },
+  "apiKeyScreen": {
+    "title": "Conectar un proveedor de modelos",
+    "body": "Elige el proveedor de modelos que debe usar tu asistente.",
+    "providerLabel": "Proveedor",
+    "modelLabel": "Modelo",
+    "baseUrlLabel": "URL base",
+    "modelsLabel": "Modelos",
+    "modelsPlaceholder": "modelo-1, modelo-2",
+    "modelsHelp": "Identificadores de modelo separados por comas que expone tu endpoint.",
+    "apiKeyLabel": "Clave de API de {provider}",
+    "apiKeyPlaceholder": "Introduce tu clave de API",
+    "noKeyPrompt": "¿No la tienes?",
+    "getKeyLink": "Consigue una clave de API aquí"
+  },
+  "selectAssistantScreen": {
+    "title": "Elige un asistente",
+    "listAriaLabel": "Asistentes",
+    "createNew": "Crear un asistente nuevo",
+    "connectRemote": "Conectar un asistente remoto",
+    "addRemote": "Añadir un asistente remoto",
+    "unnamedAssistant": "el asistente",
+    "connectingToAssistant": "Conectando con tu asistente…",
+    "rowActionsAriaLabel": "Acciones de {name}",
+    "removeFromDevice": "Quitar de este dispositivo…"
+  },
+  "hatchingScreen": {
+    "apiKeyFailed": "Tu clave de API no ha funcionado",
+    "genericFailure": "Algo ha salido mal",
+    "localFallbackPitch": "Empieza hoy con un asistente local",
+    "updateApiKey": "Actualizar la clave de API",
+    "ready": "¡Tu asistente está listo!",
+    "waking": "Despertando…",
+    "wakingBody": "Un momento, tu asistente te hará algunas preguntas en cuanto esté en marcha.",
+    "progressAriaLabel": "Progreso del arranque del asistente",
+    "phase": {
+      "initializing": "Preparándolo todo…",
+      "provisioning": "Configurando tu asistente…",
+      "connecting": "Conectando con tu asistente…",
+      "resizing": "Preparando tu máquina…",
+      "ready": "Listo"
+    }
+  },
+  "addRemoteOriginDialog": {
+    "title": "Añadir un asistente remoto",
+    "body": "Pega el enlace https que te dio la página de emparejamiento de tu asistente.",
+    "addressLabel": "Dirección del asistente"
+  },
+  "connectAssistantDialog": {
+    "importedTitle": "Emparejamiento importado",
+    "importedBody": "Este emparejamiento es solo de acceso: su acceso caduca y no puede renovarse por sí solo. Vuelve a ejecutar vellum pair en la máquina del asistente e importa el nuevo paquete cuando caduque.",
+    "title": "Conectar un asistente remoto",
+    "bundleLabel": "Paquete de emparejamiento",
+    "nameLabel": "Nombre (opcional)",
+    "instruction": "En la máquina del asistente, ejecuta <code>vellum pair --url https://...</code> y pega aquí el paquete."
+  },
+  "connectRecoveryDialog": {
+    "repairTitle": "¿Reparar el asistente?",
+    "repairBody": "Reparar vuelve a aprovisionar el token de autenticación de este asistente. Se cerrará la sesión en cualquier otro dispositivo o navegador conectado y tendrán que volver a conectarse.",
+    "repairConfirm": "Reparar",
+    "authFailedTitle": "No se puede autenticar el asistente",
+    "authFailedBody": "Falta el token de autenticación de {name} o ya no se puede renovar, así que no es posible conectar este asistente. Puedes repararlo, retirarlo o elegir otro asistente.",
+    "wakeAndRepair": "Despertar y reparar",
+    "retire": "Retirar el asistente"
+  },
+  "consentControls": {
+    "agreeTo": "Acepto <link>{policy}</link>",
+    "whatsChanged": "Qué ha cambiado",
+    "privacyPreferences": "Preferencias de privacidad",
+    "analyticsLabel": "Compartir analíticas",
+    "analyticsHelp": "Enviar datos agregados de uso del producto",
+    "diagnosticsLabel": "Compartir diagnósticos",
+    "diagnosticsHelp": "Enviar informes de fallos, trazas de conversación y datos de repetición de sesión",
+    "agreements": "Acuerdos"
+  },
+  "onboardingAutocomplete": {
+    "addOption": "Añadir «{value}»",
+    "enterHint": "↵ Intro",
+    "freeTextHint": "Escribe lo que quieras y pulsa ↵ para añadirlo"
+  },
+  "stepIndicator": {
+    "ariaLabel": "Paso {current} de {total}"
+  },
+  "googleCalendar": {
+    "authorizationFailed": "No se pudo iniciar la autorización de Google Calendar."
+  },
+  "introductionScreen": {
+    "greetingNamed": "¡Hola, {name}!",
+    "greeting": "¡Hola!",
+    "introNamed": "Soy {name}, tu nuevo asistente de IA.",
+    "intro": "Soy tu nuevo asistente de IA."
+  },
+  "pitchStep": {
+    "setupLine": "Has usado IA que solo responde preguntas.",
+    "helpLine": "Cuanto más ayudo,",
+    "punchLine": "Yo soy distinto.",
+    "betterLine": "mejor me vuelvo,",
+    "lessLine": "y menos tienes que hacer tú."
+  },
+  "createPersonalityStep": {
+    "title": "Crea mi personalidad",
+    "lockedBody": "Personalidad bloqueada, habla con tu asistente para hacer más cambios",
+    "axisAriaLabel": "De {left} a {right}",
+    "axes": {
+      "companionCoworker": {
+        "left": "Compañero",
+        "right": "Colega"
+      },
+      "genzBoomer": {
+        "left": "Gen Z",
+        "right": "Baby Boomer"
+      },
+      "executeCollaborate": {
+        "left": "Independiente",
+        "right": "Colaborativo"
+      },
+      "playfulSerious": {
+        "left": "Juguetón",
+        "right": "Serio"
+      },
+      "politeUnfiltered": {
+        "left": "Educado",
+        "right": "Sin filtro"
+      }
+    }
+  },
+  "giveMeAFaceScreen": {
+    "title": "Dame una cara y un nombre",
+    "previousCharacter": "Personaje anterior",
+    "nextCharacter": "Personaje siguiente",
+    "namePlaceholder": "Ponle nombre a tu asistente",
+    "nameAriaLabel": "Nombre del asistente",
+    "editName": "Editar nombre",
+    "shuffle": "Cambiar nombre y apariencia",
+    "hearVoice": "Escuchar mi voz",
+    "stopVoice": "Detener la muestra de voz"
+  },
+  "integrationStep": {
+    "title": "Aquí tienes algunos créditos gratis<br></br> para empezar."
+  },
+  "researchOnboardingScreen": {
+    "title": "Empecemos por ti.",
+    "body": "Unos detalles para que pueda conocerte.",
+    "firstNameLabel": "¿Cómo debería llamarte?",
+    "firstNamePlaceholder": "Tu nombre",
+    "lastNameLabel": "¿Y tu apellido?",
+    "lastNamePlaceholder": "Tu apellido (opcional)",
+    "roleLabel": "Tu rol",
+    "rolePlaceholder": "¿A qué te dedicas?",
+    "hobbiesLabel": "¿Algún hobby?",
+    "hobbiesPlaceholder": "Coches, libros, cultivar tomates?"
+  },
+  "letsChatTomorrowStep": {
+    "wakingTitle": "Despertando",
+    "missingScopeTitle": "Acceso no activado",
+    "title": "Déjame facilitártelo",
+    "wakingBody": "Tu asistente se está preparando",
+    "missingScopeBody": "Marca la casilla junto al permiso de Google Calendar para que pueda reservar el check-in.",
+    "body": "Conecta tu Google Calendar para que pueda encontrar un momento para hacer el check-in y empezar a ayudar.",
+    "startingAssistant": "Arrancando el asistente…",
+    "waitingAuthorization": "Esperando la autorización…",
+    "connectCalendar": "Conectar calendario →"
+  },
+  "existingAssistantStep": {
+    "titleNamed": "{name} ya está en marcha",
+    "title": "Tu asistente ya está en marcha",
+    "bodyNamed": "Los dos tenéis historia: una personalidad, recuerdos y conversaciones pasadas. Volver a hacer la configuración sobrescribiría quién es {name} ahora.",
+    "body": "Los dos tenéis historia: una personalidad, recuerdos y conversaciones pasadas. Volver a hacer la configuración sobrescribiría quién es tu asistente ahora.",
+    "keepNamed": "Conservar a {name} y empezar a chatear",
+    "keep": "Conservar a tu asistente y empezar a chatear",
+    "redoNamed": "Empezar de cero y reconstruir la personalidad de {name}",
+    "redo": "Empezar de cero y reconstruir su personalidad"
+  },
+  "checkinConnectScreen": {
+    "title": "Hablemos mañana",
+    "body": "Añade una reunión en tu calendario para retomar donde lo dejamos.",
+    "permissionBody": "{name} añadirá un único evento de check-in del día 2. Obtiene permiso para gestionar los eventos de tu calendario y ver tu dirección de correo, no tu bandeja de entrada ni tus archivos, y puedes desconectarlo en cualquier momento.",
+    "unnamedAssistant": "tu asistente",
+    "waitingAuthorization": "Esperando la autorización...",
+    "connectGoogleCalendar": "Conectar Google Calendar"
+  },
+  "meetingCreatedStep": {
+    "titleWithTime": "¡Check-in programado para mañana a las {time}!",
+    "title": "¡Check-in programado!"
+  },
+  "lookingYouUpStep": {
+    "searching": "Buscando en la web para conocerte…",
+    "readingProfiles": "Leyendo perfiles públicos…",
+    "skimming": "Repasando lo más destacado…",
+    "connectingDots": "Conectando los puntos…",
+    "piecing": "Ensamblando las piezas…",
+    "almostThere": "Casi listo…"
+  },
+  "finishingUpStep": {
+    "updatingPersonality": "Actualizando mi personalidad…",
+    "findingVoice": "Encontrando mi voz…",
+    "gettingIntoCharacter": "Entrando en personaje…",
+    "almostThere": "Casi listo…"
+  },
+  "researchResultsStep": {
+    "title": "Esto es lo que he encontrado sobre ti",
+    "bodyLoadingWithClaims": "Todavía estoy revisando el resto. Puedes ir mirando lo que va llegando.",
+    "bodyReadyWithClaims": "He buscado en la web. Siéntete libre de quitar cualquier cosa que no sea cierta.",
+    "bodyLoadingEmpty": "Todavía lo estoy armando…",
+    "bodyReadyEmpty": "No he encontrado mucho, lo iremos completando al chatear.",
+    "removeClaim": "Quitar «{claim}»",
+    "notMe": "Esto no soy yo",
+    "stillSearching": "Todavía buscando…"
+  },
+  "suggestionsStep": {
+    "title": "Esto es lo que podríamos hacer primero",
+    "pickOne": "Elige una para empezar, o empieza con lo tuyo. <skip>Ir al chat</skip>",
+    "loading": "Preparando algunas ideas…",
+    "alreadySetUp": "Ya he configurado {count, plural, one {el plugin} other {los plugins}} <plugins></plugins> para ayudarte con tu trabajo",
+    "listAnd": " y ",
+    "listCommaAnd": " y ",
+    "listComma": ", ",
+    "fallbacks": {
+      "brief": {
+        "suggestion": "Prepararé un resumen rápido de lo nuevo en tu campo",
+        "prompt": "Dame un resumen rápido de lo nuevo en mi campo ahora mismo."
+      },
+      "weekly": {
+        "suggestion": "Te enviaré un briefing semanal de noticias de tu ámbito",
+        "prompt": "Configura un briefing semanal de noticias de mi ámbito."
+      },
+      "week": {
+        "suggestion": "Te ayudaré a ponerte al día con tu semana",
+        "prompt": "Ayúdame a ponerme al día con mi semana."
+      },
+      "draft": {
+        "suggestion": "Redactaré algo a partir de unas notas sueltas",
+        "prompt": "Redacta algo a partir de unas notas sueltas que te daré."
+      }
+    }
+  },
+  "letsChatReadyStep": {
+    "title": "Ya está todo listo",
+    "setupNote": "Me he configurado con plugins según quién eres.",
+    "letsChat": "Hablemos"
+  }
+}

@@ -7,6 +7,8 @@ import { z } from "zod";
 
 import { getLogger } from "../logger.js";
 import { getWorkspaceDir } from "../paths.js";
+import { IngressInboundSchema } from "./ingress-inbound.js";
+import { IngressVerificationSchema } from "./ingress-verification.js";
 
 const log = getLogger("plugin-ingress");
 
@@ -131,6 +133,57 @@ export const IngressRouteSchema = z.object({
    * approval a guardian granted for the other one.
    */
   handshake: IngressHandshakeSchema.default("signed-headers"),
+  /**
+   * How a third-party caller's signature is checked, when it is not ours.
+   *
+   * Absent (the default) means the platform scheme: `Vellum-Signature` over
+   * the body, keyed by whichever `webhook_secret` {@link signer} selects.
+   * That is right for a caller Vellum controls and wrong for every other one
+   * — Comms signs `X-Osis-Signature`, Photon signs `X-Spectrum-Signature` over
+   * a timestamped preamble, and neither can be asked to sign ours.
+   *
+   * Present, the route is verified by the descriptor instead: the gateway
+   * runs one HMAC engine and reads the vendor's specifics as data, so a new
+   * vendor is a manifest edit rather than gateway code. See
+   * `ingress-verification.ts` for the scheme and for what stays gateway-side.
+   *
+   * The descriptor supersedes {@link signer} — it names its own credential
+   * field, under this plugin's own service — so declaring it alongside
+   * `signer: "vellum"` is rejected: `vellum` routes are served without a
+   * guardian approval (see `findServableRoute`), and a route that both skips
+   * approval and verifies against a secret the plugin chose would be reach a
+   * plugin grants itself. HTTP only, for the same reason `signed-query` is
+   * WebSocket only: a socket upgrade is bridged elsewhere and carries none of
+   * this.
+   *
+   * Part of the digest, so what verifies a route cannot change under an
+   * approval granted for something else.
+   */
+  verification: IngressVerificationSchema.optional(),
+  /**
+   * That this route's replies carry inbound messages, and how to read them.
+   *
+   * Absent (the default) means the route is a webhook and nothing more: the
+   * gateway forwards the delivery, returns whatever the plugin answered, and
+   * the message goes no further. Present, the plugin's reply is normalized and
+   * run through the gateway's inbound pipeline — admission floor, trust
+   * verdict, the verification and invite intercepts — exactly as a built-in
+   * channel's would be. See `ingress-inbound.ts` for the declaration and
+   * `plugin-inbound.ts` for what the gateway supplies rather than reads.
+   *
+   * Rejected alongside `signer: "vellum"`. A `vellum`-signed route is served
+   * without a guardian approval (see `findServableRoute`), which is defensible
+   * for a path only Vellum can drive and carrying no authority over the
+   * assistant. Delivering messages *is* such authority — it is how a
+   * conversation starts — so a route that both skips approval and injects
+   * turns would be reach a plugin grants itself. HTTP only, for the same
+   * reason `verification` is: a socket upgrade is bridged elsewhere and has no
+   * reply to read.
+   *
+   * Part of the digest, so a route cannot begin delivering messages, or begin
+   * reading them differently, under an approval granted for something else.
+   */
+  inbound: IngressInboundSchema.optional(),
   /** Human-readable purpose, surfaced in gateway logs and admin UI. */
   description: z.string().min(1),
 });
@@ -206,6 +259,30 @@ export function parsePluginIngressManifest(
       throw new Error(
         `route ${route.path}: signed-query handshakes are only valid for websocket routes`,
       );
+    }
+    if (route.verification) {
+      if (route.signer === "vellum") {
+        throw new Error(
+          `route ${route.path}: declared verification cannot be combined with signer "vellum"`,
+        );
+      }
+      if (route.kind !== "http") {
+        throw new Error(
+          `route ${route.path}: declared verification is only valid for http routes`,
+        );
+      }
+    }
+    if (route.inbound) {
+      if (route.signer === "vellum") {
+        throw new Error(
+          `route ${route.path}: inbound delivery cannot be combined with signer "vellum"`,
+        );
+      }
+      if (route.kind !== "http") {
+        throw new Error(
+          `route ${route.path}: inbound delivery is only valid for http routes`,
+        );
+      }
     }
   }
   return manifest;

@@ -20,6 +20,7 @@ import { useNavigate } from "react-router";
 import { fetchAssistantIdentity } from "@/assistant/identity";
 import { scheduleCheckin } from "@/domains/onboarding/checkin-scheduler";
 import { OnboardingBackButton } from "@/components/onboarding-back-button";
+import { SETUP_NAVIGATE } from "@/domains/onboarding/onboarding-navigation";
 import { CheckinConnectScreen } from "@/domains/onboarding/screens/checkin-connect-screen";
 import { useOnboardingFocusStore } from "@/stores/onboarding-focus-store";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
@@ -62,7 +63,9 @@ export function OnboardingCheckinOverlay() {
   // the form renders with its normal chrome.
   const handleBack = () => {
     exitFocus();
-    void navigate(routes.onboarding.research);
+    // Still inside setup, so it replaces like every other step — the funnel
+    // stays a single history entry (see `SETUP_NAVIGATE`).
+    void navigate(routes.onboarding.research, SETUP_NAVIGATE);
   };
 
   // Above the research overlay (z-50) so it fully covers the streaming results.

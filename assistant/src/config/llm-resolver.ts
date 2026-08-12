@@ -77,6 +77,15 @@ import {
 export interface ResolveCallSiteOpts {
   overrideProfile?: string;
   /**
+   * Whether a profile's provider value can actually dispatch: a known
+   * vendor, or a connection entry row. Selection is pure and DB-blind, so
+   * dispatch-side callers supply this (see `dispatchProviderResolvable` in
+   * `connection-resolution.ts`); a profile failing it is unusable and
+   * selection falls through to the next rung, keeping model and transport
+   * coherent. When absent, every provider is assumed resolvable.
+   */
+  isResolvableProvider?: (provider: string) => boolean;
+  /**
    * Float `overrideProfile` above the call-site layers for non-main-agent call
    * sites. Retained for API compatibility; under single-winner selection the
    * override already sits at the top of the chain, so this is effectively a
@@ -112,7 +121,11 @@ export interface ResolveCallSiteOpts {
   }) => void;
 }
 
-export type ResolutionFallbackReason = "missing" | "disabled" | "incomplete";
+export type ResolutionFallbackReason =
+  | "missing"
+  | "disabled"
+  | "incomplete"
+  | "unresolvable";
 
 export interface ResolvedCallSiteConfig {
   config: z.infer<typeof LLMConfigBase>;
@@ -157,9 +170,11 @@ export function resolveCallSiteConfig(
 //
 // The request config is the base + winner + site-tweak composition:
 // code-owned schema defaults, then the single winning profile, then the call
-// site's own tuning fragment. Selection is pure either/or — no profile ever
-// contributes a field to another profile; `deepMerge` here only makes nested
-// tweaks (`thinking.enabled`) combine leaf-wise instead of wiping siblings.
+// site's own tuning fragment (its shipped `CALL_SITE_DEFAULTS` tuning with
+// the workspace `llm.callSites` entry layered over it, field by field).
+// Selection is pure either/or: no profile ever contributes a field to
+// another profile, and `deepMerge` only makes nested tweaks
+// (`thinking.enabled`) combine leaf-wise instead of wiping siblings.
 // `temperature`/`topP` come from the winner (or an explicit tweak);
 // `logitBias` only ever from the winner.
 // `forceOverrideProfile` is a no-op here (the override is already first).
@@ -311,6 +326,20 @@ function usableEntry(
     report(name, "incomplete");
     return undefined;
   }
+  // A provider the caller cannot resolve (not a known vendor, not an entry
+  // row) makes the profile unusable, and selection falls through to the
+  // next rung the same way an incomplete profile does: the fallback keeps
+  // model and transport coherent, where a dispatch-time fallback would pair
+  // this profile's model with the default transport. Selection is DB-blind,
+  // so the predicate is supplied by dispatch-side callers; when absent,
+  // every provider is assumed resolvable.
+  if (
+    opts.isResolvableProvider != null &&
+    !opts.isResolvableProvider(entry.provider)
+  ) {
+    report(name, "unresolvable");
+    return undefined;
+  }
   return { name, entry };
 }
 
@@ -381,15 +410,10 @@ function resolveOverrideOrDefault(
   const winnerFragment: Mergeable =
     selection.entry == null ? {} : winnerConfigFragment(selection.entry);
 
-  // The call site's own tweak fragment: the workspace override replaces the
-  // code default wholesale. `profile` is the selection discriminator and
-  // `logitBias` is winner-owned, so neither enters the merge.
-  const site = llm.callSites?.[callSite] ?? CALL_SITE_DEFAULTS[callSite];
-  const {
-    profile: _siteProfile,
-    logitBias: _siteBias,
-    ...tweak
-  } = (site ?? {}) as Record<string, unknown>;
+  const tweak = composeCallSiteTweak(
+    CALL_SITE_DEFAULTS[callSite] as Mergeable | undefined,
+    llm.callSites?.[callSite] as Mergeable | undefined,
+  );
 
   // Direct call-site model overrides are fragments by design: when the tweak
   // pins a model the winner's provider does not serve, stamp the catalog
@@ -471,6 +495,38 @@ function winnerConfigFragment(entry: ProfileEntry): Mergeable {
 // ---------------------------------------------------------------------------
 
 type Mergeable = Record<string, unknown>;
+
+/**
+ * The call site's tuning fragment: its shipped `CALL_SITE_DEFAULTS` tuning
+ * with the workspace `llm.callSites` entry layered over it, field by field.
+ * An entry that only names a profile therefore repoints the selection while
+ * the tuning the call site ships with still applies, and a field the entry
+ * sets wins for that field alone.
+ *
+ * `profile` is the selection discriminator and `logitBias` is winner-owned,
+ * so neither survives into the fragment. A workspace entry also owns the
+ * selection for its own call site: when one exists the shipped layer
+ * contributes tuning only, so a shipped `provider`/`model` pin can never
+ * override the profile or the custom model the user chose there. With no
+ * workspace entry the shipped fragment applies whole, pin included.
+ */
+export function composeCallSiteTweak(
+  shipped: Mergeable | undefined,
+  workspace: Mergeable | undefined,
+): Mergeable {
+  const {
+    provider: _shippedProvider,
+    model: _shippedModel,
+    ...shippedTuning
+  } = shipped ?? {};
+  const shippedLayer = workspace == null ? (shipped ?? {}) : shippedTuning;
+  const {
+    profile: _siteProfile,
+    logitBias: _siteBias,
+    ...tweak
+  } = deepMerge(shippedLayer, workspace ?? {});
+  return tweak;
+}
 
 /**
  * FNV-1a 32-bit string hash → unit float in [0, 1). Deterministic and stable

@@ -26,7 +26,12 @@ import { create } from "zustand";
 import { createSelectors } from "@/utils/create-selectors";
 
 export interface PendingDeepLinkState {
-  /** Latest pending `deeplink.send` message text, or `null` if none. */
+  /**
+   * Latest pending composer pre-fill text, or `null` if none. Written for a
+   * `deeplink.send` message and for a `deeplink.startVoice` prompt (Siri's
+   * "Ask …" intent). Pre-fill only, by design: deep-link text is untrusted,
+   * so the user is the one who sends it.
+   */
   pendingComposerMessage: string | null;
   /**
    * When a `deeplink.startVoice` was parked waiting for a live-voice session
@@ -60,7 +65,7 @@ export interface PendingDeepLinkActions {
    * was parked, and when the parked one is older than `maxAgeMs` — a park that
    * was never drained (its navigation bounced off a route guard, say) must not
    * open a full-screen voice session minutes later. Either way the park is
-   * cleared. Used by `drainPendingVoiceStartDeepLink` in the live-voice domain,
+   * cleared. Used by `drainPendingVoiceStart` in the live-voice domain,
    * which owns the age bound.
    */
   consumePendingVoiceStart: (maxAgeMs: number) => boolean;

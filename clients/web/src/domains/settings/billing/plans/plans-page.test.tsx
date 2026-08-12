@@ -430,7 +430,6 @@ describe("PlansPage — full catalog render", () => {
     const html = renderStatic(freeSubscription(), fullCatalog());
     expect(html).toContain("Custom Plan");
     expect(html).toContain("Configure");
-    expect(html).toContain("Billed monthly");
     expect(html).toContain("Read our Docs.");
   });
 });
@@ -643,9 +642,7 @@ afterEach(() => {
 describe("PlansPage on native Android", () => {
   test("redirects to billing without exposing plan actions", async () => {
     nativeAndroid = true;
-    const { getByTestId, queryByRole } = renderInteractive(
-      freeSubscription(),
-    );
+    const { getByTestId, queryByRole } = renderInteractive(freeSubscription());
 
     await waitFor(() =>
       expect(getByTestId("loc").textContent).toBe(
@@ -1374,7 +1371,7 @@ function legacyStorageCatalog(): PlanListResponse {
   return catalog;
 }
 
-function openDropdown(ariaLabel: string): void {
+function openSelect(ariaLabel: string): void {
   const trigger = document.querySelector<HTMLButtonElement>(
     `button[role="combobox"][aria-label="${ariaLabel}"]`,
   );
@@ -1385,8 +1382,8 @@ function openDropdown(ariaLabel: string): void {
 }
 
 /** Clicks the open-menu option whose text starts with `label`. */
-function selectOption(dropdownLabel: string, optionLabel: string): void {
-  openDropdown(dropdownLabel);
+function selectOption(selectLabel: string, optionLabel: string): void {
+  openSelect(selectLabel);
   const option = Array.from(
     document.querySelectorAll<HTMLElement>('[role="option"]'),
   ).find((o) => (o.textContent?.trim() ?? "").startsWith(optionLabel));

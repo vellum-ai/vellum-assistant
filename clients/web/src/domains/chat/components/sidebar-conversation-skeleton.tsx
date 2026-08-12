@@ -14,7 +14,7 @@
  * reflow between renders.
  */
 
-import { SkeletonBar } from "@/domains/chat/components/chat-skeleton";
+import { Skeleton } from "@vellumai/design-library/components/skeleton";
 
 /**
  * Row widths, as Tailwind fraction utilities. Enough rows to fill the
@@ -50,7 +50,7 @@ export function SidebarConversationSkeleton() {
           className="flex h-[30px] items-center"
           style={{ paddingInline: 6 }}
         >
-          <SkeletonBar className={`h-3.5 ${width}`} />
+          <Skeleton className={`h-3.5 ${width}`} />
         </div>
       ))}
     </div>

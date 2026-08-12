@@ -79,10 +79,8 @@ export function VellumFileActionModal({
       }}
     >
       <Modal.Content size="sm">
-        <Modal.Header>
-          <Modal.Title icon={iconForFilename(target.filename)}>
-            {target.filename}
-          </Modal.Title>
+        <Modal.Header icon={iconForFilename(target.filename)}>
+          <Modal.Title>{target.filename}</Modal.Title>
           {target.workspacePath ? (
             <Modal.Description className="truncate font-mono">
               {target.workspacePath}

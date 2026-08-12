@@ -159,8 +159,13 @@ async function handleExchange(args: RouteHandlerArgs) {
 
   const existing = getConnection(db, CONNECTION_NAME);
   if (existing) {
+    // Stamp the provider with the auth: this row IS the subscription route
+    // (auth modality = provider identity), and dispatch derives the openai
+    // upstream from the identity per-request. Stamping also heals a
+    // claiming row whose provider would otherwise misroute the fresh token.
     const updateResult = updateConnection(db, CONNECTION_NAME, {
       auth: authInput,
+      provider: "chatgpt",
     });
     if (!updateResult.ok) {
       log.error(
@@ -172,7 +177,7 @@ async function handleExchange(args: RouteHandlerArgs) {
   } else {
     const createResult = createConnection(db, {
       name: CONNECTION_NAME,
-      provider: "openai",
+      provider: "chatgpt",
       auth: authInput,
     });
     if (!createResult.ok) {

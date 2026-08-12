@@ -5,6 +5,8 @@ import type { Surface } from "@/domains/chat/types/types";
 import type { ManagedOAuthConnectClient } from "@/domains/chat/api/managed-oauth";
 import type { OAuthConnection } from "@/generated/api/types.gen";
 
+import { TranscriptColumn } from "@/domains/chat/transcript/transcript-column";
+
 import { OAuthConnectSurface } from "./oauth-connect-surface";
 import { SurfaceRouter } from "./surface-router";
 
@@ -15,9 +17,9 @@ const meta: Meta = {
   },
   decorators: [
     (Story) => (
-      <div className="max-w-[920px]">
+      <TranscriptColumn>
         <Story />
-      </div>
+      </TranscriptColumn>
     ),
   ],
 };
@@ -98,6 +100,7 @@ const storyOAuthClient: ManagedOAuthConnectClient = {
     supports_managed_mode: true,
     managed_service_is_paid: false,
     feature_flag: null,
+    acts_as: "user",
   }),
   connect: async () => {
     await new Promise((resolve) => setTimeout(resolve, 650));

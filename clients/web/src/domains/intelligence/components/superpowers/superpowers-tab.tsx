@@ -136,6 +136,9 @@ export function SuperpowersTab({ assistantId }: SuperpowersTabProps) {
   const navigate = useNavigate();
   const location = useLocation();
   const queryClient = useQueryClient();
+  // Owns both halves of the category surface: the rail below renders only while
+  // there is room for it, and the filter control grows a Categories section
+  // whenever it doesn't, so the two can't disagree about who carries it.
   const isMobile = useIsMobile();
   const version = useAssistantIdentityStore.use.version();
   const pluginsSupported = useSupportsPluginsSurface();
@@ -664,6 +667,7 @@ export function SuperpowersTab({ assistantId }: SuperpowersTabProps) {
         totalCount={totalCount}
         showCounts={!hasActiveSearch}
         pluginsSupported={pluginsSupported}
+        showCategories={isMobile}
       />
 
       {!isLoading && !allFailed && skillsFailed ? (
@@ -680,17 +684,19 @@ export function SuperpowersTab({ assistantId }: SuperpowersTabProps) {
       ) : null}
 
       <div className="flex min-h-0 flex-1 gap-6">
-        <aside className="hidden w-56 shrink-0 overflow-y-auto sm:block">
-          <CategorySidebar
-            ariaLabel="Superpower categories"
-            selected={category}
-            onSelect={handleCategoryChange}
-            counts={counts}
-            totalCount={totalCount}
-            showCounts={!hasActiveSearch}
-            categories={categories}
-          />
-        </aside>
+        {!isMobile && (
+          <aside className="w-56 shrink-0 overflow-y-auto">
+            <CategorySidebar
+              ariaLabel="Superpower categories"
+              selected={category}
+              onSelect={handleCategoryChange}
+              counts={counts}
+              totalCount={totalCount}
+              showCounts={!hasActiveSearch}
+              categories={categories}
+            />
+          </aside>
+        )}
 
         {listColumn}
       </div>

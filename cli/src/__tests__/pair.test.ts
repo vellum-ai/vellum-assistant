@@ -11,9 +11,13 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-// Real assistant-config reads the lockfile from VELLUM_LOCKFILE_DIR.
+// Real assistant-config reads the lockfile from VELLUM_LOCKFILE_DIR. Pin the
+// environment too: the lockfile filename is environment-dependent, and a dev
+// machine's persisted default environment would otherwise redirect the lookup.
 const testDir = mkdtempSync(join(tmpdir(), "pair-command-test-"));
 process.env.VELLUM_LOCKFILE_DIR = testDir;
+const originalEnvironment = process.env.VELLUM_ENVIRONMENT;
+process.env.VELLUM_ENVIRONMENT = "production";
 
 import { buildAppConnectUrl, pair } from "../commands/pair.js";
 
@@ -55,6 +59,11 @@ describe("pair command", () => {
   afterAll(() => {
     rmSync(testDir, { recursive: true, force: true });
     delete process.env.VELLUM_LOCKFILE_DIR;
+    if (originalEnvironment === undefined) {
+      delete process.env.VELLUM_ENVIRONMENT;
+    } else {
+      process.env.VELLUM_ENVIRONMENT = originalEnvironment;
+    }
   });
 
   test("POSTs a cli device-bound pair request and prints a decodable bundle", async () => {
@@ -967,6 +976,29 @@ describe("pair command", () => {
     ).toBe(
       "vellum-assistant-dev://connect?url=https%3A%2F%2Fhost.example.ts.net%2Fassistant-123&code=a%2Bb%2Fc%3D",
     );
+    // A label rides along as an encoded `name` param (spaces percent-encoded,
+    // not form-encoded, for the app's URLComponents parser); an empty one is
+    // omitted.
+    expect(
+      buildAppConnectUrl(
+        "vellum-assistant",
+        "https://pair.example.ts.net",
+        "device-code",
+        "My Homelab",
+      ),
+    ).toBe(
+      "vellum-assistant://connect?url=https%3A%2F%2Fpair.example.ts.net&code=device-code&name=My%20Homelab",
+    );
+    expect(
+      buildAppConnectUrl(
+        "vellum-assistant",
+        "https://pair.example.ts.net",
+        "device-code",
+        "",
+      ),
+    ).toBe(
+      "vellum-assistant://connect?url=https%3A%2F%2Fpair.example.ts.net&code=device-code",
+    );
   });
 
   test("--qr --app emits an app connect URL alongside the browser URL", async () => {
@@ -1032,14 +1064,84 @@ describe("pair command", () => {
     }
 
     const out = JSON.parse(logs.join("\n"));
+    // Without --label the connect link names the assistant after its lockfile
+    // display name (the id here, since the entry has no name).
     expect(out.appUrl).toBe(
-      "vellum-assistant-dev://connect?url=https%3A%2F%2Fpair.example.ts.net&code=device-code",
+      "vellum-assistant-dev://connect?url=https%3A%2F%2Fpair.example.ts.net&code=device-code&name=pair-test",
     );
     // The browser URL stays available as the no-app fallback.
     expect(out.pairUrl).toBe(
       "https://pair.example.ts.net/assistant/pair#device_code=device-code",
     );
     expect(out.deviceCode).toBe("device-code");
+  });
+
+  test("--qr --app --label overrides the assistant name in the connect link", async () => {
+    const origFetch = globalThis.fetch;
+    globalThis.fetch = (async (url: string) => {
+      if (url === `${LOCAL_URL}/v1/assistants/pair-test/feature-flags`) {
+        return new Response(
+          JSON.stringify({
+            flags: [{ key: "web-remote-ingress", enabled: true }],
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      }
+      if (url === `${LOCAL_URL}/v1/remote-web/pairing-challenge`) {
+        return new Response(
+          JSON.stringify({
+            deviceCode: "device-code",
+            userCode: "ABCD-EFGH",
+            verificationUri: "https://pair.example.ts.net/assistant/pair",
+            expiresAt: "2026-06-04T00:10:00.000Z",
+            expiresInSeconds: 600,
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      }
+      if (url === `${LOCAL_URL}/v1/remote-web/pairing-verification`) {
+        return new Response(
+          JSON.stringify({
+            status: "approved",
+            verificationUri: "https://pair.example.ts.net/assistant/pair",
+            expiresAt: "2026-06-04T00:10:00.000Z",
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      }
+      return new Response("not found", { status: 404 });
+    }) as unknown as typeof fetch;
+
+    const logs: string[] = [];
+    const logSpy = spyOn(console, "log").mockImplementation(
+      (...a: unknown[]) => {
+        logs.push(a.join(" "));
+      },
+    );
+
+    process.argv = [
+      "bun",
+      "vellum",
+      "pair",
+      "--qr",
+      "--app",
+      "--label",
+      "Homelab",
+      "--url",
+      "https://pair.example.ts.net",
+      "--json",
+    ];
+    try {
+      await pair();
+    } finally {
+      logSpy.mockRestore();
+      globalThis.fetch = origFetch;
+    }
+
+    const out = JSON.parse(logs.join("\n"));
+    expect(out.appUrl).toBe(
+      "vellum-assistant://connect?url=https%3A%2F%2Fpair.example.ts.net&code=device-code&name=Homelab",
+    );
   });
 
   test("--app without --qr is refused", async () => {

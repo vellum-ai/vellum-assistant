@@ -11,6 +11,7 @@
 import { isHttpAuthDisabled } from "../config/env.js";
 import {
   getGuardianDelivery,
+  getGuardianDeliveryFresh,
   guardianForChannel,
   peekCachedGuardianDelivery,
 } from "../contacts/guardian-delivery-reader.js";
@@ -52,11 +53,19 @@ export function buildLocalAuthContext(conversationId: string): AuthContext {
  * Returns `undefined` when no vellum guardian binding exists (e.g. fresh
  * install before bootstrap, or the gateway is unreachable). Callers should
  * treat that case as "not yet available" and proceed without a principalId.
+ *
+ * `forceRefresh` bypasses the reader's TTL cache. A successful read that finds
+ * no binding is itself cached, and gateway-side binding writes do not
+ * invalidate the daemon's cache, so a caller that polls for a binding it
+ * expects to appear (the SSE actor-principal heal) must force the read or it
+ * re-reads the same empty answer until the TTL lapses.
  */
-export async function findLocalGuardianPrincipalId(): Promise<
-  string | undefined
-> {
-  const list = await getGuardianDelivery({ channelTypes: ["vellum"] });
+export async function findLocalGuardianPrincipalId(options?: {
+  forceRefresh?: boolean;
+}): Promise<string | undefined> {
+  const list = options?.forceRefresh
+    ? await getGuardianDeliveryFresh({ channelTypes: ["vellum"] })
+    : await getGuardianDelivery({ channelTypes: ["vellum"] });
   if (!list) {
     return undefined;
   }
@@ -84,8 +93,8 @@ export async function resolveDecidableGuardianPrincipalId(
  * {@link findLocalGuardianPrincipalIdFromStore}, which reads only the IO-free
  * cache snapshot. On a cold cache (auth-disabled / local startup, before any
  * async `getGuardianDelivery` has run) it returns undefined, so the FIRST SSE
- * registration would carry no `actorPrincipalId` and host-proxy same-user
- * targeting would regress until a later reconnect warms the cache.
+ * registration would carry no `actorPrincipalId` until the route's async
+ * self-heal fills the hub record.
  *
  * Called during daemon startup (after the gateway IPC is reachable) so the
  * cache is populated before clients register. Best-effort: a cold gateway
@@ -102,9 +111,11 @@ export async function warmLocalGuardianPrincipalCache(): Promise<void> {
  * path (`events-routes`), which registers before the stream is created.
  *
  * Reads the same gateway-owned binding as the async path via a sync, IO-free
- * snapshot of the guardian-delivery cache (kept fresh by the async hot paths
- * and event-driven invalidation), so SSE registers the SAME principal the
- * send/result routes resolve.
+ * snapshot of the guardian-delivery cache, so SSE registers the SAME
+ * principal the send/result routes resolve. Returns `undefined` on a cold or
+ * expired cache (there is no fallback fetch); the SSE route compensates by
+ * resolving async after subscribe and filling the hub record
+ * (`fillClientActorPrincipalId`).
  */
 export function findLocalGuardianPrincipalIdFromStore(): string | undefined {
   const cached = peekCachedGuardianDelivery({ channelTypes: ["vellum"] });
@@ -134,15 +145,19 @@ export function findLocalGuardianPrincipalIdFromStore(): string | undefined {
  * `undefined` when dev-bypass is set but no guardian binding has been created
  * yet (e.g. fresh install before bootstrap); callers must treat this the
  * same as a missing principal.
+ *
+ * `forceRefresh` bypasses the guardian-delivery cache, for callers that poll
+ * for a binding they expect to appear. See {@link findLocalGuardianPrincipalId}.
  */
 export async function resolveActorPrincipalIdForLocalGuardian(
   rawHeader: string | undefined,
+  options?: { forceRefresh?: boolean },
 ): Promise<string | undefined> {
   if (rawHeader !== "dev-bypass" || !isHttpAuthDisabled()) {
     return rawHeader;
   }
 
-  const guardianPrincipalId = await findLocalGuardianPrincipalId();
+  const guardianPrincipalId = await findLocalGuardianPrincipalId(options);
   if (guardianPrincipalId) {
     return guardianPrincipalId;
   }
@@ -157,10 +172,10 @@ export async function resolveActorPrincipalIdForLocalGuardian(
  * Synchronous variant of {@link resolveActorPrincipalIdForLocalGuardian} for
  * the SSE eager-subscribe path, which registers before the response stream is
  * created and cannot await. Resolves the guardian from the IO-free gateway
- * cache snapshot first (same source the async path reads), falling back to the
- * local store when the cache is cold — so SSE registers the SAME principal the
- * send/result routes resolve and host-proxy targeting matches the same-user
- * client even when the local contact row is stale.
+ * cache snapshot only (same source the async path reads), so SSE registers
+ * the SAME principal the send/result routes resolve. On a cold cache this
+ * returns `undefined`; the SSE route then self-heals the registration via the
+ * async resolver once it completes.
  */
 export function resolveActorPrincipalIdForLocalGuardianSync(
   rawHeader: string | undefined,

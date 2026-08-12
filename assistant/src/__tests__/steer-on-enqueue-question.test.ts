@@ -30,14 +30,15 @@ interface ParkedTurn {
 /**
  * Register a fake conversation whose in-flight turn is parked. The fake exposes
  * just the surface `steerToMessage` touches: a processing flag, a queue whose
- * head can be promoted, an abort controller that records aborts, and the
- * confirmation-deny hook.
+ * messages can be looked up and promoted, an abort controller that records
+ * aborts, and the confirmation-deny hook.
  */
 function registerParkedTurn(id: string): ParkedTurn {
   let abortCount = 0;
   const fake = {
     isProcessing: () => true,
     queue: {
+      findByRequestId: (requestId: string) => ({ requestId }),
       promoteToHead: (requestId: string) => ({ requestId }),
     },
     pendingSteerRepair: false,

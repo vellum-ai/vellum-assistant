@@ -79,6 +79,10 @@ export function resolveAcceptedSchemes(env: string): string[] {
 // deep link, so garbage never reaches the renderer's billing route.
 const CHECKOUT_SESSION_ID_RE = /^cs_[A-Za-z0-9_]{1,255}$/;
 
+// Pairing bundles are base64 or base64url with optional padding. Anything
+// else on `connect?bundle=` is dropped before it reaches the renderer.
+const BUNDLE_RE = /^[A-Za-z0-9+/\-_]+={0,2}$/;
+
 const currentEnv = resolveEnvironmentName(process.env);
 const REGISTERED_SCHEMES = resolveRegisteredSchemes(currentEnv);
 const ACCEPTED_SCHEMES = resolveAcceptedSchemes(currentEnv);
@@ -99,13 +103,28 @@ const ACCEPTED_SCHEMES = resolveAcceptedSchemes(currentEnv);
  *   - `vellum://thread/<id>` → `{ kind: "openThread", threadId }`.
  *     Trailing slashes / extra path segments are tolerated;
  *     `threadId` is the first non-empty path segment.
+ *   - `vellum://connect?url=…` / `vellum://connect?bundle=…` →
+ *     `{ kind: "connect", … }`. The pair page's "Open in the Vellum
+ *     app" button and `vellum pair --qr --app` QR codes. `url` must
+ *     parse as https (dropped otherwise); `bundle` must look like
+ *     base64/base64url. A `code` query param (device code) is
+ *     accepted but never carried: the renderer cannot complete a
+ *     device-code exchange, so the secret stays out of the IPC
+ *     boundary entirely. Malformed variants still parse as `connect`
+ *     with the fields absent rather than falling to `unknown`: the
+ *     user clicked a connect link, so the renderer routes them to
+ *     the connect flow with guidance. `bundle` is secret material:
+ *     never logged, and never echoed on an `unknown` URL (which the
+ *     renderer breadcrumbs to Sentry).
  *   - `vellum://billing/checkout-complete?status=…&session_id=…` →
- *     `{ kind: "billingCheckoutComplete", status, sessionId }`. The
- *     platform bounces a native-initiated Stripe Checkout here once
- *     the user finishes in the system browser. `status=success`
+ *     `{ kind: "billingCheckoutComplete", status, sessionId, flow }`.
+ *     The platform bounces a native-initiated Stripe Checkout here
+ *     once the user finishes in the system browser. `status=success`
  *     requires a well-formed Checkout Session id; `status=cancel`
- *     carries none. Anything else is `unknown` with the query
- *     stripped, so a stray session id never reaches telemetry.
+ *     carries none. `flow=top_up` marks a credit top-up checkout;
+ *     links without the param are subscription checkouts. Anything
+ *     else is `unknown` with the query stripped, so a stray session
+ *     id never reaches telemetry.
  *   - Malformed URL (unparseable, percent-encoding throws) →
  *     `kind: "unknown"`.
  */
@@ -135,19 +154,49 @@ export const parseVellumUrl = (input: string): DeepLink => {
     if (segment !== "checkout-complete") {
       return { kind: "unknown", url: withoutQuery };
     }
+    const flow: "subscription" | "top_up" =
+      url.searchParams.get("flow") === "top_up" ? "top_up" : "subscription";
     const status = url.searchParams.get("status");
     if (status === "cancel") {
       return {
         kind: "billingCheckoutComplete",
         status: "cancel",
         sessionId: null,
+        flow,
       };
     }
     const sessionId = url.searchParams.get("session_id") ?? "";
     if (status === "success" && CHECKOUT_SESSION_ID_RE.test(sessionId)) {
-      return { kind: "billingCheckoutComplete", status: "success", sessionId };
+      return {
+        kind: "billingCheckoutComplete",
+        status: "success",
+        sessionId,
+        flow,
+      };
     }
     return { kind: "unknown", url: withoutQuery };
+  }
+  if (url.host === "connect") {
+    // `bundle` is secret material (pairing bundle): carried on the typed
+    // link only, never logged, and never routed through `unknown` (whose
+    // URL the renderer breadcrumbs). A `code` query param is accepted but
+    // dropped here: it has no renderer consumer.
+    const link: Extract<DeepLink, { kind: "connect" }> = { kind: "connect" };
+    const base = url.searchParams.get("url");
+    if (base) {
+      try {
+        if (new URL(base).protocol === "https:") {
+          link.url = base;
+        }
+      } catch {
+        // Unparseable server base: leave the field absent.
+      }
+    }
+    const bundle = url.searchParams.get("bundle");
+    if (bundle && BUNDLE_RE.test(bundle)) {
+      link.bundle = bundle;
+    }
+    return link;
   }
   if (url.host === "auth" && url.pathname.startsWith("/callback")) {
     // The deprecated `/accounts/native/*` flow returns its auth code here.

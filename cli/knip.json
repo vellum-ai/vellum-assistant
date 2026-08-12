@@ -10,6 +10,7 @@
   "project": ["src/**/*.ts", "src/**/*.tsx"],
   "ignoreDependencies": [
     "@vellumai/environments",
+    "@vellumai/ipc-server-utils",
     "@vellumai/local-mode",
     "@vellumai/service-contracts",
     "@vellumai/web"

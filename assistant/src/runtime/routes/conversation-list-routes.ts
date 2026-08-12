@@ -2,6 +2,8 @@
  * Route handlers for conversation listing, detail, and seen/unread state.
  *
  * GET    /v1/conversations              — paginated conversation list
+ * GET    /v1/conversations/unread-count - count of unseen foreground conversations
+ * GET    /v1/conversations/sections     - per-section totals for the sidebar index
  * POST   /v1/conversations/seen         — record a seen signal (single)
  * POST   /v1/conversations/seen/bulk    — record seen signals (batch)
  * POST   /v1/conversations/unread       — mark a conversation unread
@@ -26,7 +28,10 @@ import {
 } from "../../persistence/conversation-crud.js";
 import { resolveConversationId } from "../../persistence/conversation-key-store.js";
 import {
+  type ConversationListFilter,
   countConversations,
+  countConversationSections,
+  countUnreadConversations,
   listConversations,
   listPinnedConversations,
 } from "../../persistence/conversation-queries.js";
@@ -101,6 +106,13 @@ export const conversationSummarySchema = z.object({
   displayOrder: z.number().nullable().optional(),
   groupId: z.string().nullable(),
   forkParent: forkParentSchema.optional(),
+  /**
+   * Present only on a referential fork whose parent conversation was deleted.
+   * The fork keeps the messages it owns and the lineage read truncates at the
+   * missing parent, so it renders as a conversation that starts mid-thought.
+   * Clients surface this so that reads as a deletion rather than as data loss.
+   */
+  historyOrphaned: z.literal(true).optional(),
   archivedAt: z.number().optional(),
   /**
    * Epoch-ms timestamp set when a background/scheduled conversation was
@@ -139,6 +151,46 @@ const listConversationsResponseSchema = z.object({
 
 const conversationDetailResponseSchema = z.object({
   conversation: conversationSummarySchema,
+});
+
+const unreadConversationCountResponseSchema = z.object({
+  count: z.number(),
+});
+
+const sectionCountFields = {
+  total: z.number(),
+  unread: z.number(),
+};
+
+/**
+ * One renderable sidebar section. Discriminated by `kind` so clients get a
+ * typed union: group sections carry their metadata inline (one consistent
+ * snapshot, no join against `GET /v1/groups` that could disagree with it),
+ * channel sections carry only the id (labels are client-side i18n), and
+ * `chats` is the ungrouped-native bucket. In a view without channel sections
+ * the Chats card holds every ungrouped row: the buckets are disjoint, so
+ * that reading is `chats` plus the sum of `channel` entries.
+ */
+const conversationSectionSchema = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("pinned"), ...sectionCountFields }),
+  z.object({
+    kind: z.literal("group"),
+    groupId: z.string(),
+    name: z.string(),
+    icon: z.string().nullable(),
+    sortPosition: z.number(),
+    ...sectionCountFields,
+  }),
+  z.object({
+    kind: z.literal("channel"),
+    channelId: z.string(),
+    ...sectionCountFields,
+  }),
+  z.object({ kind: z.literal("chats"), ...sectionCountFields }),
+]);
+
+const conversationSectionsResponseSchema = z.object({
+  sections: z.array(conversationSectionSchema),
 });
 
 // ---------------------------------------------------------------------------
@@ -194,18 +246,19 @@ function handleListConversations({ queryParams = {} }: RouteHandlerArgs) {
       ? queryParams.originChannel
       : undefined;
 
-  let rows = listConversations(
-    limit,
-    conversationType,
-    offset,
-    archiveStatus,
-    originChannel,
-  );
-  const totalCount = countConversations(
+  const groupId =
+    queryParams.groupId !== undefined && queryParams.groupId !== ""
+      ? queryParams.groupId
+      : undefined;
+
+  const filter: ConversationListFilter = {
     conversationType,
     archiveStatus,
     originChannel,
-  );
+    groupId,
+  };
+  let rows = listConversations({ ...filter, limit, offset });
+  const totalCount = countConversations(filter);
 
   // On the first page, ensure all pinned conversations are included
   // even if they fall outside the paginated window. Pinned injection is
@@ -213,11 +266,19 @@ function handleListConversations({ queryParams = {} }: RouteHandlerArgs) {
   // rows in archive-time order, not pin order. Also skipped for
   // channel-scoped queries — those return only items matching the
   // requested origin channel; pinned items render in their own section.
+  //
+  // Skipped for group-scoped queries for the same reason: a caller asking
+  // for one group gets that group, and a client that fetches the Pinned
+  // section via `groupId=system:pinned` has no use for rows appended to
+  // some other group's page. This is the compatibility shim for clients
+  // that still read Pinned out of the unfiltered list; it goes away once
+  // every section fetches its own group.
   if (
     offset === 0 &&
     conversationType === "standard" &&
     archiveStatus === "active" &&
-    originChannel === undefined
+    originChannel === undefined &&
+    groupId === undefined
   ) {
     const pinned = listPinnedConversations(archiveStatus);
     const seen = new Set(rows.map((c) => c.id));
@@ -263,6 +324,68 @@ function handleListConversations({ queryParams = {} }: RouteHandlerArgs) {
   }
 
   return response;
+}
+
+function handleGetUnreadConversationCount() {
+  return { count: countUnreadConversations() };
+}
+
+/**
+ * One row per non-empty sidebar section, no conversation rows. What this
+ * exists to answer without a list drain: which sections render at all,
+ * and what their rail badges say.
+ *
+ * A count row whose `group_id` names no existing non-system group is
+ * skipped rather than surfaced: those rows are unreachable as a section
+ * (the sidebar builds group sections from the groups table), and a
+ * dangling id is a transient state around group deletion, not a section.
+ */
+function handleGetConversationSections() {
+  const counts = countConversationSections();
+  const groupsById = new Map(listGroups().map((g) => [g.id, g]));
+  const sections: Array<z.infer<typeof conversationSectionSchema>> = [];
+
+  for (const row of counts.groups) {
+    if (row.groupId === "system:pinned") {
+      sections.push({ kind: "pinned", total: row.total, unread: row.unread });
+      continue;
+    }
+    const meta = groupsById.get(row.groupId);
+    if (!meta || meta.isSystemGroup) {
+      continue;
+    }
+    sections.push({
+      kind: "group",
+      groupId: row.groupId,
+      name: meta.name,
+      icon: meta.icon,
+      sortPosition: meta.sortPosition,
+      total: row.total,
+      unread: row.unread,
+    });
+  }
+
+  for (const row of counts.channels) {
+    if (row.channel === "vellum") {
+      sections.push({ kind: "chats", total: row.total, unread: row.unread });
+      continue;
+    }
+    sections.push({
+      kind: "channel",
+      channelId: row.channel,
+      total: row.total,
+      unread: row.unread,
+    });
+  }
+
+  /* Every other section exists only when it has rows; Chats is the leftover
+     bucket and renders regardless, so its counts are part of the contract
+     even at zero. */
+  if (!sections.some((s) => s.kind === "chats")) {
+    sections.push({ kind: "chats", total: 0, unread: 0 });
+  }
+
+  return { sections };
 }
 
 function handleRecordSeen({ body = {}, headers }: RouteHandlerArgs) {
@@ -450,9 +573,46 @@ export const ROUTES: RouteDefinition[] = [
           enum: [...CHANNEL_IDS],
         },
       },
+      {
+        name: "groupId",
+        type: "string",
+        required: false,
+        description:
+          'Filter to a single group, so each sidebar section can load independently of the paginated list. Pass "system:all" for conversations in no group, "system:pinned" for the Pinned section, or a custom group id. A group-scoped request is recency-ordered like every list read (COALESCE(last_message_at, updated_at) descending) and never has pinned rows appended to it. Omit to span every group.',
+      },
     ],
     responseBody: listConversationsResponseSchema,
     handler: handleListConversations,
+  },
+  {
+    operationId: "getUnreadConversationCount",
+    endpoint: "conversations/unread-count",
+    method: "GET",
+    policy: {
+      requiredScopes: ["chat.read"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
+    summary: "Unread conversation count",
+    description:
+      "Count of foreground conversations whose latest assistant message is unseen. Matches the sidebar's unread indicators: archived rows and non-surfaced background/scheduled rows are excluded.",
+    tags: ["conversations"],
+    responseBody: unreadConversationCountResponseSchema,
+    handler: handleGetUnreadConversationCount,
+  },
+  {
+    operationId: "getConversationSections",
+    endpoint: "conversations/sections",
+    method: "GET",
+    policy: {
+      requiredScopes: ["chat.read"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
+    summary: "Sidebar section index",
+    description:
+      "One row per renderable sidebar section (Pinned, each non-empty custom group, each origin channel with unassigned conversations, Chats) with total and unread counts and no conversation rows. Lets a client know which sections exist, and what their badges say, without fetching any conversation list. Totals follow the standard listing visibility; unread applies the same rules as GET /v1/conversations/unread-count scoped to the section. Chats is always present, even at zero: it is the leftover bucket and renders regardless.",
+    tags: ["conversations"],
+    responseBody: conversationSectionsResponseSchema,
+    handler: handleGetConversationSections,
   },
   {
     operationId: "recordConversationSeen",

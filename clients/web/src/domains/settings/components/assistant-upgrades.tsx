@@ -28,7 +28,7 @@ import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
 import { compareParsed, parseSemver } from "@/utils/semver";
 import { Button } from "@vellumai/design-library/components/button";
 import { ConfirmDialog } from "@vellumai/design-library/components/confirm-dialog";
-import { Dropdown } from "@vellumai/design-library/components/dropdown";
+import { Select } from "@vellumai/design-library/components/select";
 import { toast } from "@vellumai/design-library/components/toast";
 
 function releaseLabel(
@@ -123,8 +123,8 @@ export function AssistantUpgrades({
         setSelectedVersion(null);
         toast.success(
           isPollingRollback
-            ? "Rollback complete — assistant is healthy."
-            : "Update complete — assistant is healthy.",
+            ? "Rollback complete. Your assistant is healthy."
+            : "Update complete. Your assistant is healthy.",
           { id: "runtime-upgrade-complete", tone: "strong" },
         );
         onUpgradeComplete?.();
@@ -212,7 +212,18 @@ export function AssistantUpgrades({
   const handleUpgrade = async () => {
     setShowConfirmation(false);
     setSuccessMessage(null);
-    const targetVersion = selectedVersion ?? undefined;
+    // With the picker rendered, the trigger shows `effectiveSelectedVersion`
+    // even when nothing was chosen, and a selection matching the displayed
+    // value is not reported. Reading the raw selection would install
+    // something other than the version on screen.
+    //
+    // With no picker there is nothing on screen to honour, so the server
+    // resolves latest. That is deliberately not the same as this component's
+    // `latestRelease`, which does not filter `local` pre-release builds the
+    // way `getLatestRuntimeRelease` does.
+    const targetVersion = rollbackEnabled
+      ? (effectiveSelectedVersion ?? undefined)
+      : undefined;
     try {
       if (isRollback) {
         const result = await rollbackCreate.mutateAsync({
@@ -286,7 +297,7 @@ export function AssistantUpgrades({
               </span>
             ) : releases && releases.length > 0 ? (
               rollbackEnabled ? (
-                <Dropdown
+                <Select
                   value={effectiveSelectedVersion ?? ""}
                   onChange={(value) =>
                     setSelectedVersion(
@@ -446,7 +457,7 @@ export function LocalAssistantUpgrades({
           ? `Successfully updated to version ${result.version}.`
           : `Successfully updated to version ${targetVersion ?? "latest"}.`,
       );
-      toast.success("Update complete — assistant is healthy.", {
+      toast.success("Update complete. Your assistant is healthy.", {
         id: "runtime-upgrade-complete",
         tone: "strong",
       });

@@ -1,0 +1,39 @@
+{
+  "errorRetryRow": { "retrying": "Reintentando…", "retry": "Reintentar" },
+  "emailsTab": {
+    "inbound": "Entrante",
+    "outbound": "Saliente",
+    "noSubject": "(sin asunto)",
+    "addressesLoadFailed": "No se pudieron cargar las direcciones de correo.",
+    "noAddress": "Aún no hay ninguna dirección de correo registrada.",
+    "setUpLink": "Configura una en Ajustes de IA, Correo.",
+    "totals": "Totales",
+    "sentToday": "Enviados hoy",
+    "dailyLimitSub": "de {limit, number} del límite diario",
+    "receivedToday": "Recibidos hoy",
+    "sentThisMonth": "Enviados este mes",
+    "receivedThisMonth": "Recibidos este mes",
+    "recentEmails": "Correos recientes",
+    "loading": "Cargando…",
+    "emailsLoadFailed": "No se pudieron cargar los correos recientes.",
+    "noEmails": "Aún no hay correos."
+  },
+  "systemEventsTab": {
+    "longSleep": "Suspensión larga",
+    "hideDetails": "Ocultar los detalles",
+    "showDetails": "Mostrar los detalles",
+    "intro": "Eventos del ciclo de vida de tu asistente de {days, plural, one {el último # día} other {los últimos # días}}, del más reciente al más antiguo.",
+    "loading": "Cargando los eventos del sistema...",
+    "loadFailed": "No se pudieron cargar los eventos del sistema. Actualiza la página e inténtalo de nuevo.",
+    "empty": "No se ha registrado ningún evento del sistema en {days, plural, one {el último # día} other {los últimos # días}}.",
+    "loadingOlder": "Cargando eventos anteriores...",
+    "loadOlder": "Cargar eventos anteriores"
+  },
+  "emailsPage": {
+    "platformLoginNotice": "Inicia sesión en la plataforma de Vellum para ver los correos."
+  },
+  "systemEventsPage": {
+    "platformLoginNotice": "Inicia sesión en la plataforma de Vellum para ver los eventos del sistema.",
+    "notAvailable": "Los eventos del sistema no están disponibles para el asistente actual."
+  }
+}

@@ -185,7 +185,30 @@ Note: The plugin is dropped immediately.
 
 ## Updating a plugin
 
-Installs are pinned. Because the catalog pins each plugin to an immutable commit, an install never changes on its own. It stays on the commit it was installed at until you explicitly move it. Curators advance a plugin by bumping its `source.ref` in the manifest; your local copy only catches up when you upgrade it.
+Installs are pinned. Because the catalog pins each plugin to an immutable commit, an install never changes on its own. It stays on the commit it was installed at until you explicitly move it — or until an opted-in workspace's automatic sweep moves it (see [Automatic updates](#automatic-updates)). Curators advance a plugin by bumping its `source.ref` in the manifest; your local copy only catches up when you upgrade it.
+
+### Automatic updates
+
+Upgrades are manual by default. A workspace can opt into unattended upgrades through the `pluginUpdates` block in its `config.json`:
+
+```json
+{
+  "pluginUpdates": {
+    "mode": "auto",
+    "strategy": "theirs"
+  }
+}
+```
+
+- `mode`: `manual` (default) never upgrades on its own, so every workspace behaves exactly as described above. `auto` lets the resource monitor sweep installed marketplace plugins hourly and move each one to the catalog's current pin.
+- `strategy`: how an automatic upgrade reconciles local edits with the incoming revision — `theirs` (default) three-way merges and resolves conflicting hunks toward the incoming revision, `ours` resolves them toward the local edit, `overwrite` discards local edits and re-installs wholesale. The interactive `--strategy assistant` (which leaves conflict markers for someone to resolve) is deliberately not selectable here: nobody is in the loop to resolve them.
+- `checkIntervalMs`: minimum spacing between sweeps, default `3600000` (1 hour). The last sweep is stamped on disk, so restarting the daemon does not re-run a sweep that already ran within the interval.
+
+**Only curated marketplace installs are swept.** The catalog pins every entry to a commit a curator reviewed, so an unattended upgrade can only land reviewed code. A plugin installed straight from a GitHub URL has no such gate: it tracks a mutable ref (a branch, a tag, or the repo's default branch), so upgrading it means fetching and running whatever upstream pushed since. The sweep skips those, and so it skips any install whose recorded `install-meta.json` source names a different repository (or plugin root) than the catalog entry claiming its name. Upgrade them deliberately with `assistant plugins upgrade <name>`.
+
+The boundary is enforced where the upgrade happens, not only where it is decided. Every sweep request carries `marketplaceOnly`, and the upgrade refuses (409) if its own catalog read finds no entry, so a catalog entry that disappears mid-sweep cannot reroute a curated upgrade onto an install's mutable ref.
+
+Disabled plugins are skipped too. The sweep runs in the resource monitor process but asks the daemon to perform each upgrade, so the plugin's `shutdown`/`init` hooks run in the process that loaded it, exactly as they do for a manual upgrade. A plugin that cannot be upgraded (source unreachable, no upstream to advance to) is logged and skipped; the rest of the sweep continues.
 
 ### Drift and local edits
 

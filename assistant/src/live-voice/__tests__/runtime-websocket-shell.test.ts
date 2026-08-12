@@ -327,9 +327,12 @@ describe("RuntimeHttpServer live voice WebSocket shell", () => {
       conversationId: "conversation-ready",
     });
     expect(typeof ready.sessionId).toBe("string");
+    // The config default is "multi", so the session carries a language into
+    // the resolver rather than leaving it to be inferred downstream.
     expect(resolveStreamingTranscriberMock).toHaveBeenCalledWith({
       sampleRate: 24_000,
       providerId: "deepgram",
+      language: "multi",
     });
     expect(resolvedTranscribers).toHaveLength(1);
     expect(resolvedTranscribers[0]?.started).toBe(true);

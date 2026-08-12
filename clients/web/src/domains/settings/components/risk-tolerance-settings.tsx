@@ -10,7 +10,7 @@ import {
   presetFromThreshold,
 } from "@/utils/threshold-presets";
 import { Card } from "@vellumai/design-library/components/card";
-import { Dropdown } from "@vellumai/design-library/components/dropdown";
+import { Select } from "@vellumai/design-library/components/select";
 
 function Divider() {
   return (
@@ -176,7 +176,7 @@ export function RiskToleranceSettings() {
             When you&apos;re chatting with your assistant directly.
           </p>
           <div className="mt-2" style={{ maxWidth: 280 }}>
-            <Dropdown
+            <Select
               value={interactivePresetId}
               onChange={handleInteractiveChange}
               options={PRESET_OPTIONS}
@@ -217,7 +217,7 @@ export function RiskToleranceSettings() {
                 background jobs, and external triggers.
               </p>
               <div className="mt-2" style={{ maxWidth: 280 }}>
-                <Dropdown
+                <Select
                   value={autonomousPresetId}
                   onChange={handleAutonomousChange}
                   options={PRESET_OPTIONS}
@@ -241,7 +241,7 @@ export function RiskToleranceSettings() {
                 When triggered externally with no interactive client.
               </p>
               <div className="mt-2" style={{ maxWidth: 280 }}>
-                <Dropdown
+                <Select
                   value={headlessPresetId}
                   onChange={handleHeadlessChange}
                   options={PRESET_OPTIONS}

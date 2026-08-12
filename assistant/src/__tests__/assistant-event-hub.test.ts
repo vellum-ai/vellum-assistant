@@ -11,6 +11,7 @@ import {
   getReplayWindow,
 } from "../runtime/assistant-stream-state.js";
 import * as pendingInteractions from "../runtime/pending-interactions.js";
+import { registerHubClient } from "./helpers/hub-clients.js";
 
 function makeEvent(
   overrides: Partial<AssistantEventEnvelope> = {},
@@ -432,6 +433,53 @@ describe("AssistantEventHub — actorPrincipalId on ClientEntry", () => {
   test("getActorPrincipalIdForClient returns undefined for unknown clientId", () => {
     const hub = new AssistantEventHub();
     expect(hub.getActorPrincipalIdForClient("does-not-exist")).toBeUndefined();
+  });
+});
+
+// ── ClientEntry desktop presence ─────────────────────────────────────────────
+
+describe("AssistantEventHub client presence", () => {
+  test("records presence on a matching client", () => {
+    const hub = new AssistantEventHub();
+    registerHubClient({ hub, clientId: "mac-1" });
+
+    expect(hub.setClientPresence("mac-1", "active")).toBe(true);
+
+    const presence = hub.getClientById("mac-1")!.presence!;
+    expect(presence.state).toBe("active");
+  });
+
+  test("reportedAt advances on every report", async () => {
+    const hub = new AssistantEventHub();
+    registerHubClient({ hub, clientId: "mac-1" });
+
+    hub.setClientPresence("mac-1", "idle");
+    const first = hub.getClientById("mac-1")!.presence!;
+
+    await Bun.sleep(5);
+    hub.setClientPresence("mac-1", "idle");
+    const second = hub.getClientById("mac-1")!.presence!;
+
+    expect(second.reportedAt.getTime()).toBeGreaterThan(
+      first.reportedAt.getTime(),
+    );
+  });
+
+  test("returns false for an unknown clientId", () => {
+    const hub = new AssistantEventHub();
+    registerHubClient({ hub, clientId: "mac-1" });
+
+    expect(hub.setClientPresence("does-not-exist", "active")).toBe(false);
+    expect(hub.getClientById("mac-1")?.presence).toBeUndefined();
+  });
+
+  test("a disposed client no longer accepts presence", () => {
+    const hub = new AssistantEventHub();
+    registerHubClient({ hub, clientId: "mac-1" });
+
+    expect(hub.disposeClient("mac-1")).toBe(1);
+    expect(hub.setClientPresence("mac-1", "active")).toBe(false);
+    expect(hub.getClientById("mac-1")).toBeUndefined();
   });
 });
 

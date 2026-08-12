@@ -1,6 +1,7 @@
 import { Mail, MailOpen, MessageSquare, RotateCcw, Trash2 } from "lucide-react";
 import { useMemo, type ReactNode } from "react";
 
+import { useTranslation } from "@/i18n";
 import { formatRelativeDate } from "@/utils/format-date";
 import type { FeedItem, FeedItemStatus } from "@vellumai/assistant-api";
 import {
@@ -11,7 +12,8 @@ import {
 } from "@vellumai/design-library";
 
 import { FeedCategoryChip } from "./feed-category-chip";
-import { flattenSummary, resolvePreview } from "./feed-preview";
+import { resolvePreview } from "./feed-preview";
+import { resolveFeedItemTitle } from "./utils";
 
 function HoverIconButton({
   label,
@@ -48,14 +50,6 @@ function HoverIconButton({
 
 /** Source labels that carry nothing the category chip does not already say. */
 const GENERIC_SOURCE_LABELS = new Set(["Conversation", "Other"]);
-
-/**
- * Name for an item with neither a title nor a summary that renders as text, so
- * the card's click target always has an accessible name. The category is not
- * used here: where the card carries its chip, repeating it would read the same
- * word twice.
- */
-const UNNAMED_ITEM_TITLE = "Notification";
 
 export type HomeRecapRowDensity = "comfortable" | "compact";
 
@@ -116,6 +110,7 @@ export function HomeRecapRow({
   trailingAction = "dismiss",
   density = "comfortable",
 }: HomeRecapRowProps) {
+  const { t } = useTranslation("home");
   const isUnread = item.status === "new";
   const isRestore = trailingAction === "restore";
   const densityStyle = DENSITY_STYLES[density];
@@ -125,16 +120,12 @@ export function HomeRecapRow({
       ? item.sourceLabel
       : null;
 
-  // An item without its own title falls back to the summary, which is markdown:
-  // it goes through the flattener so the title line and the click target's name
-  // carry text rather than syntax.
-  //
   // Both memoized: each parses the summary as markdown, and the feed re-renders
   // every card whenever its filter changes.
-  const title = useMemo(() => {
-    const resolved = item.title ?? flattenSummary(item.summary);
-    return resolved.length > 0 ? resolved : UNNAMED_ITEM_TITLE;
-  }, [item.title, item.summary]);
+  const title = useMemo(
+    () => resolveFeedItemTitle({ title: item.title, summary: item.summary }),
+    [item.title, item.summary],
+  );
 
   const preview = useMemo(
     () => resolvePreview(title, item.summary),
@@ -248,18 +239,24 @@ export function HomeRecapRow({
             >
               {isRestore ? (
                 <HoverIconButton
-                  label="Restore"
+                  label={t("actions.restore")}
                   onClick={() => onDismiss(item.id)}
                   className="w-auto gap-[var(--app-spacing-xs)] px-2"
                 >
                   <RotateCcw width={16} height={16} aria-hidden="true" />
-                  <span className="text-body-small-default">Restore</span>
+                  <span className="text-body-small-default">
+                    {t("actions.restore")}
+                  </span>
                 </HoverIconButton>
               ) : (
                 <>
                   {onToggleRead && (
                     <HoverIconButton
-                      label={isUnread ? "Mark as read" : "Mark as unread"}
+                      label={
+                        isUnread
+                          ? t("actions.markAsRead")
+                          : t("actions.markAsUnread")
+                      }
                       onClick={() =>
                         onToggleRead(item.id, isUnread ? "seen" : "new")
                       }
@@ -276,7 +273,7 @@ export function HomeRecapRow({
                     (!validConversationIds ||
                       validConversationIds.has(item.conversationId)) && (
                       <HoverIconButton
-                        label="Go to thread"
+                        label={t("actions.goToThread")}
                         onClick={() => {
                           if (isUnread && onToggleRead) {
                             onToggleRead(item.id, "seen");
@@ -288,7 +285,7 @@ export function HomeRecapRow({
                       </HoverIconButton>
                     )}
                   <HoverIconButton
-                    label="Dismiss"
+                    label={t("actions.dismiss")}
                     onClick={() => onDismiss(item.id)}
                   >
                     <Trash2 width={16} height={16} />

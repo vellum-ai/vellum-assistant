@@ -31,6 +31,7 @@ import {
   useState,
 } from "react";
 
+import { markBoot } from "@/lib/telemetry/boot-telemetry";
 import { useAcpRunRehydration } from "@/domains/chat/hooks/use-acp-run-rehydration";
 import { useBackgroundTaskRehydration } from "@/domains/chat/hooks/use-background-task-rehydration";
 import { useChatUIState } from "@/domains/chat/hooks/use-chat-ui-state";
@@ -74,6 +75,7 @@ import { ChatBody } from "@/domains/chat/components/chat-body";
 import { ChatComposer } from "@/domains/chat/components/chat-composer/chat-composer";
 import { ChatRuleEditorModal } from "@/domains/chat/components/chat-rule-editor-modal";
 import { ComposerNotices } from "@/domains/chat/components/composer-notices";
+import { OrphanedHistoryNotice } from "@/domains/chat/components/orphaned-history-notice";
 import { ComposerSecretNotice } from "@/domains/chat/components/composer-secret-notice";
 import { ComposerSettingsMenu } from "@/domains/chat/components/composer-settings-menu";
 import { ContextWindowIndicator } from "@/domains/chat/components/context-window-indicator";
@@ -103,7 +105,7 @@ import {
   WEB_FOLDER_DROP_ERROR,
 } from "@/domains/chat/components/chat-attachments/handle-folder-drop";
 import { Button } from "@vellumai/design-library";
-import { Link, useLocation, useNavigate } from "react-router";
+import { Link, useLocation, useNavigate, useParams } from "react-router";
 import {
   getChatBillingBannerDecision,
   isManagedCredentialChatError,
@@ -117,7 +119,6 @@ import type {
   DisplayAttachment,
   DisplayMessage,
 } from "@/domains/chat/types/types";
-import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
 import type { TranscriptItem } from "@/domains/chat/transcript/types";
 import type { HistoryPaginationResult } from "@/domains/chat/transcript/use-history-pagination";
 import type { UIContext } from "@/domains/chat/turn-selectors";
@@ -152,6 +153,8 @@ import { useConversationListQuery } from "@/hooks/conversation-queries";
 import { useAssistantAvatar } from "@/hooks/use-assistant-avatar";
 import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
 import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
+import { shouldMintNewChatDraft } from "@/domains/chat/utils/conversation-selection";
+import { isNativeMobile } from "@/runtime/platform-detection";
 import { useConversationStore } from "@/stores/conversation-store";
 import { useDoctorHandoffStore } from "@/stores/doctor-handoff-store";
 import { useLowBalanceBannerStore } from "@/stores/low-balance-banner-store";
@@ -350,7 +353,35 @@ export function ChatMainPanel({
   const messages = useTranscriptMessages();
   const error = useChatSessionStore.use.error();
   const notice = useChatSessionStore.use.notice();
-  const isLoadingHistory = useChatSessionStore.use.isLoadingHistory();
+  // A client-minted draft has no server row, so there is no history to wait
+  // for and no transcript skeleton to show. Derived during render rather than
+  // lowered from an effect: the store seeds `isLoadingHistory` true, so an
+  // effect would only clear it after the first commit had already painted the
+  // skeleton, which is the flash this is here to prevent.
+  //
+  // The cold-launch frame needs the same answer one step earlier. A native
+  // shell renders once with nothing selected, before the bootstrap effect
+  // mints the draft, so there is no id to look up yet. Asking the bootstrap's
+  // own predicate whether a draft is what it is about to select covers that
+  // frame, and keeps the two from drifting apart. Every other context (web,
+  // and a native deep link that names a conversation) answers false and keeps
+  // the skeleton, which is correct: those really are resolving which
+  // conversation to load, and the web path waits on the conversation list to
+  // do it.
+  const rawIsLoadingHistory = useChatSessionStore.use.isLoadingHistory();
+  const draftConversationIds = useConversationStore.use.draftConversationIds();
+  const { conversationId: urlConversationId } = useParams<{
+    conversationId: string;
+  }>();
+  const awaitingColdStartDraft = shouldMintNewChatDraft({
+    platformStartsInNewChat: isNativeMobile(),
+    urlConversationId: urlConversationId ?? null,
+    currentConversationId: activeConversationId,
+  });
+  const isLoadingHistory =
+    rawIsLoadingHistory &&
+    !awaitingColdStartDraft &&
+    !(activeConversationId && draftConversationIds.has(activeConversationId));
   const contextWindowUsage = useChatSessionStore.use.contextWindowUsage();
   const compactionCircuitOpenUntil =
     useChatSessionStore.use.compactionCircuitOpenUntil();
@@ -443,8 +474,8 @@ export function ChatMainPanel({
     void navigate(routes.settings.ai);
   }, [navigate]);
 
-  const pushToBillingSettings = useCallback(() => {
-    void navigate(routes.settings.usageBilling);
+  const pushToDailyLimitSettings = useCallback(() => {
+    void navigate(routes.settings.usageBillingDailyLimit);
   }, [navigate]);
 
   const checkAssistant = useCallback(
@@ -503,9 +534,13 @@ export function ChatMainPanel({
 
   // Commit counter for the chat-route subtree. Deliberately dependency-less:
   // it has to run on every commit to measure how tightly they are packed,
-  // which is what `Maximum update depth exceeded` actually reacts to. Records
-  // nothing but two integers — see `lib/commit-pressure.ts`.
-  useEffect(() => {
+  // which is what `Maximum update depth exceeded` actually reacts to. A layout
+  // effect rather than a passive one, so the commit is recorded before
+  // ResizeObserver, rAF, and timer callbacks can fire: an instrumented update
+  // landing in that window would otherwise be consumed as attribution of the
+  // commit that just finished instead of the commit it causes. Records nothing
+  // but a few integers; see `lib/commit-pressure.ts`.
+  useLayoutEffect(() => {
     recordCommit();
   });
 
@@ -542,11 +577,6 @@ export function ChatMainPanel({
     () => void sendMessage("/clean"),
     [sendMessage],
   );
-
-  // -------------------------------------------------------------------------
-  // Feature flags
-  // -------------------------------------------------------------------------
-  const queueSteering = useAssistantFeatureFlagStore.use.queueSteering();
 
   // -------------------------------------------------------------------------
   // Draft secret detection: owns the composer warning's matches/dismissal
@@ -640,8 +670,22 @@ export function ChatMainPanel({
   // -------------------------------------------------------------------------
   // Single balance-status read shared by every proactive billing surface in
   // this component: the transcript's tail card, the empty state's card, and
-  // the low-balance composer banner.
-  const balanceStatus = useBillingBalanceStatus();
+  // the low-balance composer banner. The active conversation is passed so
+  // the BYOK suppression respects a per-conversation managed profile pin. A
+  // client-minted draft has no server row to look up (the lookup would 404
+  // and needlessly fail the gate open); its effective profile lives in the
+  // composer stash, so that is threaded instead.
+  const pendingDraftProfiles = useConversationStore.use.pendingDraftProfiles();
+  const activeDraftId =
+    activeConversationId && draftConversationIds.has(activeConversationId)
+      ? activeConversationId
+      : null;
+  const balanceStatus = useBillingBalanceStatus({
+    conversationId: activeDraftId ? null : activeConversationId,
+    draftProfile: activeDraftId
+      ? (pendingDraftProfiles.get(activeDraftId) ?? null)
+      : null,
+  });
 
   const { sanitizedMessages, transcriptItems } = useTranscriptData({
     messages,
@@ -676,6 +720,18 @@ export function ChatMainPanel({
     status: diskPressure.status,
   });
   const diskPressureInputDisabled = diskPressureChatBlockReason !== null;
+
+  // First meaningful transcript paint: the exact condition under which
+  // `ChatScrollArea` stops rendering `<ChatSkeleton />`. On the new-conversation
+  // draft there is no history to wait for, so this lands immediately; on an
+  // existing conversation it is the history fetch. `markBoot` is first-write-wins,
+  // so later conversation switches within the page load do not overwrite it.
+  const transcriptPainted = !(isLoadingHistory && messages.length === 0);
+  useEffect(() => {
+    if (transcriptPainted) {
+      markBoot("transcript_painted");
+    }
+  }, [transcriptPainted]);
 
   const typingDisabled =
     isLoadingHistory ||
@@ -847,7 +903,6 @@ export function ChatMainPanel({
   // mid-load), its profile lives in the composer stash, not on a server row —
   // feed it in so attachment/vision gating reflects the profile the first
   // message will actually use rather than the global default.
-  const pendingDraftProfiles = useConversationStore.use.pendingDraftProfiles();
   const activeDraftProfile =
     !activeConversation && activeConversationId
       ? (pendingDraftProfiles.get(activeConversationId) ?? undefined)
@@ -1101,8 +1156,24 @@ export function ChatMainPanel({
     onCancelAllQueued: handleCancelAllQueued,
     onSteerMessage: handleSteerMessage,
     onEditQueueTail: handleEditQueueTail,
-    queueSteering,
   });
+
+  // A conversation whose branch parent was deleted renders its own messages
+  // and nothing before them. Composed into the banner slot rather than
+  // replacing it, and kept undefined when there is nothing to show, because
+  // `ChatBody` decides whether to render the banner container from whether
+  // this node exists.
+  const orphanedHistoryBanner =
+    activeConversation?.historyOrphaned === true ? (
+      <OrphanedHistoryNotice />
+    ) : null;
+  const mainBannerWithNotices =
+    orphanedHistoryBanner || mainBannerSlot ? (
+      <>
+        {orphanedHistoryBanner}
+        {mainBannerSlot}
+      </>
+    ) : undefined;
 
   // -------------------------------------------------------------------------
   // Billing composer banner
@@ -1117,6 +1188,9 @@ export function ChatMainPanel({
     billingBannerDecision,
     isLowBalance: balanceStatus.isLowBalance,
     dismissed: lowBalanceBannerDismissed,
+    // State-driven, so the banner is already up when the user returns to an
+    // app whose daily cap was reached by background turns.
+    dailyLimitReached: balanceStatus.dailyLimitReached,
   });
 
   // -------------------------------------------------------------------------
@@ -1254,7 +1328,7 @@ export function ChatMainPanel({
             onOpenTextInsertionSettings={handleOpenTextInsertionSettings}
             billingBannerSlot={
               composerBillingBanner === "daily_limit" ? (
-                <DailyLimitBanner onAdjustLimit={pushToBillingSettings} />
+                <DailyLimitBanner onAdjustLimit={pushToDailyLimitSettings} />
               ) : composerBillingBanner === "provider_billing" ? (
                 <ProviderBillingBanner onOpenSettings={pushToAiSettings} />
               ) : composerBillingBanner === "low_balance" ? (
@@ -1339,7 +1413,7 @@ export function ChatMainPanel({
       onRetryRefresh={handleRetryRefreshFromPill}
       genericChatError={genericChatBanner}
       onDismissChatError={handleDismissChatError}
-      bannerSlot={isSidePanel ? undefined : mainBannerSlot}
+      bannerSlot={isSidePanel ? undefined : mainBannerWithNotices}
       queuedDrawerSlot={isSidePanel ? undefined : mainQueuedDrawerSlot}
       startersSlot={startersSlot}
       belowFoldSlot={belowFoldSlot}

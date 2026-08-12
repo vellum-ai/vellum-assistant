@@ -18,7 +18,15 @@
 
 import { type ReactNode } from "react";
 
-import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  mock,
+  spyOn,
+  test,
+} from "bun:test";
 
 import {
   act,
@@ -40,6 +48,7 @@ import {
   type LiveVoiceSessionState,
 } from "@/domains/chat/voice/live-voice/live-voice-store";
 import { MIN_VERSION as NONINTERACTIVE_VOICE_MIN_VERSION } from "@/lib/backwards-compat/use-supports-noninteractive-voice-turns";
+import { MIN_VERSION as CAMERA_MIN_VERSION } from "@/lib/backwards-compat/use-supports-voice-camera";
 import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
 import { useConversationStore } from "@/stores/conversation-store";
 import { useVoicePrefsStore } from "@/stores/voice-prefs-store";
@@ -187,6 +196,20 @@ mock.module("@/components/speech/use-stt-language-selection", () => ({
     selectLanguage: () => {},
     selecting: false,
   }),
+}));
+
+// The camera's shutter uploads through the composer's own attachment API. Only
+// that one export is replaced (the rest of the module is spread back in) so the
+// room's other consumers of it are untouched, and the camera tests assert the
+// wiring rather than the network.
+const uploadChatAttachmentSpy = mock(async () => ({
+  ok: true as const,
+  id: "att-uploaded-1",
+}));
+const realMessagesModule = await import("@/domains/chat/api/messages");
+mock.module("@/domains/chat/api/messages", () => ({
+  ...realMessagesModule,
+  uploadChatAttachment: uploadChatAttachmentSpy,
 }));
 
 // Imported after the mocks so the room picks up the mocked modules.
@@ -1355,5 +1378,467 @@ describe("VoiceRoom — no push-to-talk / manual-release affordance (hands-free)
     render(<VoiceRoom />);
     expect(screen.queryByRole("button", { name: "Speak" })).toBeNull();
     expect(screen.queryByRole("button", { name: /Send now/ })).toBeNull();
+  });
+});
+
+/**
+ * The camera. See `use-supports-voice-camera.ts` for why this is a WRITE gate
+ * (an assistant that cannot receive the photo must not be offered a camera
+ * that silently drops it) and `voice-camera.ts` for why the viewfinder lives
+ * inside the room rather than behind the system camera.
+ */
+describe("VoiceRoom: camera", () => {
+  const originalMediaDevices = Object.getOwnPropertyDescriptor(
+    navigator,
+    "mediaDevices",
+  );
+
+  /** Present a camera to the room; `null` removes the API entirely. */
+  function stubMediaDevices(
+    getUserMedia:
+      ((constraints?: MediaStreamConstraints) => Promise<unknown>) | null,
+  ) {
+    Object.defineProperty(navigator, "mediaDevices", {
+      configurable: true,
+      value: getUserMedia ? { getUserMedia } : undefined,
+    });
+  }
+
+  // A real `MediaStream`, because happy-dom's `HTMLMediaElement.srcObject`
+  // setter enforces the same instance check the browser does and a duck-typed
+  // stand-in throws where a real camera would not, but happy-dom's
+  // implementation has no `getTracks()`, which release needs, so that one
+  // method is filled in.
+  function fakeStream(getSettings?: () => MediaTrackSettings) {
+    const stream = new MediaStream();
+    Object.defineProperties(stream, {
+      getTracks: { value: () => [] },
+      getVideoTracks: {
+        value: () => (getSettings ? [{ getSettings }] : []),
+      },
+    });
+    return stream;
+  }
+
+  /**
+   * Make the shutter able to produce a frame.
+   *
+   * happy-dom gives a `<video>` no intrinsic size and a `<canvas>` no
+   * `toBlob`, so `captureVideoFrame` correctly bails as "no frame yet" and
+   * nothing downstream of capture is reachable. Standing in for the two pieces
+   * a real browser supplies lets the send path be tested; the capture bail
+   * itself is covered by the guard in `voice-camera.ts`.
+   */
+  function stubFrameCapture(): () => void {
+    const video = Object.getOwnPropertyDescriptors(HTMLVideoElement.prototype);
+    Object.defineProperty(HTMLVideoElement.prototype, "videoWidth", {
+      configurable: true,
+      get: () => 640,
+    });
+    Object.defineProperty(HTMLVideoElement.prototype, "videoHeight", {
+      configurable: true,
+      get: () => 480,
+    });
+
+    const canvas = HTMLCanvasElement.prototype as unknown as {
+      getContext: unknown;
+      toBlob: unknown;
+    };
+    const originalGetContext = canvas.getContext;
+    const originalToBlob = canvas.toBlob;
+    canvas.getContext = () => ({ drawImage: () => {} });
+    canvas.toBlob = (cb: (blob: Blob) => void) =>
+      cb(new Blob(["x"], { type: "image/jpeg" }));
+
+    return () => {
+      canvas.getContext = originalGetContext;
+      canvas.toBlob = originalToBlob;
+      if (video.videoWidth) {
+        Object.defineProperty(
+          HTMLVideoElement.prototype,
+          "videoWidth",
+          video.videoWidth,
+        );
+      }
+      if (video.videoHeight) {
+        Object.defineProperty(
+          HTMLVideoElement.prototype,
+          "videoHeight",
+          video.videoHeight,
+        );
+      }
+    };
+  }
+
+  /** An assistant new enough to accept `attach_image`. */
+  function seedCameraCapableAssistant() {
+    useAssistantIdentityStore
+      .getState()
+      .setIdentity("test-asst", CAMERA_MIN_VERSION, ASSISTANT_ID);
+  }
+
+  const cameraToggle = () => screen.queryByTestId("voice-room-camera-toggle");
+  const viewfinder = () => screen.queryByTestId("voice-room-viewfinder");
+
+  afterEach(() => {
+    if (originalMediaDevices) {
+      Object.defineProperty(navigator, "mediaDevices", originalMediaDevices);
+    } else {
+      stubMediaDevices(null);
+    }
+  });
+
+  test("offers no camera when the assistant version is unknown", () => {
+    // The conservative branch of the gate. An assistant that turns out to
+    // predate `attach_image` would take the photo and never show it to the
+    // model, which is worse than not offering the camera.
+    stubMediaDevices(async () => fakeStream());
+    startOwnedSession("listening");
+    render(<VoiceRoom />);
+
+    expect(cameraToggle()).toBeNull();
+  });
+
+  test("offers no camera when the device has no camera API", () => {
+    stubMediaDevices(null);
+    seedCameraCapableAssistant();
+    startOwnedSession("listening");
+    render(<VoiceRoom />);
+
+    expect(cameraToggle()).toBeNull();
+  });
+
+  test("offers the camera on a capable assistant and device", () => {
+    stubMediaDevices(async () => fakeStream());
+    seedCameraCapableAssistant();
+    startOwnedSession("listening");
+    render(<VoiceRoom />);
+
+    expect(cameraToggle()).not.toBeNull();
+    // Closed to start: the room opens on the look, not on a live camera.
+    expect(viewfinder()).toBeNull();
+    expect(screen.queryByTestId("voice-room-shutter")).toBeNull();
+  });
+
+  test("tapping the camera opens the viewfinder and the shutter, and the call keeps running", async () => {
+    const getSettings = mock(() => ({
+      width: 1920,
+      height: 1080,
+      aspectRatio: 16 / 9,
+      frameRate: 30,
+      facingMode: "environment",
+      deviceId: "camera-device-id",
+      groupId: "camera-group-id",
+    }));
+    const getUserMedia = mock(
+      async (_constraints?: MediaStreamConstraints) =>
+        fakeStream(getSettings),
+    );
+    const consoleDebug = spyOn(console, "debug").mockImplementation(() => {});
+    stubMediaDevices(getUserMedia);
+    seedCameraCapableAssistant();
+    startOwnedSession("listening");
+    try {
+      render(<VoiceRoom />);
+
+      await act(async () => {
+        fireEvent.click(cameraToggle()!);
+      });
+
+      const video = viewfinder() as HTMLVideoElement | null;
+      expect(video).not.toBeNull();
+      expect(video?.autoplay).toBe(true);
+      expect(video?.muted).toBe(true);
+      expect(video?.hasAttribute("playsinline")).toBe(true);
+      expect(video?.controls).toBe(false);
+      expect(screen.queryByTestId("voice-room-shutter")).not.toBeNull();
+      // Video only. Requesting audio here would renegotiate the microphone the
+      // live-voice session is streaming from. See `voice-camera.ts`.
+      expect(getUserMedia).toHaveBeenCalledTimes(1);
+      expect(getUserMedia.mock.calls[0]?.[0]).toEqual({
+        video: {
+          facingMode: "environment",
+          width: { ideal: 1920 },
+          height: { ideal: 1080 },
+        },
+      });
+      expect(getSettings).toHaveBeenCalledTimes(1);
+      expect(consoleDebug).toHaveBeenCalledWith(
+        "[voice-camera] negotiated video track",
+        {
+          width: 1920,
+          height: 1080,
+          aspectRatio: 16 / 9,
+          frameRate: 30,
+          facingMode: "environment",
+        },
+      );
+      // Opening a camera is not an act on the session itself.
+      expect(controls.stop).not.toHaveBeenCalled();
+      expect(controls.interrupt).not.toHaveBeenCalled();
+    } finally {
+      consoleDebug.mockRestore();
+    }
+  });
+
+  test("closing the camera leaves the session alone", async () => {
+    stubMediaDevices(async () => fakeStream());
+    seedCameraCapableAssistant();
+    startOwnedSession("listening");
+    render(<VoiceRoom />);
+
+    await act(async () => {
+      fireEvent.click(cameraToggle()!);
+    });
+    expect(viewfinder()).not.toBeNull();
+
+    await act(async () => {
+      fireEvent.click(cameraToggle()!);
+    });
+
+    expect(viewfinder()).toBeNull();
+    expect(controls.stop).not.toHaveBeenCalled();
+    expect(useLiveVoiceStore.getState().state).toBe("listening");
+  });
+
+  test("the viewfinder paints above the look rather than under the avatar", async () => {
+    stubMediaDevices(async () => fakeStream());
+    seedCameraCapableAssistant();
+    startOwnedSession("listening");
+    render(<VoiceRoom />);
+
+    await act(async () => {
+      fireEvent.click(cameraToggle()!);
+    });
+
+    // The void look's centred avatar renders AFTER the viewfinder in the DOM
+    // and sits at z-0, so DOM order alone would let it paint over the feed.
+    expect(viewfinder()?.className).toContain("z-[2]");
+  });
+
+  test("the controls take a scrim once they sit over the feed", async () => {
+    stubMediaDevices(async () => fakeStream());
+    seedCameraCapableAssistant();
+    startOwnedSession("listening");
+    render(<VoiceRoom />);
+
+    // Closed: the room's own flat color is behind them, and the controls wear
+    // the tone-derived hairline treatment.
+    expect(cameraToggle()!.className).not.toContain("bg-black");
+
+    await act(async () => {
+      fireEvent.click(cameraToggle()!);
+    });
+
+    // Open: the background is now arbitrary camera video, where a border-only
+    // control disappears against dark clothing. Every control on the surface
+    // has to carry its own fill, the end button included.
+    const scrimmed = [
+      "Close camera",
+      "Mute microphone",
+      "Mute assistant",
+      "Flip camera",
+      "Minimize voice room",
+    ];
+    for (const name of scrimmed) {
+      expect(screen.getByRole("button", { name }).className).toContain(
+        "bg-black/45",
+      );
+    }
+    const end = screen.getByRole("button", { name: "End voice session" });
+    expect(end.className).toContain("bg-red-600/55");
+
+    // The shutter is white so it reads on a dark frame, which leaves it
+    // invisible on a bright one unless it carries a dark backing of its own.
+    // It is the only control on the surface with no neutral scrim to fall
+    // back on, so it is asserted separately rather than in the loop above.
+    const shutter = screen.getByTestId("voice-room-shutter");
+    expect(shutter.className).toContain("bg-black/30");
+    expect(shutter.className).toContain("shadow-");
+  });
+
+  test("a failed flip falls back to the camera the user already had", async () => {
+    // A phone that cannot hold two captures at once: the first camera opens,
+    // the flip's request fails, and reopening the original succeeds.
+    let call = 0;
+    stubMediaDevices(async () => {
+      call += 1;
+      if (call === 2) {
+        throw new DOMException("in use", "NotReadableError");
+      }
+      return fakeStream();
+    });
+    seedCameraCapableAssistant();
+    startOwnedSession("listening");
+    render(<VoiceRoom />);
+
+    await act(async () => {
+      fireEvent.click(cameraToggle()!);
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Flip camera" }));
+    });
+
+    // Still aiming, at the camera that works. A flip is a convenience and
+    // must not close the viewfinder mid-conversation.
+    expect(viewfinder()).not.toBeNull();
+    expect(screen.queryByTestId("voice-room-shutter")).not.toBeNull();
+    expect(call).toBe(3);
+  });
+
+  test("a photo the session could not take is reported, not swallowed", async () => {
+    // The reconnect gap. The upload succeeds and the shutter has already
+    // fired, so a silent drop would leave the user talking to an assistant
+    // that cannot see what they just showed it.
+    const restoreCapture = stubFrameCapture();
+    controls.attachImage.mockImplementationOnce(() => false);
+    stubMediaDevices(async () => fakeStream());
+    seedCameraCapableAssistant();
+    startOwnedSession("listening");
+    render(<VoiceRoom />);
+
+    try {
+      await act(async () => {
+        fireEvent.click(cameraToggle()!);
+      });
+      await act(async () => {
+        fireEvent.click(screen.getByTestId("voice-room-shutter"));
+      });
+
+      expect(uploadChatAttachmentSpy).toHaveBeenCalled();
+      expect(screen.queryByText(/Reconnecting/)).not.toBeNull();
+      // The viewfinder stays up: the user is being asked to take it again.
+      expect(viewfinder()).not.toBeNull();
+    } finally {
+      restoreCapture();
+    }
+  });
+
+  test("a delivered photo reports nothing", async () => {
+    const restoreCapture = stubFrameCapture();
+    stubMediaDevices(async () => fakeStream());
+    seedCameraCapableAssistant();
+    startOwnedSession("listening");
+    render(<VoiceRoom />);
+
+    try {
+      await act(async () => {
+        fireEvent.click(cameraToggle()!);
+      });
+      await act(async () => {
+        fireEvent.click(screen.getByTestId("voice-room-shutter"));
+      });
+
+      expect(controls.attachImage).toHaveBeenCalledWith("att-uploaded-1");
+      expect(screen.queryByText(/Reconnecting/)).toBeNull();
+      expect(screen.queryByText(/Couldn't/)).toBeNull();
+    } finally {
+      restoreCapture();
+    }
+  });
+
+  test("a sent photo leaves a thumbnail so the press is not silent", async () => {
+    const restoreCapture = stubFrameCapture();
+    stubMediaDevices(async () => fakeStream());
+    seedCameraCapableAssistant();
+    startOwnedSession("listening");
+    render(<VoiceRoom />);
+
+    try {
+      await act(async () => {
+        fireEvent.click(cameraToggle()!);
+      });
+      // Nothing to show before the first press.
+      expect(screen.queryByTestId("voice-room-photo-strip")).toBeNull();
+
+      await act(async () => {
+        fireEvent.click(screen.getByTestId("voice-room-shutter"));
+      });
+
+      const thumbnails = screen.getAllByTestId("voice-room-photo");
+      expect(thumbnails).toHaveLength(1);
+      expect(thumbnails[0]?.getAttribute("data-status")).toBe("sent");
+    } finally {
+      restoreCapture();
+    }
+  });
+
+  test("a photo the assistant refuses is struck from the strip", async () => {
+    // The rejection lands after the client already believed it sent, so the
+    // thumbnail has to be retracted rather than never shown.
+    const restoreCapture = stubFrameCapture();
+    stubMediaDevices(async () => fakeStream());
+    seedCameraCapableAssistant();
+    startOwnedSession("listening");
+    render(<VoiceRoom />);
+
+    try {
+      await act(async () => {
+        fireEvent.click(cameraToggle()!);
+      });
+      await act(async () => {
+        fireEvent.click(screen.getByTestId("voice-room-shutter"));
+      });
+      expect(
+        screen
+          .getAllByTestId("voice-room-photo")[0]
+          ?.getAttribute("data-status"),
+      ).toBe("sent");
+
+      await act(async () => {
+        useLiveVoiceStore.getState().notePhotoRejected("unsupported");
+      });
+
+      expect(
+        screen
+          .getAllByTestId("voice-room-photo")[0]
+          ?.getAttribute("data-status"),
+      ).toBe("failed");
+      expect(screen.queryByText(/can't receive photos/)).not.toBeNull();
+    } finally {
+      restoreCapture();
+    }
+  });
+
+  test("the strip keeps only the most recent photos", async () => {
+    const restoreCapture = stubFrameCapture();
+    stubMediaDevices(async () => fakeStream());
+    seedCameraCapableAssistant();
+    startOwnedSession("listening");
+    render(<VoiceRoom />);
+
+    try {
+      await act(async () => {
+        fireEvent.click(cameraToggle()!);
+      });
+      for (let press = 0; press < 5; press += 1) {
+        await act(async () => {
+          fireEvent.click(screen.getByTestId("voice-room-shutter"));
+        });
+      }
+
+      // A receipt, not a gallery: older shots live in the transcript.
+      expect(screen.getAllByTestId("voice-room-photo")).toHaveLength(3);
+    } finally {
+      restoreCapture();
+    }
+  });
+
+  test("a denied camera permission surfaces and leaves the viewfinder closed", async () => {
+    stubMediaDevices(async () => {
+      throw new DOMException("denied", "NotAllowedError");
+    });
+    seedCameraCapableAssistant();
+    startOwnedSession("listening");
+    render(<VoiceRoom />);
+
+    await act(async () => {
+      fireEvent.click(cameraToggle()!);
+    });
+
+    expect(viewfinder()).toBeNull();
+    // The denial is named where the user is looking, rather than leaving a
+    // control that appears to do nothing.
+    expect(screen.queryByText(/Camera access is off/)).not.toBeNull();
   });
 });

@@ -4,6 +4,8 @@ import { createHash } from "node:crypto";
 
 import { listPluginIngressApprovals } from "../db/plugin-ingress-approval-store.js";
 import { getLogger } from "../logger.js";
+import { canonicalInbound } from "./ingress-inbound.js";
+import { canonicalVerification } from "./ingress-verification.js";
 import {
   discoverPluginIngress,
   PluginIngressCache,
@@ -20,32 +22,43 @@ const log = getLogger("plugin-ingress-approvals");
 /**
  * Digest of what a declaration asks for.
  *
- * Covers reach only — each route's transport, signer, handshake scheme, and
- * path, order-independent. A `description` reword leaves the digest alone, so
- * it does not revoke an approval, while adding a route, changing one's
- * transport, changing whose signature opens it, or moving it to a scheme that
- * exposes it differently all do.
+ * Covers reach only — each route's transport, signer, handshake scheme, path,
+ * how it is verified, and whether its replies deliver messages into the
+ * assistant, order-independent. A `description` reword leaves the digest
+ * alone, so it does not revoke an approval, while adding a route, changing
+ * one's transport, changing whose signature opens it, moving it to a scheme
+ * that exposes it differently, changing which secret and which bytes decide a
+ * delivery is authentic, or turning a webhook into a way to start a
+ * conversation all do.
  *
- * A route on the default `signed-headers` scheme is encoded without that
- * field, exactly as it was before the field existed. The alternative is that
- * introducing `handshake` silently re-digests every unchanged manifest, drops
- * each one back to `pending`, and 404s routes a guardian already approved
- * until someone approves them again. Omitting the default is unambiguous
- * because a path may not contain whitespace (see `IngressRouteSchema`), so a
- * three-token line can never be read as a four-token one.
+ * A route on the default `signed-headers` scheme, with no declared
+ * verification and no inbound delivery, is encoded without those fields,
+ * exactly as it was before each existed. The alternative is that introducing a
+ * field silently re-digests every unchanged manifest, drops each one back to
+ * `pending`, and 404s routes a guardian already approved until someone
+ * approves them again. Omitting the defaults is unambiguous because a path may
+ * not contain whitespace (see `IngressRouteSchema`), so a three-token line can
+ * never be read as a four-token one, and the two optional encodings are each
+ * appended behind their own separator — a tab for verification, a form feed
+ * for inbound — neither of which a path may carry and both of which
+ * `JSON.stringify` escapes rather than emits.
  */
 export function ingressDeclarationDigest(
-  routes: readonly Pick<
-    IngressRoute,
-    "kind" | "path" | "signer" | "handshake"
-  >[],
+  routes: readonly IngressRoute[],
 ): string {
   const canonical = routes
-    .map((route) =>
-      route.handshake === "signed-headers"
-        ? `${route.kind} ${route.signer} ${route.path}`
-        : `${route.kind} ${route.signer} ${route.handshake} ${route.path}`,
-    )
+    .map((route) => {
+      const base =
+        route.handshake === "signed-headers"
+          ? `${route.kind} ${route.signer} ${route.path}`
+          : `${route.kind} ${route.signer} ${route.handshake} ${route.path}`;
+      const verified = route.verification
+        ? `${base}\t${canonicalVerification(route.verification)}`
+        : base;
+      return route.inbound
+        ? `${verified}\f${canonicalInbound(route.inbound)}`
+        : verified;
+    })
     .sort()
     .join("\n");
   return createHash("sha256").update(canonical).digest("hex").slice(0, 32);
@@ -163,6 +176,13 @@ function resolveDiscoveredPluginIngress(
  *
  * Declarations that failed validation are in `problems` and are never
  * servable, regardless of signer.
+ *
+ * The requested path matches a declaration exactly, except that one trailing
+ * slash is ignored. Senders add it: a provider handed `.../events-comms` may
+ * store and call `.../events-comms/`, which is the same resource to them.
+ * Ignoring it cannot widen reach, because `IngressRouteSchema` refuses a
+ * declared path ending in a slash, so `<declared>/` has no other declaration
+ * it could have meant.
  */
 export function findServableRoute(
   resolution: PluginIngressResolution,
@@ -170,16 +190,48 @@ export function findServableRoute(
   path: string,
   kind: IngressRouteKind,
 ): IngressRoute | undefined {
+  const match = findDeclaredRoute(resolution, plugin, path, kind);
+  return match?.servable ? match.route : undefined;
+}
+
+/** A declaration matching the request, and whether the gate opens it. */
+export interface DeclaredRouteMatch {
+  route: IngressRoute;
+  /** True where {@link findServableRoute} would return this route. */
+  servable: boolean;
+}
+
+/**
+ * The declared route at `plugin`/`path`, served or not.
+ *
+ * {@link findServableRoute} answers what the gateway may serve. This answers
+ * what was declared, which is a different question and the one a caller who
+ * can prove who they are is entitled to an answer about: a route awaiting
+ * approval exists, and telling its own signer that it is waiting reveals
+ * nothing they were not already told when they were handed the URL.
+ *
+ * Servability is reported rather than enforced, so nothing may act on a match
+ * without deciding what to do with a `servable: false` one.
+ */
+export function findDeclaredRoute(
+  resolution: PluginIngressResolution,
+  plugin: string,
+  path: string,
+  kind: IngressRouteKind,
+): DeclaredRouteMatch | undefined {
+  const requested = path.endsWith("/") ? path.slice(0, -1) : path;
   const matches = (routes: readonly IngressRoute[]) =>
-    routes.find((route) => route.kind === kind && route.path === path);
+    routes.find((route) => route.kind === kind && route.path === requested);
 
   const approved = resolution.approved.find((d) => d.plugin === plugin);
   const fromApproved = approved && matches(approved.routes);
   if (fromApproved) {
-    return fromApproved;
+    return { route: fromApproved, servable: true };
   }
 
   const pending = resolution.pending.find((d) => d.plugin === plugin);
   const fromPending = pending && matches(pending.routes);
-  return fromPending?.signer === "vellum" ? fromPending : undefined;
+  return fromPending
+    ? { route: fromPending, servable: fromPending.signer === "vellum" }
+    : undefined;
 }

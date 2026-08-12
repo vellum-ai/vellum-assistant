@@ -19,6 +19,8 @@ import { routes } from "@/utils/routes";
 import { shareApp } from "@/utils/share-app";
 import { isReadOnlyApp } from "@/types/app-types";
 
+import { useTranslation } from "@/i18n";
+
 interface LoadedApp {
   appId: string;
   dirName?: string;
@@ -29,6 +31,7 @@ interface LoadedApp {
 }
 
 export function LibraryDetailPage() {
+  const { t } = useTranslation("library");
   const { appId } = useParams<{ appId: string }>();
   const assistantId = useActiveAssistantId();
   const navigate = useNavigate();
@@ -88,6 +91,7 @@ export function LibraryDetailPage() {
     onBack: handleClose,
     enabled: isMobile,
     navKey: pathname,
+    prefetchHref: routes.library.root,
   });
 
   const editApp = useEditApp();
@@ -104,15 +108,17 @@ export function LibraryDetailPage() {
     setIsSharing(true);
     try {
       await shareApp(assistantId, app.appId, app.name);
-      toast.success("App exported", { description: `${app.name}.vellum` });
+      toast.success(t("libraryAppCard.exported"), {
+        description: `${app.name}.vellum`,
+      });
     } catch (err) {
-      toast.error("Failed to share app", {
+      toast.error(t("libraryAppCard.shareFailed"), {
         description: err instanceof Error ? err.message : undefined,
       });
     } finally {
       setIsSharing(false);
     }
-  }, [assistantId, app, isSharing]);
+  }, [assistantId, app, isSharing, t]);
 
   const handleDeploy = useCallback(() => {
     if (!app) {
@@ -151,7 +157,7 @@ export function LibraryDetailPage() {
           onClick={handleClose}
           className="text-body-medium-default text-[var(--primary-base)] underline"
         >
-          Back to Library
+          {t("libraryDetailPage.backToLibrary")}
         </button>
       </div>
     );

@@ -1,7 +1,7 @@
 import { ChevronRight } from "lucide-react";
 import { useMemo, useState, type ReactNode } from "react";
 
-import { Dropdown } from "@vellumai/design-library/components/dropdown";
+import { Select } from "@vellumai/design-library/components/select";
 import { Input, Textarea } from "@vellumai/design-library/components/input";
 import { Toggle } from "@vellumai/design-library/components/toggle";
 import { Typography } from "@vellumai/design-library/components/typography";
@@ -14,9 +14,9 @@ import {
   ProfileEditorProviderSection,
 } from "@/domains/settings/ai/profile-editor-provider-section";
 import {
-  endpointPickerValue,
+  entryPickerValue,
   expandEndpointEntries,
-  parseEndpointPickerValue,
+  parseEntryPickerValue,
   providersServedByConnections,
   unconnectedSelectableProviders,
 } from "@/domains/settings/ai/provider-availability";
@@ -28,6 +28,7 @@ import type {
   ProviderConnection,
 } from "@/generated/daemon/types.gen";
 import { useActiveAssistantIsSelfHosted } from "@/hooks/use-platform-gate";
+import { useTranslation } from "@/i18n";
 
 // Sentinel value for the "+ Create new provider" option in the create-mode
 // Provider dropdown. Picking it mounts the inline ProviderCreateForm instead
@@ -120,28 +121,16 @@ export function ProfileEditorFields({
   );
 
   const keyField = (
-    <div className="space-y-1">
-      <label className="block text-body-small-default text-[var(--content-tertiary)]">
-        Key
-      </label>
-      <Input
-        type="text"
-        value={editor.key}
-        onChange={(e) => editor.handleKeyChange(e.target.value)}
-        placeholder="e.g. fast-cheap"
-        disabled={editor.isReadOnly || editor.effectiveMode === "edit"}
-        fullWidth
-      />
-      {editor.keyError && !editor.isReadOnly ? (
-        <Typography
-          variant="body-small-default"
-          as="p"
-          className="text-(--system-negative-strong)"
-        >
-          {editor.keyError}
-        </Typography>
-      ) : null}
-    </div>
+    <Input
+      label="Key"
+      type="text"
+      value={editor.key}
+      onChange={(e) => editor.handleKeyChange(e.target.value)}
+      placeholder="e.g. fast-cheap"
+      disabled={editor.isReadOnly || editor.effectiveMode === "edit"}
+      errorText={editor.isReadOnly ? undefined : editor.keyError}
+      fullWidth
+    />
   );
 
   // An active read-only (managed) profile shows no status toggle (it cannot
@@ -221,6 +210,7 @@ export function ProfileEditorFields({
   // Every provider this assistant can dispatch through, connected ones first,
   // then the rest annotated with what they still need, then the always-present
   // "+ Create new provider" sentinel for custom endpoints.
+  const { t } = useTranslation("settings");
   const createModeProviderOptions = useMemo(() => {
     const opts: { value: string; label: string; suffix?: ReactNode }[] =
       expandEndpointEntries(
@@ -230,6 +220,7 @@ export function ProfileEditorFields({
         ),
         editor.effectiveConnections,
         (p) => PROVIDER_DISPLAY_NAMES[p] ?? p,
+        t("aiProviderPicker.defaultEntryMeta"),
       ).map(({ value, label, meta }) => ({
         value,
         label,
@@ -251,6 +242,7 @@ export function ProfileEditorFields({
     activeAssistantIsSelfHosted,
     editor.effectiveConnections,
     unconnectedProviders,
+    t,
   ]);
 
   const createProviderSection = (
@@ -262,13 +254,21 @@ export function ProfileEditorFields({
         >
           Provider
         </label>
-        <Dropdown
+        <Select
           value={
             editor.creatingProvider
               ? (editor.pendingCreateProvider ?? CREATE_NEW_PROVIDER_SENTINEL)
-              : editor.provider === OPENAI_COMPATIBLE_PROVIDER &&
-                  editor.providerConnection
-                ? endpointPickerValue(editor.providerConnection)
+              : editor.provider &&
+                  editor.providerConnection &&
+                  createModeProviderOptions.some(
+                    (option) =>
+                      option.value ===
+                      entryPickerValue(
+                        editor.provider,
+                        editor.providerConnection,
+                      ),
+                  )
+                ? entryPickerValue(editor.provider, editor.providerConnection)
                 : editor.provider
           }
           onChange={(next) => {
@@ -281,18 +281,20 @@ export function ProfileEditorFields({
             if (!next) {
               return;
             }
-            const endpoint = parseEndpointPickerValue(next);
-            if (endpoint) {
-              // Each endpoint entry implies the openai-compatible provider
-              // plus its binding; switching endpoints re-picks the model.
+            const entry = parseEntryPickerValue(next);
+            if (entry) {
+              // An entry row implies its kind plus the binding. Endpoint
+              // model lists differ per entry, so switching endpoints
+              // re-picks the model; same-kind catalog entries share one
+              // list, so the model survives.
               editor.setCreatingProvider(false);
               editor.setPendingCreateProvider(null);
-              if (editor.provider !== OPENAI_COMPATIBLE_PROVIDER) {
-                editor.handleProviderChange(OPENAI_COMPATIBLE_PROVIDER);
-              } else {
+              if (editor.provider !== entry.provider) {
+                editor.handleProviderChange(entry.provider);
+              } else if (entry.provider === OPENAI_COMPATIBLE_PROVIDER) {
                 editor.setModel("");
               }
-              editor.setProviderConnection(endpoint);
+              editor.setProviderConnection(entry.connectionName);
               return;
             }
             const picked = next as ConnectionProvider;
@@ -307,6 +309,12 @@ export function ProfileEditorFields({
             editor.setCreatingProvider(false);
             editor.setPendingCreateProvider(null);
             editor.handleProviderChange(picked);
+            // Re-picking the current kind's bare row means "the default
+            // entry": the explicit binding must clear, and the provider
+            // change above no-ops so it won't do it.
+            if (picked === editor.provider) {
+              editor.setProviderConnection("");
+            }
           }}
           placeholder="Select a provider…"
           aria-labelledby="profile-editor-provider-label"
@@ -429,6 +437,7 @@ export function ProfileEditorFields({
         isReadOnly={editor.isReadOnly}
         availableConnectionsForProvider={editor.availableConnectionsForProvider}
         connectionNotFound={editor.connectionNotFound}
+        providerError={editor.providerError}
       />
 
       {advancedParamsNode}

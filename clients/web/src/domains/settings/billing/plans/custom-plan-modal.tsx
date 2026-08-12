@@ -20,25 +20,35 @@ import type {
   StorageTier,
   StorageTierEnum,
 } from "@/generated/api/types.gen";
+import { handleNativeAnchorClick } from "@/utils/native-anchor";
 import { Button } from "@vellumai/design-library/components/button";
 import {
-  Dropdown,
-  type DropdownOption,
-} from "@vellumai/design-library/components/dropdown";
+  Select,
+  type SelectOption,
+} from "@vellumai/design-library/components/select";
 import { Modal } from "@vellumai/design-library/components/modal";
 
 import {
+  BASELINE_MACHINE,
+  BASELINE_MACHINE_LABEL,
   type CreditChoice,
   type CustomPlanSeed,
+  type MachineChoice,
   computeCustomPlanDiff,
   NO_CREDITS_LABEL,
   NO_EXTRA_CREDITS,
 } from "./custom-plan-diff";
+import {
+  CREDIT_DOCS_URL,
+  MACHINE_DOCS_URL,
+  STORAGE_DOCS_URL,
+} from "./docs-links";
 
 export type { CustomPlanSeed };
 
 export interface CustomPlanSelection {
-  machineTier: MachineTierEnum;
+  /** `null` is the baseline machine: the absence of a paid tier. */
+  machineTier: MachineTierEnum | null;
   storageTier: StorageTierEnum;
   /** `null` is the explicit "No extra credits" choice. */
   creditTier: CreditTierEnum | null;
@@ -62,8 +72,9 @@ export interface CustomPlanModalProps {
    * plan. Pre-fills every dimension; the seeded default is a no-op, so Continue
    * stays disabled until a dimension changes, and an unrelated edit can't force
    * re-picking — and dropping — a tier the user still holds. A null
-   * `machineTier` (baseline "Small") seeds storage/credit and leaves the machine
-   * picker empty. Leave null/undefined for base checkout, which starts every
+   * `machineTier` is the baseline machine, seeded as a disabled option so the
+   * picker names the machine the sub runs on rather than showing its
+   * placeholder. Leave null/undefined for base checkout, which starts every
    * dimension empty.
    */
   initialSelection?: CustomPlanSeed | null;
@@ -76,6 +87,41 @@ function priceSuffix(cents: number) {
     <span className="text-[12px] font-medium text-[var(--content-disabled)]">
       +{formatMonthly(cents)}
     </span>
+  );
+}
+
+/**
+ * A picker's caption and its docs link. The three links read "Learn more"
+ * alike, so each takes an `aria-label` naming the dimension it explains.
+ * The click routes through the native opener because the iOS WKWebView shell
+ * cannot open a `target="_blank"` anchor on its own; the `href` stays for
+ * web and Electron.
+ */
+function PickerLabel({
+  label,
+  docsUrl,
+  docsLabel,
+}: {
+  label: string;
+  docsUrl: string;
+  docsLabel: string;
+}) {
+  return (
+    <div className="flex items-center justify-between gap-2">
+      <span className="text-[11px] font-medium text-[var(--content-secondary)]">
+        {label}
+      </span>
+      <a
+        href={docsUrl}
+        target="_blank"
+        rel="noopener noreferrer"
+        aria-label={docsLabel}
+        onClick={(e) => handleNativeAnchorClick(e, docsUrl)}
+        className="text-[11px] font-medium text-[var(--content-tertiary)] underline hover:text-[var(--content-default)]"
+      >
+        Learn more
+      </a>
+    </div>
   );
 }
 
@@ -99,10 +145,11 @@ export function CustomPlanModal({
 }: CustomPlanModalProps) {
   // A Pro reconfigure seeds the current tiers so the default is a no-op; base
   // checkout passes none and leaves every dimension empty. A baseline machine
-  // (null) has no tier to seed, so its picker starts empty.
+  // (null) seeds the sentinel, mirroring how a null credit tier seeds
+  // "No extra credits".
   const seed = open ? (initialSelection ?? null) : null;
-  const [machineTier, setMachineTier] = useState<MachineTierEnum | "">(
-    () => seed?.machineTier ?? "",
+  const [machineTier, setMachineTier] = useState<MachineChoice | "">(() =>
+    seed ? (seed.machineTier ?? BASELINE_MACHINE) : "",
   );
   const [storageTier, setStorageTier] = useState<StorageTierEnum | "">(
     () => seed?.storageTier ?? "",
@@ -120,7 +167,7 @@ export function CustomPlanModal({
     seededFrom.initialSelection !== initialSelection
   ) {
     setSeededFrom({ open, initialSelection });
-    setMachineTier(seed?.machineTier ?? "");
+    setMachineTier(seed ? (seed.machineTier ?? BASELINE_MACHINE) : "");
     setStorageTier(seed?.storageTier ?? "");
     setCreditChoice(seed ? (seed.creditTier ?? NO_EXTRA_CREDITS) : "");
   }
@@ -152,16 +199,29 @@ export function CustomPlanModal({
     (t.legacy && t.tier !== initialSelection?.storageTier) ||
     (currentStorageGib != null && t.storage_gib < currentStorageGib);
 
-  const machineOptions: DropdownOption<MachineTierEnum>[] = machineTiers.map(
-    (t) => ({
-      value: t.tier as MachineTierEnum,
+  // The baseline is not a tier the catalog offers, so it is listed only for the
+  // sub already on it: present so the picker can state what they run on, and
+  // disabled because moving back down to it is not a change this modal makes.
+  // It carries no price suffix, since it adds nothing to the total.
+  const seededBaselineMachine =
+    initialSelection != null && initialSelection.machineTier == null;
+  const baselineMachineOption: SelectOption<MachineChoice> = {
+    value: BASELINE_MACHINE,
+    label: BASELINE_MACHINE_LABEL,
+    icon: <Computer className="h-4 w-4" aria-hidden />,
+    disabled: true,
+  };
+  const machineOptions: SelectOption<MachineChoice>[] = [
+    ...(seededBaselineMachine ? [baselineMachineOption] : []),
+    ...machineTiers.map((t) => ({
+      value: t.tier as MachineChoice,
       label: t.description,
       icon: <Computer className="h-4 w-4" aria-hidden />,
       suffix: priceSuffix(t.price_cents),
       disabled: isTierDisabled(t),
-    }),
-  );
-  const storageOptions: DropdownOption<StorageTierEnum>[] =
+    })),
+  ];
+  const storageOptions: SelectOption<StorageTierEnum>[] =
     offerableStorageTiers.map((t) => ({
       value: t.tier as StorageTierEnum,
       label: t.label,
@@ -179,7 +239,7 @@ export function CustomPlanModal({
   // current selection it's appended disabled so the dropdown still shows it.
   const heldLegacyCredit = selectedCredit?.legacy ? selectedCredit : null;
 
-  const creditOptions: DropdownOption<CreditChoice>[] = [
+  const creditOptions: SelectOption<CreditChoice>[] = [
     {
       value: NO_EXTRA_CREDITS,
       label: NO_CREDITS_LABEL,
@@ -204,8 +264,23 @@ export function CustomPlanModal({
       : []),
   ];
 
-  const selectedMachine =
-    machineTiers.find((t) => t.tier === machineTier) ?? null;
+  const machineIsBaseline = machineTier === BASELINE_MACHINE;
+  const selectedMachine = machineIsBaseline
+    ? null
+    : (machineTiers.find((t) => t.tier === machineTier) ?? null);
+  // The submittable machine, as the tier the API takes: `null` IS the baseline,
+  // so the choice is wrapped rather than reported as a bare tier. The baseline
+  // passes through only for the sub it was seeded from, matching the storage
+  // and credit guards below. The dropdown renders it disabled for anyone else,
+  // and a disabled choice must not be submittable.
+  const submittableMachine: { tier: MachineTierEnum | null } | null =
+    machineIsBaseline
+      ? seededBaselineMachine
+        ? { tier: null }
+        : null
+      : selectedMachine != null
+        ? { tier: selectedMachine.tier as MachineTierEnum }
+        : null;
 
   // A tier the dropdown renders disabled would be rejected server-side, and a
   // plans refetch can disable the standing selection mid-modal. The seeded
@@ -226,7 +301,7 @@ export function CustomPlanModal({
     creditChoice !== "" && creditIsSubmittable ? creditChoice : null;
 
   const complete =
-    selectedMachine != null &&
+    submittableMachine != null &&
     submittableStorage != null &&
     submittableCredit != null;
 
@@ -238,7 +313,7 @@ export function CustomPlanModal({
   // as changed once the user picks a live replacement.
   const matchesSeed =
     initialSelection != null &&
-    machineTier === (initialSelection.machineTier ?? "") &&
+    machineTier === (initialSelection.machineTier ?? BASELINE_MACHINE) &&
     storageTier === initialSelection.storageTier &&
     creditChoice === (initialSelection.creditTier ?? NO_EXTRA_CREDITS);
 
@@ -259,7 +334,7 @@ export function CustomPlanModal({
       return;
     }
     onContinue({
-      machineTier: selectedMachine.tier as MachineTierEnum,
+      machineTier: submittableMachine.tier,
       storageTier: submittableStorage.tier as StorageTierEnum,
       creditTier:
         submittableCredit === NO_EXTRA_CREDITS ? null : submittableCredit,
@@ -306,10 +381,12 @@ export function CustomPlanModal({
               </div>
 
               <div className="flex flex-col gap-1">
-                <span className="text-[11px] font-medium text-[var(--content-secondary)]">
-                  Select a machine size:
-                </span>
-                <Dropdown<MachineTierEnum>
+                <PickerLabel
+                  label="Select a machine size:"
+                  docsUrl={MACHINE_DOCS_URL}
+                  docsLabel="Learn more about machine sizes"
+                />
+                <Select<MachineChoice>
                   aria-label="Machine size"
                   placeholder="Select a machine size"
                   value={machineTier}
@@ -319,10 +396,12 @@ export function CustomPlanModal({
               </div>
 
               <div className="flex flex-col gap-1">
-                <span className="text-[11px] font-medium text-[var(--content-secondary)]">
-                  Select storage:
-                </span>
-                <Dropdown<StorageTierEnum>
+                <PickerLabel
+                  label="Select storage:"
+                  docsUrl={STORAGE_DOCS_URL}
+                  docsLabel="Learn more about storage"
+                />
+                <Select<StorageTierEnum>
                   aria-label="Storage"
                   placeholder="Select storage"
                   value={storageTier}
@@ -332,10 +411,12 @@ export function CustomPlanModal({
               </div>
 
               <div className="flex flex-col gap-1">
-                <span className="text-[11px] font-medium text-[var(--content-secondary)]">
-                  Bundle some credits:
-                </span>
-                <Dropdown<CreditChoice>
+                <PickerLabel
+                  label="Bundle some credits:"
+                  docsUrl={CREDIT_DOCS_URL}
+                  docsLabel="Learn more about credit bundles"
+                />
+                <Select<CreditChoice>
                   aria-label="Credit bundle"
                   placeholder="Select a credit bundle"
                   value={creditChoice}
@@ -366,7 +447,7 @@ export function CustomPlanModal({
                       </span>
                     )}
                   <span className="text-[11px] font-medium text-[var(--content-tertiary)]">
-                    Total
+                    Total · Billed monthly
                   </span>
                 </div>
 

@@ -20,10 +20,11 @@ import { usePairDevice } from "./use-pair-device";
  *
  * Rendered only in desktop/local mode against an on-machine gateway (the gate
  * lives in {@link resolvePairDeviceTarget}) whose assistant version serves the
- * pairing routes ({@link useSupportsRemoteWebPairing}); a remote or platform
- * session, or an older assistant, sees nothing. Generating also requires the
- * `web-remote-ingress` flag — checked before minting, like the CLI, so a
- * rendered QR always represents a scannable pairing.
+ * pairing routes ({@link useSupportsRemoteWebPairing}) and whose
+ * `web-remote-ingress` flag is on, so a code minted here can always connect.
+ * The flag is read only once the store has hydrated, since before that it
+ * reports the registry default rather than this assistant's value: the card
+ * appears a beat late rather than appearing and then vanishing.
  */
 export function PairDeviceCard() {
   const target = resolvePairDeviceTarget();
@@ -36,9 +37,11 @@ export function PairDeviceCard() {
     webRemoteIngressOn,
     target?.ingressUrl ?? null,
   );
-  const { copy, copied } = useCopyToClipboard();
+  const { copy, copied } = useCopyToClipboard({
+    errorMessage: "Could not copy the pairing address.",
+  });
 
-  if (!target || !supported) {
+  if (!target || !supported || !flagsHydrated || !webRemoteIngressOn) {
     return null;
   }
 
@@ -50,25 +53,11 @@ export function PairDeviceCard() {
   // empty. Advanced users can still type an address into the field below.
   const showNoTunnelGuidance =
     pair.prefillSource === "none" && pair.publicBaseUrl.trim() === "";
-  // Until the feature-flag store hydrates, webRemoteIngressOn is the registry
-  // default (false), not this assistant's real value, so the mint precheck
-  // can't be trusted until hasHydrated is true.
-  const buttonLabel = !flagsHydrated
-    ? "Loading…"
-    : isMinting
-      ? "Generating…"
-      : isReady
-        ? "Generate new code"
-        : "Generate pairing QR";
-
-  // Both the button and the Enter key mint through here, so the flag precheck
-  // is never evaluated against the pre-hydration default.
-  const handleGenerate = () => {
-    if (!flagsHydrated) {
-      return;
-    }
-    pair.generate();
-  };
+  const buttonLabel = isMinting
+    ? "Generating…"
+    : isReady
+      ? "Generate new code"
+      : "Generate pairing QR";
 
   return (
     <DetailCard
@@ -102,17 +91,15 @@ export function PairDeviceCard() {
             onKeyDown={(event) => {
               if (event.key === "Enter") {
                 event.preventDefault();
-                handleGenerate();
+                pair.generate();
               }
             }}
           />
           <Button
             variant="primary"
             className="self-start"
-            disabled={
-              !flagsHydrated || isMinting || pair.publicBaseUrl.trim() === ""
-            }
-            onClick={handleGenerate}
+            disabled={isMinting || pair.publicBaseUrl.trim() === ""}
+            onClick={pair.generate}
           >
             {buttonLabel}
           </Button>

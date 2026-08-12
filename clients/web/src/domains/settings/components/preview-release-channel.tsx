@@ -25,7 +25,7 @@ import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
 import { extractErrorMessage } from "@/utils/api-errors";
 import { Button } from "@vellumai/design-library/components/button";
 import { Collapsible } from "@vellumai/design-library/components/collapsible";
-import { Dropdown } from "@vellumai/design-library/components/dropdown";
+import { Select } from "@vellumai/design-library/components/select";
 import { Modal } from "@vellumai/design-library/components/modal";
 import { Notice } from "@vellumai/design-library/components/notice";
 import { Radio, RadioGroup } from "@vellumai/design-library/components/radio";
@@ -411,8 +411,8 @@ function OptInModal({
   return (
     <Modal.Root open={open} onOpenChange={(next) => !next && onCancel()}>
       <Modal.Content size="md" hideCloseButton={isPending}>
-        <Modal.Header>
-          <Modal.Title icon={AlertTriangle}>Opt in to Preview</Modal.Title>
+        <Modal.Header icon={AlertTriangle}>
+          <Modal.Title>Opt in to Preview</Modal.Title>
           <Modal.Description>
             Preview releases may be unstable. A 90-day safety backup is taken
             before the image changes.
@@ -483,8 +483,8 @@ function OptOutModal({
   return (
     <Modal.Root open={open} onOpenChange={(next) => !next && onCancel()}>
       <Modal.Content size="md" hideCloseButton={isPending}>
-        <Modal.Header>
-          <Modal.Title icon={AlertTriangle}>Switch back to Stable</Modal.Title>
+        <Modal.Header icon={AlertTriangle}>
+          <Modal.Title>Switch back to Stable</Modal.Title>
           <Modal.Description>
             Choose how this assistant should leave the Preview channel.
           </Modal.Description>
@@ -518,7 +518,7 @@ function OptOutModal({
             {mode === "restore_backup" && backups.length > 0 && (
               <label className="flex flex-col gap-1 text-body-medium-default text-[var(--content-secondary)]">
                 Safety backup
-                <Dropdown
+                <Select
                   value={selectedSnapshotName}
                   onChange={onSnapshotChange}
                   disabled={isPending}

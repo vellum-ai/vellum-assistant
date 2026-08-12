@@ -1,5 +1,8 @@
 import { useInteractionStore } from "@/domains/chat/interaction-store";
-import { ACP_CLAUDE_OAUTH_MISSING_CODE } from "@/domains/chat/utils/acp-connect";
+import {
+  ACP_CLAUDE_AUTH_REQUIRED_CODE,
+  ACP_CLAUDE_OAUTH_MISSING_CODE,
+} from "@/domains/chat/utils/acp-connect";
 import type { StreamHandlerContext } from "@/domains/chat/utils/stream-handlers/types";
 import type {
   ToolResultEvent,
@@ -72,9 +75,18 @@ export function handleToolResult(
   // it in the interaction store (not on the reseed-able tool-call `errorCode`
   // field the reducer folds) is what keeps the affordance from vanishing when
   // the routine post-turn resync reseeds the transcript from persisted history.
-  if (event.errorCode === ACP_CLAUDE_OAUTH_MISSING_CODE && event.toolUseId) {
-    useInteractionStore
-      .getState()
-      .showAcpConnect({ toolUseId: event.toolUseId });
+  if (event.toolUseId) {
+    if (event.errorCode === ACP_CLAUDE_OAUTH_MISSING_CODE) {
+      useInteractionStore
+        .getState()
+        .showAcpConnect({ toolUseId: event.toolUseId });
+    } else if (event.errorCode === ACP_CLAUDE_AUTH_REQUIRED_CODE) {
+      // Pre-spawn rejection of a STORED credential: same card, but marked so
+      // it cannot self-dismiss on a token-presence check.
+      useInteractionStore.getState().showAcpConnect({
+        toolUseId: event.toolUseId,
+        reason: "auth_required",
+      });
+    }
   }
 }

@@ -48,6 +48,7 @@ import type {
   SttCallContextHints,
   SttStreamServerEvent,
 } from "../stt/types.js";
+import { baseLanguageSubtag } from "../util/language-subtag.js";
 import { getLogger } from "../util/logger.js";
 import {
   mulawToLinear,
@@ -220,6 +221,20 @@ export class MediaStreamSttSession {
   /** Speech-bearing audio milliseconds since the last streaming final. */
   private utteranceAudioMs = 0;
 
+  /**
+   * The dominant detected-language base subtag of the latest committed
+   * streaming final that carried language tags. Overwritten per
+   * utterance, matching live voice's per-utterance resolution, so a
+   * caller who switches languages retargets synthesis on their next
+   * utterance instead of having to outvote the session's history. Only
+   * finals that carry transcript text update it: silence finals can
+   * carry container-level tags describing no emitted words. Untagged
+   * finals keep the previous value; batch transcription reports no
+   * language tags, so it stays unset there and any streaming-detected
+   * value is cleared when the session settles on batch mode.
+   */
+  private latestUtteranceLanguage: string | undefined;
+
   constructor(
     config: MediaStreamSttSessionConfig = {},
     callbacks: MediaStreamSttSessionCallbacks = {},
@@ -302,6 +317,15 @@ export class MediaStreamSttSession {
   /** Frames dropped from the bounded streaming startup buffer. */
   get streamingStartupFramesDropped(): number {
     return this.startupFramesDroppedCount;
+  }
+
+  /**
+   * The caller's detected language as of the latest tagged streaming
+   * final, as a lowercase base subtag. Undefined until a tagged final
+   * commits (batch mode, non-tagging providers, silence).
+   */
+  currentLanguage(): string | undefined {
+    return this.latestUtteranceLanguage;
   }
 
   // ── Event handlers ─────────────────────────────────────────────────
@@ -477,6 +501,10 @@ export class MediaStreamSttSession {
    */
   private enterBatchMode(): void {
     this.mode = "batch";
+    // Batch transcripts carry no language metadata, so a language detected
+    // while streaming would otherwise hint synthesis for the rest of the
+    // call. Clear it so the configured pin (or no hint) takes over.
+    this.latestUtteranceLanguage = undefined;
     this.startupFrames = [];
     this.capabilityPromise ??= resolveTelephonySttCapability();
 
@@ -510,11 +538,28 @@ export class MediaStreamSttSession {
     switch (event.type) {
       case "partial":
         return;
+      case "finalized":
+        return;
+      case "turn-start":
+      case "eager-turn-end":
+      case "turn-resumed":
+      case "turn-end":
+        // The local VAD and the provider's boundary finals own turn
+        // taking. Listed case-by-case rather than under `default` so the
+        // exhaustiveness check flags this site when turn detection is
+        // wired in.
+        return;
       case "final": {
         const durationMs = Math.round(this.utteranceAudioMs);
         this.utteranceAudioMs = 0;
         const text = event.text.trim();
         if (text.length > 0) {
+          // `languages` is dominance-ranked, so the first entry is the
+          // utterance's dominant tag.
+          const dominant = baseLanguageSubtag(event.languages?.[0]);
+          if (dominant !== undefined) {
+            this.latestUtteranceLanguage = dominant;
+          }
           this.callbacks.onTranscriptFinal?.(text, durationMs);
         }
         return;
@@ -536,6 +581,10 @@ export class MediaStreamSttSession {
           this.enterBatchMode();
         }
         return;
+      default: {
+        const _exhaustive: never = event;
+        return;
+      }
     }
   }
 

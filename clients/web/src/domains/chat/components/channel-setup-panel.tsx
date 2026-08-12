@@ -5,6 +5,7 @@ import { useMemo, useState } from "react";
 import { Button, Input, Typography } from "@vellumai/design-library";
 
 import { SlackSetupWizard } from "@/components/slack-setup-wizard";
+import { TelegramSetupWizard } from "@/components/telegram-setup-wizard";
 import { DetailShell } from "@/components/detail-shell";
 import { channelsReadinessGetOptions } from "@/generated/daemon/@tanstack/react-query.gen";
 import { useSaveSlackConfig } from "@/hooks/use-save-slack-config";
@@ -50,8 +51,13 @@ export function ChannelSetupPanel({
     assistantId: payload.assistantId,
     onSuccess: onClose,
   });
+  // Closing on success is what hands off to the assistant: the drawer closing
+  // is what emits the wizard-closed notification the telegram-setup skill
+  // waits on. Slack already does this; leaving Telegram open made its handoff
+  // depend on the user knowing to close the panel themselves.
   const saveTelegram = useSaveTelegramConfig({
     assistantId: payload.assistantId,
+    onSuccess: onClose,
   });
   const saveTwilio = useSaveTwilioCredentials({
     assistantId: payload.assistantId,
@@ -122,9 +128,10 @@ export function ChannelSetupPanel({
           saveError={saveSlack.error?.message ?? null}
         />
       ) : payload.channel === "telegram" ? (
-        <TelegramCredentialForm
-          status={saveTelegram.status}
-          error={saveTelegram.error?.message ?? null}
+        <TelegramSetupWizard
+          assistantName={payload.assistantName}
+          saveStatus={saveTelegram.status}
+          saveError={saveTelegram.error?.message ?? null}
           onSave={(botToken) => saveTelegram.mutate(botToken)}
         />
       ) : payload.channel === "phone" ? (
@@ -137,78 +144,6 @@ export function ChannelSetupPanel({
         />
       ) : null}
     </DetailShell>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Telegram credential form
-// ---------------------------------------------------------------------------
-
-interface TelegramCredentialFormProps {
-  status: "idle" | "pending" | "success" | "error";
-  error: string | null;
-  onSave: (botToken: string) => void;
-}
-
-function TelegramCredentialForm({
-  status,
-  error,
-  onSave,
-}: TelegramCredentialFormProps) {
-  const [botToken, setBotToken] = useState("");
-
-  return (
-    <div className="flex flex-col gap-4 px-4 py-3">
-      <Typography
-        variant="body-small-default"
-        className="text-[color:var(--content-secondary)]"
-      >
-        Enter the bot token from{" "}
-        <a
-          href="https://t.me/BotFather"
-          target="_blank"
-          rel="noopener noreferrer"
-          className="text-[color:var(--content-link)] hover:underline"
-        >
-          @BotFather
-        </a>
-        . After saving, return to the chat — your assistant will finish
-        configuring the webhook and bot commands.
-      </Typography>
-      <Input
-        label="Bot Token"
-        type="password"
-        value={botToken}
-        onChange={(e) => setBotToken(e.target.value)}
-        placeholder="123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11"
-        disabled={status === "pending"}
-        fullWidth
-      />
-      {status === "error" && error ? (
-        <Typography
-          variant="body-small-default"
-          className="text-[color:var(--system-negative-strong)]"
-        >
-          {error}
-        </Typography>
-      ) : null}
-      {status === "success" ? (
-        <Typography
-          variant="body-small-default"
-          className="text-[color:var(--content-positive)]"
-        >
-          Credentials saved. Return to the chat to finish setup.
-        </Typography>
-      ) : null}
-      <div>
-        <Button
-          onClick={() => onSave(botToken)}
-          disabled={!botToken.trim() || status === "pending"}
-        >
-          {status === "pending" ? "Saving…" : "Save"}
-        </Button>
-      </div>
-    </div>
   );
 }
 

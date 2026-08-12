@@ -1,3 +1,5 @@
+import { type ClientOs, parseClientOs } from "../channels/types.js";
+
 const LIVE_VOICE_CLIENT_FRAME_TYPES = [
   "start",
   "audio",
@@ -5,6 +7,7 @@ const LIVE_VOICE_CLIENT_FRAME_TYPES = [
   "interrupt",
   "end",
   "update_config",
+  "attach_image",
 ] as const;
 
 type LiveVoiceClientFrameType = (typeof LIVE_VOICE_CLIENT_FRAME_TYPES)[number];
@@ -98,6 +101,21 @@ export interface LiveVoiceClientStartFrame {
    * [{@link MIN_BARGE_IN_MIN_SPEECH_MS}, {@link MAX_BARGE_IN_MIN_SPEECH_MS}].
    */
   readonly bargeInMinSpeechMs?: number;
+  /**
+   * Which client opened the session. Absent from clients that predate the
+   * field, in which case the originating client is simply unknown.
+   *
+   * A {@link ClientOs}, not an `InterfaceId`, and deliberately so: the iOS and
+   * macOS apps run the same web bundle over the same transport, so the thing
+   * that actually differs between them is the OS surface. `ClientOs` is also
+   * the vocabulary that is barred by contract from answering transport
+   * questions (see `channels/types.ts`), which is the invariant wanted here:
+   * this value is **analytics only**. It rides the voice turn's telemetry
+   * `client` bag (see `voice-session-bridge.ts`) and never reaches
+   * `userMessageInterface`, which feeds `resolveChannelCapabilities` and is
+   * load-bearing for what a voice turn may do.
+   */
+  readonly client?: ClientOs;
 }
 
 /**
@@ -141,13 +159,35 @@ export interface LiveVoiceClientUpdateConfigFrame {
   readonly bargeInMinSpeechMs?: number;
 }
 
+/**
+ * A photo the user took mid-call, already uploaded over the normal attachment
+ * route (`POST /v1/assistants/{id}/attachments`). Only the resulting id
+ * travels here.
+ *
+ * The bytes deliberately do not: the upload endpoint already normalizes HEIF,
+ * caps size, and stores the blob, and routing an image through this socket
+ * would duplicate all of it on a transport tuned for 50 ms audio frames.
+ *
+ * The id is *parked*, not dispatched. It rides the next turn's own user
+ * message (see {@link LiveVoiceSession}'s pending-attachment handling), so the
+ * photo and the words spoken about it are one message rather than two, which
+ * is what lets "what's this?" resolve, and what keeps the image attached to the
+ * newest user message, the only one a context-overflow retry preserves media on
+ * (`conversation-media-retry.ts`).
+ */
+export interface LiveVoiceClientAttachImageFrame {
+  readonly type: "attach_image";
+  readonly attachmentId: string;
+}
+
 export type LiveVoiceClientFrame =
   | LiveVoiceClientStartFrame
   | LiveVoiceClientAudioFrame
   | LiveVoiceClientPttReleaseFrame
   | LiveVoiceClientInterruptFrame
   | LiveVoiceClientEndFrame
-  | LiveVoiceClientUpdateConfigFrame;
+  | LiveVoiceClientUpdateConfigFrame
+  | LiveVoiceClientAttachImageFrame;
 
 interface LiveVoiceBinaryAudioFrame {
   readonly type: "binary_audio";
@@ -302,13 +342,33 @@ export interface LiveVoiceMetricsServerFrame extends LiveVoiceServerFrameBase {
   readonly roundTripMs: number | null;
   readonly totalMs: number | null;
   /**
+   * End-of-turn latency: the local VAD speech-stop mark to the moment the
+   * turn committed. Recorded on every committed turn, and measured from the
+   * same anchor whichever decider owned the boundary, so front-door and Flux
+   * turns are one comparable population. Absent on a turn that never
+   * committed and in push-to-talk mode, where there is no local VAD
+   * speech-stop mark.
+   */
+  readonly endpointCommitLatencyMs?: number;
+  /**
    * Semantic-endpointing "hold" decisions taken during the turn. Present only
    * when the endpoint decider was consulted (otherwise the field is absent,
    * keeping frames unchanged).
    */
   readonly endpointHoldCount?: number;
-  /** Worst endpoint-decision latency observed during the turn. */
+  /**
+   * Worst endpoint-decision latency observed during the turn. It spans only
+   * the decider's own work, and the two deciders start it at different
+   * moments, so it is a diagnostic rather than a cross-path comparison: read
+   * `endpointCommitLatencyMs` for that.
+   */
   readonly endpointDecisionMaxLatencyMs?: number;
+  /**
+   * Which path decided the turn's endpoint: the front-door hold verdict or
+   * the STT provider's model-integrated end-of-turn. Present under the same
+   * condition as the two fields above.
+   */
+  readonly endpointDecisionSource?: "front-door" | "provider";
   /** Which floor-holding ack actually spoke during the turn, if any. */
   readonly ackSpoken?: "first_delta" | "tool_use";
   /**
@@ -337,6 +397,19 @@ export interface LiveVoiceErrorServerFrame extends LiveVoiceServerFrameBase {
   readonly type: "error";
   readonly code: LiveVoiceProtocolErrorCode;
   readonly message: string;
+  /**
+   * The client frame this error is about, when the failure was a parse or
+   * validation failure of a specific frame. Absent otherwise, and absent from
+   * daemons predating the field.
+   *
+   * It exists so an `unknown_type` is attributable. A client that sends more
+   * than one optional frame (today: `update_config` and `attach_image`) gets
+   * the same code for either, and without this has to assume which one was
+   * refused. The wrong assumption is silent in both directions: settings stop
+   * applying for a session, or a photo the user watched themselves take is
+   * dropped with nothing said.
+   */
+  readonly frameType?: string;
   /**
    * True when the session continues past the error (e.g. a transient
    * transcriber blip or one failed TTS segment). Absent (including on frames
@@ -469,7 +542,36 @@ export function validateLiveVoiceClientFrame(
       return { ok: true, frame: { type: "end" } };
     case "update_config":
       return validateUpdateConfigFrame(value);
+    case "attach_image":
+      return validateAttachImageFrame(value);
   }
+}
+
+function validateAttachImageFrame(
+  value: Record<string, unknown>,
+): LiveVoiceParseResult<LiveVoiceClientAttachImageFrame> {
+  if (!("attachmentId" in value)) {
+    return protocolError(
+      "missing_required_field",
+      "attach_image frame is missing required field attachmentId",
+      "attachmentId",
+      "attach_image",
+    );
+  }
+
+  if (!isNonEmptyString(value.attachmentId)) {
+    return protocolError(
+      "invalid_field",
+      "attach_image frame field attachmentId must be a non-empty string",
+      "attachmentId",
+      "attach_image",
+    );
+  }
+
+  return {
+    ok: true,
+    frame: { type: "attach_image", attachmentId: value.attachmentId },
+  };
 }
 
 function validateUpdateConfigFrame(
@@ -642,6 +744,11 @@ function validateStartFrame(
     );
   }
 
+  // An unrecognized client is dropped rather than rejected: the field is an
+  // analytics dimension, and failing a session's startup over it would trade a
+  // gap in a chart for a user who cannot talk to their assistant.
+  const client = parseClientOs(value.client);
+
   return {
     ok: true,
     frame: {
@@ -649,6 +756,7 @@ function validateStartFrame(
       ...(typeof value.conversationId === "string"
         ? { conversationId: value.conversationId }
         : {}),
+      ...(client ? { client } : {}),
       audio: audioConfig.frame,
       ...(isLiveVoiceTurnDetectionMode(value.turnDetection)
         ? { turnDetection: value.turnDetection }

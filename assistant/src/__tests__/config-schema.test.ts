@@ -398,11 +398,19 @@ describe("AssistantConfigSchema", () => {
     }
   });
 
-  test("rejects invalid provider", () => {
+  test("parses an unknown provider (read tolerance for entry names)", () => {
+    // The provider schema is an open string: a stored value outside the
+    // known set parses instead of stripping its profile, and dispatch
+    // resolves it as a connection entry name (or fails explainably).
+    // Write-time membership is enforced at the profiles route and the
+    // config-write choke point.
     const result = AssistantConfigSchema.safeParse({
-      llm: { profiles: { custom: { provider: "invalid" } } },
+      llm: { profiles: { custom: { provider: "anthropic-work" } } },
     });
-    expect(result.success).toBe(false);
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.llm.profiles.custom?.provider).toBe("anthropic-work");
+    }
   });
 
   test("accepts the vellum and chatgpt routing identities with a routable model", () => {
@@ -888,7 +896,6 @@ describe("AssistantConfigSchema", () => {
         denyCategories: [],
       },
       voice: {
-        language: "en-US",
         interruptSensitivity: "low",
         telephonyStreaming: true,
         utteranceEndMs: 1000,
@@ -933,13 +940,14 @@ describe("AssistantConfigSchema", () => {
         silenceThresholdMs: 1200,
         maxTurnDurationMs: 30000,
         bargeInMinSpeechMs: 250,
+        echoBargeInMargin: 1.5,
+        echoEmaHalfLifeMs: 400,
+        echoDrainSlackMs: 300,
       },
       frontModel: {
         endpointDecisionTimeoutMs: 1200,
         endpointExtensionMs: 1500,
         endpointMaxExtensions: 2,
-        ackFirstDeltaTimeoutMs: 2500,
-        ackGenerationTimeoutMs: 600,
         progress: {
           enabled: true,
           opsThreshold: 3,
@@ -949,6 +957,12 @@ describe("AssistantConfigSchema", () => {
           minGapMs: 6000,
           generationTimeoutMs: 1500,
         },
+      },
+      flux: {
+        turnEnd: { enabled: false },
+        model: "flux-general-en",
+        eotThreshold: 0.7,
+        eotTimeoutMs: 5000,
       },
       maxSessionDurationSeconds: 1800,
       archiveAudio: false,
@@ -974,6 +988,8 @@ describe("AssistantConfigSchema", () => {
     // Unspecified vad fields still get defaults
     expect(result.liveVoice.vad.maxTurnDurationMs).toBe(30000);
     expect(result.liveVoice.maxSessionDurationSeconds).toBe(900);
+    // A partial liveVoice override leaves Flux turn-end disabled by default.
+    expect(result.liveVoice.flux.turnEnd.enabled).toBe(false);
   });
 
   test("accepts a liveVoice.vad.bargeInMinSpeechMs of 0 (guard disabled)", () => {
@@ -1071,7 +1087,6 @@ describe("AssistantConfigSchema", () => {
 
   test("config without calls.voice parses correctly and produces defaults", () => {
     const result = AssistantConfigSchema.parse({});
-    expect(result.calls.voice.language).toBe("en-US");
     expect(result.calls.voice.interruptSensitivity).toBe("low");
     expect(result.calls.voice.telephonyStreaming).toBe(true);
     expect(result.calls.voice.utteranceEndMs).toBe(1000);
@@ -1081,15 +1096,24 @@ describe("AssistantConfigSchema", () => {
     const result = AssistantConfigSchema.parse({
       calls: {
         voice: {
-          language: "es-ES",
           telephonyStreaming: false,
           utteranceEndMs: 2500,
         },
       },
     });
-    expect(result.calls.voice.language).toBe("es-ES");
     expect(result.calls.voice.telephonyStreaming).toBe(false);
     expect(result.calls.voice.utteranceEndMs).toBe(2500);
+  });
+
+  test("language is no longer part of the voice config schema", () => {
+    // The retired knob was read by nothing; Zod strips the unrecognized key
+    // so persisted configs that still carry it keep parsing.
+    const result = AssistantConfigSchema.parse({
+      calls: { voice: { language: "es-ES" } },
+    });
+    expect(
+      (result.calls.voice as Record<string, unknown>).language,
+    ).toBeUndefined();
   });
 
   test("rejects calls.voice.utteranceEndMs outside the 1000-5000 range", () => {
@@ -1407,6 +1431,131 @@ describe("AssistantConfigSchema", () => {
     });
     expect(result.services.tts.providers.deepgram.model).toBe("aura-luna-en");
     expect(result.services.tts.providers.deepgram.format).toBe("opus");
+  });
+
+  test("accepts services.tts.providers languageVoices maps", () => {
+    const result = AssistantConfigSchema.parse({
+      services: {
+        tts: {
+          providers: {
+            elevenlabs: {
+              languageVoices: { hi: "voice-hindi", ja: "voice-japanese" },
+            },
+            deepgram: { languageVoices: { hi: "aura-2-hi-voice" } },
+            vellum: { languageVoices: { hi: "aura-2-hi-voice" } },
+          },
+        },
+      },
+    });
+    expect(result.services.tts.providers.elevenlabs.languageVoices).toEqual({
+      hi: "voice-hindi",
+      ja: "voice-japanese",
+    });
+    expect(result.services.tts.providers.deepgram.languageVoices).toEqual({
+      hi: "aura-2-hi-voice",
+    });
+    expect(result.services.tts.providers.vellum.languageVoices).toEqual({
+      hi: "aura-2-hi-voice",
+    });
+  });
+
+  test("normalizes user-entered languageVoices keys to lowercase base subtags", () => {
+    // "hi-IN" or "HI" typed into config must still match a spoken "hi"
+    // instead of silently never applying; the schema normalizes on parse.
+    const result = AssistantConfigSchema.parse({
+      services: {
+        tts: {
+          providers: {
+            elevenlabs: {
+              languageVoices: {
+                "hi-IN": "voice-hindi",
+                JA: "voice-japanese",
+                es_419: "voice-spanish",
+                " PT ": "voice-portuguese",
+              },
+            },
+          },
+        },
+      },
+    });
+    expect(result.services.tts.providers.elevenlabs.languageVoices).toEqual({
+      hi: "voice-hindi",
+      ja: "voice-japanese",
+      es: "voice-spanish",
+      pt: "voice-portuguese",
+    });
+  });
+
+  test("keeps the first entry when languageVoices keys collide after normalization", () => {
+    const result = AssistantConfigSchema.parse({
+      services: {
+        tts: {
+          providers: {
+            deepgram: {
+              languageVoices: { "hi-IN": "voice-first", hi: "voice-second" },
+            },
+          },
+        },
+      },
+    });
+    expect(result.services.tts.providers.deepgram.languageVoices).toEqual({
+      hi: "voice-first",
+    });
+  });
+
+  test("drops languageVoices keys that normalize to the empty string", () => {
+    const result = AssistantConfigSchema.parse({
+      services: {
+        tts: {
+          providers: {
+            vellum: {
+              languageVoices: {
+                "": "voice-empty",
+                "  ": "voice-blank",
+                "-IN": "voice-region-only",
+                hi: "voice-hindi",
+              },
+            },
+          },
+        },
+      },
+    });
+    expect(result.services.tts.providers.vellum.languageVoices).toEqual({
+      hi: "voice-hindi",
+    });
+  });
+
+  test("languageVoices defaults to unset", () => {
+    const result = AssistantConfigSchema.parse({});
+    expect(
+      result.services.tts.providers.elevenlabs.languageVoices,
+    ).toBeUndefined();
+    expect(
+      result.services.tts.providers.deepgram.languageVoices,
+    ).toBeUndefined();
+    expect(result.services.tts.providers.vellum.languageVoices).toBeUndefined();
+  });
+
+  test("rejects non-string services.tts.providers languageVoices values", () => {
+    for (const provider of ["elevenlabs", "deepgram", "vellum"]) {
+      const result = AssistantConfigSchema.safeParse({
+        services: {
+          tts: {
+            providers: {
+              [provider]: { languageVoices: { hi: 42 } },
+            },
+          },
+        },
+      });
+      expect(result.success).toBe(false);
+      if (!result.success) {
+        expect(
+          result.error.issues.some((issue) =>
+            issue.path.join(".").includes("languageVoices"),
+          ),
+        ).toBe(true);
+      }
+    }
   });
 
   // Legacy config objects on disk may carry a `mode` key. Parsing must strip
@@ -2205,16 +2354,17 @@ describe("loadConfig with schema validation", () => {
     expect(config.llm.callSites?.mainAgent?.maxTokens).toBe(4096);
   });
 
-  test("falls back to default for invalid provider", () => {
-    // Leaf-deletion recovery: the invalid provider leaf is stripped and the
-    // rest of the profile survives.
+  test("keeps an unknown provider on load (read tolerance for entry names)", () => {
+    // The open provider schema keeps the whole profile: an unknown value is
+    // resolved as a connection entry name at dispatch (or fails there
+    // explainably) rather than being leaf-stripped on read.
     writeConfig({
       llm: {
-        profiles: { custom: { provider: "invalid-provider", model: "gpt-4" } },
+        profiles: { custom: { provider: "unknown-provider", model: "gpt-4" } },
       },
     });
     const config = loadConfig();
-    expect(config.llm.profiles.custom?.provider).toBeUndefined();
+    expect(config.llm.profiles.custom?.provider).toBe("unknown-provider");
     expect(config.llm.profiles.custom?.model).toBe("gpt-4");
   });
 
@@ -2424,7 +2574,9 @@ describe("loadConfig with schema validation", () => {
     expect(config.calls.userConsultTimeoutSeconds).toBe(120);
     expect(config.calls.disclosure.enabled).toBe(true);
     expect(config.calls.safety.denyCategories).toEqual([]);
-    expect(config.calls.voice.language).toBe("en-US");
+    expect(
+      (config.calls.voice as Record<string, unknown>).language,
+    ).toBeUndefined();
     expect(
       (config.calls.voice as Record<string, unknown>).transcriptionProvider,
     ).toBeUndefined();

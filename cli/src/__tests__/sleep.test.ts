@@ -56,9 +56,11 @@ mock.module("../lib/guardian-token.js", () => ({
   loadGuardianToken: loadGuardianTokenMock,
 }));
 
-// Stub the token-refresh helper without importing the real client module
-// (it drags in the interactive chat client's dependency graph). Pass-through
-// by default: the stored token is returned as-is.
+// Stub the token-refresh helper. Pass-through by default: the stored token is
+// returned as-is. Capture the real module first so afterAll can restore it;
+// without the restore this mock leaks into client-tui-refresh.test.ts, whose
+// refresh test then receives the pass-through instead of the real refresher.
+const realClient = { ...(await import("../commands/client.js")) };
 const resolveFreshBearerTokenMock = mock(
   async (
     _runtimeUrl: string,
@@ -68,6 +70,7 @@ const resolveFreshBearerTokenMock = mock(
   ) => bearerToken,
 );
 mock.module("../commands/client.js", () => ({
+  ...realClient,
   resolveFreshBearerToken: resolveFreshBearerTokenMock,
 }));
 
@@ -77,6 +80,7 @@ afterAll(() => {
   mock.module("../lib/process.js", () => realProcess);
   mock.module("../lib/drain.js", () => realDrain);
   mock.module("../lib/guardian-token.js", () => realGuardianToken);
+  mock.module("../commands/client.js", () => realClient);
 });
 
 import { sleep } from "../commands/sleep.js";

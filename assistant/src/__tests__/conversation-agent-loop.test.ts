@@ -268,7 +268,18 @@ const setConversationHistoryStrippedAtMock = mock(
 const updateConversationSlackContextWatermarkMock = mock(
   (_conversationId: string, _watermarkTs: string, _compactedAt?: number) => {},
 );
-let mockConversationRow: Record<string, unknown> = {
+interface MockConversationRow {
+  conversationType?: string;
+  source?: string;
+  contextSummary?: string | null;
+  contextCompactedMessageCount?: number;
+  contextCompactedAt?: number | null;
+  slackContextCompactionWatermarkTs?: string | null;
+  lastNotifiedInferenceProfile?: string | null;
+  processingStartedAt?: string | null;
+  [key: string]: unknown;
+}
+let mockConversationRow: MockConversationRow = {
   id: "conv-1",
   createdAt: 1_700_000_000_000,
   contextSummary: null,
@@ -675,6 +686,9 @@ import {
   applyCompactionResult,
   runAgentLoopImpl,
 } from "../daemon/conversation-agent-loop.js";
+import type { QueueDrainReason } from "../daemon/conversation-queue-manager.js";
+import { settleTurnTail } from "../daemon/turn-tail-chain.js";
+import { asConversation } from "./helpers/mock-conversation.js";
 import {
   createMockProvider,
   type ScriptedResponse,
@@ -730,7 +744,7 @@ function makeCtx(
     toolExecutor,
   });
 
-  const ctx = {
+  const ctx = asConversation({
     conversationId: "test-conv",
     messages: [
       { role: "user", content: [{ type: "text", text: "Hello" }] },
@@ -782,6 +796,7 @@ function makeCtx(
     channelCapabilities: undefined,
     commandIntent: undefined,
     trustContext: undefined,
+    toolsDisabledDepth: 0,
 
     allowedToolNames: undefined,
     preactivatedSkillIds: undefined,
@@ -789,12 +804,7 @@ function makeCtx(
     skillProjectionCache:
       new Map() as unknown as Conversation["skillProjectionCache"],
 
-    usageStats: {
-      totalInputTokens: 0,
-      totalOutputTokens: 0,
-      totalEstimatedCost: 0,
-      model: "",
-    },
+    usageStats: { inputTokens: 0, outputTokens: 0, estimatedCost: 0 },
     turnCount: 0,
 
     lastAssistantAttachments: [],
@@ -812,12 +822,12 @@ function makeCtx(
     getQueueDepth: () => 0,
     hasQueuedMessages: () => false,
     canHandoffAtCheckpoint: () => false,
-    drainQueue: (_reason?: string) => {},
+    drainQueue: async (_reason?: QueueDrainReason) => {},
     // Forwards to drainQueue so tests that spy the drain observe the agent
     // loop's post-turn kick through the guarded entry point.
     kickDrainQueue(
-      this: { drainQueue: (reason?: string) => unknown },
-      reason: string = "loop_complete",
+      this: { drainQueue: (reason?: QueueDrainReason) => Promise<void> },
+      reason: QueueDrainReason = "loop_complete",
       _origin?: string,
     ) {
       return this.drainQueue(reason);
@@ -849,7 +859,7 @@ function makeCtx(
     } as unknown as Conversation["graphMemory"],
 
     ...ctxOverrides,
-  } as unknown as Conversation;
+  });
   // Reactive overflow recovery resolves the turn-scoped reduction ladder off
   // the manager; give every fake manager the ladder methods unless a test
   // supplied its own.
@@ -863,6 +873,24 @@ function makeCtx(
   fakeContextWindowManagers.set(conversationId, ctx.contextWindowManager);
   return ctx;
 }
+
+/**
+ * What `classifyConversationError` returns for a daily-credit-limit 402 (see
+ * `dailyLimitClassification` in conversation-error.ts). Its `userMessage` is
+ * banner voice; the loop swaps in {@link DAILY_LIMIT_ASSISTANT_REPLY} for the
+ * transcript row.
+ */
+const DAILY_LIMIT_CLASSIFICATION = {
+  code: "PROVIDER_BILLING",
+  userMessage:
+    "You've hit your daily credit limit. Raise the limit in Billing settings to keep going today.",
+  retryable: false,
+  errorCategory: "daily_limit_reached",
+};
+
+/** Mirrors `DAILY_LIMIT_REACHED_ASSISTANT_REPLY` in conversation-agent-loop.ts. */
+const DAILY_LIMIT_ASSISTANT_REPLY =
+  "I had to stop because you hit your daily credit limit. Raise the limit in Settings → Billing and we can pick up where we left off, or I can continue once it resets.";
 
 type CompactionResult = Parameters<typeof applyCompactionResult>[1];
 
@@ -1186,6 +1214,92 @@ describe("session-agent-loop", () => {
       await expect(
         runAgentLoopImpl(ctx, "hello", "msg-1", () => {}),
       ).rejects.toThrow("runAgentLoop called without prior persistUserMessage");
+    });
+
+    test("defers workspace Git work when tools are disabled", async () => {
+      const ensureInitialized = mock(async () => {});
+      const commitTurnChanges = mock(async () => {});
+      const ctx = makeCtx({
+        toolsDisabledDepth: 1,
+        getWorkspaceGitService: () => ({ ensureInitialized }),
+        commitTurnChanges,
+      });
+
+      await runAgentLoopImpl(ctx, "hello", "msg-1", () => {});
+
+      expect(ensureInitialized).not.toHaveBeenCalled();
+      expect(commitTurnChanges).not.toHaveBeenCalled();
+
+      await new Promise<void>((resolve) => setImmediate(resolve));
+
+      expect(commitTurnChanges).toHaveBeenCalledTimes(1);
+    });
+
+    test("leaves a deferred commit to an immediate follow-up turn", async () => {
+      const commitTurnChanges = mock(async () => {});
+      const ctx = makeCtx({
+        toolsDisabledDepth: 1,
+        commitTurnChanges,
+      });
+
+      await runAgentLoopImpl(ctx, "hello", "msg-1", () => {});
+      ctx.setProcessing(true);
+      await new Promise<void>((resolve) => setImmediate(resolve));
+
+      expect(commitTurnChanges).not.toHaveBeenCalled();
+      ctx.setProcessing(false);
+    });
+
+    test("initializes workspace Git before hooks when tools can run", async () => {
+      let initialized = false;
+      const ensureInitialized = mock(async () => {
+        initialized = true;
+      });
+      const commitTurnChanges = mock(async () => {});
+      const initializedDuringHook: boolean[] = [];
+      registerPlugin({
+        manifest: {
+          name: "test-workspace-git-ready-before-hook",
+          version: "1.0.0",
+        },
+        hooks: {
+          "user-prompt-submit": async () => {
+            initializedDuringHook.push(initialized);
+          },
+        },
+      });
+      const ctx = makeCtx({
+        getWorkspaceGitService: () => ({ ensureInitialized }),
+        commitTurnChanges,
+      });
+
+      await runAgentLoopImpl(ctx, "hello", "msg-1", () => {});
+
+      expect(ensureInitialized).toHaveBeenCalledTimes(1);
+      expect(commitTurnChanges).toHaveBeenCalledTimes(1);
+      expect(initializedDuringHook).toEqual([true]);
+    });
+
+    test("continues a tool-capable turn when workspace Git initialization fails", async () => {
+      const ensureInitialized = mock(async () => {
+        throw new Error("simulated Git initialization failure");
+      });
+      const events: AssistantEvent[] = [];
+      const ctx = makeCtx({
+        getWorkspaceGitService: () => ({ ensureInitialized }),
+      });
+
+      await runAgentLoopImpl(ctx, "hello", "msg-1", (event) =>
+        events.push(event),
+      );
+
+      expect(ensureInitialized).toHaveBeenCalledTimes(1);
+      expect(events.some((event) => event.type === "message_complete")).toBe(
+        true,
+      );
+      expect(events.some((event) => event.type === "conversation_error")).toBe(
+        false,
+      );
     });
   });
 
@@ -1689,7 +1803,7 @@ describe("session-agent-loop", () => {
         ],
         toolExecutor: async () => ({ content: "file content", isError: false }),
         canHandoffAtCheckpoint: () => true,
-      } as unknown as Partial<Conversation>);
+      });
 
       await runAgentLoopImpl(ctx, "hello", "msg-1", (msg) => events.push(msg));
 
@@ -1720,7 +1834,7 @@ describe("session-agent-loop", () => {
         ],
         toolExecutor: async () => ({ content: "content", isError: false }),
         canHandoffAtCheckpoint: () => false,
-      } as unknown as Partial<Conversation>);
+      });
 
       await runAgentLoopImpl(ctx, "hello", "msg-1", (msg) => events.push(msg));
 
@@ -1869,13 +1983,13 @@ describe("session-agent-loop", () => {
 
     test("drains queue after completion", async () => {
       // GIVEN a real loop that answers in a single text turn
-      let drainReason: string | undefined;
+      let drainReason: QueueDrainReason | undefined;
       const ctx = makeCtx({
         providerResponses: [textResponse("ok")],
-        drainQueue: (reason: string) => {
+        drainQueue: async (reason?: QueueDrainReason) => {
           drainReason = reason;
         },
-      } as unknown as Partial<Conversation>);
+      });
 
       // WHEN the orchestrator runs the turn to completion
       await runAgentLoopImpl(ctx, "hi", "msg-1", () => {});
@@ -1912,10 +2026,10 @@ describe("session-agent-loop", () => {
         abortController,
         // Fire the watchdog quickly instead of the ~45s production default.
         abortWatchdogMs: 30,
-        drainQueue: (reason: string) => {
+        drainQueue: async (reason?: QueueDrainReason) => {
           drainReason = reason;
         },
-      } as unknown as Partial<Conversation>);
+      });
 
       try {
         // WHEN the orchestrator runs the turn
@@ -2351,6 +2465,134 @@ describe("session-agent-loop", () => {
       });
     });
 
+    test("persists assistant-voice daily-limit copy on a first-call rejection", async () => {
+      mockConversationErrorClassification = DAILY_LIMIT_CLASSIFICATION;
+
+      const ctx = makeCtx({
+        loopProvider: {
+          name: "mock-provider",
+          async sendMessage() {
+            throw new Error("Payment Required");
+          },
+        } as unknown as Provider,
+      });
+      await runAgentLoopImpl(ctx, "hello", "msg-1", () => {});
+
+      expect(addMessageMock).toHaveBeenCalledTimes(1);
+      const addCall = addMessageMock.mock.calls[0] as unknown as [
+        string,
+        string,
+        string,
+        { metadata?: Record<string, unknown> },
+      ];
+      expect(addCall[1]).toBe("assistant");
+      // Like the credits-exhausted row, the daily-limit row re-enters LLM
+      // history and renders as assistant speech, so it carries first-person
+      // copy rather than the banner-voice classification text.
+      const persistedBlocks = JSON.parse(addCall[2]) as Array<{
+        type: string;
+        text: string;
+      }>;
+      expect(persistedBlocks[0]?.text).toBe(DAILY_LIMIT_ASSISTANT_REPLY);
+      expect(addCall[3]?.metadata).toMatchObject({
+        messageKind: "provider_error",
+        providerErrorCode: "PROVIDER_BILLING",
+        providerErrorCategory: "daily_limit_reached",
+      });
+    });
+
+    test("persists the synthetic error row when a daily-limit error kills the run mid-turn", async () => {
+      // Mid-turn shape: the run already carries assistant `tool_use` messages
+      // from the completed tool round-trip, and only the failing follow-up
+      // call lacks a reply. The synthetic error row must persist for this
+      // shape too, so a reload explains why the assistant stopped instead of
+      // ending on a bare tool call.
+      reserveMessageMock
+        .mockImplementationOnce(async () => ({ id: "msg-reserve-1" }))
+        .mockImplementationOnce(async () => ({ id: "msg-reserve-2" }))
+        .mockImplementationOnce(async () => ({ id: "msg-reserve-3" }));
+      mockConversationErrorClassification = DAILY_LIMIT_CLASSIFICATION;
+
+      // GIVEN a run whose first call asks for a tool, the tool succeeds, and
+      // the follow-up call is rejected with a daily-limit 402.
+      const ctx = makeCtx({
+        providerResponses: [
+          toolUseResponse("tu-1", "file_read", {}),
+          new Error("Payment Required"),
+        ],
+        loopTools: [
+          {
+            name: "file_read",
+            description: "Read a file",
+            input_schema: { type: "object", properties: {} },
+          },
+        ],
+        toolExecutor: async () => ({ content: "file content", isError: false }),
+      });
+
+      await runAgentLoopImpl(ctx, "hello", "msg-user-daily", () => {});
+
+      // (a) The synthetic provider-error row is persisted with the
+      // assistant-voice daily-limit copy and the classification metadata.
+      expect(addMessageMock).toHaveBeenCalledTimes(1);
+      const addCall = addMessageMock.mock.calls[0] as unknown as [
+        string,
+        string,
+        string,
+        { metadata?: Record<string, unknown> },
+      ];
+      expect(addCall[1]).toBe("assistant");
+      const persistedBlocks = JSON.parse(addCall[2]) as Array<{
+        type: string;
+        text: string;
+      }>;
+      expect(persistedBlocks[0]?.text).toBe(DAILY_LIMIT_ASSISTANT_REPLY);
+      expect(addCall[3]?.metadata).toMatchObject({
+        messageKind: "provider_error",
+        providerErrorCode: "PROVIDER_BILLING",
+        providerErrorCategory: "daily_limit_reached",
+      });
+
+      // (b) The empty row the failing call reserved at `llm_call_started` is
+      // dropped, so the transcript carries the error row instead of a stranded
+      // blank bubble. The failing call reserves last (after the first call's
+      // assistant row and the grouped tool-result row).
+      expect(deleteMessageByIdMock).toHaveBeenCalledTimes(1);
+      const deleteCall = deleteMessageByIdMock.mock.calls[0] as unknown as [
+        string,
+      ];
+      expect(deleteCall[0]).toBe("msg-reserve-3");
+
+      // (c) The turn is stamped failed with the classified code.
+      const outcomeStamps = (
+        updateMessageMetadataMock.mock.calls as unknown as Array<
+          [string, Record<string, unknown>]
+        >
+      ).filter((call) => call[1]?.turnOutcome !== undefined);
+      expect(outcomeStamps).toHaveLength(1);
+      expect(outcomeStamps[0]?.[0]).toBe("msg-user-daily");
+      expect(outcomeStamps[0]?.[1]).toMatchObject({
+        turnOutcome: "failed",
+        turnFailureCode: "PROVIDER_BILLING",
+      });
+
+      // (d) History ends tool_use -> tool_result -> error text, so the row
+      // never lands between a tool_use and its tool_result on replay.
+      const tail = ctx.messages.slice(-3) as Array<{
+        role: string;
+        content: Array<{ type: string; text?: string }>;
+      }>;
+      expect(tail[0]?.role).toBe("assistant");
+      expect(tail[0]?.content[0]?.type).toBe("tool_use");
+      expect(tail[1]?.role).toBe("user");
+      expect(tail[1]?.content[0]?.type).toBe("tool_result");
+      expect(tail[2]?.role).toBe("assistant");
+      expect(tail[2]?.content[0]).toEqual({
+        type: "text",
+        text: DAILY_LIMIT_ASSISTANT_REPLY,
+      });
+    });
+
     test("does not persist managed credential refresh failures as assistant text", async () => {
       mockConversationErrorClassification = {
         code: "MANAGED_KEY_INVALID",
@@ -2509,6 +2751,128 @@ describe("session-agent-loop", () => {
     });
   });
 
+  describe("detached deferred turn tail", () => {
+    const reservedAssistantRow = {
+      id: "msg-reserve",
+      conversationId: "test-conv",
+      createdAt: 1_700_000_000_001,
+      role: "assistant" as const,
+      content: "[]",
+      metadata: null,
+    };
+
+    test("frees the conversation before the deferred tail finishes, and serializes tails", async () => {
+      mockMessageById = reservedAssistantRow;
+      // A tail effect that never settles on its own stands in for the
+      // production case this guards: memory indexing that takes tens of
+      // seconds against a slow embedding provider.
+      let releaseFirstIndex: (() => void) | undefined;
+      const firstIndexHangs = new Promise<void>((resolve) => {
+        releaseFirstIndex = resolve;
+      });
+      indexMessageNowMock.mockImplementationOnce(async () => {
+        await firstIndexHangs;
+        return { indexedSegments: 0, enqueuedJobs: 0 };
+      });
+
+      const drainReasons: string[] = [];
+      const ctx = makeCtx({
+        providerResponses: [textResponse("first"), textResponse("second")],
+        drainQueue: async (reason?: string) => {
+          drainReasons.push(reason ?? "loop_complete");
+        },
+      });
+
+      await runAgentLoopImpl(ctx, "hi", "msg-1", () => {});
+
+      // The tail is still parked inside the indexer…
+      expect(indexMessageNowMock).toHaveBeenCalledTimes(1);
+      // …yet the conversation is already released and the queue already
+      // kicked, so a send arriving now runs instead of being queued.
+      expect(ctx.isProcessing()).toBe(false);
+      expect(drainReasons).toEqual(["loop_complete"]);
+
+      // A follow-up turn runs to completion against the still-hung tail.
+      ctx.abortController = new AbortController();
+      ctx.setProcessing(true);
+      await runAgentLoopImpl(ctx, "again", "msg-2", () => {});
+      expect(ctx.isProcessing()).toBe(false);
+      expect(drainReasons).toEqual(["loop_complete", "loop_complete"]);
+
+      // The second turn's tail is chained behind the first, so it has not run
+      // its own indexing yet.
+      expect(indexMessageNowMock).toHaveBeenCalledTimes(1);
+
+      releaseFirstIndex?.();
+      await settleTurnTail(ctx.conversationId);
+      expect(indexMessageNowMock).toHaveBeenCalledTimes(2);
+    });
+
+    test("a throwing tail effect neither latches the lock nor skips the drain", async () => {
+      mockMessageById = reservedAssistantRow;
+      indexMessageNowMock.mockImplementationOnce(async () => {
+        throw new Error("indexer exploded");
+      });
+
+      const drainReasons: string[] = [];
+      const ctx = makeCtx({
+        providerResponses: [textResponse("first")],
+        drainQueue: async (reason?: string) => {
+          drainReasons.push(reason ?? "loop_complete");
+        },
+      });
+
+      await runAgentLoopImpl(ctx, "hi", "msg-1", () => {});
+      // The chain settles rather than rejecting, so the throw can neither
+      // surface as an unhandled rejection nor poison a later turn's tail.
+      await settleTurnTail(ctx.conversationId);
+
+      expect(ctx.isProcessing()).toBe(false);
+      expect(drainReasons).toEqual(["loop_complete"]);
+      // The tail continued past the failure: attention projection still ran.
+      expect(projectAssistantMessageMock).toHaveBeenCalledTimes(1);
+    });
+
+    test("the queue drain waits for the turn-boundary commit", async () => {
+      // `commitTurnChanges` attributes the working tree's changes to the turn
+      // that just finished, so a queued turn must not start writing files
+      // while it runs. The lock release above frees direct sends immediately;
+      // the drain is what has to wait.
+      let commitReached: (() => void) | undefined;
+      const commitStarted = new Promise<void>((resolve) => {
+        commitReached = resolve;
+      });
+      let releaseCommit: (() => void) | undefined;
+      const commitHangs = new Promise<void>((resolve) => {
+        releaseCommit = resolve;
+      });
+
+      const drainReasons: string[] = [];
+      const ctx = makeCtx({
+        providerResponses: [textResponse("first")],
+        commitTurnChanges: async () => {
+          commitReached?.();
+          await commitHangs;
+        },
+        drainQueue: async (reason?: string) => {
+          drainReasons.push(reason ?? "loop_complete");
+        },
+      });
+
+      const loop = runAgentLoopImpl(ctx, "hi", "msg-1", () => {});
+      await commitStarted;
+
+      // Released for direct sends…
+      expect(ctx.isProcessing()).toBe(false);
+      // …but the queue is untouched until the commit settles.
+      expect(drainReasons).toEqual([]);
+
+      releaseCommit?.();
+      await loop;
+      expect(drainReasons).toEqual(["loop_complete"]);
+    });
+  });
+
   describe("B3 pre-allocation: indexing + cleanup", () => {
     test("handleMessageComplete indexes and projects the finalized assistant row", async () => {
       // The pre-B3 path inserted assistant rows via `addMessage`, which ran
@@ -2535,6 +2899,9 @@ describe("session-agent-loop", () => {
         providerResponses: [textResponse("indexed reply")],
       });
       await runAgentLoopImpl(ctx, "hi", "msg-1", () => {});
+      // The finalize effects run on the detached tail, so wait for the chain
+      // rather than on the loop's own resolution.
+      await settleTurnTail(ctx.conversationId);
 
       // Indexer fired with the reserved row's id + the finalized content.
       expect(indexMessageNowMock).toHaveBeenCalledTimes(1);
@@ -2611,8 +2978,9 @@ describe("session-agent-loop", () => {
         providerResponses: [textResponse("indexed reply")],
       });
       await runAgentLoopImpl(ctx, "hi", "msg-1", (msg) => events.push(msg));
+      await settleTurnTail(ctx.conversationId);
 
-      // The deferred indexer runs exactly once, within the turn…
+      // The deferred indexer runs exactly once…
       expect(indexMessageNowMock).toHaveBeenCalledTimes(1);
       // …and only after the terminal SSE that re-enables the composer.
       expect(messageCompleteSeenWhenIndexed).toBe(true);
@@ -2635,6 +3003,7 @@ describe("session-agent-loop", () => {
       // GIVEN a real loop that answers with a single finalized assistant turn
       const ctx = makeCtx({ providerResponses: [textResponse("quiet")] });
       await runAgentLoopImpl(ctx, "hi", "msg-1", () => {});
+      await settleTurnTail(ctx.conversationId);
 
       expect(projectAssistantMessageMock).toHaveBeenCalledTimes(1);
       // The mock will still receive a `:messages` invalidation from the
@@ -3024,6 +3393,7 @@ describe("session-agent-loop", () => {
 
       // WHEN the orchestrator runs the turn to completion
       await runAgentLoopImpl(ctx, "hi", "msg-1", () => {});
+      await settleTurnTail(ctx.conversationId);
 
       expect(snapshot).toBeDefined();
       // Indexer + projector were both ZERO during the mid-turn partial

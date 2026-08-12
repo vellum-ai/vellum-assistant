@@ -6,6 +6,7 @@ import {
   AccountHeading,
   AccountInput,
 } from "@/components/account/account-form";
+import { useTranslation } from "@/i18n";
 import { AccountShell } from "@/components/account/account-shell";
 import { SignupShell } from "@/domains/account/components/signup-shell";
 import {
@@ -32,6 +33,7 @@ import { routes } from "@/utils/routes";
  * still complete signup.
  */
 export function ProviderSignupPage() {
+  const { t } = useTranslation("account");
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const refreshSession = useAuthStore.use.refreshSession();
@@ -117,7 +119,7 @@ export function ProviderSignupPage() {
     try {
       await completeSignup();
     } catch {
-      setError("Something went wrong. Please try again.");
+      setError(t("authErrors.genericFailure"));
     } finally {
       setIsSubmitting(false);
     }
@@ -136,7 +138,7 @@ export function ProviderSignupPage() {
       // `account` domain may not import `onboarding` directly). Deferred.
       await completeSignup();
     } catch {
-      setError("Something went wrong. Please try again.");
+      setError(t("authErrors.genericFailure"));
     } finally {
       setIsSubmitting(false);
     }
@@ -146,8 +148,8 @@ export function ProviderSignupPage() {
     return (
       <AccountShell>
         <AccountHeading
-          title="Completing signup..."
-          subtitle="Please wait while we load your information."
+          title={t("providerSignupPage.completingTitle")}
+          subtitle={t("providerSignupPage.completingSubtitle")}
         />
       </AccountShell>
     );
@@ -167,22 +169,22 @@ export function ProviderSignupPage() {
           className="signup-details__thread"
         >
           <h2 className="signup-details__heading">
-            Almost there,
+            {t("providerSignupPage.headingLine1")}
             <br />
-            one more detail
+            {t("providerSignupPage.headingLine2")}
           </h2>
 
           {error && <p className="signup-details__error">{error}</p>}
 
           <div className="signup-details__step">
             <span className="signup-details__label">
-              What should I call you?{" "}
+              {t("providerSignupPage.firstNameQuestion")}{" "}
               <span className="signup-details__req">*</span>
             </span>
             <input
               className="signup-details__input"
               type="text"
-              placeholder="First name"
+              placeholder={t("providerSignupPage.firstNamePlaceholder")}
               value={firstName}
               readOnly
               disabled
@@ -191,12 +193,13 @@ export function ProviderSignupPage() {
 
           <div className="signup-details__step">
             <span className="signup-details__label">
-              And your last name? <span className="signup-details__req">*</span>
+              {t("providerSignupPage.lastNameQuestion")}{" "}
+              <span className="signup-details__req">*</span>
             </span>
             <input
               className="signup-details__input"
               type="text"
-              placeholder="Last name"
+              placeholder={t("providerSignupPage.lastNamePlaceholder")}
               value={lastName}
               readOnly
               disabled
@@ -205,13 +208,14 @@ export function ProviderSignupPage() {
 
           <div className="signup-details__step">
             <span className="signup-details__label">
-              Your role <span className="signup-details__req">*</span>
+              {t("providerSignupPage.roleQuestion")}{" "}
+              <span className="signup-details__req">*</span>
             </span>
             <input
               className="signup-details__input"
               type="text"
               autoComplete="organization-title"
-              placeholder="e.g. Software Engineer"
+              placeholder={t("providerSignupPage.rolePlaceholder")}
               value={occupation}
               onChange={(e) => setOccupation(e.target.value)}
               autoFocus
@@ -224,7 +228,9 @@ export function ProviderSignupPage() {
               className="signup-details__continue"
               disabled={!canSubmit}
             >
-              {isSubmitting ? "Setting up…" : "Continue →"}
+              {isSubmitting
+                ? t("providerSignupPage.submitting")
+                : t("providerSignupPage.submit")}
             </button>
           </div>
         </form>
@@ -235,22 +241,22 @@ export function ProviderSignupPage() {
   return (
     <AccountShell>
       <AccountHeading
-        title="Complete your account"
-        subtitle="We need a few more details to finish setting up your account."
+        title={t("providerSignupPage.completeAccountTitle")}
+        subtitle={t("providerSignupPage.completeAccountSubtitle")}
       />
 
       <AccountForm
         onSubmit={onSubmit}
         error={error}
-        submitLabel="Complete signup"
-        submittingLabel="Completing..."
+        submitLabel={t("providerSignupPage.completeSignup")}
+        submittingLabel={t("providerSignupPage.completingSignup")}
         isSubmitting={isSubmitting}
         footer={
           <Link
             to={routes.account.login}
             className="text-sm text-[var(--content-secondary)] hover:text-[var(--content-default)]"
           >
-            &larr; Back to sign in
+            {t("providerSignupPage.backToSignIn")}
           </Link>
         }
       >
@@ -258,7 +264,7 @@ export function ProviderSignupPage() {
           id="email"
           type="email"
           autoComplete="email"
-          placeholder="Email"
+          placeholder={t("providerSignupPage.emailPlaceholder")}
           value={email}
           onChange={(e) => setEmail(e.target.value)}
           required
@@ -267,7 +273,7 @@ export function ProviderSignupPage() {
           id="username"
           type="text"
           autoComplete="username"
-          placeholder="Username"
+          placeholder={t("providerSignupPage.usernamePlaceholder")}
           value={username}
           onChange={(e) => setUsername(e.target.value)}
           required

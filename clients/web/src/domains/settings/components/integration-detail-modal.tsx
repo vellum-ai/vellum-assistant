@@ -15,6 +15,7 @@ import { toast } from "@vellumai/design-library/components/toast";
 
 import { IntegrationIcon } from "@/components/integrations/integration-icon";
 import { PlatformLoginNotice } from "@/components/platform-login-notice";
+import { useBodyScrollLock } from "@/hooks/use-body-scroll-lock";
 import { useOAuthConnect } from "@/hooks/use-oauth-connect";
 import type { PlatformGateState } from "@/hooks/use-platform-gate";
 import { useActiveAssistantIsPlatformHosted } from "@/hooks/use-platform-gate";
@@ -124,7 +125,9 @@ export function IntegrationDetailModal({
       },
     });
 
-  // Modal: Escape key + body scroll lock
+  useBodyScrollLock();
+
+  // Modal: Escape key
   useEffect(() => {
     const handleKey = (event: KeyboardEvent) => {
       if (event.key === "Escape" && !event.defaultPrevented) {
@@ -133,11 +136,8 @@ export function IntegrationDetailModal({
       }
     };
     document.addEventListener("keydown", handleKey);
-    const previousOverflow = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
     return () => {
       document.removeEventListener("keydown", handleKey);
-      document.body.style.overflow = previousOverflow;
     };
   }, [onClose]);
 

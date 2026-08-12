@@ -15,6 +15,11 @@
  *   reseeds the materialized snapshot from the authoritative server copy,
  *   replacing the client-folded turn with canonical ids/ordering.
  *
+ * - **The snapshot reporting `processing: true` with nothing local agreeing**:
+ *   the daemon's flag alone is holding the UI busy, so revalidate on a timer
+ *   until a reseed reports the conversation idle. This is the only exit from
+ *   that state, since no local signal is left to fall.
+ *
  * Conversation-switch resets are owned by the store's `switchToConversation()`.
  *
  * @see {@link https://tanstack.com/query/latest/docs/framework/react/guides/infinite-queries}
@@ -25,9 +30,13 @@ import { useCallback, useEffect, useRef } from "react";
 
 import { type InfiniteData, useQueryClient } from "@tanstack/react-query";
 
-import { organizationsBillingSummaryRetrieveQueryKey } from "@/generated/api/@tanstack/react-query.gen";
+import {
+  organizationsBillingSummaryRetrieveQueryKey,
+  organizationsBillingUsageTotalsRetrieveQueryKey,
+} from "@/generated/api/@tanstack/react-query.gen";
 import { useBillingBalanceQueryEnabled } from "@/hooks/use-billing-balance-status";
 import { useBusSubscription } from "@/hooks/use-bus-subscription";
+import { useResumeGrace } from "@/hooks/use-resume-grace";
 import {
   extractWirePendingAcpConnect,
   extractWirePendingConfirmation,
@@ -80,6 +89,22 @@ export interface ConversationHistoryResult {
 }
 
 type HistoryCache = InfiniteData<PaginatedHistoryResult>;
+
+/**
+ * How often the history snapshot is revalidated while the daemon's
+ * `processing: true` flag is the only thing holding the UI in its busy state
+ * (Stop button, spinner, no send affordance).
+ *
+ * `isAssistantBusy` treats that flag as authoritative, so nothing local can
+ * retire it: the local phase is already idle and no assistant row is streaming,
+ * which is precisely why the falling-edge reseed below never fires. Re-reading
+ * `/messages` on this cadence is what turns the flag back to `false` once the
+ * daemon releases the lock, bounding how long a stale `true` can hold the UI
+ * busy. Short enough that a user staring at a wedged Stop button gets out
+ * quickly, long enough that it costs one request per few seconds in a state
+ * that is already anomalous.
+ */
+export const SERVER_PROCESSING_REVALIDATE_MS = 4_000;
 
 /**
  * Structural equality for surface `data` payloads. Both sides come from the
@@ -458,6 +483,17 @@ export function useConversationHistory({
       void queryClient.invalidateQueries({
         queryKey: organizationsBillingSummaryRetrieveQueryKey(),
       });
+      // The BYOK banner gate's recent-spend probe
+      // (`useSuppressCreditBannersForByok`) must see a managed burn from this
+      // turn too, or a cached zero keeps suppressing the banners in an open
+      // tab. Its key carries a from/to window, so match on the key's base
+      // fields (derived from the generated key builder, minus the window)
+      // to hit every cached window.
+      const [totalsKey] = organizationsBillingUsageTotalsRetrieveQueryKey({
+        query: { from: "", to: "" },
+      });
+      const { query: _window, ...totalsKeyBase } = totalsKey;
+      void queryClient.invalidateQueries({ queryKey: [totalsKeyBase] });
     }
   }, [billingSummaryEnabled, queryClient]);
 
@@ -535,6 +571,40 @@ export function useConversationHistory({
   ]);
 
   // -------------------------------------------------------------------------
+  // Server-processing revalidation. The daemon's snapshot `processing` flag is
+  // authoritative for `isAssistantBusy`, so when it reads `true` while nothing
+  // local agrees (idle phase, conversation not flagged processing) it is the
+  // sole thing rendering the busy affordances, and the falling-edge reseed
+  // above can never fire to retire it. Poll `/messages` for exactly as long as
+  // that holds: the first reseed carrying `processing: false` clears the busy
+  // state through the existing close-gate and stops the timer. `invalidate` is
+  // stable per conversation, so the interval is armed once per episode rather
+  // than restarted on every render.
+  // -------------------------------------------------------------------------
+  const snapshotProcessing = useChatSessionStore((s) => s.snapshot?.processing);
+  const serverProcessingIsSoleBusySignal =
+    snapshotProcessing === true && !activeInProgress;
+  const invalidateHistory = pagination.invalidate;
+  useEffect(() => {
+    if (
+      !serverProcessingIsSoleBusySignal ||
+      !assistantId ||
+      !activeConversationId
+    ) {
+      return;
+    }
+    const timer = setInterval(() => {
+      void invalidateHistory();
+    }, SERVER_PROCESSING_REVALIDATE_MS);
+    return () => clearInterval(timer);
+  }, [
+    serverProcessingIsSoleBusySignal,
+    assistantId,
+    activeConversationId,
+    invalidateHistory,
+  ]);
+
+  // -------------------------------------------------------------------------
   // Refetch history when the SSE connection reopens after a disconnect.
   //
   // The daemon's replay ring only holds ~30s of events, so a connection that
@@ -576,7 +646,13 @@ export function useConversationHistory({
 
   // -------------------------------------------------------------------------
   // Surface TanStack Query errors.
+  //
+  // An initial-page failure inside the resume grace window is held back: the
+  // refetch that fires when the client returns from the background often
+  // fails transiently against a still-waking pod. It is still reported, and
+  // the blocking error surfaces once the window expires.
   // -------------------------------------------------------------------------
+  const isResumeGraceActive = useResumeGrace();
   useEffect(() => {
     if (!pagination.isError || !pagination.error) {
       return;
@@ -591,14 +667,17 @@ export function useConversationHistory({
 
     if (!isOlderPageError) {
       setIsLoadingHistory(false);
-      setError({
-        message: "Failed to load conversation history. Please try again.",
-      });
+      if (!isResumeGraceActive) {
+        setError({
+          message: "Failed to load conversation history. Please try again.",
+        });
+      }
     }
   }, [
     pagination.isError,
     pagination.isSuccess,
     pagination.error,
+    isResumeGraceActive,
     setIsLoadingHistory,
     setError,
   ]);

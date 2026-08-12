@@ -19,7 +19,9 @@ import { INFERENCE_PROVIDERS } from "@/domains/settings/ai/constants";
 import { CONNECTION_PROVIDERS } from "@/domains/settings/ai/provider-editor-constants";
 
 import {
+  CODEX_SUBSCRIPTION_MODEL_IDS,
   DEFAULT_MODEL_BY_PROVIDER,
+  getDefaultModelForProvider,
   MODELS_BY_PROVIDER,
   PROVIDER_DISPLAY_NAMES,
   PROVIDER_SUPPORTS_PLATFORM_AUTH,
@@ -83,6 +85,23 @@ function comparableModel(model: MetaCatalogModel) {
     adaptiveThinkingOnly: model.adaptiveThinkingOnly === true,
   };
 }
+
+describe("chatgpt identity catalog", () => {
+  test("serves the openai catalog restricted to the Codex set", () => {
+    const models = getModelsForProvider("chatgpt");
+    expect(models.length).toBeGreaterThan(0);
+    const openaiIds = new Set(getModelsForProvider("openai").map((m) => m.id));
+    for (const m of models) {
+      expect(openaiIds.has(m.id)).toBe(true);
+      expect(CODEX_SUBSCRIPTION_MODEL_IDS.has(m.id)).toBe(true);
+    }
+    expect(models.some((m) => m.id === "gpt-5.4-nano")).toBe(false);
+  });
+
+  test("defaults to the Balanced profile's model on the chatgpt column", () => {
+    expect(getDefaultModelForProvider("chatgpt")).toBe("gpt-5.6-luna");
+  });
+});
 
 describe("parity with meta/llm-provider-catalog.json", () => {
   // Intentional asymmetry between the web mirror and the meta catalog:

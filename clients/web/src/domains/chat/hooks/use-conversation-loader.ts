@@ -32,11 +32,13 @@ import { routes } from "@/utils/routes";
 import { useNavigate } from "react-router";
 
 import { useConversationHistory } from "@/domains/chat/hooks/use-conversation-history";
+import { useTurnTimeout } from "@/domains/chat/hooks/use-turn-timeout";
 import type { AssistantStateKind } from "@/domains/chat/types";
 import { shouldSuppressGenericChatErrorNotice } from "@/domains/chat/utils/error-classification";
 import { useQueryClient } from "@tanstack/react-query";
 
 import { useConversationListQuery } from "@/hooks/conversation-queries";
+import { useResumeGrace } from "@/hooks/use-resume-grace";
 import { groupsGetQueryKey } from "@/generated/daemon/@tanstack/react-query.gen";
 import type { Conversation } from "@/types/conversation-types";
 import { ApiError } from "@/utils/api-errors";
@@ -86,6 +88,7 @@ interface UseConversationLoaderParams {
  *
  * Delegates to:
  * - `useConversationHistory` -- conversation switch, cache, and history loading
+ * - `useTurnTimeout` -- terminates a turn whose stream went silent
  *
  * Attention/processing-key tracking is owned by `useAttentionTracking`,
  * mounted in `ChatLayout` so the bus-driven `interaction_resolved`
@@ -227,7 +230,13 @@ export function useConversationLoader({
   //
   // When the query recovers (data arrives), clear any prior load-failed
   // banner. Other error codes are left untouched.
+  //
+  // A failure inside the resume grace window is held back: the refetch that
+  // fires when the client returns from the background often fails transiently
+  // against a still-waking pod. The banner surfaces once the window expires
+  // and the query is still in error with nothing cached.
   // -------------------------------------------------------------------------
+  const isResumeGraceActive = useResumeGrace();
   useEffect(() => {
     if (assistantStateKind !== "active") {
       return;
@@ -242,6 +251,9 @@ export function useConversationLoader({
         context: "conversationList.bootstrap",
         level: "warning",
       });
+      if (isResumeGraceActive) {
+        return;
+      }
       useChatSessionStore.getState().setError((prev) => {
         if (shouldSuppressGenericChatErrorNotice(prev)) {
           return prev;
@@ -272,6 +284,7 @@ export function useConversationLoader({
     queryConversations,
     conversationListError,
     conversationListIsError,
+    isResumeGraceActive,
     shouldSuppressGenericChatErrorNotice,
   ]);
 
@@ -414,6 +427,12 @@ export function useConversationLoader({
     assistantStateKind,
     activeConversationId,
   });
+
+  // -------------------------------------------------------------------------
+  // Delegate: stranded-turn watchdog. Terminates a turn whose stream went
+  // silent and revalidates history so the UI settles on server truth.
+  // -------------------------------------------------------------------------
+  useTurnTimeout({ assistantId, activeConversationId });
 
   // -------------------------------------------------------------------------
   // startNewConversation

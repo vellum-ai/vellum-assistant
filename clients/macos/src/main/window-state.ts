@@ -27,6 +27,11 @@ interface StoreSchema {
   // launch is built at the right size before the renderer loads. Optional:
   // absent means "not yet decided" (see `readOnboardingActive`).
   onboardingActive?: boolean;
+  // Whether the user has hidden the companion surface from the tray. A
+  // main-process concern like the rest of this store: launch consults it
+  // before any renderer loads. Optional: absent means shown, so the flag
+  // records only the opt-out (see `readCompanionHidden`).
+  companionHidden?: boolean;
 }
 
 let instance: Store<StoreSchema> | null = null;
@@ -65,6 +70,25 @@ export const readOnboardingActive = (): boolean =>
 export const writeOnboardingActive = (active: boolean): void => {
   if (readOnboardingActive() === active) return;
   store().set("onboardingActive", active);
+};
+
+/**
+ * Whether the user has hidden the companion surface from the tray's
+ * "Show Floating Companion" item. Absent defaults to `false`: the surface
+ * is a standing presence, and this flag records only the opt-out.
+ */
+export const readCompanionHidden = (): boolean =>
+  store().get("companionHidden", false);
+
+/**
+ * Persist the companion-surface opt-out. No-op when the effective value is
+ * unchanged so re-asserting the current state doesn't churn the store file.
+ */
+export const writeCompanionHidden = (hidden: boolean): void => {
+  if (readCompanionHidden() === hidden) {
+    return;
+  }
+  store().set("companionHidden", hidden);
 };
 
 /**

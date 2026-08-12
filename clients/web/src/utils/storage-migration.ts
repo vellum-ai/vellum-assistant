@@ -104,6 +104,33 @@ export function migratePrefix(oldPrefix: string, newPrefix: string): void {
   }
 }
 
+/** Remove guardian credentials persisted by the legacy paired-session flow. */
+export function removePersistedPairedGatewayCredential(): void {
+  if (typeof window === "undefined") {
+    return;
+  }
+  try {
+    const source =
+      localStorage.getItem("vellum:gw:tokenSource") ??
+      localStorage.getItem("gw:tokenSource");
+    if (!source?.includes("/__gateway-paired/")) {
+      return;
+    }
+    for (const key of [
+      "vellum:gw:token",
+      "vellum:gw:expiresAt",
+      "vellum:gw:tokenSource",
+      "gw:token",
+      "gw:expiresAt",
+      "gw:tokenSource",
+    ]) {
+      localStorage.removeItem(key);
+    }
+  } catch {
+    // Storage unavailable. Retry on next load.
+  }
+}
+
 /**
  * Remove every key matching `prefix`. Snapshots keys first to avoid mutating
  * during iteration. Caller is responsible for the try/catch.
@@ -240,13 +267,17 @@ export function runStorageMigrations(): void {
   // legacy mode into the equivalent provider so a previously-managed
   // browser does not fall back to the BYOK default before the daemon
   // config loads.
-  if (localStorage.getItem("vellum:ai:imageGenProvider") === null) {
-    const legacyImageGenMode = localStorage.getItem("vellum:ai:imageGenMode");
-    if (legacyImageGenMode === "managed") {
-      localStorage.setItem("vellum:ai:imageGenProvider", "vellum");
-    } else if (legacyImageGenMode === "your-own") {
-      localStorage.setItem("vellum:ai:imageGenProvider", "gemini");
+  try {
+    if (localStorage.getItem("vellum:ai:imageGenProvider") === null) {
+      const legacyImageGenMode = localStorage.getItem("vellum:ai:imageGenMode");
+      if (legacyImageGenMode === "managed") {
+        localStorage.setItem("vellum:ai:imageGenProvider", "vellum");
+      } else if (legacyImageGenMode === "your-own") {
+        localStorage.setItem("vellum:ai:imageGenProvider", "gemini");
+      }
     }
+  } catch {
+    // Storage unavailable. Retry on next load.
   }
   migrateKey("vellum_web_search_mode", "vellum:ai:webSearchMode");
   migrateKey("vellum_web_search_provider", "vellum:ai:webSearchProvider");
@@ -267,6 +298,7 @@ export function runStorageMigrations(): void {
   migrateKey("gw:token", "vellum:gw:token");
   migrateKey("gw:expiresAt", "vellum:gw:expiresAt");
   migrateKey("gw:tokenSource", "vellum:gw:tokenSource");
+  removePersistedPairedGatewayCredential();
 
   // local: → vellum:local:
   migrateKey("local:lockfile", "vellum:local:lockfile");

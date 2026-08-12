@@ -1,3 +1,4 @@
+import type { BillingCheckoutFlow } from "@/lib/event-bus";
 import { isElectron } from "@/runtime/is-electron";
 
 /**
@@ -22,8 +23,26 @@ import { isElectron } from "@/runtime/is-electron";
 export type DeepLink =
   | { kind: "send"; message: string }
   | { kind: "openThread"; threadId: string }
-  | { kind: "billingCheckoutComplete"; status: "success"; sessionId: string }
-  | { kind: "billingCheckoutComplete"; status: "cancel"; sessionId: null }
+  /** `flow` separates a Pro subscription checkout from a credit top-up
+   *  checkout; the main-process parser defaults it to `subscription` when
+   *  the link omits the `flow` query param. Optional at this seam so a
+   *  renderer paired with a main process that predates the field still
+   *  typechecks; consumers default it to `subscription`. */
+  | {
+      kind: "billingCheckoutComplete";
+      status: "success";
+      sessionId: string;
+      flow?: BillingCheckoutFlow;
+    }
+  | {
+      kind: "billingCheckoutComplete";
+      status: "cancel";
+      sessionId: null;
+      flow?: BillingCheckoutFlow;
+    }
+  /** `<scheme>://connect` pairing hand-off. `bundle` is secret material:
+   *  never log or breadcrumb it. */
+  | { kind: "connect"; url?: string; bundle?: string }
   | { kind: "unknown"; url: string };
 
 export async function drainPendingDeepLinks(): Promise<DeepLink[]> {

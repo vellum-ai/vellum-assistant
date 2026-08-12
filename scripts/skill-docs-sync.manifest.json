@@ -3,11 +3,11 @@
   "skills": {
     "acp": {
       "docsSlug": "acp",
-      "sha256": "ed643e026dc52be08d42cc1b1c41073240009078e5558474e9e44325640bdf8c"
+      "sha256": "721a130b51cc08112b057387fe43a6427d2987c8a36631ed84c6ee2131ea64e9"
     },
     "app-builder": {
       "docsSlug": "app-builder",
-      "sha256": "0e2e522d8735a4ea9331c994a2520e0e1a57aca7c728b7105cac1b94166ed595"
+      "sha256": "09c28514c0187b9f94a8e97c55c062999d741016ff3e8d693357b6b5cc0a1e98"
     },
     "computer-use": {
       "docsSlug": "computer-use",
@@ -19,7 +19,7 @@
     },
     "document-editor": {
       "docsSlug": "document",
-      "sha256": "95f34b03900851215b2bc153d5e6c92e382476fa361147f31b28d4757ed6c4d3"
+      "sha256": "2932aab14bc1050e9901f1771351ca0c6539edca2acec61ac49e2c3ac6f7b76c"
     },
     "followups": {
       "docsSlug": "followups",
@@ -47,7 +47,7 @@
     },
     "schedule": {
       "docsSlug": "schedule",
-      "sha256": "629b5815eb736b46f1af5faf57a5a74788e3b43bbf08371c654eddc3f788557d"
+      "sha256": "74891c880acb0c8d3a6ac5ba11ba05ee19adf46ce5a873e719875a066a7c6391"
     },
     "skill-management": {
       "docsSlug": "skill-management",
@@ -55,7 +55,7 @@
     },
     "subagent": {
       "docsSlug": "subagent",
-      "sha256": "85c6433b05caed4992d61adb92977706ce633ed87349584924cedfa5764f1df6"
+      "sha256": "a2e96b06c557c31c40a0adc26a61e6ea74b9c8b7c1e826d29063fd5c262757ac"
     },
     "transcribe": {
       "docsSlug": "transcribe",

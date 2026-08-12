@@ -3,6 +3,7 @@ import { type ReactNode, useEffect, useRef } from "react";
 
 import { Button } from "@vellumai/design-library";
 
+import { useBodyScrollLock } from "@/hooks/use-body-scroll-lock";
 import { useSwipeHorizontal } from "@/hooks/use-swipe-horizontal";
 
 /** Tailwind `sm` breakpoint — matches the `sm:hidden` class on the drawer. */
@@ -56,14 +57,13 @@ export function MobileSidebarDrawer({
     onSwipeLeft: onClose,
   });
 
+  useBodyScrollLock(open);
+
   useEffect(() => {
     if (!open) {
       return;
     }
     closeButtonRef.current?.focus();
-
-    const previousBodyOverflow = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
 
     const mql = window.matchMedia(SM_MEDIA_QUERY);
     const handleMediaChange = (e: MediaQueryListEvent) => {
@@ -107,7 +107,6 @@ export function MobileSidebarDrawer({
     return () => {
       document.removeEventListener("keydown", onKeyDown);
       mql.removeEventListener("change", handleMediaChange);
-      document.body.style.overflow = previousBodyOverflow;
     };
   }, [open]);
 

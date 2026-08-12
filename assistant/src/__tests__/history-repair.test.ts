@@ -572,8 +572,10 @@ describe("repairHistory", () => {
     ).toBe(true);
   });
 
-  test("trailing server_tool_use gets synthetic result in same assistant message", () => {
-    // No trailing user message needed — result goes in the assistant message
+  test("trailing server_tool_use is preserved as a deferred execution", () => {
+    // An unanswered server_tool_use at the tail is a deferred search the
+    // provider executes on the next request; repairing it would cancel the
+    // search.
     const messages: Message[] = [
       { role: "user", content: [{ type: "text", text: "Go" }] },
       {
@@ -591,19 +593,105 @@ describe("repairHistory", () => {
 
     const { messages: repaired, stats } = repairHistory(messages);
 
-    expect(stats.missingToolResultsInserted).toBe(1);
-    // Result is in the assistant message
+    expect(stats.missingToolResultsInserted).toBe(0);
     expect(repaired).toHaveLength(2);
     expect(repaired[1].role).toBe("assistant");
-    expect(repaired[1].content).toHaveLength(2);
-    expect(repaired[1].content[1]).toMatchObject({
-      type: "web_search_tool_result",
-      tool_use_id: "stu_1",
-      content: {
-        type: "web_search_tool_result_error",
-        error_code: "unavailable",
-      },
+    expect(repaired[1].content).toHaveLength(1);
+    expect(repaired[1].content[0]).toMatchObject({
+      type: "server_tool_use",
+      id: "stu_1",
     });
+  });
+
+  test("deferred mixed tail (tool_use + server_tool_use, then tool_result) survives a reload untouched", () => {
+    // Persisted mid-deferral shape: the model called a client tool and a
+    // search in one parallel group, the client result came back, and the
+    // daemon reloaded before the next model call ran the search.
+    const messages: Message[] = [
+      { role: "user", content: [{ type: "text", text: "Check both" }] },
+      {
+        role: "assistant",
+        content: [
+          { type: "tool_use", id: "tu_a", name: "file_read", input: {} },
+          {
+            type: "server_tool_use",
+            id: "stu_deferred",
+            name: "web_search",
+            input: { query: "news" },
+          },
+        ],
+      },
+      {
+        role: "user",
+        content: [
+          { type: "tool_result", tool_use_id: "tu_a", content: "file" },
+        ],
+      },
+    ];
+
+    const { messages: repaired, stats } = repairHistory(messages);
+
+    expect(stats.missingToolResultsInserted).toBe(0);
+    expect(stats.orphanToolResultsDowngraded).toBe(0);
+    expect(repaired).toHaveLength(3);
+    expect(repaired[1].content.map((b) => b.type)).toEqual([
+      "tool_use",
+      "server_tool_use",
+    ]);
+  });
+
+  test("cross-message server tool pair from a completed deferred execution survives a reload untouched", () => {
+    const messages: Message[] = [
+      { role: "user", content: [{ type: "text", text: "Check both" }] },
+      {
+        role: "assistant",
+        content: [
+          { type: "tool_use", id: "tu_a", name: "file_read", input: {} },
+          {
+            type: "server_tool_use",
+            id: "stu_split",
+            name: "web_search",
+            input: { query: "news" },
+          },
+        ],
+      },
+      {
+        role: "user",
+        content: [
+          { type: "tool_result", tool_use_id: "tu_a", content: "file" },
+        ],
+      },
+      {
+        role: "assistant",
+        content: [
+          {
+            type: "web_search_tool_result",
+            tool_use_id: "stu_split",
+            content: [
+              {
+                type: "web_search_result",
+                url: "https://example.com",
+                title: "Example",
+              },
+            ],
+          },
+          { type: "text", text: "Found it." },
+        ],
+      },
+    ];
+
+    const { messages: repaired, stats } = repairHistory(messages);
+
+    expect(stats.missingToolResultsInserted).toBe(0);
+    expect(stats.orphanToolResultsDowngraded).toBe(0);
+    expect(repaired[1].content.map((b) => b.type)).toEqual([
+      "tool_use",
+      "server_tool_use",
+    ]);
+    expect(repaired[3].content.map((b) => b.type)).toEqual([
+      "web_search_tool_result",
+      "text",
+    ]);
   });
 
   test("synthetic web_search_tool_result is placed immediately after its server_tool_use, not at end", () => {
@@ -647,6 +735,12 @@ describe("repairHistory", () => {
             content: "Skill loaded",
           },
         ],
+      },
+      // A later assistant message closes the deferral window: the searches
+      // never executed, so they are genuine orphans.
+      {
+        role: "assistant",
+        content: [{ type: "text", text: "Skill ready." }],
       },
     ];
 
@@ -865,6 +959,12 @@ describe("repairHistory", () => {
             ],
           },
         ],
+      },
+      // A later exchange closes the deferral window for stu_missing_result.
+      { role: "user", content: [{ type: "text", text: "and?" }] },
+      {
+        role: "assistant",
+        content: [{ type: "text", text: "done" }],
       },
     ];
 

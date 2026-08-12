@@ -32,6 +32,13 @@ let newMessages: Array<{
   metadata?: string | null;
 }> = [];
 
+// Recorded `getMessagesAfter` calls, so overrideCursor tests can assert which
+// cursor value actually reached the slice read.
+let messagesAfterCalls: Array<{
+  conversationId: string;
+  afterId: string | null;
+}> = [];
+
 // Prior retrospective conversation + messages. `priorRetroOwnerId` is the
 // fork-chain conversation the prior is rooted at — `findMostRecentRetrospectiveFor`
 // returns it so the GC ownership check can tell "this source's own prior"
@@ -97,6 +104,10 @@ let messagesByConversationId: Record<string, StubMessage[]> = {};
 // the real registry's semantics for conversations not in memory.
 let loadedConversations: Record<string, { processing: boolean }> = {};
 
+// Persisted `processing_started_at` stamps, keyed by conversation id, backing
+// the stale-flag override's age check. Absent ids read as null (stampless).
+let processingStartedAtById: Record<string, number | null> = {};
+
 const watchdogEvents: Array<{
   checkName: string;
   value?: number | null;
@@ -155,7 +166,13 @@ mock.module("../find-most-recent-retrospective-for.js", () => ({
 }));
 
 mock.module("../../../../persistence/conversation-crud.js", () => ({
-  getMessagesAfter: (_id: string, _afterId: string | null) => newMessages,
+  getMessagesAfter: (id: string, afterId: string | null) => {
+    messagesAfterCalls.push({ conversationId: id, afterId });
+    // Real rows always carry `finalized` (NOT NULL, default 1); the slice
+    // filter drops unfinalized rows, so mock rows default to finalized
+    // unless a test explicitly stages a streaming row.
+    return newMessages.map((row) => ({ finalized: 1, ...row }));
+  },
   getMessages: (id: string) => {
     if (messagesByConversationId[id]) {
       return messagesByConversationId[id];
@@ -195,6 +212,8 @@ mock.module("../../../../persistence/conversation-crud.js", () => ({
     const entry = loadedConversations[id];
     return entry?.processing ?? false;
   },
+  getConversationProcessingStartedAt: (id: string) =>
+    processingStartedAtById[id] ?? null,
   forkConversationForRetrospective: async (params: {
     conversationId: string;
     throughMessageId?: string;
@@ -328,7 +347,7 @@ import type { MemoryJob } from "../../../../persistence/jobs-store.js";
 import {
   memoryRetrospectiveJob,
   runForkBasedRetrospective,
-  SOURCE_PROCESSING_REQUEUE_DELAY_MS,
+  STALE_SOURCE_PROCESSING_OVERRIDE_MS,
 } from "../memory-retrospective-job.js";
 
 function makeConfig(
@@ -339,12 +358,14 @@ function makeConfig(
     matchConversationProfile?: boolean;
     promptPath?: string;
     requireUserActivity?: boolean;
+    enabled?: boolean;
   } = {},
 ): Parameters<typeof memoryRetrospectiveJob>[1] {
   return {
     memory: {
       v2: { enabled: true },
       retrospective: {
+        enabled: overrides.enabled ?? true,
         keepSupersededRuns: overrides.keepSupersededRuns ?? false,
         matchConversationProfile: overrides.matchConversationProfile ?? false,
         promptPath: overrides.promptPath ?? null,
@@ -397,6 +418,41 @@ function persistedInstructionText(): string {
   return blocks[0]!.text;
 }
 
+/**
+ * Default persisted run output for the wake's fork conversation: a single
+ * assistant `remember` tool_use with an empty batch payload plus its
+ * successful tool_result. Satisfies the fail-closed advancement gate (a
+ * durable memory-writing call exists AND its execution succeeded) while
+ * appending nothing to the remembered log, so pre-gate assertions about log
+ * contents hold unchanged. Tests that assert the gate itself override
+ * `messagesByConversationId` for the fork id.
+ */
+function defaultForkRunOutput() {
+  return [
+    {
+      role: "assistant",
+      content: JSON.stringify([
+        {
+          type: "tool_use",
+          id: "tu-run-1",
+          name: "remember",
+          input: { content: [] },
+        },
+      ]),
+      createdAt: Date.parse("2026-05-11T10:20:00Z"),
+      metadata: null,
+    },
+    {
+      role: "user",
+      content: JSON.stringify([
+        { type: "tool_result", tool_use_id: "tu-run-1", content: "Saved." },
+      ]),
+      createdAt: Date.parse("2026-05-11T10:20:01Z"),
+      metadata: null,
+    },
+  ];
+}
+
 function priorRetroMessage(rememberContents: string[]) {
   return {
     role: "assistant",
@@ -421,6 +477,7 @@ describe("memoryRetrospectiveJob", () => {
       { id: "m2", createdAt: Date.parse("2026-05-11T10:05:00Z") },
       { id: "m3", createdAt: Date.parse("2026-05-11T10:10:00Z") },
     ];
+    messagesAfterCalls = [];
     priorRetroId = null;
     priorRetroOwnerId = "src-conv-1";
     priorRetroMessages = [];
@@ -434,8 +491,9 @@ describe("memoryRetrospectiveJob", () => {
     addMessageCalls = [];
     retrospectiveJobUpserts = [];
     conversationOverrides = {};
-    messagesByConversationId = {};
+    messagesByConversationId = { "fork-conv-1": defaultForkRunOutput() };
     loadedConversations = {};
+    processingStartedAtById = {};
     mockResolvedUserSlug = "alice";
     resolveUserSlugCalls = [];
     mockV3TierActive = false;
@@ -458,6 +516,21 @@ describe("memoryRetrospectiveJob", () => {
     // findMostRecentRetrospectiveFor.
     expect(forkCalls).toHaveLength(1);
     expect(forkCalls[0]!.conversationId).toBe("src-conv-1");
+  });
+
+  test("retrospectives disabled: queued row drains as a no-op without forking", async () => {
+    const outcome = await memoryRetrospectiveJob(
+      makeJob(),
+      makeConfig({ enabled: false }),
+    );
+
+    expect(outcome.kind).toBe("disabled");
+    // The whole point of the switch: no fork, no wake, no pointer movement,
+    // so re-enabling reviews the same window the row was queued for.
+    expect(forkCalls).toHaveLength(0);
+    expect(wakeCalls).toHaveLength(0);
+    expect(stateUpserts).toHaveLength(0);
+    expect(lastRunAtBumps).toHaveLength(0);
   });
 
   test("dormant source beyond the sweep lookback: completed as a no-op, both pointers untouched", async () => {
@@ -740,6 +813,375 @@ describe("memoryRetrospectiveJob", () => {
     expect(deletedConversationIds).toEqual(["fork-conv-1"]);
   });
 
+  // -------------------------------------------------------------------------
+  // Fail-closed usable-output gate: `invoked: true` alone must not advance
+  // the cursor. The agent loop swallows provider rejections into a normal
+  // no-output return, so a wake can report success for a run that persisted
+  // nothing; advancement requires a durable memory-writing tool call on the
+  // run's own persisted tail.
+  // -------------------------------------------------------------------------
+
+  test("invoked wake with NO persisted run output: no_usable_output, cursor and log untouched, window retryable", async () => {
+    mockWakeResult = { invoked: true };
+    // The fork persisted nothing (e.g. a swallowed provider rejection or a
+    // zero-output max-tokens stop).
+    messagesByConversationId["fork-conv-1"] = [];
+
+    const outcome = await memoryRetrospectiveJob(makeJob(), stubConfig);
+
+    expect(outcome.kind).toBe("no_usable_output");
+    // Cursor NOT advanced, remembered log NOT appended.
+    expect(stateUpserts).toHaveLength(0);
+    // Retryable: cooldown bump only, orphan fork cleaned up.
+    expect(lastRunAtBumps).toHaveLength(1);
+    expect(deletedConversationIds).toEqual(["fork-conv-1"]);
+    expect(
+      watchdogEvents.filter((e) => e.checkName === "memory_retrospective_run"),
+    ).toEqual([
+      {
+        checkName: "memory_retrospective_run",
+        value: 1,
+        detail: {
+          outcome: "no_usable_output",
+          reason: "run persisted no memory-writing tool call",
+        },
+      },
+    ]);
+  });
+
+  test("invoked wake whose run persisted only analysis text (no tool calls): no_usable_output, prior retrospective preserved", async () => {
+    mockWakeResult = { invoked: true };
+    priorRetroId = "prior-retro-1";
+    messagesByConversationId["fork-conv-1"] = [
+      {
+        role: "assistant",
+        content: JSON.stringify([
+          { type: "text", text: "Nothing new worth remembering here." },
+        ]),
+        createdAt: Date.parse("2026-05-11T10:20:00Z"),
+        metadata: null,
+      },
+    ];
+
+    const outcome = await memoryRetrospectiveJob(makeJob(), stubConfig);
+
+    expect(outcome.kind).toBe("no_usable_output");
+    expect(stateUpserts).toHaveLength(0);
+    // Only this run's own fork is deleted; the prior retrospective (the
+    // dedup baseline for the retry) is preserved.
+    expect(deletedConversationIds).toEqual(["fork-conv-1"]);
+  });
+
+  test("run-message load failure classifies as no_usable_output (fail-closed), not success", async () => {
+    mockWakeResult = { invoked: true };
+    // Fork-kind conversation with no stamps and no leading instruction row:
+    // `loadRetrospectiveRunMessages` returns null (indeterminate).
+    conversationOverrides["fork-conv-1"] = {
+      source: "memory-retrospective-fork",
+      forkParentMessageId: null,
+    };
+    messagesByConversationId["fork-conv-1"] = [
+      {
+        role: "assistant",
+        content: JSON.stringify([{ type: "text", text: "copied row" }]),
+        createdAt: 1,
+        metadata: null,
+      },
+    ];
+
+    const outcome = await memoryRetrospectiveJob(makeJob(), stubConfig);
+
+    expect(outcome.kind).toBe("no_usable_output");
+    expect(stateUpserts).toHaveLength(0);
+  });
+
+  test("checkpoint-persisted saves on a fork-kind tail count as usable output (rebase-after-live cannot fake no-output)", async () => {
+    mockWakeResult = { invoked: true };
+    conversationOverrides["fork-conv-1"] = {
+      source: "memory-retrospective-fork",
+      forkParentMessageId: null,
+    };
+    // Copied prefix rows carry forkSourceMessageId stamps; the run's own
+    // persisted tail (from checkpoint persistence, regardless of what the
+    // in-memory history looked like after any rebase) sits after the
+    // boundary and carries the durable remember call.
+    messagesByConversationId["fork-conv-1"] = [
+      {
+        role: "user",
+        content: JSON.stringify([{ type: "text", text: "copied source row" }]),
+        createdAt: 100,
+        metadata: JSON.stringify({ forkSourceMessageId: "m2" }),
+      },
+      {
+        role: "assistant",
+        content: JSON.stringify([
+          {
+            type: "tool_use",
+            id: "tu-ckpt-1",
+            name: "remember",
+            input: { content: ["fact persisted via checkpoint"] },
+          },
+        ]),
+        createdAt: 200,
+        metadata: null,
+      },
+      {
+        role: "user",
+        content: JSON.stringify([
+          { type: "tool_result", tool_use_id: "tu-ckpt-1", content: "Saved." },
+        ]),
+        createdAt: 201,
+        metadata: null,
+      },
+    ];
+
+    const outcome = await memoryRetrospectiveJob(makeJob(), stubConfig);
+
+    expect(outcome.kind).toBe("invoked");
+    expect(stateUpserts).toHaveLength(1);
+    expect(stateUpserts[0]!.rememberedLog).toEqual([
+      "fact persisted via checkpoint",
+    ]);
+  });
+
+  test("scaffold_managed_skill counts as durable work even with zero remembers", async () => {
+    mockWakeResult = { invoked: true };
+    messagesByConversationId["fork-conv-1"] = [
+      {
+        role: "assistant",
+        content: JSON.stringify([
+          {
+            type: "tool_use",
+            id: "tu-skill-1",
+            name: "scaffold_managed_skill",
+            input: { name: "deploy-checklist" },
+          },
+        ]),
+        createdAt: Date.parse("2026-05-11T10:20:00Z"),
+        metadata: null,
+      },
+      {
+        role: "user",
+        content: JSON.stringify([
+          {
+            type: "tool_result",
+            tool_use_id: "tu-skill-1",
+            content: "Skill scaffolded.",
+          },
+        ]),
+        createdAt: Date.parse("2026-05-11T10:20:01Z"),
+        metadata: null,
+      },
+    ];
+
+    const outcome = await memoryRetrospectiveJob(makeJob(), stubConfig);
+
+    expect(outcome.kind).toBe("invoked");
+    expect(stateUpserts).toHaveLength(1);
+    expect(stateUpserts[0]!.rememberedLog).toEqual([]);
+  });
+
+  test("a remember whose execution FAILED (is_error tool_result) is not durable evidence and its facts stay out of the log", async () => {
+    mockWakeResult = { invoked: true };
+    messagesByConversationId["fork-conv-1"] = [
+      {
+        role: "assistant",
+        content: JSON.stringify([
+          {
+            type: "tool_use",
+            id: "tu-fail-1",
+            name: "remember",
+            input: { content: "fact that never landed" },
+          },
+        ]),
+        createdAt: Date.parse("2026-05-11T10:20:00Z"),
+        metadata: null,
+      },
+      {
+        role: "user",
+        content: JSON.stringify([
+          {
+            type: "tool_result",
+            tool_use_id: "tu-fail-1",
+            content: "memory buffer write failed",
+            is_error: true,
+          },
+        ]),
+        createdAt: Date.parse("2026-05-11T10:20:01Z"),
+        metadata: null,
+      },
+    ];
+
+    const outcome = await memoryRetrospectiveJob(makeJob(), stubConfig);
+
+    // The tool_use alone proves the model asked; the durable write happens
+    // in the executor, and it failed. Window stays retryable, and the failed
+    // fact must not enter <already_remembered> where it would suppress the
+    // retry's re-save.
+    expect(outcome.kind).toBe("no_usable_output");
+    expect(stateUpserts).toHaveLength(0);
+    expect(lastRunAtBumps).toHaveLength(1);
+  });
+
+  test("explicit no-findings reply advances the cursor without fabricating a memory write", async () => {
+    mockWakeResult = { invoked: true };
+    messagesByConversationId["fork-conv-1"] = [
+      {
+        role: "assistant",
+        content: JSON.stringify([
+          { type: "text", text: "Nothing new to save." },
+        ]),
+        createdAt: Date.parse("2026-05-11T10:20:00Z"),
+        metadata: null,
+      },
+    ];
+
+    const outcome = await memoryRetrospectiveJob(makeJob(), stubConfig);
+
+    // A reviewed-and-no-findings pass is a legitimate success: the mandated
+    // exact reply is the positive persisted artifact, the cursor advances,
+    // and the remembered log gains nothing.
+    expect(outcome.kind).toBe("invoked");
+    expect(stateUpserts).toHaveLength(1);
+    expect(stateUpserts[0]!.lastProcessedMessageId).toBe("m3");
+    expect(stateUpserts[0]!.rememberedLog).toEqual([]);
+  });
+
+  test("analysis prose that merely mentions the no-findings phrase does not advance", async () => {
+    mockWakeResult = { invoked: true };
+    messagesByConversationId["fork-conv-1"] = [
+      {
+        role: "assistant",
+        content: JSON.stringify([
+          {
+            type: "text",
+            text: "I reviewed the window. Nothing new to save. Here is my reasoning about why each item was already covered by prior passes.",
+          },
+        ]),
+        createdAt: Date.parse("2026-05-11T10:20:00Z"),
+        metadata: null,
+      },
+    ];
+
+    const outcome = await memoryRetrospectiveJob(makeJob(), stubConfig);
+
+    expect(outcome.kind).toBe("no_usable_output");
+    expect(stateUpserts).toHaveLength(0);
+  });
+
+  test("no-findings reply cannot advance a run that attempted a save and failed", async () => {
+    mockWakeResult = { invoked: true };
+    messagesByConversationId["fork-conv-1"] = [
+      {
+        role: "assistant",
+        content: JSON.stringify([
+          {
+            type: "tool_use",
+            id: "tu-mixed-1",
+            name: "remember",
+            input: { content: "fact that failed to land" },
+          },
+        ]),
+        createdAt: Date.parse("2026-05-11T10:20:00Z"),
+        metadata: null,
+      },
+      {
+        role: "user",
+        content: JSON.stringify([
+          {
+            type: "tool_result",
+            tool_use_id: "tu-mixed-1",
+            content: "write failed",
+            is_error: true,
+          },
+        ]),
+        createdAt: Date.parse("2026-05-11T10:20:01Z"),
+        metadata: null,
+      },
+      {
+        role: "assistant",
+        content: JSON.stringify([
+          { type: "text", text: "Nothing new to save." },
+        ]),
+        createdAt: Date.parse("2026-05-11T10:20:02Z"),
+        metadata: null,
+      },
+    ];
+
+    const outcome = await memoryRetrospectiveJob(makeJob(), stubConfig);
+
+    // The run demonstrably had findings (it attempted a save); the failed
+    // write must stay retryable rather than being papered over by a
+    // no-findings claim.
+    expect(outcome.kind).toBe("no_usable_output");
+    expect(stateUpserts).toHaveLength(0);
+  });
+
+  test("a remember tool_use with NO persisted tool_result is not durable evidence", async () => {
+    mockWakeResult = { invoked: true };
+    messagesByConversationId["fork-conv-1"] = [
+      {
+        role: "assistant",
+        content: JSON.stringify([
+          {
+            type: "tool_use",
+            id: "tu-noresult-1",
+            name: "remember",
+            input: { content: "fact with unproven execution" },
+          },
+        ]),
+        createdAt: Date.parse("2026-05-11T10:20:00Z"),
+        metadata: null,
+      },
+    ];
+
+    const outcome = await memoryRetrospectiveJob(makeJob(), stubConfig);
+
+    expect(outcome.kind).toBe("no_usable_output");
+    expect(stateUpserts).toHaveLength(0);
+  });
+
+  test("retry after a no_usable_output run advances only once durable output exists", async () => {
+    mockWakeResult = { invoked: true };
+    messagesByConversationId["fork-conv-1"] = [];
+
+    const first = await memoryRetrospectiveJob(makeJob(), stubConfig);
+    expect(first.kind).toBe("no_usable_output");
+    expect(stateUpserts).toHaveLength(0);
+
+    // Retry: same window, this time the run persists a real save and its
+    // successful execution.
+    messagesByConversationId["fork-conv-1"] = [
+      {
+        role: "assistant",
+        content: JSON.stringify([
+          {
+            type: "tool_use",
+            id: "tu-retry-1",
+            name: "remember",
+            input: { content: "fact captured on retry" },
+          },
+        ]),
+        createdAt: Date.parse("2026-05-11T10:25:00Z"),
+        metadata: null,
+      },
+      {
+        role: "user",
+        content: JSON.stringify([
+          { type: "tool_result", tool_use_id: "tu-retry-1", content: "Saved." },
+        ]),
+        createdAt: Date.parse("2026-05-11T10:25:01Z"),
+        metadata: null,
+      },
+    ];
+    const second = await memoryRetrospectiveJob(makeJob(), stubConfig);
+
+    expect(second.kind).toBe("invoked");
+    expect(stateUpserts).toHaveLength(1);
+    expect(stateUpserts[0]!.lastProcessedMessageId).toBe("m3");
+    expect(stateUpserts[0]!.rememberedLog).toEqual(["fact captured on retry"]);
+  });
+
   test("wake throws: lastRunAt bumped before rethrow, orphan fork deleted, error rethrown", async () => {
     mockWakeThrows = new Error("LLM provider 503");
     await expect(memoryRetrospectiveJob(makeJob(), stubConfig)).rejects.toThrow(
@@ -957,7 +1399,7 @@ describe("memoryRetrospectiveJob", () => {
     await memoryRetrospectiveJob(makeJob(), stubConfig);
 
     const instructionText = persistedInstructionText();
-    expect(instructionText).toContain("<​/already_remembered>");
+    expect(instructionText).toContain("<\u200B/already_remembered>");
   });
 
   test("honors memory.retrospective.promptPath override when set", async () => {
@@ -1012,12 +1454,10 @@ describe("memoryRetrospectiveJob", () => {
   // Mid-turn requeue gate
   // -------------------------------------------------------------------------
 
-  test("source mid-turn → skipped outcome, state fully untouched, job re-upserted with the fallback delay, no fork", async () => {
+  test("source mid-turn → source_processing outcome, state fully untouched, no self-upserted row, no fork", async () => {
     loadedConversations["src-conv-1"] = { processing: true };
 
-    const before = Date.now();
     const outcome = await memoryRetrospectiveJob(makeJob(), stubConfig);
-    const after = Date.now();
 
     expect(outcome.kind).toBe("source_processing");
     // BOTH pointers untouched. `lastRunAt` must stay unbumped so the
@@ -1027,23 +1467,51 @@ describe("memoryRetrospectiveJob", () => {
     // forever.
     expect(stateUpserts).toHaveLength(0);
     expect(lastRunAtBumps).toHaveLength(0);
-    // Timed fallback row for a turn that aborts without indexing another
-    // message: coalescing re-upsert at the named delay.
-    expect(retrospectiveJobUpserts).toHaveLength(1);
-    expect(retrospectiveJobUpserts[0]!.payload).toEqual({
-      conversationId: "src-conv-1",
-    });
-    expect(retrospectiveJobUpserts[0]!.runAfter).toBeGreaterThanOrEqual(
-      before + SOURCE_PROCESSING_REQUEUE_DELAY_MS,
-    );
-    expect(retrospectiveJobUpserts[0]!.runAfter).toBeLessThanOrEqual(
-      after + SOURCE_PROCESSING_REQUEUE_DELAY_MS,
-    );
+    // The handler no longer mints a fresh fallback row per attempt: the
+    // worker defers the SAME job row on the bounded deferral counter (see
+    // `resolveRetrospectiveOutcome`), so a stranded processing flag cannot
+    // produce an unbounded stream of job rows.
+    expect(retrospectiveJobUpserts).toHaveLength(0);
     // No fork, no instruction, no wake, no cleanup side effects.
     expect(forkCalls).toHaveLength(0);
     expect(addMessageCalls).toHaveLength(0);
     expect(wakeCalls).toHaveLength(0);
     expect(deletedConversationIds).toEqual([]);
+  });
+
+  test("source mid-turn with a fresh processing stamp → still deferred", async () => {
+    loadedConversations["src-conv-1"] = { processing: true };
+    processingStartedAtById["src-conv-1"] = Date.now() - 60_000;
+
+    const outcome = await memoryRetrospectiveJob(makeJob(), stubConfig);
+
+    expect(outcome.kind).toBe("source_processing");
+    expect(forkCalls).toHaveLength(0);
+  });
+
+  test("source mid-turn with a stamp older than the stale override → proceeds and runs normally", async () => {
+    loadedConversations["src-conv-1"] = { processing: true };
+    processingStartedAtById["src-conv-1"] =
+      Date.now() - STALE_SOURCE_PROCESSING_OVERRIDE_MS - 60_000;
+
+    const outcome = await memoryRetrospectiveJob(makeJob(), stubConfig);
+
+    // A stranded flag (swallowed turn-end clear while the daemon stayed up)
+    // must not block memory formation indefinitely: past the override window
+    // the run proceeds as if idle.
+    expect(outcome.kind).toBe("invoked");
+    expect(forkCalls).toHaveLength(1);
+    expect(stateUpserts).toHaveLength(1);
+  });
+
+  test("source mid-turn with a set flag but no persisted stamp → deferred (reads as live)", async () => {
+    loadedConversations["src-conv-1"] = { processing: true };
+    // No processingStartedAtById entry: the stamp write may have failed, so
+    // age cannot be established. The bounded deferral budget still caps it.
+    const outcome = await memoryRetrospectiveJob(makeJob(), stubConfig);
+
+    expect(outcome.kind).toBe("source_processing");
+    expect(forkCalls).toHaveLength(0);
   });
 
   test("source loaded but idle → normal run, no requeue upsert", async () => {
@@ -1750,11 +2218,20 @@ describe("memoryRetrospectiveJob", () => {
         content: JSON.stringify([
           {
             type: "tool_use",
+            id: "tu-tail-1",
             name: "remember",
             input: { content: "post-fork tail save — included" },
           },
         ]),
         createdAt: 2000,
+        metadata: null,
+      },
+      {
+        role: "user",
+        content: JSON.stringify([
+          { type: "tool_result", tool_use_id: "tu-tail-1", content: "Saved." },
+        ]),
+        createdAt: 2001,
         metadata: null,
       },
     ];
@@ -1814,11 +2291,20 @@ describe("memoryRetrospectiveJob", () => {
         content: JSON.stringify([
           {
             type: "tool_use",
+            id: "tu-seed-1",
             name: "remember",
             input: { content: "this run's save" },
           },
         ]),
         createdAt: 2000,
+        metadata: null,
+      },
+      {
+        role: "user",
+        content: JSON.stringify([
+          { type: "tool_result", tool_use_id: "tu-seed-1", content: "Saved." },
+        ]),
+        createdAt: 2001,
         metadata: null,
       },
     ];
@@ -1859,11 +2345,20 @@ describe("memoryRetrospectiveJob", () => {
         content: JSON.stringify([
           {
             type: "tool_use",
+            id: "tu-carry-1",
             name: "remember",
             input: { content: "fork tail save" },
           },
         ]),
         createdAt: 2000,
+        metadata: null,
+      },
+      {
+        role: "user",
+        content: JSON.stringify([
+          { type: "tool_result", tool_use_id: "tu-carry-1", content: "Saved." },
+        ]),
+        createdAt: 2001,
         metadata: null,
       },
     ];

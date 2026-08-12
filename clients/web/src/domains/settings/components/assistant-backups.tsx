@@ -19,6 +19,8 @@ import { Button } from "@vellumai/design-library/components/button";
 import { ConfirmDialog } from "@vellumai/design-library/components/confirm-dialog";
 import { type TagTone, Tag } from "@vellumai/design-library/components/tag";
 import { toast } from "@vellumai/design-library/components/toast";
+import { cn } from "@vellumai/design-library/utils/cn";
+import { hoverRevealClasses } from "@vellumai/design-library/utils/hover-reveal";
 
 const MAX_POINT_IN_TIME_BACKUPS = 3;
 
@@ -242,7 +244,7 @@ export function AssistantBackups({ assistantId }: { assistantId: string }) {
                   className="border-b border-[var(--border-base)] last:border-0"
                 >
                   <td className="py-2.5 pr-4">
-                    <div className="group/snapshot flex items-center gap-1">
+                    <div className="group flex items-center gap-1">
                       <code
                         className="truncate text-body-small-default text-[var(--content-default)]"
                         title={backup.snapshot_name}
@@ -254,7 +256,10 @@ export function AssistantBackups({ assistantId }: { assistantId: string }) {
                         onClick={() =>
                           handleCopySnapshotName(backup.snapshot_name)
                         }
-                        className="shrink-0 text-[var(--content-secondary)] opacity-0 transition-opacity hover:text-[var(--content-default)] group-hover/snapshot:opacity-100"
+                        className={cn(
+                          "shrink-0 text-[var(--content-secondary)] hover:text-[var(--content-default)]",
+                          hoverRevealClasses,
+                        )}
                         title="Copy snapshot name"
                       >
                         {copiedSnapshot === backup.snapshot_name ? (
@@ -312,7 +317,7 @@ export function AssistantBackups({ assistantId }: { assistantId: string }) {
               key={backup.snapshot_name}
               className="rounded-lg border border-[var(--border-base)] p-3"
             >
-              <div className="group/snapshot mb-2 flex items-center gap-1">
+              <div className="mb-2 flex items-center gap-1">
                 <code
                   className="truncate text-body-small-default text-[var(--content-default)]"
                   title={backup.snapshot_name}

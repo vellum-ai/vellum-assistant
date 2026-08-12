@@ -18,7 +18,6 @@ import {
   resolveResearchCompletionStatus,
   resolveOnboardingPluginInstalls,
   selectRecommendableCapabilities,
-  shouldArchiveCompletedResearchConversation,
   shouldSettleResearchPoll,
   useResearchRunner,
 } from "@/domains/onboarding/research-runner";
@@ -325,23 +324,5 @@ describe("useResearchRunner reinstallPlugins", () => {
     expect(await raceInstallGate(result.current.awaitPluginInstalls())).toBe(
       "settled",
     );
-  });
-});
-
-describe("shouldArchiveCompletedResearchConversation", () => {
-  test("archives when a complete payload was observed", () => {
-    expect(
-      shouldArchiveCompletedResearchConversation({
-        sawCompletePayload: true,
-      }),
-    ).toBe(true);
-  });
-
-  test("does not archive partial or timed-out research turns", () => {
-    expect(
-      shouldArchiveCompletedResearchConversation({
-        sawCompletePayload: false,
-      }),
-    ).toBe(false);
   });
 });

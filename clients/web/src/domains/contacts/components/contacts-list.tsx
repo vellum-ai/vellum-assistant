@@ -16,6 +16,7 @@ import { PanelItem } from "@vellumai/design-library/components/panel-item";
 import { Tag } from "@vellumai/design-library/components/tag";
 
 import { ContactTypeBadge } from "@/domains/contacts/components/contact-type-badge";
+import { useTranslation } from "@/i18n";
 import type {
   ContactSelection,
   ContactSummary,
@@ -42,6 +43,7 @@ export function ContactsList({
   onAddContact,
   addingContact = false,
 }: ContactsListProps) {
+  const { t } = useTranslation("contacts");
   const [search, setSearch] = useState("");
   const filtered = search.trim()
     ? regularContacts.filter((c) =>
@@ -57,7 +59,7 @@ export function ContactsList({
             className="text-title-medium"
             style={{ color: "var(--content-default)" }}
           >
-            Entries
+            {t("contactsList.heading")}
           </h2>
           <Button
             type="button"
@@ -71,7 +73,7 @@ export function ContactsList({
             }
             onClick={onAddContact}
             disabled={addingContact}
-            aria-label="Add contact"
+            aria-label={t("contactsList.addAriaLabel")}
             tintColor="var(--content-secondary)"
           />
         </div>
@@ -80,7 +82,9 @@ export function ContactsList({
           {guardian ? (
             <ContactRow
               name={
-                guardian.displayName ? `${guardian.displayName} (You)` : "You"
+                guardian.displayName
+                  ? t("contactsList.youNamed", { name: guardian.displayName })
+                  : t("contactsList.you")
               }
               role={guardian.role}
               channelTypes={guardian.channelTypes}
@@ -95,7 +99,7 @@ export function ContactsList({
             />
           ) : null}
           <ContactRow
-            name={assistantName?.trim() || "Your Assistant"}
+            name={assistantName?.trim() || t("contactsList.assistantFallback")}
             role="assistant"
             selected={selection?.kind === "assistant"}
             onClick={() => onSelect({ kind: "assistant" })}
@@ -113,7 +117,7 @@ export function ContactsList({
             type="text"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search Contacts"
+            placeholder={t("contactsList.searchPlaceholder")}
             leftIcon={<Search className="h-3.5 w-3.5" aria-hidden />}
             fullWidth
           />
@@ -144,7 +148,7 @@ export function ContactsList({
                 className="px-3 py-4 text-center text-body-small-default"
                 style={{ color: "var(--content-tertiary)" }}
               >
-                No matching contacts
+                {t("contactsList.noMatches")}
               </p>
             ) : null}
           </div>
@@ -163,7 +167,7 @@ export function ContactsList({
               )
             }
           >
-            Add Contact
+            {t("contactsList.add")}
           </Button>
         )}
       </Card.Body>
@@ -193,25 +197,29 @@ function ContactRow({
   trailingIcon,
   verified,
 }: ContactRowProps) {
+  const { t } = useTranslation("contacts");
   const channelLabel =
     channelTypes && channelTypes.length > 0
       ? channelTypes.join(" | ")
       : undefined;
 
+  /* Sits in the row's own trailing cluster: `PanelItem` draws the contents of
+     a row it owns, and this row supplies its own button. */
   const trailingActionIcon =
     trailingIcon === "pencil" ? (
-      <Pencil className="h-3.5 w-3.5" aria-hidden />
+      <Pencil
+        className="h-3.5 w-3.5 text-[color:var(--content-tertiary)]"
+        aria-hidden
+      />
     ) : trailingIcon === "more" ? (
-      <MoreVertical className="h-3.5 w-3.5" aria-hidden />
+      <MoreVertical
+        className="h-3.5 w-3.5 text-[color:var(--content-tertiary)]"
+        aria-hidden
+      />
     ) : undefined;
 
   return (
-    <PanelItem
-      asChild
-      active={selected}
-      label=""
-      trailingAction={trailingActionIcon}
-    >
+    <PanelItem asChild active={selected}>
       <button
         type="button"
         onClick={onClick}
@@ -231,10 +239,13 @@ function ContactRow({
         <span className="flex shrink-0 items-center gap-1">
           {verified !== undefined ? (
             <Tag tone={verified ? "positive" : "neutral"}>
-              {verified ? "Verified" : "Unverified"}
+              {verified
+                ? t("contactsList.verified")
+                : t("contactsList.unverified")}
             </Tag>
           ) : null}
           <ContactTypeBadge role={role} contactType={contactType} />
+          {trailingActionIcon}
         </span>
       </button>
     </PanelItem>

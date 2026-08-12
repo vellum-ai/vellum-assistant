@@ -1,4 +1,4 @@
-import { useSyncExternalStore } from "react";
+import { useMediaQuery } from "@/hooks/use-media-query";
 
 /**
  * Media query that marks viewports narrow enough to swap a sidebar rail
@@ -7,26 +7,16 @@ import { useSyncExternalStore } from "react";
  */
 export const MOBILE_MEDIA_QUERY = "(max-width: 767px)";
 
-function subscribe(onChange: () => void): () => void {
-  const mql = window.matchMedia(MOBILE_MEDIA_QUERY);
-  mql.addEventListener("change", onChange);
-  return () => mql.removeEventListener("change", onChange);
-}
-
-function getSnapshot(): boolean {
-  return window.matchMedia(MOBILE_MEDIA_QUERY).matches;
-}
-
-function getServerSnapshot(): boolean {
-  // SSR can't read the viewport — default to desktop (not mobile) so
-  // server-rendered markup matches the wide-layout path.
-  return false;
-}
-
 /**
  * Returns `true` while the viewport matches `MOBILE_MEDIA_QUERY`
  * (`max-width: 767px`).
+ *
+ * This is the window-size axis: how much room there is. It says nothing about
+ * the pointer, so a desktop window narrowed below the breakpoint still has a
+ * mouse. Interaction decisions (which overlay a trigger opens, whether a
+ * hover affordance can exist) belong to `useTouchMobile()`. See
+ * `docs/PLATFORM_ADAPTATION.md`.
  */
 export function useIsMobile(): boolean {
-  return useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot);
+  return useMediaQuery(MOBILE_MEDIA_QUERY);
 }

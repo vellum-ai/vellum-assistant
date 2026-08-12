@@ -13,6 +13,8 @@ const log = getCliLogger("cli");
 
 interface SerializedProvider {
   providerKey: string;
+  /** Which sense of connected: a grant to act as the user, or a bot. */
+  actsAs?: "user" | "assistant";
   displayName?: string | null;
   description?: string | null;
   supportsManagedMode?: boolean;
@@ -301,6 +303,7 @@ export function registerProviderCommands(oauth: Command): void {
         dashboardUrl: p.dashboard_url as string | null,
         clientIdPlaceholder: p.client_id_placeholder as string | null,
         featureFlag: p.feature_flag as string | null,
+        actsAs: p.acts_as as "user" | "assistant" | undefined,
       }));
 
       if (opts.providerKey) {

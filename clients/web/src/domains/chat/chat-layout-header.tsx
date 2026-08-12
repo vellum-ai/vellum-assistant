@@ -8,9 +8,14 @@ import {
 } from "lucide-react";
 import { useCallback, useEffect, type ReactNode } from "react";
 
-import { NATIVE_IOS_BARE_ICON_BUTTON } from "@/domains/chat/utils/native-ios-button-constants";
+import { NATIVE_MOBILE_BARE_ICON_BUTTON } from "@/domains/chat/utils/native-mobile-button-constants";
 import { isElectron } from "@/runtime/is-electron";
+import { isNativeMobile } from "@/runtime/platform-detection";
 import { useCommandPaletteStore } from "@/stores/command-palette-store";
+import {
+  resolveShellBackground,
+  usePageSurfaceStore,
+} from "@/stores/page-surface-store";
 import { useTitleBarStore } from "@/stores/title-bar-store";
 
 // On macOS the native window controls (traffic lights) overlay the top-left of
@@ -94,7 +99,7 @@ export function ChatLayoutHeader({
       iconOnly={<Search />}
       aria-label="Search (Ctrl+K)"
       tooltip="Search (Ctrl+K)"
-      className={NATIVE_IOS_BARE_ICON_BUTTON}
+      className={NATIVE_MOBILE_BARE_ICON_BUTTON}
       onClick={handleSearchClick}
     />
   ) : null;
@@ -109,6 +114,14 @@ export function ChatLayoutHeader({
     return () => setInlineTitleBarActive(false);
   }, [electron, setInlineTitleBarActive]);
 
+  // The header sits between the safe-area strips and the page content, both of
+  // which take the route's published surface on the native shells. Painting it
+  // from the same resolver is what makes the color continuous instead of a
+  // neutral band across the top. Off native mobile, and on any route that
+  // publishes nothing, this resolves to the usual neutral chrome.
+  const pageSurface = usePageSurfaceStore.use.surface();
+  const headerBackground = resolveShellBackground(pageSurface, isNativeMobile());
+
   return (
     <header
       data-slot="chat-layout-header"
@@ -118,7 +131,7 @@ export function ChatLayoutHeader({
           : ""
       }`}
       style={{
-        background: "var(--surface-base)",
+        background: headerBackground,
         minHeight: electron ? "44px" : "40px",
         paddingTop: electron ? 0 : undefined,
       }}
@@ -148,7 +161,7 @@ export function ChatLayoutHeader({
             aria-expanded={drawerOpen}
             aria-controls="chat-side-menu"
             tooltip="Open navigation"
-            className={NATIVE_IOS_BARE_ICON_BUTTON}
+            className={NATIVE_MOBILE_BARE_ICON_BUTTON}
             onClick={toggleSidebar}
           />
         ) : (

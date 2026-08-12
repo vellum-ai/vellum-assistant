@@ -77,6 +77,23 @@ mock.module("../../persistence/attachments-store.js", () => ({
   },
 }));
 
+// Defaults to unattended, so every other case in this file exercises the
+// unsuppressed path.
+let desktopAttended = false;
+let desktopPresenceShouldThrow = false;
+const desktopPresenceArgs: unknown[][] = [];
+const realDesktopPresence = await import("../../runtime/desktop-presence.js");
+mock.module("../../runtime/desktop-presence.js", () => ({
+  ...realDesktopPresence,
+  isDesktopAttended: (...args: unknown[]) => {
+    desktopPresenceArgs.push(args);
+    if (desktopPresenceShouldThrow) {
+      throw new Error("simulated presence read failure");
+    }
+    return desktopAttended;
+  },
+}));
+
 const realAttentionStore =
   await import("../../persistence/conversation-attention-store.js");
 mock.module("../../persistence/conversation-attention-store.js", () => ({
@@ -118,6 +135,7 @@ function makeConversation(
     originInterface: null,
     forkParentConversationId: null,
     forkParentMessageId: null,
+    forkStrategy: null,
     isAutoTitle: 0,
     scheduleJobId: null,
     lastMessageAt: null,
@@ -145,6 +163,24 @@ function makeMessage(overrides: Partial<MessageRow> = {}): MessageRow {
     finalized: 1,
     ...overrides,
   };
+}
+
+/**
+ * A turn opened from the macOS app. The `client` bag's `os` entry is the only
+ * per-platform attribution: the interface stamp is "web" for the macOS app,
+ * the iOS app, and a desktop browser alike. `clientOsFromRequest` says the
+ * send itself reported that OS, which is what separates it from a row that
+ * inherited the conversation's live client state.
+ */
+function makeMacOriginatedMessage(): MessageRow {
+  return makeMessage({
+    metadata: JSON.stringify({
+      userMessageChannel: "vellum",
+      userMessageInterface: "web",
+      client: { os: "macos" },
+      clientOsFromRequest: true,
+    }),
+  });
 }
 
 function makeAssistantRow(content: ContentBlock[]): MessageRow {
@@ -213,7 +249,10 @@ beforeEach(() => {
   warnCalls.length = 0;
   messageLookups.length = 0;
   attachmentLookups.length = 0;
+  desktopPresenceArgs.length = 0;
   assistantAttachments = [];
+  desktopAttended = false;
+  desktopPresenceShouldThrow = false;
   getConversationShouldThrow = false;
   conversationRow = makeConversation();
   assistantRow = makeAssistantRow([
@@ -261,6 +300,137 @@ describe("emitAssistantReplyNotification", () => {
     await run();
 
     expect(emitCalls).toHaveLength(0);
+  });
+
+  // The push is suppressed downstream, at the source-active pre-gate in
+  // `emitNotificationSignal` (covered in `emit-signal-routing-intent.test.ts`),
+  // so the producer's contract here is the hint it emits, not the silence.
+  describe("desktop presence", () => {
+    beforeEach(() => {
+      initiatingRow = makeMacOriginatedMessage();
+      desktopAttended = true;
+    });
+
+    test("marks the signal source-active while a Mac reports itself attended", async () => {
+      await run();
+
+      expect(emitCalls).toHaveLength(1);
+      expect(emitCalls[0].attentionHints.visibleInSourceNow).toBe(true);
+      // Unscoped by design: the push targets the assistant owner, and a pod
+      // has exactly one owner, so no principal filter belongs here.
+      expect(desktopPresenceArgs).toEqual([[]]);
+    });
+
+    test("leaves the signal live when no Mac is attended", async () => {
+      desktopAttended = false;
+
+      await run();
+
+      expect(emitCalls).toHaveLength(1);
+      expect(emitCalls[0].attentionHints.visibleInSourceNow).toBe(false);
+    });
+
+    test("leaves the signal live when the presence flag is off", async () => {
+      setOverridesForTesting({ "desktop-presence-suppression": false });
+
+      await run();
+
+      expect(emitCalls).toHaveLength(1);
+      expect(emitCalls[0].attentionHints.visibleInSourceNow).toBe(false);
+      expect(desktopPresenceArgs).toEqual([]);
+    });
+
+    test("leaves the signal live when the presence read throws", async () => {
+      desktopPresenceShouldThrow = true;
+
+      await run();
+
+      expect(emitCalls).toHaveLength(1);
+      expect(emitCalls[0].attentionHints.visibleInSourceNow).toBe(false);
+      expect(warnCalls).toHaveLength(1);
+    });
+
+    // An attended Mac only speaks for a turn the Mac itself opened: the user
+    // can send from the phone minutes after last touching the keyboard, which
+    // is exactly the reply this producer exists to push.
+    const NON_MAC_ORIGIN_CASES: Array<{ name: string; metadata: unknown }> = [
+      {
+        name: "the iOS app",
+        metadata: { client: { os: "ios" }, clientOsFromRequest: true },
+      },
+      {
+        name: "a browser",
+        metadata: { client: { os: "web" }, clientOsFromRequest: true },
+      },
+      {
+        name: "a client that reports no OS",
+        metadata: { client: {} },
+      },
+      { name: "a row with no client bag", metadata: {} },
+      {
+        name: "a client reporting an unknown OS",
+        metadata: { client: { os: "bsd" }, clientOsFromRequest: true },
+      },
+      // The fail-closed shape this gate exists to refuse: a surface action
+      // tapped on the phone carries no transport, so persistence stamps the
+      // `macos` the conversation's live client state kept from an earlier
+      // desktop send. Without the marker that OS names an earlier turn, not
+      // this one, and the push the user is waiting for on their phone would
+      // be dropped by the attended Mac.
+      {
+        name: "a row whose macOS OS was inherited, not reported",
+        metadata: { userMessageInterface: "web", client: { os: "macos" } },
+      },
+      // A marker without a matching OS is not evidence of anything.
+      {
+        name: "a row marked request-reported with no client bag",
+        metadata: { clientOsFromRequest: true },
+      },
+    ];
+
+    for (const { name, metadata } of NON_MAC_ORIGIN_CASES) {
+      test(`leaves the signal live for a turn opened from ${name}`, async () => {
+        initiatingRow = makeMessage({ metadata: JSON.stringify(metadata) });
+
+        await run();
+
+        expect(emitCalls).toHaveLength(1);
+        expect(emitCalls[0].attentionHints.visibleInSourceNow).toBe(false);
+      });
+    }
+
+    // The transport interface is "web" for the macOS app, the iOS app, and a
+    // desktop browser alike, so it cannot stand in for the client OS.
+    test("leaves the signal live for a web-interface turn with no client OS", async () => {
+      initiatingRow = makeMessage({
+        metadata: JSON.stringify({
+          userMessageChannel: "vellum",
+          userMessageInterface: "web",
+        }),
+      });
+
+      await run();
+
+      expect(emitCalls).toHaveLength(1);
+      expect(emitCalls[0].attentionHints.visibleInSourceNow).toBe(false);
+    });
+
+    // An unrecognized channel fails the whole metadata schema, so the origin
+    // read has to answer off the permissive fallback too.
+    test("marks the signal source-active when only the channel is unrecognized", async () => {
+      initiatingRow = makeMessage({
+        metadata: JSON.stringify({
+          userMessageChannel: "not-a-channel",
+          client: { os: "macos" },
+          clientOsFromRequest: true,
+        }),
+      });
+
+      await run();
+
+      expect(emitCalls).toHaveLength(1);
+      expect(emitCalls[0].attentionHints.visibleInSourceNow).toBe(true);
+    });
   });
 
   test("omits requestedTitle when the conversation has no title", async () => {
@@ -333,7 +503,8 @@ describe("emitAssistantReplyNotification", () => {
   });
 
   // Blank lines and list indentation would otherwise spend the preview's
-  // length budget on whitespace.
+  // length budget on whitespace. The bullets go with them: a lock screen
+  // renders the marker as literal punctuation, not as a list.
   test("collapses whitespace runs in the preview", async () => {
     assistantRow = makeAssistantRow([
       { type: "text", text: "  Here:\n\n  - item\n  - other  " },
@@ -342,8 +513,210 @@ describe("emitAssistantReplyNotification", () => {
     await run();
 
     expect(emitCalls[0].contextPayload.requestedMessage).toBe(
-      "Here: - item - other",
+      "Here: item other",
     );
+  });
+
+  // A lock screen renders no markdown, so syntax that survives to the APNs
+  // payload reads as punctuation soup. See `stripMarkdownForPreview`.
+  describe("markdown flattening", () => {
+    test("previews a media-only reply as its attachments", async () => {
+      assistantRow = makeAssistantRow([
+        {
+          type: "text",
+          text: [
+            "![vellum scene](vellum://workspace/clients/web/public/cut.mp4)",
+            "![hero animation](vellum://workspace/repos/hero.mp4)",
+          ].join(" "),
+        },
+      ] as ContentBlock[]);
+      assistantAttachments = [
+        { originalFilename: "cut.mp4" },
+        { originalFilename: "hero.mp4" },
+      ];
+
+      await run();
+
+      expect(emitCalls[0].contextPayload.requestedMessage).toBe(
+        "Sent 2 attachments",
+      );
+    });
+
+    test("keeps the prose when a reply mixes text and media", async () => {
+      assistantRow = makeAssistantRow([
+        {
+          type: "text",
+          text: "Here is the scene: ![vellum scene](vellum://workspace/a.mp4)",
+        },
+      ] as ContentBlock[]);
+
+      await run();
+
+      expect(emitCalls[0].contextPayload.requestedMessage).toBe(
+        "Here is the scene:",
+      );
+      // The text branch produced a preview, so the fallback never ran.
+      expect(attachmentLookups).toEqual([]);
+    });
+
+    test("previews a fenced code reply as its code", async () => {
+      assistantRow = makeAssistantRow([
+        { type: "text", text: "Fixed it:\n```ts\nconst a = 1;\n```" },
+      ] as ContentBlock[]);
+
+      await run();
+
+      expect(emitCalls[0].contextPayload.requestedMessage).toBe(
+        "Fixed it: const a = 1;",
+      );
+    });
+
+    test("previews a table reply as its cells", async () => {
+      assistantRow = makeAssistantRow([
+        {
+          type: "text",
+          text: "## Keys\n\n| Env | Key |\n|---|---|\n| dev | 4Y4L |",
+        },
+      ] as ContentBlock[]);
+
+      await run();
+
+      expect(emitCalls[0].contextPayload.requestedMessage).toBe(
+        "Keys Env Key dev 4Y4L",
+      );
+    });
+
+    // Remote embeds are as valid as `vellum://` ones per the system prompt, but
+    // they register nothing in the attachment store, so the alt text is the
+    // only thing left to name them by. Going silent here would be worse than
+    // the raw markdown this change removes.
+    test("names a remote embed by its alt text", async () => {
+      assistantRow = makeAssistantRow([
+        {
+          type: "text",
+          text: "![the Q3 chart](https://cdn.example.com/q3.png)",
+        },
+      ] as ContentBlock[]);
+
+      await run();
+
+      expect(emitCalls).toHaveLength(1);
+      expect(emitCalls[0].contextPayload.requestedMessage).toBe(
+        "Sent the Q3 chart",
+      );
+    });
+
+    test("counts several remote embeds", async () => {
+      assistantRow = makeAssistantRow([
+        {
+          type: "text",
+          text: "![one](https://e.com/1.png) ![two](https://e.com/2.png)",
+        },
+      ] as ContentBlock[]);
+
+      await run();
+
+      expect(emitCalls[0].contextPayload.requestedMessage).toBe(
+        "Sent 2 attachments",
+      );
+    });
+
+    test("falls back to generic copy for a remote embed with no alt", async () => {
+      assistantRow = makeAssistantRow([
+        { type: "text", text: "![](https://cdn.example.com/q3.png)" },
+      ] as ContentBlock[]);
+
+      await run();
+
+      expect(emitCalls[0].contextPayload.requestedMessage).toBe(
+        "Sent an attachment",
+      );
+    });
+
+    // A `vellum://` embed becomes an attachment row and a remote one does not,
+    // so the two sources have to be counted together, and the tracked embed
+    // must not be counted twice.
+    test("counts local and remote media together", async () => {
+      assistantRow = makeAssistantRow([
+        {
+          type: "text",
+          text: "![local](vellum://workspace/a.mp4) ![remote](https://e.com/b.png)",
+        },
+      ] as ContentBlock[]);
+      assistantAttachments = [{ originalFilename: "a.mp4" }];
+
+      await run();
+
+      expect(emitCalls[0].contextPayload.requestedMessage).toBe(
+        "Sent 2 attachments",
+      );
+    });
+
+    // `resolveAssistantAttachments` skips a file that is missing, oversized,
+    // unreadable, or denied at the host-read approval, so a `vellum://` embed
+    // can leave no row. Its alt is then the only label the reply has.
+    test("names a tracked embed whose attachment never resolved", async () => {
+      assistantRow = makeAssistantRow([
+        { type: "text", text: "![the diagram](vellum://workspace/gone.png)" },
+      ] as ContentBlock[]);
+      assistantAttachments = [];
+
+      await run();
+
+      expect(emitCalls).toHaveLength(1);
+      expect(emitCalls[0].contextPayload.requestedMessage).toBe(
+        "Sent the diagram",
+      );
+    });
+
+    test("counts only the tracked embeds that failed to resolve", async () => {
+      assistantRow = makeAssistantRow([
+        {
+          type: "text",
+          text: "![one](vellum://workspace/1.png) ![two](vellum://workspace/2.png)",
+        },
+      ] as ContentBlock[]);
+      assistantAttachments = [{ originalFilename: "1.png" }];
+
+      await run();
+
+      expect(emitCalls[0].contextPayload.requestedMessage).toBe(
+        "Sent 2 attachments",
+      );
+    });
+
+    test("does not double count an embed that became an attachment", async () => {
+      assistantRow = makeAssistantRow([
+        { type: "text", text: "![local](vellum://workspace/a.mp4)" },
+      ] as ContentBlock[]);
+      assistantAttachments = [{ originalFilename: "a.mp4" }];
+
+      await run();
+
+      expect(emitCalls[0].contextPayload.requestedMessage).toBe("Sent a.mp4");
+    });
+
+    test("prefers the attachment row over the alt text when both exist", async () => {
+      assistantRow = makeAssistantRow([
+        { type: "text", text: "![scene](vellum://workspace/cut.mp4)" },
+      ] as ContentBlock[]);
+      assistantAttachments = [{ originalFilename: "cut.mp4" }];
+
+      await run();
+
+      expect(emitCalls[0].contextPayload.requestedMessage).toBe("Sent cut.mp4");
+    });
+
+    test("stays silent when a reply has no text, attachments, or embeds", async () => {
+      assistantRow = makeAssistantRow([
+        { type: "text", text: "## \n\n---" },
+      ] as ContentBlock[]);
+
+      await run();
+
+      expect(emitCalls).toHaveLength(0);
+      expect(attachmentLookups).toEqual([ASSISTANT_MESSAGE_ID]);
+    });
   });
 
   // Each case asserts the shared classifier's verdict alongside the silence, so

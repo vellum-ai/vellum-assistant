@@ -2,10 +2,12 @@ import { Calendar, ChevronRight } from "lucide-react";
 import type { ReactNode } from "react";
 
 import { PageEmptyState } from "@/components/page-empty-state";
+import { useTranslation } from "@/i18n";
 import { ScheduleRow } from "@/domains/schedules/components/schedule-row";
 import { Button } from "@vellumai/design-library";
 import { Collapsible } from "@vellumai/design-library/components/collapsible";
 import { Notice } from "@vellumai/design-library/components/notice";
+import { Skeleton } from "@vellumai/design-library/components/skeleton";
 
 import type { Schedule } from "@/domains/settings/types/schedules";
 import type { ScheduleRowUsage } from "@/domains/settings/utils/schedule-formatters";
@@ -29,6 +31,14 @@ export interface SchedulesPanelProps {
   pastOpen: boolean;
   onPastOpenChange: (open: boolean) => void;
   /**
+   * Opens the "move every schedule onto the current default model" flow.
+   * Omitted when there is nothing to move, so the action only appears once
+   * some schedule is running on a model other than the current default.
+   */
+  onRebaseProfiles?: () => void;
+  /** Display name of the profile the rebase would move schedules onto. */
+  defaultProfileLabel?: string;
+  /**
    * Built-in system schedules (heartbeat, consolidation, memory retrospective),
    * rendered below the user list so both share one scroll region. Self-hides
    * when there are no system tasks to show.
@@ -51,8 +61,11 @@ export function SchedulesPanel({
   onCreateSchedule,
   pastOpen,
   onPastOpenChange,
+  onRebaseProfiles,
+  defaultProfileLabel,
   systemTasksSlot,
 }: SchedulesPanelProps) {
+  const { t } = useTranslation("schedules");
   const renderScheduleRow = (schedule: Schedule) => (
     <ScheduleRow
       key={schedule.id}
@@ -92,7 +105,9 @@ export function SchedulesPanel({
               aria-hidden
               className="shrink-0 transition-transform group-data-[state=open]:rotate-90"
             />
-            <span>Past ({pastOneTime.length})</span>
+            <span>
+              {t("schedulesPanel.pastToggle", { count: pastOneTime.length })}
+            </span>
           </Collapsible.Trigger>
           <Collapsible.Content>
             <div className="pt-1">{pastOneTime.map(renderOneTimeRow)}</div>
@@ -106,10 +121,7 @@ export function SchedulesPanel({
       return (
         <div className="space-y-3">
           {Array.from({ length: 2 }, (_, i) => (
-            <div
-              key={i}
-              className="h-12 animate-pulse rounded-md bg-[var(--surface-muted)]"
-            />
+            <Skeleton key={i} className="h-12 rounded-md" />
           ))}
         </div>
       );
@@ -125,11 +137,11 @@ export function SchedulesPanel({
               onClick={refetch}
               className="cursor-pointer underline hover:no-underline"
             >
-              Retry
+              {t("schedulesPanel.retry")}
             </button>
           }
         >
-          Failed to load schedules.
+          {t("schedulesPanel.loadFailed")}
         </Notice>
       );
     }
@@ -142,22 +154,22 @@ export function SchedulesPanel({
       return (
         <PageEmptyState
           icon={Calendar}
-          title="No schedules yet"
-          description="Ask your assistant to set one up, or create one yourself."
+          title={t("schedulesPanel.emptyTitle")}
+          description={t("schedulesPanel.emptyDescription")}
           actions={
             <>
               <Button variant="primary" size="regular" onClick={onStartNewChat}>
-                New Conversation
+                {t("schedulesPanel.newConversation")}
               </Button>
               <span className="text-body-small-default text-[var(--content-tertiary)]">
-                or
+                {t("schedulesPanel.emptyActionsSeparator")}
               </span>
               <Button
                 variant="outlined"
                 size="regular"
                 onClick={onCreateSchedule}
               >
-                Create schedule
+                {t("schedulesPanel.createSchedule")}
               </Button>
             </>
           }
@@ -167,11 +179,25 @@ export function SchedulesPanel({
 
     return (
       <div>
+        {onRebaseProfiles && defaultProfileLabel ? (
+          <div className="mb-1 flex min-w-0 justify-end">
+            <Button
+              variant="outlined"
+              size="compact"
+              onClick={onRebaseProfiles}
+              className="max-w-full truncate"
+            >
+              {t("schedulesPanel.useProfileForAll", {
+                profile: defaultProfileLabel,
+              })}
+            </Button>
+          </div>
+        ) : null}
         {recurring.map(renderScheduleRow)}
         {oneTime.length > 0 ? (
           <>
             <p className="mt-3 px-2 text-label-small-default text-[var(--content-tertiary)]">
-              One-time
+              {t("schedulesPanel.oneTimeHeading")}
             </p>
             {oneTime.map(renderOneTimeRow)}
           </>

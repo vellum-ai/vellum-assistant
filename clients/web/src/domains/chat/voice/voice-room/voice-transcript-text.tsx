@@ -34,8 +34,7 @@ import { motion, useReducedMotion } from "motion/react";
  * Type treatment for the assistant half of the room's caption: the fluid size
  * ramp and the line height its word reveal is tuned against. Lives here rather
  * than at the call site so the room and its stories render the caption at one
- * scale, and a story cannot document a size the app never shows. Mirrors the
- * `NATIVE_IOS_BARE_ICON_BUTTON` pattern in `domains/chat/utils/`.
+ * scale, and a story cannot document a size the app never shows.
  *
  * Pair it with `VOICE_ROOM_TEXT_MEASURE` and left alignment: the reveal adds a
  * word at a time, and centered text re-centers its last line on every arrival,

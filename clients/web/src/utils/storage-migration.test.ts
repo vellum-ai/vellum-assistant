@@ -5,6 +5,7 @@ import {
   migratePrefix,
   migrateValue,
   removeKey,
+  removePersistedPairedGatewayCredential,
   runStorageMigrations,
 } from "./storage-migration";
 
@@ -134,6 +135,40 @@ describe("migratePrefix", () => {
 
     expect(localStorage.getItem("vellum:ff:flag-a")).toBe("already-migrated");
     expect(localStorage.getItem("ff:client:flag-a")).toBeNull();
+  });
+});
+
+describe("removePersistedPairedGatewayCredential", () => {
+  test("removes a paired guardian bearer and its metadata", () => {
+    // eslint-disable-next-line no-restricted-syntax -- test: seeding a legacy paired credential to verify removal
+    localStorage.setItem("vellum:gw:token", "guardian-token");
+    localStorage.setItem("vellum:gw:expiresAt", "2000000000");
+    // eslint-disable-next-line no-restricted-syntax -- test: seeding legacy paired credential metadata to verify removal
+    localStorage.setItem(
+      "vellum:gw:tokenSource",
+      "/assistant/__gateway-paired/paired-a/auth/token",
+    );
+
+    removePersistedPairedGatewayCredential();
+
+    expect(localStorage.getItem("vellum:gw:token")).toBeNull();
+    expect(localStorage.getItem("vellum:gw:expiresAt")).toBeNull();
+    expect(localStorage.getItem("vellum:gw:tokenSource")).toBeNull();
+  });
+
+  test("preserves a locally minted gateway actor token", () => {
+    // eslint-disable-next-line no-restricted-syntax -- test: seeding a legacy local actor token to verify preservation
+    localStorage.setItem("vellum:gw:token", "local-actor-token");
+    localStorage.setItem("vellum:gw:expiresAt", "2000000000");
+    // eslint-disable-next-line no-restricted-syntax -- test: seeding legacy local actor metadata to verify preservation
+    localStorage.setItem(
+      "vellum:gw:tokenSource",
+      "/assistant/__gateway/20100/auth/token",
+    );
+
+    removePersistedPairedGatewayCredential();
+
+    expect(localStorage.getItem("vellum:gw:token")).toBe("local-actor-token");
   });
 });
 
@@ -422,5 +457,27 @@ describe("runStorageMigrations", () => {
     localStorage.setItem("vellum:ai:imageGenProvider", "gemini");
     runStorageMigrations();
     expect(localStorage.getItem("vellum:ai:imageGenProvider")).toBe("gemini");
+  });
+
+  test("continues when image provider storage is unavailable", () => {
+    const originalGetItem = localStorage.getItem;
+    Object.defineProperty(localStorage, "getItem", {
+      value(key: string) {
+        if (key === "vellum:ai:imageGenProvider") {
+          throw new DOMException("Storage unavailable", "SecurityError");
+        }
+        return originalGetItem.call(localStorage, key);
+      },
+      configurable: true,
+    });
+
+    try {
+      expect(() => runStorageMigrations()).not.toThrow();
+    } finally {
+      Object.defineProperty(localStorage, "getItem", {
+        value: originalGetItem,
+        configurable: true,
+      });
+    }
   });
 });

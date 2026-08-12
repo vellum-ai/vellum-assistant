@@ -150,6 +150,50 @@ describe("POST inference/profiles (create) validation", () => {
     ).rejects.toBeInstanceOf(BadRequestError);
   });
 
+  test("creates an entry-backed profile, validating the model by the row's kind", async () => {
+    seedConnection("anthropic-work", "anthropic", {
+      type: "api_key",
+      credential: "credential/anthropic-work/api_key",
+    });
+    const result = (await call("inference_profiles_create", {
+      body: {
+        name: "work-profile",
+        provider: "anthropic-work",
+        model: "claude-opus-4-8",
+      },
+    })) as { entry: Record<string, unknown> };
+    expect(result.entry.provider).toBe("anthropic-work");
+    expect(result.entry.model).toBe("claude-opus-4-8");
+  });
+
+  test("rejects an entry-backed profile whose model the row's kind cannot serve", async () => {
+    seedConnection("anthropic-work", "anthropic", {
+      type: "api_key",
+      credential: "credential/anthropic-work/api_key",
+    });
+    await expect(
+      call("inference_profiles_create", {
+        body: {
+          name: "work-profile",
+          provider: "anthropic-work",
+          model: "gpt-5.5",
+        },
+      }),
+    ).rejects.toBeInstanceOf(BadRequestError);
+  });
+
+  test("rejects a provider naming no known vendor or entry", async () => {
+    await expect(
+      call("inference_profiles_create", {
+        body: {
+          name: "ghost-profile",
+          provider: "no-such-entry",
+          model: "claude-opus-4-8",
+        },
+      }),
+    ).rejects.toBeInstanceOf(BadRequestError);
+  });
+
   test("creates a vellum profile for a managed-routable model", async () => {
     seedVellumConnection();
     const result = (await call("inference_profiles_create", {

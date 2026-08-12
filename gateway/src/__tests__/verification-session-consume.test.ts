@@ -85,7 +85,7 @@ mock.module("../ipc/contacts-info-client.js", () => ({
 }));
 
 // The assistant socket is absent (orphan-GC probes and similar short-circuit).
-mock.module("../ipc/socket-path.js", () => ({
+mock.module("../ipc/endpoint.js", () => ({
   resolveIpcSocketPath: () => ({
     path: "/nonexistent/assistant.sock",
     source: "test",

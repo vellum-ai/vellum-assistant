@@ -30,10 +30,35 @@ function section(
   return { key, label, description, to };
 }
 
-export function buildIdentitySections(): IdentitySection[] {
-  return [
+/**
+ * Sections the native mobile shells leave off the overview. The test is
+ * whether the task belongs on a phone, not how finished the surface looks:
+ * curating memories and browsing host files are desk work, so on iOS and
+ * Android those two are noise.
+ *
+ * Contacts and Channels are deliberately absent from this list. Who the
+ * assistant knows and where it listens are exactly what someone needs to
+ * check and change while away from their desk, so they earn a card even
+ * though their mobile UI is still rough. An unpolished way in beats no way
+ * in. Do not re-add them for looking unfinished; that is a reason to polish
+ * them, not to hide them.
+ *
+ * Only the overview cards go: the routes stay registered and reachable by
+ * deep link, so moving a section either way is a single edit to this list.
+ */
+const NATIVE_MOBILE_HIDDEN_KEYS: readonly string[] = ["memory", "workspace"];
+
+export interface BuildIdentitySectionsOptions {
+  /** True inside the iOS or Android Capacitor shell. */
+  isNativeMobile?: boolean;
+}
+
+export function buildIdentitySections({
+  isNativeMobile = false,
+}: BuildIdentitySectionsOptions = {}): IdentitySection[] {
+  const sections: IdentitySection[] = [
     // Personality renders bare (full-bleed stage chrome), so it is not a
-    // registry section — the overview links it directly.
+    // registry section. The overview links it directly.
     {
       key: "personality",
       label: "Personality",
@@ -44,10 +69,12 @@ export function buildIdentitySections(): IdentitySection[] {
     // Skills and plugins combined into one list; on assistants without the
     // plugin surface the page itself degrades to skills-only.
     section("superpowers", "What I can do"),
-    // Unconditional. Memory is part of what every assistant is, so the card is
-    // always the way in — an assistant whose backend can't draw the concept
-    // graph (memory off, or a pre-v3 engine) gets a Memory tab that explains
-    // that and offers the fix, rather than a card that silently disappears.
+    // Never gated on backend capability. Memory is part of what every
+    // assistant is, so wherever the card shows it is always the way in: an
+    // assistant whose backend can't draw the concept graph (memory off, or a
+    // pre-v3 engine) gets a Memory tab that explains that and offers the fix,
+    // rather than a card that silently disappears. The native mobile filter
+    // below is the only thing that removes it.
     section("memory", "What I remember"),
     // Library's list page wears the shared section chrome like its peers;
     // the app viewer (/assistant/library/:appId) renders full-bleed.
@@ -56,4 +83,10 @@ export function buildIdentitySections(): IdentitySection[] {
     section("contacts", "People I know"),
     section("channels", "Where I listen"),
   ];
+  if (!isNativeMobile) {
+    return sections;
+  }
+  return sections.filter(
+    (entry) => !NATIVE_MOBILE_HIDDEN_KEYS.includes(entry.key),
+  );
 }

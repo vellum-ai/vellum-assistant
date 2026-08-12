@@ -18,6 +18,7 @@ import {
   type LLMProvider,
   type ProfileEntry,
 } from "../config/schemas/llm.js";
+import { ROUTING_IDENTITY_PROVIDERS } from "../providers/inference/auth.js";
 import { getLogger } from "../util/logger.js";
 import { completedProfileBody } from "./custom-profile-ensure.js";
 
@@ -135,9 +136,25 @@ const ERA_COPY_LABEL_SUFFIX = " (Custom Provider)";
 /**
  * Comparison ignores `label` and `status` (user overlay state, preserved via
  * `userOverlayState`) and `model` (checked separately against the current
- * intent resolution and `HISTORICAL_INTENT_MODELS`).
+ * intent resolution and `HISTORICAL_INTENT_MODELS`). The CONVENTIONAL
+ * `<vendor>-personal` binding is normalized away before comparison (it was
+ * machinery-written across several eras); a non-conventional binding is a
+ * user selection and keeps blocking conversion.
  */
 const IGNORED_COMPARISON_KEYS = new Set(["label", "status", "model"]);
+
+/**
+ * Fold the conventional personal entry name back to its vendor. The entries
+ * collapse (migration 145) rewrites a hatch copy's binding into its
+ * provider as `<vendor>-personal`; the matcher folds that shape so every
+ * era of stored copy keeps converting (the same discipline as
+ * `HISTORICAL_INTENT_MODELS`).
+ */
+function foldPersonalEntryName(provider: string): string {
+  return provider.endsWith("-personal")
+    ? provider.slice(0, -"-personal".length)
+    : provider;
+}
 
 /**
  * Per-provider model ids that earlier intent eras pinned onto `custom-*`
@@ -156,6 +173,10 @@ const HISTORICAL_INTENT_MODELS: Record<
   Partial<Record<string, readonly string[]>>
 > = {
   balanced: {
+    openai: [
+      // balanced intent 2026-05-05 (#29755) to the 2026-08-10 gpt-5.6 repoint.
+      "gpt-5.4-mini",
+    ],
     fireworks: [
       // balanced intent 2026-05-05 (#29755) to 2026-05-19 (#31068).
       "accounts/fireworks/models/kimi-k2p5",
@@ -166,6 +187,10 @@ const HISTORICAL_INTENT_MODELS: Record<
     ],
   },
   "quality-optimized": {
+    openai: [
+      // quality intent 2026-05-05 (#29755) to the 2026-08-10 gpt-5.6 repoint.
+      "gpt-5.4",
+    ],
     anthropic: [
       // quality intent 2026-05-05 (#29755) to 2026-06-11 (#34498).
       "claude-opus-4-7",
@@ -259,11 +284,13 @@ export function ensureByokDefaultProfiles(workspaceDir: string): void {
   const completionBase = LLMConfigBase.safeParse(llm.default ?? {}).data;
 
   // The default provider on a BYOK default, or the uniform hatch provider
-  // across the complete copy set on a vellum default; null converts nothing.
-  const candidateProvider =
-    parsedDefault.data.provider !== "vellum"
-      ? parsedDefault.data.provider
-      : uniformCopyProvider(profiles);
+  // across the complete copy set on a routing-identity default (vellum,
+  // chatgpt); null converts nothing.
+  const candidateProvider = ROUTING_IDENTITY_PROVIDERS.has(
+    parsedDefault.data.provider,
+  )
+    ? uniformCopyProvider(profiles)
+    : parsedDefault.data.provider;
   const convertibleProvider =
     candidateProvider !== null && isByokDefaultProviderChoice(candidateProvider)
       ? candidateProvider
@@ -339,7 +366,11 @@ function isKnownUneditedBody(
   // (hatch materialized it once; the default provider may have changed
   // since); equality with the corroborated provider rules out a user
   // re-provision.
-  if (convertibleProvider === null || entry.provider !== convertibleProvider) {
+  if (
+    convertibleProvider === null ||
+    typeof entry.provider !== "string" ||
+    foldPersonalEntryName(entry.provider) !== convertibleProvider
+  ) {
     return false;
   }
   const copyProvider = convertibleProvider;
@@ -347,11 +378,13 @@ function isKnownUneditedBody(
   if (template === undefined) {
     return false;
   }
-  const materialized = materializeProfile(
-    template,
-    copyProvider,
-    `${copyProvider}-personal`,
-  ) as Record<string, unknown>;
+  // No connection binding: the bare provider means the default entry of
+  // that kind, and a stamped binding would re-introduce the collapsed
+  // field on disk.
+  const materialized = materializeProfile(template, copyProvider) as Record<
+    string,
+    unknown
+  >;
   if (
     entry.model !== materialized.model &&
     !(HISTORICAL_INTENT_MODELS[key][copyProvider] ?? []).includes(entry.model)
@@ -361,11 +394,20 @@ function isKnownUneditedBody(
   // Completion skips managed-source bodies, so a copy from the era whose
   // templates wrote `source: "managed"` (#29755 to #29768, 2026-05-05) is
   // compared as if user-source to keep both sides normalized identically.
+  const normalizedEntry: Record<string, unknown> = {
+    ...entry,
+    provider: copyProvider,
+    ...(entry.source === "managed" ? { source: "user" } : {}),
+  };
+  // The conventional personal binding is machinery-written (hatch stamps,
+  // completion re-stamps); normalize it away. Any other binding is user
+  // state and stays in the comparison, where the unbound template side
+  // makes it block conversion.
+  if (normalizedEntry.provider_connection === `${copyProvider}-personal`) {
+    delete normalizedEntry.provider_connection;
+  }
   const body = comparableBody(
-    withCompletionBaked(
-      entry.source === "managed" ? { ...entry, source: "user" } : entry,
-      completionBase,
-    ),
+    withCompletionBaked(normalizedEntry, completionBase),
   );
   const known = comparableBody(
     withCompletionBaked(materialized, completionBase),
@@ -392,9 +434,10 @@ function uniformCopyProvider(profiles: Record<string, unknown>): string | null {
     if (typeof entry.provider !== "string") {
       return null;
     }
+    const entryProvider = foldPersonalEntryName(entry.provider);
     if (provider === null) {
-      provider = entry.provider;
-    } else if (provider !== entry.provider) {
+      provider = entryProvider;
+    } else if (provider !== entryProvider) {
       return null;
     }
   }

@@ -172,7 +172,6 @@ function buildParams(overrides: {
     sourceInterface: "slack" as const,
     conversationExternalId: SLACK_CHANNEL_ID,
     externalMessageId: `${SLACK_CHANNEL_ID}:1700000000.1:${msgCounter}`,
-    canonicalAssistantId: "assistant-1",
     rawSenderId: overrides.rawSenderId,
     canonicalSenderId: overrides.rawSenderId,
     actorDisplayName: "Reactor",

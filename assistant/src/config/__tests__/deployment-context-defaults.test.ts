@@ -1,6 +1,7 @@
 import {
   existsSync,
   mkdirSync,
+  readdirSync,
   readFileSync,
   rmSync,
   writeFileSync,
@@ -266,5 +267,77 @@ describe("deployment-context embedding-provider default (via loadConfig)", () =>
       unknown
     >;
     expect(v3Raw.live).toBe(true);
+  });
+
+  describe("quarantine-reseed carries memory.v3.live forward", () => {
+    function removeQuarantineFiles(): void {
+      for (const name of readdirSync(WORKSPACE_DIR)) {
+        if (name.startsWith("config.json.corrupt-")) {
+          rmSync(join(WORKSPACE_DIR, name), { force: true });
+        }
+      }
+    }
+
+    function readV3Raw(): Record<string, unknown> {
+      const raw = readConfig();
+      return ((raw.memory as Record<string, unknown>).v3 ?? {}) as Record<
+        string,
+        unknown
+      >;
+    }
+
+    afterEach(() => {
+      removeQuarantineFiles();
+    });
+
+    test("a corrupt live-v3 config is quarantined and the reseed keeps live=true", () => {
+      // Truncated mid-write JSON from a memory-v3 assistant: unparseable,
+      // but the live flag survives in the raw text.
+      writeFileSync(
+        CONFIG_PATH,
+        `{\n  "memory": {\n    "v3": {\n      "live": true\n    }\n  },\n  "llm": {\n    "activeProf`,
+      );
+
+      const config = loadConfig();
+
+      // The corrupt file was quarantined and the reseeded config carries the
+      // tier forward, both in-memory (this boot runs v3) and on disk
+      // (migration 105 is checkpointed on existing workspaces and never
+      // re-runs, so the persisted value is the only durable record).
+      expect(config.memory.v3.live).toBe(true);
+      expect(readV3Raw()).toEqual({ live: true });
+    });
+
+    test("a corrupt config without live=true reseeds with the leaf absent", () => {
+      writeFileSync(
+        CONFIG_PATH,
+        `{\n  "memory": {\n    "v3": {\n      "live": false\n    }\n  },\n  "llm": {\n    "activeProf`,
+      );
+
+      const config = loadConfig();
+
+      // Never carry `false` forward: an absent leaf is the only way to keep
+      // "no decision recorded" representable for migration 105.
+      expect(config.memory.v3.live).toBe(false);
+      expect(readV3Raw()).toEqual({});
+    });
+
+    test("a deleted config with an earlier live-v3 quarantine still carries live=true", () => {
+      if (existsSync(CONFIG_PATH)) {
+        rmSync(CONFIG_PATH, { force: true });
+      }
+      writeFileSync(
+        join(
+          WORKSPACE_DIR,
+          "config.json.corrupt-2026-08-01T10-00-00.000Z.json",
+        ),
+        JSON.stringify({ memory: { v3: { live: true } } }, null, 2),
+      );
+
+      const config = loadConfig();
+
+      expect(config.memory.v3.live).toBe(true);
+      expect(readV3Raw()).toEqual({ live: true });
+    });
   });
 });

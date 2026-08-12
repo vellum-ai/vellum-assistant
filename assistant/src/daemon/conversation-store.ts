@@ -19,6 +19,7 @@ import {
   ensureConversationExists,
   getConversation,
 } from "../persistence/conversation-crud.js";
+import type { ConversationOrigin } from "../persistence/conversation-types.js";
 import { wrapWithCallSiteRouting } from "../providers/call-site-routing.js";
 import {
   mainAgentResolutionError,
@@ -50,6 +51,37 @@ import { buildTransportHints } from "./transport-hints.js";
 // ── Per-conversation persistent options ────────────────────────────
 
 const conversationOptions = new Map<string, ConversationCreateOptions>();
+
+/**
+ * The channel a conversation created here belongs to.
+ *
+ * A trust context is stamped per inbound message from the gateway verdict,
+ * so `sourceChannel` names the channel the message creating this
+ * conversation actually arrived on. This is the moment that fact is known,
+ * and the caller is the only party that holds it.
+ *
+ * Returns `undefined` when there is no trust context, which does NOT mean
+ * native. `handleSendMessage` materializes a conversation before the route
+ * resolves trust, so a Slack or phone send reaches here with no
+ * `sourceChannel` yet. Assuming native there would stamp a remote
+ * conversation as the guardian's own, and nothing could repair it:
+ * `setConversationOriginChannelIfUnset` only writes over NULL, and
+ * `recoverRestingTrustContext` grants INTERNAL_GUARDIAN_TRUST_CONTEXT to the
+ * native channel on every later wake and boot-resume.
+ *
+ * `transport.channelId` is not a substitute. It is the external Slack
+ * conversation id, not a {@link ChannelId}.
+ *
+ * So this states the origin only where it is genuinely known, and leaves the
+ * rest to attribution exactly as before. The remaining callers get their
+ * origin when they are migrated with real knowledge of it, not by guessing
+ * here.
+ */
+function originFromStoredOptions(
+  storedOptions: ConversationCreateOptions | undefined,
+): ConversationOrigin | undefined {
+  return storedOptions?.trustContext?.sourceChannel;
+}
 
 /**
  * Drops the transport fields that describe what the client had on screen for a
@@ -141,9 +173,17 @@ export async function getOrCreateConversation(
     );
   }
 
+  // A stale conversation is rebuilt only once it is genuinely idle. Queued
+  // messages live in memory on the instance being disposed, and the queue
+  // drains via an async dispatch after the current turn releases, so
+  // `isProcessing()` can read false while a queued turn is still pending:
+  // rebuilding in that gap would silently drop those messages. The conversation
+  // stays stale and is rebuilt on a later call.
   if (
     !conversation ||
-    (conversation.isStale() && !conversation.isProcessing())
+    (conversation.isStale() &&
+      !conversation.isProcessing() &&
+      !conversation.hasQueuedMessages())
   ) {
     if (conversation) {
       // Stale rebuild: the conversation id lives on, so abort in-flight
@@ -229,9 +269,13 @@ export async function getOrCreateConversation(
           createConversation({
             id: conversationId,
             conversationType: storedOptions.conversationType,
+            origin: originFromStoredOptions(storedOptions),
           });
         } else {
-          ensureConversationExists(conversationId);
+          ensureConversationExists(
+            conversationId,
+            originFromStoredOptions(storedOptions),
+          );
         }
       }
 
@@ -353,7 +397,12 @@ export function clearAllActiveConversations(): number {
 export function evictConversationsForReload(): void {
   const subagentManager = getSubagentManager();
   for (const [id, conversation] of conversationEntries()) {
-    if (!conversation.isProcessing()) {
+    // A conversation with queued messages is not idle: the queue drains via an
+    // async dispatch after the current turn releases, so `isProcessing()` can
+    // read false while a queued turn is still pending. Disposing in that gap
+    // would silently drop the queued messages, so mark it stale instead and
+    // let it rebuild once the queue has run.
+    if (!conversation.isProcessing() && !conversation.hasQueuedMessages()) {
       subagentManager.abortAllForParent(id);
       conversation.dispose();
       deleteConversation(id);

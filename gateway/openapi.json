@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "Vellum Gateway API",
-    "version": "0.10.12",
+    "version": "0.11.2",
     "description": "Auto-generated OpenAPI specification for the Vellum Gateway HTTP endpoints."
   },
   "servers": [{ "url": "", "description": "Same-origin (gateway)" }],
@@ -340,6 +340,98 @@
                     }
                   },
                   "required": ["policy"],
+                  "additionalProperties": false
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/channel-ingress": {
+      "get": {
+        "operationId": "channelIngressList",
+        "summary": "List ingress declarations and their approval state",
+        "tags": ["channel-ingress"],
+        "description": "Every declaration the gateway can see, each with the digest a guardian would approve, the public paths it would open, and the credential its signatures are verified against. This is the only way to learn that a declaration is waiting: on the public surface a route held back by approval 404s exactly like one nobody declared.",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "sources": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "source": { "type": "string" },
+                          "state": {
+                            "type": "string",
+                            "enum": ["approved", "pending"]
+                          },
+                          "digest": { "type": "string" },
+                          "approvedAt": { "type": "number" },
+                          "approvedDigest": { "type": "string" },
+                          "routes": {
+                            "type": "array",
+                            "items": {
+                              "type": "object",
+                              "properties": {
+                                "path": { "type": "string" },
+                                "publicPath": { "type": "string" },
+                                "kind": { "type": "string" },
+                                "signer": { "type": "string" },
+                                "handshake": { "type": "string" },
+                                "description": { "type": "string" },
+                                "credential": { "type": "string" },
+                                "served": { "type": "boolean" },
+                                "deliversInbound": { "type": "boolean" },
+                                "verification": {
+                                  "type": "object",
+                                  "properties": {
+                                    "algorithm": { "type": "string" },
+                                    "signatureHeader": { "type": "string" }
+                                  },
+                                  "required": ["algorithm", "signatureHeader"],
+                                  "additionalProperties": false
+                                }
+                              },
+                              "required": [
+                                "path",
+                                "publicPath",
+                                "kind",
+                                "signer",
+                                "handshake",
+                                "description",
+                                "credential",
+                                "served",
+                                "deliversInbound"
+                              ],
+                              "additionalProperties": false
+                            }
+                          }
+                        },
+                        "required": ["source", "state", "digest", "routes"],
+                        "additionalProperties": false
+                      }
+                    },
+                    "problems": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "source": { "type": "string" },
+                          "reason": { "type": "string" }
+                        },
+                        "required": ["source", "reason"],
+                        "additionalProperties": false
+                      }
+                    }
+                  },
+                  "required": ["sources", "problems"],
                   "additionalProperties": false
                 }
               }

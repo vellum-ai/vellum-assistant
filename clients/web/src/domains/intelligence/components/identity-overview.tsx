@@ -36,6 +36,7 @@ import { PageShell } from "@/components/page-shell";
 import { useAssistantAvatar } from "@/hooks/use-assistant-avatar";
 import { useElementSize } from "@/hooks/use-element-size";
 import { useSupportsPluginsSurface } from "@/lib/backwards-compat/plugins-surface";
+import { useIsNativeMobile } from "@/runtime/platform-detection";
 import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
 import type { CharacterComponents, CharacterTraits } from "@/types/avatar";
 import { contrastForeground } from "@/utils/avatar-tone";
@@ -203,15 +204,23 @@ export function IdentityOverview({ assistantId }: IdentityOverviewProps) {
   } = useAssistantAvatar(assistantId);
   const identityQuery = useAssistantIdentityDetails(assistantId);
   const supportsPlugins = useSupportsPluginsSurface();
+  // The native mobile shells drop the Memory and Workspace cards, so those
+  // two measurements are dead reads there.
+  const isNativeMobile = useIsNativeMobile();
   const stats = useIdentitySectionStats(assistantId, {
     supportsPlugins,
+    isNativeMobile,
   });
   // The Memory card's measurement is the cheap page-index concept count
-  // (get-memory-stats) — NOT the concept-graph build, which is kept off
-  // identity-page load. The card itself is unconditional; only its count is
-  // conditional, so an assistant whose backend can't draw the graph still has
-  // a way into the Memory tab (which explains why, and offers the fix).
-  const memoryStats = useQuery(memoryStatsOptions(assistantId));
+  // (get-memory-stats), NOT the concept-graph build, which is kept off
+  // identity-page load. Wherever the card shows it is never gated on backend
+  // capability; only its count is, so an assistant whose backend can't draw
+  // the graph still has a way into the Memory tab (which explains why, and
+  // offers the fix).
+  const memoryStats = useQuery({
+    ...memoryStatsOptions(assistantId),
+    enabled: !isNativeMobile,
+  });
   // Only measured where concept pages are actually the substrate (memory tier
   // v2/v3). A loading query, an older daemon predating `/memory/stats`, a v1
   // assistant (memory lives in the legacy graph) and a memory-off one all read
@@ -259,7 +268,7 @@ export function IdentityOverview({ assistantId }: IdentityOverviewProps) {
     invalidateAvatar();
   }, [invalidateAvatar]);
 
-  const sections = buildIdentitySections();
+  const sections = buildIdentitySections({ isNativeMobile });
   const isLoading = isAvatarLoading || identityQuery.isLoading;
   const avatarHex = resolveAvatarHex(components, traits);
   // Custom image (no character color): the page background becomes the
@@ -268,6 +277,9 @@ export function IdentityOverview({ assistantId }: IdentityOverviewProps) {
 
   return (
     <PageShell
+      // The photo backdrop is an image, not a flat color, so there is nothing
+      // the shell could paint into the safe areas that would continue it.
+      bleed={!photoBackdrop}
       className={photoBackdrop ? "relative overflow-hidden" : undefined}
       style={
         avatarHex
@@ -514,7 +526,7 @@ function SectionCard({
             flooded along with the rule and labels (currentColor). */}
         {gridArea && stat?.signature && (
           <span
-            className={`absolute inset-x-5 top-14 bottom-4 flex items-center justify-center transition-colors duration-300 ${
+            className={`absolute inset-x-5 top-14 bottom-9 flex flex-col justify-start transition-colors duration-300 ${
               flooded
                 ? "text-[var(--card-flood-fg)]"
                 : photoBackdrop
@@ -529,9 +541,21 @@ function SectionCard({
                 : undefined
             }
           >
+            {/* The mark rests on the bottom inset, but only while the gap it
+                leaves under the header stays inside this spacer. The mark's
+                height follows its WIDTH, so a narrow card makes a short one —
+                and without the cap that whole surplus collected under the
+                header and pushed the mark to the floor of the card. Past the
+                cap the surplus falls below the mark instead. */}
+            <span aria-hidden className="max-h-10 flex-1" />
+            {/* Nothing ties the mark's width-derived height to a box sized by
+                the card's HEIGHT, so a wide, short window makes it the taller
+                of the two. `max-h-full` clamps the viewport there and the
+                default `xMidYMid meet` scales the whole mark down to fit,
+                rather than letting `overflow-hidden` cut the top labels off. */}
             <PersonalitySignature
               values={stat.signature}
-              className="h-auto w-full"
+              className="h-auto max-h-full w-full"
             />
           </span>
         )}

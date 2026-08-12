@@ -29,15 +29,19 @@ import {
   loadRawConfig,
 } from "../../config/loader.js";
 import {
-  LLMProvider,
   ProfileEntry,
   routingIdentityModelIssue,
 } from "../../config/schemas/llm.js";
 import { getDb } from "../../persistence/db-connection.js";
+import {
+  resolveEntryProviderKind,
+  writableProfileProviderIssue,
+} from "../../providers/connection-resolution.js";
 import { ROUTING_IDENTITY_PROVIDERS } from "../../providers/inference/auth.js";
 import type { ConnectionAvailability } from "../../providers/inference/connection-availability.js";
 import {
   computeProfileAvailability,
+  CONNECTION_AVAILABILITY_STATUSES,
   isUnavailable,
 } from "../../providers/inference/connection-availability.js";
 import { getConnection } from "../../providers/inference/connections.js";
@@ -73,15 +77,7 @@ const RESERVED_PROFILE_NAMES = new Set([
 
 const availabilitySchema = z
   .object({
-    status: z.enum([
-      "ok",
-      "missing_connection",
-      "missing_credential",
-      "provider_mismatch",
-      "unsupported_auth",
-      "vellum_unauthenticated",
-      "unknown",
-    ]),
+    status: z.enum(CONNECTION_AVAILABILITY_STATUSES),
     message: z.string().optional(),
   })
   .meta({ id: "ProfileConnectionAvailability" });
@@ -157,10 +153,9 @@ const updateRequestSchema = z.object({
 // ---------------------------------------------------------------------------
 
 function assertValidProvider(provider: string): void {
-  if (!LLMProvider.safeParse(provider).success) {
-    throw new BadRequestError(
-      `Invalid provider "${provider}". Valid providers: ${LLMProvider.options.join(", ")}.`,
-    );
+  const issue = writableProfileProviderIssue(provider);
+  if (issue) {
+    throw new BadRequestError(issue);
   }
 }
 
@@ -189,31 +184,38 @@ function validateModel(
     }
     return [];
   }
-  if (isModelInCatalog(provider, model)) {
+  // An entry-name provider validates against its row's dispatchable kind,
+  // the same translation dispatch uses; the entry itself also serves as the
+  // model-list connection for custom endpoints below.
+  const entryKind = resolveEntryProviderKind(provider, model);
+  const catalogProvider = entryKind ?? provider;
+  if (isModelInCatalog(catalogProvider, model)) {
     return [];
   }
   // The named connection's advertised model list is authoritative for models
   // the code-owned catalog doesn't know — a custom (openai-compatible)
   // endpoint declares its own models at connection-create time.
-  if (connectionName) {
-    const connection = getConnection(getDb(), connectionName);
+  const modelListConnection =
+    connectionName ?? (entryKind !== null ? provider : undefined);
+  if (modelListConnection) {
+    const connection = getConnection(getDb(), modelListConnection);
     if (connection?.models?.some((m) => m.id === model)) {
       return [];
     }
   }
   if (!allowUnlisted) {
     const remedy =
-      provider === "openai-compatible"
+      catalogProvider === "openai-compatible"
         ? `Pass allowUnlisted to create it anyway, or declare the model on the connection ` +
           `("assistant inference providers update <name> --model ${model}").`
         : `Pass allowUnlisted to create it anyway, or run ` +
           `"assistant inference models list --provider ${provider}" to see valid ids.`;
     throw new BadRequestError(
-      `Model "${model}" is not in the catalog for provider "${provider}". ${remedy}`,
+      `Model "${model}" is not in the catalog for provider "${catalogProvider}". ${remedy}`,
     );
   }
   return [
-    `Model "${model}" is not in the catalog for provider "${provider}" — created anyway (allowUnlisted).`,
+    `Model "${model}" is not in the catalog for provider "${catalogProvider}"; created anyway (allowUnlisted).`,
   ];
 }
 

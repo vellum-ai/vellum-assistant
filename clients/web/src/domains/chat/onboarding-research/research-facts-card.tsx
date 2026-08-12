@@ -15,6 +15,7 @@
 import { useState } from "react";
 import { Ban } from "lucide-react";
 
+import { hoverRevealClasses } from "@vellumai/design-library";
 import { Popover } from "@vellumai/design-library/components/popover";
 import { Tag } from "@vellumai/design-library/components/tag";
 
@@ -121,7 +122,7 @@ function ClaimRow({
               aria-label={removed ? "Edit removal" : "Remove"}
               onClick={(e) => e.stopPropagation()}
               className={`ml-auto shrink-0 cursor-pointer text-[var(--content-tertiary)] transition-opacity hover:text-[var(--content-default)] focus-visible:opacity-100 ${
-                removed ? "opacity-100" : "opacity-0 group-hover:opacity-100"
+                removed ? "opacity-100" : hoverRevealClasses
               }`}
             >
               <Ban className="size-[18px]" />

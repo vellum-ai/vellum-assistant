@@ -2,10 +2,14 @@ import { describe, expect, test } from "bun:test";
 
 import type {
   SttStreamServerClosedEvent,
+  SttStreamServerEagerTurnEndEvent,
   SttStreamServerErrorEvent,
   SttStreamServerEvent,
   SttStreamServerFinalEvent,
   SttStreamServerPartialEvent,
+  SttStreamServerTurnEndEvent,
+  SttStreamServerTurnResumedEvent,
+  SttStreamServerTurnStartEvent,
 } from "../types.js";
 
 // ---------------------------------------------------------------------------
@@ -85,5 +89,95 @@ describe("SttStreamServerEvent types", () => {
     // @ts-expect-error — speakerLabel is not part of SttStreamServerClosedEvent.
     const _label: string | undefined = event.speakerLabel;
     expect(_label).toBeUndefined();
+  });
+});
+
+describe("turn-detection server events", () => {
+  test("turn-start event compiles and round-trips", () => {
+    const event: SttStreamServerTurnStartEvent = { type: "turn-start" };
+    const asUnion: SttStreamServerEvent = event;
+    expect(asUnion.type).toBe("turn-start");
+  });
+
+  test("eager-turn-end event carries the speculated transcript", () => {
+    const event: SttStreamServerEagerTurnEndEvent = {
+      type: "eager-turn-end",
+      text: "is this the end",
+    };
+    const asUnion: SttStreamServerEvent = event;
+    expect(asUnion.type).toBe("eager-turn-end");
+    expect(event.text).toBe("is this the end");
+  });
+
+  test("turn-resumed event compiles and round-trips", () => {
+    const event: SttStreamServerTurnResumedEvent = { type: "turn-resumed" };
+    const asUnion: SttStreamServerEvent = event;
+    expect(asUnion.type).toBe("turn-resumed");
+  });
+
+  test("turn-end event carries the committed transcript and optional confidence", () => {
+    const withoutConfidence: SttStreamServerTurnEndEvent = {
+      type: "turn-end",
+      text: "done speaking",
+    };
+    expect(withoutConfidence.confidence).toBeUndefined();
+
+    const event: SttStreamServerTurnEndEvent = {
+      type: "turn-end",
+      text: "done speaking",
+      confidence: 0.82,
+    };
+    const asUnion: SttStreamServerEvent = event;
+    expect(asUnion.type).toBe("turn-end");
+    expect(event.text).toBe("done speaking");
+    expect(event.confidence).toBe(0.82);
+  });
+
+  test("a consumer switch over every variant is exhaustive", () => {
+    // Fails to compile if a variant is added to SttStreamServerEvent
+    // without a case here, which is what forces consumers to be revisited.
+    const label = (event: SttStreamServerEvent): string => {
+      switch (event.type) {
+        case "partial":
+        case "final":
+        case "finalized":
+        case "error":
+        case "closed":
+          return "transcript";
+        case "turn-start":
+        case "eager-turn-end":
+        case "turn-resumed":
+        case "turn-end":
+          return "turn";
+        default: {
+          const _exhaustive: never = event;
+          return _exhaustive;
+        }
+      }
+    };
+
+    const events: SttStreamServerEvent[] = [
+      { type: "partial", text: "a" },
+      { type: "final", text: "a" },
+      { type: "finalized" },
+      { type: "error", category: "provider-error", message: "boom" },
+      { type: "closed" },
+      { type: "turn-start" },
+      { type: "eager-turn-end", text: "a" },
+      { type: "turn-resumed" },
+      { type: "turn-end", text: "a" },
+    ];
+
+    expect(events.map(label)).toEqual([
+      "transcript",
+      "transcript",
+      "transcript",
+      "transcript",
+      "transcript",
+      "turn",
+      "turn",
+      "turn",
+      "turn",
+    ]);
   });
 });

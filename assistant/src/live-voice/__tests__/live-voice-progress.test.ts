@@ -5,6 +5,7 @@ import type {
   VoiceTurnCallbacks,
   VoiceTurnOptions,
 } from "../../calls/voice-session-bridge.js";
+import { loadRawConfig, saveRawConfig } from "../../config/loader.js";
 import type {
   LiveVoiceFrontModelConfig,
   LiveVoiceProgressConfig,
@@ -13,10 +14,6 @@ import type {
   StreamingTranscriber,
   SttStreamServerEvent,
 } from "../../stt/types.js";
-import type {
-  VoiceFrontDecider,
-  VoiceProgressTextInput,
-} from "../front-decision.js";
 import {
   LiveVoiceSession,
   type LiveVoiceTtsStreamer,
@@ -24,9 +21,14 @@ import {
 } from "../live-voice-session.js";
 import type { LiveVoiceSessionFactoryContext } from "../live-voice-session-manager.js";
 import type { LiveVoiceTtsOptions } from "../live-voice-tts.js";
+import type {
+  VoiceProgressNarrator,
+  VoiceProgressTextInput,
+} from "../progress-narration.js";
 import {
   pickProgressPhrase,
   PROGRESS_FALLBACK_PHRASES,
+  PROGRESS_FALLBACK_PHRASES_BY_LANGUAGE,
 } from "../progress-phrases.js";
 import {
   createLiveVoiceServerFrameSequencer,
@@ -44,22 +46,20 @@ const START_FRAME = {
   },
 } as const satisfies LiveVoiceClientStartFrame;
 
-// Generous enough that the slow-first-delta ack never fires during a test;
-// the immediate tool-start ack still speaks and is asserted where relevant.
-const GENEROUS_ACK_TIMEOUT_MS = 60_000;
-
 const GENERATED_NARRATION = "Progress text.";
-// Acks are front-model-phrased; narrations fall back to a static phrase.
-// Both pass through the same TTS sanitizer, and each fresh session's
-// narration phrase counter starts at 0.
-const GENERATED_TOOL_ACK = "Let me look that up.";
-const EXPECTED_TOOL_ACK = sanitizeForTts(GENERATED_TOOL_ACK).trim();
 const EXPECTED_PROGRESS_FALLBACK = sanitizeForTts(pickProgressPhrase(0)).trim();
 
 class MockStreamingTranscriber implements StreamingTranscriber {
   readonly providerId = "deepgram" as const;
   readonly boundaryId = "daemon-streaming" as const;
   private onEvent: ((event: SttStreamServerEvent) => void) | null = null;
+
+  constructor(
+    private readonly stopEvents: SttStreamServerEvent[] = [
+      { type: "final", text: "hello" },
+      { type: "closed" },
+    ],
+  ) {}
 
   async start(onEvent: (event: SttStreamServerEvent) => void): Promise<void> {
     this.onEvent = onEvent;
@@ -68,8 +68,9 @@ class MockStreamingTranscriber implements StreamingTranscriber {
   sendAudio(): void {}
 
   stop(): void {
-    this.onEvent?.({ type: "final", text: "hello" });
-    this.onEvent?.({ type: "closed" });
+    for (const event of this.stopEvents) {
+      this.onEvent?.(event);
+    }
   }
 }
 
@@ -113,10 +114,13 @@ function createRecordingTtsStreamer(
 ): {
   streamTtsAudio: LiveVoiceTtsStreamer;
   ttsTexts: string[];
+  ttsCalls: LiveVoiceTtsOptions[];
 } {
   const ttsTexts: string[] = [];
+  const ttsCalls: LiveVoiceTtsOptions[] = [];
   const streamTtsAudio = mock(async (options: LiveVoiceTtsOptions) => {
     ttsTexts.push(options.text);
+    ttsCalls.push(options);
     await gateTtsText?.(options.text);
     return {
       provider: "fish-audio" as const,
@@ -126,14 +130,13 @@ function createRecordingTtsStreamer(
       bytes: Buffer.byteLength(options.text),
     };
   });
-  return { streamTtsAudio, ttsTexts };
+  return { streamTtsAudio, ttsTexts, ttsCalls };
 }
 
-function makeProgressDecider(
-  generateProgressText: VoiceFrontDecider["generateProgressText"],
-): VoiceFrontDecider {
+function makeProgressNarrator(
+  generateProgressText: VoiceProgressNarrator["generateProgressText"],
+): VoiceProgressNarrator {
   return {
-    generateAckText: async () => GENERATED_TOOL_ACK,
     generateProgressText,
   };
 }
@@ -143,7 +146,6 @@ function progressConfig(
 ): Partial<LiveVoiceFrontModelConfig> {
   const idleIntervalMs = overrides.idleIntervalMs ?? 60_000;
   return {
-    ackFirstDeltaTimeoutMs: GENEROUS_ACK_TIMEOUT_MS,
     progress: {
       enabled: true,
       opsThreshold: 3,
@@ -162,26 +164,31 @@ function progressConfig(
 
 function createProgressHarness(options: {
   frontModelConfig: Partial<LiveVoiceFrontModelConfig>;
-  frontDecider: VoiceFrontDecider;
+  progressNarrator: VoiceProgressNarrator;
   emitMetrics?: boolean;
   gateTtsText?: (text: string) => Promise<void> | null;
+  // Events the transcriber flushes at utterance release; defaults to a plain
+  // untagged "hello" final.
+  sttStopEvents?: SttStreamServerEvent[];
 }) {
   const { startVoiceTurn, getCallbacks } = createCapturingTurnStarter();
-  const { streamTtsAudio, ttsTexts } = createRecordingTtsStreamer(
+  const { streamTtsAudio, ttsTexts, ttsCalls } = createRecordingTtsStreamer(
     options.gateTtsText,
   );
   const { context, frames } = createContext();
   const session = new LiveVoiceSession(context, {
-    resolveTranscriber: mock(async () => new MockStreamingTranscriber()),
+    resolveTranscriber: mock(
+      async () => new MockStreamingTranscriber(options.sttStopEvents),
+    ),
     startVoiceTurn,
     streamTtsAudio,
     frontModelConfig: options.frontModelConfig,
-    frontDecider: options.frontDecider,
+    progressNarrator: options.progressNarrator,
     createTurnId: () => "live-turn-1",
     emitMetrics: options.emitMetrics ?? false,
   });
 
-  return { frames, session, getCallbacks, ttsTexts };
+  return { frames, session, getCallbacks, ttsTexts, ttsCalls };
 }
 
 async function startReleasedTurn(
@@ -263,7 +270,7 @@ describe("LiveVoiceSession progress narration", () => {
     );
     const { session, getCallbacks, ttsTexts } = createProgressHarness({
       frontModelConfig: progressConfig({ idleIntervalMs: 40 }),
-      frontDecider: makeProgressDecider(generateProgressText),
+      progressNarrator: makeProgressNarrator(generateProgressText),
     });
     await startReleasedTurn(session, getCallbacks);
 
@@ -289,22 +296,18 @@ describe("LiveVoiceSession progress narration", () => {
     });
     const { session, getCallbacks, ttsTexts } = createProgressHarness({
       frontModelConfig: progressConfig({ opsThreshold: 3, minGapMs: 10 }),
-      frontDecider: makeProgressDecider(generateProgressText),
+      progressNarrator: makeProgressNarrator(generateProgressText),
     });
 
     await startReleasedTurn(session, getCallbacks);
     emitToolStart(getCallbacks, "web_search", "tool-1");
-    await waitFor(() => ttsTexts.length === 1);
-    expect(ttsTexts).toEqual([EXPECTED_TOOL_ACK]);
 
     emitToolResult(getCallbacks, "web_search", "tool-1", "found 3 results");
     emitToolStart(getCallbacks, "file_read", "tool-2");
     emitToolResult(getCallbacks, "file_read", "tool-2", "file contents");
-    // Let the ack's minGapMs spacing elapse before the threshold-crossing op.
-    await sleep(30);
     emitToolStart(getCallbacks, "web_search", "tool-3");
-    await waitFor(() => ttsTexts.length === 2);
-    expect(ttsTexts).toEqual([EXPECTED_TOOL_ACK, GENERATED_NARRATION]);
+    await waitFor(() => ttsTexts.length === 1);
+    expect(ttsTexts).toEqual([GENERATED_NARRATION]);
     expect(generateProgressText).toHaveBeenCalledTimes(1);
     expect(inputs[0]).toMatchObject({
       transcriptSoFar: "hello",
@@ -320,7 +323,7 @@ describe("LiveVoiceSession progress narration", () => {
     // below the threshold: still exactly one narration.
     emitToolResult(getCallbacks, "web_search", "tool-3");
     await sleep(30);
-    expect(ttsTexts).toEqual([EXPECTED_TOOL_ACK, GENERATED_NARRATION]);
+    expect(ttsTexts).toEqual([GENERATED_NARRATION]);
     expect(generateProgressText).toHaveBeenCalledTimes(1);
 
     emitMessageComplete(getCallbacks);
@@ -336,12 +339,11 @@ describe("LiveVoiceSession progress narration", () => {
     });
     const { session, getCallbacks, ttsTexts } = createProgressHarness({
       frontModelConfig: progressConfig({ opsThreshold: 3, minGapMs: 10 }),
-      frontDecider: makeProgressDecider(generateProgressText),
+      progressNarrator: makeProgressNarrator(generateProgressText),
     });
 
     await startReleasedTurn(session, getCallbacks);
     emitToolStart(getCallbacks, "web_search", "tool-1");
-    await waitFor(() => ttsTexts.length === 1);
 
     // Name-only result: no toolUseId to correlate by.
     getCallbacks()?.tool_result?.({
@@ -349,11 +351,9 @@ describe("LiveVoiceSession progress narration", () => {
       resultPreview: "found it",
     });
     emitToolStart(getCallbacks, "file_read", "tool-2");
-    // Let the ack's minGapMs spacing elapse before the threshold-crossing op.
-    await sleep(30);
     emitToolStart(getCallbacks, "bash", "tool-3");
-    await waitFor(() => ttsTexts.length === 2);
-    expect(ttsTexts).toEqual([EXPECTED_TOOL_ACK, GENERATED_NARRATION]);
+    await waitFor(() => ttsTexts.length === 1);
+    expect(ttsTexts).toEqual([GENERATED_NARRATION]);
 
     // The name fallback completed the web_search op: it reports as completed
     // (with its preview) rather than lingering incomplete.
@@ -365,7 +365,7 @@ describe("LiveVoiceSession progress narration", () => {
     emitMessageComplete(getCallbacks);
   });
 
-  test("completedOps reach the decider in completion order, not start order", async () => {
+  test("completedOps reach the narrator in completion order, not start order", async () => {
     const inputs: VoiceProgressTextInput[] = [];
     const generateProgressText = mock(async (input: VoiceProgressTextInput) => {
       inputs.push(input);
@@ -373,21 +373,20 @@ describe("LiveVoiceSession progress narration", () => {
     });
     const { session, getCallbacks, ttsTexts } = createProgressHarness({
       frontModelConfig: progressConfig({ opsThreshold: 3, minGapMs: 10 }),
-      frontDecider: makeProgressDecider(generateProgressText),
+      progressNarrator: makeProgressNarrator(generateProgressText),
     });
 
     await startReleasedTurn(session, getCallbacks);
     // Two parallel tools start in one order…
     emitToolStart(getCallbacks, "web_search", "tool-1");
-    await waitFor(() => ttsTexts.length === 1);
     emitToolStart(getCallbacks, "file_read", "tool-2");
-    // …and complete in the other. The sleep separates the completion
-    // timestamps (millisecond clock) and lets the ack's minGapMs elapse.
+    // They complete in the other order. The sleep separates their completion
+    // timestamps on the millisecond clock.
     emitToolResult(getCallbacks, "file_read", "tool-2", "file contents");
     await sleep(30);
     emitToolResult(getCallbacks, "web_search", "tool-1", "found 3 results");
     emitToolStart(getCallbacks, "bash", "tool-3");
-    await waitFor(() => ttsTexts.length === 2);
+    await waitFor(() => ttsTexts.length === 1);
 
     expect(inputs[0]?.completedOps).toEqual([
       { toolName: "file_read", resultPreview: "file contents" },
@@ -397,7 +396,7 @@ describe("LiveVoiceSession progress narration", () => {
     emitMessageComplete(getCallbacks);
   });
 
-  test("idle trigger: dead air narrates with the decider text, audio-only", async () => {
+  test("idle trigger: dead air narrates with generated text, audio-only", async () => {
     const inputs: VoiceProgressTextInput[] = [];
     const generateProgressText = mock(async (input: VoiceProgressTextInput) => {
       inputs.push(input);
@@ -408,7 +407,7 @@ describe("LiveVoiceSession progress narration", () => {
         idleIntervalMs: 40,
         minGapMs: 60_000,
       }),
-      frontDecider: makeProgressDecider(generateProgressText),
+      progressNarrator: makeProgressNarrator(generateProgressText),
     });
 
     await startReleasedTurn(session, getCallbacks);
@@ -429,14 +428,14 @@ describe("LiveVoiceSession progress narration", () => {
     emitMessageComplete(getCallbacks);
   });
 
-  test("idle trigger with a null decider result speaks the static fallback", async () => {
+  test("idle trigger with a null narrator result speaks the static fallback", async () => {
     const generateProgressText = mock(async () => null);
     const { session, getCallbacks, ttsTexts } = createProgressHarness({
       frontModelConfig: progressConfig({
         idleIntervalMs: 40,
         minGapMs: 60_000,
       }),
-      frontDecider: makeProgressDecider(generateProgressText),
+      progressNarrator: makeProgressNarrator(generateProgressText),
     });
 
     await startReleasedTurn(session, getCallbacks);
@@ -449,11 +448,17 @@ describe("LiveVoiceSession progress narration", () => {
 
   test("no-ops idle fallback stays neutral: no phrase claims tool activity", async () => {
     // List invariant: the fallback can speak on a slow turn with zero tool
-    // activity, so no phrase may claim tools or tasks are running.
-    for (const phrase of PROGRESS_FALLBACK_PHRASES) {
-      expect(phrase.toLowerCase()).not.toMatch(
-        /\b(run|runs|running|tool|tools|thing|things|task|tasks|check|checking|look|looking|search|searching)\b/,
-      );
+    // activity, so no phrase may claim tools or tasks are running. Every
+    // language's list carries the invariant; the regex names the English
+    // activity words, which no list may borrow.
+    for (const phrases of Object.values(
+      PROGRESS_FALLBACK_PHRASES_BY_LANGUAGE,
+    )) {
+      for (const phrase of phrases) {
+        expect(phrase.toLowerCase()).not.toMatch(
+          /\b(run|runs|running|tool|tools|thing|things|task|tasks|check|checking|look|looking|search|searching)\b/,
+        );
+      }
     }
 
     // Behavior: a slow turn with no tool events falls back to that list.
@@ -463,7 +468,7 @@ describe("LiveVoiceSession progress narration", () => {
         idleIntervalMs: 40,
         minGapMs: 60_000,
       }),
-      frontDecider: makeProgressDecider(generateProgressText),
+      progressNarrator: makeProgressNarrator(generateProgressText),
     });
 
     await startReleasedTurn(session, getCallbacks);
@@ -475,7 +480,115 @@ describe("LiveVoiceSession progress narration", () => {
     emitMessageComplete(getCallbacks);
   });
 
-  test("ops trigger with a null decider result stays silent and keeps the update budget", async () => {
+  test("a Hindi turn's idle fallback speaks the Hindi phrase and hints the narrator", async () => {
+    const inputs: VoiceProgressTextInput[] = [];
+    const generateProgressText = mock(async (input: VoiceProgressTextInput) => {
+      inputs.push(input);
+      return null;
+    });
+    const { session, getCallbacks, ttsTexts } = createProgressHarness({
+      frontModelConfig: progressConfig({
+        idleIntervalMs: 40,
+        minGapMs: 60_000,
+      }),
+      progressNarrator: makeProgressNarrator(generateProgressText),
+      sttStopEvents: [
+        { type: "final", text: "नमस्ते", languages: ["hi"] },
+        { type: "closed" },
+      ],
+    });
+
+    await startReleasedTurn(session, getCallbacks);
+    await waitFor(() => ttsTexts.length === 1);
+
+    // The static fallback rotates through the caller's language's list, not
+    // the English default, and the narrator was told the language too.
+    expect(pickProgressPhrase(0, "hi")).toBe(
+      PROGRESS_FALLBACK_PHRASES_BY_LANGUAGE.hi![0]!,
+    );
+    expect(ttsTexts).toEqual([
+      sanitizeForTts(pickProgressPhrase(0, "hi")).trim(),
+    ]);
+    expect(inputs[0]?.languageHint).toBe("hi");
+
+    emitMessageComplete(getCallbacks);
+  });
+
+  test("an out-of-roster pinned turn speaks the English fallback with an 'en' hint while model speech keeps the pin", async () => {
+    // "ar" is an accepted monolingual services.stt.language pin but has no
+    // entry in the localized phrase tables, so the idle fallback is English
+    // text. The filler segment must carry an "en" hint rather than the
+    // turn's "ar" (an enforcing TTS provider would otherwise render English
+    // words as Arabic). Model speech stays on the turn's language.
+    const originalRaw = loadRawConfig();
+    const rawServices = (originalRaw.services ?? {}) as Record<string, unknown>;
+    saveRawConfig({
+      ...originalRaw,
+      services: {
+        ...rawServices,
+        stt: {
+          ...((rawServices.stt ?? {}) as Record<string, unknown>),
+          provider: "deepgram",
+          language: "ar",
+        },
+      },
+    });
+    const generateProgressText = mock(async () => null);
+    const { session, getCallbacks, ttsTexts, ttsCalls } = createProgressHarness(
+      {
+        frontModelConfig: progressConfig({
+          idleIntervalMs: 40,
+          minGapMs: 60_000,
+        }),
+        progressNarrator: makeProgressNarrator(generateProgressText),
+      },
+    );
+
+    try {
+      await startReleasedTurn(session, getCallbacks);
+      await waitFor(() => ttsTexts.length === 1);
+
+      expect(ttsTexts[0]).toBe(EXPECTED_PROGRESS_FALLBACK);
+      expect(ttsCalls[0]?.language).toBe("en");
+
+      emitTextDelta(getCallbacks, "Okay.");
+      emitMessageComplete(getCallbacks);
+      await waitFor(() => ttsCalls.length >= 2);
+
+      expect(ttsCalls[1]?.text).toBe("Okay.");
+      expect(ttsCalls[1]?.language).toBe("ar");
+    } finally {
+      await session.close("websocket_close");
+      saveRawConfig(originalRaw);
+    }
+  });
+
+  test("with no detected language the narrator gets no hint and fallback stays English", async () => {
+    const inputs: VoiceProgressTextInput[] = [];
+    const progressNarrator: VoiceProgressNarrator = {
+      generateProgressText: async (input) => {
+        inputs.push(input);
+        return null;
+      },
+    };
+    const { session, getCallbacks, ttsTexts } = createProgressHarness({
+      frontModelConfig: progressConfig({ idleIntervalMs: 40, minGapMs: 10 }),
+      progressNarrator,
+    });
+
+    await startReleasedTurn(session, getCallbacks);
+    emitToolStart(getCallbacks, "web_search", "tool-1");
+    await waitFor(() => ttsTexts.length === 1);
+
+    // Language unknown: the input has no languageHint key and the static
+    // fallback comes from the English list.
+    expect(inputs[0]).not.toHaveProperty("languageHint");
+    expect(ttsTexts).toEqual([EXPECTED_PROGRESS_FALLBACK]);
+
+    emitMessageComplete(getCallbacks);
+  });
+
+  test("ops trigger with a null narrator result stays silent and keeps the update budget", async () => {
     const generateProgressText = mock(async () => null);
     const { session, getCallbacks, ttsTexts } = createProgressHarness({
       frontModelConfig: progressConfig({
@@ -483,96 +596,19 @@ describe("LiveVoiceSession progress narration", () => {
         idleIntervalMs: 120,
         minGapMs: 10,
       }),
-      frontDecider: makeProgressDecider(generateProgressText),
+      progressNarrator: makeProgressNarrator(generateProgressText),
     });
 
     await startReleasedTurn(session, getCallbacks);
     emitToolStart(getCallbacks, "web_search", "tool-1");
-    await waitFor(() => ttsTexts.length === 1);
-    expect(ttsTexts).toEqual([EXPECTED_TOOL_ACK]);
-
-    // Past the ack gap, the ops trigger fires but generation returns null:
-    // nothing speaks and no update is consumed.
-    await sleep(30);
-    emitToolResult(getCallbacks, "web_search", "tool-1");
     await waitFor(() => generateProgressText.mock.calls.length === 1);
     await sleep(10);
-    expect(ttsTexts).toEqual([EXPECTED_TOOL_ACK]);
+    expect(ttsTexts).toEqual([]);
 
     // The idle trigger still has the full budget: its own null falls back to
     // the static phrase.
-    await waitFor(() => ttsTexts.length === 2);
-    expect(ttsTexts).toEqual([EXPECTED_TOOL_ACK, EXPECTED_PROGRESS_FALLBACK]);
-
-    emitMessageComplete(getCallbacks);
-  });
-
-  test("minGapMs: a tool-start ack suppresses narration until the gap elapses", async () => {
-    const generateProgressText = mock(async () => GENERATED_NARRATION);
-    const { session, getCallbacks, ttsTexts } = createProgressHarness({
-      frontModelConfig: progressConfig({ opsThreshold: 1, minGapMs: 150 }),
-      frontDecider: makeProgressDecider(generateProgressText),
-    });
-
-    await startReleasedTurn(session, getCallbacks);
-    emitToolStart(getCallbacks, "web_search", "tool-1");
     await waitFor(() => ttsTexts.length === 1);
-    // Threshold already met, but the just-spoken ack holds the floor.
-    emitToolResult(getCallbacks, "web_search", "tool-1");
-    await sleep(30);
-    expect(ttsTexts).toEqual([EXPECTED_TOOL_ACK]);
-    expect(generateProgressText).not.toHaveBeenCalled();
-
-    await sleep(150);
-    emitToolStart(getCallbacks, "file_read", "tool-2");
-    await waitFor(() => ttsTexts.length === 2);
-    expect(ttsTexts).toEqual([EXPECTED_TOOL_ACK, GENERATED_NARRATION]);
-    expect(generateProgressText).toHaveBeenCalledTimes(1);
-
-    emitMessageComplete(getCallbacks);
-  });
-
-  test("no narration generation launches while an ack generation is pending", async () => {
-    const ackGeneration = deferred<string | null>();
-    const generateAckText = mock(() => ackGeneration.promise);
-    const generateProgressText = mock(async () => GENERATED_NARRATION);
-    const frontDecider: VoiceFrontDecider = {
-      generateAckText,
-      generateProgressText,
-    };
-    const { session, getCallbacks, ttsTexts } = createProgressHarness({
-      frontModelConfig: progressConfig({ opsThreshold: 1, minGapMs: 150 }),
-      frontDecider,
-    });
-
-    await startReleasedTurn(session, getCallbacks);
-    // The tool start speaks a generated ack (generation still pending) and
-    // simultaneously crosses the ops threshold; the entry guard must stand
-    // down instead of launching a narration generation whose result the
-    // post-await re-check would only discard.
-    emitToolStart(getCallbacks, "web_search", "tool-1");
-    await sleep(30);
-    expect(generateProgressText).not.toHaveBeenCalled();
-    expect(ttsTexts).toEqual([]);
-
-    ackGeneration.resolve("Generated ack.");
-    await waitFor(() => ttsTexts.length === 1);
-    expect(ttsTexts).toEqual(["Generated ack."]);
-
-    // Inside the ack's minGapMs window nothing else speaks even as tool
-    // activity continues.
-    emitToolResult(getCallbacks, "web_search", "tool-1");
-    await sleep(30);
-    expect(generateProgressText).not.toHaveBeenCalled();
-    expect(ttsTexts).toEqual(["Generated ack."]);
-
-    // The stand-down preserved the update budget: once the gap elapses, the
-    // next ops trigger narrates normally.
-    await sleep(150);
-    emitToolStart(getCallbacks, "file_read", "tool-2");
-    await waitFor(() => ttsTexts.length === 2);
-    expect(ttsTexts).toEqual(["Generated ack.", GENERATED_NARRATION]);
-    expect(generateProgressText).toHaveBeenCalledTimes(1);
+    expect(ttsTexts).toEqual([EXPECTED_PROGRESS_FALLBACK]);
 
     emitMessageComplete(getCallbacks);
   });
@@ -585,7 +621,7 @@ describe("LiveVoiceSession progress narration", () => {
     });
     const { session, getCallbacks, ttsTexts } = createProgressHarness({
       frontModelConfig: progressConfig({ idleIntervalMs: 30, minGapMs: 1 }),
-      frontDecider: makeProgressDecider(generateProgressText),
+      progressNarrator: makeProgressNarrator(generateProgressText),
     });
 
     await startReleasedTurn(session, getCallbacks);
@@ -619,7 +655,7 @@ describe("LiveVoiceSession progress narration", () => {
         idleIntervalMs: 40,
         minGapMs: 10,
       }),
-      frontDecider: makeProgressDecider(generateProgressText),
+      progressNarrator: makeProgressNarrator(generateProgressText),
     });
 
     await startReleasedTurn(session, getCallbacks);
@@ -651,7 +687,7 @@ describe("LiveVoiceSession progress narration", () => {
         idleIntervalMs: 40,
         minGapMs: 60_000,
       }),
-      frontDecider: makeProgressDecider(generateProgressText),
+      progressNarrator: makeProgressNarrator(generateProgressText),
       gateTtsText: (text) => (text === "Hello there." ? ttsGate.promise : null),
     });
 
@@ -676,7 +712,7 @@ describe("LiveVoiceSession progress narration", () => {
     const generateProgressText = mock(() => generation.promise);
     const { session, getCallbacks, ttsTexts } = createProgressHarness({
       frontModelConfig: progressConfig({ idleIntervalMs: 40 }),
-      frontDecider: makeProgressDecider(generateProgressText),
+      progressNarrator: makeProgressNarrator(generateProgressText),
     });
 
     await startReleasedTurn(session, getCallbacks);
@@ -697,7 +733,7 @@ describe("LiveVoiceSession progress narration", () => {
         idleIntervalMs: 40,
         minGapMs: 60_000,
       }),
-      frontDecider: makeProgressDecider(generateProgressText),
+      progressNarrator: makeProgressNarrator(generateProgressText),
       emitMetrics: true,
     });
 
@@ -722,7 +758,7 @@ describe("LiveVoiceSession progress narration", () => {
     });
   });
 
-  test("progress.enabled false: zero narrations and zero decider calls", async () => {
+  test("progress.enabled false: zero narrations and zero narrator calls", async () => {
     const generateProgressText = mock(async () => GENERATED_NARRATION);
     const { session, getCallbacks, ttsTexts } = createProgressHarness({
       frontModelConfig: progressConfig({
@@ -731,7 +767,7 @@ describe("LiveVoiceSession progress narration", () => {
         idleIntervalMs: 30,
         minGapMs: 1,
       }),
-      frontDecider: makeProgressDecider(generateProgressText),
+      progressNarrator: makeProgressNarrator(generateProgressText),
     });
 
     await startReleasedTurn(session, getCallbacks);
@@ -741,8 +777,7 @@ describe("LiveVoiceSession progress narration", () => {
     emitToolResult(getCallbacks, "file_read", "tool-2");
     await sleep(100);
 
-    // Only the tool-start ack spoke; the decider was never consulted.
-    expect(ttsTexts).toEqual([EXPECTED_TOOL_ACK]);
+    expect(ttsTexts).toEqual([]);
     expect(generateProgressText).not.toHaveBeenCalled();
 
     emitMessageComplete(getCallbacks);
@@ -755,7 +790,7 @@ describe("LiveVoiceSession progress narration", () => {
         idleIntervalMs: 20,
         maxSilenceMs: 150,
       }),
-      frontDecider: makeProgressDecider(generateProgressText),
+      progressNarrator: makeProgressNarrator(generateProgressText),
     });
 
     await startReleasedTurn(session, getCallbacks);
@@ -782,7 +817,7 @@ describe("LiveVoiceSession progress narration", () => {
         idleIntervalMs: 20,
         maxSilenceMs: 600_000,
       }),
-      frontDecider: makeProgressDecider(generateProgressText),
+      progressNarrator: makeProgressNarrator(generateProgressText),
     });
 
     await startReleasedTurn(session, getCallbacks);
@@ -791,14 +826,14 @@ describe("LiveVoiceSession progress narration", () => {
 
     // A tool starting is news: the next tick narrates it.
     emitToolStart(getCallbacks, "web_search", "tool-1");
-    await waitFor(() => ttsTexts.length === 2);
-    expect(ttsTexts).toEqual([EXPECTED_TOOL_ACK, GENERATED_NARRATION]);
+    await waitFor(() => ttsTexts.length === 1);
+    expect(ttsTexts).toEqual([GENERATED_NARRATION]);
 
     // Nothing has happened since, so the ticks that follow stay quiet
     // instead of repeating the same update on a clock.
     await sleep(80);
     expect(generateProgressText).toHaveBeenCalledTimes(1);
-    expect(ttsTexts).toEqual([EXPECTED_TOOL_ACK, GENERATED_NARRATION]);
+    expect(ttsTexts).toEqual([GENERATED_NARRATION]);
 
     emitMessageComplete(getCallbacks);
   });
@@ -817,17 +852,16 @@ describe("LiveVoiceSession progress narration", () => {
         idleIntervalMs: 60_000,
         longOpMs: 25,
       }),
-      frontDecider: makeProgressDecider(generateProgressText),
+      progressNarrator: makeProgressNarrator(generateProgressText),
     });
 
     await startReleasedTurn(session, getCallbacks);
     emitToolStart(getCallbacks, "web_search", "tool-1");
-    await waitFor(() => ttsTexts.length === 1);
     await sleep(40);
 
     emitToolResult(getCallbacks, "web_search", "tool-1");
-    await waitFor(() => ttsTexts.length === 2);
-    expect(ttsTexts).toEqual([EXPECTED_TOOL_ACK, GENERATED_NARRATION]);
+    await waitFor(() => ttsTexts.length === 1);
+    expect(ttsTexts).toEqual([GENERATED_NARRATION]);
     expect(inputs[0]?.completedOps).toEqual([
       { toolName: "web_search", resultPreview: "ok" },
     ]);
@@ -843,18 +877,17 @@ describe("LiveVoiceSession progress narration", () => {
         idleIntervalMs: 60_000,
         longOpMs: 60_000,
       }),
-      frontDecider: makeProgressDecider(generateProgressText),
+      progressNarrator: makeProgressNarrator(generateProgressText),
     });
 
     await startReleasedTurn(session, getCallbacks);
     emitToolStart(getCallbacks, "web_search", "tool-1");
-    await waitFor(() => ttsTexts.length === 1);
     emitToolResult(getCallbacks, "web_search", "tool-1");
     await sleep(60);
 
     // Narrating every quick lookup is the chatter the cadence avoids.
     expect(generateProgressText).not.toHaveBeenCalled();
-    expect(ttsTexts).toEqual([EXPECTED_TOOL_ACK]);
+    expect(ttsTexts).toEqual([]);
 
     emitMessageComplete(getCallbacks);
   });
@@ -874,7 +907,7 @@ describe("LiveVoiceSession progress narration", () => {
         idleIntervalMs: 20,
         maxSilenceMs: 600_000,
       }),
-      frontDecider: makeProgressDecider(generateProgressText),
+      progressNarrator: makeProgressNarrator(generateProgressText),
     });
 
     await startReleasedTurn(session, getCallbacks);

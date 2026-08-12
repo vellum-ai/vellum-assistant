@@ -31,15 +31,16 @@ mock.module("../apps/app-store.js", () => ({
   },
 }));
 
+import type { Conversation } from "../daemon/conversation.js";
 import {
   createSurfaceMutex,
   handleSurfaceAction,
-  type SurfaceConversationContext,
   surfaceProxyResolver,
 } from "../daemon/conversation-surfaces.js";
+import { asConversation } from "./helpers/mock-conversation.js";
 
-function makeContext(): SurfaceConversationContext {
-  return {
+function makeContext(): Conversation {
+  return asConversation({
     conversationId: "session-1",
     sendToClient: () => {},
     pendingSurfaceActions: new Map<string, { surfaceType: SurfaceType }>(),
@@ -57,7 +58,7 @@ function makeContext(): SurfaceConversationContext {
     getQueueDepth: () => 0,
     processMessage: async () => "ok",
     withSurface: createSurfaceMutex(),
-  };
+  });
 }
 
 describe("starter task surface actions", () => {

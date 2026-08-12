@@ -48,7 +48,7 @@ import {
   extractAttachmentStoredPaths,
   extractImageSourcePaths,
   getConversation,
-  isHiddenMessageMetadata,
+  isSuppressedQueuedMessage,
   provenanceFromTrustContext,
   setConversationOriginChannelIfUnset,
   setConversationOriginInterfaceIfUnset,
@@ -68,6 +68,7 @@ import type { SlackInboundMessageMetadata } from "./handlers/shared.js";
 import type { UserMessageAttachment } from "./message-protocol.js";
 import type { ConversationTransportMetadata } from "./message-types/conversations.js";
 import type { TrustContext } from "./trust-context-types.js";
+import { restingTrust } from "./trust-context-types.js";
 
 const log = getLogger("conversation-messaging");
 
@@ -217,11 +218,11 @@ export interface MessagingConversationContext {
   currentTurnAuthContext?: AuthContext;
   currentTurnSourceActorPrincipalId?: string;
   /**
-   * OS surface reported by the connected client ("web" | "ios" | "macos" |
-   * "android"), re-applied from transport metadata on every inbound message.
+   * OS surface reported by the connected client, re-applied from transport
+   * metadata on every inbound message.
    * Persisted under `metadata.client.os` so turn telemetry can attribute the
-   * real platform — the transport `interfaceId` is "web" for the web, iOS,
-   * and macOS apps alike (they share the web renderer).
+   * real platform. The transport `interfaceId` is "web" for browser, mobile,
+   * and desktop apps because they share the web renderer.
    */
   clientOs?: string;
   getTurnChannelContext(): TurnChannelContext | null;
@@ -565,6 +566,12 @@ export interface EnqueueMessageOptions {
   sourceActorPrincipalId?: string;
   /** Auth context snapshot captured for queued turn-scoped authorization. */
   authContext?: AuthContext;
+  /**
+   * Sender's trust, for the drain to run this message under. Defaults to the
+   * conversation's trust at enqueue time, which the sending route has just
+   * set to this sender.
+   */
+  trustContext?: TrustContext;
 }
 
 // ── enqueueMessage ───────────────────────────────────────────────────
@@ -593,6 +600,9 @@ export function enqueueMessage(
     options.sourceActorPrincipalId ??
     ctx.currentTurnSourceActorPrincipalId ??
     queuedAuthContext?.actorPrincipalId;
+  // Deliberately not falling back to `currentTurnTrustContext`: that is the
+  // in-flight turn's actor, which is precisely who this message is not from.
+  const queuedTrustContext = options.trustContext ?? ctx.trustContext;
 
   if (!ctx.isProcessing()) {
     return { queued: false, requestId };
@@ -619,6 +629,7 @@ export function enqueueMessage(
     isInteractive,
     sourceActorPrincipalId,
     authContext: queuedAuthContext,
+    trustContext: queuedTrustContext,
     transport,
     displayContent,
     sentAt: Date.now(),
@@ -636,16 +647,17 @@ export function enqueueMessage(
   }
   // Ack the accepted enqueue on the sender's event sink. Emitting here,
   // rather than at each ingress call site, is what guarantees every path
-  // that queues (HTTP send, surface actions, agent wake, subagent
-  // notifications) surfaces the queued row live. Hidden sends are
-  // suppressed from the transcript at every stage, including this ack,
-  // and `position` counts visible items only: both mirror the
-  // list-messages queued-snapshot filter so a live ack and a cold reload
-  // render the same row at the same position.
-  if (!isHiddenMessageMetadata(metadata)) {
+  // that queues a person's prompt (HTTP send, surface actions, CLI signal)
+  // surfaces the queued row live. Rows with no client-visible counterpart —
+  // hidden sends and daemon-injected notifications (subagent/ACP/wake) — are
+  // suppressed from the transcript at every stage, including this ack, and
+  // `position` counts visible items only: both mirror the list-messages
+  // queued-snapshot filter so a live ack and a cold reload render the same
+  // row at the same position.
+  if (!isSuppressedQueuedMessage(metadata)) {
     const position = ctx.queue
       .snapshot()
-      .filter((item) => !isHiddenMessageMetadata(item.metadata)).length;
+      .filter((item) => !isSuppressedQueuedMessage(item.metadata)).length;
     onEvent?.({
       type: "message_queued",
       conversationId: ctx.conversationId,
@@ -667,6 +679,14 @@ export interface PersistMessageOptions {
   metadata?: Record<string, unknown>;
   displayContent?: string;
   clientMessageId?: string;
+  /**
+   * Trust to attribute the stored row to. Queue drains pass the sender's
+   * captured trust so persisted provenance names the same actor the turn
+   * executes as; the conversation slot may by then hold someone else.
+   * Defaults to the conversation's trust, which is correct for callers
+   * persisting a message the current actor just sent.
+   */
+  trustContext?: TrustContext;
   /**
    * Persist the row without indexing it (no memory segments, embeddings, or
    * lexical-index entry). For machine-authored prompts that must not enter
@@ -702,6 +722,19 @@ export interface PersistMessageOptions {
    * thread it: the queue round-trips `metadata`, not these options.
    */
   scripted?: boolean;
+  /**
+   * OS surface this row's own request or transport reported, threaded by the
+   * ingress that built it (the send route's request body, a queued message's
+   * `transport`). Stamps `metadata.clientOsFromRequest` when it matches the
+   * `client.os` this row persists.
+   *
+   * `ctx.clientOs` alone is not that evidence: it is a live conversation
+   * field only a transport-carrying message refreshes, so a transport-less
+   * turn (surface action, signal ingress) inherits whatever an earlier send
+   * left there. Omitting this option therefore reads as "inherited", which is
+   * what a consumer that must not misattribute a turn to a surface needs.
+   */
+  requestClientOs?: string;
 }
 
 // ── persistUserMessage ───────────────────────────────────────────────
@@ -770,9 +803,9 @@ export async function persistUserMessage(
     return result;
   } catch (err) {
     // Clear the flag, but never let a clear failure mask the original error
-    // or skip the bookkeeping reset. `setProcessing` reverts its own
-    // in-memory flag when its persist throws, so the conversation is left
-    // consistent either way.
+    // or skip the bookkeeping reset. `setProcessing(false)` releases in memory
+    // regardless of its advisory mirror write, so the guard here is purely
+    // defensive against future changes.
     try {
       ctx.setProcessing(false);
     } catch (clearErr) {
@@ -810,6 +843,7 @@ export async function persistQueuedMessageBody(
     displayContent,
     clientMessageId,
     skipIndexing,
+    requestClientOs,
   } = options;
   const attachmentInputs: MessageAttachmentInput[] = attachments.map(
     (attachment) => ({
@@ -829,7 +863,12 @@ export async function persistQueuedMessageBody(
       extractTurnChannelContext(metadata) ?? ctx.getTurnChannelContext();
     const turnIfCtx =
       extractTurnInterfaceContext(metadata) ?? ctx.getTurnInterfaceContext();
-    const provenance = provenanceFromTrustContext(ctx.trustContext);
+    const provenance = provenanceFromTrustContext(
+      // Callers that own a turn pass the sender's trust; the fallback serves
+      // ingress paths that persist before any per-turn stamp exists, where
+      // the slot their own resolution just wrote is the right actor.
+      options.trustContext ?? restingTrust(ctx),
+    );
     const imageSourcePaths = extractImageSourcePaths(attachments);
 
     // Strip the transient `slackInbound` carrier key from the persisted
@@ -842,13 +881,19 @@ export async function persistQueuedMessageBody(
     // non-boolean through would be worse than dropping it: sqlite stores it
     // verbatim, and `turn-events-store` narrows anything that isn't 1 to
     // `false`, turning a junk string into a confident "the user typed this".
+    // `clientOsFromRequest` comes out for the same reason and a sharper one:
+    // it is derived below from what this persist can actually see, and a bag
+    // value surviving the spread would let a caller assert an origin the row
+    // never reported.
     const {
       slackInbound: rawSlackInbound,
       scripted: rawScriptedFromMetadata,
+      clientOsFromRequest: _rawClientOsFromRequest,
       ...metadataWithoutSlackInbound
     } = (metadata ?? {}) as Record<string, unknown> & {
       slackInbound?: SlackInboundMessageMetadata;
       scripted?: unknown;
+      clientOsFromRequest?: unknown;
     };
     const slackMeta = buildSlackMetaForPersistence({
       slackInbound: rawSlackInbound,
@@ -898,6 +943,22 @@ export async function persistQueuedMessageBody(
     const clientBag =
       Object.keys(clientEntries).length > 0 ? { client: clientEntries } : {};
 
+    // Per-row evidence for the `client.os` stamped just above, kept as a
+    // sibling of the bag so `TurnTelemetryEvent.client` stays exactly the
+    // forwarded `$.client`. Set only when this row itself reported the OS:
+    // through the caller's own client bag (the request's client-metadata
+    // headers, round-tripped through the queue) or through this row's
+    // transport, which `requestClientOs` carries. An inherited `ctx.clientOs`
+    // names the surface of an EARLIER turn, so it leaves the marker off and a
+    // consumer reading origin (the reply-push presence gate) treats the turn
+    // as coming from somewhere unknown.
+    const callerOs = callerClient?.os;
+    const resolvedRequestClientOs = parseClientOs(requestClientOs);
+    const clientOsFromRequest =
+      (typeof callerOs === "string" && callerOs.length > 0) ||
+      (resolvedRequestClientOs !== null &&
+        resolvedRequestClientOs === clientOs);
+
     const mergedMetadata = {
       ...metadataWithoutSlackInbound,
       ...provenance,
@@ -914,6 +975,7 @@ export async function persistQueuedMessageBody(
           }
         : {}),
       ...clientBag,
+      ...(clientOsFromRequest ? { clientOsFromRequest: true } : {}),
       ...(imageSourcePaths ? { imageSourcePaths } : {}),
       ...(slackMeta ? { slackMeta } : {}),
       // Scripted-turn marker, forwarded by `turn-events-store` onto

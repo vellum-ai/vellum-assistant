@@ -711,6 +711,62 @@ imperative write.
 Reference: `lib/commit-pressure.ts` — the probe that measures this
 traffic and attaches it to error-185 Sentry events.
 
+### Don't measure an element to give back the space you took from it
+
+If you position something absolutely and then reserve its measured height
+as padding somewhere else, the absolute positioning bought nothing: the
+element ends up occupying exactly the space normal flow would have given
+it. What you have built is flow layout, reimplemented in JavaScript, at
+the cost of a `ResizeObserver`, a piece of state, an effect, and usually
+a prop threaded through someone else's component. `ChatBody`'s nudge
+banner did this for six weeks and put the component in the error-185
+family (LUM-2927).
+
+Ask which of the two things you actually want:
+
+- **It needs space.** Make it a flow sibling and let flexbox size it. A
+  `flex-1` neighbour gives back exactly the right height at every
+  viewport, for free, with nothing to keep in sync.
+- **It floats over content.** Reserve nothing, like the scroll-to-latest
+  pill. Measure only when content must scroll _behind_ it and the
+  scrollport's own padding is what keeps the tail reachable, which is the
+  one case that genuinely needs a number
+  (`side-menu-overlay-bottom-column.tsx`).
+
+Putting both kinds in one positioned container is what forces the
+measurement, because the container can only have one layout behavior.
+
+When you do need a live box, `hooks/use-element-size.ts` already exists.
+
+### Never key an effect on a `ReactNode` prop
+
+An element is a fresh object on every render of whoever created it, so
+`useEffect(fn, [someNode])` re-runs `fn` in _every_ commit for as long as
+that node is mounted. When `fn` measures the DOM, swaps an observer, or
+calls `setState`, that is per-commit work landing in the commit stream,
+and it feeds the same counter described above (LUM-3062, LUM-2927).
+
+Key on what actually changed instead: a boolean for "is it mounted", an
+id for "which one is it". Note that re-keying alone is not a fix if the
+node can be swapped underneath you: sibling slots in one parent are
+matched by index and element type, so mounting an unkeyed sibling can
+hand your observed node to a different subtree while the effect sleeps.
+
+The same reasoning applies one level up, to any hook returning an object:
+
+```ts
+// Avoid: a fresh object every render busts every downstream useMemo,
+// which remints the elements built from it, which re-runs any effect
+// keyed on those elements.
+return { bannerShouldShow, handleDismiss };
+
+// Good
+return useMemo(
+  () => ({ bannerShouldShow, handleDismiss }),
+  [bannerShouldShow, handleDismiss],
+);
+```
+
 ---
 
 ## Framework strategy
@@ -1093,6 +1149,10 @@ wrapping the SPA.
 
 ## Platform gating
 
+"Platform" here means the Vellum platform (hosting and auth), not the device
+platform. For surfaces that differ across desktop, iOS, and Android, see
+[`PLATFORM_ADAPTATION.md`](./PLATFORM_ADAPTATION.md).
+
 The web app can run in three auth/hosting configurations that affect
 which UI surfaces are available:
 
@@ -1362,6 +1422,33 @@ the `Vellum-Organization-Id` header and uses bearer auth instead.
   files. Files pass individually but may fail in a full `bun test` run.
   CI uses `bun run test:ci` (each file in its own subprocess) to
   guarantee isolation.
+- **Type a `mock.module()` factory against the module it replaces.**
+  An untyped factory is an object literal nobody checks, so when the real
+  module grows a field the stub silently keeps returning the old shape.
+  The consumer reads `undefined`, and `undefined` is falsy, so it flips
+  branches rather than throwing and the suite stays green while testing
+  behavior the app no longer has.
+
+  ```ts
+  import type * as ConversationQueries from "@/hooks/conversation-queries";
+
+  mock.module(
+    "@/hooks/conversation-queries",
+    (): Partial<typeof ConversationQueries> => ({
+      useSectionConversationListQuery: () => ({ ... }),
+    }),
+  );
+  ```
+
+  `Partial<>` keeps you free to stub only the exports you need, while
+  still checking the shape of the ones you do stub. This is not
+  hypothetical: a section hook gained a `hasData` field, three mocks kept
+  returning the old shape, and every section silently fell back to its
+  derived rows, and the tests passed because nothing was being filtered
+  rather than because it was. Typing the factories also surfaced four
+  older stubs that had been missing `isLoading` / `isError` / `refetch`
+  the whole time.
+
 - **Run tests:**
   ```bash
   bun test src/path/to/file.test.ts  # single file (fast)
@@ -1412,19 +1499,32 @@ renders correctly given the data it actually receives in production.
   the app, and harder to spot. Hex in sample _data_ is fine (an avatar
   color the component receives as a prop): the line is whether the value
   styles the story or is the fixture.
-- **Pin a viewport when the component is responsive.** Components with
-  `max-md:` variants key off the *viewport*, so at a narrow window a
-  story silently renders the mobile treatment while still passing a
-  desktop variant. Set `globals: { viewport: { value: ... } }` on the
-  meta (viewport is built into Storybook core, no addon needed). Note
-  this holds the **Canvas** only: every story on a docs page shares one
-  iframe, so no per-story viewport applies in **Docs**, and that iframe
-  runs roughly 300px narrower than the browser window.
+- **Stories start at a desktop width; name a viewport only to leave it.**
+  Components with `max-md:` variants key off the *viewport*, so at a
+  narrow window a story would silently render the mobile treatment while
+  still passing a desktop variant. `.storybook/preview.tsx` starts every
+  story at the shared `sbDesktop` option from `.storybook/viewports.ts`,
+  and the toolbar still switches to `sbMobile`. A story that documents
+  the mobile treatment sets `globals: { viewport: { value: "sbMobile",
+  isRotated: false } }` on its meta, naming an option from that shared
+  list rather than declaring its own. This holds the **Canvas** only:
+  every story on a docs page shares one iframe, so no viewport global
+  applies in **Docs**, and that iframe runs roughly 300px narrower than
+  the browser window.
+
+- **One router, configured through `parameters.router`.** The preview mounts
+  the only router a story gets; a story that mounts its own crashes the
+  canvas, since React Router rejects a `<Router>` inside another. A story
+  that needs a particular address or route params declares
+  `parameters: { router: { initialEntries, paths } }`, listing every route
+  pattern it navigates between: a component that navigates to an address no
+  pattern matches renders nothing rather than failing.
 
 References:
 - [Storybook - Writing stories](https://storybook.js.org/docs/writing-stories)
 - [Storybook - Decorators](https://storybook.js.org/docs/writing-stories/decorators)
 - [Storybook - Viewport](https://storybook.js.org/docs/essentials/viewport)
+- [React Router - MemoryRouter](https://reactrouter.com/api/declarative-routers/MemoryRouter)
 
 ---
 

@@ -5,6 +5,7 @@ import { ConfirmDialog } from "@vellumai/design-library/components/confirm-dialo
 import { Modal } from "@vellumai/design-library/components/modal";
 
 import { RetireConfirmDialog } from "@/components/retire-confirm-dialog";
+import { useTranslation } from "@/i18n";
 
 type RecoveryStep = "menu" | "confirm-repair" | "confirm-retire";
 
@@ -39,6 +40,7 @@ function ConnectRecoveryDialog({
   onRepair,
   onRetire,
 }: ConnectRecoveryDialogProps) {
+  const { t } = useTranslation("onboarding");
   const [step, setStep] = useState<RecoveryStep>("menu");
 
   useEffect(() => {
@@ -58,16 +60,14 @@ function ConnectRecoveryDialog({
     return (
       <ConfirmDialog
         open={open}
-        title="Repair Assistant?"
+        title={t("connectRecoveryDialog.repairTitle")}
         message={
           <>
-            Repairing re-provisions this assistant&rsquo;s authentication token.
-            Any other devices or browser sessions connected to it will be signed
-            out and need to reconnect.
+            {t("connectRecoveryDialog.repairBody")}
             {errorLine}
           </>
         }
-        confirmLabel="Repair"
+        confirmLabel={t("connectRecoveryDialog.repairConfirm")}
         isPending={isPending}
         onConfirm={onRepair}
         onCancel={() => setStep("menu")}
@@ -108,13 +108,15 @@ function ConnectRecoveryDialog({
         }}
       >
         <Modal.Header>
-          <Modal.Title>Can&rsquo;t Authenticate Assistant</Modal.Title>
+          <Modal.Title>
+            {t("connectRecoveryDialog.authFailedTitle")}
+          </Modal.Title>
         </Modal.Header>
         <Modal.Body>
           <Modal.Description>
-            The authentication token for {assistantName} is missing or can no
-            longer be refreshed, so this assistant can&rsquo;t be connected. You
-            can repair it, retire it, or pick a different assistant.
+            {t("connectRecoveryDialog.authFailedBody", {
+              name: assistantName,
+            })}
           </Modal.Description>
           {errorLine}
           <div className="mt-5 flex w-full flex-col gap-2">
@@ -124,7 +126,7 @@ function ConnectRecoveryDialog({
               disabled={isPending}
               onClick={() => setStep("confirm-repair")}
             >
-              Wake &amp; Repair
+              {t("connectRecoveryDialog.wakeAndRepair")}
             </Button>
             <Button
               variant="dangerOutline"
@@ -132,7 +134,7 @@ function ConnectRecoveryDialog({
               disabled={isPending}
               onClick={() => setStep("confirm-retire")}
             >
-              Retire Assistant
+              {t("connectRecoveryDialog.retire")}
             </Button>
             <Button
               variant="outlined"
@@ -140,7 +142,7 @@ function ConnectRecoveryDialog({
               disabled={isPending}
               onClick={onCancel}
             >
-              Cancel
+              {t("actions.cancel")}
             </Button>
           </div>
         </Modal.Body>

@@ -69,11 +69,23 @@ interface PendingRequest {
 // Client configuration
 // ---------------------------------------------------------------------------
 
+/** Minimal logger interface. Callers can supply pino, console, etc. */
+export interface CesRpcLogger {
+  info(obj: Record<string, unknown>, msg: string): void;
+  info(msg: string): void;
+}
+
 export interface CesRpcClientConfig {
   /** Timeout for individual RPC requests (ms). Default: 30 000 */
   requestTimeoutMs?: number;
   /** Timeout for the initial handshake (ms). Default: 10 000 */
   handshakeTimeoutMs?: number;
+  /**
+   * Optional logger for lifecycle transitions (handshake accepted, close).
+   * These transitions are otherwise invisible, which made a stuck credential
+   * backend hard to diagnose.
+   */
+  logger?: CesRpcLogger;
 }
 
 const DEFAULT_REQUEST_TIMEOUT_MS = 30_000;
@@ -154,12 +166,15 @@ export function createCesRpcClient(
     config?.requestTimeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS;
   const handshakeTimeoutMs =
     config?.handshakeTimeoutMs ?? DEFAULT_HANDSHAKE_TIMEOUT_MS;
+  const logger = config?.logger;
 
   const sessionId = randomUUID();
   let requestCounter = 0;
   let ready = false;
-  let inflightHandshake: Promise<{ accepted: boolean; reason?: string }> | null =
-    null;
+  let inflightHandshake: Promise<{
+    accepted: boolean;
+    reason?: string;
+  }> | null = null;
 
   const pending = new Map<string, PendingRequest>();
 
@@ -380,6 +395,7 @@ export function createCesRpcClient(
 
         if (ack.accepted) {
           ready = true;
+          logger?.info("CES RPC client handshake accepted; ready for calls");
         }
 
         return { accepted: ack.accepted, reason: ack.reason };
@@ -413,6 +429,7 @@ export function createCesRpcClient(
     close(): void {
       rejectAllPending(new CesTransportError("CES client closed"));
       ready = false;
+      logger?.info("CES RPC client closed");
       transport.close();
     },
   };

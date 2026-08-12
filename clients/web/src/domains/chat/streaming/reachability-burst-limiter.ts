@@ -19,14 +19,20 @@
  * "follow" the user to conversation B beyond the rolling window.
  *
  * Side effects:
- *   - on success (within budget, `"ready"` phase): clears turn state
- *     via `onReady()` so the composer stops showing "thinking", clears
- *     the visible error via `onClearError()`, and publishes
- *     `reachability.retry-requested` on the bus.
+ *   - on success (within budget, `"ready"` phase): runs the ready
+ *     cleanup (see below) and publishes `reachability.retry-requested`
+ *     on the bus.
  *   - on exhaustion (3 retries inside the window): calls
  *     `onExhausted({ message })` so the caller can surface the error
  *     state, then `onReset()` so the reachability probe stops
  *     re-triggering this handler.
+ *
+ * The ready cleanup is exposed separately as `runReadyCleanup()`:
+ * clears turn state via `onReady()` so the composer stops showing
+ * "thinking", and clears the visible error via `onClearError()`. It
+ * publishes nothing and leaves the burst window and counter untouched,
+ * so a caller that reaches `"ready"` without wanting a stream bounce
+ * can still drop stale UI without spending budget.
  */
 
 import { publish } from "@/lib/event-bus";
@@ -54,6 +60,13 @@ export interface ReachabilityBurstLimiter {
    * `"ready"` are no-ops.
    */
   handleReachabilityPhase(phase: string): void;
+  /**
+   * Run the `"ready"` stale-UI cleanup on its own: `onReady()` then
+   * `onClearError()`. Publishes nothing, spends no retry budget, and
+   * does not move the burst window. For callers that observe a healthy
+   * assistant but deliberately skip the stream bounce.
+   */
+  runReadyCleanup(): void;
 }
 
 export function createReachabilityBurstLimiter(
@@ -63,7 +76,13 @@ export function createReachabilityBurstLimiter(
   let burstCount = 0;
   let burstStartedAt = 0;
 
+  const runReadyCleanup = (): void => {
+    deps.onReady();
+    deps.onClearError();
+  };
+
   return {
+    runReadyCleanup,
     handleReachabilityPhase(phase) {
       if (phase !== "ready") {
         return;
@@ -82,8 +101,7 @@ export function createReachabilityBurstLimiter(
         return;
       }
 
-      deps.onReady();
-      deps.onClearError();
+      runReadyCleanup();
       publish("reachability.retry-requested", {});
     },
   };

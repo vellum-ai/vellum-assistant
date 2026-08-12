@@ -91,7 +91,7 @@ function hasTrustedSourceLessRendererSignal(
 
   if (
     headers.get(ELECTRON_RENDERER_ORIGIN_HEADER) ===
-    expectedRendererOrigin(allowed)
+      expectedRendererOrigin(allowed)
   ) {
     return true;
   }

@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 
 import type { MachineSizeEnum } from "@/generated/api/types.gen";
-import type { DropdownOption } from "@vellumai/design-library/components/dropdown";
+import type { SelectOption } from "@vellumai/design-library/components/select";
 
 /**
  * Pro tier ceilings → machine sizes the org may run at within that tier.
@@ -125,7 +125,7 @@ export function buildMachineSizeOptions(
   sizes: MachineSizeEnum[],
   currentSize: MachineSizeEnum | null | undefined,
   currentSuffix: ReactNode,
-): DropdownOption<MachineSizeEnum>[] {
+): SelectOption<MachineSizeEnum>[] {
   return sizes.map((size) => ({
     value: size,
     label: `${SIZE_LABEL[size]} — ${SIZE_DESCRIPTION[size]}`,

@@ -116,6 +116,7 @@ import {
   isConversationProcessing,
   isHiddenMessageMetadata,
   isProviderErrorMetadata,
+  isSuppressedQueuedMessage,
   isSystemCardMetadata,
   type MessageRow,
   recordConversationPersistedSeq,
@@ -172,6 +173,7 @@ import {
   emitCannedMessageComplete,
   persistCannedAssistantCard,
 } from "./canned-message-complete.js";
+import { scheduleCannedReplyRelease } from "./canned-reply-release.js";
 import { buildChannelMetadata } from "./channel-metadata.js";
 import {
   BadRequestError,
@@ -692,6 +694,68 @@ async function tryConsumeGuardianReply(params: {
 }
 
 /**
+ * Read the notification discriminators a client uses to keep daemon-injected
+ * rows out of the rendered transcript off a message's parsed metadata.
+ *
+ * One extraction shared by the persisted-history rows and the queued rows
+ * synthesized from the in-memory queue, so a row carries the same flags
+ * whichever side of the drain it is fetched from.
+ */
+function extractNotificationDiscriminators(
+  meta: Record<string, unknown>,
+): Pick<
+  ConversationMessage,
+  "subagentNotification" | "acpNotification" | "backgroundEventNotification"
+> {
+  const discriminators: Pick<
+    ConversationMessage,
+    "subagentNotification" | "acpNotification" | "backgroundEventNotification"
+  > = {};
+
+  // Every wake persists a `<background_event source="...">` trigger row
+  // (see `persistWakeTriggerMessage`) that the LLM reads. Flag any such
+  // row so clients hide it from the transcript like a subagent/ACP
+  // notification: the user-facing "Conversation Woke" card (or, for a
+  // backgrounded bash run, the inline terminal card) carries the status.
+  if (isBackgroundEventMetadata(meta)) {
+    discriminators.backgroundEventNotification = true;
+  }
+
+  const subagent = meta.subagentNotification as
+    | Record<string, unknown>
+    | undefined;
+  if (
+    subagent &&
+    typeof subagent.subagentId === "string" &&
+    typeof subagent.label === "string"
+  ) {
+    discriminators.subagentNotification = {
+      subagentId: subagent.subagentId,
+      label: subagent.label,
+      status:
+        typeof subagent.status === "string" ? subagent.status : "completed",
+      ...(typeof subagent.error === "string" ? { error: subagent.error } : {}),
+      ...(typeof subagent.conversationId === "string"
+        ? { conversationId: subagent.conversationId }
+        : {}),
+      ...(typeof subagent.objective === "string"
+        ? { objective: subagent.objective }
+        : {}),
+    };
+  }
+
+  const acp = meta.acpNotification as Record<string, unknown> | undefined;
+  if (acp && typeof acp.acpSessionId === "string") {
+    discriminators.acpNotification = {
+      acpSessionId: acp.acpSessionId,
+      ...(typeof acp.agent === "string" ? { agent: acp.agent } : {}),
+    };
+  }
+
+  return discriminators;
+}
+
+/**
  * Render the live conversation's in-memory message queue into history rows.
  *
  * Messages enqueued while the agent is mid-turn live only in memory until the
@@ -713,12 +777,17 @@ function buildQueuedMessagePayloads(
     return [];
   }
 
-  // Hidden sends are suppressed from the transcript at every stage — echo,
-  // persisted row, and here the in-memory queue window: a latest-page fetch
-  // while the item still awaits drain must not surface it as a queued bubble.
+  // Rows that never render as a user bubble are suppressed at every stage —
+  // echo, persisted row, and here the in-memory queue window: a latest-page
+  // fetch while the item still awaits drain must not surface it as a queued
+  // bubble. That covers hidden sends and the daemon's own injected
+  // notifications (a subagent's completion summary enqueued into a busy
+  // parent, an ACP run outcome, a wake trigger) — the user follows those
+  // through their inline cards, never as a queued message they could steer or
+  // cancel.
   return conversation
     .snapshotQueuedMessages()
-    .filter((item) => !isHiddenMessageMetadata(item.metadata))
+    .filter((item) => !isSuppressedQueuedMessage(item.metadata))
     .map((item, index) => {
       const text = item.displayContent ?? item.content;
       const attachments: RuntimeAttachmentMetadata[] = item.attachments.map(
@@ -755,6 +824,10 @@ function buildQueuedMessagePayloads(
         ...(item.clientMessageId
           ? { clientMessageId: item.clientMessageId }
           : {}),
+        // The filter above already drops every daemon-injected notification,
+        // so these flags are redundant today. Carrying them keeps a queued row
+        // self-describing on the wire, matching its persisted counterpart.
+        ...extractNotificationDiscriminators(item.metadata ?? {}),
         queueStatus: "queued" as const,
         queuePosition: index + 1,
       };
@@ -920,23 +993,14 @@ export async function handleListMessages({
     // was queued or its persistence was delayed (long assistant generation),
     // sentAt captures the actual event time. Falls back to createdAt.
     let sentAt: number | undefined;
-    let subagentNotification:
-      | {
-          subagentId: string;
-          label: string;
-          status: string;
-          error?: string;
-          conversationId?: string;
-        }
-      | undefined;
-    let acpNotification: { acpSessionId: string; agent?: string } | undefined;
-    let backgroundEventNotification: boolean | undefined;
+    let notifications: ReturnType<typeof extractNotificationDiscriminators> =
+      {};
     let backgroundToolCompletion: ConversationMessage["backgroundToolCompletion"];
     let systemCard: boolean | undefined;
     let providerError: ConversationMessage["providerError"];
     if (msg.metadata) {
       try {
-        const meta = JSON.parse(msg.metadata);
+        const meta = JSON.parse(msg.metadata) as Record<string, unknown>;
         if (typeof meta.sentAt === "number") {
           sentAt = meta.sentAt;
         }
@@ -958,14 +1022,7 @@ export async function handleListMessages({
               : {}),
           };
         }
-        // Every wake persists a `<background_event source="...">` trigger row
-        // (see `persistWakeTriggerMessage`) that the LLM reads. Flag any such
-        // row so clients hide it from the transcript like a subagent/ACP
-        // notification — the user-facing "Conversation Woke" card (or, for a
-        // backgrounded bash run, the inline terminal card) carries the status.
-        if (isBackgroundEventMetadata(meta)) {
-          backgroundEventNotification = true;
-        }
+        notifications = extractNotificationDiscriminators(meta);
         // `persistWakeTriggerMessage` stamps the structured completion onto the
         // same wake row, letting the web rebuild a terminal inline card from
         // history after a restart (the in-memory completed ring does not survive).
@@ -974,32 +1031,6 @@ export async function handleListMessages({
         );
         if (completionParse.success) {
           backgroundToolCompletion = completionParse.data;
-        }
-        if (meta.subagentNotification) {
-          const n = meta.subagentNotification;
-          if (typeof n.subagentId === "string" && typeof n.label === "string") {
-            subagentNotification = {
-              subagentId: n.subagentId,
-              label: n.label,
-              status: typeof n.status === "string" ? n.status : "completed",
-              ...(typeof n.error === "string" ? { error: n.error } : {}),
-              ...(typeof n.conversationId === "string"
-                ? { conversationId: n.conversationId }
-                : {}),
-              ...(typeof n.objective === "string"
-                ? { objective: n.objective }
-                : {}),
-            };
-          }
-        }
-        if (meta.acpNotification) {
-          const n = meta.acpNotification;
-          if (typeof n.acpSessionId === "string") {
-            acpNotification = {
-              acpSessionId: n.acpSessionId,
-              ...(typeof n.agent === "string" ? { agent: n.agent } : {}),
-            };
-          }
         }
       } catch {
         // Ignore malformed metadata
@@ -1025,9 +1056,9 @@ export async function handleListMessages({
       content,
       createdAt: msg.createdAt,
       sentAt,
-      subagentNotification,
-      acpNotification,
-      backgroundEventNotification,
+      subagentNotification: notifications.subagentNotification,
+      acpNotification: notifications.acpNotification,
+      backgroundEventNotification: notifications.backgroundEventNotification,
       backgroundToolCompletion,
       systemCard,
       providerError,
@@ -1590,7 +1621,7 @@ export async function handleSendMessage(
     typeof body.clientTimezone === "string"
       ? (canonicalizeTimeZone(body.clientTimezone) ?? undefined)
       : undefined;
-  // Client OS surface ("web" | "ios" | "macos" | "android"), reported
+  // Client OS surface ("web" | "ios" | "macos" | "windows" | "android"), reported
   // separately from the transport `interface`. Validated against the dedicated
   // `ClientOs` value set (NOT the interface vocabulary) and only kept when it
   // resolves — it drives the per-turn `client_os:` context line, never
@@ -1715,6 +1746,11 @@ export async function handleSendMessage(
     mapping = getOrCreateConversation(resolvedConversationKey, {
       conversationType: "standard",
       title: onboardingTitle,
+      // This route already resolved the channel the message arrived on, and
+      // this is the seam that materializes the row, so the conversation is
+      // attributed from the moment it exists rather than on its first
+      // message.
+      origin: sourceChannel,
     });
   }
 
@@ -1879,6 +1915,15 @@ export async function handleSendMessage(
     conversation.setTrustContext({ trustClass: "guardian", sourceChannel });
   }
 
+  // The trust this request's turn runs under, captured here rather than read
+  // back at the agent loop below. Every branch above has just written it and
+  // nothing awaits in between, so this is the resolved sender. Between here
+  // and the loop the conversation slot is writable by paths that do not own
+  // this turn (channel ingress for another actor, live-voice hydration,
+  // pointer elevation, the voice bridge), and the loop would otherwise
+  // re-read it and run this turn as whoever wrote last.
+  const turnTrustContext = conversation.trustContext;
+
   const isInteractive = isInteractiveInterface(sourceInterface);
   // Translate the dev-bypass actor principal to the real guardian principal
   // before the same-actor host-proxy gate so web/iOS turns match the macOS
@@ -2010,6 +2055,7 @@ export async function handleSendMessage(
         requestId: uuidv7(),
         metadata: greetingMeta,
         clientMessageId,
+        ...(clientOs ? { requestClientOs: clientOs } : {}),
       });
 
       const conversationId = mapping.conversationId;
@@ -2048,34 +2094,37 @@ export async function handleSendMessage(
         }
       }
 
-      setTimeout(() => {
-        broadcastMessage({
-          type: "user_message_echo",
-          text: rawContent,
-          conversationId,
-          messageId: persisted.id,
-          clientMessageId,
-        });
-        broadcastMessage({
-          type: "assistant_text_delta",
-          text: cannedGreeting,
-          conversationId,
-        });
-        emitCannedMessageComplete(
-          broadcastMessage,
-          conversationId,
-          persistedAssistant.id,
-        );
-        // Rows persisted before this deferred burst; advance the
-        // snapshot↔stream anchor past the events just emitted so `/messages`
-        // never returns these rows behind a stale anchor.
-        recordConversationPersistedSeq(conversationId, getCurrentSeq());
-        publishConversationMessagesChanged(conversationId, originClientId);
-        conversation.setProcessing(false);
-        void conversation.kickDrainQueue("loop_complete", "canned_greeting");
-
-        conversation.warmPromptCache();
-      }, 0);
+      scheduleCannedReplyRelease({
+        conversation,
+        origin: "canned_greeting",
+        emit: () => {
+          broadcastMessage({
+            type: "user_message_echo",
+            text: rawContent,
+            conversationId,
+            messageId: persisted.id,
+            clientMessageId,
+          });
+          broadcastMessage({
+            type: "assistant_text_delta",
+            text: cannedGreeting,
+            conversationId,
+          });
+          emitCannedMessageComplete(
+            broadcastMessage,
+            conversationId,
+            persistedAssistant.id,
+          );
+          // Rows persisted before this deferred burst; advance the
+          // snapshot↔stream anchor past the events just emitted so `/messages`
+          // never returns these rows behind a stale anchor.
+          recordConversationPersistedSeq(conversationId, getCurrentSeq());
+          publishConversationMessagesChanged(conversationId, originClientId);
+        },
+        afterRelease: () => {
+          conversation.warmPromptCache();
+        },
+      });
 
       log.info(
         { conversationId, personalized: !!body.onboarding },
@@ -2340,6 +2389,7 @@ export async function handleSendMessage(
         requestId: uuidv7(),
         metadata: withClientMetadata(slashMeta, clientMetadata),
         clientMessageId,
+        ...(clientOs ? { requestClientOs: clientOs } : {}),
       });
       if (persisted.deduplicated) {
         return {
@@ -2383,33 +2433,35 @@ export async function handleSendMessage(
       // starts processing.
       const conversationId = mapping.conversationId;
       const message = slashResult.message;
-      setTimeout(() => {
-        broadcastMessage({
-          type: "user_message_echo",
-          text: rawContent,
-          conversationId,
-          messageId: persisted.id,
-          clientMessageId,
-        });
-        if (modelInfoEvent) {
-          broadcastMessage(modelInfoEvent);
-        }
-        broadcastMessage({
-          type: "assistant_text_delta",
-          text: message,
-          conversationId,
-        });
-        emitCannedMessageComplete(
-          broadcastMessage,
-          conversationId,
-          persistedAssistant.id,
-        );
-        // Same anchor advance as the canned-greeting path above.
-        recordConversationPersistedSeq(conversationId, getCurrentSeq());
-        publishConversationMessagesChanged(conversationId, originClientId);
-        conversation.setProcessing(false);
-        void conversation.kickDrainQueue("loop_complete", "slash_command");
-      }, 0);
+      scheduleCannedReplyRelease({
+        conversation,
+        origin: "slash_command",
+        emit: () => {
+          broadcastMessage({
+            type: "user_message_echo",
+            text: rawContent,
+            conversationId,
+            messageId: persisted.id,
+            clientMessageId,
+          });
+          if (modelInfoEvent) {
+            broadcastMessage(modelInfoEvent);
+          }
+          broadcastMessage({
+            type: "assistant_text_delta",
+            text: message,
+            conversationId,
+          });
+          emitCannedMessageComplete(
+            broadcastMessage,
+            conversationId,
+            persistedAssistant.id,
+          );
+          // Same anchor advance as the canned-greeting path above.
+          recordConversationPersistedSeq(conversationId, getCurrentSeq());
+          publishConversationMessagesChanged(conversationId, originClientId);
+        },
+      });
 
       cleanupDeferred = true;
       return response;
@@ -2439,6 +2491,7 @@ export async function handleSendMessage(
         requestId: uuidv7(),
         metadata: withClientMetadata(slashMeta, clientMetadata),
         clientMessageId,
+        ...(clientOs ? { requestClientOs: clientOs } : {}),
       });
     } catch (err) {
       // The fire-and-forget compaction below owns clearing `processing`, but a
@@ -2533,6 +2586,7 @@ export async function handleSendMessage(
         requestId: uuidv7(),
         metadata: withClientMetadata(slashMeta, clientMetadata),
         clientMessageId,
+        ...(clientOs ? { requestClientOs: clientOs } : {}),
       });
       if (persisted.deduplicated) {
         return {
@@ -2602,6 +2656,7 @@ export async function handleSendMessage(
     ),
     scripted: body.scripted,
     clientMessageId,
+    ...(clientOs ? { requestClientOs: clientOs } : {}),
   });
 
   const messageId = persistResult.id;
@@ -2645,6 +2700,7 @@ export async function handleSendMessage(
       onEvent: broadcastMessage,
       isInteractive,
       isUserMessage: true,
+      turnTrustContext,
       ...(body.hidden === true ? { isHiddenPrompt: true } : {}),
     })
     .catch((err) => {
@@ -3106,7 +3162,7 @@ export const ROUTES: RouteDefinition[] = [
         .string()
         .optional()
         .describe(
-          'Client OS surface ("web" | "ios" | "macos" | "android"), reported separately from `interface`. Drives the per-turn `client_os` context only; does not affect transport/host-proxy capabilities.',
+          'Client OS surface ("web" | "ios" | "macos" | "windows" | "android"), reported separately from `interface`. Drives the per-turn `client_os` context only; does not affect transport/host-proxy capabilities.',
         ),
       visibleAppId: z
         .string()

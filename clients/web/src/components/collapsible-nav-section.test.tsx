@@ -9,7 +9,7 @@
 import { describe, expect, test } from "bun:test";
 import { act, cleanup, render } from "@testing-library/react";
 import { Clock } from "lucide-react";
-import { createElement } from "react";
+import { createElement, type ReactNode } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 
 import { CollapsibleNavSection } from "./collapsible-nav-section";
@@ -37,6 +37,37 @@ function renderSingleSection(opts: {
         createElement("div", null, "child-content"),
       ),
     ),
+  );
+}
+
+/** The indicator's classes, for the slot compositions that decide them. */
+function indicatorClasses(slots: {
+  trailing?: ReactNode;
+  collapsedIndicator: ReactNode;
+}) {
+  const html = renderToStaticMarkup(
+    createElement(
+      CollapsibleNavSection.Root,
+      { type: "multiple", defaultValue: [] },
+      createElement(
+        CollapsibleNavSection.Section,
+        {
+          value: "pinned",
+          label: "Pinned",
+          icon: Clock,
+          trailing: slots.trailing,
+          collapsedIndicator: slots.collapsedIndicator,
+        },
+        createElement("div", null, "child-content"),
+      ),
+    ),
+  );
+  const container = document.createElement("div");
+  container.innerHTML = html;
+  return (
+    container
+      .querySelector('[data-slot="collapsible-nav-section-indicator"]')
+      ?.getAttribute("class") ?? ""
   );
 }
 
@@ -102,14 +133,16 @@ describe("CollapsibleNavSection", () => {
     expect(html).toContain("text-body-medium-lighter");
   });
 
-  // No leading icon: the header's only glyph is the trailing disclosure
-  // chevron, whatever `icon` the caller passes.
-  test("renders no leading icon, just the trailing chevron", () => {
+  // Two glyphs: the caller's leading icon and the trailing disclosure
+  // chevron. The icon is the section's identity and the collapsed rail draws
+  // the same one, so a header that dropped it would put the two surfaces in
+  // disagreement.
+  test("renders the caller's leading icon alongside the trailing chevron", () => {
     const html = renderSingleSection({ value: "recents", label: "Recents" });
     const svgCount = (html.match(/<\/svg>/g) ?? []).length;
-    expect(svgCount).toBe(1);
+    expect(svgCount).toBe(2);
     expect(html).toContain("lucide-chevron-down");
-    expect(html).not.toContain("lucide-clock");
+    expect(html).toContain("lucide-clock");
   });
 
   // Regression: a polish pass once made the title a plain drag-only label,
@@ -186,10 +219,11 @@ describe("CollapsibleNavSection", () => {
     }
   });
 
-  // The chevron reveals only on hover (or focus-visible, natively via the
-  // button itself), not just because the section is expanded. A quiet
-  // resting row stays quiet even when open.
-  test("the chevron stays hidden at rest even while the section is expanded", () => {
+  /* The chevron is the section's own state, so it shows at rest and rotates
+     to report open/closed. The "…" is a control rather than state, so it
+     stays hidden until hover. The chevron is outermost, so the "…" reveals
+     inside it rather than pushing it around. */
+  test("the chevron is visible at rest and rotates when expanded", () => {
     const html = renderSingleSection({
       value: "recents",
       label: "Recents",
@@ -204,18 +238,121 @@ describe("CollapsibleNavSection", () => {
     expect(item?.getAttribute("data-state")).toBe("open");
 
     const chevron = container.querySelector(".lucide-chevron-down");
-    expect(chevron?.getAttribute("class")).toContain("opacity-0");
-    expect(chevron?.getAttribute("class")).toContain(
-      "group-hover/header:opacity-100",
+    const cls = chevron?.getAttribute("class") ?? "";
+    expect(cls).not.toContain("opacity-0");
+    expect(cls).toContain("group-data-[state=open]/section:rotate-180");
+
+    // The chevron is the outer of the two, so the "…" reveals inside it.
+    const controls = container.querySelector(
+      '[data-slot="collapsible-nav-section-chevron"]',
+    )?.parentElement;
+    const slots = Array.from(controls?.children ?? []).map((el) =>
+      el.getAttribute("data-slot"),
     );
-    expect(chevron?.getAttribute("class")).not.toContain(
-      "group-data-[state=open]/section:opacity-100",
+    expect(slots.at(-1)).toBe("collapsible-nav-section-chevron");
+  });
+
+  /* The reveal is keyed on the hover capability it depends on. `hover` is
+     independent of viewport width, so a roomy touch surface reports
+     `hover: none` at a desktop width, and a control hidden behind a hover the
+     device cannot perform is unreachable rather than merely tucked away. */
+  test("the trailing control stays visible where the device cannot hover", () => {
+    const html = renderSingleSection({
+      value: "pinned",
+      label: "Pinned",
+      trailing: "4",
+    });
+    expect(html).toContain("[@media(hover:none)]:opacity-100");
+    expect(html).toContain(
+      "[@media(hover:hover)]:group-hover/header:opacity-100",
     );
+  });
+
+  /* The indicator and the trailing control crossfade in one cell, so the
+     indicator has to leave under exactly the conditions that bring the
+     control in. Where the device cannot hover the control is permanently
+     shown, and an indicator that only left on hover would sit underneath it. */
+  test("the collapsed indicator yields the cell where there is no hover", () => {
+    const cls = indicatorClasses({
+      trailing: createElement("button", { type: "button" }, "action"),
+      collapsedIndicator: createElement("span", null, "3"),
+    });
+    expect(cls).toContain("[@media(hover:none)]:opacity-0");
+    expect(cls).toContain("[@media(hover:hover)]:group-hover/header:opacity-0");
+  });
+
+  /* The trailing control is revealed by focus inside the control itself, so the
+     indicator has to yield on the same reading. Keyed on the whole header it
+     would also fire on a toggle click, which focuses the title trigger and
+     would leave the dot suppressed with the pointer nowhere near the row. */
+  test("the indicator yields to focus in the trailing control, not the header", () => {
+    const cls = indicatorClasses({
+      trailing: createElement("button", { type: "button" }, "action"),
+      collapsedIndicator: createElement("span", null, "3"),
+    });
+    expect(cls).toContain(
+      "group-has-[[data-slot=collapsible-nav-section-trailing]:focus-within]/header:opacity-0",
+    );
+    expect(cls).not.toContain("group-focus-within/header:opacity-0");
+  });
+
+  /* The yield exists only to keep two occupants of one cell from painting over
+     each other. A section with no trailing control has the cell to itself, and
+     an unconditional yield would delete its only header status signal on every
+     device that cannot hover. */
+  test("the collapsed indicator keeps the cell when there is no trailing control", () => {
+    const cls = indicatorClasses({
+      collapsedIndicator: createElement("span", null, "3"),
+    });
+    expect(cls).toContain("opacity-100");
+    expect(cls).not.toContain("[@media(hover:none)]:opacity-0");
+    expect(cls).not.toContain(
+      "[@media(hover:hover)]:group-hover/header:opacity-0",
+    );
+    expect(cls).not.toContain("group-focus-within/header:opacity-0");
   });
 
   test("composes on top of design library Collapsible", () => {
     const html = renderSingleSection({ value: "recents", label: "Recents" });
     expect(html).toContain('data-slot="collapsible"');
     expect(html).toContain('data-slot="collapsible-nav-section-section"');
+  });
+});
+
+/**
+ * `sectionIcon` is the single answer to "what does this section look like",
+ * and the collapsed rail renders it, so a header must render the same glyph.
+ * A header that drops it puts the two surfaces in disagreement while every
+ * call site still reads as correct, since the `icon` prop is passed either
+ * way.
+ */
+describe("CollapsibleNavSection icon", () => {
+  /* Collapsed is covered above, by the test that counts both glyphs. The icon
+     is a property of the section, not of its open state, so expanded is a
+     distinct assertion rather than a restatement. */
+  test("renders the icon while expanded, not only while collapsed", () => {
+    const html = renderSingleSection({
+      value: "s",
+      label: "Scheduled",
+      defaultValue: ["s"],
+    });
+    expect(html).toContain('data-slot="collapsible-nav-section-icon"');
+  });
+
+  /* Keeps the two assertions above honest: without this, a component that
+     emitted the icon slot unconditionally would still pass them. */
+  test("renders no icon slot when the section has none", () => {
+    const html = renderToStaticMarkup(
+      createElement(
+        CollapsibleNavSection.Root,
+        { type: "multiple", defaultValue: [] },
+        createElement(
+          CollapsibleNavSection.Section,
+          { value: "s", label: "Scheduled" },
+          createElement("div", null, "child-content"),
+        ),
+      ),
+    );
+    expect(html).not.toContain('data-slot="collapsible-nav-section-icon"');
   });
 });

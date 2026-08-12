@@ -8,7 +8,7 @@ import {
   dispatchToMain,
   ensureVisible as ensureMainWindowVisible,
 } from "./main-window";
-import type { VellumCommand } from "./commands";
+import type { VellumCommand } from "@vellumai/electron-desktop/commands";
 
 const COMMAND_PALETTE_KIND = "commandPalette";
 const COMMAND_PALETTE_PATH = "/floating/command-palette";
@@ -21,10 +21,16 @@ type PayloadCommandKind = Extract<
   { kind: "selectAssistant" | "retireAssistant" | "quickInputSubmit" }
 >["kind"];
 
+// Kinds the palette never dispatches. This list and the zod schema below
+// grow together: a new VellumCommand kind either gets a schema member or
+// joins this exclusion, otherwise palette code can type-check a dispatch
+// that main rejects at runtime.
+type ExcludedCommandKind = "commandPalette" | "removePairedAssistant";
+
 type CommandPaletteDispatchCommand =
   | Exclude<
       VellumCommand,
-      { kind: "commandPalette" } | { kind: PayloadCommandKind }
+      { kind: ExcludedCommandKind } | { kind: PayloadCommandKind }
     >
   | Extract<VellumCommand, { kind: PayloadCommandKind }>;
 
@@ -56,7 +62,8 @@ const payloadlessCommandKindSchema = z.enum([
   "openComponentGallery",
 ]);
 
-const commandPaletteDispatchCommandSchema: z.ZodType<CommandPaletteDispatchCommand> =
+// Exported for unit tests pinning the schema against the exclusion list.
+export const commandPaletteDispatchCommandSchema: z.ZodType<CommandPaletteDispatchCommand> =
   z.union([
     z.object({ kind: payloadlessCommandKindSchema }),
     z.object({ kind: z.literal("openConversation"), conversationId: z.string() }),

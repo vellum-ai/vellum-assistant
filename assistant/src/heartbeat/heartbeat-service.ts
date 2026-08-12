@@ -4,7 +4,7 @@ import { join } from "node:path";
 import type { HeartbeatAlertEvent } from "../api/events/heartbeat-alert.js";
 import { getConfig } from "../config/loader.js";
 import type { HeartbeatConfig } from "../config/schemas/heartbeat.js";
-import { getGuardianDelivery } from "../contacts/guardian-delivery-reader.js";
+import { warmGuardianBindings } from "../contacts/guardian-delivery-reader.js";
 import {
   checkDiskPressureBackgroundGate,
   diskPressureBackgroundSkipLogFields,
@@ -815,10 +815,11 @@ export class HeartbeatService {
 
     const checklist = this.readChecklist();
     const completedRunCount = countCompletedHeartbeatRuns();
-    // Warm the vellum guardian-delivery cache so buildPrompt's sync guardian
-    // persona read (isShallowProfile → resolveGuardianPersona) hits a fresh key
-    // instead of falling back to default.md on a cold/TTL-expired cache.
-    await getGuardianDelivery({ channelTypes: ["vellum"] });
+    // Warm both guardian-delivery cache keys (vellum + unfiltered) so
+    // buildPrompt's sync guardian persona read (isShallowProfile →
+    // resolveGuardianPersona), including its any-channel fallback, hits fresh
+    // keys instead of falling back to default.md on a cold/TTL-expired cache.
+    await warmGuardianBindings();
     const { prompt, includedReengagement } = this.buildPrompt(
       checklist,
       unhealthyProviders,
@@ -848,7 +849,6 @@ export class HeartbeatService {
       callSite: "heartbeatAgent",
       timeoutMs: getConfig().timeouts.backgroundTurnTimeoutSec * 1000,
       origin: "heartbeat",
-      deferNotifications: true,
       onConversationCreated: (newConversationId) => {
         conversationId = newConversationId;
         broadcastMessage({

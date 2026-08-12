@@ -64,6 +64,11 @@ const DEVICE_SETTINGS = {
     legacy: "vellum_llm_log_retention",
   },
   timezone: { key: "device:timezone", legacy: "vellum_timezone" },
+  // UI language, as a tag from `SUPPORTED_LOCALES`. Absent means "follow the
+  // host's preferred languages"; a value here is an explicit user override and
+  // outranks the host. Device-scoped so it survives logout: the login screen
+  // must stay in the language the user picked. No legacy key.
+  locale: { key: "device:locale" },
   mediaEmbedsEnabled: {
     key: "device:media_embeds_enabled",
     legacy: "vellum_media_embeds_enabled",

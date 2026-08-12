@@ -2,6 +2,8 @@ import type { Meta, StoryObj } from "@storybook/react-vite";
 
 import type { Surface } from "@/domains/chat/types/types";
 
+import { TranscriptColumn } from "@/domains/chat/transcript/transcript-column";
+
 import { SurfaceRouter } from "./surface-router";
 
 const meta: Meta = {
@@ -11,9 +13,9 @@ const meta: Meta = {
   },
   decorators: [
     (Story) => (
-      <div className="max-w-[520px]">
+      <TranscriptColumn>
         <Story />
-      </div>
+      </TranscriptColumn>
     ),
   ],
 };

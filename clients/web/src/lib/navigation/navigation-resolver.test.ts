@@ -58,6 +58,14 @@ const RESEARCH_FUNNEL_URL =
 const HATCHING_FUNNEL_URL =
   "/assistant/onboarding/hatching?hosting=vellum-cloud&post_checkout=1";
 
+const CHOOSER = "/assistant/select-assistant";
+/** A platform account with nothing resolved: the chooser's empty state. */
+const NO_ASSISTANTS: Partial<NavigationState> = {
+  isLocalClient: false,
+  hasAssistants: false,
+  hasPlatformHostedAssistant: false,
+};
+
 const ALLOW: NavigationDecision = { action: "allow" };
 const WAIT: NavigationDecision = { action: "wait" };
 // The auth middleware awaits the probe only for a wait that names it, so the
@@ -238,14 +246,146 @@ describe("resolveNavigation", () => {
         to: "/assistant",
       });
       expect(
-        guard(s({ isLocalClient: false }), "/assistant/select-assistant"),
-      ).toEqual({ action: "redirect", to: "/assistant" });
-      expect(
         guard(s({ isLocalClient: false }), "/assistant/onboarding/hosting"),
       ).toEqual({ action: "redirect", to: "/assistant" });
       expect(
         guard(s({ isLocalClient: false }), "/assistant/onboarding/api-key"),
       ).toEqual({ action: "redirect", to: "/assistant" });
+    });
+
+    // The platform build hosts the hub chooser: the route admits a settled
+    // authenticated user in every mode. The assistant-switcher flag gate for
+    // platform-mode access lives in the screen, which can wait on flag
+    // hydration; the resolver has no hydration signal to gate on.
+    test("allows a consented authenticated non-local user on select-assistant", () => {
+      expect(guard(s({ isLocalClient: false }), CHOOSER)).toEqual(ALLOW);
+    });
+
+    // Opening the chooser to non-local clients does not lift the consent gate
+    // that runs after the mode boundary: the route falls through to it like
+    // every other platform surface.
+    test("sends a stale-consent platform user off select-assistant to review-terms", () => {
+      expect(
+        guard(
+          s({ isLocalClient: false, analyticsConsentCurrent: false }),
+          CHOOSER,
+        ),
+      ).toEqual({
+        action: "redirect",
+        to: "/assistant/review-terms?returnTo=%2Fassistant%2Fselect-assistant",
+      });
+      expect(
+        guard(
+          s({
+            isLocalClient: false,
+            tosAccepted: false,
+            privacyConsent: false,
+          }),
+          CHOOSER,
+        ),
+      ).toEqual({
+        action: "redirect",
+        to: "/assistant/review-terms?returnTo=%2Fassistant%2Fselect-assistant",
+      });
+    });
+
+    // The chooser is exempt from the no-assistant funnel: an account whose
+    // assistants are all self-hosted has none in `hasAssistants` (remembered
+    // origins are client-local), and the funnel would also drop a `?register=`
+    // handoff before the chooser could record it.
+    test("keeps a zero-assistant platform user on select-assistant", () => {
+      expect(guard(s(NO_ASSISTANTS), CHOOSER)).toEqual(ALLOW);
+      // Nothing is held for the assistants list here: with no funnel to decide,
+      // an unhydrated read has nothing to get wrong.
+      expect(
+        guard(s({ ...NO_ASSISTANTS, assistantsHydrated: false }), CHOOSER),
+      ).toEqual(ALLOW);
+    });
+
+    // The exemption lifts the funnel only. Consent runs after it, so terms
+    // still gate the chooser for a zero-assistant user.
+    test("keeps consent binding on select-assistant with no assistants", () => {
+      expect(
+        guard(s({ ...NO_ASSISTANTS, analyticsConsentCurrent: false }), CHOOSER),
+      ).toEqual({
+        action: "redirect",
+        to: "/assistant/review-terms?returnTo=%2Fassistant%2Fselect-assistant",
+      });
+      expect(
+        guard(
+          s({ ...NO_ASSISTANTS, tosAccepted: false, privacyConsent: false }),
+          CHOOSER,
+        ),
+      ).toEqual({
+        action: "redirect",
+        to: "/assistant/review-terms?returnTo=%2Fassistant%2Fselect-assistant",
+      });
+      // Stale-looking flags that have not hydrated still wait rather than
+      // bouncing a consented user off the chooser.
+      expect(
+        guard(
+          s({
+            ...NO_ASSISTANTS,
+            analyticsConsentCurrent: false,
+            consentHydrated: false,
+          }),
+          CHOOSER,
+        ),
+      ).toEqual(WAIT);
+    });
+
+    // The local chooser is an onboarding surface reachable before there is a
+    // session to gate on, so it short-circuits ahead of the assistant and
+    // consent gates that bind on the platform hub.
+    test("keeps the local chooser open ahead of the consent gate", () => {
+      expect(
+        guard(
+          s({
+            isLocalClient: true,
+            platformSession: "present",
+            analyticsConsentCurrent: false,
+          }),
+          CHOOSER,
+        ),
+      ).toEqual(ALLOW);
+    });
+
+    test("sends an unauthenticated non-local select-assistant visit to login with returnTo", () => {
+      expect(
+        guard(s({ isLocalClient: false, isAuthenticated: false }), CHOOSER),
+      ).toEqual({
+        action: "redirect",
+        to: "/account/login?returnTo=%2Fassistant%2Fselect-assistant",
+      });
+    });
+
+    test("sends an unpaired remote-gateway chooser visit to pairing", () => {
+      expect(
+        guard(
+          s({
+            isLocalClient: true,
+            isRemoteGateway: true,
+            isAuthenticated: false,
+          }),
+          CHOOSER,
+        ),
+      ).toEqual({
+        action: "redirect",
+        to: "/assistant/pair?returnTo=%2Fassistant%2Fselect-assistant",
+      });
+    });
+
+    test("allows a gateway-auth remote-gateway chooser visit", () => {
+      expect(
+        guard(
+          s({
+            isLocalClient: true,
+            isRemoteGateway: true,
+            isGatewayAuth: true,
+          }),
+          CHOOSER,
+        ),
+      ).toEqual(ALLOW);
     });
 
     test("allows non-local user on onboarding screens regardless of assistant count", () => {
@@ -370,7 +510,11 @@ describe("resolveNavigation", () => {
     test("redirects platform-mode user without consent to review-terms with returnTo", () => {
       expect(
         guard(
-          s({ isLocalClient: false, tosAccepted: false, privacyConsent: false }),
+          s({
+            isLocalClient: false,
+            tosAccepted: false,
+            privacyConsent: false,
+          }),
         ),
       ).toEqual({
         action: "redirect",
@@ -1273,7 +1417,10 @@ describe("resolveNavigation", () => {
 
     test("allows local mode with assistants", () => {
       expect(
-        intercept(s({ isLocalClient: true, hasAssistants: true }), "/assistant"),
+        intercept(
+          s({ isLocalClient: true, hasAssistants: true }),
+          "/assistant",
+        ),
       ).toEqual(ALLOW);
     });
 
@@ -1464,12 +1611,12 @@ describe("resolveNavigation", () => {
       resolveNavigation(state, { kind: "post-retire" });
 
     test("redirects to select-assistant in local mode when other assistants remain", () => {
-      expect(postRetire(s({ hasAssistants: true, isLocalClient: true }))).toEqual(
-        {
-          action: "redirect",
-          to: "/assistant/select-assistant",
-        },
-      );
+      expect(
+        postRetire(s({ hasAssistants: true, isLocalClient: true })),
+      ).toEqual({
+        action: "redirect",
+        to: "/assistant/select-assistant",
+      });
     });
 
     test("redirects to /assistant in platform mode when other assistants remain", () => {

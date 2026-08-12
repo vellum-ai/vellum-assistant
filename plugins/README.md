@@ -17,6 +17,8 @@ wired surface.
 - [Public API surface](#public-api-surface--vellumaiplugin-api)
 - [Hooks](#hooks)
 - [Tools](#tools)
+- [Schedules](#schedules)
+- [MCP servers](#mcp-servers)
 - [Marketplace — whitelisting external plugins](#marketplace--whitelisting-external-plugins)
 - [Conventions](#conventions)
 
@@ -36,12 +38,14 @@ wired surface.
 
 The external plugin loader extends the assistant by wiring these contribution surfaces.
 
-| Surface             | Directory                | Discovery                                                       |
-| ------------------- | ------------------------ | --------------------------------------------------------------- |
-| Lifecycle hooks     | `hooks/<name>.ts`        | filename → `plugin.hooks[<name>]`                               |
-| Model-visible tools | `tools/<name>.ts`        | each file's default export → `plugin.tools[]`                   |
-| Skills              | `skills/<id>/SKILL.md`   | picked up on disk by the skill catalog loader                   |
-| Skill-scoped tools  | `skills/<id>/TOOLS.json` | registered only while the skill is active (see [Tools](#tools)) |
+| Surface             | Directory                | Discovery                                                                                      |
+| ------------------- | ------------------------ | ---------------------------------------------------------------------------------------------- |
+| Lifecycle hooks     | `hooks/<name>.ts`        | filename → `plugin.hooks[<name>]`                                                              |
+| Model-visible tools | `tools/<name>.ts`        | each file's default export → `plugin.tools[]`                                                  |
+| Skills              | `skills/<id>/SKILL.md`   | picked up on disk by the skill catalog loader                                                  |
+| Skill-scoped tools  | `skills/<id>/TOOLS.json` | registered only while the skill is active (see [Tools](#tools))                                |
+| Schedules           | `schedules/<name>/`      | reconciled into schedule rows on install/upgrade (see [Schedules](#schedules))                 |
+| MCP servers         | `mcp.json`               | connected on daemon start; tools land as `mcp__<id>__<tool>` (see [MCP servers](#mcp-servers)) |
 
 ---
 
@@ -51,6 +55,7 @@ The external plugin loader extends the assistant by wiring these contribution su
 my-plugin/
 ├── package.json               # Manifest (required)
 ├── README.md                  # Optional plugin docs
+├── mcp.json                   # Optional MCP server declarations
 ├── hooks/
 │   ├── init.ts                # Bootstrap
 │   ├── shutdown.ts            # Teardown
@@ -64,6 +69,9 @@ my-plugin/
 ├── tools/
 │   ├── my_tool.ts             # Default export = tool definition
 │   └── ...
+├── schedules/
+│   ├── digest/                # config.json + index.md (prompt body)
+│   └── nightly-sync/          # config.json + index.sh (shell script)
 └── src/                       # Internal modules (NOT walked by the loader)
     └── state.ts               # Shared state, helpers
 ```
@@ -180,9 +188,7 @@ explicit unload, etc.).
 // hooks/shutdown.ts
 import type { ShutdownContext } from "@vellumai/plugin-api";
 
-export default async function shutdown(
-  ctx: ShutdownContext,
-): Promise<void> {
+export default async function shutdown(ctx: ShutdownContext): Promise<void> {
   // ctx.assistantVersion  — host semver string
 }
 ```
@@ -304,7 +310,10 @@ export default function init(ctx: InitContext): void {
   );
   for (const [category, key] of Object.entries(CATEGORY_PROFILE)) {
     if (!routable.has(key)) {
-      ctx.logger.warn({ category, key }, "configured profile missing or disabled");
+      ctx.logger.warn(
+        { category, key },
+        "configured profile missing or disabled",
+      );
     }
   }
 }
@@ -571,6 +580,111 @@ call time.
 
 ---
 
+## Schedules
+
+A plugin declares recurring scheduled tasks as directories under
+`schedules/`. A reconciler converges each declaration into an ordinary
+schedule row, so declared schedules run through the same engine, run
+history, and UI as user-created ones.
+
+A declaration is `schedules/<name>/`: a `config.json` plus exactly one
+entrypoint. `index.md` (the prompt body, no frontmatter) runs as an
+assistant task; `index.sh` runs as a shell script with no LLM.
+
+```
+schedules/
+└── digest/
+    ├── config.json
+    └── index.md
+```
+
+```json
+{
+  "expression": "0 9 * * *",
+  "description": "Daily digest",
+  "timezone": "America/New_York"
+}
+```
+
+Config fields: `expression` (required; cron or RRULE, auto-detected or
+pinned via `expression_syntax`), `timezone`, `description`, `max_retries`,
+`retry_backoff_ms`, `quiet`, `inference_profile`, `timeout_ms`, `enabled`
+(defaults to true). Declared schedules are recurring only; there is no
+one-shot form.
+
+Fail-closed rules. A file sitting directly under `schedules/` is not a
+declaration and is reported as an error, so a stray `<name>.md` is never
+silently ignored. Ambiguity never resolves by precedence: a directory with
+zero or multiple entrypoints, or an unsupported entrypoint (anything but
+`index.md` / `index.sh`), is an error and that schedule does not load.
+Errors are per-schedule: one bad declaration never blocks siblings, and a
+declaration that breaks in an upgrade keeps its last-good schedule running
+while the error is surfaced as a notification.
+
+Lifecycle. The declaration directory is the source of truth: edits and
+upgrades update the schedule row in place, uninstalling or disabling the
+plugin pauses its schedules (runs and history are kept), and reinstalling
+re-links them. Users can enable/disable a declared schedule from the
+schedules UI; that override survives plugin upgrades. Rows are managed by
+the reconciler, so declared schedules cannot be edited or deleted
+imperatively: change the declaration instead.
+
+---
+
+## MCP servers
+
+A plugin declares MCP servers in a root `mcp.json`, per the [Agent Plugins
+1.0.0](https://agent-plugins.org) specification:
+
+```json
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/mcp.schema.json",
+  "mcpServers": {
+    "unabyss": { "type": "streamable-http", "url": "https://mcp.unabyss.com" }
+  }
+}
+```
+
+`stdio`, `sse`, and `streamable-http` transports are supported. In a `stdio`
+entry, `${PLUGIN_ROOT}` and `${PLUGIN_DATA}` interpolate in `args`, `env`
+values, and `cwd` — never in `command`, a URL, or a header, so a manifest
+cannot use them to build the executable path itself. `cwd` is accepted by the
+spec but has no host equivalent: it is ignored, with a warning, and the server
+runs in the daemon's working directory.
+
+The daemon connects these servers on start and registers their tools as
+`mcp__<serverId>__<tool>`, alongside workspace-configured ones. The server id
+is `<pluginName>__<serverKey>`, collapsed to just the name when the two match
+(the `unabyss` plugin above yields `mcp__unabyss__<tool>`, not
+`mcp__unabyss__unabyss__<tool>`). Installing, removing, upgrading, enabling, or
+disabling a plugin reconnects the set as part of that operation — its servers
+come up and go down with the plugin, no restart involved — exactly like editing
+`config.json` does.
+
+Three host behaviours worth knowing when authoring one:
+
+- **Risk defaults to `low`,** so the tools run without prompting under the
+  default auto-approve threshold. `mcp.json` has no risk field — the spec
+  defines none — and the review is the marketplace whitelist plus the user's
+  decision to install. A user who wants a different bar sets `defaultRiskLevel`
+  on a workspace `config.json` entry of the same id, which outranks the
+  plugin's declaration (and replaces it wholesale, transport included).
+- **A plugin cannot ship a credential.** The spec defines no portable OAuth or
+  credential-reference fields, and any `headers` in the file are literal
+  package data. A plugin server also never resolves the assistant's stored
+  `mcp:<serverId>:*` credentials: a plugin controls both its server key and its
+  URL, so honoring them would send a workspace credential to an endpoint the
+  plugin chose.
+- **Failures are isolated.** An invalid `mcp.json` disables MCP for that plugin
+  alone; an invalid individual entry disables only that entry; and an id
+  already claimed by another plugin is skipped rather than shadowing it. Each
+  case is logged, and none removes another plugin's servers.
+
+`assistant mcp list` shows plugin servers with their originating plugin, and
+`status: declared` for one the daemon holds no live connection to.
+
+---
+
 ## Marketplace — whitelisting external plugins
 
 The catalog shown by `assistant plugins search` (and the web plugins tab) is
@@ -585,11 +699,18 @@ a `name`, an optional `owner`, and a `plugins` array.
 ```json
 {
   "name": "vellum-assistant",
-  "owner": { "name": "Vellum", "url": "https://github.com/vellum-ai/vellum-assistant" },
+  "owner": {
+    "name": "Vellum",
+    "url": "https://github.com/vellum-ai/vellum-assistant"
+  },
   "plugins": [
     {
       "name": "example-plugin",
-      "source": { "source": "github", "repo": "example-org/example-plugin", "ref": "e83c5163316f89bfbde7d9ab23ca2e25604af290" },
+      "source": {
+        "source": "github",
+        "repo": "example-org/example-plugin",
+        "ref": "e83c5163316f89bfbde7d9ab23ca2e25604af290"
+      },
       "description": "Short summary shown in the catalog.",
       "category": "productivity",
       "homepage": "https://github.com/example-org/example-plugin",
@@ -670,7 +791,7 @@ External ecosystem plugins are often shaped for a different host (e.g. a Claude
 Code plugin keyed on a `.claude-plugin/plugin.json`), so installed verbatim
 they fail this loader's contract — a name that doesn't match the directory, no
 `@vellumai/plugin-api` peer dependency, no `hooks/`/`tools/`. A postinstall
-adapter is a small, curated transform we commit *here* to translate such a
+adapter is a small, curated transform we commit _here_ to translate such a
 clone into Vellum's shape.
 
 To adapt an external plugin, add a directory next to this README named for the

@@ -76,6 +76,10 @@ const openPopout = (conversationId: string): void => {
       title: "Vellum",
       show: false,
     },
+    // A pop-out thread can own a live-voice session too, which is why the
+    // session pill has a standalone variant for these windows, so it needs
+    // the main window's exemption for the same reason.
+    backgroundThrottling: false,
     navigation: {
       installGuard: (w) => {
         // Block top-level navigation (prevents navigating away from the pop-out

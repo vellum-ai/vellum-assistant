@@ -11,6 +11,7 @@ import { join } from "node:path";
 import { afterEach, describe, expect, test } from "bun:test";
 
 import {
+  DEFAULT_READ_LINE_LIMIT,
   FileSystemOps,
   type PathPolicy,
 } from "../tools/shared/filesystem/file-ops-service.js";
@@ -124,10 +125,80 @@ describe("FileSystemOps.readFileSafe", () => {
     if (!result.ok) {
       return;
     }
-    expect(result.value.content).toContain("b");
-    expect(result.value.content).toContain("c");
-    expect(result.value.content).not.toContain("     1");
-    expect(result.value.content).not.toContain("d");
+    // Assert on the numbered lines rather than bare letters: the truncation
+    // notice is prose, so a bare `toContain("d")` matches its wording.
+    const [body] = result.value.content.split("\n\n[Truncated:");
+    expect(body).toContain("     2  b");
+    expect(body).toContain("     3  c");
+    expect(body).not.toContain("     1  a");
+    expect(body).not.toContain("     4  d");
+  });
+
+  test("caps an unbounded read at the default line limit and says so", async () => {
+    const dir = makeTempDir();
+    const total = DEFAULT_READ_LINE_LIMIT + 500;
+    const lines = Array.from({ length: total }, (_, i) => `line${i + 1}`);
+    writeFileSync(join(dir, "big.txt"), lines.join("\n"));
+    const ops = new FileSystemOps(sandboxPolicyFor(dir));
+
+    const result = await ops.readFileSafe({ path: "big.txt" });
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      return;
+    }
+    const content = result.value.content;
+    expect(content).toContain(`  ${DEFAULT_READ_LINE_LIMIT}  line2000`);
+    expect(content).not.toContain("line2001");
+    expect(content).toContain(
+      `[Truncated: showing through line ${DEFAULT_READ_LINE_LIMIT} of ${total}. Read on with offset=${DEFAULT_READ_LINE_LIMIT + 1}`,
+    );
+  });
+
+  test("an explicit limit is honored rather than replaced by the default", async () => {
+    const dir = makeTempDir();
+    const lines = Array.from(
+      { length: DEFAULT_READ_LINE_LIMIT + 500 },
+      (_, i) => `line${i + 1}`,
+    );
+    writeFileSync(join(dir, "big.txt"), lines.join("\n"));
+    const ops = new FileSystemOps(sandboxPolicyFor(dir));
+
+    const result = await ops.readFileSafe({
+      path: "big.txt",
+      limit: DEFAULT_READ_LINE_LIMIT + 500,
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      return;
+    }
+    expect(result.value.content).toContain("line2500");
+    expect(result.value.content).not.toContain("[Truncated:");
+  });
+
+  test("a read that reaches the last line carries no truncation notice", async () => {
+    const dir = makeTempDir();
+    writeFileSync(join(dir, "small.txt"), "a\nb\nc");
+    const ops = new FileSystemOps(sandboxPolicyFor(dir));
+
+    const result = await ops.readFileSafe({ path: "small.txt" });
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      return;
+    }
+    expect(result.value.content).not.toContain("[Truncated:");
+  });
+
+  test("paging past the end is not reported as truncation", async () => {
+    const dir = makeTempDir();
+    writeFileSync(join(dir, "small.txt"), "a\nb\nc");
+    const ops = new FileSystemOps(sandboxPolicyFor(dir));
+
+    const result = await ops.readFileSafe({ path: "small.txt", offset: 100 });
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      return;
+    }
+    expect(result.value.content).not.toContain("[Truncated:");
   });
 });
 

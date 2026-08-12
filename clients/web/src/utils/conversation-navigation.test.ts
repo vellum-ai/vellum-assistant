@@ -20,6 +20,7 @@ const clearTranscriptPanelPayloads = mock(() => {});
 const subagentReset = mock(() => {});
 const workflowReset = mock(() => {});
 const setActiveConversationId = mock((_id: string) => {});
+const registerDraftConversationId = mock((_id: string) => {});
 const playSound = mock((_name: string) => Promise.resolve());
 const composerFocus = mock(() => {});
 
@@ -51,7 +52,11 @@ mock.module("@/domains/chat/workflow-store", () => ({
 let activeConversationId: string | null = null;
 mock.module("@/stores/conversation-store", () => ({
   useConversationStore: {
-    getState: () => ({ activeConversationId, setActiveConversationId }),
+    getState: () => ({
+      activeConversationId,
+      setActiveConversationId,
+      registerDraftConversationId,
+    }),
   },
 }));
 
@@ -66,6 +71,7 @@ beforeEach(() => {
   subagentReset.mockClear();
   workflowReset.mockClear();
   setActiveConversationId.mockClear();
+  registerDraftConversationId.mockClear();
   playSound.mockClear();
   composerFocus.mockClear();
   activeConversationId = null;
@@ -149,6 +155,9 @@ describe("navigateToNewConversation", () => {
     expect(workflowReset).toHaveBeenCalledTimes(1);
     expect(clearTranscriptPanelPayloads).toHaveBeenCalledTimes(1);
     expect(setActiveConversationId).toHaveBeenCalledTimes(1);
+    // The minted key is registered as a draft, so the transcript skips its
+    // skeleton and lands the composer instead.
+    expect(registerDraftConversationId).toHaveBeenCalledTimes(1);
     expect(composerFocus).toHaveBeenCalledTimes(1);
   });
 

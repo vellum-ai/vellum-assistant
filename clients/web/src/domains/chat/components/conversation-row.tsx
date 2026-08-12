@@ -29,16 +29,18 @@ import {
   hasThreadStatus,
   ThreadStatusIndicator,
 } from "@/domains/chat/components/thread-status-indicator";
-import type { DragReorderItemProps } from "@/domains/chat/hooks/use-drag-reorder";
 import { isChannelConversation } from "@/domains/chat/utils/conversation-channel";
 import { copyIdToClipboard } from "@/domains/chat/utils/copy-id-to-clipboard";
 import {
   buildMoveToGroupTargets,
-  isConversationPinned,
   isInCustomGroup,
 } from "@/domains/chat/utils/group-conversations";
 import type { Conversation } from "@/types/conversation-types";
-import { canMarkRead, canMarkUnread } from "@/utils/conversation-predicates";
+import {
+  canMarkRead,
+  canMarkUnread,
+  isConversationPinned,
+} from "@/utils/conversation-predicates";
 import { isPointerCoarse } from "@/utils/pointer";
 import type { SwipeAction } from "@/hooks/use-swipe-to-reveal";
 
@@ -49,13 +51,6 @@ import {
 
 export interface ConversationRowProps {
   conversation: Conversation;
-  /**
-   * Drag-reorder section key. Omit for non-reorderable lists (Recents,
-   * channel sections) — only Pinned and custom groups reorder.
-   */
-  dragSection?: string;
-  /** The section's full ordered list, for drag math. Defaults to nothing. */
-  dragSiblings?: Conversation[];
   /** Wrap in a right-click context menu. Default true; false in the rail flyout. */
   withContextMenu?: boolean;
   /** Marquee the title on hover. Default true; false in the rail flyout. */
@@ -114,36 +109,6 @@ export function buildMenuProps(
     onCopyConversationId: hasId
       ? () => copyIdToClipboard(conversation.conversationId!, "Conversation ID")
       : undefined,
-  };
-}
-
-export function buildDragProps(
-  ctx: ConversationListContextValue,
-  conversation: Conversation,
-  dragSection: string | undefined,
-  dragSiblings: Conversation[] | undefined,
-): Partial<DragReorderItemProps> & { className?: string } {
-  if (
-    !dragSection ||
-    !ctx.canReorder ||
-    !dragSiblings ||
-    dragSiblings.length < 2
-  ) {
-    return {};
-  }
-  const { draggingId, dropIndicator } = ctx.dragReorder;
-  const edge =
-    dropIndicator?.section === dragSection &&
-    dropIndicator.itemId === conversation.conversationId
-      ? dropIndicator.edge
-      : null;
-  return {
-    ...ctx.dragReorder.getItemProps(dragSection, dragSiblings, conversation),
-    className: cn(
-      draggingId === conversation.conversationId && "opacity-50",
-      edge === "before" && "shadow-[inset_0_2px_0_0_var(--primary-base)]",
-      edge === "after" && "shadow-[inset_0_-2px_0_0_var(--primary-base)]",
-    ),
   };
 }
 
@@ -216,8 +181,6 @@ export function buildSwipeActions(
 
 export function ConversationRow({
   conversation,
-  dragSection,
-  dragSiblings,
   withContextMenu = true,
   marquee = true,
   onSelect,
@@ -246,12 +209,6 @@ export function ConversationRow({
     needsAttention,
     hasUnread: conversation.hasUnseenLatestAssistantMessage === true,
   };
-  const dragProps = buildDragProps(
-    ctx,
-    conversation,
-    dragSection,
-    dragSiblings,
-  );
   const { leadingActions, trailingActions } = buildSwipeActions(
     ctx,
     conversation,
@@ -297,13 +254,11 @@ export function ConversationRow({
             <ConversationActionsMenu {...menuProps} />
           )
         }
-        {...dragProps}
         className={cn(
           // `!` forces this over PanelItem's own max-md:py-3: cross-package
           // Tailwind generation order doesn't reliably favor a plain
           // (unmarked) override here.
           "h-[30px] p-[6px] max-md:p-2! text-[var(--content-default)]",
-          dragProps.className,
         )}
       />
     </SwipeActionReveal>

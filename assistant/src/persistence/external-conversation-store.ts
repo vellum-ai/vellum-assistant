@@ -7,7 +7,8 @@
  * list APIs.
  */
 
-import { and, eq, inArray, isNull, sql } from "drizzle-orm";
+import { and, eq, inArray, isNull, type SQL, sql } from "drizzle-orm";
+import type { AnySQLiteColumn } from "drizzle-orm/sqlite-core";
 
 import { getDb } from "./db-connection.js";
 import { externalConversationBindings } from "./schema/index.js";
@@ -43,6 +44,19 @@ function normalizeExternalThreadId(
 ): string | null {
   const trimmed = externalThreadId?.trim();
   return trimmed ? trimmed : null;
+}
+
+/**
+ * An upsert value that leaves the stored column alone when the caller said
+ * nothing about it, distinguishing "I do not know" from "there is none".
+ */
+function keepStoredIfAbsent<T extends string | null | undefined>(
+  value: T,
+  column: AnySQLiteColumn,
+): Exclude<T, undefined> | SQL {
+  return value === undefined
+    ? sql`${column}`
+    : (value as Exclude<T, undefined>);
 }
 
 function normalizeExternalChatName(
@@ -103,9 +117,23 @@ export function upsertBinding(input: UpsertBindingInput): void {
           externalChatName ??
           sql`${externalConversationBindings.externalChatName}`,
         externalThreadId,
-        externalUserId: input.externalUserId ?? null,
-        displayName: input.displayName ?? null,
-        username: input.username ?? null,
+        // An omitted sender field keeps what is stored; an explicit value,
+        // including null, replaces it. A caller that knows only the chat
+        // coordinates on a message is silent about the sender rather than
+        // asserting there is none, and erasing a known name on that silence
+        // drops it from the conversation and session APIs.
+        externalUserId: keepStoredIfAbsent(
+          input.externalUserId,
+          externalConversationBindings.externalUserId,
+        ),
+        displayName: keepStoredIfAbsent(
+          input.displayName,
+          externalConversationBindings.displayName,
+        ),
+        username: keepStoredIfAbsent(
+          input.username,
+          externalConversationBindings.username,
+        ),
         updatedAt: now,
         lastInboundAt: now,
       },

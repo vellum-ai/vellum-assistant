@@ -1,0 +1,40 @@
+{
+  "name": "@vellumai/electron-desktop",
+  "version": "0.0.1",
+  "private": true,
+  "license": "MIT",
+  "type": "module",
+  "exports": {
+    "./about": "./src/about.ts",
+    "./accelerator": "./src/accelerator.ts",
+    "./app-origin": "./src/app-origin.ts",
+    "./capability-registry": "./src/capability-registry.ts",
+    "./commands": "./src/commands.ts",
+    "./devtools": "./src/devtools.ts",
+    "./global-shortcuts": "./src/global-shortcuts.ts",
+    "./hotkeys": "./src/hotkeys.ts",
+    "./image-context-menu": "./src/image-context-menu.ts",
+    "./ipc": "./src/ipc.ts",
+    "./text-context-menu": "./src/text-context-menu.ts",
+    "./windows": "./src/windows.ts"
+  },
+  "scripts": {
+    "typecheck": "bunx tsc --noEmit",
+    "test": "bun scripts/run-tests.ts"
+  },
+  "dependencies": {
+    "@vellumai/electron-utils": "workspace:*",
+    "@vellumai/ipc-contract": "workspace:*"
+  },
+  "peerDependencies": {
+    "electron": ">=42.2.0",
+    "zod": ">=4.0.0"
+  },
+  "devDependencies": {
+    "@types/bun": "1.3.14",
+    "@types/node": "22.10.5",
+    "electron": "42.2.0",
+    "typescript": "5.9.3",
+    "zod": "4.3.6"
+  }
+}

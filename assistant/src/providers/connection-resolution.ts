@@ -27,10 +27,12 @@
  *      a conversation offline.
  */
 
+import { getIsPlatform } from "../config/env-registry.js";
 import {
   resolveCallSiteConfig,
   selectWinningProfile,
 } from "../config/llm-resolver.js";
+import { unknownLlmProviderIssue } from "../config/schemas/llm.js";
 import { getDb } from "../persistence/db-connection.js";
 import { credentialKey } from "../security/credential-key.js";
 import { ProviderNotConfiguredError } from "../util/errors.js";
@@ -39,6 +41,7 @@ import {
   describeSubscriptionModelIncompatibility,
   isConnectionCompatibleWithModel,
 } from "./connection-model-compat.js";
+import { VALID_CONNECTION_PROVIDERS } from "./inference/auth.js";
 import {
   canonicalVellumConnection,
   getConnection,
@@ -54,6 +57,7 @@ import {
 } from "./routing-identity.js";
 import type { Provider } from "./types.js";
 import {
+  getManagedUpstream,
   isVellumManagedConnection,
   MANAGED_ROUTABLE_PROVIDERS,
   VELLUM_MANAGED_CONNECTION_NAME,
@@ -62,6 +66,132 @@ import {
 export { ConnectionResolutionError, resolveRoutingIdentity };
 
 const log = getLogger("providers/connection-resolution");
+
+/**
+ * Resolve a provider label that names a connection row (an entry) to that
+ * row's name. Returns null for catalog providers and routing identities
+ * (those translate through their own rules) and for labels naming no row.
+ *
+ * The write surfaces reject entry-name providers until the entries model
+ * enables them, so a config carrying one reaches dispatch only through a
+ * hand edit today and through the collapse migration later; translating
+ * here makes both route explainably instead of failing as an unknown
+ * provider.
+ */
+export function resolveEntryConnectionName(
+  provider: string | undefined,
+): string | null {
+  if (!provider || VALID_CONNECTION_PROVIDERS.includes(provider)) {
+    return null;
+  }
+  try {
+    return getConnection(getDb(), provider) ? provider : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Write-surface membership for a PROFILE provider value: the known vendor
+ * and identity set, plus existing connection entry rows. Fail-closed on DB
+ * unavailability (an unverifiable entry name is rejected; the write is
+ * retryable), unlike the selection-time predicate below, which is
+ * fail-open so a DB blip never heals away a valid profile. Call-site
+ * fragments keep vendor-only membership: overrides become model-only with
+ * the entries demolition, so entries must not leak into them meanwhile.
+ */
+export function writableProfileProviderIssue(provider: string): string | null {
+  const issue = unknownLlmProviderIssue(provider);
+  if (issue === null) {
+    return null;
+  }
+  try {
+    if (getConnection(getDb(), provider) != null) {
+      return null;
+    }
+  } catch {
+    // Unverifiable: fall through to the rejection.
+  }
+  return `Invalid provider "${provider}". Use a known provider or the name of an existing connection.`;
+}
+
+/**
+ * Selection-time predicate for `ResolveCallSiteOpts.isResolvableProvider`:
+ * a provider value dispatches when it is a known vendor/identity or names a
+ * connection entry row. Permissive on DB unavailability so a transient blip
+ * never heals away a valid entry profile; dispatch soft-fails on its own.
+ */
+export function dispatchProviderResolvable(provider: string): boolean {
+  if (VALID_CONNECTION_PROVIDERS.includes(provider)) {
+    return true;
+  }
+  try {
+    return getConnection(getDb(), provider) != null;
+  } catch {
+    return true;
+  }
+}
+
+/**
+ * The vendor a resolved provider value expects its connection row to serve:
+ * catalog ids and routing identities pass through, and an entry-name label
+ * resolves to its row's dispatchable kind, so a config carrying both an
+ * entry label and a `provider_connection` is held to the label's kind by
+ * the row-equality check (a conflicting row mismatches explainably or
+ * auto-recovers to a matching one). A label naming no row yields undefined.
+ */
+export function expectedVendorProvider(
+  provider: string | undefined,
+  model: string | undefined,
+): string | undefined {
+  if (!provider) {
+    return undefined;
+  }
+  if (VALID_CONNECTION_PROVIDERS.includes(provider)) {
+    return provider;
+  }
+  return resolveEntryProviderKind(provider, model) ?? undefined;
+}
+
+/**
+ * The dispatchable provider kind behind a connection row, or null when the
+ * row is missing or its kind cannot be derived. Identity-kind rows derive
+ * their upstream the way the identities themselves do. Sync and
+ * best-effort so capability probes can share dispatch's translation
+ * without replaying its async resolution.
+ */
+export function connectionProviderKind(
+  connectionName: string,
+  model: string | undefined,
+): string | null {
+  try {
+    const row = getConnection(getDb(), connectionName);
+    if (!row) {
+      return null;
+    }
+    if (isVellumManagedConnection(row)) {
+      return model ? getManagedUpstream(model) : null;
+    }
+    if (row.provider === "chatgpt") {
+      return "openai";
+    }
+    return row.provider;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The dispatchable provider kind behind an entry-name label, or null when
+ * the label is not an entry.
+ */
+export function resolveEntryProviderKind(
+  provider: string | undefined,
+  model: string | undefined,
+): string | null {
+  const entryName = resolveEntryConnectionName(provider);
+  return entryName ? connectionProviderKind(entryName, model) : null;
+}
 
 /**
  * Resolve a Provider through a named `provider_connection`.
@@ -151,18 +281,36 @@ export async function tryResolveProviderForConnectionName(
   // fall back to the default provider.
   const isVellum = isVellumManagedConnection(connection);
   if (isVellum && !expectedProvider) {
-    throw new ConnectionResolutionError(
-      connectionName,
-      "provider_mismatch",
-      `provider_connection "${connectionName}" is the provider-agnostic Vellum-managed connection but the resolving profile declared no provider — set the profile's provider so the upstream can be selected`,
-    );
+    // An entry-name route carries no declared provider (the label is the
+    // row's name, not a vendor); a vellum-kind row derives its upstream
+    // from the model, same as the vellum identity itself.
+    expectedProvider = model
+      ? (getManagedUpstream(model) ?? undefined)
+      : undefined;
+    if (!expectedProvider) {
+      throw new ConnectionResolutionError(
+        connectionName,
+        "provider_mismatch",
+        `provider_connection "${connectionName}" is the provider-agnostic Vellum-managed connection but the resolving profile declared no provider — set the profile's provider so the upstream can be selected`,
+      );
+    }
   }
   const isVellumRoute =
     isVellum &&
     !!expectedProvider &&
     MANAGED_ROUTABLE_PROVIDERS.has(expectedProvider);
+  // The ChatGPT-subscription row stores the "chatgpt" routing identity in
+  // its provider column, so the equality never holds for its openai
+  // upstream. The identity dispatches with the upstream threaded as
+  // `providerOverride`, mirroring the vellum sentinel; the upstream is
+  // always openai (`resolveRoutingIdentity`). Any other declared provider
+  // on a chatgpt row is a genuine mismatch and falls through below.
+  const isChatgptRoute =
+    connection.provider === "chatgpt" &&
+    (expectedProvider === undefined || expectedProvider === "openai");
   if (
     !isVellumRoute &&
+    !isChatgptRoute &&
     expectedProvider &&
     connection.provider !== expectedProvider
   ) {
@@ -224,7 +372,11 @@ export async function tryResolveProviderForConnectionName(
   try {
     const provider = await resolveProviderFromConnection(connection, config, {
       model,
-      providerOverride: isVellumRoute ? expectedProvider : undefined,
+      providerOverride: isVellumRoute
+        ? expectedProvider
+        : isChatgptRoute
+          ? "openai"
+          : undefined,
     });
     return attachProviderRoute(provider, connection);
   } catch (err) {
@@ -323,7 +475,9 @@ async function resolveThroughPlatform(
 export async function resolveDefaultProvider(
   config: ProvidersConfig,
 ): Promise<Provider | null> {
-  const resolved = resolveCallSiteConfig("mainAgent", config.llm);
+  const resolved = resolveCallSiteConfig("mainAgent", config.llm, {
+    isResolvableProvider: dispatchProviderResolvable,
+  });
   let connectionName = resolved.provider_connection;
   // A routing-identity provider names its own connection row; the
   // provider-keyed auto-resolve scan below cannot find it ("chatgpt" rows
@@ -333,6 +487,19 @@ export async function resolveDefaultProvider(
       resolved.provider,
       resolved.model,
     )?.connectionName;
+  }
+  // An entry-name provider IS the connection name: the label points at a
+  // row, and the row's own provider drives dispatch.
+  const entryName = connectionName
+    ? null
+    : resolveEntryConnectionName(resolved.provider);
+  if (entryName) {
+    return tryResolveProviderForConnectionName(
+      entryName,
+      config,
+      undefined,
+      resolved.model,
+    );
   }
   if (!connectionName) {
     // The merged config has no provider_connection — the profile likely set
@@ -386,7 +553,7 @@ export async function resolveDefaultProvider(
   return tryResolveProviderForConnectionName(
     connectionName,
     config,
-    resolved.provider,
+    expectedVendorProvider(resolved.provider, resolved.model),
     resolved.model,
   );
 }
@@ -422,9 +589,21 @@ export async function preflightResolvedConfig(
   // upstream; an unroutable vellum model throws here — it is statically
   // detectable, exactly what preflight exists to surface.
   const identity = resolveRoutingIdentity(resolved.provider, resolved.model);
-  const provider = identity?.expectedProvider ?? resolved.provider;
+  // An entry-name provider IS the connection name, and the row's kind is
+  // what the checks below judge against (same translation dispatch uses).
+  // Precedence matches dispatch exactly: an explicit provider_connection
+  // wins over the entry name, so preflight judges the row the request
+  // actually uses rather than a healthy entry the request ignores.
+  const entryName = identity
+    ? null
+    : resolveEntryConnectionName(resolved.provider);
+  const provider = identity
+    ? identity.expectedProvider
+    : entryName
+      ? (connectionProviderKind(entryName, resolved.model) ?? resolved.provider)
+      : resolved.provider;
   const connectionName =
-    identity?.connectionName ?? resolved.provider_connection;
+    identity?.connectionName ?? resolved.provider_connection ?? entryName;
   if (!connectionName) {
     return;
   }
@@ -468,7 +647,40 @@ export async function preflightResolvedConfig(
         errorOptions,
       );
     }
-    if ((await platformLoginPresence()) === "unauthenticated") {
+    const presence = await platformLoginPresence();
+    if (presence === "ok") {
+      return;
+    }
+    if (getIsPlatform()) {
+      // A platform-managed assistant cannot present a login screen or switch
+      // providers, so the login-or-switch wording never fits. An unreachable
+      // store is transient and recovers on its own, so it reads as a retry. A
+      // reachable but empty store can only be fixed by re-provisioning the
+      // credential platform-side.
+      if (presence === "indeterminate") {
+        throw new ConnectionResolutionError(
+          connectionName,
+          "platform_unauthenticated",
+          "The assistant's platform credentials are temporarily unavailable; retrying automatically.",
+          errorOptions,
+        );
+      }
+      log.error(
+        {
+          connectionName,
+          model: resolved.model,
+          profileName: attribution.profileName,
+        },
+        "Managed platform credential is missing and must be re-provisioned",
+      );
+      throw new ConnectionResolutionError(
+        connectionName,
+        "platform_unauthenticated",
+        "This assistant's platform credential is missing and must be re-provisioned on the Vellum platform.",
+        errorOptions,
+      );
+    }
+    if (presence === "unauthenticated") {
       throw new ConnectionResolutionError(
         connectionName,
         "platform_unauthenticated",
@@ -478,7 +690,12 @@ export async function preflightResolvedConfig(
     }
     return;
   }
-  if (connection.provider !== provider) {
+  // The ChatGPT-subscription row stores the "chatgpt" identity while its
+  // upstream is openai; the credential-presence switch below is the right
+  // preflight for it (the subscription token is its credential).
+  const isChatgptRow =
+    connection.provider === "chatgpt" && provider === "openai";
+  if (!isChatgptRow && connection.provider !== provider) {
     throw new ConnectionResolutionError(
       connectionName,
       "provider_mismatch",

@@ -58,7 +58,7 @@ import { isElectron } from "@/runtime/is-electron";
 import { getElectronSessionToken } from "@/runtime/session-token";
 import { getActiveOrganizationIdForRequests } from "@/stores/organization-store";
 import { hardNavigate } from "@/lib/auth/hard-navigate";
-import { useAuthStore } from "@/stores/auth-store";
+import { useAuthStore, whenPlatformSessionSettled } from "@/stores/auth-store";
 import {
   hasLivePlatformSession,
   isAuthenticated,
@@ -597,6 +597,7 @@ const PLATFORM_AUTH_MAX_REDIRECTS = 3;
 /** @internal Exposed for test teardown only. */
 export function resetPlatformAuthRecoveryFlag(): void {
   platformAuthRecoveryFired = false;
+  platformRecoveryOutstanding = false;
 }
 
 /**
@@ -632,6 +633,107 @@ function clearPlatformAuthRedirectBudget(): void {
   }
 }
 
+/**
+ * Cooldown + attempt budget for the recovery re-probe, mirroring the
+ * local-gateway 401 pattern above. The cooldown spaces cycles and the budget
+ * stops them; with the refund below, the cap binds when re-probes repeatedly
+ * fail to settle (refreshSession throwing on a flaky network while the API
+ * keeps rejecting). Quitting the app grants a fresh budget (sessionStorage).
+ */
+const PLATFORM_RECOVERY_AT_KEY = "vellum:platform:recovery-attempt-at";
+const PLATFORM_RECOVERY_ATTEMPTS_KEY = "vellum:platform:recovery-attempts";
+const PLATFORM_RECOVERY_PATH_KEY = "vellum:platform:recovery-path";
+const PLATFORM_RECOVERY_COOLDOWN_MS = 600_000;
+const PLATFORM_RECOVERY_MAX_ATTEMPTS = 3;
+
+// Skips the ok-branch heal check until a claim is made. Seeded from storage:
+// a claim from this page's earlier life may still be awaiting its heal.
+let platformRecoveryOutstanding = (() => {
+  try {
+    return sessionStorage.getItem(PLATFORM_RECOVERY_PATH_KEY) !== null;
+  } catch {
+    return false;
+  }
+})();
+
+/**
+ * Spend one recovery attempt for a rejection on `pathname`; false when the
+ * budget or cooldown blocks it, or when sessionStorage is unavailable (fails
+ * closed). Only that pathname's later success restores the budget.
+ */
+function claimPlatformRecoveryAttempt(pathname: string): boolean {
+  try {
+    const stored = Number(
+      sessionStorage.getItem(PLATFORM_RECOVERY_ATTEMPTS_KEY) ?? "0",
+    );
+    const attempts = Number.isFinite(stored) ? stored : 0;
+    if (attempts >= PLATFORM_RECOVERY_MAX_ATTEMPTS) {
+      return false;
+    }
+    const lastAttempt = sessionStorage.getItem(PLATFORM_RECOVERY_AT_KEY);
+    if (
+      lastAttempt &&
+      Date.now() - Number(lastAttempt) < PLATFORM_RECOVERY_COOLDOWN_MS
+    ) {
+      return false;
+    }
+    sessionStorage.setItem(PLATFORM_RECOVERY_AT_KEY, String(Date.now()));
+    sessionStorage.setItem(
+      PLATFORM_RECOVERY_ATTEMPTS_KEY,
+      String(attempts + 1),
+    );
+    sessionStorage.setItem(PLATFORM_RECOVERY_PATH_KEY, pathname);
+    platformRecoveryOutstanding = true;
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Restore the budget only when the last-rejected route succeeds: anonymously
+ * served routes (client feature flags) must not re-arm it every poll.
+ */
+function clearPlatformRecoveryBudgetIfHealed(pathname: string): void {
+  try {
+    if (sessionStorage.getItem(PLATFORM_RECOVERY_PATH_KEY) !== pathname) {
+      return;
+    }
+    sessionStorage.removeItem(PLATFORM_RECOVERY_AT_KEY);
+    sessionStorage.removeItem(PLATFORM_RECOVERY_ATTEMPTS_KEY);
+    sessionStorage.removeItem(PLATFORM_RECOVERY_PATH_KEY);
+    platformRecoveryOutstanding = false;
+  } catch {
+    // sessionStorage unavailable; the claim above already fails closed.
+  }
+}
+
+/**
+ * Refund the attempt count but keep the cooldown: a permission 403 on a live
+ * session must not eat the budget a later real expiry needs.
+ */
+function refundPlatformRecoveryAttempt(): void {
+  try {
+    sessionStorage.removeItem(PLATFORM_RECOVERY_ATTEMPTS_KEY);
+    // Drop the remembered pathname too: a leftover key would re-seed the
+    // outstanding flag after a reload, letting a heal clear the cooldown
+    // this refund deliberately keeps.
+    sessionStorage.removeItem(PLATFORM_RECOVERY_PATH_KEY);
+  } catch {
+    // sessionStorage unavailable; the claim already fails closed.
+  }
+  platformRecoveryOutstanding = false;
+}
+
+/** The response URL's pathname, or null for an unparseable URL. */
+function responsePathname(response: Response): string | null {
+  try {
+    return new URL(response.url).pathname;
+  } catch {
+    return null;
+  }
+}
+
 async function recoverFromPlatformSessionRejection(): Promise<void> {
   try {
     // Authoritative re-probe. `refreshSession` calls `getSession()` and only
@@ -641,6 +743,12 @@ async function recoverFromPlatformSessionRejection(): Promise<void> {
     // and keeps `sessionStatus` authenticated, so the redirect below is
     // skipped there.
     await useAuthStore.getState().refreshSession();
+    // refreshSession may fire-and-forget the platform probe; hold the latch
+    // until it settles so the probe's own rejections cannot re-enter.
+    await whenPlatformSessionSettled();
+    if (hasLivePlatformSession(useAuthStore.getState().platformSession)) {
+      refundPlatformRecoveryAttempt();
+    }
     if (
       !isAuthenticated(useAuthStore.getState().sessionStatus) &&
       claimPlatformAuthRedirect()
@@ -669,10 +777,14 @@ async function recoverFromPlatformSessionRejection(): Promise<void> {
  * authenticated (excludes boot probes and the already-logged-out login flow,
  * and prevents a redirect loop), and the response did not come from the
  * self-hosted / remote-gateway bearer path — those 401s are recovered by
- * {@link localGatewayAuthRecoveryInterceptor}.
+ * {@link localGatewayAuthRecoveryInterceptor}. Recovery claims only for a
+ * platform session currently believed live: the boot probe owns unsettled
+ * evidence, and a settled-absent session has nothing to recover. Each cycle
+ * spends from the cooldown-spaced attempt budget above.
  *
- * A platform request that succeeds against a confirmed session restores the
- * redirect budget.
+ * A success on the route whose rejection last consumed a recovery attempt
+ * restores the recovery budget; a success against a confirmed session also
+ * restores the redirect budget.
  */
 export function platformAuthRecoveryInterceptor(response: Response): Response {
   const ingressUrl = getSelfHostedIngressUrl();
@@ -680,13 +792,17 @@ export function platformAuthRecoveryInterceptor(response: Response): Response {
     !!ingressUrl && response.url.startsWith(ingressUrl);
 
   if (response.ok) {
-    // A working self-hosted gateway says nothing about the platform session,
-    // and neither does a route the platform serves anonymously.
-    if (
-      !fromSelfHostedGateway &&
-      hasLivePlatformSession(useAuthStore.getState().platformSession)
-    ) {
-      clearPlatformAuthRedirectBudget();
+    // A working self-hosted gateway says nothing about the platform session.
+    if (!fromSelfHostedGateway) {
+      if (platformRecoveryOutstanding) {
+        const pathname = responsePathname(response);
+        if (pathname !== null) {
+          clearPlatformRecoveryBudgetIfHealed(pathname);
+        }
+      }
+      if (hasLivePlatformSession(useAuthStore.getState().platformSession)) {
+        clearPlatformAuthRedirectBudget();
+      }
     }
     return response;
   }
@@ -699,10 +815,21 @@ export function platformAuthRecoveryInterceptor(response: Response): Response {
   if (platformAuthRecoveryFired) {
     return response;
   }
-  if (!isAuthenticated(useAuthStore.getState().sessionStatus)) {
+  const { sessionStatus, platformSession } = useAuthStore.getState();
+  if (!isAuthenticated(sessionStatus)) {
     return response;
   }
   if (fromSelfHostedGateway) {
+    return response;
+  }
+  if (!hasLivePlatformSession(platformSession)) {
+    return response;
+  }
+  const rejectedPathname = responsePathname(response);
+  if (
+    rejectedPathname === null ||
+    !claimPlatformRecoveryAttempt(rejectedPathname)
+  ) {
     return response;
   }
 

@@ -24,6 +24,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import type { FetchLike } from "../fetch-like.js";
 import {
   type GitRunner,
+  PluginInstallDeclinedError,
   PluginNotFoundError,
   PluginSourceUnavailableError,
 } from "../install-from-github.js";
@@ -31,6 +32,7 @@ import { computeFingerprint } from "../plugin-fingerprint.js";
 import { PluginNotInstalledError } from "../uninstall-plugin.js";
 import {
   PluginMergeBaselineError,
+  PluginNotCuratedError,
   PluginNotUpgradableError,
   upgradePlugin,
 } from "../upgrade-plugin.js";
@@ -573,6 +575,44 @@ describe("upgradePlugin — direct GitHub-URL installs", () => {
     expect(calls[0]?.[0]).toBe("ls-remote");
   });
 
+  test("marketplaceOnly refuses the direct path instead of following the ref", async () => {
+    // GIVEN a direct install tracking `main` at SHA_A, absent from the
+    // marketplace, whose branch has advanced to SHA_B
+    installCopy(pluginsDir, "level-up", { commit: SHA_A, ref: "main" });
+    const fetch = makeFetch({ manifest: undefined });
+    const calls: string[][] = [];
+    const runGit = directGitRunner({ main: SHA_B }, SHA_B, { calls });
+
+    // WHEN a caller that only accepts a curated pin asks for the upgrade
+    const upgrade = upgradePlugin(
+      { name: "level-up", marketplaceOnly: true },
+      { fetch, runGit, workspacePluginsDir: pluginsDir },
+    );
+
+    // THEN it is refused, and the mutable ref is never even resolved
+    await expect(upgrade).rejects.toThrow(PluginNotCuratedError);
+    expect(calls).toEqual([]);
+    // AND the install stays exactly where it was
+    expect(sidecarCommit(pluginsDir, "level-up")).toBe(SHA_A);
+  });
+
+  test("marketplaceOnly still upgrades a plugin the catalog claims", async () => {
+    // GIVEN an install the marketplace pins at SHA_B
+    installCopy(pluginsDir, "level-up", { commit: SHA_A });
+    const fetch = makeFetch({ manifest: manifestWith("level-up", SHA_B) });
+    const runGit = fakeGitRunner(SHA_B);
+
+    // WHEN the same curated-only caller asks for the upgrade
+    const result = await upgradePlugin(
+      { name: "level-up", marketplaceOnly: true },
+      { fetch, runGit, workspacePluginsDir: pluginsDir },
+    );
+
+    // THEN the flag is inert: the curated pin is taken as usual
+    expect(result.outcome).toBe("upgraded");
+    expect(result.toCommit).toBe(SHA_B);
+  });
+
   test("is a no-op when the recorded branch still points at the installed commit", async () => {
     // GIVEN a direct install tracking `main` at SHA_A
     installCopy(pluginsDir, "level-up", { commit: SHA_A, ref: "main" });
@@ -1031,5 +1071,126 @@ describe("upgradePlugin --strategy", () => {
       "added upstream\n",
     );
     expect(installedFile("level-up", "conflict.txt")).toBe("ours\n");
+  });
+});
+
+describe("upgradePlugin confirmStaged consent gate", () => {
+  test("overwrite: declining aborts and preserves the existing install", async () => {
+    // GIVEN an installed copy pinned to SHA_A with a newer marketplace pin
+    installCopy(pluginsDir, "level-up", { commit: SHA_A });
+    const fetch = makeFetch({ manifest: manifestWith("level-up", SHA_B) });
+    const runGit = fakeGitRunner(SHA_B);
+    const seen: Array<{ name: string; staged: boolean }> = [];
+
+    // WHEN the consent gate declines the staged upgrade
+    await expect(
+      upgradePlugin(
+        { name: "level-up" },
+        {
+          fetch,
+          runGit,
+          workspacePluginsDir: pluginsDir,
+          confirmStaged: async ({ name, stagingDir }) => {
+            seen.push({
+              name,
+              staged: existsSync(join(stagingDir, "package.json")),
+            });
+            return false;
+          },
+        },
+      ),
+    ).rejects.toBeInstanceOf(PluginInstallDeclinedError);
+
+    // THEN the gate saw the fully staged tree exactly once
+    expect(seen).toEqual([{ name: "level-up", staged: true }]);
+    // AND the live install still carries the old pin
+    expect(sidecarCommit(pluginsDir, "level-up")).toBe(SHA_A);
+  });
+
+  test("overwrite: an accepting gate lets the upgrade proceed", async () => {
+    installCopy(pluginsDir, "level-up", { commit: SHA_A });
+    const fetch = makeFetch({ manifest: manifestWith("level-up", SHA_B) });
+    const runGit = fakeGitRunner(SHA_B);
+
+    const result = await upgradePlugin(
+      { name: "level-up" },
+      {
+        fetch,
+        runGit,
+        workspacePluginsDir: pluginsDir,
+        confirmStaged: async () => true,
+      },
+    );
+
+    expect(result.outcome).toBe("upgraded");
+    expect(sidecarCommit(pluginsDir, "level-up")).toBe(SHA_B);
+  });
+
+  test("merge: the gate sees the merged tree; declining keeps the local install", async () => {
+    const PKG = '{"name":"level-up"}\n';
+    const base: Tree = { "package.json": PKG, "note.txt": "base\n" };
+    const ours: Tree = {
+      "package.json": PKG,
+      "note.txt": "base\n",
+      "local.txt": "mine\n",
+    };
+    const theirs: Tree = { "package.json": PKG, "note.txt": "upstream\n" };
+    installMergeCopy("level-up", ours, SHA_A, base);
+    const fetch = makeFetch({ manifest: manifestWith("level-up", SHA_B) });
+    const runGit = treeGitRunner({ [SHA_A]: base, [SHA_B]: theirs });
+    let sawMerged = false;
+
+    await expect(
+      upgradePlugin(
+        { name: "level-up", strategy: "ours" },
+        {
+          fetch,
+          runGit,
+          workspacePluginsDir: pluginsDir,
+          confirmStaged: async ({ stagingDir }) => {
+            // The staged tree is the merged result: the upstream edit plus
+            // the surviving local addition.
+            sawMerged =
+              readFileSync(join(stagingDir, "note.txt"), "utf-8") ===
+                "upstream\n" && existsSync(join(stagingDir, "local.txt"));
+            return false;
+          },
+        },
+      ),
+    ).rejects.toBeInstanceOf(PluginInstallDeclinedError);
+
+    expect(sawMerged).toBe(true);
+    // The live install is untouched by the declined merge.
+    expect(installedFile("level-up", "note.txt")).toBe("base\n");
+    expect(sidecarCommit(pluginsDir, "level-up")).toBe(SHA_A);
+  });
+
+  test("dry runs and no-ops never invoke the gate", async () => {
+    installCopy(pluginsDir, "level-up", { commit: SHA_A });
+    const gate = async () => {
+      throw new Error("confirmStaged must not run without staging");
+    };
+
+    const dry = await upgradePlugin(
+      { name: "level-up", dryRun: true },
+      {
+        fetch: makeFetch({ manifest: manifestWith("level-up", SHA_B) }),
+        runGit: unusedGitRunner,
+        workspacePluginsDir: pluginsDir,
+        confirmStaged: gate,
+      },
+    );
+    expect(dry.outcome).toBe("would-upgrade");
+
+    const noop = await upgradePlugin(
+      { name: "level-up" },
+      {
+        fetch: makeFetch({ manifest: manifestWith("level-up", SHA_A) }),
+        runGit: unusedGitRunner,
+        workspacePluginsDir: pluginsDir,
+        confirmStaged: gate,
+      },
+    );
+    expect(noop.outcome).toBe("already-up-to-date");
   });
 });

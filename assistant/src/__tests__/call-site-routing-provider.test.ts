@@ -67,7 +67,7 @@ function makeConnectionHook(
   byConnection: Record<string, Provider>,
 ): (
   connectionName: string,
-  expectedProvider: string,
+  expectedProvider: string | undefined,
 ) => Promise<Provider | null> {
   return async (connectionName, _expectedProvider) =>
     byConnection[connectionName] ?? null;

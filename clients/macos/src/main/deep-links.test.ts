@@ -1,4 +1,12 @@
-import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  mock,
+  spyOn,
+  test,
+} from "bun:test";
 
 // Capture the `will-finish-launching` and `open-url` subscriptions
 // from `app.on` so tests can fire them. `setAsDefaultProtocolClient`
@@ -169,6 +177,7 @@ describe("parseVellumUrl", () => {
       kind: "billingCheckoutComplete",
       status: "success",
       sessionId: "cs_test_a1B2",
+      flow: "subscription",
     });
   });
 
@@ -181,6 +190,7 @@ describe("parseVellumUrl", () => {
       kind: "billingCheckoutComplete",
       status: "success",
       sessionId: "cs_live_XYZ",
+      flow: "subscription",
     });
   });
 
@@ -191,6 +201,7 @@ describe("parseVellumUrl", () => {
       kind: "billingCheckoutComplete",
       status: "cancel",
       sessionId: null,
+      flow: "subscription",
     });
   });
 
@@ -203,6 +214,43 @@ describe("parseVellumUrl", () => {
       kind: "billingCheckoutComplete",
       status: "cancel",
       sessionId: null,
+      flow: "subscription",
+    });
+  });
+
+  test("flow=top_up is carried through on both statuses", () => {
+    expect(
+      parseVellumUrl(
+        "vellum://billing/checkout-complete?status=success&session_id=cs_test_a1B2&flow=top_up",
+      ),
+    ).toEqual({
+      kind: "billingCheckoutComplete",
+      status: "success",
+      sessionId: "cs_test_a1B2",
+      flow: "top_up",
+    });
+    expect(
+      parseVellumUrl(
+        "vellum://billing/checkout-complete?status=cancel&flow=top_up",
+      ),
+    ).toEqual({
+      kind: "billingCheckoutComplete",
+      status: "cancel",
+      sessionId: null,
+      flow: "top_up",
+    });
+  });
+
+  test("an unrecognized flow value degrades to the subscription flow", () => {
+    expect(
+      parseVellumUrl(
+        "vellum://billing/checkout-complete?status=cancel&flow=bogus",
+      ),
+    ).toEqual({
+      kind: "billingCheckoutComplete",
+      status: "cancel",
+      sessionId: null,
+      flow: "subscription",
     });
   });
 
@@ -293,6 +341,84 @@ describe("parseVellumUrl", () => {
     expect(
       parseVellumUrl("vellum-assistant://auth/callback?code=secret"),
     ).toEqual({ kind: "unknown", url: "vellum-assistant://auth/callback" });
+  });
+
+  test("vellum-assistant://connect?url=…&code=… → connect with the validated base; the code is never carried", () => {
+    expect(
+      parseVellumUrl(
+        "vellum-assistant://connect?url=https%3A%2F%2Fassistant.example.com%2Fassistant-1&code=ABCD-1234",
+      ),
+    ).toEqual({
+      kind: "connect",
+      url: "https://assistant.example.com/assistant-1",
+    });
+  });
+
+  test("vellum://connect?bundle=… → connect carrying the bundle", () => {
+    expect(parseVellumUrl("vellum://connect?bundle=eyJnYXRld2F5")).toEqual({
+      kind: "connect",
+      bundle: "eyJnYXRld2F5",
+    });
+  });
+
+  test("connect accepts base64url bundles with padding", () => {
+    expect(
+      parseVellumUrl("vellum-assistant://connect?bundle=ab-C_9%3D%3D"),
+    ).toEqual({ kind: "connect", bundle: "ab-C_9==" });
+  });
+
+  test("connect drops a non-https url param but keeps the rest of the link", () => {
+    expect(
+      parseVellumUrl(
+        "vellum://connect?url=http%3A%2F%2Fevil.example&bundle=eyJnYXRld2F5",
+      ),
+    ).toEqual({ kind: "connect", bundle: "eyJnYXRld2F5" });
+  });
+
+  test("connect drops an unparseable url param", () => {
+    expect(
+      parseVellumUrl("vellum://connect?url=not%20a%20url&bundle=eyJnYXRld2F5"),
+    ).toEqual({ kind: "connect", bundle: "eyJnYXRld2F5" });
+  });
+
+  test("connect drops a bundle that is not base64/base64url", () => {
+    expect(
+      parseVellumUrl("vellum://connect?bundle=not%20base64%20at%20all"),
+    ).toEqual({ kind: "connect" });
+  });
+
+  test("a bare connect link still parses as connect, never unknown", () => {
+    // The user clicked a connect link; even with every field missing or
+    // malformed the renderer routes them to the connect flow with guidance
+    // instead of Sentry-breadcrumbing an unknown URL.
+    expect(parseVellumUrl("vellum://connect")).toEqual({ kind: "connect" });
+    expect(parseVellumUrl("vellum://connect?url=&code=&bundle=")).toEqual({
+      kind: "connect",
+    });
+  });
+
+  test("connect secrets never surface in console output from the module", () => {
+    // The parser carries `bundle` on the typed link only and drops the
+    // device code entirely. This guards the auth/callback precedent:
+    // nothing the module does with a connect URL may write the raw URL's
+    // secret material to a log stream.
+    const consoleSpies = (["log", "warn", "error", "info", "debug"] as const)
+      .map((method) => spyOn(console, method));
+    try {
+      handleDeepLink(
+        "vellum://connect?url=https%3A%2F%2Fh.example&code=SECRET-CODE&bundle=U0VDUkVUYnVuZGxl",
+      );
+      for (const spy of consoleSpies) {
+        for (const call of spy.mock.calls) {
+          expect(JSON.stringify(call)).not.toContain("SECRET");
+          expect(JSON.stringify(call)).not.toContain("U0VDUkVU");
+        }
+      }
+    } finally {
+      for (const spy of consoleSpies) {
+        spy.mockRestore();
+      }
+    }
   });
 
   test("env-specific scheme for a foreign environment is rejected as unknown", () => {
@@ -546,6 +672,11 @@ describe("handleDeepLink — window activation", () => {
     handleDeepLink(
       "vellum://billing/checkout-complete?status=success&session_id=cs_test_a1B2",
     );
+    expect(ensureMainWindowVisibleMock).toHaveBeenCalledTimes(1);
+  });
+
+  test("brings the main window forward for `connect`", () => {
+    handleDeepLink("vellum://connect?bundle=eyJnYXRld2F5");
     expect(ensureMainWindowVisibleMock).toHaveBeenCalledTimes(1);
   });
 

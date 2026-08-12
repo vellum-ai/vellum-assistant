@@ -151,8 +151,8 @@ export async function getGuardianDelivery(input?: {
  * Returns the fresh cached list for the given channel filter, or `undefined`
  * when the cache is cold or expired. Used by sync hot paths (SSE subscribe)
  * that cannot await {@link getGuardianDelivery} but must resolve the SAME
- * gateway-owned principal the async paths land on. A cold/expired return lets
- * the caller fall back to the local store as before.
+ * gateway-owned principal the async paths land on. There is no fallback
+ * fetch: on a cold/expired cache the caller proceeds without a principal.
  */
 export function peekCachedGuardianDelivery(input?: {
   channelTypes?: string[];
@@ -179,6 +179,33 @@ export async function getGuardianDeliveryFresh(input?: {
     channelTypes: input?.channelTypes,
     forceRefresh: true,
   });
+}
+
+type GuardianDeliveryFetch = (input?: {
+  channelTypes?: string[];
+}) => Promise<unknown>;
+
+/**
+ * Warm both guardian-binding cache keys the sync persona resolvers read: the
+ * `"vellum"`-channel key for `peekGuardianForChannel("vellum")` and the
+ * unfiltered key for the `peekAnyGuardian()` fallback. Warming only one key
+ * still resolves `users/default.md` when the guardian lives on a non-vellum
+ * channel (phone / Telegram).
+ *
+ * Uses the FRESH reader so warmup bypasses a stale/empty cached entry: a
+ * gateway-side binding write (onboarding, rebind) does not invalidate the
+ * daemon cache, so a non-fresh read could return an empty binding cached
+ * before the guardian existed and freeze `users/default.md` until the TTL
+ * expires. The fresh reads repopulate the cache the sync `peek*` resolvers
+ * then read. Best-effort: the reader swallows failures.
+ */
+export async function warmGuardianBindings(
+  fetchDelivery: GuardianDeliveryFetch = getGuardianDeliveryFresh,
+): Promise<void> {
+  await Promise.all([
+    fetchDelivery({ channelTypes: ["vellum"] }),
+    fetchDelivery(),
+  ]);
 }
 
 /**

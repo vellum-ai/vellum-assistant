@@ -29,6 +29,7 @@ import { buildVellumCardAffinity } from "../notifications/vellum-card-affinity.j
 import { IntegrityError } from "../util/errors.js";
 import { getLogger } from "../util/logger.js";
 import { resolveAnchoredGuardian } from "./anchored-guardian.js";
+import { DAEMON_INTERNAL_ASSISTANT_ID } from "./assistant-scope.js";
 import { CHALLENGE_TTL_MS } from "./channel-verification-service.js";
 import {
   type AccessRequestTrigger,
@@ -46,7 +47,6 @@ const log = getLogger("access-request-helper");
 export type { AccessRequestTrigger } from "./introduction-policy.js";
 
 export interface AccessRequestParams {
-  canonicalAssistantId: string;
   sourceChannel: ChannelId;
   conversationExternalId: string;
   actorExternalId?: string;
@@ -93,15 +93,18 @@ export type AccessRequestResult =
 // ---------------------------------------------------------------------------
 
 /**
- * Assistant-scoped conversation id for an actor's access requests. Stable key
- * that dedupes pending prompts for the same (assistant, channel, actor).
+ * Conversation id for an actor's access requests. Stable key that dedupes
+ * pending prompts for the same (channel, actor).
+ *
+ * The `self` segment is part of a persisted id format: guardian request rows
+ * carry these ids, so the shape is fixed even though the daemon scopes all its
+ * storage to the one assistant (`DAEMON_INTERNAL_ASSISTANT_ID`).
  */
 export function accessRequestConversationId(
-  canonicalAssistantId: string,
   sourceChannel: string,
   actorExternalId: string,
 ): string {
-  return `access-req-${canonicalAssistantId}-${sourceChannel}-${actorExternalId}`;
+  return `access-req-${DAEMON_INTERNAL_ASSISTANT_ID}-${sourceChannel}-${actorExternalId}`;
 }
 
 /**
@@ -126,7 +129,6 @@ export function accessRequestConversationId(
  * fail-closed.
  */
 export async function isApprovalHandshakeInProgress(params: {
-  canonicalAssistantId: string;
   sourceChannel: string;
   actorExternalId: string;
 }): Promise<boolean> {
@@ -134,7 +136,6 @@ export async function isApprovalHandshakeInProgress(params: {
     return false;
   }
   const conversationId = accessRequestConversationId(
-    params.canonicalAssistantId,
     params.sourceChannel,
     params.actorExternalId,
   );
@@ -171,7 +172,6 @@ export async function notifyGuardianOfAccessRequest(
   params: AccessRequestParams,
 ): Promise<AccessRequestResult> {
   const {
-    canonicalAssistantId,
     sourceChannel,
     conversationExternalId,
     actorExternalId,
@@ -219,7 +219,6 @@ export async function notifyGuardianOfAccessRequest(
   // from assistant A could be returned for assistant B, allowing the caller
   // to piggyback on A's guardian approval.
   const conversationId = accessRequestConversationId(
-    canonicalAssistantId,
     sourceChannel,
     actorExternalId,
   );
@@ -270,7 +269,6 @@ export async function notifyGuardianOfAccessRequest(
   // re-prompting is allowed again.
   if (
     await isApprovalHandshakeInProgress({
-      canonicalAssistantId,
       sourceChannel,
       actorExternalId,
     })
@@ -283,7 +281,7 @@ export async function notifyGuardianOfAccessRequest(
   }
 
   const senderIdentifier = actorDisplayName || actorUsername || actorExternalId;
-  const requestId = `access-req-${canonicalAssistantId}-${sourceChannel}-${actorExternalId}-${Date.now()}`;
+  const requestId = `access-req-${DAEMON_INTERNAL_ASSISTANT_ID}-${sourceChannel}-${actorExternalId}-${Date.now()}`;
 
   // Access requests are decisionable: without a bound principal nobody could
   // ever decide them (mirrors the gateway create's integrity guard).
@@ -461,7 +459,6 @@ export async function maybeNotifyGuardianOfAdmittedContact(
   }
 
   const conversationId = accessRequestConversationId(
-    params.canonicalAssistantId,
     params.sourceChannel,
     params.actorExternalId,
   );

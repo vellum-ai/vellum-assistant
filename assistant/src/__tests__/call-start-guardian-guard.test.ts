@@ -40,10 +40,24 @@ const realGatewaySessionsModule = {
 };
 mock.module("../channels/gateway-verification-sessions.js", () => ({
   ...realGatewaySessionsModule,
-  findActiveSession: async (channel: string) =>
-    findActiveSessionMockActive
-      ? activeVoiceSession
-      : realGatewaySessionsModule.findActiveSession(channel),
+  // Honours the caller's filter: the guard asks for the number it is about
+  // to dial, so a session for a different number must read as absent.
+  findActiveSession: async (
+    channel: string,
+    filter?: { expectedExternalUserId?: string },
+  ) => {
+    if (!findActiveSessionMockActive) {
+      return realGatewaySessionsModule.findActiveSession(channel, filter);
+    }
+    const wanted = filter?.expectedExternalUserId;
+    if (
+      wanted !== undefined &&
+      activeVoiceSession?.expectedPhoneE164 !== wanted
+    ) {
+      return null;
+    }
+    return activeVoiceSession;
+  },
 }));
 
 const { executeCallStart } = await import("../tools/calls/call-start.js");

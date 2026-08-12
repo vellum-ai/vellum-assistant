@@ -4,6 +4,8 @@ import type {
   FeedItemStatus,
 } from "@vellumai/assistant-api";
 
+import { flattenSummary } from "./feed-preview";
+
 /**
  * Client-side grouping of feed items by recency. Not part of the wire
  * contract — derived in the UI from each item's `createdAt`.
@@ -97,6 +99,68 @@ export function excludeHighUrgency(items: FeedItem[]): FeedItem[] {
  */
 export function getVisibleFeedItems(items: FeedItem[]): FeedItem[] {
   return excludeHighUrgency(items.filter((i) => i.status !== "dismissed"));
+}
+
+/**
+ * Read a non-empty string id out of a feed item's free-form `metadata` bag.
+ *
+ * `metadata` is `Record<string, unknown>` on the wire (the daemon spreads a
+ * notification's whole context payload into it, see `home-feed-side-effect.ts`),
+ * so every entity id a link is built from has to be narrowed the same way.
+ */
+function readMetadataId(item: FeedItem | null, key: string): string | null {
+  const id = item?.metadata?.[key];
+  return typeof id === "string" && id.length > 0 ? id : null;
+}
+
+/**
+ * Scheduled-run notifications (`schedule.notify`) carry their originating
+ * schedule id in `metadata.scheduleId`, letting a detail view link to the
+ * schedule. Returns null for feed items not tied to a schedule. Shared by the
+ * Activity page and the notifications bell so both offer the link on exactly
+ * the same items.
+ */
+export function getFeedItemScheduleId(item: FeedItem | null): string | null {
+  return readMetadataId(item, "scheduleId");
+}
+
+/**
+ * Background skill-update notifications carry the id of the skill the
+ * retrospective rewrote in `metadata.skillId` (emitted by
+ * `notifyBackgroundSkillUpdate` in the daemon's `scaffold-managed` tool),
+ * letting a detail view link to the skill it names. Returns null for feed
+ * items not tied to a skill.
+ *
+ * Only *updates* reach the feed. A newly authored skill announces itself with
+ * an in-chat card instead (`skill-created-card.tsx`), which deep-links the same
+ * way; this is the update path's equivalent.
+ */
+export function getFeedItemSkillId(item: FeedItem | null): string | null {
+  return readMetadataId(item, "skillId");
+}
+
+/**
+ * Name for an item with neither a title nor a summary that renders as text, so
+ * the surface showing it always has something to name it by. The category is
+ * not used here: on a card carrying its category chip, repeating it would read
+ * the same word twice.
+ */
+const UNNAMED_ITEM_TITLE = "Notification";
+
+/**
+ * Display name for a feed item: its own title, or its summary when it carries
+ * none. `summary` is markdown, so the fallback goes through the flattener
+ * rather than showing syntax. Shared by the Activity page's rows and the
+ * notifications bell so the title the user clicked is the title they land on.
+ *
+ * Flattening parses markdown, so callers rendering a list memoize the result on
+ * the two fields it reads.
+ */
+export function resolveFeedItemTitle(
+  item: Pick<FeedItem, "title" | "summary">,
+): string {
+  const resolved = item.title ?? flattenSummary(item.summary);
+  return resolved.length > 0 ? resolved : UNNAMED_ITEM_TITLE;
 }
 
 /** Arguments for the feed's bulk status mutation (`markAll`). */

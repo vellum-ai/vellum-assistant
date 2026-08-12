@@ -102,6 +102,14 @@
       "defaultEnabled": false
     },
     {
+      "id": "companion-surface",
+      "scope": "client",
+      "key": "companion-surface",
+      "label": "Companion Surface",
+      "description": "Show the macOS companion surface: the floating avatar that carries Talk, Type and the running call, and its tray item. Read in the Electron main process, which decides whether the window opens at all",
+      "defaultEnabled": false
+    },
+    {
       "id": "expand-completed-steps",
       "scope": "client",
       "key": "expand-completed-steps",
@@ -195,14 +203,6 @@
       "key": "velvet-theme",
       "label": "Velvet Theme",
       "description": "Show the Velvet theme option in the macOS appearance settings. Velvet is a dark-mode variant with red/pink accent colors.",
-      "defaultEnabled": false
-    },
-    {
-      "id": "queue-steering",
-      "scope": "assistant",
-      "key": "queue-steering",
-      "label": "Queue Steering",
-      "description": "Enable the 'Push to agent' button on queued messages, allowing users to steer the assistant to a specific queued message by aborting the current generation and promoting the message to the head of the queue.",
       "defaultEnabled": false
     },
     {
@@ -338,7 +338,7 @@
       "scope": "client",
       "key": "assistant-switcher",
       "label": "Assistant Switcher",
-      "description": "Show the Switch Assistant section in General settings (local mode only), linking to the assistant chooser.",
+      "description": "Show the Switch Assistant section in General settings, linking to the assistant chooser. Covers local clients, signed-in cloud-hub users, remote-gateway origins, and native mobile shells; remote-gateway desktop browsers hand off to the hub chooser with a self-registration param. Also makes the chooser's selection authoritative for the app's active assistant on every surface including the platform hub, a job that previously belonged to multi-platform-assistant alone.",
       "defaultEnabled": false
     },
     {
@@ -358,19 +358,19 @@
       "defaultEnabled": true
     },
     {
-      "id": "subagent-profile-isolation",
+      "id": "desktop-presence-suppression",
       "scope": "assistant",
-      "key": "subagent-profile-isolation",
-      "label": "Subagent Profile Isolation",
-      "description": "Subagents resolve the subagentSpawn call site's own default model profile instead of inheriting the conversation's active profile, and an explicitly requested profile the model catalog does not report as tool-capable falls back to that same default. Both halves cover background spawns only: an advisor consult carries read-only tools with or without this flag, so it applies the tool-capability fallback either way. Applies to forks too: a fork otherwise stays on the parent's model and reuses its cached context, so under isolation a fork can run on a different model and re-prefill the transcript it inherits.",
-      "defaultEnabled": false
+      "key": "desktop-presence-suppression",
+      "label": "Desktop Presence Suppression",
+      "description": "Gates whether a `chat.assistant_reply` push is suppressed while a Mac desktop client reports itself attended. On by default; turn it off to restore unconditional reply pushes.",
+      "defaultEnabled": true
     },
     {
-      "id": "subagent-loop-guard",
+      "id": "plugin-schedules",
       "scope": "assistant",
-      "key": "subagent-loop-guard",
-      "label": "Subagent Loop Guard",
-      "description": "Rate-limit near-identical repeat subagent spawns and require explicit confirmation to continue.",
+      "key": "plugin-schedules",
+      "label": "Plugin Schedules",
+      "description": "Plugins declare recurring schedules as files that register and run automatically",
       "defaultEnabled": false
     }
   ]

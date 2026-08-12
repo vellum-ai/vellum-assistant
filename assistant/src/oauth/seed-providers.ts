@@ -167,7 +167,8 @@ export const PROVIDER_SEED_DATA: Record<
     description: "Workspace messaging",
     dashboardUrl: "https://api.slack.com/apps",
     clientIdPlaceholder: null,
-    logoUrl: "https://cdn.simpleicons.org/slack",
+    logoUrl:
+      "https://cdn.jsdelivr.net/gh/glincker/thesvg@main/public/icons/slack/default.svg",
     defaultScopes: [
       "channels:join",
       "channels:read",
@@ -454,16 +455,15 @@ export const PROVIDER_SEED_DATA: Record<
     pingUrl: "https://discord.com/api/v10/users/@me",
     baseUrl: "https://discord.com/api/v10",
     displayLabel: "Discord",
-    description: "Servers and messages",
+    // Your servers, not their contents. These scopes reach the guild list and
+    // your membership in one; reading messages is not among them. Discord
+    // documents `messages.read` as local RPC only, so requesting it would put
+    // a permission on the consent screen that grants nothing here.
+    description: "Your servers and profile",
     dashboardUrl: "https://discord.com/developers/applications",
     clientIdPlaceholder: null,
     logoUrl: "https://cdn.simpleicons.org/discord",
-    defaultScopes: [
-      "identify",
-      "guilds",
-      "guilds.members.read",
-      "messages.read",
-    ],
+    defaultScopes: ["identify", "guilds", "guilds.members.read"],
     availableScopes:
       "https://discord.com/developers/docs/topics/oauth2#shared-resources-oauth2-scopes",
     loopbackPort: 17326,
@@ -711,7 +711,8 @@ export const PROVIDER_SEED_DATA: Record<
     dashboardUrl:
       "https://portal.azure.com/#blade/Microsoft_AAD_RegisteredApps/ApplicationsListBlade",
     clientIdPlaceholder: "Application (client) ID from Azure portal",
-    logoUrl: "https://cdn.simpleicons.org/microsoftoutlook",
+    logoUrl:
+      "https://cdn.jsdelivr.net/gh/glincker/thesvg@main/public/icons/microsoft-outlook/default.svg",
     defaultScopes: [
       "openid",
       "profile",
@@ -726,7 +727,15 @@ export const PROVIDER_SEED_DATA: Record<
     ],
     availableScopes:
       "https://learn.microsoft.com/en-us/graph/permissions-reference",
-    authorizeParams: { prompt: "consent" },
+    // `select_account`, not `consent`: the Microsoft identity platform accepts
+    // a single prompt value, and `consent` honours an existing session cookie —
+    // it re-asks for consent but never for *which* account, so a user who
+    // already signed in cannot connect a second mailbox. `select_account`
+    // always shows the account picker with its "Use another account" option.
+    // Consent is still collected for an account that has not granted it, and
+    // refresh tokens come from the `offline_access` scope above, so nothing is
+    // lost by dropping `consent`.
+    authorizeParams: { prompt: "select_account" },
     tokenEndpointAuthMethod: "client_secret_post",
     loopbackPort: 17334,
     managedServiceConfigKey: "outlook-oauth",
@@ -757,7 +766,8 @@ export const PROVIDER_SEED_DATA: Record<
     dashboardUrl: null,
     clientIdPlaceholder: null,
     requiresClientSecret: false,
-    logoUrl: "https://cdn.simpleicons.org/slack",
+    logoUrl:
+      "https://cdn.jsdelivr.net/gh/glincker/thesvg@main/public/icons/slack/default.svg",
     defaultScopes: [],
     injectionTemplates: [
       {
@@ -765,6 +775,35 @@ export const PROVIDER_SEED_DATA: Record<
         injectionType: "header",
         headerName: "Authorization",
         valuePrefix: "Bearer ",
+      },
+    ],
+  },
+
+  // The bot that sits in a server and talks to people there, which is a
+  // different thing from the `discord` integration above and starts at the
+  // same Discord authorize URL. Both are reasonably called "connecting
+  // Discord", so each has to be nameable on its own. The bot token is already
+  // stored under this key by `skills/discord-app-setup`; seeding the provider
+  // is what lets the product tell the two apart.
+  discord_channel: {
+    provider: "discord_channel",
+    authorizeUrl: "urn:manual-token",
+    tokenExchangeUrl: "urn:manual-token",
+    pingUrl: "https://discord.com/api/v10/users/@me",
+    baseUrl: "https://discord.com/api/v10",
+    displayLabel: "Discord Server",
+    description: "A bot in your server",
+    dashboardUrl: "https://discord.com/developers/applications",
+    clientIdPlaceholder: null,
+    requiresClientSecret: false,
+    logoUrl: "https://cdn.simpleicons.org/discord",
+    defaultScopes: [],
+    injectionTemplates: [
+      {
+        hostPattern: "discord.com",
+        injectionType: "header",
+        headerName: "Authorization",
+        valuePrefix: "Bot ",
       },
     ],
   },

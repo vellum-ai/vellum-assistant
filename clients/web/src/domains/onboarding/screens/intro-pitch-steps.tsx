@@ -28,6 +28,7 @@ import {
 } from "motion/react";
 
 import { Button } from "@vellumai/design-library/components/button";
+import { useTranslation } from "@/i18n";
 import { AnimatedAvatar } from "@/components/avatar/animated-avatar";
 import {
   MotionEyes,
@@ -42,11 +43,6 @@ import { useBundledAvatarComponents } from "@/utils/use-bundled-avatar-component
 
 // Lines 1 + 2 carousel together from the setup framing to the first two payoff
 // lines; line 3 ("The less you do") is then added in last.
-const SETUP_LINE = "You’ve used AI that just answers questions.";
-const HELP_LINE = "The more I help,";
-const PUNCH_LINE = "I’m different.";
-const BETTER_LINE = "the better I get,";
-const LESS_LINE = "and the less you have to do.";
 
 // The little team that peeks in from the top-right on the second line, then
 // retracts. (Kept in sync with TOP_TEAM in onboarding-toned-backdrop.tsx.)
@@ -150,6 +146,13 @@ export function PitchStep({
   /** Redo into the next step — only set when the user has stepped back. */
   onForward?: () => void;
 }) {
+  const { t } = useTranslation("onboarding");
+  const setupLine = t("pitchStep.setupLine");
+  const helpLine = t("pitchStep.helpLine");
+  const punchLine = t("pitchStep.punchLine");
+  const betterLine = t("pitchStep.betterLine");
+  const lessLine = t("pitchStep.lessLine");
+
   const tone = useOnboardingTone();
   const reduce = useReducedMotion();
   const { art, eyesW, eyesH, restCy, centerX, w, h } = useOnboardingEyes();
@@ -410,19 +413,19 @@ export function PitchStep({
         style={{ width: blockW, fontFamily: "var(--font-serif)" }}
       >
         <span ref={m1aRef} className="block">
-          {SETUP_LINE}
+          {setupLine}
         </span>
         <span ref={m1bRef} className="block">
-          {HELP_LINE}
+          {helpLine}
         </span>
         <span ref={m2aRef} className="block">
-          {PUNCH_LINE}
+          {punchLine}
         </span>
         <span ref={m2bRef} className="block">
-          {BETTER_LINE}
+          {betterLine}
         </span>
         <span ref={m3Ref} className="block">
-          {LESS_LINE}
+          {lessLine}
         </span>
       </div>
 
@@ -510,8 +513,8 @@ export function PitchStep({
             firstH={firstH1}
             secondH={secondH1}
             color={tone.fgDeep}
-            firstText={SETUP_LINE}
-            secondText={HELP_LINE}
+            firstText={setupLine}
+            secondText={helpLine}
             revealed={reveal1}
             carouseled={carousel1}
             revealFrom="bottom"
@@ -523,8 +526,8 @@ export function PitchStep({
             firstH={firstH2}
             secondH={secondH2}
             color={tone.fg}
-            firstText={PUNCH_LINE}
-            secondText={BETTER_LINE}
+            firstText={punchLine}
+            secondText={betterLine}
             revealed={reveal2}
             carouseled={carousel2}
             revealFrom="top"
@@ -560,7 +563,7 @@ export function PitchStep({
                       : { duration: 0.5, ease: "easeOut" }
                   }
                 >
-                  {LESS_LINE}
+                  {lessLine}
                 </motion.span>
               </div>
             )}
@@ -581,7 +584,7 @@ export function PitchStep({
               onClick={onContinue}
               className="h-11 w-[234px] text-base"
             >
-              Continue
+              {t("actions.continue")}
             </Button>
           </motion.div>
         )}

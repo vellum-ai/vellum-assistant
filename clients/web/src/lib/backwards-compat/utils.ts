@@ -113,7 +113,10 @@ export function assistantSupports(minVersion: string): boolean {
  *
  * Inherits {@link assistantSupports}'s conservative `false` while the version
  * is unhydrated, so callers that may run before the identity fetch lands must
- * await {@link whenAssistantVersionKnown} first.
+ * await {@link whenAssistantVersionKnownFor} first, passing the same owner.
+ * The unscoped {@link whenAssistantVersionKnown} is NOT enough here: it is
+ * satisfied by a version still held for another assistant, and the owner
+ * mismatch then answers `false` as if the feature were unsupported.
  */
 export function assistantScopedSupports(
   minVersion: string,
@@ -205,6 +208,34 @@ export function whenAssistantVersionKnown(
   return whenStoreState(
     useAssistantIdentityStore,
     (state) => Boolean(state.version),
+    { timeoutMs },
+  );
+}
+
+/**
+ * The scoped counterpart: resolves once the identity store holds a version
+ * **for `ownerAssistantId`**, or after `timeoutMs`.
+ *
+ * Write paths behind {@link assistantScopedSupports} need this rather than
+ * {@link whenAssistantVersionKnown}. The unscoped wait is satisfied by any
+ * non-null version, including one still held for the assistant the user was
+ * looking at a moment ago; the scoped read then fails on the owner mismatch
+ * and the write silently takes the legacy shape for an assistant that never
+ * needed it. Matching the wait to the read closes that gap.
+ *
+ * A null owner resolves immediately: the scoped gate reports `false` for one
+ * regardless, so there is nothing to wait for.
+ */
+export function whenAssistantVersionKnownFor(
+  ownerAssistantId: string | null | undefined,
+  timeoutMs: number = VERSION_RESOLUTION_TIMEOUT_MS,
+): Promise<void> {
+  if (ownerAssistantId == null) {
+    return Promise.resolve();
+  }
+  return whenStoreState(
+    useAssistantIdentityStore,
+    (state) => Boolean(state.version) && state.assistantId === ownerAssistantId,
     { timeoutMs },
   );
 }

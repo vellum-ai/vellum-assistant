@@ -2,14 +2,14 @@
  * Verifies that `persistQueuedMessageBody` stamps the client-reported OS
  * surface into `metadata.client.os` on persisted user messages.
  *
- * The web, iOS, and macOS apps all run the same web renderer and report
+ * Browser, mobile, and desktop apps all run the same web renderer and report
  * `userMessageInterface: "web"` (the transport surface, which host-proxy
  * capability gating keys off), so `client.os` is the only per-platform
  * attribution available to turn telemetry (`turn-events-store` forwards
  * `$.client` onto `TurnTelemetryEvent.client`). Without the stamp, desktop
  * and mobile usage are indistinguishable from browser usage downstream.
  *
- * Mirrors the mock harness of `dm-persistence.test.ts` — exercises
+ * Mirrors the mock harness of `dm-persistence.test.ts` and exercises
  * `persistQueuedMessageBody` directly with a captured `addMessage`.
  */
 import { beforeEach, describe, expect, mock, test } from "bun:test";
@@ -65,6 +65,7 @@ import type {
 import type { MessagingConversationContext } from "../daemon/conversation-messaging.js";
 import { persistQueuedMessageBody } from "../daemon/conversation-messaging.js";
 import type { MessageQueue } from "../daemon/conversation-queue-manager.js";
+import { isMacOriginatedUserMessage } from "../persistence/conversation-types.js";
 
 function createWebTurnContext(
   clientOs: string | undefined,
@@ -110,7 +111,7 @@ describe("client OS surface metadata persistence", () => {
     addMessageCalls.length = 0;
   });
 
-  test.each(["macos", "ios", "android", "web"])(
+  test.each(["macos", "windows", "ios", "android", "web"])(
     "stamps client.os = %s from the conversation's clientOs",
     async (os) => {
       const ctx = createWebTurnContext(os);
@@ -136,7 +137,7 @@ describe("client OS surface metadata persistence", () => {
   });
 
   test("omits the client bag for values outside the ClientOs vocabulary", async () => {
-    const ctx = createWebTurnContext("windows");
+    const ctx = createWebTurnContext("linux");
     await persistQueuedMessageBody(ctx, {
       content: "hello",
       requestId: "req-invalid",
@@ -171,5 +172,103 @@ describe("client OS surface metadata persistence", () => {
       os: "ios",
       browser_family: "safari",
     });
+  });
+});
+
+/**
+ * `Conversation.clientOs` is a live field that only a transport-carrying
+ * message refreshes, so a transport-less turn stamps whatever an earlier send
+ * left there. `clientOsFromRequest` separates the two, and
+ * {@link isMacOriginatedUserMessage} (the row-origin read behind the
+ * `chat.assistant_reply` presence gate) requires it before letting an attended
+ * Mac suppress a push.
+ */
+describe("client OS per-row evidence marker", () => {
+  beforeEach(() => {
+    addMessageCalls.length = 0;
+  });
+
+  test("marks an OS this row's own transport reported", async () => {
+    const ctx = createWebTurnContext("macos");
+    await persistQueuedMessageBody(ctx, {
+      content: "hello",
+      requestId: "req-transport-os",
+      requestClientOs: "macos",
+    });
+
+    expect(lastUserMetadata().client).toEqual({ os: "macos" });
+    expect(lastUserMetadata().clientOsFromRequest).toBe(true);
+    expect(isMacOriginatedUserMessage(lastUserMetadata())).toBe(true);
+  });
+
+  test("marks an OS this row's own request headers reported", async () => {
+    const ctx = createWebTurnContext(undefined);
+    await persistQueuedMessageBody(ctx, {
+      content: "hello",
+      requestId: "req-header-os",
+      metadata: { client: { os: "macos", interface_version: "0.8.2" } },
+    });
+
+    expect(lastUserMetadata().clientOsFromRequest).toBe(true);
+    expect(isMacOriginatedUserMessage(lastUserMetadata())).toBe(true);
+  });
+
+  // The bug shape: a button tapped on the phone reaches a conversation whose
+  // last desktop send left `clientOs: "macos"` behind. The row still carries
+  // the inherited OS for telemetry, but nothing says this turn came from the
+  // Mac, so the reply push must survive.
+  test("leaves an inherited OS unmarked and not Mac-originated", async () => {
+    const ctx = createWebTurnContext("macos");
+    await persistQueuedMessageBody(ctx, {
+      content: "[User action on card surface: submit]",
+      requestId: "req-inherited-os",
+    });
+
+    expect(lastUserMetadata().client).toEqual({ os: "macos" });
+    expect(lastUserMetadata().clientOsFromRequest).toBeUndefined();
+    expect(isMacOriginatedUserMessage(lastUserMetadata())).toBe(false);
+  });
+
+  // The marker vouches for the `client.os` that actually landed, not for
+  // whatever the row reported: a reported OS the stamp disagrees with is no
+  // evidence at all.
+  test("leaves the marker off when the reported OS is not the stamped one", async () => {
+    const ctx = createWebTurnContext("macos");
+    await persistQueuedMessageBody(ctx, {
+      content: "hello",
+      requestId: "req-mismatched-os",
+      requestClientOs: "ios",
+    });
+
+    expect(lastUserMetadata().client).toEqual({ os: "macos" });
+    expect(lastUserMetadata().clientOsFromRequest).toBeUndefined();
+    expect(isMacOriginatedUserMessage(lastUserMetadata())).toBe(false);
+  });
+
+  // The marker is derived from what this persist can see, so a bag value
+  // riding in from a caller must not survive the metadata spread and assert an
+  // origin the row never reported.
+  test("drops a caller-supplied marker from the metadata bag", async () => {
+    const ctx = createWebTurnContext("macos");
+    await persistQueuedMessageBody(ctx, {
+      content: "[User action on card surface: submit]",
+      requestId: "req-spoofed-marker",
+      metadata: { clientOsFromRequest: true },
+    });
+
+    expect(lastUserMetadata().clientOsFromRequest).toBeUndefined();
+    expect(isMacOriginatedUserMessage(lastUserMetadata())).toBe(false);
+  });
+
+  test("leaves the marker off for a reported OS outside the vocabulary", async () => {
+    const ctx = createWebTurnContext(undefined);
+    await persistQueuedMessageBody(ctx, {
+      content: "hello",
+      requestId: "req-unknown-os",
+      requestClientOs: "windows",
+    });
+
+    expect(lastUserMetadata().client).toBeUndefined();
+    expect(lastUserMetadata().clientOsFromRequest).toBeUndefined();
   });
 });

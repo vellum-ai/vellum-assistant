@@ -9,6 +9,7 @@ import { toast } from "@vellumai/design-library/components/toast";
 import { Typography } from "@vellumai/design-library/components/typography";
 
 import { useActiveAssistantId } from "@/assistant/use-active-assistant-id";
+import { useTranslation } from "@/i18n";
 import { parseA2AInviteParams } from "@/domains/contacts/a2a-invite";
 import { redeemA2AInvite } from "@/domains/contacts/contacts-gateway";
 import { routes } from "@/utils/routes";
@@ -22,22 +23,24 @@ function isContactsGetKey(queryKey: readonly unknown[]): boolean {
   );
 }
 
-function mapErrorCode(
-  errorCode: string | undefined,
-  errorMessage: string | undefined,
-): string {
+/**
+ * Catalog key for a redemption failure the broker reports by code. Null when
+ * the code is unrecognized, which leaves the broker's own message (or the
+ * generic fallback) to speak for it.
+ */
+function inviteErrorKey(errorCode: string | undefined) {
   switch (errorCode) {
     case "expired":
     case "not_found":
-      return "This invite link has expired or already been used.";
+      return "connectPage.errorExpired";
     case "already_redeemed_by_other":
-      return "This invite has already been claimed by someone else.";
+      return "connectPage.errorAlreadyRedeemed";
     case "sender_not_found":
-      return "The sender's assistant could not be found.";
+      return "connectPage.errorSenderNotFound";
     case "not_platform_managed":
-      return "A2A invite links are only supported for platform-hosted assistants.";
+      return "connectPage.errorNotPlatformManaged";
     default:
-      return errorMessage || "Something went wrong. Please try again.";
+      return null;
   }
 }
 
@@ -53,6 +56,7 @@ export function ConnectPage() {
 }
 
 function ConnectPageInner({ assistantId }: { assistantId: string }) {
+  const { t } = useTranslation("contacts");
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [searchParams] = useSearchParams();
@@ -77,9 +81,9 @@ function ConnectPageInner({ assistantId }: { assistantId: string }) {
           predicate: (query) => isContactsGetKey(query.queryKey),
         });
         if (data.alreadyConnected) {
-          toast("Already connected");
+          toast(t("connectPage.alreadyConnected"));
         } else {
-          toast("Connected!");
+          toast(t("connectPage.connected"));
         }
         void navigate(routes.contacts.root);
       }
@@ -99,13 +103,17 @@ function ConnectPageInner({ assistantId }: { assistantId: string }) {
     if (mutation.isError) {
       return mutation.error instanceof Error
         ? mutation.error.message
-        : "Something went wrong. Please try again.";
+        : t("connectPage.errorGeneric");
     }
     if (mutation.data && !mutation.data.success) {
-      return mapErrorCode(mutation.data.errorCode, mutation.data.error);
+      const key = inviteErrorKey(mutation.data.errorCode);
+      if (key) {
+        return t(key);
+      }
+      return mutation.data.error || t("connectPage.errorGeneric");
     }
     return null;
-  }, [mutation.isError, mutation.error, mutation.data]);
+  }, [mutation.isError, mutation.error, mutation.data, t]);
 
   // Invalid link — no params
   if (!parsed) {
@@ -118,18 +126,19 @@ function ConnectPageInner({ assistantId }: { assistantId: string }) {
                 className="h-6 w-6"
                 style={{ color: "var(--system-negative-strong)" }}
               />
-              <Typography variant="title-small">Invalid invite link</Typography>
+              <Typography variant="title-small">
+                {t("connectPage.invalidTitle")}
+              </Typography>
             </div>
             <Typography
               variant="body-medium-lighter"
               style={{ color: "var(--content-secondary)" }}
             >
-              The link you followed is missing required parameters and cannot be
-              used.
+              {t("connectPage.invalidBody")}
             </Typography>
             <div className="flex gap-2 pt-2">
               <Button variant="primary" onClick={handleCancel}>
-                Go to Contacts
+                {t("connectPage.goToContacts")}
               </Button>
             </div>
           </div>
@@ -147,15 +156,16 @@ function ConnectPageInner({ assistantId }: { assistantId: string }) {
               className="h-6 w-6"
               style={{ color: "var(--content-secondary)" }}
             />
-            <Typography variant="title-small">Connect assistants</Typography>
+            <Typography variant="title-small">
+              {t("connectPage.title")}
+            </Typography>
           </div>
 
           <Typography
             variant="body-medium-lighter"
             style={{ color: "var(--content-secondary)" }}
           >
-            Accepting this link will create a trusted A2A connection between
-            your assistant and the sender&apos;s.
+            {t("connectPage.body")}
           </Typography>
 
           {errorMessage && (
@@ -182,10 +192,10 @@ function ConnectPageInner({ assistantId }: { assistantId: string }) {
               {mutation.isPending ? (
                 <span className="flex items-center gap-2">
                   <Loader2 className="h-4 w-4 animate-spin" />
-                  Connecting…
+                  {t("actions.connecting")}
                 </span>
               ) : (
-                "Connect"
+                t("actions.connect")
               )}
             </Button>
             <Button
@@ -193,7 +203,7 @@ function ConnectPageInner({ assistantId }: { assistantId: string }) {
               onClick={handleCancel}
               disabled={mutation.isPending}
             >
-              Cancel
+              {t("actions.cancel")}
             </Button>
           </div>
         </div>

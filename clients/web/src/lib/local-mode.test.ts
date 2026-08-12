@@ -14,7 +14,7 @@ const replacePlatformAssistantsHost = mock(
   }),
 );
 
-const loadLockfileHost = mock(async () => {
+const loadLockfileHost = mock(async (): Promise<localModeHost.Lockfile> => {
   throw new Error("host down");
 });
 
@@ -34,6 +34,17 @@ const unpairAssistantHost = mock(
   }),
 );
 
+const connectImportHost = mock(
+  async (
+    _bundle: string,
+    _name?: string,
+  ): Promise<localModeHost.LocalConnectImportResult> => ({
+    ok: true as const,
+    assistantId: "paired-new",
+    accessOnly: false,
+  }),
+);
+
 mock.module("@/runtime/local-mode-host", () => ({
   ...localModeHost,
   replacePlatformAssistantsHost,
@@ -41,6 +52,7 @@ mock.module("@/runtime/local-mode-host", () => ({
   saveLockfileAssistantHost,
   fetchGuardianTokenHost,
   unpairAssistantHost,
+  connectImportHost,
 }));
 
 import {
@@ -53,6 +65,7 @@ import {
   getPlatformAssistants,
   getPlatformRuntimeUrl,
   getSelectedAssistant,
+  importPairedAssistantBundle,
   isCliWakeableAssistant,
   isLocalAssistant,
   isLocalGatewayAssistant,
@@ -74,6 +87,7 @@ import {
 import {
   clearGatewayToken,
   getGatewayToken,
+  isGatewayAuthMode,
   seedGatewayToken,
 } from "@/lib/auth/gateway-session";
 import {
@@ -86,6 +100,7 @@ import type { Lockfile, LockfileAssistant } from "@/runtime/local-mode-host";
 import { useLockfileStore } from "@/stores/lockfile-store";
 
 const LOCKFILE_STORAGE_KEY = "vellum:local:lockfile";
+const realFetch = globalThis.fetch;
 
 function setSelected(id: string): void {
   localStorage.setItem(SELECTED_ASSISTANT_STORAGE_KEY, id);
@@ -125,15 +140,18 @@ function enableLocalMode(): void {
 }
 
 afterEach(() => {
+  globalThis.fetch = realFetch;
   window.__VELLUM_CONFIG__ = undefined;
   process.env.VITE_PLATFORM_MODE = "true";
   useLockfileStore.setState({ lockfile: null, committed: false });
   localStorage.removeItem(LOCKFILE_STORAGE_KEY);
   localStorage.removeItem(SELECTED_ASSISTANT_STORAGE_KEY);
   replacePlatformAssistantsHost.mockClear();
+  loadLockfileHost.mockClear();
   saveLockfileAssistantHost.mockClear();
   fetchGuardianTokenHost.mockClear();
   unpairAssistantHost.mockClear();
+  connectImportHost.mockClear();
   clearGatewayToken();
   setSelfHostedConnection(null);
 });
@@ -437,6 +455,60 @@ describe("removePairedAssistantFromLockfile", () => {
     );
     expect(getGatewayToken()).toBe("tok");
     expect(getSelfHostedIngressUrl()).toBe("http://localhost/x");
+  });
+});
+
+describe("importPairedAssistantBundle", () => {
+  test("registers the bundle through the host and reloads the lockfile", async () => {
+    loadLockfileHost.mockImplementationOnce(async () => ({
+      assistants: [pairedEntry],
+      activeAssistant: null,
+    }));
+
+    const result = await importPairedAssistantBundle("bundle-data", "desk");
+
+    expect(connectImportHost).toHaveBeenCalledWith("bundle-data", "desk");
+    expect(result).toEqual({
+      ok: true,
+      assistantId: "paired-new",
+      accessOnly: false,
+    });
+    expect(loadLockfileHost).toHaveBeenCalledTimes(1);
+    expect(
+      useLockfileStore.getState().lockfile?.assistants.map(
+        (a) => a.assistantId,
+      ),
+    ).toEqual(["paired-a"]);
+    expect(useLockfileStore.getState().committed).toBe(true);
+  });
+
+  test("passes accessOnly through on an access-only pairing", async () => {
+    connectImportHost.mockResolvedValueOnce({
+      ok: true as const,
+      assistantId: "paired-new",
+      accessOnly: true,
+    });
+
+    const result = await importPairedAssistantBundle("bundle-data");
+
+    expect(connectImportHost).toHaveBeenCalledWith("bundle-data", undefined);
+    expect(result).toEqual({
+      ok: true,
+      assistantId: "paired-new",
+      accessOnly: true,
+    });
+  });
+
+  test("returns the host error without reloading on failure", async () => {
+    connectImportHost.mockResolvedValueOnce({
+      ok: false,
+      error: "invalid pairing bundle",
+    });
+
+    const result = await importPairedAssistantBundle("nope");
+
+    expect(result).toEqual({ ok: false, error: "invalid pairing bundle" });
+    expect(loadLockfileHost).not.toHaveBeenCalled();
   });
 });
 
@@ -850,65 +922,112 @@ describe("primeLocalGatewayConnection", () => {
     );
   });
 
-  test("paired prime seeds the guardian bearer without minting at /auth/token", async () => {
+  test("paired prime reaches the host proxy without exposing a bearer", async () => {
     enableLocalMode();
-    const fetchSpy = mock(async () => {
-      throw new Error("unexpected fetch");
+    setLockfile({ assistants: [pairedEntry], activeAssistant: "paired-a" });
+    seedGatewayToken({
+      token: "legacy-paired-guardian",
+      expiresAtEpochSeconds: Math.floor(Date.now() / 1000) + 3600,
+      source: "/assistant/__gateway-paired/paired-a/auth/token",
     });
-    const realFetch = globalThis.fetch;
+    const fetchSpy = mock(async () =>
+      Response.json({ status: "ok", ready: true }),
+    );
     globalThis.fetch = fetchSpy as unknown as typeof fetch;
-    try {
-      await primeLocalGatewayConnection(pairedEntry);
-    } finally {
-      globalThis.fetch = realFetch;
-    }
+    await primeLocalGatewayConnection(pairedEntry);
 
-    expect(fetchSpy).not.toHaveBeenCalled();
-    expect(fetchGuardianTokenHost).toHaveBeenCalledWith("paired-a");
-    expect(getGatewayToken()).toBe("guardian-tok");
+    expect(fetchSpy).toHaveBeenCalledWith(
+      "/assistant/__gateway-paired/paired-a/readyz",
+    );
+    expect(fetchGuardianTokenHost).not.toHaveBeenCalled();
+    expect(getGatewayToken()).toBeNull();
     // The connection rides the same-origin host proxy, never the remote
     // runtimeUrl directly (packaged-app CSP and browser CORS both block it).
     expect(getSelfHostedIngressUrl()).toBe(
       `${window.location.origin}/assistant/__gateway-paired/paired-a`,
     );
-    expect(getSelfHostedActorToken()).toBe("guardian-tok");
-    // The seeded source mirrors local mode's `<base>/auth/token` shape so an
-    // assistant switch trips the source-mismatch clear.
-    expect(localStorage.getItem("vellum:gw:tokenSource")).toBe(
-      "/assistant/__gateway-paired/paired-a/auth/token",
-    );
+    expect(getSelfHostedActorToken()).toBeNull();
+    expect(isGatewayAuthMode()).toBe(true);
+    expect(localStorage.getItem("vellum:gw:token")).toBeNull();
+    expect(localStorage.getItem("vellum:gw:tokenSource")).toBeNull();
   });
 
-  test("paired prime reads the token's JWT exp for the seeded expiry", async () => {
+  test("paired prime surfaces a host credential failure without reading it directly", async () => {
     enableLocalMode();
-    const jwt = `x.${btoa(JSON.stringify({ exp: 2_000_000_000 }))}.y`;
-    fetchGuardianTokenHost.mockResolvedValueOnce(jwt);
-
+    setLockfile({ assistants: [pairedEntry], activeAssistant: "paired-a" });
+    globalThis.fetch = mock(
+      async () => Response.json({ status: "ok", ready: true }),
+    ) as unknown as typeof fetch;
     await primeLocalGatewayConnection(pairedEntry);
+    expect(isGatewayAuthMode()).toBe(true);
 
-    expect(getGatewayToken()).toBe(jwt);
-    expect(localStorage.getItem("vellum:gw:expiresAt")).toBe("2000000000");
+    globalThis.fetch = mock(
+      async () => new Response("Guardian token not found", { status: 404 }),
+    ) as unknown as typeof fetch;
+
+    const error = await primeLocalGatewayConnection(pairedEntry).catch(
+      (cause: unknown) => cause,
+    );
+
+    expect(error).toBeInstanceOf(localModeHost.GuardianTokenError);
+    expect((error as localModeHost.GuardianTokenError).status).toBe(404);
+    expect(fetchGuardianTokenHost).not.toHaveBeenCalled();
+    expect(isGatewayAuthMode()).toBe(false);
+  });
+
+  test("unready paired prime preserves the current local session", async () => {
+    enableLocalMode();
+    setLockfile({
+      assistants: [localA, pairedEntry],
+      activeAssistant: "local-a",
+    });
+    setSelected("local-a");
+    seedGatewayToken({
+      token: "local-actor-token",
+      expiresAtEpochSeconds: Math.floor(Date.now() / 1000) + 3600,
+      source: "/assistant/__gateway/7830/auth/token",
+    });
+    setSelfHostedConnection({
+      url: `${window.location.origin}/assistant/__gateway/7830`,
+      token: "local-actor-token",
+    });
+    globalThis.fetch = mock(
+      async () => Response.json({ status: "migrating", ready: false }),
+    ) as unknown as typeof fetch;
+
+    await expect(primeLocalGatewayConnection(pairedEntry)).rejects.toThrow(
+      "Paired assistant is not ready",
+    );
+
+    expect(getGatewayToken()).toBe("local-actor-token");
+    expect(getSelfHostedIngressUrl()).toBe(
+      `${window.location.origin}/assistant/__gateway/7830`,
+    );
+    expect(getSelfHostedActorToken()).toBe("local-actor-token");
+    expect(isGatewayAuthMode()).toBe(true);
   });
 });
 
 describe("primeLocalGatewayConnectionWithStartupRetry (paired target)", () => {
   // The startup ride-out exists for the LOCAL gateway's reboot window and only
-  // retries GatewayTokenErrors, which the paired prime never throws. A paired
-  // failure (failed guardian lease, remote transport error) must fall through
+  // retries GatewayTokenErrors, which the paired proxy prime never throws. A
+  // paired failure (failed host credential read, remote transport error) falls through
   // promptly to the chooser instead of stalling the 8x1s retry budget on a
   // machine that waiting cannot fix.
-  test("a failing paired guardian lease is not ridden out: one attempt, prompt rejection", async () => {
+  test("a failing paired credential read is not ridden out", async () => {
     enableLocalMode();
-    fetchGuardianTokenHost.mockImplementationOnce(async () => {
-      throw new localModeHost.GuardianTokenError(404, "guardian token missing");
-    });
+    const fetchMock = mock(
+      async () => new Response("Guardian token not found", { status: 404 }),
+    );
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
 
     const start = Date.now();
     await expect(
       primeLocalGatewayConnectionWithStartupRetry(pairedEntry),
     ).rejects.toBeInstanceOf(localModeHost.GuardianTokenError);
 
-    expect(fetchGuardianTokenHost).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchGuardianTokenHost).not.toHaveBeenCalled();
     expect(Date.now() - start).toBeLessThan(
       LOCAL_GATEWAY_STARTUP_RETRY.intervalMs,
     );
@@ -916,15 +1035,17 @@ describe("primeLocalGatewayConnectionWithStartupRetry (paired target)", () => {
 
   test("a remote transport failure is not ridden out either", async () => {
     enableLocalMode();
-    fetchGuardianTokenHost.mockImplementationOnce(async () => {
+    const fetchMock = mock(async () => {
       throw new TypeError("Failed to fetch");
     });
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
 
     await expect(
       primeLocalGatewayConnectionWithStartupRetry(pairedEntry),
     ).rejects.toThrow("Failed to fetch");
 
-    expect(fetchGuardianTokenHost).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchGuardianTokenHost).not.toHaveBeenCalled();
   });
 });
 

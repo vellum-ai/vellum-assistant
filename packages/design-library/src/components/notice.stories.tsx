@@ -81,10 +81,14 @@ export const WithActions: Story = {
     title: "Action Required",
     children: "Your session is about to expire.",
     actions: (
-      <div style={{ display: "flex", gap: "0.5rem" }}>
-        <button type="button">Renew</button>
-        <button type="button">Sign out</button>
-      </div>
+      <>
+        <Button variant="primary" size="compact">
+          Renew
+        </Button>
+        <Button variant="ghost" size="compact">
+          Sign out
+        </Button>
+      </>
     ),
   },
 };

@@ -58,11 +58,16 @@ function pluralLabel(n: number, singular: string, pluralForm: string): string {
 interface UseIdentitySectionStatsOptions {
   /** Skip the plugin fetch on assistants without the plugin routes. */
   supportsPlugins: boolean;
+  /**
+   * Skip the reads behind cards the native mobile shells don't render
+   * (see `NATIVE_MOBILE_HIDDEN_KEYS` in `components/identity-sections.ts`).
+   */
+  isNativeMobile: boolean;
 }
 
 export function useIdentitySectionStats(
   assistantId: string,
-  { supportsPlugins }: UseIdentitySectionStatsOptions,
+  { supportsPlugins, isNativeMobile }: UseIdentitySectionStatsOptions,
 ): Record<string, IdentitySectionStat | undefined> {
   const path = { assistant_id: assistantId };
   const common = { staleTime: STATS_STALE_MS, retry: false, enabled: true };
@@ -94,6 +99,7 @@ export function useIdentitySectionStats(
     ...workspaceTreeGetOptions({ path }),
     select: (data) => data.entries.length,
     ...common,
+    enabled: !isNativeMobile,
   });
   const contacts = useQuery({
     ...contactsGetOptions({ path }),

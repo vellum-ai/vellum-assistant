@@ -95,6 +95,20 @@ interface BaseSubscriberEntry {
   connectionId: string;
 }
 
+/**
+ * The presence states a desktop client may report. Single runtime source: the
+ * stored type and the route's wire enum both derive from this tuple.
+ */
+export const DESKTOP_PRESENCE_STATES = ["active", "idle", "away"] as const;
+
+export type DesktopPresenceState = (typeof DESKTOP_PRESENCE_STATES)[number];
+
+export interface ClientPresence {
+  state: DesktopPresenceState;
+  /** When the daemon last heard from the client. Drives staleness. */
+  reportedAt: Date;
+}
+
 interface ClientEntry extends BaseSubscriberEntry {
   type: "client";
   clientId: string;
@@ -111,6 +125,11 @@ interface ClientEntry extends BaseSubscriberEntry {
    * service-token connections that have no principal.
    */
   actorPrincipalId?: string;
+  /**
+   * Last desktop presence reported by this client, for clients that report it.
+   * In-memory only, so consumers must fail open when it is absent.
+   */
+  presence?: ClientPresence;
 }
 
 interface ProcessEntry extends BaseSubscriberEntry {
@@ -407,18 +426,29 @@ export class AssistantEventHub {
   }
 
   /**
-   * Return the active client subscriber with the given clientId, or
-   * `undefined` if no such subscriber exists.
+   * Yield every active client entry with the given clientId. `subscribe`
+   * disposes any prior entries for the same clientId, so at most one entry
+   * matches.
    */
-  getClientById(clientId: string): ClientEntry | undefined {
+  private *activeClientEntries(clientId: string): Generator<ClientEntry> {
     for (const entry of this.subscribers) {
       if (
         entry.active &&
         entry.type === "client" &&
         entry.clientId === clientId
       ) {
-        return entry;
+        yield entry;
       }
+    }
+  }
+
+  /**
+   * Return the active client subscriber with the given clientId, or
+   * `undefined` if no such subscriber exists.
+   */
+  getClientById(clientId: string): ClientEntry | undefined {
+    for (const entry of this.activeClientEntries(clientId)) {
+      return entry;
     }
     return undefined;
   }
@@ -433,6 +463,65 @@ export class AssistantEventHub {
    */
   getActorPrincipalIdForClient(clientId: string): string | undefined {
     return this.getClientById(clientId)?.actorPrincipalId;
+  }
+
+  /**
+   * Whether the connection identified by `connectionId` is still an active
+   * client subscription that carries no `actorPrincipalId`.
+   *
+   * Drives the retrying SSE self-heal (`sse-actor-principal-heal.ts`): the loop
+   * re-checks before each attempt so it stops as soon as the connection closes,
+   * is replaced by a reconnect, or gets a principal from any path. Returns
+   * `false` for an unknown, inactive, or process-type connection.
+   */
+  needsActorPrincipalHeal(connectionId: string): boolean {
+    for (const entry of this.subscribers) {
+      if (entry.connectionId !== connectionId) {
+        continue;
+      }
+      return (
+        entry.active &&
+        entry.type === "client" &&
+        entry.actorPrincipalId == null
+      );
+    }
+    return false;
+  }
+
+  /**
+   * Fill a missing `actorPrincipalId` on a live client subscription.
+   *
+   * Used by the SSE dev-bypass self-heal: when the guardian-delivery cache is
+   * cold at subscribe time, the registration lands without a principal; the
+   * route resolves it async and patches the record here. Keyed by
+   * `connectionId` (not clientId) so a reconnect race cannot patch the
+   * subscription that replaced the one being healed. No-op when the
+   * connection is gone or already carries a principal: this only fills a
+   * missing value, never overwrites one. The value must come from the
+   * daemon's own server-side guardian lookup, never from client input.
+   */
+  fillClientActorPrincipalId(
+    connectionId: string,
+    actorPrincipalId: string,
+  ): void {
+    for (const entry of this.subscribers) {
+      if (entry.connectionId !== connectionId) {
+        continue;
+      }
+      if (
+        !entry.active ||
+        entry.type !== "client" ||
+        entry.actorPrincipalId != null
+      ) {
+        return;
+      }
+      entry.actorPrincipalId = actorPrincipalId;
+      log.info(
+        { clientId: entry.clientId, connectionId },
+        "filled missing actorPrincipalId for client subscription",
+      );
+      return;
+    }
   }
 
   /**
@@ -512,15 +601,24 @@ export class AssistantEventHub {
    */
   touchClient(clientId: string): void {
     const now = new Date();
-    for (const entry of this.subscribers) {
-      if (
-        entry.active &&
-        entry.type === "client" &&
-        entry.clientId === clientId
-      ) {
-        entry.lastActiveAt = now;
-      }
+    for (const entry of this.activeClientEntries(clientId)) {
+      entry.lastActiveAt = now;
     }
+  }
+
+  /**
+   * Record the desktop presence state reported by a client. `reportedAt`
+   * always advances. Returns true when at least one active client entry
+   * matched.
+   */
+  setClientPresence(clientId: string, state: DesktopPresenceState): boolean {
+    const now = new Date();
+    let matched = false;
+    for (const entry of this.activeClientEntries(clientId)) {
+      entry.presence = { state, reportedAt: now };
+      matched = true;
+    }
+    return matched;
   }
 
   /**

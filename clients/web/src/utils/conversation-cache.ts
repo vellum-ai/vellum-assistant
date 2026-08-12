@@ -13,8 +13,12 @@
  *   when the user reveals the Scheduled sidebar section.
  * - **Archived** (`"archived"`) — archived conversations. Fetched
  *   lazily when the user opens the archive view.
- * - **Channel** (`"channel", channelId`) — origin-channel conversations
- *   (Slack, Telegram, etc.). Each channel section mounts its own cache.
+ * - **Section** (`"section", groupId, originChannel`): one sidebar section's
+ *   rows, fetched through the server filter that defines the section. Pinned,
+ *   each custom group, each channel, and Chats each key their own entry.
+ *   Membership here is the server's answer, not a client-side filter, so a
+ *   local change to the fields that filter reads has to move the row between
+ *   these caches. See `utils/section-membership.ts`.
  *
  * A conversation lives in exactly one cache, so the cross-cache helpers
  * (`findConversation`, `getConversations`, `patchConversation`,
@@ -36,7 +40,14 @@ import {
   conversationListPrefix,
   conversationsQueryKey,
   scheduledConversationsQueryKey,
+  sidebarSectionsQueryKey,
+  unreadConversationCountQueryKey,
 } from "@/utils/conversation-list-fetchers";
+import {
+  ensureSectionInIndex,
+  patchAffectsMembership,
+  reconcileSectionMembership,
+} from "@/utils/section-membership";
 import type { Conversation } from "@/types/conversation-types";
 
 // ---------------------------------------------------------------------------
@@ -57,14 +68,23 @@ import type { Conversation } from "@/types/conversation-types";
  * Cancel any in-flight refetches for ALL conversation caches. Call this
  * before applying an optimistic update so a concurrent refetch doesn't
  * overwrite the optimistic value with stale server data.
+ *
+ * Includes the unread-count cache: it lives under its own key (a scalar,
+ * not a `Conversation[]`, so it cannot share the list prefix) but is
+ * optimistically adjusted by the same seen/unseen mutations.
  */
 export async function cancelConversationQueries(
   queryClient: QueryClient,
   assistantId: string,
 ): Promise<void> {
-  await queryClient.cancelQueries({
-    queryKey: conversationListPrefix(assistantId),
-  });
+  await Promise.all([
+    queryClient.cancelQueries({
+      queryKey: conversationListPrefix(assistantId),
+    }),
+    queryClient.cancelQueries({
+      queryKey: unreadConversationCountQueryKey(assistantId),
+    }),
+  ]);
 }
 
 /**
@@ -107,14 +127,29 @@ export function restoreConversationCaches(
  * Invalidate all conversation caches so TanStack Query refetches from the
  * server. Used in `onSettled` to reconcile optimistic values with the
  * server-authoritative state regardless of mutation success or failure.
+ *
+ * Includes the unread-count cache and the sidebar section index (own keys,
+ * see `cancelConversationQueries`) so optimistic count deltas and section
+ * existence always reconcile against the authoritative server state after a
+ * mutation settles. The index needs the local settle path in particular:
+ * the daemon suppresses sync echo to the originating client, so nothing
+ * else refreshes it for the client that made the change.
  */
 export async function invalidateConversationQueries(
   queryClient: QueryClient,
   assistantId: string,
 ): Promise<void> {
-  await queryClient.invalidateQueries({
-    queryKey: conversationListPrefix(assistantId),
-  });
+  await Promise.all([
+    queryClient.invalidateQueries({
+      queryKey: conversationListPrefix(assistantId),
+    }),
+    queryClient.invalidateQueries({
+      queryKey: unreadConversationCountQueryKey(assistantId),
+    }),
+    queryClient.invalidateQueries({
+      queryKey: sidebarSectionsQueryKey(assistantId),
+    }),
+  ]);
 }
 
 type ConversationUpdater = (conversations: Conversation[]) => Conversation[];
@@ -294,14 +329,37 @@ export function getConversations(
 
 /**
  * Immutably patch the conversation matching `key` in whichever cache holds
- * it, leaving all others untouched. No-op when no cache holds the key.
+ * it, and move it between section caches if the patch changed where it
+ * belongs. No-op when no cache holds the key.
+ *
+ * **Membership is not separable from the fields it is computed from**, which
+ * is why the move happens here rather than in a companion helper the callers
+ * are expected to also call. A section's contents are a server filter over
+ * `groupId` / `isPinned` / `archivedAt` (LUM-2443), so a patch to one of those
+ * fields *is* a membership change. Keeping them one operation means a caller
+ * that patches a field cannot forget the other half, because there is no other
+ * half to call; split apart, the row keeps its old section until a refetch
+ * removes it.
+ *
+ * Patches that touch no membership field (seen state, titles, processing
+ * flags, and every bulk path built on them) skip the pass entirely.
+ *
+ * Returns the section cache keys whose membership actually changed, so a
+ * mutation can reconcile exactly those rather than the whole list prefix.
+ * Empty for the overwhelmingly common case of a field-only patch.
  */
 export function patchConversation(
   queryClient: QueryClient,
   assistantId: string | null,
   key: string,
   patch: Partial<Conversation>,
-): void {
+): readonly (readonly unknown[])[] {
+  // Built once and shared by every cache that holds the key, rather than
+  // looked up again afterwards. Sharing the instance is what lets the
+  // membership pass tell a cache that already agrees from one that needs
+  // rewriting, so sections the patch did not move are not re-rendered.
+  let patched: Conversation | undefined;
+
   updateAllConversationCaches(queryClient, assistantId, (conversations) => {
     let changed = false;
     const next = conversations.map((c) => {
@@ -309,8 +367,20 @@ export function patchConversation(
         return c;
       }
       changed = true;
-      return { ...c, ...patch };
+      patched ??= { ...c, ...patch };
+      return patched;
     });
     return changed ? next : conversations;
   });
+
+  if (!patched || !patchAffectsMembership(patch)) {
+    return [];
+  }
+  /* The index decides which sections render, so it is a membership cache
+     too: a destination section the index does not know yet must appear with
+     the optimistic write, or the row is visible nowhere until the settle
+     refetch (the first pin, the first conversation moved into an empty
+     group, an unpin returning a channel's only conversation). */
+  ensureSectionInIndex(queryClient, assistantId, patched);
+  return reconcileSectionMembership(queryClient, assistantId, patched);
 }

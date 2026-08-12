@@ -31,31 +31,27 @@ interface ToneClasses {
 
 const TONE_CLASSES: Record<NoticeTone, ToneClasses> = {
   info: {
-    container:
-      "bg-[var(--surface-overlay)] border-[var(--border-element)]",
+    container: "bg-[var(--surface-overlay)]",
     icon: "text-[color:var(--content-secondary)]",
     DefaultIcon: Info,
   },
   success: {
-    container:
-      "bg-[var(--system-positive-weak)] border-[color-mix(in_srgb,var(--system-positive-strong)_25%,transparent)]",
+    container: "bg-[var(--system-positive-weak)]",
     icon: "text-[color:var(--system-positive-strong)]",
     DefaultIcon: CircleCheck,
   },
   warning: {
-    container:
-      "bg-[var(--system-mid-weak)] border-[color-mix(in_srgb,var(--system-mid-strong)_30%,transparent)]",
+    container: "bg-[var(--system-mid-weak)]",
     icon: "text-[color:var(--system-mid-strong)]",
     DefaultIcon: CircleAlert,
   },
   error: {
-    container:
-      "bg-[var(--system-negative-weak)] border-[color-mix(in_srgb,var(--system-negative-strong)_25%,transparent)]",
+    container: "bg-[var(--system-negative-weak)]",
     icon: "text-[color:var(--system-negative-strong)]",
     DefaultIcon: TriangleAlert,
   },
   neutral: {
-    container: "bg-[var(--surface-overlay)] border-[var(--border-base)]",
+    container: "bg-[var(--surface-overlay)]",
     icon: "text-[color:var(--content-secondary)]",
     DefaultIcon: null,
   },
@@ -94,7 +90,7 @@ export function Notice({
       role={role}
       data-slot="notice"
       className={cn(
-        "relative flex w-full gap-3 rounded-lg border p-3",
+        "relative flex w-full gap-3 rounded-lg p-3",
         alignTop ? "items-start" : "items-center",
         "text-[color:var(--content-default)]",
         toneClasses.container,

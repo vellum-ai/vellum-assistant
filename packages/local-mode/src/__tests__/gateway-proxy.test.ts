@@ -4,6 +4,8 @@ import os from "node:os";
 import path from "node:path";
 
 import {
+  authorizePairedForwardHeaders,
+  pairedGatewayTargetsFromLockfile,
   parsePairedGatewayUrl,
   readAllowedGatewayPorts,
   readPairedGatewayTargets,
@@ -103,6 +105,15 @@ describe("resolveGatewayProxyTarget", () => {
               assistantId: "remote-a",
               cloud: "gcp",
               runtimeUrl: "https://assistant.example.com:8443",
+            },
+            // A paired entry is skipped wholesale: even a loopback runtimeUrl
+            // (rejected on import, but possibly pre-existing) must not open
+            // the loopback proxy to arbitrary local services.
+            {
+              assistantId: "paired-loopback",
+              cloud: "paired",
+              paired: true,
+              runtimeUrl: "http://127.0.0.1:5432",
             },
           ],
         }),
@@ -245,7 +256,12 @@ describe("resolvePairedGatewayProxyTarget", () => {
         "/assistant/__gateway-paired/abc/v1/foo?x=1",
         pair({ abc: "https://gw.example.com" }),
       ),
-    ).toEqual({ kind: "forward", url: "https://gw.example.com/v1/foo?x=1" });
+    ).toEqual({
+      kind: "forward",
+      url: "https://gw.example.com/v1/foo?x=1",
+      runtimeUrl: "https://gw.example.com",
+      assistantId: "abc",
+    });
   });
 
   test("forwards a query on a pathless tail instead of treating it as part of the id", () => {
@@ -254,7 +270,12 @@ describe("resolvePairedGatewayProxyTarget", () => {
         "/__gateway-paired/abc?x=1",
         pair({ abc: "https://gw.example.com" }),
       ),
-    ).toEqual({ kind: "forward", url: "https://gw.example.com/?x=1" });
+    ).toEqual({
+      kind: "forward",
+      url: "https://gw.example.com/?x=1",
+      runtimeUrl: "https://gw.example.com",
+      assistantId: "abc",
+    });
   });
 
   test("rejects a dot-segment traversal tail", () => {
@@ -278,13 +299,23 @@ describe("resolvePairedGatewayProxyTarget", () => {
         "/__gateway-paired/abc/v1/foo",
         pair({ abc: "https://gw.example.com/" }),
       ),
-    ).toEqual({ kind: "forward", url: "https://gw.example.com/v1/foo" });
+    ).toEqual({
+      kind: "forward",
+      url: "https://gw.example.com/v1/foo",
+      runtimeUrl: "https://gw.example.com/",
+      assistantId: "abc",
+    });
     expect(
       resolvePairedGatewayProxyTarget(
         "/__gateway-paired/abc/v1/foo",
         pair({ abc: "https://gw.example.com/edge/" }),
       ),
-    ).toEqual({ kind: "forward", url: "https://gw.example.com/edge/v1/foo" });
+    ).toEqual({
+      kind: "forward",
+      url: "https://gw.example.com/edge/v1/foo",
+      runtimeUrl: "https://gw.example.com/edge/",
+      assistantId: "abc",
+    });
   });
 
   test("resolves a percent-encoded id against the decoded allowlist key", () => {
@@ -293,7 +324,12 @@ describe("resolvePairedGatewayProxyTarget", () => {
         "/__gateway-paired/a%20b/v1",
         pair({ "a b": "https://gw.example.com" }),
       ),
-    ).toEqual({ kind: "forward", url: "https://gw.example.com/v1" });
+    ).toEqual({
+      kind: "forward",
+      url: "https://gw.example.com/v1",
+      runtimeUrl: "https://gw.example.com",
+      assistantId: "a b",
+    });
   });
 
   test("rejects an id that isn't paired in the lockfile", () => {
@@ -325,6 +361,72 @@ describe("resolvePairedGatewayProxyTarget", () => {
     expect(reads).toBe(0);
     resolvePairedGatewayProxyTarget("/__gateway-paired/abc/v1", counting);
     expect(reads).toBe(1);
+  });
+});
+
+describe("pairedGatewayTargetsFromLockfile", () => {
+  test("maps paired entries with usable runtimeUrls, excluding everything else", () => {
+    expect(
+      pairedGatewayTargetsFromLockfile({
+        assistants: [
+          {
+            assistantId: "paired-a",
+            cloud: "paired",
+            runtimeUrl: "https://gw.example.com",
+          },
+          {
+            assistantId: "paired-b",
+            cloud: "paired",
+            runtimeUrl: "http://192.0.2.10:8443/edge",
+          },
+          // Non-paired entries never become forwardable.
+          { assistantId: "local-a", cloud: "local" },
+          {
+            assistantId: "docker-a",
+            cloud: "docker",
+            runtimeUrl: "http://localhost:7930",
+          },
+          {
+            assistantId: "remote-a",
+            cloud: "gcp",
+            runtimeUrl: "https://assistant.example.com:8443",
+          },
+          // Paired entries without a usable absolute http(s) runtimeUrl are
+          // excluded rather than forwarded blind.
+          { assistantId: "paired-no-url", cloud: "paired" },
+          {
+            assistantId: "paired-bad-scheme",
+            cloud: "paired",
+            runtimeUrl: "ssh://gw.example.com",
+          },
+          {
+            assistantId: "paired-relative",
+            cloud: "paired",
+            runtimeUrl: "/not-absolute",
+          },
+          // Malformed entries are tolerated, not fatal.
+          null,
+          "not-an-object",
+          { cloud: "paired", runtimeUrl: "https://gw.example.com" },
+          {
+            assistantId: "",
+            cloud: "paired",
+            runtimeUrl: "https://gw.example.com",
+          },
+        ],
+      }),
+    ).toEqual(
+      new Map([
+        ["paired-a", "https://gw.example.com"],
+        ["paired-b", "http://192.0.2.10:8443/edge"],
+      ]),
+    );
+  });
+
+  test("returns an empty map for a lockfile with no assistants", () => {
+    expect(pairedGatewayTargetsFromLockfile({ assistants: [] })).toEqual(
+      new Map(),
+    );
   });
 });
 
@@ -444,7 +546,7 @@ describe("readPairedGatewayTargets", () => {
 });
 
 describe("sanitizePairedForwardHeaders", () => {
-  test("strips Origin, Referer, Cookie, and Sec-Fetch-* but keeps the bearer", () => {
+  test("strips renderer authorization and browser-ambient headers", () => {
     const headers = new Headers({
       origin: "http://localhost:5173",
       referer: "http://localhost:5173/assistant",
@@ -463,7 +565,7 @@ describe("sanitizePairedForwardHeaders", () => {
     expect(headers.has("sec-fetch-site")).toBe(false);
     expect(headers.has("sec-fetch-mode")).toBe(false);
     expect(headers.has("sec-fetch-dest")).toBe(false);
-    expect(headers.get("authorization")).toBe("Bearer guardian-token");
+    expect(headers.has("authorization")).toBe(false);
     expect(headers.get("accept")).toBe("text/event-stream");
     expect(headers.get("content-type")).toBe("application/json");
   });
@@ -472,5 +574,50 @@ describe("sanitizePairedForwardHeaders", () => {
     const headers = new Headers({ authorization: "Bearer guardian-token" });
     sanitizePairedForwardHeaders(headers);
     expect(headers.get("ngrok-skip-browser-warning")).toBe("true");
+  });
+});
+
+describe("authorizePairedForwardHeaders", () => {
+  test("sanitizes before installing the host-owned bearer", async () => {
+    const headers = new Headers({
+      authorization: "Bearer renderer-token",
+      cookie: "renderer-cookie=1",
+      accept: "application/json",
+    });
+
+    const result = await authorizePairedForwardHeaders(
+      "paired-a",
+      "https://gw.example.com",
+      headers,
+      async (assistantId, runtimeUrl) => {
+        expect(assistantId).toBe("paired-a");
+        expect(runtimeUrl).toBe("https://gw.example.com");
+        expect(headers.has("authorization")).toBe(false);
+        expect(headers.has("cookie")).toBe(false);
+        return { ok: true, accessToken: "host-token" };
+      },
+    );
+
+    expect(result).toEqual({ ok: true });
+    expect(headers.get("authorization")).toBe("Bearer host-token");
+    expect(headers.get("accept")).toBe("application/json");
+  });
+
+  test("leaves renderer authorization stripped when token loading fails", async () => {
+    const headers = new Headers({ authorization: "Bearer renderer-token" });
+
+    const result = await authorizePairedForwardHeaders(
+      "paired-a",
+      "https://gw.example.com",
+      headers,
+      async () => ({ ok: false, status: 404, error: "Token not found" }),
+    );
+
+    expect(result).toEqual({
+      ok: false,
+      status: 404,
+      error: "Token not found",
+    });
+    expect(headers.has("authorization")).toBe(false);
   });
 });

@@ -83,14 +83,10 @@ import { FALLBACK_TURN_TRUST, resolveTrustClass } from "./trust-context.js";
 
 const log = getLogger("conversation-tool-setup");
 
-import type {
-  SubagentToolStats,
-  ToolSetupContext,
-} from "./tool-setup-types.js";
+import type { SubagentToolStats } from "./tool-setup-types.js";
 export type {
   SubagentToolGateMode,
   SubagentToolStats,
-  ToolSetupContext,
   WakeToolContextPin,
 } from "./tool-setup-types.js";
 
@@ -116,7 +112,7 @@ export type {
  */
 export function resolveConversationAttribution(
   ctx: Pick<
-    ToolSetupContext,
+    Conversation,
     "conversationId" | "currentCallSite" | "currentTurnOverrideProfile"
   >,
 ): UsageAttributionSnapshot | null {
@@ -241,7 +237,7 @@ export function createToolExecutor(
   executor: ToolExecutor,
   prompter: PermissionPrompter,
   secretPrompter: SecretPrompter,
-  ctx: ToolSetupContext,
+  ctx: Conversation,
 ): (
   name: string,
   input: Record<string, unknown>,
@@ -393,8 +389,7 @@ export function createToolExecutor(
     // Per-turn trust snapshot: prefer the snapshot captured at turn start so
     // a concurrent owner meta command (/status, /clean) that mutates the live
     // trustContext cannot elevate the in-flight turn to guardian.
-    const turnTrust =
-      ctx.currentTurnTrustContext ?? ctx.trustContext ?? FALLBACK_TURN_TRUST;
+    const turnTrust = ctx.getTurnOrRestingTrust() ?? FALLBACK_TURN_TRUST;
 
     const toolContext: ToolContext = {
       workingDir: ctx.workingDir,
@@ -405,7 +400,7 @@ export function createToolExecutor(
       trustClass: resolveTrustClass(turnTrust),
       executionChannel: turnTrust.sourceChannel,
       requestOrigin: ctx.currentTurnRequestOrigin,
-      sourceActorPrincipalId: turnTrust.guardianPrincipalId,
+      sourceActorPrincipalId: ctx.getTurnActorPrincipalId(),
       callSessionId: ctx.callSessionId,
       triggeredBySurfaceAction:
         ctx.surfaceActionRequestIds?.has(ctx.currentRequestId ?? "") ?? false,
@@ -600,7 +595,7 @@ export function createToolExecutor(
  */
 export function createProxyApprovalCallback(
   _prompter: PermissionPrompter,
-  _ctx: ToolSetupContext,
+  _ctx: Conversation,
 ): ProxyApprovalCallback {
   return async (_request: ProxyApprovalRequest): Promise<boolean> => {
     // Proxied asks follow the same non-host auto-allow contract as regular

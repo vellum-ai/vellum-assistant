@@ -138,6 +138,177 @@ describe("parsePluginIngressManifest", () => {
     ).toThrow(/only valid for websocket/);
   });
 
+  it("accepts a verification descriptor on an http route", () => {
+    const manifest = parsePluginIngressManifest({
+      routes: [
+        {
+          path: "events-comms",
+          kind: "http",
+          verification: {
+            kind: "hmac",
+            algorithm: "sha256",
+            secret: { field: "comms_webhook_secret" },
+            signature: {
+              header: "X-Osis-Signature",
+              encoding: "hex",
+              prefix: "sha256=",
+            },
+            payload: ["body"],
+          },
+          description: "inbound comms deliveries",
+        },
+      ],
+    });
+    expect(manifest.routes[0]!.verification?.secret.field).toBe(
+      "comms_webhook_secret",
+    );
+  });
+
+  it("leaves verification undeclared when the manifest omits it", () => {
+    // Absent means the platform scheme, exactly as before the field existed.
+    const manifest = parsePluginIngressManifest(JSON.parse(VALID));
+    expect(manifest.routes[0]!.verification).toBeUndefined();
+  });
+
+  it("rejects verification combined with signer vellum", () => {
+    // A `vellum` route is served without a guardian approval, so a descriptor
+    // there would let a plugin open an unreviewed route it verifies itself.
+    expect(() =>
+      parsePluginIngressManifest({
+        routes: [
+          {
+            path: "hook",
+            kind: "http",
+            signer: "vellum",
+            verification: {
+              kind: "hmac",
+              algorithm: "sha256",
+              secret: { field: "vendor_secret" },
+              signature: { header: "X-Sig", encoding: "hex" },
+              payload: ["body"],
+            },
+            description: "d",
+          },
+        ],
+      }),
+    ).toThrow(/cannot be combined with signer "vellum"/);
+  });
+
+  it("rejects verification on a websocket route", () => {
+    // A socket upgrade is bridged elsewhere and carries none of this.
+    expect(() =>
+      parsePluginIngressManifest({
+        routes: [
+          {
+            path: "realtime",
+            kind: "websocket",
+            verification: {
+              kind: "hmac",
+              algorithm: "sha256",
+              secret: { field: "vendor_secret" },
+              signature: { header: "X-Sig", encoding: "hex" },
+              payload: ["body"],
+            },
+            description: "d",
+          },
+        ],
+      }),
+    ).toThrow(/only valid for http routes/);
+  });
+
+  it("leaves a route that declares no inbound delivery a plain webhook", () => {
+    // The default. A route receives a callback and the message goes no
+    // further, which is what every declaration written before this meant.
+    const manifest = parsePluginIngressManifest(JSON.parse(VALID));
+    expect(manifest.routes[0]!.inbound).toBeUndefined();
+  });
+
+  it("accepts an empty inbound declaration and fills in the contract's shape", () => {
+    const manifest = parsePluginIngressManifest({
+      routes: [{ path: "hook", kind: "http", description: "d", inbound: {} }],
+    });
+    expect(manifest.routes[0]!.inbound?.identity).toBe("opaque");
+  });
+
+  it("rejects inbound delivery combined with signer vellum", () => {
+    // A `vellum` route is served without a guardian approval. Delivering
+    // messages is how a conversation starts, so a route that both skipped
+    // approval and injected turns would be reach a plugin grants itself.
+    expect(() =>
+      parsePluginIngressManifest({
+        routes: [
+          {
+            path: "hook",
+            kind: "http",
+            signer: "vellum",
+            inbound: {},
+            description: "d",
+          },
+        ],
+      }),
+    ).toThrow(/inbound delivery cannot be combined with signer "vellum"/);
+  });
+
+  it("rejects inbound delivery on a websocket route", () => {
+    // A socket upgrade is bridged elsewhere and has no reply to read.
+    expect(() =>
+      parsePluginIngressManifest({
+        routes: [
+          {
+            path: "realtime",
+            kind: "websocket",
+            inbound: {},
+            description: "d",
+          },
+        ],
+      }),
+    ).toThrow(/inbound delivery is only valid for http routes/);
+  });
+
+  it("rejects a verification descriptor the gateway cannot run", () => {
+    // Fail the manifest rather than falling back to the platform scheme: a
+    // route verified differently than declared is worse than no route.
+    expect(() =>
+      parsePluginIngressManifest({
+        routes: [
+          {
+            path: "hook",
+            kind: "http",
+            verification: {
+              kind: "hmac",
+              algorithm: "md5",
+              secret: { field: "vendor_secret" },
+              signature: { header: "X-Sig", encoding: "hex" },
+              payload: ["body"],
+            },
+            description: "d",
+          },
+        ],
+      }),
+    ).toThrow();
+  });
+
+  it("rejects a descriptor reaching for another service's credential", () => {
+    expect(() =>
+      parsePluginIngressManifest({
+        routes: [
+          {
+            path: "hook",
+            kind: "http",
+            verification: {
+              kind: "hmac",
+              algorithm: "sha256",
+              secret: { field: "../vellum/webhook_secret" },
+              signature: { header: "X-Sig", encoding: "hex" },
+              payload: ["body"],
+            },
+            description: "d",
+          },
+        ],
+      }),
+    ).toThrow();
+  });
+
   it("rejects an unknown handshake", () => {
     expect(() =>
       parsePluginIngressManifest({

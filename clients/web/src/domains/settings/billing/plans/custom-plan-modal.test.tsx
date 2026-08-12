@@ -15,7 +15,7 @@
  * Strategy mirrors plans-page-checkout.test.tsx: mock the generated SDK to
  * capture the request bodies and return fixtures, mock `openUrl` to capture
  * the redirect target, and force the platform-hosted gate open. The
- * design-library Dropdown is a custom combobox — driven by clicking the
+ * design-library Select is a custom combobox — driven by clicking the
  * trigger, then the option whose visible label matches.
  */
 
@@ -24,8 +24,15 @@ import { cleanup, fireEvent, render, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter, useLocation } from "react-router";
 
+import { BASELINE_MACHINE_LABEL } from "@/domains/settings/billing/plans/custom-plan-diff";
+import {
+  CREDIT_DOCS_URL,
+  MACHINE_DOCS_URL,
+  STORAGE_DOCS_URL,
+} from "@/domains/settings/billing/plans/docs-links";
 import * as sdkGen from "@/generated/api/sdk.gen";
 import * as browserRuntime from "@/runtime/browser";
+import * as nativeAuth from "@/runtime/native-auth";
 import * as platformGate from "@/hooks/use-platform-gate";
 import {
   organizationsBillingPlansRetrieveQueryKey,
@@ -48,6 +55,8 @@ let machineTierCall: Captured | null = null;
 let storageTierCall: Captured | null = null;
 let creditTierCall: Captured | null = null;
 let openedUrl: string | null = null;
+// True puts the app in the iOS Capacitor shell for the anchor-routing tests.
+let nativePlatform = false;
 // When non-null, the change-machine-tier call rejects with this — drives the
 // error path (the hook toasts and the caller keeps the modal open).
 let machineTierError: unknown = null;
@@ -100,6 +109,13 @@ mock.module("@/runtime/browser", () => ({
     openedUrl = url;
     return Promise.resolve();
   },
+}));
+
+// Drives `handleNativeAnchorClick`: on iOS the docs anchors must route through
+// the native opener, since the WKWebView shell cannot open a `target="_blank"`.
+mock.module("@/runtime/native-auth", () => ({
+  ...nativeAuth,
+  isNativePlatform: () => nativePlatform,
 }));
 
 // Force the platform-hosted gate open so the page mounts its pricing body
@@ -323,7 +339,7 @@ function renderPage(
   );
 }
 
-function dropdownTrigger(ariaLabel: string): HTMLButtonElement {
+function selectTrigger(ariaLabel: string): HTMLButtonElement {
   const trigger = document.querySelector<HTMLButtonElement>(
     `button[role="combobox"][aria-label="${ariaLabel}"]`,
   );
@@ -333,8 +349,8 @@ function dropdownTrigger(ariaLabel: string): HTMLButtonElement {
   return trigger;
 }
 
-function openDropdown(ariaLabel: string): void {
-  fireEvent.click(dropdownTrigger(ariaLabel));
+function openSelect(ariaLabel: string): void {
+  fireEvent.click(selectTrigger(ariaLabel));
 }
 
 function optionLabels(): string[] {
@@ -359,8 +375,8 @@ function clickOption(label: string): void {
   fireEvent.click(option);
 }
 
-function selectOption(dropdownLabel: string, optionLabel: string): void {
-  openDropdown(dropdownLabel);
+function selectOption(selectLabel: string, optionLabel: string): void {
+  openSelect(selectLabel);
   clickOption(optionLabel);
 }
 
@@ -380,6 +396,7 @@ beforeEach(() => {
   storageTierCall = null;
   creditTierCall = null;
   openedUrl = null;
+  nativePlatform = false;
   machineTierError = null;
   onboardingHangs = false;
   subscriptionFixture = null;
@@ -419,6 +436,16 @@ function recapRows(): string[] {
   return Array.from(dialog?.querySelectorAll("li") ?? []).map(
     (li) => li.textContent?.trim() ?? "",
   );
+}
+
+function docsLink(href: string): HTMLAnchorElement {
+  const link = document.querySelector<HTMLAnchorElement>(
+    `[role="dialog"] a[href="${href}"]`,
+  );
+  if (!link) {
+    throw new Error(`expected a docs link to ${href}`);
+  }
+  return link;
 }
 
 /** Struck-through (previous-value) recap labels. */
@@ -461,7 +488,7 @@ describe("CustomPlanModal — base subscriber", () => {
     const { getByRole } = renderPage(freeSubscription());
 
     fireEvent.click(getByRole("button", { name: "Configure" }));
-    openDropdown("Storage");
+    openSelect("Storage");
 
     const labels = optionLabels();
     expect(labels.some((l) => l.startsWith("30 GB"))).toBe(true);
@@ -697,10 +724,11 @@ describe("CustomPlanModal — eligible Pro subscriber", () => {
     expect(queryByTestId("resize-takeover")).toBeNull();
   });
 
-  test("a baseline (null machine) Pro sub can still open and reconfigure", () => {
+  test("a baseline (null machine) Pro sub opens seeded to the baseline machine", () => {
     // A package with no paid machine tier reports max_machine_tier: null. That
-    // sub must still reach the modal (not route to manage); storage/credit seed
-    // and the machine picker starts empty, so Continue waits for a machine pick.
+    // sub must still reach the modal (not route to manage), and every dimension
+    // seeds, the baseline included, so the picker names the machine they run on
+    // rather than showing its placeholder.
     const { getByRole, getByText } = renderPage(
       proMightySubscription(),
       onboarding({ max_machine_tier: null }),
@@ -708,12 +736,83 @@ describe("CustomPlanModal — eligible Pro subscriber", () => {
 
     fireEvent.click(getByRole("button", { name: "Configure" }));
     getByText("Create a custom plan");
+    // The seeded config is a no-op, so Continue waits for a real change.
     expect(continueButton().disabled).toBe(true);
 
-    // Storage and credit are seeded even though the machine is unset.
     const rows = recapRows();
+    expect(rows).toContain(BASELINE_MACHINE_LABEL);
     expect(rows).toContain("10 GB storage");
     expect(rows).toContain("No extra credits");
+  });
+
+  test("the baseline machine is offered to nobody else", () => {
+    // A sub on a paid tier must not be able to drop to the baseline from here:
+    // the change-tier scoring would read a to-null move as an upgrade and open
+    // the resize takeover for what is really a downgrade.
+    const { getByRole } = renderPage(proMightySubscription());
+
+    fireEvent.click(getByRole("button", { name: "Configure" }));
+    openSelect("Machine size");
+
+    expect(optionLabels()).not.toContain(BASELINE_MACHINE_LABEL);
+  });
+
+  test("the baseline machine is withheld from a base checkout", () => {
+    // No seed at all, so there is no held baseline to preserve.
+    const { getByRole } = renderPage(freeSubscription());
+
+    fireEvent.click(getByRole("button", { name: "Configure" }));
+    openSelect("Machine size");
+
+    expect(optionLabels()).not.toContain(BASELINE_MACHINE_LABEL);
+  });
+
+  test("the recap states the billing cadence", () => {
+    // The recap owns the cadence, so it reads beside the total it describes.
+    const { getByRole } = renderPage(freeSubscription());
+
+    fireEvent.click(getByRole("button", { name: "Configure" }));
+
+    const dialog = document.querySelector('[role="dialog"]');
+    expect(dialog?.textContent).toContain("Billed monthly");
+  });
+
+  test("each picker links to its own pricing docs section", () => {
+    const { getByRole } = renderPage(freeSubscription());
+
+    fireEvent.click(getByRole("button", { name: "Configure" }));
+
+    const hrefs = Array.from(
+      document.querySelectorAll<HTMLAnchorElement>('[role="dialog"] a'),
+    ).map((a) => a.getAttribute("href"));
+    expect(hrefs).toContain(MACHINE_DOCS_URL);
+    expect(hrefs).toContain(STORAGE_DOCS_URL);
+    expect(hrefs).toContain(CREDIT_DOCS_URL);
+  });
+
+  test("on iOS the docs links open through the native opener", () => {
+    // The WKWebView shell cannot open a target="_blank" anchor, so an
+    // unhandled click would silently do nothing.
+    nativePlatform = true;
+    const { getByRole } = renderPage(freeSubscription());
+
+    fireEvent.click(getByRole("button", { name: "Configure" }));
+    const link = docsLink(STORAGE_DOCS_URL);
+    const dispatched = fireEvent.click(link);
+
+    expect(openedUrl).toBe(STORAGE_DOCS_URL);
+    // Default prevented, so the shell never gets the dead new-tab navigation.
+    expect(dispatched).toBe(false);
+  });
+
+  test("off native the docs links keep their plain new-tab behavior", () => {
+    const { getByRole } = renderPage(freeSubscription());
+
+    fireEvent.click(getByRole("button", { name: "Configure" }));
+    const dispatched = fireEvent.click(docsLink(STORAGE_DOCS_URL));
+
+    expect(openedUrl).toBeNull();
+    expect(dispatched).toBe(true);
   });
 
   test("a baseline Pro sub picking a machine dispatches the upgrade", async () => {
@@ -724,6 +823,8 @@ describe("CustomPlanModal — eligible Pro subscriber", () => {
 
     fireEvent.click(getByRole("button", { name: "Configure" }));
     selectOption("Machine size", "Medium machine (2.5 vCPU, 5 GiB)");
+    // The baseline it is leaving is struck through, like any other seed value.
+    expect(strikethroughs()).toContain(BASELINE_MACHINE_LABEL);
     fireEvent.click(continueButton());
 
     await waitFor(() => expect(machineTierCall).not.toBeNull());
@@ -789,10 +890,12 @@ describe("CustomPlanModal — eligible Pro subscriber", () => {
     );
 
     fireEvent.click(getByRole("button", { name: "Configure" }));
-    openDropdown("Storage");
+    openSelect("Storage");
 
     expect(findOption("10 GB").getAttribute("aria-disabled")).toBe("true");
-    expect(findOption("30 GB").getAttribute("aria-disabled")).toBe("false");
+    // Enabled options carry no `aria-disabled` at all, so assert the absence
+    // of the disabled state rather than a literal "false".
+    expect(findOption("30 GB").getAttribute("aria-disabled")).not.toBe("true");
   });
 
   test("a failed dispatch keeps the modal open and skips the takeover", async () => {
@@ -851,14 +954,15 @@ describe("CustomPlanModal — Pro plan holding a deprecated (legacy) credit bund
     );
 
     fireEvent.click(getByRole("button", { name: "Configure" }));
-    openDropdown("Credit bundle");
+    openSelect("Credit bundle");
 
     // The held legacy bundle appears so the current selection is visible, but
     // it's disabled — a new config can never pick it.
     expect(findOption("25 credits").getAttribute("aria-disabled")).toBe("true");
-    // The live tier stays selectable.
-    expect(findOption("50 credits").getAttribute("aria-disabled")).toBe(
-      "false",
+    // The live tier stays selectable. Enabled options carry no
+    // `aria-disabled`, so assert the absence of the disabled state.
+    expect(findOption("50 credits").getAttribute("aria-disabled")).not.toBe(
+      "true",
     );
   });
 
@@ -887,7 +991,7 @@ describe("CustomPlanModal — Pro plan holding a deprecated (legacy) credit bund
     const { getByRole } = renderPage(freeSubscription());
 
     fireEvent.click(getByRole("button", { name: "Configure" }));
-    openDropdown("Credit bundle");
+    openSelect("Credit bundle");
 
     const labels = optionLabels();
     expect(labels.some((l) => l.startsWith("50 credits"))).toBe(true);
@@ -926,7 +1030,7 @@ describe("CustomPlanModal — Pro plan holding a deprecated (legacy) credit bund
 
     // Seeded to the held tier (a no-op), so Continue starts disabled.
     expect(continueButton().disabled).toBe(true);
-    expect(dropdownTrigger("Storage").textContent).toContain("250 GB");
+    expect(selectTrigger("Storage").textContent).toContain("250 GB");
     expect(recapRows()).toEqual([
       "Platform fee: $20/mo",
       "Medium machine (2.5 vCPU, 5 GiB)",
@@ -950,9 +1054,9 @@ describe("CustomPlanModal — Pro plan holding a deprecated (legacy) credit bund
     );
 
     fireEvent.click(getByRole("button", { name: "Configure" }));
-    openDropdown("Storage");
+    openSelect("Storage");
 
-    expect(findOption("250 GB").getAttribute("aria-disabled")).toBe("false");
+    expect(findOption("250 GB").getAttribute("aria-disabled")).not.toBe("true");
     expect(findOption("10 GB").getAttribute("aria-disabled")).toBe("true");
   });
 

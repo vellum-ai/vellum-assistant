@@ -15,7 +15,7 @@ import {
   setLocalSetting,
 } from "@/utils/local-settings";
 import { useQueryClient } from "@tanstack/react-query";
-import { Dropdown } from "@vellumai/design-library/components/dropdown";
+import { Select } from "@vellumai/design-library/components/select";
 import { Input } from "@vellumai/design-library/components/input";
 import { toast } from "@vellumai/design-library/components/toast";
 
@@ -187,7 +187,7 @@ export function WebFetchCard() {
           <label className="block text-body-small-default text-[var(--content-tertiary)]">
             Provider
           </label>
-          <Dropdown
+          <Select
             value={webFetchProvider}
             onChange={setDraftWebFetchProvider}
             options={WEB_FETCH_PROVIDER_IDS.map((p) => ({

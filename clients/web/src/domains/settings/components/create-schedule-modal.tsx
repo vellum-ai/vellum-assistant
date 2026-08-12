@@ -18,9 +18,9 @@ import { useEffectiveTimezone } from "@/utils/use-effective-timezone";
 import { cn } from "@vellumai/design-library";
 import { Button } from "@vellumai/design-library/components/button";
 import {
-  Dropdown,
-  type DropdownOption,
-} from "@vellumai/design-library/components/dropdown";
+  Select,
+  type SelectOption,
+} from "@vellumai/design-library/components/select";
 import { Input, Textarea } from "@vellumai/design-library/components/input";
 import { Modal } from "@vellumai/design-library/components/modal";
 import {
@@ -39,7 +39,7 @@ const FREQUENCY_ITEMS: SegmentControlItem<ScheduleFrequency>[] = [
   { value: "monthly", label: "Monthly" },
 ];
 
-const HOUR12_OPTIONS: DropdownOption<string>[] = Array.from(
+const HOUR12_OPTIONS: SelectOption<string>[] = Array.from(
   { length: 12 },
   (_, i) => {
     const hour = i + 1;
@@ -49,7 +49,7 @@ const HOUR12_OPTIONS: DropdownOption<string>[] = Array.from(
 
 // Five-minute granularity keeps the menu short while covering the times people
 // actually schedule.
-const MINUTE_OPTIONS: DropdownOption<string>[] = Array.from(
+const MINUTE_OPTIONS: SelectOption<string>[] = Array.from(
   { length: 12 },
   (_, i) => {
     const minute = i * 5;
@@ -61,7 +61,7 @@ const MINUTE_OPTIONS: DropdownOption<string>[] = Array.from(
 // Only days that exist in every month (1–28) plus an explicit "Last day", so a
 // monthly schedule never silently skips short months. The 29th–31st (which skip
 // February etc.) remain available through the Advanced cron field.
-const DAY_OF_MONTH_OPTIONS: DropdownOption<string>[] = [
+const DAY_OF_MONTH_OPTIONS: SelectOption<string>[] = [
   ...Array.from({ length: 28 }, (_, i) => {
     const day = i + 1;
     return { value: String(day), label: formatOrdinal(day) };
@@ -334,7 +334,7 @@ function CadenceBuilder({
 
       {cadence.frequency === "hourly" ? (
         <SubField label="At minute">
-          <Dropdown
+          <Select
             options={MINUTE_OPTIONS}
             value={String(cadence.minute).padStart(2, "0")}
             onChange={(value) =>
@@ -357,7 +357,7 @@ function CadenceBuilder({
 
       {cadence.frequency === "monthly" ? (
         <SubField label="On day">
-          <Dropdown
+          <Select
             options={DAY_OF_MONTH_OPTIONS}
             value={
               cadence.dayOfMonth === "last"
@@ -405,7 +405,7 @@ function TimeFields({
 
   return (
     <div className="flex items-center gap-2">
-      <Dropdown
+      <Select
         options={HOUR12_OPTIONS}
         value={String(hour12)}
         onChange={(value) => onChange(to24Hour(Number(value), period), minute)}
@@ -415,7 +415,7 @@ function TimeFields({
       <span className="text-body-medium-default text-[var(--content-tertiary)]">
         :
       </span>
-      <Dropdown
+      <Select
         options={MINUTE_OPTIONS}
         value={String(minute).padStart(2, "0")}
         onChange={(value) => onChange(hour24, Number(value))}

@@ -1,10 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { useCallback, useMemo, useState } from "react";
 
-import {
-  schedulesListQueryOptions,
-  toggleSchedule,
-} from "@/domains/settings/api/schedules";
+import { toggleSchedule } from "@/domains/settings/api/schedules";
 import type { Schedule } from "@/domains/settings/types/schedules";
 import {
   groupSchedules,
@@ -12,7 +9,9 @@ import {
   scheduleUsageSummaryQueryOptions,
   zeroScheduleUsageSummary,
 } from "@/domains/settings/utils/schedule-formatters";
+import { t } from "@/i18n";
 import { captureError } from "@/lib/sentry/capture-error";
+import { schedulesListQueryOptions } from "@/utils/schedules";
 import { useEffectiveTimezone } from "@/utils/use-effective-timezone";
 import { toast } from "@vellumai/design-library/components/toast";
 
@@ -98,7 +97,7 @@ export function useSchedulesData(
         void refetchSchedules();
       } catch (error) {
         captureError(error, { context: "schedule_toggle" });
-        toast.error("Failed to toggle schedule.");
+        toast.error(t("schedules:scheduleDetail.toggleFailed"));
       }
     },
     [assistantId, refetchSchedules],

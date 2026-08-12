@@ -15,17 +15,30 @@
  */
 
 import { queryOptions } from "@tanstack/react-query";
-import { conversationsGet } from "@/generated/daemon/sdk.gen";
-import type { ConversationsGetData } from "@/generated/daemon/types.gen";
+import {
+  conversationsGet,
+  conversationsSectionsGet,
+  conversationsUnreadcountGet,
+} from "@/generated/daemon/sdk.gen";
+import {
+  conversationsSectionsGetQueryKey,
+  conversationsUnreadcountGetQueryKey,
+} from "@/generated/daemon/@tanstack/react-query.gen";
+import type {
+  ConversationsGetData,
+  ConversationsSectionsGetResponse,
+} from "@/generated/daemon/types.gen";
 import {
   ApiError,
   assertHasResponse,
   extractErrorMessage,
+  toApiError,
 } from "@/utils/api-errors";
 import { recordDiagnostic } from "@/lib/diagnostics";
 import { emitClientPerfEvent } from "@/lib/telemetry/client-perf";
 import type { Conversation } from "@/types/conversation-types";
 import { readContentLength } from "@/utils/content-length";
+import { byTimestampDesc } from "@/utils/conversation-order";
 import { isScheduledConversation } from "@/utils/conversation-predicates";
 import { toConversation } from "@/utils/conversation-transforms";
 
@@ -63,37 +76,81 @@ export function scheduledConversationsQueryKey(assistantId: string | null) {
   return [CONVERSATION_LIST_PREFIX, assistantId ?? "", "scheduled"] as const;
 }
 
-/** Prefix key matching all origin-channel conversation caches. */
-export function originChannelListPrefix(assistantId: string | null) {
-  return [CONVERSATION_LIST_PREFIX, assistantId ?? "", "channel"] as const;
+/** Prefix key matching every per-section conversation cache. */
+export function sectionListPrefix(assistantId: string | null) {
+  return [CONVERSATION_LIST_PREFIX, assistantId ?? "", "section"] as const;
 }
 
 /**
- * Key for a specific origin channel's conversation cache. A child of
- * {@link originChannelListPrefix}, so prefix-match invalidation of the
- * `"channel"` segment reaches every per-channel cache automatically.
+ * Key for one section's conversation cache, a child of
+ * {@link sectionListPrefix} so prefix-match invalidation reaches every
+ * section at once.
+ *
+ * Both filter axes are in the key because both can be set at once, and two
+ * sections differing only in channel must not share a cache entry.
  */
-export function originChannelConversationsQueryKey(
+export function sectionConversationsQueryKey(
   assistantId: string | null,
-  channel: string,
+  filter: SectionConversationFilter,
 ) {
   return [
     CONVERSATION_LIST_PREFIX,
     assistantId ?? "",
-    "channel",
-    channel,
+    "section",
+    filter.groupId ?? "",
+    filter.originChannel ?? "",
   ] as const;
 }
 
-// ---------------------------------------------------------------------------
-// Shared sort comparator
-// ---------------------------------------------------------------------------
+/**
+ * Recover the filter a section cache was keyed by, or `null` when the key
+ * is not a section key.
+ *
+ * The decoder to {@link sectionConversationsQueryKey}'s encoder, and it lives
+ * beside it so the two cannot drift. It exists because a local write has to
+ * answer "does this row belong in *this* cache", and the only statement of
+ * what a cache holds is its own key: TanStack's `setQueriesData` hands its
+ * updater the data alone, never the key it came from, so a membership-aware
+ * write has to walk `getQueriesData` and decode each key itself.
+ *
+ * @see {@link https://tanstack.com/query/latest/docs/reference/QueryClient#queryclientsetqueriesdata}
+ */
+export function parseSectionConversationsQueryKey(
+  queryKey: readonly unknown[],
+): SectionConversationFilter | null {
+  const [prefix, , discriminator, groupId, originChannel] = queryKey;
+  if (
+    prefix !== CONVERSATION_LIST_PREFIX ||
+    discriminator !== "section" ||
+    typeof groupId !== "string" ||
+    typeof originChannel !== "string"
+  ) {
+    return null;
+  }
+  /* The encoder writes "" for an absent axis, so "" decodes back to absent
+     rather than to a filter on the empty string. */
+  return {
+    ...(groupId === "" ? {} : { groupId: groupId as ConversationGroupId }),
+    ...(originChannel === ""
+      ? {}
+      : { originChannel: originChannel as OriginChannel }),
+  };
+}
 
-/** Sort conversations descending by a timestamp field (newest first). */
-function byTimestampDesc(
-  key: "lastMessageAt" | "archivedAt",
-): (a: Conversation, b: Conversation) => number {
-  return (a, b) => (b[key] ?? 0) - (a[key] ?? 0);
+/**
+ * Key for the server-side unread conversation count
+ * (`GET /v1/conversations/unread-count`). The cache holds `number | null`
+ * (see {@link fetchUnreadConversationCount}).
+ *
+ * Deliberately the generated key, NOT a child of
+ * {@link conversationListPrefix}: the prefix-wide helpers in
+ * `conversation-cache.ts` treat every entry under the prefix as a
+ * `Conversation[]`, and this cache holds a scalar.
+ */
+export function unreadConversationCountQueryKey(assistantId: string | null) {
+  return conversationsUnreadcountGetQueryKey({
+    path: { assistant_id: assistantId ?? "" },
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -107,9 +164,55 @@ const CONVERSATION_LIST_MAX_PAGES = 200;
  * Origin channel filter values accepted by the daemon's
  * `GET /v1/conversations?originChannel=` parameter.
  */
-export type OriginChannel = NonNullable<
-  ConversationsGetData["query"]
->["originChannel"];
+type ConversationListQuery = NonNullable<ConversationsGetData["query"]>;
+
+export type OriginChannel = ConversationListQuery["originChannel"];
+
+/**
+ * The same set as {@link OriginChannel}, at runtime.
+ *
+ * A sidebar channel section is keyed by whatever `origin_channel` its rows
+ * carried, which is a plain string, so sending it as a query parameter needs a
+ * membership check first. `_Exhaustive` fails to compile if the generated
+ * union gains a channel this list is missing, so a schema change surfaces here
+ * rather than as a section that silently stops filtering.
+ */
+export const ORIGIN_CHANNELS = [
+  "telegram",
+  "phone",
+  "vellum",
+  "whatsapp",
+  "slack",
+  "email",
+  "platform",
+  "a2a",
+  "discord",
+] as const satisfies readonly NonNullable<OriginChannel>[];
+
+type _Exhaustive =
+  NonNullable<OriginChannel> extends (typeof ORIGIN_CHANNELS)[number]
+    ? true
+    : never;
+
+/**
+ * Group filter accepted by `GET /v1/conversations?groupId=`. Derived from the
+ * generated query type rather than restated, so a schema change surfaces
+ * here as a type error.
+ */
+export type ConversationGroupId = ConversationListQuery["groupId"];
+
+/**
+ * What one sidebar section asks the server for.
+ *
+ * Both axes together, because a section can need both: a channel card is
+ * that channel *and* ungrouped, since `origin_channel` is a separate column
+ * from `group_id` and a Slack conversation filed into a custom group would
+ * otherwise render in two cards.
+ */
+export interface SectionConversationFilter {
+  groupId?: ConversationGroupId;
+  originChannel?: OriginChannel;
+}
 
 type FetchConversationListOptions = {
   conversationType?: "background" | "scheduled";
@@ -124,6 +227,17 @@ type FetchConversationListOptions = {
    * exact `origin_channel` value are returned.
    */
   originChannel?: OriginChannel;
+  /**
+   * Filter to one group: {@link SYSTEM_PINNED_GROUP_ID} for Pinned,
+   * {@link SYSTEM_ALL_GROUP_ID} for what no group claimed, or a custom
+   * group's id.
+   *
+   * A conversation carries exactly one `group_id`, so group-scoped lists are
+   * disjoint by construction and no section needs to subtract another's rows.
+   * The server orders a group-scoped request by the user's own arrangement
+   * (display order, then recency) and never appends pinned rows to it.
+   */
+  groupId?: ConversationGroupId;
 };
 
 /**
@@ -133,7 +247,12 @@ type FetchConversationListOptions = {
  * foreground drain in both rails.
  */
 type DrainListKind =
-  "foreground" | "background" | "scheduled" | "archived" | "origin_channel";
+  | "foreground"
+  | "background"
+  | "scheduled"
+  | "archived"
+  | "origin_channel"
+  | "section";
 
 /**
  * Label a drain by the list it is fetching. Archive status is checked first
@@ -151,6 +270,9 @@ function drainListKind(options: FetchConversationListOptions): DrainListKind {
   }
   if (options.originChannel !== undefined) {
     return "origin_channel";
+  }
+  if (options.groupId !== undefined) {
+    return "section";
   }
   return "foreground";
 }
@@ -224,7 +346,7 @@ async function fetchConversationListPage(
   source: ListFetchSource,
   options: FetchConversationListOptions = {},
 ): Promise<TimedConversationListPage> {
-  const { conversationType, archiveStatus, originChannel } = options;
+  const { conversationType, archiveStatus, originChannel, groupId } = options;
   const startedAt = performance.now();
   const { data, error, response } = await conversationsGet({
     path: { assistant_id: assistantId },
@@ -234,6 +356,7 @@ async function fetchConversationListPage(
       ...(conversationType ? { conversationType } : {}),
       ...(archiveStatus ? { archiveStatus } : {}),
       ...(originChannel ? { originChannel } : {}),
+      ...(groupId ? { groupId } : {}),
     },
     throwOnError: false,
   });
@@ -493,22 +616,47 @@ export async function listScheduledConversations(
 }
 
 /**
- * Fetch all active (non-archived) conversations for a given origin channel
- * (e.g. `"slack"`, `"telegram"`), sorted newest-first.
- *
- * Each external channel's sidebar section calls this with its own channel ID.
- * Channel sections are naturally bounded (~5-30 items per user), so a flat
- * fetch (all pages) is appropriate. Cached separately per channel under
- * `originChannelConversationsQueryKey`.
+ * The two group ids the daemon owns. Pinning is stored as group membership,
+ * and `system:all` is what no group claimed, so a conversation belongs to
+ * exactly one group and group-scoped lists never overlap.
  */
-export async function listOriginChannelConversations(
+export const SYSTEM_PINNED_GROUP_ID = "system:pinned";
+export const SYSTEM_ALL_GROUP_ID = "system:all";
+
+/**
+ * The `originChannel` value for a conversation started in Vellum rather than
+ * arriving from an external channel, and so the filter the Chats section
+ * asks for.
+ *
+ * Typed against the generated union, so removing it from the schema fails
+ * the build here rather than sending a value the daemon rejects.
+ */
+export const NATIVE_ORIGIN_CHANNEL: NonNullable<OriginChannel> = "vellum";
+
+/**
+ * Fetch every active conversation matching one section's filter: Pinned, a
+ * custom group, the ungrouped remainder, or a channel within it.
+ *
+ * Drained rather than paginated. A section that shows only its first page is
+ * a section whose unread indicator and bulk actions silently exclude the rest
+ * of its own contents.
+ *
+ * "Drained" means up to `CONVERSATION_LIST_MAX_PAGES` pages
+ * (200 x 50 = 10,000 rows), the shared watchdog bound on every list drain, and
+ * the loop stops there without signalling truncation. Pinned and custom groups
+ * do not realistically reach it. `system:all` is the ungrouped remainder, so on
+ * a heavy account it is the one section that can, and past 10,000 rows its
+ * unread indicator and bulk actions describe only the prefix. Lifting that
+ * needs a windowed section list, not a bigger cap.
+ *
+ * Rendered in the server's order, which is recency for every section,
+ * pinned and custom groups included. The client applies no sort of its own.
+ */
+export async function listSectionConversations(
   assistantId: string,
-  originChannel: NonNullable<OriginChannel>,
+  filter: SectionConversationFilter,
 ): Promise<Conversation[]> {
-  const conversations = await fetchConversationList(assistantId, {
-    originChannel,
-  });
-  return [...conversations].sort(byTimestampDesc("lastMessageAt"));
+  return fetchConversationList(assistantId, filter);
 }
 
 /**
@@ -519,6 +667,90 @@ export async function listArchivedConversations(
   assistantId: string,
 ): Promise<Conversation[]> {
   return fetchMergedConversationList(assistantId, "archived", "archivedAt");
+}
+
+/**
+ * Read the server-side unread conversation count, mapping a 404 to `null`.
+ *
+ * An assistant without `GET /v1/conversations/unread-count` 404s this read;
+ * resolving `null` lets consumers fall back to the client-derived count and
+ * lets a refetch clear a count from a since-rolled-back assistant instead of
+ * stranding it (see "When a gate is unnecessary" in BACKWARDS_COMPAT.md).
+ * Every other HTTP failure throws a status-carrying {@link ApiError} so the
+ * app-level no-retry-4xx policy applies; a missing response (network error)
+ * rethrows raw and retries as transient.
+ */
+export async function fetchUnreadConversationCount(
+  assistantId: string,
+  signal?: AbortSignal,
+): Promise<number | null> {
+  const { data, error, response } = await conversationsUnreadcountGet({
+    path: { assistant_id: assistantId },
+    throwOnError: false,
+    signal,
+  });
+  assertHasResponse(
+    response,
+    error,
+    "Failed to fetch unread conversation count.",
+  );
+  if (!response.ok) {
+    if (response.status === 404) {
+      return null;
+    }
+    throw toApiError(error, response);
+  }
+  return data?.count ?? null;
+}
+
+/** One renderable sidebar section as the daemon indexes it. */
+export type SidebarIndexSection =
+  ConversationsSectionsGetResponse["sections"][number];
+
+/**
+ * Key for the sidebar section index (`GET /v1/conversations/sections`). The
+ * cache holds `SidebarIndexSection[] | null` (see
+ * {@link fetchSidebarSections}).
+ *
+ * The generated key, NOT a child of {@link conversationListPrefix}, for the
+ * same reason as the unread count: the prefix-wide helpers in
+ * `conversation-cache.ts` treat every entry under the prefix as a
+ * `Conversation[]`, and this cache holds section rows.
+ */
+export function sidebarSectionsQueryKey(assistantId: string | null) {
+  return conversationsSectionsGetQueryKey({
+    path: { assistant_id: assistantId ?? "" },
+  });
+}
+
+/**
+ * Read the sidebar section index, mapping a 404 to `null`.
+ *
+ * An assistant without `GET /v1/conversations/sections` 404s this read;
+ * resolving `null` lets the sidebar keep deriving section existence from the
+ * loaded list, and lets a refetch clear an index from a since-rolled-back
+ * assistant instead of stranding it (see "When a gate is unnecessary" in
+ * BACKWARDS_COMPAT.md). Every other HTTP failure throws a status-carrying
+ * {@link ApiError} so the app-level no-retry-4xx policy applies; a missing
+ * response (network error) rethrows raw and retries as transient.
+ */
+export async function fetchSidebarSections(
+  assistantId: string,
+  signal?: AbortSignal,
+): Promise<SidebarIndexSection[] | null> {
+  const { data, error, response } = await conversationsSectionsGet({
+    path: { assistant_id: assistantId },
+    throwOnError: false,
+    signal,
+  });
+  assertHasResponse(response, error, "Failed to fetch sidebar sections.");
+  if (!response.ok) {
+    if (response.status === 404) {
+      return null;
+    }
+    throw toApiError(error, response);
+  }
+  return data?.sections ?? null;
 }
 
 // ---------------------------------------------------------------------------
@@ -590,6 +822,33 @@ export async function listScheduledConversationsFirstPage(
   };
 }
 
+/**
+ * First page of {@link listSectionConversations} (one sidebar section).
+ *
+ * Server order is preserved rather than re-sorted, exactly as the full
+ * section fetcher preserves it: a section renders the server's order as-is
+ * (recency, LUM-3108), and a client-side sort here could disagree with it
+ * on ties.
+ */
+export async function listSectionConversationsFirstPage(
+  assistantId: string,
+  filter: SectionConversationFilter,
+): Promise<ConversationListPage> {
+  const page = await fetchConversationListPage(
+    assistantId,
+    0,
+    "first_page_refresh",
+    filter,
+  );
+  recordFirstPageFetch(
+    assistantId,
+    page,
+    drainListKind(filter),
+    "first_page_refresh",
+  );
+  return { conversations: page.conversations, hasMore: page.hasMore };
+}
+
 // ---------------------------------------------------------------------------
 // queryOptions factories
 //
@@ -649,19 +908,56 @@ export function archivedConversationListOptions(assistantId: string) {
 }
 
 /**
- * Query options for a specific origin channel's conversation list.
+ * Query options for one sidebar section's conversations.
  *
- * Generic factory parameterized by channel ID — each sidebar channel section
- * (Slack, Telegram, Email, etc.) uses this with its own channel value. Cached
- * independently per `(assistantId, channel)` tuple.
+ * One factory for every section, parameterized by the filter rather than one
+ * factory per filter axis: a section can constrain both at once, which a
+ * per-axis factory cannot express. Caches independently per
+ * `(assistantId, groupId, originChannel)`.
  */
-export function originChannelConversationListOptions(
+export function sectionConversationListOptions(
   assistantId: string,
-  channel: NonNullable<OriginChannel>,
+  filter: SectionConversationFilter,
 ) {
   return queryOptions({
-    queryKey: originChannelConversationsQueryKey(assistantId, channel),
-    queryFn: () => listOriginChannelConversations(assistantId, channel),
+    queryKey: sectionConversationsQueryKey(assistantId, filter),
+    queryFn: () => listSectionConversations(assistantId, filter),
     staleTime: QUERY_STALE_TIME_MS,
+  });
+}
+
+/**
+ * Query options for the server-side unread conversation count. The cache
+ * holds `number | null`; `null` means the connected assistant does not
+ * serve the endpoint (see {@link fetchUnreadConversationCount}).
+ *
+ * `refetchOnWindowFocus` is disabled: count changes arrive via
+ * `sync_changed`-driven invalidation and mutation settles, and a focus
+ * refetch would re-issue the 404 against assistants without the route.
+ */
+export function unreadConversationCountOptions(assistantId: string) {
+  return queryOptions({
+    queryKey: unreadConversationCountQueryKey(assistantId),
+    queryFn: ({ signal }) => fetchUnreadConversationCount(assistantId, signal),
+    staleTime: QUERY_STALE_TIME_MS,
+    refetchOnWindowFocus: false,
+  });
+}
+
+/**
+ * Query options for the sidebar section index. The cache holds
+ * `SidebarIndexSection[] | null`; `null` means the connected assistant does
+ * not serve the endpoint (see {@link fetchSidebarSections}).
+ *
+ * `refetchOnWindowFocus` is disabled for the same reason as the unread
+ * count: freshness arrives via `sync_changed`-driven invalidation, and a
+ * focus refetch would re-issue the 404 against assistants without the route.
+ */
+export function sidebarSectionsOptions(assistantId: string) {
+  return queryOptions({
+    queryKey: sidebarSectionsQueryKey(assistantId),
+    queryFn: ({ signal }) => fetchSidebarSections(assistantId, signal),
+    staleTime: QUERY_STALE_TIME_MS,
+    refetchOnWindowFocus: false,
   });
 }

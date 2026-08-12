@@ -16,19 +16,18 @@ import { renderToStaticMarkup } from "react-dom/server";
 
 import type { FeedItem } from "@vellumai/assistant-api";
 
+import { feedItem } from "../feed-test-fixtures";
+
 import { HomeToolPermissionCard } from "./home-tool-permission-card";
 
-function feedItem(overrides: Partial<FeedItem> = {}): FeedItem {
-  return {
+function permissionItem(overrides: Partial<FeedItem> = {}): FeedItem {
+  return feedItem({
     id: "notif:1",
-    type: "notification",
-    priority: 50,
     summary: "Gmail lost access to the mailbox scope.",
     timestamp: "2026-01-01T00:00:00.000Z",
-    status: "new",
     createdAt: "2026-01-01T00:00:00.000Z",
     ...overrides,
-  } as FeedItem;
+  });
 }
 
 function render(item: FeedItem): string {
@@ -38,7 +37,7 @@ function render(item: FeedItem): string {
 describe("HomeToolPermissionCard without a provider", () => {
   test("renders the summary, not the title", () => {
     const html = render(
-      feedItem({
+      permissionItem({
         title: "Gmail Access Lost",
         summary: "Gmail lost access to the mailbox scope.",
       }),
@@ -53,7 +52,7 @@ describe("HomeToolPermissionCard without a provider", () => {
     // survives, so the two can legitimately be identical. The card must still
     // render the string once.
     const shared = "Gmail lost access to the mailbox scope.";
-    const html = render(feedItem({ title: shared, summary: shared }));
+    const html = render(permissionItem({ title: shared, summary: shared }));
 
     expect(html.split(shared).length - 1).toBe(1);
   });
@@ -61,7 +60,7 @@ describe("HomeToolPermissionCard without a provider", () => {
   test("still renders when the daemon omits a title", () => {
     // Older daemons omit `title`; web ships always-latest, so this path stays
     // reachable.
-    const html = render(feedItem({ title: undefined }));
+    const html = render(permissionItem({ title: undefined }));
 
     expect(html).toContain("Gmail lost access to the mailbox scope.");
   });
@@ -70,7 +69,7 @@ describe("HomeToolPermissionCard without a provider", () => {
 describe("HomeToolPermissionCard with a provider", () => {
   test("renders the provider detail view instead of the summary", () => {
     const html = render(
-      feedItem({
+      permissionItem({
         title: "Gmail Access Lost",
         metadata: {
           provider: "gmail",

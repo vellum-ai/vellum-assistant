@@ -2,7 +2,10 @@ import type { ReactNode } from "react";
 
 import { Maximize2, Minimize2 } from "lucide-react";
 
-import { Card } from "@vellumai/design-library";
+import { Card, Skeleton } from "@vellumai/design-library";
+
+import { useTranslation } from "@/i18n";
+import { SCHEDULE_USAGE_WINDOW_DAYS } from "@/utils/usage-window";
 
 export interface ScheduleSummaryCardProps {
   title: string;
@@ -80,11 +83,14 @@ function CostDisplay({
   costLabel: string;
   costStatus: ScheduleSummaryCardProps["costStatus"];
 }) {
+  const { t } = useTranslation("schedules");
+
   if (costStatus === "loading") {
     return (
-      <span
-        aria-label="Loading cost"
-        className="h-7 w-44 animate-pulse rounded-md bg-[var(--surface-muted)]"
+      <Skeleton
+        as="span"
+        aria-label={t("scheduleSummaryCard.costLoading")}
+        className="h-7 w-44 rounded-md"
       />
     );
   }
@@ -94,7 +100,9 @@ function CostDisplay({
         {costStatus === "error" ? "—" : costLabel}
       </span>
       <span className="text-body-small-default text-[var(--content-tertiary)]">
-        spent in the last 7 days
+        {t("scheduleSummaryCard.costCaption", {
+          days: SCHEDULE_USAGE_WINDOW_DAYS,
+        })}
       </span>
     </div>
   );
@@ -108,16 +116,18 @@ export function ScheduleSummaryCard({
   costStatus,
   isExpanded,
   onToggleExpand,
-  expandLabel = "Expand",
+  expandLabel,
   children,
 }: ScheduleSummaryCardProps) {
+  const { t } = useTranslation("schedules");
+  const resolvedExpandLabel = expandLabel ?? t("scheduleSummaryCard.expand");
   if (isExpanded) {
     return (
       <Card padding="lg">
         <div className="flex items-start justify-between gap-4">
           <SummaryCardHeader icon={icon} title={title} subtitle={subtitle} />
           <MinimizeButton
-            label={`Minimize ${title}`}
+            label={t("scheduleSummaryCard.minimize", { title })}
             onClick={onToggleExpand}
           />
         </div>
@@ -132,7 +142,7 @@ export function ScheduleSummaryCard({
         type="button"
         onClick={onToggleExpand}
         aria-expanded={false}
-        aria-label={expandLabel}
+        aria-label={resolvedExpandLabel}
         className="group relative flex w-full cursor-pointer flex-col gap-3 overflow-hidden p-6 text-left transition-[transform,box-shadow] duration-200 ease-out will-change-transform hover:scale-[1.02] hover:shadow-md focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)] motion-reduce:transition-none motion-reduce:hover:scale-100"
       >
         <SummaryCardHeader icon={icon} title={title} subtitle={subtitle} />
@@ -143,7 +153,9 @@ export function ScheduleSummaryCard({
         >
           <span className="flex items-center gap-2 rounded-full border border-[var(--border-base)] bg-[var(--surface-overlay)] px-3 py-1.5 text-[var(--content-default)] shadow-sm">
             <Maximize2 className="h-4 w-4" />
-            <span className="text-label-medium-default">{expandLabel}</span>
+            <span className="text-label-medium-default">
+              {resolvedExpandLabel}
+            </span>
           </span>
         </span>
       </button>

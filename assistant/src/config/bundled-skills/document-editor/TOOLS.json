@@ -33,7 +33,7 @@
           },
           "initial_content": {
             "type": "string",
-            "description": "Initial Markdown content to populate the editor (optional)"
+            "description": "Initial Markdown content to populate the editor (optional). It is saved as soon as the document is created, so the first document_update append must start with the NEXT chunk, never with this text again."
           }
         }
       },
@@ -54,7 +54,7 @@
           },
           "content": {
             "type": "string",
-            "description": "Markdown content to set or append"
+            "description": "Markdown content to set or append. In append mode, send only the new chunk: whatever is already in the document, including document_create's initial_content, is committed and must not be resent."
           },
           "mode": {
             "type": "string",

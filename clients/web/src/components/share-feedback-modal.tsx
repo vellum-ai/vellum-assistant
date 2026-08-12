@@ -30,12 +30,10 @@ import { createPortal } from "react-dom";
 import type { ChatDebugEventsApi } from "@/domains/chat/api/debug-api";
 import type { ChatDebugApi } from "@/domains/chat/utils/debug-api";
 import { feedbackCreateMutation } from "@/generated/api/@tanstack/react-query.gen";
-import type {
-  ClassificationEnum,
-  ClientEnum,
-} from "@/generated/api/types.gen";
+import type { ClassificationEnum, ClientEnum } from "@/generated/api/types.gen";
 import { logsExportPost } from "@/generated/daemon/sdk.gen";
 import type { LogsExportPostData } from "@/generated/daemon/types.gen";
+import { useBodyScrollLock } from "@/hooks/use-body-scroll-lock";
 import { buildDiagnosticsSnapshot } from "@/lib/diagnostics";
 import { buildDebugFlagSnapshot } from "@/lib/feature-flags/debug-flag-snapshot";
 import { isElectron } from "@/runtime/is-electron";
@@ -43,9 +41,9 @@ import { useAuthStore } from "@/stores/auth-store";
 import { VELLUM_COMMUNITY_URL } from "@/utils/external-urls";
 import { Button } from "@vellumai/design-library/components/button";
 import {
-  Dropdown,
-  type DropdownOption,
-} from "@vellumai/design-library/components/dropdown";
+  Select,
+  type SelectOption,
+} from "@vellumai/design-library/components/select";
 import { Input, Textarea } from "@vellumai/design-library/components/input";
 import { Notice } from "@vellumai/design-library/components/notice";
 import { Toggle } from "@vellumai/design-library/components/toggle";
@@ -96,12 +94,10 @@ const TIME_RANGES: {
   { value: "all_time", label: "All time", cutoffMs: null },
 ];
 
-const TIME_RANGE_OPTIONS: DropdownOption<TimeRange>[] = TIME_RANGES.map(
-  (r) => ({
-    value: r.value,
-    label: r.label,
-  }),
-);
+const TIME_RANGE_OPTIONS: SelectOption<TimeRange>[] = TIME_RANGES.map((r) => ({
+  value: r.value,
+  label: r.label,
+}));
 
 const ALLOWED_MIME_TYPES = new Set([
   "image/png",
@@ -136,19 +132,21 @@ const CLASSIFICATION_MAP: Record<FeedbackReason, ClassificationEnum> = {
  *
  * Typed as the API's own `ClientEnum` rather than a restated union, so a value
  * the platform stops accepting is a compile error here instead of a rejected
- * submission at runtime — which is exactly how `android` got here: it was
- * removed from the enum server-side, and nothing on this side noticed.
- *
- * Android reports as `web` deliberately. No native Capacitor Android shell
- * ships (see `runtime/push-registration.ts`), so an Android device reaching
- * this is in a browser and *is* a web client. This field is triage metadata,
- * and failing the whole submission over it would cost the report itself.
+ * submission at runtime.
  */
 function getFeedbackClient(): ClientEnum {
   if (isElectron()) {
     return "electron";
   }
-  return Capacitor.getPlatform() === "ios" ? "ios" : "web";
+  const platform = Capacitor.getPlatform();
+  if (platform === "ios" || platform === "android") {
+    return platform;
+  }
+  return "web";
+}
+
+function isFeedbackClientValidationError(error: unknown): boolean {
+  return error !== null && typeof error === "object" && "client" in error;
 }
 
 type FeedbackDiagnosticsProvider = () => Record<string, unknown> | null;
@@ -740,16 +738,7 @@ export function ShareFeedbackModal({
     return () => clearTimeout(t);
   }, [open]);
 
-  useEffect(() => {
-    if (!open) {
-      return;
-    }
-    const prev = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    return () => {
-      document.body.style.overflow = prev;
-    };
-  }, [open]);
+  useBodyScrollLock(open);
 
   const handleSelectReason = (reason: FeedbackReason) => {
     setSelectedReason(reason);
@@ -869,43 +858,58 @@ export function ShareFeedbackModal({
               },
             )
           : null;
-      await mutation.mutateAsync({
-        headers: { "Content-Type": null },
-        body: {
-          message: message.trim(),
-          classification: CLASSIFICATION_MAP[selectedReason],
-          email: email.trim(),
-          client: getFeedbackClient(),
-          client_version: import.meta.env.VITE_APP_VERSION ?? undefined,
-          ...(assistantId ? { assistant_id: assistantId } : {}),
-          ...(assistantVersion ? { assistant_version: assistantVersion } : {}),
-          ...(doctorSessionId ? { doctor_session_id: doctorSessionId } : {}),
-          ...(logsFile ? { logs_file: logsFile } : {}),
-          ...(attachments.length ? { attachments } : {}),
-        },
-        bodySerializer: (body) => {
-          const form = new FormData();
-          for (const [key, value] of Object.entries(
-            body as Record<string, unknown>,
-          )) {
-            if (value == null) {
-              continue;
-            }
-            if (key === "attachments" && Array.isArray(value)) {
-              for (const file of value) {
-                form.append("attachments", file as Blob);
+      const feedbackClient = getFeedbackClient();
+      const submitFeedback = (client: ClientEnum) =>
+        mutation.mutateAsync({
+          headers: { "Content-Type": null },
+          body: {
+            message: message.trim(),
+            classification: CLASSIFICATION_MAP[selectedReason],
+            email: email.trim(),
+            client,
+            client_version: import.meta.env.VITE_APP_VERSION ?? undefined,
+            ...(assistantId ? { assistant_id: assistantId } : {}),
+            ...(assistantVersion
+              ? { assistant_version: assistantVersion }
+              : {}),
+            ...(doctorSessionId ? { doctor_session_id: doctorSessionId } : {}),
+            ...(logsFile ? { logs_file: logsFile } : {}),
+            ...(attachments.length ? { attachments } : {}),
+          },
+          bodySerializer: (body) => {
+            const form = new FormData();
+            for (const [key, value] of Object.entries(
+              body as Record<string, unknown>,
+            )) {
+              if (value == null) {
+                continue;
               }
-              continue;
+              if (key === "attachments" && Array.isArray(value)) {
+                for (const file of value) {
+                  form.append("attachments", file as Blob);
+                }
+                continue;
+              }
+              if (value instanceof Blob) {
+                form.append(key, value);
+              } else {
+                form.append(key, String(value));
+              }
             }
-            if (value instanceof Blob) {
-              form.append(key, value);
-            } else {
-              form.append(key, String(value));
-            }
-          }
-          return form;
-        },
-      });
+            return form;
+          },
+        });
+      try {
+        await submitFeedback(feedbackClient);
+      } catch (err) {
+        if (
+          feedbackClient !== "android" ||
+          !isFeedbackClientValidationError(err)
+        ) {
+          throw err;
+        }
+        await submitFeedback("web");
+      }
       onSubmitted?.();
       onClose();
     } catch (err) {
@@ -1039,7 +1043,7 @@ export function ShareFeedbackModal({
               <span className="text-body-medium-lighter text-[var(--content-default)]">
                 Time range
               </span>
-              <Dropdown
+              <Select
                 options={TIME_RANGE_OPTIONS}
                 value={logTimeRange}
                 onChange={setLogTimeRange}
@@ -1155,7 +1159,7 @@ export function ShareFeedbackModal({
                     </Tooltip>
                   </div>
                   {includeLogs && (
-                    <Dropdown
+                    <Select
                       options={TIME_RANGE_OPTIONS}
                       value={logTimeRange}
                       onChange={setLogTimeRange}

@@ -6,15 +6,13 @@
  * `{"error":{"message":"..."}}`. This picks the most specific signal available:
  * a structured stderr error, else the last stderr line, else the ack message.
  *
- * Pure and dependency-free.
+ * Pure; the only dependency is the shared escape-sequence strip.
  */
 
-// CSI escape sequences (colour codes, cursor moves) that adapters interleave
-// with their log lines: ESC `[`, parameter/intermediate bytes, then final byte.
-const ANSI_ESCAPE = /\u001B\[[0-?]*[ -/]*[@-~]/g;
+import { stripAnsiSequences } from "../util/ansi.js";
 
 export function deriveFailureError(ackMessage: string, stderr: string): string {
-  const clean = stderr.replace(ANSI_ESCAPE, "").trim();
+  const clean = stripAnsiSequences(stderr).trim();
 
   // Most precise: a structured adapter error — prefer it over the ack.
   const jsonMessage = lastJsonErrorMessage(clean);

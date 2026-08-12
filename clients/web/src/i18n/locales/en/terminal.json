@@ -1,0 +1,23 @@
+{
+  "terminalToolbar": {
+    "heading": "Terminal",
+    "recoveryTitle": "Recovery Mode active, session connected to the debug terminal",
+    "recoveryTag": "Recovery",
+    "clearTitle": "Clear terminal output",
+    "clear": "Clear",
+    "disconnectTitle": "Disconnect terminal session",
+    "disconnect": "Disconnect",
+    "connectTitle": "Connect terminal session",
+    "connect": "Connect",
+    "statusAria": "Terminal status: {status}"
+  },
+  "terminalStatus": {
+    "idle": "Idle",
+    "connecting": "Connecting",
+    "connected": "Connected",
+    "reconnecting": "Reconnecting",
+    "error": "Error",
+    "closed": "Closed"
+  },
+  "terminalConsole": { "consoleAria": "Terminal console" }
+}

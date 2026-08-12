@@ -52,6 +52,32 @@ export interface ChannelInfo {
 }
 
 /**
+ * Source that contributes a channel, in the `<kind>[:<id>]` form the tool
+ * catalog and process tree already use: `default` for one the assistant ships,
+ * `plugin:<name>` for one an installed plugin brings.
+ *
+ * Composed from the plugin's install directory rather than from anything it
+ * declares, so a manifest cannot claim to be another source or pass itself off
+ * as built in.
+ */
+export type ChannelSource = "default" | `plugin:${string}`;
+
+/**
+ * A channel as `/v1/channels/available` reports it: the display metadata plus
+ * where it came from.
+ *
+ * `id` widens to a string here because a plugin channel's id is its plugin
+ * name, which is not a member of the closed {@link ChannelId} union. The union
+ * still governs everything the assistant routes, verifies and applies
+ * admission policy to; `source` is what tells a client which kind it is
+ * holding, so nothing has to infer it from the id.
+ */
+export interface AvailableChannel extends Omit<ChannelInfo, "id"> {
+  id: string;
+  source: ChannelSource;
+}
+
+/**
  * Per-channel display metadata for the channels the gateway can currently
  * surface to clients. Add an entry here when surfacing a new channel via
  * `/v1/channels/available`. `Partial` because unsurfaced channels (e.g.
@@ -155,6 +181,10 @@ export const INTERFACE_IDS = [
   // device/service callbacks). Non-interactive — permission prompts route
   // through the guardian system, not an interactive client — and non-host-proxy.
   "route",
+  // Turns a plugin-brought channel delivered through the gateway. One id for
+  // every plugin, matching the `plugin` channel; which plugin it was is in
+  // `sourceMetadata.plugin`.
+  "plugin",
 ] as const;
 
 export type InterfaceId = (typeof INTERFACE_IDS)[number];
@@ -207,7 +237,13 @@ export function parseInterfaceId(value: unknown): InterfaceId | null {
  * than polluting the interface vocabulary. Drives only the per-turn
  * `client_os` context line (e.g. app-builder mobile-first for `ios`/`android`).
  */
-export const CLIENT_OS_VALUES = ["web", "ios", "macos", "android"] as const;
+export const CLIENT_OS_VALUES = [
+  "web",
+  "ios",
+  "macos",
+  "windows",
+  "android",
+] as const;
 
 export type ClientOs = (typeof CLIENT_OS_VALUES)[number];
 

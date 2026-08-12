@@ -19,7 +19,9 @@ export function CopyButton({
   ariaLabel,
   className,
 }: CopyButtonProps): ReactNode {
-  const { copy, copied } = useCopyToClipboard();
+  const { copy, copied } = useCopyToClipboard({
+    errorMessage: "Could not copy to the clipboard.",
+  });
 
   return (
     <Button

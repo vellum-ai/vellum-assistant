@@ -59,7 +59,7 @@ import {
   resetRunningJobsToPending,
   SLOW_LLM_JOB_TYPES,
 } from "../../../persistence/jobs-store.js";
-import type { JobHandler } from "../../types.js";
+import { isJobQueueResolution, type JobHandler } from "../../types.js";
 import { sweepOrphanConversationMemoryTables } from "./conversation-memory-orphan-sweep.js";
 import { getLogger } from "./logging.js";
 import { sweepOrphanMemoryRetrospectiveConversations } from "./memory-retrospective-startup-cleanup.js";
@@ -425,8 +425,8 @@ export async function runMemoryJobsOnce(
     let groupProcessed = 0;
     for (const job of group) {
       try {
-        await processJob(job, config);
-        completeMemoryJob(job.id);
+        const resolution = await processJob(job, config);
+        applyQueueResolution(job, resolution);
         groupProcessed += 1;
       } catch (err) {
         try {
@@ -654,10 +654,55 @@ function handleJobError(job: MemoryJob, err: unknown): void {
 
 // ── Job dispatch ───────────────────────────────────────────────────
 
+/**
+ * Apply a handler's returned {@link JobQueueResolution} to its claimed row.
+ * Handlers that return anything else resolve as `completed` (the historical
+ * contract: failure is signaled by throwing). This is the worker's half of
+ * the outcome-truthfulness boundary: the persisted `memory_jobs.status` must
+ * reflect the handler's actual outcome, so a handler that reports failure
+ * through a returned value (e.g. the retrospective's `wake_failed`, the
+ * consolidation's `run_failed`) dead-letters or retries instead of silently
+ * completing.
+ */
+function applyQueueResolution(job: MemoryJob, resolution: unknown): void {
+  if (!isJobQueueResolution(resolution)) {
+    completeMemoryJob(job.id);
+    return;
+  }
+  switch (resolution.queueResolution) {
+    case "completed": {
+      completeMemoryJob(job.id);
+      return;
+    }
+    case "failed": {
+      failMemoryJob(job.id, resolution.errorMessage ?? "handler failed", {
+        maxAttempts: 1,
+      });
+      return;
+    }
+    case "retryable": {
+      failMemoryJob(job.id, resolution.errorMessage ?? "handler failed", {
+        retryDelayMs:
+          resolution.retryDelayMs ?? retryDelayForAttempt(job.attempts + 1),
+        maxAttempts: RETRY_MAX_ATTEMPTS,
+      });
+      return;
+    }
+    case "deferred": {
+      deferMemoryJob(job.id, {
+        ...(resolution.deferralExhaustedMessage
+          ? { exhaustedMessage: resolution.deferralExhaustedMessage }
+          : {}),
+      });
+      return;
+    }
+  }
+}
+
 async function processJob(
   job: MemoryJob,
   config: AssistantConfig,
-): Promise<void> {
+): Promise<unknown> {
   // Dispatch-level half of the v1-staleness guard, on the same condition the
   // handler-level half uses (`isStaleV1GraphJob` in `job-handlers.ts`): v1 work
   // runs only while v1 is the live tier, which memory being off is not (see
@@ -674,8 +719,7 @@ async function processJob(
   }
   const handler = jobHandlers.get(job.type);
   if (handler) {
-    await handler(job, config);
-    return;
+    return await handler(job, config);
   }
 
   const rawType = (job as { type: string }).type;
@@ -879,6 +923,12 @@ export const RETROSPECTIVE_SWEEP_CHECKPOINT = "retro_sweep:last_run";
  * Deduped against an in-flight sweep so a slow scan can't stack copies; the
  * checkpoint still advances in that case to hold the cadence steady.
  *
+ * `memory.retrospective.enabled` is checked here as well as inside the
+ * enqueue funnel, so a disabled retrospective costs no scan at all rather
+ * than a full conversation scan whose every enqueue is then declined. The
+ * checkpoint is left untouched while disabled, so re-enabling fires the
+ * first sweep on the next tick, which is the desired catch-up.
+ *
  * Exported for tests; the worker calls it on every idle/drain tick. Returns
  * true if a sweep job was enqueued this call.
  */
@@ -887,6 +937,10 @@ export function maybeEnqueueRetrospectiveSweepJob(
   nowMs = Date.now(),
 ): boolean {
   if (!isMemoryEnabled(config)) {
+    return false;
+  }
+
+  if (!config.memory.retrospective.enabled) {
     return false;
   }
 

@@ -17,6 +17,7 @@ import type {
 import { consumeGrantForInvocation } from "../approvals/approval-primitive.js";
 import type {
   ChannelId,
+  ClientOs,
   InterfaceId,
   TurnChannelContext,
   TurnInterfaceContext,
@@ -33,6 +34,7 @@ import {
   recordConversationPersistedSeq,
   updateMessageContent,
 } from "../persistence/conversation-crud.js";
+import { pinnedListeningLanguage } from "../providers/speech-to-text/provider-catalog.js";
 import type { ContentBlock } from "../providers/types.js";
 import { broadcastMessage } from "../runtime/assistant-event-hub.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
@@ -53,6 +55,7 @@ import {
   stripInternalSpeechMarkers,
 } from "./voice-control-protocol.js";
 import {
+  createFrontDoorStreamGate,
   escalatedContinuationRule,
   ESCALATION_CONTINUATION_CONTENT,
   frontDoorCapabilityDigest,
@@ -265,6 +268,22 @@ export interface VoiceTurnOptions {
   userMessageInterface?: InterfaceId;
   /** Source interface for persisted assistant messages. Defaults to userMessageInterface. */
   assistantMessageInterface?: InterfaceId;
+  /**
+   * Analytics attribution for a live-voice turn: which client opened the
+   * session, and that session's id. Persisted into the user message's
+   * `metadata.client` bag, which `turn-events-store` projects onto
+   * `TurnTelemetryEvent.client`, so a live-voice turn is countable per client
+   * and joinable to its session's start/end funnel rows.
+   *
+   * Deliberately separate from {@link userMessageInterface}: that field feeds
+   * `resolveChannelCapabilities` and decides what the turn may do, so it is not
+   * free to carry attribution. Absent for phone calls and for clients that send
+   * no identity on the start frame.
+   */
+  voiceTelemetry?: {
+    sessionId: string;
+    client?: ClientOs;
+  };
   /** Per-turn control prompt. Undefined uses the phone prompt; null disables it. */
   voiceControlPrompt?: string | null;
   /** The transcribed caller utterance or synthetic marker. */
@@ -390,18 +409,6 @@ export interface VoiceTurnHandle {
  * provides assistant identity) and guardian context (injected separately).
  */
 /**
- * Steering shared by every voice channel. A sign-in flow opens a browser
- * window mid-call that the caller may be unable to see or complete, whether it
- * is reached through a ui-surface tool or through shell and CLI tools (e.g.
- * `assistant oauth connect`). Tell the model to speak the limitation and defer
- * the flow to text chat instead.
- *
- * This outlives the ui-surface restriction it was written alongside: a
- * live-voice call can now show surfaces, but a browser window handing control
- * to a third party mid-call is a different problem, and one a minimized room
- * does not solve.
- */
-/**
  * How long a live-voice call waits on an approval before deciding it itself.
  *
  * Long enough to pick the phone up and read the card, short enough that a turn
@@ -411,8 +418,49 @@ export interface VoiceTurnHandle {
  */
 const VOICE_APPROVAL_TIMEOUT_MS = 45_000;
 
-export const VOICE_NO_SETUP_FLOWS_RULE =
-  "Never start account connections, OAuth or sign-in flows, or any other action that opens a browser window or needs the user's screen during this call — not even through shell or CLI tools. If the task needs one, say so briefly and offer to finish it in text chat after the call.";
+/**
+ * Telephony-only steering. A sign-in flow opens a browser window on a screen
+ * the caller does not have in front of them, whether it is reached through a
+ * ui-surface tool or through shell and CLI tools (e.g. `assistant oauth
+ * connect`). Tell the model to speak the limitation and defer the flow to text
+ * chat instead.
+ *
+ * Scoped to the phone because the screen is what decides it. A phone call has
+ * no screen, so the `open_url` signal a CLI tool can reach lands somewhere the
+ * caller will never see, and that signal bus carries no capability or
+ * conversation context, so this rule is the only thing standing in front of it
+ * here. A live-voice call is the opposite case: the user is holding the screen,
+ * and the room minimizes itself to hand it back (see
+ * LIVE_VOICE_SETUP_FLOW_TEACHING).
+ */
+const PHONE_NO_SETUP_FLOWS_RULE =
+  "Never start account connections, OAuth or sign-in flows, or any other action that opens a browser window or needs the user's screen during this call, not even through shell or CLI tools. If the task needs one, say so briefly and offer to finish it in text chat after the call.";
+
+/**
+ * The pre-speech tail of the speak-the-caller's-language rule. A monolingual
+ * `services.stt.language` pin is the strongest pre-speech signal of the
+ * caller's language (the transcriber is already listening in it, see
+ * media-stream-stt-session.ts and providers/speech-to-text/resolve.ts), so it
+ * outranks the English default; "multi" and unset mean auto-detect, where
+ * English remains the fallback. The pin only counts when the active provider
+ * honors manual language selection (see pinnedListeningLanguage):
+ * auto-detecting providers (gemini, whisper) ignore a persisted language
+ * entirely, so greeting in it would contradict what the transcriber
+ * actually hears. Exported for tests: the default test config exercises
+ * only the auto-detect branch.
+ */
+export function preSpeechLanguageRuleFragment(
+  sttLanguage: string | undefined,
+  sttProvider?: string,
+): string {
+  const configuredListeningLanguage =
+    sttProvider !== undefined
+      ? pinnedListeningLanguage(sttProvider, sttLanguage)
+      : undefined;
+  return configuredListeningLanguage
+    ? `use the language the Task context implies, if any; otherwise open in the assistant's configured listening language ("${configuredListeningLanguage}"), and default to English only when neither gives a language`
+    : "use the language the Task context implies, if any; otherwise default to English";
+}
 
 function buildVoiceCallControlPrompt(opts: {
   isInbound: boolean;
@@ -506,16 +554,17 @@ function buildVoiceCallControlPrompt(opts: {
     "9. After the opening greeting turn, treat the Task field as background context only — do not re-execute its instructions on subsequent turns.",
     '10. Do not make up information. If you are unsure, use [ASK_GUARDIAN: your question] to consult your guardian. For tool permission requests, use [ASK_GUARDIAN_APPROVAL: {"question":"...","toolName":"...","input":{...}}].',
     `11. Your text is sent directly to a text-to-speech engine. Never use markdown formatting (asterisks, headers, backticks, links) or emojis in your spoken responses. Write plain conversational text only. Protocol markers like ${opts.isCallerGuardian ? "[END_CALL]" : "[ASK_GUARDIAN: ...] and [END_CALL]"} are not spoken text and should still be used normally.`,
-    `12. ${VOICE_NO_SETUP_FLOWS_RULE}`,
+    `12. Speak the caller's language: reply in the language of the caller's most recent actual speech, and follow them if they switch languages mid-call. Synthetic user turns (parenthetical markers like the call-connected and verification-completed notices) are not caller speech and never set the language. Before the caller has spoken, such as on the opening greeting turn, ${preSpeechLanguageRuleFragment(config.services.stt.language, config.services.stt.provider)}.`,
+    `13. ${PHONE_NO_SETUP_FLOWS_RULE}`,
   );
 
   // Triage-and-escalate routing rules. The front-door leg decides and may
   // hand off; the escalated leg continues the answer after a holding phrase
   // was already spoken.
   if (opts.routingLeg === "front-door") {
-    lines.push(`13. ${frontDoorRuleWithDigest(opts.unifiedVerdict === true)}`);
+    lines.push(`14. ${frontDoorRuleWithDigest(opts.unifiedVerdict === true)}`);
   } else if (opts.routingLeg === "escalated") {
-    lines.push(`13. ${escalatedContinuationRule(opts.spokenEscalationBridge)}`);
+    lines.push(`14. ${escalatedContinuationRule(opts.spokenEscalationBridge)}`);
   }
 
   lines.push("</voice_call_control>");
@@ -945,6 +994,27 @@ export async function startVoiceTurn(
         // `isVoiceSessionUserMessage` for why the channel fields cannot carry it.
         voiceSessionTurn: true,
         ...(isHiddenSyntheticPrompt ? { hidden: true } : {}),
+        ...(opts.voiceTelemetry
+          ? {
+              // Projected onto `TurnTelemetryEvent.client` by
+              // `turn-events-store`. `voice_session_id` is what joins these
+              // turn rows to the session's funnel rows, so a session's turn
+              // count is a count of rows carrying its id, never a field
+              // anyone has to keep correct.
+              //
+              // `os` is the standard per-platform dimension the HTTP send
+              // path already fills from the same `detectClientOs()` value, so
+              // a voice turn reports its platform in the column existing turn
+              // analytics read rather than one only voice knows about.
+              client: {
+                voice: true,
+                voice_session_id: opts.voiceTelemetry.sessionId,
+                ...(opts.voiceTelemetry.client
+                  ? { os: opts.voiceTelemetry.client }
+                  : {}),
+              },
+            }
+          : {}),
       },
     });
     return persistResult.id;
@@ -1381,6 +1451,34 @@ export async function startVoiceTurn(
   // Set by the handle's discard(): the whole leg must leave no trace.
   let discarded = false;
 
+  // Verdict-first gate on the hub broadcast. A front-door leg's raw stream
+  // carries its routing verdict, so hub subscribers (web, passive devices)
+  // read it through the gate and see only the text the caller heard. Every
+  // other leg, including the escalated continuation that answers for real,
+  // broadcasts its deltas untouched.
+  const frontDoorStreamGate =
+    opts.routingLeg === "front-door"
+      ? createFrontDoorStreamGate(opts.unifiedVerdict === true)
+      : null;
+
+  /**
+   * Broadcast one agent-loop event to hub subscribers, holding a front-door
+   * leg's control-plane text back at the boundary rather than emitting it and
+   * repairing the transcript afterwards. Text released by the gate travels as
+   * an ordinary delta on the leg's own reserved row, so a client that renders
+   * the stream lands on the same text the teardown hygiene pass persists.
+   */
+  const broadcastLegEvent = (msg: AssistantEvent): void => {
+    if (frontDoorStreamGate === null || msg.type !== "assistant_text_delta") {
+      broadcastMessage(msg);
+      return;
+    }
+    const released = frontDoorStreamGate.push(msg.text);
+    if (released.length > 0) {
+      broadcastMessage({ ...msg, text: released });
+    }
+  };
+
   /**
    * Teardown transcript hygiene. Runs after the agent loop has fully
    * settled — including the stranded-content fold that finalizes an aborted
@@ -1408,6 +1506,12 @@ export async function startVoiceTurn(
    * the escalated leg — blocked on this turn's teardown — snapshots it, so
    * the quality model never sees the marker text either. Best-effort: a
    * hiccup here must not escalate into a turn-level failure.
+   *
+   * This pass owns the PERSISTED row, which the agent loop writes from the
+   * model's raw output regardless of what was broadcast. The live hub stream
+   * is gated separately by `broadcastLegEvent`, so the refetch this pass
+   * publishes confirms text a subscriber already holds instead of correcting
+   * it.
    */
   const finalizeVoiceLegTranscript = async (): Promise<void> => {
     if (reservedAssistantRowId == null) {
@@ -1551,7 +1655,24 @@ export async function startVoiceTurn(
           } else if (msg.type === "conversation_error") {
             lastError = msg.userMessage;
           }
-          broadcastMessage(msg);
+          if (frontDoorStreamGate !== null && msg.type === "message_complete") {
+            // A leg that completed mid-bridge (a holding phrase with no
+            // sentence terminator) still hands off and speaks what arrived,
+            // so release it ahead of the completion frame. A cancelled leg
+            // never hands off, and correspondingly never flushes.
+            const trailing = frontDoorStreamGate.finish();
+            if (trailing.length > 0) {
+              broadcastMessage({
+                type: "assistant_text_delta",
+                text: trailing,
+                ...(reservedAssistantRowId !== null
+                  ? { messageId: reservedAssistantRowId }
+                  : {}),
+                conversationId: opts.conversationId,
+              });
+            }
+          }
+          broadcastLegEvent(msg);
 
           // Forward voice-relevant events to the real-time event sink
           if (msg.type === "assistant_text_delta") {

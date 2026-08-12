@@ -31,13 +31,7 @@
  * each hook through the hook loader on demand.
  */
 
-import {
-  existsSync,
-  readdirSync,
-  readFileSync,
-  realpathSync,
-  statSync,
-} from "node:fs";
+import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 
 import type { Logger } from "pino";
@@ -72,6 +66,7 @@ import {
   listSurfaceDir,
   parsePluginManifest,
 } from "./external-plugin-loader.js";
+import { isInsidePluginRoot } from "./installed-plugin-dirs.js";
 import { snapshotPluginSource } from "./source-fingerprint.js";
 import type { PluginSourceVersion } from "./source-versions.js";
 import {
@@ -293,6 +288,30 @@ export async function reconcilePluginSourcesNow(): Promise<void> {
     } catch (err) {
       log.error({ err }, "imperative plugin reconcile failed");
     }
+    // Converge plugin-declared schedules against the plugin set this apply
+    // just settled, so install/uninstall/upgrade arm and disarm rows in the
+    // same poke. Imported lazily to keep the notification pipeline out of
+    // this module's static graph (sidecar workers import it for hook reads).
+    // Self-contained: never throws and checks DB readiness itself.
+    try {
+      const { reconcilePluginSchedules } =
+        await import("../schedule/plugin-schedule-reconciler.js");
+      await reconcilePluginSchedules();
+    } catch (err) {
+      log.error({ err }, "plugin schedule reconcile failed");
+    }
+    // Converge plugin-declared MCP servers the same way, so an install
+    // brings its `mcp.json` servers up and an uninstall/disable takes their
+    // connected clients and registered tools back down. Reloads only when
+    // the declared set actually moved. Lazily imported for the same reason
+    // as the schedule reconciler, and equally self-contained.
+    try {
+      const { reconcilePluginMcpServers } =
+        await import("../daemon/mcp-reload-service.js");
+      await reconcilePluginMcpServers();
+    } catch (err) {
+      log.error({ err }, "plugin MCP reconcile failed");
+    }
   })().finally(() => {
     reconcileInFlight = null;
   });
@@ -306,32 +325,26 @@ export async function reconcilePluginSourcesNow(): Promise<void> {
  * never dynamically imports code from outside the designated plugin roots,
  * regardless of what the collector walked.
  *
- * Uses `realpathSync` to resolve symlinks before the prefix check, so a
- * symlinked path that looks like it's under the plugins dir but points
- * elsewhere is rejected.
+ * Containment runs through {@link isInsidePluginRoot}, which resolves the
+ * candidate and the root, so a symlinked path that looks like it's under the
+ * plugins dir but points elsewhere is rejected while a plugins dir reached
+ * through a symlinked path component still accepts its own children.
  */
 function isAllowedPluginDir(
   dir: string,
   pluginsDir: string,
   hooksDir: string,
 ): boolean {
-  let resolved: string;
-  try {
-    resolved = realpathSync(dir);
-  } catch {
-    // Directory doesn't exist or is inaccessible — allow it through so
-    // bringUpPlugin/parsePluginManifest can log the normal failure. The
+  if (!existsSync(dir)) {
+    // Directory doesn't exist or is inaccessible: allow it through so
+    // bringUpPlugin/parsePluginManifest can log the normal failure, and so a
+    // directory that just went away still reaches its teardown branch. The
     // danger is importing code from an unexpected location, not a missing
     // directory.
     return true;
   }
-  const normalizedPluginsDir = pluginsDir + "/";
-  const normalizedHooksDir = hooksDir + "/";
   return (
-    resolved === pluginsDir ||
-    resolved.startsWith(normalizedPluginsDir) ||
-    resolved === hooksDir ||
-    resolved.startsWith(normalizedHooksDir)
+    isInsidePluginRoot(dir, pluginsDir) || isInsidePluginRoot(dir, hooksDir)
   );
 }
 
@@ -752,6 +765,17 @@ async function scanPlugins(): Promise<void> {
         continue;
       }
     } catch {
+      continue;
+    }
+    // Judge the entry by where it resolves. A symlinked plugin root pointing
+    // out of the plugins directory is not an install, and activating one at
+    // boot would run code that enumeration and the reload path both refuse to
+    // touch.
+    if (!isInsidePluginRoot(pluginDir, pluginsDir)) {
+      log.warn(
+        { pluginDir },
+        "plugin root resolves outside the plugins directory, skipping",
+      );
       continue;
     }
     if (!existsSync(join(pluginDir, "package.json"))) {

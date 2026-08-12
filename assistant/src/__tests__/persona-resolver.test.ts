@@ -63,6 +63,8 @@ function seedVellumGuardian(userFile: string | null): void {
 
 mock.module("../util/platform.js", () => ({
   getWorkspaceDir: () => mockWorkspaceDir,
+  getWorkspacePromptPath: (filename: string) =>
+    join(mockWorkspaceDir, "prompts", filename),
 }));
 
 mock.module("../contacts/contact-store.js", () => ({
@@ -96,6 +98,7 @@ mock.module("../contacts/guardian-delivery-reader.js", () => ({
 // Import AFTER mocks so the module under test binds to the stubbed
 // implementations.
 import { getGuardianDelivery } from "../contacts/guardian-delivery-reader.js";
+import { resolveUserName } from "../daemon/identity-helpers.js";
 import type { TrustContext } from "../daemon/trust-context-types.js";
 import {
   ensureGuardianPersonaFile,
@@ -406,5 +409,156 @@ describe("resolveUserSlug (guardian trust WITH requester identity)", () => {
     } as TrustContext;
 
     expect(resolveUserSlug(trustContext)).toBeNull();
+  });
+});
+
+// ── resolveUserSlug — guardian bound on a non-vellum channel ───────
+//
+// warmGuardianBindings warms both the channel-filtered and unfiltered cache
+// keys, but a guardian may be bound only on a non-vellum channel (phone,
+// Telegram). A guardian-class turn sourced elsewhere must still resolve that
+// guardian instead of silently landing on users/default.md.
+
+describe("resolveUserSlug (guardian bound on a non-vellum channel)", () => {
+  test("falls back to the any-channel guardian when the source channel has none", () => {
+    mockGuardianDeliveries = [
+      { channelType: "telegram", address: "guardian-tg", status: "active" },
+    ];
+    mockContactsByAddress["telegram:guardian-tg"] = { userFile: "alice.md" };
+
+    const trustContext = {
+      sourceChannel: "vellum",
+      trustClass: "guardian",
+    } as TrustContext;
+
+    expect(resolveUserSlug(trustContext)).toBe("alice");
+  });
+
+  test("any-channel guardian with no userFile resolves the guardian.md fallback", () => {
+    mockGuardianDeliveries = [
+      { channelType: "telegram", address: "guardian-tg", status: "active" },
+    ];
+    mockContactsByAddress["telegram:guardian-tg"] = { userFile: null };
+
+    const trustContext = {
+      sourceChannel: "vellum",
+      trustClass: "guardian",
+    } as TrustContext;
+
+    expect(resolveUserSlug(trustContext)).toBe("guardian");
+  });
+});
+
+// ── resolveUserSlug — cold cache then construction-time warm ───────
+//
+// The exact shape scheduled tasks and memory consolidation pass through
+// resolveInitialSystemPrompt: guardian class, no requester identity, built in
+// a worker process whose guardian-delivery cache starts cold.
+
+describe("resolveUserSlug (cold cache, background shape)", () => {
+  test("misses on a cold cache, resolves the guardian after the construction-time warm", async () => {
+    pendingWarmDeliveries = [
+      { channelType: "vellum", address: "vellum:self", status: "active" },
+    ];
+    mockContactsByAddress["vellum:vellum:self"] = { userFile: "alice.md" };
+
+    const trustContext = {
+      sourceChannel: "vellum",
+      trustClass: "guardian",
+    } as TrustContext;
+
+    // Cold: the sync peek finds nothing and the slug falls back to default.
+    expect(resolveUserSlug(trustContext)).toBeNull();
+
+    // resolveInitialSystemPrompt warms guardian bindings for guardian-class
+    // contexts before building; afterwards the same resolution succeeds.
+    await getGuardianDelivery({ channelTypes: ["vellum"] });
+
+    expect(resolveUserSlug(trustContext)).toBe("alice");
+  });
+});
+
+// ── resolveUserName — guardian-preferred display name ──────────────
+//
+// The sweep job and v2 router address the user by name in their prompts. The
+// name must come from the guardian's own persona file when one is resolvable,
+// falling back to users/default.md.
+
+describe("resolveUserName", () => {
+  test("prefers the Name label from the guardian's own persona file over default.md", () => {
+    seedVellumGuardian("alice.md");
+    const usersDir = join(mockWorkspaceDir, "users");
+    mkdirSync(usersDir, { recursive: true });
+    writeFileSync(join(usersDir, "alice.md"), "**Name:** Alice\n", "utf-8");
+    writeFileSync(
+      join(usersDir, "default.md"),
+      "**Name:** Default User\n",
+      "utf-8",
+    );
+
+    expect(resolveUserName(mockWorkspaceDir)).toBe("Alice");
+  });
+
+  test("reads the onboarding-written Preferred name bullet", () => {
+    seedVellumGuardian("alice.md");
+    const usersDir = join(mockWorkspaceDir, "users");
+    mkdirSync(usersDir, { recursive: true });
+    writeFileSync(
+      join(usersDir, "alice.md"),
+      "# User Profile\n\n## Onboarding Context\n\n- **Preferred name:** Ali\n",
+      "utf-8",
+    );
+
+    expect(resolveUserName(mockWorkspaceDir)).toBe("Ali");
+  });
+
+  test("reads the scaffold's filled Preferred name/reference line", () => {
+    seedVellumGuardian("alice.md");
+    const usersDir = join(mockWorkspaceDir, "users");
+    mkdirSync(usersDir, { recursive: true });
+    writeFileSync(
+      join(usersDir, "alice.md"),
+      "- Preferred name/reference: Alice\n- Pronouns: she/her\n",
+      "utf-8",
+    );
+
+    expect(resolveUserName(mockWorkspaceDir)).toBe("Alice");
+  });
+
+  test("an unfilled scaffold does not swallow the next line and falls back to default.md", () => {
+    seedVellumGuardian("alice.md");
+    const usersDir = join(mockWorkspaceDir, "users");
+    mkdirSync(usersDir, { recursive: true });
+    // The bare scaffold: every label present, every value unfilled.
+    ensureGuardianPersonaFile("alice.md");
+    writeFileSync(join(usersDir, "default.md"), "**Name:** Bob\n", "utf-8");
+
+    expect(resolveUserName(mockWorkspaceDir)).toBe("Bob");
+  });
+
+  test("a declined_by_user sentinel is not used as a name", () => {
+    seedVellumGuardian("alice.md");
+    const usersDir = join(mockWorkspaceDir, "users");
+    mkdirSync(usersDir, { recursive: true });
+    writeFileSync(
+      join(usersDir, "alice.md"),
+      "- Preferred name/reference: declined_by_user\n",
+      "utf-8",
+    );
+    writeFileSync(join(usersDir, "default.md"), "**Name:** Bob\n", "utf-8");
+
+    expect(resolveUserName(mockWorkspaceDir)).toBe("Bob");
+  });
+
+  test("falls back to default.md when no guardian resolves", () => {
+    const usersDir = join(mockWorkspaceDir, "users");
+    mkdirSync(usersDir, { recursive: true });
+    writeFileSync(join(usersDir, "default.md"), "**Name:** Bob\n", "utf-8");
+
+    expect(resolveUserName(mockWorkspaceDir)).toBe("Bob");
+  });
+
+  test("returns null when neither file yields a name", () => {
+    expect(resolveUserName(mockWorkspaceDir)).toBeNull();
   });
 });

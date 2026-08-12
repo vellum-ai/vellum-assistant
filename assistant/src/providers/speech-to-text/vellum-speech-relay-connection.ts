@@ -59,7 +59,9 @@ export async function resolveSpeechRelayConnection(): Promise<SpeechRelayConnect
     mintToken({
       aud: "vellum-gateway",
       sub: DAEMON_SERVICE_SUB,
-      scope_profile: "gateway_service_v1",
+      // Least-privilege (ATL-1033): this token rides in the dial URL, so it
+      // must open nothing but the speech relay.
+      scope_profile: "speech_relay_v1",
       policy_epoch: CURRENT_POLICY_EPOCH,
       ttlSeconds: RELAY_TOKEN_TTL_SECONDS,
     });

@@ -1427,7 +1427,7 @@ describe("custom profile write normalization (complete overrides)", () => {
   });
 });
 
-describe("call-site override tuning backfill", () => {
+describe("call-site override writes stay sparse", () => {
   const configPatchRoute = ROUTES.find(
     (r) => r.operationId === "config_patch",
   )!;
@@ -1444,7 +1444,11 @@ describe("call-site override tuning backfill", () => {
     seedRawConfig();
   });
 
-  test("PATCH creating a bare { profile } entry backfills shipped tuning", async () => {
+  // The resolver layers `CALL_SITE_DEFAULTS` under the workspace entry, so a
+  // written entry carries only what the user chose. Copying shipped tuning in
+  // here would freeze a snapshot that later changes to call-site-defaults.ts
+  // could never reach.
+  test("a bare { profile } entry is written verbatim, without shipped tuning", async () => {
     await configPatchRoute.handler({
       body: {
         llm: {
@@ -1457,14 +1461,14 @@ describe("call-site override tuning backfill", () => {
     });
     const memoryRouter = savedCallSites().memoryRouter!;
     expect(memoryRouter.profile).toBe("mine");
-    expect(memoryRouter.contextWindow).toEqual({ maxInputTokens: 1_000_000 });
+    expect("contextWindow" in memoryRouter).toBe(false);
     const commitMessage = savedCallSites().commitMessage!;
     expect(commitMessage.profile).toBe("mine");
-    expect(commitMessage.maxTokens).toBe(120);
-    expect(commitMessage.effort).toBe("low");
+    expect("maxTokens" in commitMessage).toBe(false);
+    expect("effort" in commitMessage).toBe(false);
   });
 
-  test("explicit patch values win over shipped tuning on a new entry", async () => {
+  test("explicit patch values are still written", async () => {
     await configPatchRoute.handler({
       body: {
         llm: {
@@ -1474,10 +1478,11 @@ describe("call-site override tuning backfill", () => {
     });
     const saved = savedCallSites().commitMessage!;
     expect(saved.maxTokens).toBe(500);
-    expect(saved.temperature).toBe(0.2);
+    // Not copied from the shipped default: the resolver supplies it.
+    expect("temperature" in saved).toBe(false);
   });
 
-  test("existing entries are never backfilled — customization is preserved", async () => {
+  test("an existing entry's own customization is preserved", async () => {
     rawConfigFixture = {
       llm: { callSites: { recall: { profile: "old", maxTokens: 200 } } },
     };
@@ -1494,10 +1499,9 @@ describe("call-site override tuning backfill", () => {
     const saved = savedCallSites().recall!;
     expect(saved.profile).toBe("mine");
     expect(saved.maxTokens).toBe(200);
-    expect(saved.disableCache).toBeUndefined();
   });
 
-  test("deleting an entry (null) is untouched by the backfill", async () => {
+  test("deleting an entry (null) removes it", async () => {
     rawConfigFixture = {
       llm: { callSites: { recall: { profile: "old" } } },
     };
@@ -1706,5 +1710,57 @@ describe("config invariant flag enrichment", () => {
     for (const profile of Object.values(savedProfiles!)) {
       expect(profile).not.toHaveProperty("invariant");
     }
+  });
+});
+
+describe("provider membership at the write choke point", () => {
+  const configPatchRoute = ROUTES.find(
+    (r) => r.operationId === "config_patch",
+  )!;
+
+  test("a pre-existing unknown provider does not block unrelated writes", async () => {
+    // Read tolerance means a stored entry-name provider is legal on disk;
+    // re-validating it on every write would make all later settings saves
+    // fail with no in-product repair path.
+    rawConfigFixture = {
+      llm: {
+        profiles: {
+          work: {
+            source: "user",
+            provider: "anthropic-work",
+            model: "claude-opus-4-8",
+          },
+        },
+      },
+    };
+    seedRawConfig();
+
+    await configPatchRoute.handler({
+      body: { llm: { callSites: { mainAgent: { maxTokens: 2048 } } } },
+    });
+
+    const llm = loadRawConfig().llm as {
+      callSites?: Record<string, { maxTokens?: number }>;
+      profiles?: Record<string, { provider?: string }>;
+    };
+    expect(llm.callSites?.mainAgent?.maxTokens).toBe(2048);
+    expect(llm.profiles?.work?.provider).toBe("anthropic-work");
+  });
+
+  test("introducing an unknown provider is rejected", async () => {
+    rawConfigFixture = { llm: {} };
+    seedRawConfig();
+
+    await expect(
+      configPatchRoute.handler({
+        body: {
+          llm: {
+            profiles: {
+              rogue: { source: "user", provider: "not-a-provider", model: "m" },
+            },
+          },
+        },
+      }),
+    ).rejects.toThrow(/Invalid provider/);
   });
 });

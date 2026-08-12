@@ -10,18 +10,31 @@
 import { eq } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 
+import type { ChannelId } from "../channels/types.js";
 import { cleanupBootstrapFiles } from "../prompts/bootstrap-cleanup.js";
 import { getCurrentSeq } from "../runtime/assistant-stream-state.js";
 import { getLogger } from "../util/logger.js";
 import { initConversationDir } from "./conversation-disk-view.js";
 import { GENERATING_TITLE } from "./conversation-title-service.js";
+import type { NonScheduledConversationType } from "./conversation-types.js";
 import { getDb } from "./db-connection.js";
 import { conversationKeys, conversations } from "./schema/index.js";
 
 const log = getLogger("conversation-key-store");
 
-/** Set after the first conversation is created so BOOTSTRAP.md is deleted on the second. */
+/**
+ * Set after the first *standard* conversation is created so BOOTSTRAP.md is
+ * deleted on the second. Background creates never touch it.
+ */
 let firstConversationSeen = false;
+
+/**
+ * Test-only reset of the process-global first-conversation flag, so a test file
+ * can replay the "fresh install" sequence more than once.
+ */
+export function _resetFirstConversationSeenForTesting(): void {
+  firstConversationSeen = false;
+}
 
 export interface ConversationKeyMapping {
   id: string;
@@ -142,7 +155,7 @@ export function resolveConversationId(idOrKey: string): string | null {
 export function getOrCreateConversation(
   conversationKey: string,
   opts?: {
-    conversationType?: "standard";
+    conversationType?: NonScheduledConversationType;
     /**
      * Caller-supplied title for the conversation, used only when this call
      * actually creates the row. Treated as a user-set title (`isAutoTitle = 0`)
@@ -150,6 +163,17 @@ export function getOrCreateConversation(
      * untouched. Ignored when the conversation already exists.
      */
     title?: string;
+    /**
+     * The channel this conversation originates on, stamped into
+     * `origin_channel` when this call creates the row.
+     *
+     * This is the principal inbound materialization seam, so it is where a
+     * channel conversation gets its provenance. Callers that resolve a
+     * source channel before reaching here already hold the value; omitting
+     * it leaves the column unset for first-message attribution, which is
+     * what every caller did before this option existed.
+     */
+    origin?: ChannelId;
   },
 ): {
   conversationId: string;
@@ -209,14 +233,16 @@ export function getOrCreateConversation(
       };
     }
 
-    // Delete BOOTSTRAP.md when a non-first conversation is created.
-    // The first conversation is the onboarding one; keep BOOTSTRAP.md
-    // for its entire duration. Any subsequent conversation means
-    // onboarding is over.
-    if (firstConversationSeen) {
-      cleanupBootstrapFiles("new conversation created after onboarding");
+    // The first standard conversation is the onboarding one, so BOOTSTRAP.md
+    // survives its whole duration and any later standard create means
+    // onboarding is over. Background rows stay inert: a hidden side thread
+    // minted before the user's first visible chat must not consume that slot.
+    if (conversationType === "standard") {
+      if (firstConversationSeen) {
+        cleanupBootstrapFiles("new conversation created after onboarding");
+      }
+      firstConversationSeen = true;
     }
-    firstConversationSeen = true;
 
     const now = Date.now();
     const conversationId = uuid();
@@ -245,6 +271,7 @@ export function getOrCreateConversation(
         contextCompactedMessageCount: 0,
         contextCompactedAt: null,
         conversationType,
+        originChannel: opts?.origin ?? null,
       })
       .run();
 
@@ -266,12 +293,13 @@ export function getOrCreateConversation(
         title,
         createdAt: now,
         conversationType,
+        originChannel: opts?.origin ?? null,
       },
     };
   });
 
   if (result.created) {
-    initConversationDir({ ...result.conversation, originChannel: null });
+    initConversationDir(result.conversation);
     // Attribution for every key-materialized conversation: this is the single
     // choke point through which all unseen-key creations flow, and the key
     // shape + caller frames identify the entry point from the log alone. The

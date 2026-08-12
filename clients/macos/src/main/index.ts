@@ -1,18 +1,19 @@
 import "./env-seed";
-import { app, net, protocol, shell } from "electron";
+import { app, net, protocol, session, shell } from "electron";
 import fs from "node:fs/promises";
 import { pathToFileURL } from "node:url";
 import path from "node:path";
 
 import { resolveAppProtocolPath } from "@vellumai/electron-utils/app-protocol";
 import {
+  pairedGatewayTargetsFromLockfile,
   readAllowedGatewayPorts,
   readPairedGatewayTargets,
   resolveLocalConfigFromEnv,
   resolveLockfilePaths,
 } from "@vellumai/local-mode";
 
-import { installAbout, openAboutWindow } from "./about";
+import { installAbout, openAboutWindow } from "./about.client";
 import { installAutoUpdate } from "./auto-update";
 import { APP_HOST, APP_PROTOCOL, BUNDLES_DIR_NAME, VELLUMAPP_PROTOCOL } from "./app-config";
 import { resolveAllowedOrigin } from "./app-origin";
@@ -23,14 +24,17 @@ import { getDeviceId } from "./device-id";
 import { handleSync } from "./ipc";
 import { registerVellumAppProtocol } from "./vellumapp-protocol";
 import {
+  authorizePairedGatewayForwardPlan,
+  executeGatewayForwardPlan,
   planGatewayForward,
   planPairedGatewayForward,
-  type GatewayForwardPlan,
+  type GatewayForwardFetcher,
 } from "./gateway-forward";
 import {
   fetchForwardPlanWithRetry,
   planPlatformForward,
 } from "./platform-forward";
+import { installPairedGatewayRequestGuard } from "./paired-gateway-request-guard";
 import {
   extractDeepLinkFromArgv,
   handleDeepLink,
@@ -52,16 +56,23 @@ import {
 import { installDiagnosticsIpc } from "./diagnostics";
 import { installFeatureFlagsIpc } from "./feature-flags";
 import { installFeedbackIpc } from "./feedback";
-import { installGlobalShortcuts } from "./global-shortcuts";
+import { installGlobalShortcuts } from "./global-shortcuts.client";
 import { installHotkeyHelper } from "./hotkey-helper";
-import { installHotkeysIpc } from "./hotkeys";
-import { installImageContextMenu } from "./image-context-menu";
-import { installTextContextMenu } from "./text-context-menu";
+import { installHotkeysIpc } from "./hotkeys.client";
+import { installImageContextMenu } from "@vellumai/electron-desktop/image-context-menu";
+import { installTextContextMenu } from "@vellumai/electron-desktop/text-context-menu";
 import { installPopoutWindows } from "./popout-window";
 import { installQuickInput } from "./quick-input-window";
-import { installLocalMode, resolveCliInvocation } from "./local-mode";
+import {
+  getPairedGuardianAccessToken,
+  installLocalMode,
+  resolveCliInvocation,
+} from "./local-mode";
 import { installLoginItem, installLoginItemIpc } from "./login-item";
-import { installLockfileWatcher } from "./lockfile-watcher";
+import {
+  getWatchedLockfileSnapshot,
+  installLockfileWatcher,
+} from "./lockfile-watcher";
 import { installHostProxyBridge } from "./host-proxy-router";
 import "./executors/host-bash-executor"; // side-effect: registers host_bash executor
 import log from "./logger";
@@ -83,10 +94,14 @@ import { installPermissionHandler } from "./permissions";
 import { installPermissionsService } from "./permissions-service";
 import { installPowerEvents } from "./power-events";
 import { installIdentityIpc } from "./identity";
+import {
+  installCompanionWindow,
+  syncCompanionSurface,
+} from "./companion-window";
 import { installConnectivityIpc, installStatusIpc } from "./status";
 import { installTextInsertionIpc } from "./textInsertion";
 import { installTray } from "./tray";
-import { hardenedWebPreferences } from "./windows";
+import { installWebContentsSecurity } from "./windows";
 
 // Dev-only: override the workspace `name` (`@vellumai/macos`) so the
 // menu bar's first submenu reads "Vellum Electron", and — more
@@ -233,8 +248,14 @@ const registerAppProtocol = (): void => {
   const lockfilePaths = resolveLockfilePaths(process.env);
   const getAllowedGatewayPorts = (): Set<number> =>
     readAllowedGatewayPorts(lockfilePaths);
-  const getPairedGatewayTargets = (): Map<string, string> =>
-    readPairedGatewayTargets(lockfilePaths);
+  // Prefer the watcher's in-memory snapshot so paired requests never read
+  // disk; the direct read covers only the window before the watcher installs.
+  const getPairedGatewayTargets = (): Map<string, string> => {
+    const watched = getWatchedLockfileSnapshot();
+    return watched
+      ? pairedGatewayTargetsFromLockfile(watched)
+      : readPairedGatewayTargets(lockfilePaths);
+  };
   const { platformUrl } = resolveLocalConfigFromEnv(process.env);
 
   protocol.handle(APP_PROTOCOL, async (request) => {
@@ -249,8 +270,8 @@ const registerAppProtocol = (): void => {
     // Paired remote gateways ride the same-origin path too, via
     // `/assistant/__gateway-paired/{assistantId}/*`: the packaged app's CSP
     // pins `connect-src` to Vellum origins, so the renderer cannot reach a
-    // paired gateway directly. The lockfile's paired entries are the
-    // allowlist.
+    // paired gateway directly. The WebRequest guard admits only trusted app
+    // frames, and the lockfile's paired entries allowlist the remote targets.
     const pairedProxied = await forwardPairedGatewayRequest(
       request,
       getPairedGatewayTargets,
@@ -294,34 +315,8 @@ const fileExists = async (candidate: string): Promise<boolean> => {
   }
 };
 
-/**
- * Turn a gateway forward plan into its effect: `null` on `pass` so the caller
- * serves the request as a static asset, otherwise the plan's rejection or a
- * single `net.fetch` whose streaming `Response` is returned verbatim,
- * preserving SSE and chunked transfers (Electron's `stream: true` scheme
- * privilege). The plan owns the allowlist and header decisions.
- */
-const executeGatewayForwardPlan = (
-  plan: GatewayForwardPlan,
-  request: GlobalRequest,
-): Promise<Response> | Response | null => {
-  switch (plan.kind) {
-    case "pass":
-      return null;
-    case "reject":
-      return new Response(plan.message, { status: plan.status });
-    case "forward":
-      return net.fetch(plan.url, {
-        method: plan.method,
-        headers: plan.headers,
-        body: plan.hasBody ? request.body : undefined,
-        // Stream the request body instead of buffering it; required by the
-        // fetch spec whenever a `ReadableStream` body is supplied.
-        ...(plan.hasBody ? { duplex: "half" } : {}),
-        redirect: "manual",
-      });
-  }
-};
+const gatewayForwardFetcher: GatewayForwardFetcher = (url, init) =>
+  net.fetch(url, init);
 
 /**
  * Forward a gateway data-plane request (`/assistant/__gateway/{port}/*`) to the
@@ -334,7 +329,11 @@ const forwardGatewayRequest = async (
   request: GlobalRequest,
   getAllowedPorts: () => Set<number>,
 ): Promise<Response | null> =>
-  executeGatewayForwardPlan(planGatewayForward(request, getAllowedPorts), request);
+  executeGatewayForwardPlan(
+    planGatewayForward(request, getAllowedPorts),
+    request,
+    gatewayForwardFetcher,
+  );
 
 /**
  * Forward a paired-gateway data-plane request
@@ -346,8 +345,13 @@ const forwardGatewayRequest = async (
 const forwardPairedGatewayRequest = async (
   request: GlobalRequest,
   getTargets: () => Map<string, string>,
-): Promise<Response | null> =>
-  executeGatewayForwardPlan(planPairedGatewayForward(request, getTargets), request);
+): Promise<Response | null> => {
+  const plan = await authorizePairedGatewayForwardPlan(
+    planPairedGatewayForward(request, getTargets),
+    getPairedGuardianAccessToken,
+  );
+  return executeGatewayForwardPlan(plan, request, gatewayForwardFetcher);
+};
 
 const resolvedConfig = resolveLocalConfigFromEnv(process.env);
 handleSync("vellum:config:get", () => ({
@@ -436,6 +440,7 @@ app
 
     if (!isDev) {
       registerAppProtocol();
+      installPairedGatewayRequestGuard();
     }
     registerVellumAppProtocol(
       path.join(app.getPath("userData"), BUNDLES_DIR_NAME),
@@ -477,6 +482,7 @@ app
     installApplicationMenu();
     installQuickInput();
     installDictationOverlay({ onRecordingLifecycle: setDictationRecording });
+    installCompanionWindow();
     installPopoutWindows();
     installGlobalShortcuts();
     // Register the avatar channel before the Dock and Tray install so their
@@ -511,6 +517,16 @@ app
     });
     installNativeAuth();
     installMainWindow();
+
+    // After the main window, so the surface opens over a running app rather
+    // than being the first thing on screen at launch. Present from here on,
+    // unless the user has hidden it from the tray or the flag it is behind is
+    // off: the app being frontmost is not one of its states.
+    //
+    // A launch that finds no flag yet leaves it closed and the window that
+    // opens it later is the app's own, once it has an evaluation to write into
+    // settings.
+    syncCompanionSurface();
 
     // Runs after the main window so the recovery dialog has a window to sit in
     // front of, and so a user who declines lands on a working app rather than
@@ -567,69 +583,10 @@ app.on("web-contents-created", (_event, contents) => {
   installImageContextMenu(contents);
   installTextContextMenu(contents);
 
-  // Mirror renderer console output (info and up) into the main log file.
-  // The packaged app has no devtools, so without this the renderer's
-  // diagnostics — voice/dictation fallback decisions especially — are
-  // invisible in the field; `vellum.log` is the only artifact a debugging
-  // session can read.
-  contents.on("console-message", (event) => {
-    if (event.level === "debug") return;
-    // wc id disambiguates which window a line came from — dictation partials
-    // route to a single owner window, so cross-window confusion is invisible
-    // without it.
-    const line = `[renderer wc=${contents.id}] ${event.message}`;
-    if (event.level === "error") log.error(line);
-    else if (event.level === "warning") log.warn(line);
-    else log.info(line);
-  });
-
-  contents.setWindowOpenHandler(({ url, disposition }) => {
-    // Programmatic popups (`window.open(url, name, features)` with size
-    // hints) come through as `new-window` disposition. The web app's OAuth /
-    // connect flows open a blank popup synchronously during the click handler
-    // (`window.open("", "_blank", "width=500,height=600")`), then navigate it
-    // to the OAuth URL after the API call resolves. Chromium resolves the
-    // empty string to `about:blank`, which must be allowed here so the popup
-    // handle is returned to the renderer for the subsequent postMessage
-    // callback chain.
-    if (disposition === "new-window" && url === "about:blank") {
-      return {
-        action: "allow",
-        overrideBrowserWindowOptions: {
-          webPreferences: { ...hardenedWebPreferences(), preload: undefined },
-        },
-      };
-    }
-
-    // Only http(s) is ever opened — file:, javascript:, custom schemes are
-    // denied with no fallback.
-    let parsed: URL;
-    try {
-      parsed = new URL(url);
-    } catch {
-      return { action: "deny" };
-    }
-    if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
-      return { action: "deny" };
-    }
-
-    // Programmatic popups with a real URL also come through as `new-window`
-    // disposition and are allowed as in-app child windows.
-    if (disposition === "new-window") {
-      // Child popups inherit the same hardened baseline as every window.
-      // `preload: undefined` explicitly clears the parent's preload so
-      // third-party OAuth pages don't get the Vellum bridge.
-      return {
-        action: "allow",
-        overrideBrowserWindowOptions: {
-          webPreferences: { ...hardenedWebPreferences(), preload: undefined },
-        },
-      };
-    }
-
-    // Plain target=_blank link clicks → system browser.
-    void shell.openExternal(url);
-    return { action: "deny" };
+  installWebContentsSecurity(contents, {
+    cookies: () => session.defaultSession.cookies,
+    logger: log,
+    openExternal: (url) => shell.openExternal(url),
   });
 });
 

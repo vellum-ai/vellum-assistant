@@ -46,6 +46,14 @@ export type AppResumeSignal = "visibility" | "app_state" | "online";
 export type AppHiddenSignal = "visibility" | "app_state";
 
 /**
+ * Which checkout a completed Stripe session belongs to: a Pro
+ * subscription upgrade or a credit top-up. Carried on
+ * `deeplink.billingCheckoutComplete`; the deep-link parsers in
+ * `runtime/` share this alias.
+ */
+export type BillingCheckoutFlow = "subscription" | "top_up";
+
+/**
  * Map of bus event name → payload type. New event names are added
  * here so subscribers get exact handler types via the `keyof` lookup.
  */
@@ -86,9 +94,12 @@ export interface BusEventMap {
   "sse.closed": { reason: string };
   /**
    * Published by `useEventStream`'s reachability-retry burst limiter
-   * after the reachability probe flips back to "ready". Tells the bus
-   * to close + reopen its SSE connection so the conversation-scoped
-   * reconcile pass can run.
+   * when the reachability probe recovers into "ready" from a degraded
+   * phase ("connecting", "checking", or "failed"). Tells the bus to
+   * close + reopen its SSE connection so the conversation-scoped
+   * reconcile pass can run. A "ready" entered from "idle" or "ready"
+   * confirms an already-healthy stream (boot, remount) and does not
+   * publish.
    */
   "reachability.retry-requested": Record<string, never>;
   /**
@@ -142,15 +153,21 @@ export interface BusEventMap {
   "deeplink.send": { message: string };
   "deeplink.openThread": { threadId: string };
   /**
-   * Stripe Checkout finished for a checkout the Electron shell started
-   * in the system browser. The platform bounces the browser to
+   * Stripe Checkout finished for a checkout a native shell started
+   * (the Electron shell's system browser or Capacitor iOS's in-app
+   * SFSafariViewController). The platform bounces the browser to
    * `<scheme>://billing/checkout-complete`; the billing domain consumes
-   * this to land the user back on billing (and open the post-checkout
-   * Pro onboarding wizard on success).
+   * this to land the user back on billing. `flow` says which checkout
+   * it was: `subscription` opens the post-checkout Pro onboarding
+   * wizard on success (and the upgrade-cancel page on cancel), while
+   * `top_up` toasts on success and funnels a cancel into the billing
+   * page's server-verified checkout-bonus offer flow. Parsers default
+   * `flow` to `subscription` when the link omits it (all released
+   * clients and current Pro links).
    */
   "deeplink.billingCheckoutComplete":
-    | { status: "success"; sessionId: string }
-    | { status: "cancel"; sessionId: null };
+    | { status: "success"; sessionId: string; flow: BillingCheckoutFlow }
+    | { status: "cancel"; sessionId: null; flow: BillingCheckoutFlow };
   /**
    * The user asked to talk, from outside the SPA:
    * `<scheme>://voice?mode=new|resume&prompt=…`. The single native→SPA
@@ -164,10 +181,24 @@ export interface BusEventMap {
    *
    * `prompt` is what the user already said before the app was up (Siri's
    * "Ask …" intent). It is `null` unless the link carried usable text —
-   * `parseStartVoiceDeepLink` bounds and sanitizes it, so subscribers get
-   * either trustworthy text or nothing.
+   * `parseStartVoiceDeepLink` bounds and sanitizes its shape, but the
+   * scheme proves nothing about the sender, so consumers must treat it as
+   * untrusted: it pre-fills the composer and is never auto-sent, and no
+   * voice session starts for it (see `useGlobalDeepLinkConsumer`).
    */
   "deeplink.startVoice": { mode: "new" | "resume"; prompt: string | null };
+  /**
+   * Electron host only: inbound `<scheme>://connect` URL from the pair
+   * page's "Open in the Vellum app" button or a `vellum pair --qr --app`
+   * QR code. `bundle` is a pairing bundle that prefills the connect
+   * dialog's paste field; it is secret material, so consumers must never
+   * log or breadcrumb it. `url` is the https server base a url+code link
+   * carried (the device-code exchange cannot produce a durable desktop
+   * pairing, so those links get guidance naming the host instead).
+   * `useGlobalDeepLinkConsumer` parks the request in the connect-dialog
+   * store and navigates to the assistant chooser.
+   */
+  "deeplink.connect": { url: string | null; bundle: string | null };
   "deeplink.unknown": { url: string };
   /**
    * Connectivity state change from the Electron host. Main fuses

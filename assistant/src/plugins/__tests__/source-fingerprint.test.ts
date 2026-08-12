@@ -7,6 +7,7 @@
 import {
   mkdirSync,
   mkdtempSync,
+  realpathSync,
   renameSync,
   rmSync,
   symlinkSync,
@@ -20,7 +21,10 @@ import { afterAll, describe, expect, test } from "bun:test";
 
 import { snapshotPluginSource } from "../source-fingerprint.js";
 
-const root = mkdtempSync(join(tmpdir(), "source-fingerprint-"));
+// Resolved: snapshots report realpaths, and the platform temp directory can
+// itself sit behind a link, so an unresolved fixture root would make every
+// fixture path an alias of itself.
+const root = realpathSync(mkdtempSync(join(tmpdir(), "source-fingerprint-")));
 
 afterAll(() => {
   rmSync(root, { recursive: true, force: true });

@@ -96,6 +96,7 @@ import type { OnboardingContext } from "../types/onboarding-context.js";
 import type { AbortReason } from "../util/abort-reasons.js";
 import { UserError } from "../util/errors.js";
 import { getLogger } from "../util/logger.js";
+import { withSqliteRetry } from "../util/sqlite-retry.js";
 import type { WorkspaceGitService } from "../workspace/git-service.js";
 import type { commitTurnChanges } from "../workspace/turn-commit.js";
 import type { AssistantAttachmentDraft } from "./assistant-attachments.js";
@@ -155,7 +156,6 @@ import {
 import type {
   SubagentToolGateMode,
   SubagentToolStats,
-  ToolSetupContext,
   WakeToolContextPin,
 } from "./conversation-tool-setup.js";
 import {
@@ -577,7 +577,7 @@ export class Conversation {
    * When true, side-effect tools must prompt even if a trust/allow rule
    * would auto-allow. Set by non-interactive callers (e.g. non-guardian
    * phone voice) so their auto-deny handler reliably sees a
-   * `confirmation_request` event. See ToolSetupContext.forcePromptSideEffects.
+   * `confirmation_request` event. See `forcePromptSideEffects` below.
    * @internal
    */
   forcePromptSideEffects = false;
@@ -640,7 +640,7 @@ export class Conversation {
   /** @internal */ clientTimezone?: string;
   /**
    * @internal
-   * The client's OS surface ("web" | "ios" | "macos"), reported separately
+   * The client's OS surface, reported separately
    * from the transport `interfaceId` so the assistant's per-turn context can
    * show the real platform without affecting host-proxy/transport gating.
    * This is the LIVE value (re-applied from transport on every inbound
@@ -800,7 +800,7 @@ export class Conversation {
       this.executor,
       this.prompter,
       this.secretPrompter,
-      this as ToolSetupContext,
+      this,
     );
 
     const config = getConfig();
@@ -1599,38 +1599,45 @@ export class Conversation {
    * Mutate the server-authoritative `processing` flag. Web/Capacitor/CLI
    * caches treat this flag as the source of truth for the avatar streaming
    * ring and thinking indicator, so the `true → false` clear must announce
-   * itself: the daemon flips it in the agent-loop `finally`, which runs after
-   * the user-visible terminal SSE events, and a racing metadata refetch can
-   * otherwise re-read the not-yet-cleared `true` and clobber the client's
+   * itself: the daemon flips it once the finished turn's content is settled,
+   * after the user-visible terminal SSE events, and a racing metadata refetch
+   * can otherwise re-read the not-yet-cleared `true` and clobber the client's
    * optimistic `false`.
    *
    * Emitting a metadata invalidation on the clear lets every client GET the
    * authoritative `false`, per the multi-client-sync contract in AGENTS.md
    * ("emit the invalidation after the canonical state write succeeds").
+   *
+   * The two directions have different failure semantics because the in-memory
+   * flag and the persisted column serve different readers. Acquiring is
+   * strict: a failed persist reverts the in-memory flag and re-throws, so the
+   * caller's existing failure handling runs and the two never disagree about a
+   * turn that is starting. Clearing is not: the in-memory flag is the queue
+   * gate this process enforces, while the column is advisory state for
+   * out-of-process readers that the boot-time stale-processing sweep already
+   * recovers. Reverting a clear because a mirror write lost a race with
+   * SQLITE_BUSY would latch the conversation into "busy" for the rest of the
+   * daemon's life, so the clear always sticks.
    */
   setProcessing(value: boolean): void {
     const wasProcessing = this._processing;
     this._processing = value;
     // Persist the cross-process source of truth so out-of-process callers
     // (retrospective CLI, future detached workers) can detect mid-turn state
-    // by reading the conversations row directly. If the write fails (e.g.
-    // SQLITE_BUSY), the persisted column keeps its prior value, so revert the
-    // in-memory flag to match rather than stranding `processing = true` in
-    // memory against a NULL column. Re-throw so callers' existing failure
-    // handling still runs.
-    try {
-      setConversationProcessingStartedAt(
-        this.conversationId,
-        value ? Date.now() : null,
-      );
-    } catch (err) {
-      this._processing = wasProcessing;
-      throw err;
+    // by reading the conversations row directly.
+    if (value) {
+      try {
+        setConversationProcessingStartedAt(this.conversationId, Date.now());
+      } catch (err) {
+        this._processing = wasProcessing;
+        throw err;
+      }
+    } else {
+      this.mirrorProcessingCleared();
     }
     if (!value && this.idleWaiters.size > 0) {
-      // Notify only after the persisted write above committed — a thrown
-      // write reverts the in-memory flag and re-throws, so waiters must not
-      // observe a release that never happened. Copy-and-clear so a waiter
+      // The in-memory flag is the release, so waiters are notified on it
+      // rather than on the advisory mirror write. Copy-and-clear so a waiter
       // registered from inside a notification can't be re-entered.
       const waiters = [...this.idleWaiters];
       this.idleWaiters.clear();
@@ -1643,6 +1650,37 @@ export class Conversation {
         conversationMetadataSyncTag(this.conversationId),
       ]);
     }
+  }
+
+  /**
+   * Mirror a released processing lock into the advisory `processing_started_at`
+   * column, without ever reporting failure back to the release.
+   *
+   * `withSqliteRetry` runs its first attempt synchronously, so the common case
+   * is the same single write the acquire direction performs; only a contended
+   * write falls back to the backoff retries, which run detached. The retry
+   * re-checks the in-memory flag because a new turn may have acquired the lock
+   * (and written its own timestamp) while the backoff slept, and a late clear
+   * would then blank a column that describes a live turn.
+   */
+  private mirrorProcessingCleared(): void {
+    void withSqliteRetry(
+      () => {
+        if (this._processing) {
+          return;
+        }
+        setConversationProcessingStartedAt(this.conversationId, null);
+      },
+      {
+        op: "conversation:clearProcessing",
+        context: { conversationId: this.conversationId },
+      },
+    ).catch((err: unknown) => {
+      log.error(
+        { err, conversationId: this.conversationId },
+        "Failed to clear the persisted processing marker; the conversation is released in memory and the boot-time stale-processing sweep recovers the column",
+      );
+    });
   }
 
   /**
@@ -1781,8 +1819,13 @@ export class Conversation {
     return this.queue.snapshot();
   }
 
-  removeQueuedMessage(requestId: string): boolean {
-    return this.queue.removeByRequestId(requestId) !== undefined;
+  /**
+   * Drop a queued message by request id. Returns the removed entry so callers
+   * can pair a cancellation event with the same visibility metadata the
+   * enqueue ack used, or `undefined` when nothing matched.
+   */
+  removeQueuedMessage(requestId: string): QueuedMessage | undefined {
+    return this.queue.removeByRequestId(requestId);
   }
 
   canHandoffAtCheckpoint(): boolean {
@@ -2446,6 +2489,54 @@ export class Conversation {
   }
 
   /**
+   * Trust the in-flight turn is executing under.
+   *
+   * Use this for authorization and for routing a reply to the requester:
+   * cases where substituting the conversation's owner would be wrong rather
+   * than approximate. Provenance is not such a case; see
+   * {@link getTurnOrRestingTrust} and `docs/architecture/turn-actor.md`.
+   *
+   * `undefined` when no turn recorded one, which is a gap in the entry point
+   * rather than an answer. Deliberately does not fall back to the
+   * conversation's trust: a caller that can accept the conversation's owner
+   * instead spells `?? getTrustContext()`, so the substitution is visible
+   * where it happens.
+   */
+  getTurnTrust(): TrustContext | undefined {
+    return this.currentTurnTrustContext;
+  }
+
+  /**
+   * Trust of the actor the conversation belongs to, independent of any turn.
+   *
+   * Use this where there is no turn to speak of: routes reporting on a
+   * conversation, hydration, and persisting conversation-level options. A
+   * caller that wants the conversation's owner *rather than* whoever is
+   * currently acting should be obviously doing so; if it is not obvious,
+   * {@link getTurnTrust} is probably the one meant.
+   */
+  getTrustContext(): TrustContext | undefined {
+    return this.trustContext;
+  }
+
+  /**
+   * Trust of the in-flight turn, or the conversation's owner when the turn
+   * recorded none. The substitution is in the name: callers that can accept
+   * the owner as a stand-in ask this, including provenance stamping, whose
+   * readers treat an absent trust class as more trusted than `"unknown"`.
+   * Callers for which the owner would be wrong rather than approximate call
+   * {@link getTurnTrust} and handle `undefined`.
+   *
+   * The fallback half is load-bearing, not transitional politeness: a
+   * deferred wake fires with no inbound actor, and refusing it an answer
+   * denies every sensitive tool in the resumed turn (LUM-2929). It becomes
+   * removable in one place when every entry point records a turn actor.
+   */
+  getTurnOrRestingTrust(): TrustContext | undefined {
+    return this.currentTurnTrustContext ?? this.trustContext;
+  }
+
+  /**
    * The actor principal that owns the current turn, for host-proxy routing.
    * Prefers the in-flight turn's actor over the conversation's resting
    * authContext so a /v1/messages turn (which sets only
@@ -2618,6 +2709,12 @@ export class Conversation {
        * forwarded into {@link runAgentLoopImpl} and threaded to `recordUsage`.
        */
       cronRunId?: string | null;
+      /**
+       * See {@link runAgentLoopImpl}: trust this turn runs under. Queue
+       * drains pass the sender's trust captured at enqueue so the run is not
+       * reset to the conversation's most recent actor.
+       */
+      turnTrustContext?: TrustContext;
     },
   ): Promise<void> {
     const { onEvent, ...rest } = options ?? {};

@@ -4,8 +4,12 @@ import path from "node:path";
 import { z } from "zod";
 
 import {
+  connectImport,
   getGuardianAccessToken,
+  getPairedGuardianAccessToken as getStoredPairedGuardianAccessToken,
   isActiveAssistant,
+  isPairedLockfileEntry,
+  PAIRED_GUARDIAN_TOKEN_HOST_ONLY_ERROR,
   getLockfileData,
   getLocalAssistantStatus,
   replacePlatformAssistants,
@@ -18,13 +22,15 @@ import {
   runUpgrade,
   runWake,
   unpairAssistant,
-  upsertLockfileAssistant,
+  upsertRendererLockfileAssistant,
   type CliInvocation,
+  type GuardianTokenOptions,
   type LockfileWriteResult,
   type TokenResult,
   type UpgradeOptions,
   type WakeOptions,
 } from "@vellumai/local-mode";
+import type { LocalConnectImportResult } from "@vellumai/ipc-contract";
 import { handle } from "./ipc";
 
 import {
@@ -32,6 +38,7 @@ import {
   getBundledBunPath,
   getCliBinPath,
 } from "./cli-installer";
+import { refreshLockfileNow } from "./lockfile-watcher";
 import { getSessionToken } from "./session-token-store";
 
 /**
@@ -208,6 +215,52 @@ async function upgrade(
   }
 }
 
+async function getHostGuardianAccessToken(
+  assistantId: string,
+  configDir: string,
+  options: GuardianTokenOptions,
+): Promise<TokenResult> {
+  let invocation: CliInvocation;
+  try {
+    invocation = await resolveCliInvocation();
+  } catch (err) {
+    return { ok: false, status: 500, error: (err as Error).message };
+  }
+  return getGuardianAccessToken(
+    assistantId,
+    configDir,
+    invocation,
+    true,
+    { VELLUM_ENVIRONMENT: resolveEnvironmentName(process.env) },
+    options,
+  );
+}
+
+/** Read a paired guardian bearer for the trusted main-process proxy. */
+export async function getPairedGuardianAccessToken(
+  assistantId: string,
+  runtimeUrl: string,
+): Promise<TokenResult> {
+  let invocation: CliInvocation;
+  try {
+    invocation = await resolveCliInvocation();
+  } catch (err) {
+    return {
+      ok: false,
+      status: 500,
+      error: (err as Error).message,
+    };
+  }
+  return getStoredPairedGuardianAccessToken(
+    assistantId,
+    runtimeUrl,
+    resolveConfigDir(process.env),
+    invocation,
+    true,
+    { VELLUM_ENVIRONMENT: resolveEnvironmentName(process.env) },
+  );
+}
+
 // A persisted assistant entry as it crosses the IPC boundary. The
 // package's lockfile parser owns the real field-level contract; here we
 // only assert the renderer sent an object, so unknown/forward-compat
@@ -219,6 +272,16 @@ const assistantRecord = z.record(z.string(), z.unknown());
 // the renderer renders, rather than rejecting the invoke. The id is therefore
 // optional on the wire and validated in the body.
 const assistantIdArgs = z.tuple([z.string().optional()]);
+
+// `connectImport` takes a pairing bundle plus an optional local name. Both are
+// optional on the wire (missing values resolve with structured errors, keeping
+// the never-reject contract); the shared `connectImport` op validates the
+// bundle, including the length cap that bounds what a hostile renderer can
+// make the main process buffer and decode.
+const connectImportArgs = z.tuple([
+  z.string().optional(),
+  z.string().optional(),
+]);
 
 // `wake` additionally takes an options object so a user-confirmed repair can
 // pass `repairGuardian` through to the CLI's `--repair-guardian` flag. Both
@@ -251,13 +314,6 @@ export const installLocalMode = (): void => {
 
   const lockfilePaths = resolveLockfilePaths(process.env);
   const configDir = resolveConfigDir(process.env);
-  // Pin the environment the guardian-token CLI subprocess (refresh/lease) sees
-  // to the same one `configDir` was resolved from, so the token is always read
-  // and written under the same env dir. Overlaid on `process.env` by the host
-  // seam, so PATH etc. are preserved.
-  const guardianTokenEnv = {
-    VELLUM_ENVIRONMENT: resolveEnvironmentName(process.env),
-  };
 
   // `species` is optional on the wire so an empty/omitted request
   // falls back to the default rather than being rejected.
@@ -283,7 +339,7 @@ export const installLocalMode = (): void => {
     "vellum:localMode:saveLockfileAssistant",
     z.tuple([assistantRecord, z.string().optional()]),
     ([assistant, activeAssistant]): LockfileWriteResult => {
-      const result = upsertLockfileAssistant(
+      const result = upsertRendererLockfileAssistant(
         lockfilePaths,
         assistant,
         activeAssistant,
@@ -322,9 +378,31 @@ export const installLocalMode = (): void => {
         return { ok: false, error: "Missing assistantId" };
       }
       const result = unpairAssistant(lockfilePaths, configDir, assistantId);
-      return result.ok
-        ? { ok: true, lockfile: result.lockfile }
-        : { ok: false, error: result.error };
+      if (!result.ok) {
+        return { ok: false, error: result.error };
+      }
+      // The paired-gateway forward resolves its allowlist from the watcher's
+      // snapshot; refresh it now so the unpaired entry is rejected in the
+      // same tick instead of after the next poll.
+      refreshLockfileNow();
+      return { ok: true, lockfile: result.lockfile };
+    },
+  );
+
+  handle(
+    "vellum:localMode:connectImport",
+    connectImportArgs,
+    ([bundle, name]): LocalConnectImportResult => {
+      const result = connectImport(lockfilePaths, configDir, { bundle, name });
+      if (!result.ok) {
+        return { ok: false, error: result.error };
+      }
+      refreshLockfileNow();
+      return {
+        ok: true,
+        assistantId: result.assistantId,
+        accessOnly: result.accessOnly,
+      };
     },
   );
 
@@ -360,19 +438,16 @@ export const installLocalMode = (): void => {
       if (!assistantId) {
         return { ok: false, status: 400, error: "Missing assistantId" };
       }
-      let invocation: CliInvocation;
-      try {
-        invocation = await resolveCliInvocation();
-      } catch (err) {
-        return { ok: false, status: 500, error: (err as Error).message };
+      if (isPairedLockfileEntry(lockfilePaths, assistantId)) {
+        return {
+          ok: false,
+          status: 403,
+          error: PAIRED_GUARDIAN_TOKEN_HOST_ONLY_ERROR,
+        };
       }
-      return getGuardianAccessToken(
-        assistantId,
-        configDir,
-        invocation,
-        true,
-        guardianTokenEnv,
-      );
+      return getHostGuardianAccessToken(assistantId, configDir, {
+        paired: false,
+      });
     },
   );
 };

@@ -145,7 +145,6 @@ describe("Slack edit propagation", () => {
       conversationExternalId: seeded.conversationExternalId,
       externalMessageId: nextEditEventId(),
       sourceMessageId: seeded.channelTs,
-      canonicalAssistantId: "self",
       assistantId: "self",
       content: "new text",
     });
@@ -187,7 +186,6 @@ describe("Slack edit propagation", () => {
       externalMessageId: nextEditEventId(),
       sourceMessageId: seeded.channelTs,
       sourceThreadId: threadTs,
-      canonicalAssistantId: "self",
       assistantId: "self",
       content: "new text",
     });
@@ -216,7 +214,6 @@ describe("Slack edit propagation", () => {
       conversationExternalId: seeded.conversationExternalId,
       externalMessageId: nextEditEventId(),
       sourceMessageId: seeded.channelTs,
-      canonicalAssistantId: "self",
       assistantId: "self",
       content: "first edit",
     });
@@ -239,7 +236,6 @@ describe("Slack edit propagation", () => {
       conversationExternalId: seeded.conversationExternalId,
       externalMessageId: nextEditEventId(),
       sourceMessageId: seeded.channelTs,
-      canonicalAssistantId: "self",
       assistantId: "self",
       content: "second edit",
     });
@@ -272,7 +268,6 @@ describe("Slack edit propagation", () => {
       conversationExternalId: seeded.conversationExternalId,
       externalMessageId: nextEditEventId(),
       sourceMessageId: seeded.channelTs,
-      canonicalAssistantId: "self",
       assistantId: "self",
       // Same text as stored -- simulates a Slack unfurl `message_changed`
       // where only attachments changed.
@@ -313,7 +308,6 @@ describe("Slack edit propagation", () => {
       conversationExternalId: seeded.conversationExternalId,
       externalMessageId: nextEditEventId(),
       sourceMessageId: seeded.channelTs,
-      canonicalAssistantId: "self",
       assistantId: "self",
       content: "edited searchable text",
     });
@@ -341,7 +335,6 @@ describe("Slack edit propagation", () => {
       // sourceMessageId points at a ts that was never stored.
       externalMessageId: nextEditEventId(),
       sourceMessageId: "9999.0000",
-      canonicalAssistantId: "self",
       assistantId: "self",
       content: "new text",
     });

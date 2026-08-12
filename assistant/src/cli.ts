@@ -513,7 +513,7 @@ export async function startCli(): Promise<void> {
     if (content === "/conversations") {
       pendingSessionPick = true;
       try {
-        const rows = listConversations(20);
+        const rows = listConversations({ limit: 20 });
         const conversations = rows.map((r) => ({
           id: r.id,
           title: r.title || "Untitled",

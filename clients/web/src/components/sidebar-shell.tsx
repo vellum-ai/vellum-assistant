@@ -7,6 +7,7 @@ import { RuntimeUpgradeBanner } from "@/components/runtime-upgrade-banner";
 import { StatusBanner } from "@/components/status-banner";
 import { useEdgeSwipeBack } from "@/hooks/use-edge-swipe-back";
 import { useIsMobile } from "@/hooks/use-is-mobile";
+import { navigateWithPageTransition } from "@/lib/page-transition";
 import { isElectron } from "@/runtime/is-electron";
 import { routes } from "@/utils/routes";
 
@@ -63,6 +64,7 @@ export function SidebarShell({
     onBack: handleSwipeBack,
     enabled: isMobile,
     navKey: pathname,
+    prefetchHref: mobileBackHref,
   });
 
   // In the Electron shell the macOS window controls (traffic lights) sit in an
@@ -84,7 +86,9 @@ export function SidebarShell({
       iconOnly={<ArrowLeft />}
       aria-label={mobileBackLabel}
       tintColor="var(--content-secondary)"
-      onClick={() => navigate(mobileBackHref)}
+      onClick={() =>
+        navigateWithPageTransition(navigate, mobileBackHref, "pop")
+      }
     />
   );
 

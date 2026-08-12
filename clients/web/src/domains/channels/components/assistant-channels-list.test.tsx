@@ -1,10 +1,9 @@
-import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, test } from "bun:test";
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, fireEvent, render } from "@testing-library/react";
-import { MemoryRouter } from "react-router";
+import { MemoryRouter, Route, Routes, useLocation } from "react-router";
 
-import { useChannelAdapterSelectionStore } from "@/domains/channels/adapter-selection-store";
 import {
   AssistantChannelsList,
   type AssistantChannelsListProps,
@@ -20,20 +19,40 @@ const CHANNELS: AssistantChannelState[] = [
 // The Slack panel owns its own queries (`SlackChannelSection`), so list
 // renders need a QueryClient. Queries fail fast (retry off, no server) and
 // the panel shows its error state, which these assertions don't depend on.
-// The router wrapper is for the tier legend's settings link.
-function renderList(extraProps: Partial<AssistantChannelsListProps> = {}) {
+// The router mounts at a channel URL because that is where the selection
+// lives; the route pattern has to match the app's so `useParams` resolves.
+/** Renders the current path so a navigation is assertable. */
+function LocationProbe() {
+  const location = useLocation();
+  return <span data-testid="path">{location.pathname}</span>;
+}
+
+function renderList(
+  extraProps: Partial<AssistantChannelsListProps> = {},
+  channelId = "slack",
+) {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
   return render(
-    <MemoryRouter>
+    <MemoryRouter initialEntries={[`/assistant/channels/${channelId}`]}>
       <QueryClientProvider client={queryClient}>
-        <AssistantChannelsList
-          assistantId="assistant-1"
-          assistantName="Vex"
-          channels={CHANNELS}
-          {...extraProps}
-        />
+        <Routes>
+          <Route
+            path="/assistant/channels/:channelId"
+            element={
+              <>
+                <AssistantChannelsList
+                  assistantId="assistant-1"
+                  assistantName="Vex"
+                  channels={CHANNELS}
+                  {...extraProps}
+                />
+                <LocationProbe />
+              </>
+            }
+          />
+        </Routes>
       </QueryClientProvider>
     </MemoryRouter>,
   );
@@ -49,12 +68,6 @@ function adapterRow(label: string): HTMLElement {
   }
   return row;
 }
-
-beforeEach(() => {
-  // Selection lives in a module-level store; reset it so every test starts on
-  // the default Slack adapter.
-  useChannelAdapterSelectionStore.setState({ selectedAdapter: "slack" });
-});
 
 afterEach(() => {
   cleanup();
@@ -175,12 +188,19 @@ describe("assistant channels list", () => {
     expect(document.body.textContent).not.toContain("Auth Token");
   });
 
-  test("selecting a disconnected adapter swaps the empty state for the manual form on request", () => {
+  // Setup opens on its first step, so the token field is a step away. What
+  // these two protect is which surface renders, not which field: the setup
+  // wizard rather than the empty state, whose Set up button starts a
+  // conversation instead of continuing this one.
+  const setupWizardShown = () =>
+    document.querySelector('[data-slot="channel-setup-wizard"]') !== null;
+
+  test("selecting a disconnected adapter swaps the empty state for the setup wizard on request", () => {
     renderList();
 
     fireEvent.click(adapterRow("Telegram"));
     expect(document.body.textContent).toContain("Telegram isn't connected");
-    expect(document.body.textContent).not.toContain("Bot Token");
+    expect(setupWizardShown()).toBe(false);
 
     const manualButton = Array.from(document.querySelectorAll("button")).find(
       (b) => b.textContent?.includes("or connect manually"),
@@ -188,16 +208,78 @@ describe("assistant channels list", () => {
     expect(manualButton).toBeDefined();
     fireEvent.click(manualButton!);
 
-    expect(document.body.textContent).toContain("Bot Token");
+    expect(setupWizardShown()).toBe(true);
     expect(document.body.textContent).not.toContain("Telegram isn't connected");
   });
 
-  test("a setup deep link selects that adapter and opens the manual form directly", () => {
-    // The mobile chat-drawer handoff navigates to `?setup=<channel>` to
-    // continue credential entry here — it must land on the form, not the
-    // empty state whose Set up button would start another conversation.
-    renderList({ initialChannel: "telegram" });
-    expect(document.body.textContent).toContain("Bot Token");
+  test("a half-finished channel offers to finish rather than pitching setup", () => {
+    // Credentials stored but not delivering resolves to `incomplete`, which is
+    // reachable on any channel with remote checks: Slack lands here when its
+    // scopes are silently dropped, Telegram when the webhook never registers.
+    // Pitching the channel would hide that setup already happened.
+    const prompts: string[] = [];
+    renderList({
+      channels: [
+        { key: "slack", status: "ready", address: "@vex" },
+        { key: "telegram", status: "incomplete" },
+        { key: "phone", status: "not_configured" },
+      ],
+      onSetup: (key, incomplete) =>
+        prompts.push(`${key}:${incomplete ? "finish" : "fresh"}`),
+    });
+
+    fireEvent.click(adapterRow("Telegram"));
+    expect(document.body.textContent).toContain("Telegram isn't working yet");
     expect(document.body.textContent).not.toContain("Telegram isn't connected");
+
+    const finish = Array.from(document.querySelectorAll("button")).find((b) =>
+      b.textContent?.includes("Finish setup with your assistant"),
+    );
+    expect(finish).toBeDefined();
+    fireEvent.click(finish!);
+
+    // The assistant is told setup is part-done, so it picks up where it left
+    // off instead of starting over.
+    expect(prompts).toEqual(["telegram:finish"]);
+  });
+
+  test("a setup deep link selects that adapter and opens the setup wizard directly", () => {
+    // The mobile chat-drawer handoff navigates to `?setup=<channel>` to
+    // continue setup here — it must land on the wizard, not the empty state
+    // whose Set up button would start another conversation.
+    renderList({ initialChannel: "telegram" });
+    expect(setupWizardShown()).toBe(true);
+    expect(document.body.textContent).not.toContain("Telegram isn't connected");
+  });
+
+  test("selecting a channel puts it in the URL", () => {
+    // The selection is an address, so a row can be linked to and survives a
+    // reload rather than resetting to the first one.
+    renderList();
+
+    fireEvent.click(adapterRow("Telegram"));
+
+    expect(document.querySelector('[data-testid="path"]')?.textContent).toBe(
+      "/assistant/channels/telegram",
+    );
+  });
+
+  test("opens on the channel the URL names", () => {
+    // The other half of the same property: a pasted link lands on its row,
+    // showing that channel's panel rather than the first one's.
+    renderList({}, "telegram");
+
+    expect(document.body.textContent).toContain("Connect a Telegram bot");
+  });
+
+  test("falls back to the first channel when the URL names an unknown one", () => {
+    // A stale bookmark, or a plugin channel whose plugin was uninstalled.
+    // Showing the first row beats an empty panel.
+    renderList({}, "nonexistent");
+
+    expect(document.querySelectorAll('[data-slot="panel-item"]').length).toBe(
+      3,
+    );
+    expect(document.body.textContent).not.toContain("Connect a Telegram bot");
   });
 });

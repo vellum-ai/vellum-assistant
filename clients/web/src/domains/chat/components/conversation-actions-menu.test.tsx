@@ -18,10 +18,10 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 import { createElement, type ReactNode } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 
-let mockIsMobile = false;
-mock.module("@/hooks/use-is-mobile", () => ({
-  useIsMobile: () => mockIsMobile,
-  MOBILE_MEDIA_QUERY: "(max-width: 767px)",
+let mockIsTouchMobile = false;
+mock.module("@/hooks/use-touch-mobile", () => ({
+  useTouchMobile: () => mockIsTouchMobile,
+  TOUCH_MOBILE_MEDIA_QUERY: "(width < 48rem) and (pointer: coarse)",
 }));
 
 let mockIsNativePlatform = false;
@@ -124,7 +124,7 @@ import {
 import { Menu } from "@vellumai/design-library";
 
 beforeEach(() => {
-  mockIsMobile = false;
+  mockIsTouchMobile = false;
   mockIsNativePlatform = false;
 });
 
@@ -375,7 +375,7 @@ describe("renderConversationMenuItems — Move to group submenu", () => {
 
 describe("ConversationActionsMenu — desktop branch", () => {
   test("renders the default ellipsis trigger with aria-label", () => {
-    mockIsMobile = false;
+    mockIsTouchMobile = false;
     const html = renderToStaticMarkup(
       <ConversationActionsMenu onPinToggle={() => {}} onRename={() => {}} />,
     );
@@ -384,7 +384,7 @@ describe("ConversationActionsMenu — desktop branch", () => {
   });
 
   test("renders Pin and Rename items in the menu content", () => {
-    mockIsMobile = false;
+    mockIsTouchMobile = false;
     const html = renderToStaticMarkup(
       <ConversationActionsMenu onPinToggle={() => {}} onRename={() => {}} />,
     );
@@ -395,7 +395,7 @@ describe("ConversationActionsMenu — desktop branch", () => {
 
 describe("ConversationActionsMenu — mobile branch", () => {
   test("renders BottomSheet surface on mobile", () => {
-    mockIsMobile = true;
+    mockIsTouchMobile = true;
     const html = renderToStaticMarkup(
       <ConversationActionsMenu onPinToggle={() => {}} onRename={() => {}} />,
     );
@@ -405,7 +405,7 @@ describe("ConversationActionsMenu — mobile branch", () => {
   });
 
   test("renders Archive on mobile when provided", () => {
-    mockIsMobile = true;
+    mockIsTouchMobile = true;
     const html = renderToStaticMarkup(
       <ConversationActionsMenu onArchive={() => {}} />,
     );
@@ -431,7 +431,7 @@ describe("renderConversationMenuItems — mark read/unread exclusivity", () => {
 
 describe("ConversationActionsMenu — mobile panel details", () => {
   test("isMarkUnreadDisabled renders disabled panel item on mobile", () => {
-    mockIsMobile = true;
+    mockIsTouchMobile = true;
     const html = renderToStaticMarkup(
       <ConversationActionsMenu onMarkUnread={() => {}} isMarkUnreadDisabled />,
     );
@@ -445,7 +445,7 @@ describe("ConversationActionsMenu — mobile panel details", () => {
   });
 
   test("hides Open in New Window on native iOS bottom sheet", () => {
-    mockIsMobile = true;
+    mockIsTouchMobile = true;
     mockIsNativePlatform = true;
     const html = renderToStaticMarkup(
       <ConversationActionsMenu
@@ -463,7 +463,7 @@ describe("ConversationActionsMenu — mobile panel details", () => {
   });
 
   test("shows Open in New Window on web bottom sheet", () => {
-    mockIsMobile = true;
+    mockIsTouchMobile = true;
     mockIsNativePlatform = false;
     const html = renderToStaticMarkup(
       <ConversationActionsMenu
@@ -477,7 +477,7 @@ describe("ConversationActionsMenu — mobile panel details", () => {
   });
 
   test("variant header renders header-order items on mobile", () => {
-    mockIsMobile = true;
+    mockIsTouchMobile = true;
     const html = renderToStaticMarkup(
       <ConversationActionsMenu
         variant="header"
@@ -592,7 +592,7 @@ describe("renderConversationMenuItemsAsPanelItems", () => {
 
 describe("ConversationActionsMenu — read-only conversations", () => {
   test("Archive renders when read-only (organizational action)", () => {
-    mockIsMobile = false;
+    mockIsTouchMobile = false;
     const html = renderToStaticMarkup(
       <ConversationActionsMenu
         isReadonly
@@ -605,7 +605,7 @@ describe("ConversationActionsMenu — read-only conversations", () => {
   });
 
   test("Unarchive renders when archived and read-only", () => {
-    mockIsMobile = false;
+    mockIsTouchMobile = false;
     const html = renderToStaticMarkup(
       <ConversationActionsMenu isReadonly isArchived onUnarchive={() => {}} />,
     );

@@ -175,8 +175,12 @@ describe("getOrCreateConversation ephemeral flag", () => {
 
     await getOrCreateConversation("real-conversation-id");
 
+    // No trust context on this call, so no origin is asserted: the row is
+    // left unattributed for the first inbound message to claim, rather than
+    // being guessed as native.
     expect(mockEnsureConversationExists).toHaveBeenCalledWith(
       "real-conversation-id",
+      undefined,
     );
   });
 });

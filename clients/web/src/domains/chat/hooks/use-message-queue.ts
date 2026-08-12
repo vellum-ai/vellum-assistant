@@ -73,7 +73,21 @@ export function useMessageQueue({
   const queuedMessages = useMemo(
     () =>
       transcriptMessages
-        .filter((m) => m.role === "user" && m.queueStatus === "queued")
+        .filter(
+          (m) =>
+            m.role === "user" &&
+            m.queueStatus === "queued" &&
+            // Daemon-injected run lifecycle notifications are internal
+            // scaffolding, not something the user typed: the transcript already
+            // drops them (see `buildTranscriptItems`), and the queue drawer —
+            // which offers steer/cancel on a person's own pending prompts —
+            // must drop them for the same reason. The daemon keeps them out of
+            // its queued snapshot too; this is the client-side half of that
+            // invariant.
+            !m.isSubagentNotification &&
+            !m.isAcpNotification &&
+            !m.isBackgroundEventNotification,
+        )
         .sort((a, b) => (a.queuePosition ?? 0) - (b.queuePosition ?? 0)),
     [transcriptMessages],
   );
@@ -91,6 +105,9 @@ export function useMessageQueue({
           requestId: targetRequestId,
           messageId,
           setOptimisticSends,
+          // Mapping cleanup only. `pendingQueuedCount` moves on the daemon's
+          // `message_queued_deleted` broadcast, which lands on this tab too,
+          // so decrementing here as well would double-count the cancel.
           onDeleted: () => {
             useChatSessionStore.getState().popRequestIdMapping(targetRequestId);
           },

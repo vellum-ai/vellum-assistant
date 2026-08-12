@@ -8,6 +8,7 @@
 import { z } from "zod";
 
 import { HostTransferProxy } from "../../daemon/host-transfer-proxy.js";
+import { assistantEventHub } from "../assistant-event-hub.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import {
   enforceSameActorOrThrow,
@@ -83,6 +84,7 @@ async function handleTransferContentGet({
         match.proxy.getTargetActorPrincipalIdForTransfer(transferId),
       targetClientId,
       op: "host_transfer",
+      hubForMissingTarget: assistantEventHub,
     });
   }
 
@@ -168,6 +170,7 @@ async function handleTransferContentPut({
         match.proxy.getTargetActorPrincipalIdForTransfer(transferId),
       targetClientId,
       op: "host_transfer",
+      hubForMissingTarget: assistantEventHub,
     });
   }
 
@@ -240,6 +243,7 @@ async function handleTransferResult({ body, headers }: RouteHandlerArgs) {
       targetActorPrincipalId: peeked.targetActorPrincipalId,
       targetClientId: peeked.targetClientId,
       op: "host_transfer",
+      hubForMissingTarget: assistantEventHub,
     });
   }
 

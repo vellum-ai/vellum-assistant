@@ -4,88 +4,102 @@
  * This is the single render path for Pinned, Chats, every origin-channel
  * section, and every custom group - which is what keeps their spacing and
  * header treatment identical and lets the user interleave them freely
- * (LUM-2909). Only three things vary by type, and they're all here:
+ * (LUM-2909).
  *
- * - **Whether rows drag.** Only the sections that honor `displayOrder`
- *   (Pinned, custom groups) offer row-level reordering - the rest stay
- *   recency-sorted, so dragging a row in them would have nothing to persist.
- * - **Whether the header carries a "…" button.** The curated sections (Pinned
- *   and the custom groups) get one, so their actions are reachable without
- *   knowing to right-click. It reveals on hover; the derived sections (Chats,
- *   the channel sections) keep their actions behind the header menu. Chats
- *   nests inside the persistent "Conversations" header in Grouped view (see
- *   `assistant-side-menu.tsx`), which owns the one visible "…" button.
+ * Nothing about the *shell* varies by type. Every section gets the same card,
+ * the same header, the same hover "…", and the same drag wiring, all resolved
+ * before they reach here. What varies is only what goes *in* the menu, and that
+ * is `sectionMenu`'s answer in `assistant-side-menu.tsx`, not this component's:
+ * a custom group adds rename/delete/copy-id, Chats and the channel sections add
+ * the channel-grouping toggle.
  *
- * Everything else - the icon, the collapse behavior, the header menu, and
- * the section drag wiring - is uniform, and comes in already resolved. The
- * row list is the other near-exception: every section caps and scrolls
- * within itself except Pinned, which grows to fit its own rows instead
- * (see `unbounded` on `ConversationRowList`).
+ * The row list is the one real exception: every section caps and scrolls
+ * within itself, except Pinned (grows to fit its own rows instead, see
+ * `unbounded` on `ConversationRowList`) and the bottom-most section (claims
+ * whatever space the sidebar has left instead of a fixed cap, see `isLast`).
  */
 
 import type { ReactNode } from "react";
 
 import type { CollapsibleNavSectionDrag } from "@/components/collapsible-nav-section";
-import { ConversationNavSection } from "@/domains/chat/components/conversation-nav-section";
+import { SidebarSectionCard } from "@/domains/chat/components/sidebar-section-card";
 import {
   GroupActionsMenu,
   type GroupMenuItemsProps,
 } from "@/domains/chat/components/group-actions-menu";
 import type { SidebarSection } from "@/domains/chat/use-sidebar-state";
+import { useSectionConversations } from "@/domains/chat/use-section-conversations";
 import { sectionIcon } from "@/domains/chat/utils/sidebar-section-icon";
+import type { Conversation } from "@/types/conversation-types";
 
 export interface SidebarSectionItemProps {
   section: SidebarSection;
-  /** Header actions, already wired by the sidebar (bulk, rename, move). */
-  groupMenu: GroupMenuItemsProps;
+  /** Owns this section's query; `null` keeps it on the derived rows. */
+  assistantId: string | null;
+  /**
+   * Header actions, given the section's own rows. A function rather than a
+   * built menu because the rows are resolved here: the sidebar decides what
+   * the bulk actions *are*, this decides what they act on, so "mark all read"
+   * covers every member rather than the ones that reached the foreground page.
+   */
+  groupMenu: (conversations: Conversation[]) => GroupMenuItemsProps;
   /** Section drag-reorder wiring; omit to pin the section in place. */
   drag?: CollapsibleNavSectionDrag;
   /** Activity dot shown in the header only while the section is collapsed. */
-  collapsedIndicator?: ReactNode;
-}
-
-/**
- * Row-list props for a section. Both branches carry the same keys so the
- * spread below stays a single object type rather than a union.
- */
-function rowListPropsFor(section: SidebarSection) {
-  if (section.type === "recents" || section.type === "channel") {
-    return { items: section.all, dragSection: undefined };
-  }
-  return {
-    items: section.all,
-    dragSection:
-      section.type === "pinned" ? "pinned" : `group:${section.key}`,
-  };
+  collapsedIndicator?: (
+    conversations: Conversation[],
+    section: SidebarSection,
+  ) => ReactNode;
+  /**
+   * Whether this is the bottom-most section in the list. Only it claims the
+   * sidebar's leftover space when open; every section above it always sizes
+   * to its own content (capped and scrolling internally past a point), since
+   * flex-grow has no notion of "this one actually needs the room" - handing
+   * every open section a share stretched a two-row group into a mostly-empty
+   * box the same size as a busy one beside it.
+   */
+  isLast?: boolean;
 }
 
 export function SidebarSectionItem({
   section,
-  groupMenu,
+  assistantId,
+  groupMenu: buildGroupMenu,
   drag,
   collapsedIndicator,
+  isLast,
 }: SidebarSectionItemProps) {
+  const conversations = useSectionConversations(assistantId, section);
+
+  /* Every section handed to this component renders. Whether a section exists
+     at all is `use-sidebar-state`'s answer, and it has to stay the only one:
+     the move-up/move-down nudges count entries in that list, so a section that
+     is present but returns `null` here offers a move that swaps with something
+     off screen.
+
+     One predicate for membership and visibility, or the two drift and this
+     recurs at the next section type. */
+  const groupMenu = buildGroupMenu(conversations);
   return (
-    <ConversationNavSection
+    <SidebarSectionCard
       value={section.key}
-      icon={section.type === "pinned" ? undefined : sectionIcon(section)}
+      icon={sectionIcon(section)}
       label={section.label}
       /* The "…" button and the header's right-click menu both render from
-         `groupMenu`; only the curated sections carry the button. */
-      trailing={
-        section.type === "group" || section.type === "pinned" ? (
-          <GroupActionsMenu label={section.label} {...groupMenu} />
-        ) : undefined
-      }
+         `groupMenu`. Every section carries it: a section's actions should not
+         depend on which kind it is, and Chats and the channels have their own
+         (the channel-grouping toggle) on top of the bulk ones. */
+      trailing={<GroupActionsMenu label={section.label} {...groupMenu} />}
       groupMenu={groupMenu}
-      collapsedIndicator={collapsedIndicator}
+      collapsedIndicator={collapsedIndicator?.(conversations, section)}
       drag={drag}
       // Pinned collapses like every other section (one component, one
       // behavior; its open state defaults open and persists like the
       // rest). It is the one section that never caps/scrolls internally:
       // it grows to fit its own rows instead.
       unbounded={section.type === "pinned"}
-      {...rowListPropsFor(section)}
+      isLast={isLast}
+      items={conversations}
     />
   );
 }

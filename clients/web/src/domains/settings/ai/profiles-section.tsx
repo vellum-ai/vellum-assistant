@@ -67,7 +67,6 @@ export function ProfilesSection({
         action={
           <Button
             variant="primary"
-            size="compact"
             onClick={onCreateProfile}
             leftIcon={<Plus />}
             // The create panel needs config for duplicate-key validation
@@ -107,6 +106,7 @@ export function ProfilesSection({
               isActiveProfile={profile.name === activeProfile}
               selected={profile.name === selectedProfileName}
               connections={connections}
+              deletePending={deleteFlow.pendingDeleteName === profile.name}
               onOpen={() => onOpenProfile(profile.name)}
               onMakeActive={() =>
                 void actions.makeActive(profile.name).catch(alreadyReported)

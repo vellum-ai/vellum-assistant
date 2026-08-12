@@ -1613,7 +1613,7 @@ describe("ConnectionResolutionError classification", () => {
     expect(result.userMessage).toContain('profile "custom-fast"');
   });
 
-  it("classifies platform_unauthenticated with a log-in fix", () => {
+  it("classifies platform_unauthenticated with a log-in fix on a non-platform install", () => {
     const err = new ConnectionResolutionError(
       "vellum",
       "platform_unauthenticated",
@@ -1622,6 +1622,22 @@ describe("ConnectionResolutionError classification", () => {
     const result = classifyConversationError(err, errCtx);
     expect(result.userMessage).toContain("platform login");
     expect(result.userMessage).toContain("Log in");
+  });
+
+  it("classifies platform_unauthenticated as a re-provision hint on a platform-managed assistant", () => {
+    const err = new ConnectionResolutionError(
+      "vellum",
+      "platform_unauthenticated",
+      "unavailable",
+    );
+    process.env.IS_PLATFORM = "true";
+    try {
+      const result = classifyConversationError(err, errCtx);
+      expect(result.userMessage).toContain("re-provisioned");
+      expect(result.userMessage).not.toContain("Log in");
+    } finally {
+      delete process.env.IS_PLATFORM;
+    }
   });
 
   it("is a structured VellumError (ConfigError) for logging/monitoring", () => {

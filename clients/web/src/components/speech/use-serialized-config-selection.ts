@@ -55,8 +55,13 @@ export function useSerializedConfigSelection({
    * Maps a picked value to the `config_patch` body that persists it. Must be
    * referentially stable (module-level or memoized) so `select` identity only
    * tracks real state.
+   *
+   * May be async, for callers whose body depends on state that has to be
+   * resolved rather than sampled. The wait happens inside the write chain, so
+   * `selecting` stays true across it and callers that gate on it (a "Start"
+   * button waiting out a pick) keep working unchanged.
    */
-  buildPatchBody: (value: string) => ConfigPatchBody;
+  buildPatchBody: (value: string) => ConfigPatchBody | Promise<ConfigPatchBody>;
   /** Toast copy shown when a write fails or rejects. */
   failureMessage: string;
 }): UseSerializedConfigSelection {
@@ -89,7 +94,7 @@ export function useSerializedConfigSelection({
         try {
           const { response } = await configPatch({
             path: { assistant_id: assistantId },
-            body: buildPatchBody(value),
+            body: await buildPatchBody(value),
             throwOnError: false,
           });
           if (!response?.ok) {

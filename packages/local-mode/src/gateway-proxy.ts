@@ -1,5 +1,6 @@
 import fs from "node:fs";
 
+import type { TokenResult } from "./guardian-token";
 import { isUsableRuntimeUrl, resolveCloud } from "./lockfile-contract";
 
 const GATEWAY_PATTERN = /^(?:\/assistant)?\/__gateway\/(\d+)(\/.*)?$/;
@@ -151,12 +152,18 @@ export function parsePairedGatewayUrl(url: string): PairedGatewayParseResult {
  *     actually imported, never arbitrary URLs). Carries the status and
  *     message the host answers with, so hosts don't restate them.
  *   - `forward`: forward to `url` (the entry's recorded runtimeUrl with the
- *     request path and query appended).
+ *     request path and query appended). Carries the paired assistant id so
+ *     the trusted host can resolve its guardian bearer.
  */
 export type PairedGatewayProxyDecision =
   | { kind: "pass" }
   | { kind: "reject"; status: number; message: string }
-  | { kind: "forward"; url: string };
+  | {
+      kind: "forward";
+      url: string;
+      runtimeUrl: string;
+      assistantId: string;
+    };
 
 const PAIRED_GATEWAY_REJECTION: PairedGatewayProxyDecision = {
   kind: "reject",
@@ -192,15 +199,16 @@ export function resolvePairedGatewayProxyTarget(
   return {
     kind: "forward",
     url: `${runtimeUrl.replace(/\/+$/, "")}${parsed.target.path}${parsed.target.search}`,
+    runtimeUrl,
+    assistantId: parsed.target.assistantId,
   };
 }
 
 /**
- * Strip the browser-ambient headers from a paired forward before the remote
- * hop: `Origin`, `Referer`, `Cookie`, and every `Sec-Fetch-*` header. This is
- * the proxy family's only remote hop, so nothing about the renderer's browser
- * context may leak to the paired gateway; the guardian `Authorization` bearer
- * is the sole credential on the hop and passes through untouched.
+ * Strip renderer-controlled and browser-ambient headers from a paired forward
+ * before the remote hop. The trusted host installs its own guardian bearer
+ * after this function returns, so a renderer-provided `Authorization` header
+ * can never select or override the credential sent upstream.
  */
 export function sanitizePairedForwardHeaders(headers: Headers): void {
   const secFetchNames: string[] = [];
@@ -215,10 +223,36 @@ export function sanitizePairedForwardHeaders(headers: Headers): void {
   headers.delete("origin");
   headers.delete("referer");
   headers.delete("cookie");
+  headers.delete("authorization");
   // Paired runtimeUrls are commonly ngrok tunnels; free-tier ngrok answers
   // browser User-Agents with an interstitial page (ERR_NGROK_6024) unless
   // this header is present. Harmless for every other target.
   headers.set("ngrok-skip-browser-warning", "true");
+}
+
+export type PairedGuardianTokenProvider = (
+  assistantId: string,
+  runtimeUrl: string,
+) => Promise<TokenResult>;
+
+export type PairedForwardAuthorizationResult =
+  | { ok: true }
+  | { ok: false; status: number; error: string };
+
+/** Replace renderer authorization with the paired credential owned by the host. */
+export async function authorizePairedForwardHeaders(
+  assistantId: string,
+  runtimeUrl: string,
+  headers: Headers,
+  getGuardianToken: PairedGuardianTokenProvider,
+): Promise<PairedForwardAuthorizationResult> {
+  sanitizePairedForwardHeaders(headers);
+  const result = await getGuardianToken(assistantId, runtimeUrl);
+  if (!result.ok) {
+    return result;
+  }
+  headers.set("authorization", `Bearer ${result.accessToken}`);
+  return { ok: true };
 }
 
 function addPortFromUrl(url: unknown, ports: Set<number>): void {
@@ -282,11 +316,20 @@ export function readAllowedGatewayPorts(lockfilePaths: string[]): Set<number> {
         continue;
       }
       const assistant = entry as {
+        cloud?: unknown;
+        project?: unknown;
+        sshUser?: unknown;
         gatewayUrl?: unknown;
         localUrl?: unknown;
         runtimeUrl?: unknown;
         resources?: { gatewayPort?: unknown };
       };
+      // A paired entry's gateway is remote by contract and reached through the
+      // paired proxy; even a (rejected-on-import, but possibly pre-existing)
+      // loopback runtimeUrl must never open the generic loopback proxy.
+      if (resolveCloud(assistant) === "paired") {
+        continue;
+      }
       addPortFromUrl(assistant.gatewayUrl, ports);
       addPortFromUrl(assistant.localUrl, ports);
       // Docker entries record their published gateway as a loopback
@@ -306,41 +349,54 @@ export function readAllowedGatewayPorts(lockfilePaths: string[]): Set<number> {
 }
 
 /**
- * Read the paired-gateway allowlist from the lockfile: assistantId to the
- * recorded remote `runtimeUrl`, for entries whose resolved cloud is "paired"
- * and whose runtimeUrl is usable ({@link isUsableRuntimeUrl}). Tolerant of
- * malformed entries. Path selection matches the unpair write path
- * (`readRawLockfile` in lockfile.ts): the first readable, parseable lockfile
- * is authoritative even when it yields no targets, so a pairing removed by an
- * unpair write can never survive in a stale fallback file's allowlist.
+ * Compute the paired-gateway allowlist from a lockfile's assistant entries:
+ * assistantId to the recorded remote `runtimeUrl`, for entries whose resolved
+ * cloud is "paired" and whose runtimeUrl is usable
+ * ({@link isUsableRuntimeUrl}). Tolerant of malformed entries. Pure, so a host
+ * holding an in-memory lockfile snapshot (e.g. the Electron lockfile watcher)
+ * derives the allowlist without touching disk on the request path.
+ */
+export function pairedGatewayTargetsFromLockfile(lockfile: {
+  assistants: readonly unknown[];
+}): Map<string, string> {
+  const targets = new Map<string, string>();
+  for (const entry of lockfile.assistants) {
+    if (!entry || typeof entry !== "object") {
+      continue;
+    }
+    const assistant = entry as Record<string, unknown>;
+    if (resolveCloud(assistant) !== "paired") {
+      continue;
+    }
+    const { assistantId, runtimeUrl } = assistant;
+    if (typeof assistantId !== "string" || assistantId === "") {
+      continue;
+    }
+    if (typeof runtimeUrl !== "string" || !isUsableRuntimeUrl(runtimeUrl)) {
+      continue;
+    }
+    targets.set(assistantId, runtimeUrl);
+  }
+  return targets;
+}
+
+/**
+ * Read the paired-gateway allowlist from the lockfile on disk
+ * ({@link pairedGatewayTargetsFromLockfile} over the first readable
+ * candidate). Path selection matches the unpair write path (`readRawLockfile`
+ * in lockfile.ts): the first readable, parseable lockfile is authoritative
+ * even when it yields no targets, so a pairing removed by an unpair write can
+ * never survive in a stale fallback file's allowlist.
  */
 export function readPairedGatewayTargets(
   lockfilePaths: string[],
 ): Map<string, string> {
-  const targets = new Map<string, string>();
   for (const candidate of lockfilePaths) {
     const read = readLockfileAssistantEntries(candidate);
     if (read.kind !== "ok") {
       continue;
     }
-    for (const entry of read.assistants) {
-      if (!entry || typeof entry !== "object") {
-        continue;
-      }
-      const assistant = entry as Record<string, unknown>;
-      if (resolveCloud(assistant) !== "paired") {
-        continue;
-      }
-      const { assistantId, runtimeUrl } = assistant;
-      if (typeof assistantId !== "string" || assistantId === "") {
-        continue;
-      }
-      if (typeof runtimeUrl !== "string" || !isUsableRuntimeUrl(runtimeUrl)) {
-        continue;
-      }
-      targets.set(assistantId, runtimeUrl);
-    }
-    return targets;
+    return pairedGatewayTargetsFromLockfile({ assistants: read.assistants });
   }
-  return targets;
+  return new Map<string, string>();
 }

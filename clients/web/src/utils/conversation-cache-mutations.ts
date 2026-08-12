@@ -22,8 +22,11 @@ import {
   isBackgroundConversation,
   isScheduledConversation,
 } from "@/utils/conversation-predicates";
+import { matchesIndexBucket } from "@/utils/section-membership";
+import { insertByRecency } from "@/utils/conversation-order";
 import {
   findConversation,
+  patchConversation,
   updateAllConversationCaches,
   updateBackgroundConversationsCache,
   updateConversationsCache,
@@ -32,13 +35,19 @@ import {
 import {
   backgroundConversationsQueryKey,
   conversationsQueryKey,
+  parseSectionConversationsQueryKey,
   scheduledConversationsQueryKey,
+  sectionListPrefix,
+  sidebarSectionsQueryKey,
+  unreadConversationCountQueryKey,
+  type SidebarIndexSection,
 } from "@/utils/conversation-list-fetchers";
 import {
   type ConversationListPage,
   listBackgroundConversationsFirstPage,
   listConversationsFirstPage,
   listScheduledConversationsFirstPage,
+  listSectionConversationsFirstPage,
 } from "@/utils/conversation-list-fetchers";
 import {
   ConversationNotFoundError,
@@ -82,6 +91,83 @@ export function markConversationSeenLocal(
   updateAllConversationCaches(queryClient, assistantId, markSeen);
 }
 
+/**
+ * Apply a delta to the cached server-side unread conversation count.
+ *
+ * Optimistic companion to the seen/unseen mutations: a mark-read
+ * decrements, a mark-unread increments, and the caller reverts a failed
+ * mutation by applying the inverse delta (delta-based reversal, not a
+ * snapshot restore, so concurrent adjustments from other in-flight
+ * mutations are never clobbered). Drift is reconciled by the authoritative
+ * refetch in `invalidateConversationQueries` on settle.
+ *
+ * **Deliberately unclamped**, so `+n` and `-n` are exact inverses and a
+ * revert restores precisely what it took. Clamping here would break that:
+ * a decrement that saturated at zero would be undone by more than it
+ * removed, leaving the badge over-reporting. The cached value can therefore
+ * go briefly negative when optimistic writes outrun the server; presentation
+ * clamps it (`useUnreadConversationCount`), which keeps the arithmetic
+ * reversible and the display honest.
+ *
+ * Returns `true` when a numeric count was adjusted. No-ops (returns
+ * `false`) when the cache is empty or holds `null` (the connected
+ * assistant does not serve the count endpoint).
+ */
+export function adjustUnreadCountCache(
+  queryClient: QueryClient,
+  assistantId: string | null,
+  delta: number,
+): boolean {
+  const queryKey = unreadConversationCountQueryKey(assistantId);
+  const current = queryClient.getQueryData<number | null>(queryKey);
+  if (typeof current !== "number") {
+    return false;
+  }
+  queryClient.setQueryData<number | null>(queryKey, current + delta);
+  return true;
+}
+
+/**
+ * Apply a delta to one section's `unread` in the cached sidebar section
+ * index. Optimistic companion to {@link adjustUnreadCountCache}: wherever a
+ * seen/unseen mutation adjusts the global count for a row, the row's own
+ * section adjusts by the same delta, so the collapsed dot answers with the
+ * badge instead of one settle refetch behind it.
+ *
+ * The bucket mirrors the daemon's section aggregation: pinned wins, then a
+ * custom group, then the effective origin channel with NULL reading as
+ * native (the Chats bucket). Deliberately unclamped like the global count,
+ * so `+n` and `-n` are exact inverses; the dot lights on `> 0`, which reads
+ * a briefly negative value as dark.
+ *
+ * Returns `true` when a bucket row was adjusted. No-ops on a `null` index
+ * (assistant without the endpoint), an unfetched index, or a bucket the
+ * index does not carry; the settle refetch reconciles those.
+ */
+export function adjustSectionUnreadCache(
+  queryClient: QueryClient,
+  assistantId: string | null,
+  conversation: Conversation,
+  delta: number,
+): boolean {
+  const queryKey = sidebarSectionsQueryKey(assistantId);
+  const index = queryClient.getQueryData<SidebarIndexSection[] | null>(
+    queryKey,
+  );
+  if (index == null) {
+    return false;
+  }
+
+  const at = index.findIndex((row) => matchesIndexBucket(conversation, row));
+  if (at === -1) {
+    return false;
+  }
+  const next = [...index];
+  next[at] = { ...next[at], unread: next[at].unread + delta };
+  queryClient.setQueryData<SidebarIndexSection[] | null>(queryKey, next);
+  return true;
+}
+
 export function prependConversation(
   queryClient: QueryClient,
   assistantId: string | null,
@@ -105,10 +191,15 @@ export function removeConversation(
   updateAllConversationCaches(queryClient, assistantId, drop);
 }
 
-export function shouldSurfaceConversationOnUserSend(
-  conversation: Conversation,
-): boolean {
+export function shouldSurfaceConversation(conversation: Conversation): boolean {
   if (conversation.archivedAt != null) {
+    return false;
+  }
+  /* The daemon's surfaced visibility arm excludes subagent runs, so a
+     surface can never make one listable; firing it would insert a row the
+     next refetch drops. Mirrors `isSidebarVisible` and
+     `surfacedVisibilitySql`. */
+  if (conversation.source === "subagent") {
     return false;
   }
   if (conversation.surfacedAt != null) {
@@ -127,6 +218,47 @@ export function shouldSurfaceConversationOnUserSend(
     isScheduledConversation(conversation) ||
     isBackgroundConversation(conversation)
   );
+}
+
+/**
+ * Write a just-surfaced conversation into the caches for the open path.
+ *
+ * Differs from {@link surfaceConversationInCaches} (the send path) on the
+ * two axes where a bare surface differs from a send: the server writes only
+ * `surfaced_at` on surface, so neither `lastMessageAt` nor `groupId` moves,
+ * and the row takes its recency position rather than the top of the list.
+ *
+ * The row reaches the foreground cache if no list held it yet (a background
+ * run opened from the activity feed lives in the background cache at most),
+ * because the foreground cache is the standard listing and a surfaced row
+ * belongs to it. Section membership and the index stub ride
+ * `patchConversation`, which `surfacedAt` triggers as a membership field.
+ */
+export function applySurfacedConversation(
+  queryClient: QueryClient,
+  assistantId: string | null,
+  conversation: Conversation,
+  surfacedAt: number,
+): void {
+  /* The caller captured `conversation` before its POST left, and other
+     writes land while the request is out: mark-seen-on-open fires from the
+     same render and patches the row's seen state. Inserting the captured
+     snapshot would replay those fields backwards, and the membership pass
+     would spread the resurrected values into every section cache. The
+     freshest cached row wins; the snapshot is only the fallback when no
+     cache holds the row at all. */
+  const latest =
+    findConversation(queryClient, assistantId, conversation.conversationId) ??
+    conversation;
+  const surfaced: Conversation = { ...latest, surfacedAt };
+  updateConversationsCache(queryClient, assistantId, (conversations) =>
+    conversations.some((c) => c.conversationId === conversation.conversationId)
+      ? conversations
+      : insertByRecency(conversations, surfaced),
+  );
+  patchConversation(queryClient, assistantId, conversation.conversationId, {
+    surfacedAt,
+  });
 }
 
 export function surfaceConversationInCaches(
@@ -257,16 +389,23 @@ export async function refreshConversationRow(
 /**
  * Reconcile one fetched first page into a cached newest-first list.
  *
- * - `hasMore === false`: the page is the complete list — replace the cache.
+ * - `hasMore === false`: the page is the complete list, so it replaces the
+ *   cache.
  * - Otherwise the fresh rows win, and cached rows absent from the page
  *   survive only when they sort strictly below the page's window (older
- *   than the oldest non-pinned fresh row). A cached row whose timestamp
- *   falls inside the window but is missing from the page no longer lives
- *   there (deleted or archived), so it is dropped. Pinned rows are
- *   excluded from the cutoff because the daemon appends every pinned
- *   conversation to page 1 regardless of age — an ancient pinned row
- *   would otherwise collapse the cutoff and drop live rows.
+ *   than the oldest fresh row). A cached row whose timestamp falls inside
+ *   the window but is missing from the page no longer lives there (deleted
+ *   or archived), so it is dropped.
  * - Client-local draft rows always survive; the server doesn't know them.
+ *
+ * `pinnedInjected` says whether this page came from the one request the
+ * daemon appends every pinned conversation to (the unfiltered foreground
+ * list; the compatibility shim in `handleListConversations`). There the
+ * pinned rows are excluded from the cutoff, since an ancient injected pin
+ * would collapse it and drop live rows. A section page has no injection
+ * (the daemon skips it for every group- and channel-scoped request), so its
+ * pinned rows are genuine window members: in the Pinned section every row
+ * is pinned, and excluding them would leave no cutoff at all.
  *
  * The fresh window leads the result; surviving rows keep their existing
  * relative order.
@@ -276,15 +415,18 @@ export async function refreshConversationRow(
 export function mergeListFirstPage(
   prev: Conversation[],
   page: ConversationListPage,
+  { pinnedInjected }: { pinnedInjected: boolean },
 ): Conversation[] {
   if (!page.hasMore) {
     return page.conversations;
   }
-  const nonPinned = page.conversations.filter((c) => c.isPinned !== true);
-  if (nonPinned.length === 0) {
+  const windowRows = pinnedInjected
+    ? page.conversations.filter((c) => c.isPinned !== true)
+    : page.conversations;
+  if (windowRows.length === 0) {
     return prev;
   }
-  const cutoff = Math.min(...nonPinned.map((c) => c.lastMessageAt ?? 0));
+  const cutoff = Math.min(...windowRows.map((c) => c.lastMessageAt ?? 0));
   const freshIds = new Set(page.conversations.map((c) => c.conversationId));
   const kept = prev.filter(
     (c) =>
@@ -311,19 +453,34 @@ const LIST_WINDOW_BUCKETS = [
 
 /**
  * Refresh the top window of every populated conversation-list cache with a
- * single first-page GET per bucket, merging via {@link mergeListFirstPage}.
+ * single first-page GET per cache, merging via {@link mergeListFirstPage}.
+ *
+ * Covers the three static buckets AND every populated per-section cache,
+ * discovered through the section key prefix and decoded back to the filter
+ * each was fetched with. Sections are paginated like the foreground list
+ * (each drains every page on a plain refetch), so leaving them to
+ * `invalidateQueries` costs a full drain per mounted section per sync
+ * signal; the whole point of this helper is that a signal costs one
+ * request per cache.
  *
  * Drives the `conversationsList` sync-tag and SSE-reconnect handlers in
  * `use-conversation-sync.ts`. The full list query drains every page
  * (hundreds of sequential GETs at thousands of conversations), so
  * invalidating it on each sync signal exhausts the daemon's per-client
  * rate-limit budget during active turns; refreshing just the visible
- * window keeps the cost at one request per bucket per signal.
+ * window keeps the cost bounded.
  *
- * Buckets that were never fetched (collapsed sidebar sections) are
- * skipped — their queries fetch on first expand anyway. Fetch errors are
- * rethrown so the caller can log/capture without silently dropping the
- * signal.
+ * A tracked cache holding no data cannot be window-merged, and it must not
+ * be skipped either: a query whose first fetch failed sits exactly there,
+ * and a sync signal is its retry path. Those caches are invalidated
+ * instead, which refetches the active ones and leaves disabled or
+ * unmounted ones stale for their next mount. A cache mid-fetch is left
+ * alone so a burst of signals cannot cancel and restart a first load that
+ * is already running. Untracked keys (a section never expanded) stay
+ * untouched: their queries fetch on first expand anyway.
+ *
+ * Fetch errors are rethrown so the caller can log/capture without silently
+ * dropping the signal.
  */
 export async function refreshConversationListWindows(
   queryClient: QueryClient,
@@ -332,20 +489,82 @@ export async function refreshConversationListWindows(
   if (!assistantId) {
     return;
   }
-  await Promise.all(
-    LIST_WINDOW_BUCKETS.map(async (bucket) => {
-      const queryKey = bucket.queryKey(assistantId);
-      if (queryClient.getQueryData<Conversation[]>(queryKey) === undefined) {
+
+  /* One refresh decision for every tracked list cache, bucket or section. */
+  const refresh = async (
+    queryKey: readonly unknown[],
+    fetchStatus: "fetching" | "paused" | "idle",
+    fetchFirstPage: () => Promise<ConversationListPage>,
+    pinnedInjected: boolean,
+  ): Promise<void> => {
+    /* Read fresh here rather than passed in from discovery, so the
+       reference below describes the cache as of the moment the request
+       leaves, not as of when the caches were enumerated. */
+    const before = queryClient.getQueryData<Conversation[]>(queryKey);
+    if (before === undefined) {
+      if (fetchStatus === "idle") {
+        await queryClient.invalidateQueries({ queryKey });
+      }
+      return;
+    }
+    const page = await fetchFirstPage();
+    /* Identity, not a timestamp. This fetch runs outside TanStack, so
+       nothing that protects the cache from in-flight *queries* protects it
+       from this response: an optimistic placement's `cancelQueries` cannot
+       cancel it, and a second refresh cannot dedupe against it. Any write
+       that lands while the request is in flight (an optimistic move, a
+       newer refresh, a real refetch) replaces the array, so a changed
+       reference marks this response as the older account of the cache and
+       it is dropped rather than merged. `dataUpdatedAt` cannot carry this
+       check: it has millisecond resolution, and a write landing in the
+       same millisecond the reference was captured would be invisible to
+       it. The writer that outran the response carries its own
+       reconciliation; the next sync signal re-refreshes regardless. */
+    if (queryClient.getQueryData<Conversation[]>(queryKey) !== before) {
+      return;
+    }
+    queryClient.setQueryData<Conversation[]>(
+      queryKey,
+      (prev: Conversation[] | undefined) =>
+        prev === undefined
+          ? undefined
+          : mergeListFirstPage(prev, page, { pinnedInjected }),
+    );
+  };
+
+  const bucketRefreshes = LIST_WINDOW_BUCKETS.map(async (bucket) => {
+    const queryKey = bucket.queryKey(assistantId);
+    const state = queryClient.getQueryState<Conversation[]>(queryKey);
+    if (!state) {
+      return;
+    }
+    await refresh(
+      queryKey,
+      state.fetchStatus,
+      () => bucket.fetchFirstPage(assistantId),
+      /* The one request the daemon appends pinned rows to is the unfiltered
+         foreground list; see mergeListFirstPage. */
+      bucket.queryKey === conversationsQueryKey,
+    );
+  });
+
+  const sectionRefreshes = queryClient
+    .getQueryCache()
+    .findAll({ queryKey: sectionListPrefix(assistantId) })
+    .map(async (query) => {
+      const filter = parseSectionConversationsQueryKey(query.queryKey);
+      if (!filter) {
         return;
       }
-      const page = await bucket.fetchFirstPage(assistantId);
-      queryClient.setQueryData<Conversation[]>(
-        queryKey,
-        (prev: Conversation[] | undefined) =>
-          prev === undefined ? undefined : mergeListFirstPage(prev, page),
+      await refresh(
+        query.queryKey,
+        query.state.fetchStatus,
+        () => listSectionConversationsFirstPage(assistantId, filter),
+        false,
       );
-    }),
-  );
+    });
+
+  await Promise.all([...bucketRefreshes, ...sectionRefreshes]);
 }
 
 export function resolveDraftKey(

@@ -12,6 +12,7 @@ import {
   type LiveVoiceStreamingTranscriberResolver,
 } from "../live-voice-session.js";
 import type { LiveVoiceSessionFactoryContext } from "../live-voice-session-manager.js";
+import type { LiveVoiceTtsOptions } from "../live-voice-tts.js";
 import {
   createLiveVoiceServerFrameSequencer,
   type LiveVoiceClientStartFrame,
@@ -29,13 +30,19 @@ const START_FRAME = {
 } as const satisfies LiveVoiceClientStartFrame;
 
 class MockStreamingTranscriber implements StreamingTranscriber {
-  readonly providerId = "deepgram" as const;
+  // Configurable: the session gates the language-pin fallback on the DIALED
+  // transcriber's providerId (see turnLanguageFor).
+  readonly providerId: StreamingTranscriber["providerId"];
   readonly boundaryId = "daemon-streaming" as const;
   readonly audioChunks: Buffer[] = [];
   readonly mimeTypes: string[] = [];
   started = false;
   stopped = false;
   private onEvent: ((event: SttStreamServerEvent) => void) | null = null;
+
+  constructor(providerId: StreamingTranscriber["providerId"] = "deepgram") {
+    this.providerId = providerId;
+  }
 
   async start(onEvent: (event: SttStreamServerEvent) => void): Promise<void> {
     this.started = true;
@@ -135,6 +142,39 @@ function completingVoiceTurnStarter() {
   });
 }
 
+// A starter whose leg streams one spoken sentence so the turn reaches TTS.
+function speakingVoiceTurnStarter(reply = "Okay.") {
+  return mock(async (options: VoiceTurnOptions) => {
+    options.callbacks?.assistant_text_delta?.({
+      type: "assistant_text_delta",
+      text: reply,
+      conversationId: options.conversationId,
+    });
+    options.callbacks?.message_complete?.({
+      type: "message_complete",
+      conversationId: options.conversationId,
+      messageId: "assistant-message-123",
+    });
+    return { turnId: "bridge-turn-1", abort: mock() };
+  });
+}
+
+// Records the exact options object of every TTS synthesis request.
+function recordingTtsStreamer() {
+  const ttsCalls: LiveVoiceTtsOptions[] = [];
+  const streamTtsAudio = mock(async (options: LiveVoiceTtsOptions) => {
+    ttsCalls.push(options);
+    return {
+      provider: "fish-audio" as const,
+      contentType: "audio/pcm",
+      sampleRate: 24_000,
+      chunks: 0,
+      bytes: 0,
+    };
+  });
+  return { streamTtsAudio, ttsCalls };
+}
+
 function createContext(overrides: Partial<LiveVoiceClientStartFrame> = {}): {
   context: LiveVoiceSessionFactoryContext;
   frames: LiveVoiceServerFrame[];
@@ -203,7 +243,12 @@ describe("LiveVoiceSession STT", () => {
 
     await session.start();
 
-    expect(resolver).toHaveBeenCalledWith({ sampleRate: 24_000 });
+    // The config default is "multi", so the session carries a language into
+    // the resolver rather than leaving it to be inferred downstream.
+    expect(resolver).toHaveBeenCalledWith({
+      sampleRate: 24_000,
+      language: "multi",
+    });
     expect(transcriber.started).toBe(true);
     expect(frames).toEqual([
       {
@@ -214,6 +259,20 @@ describe("LiveVoiceSession STT", () => {
         turnDetection: "manual",
       },
     ]);
+  });
+
+  test("ignores model-integrated turn-detection events", async () => {
+    const { frames, session, transcriber } = createSessionWithTranscriber();
+
+    await session.start();
+    transcriber.emit({ type: "turn-start" });
+    transcriber.emit({ type: "eager-turn-end", text: "eager" });
+    transcriber.emit({ type: "turn-resumed" });
+    transcriber.emit({ type: "turn-end", text: "committed", confidence: 0.9 });
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    expect(frames.map((frame) => frame.type)).toEqual(["ready"]);
+    expect(session.finalTranscriptText).toBe("");
   });
 
   test("marks transient transcriber errors recoverable while the session continues", async () => {
@@ -1330,6 +1389,269 @@ describe("LiveVoiceSession STT", () => {
       "utterance 1",
       "utterance 1",
     ]);
+  });
+
+  test("finals tagged with a detected language carry it to TTS and the control prompt", async () => {
+    const transcriber = new MockStreamingTranscriber();
+    const startVoiceTurn = speakingVoiceTurnStarter();
+    const { streamTtsAudio, ttsCalls } = recordingTtsStreamer();
+    const { context } = createContext();
+    const session = new LiveVoiceSession(context, {
+      resolveTranscriber: mock(async () => transcriber),
+      startVoiceTurn,
+      streamTtsAudio,
+    });
+
+    await session.start();
+    await session.handleBinaryAudio(new Uint8Array([1]));
+    transcriber.emit({ type: "final", text: "नमस्ते", languages: ["hi"] });
+    await session.handleClientFrame({ type: "ptt_release" });
+    await waitFor(() => ttsCalls.length >= 1);
+
+    expect(ttsCalls[0]?.language).toBe("hi");
+    expect(startVoiceTurn.mock.calls[0]?.[0]?.voiceControlPrompt).toContain(
+      'speaking the language with code "hi"',
+    );
+  });
+
+  test("a tagged partial supplies the turn language when finals carry no tags", async () => {
+    // Speculative turns dispatch from partials before the first tagged
+    // final, so the latest tagged partial must resolve the language.
+    const transcriber = new MockStreamingTranscriber();
+    const startVoiceTurn = speakingVoiceTurnStarter();
+    const { streamTtsAudio, ttsCalls } = recordingTtsStreamer();
+    const { context } = createContext();
+    const session = new LiveVoiceSession(context, {
+      resolveTranscriber: mock(async () => transcriber),
+      startVoiceTurn,
+      streamTtsAudio,
+    });
+
+    await session.start();
+    await session.handleBinaryAudio(new Uint8Array([1]));
+    transcriber.emit({ type: "partial", text: "hola", languages: ["es"] });
+    transcriber.emit({ type: "final", text: "hola amigo" });
+    await session.handleClientFrame({ type: "ptt_release" });
+    await waitFor(() => ttsCalls.length >= 1);
+
+    expect(ttsCalls[0]?.language).toBe("es");
+  });
+
+  test("empty finals carrying language tags do not vote", async () => {
+    // Silence frames can carry container-level tags describing no emitted
+    // words; they must not outvote the language of real speech.
+    const transcriber = new MockStreamingTranscriber();
+    const startVoiceTurn = speakingVoiceTurnStarter();
+    const { streamTtsAudio, ttsCalls } = recordingTtsStreamer();
+    const { context } = createContext();
+    const session = new LiveVoiceSession(context, {
+      resolveTranscriber: mock(async () => transcriber),
+      startVoiceTurn,
+      streamTtsAudio,
+    });
+
+    await session.start();
+    await session.handleBinaryAudio(new Uint8Array([1]));
+    transcriber.emit({ type: "final", text: "", languages: ["es"] });
+    transcriber.emit({ type: "final", text: "", languages: ["es"] });
+    transcriber.emit({ type: "final", text: "hello there", languages: ["en"] });
+    await session.handleClientFrame({ type: "ptt_release" });
+    await waitFor(() => ttsCalls.length >= 1);
+
+    expect(ttsCalls[0]?.language).toBe("en");
+  });
+
+  test("only each final's dominant language votes", async () => {
+    // `languages` is dominance-ranked per event: a Spanish-dominant segment
+    // tagged ["es", "en"] plus a short English segment tagged ["en"] must
+    // resolve to Spanish (one vote each, tie broken by first appearance),
+    // not English by counting the secondary tag as a full vote.
+    const transcriber = new MockStreamingTranscriber();
+    const startVoiceTurn = speakingVoiceTurnStarter();
+    const { streamTtsAudio, ttsCalls } = recordingTtsStreamer();
+    const { context } = createContext();
+    const session = new LiveVoiceSession(context, {
+      resolveTranscriber: mock(async () => transcriber),
+      startVoiceTurn,
+      streamTtsAudio,
+    });
+
+    await session.start();
+    await session.handleBinaryAudio(new Uint8Array([1]));
+    transcriber.emit({
+      type: "final",
+      text: "hola amigo como estas hoy",
+      languages: ["es", "en"],
+    });
+    transcriber.emit({ type: "final", text: "ok", languages: ["en"] });
+    await session.handleClientFrame({ type: "ptt_release" });
+    await waitFor(() => ttsCalls.length >= 1);
+
+    expect(ttsCalls[0]?.language).toBe("es");
+  });
+
+  test("a tagged final outranks an earlier tagged partial", async () => {
+    const transcriber = new MockStreamingTranscriber();
+    const startVoiceTurn = speakingVoiceTurnStarter();
+    const { streamTtsAudio, ttsCalls } = recordingTtsStreamer();
+    const { context } = createContext();
+    const session = new LiveVoiceSession(context, {
+      resolveTranscriber: mock(async () => transcriber),
+      startVoiceTurn,
+      streamTtsAudio,
+    });
+
+    await session.start();
+    await session.handleBinaryAudio(new Uint8Array([1]));
+    transcriber.emit({ type: "partial", text: "hola", languages: ["es"] });
+    transcriber.emit({ type: "final", text: "नमस्ते", languages: ["hi"] });
+    await session.handleClientFrame({ type: "ptt_release" });
+    await waitFor(() => ttsCalls.length >= 1);
+
+    expect(ttsCalls[0]?.language).toBe("hi");
+  });
+
+  test("a monolingual services.stt.language pin is the turn language when finals carry no tags", async () => {
+    const originalRaw = loadRawConfig();
+    const rawServices = (originalRaw.services ?? {}) as Record<string, unknown>;
+    saveRawConfig({
+      ...originalRaw,
+      services: {
+        ...rawServices,
+        stt: {
+          ...((rawServices.stt ?? {}) as Record<string, unknown>),
+          language: "ja",
+        },
+      },
+    });
+    const transcriber = new MockStreamingTranscriber();
+    const startVoiceTurn = speakingVoiceTurnStarter();
+    const { streamTtsAudio, ttsCalls } = recordingTtsStreamer();
+    const { context } = createContext();
+    const session = new LiveVoiceSession(context, {
+      resolveTranscriber: mock(async () => transcriber),
+      startVoiceTurn,
+      streamTtsAudio,
+    });
+
+    try {
+      await session.start();
+      await session.handleBinaryAudio(new Uint8Array([1]));
+      await session.handleClientFrame({ type: "ptt_release" });
+      await waitFor(() => ttsCalls.length >= 1);
+
+      expect(ttsCalls[0]?.language).toBe("ja");
+      expect(startVoiceTurn.mock.calls[0]?.[0]?.voiceControlPrompt).toContain(
+        'speaking the language with code "ja"',
+      );
+    } finally {
+      await session.close("websocket_close");
+      saveRawConfig(originalRaw);
+    }
+  });
+
+  test("a pin on an auto-detecting provider does not become the turn language", async () => {
+    // google-gemini and openai-whisper ignore services.stt.language, so a
+    // stale persisted pin must not force every turn into that language.
+    const originalRaw = loadRawConfig();
+    const rawServices = (originalRaw.services ?? {}) as Record<string, unknown>;
+    saveRawConfig({
+      ...originalRaw,
+      services: {
+        ...rawServices,
+        stt: {
+          ...((rawServices.stt ?? {}) as Record<string, unknown>),
+          provider: "google-gemini",
+          language: "es",
+        },
+      },
+    });
+    const transcriber = new MockStreamingTranscriber("google-gemini");
+    const startVoiceTurn = speakingVoiceTurnStarter();
+    const { streamTtsAudio, ttsCalls } = recordingTtsStreamer();
+    const { context } = createContext();
+    const session = new LiveVoiceSession(context, {
+      resolveTranscriber: mock(async () => transcriber),
+      startVoiceTurn,
+      streamTtsAudio,
+    });
+
+    try {
+      await session.start();
+      await session.handleBinaryAudio(new Uint8Array([1]));
+      await session.handleClientFrame({ type: "ptt_release" });
+      await waitFor(() => ttsCalls.length >= 1);
+
+      expect(ttsCalls[0] && "language" in ttsCalls[0]).toBe(false);
+    } finally {
+      await session.close("websocket_close");
+      saveRawConfig(originalRaw);
+    }
+  });
+
+  test("the pin gate follows the dialed provider, not the configured one", async () => {
+    // A BYOK gemini config without credentials silently dials the managed
+    // vellum transcriber, which DOES honor the pin; the gate must follow
+    // what was dialed, not what was configured.
+    const originalRaw = loadRawConfig();
+    const rawServices = (originalRaw.services ?? {}) as Record<string, unknown>;
+    saveRawConfig({
+      ...originalRaw,
+      services: {
+        ...rawServices,
+        stt: {
+          ...((rawServices.stt ?? {}) as Record<string, unknown>),
+          provider: "google-gemini",
+          language: "es",
+        },
+      },
+    });
+    const transcriber = new MockStreamingTranscriber("vellum");
+    const startVoiceTurn = speakingVoiceTurnStarter();
+    const { streamTtsAudio, ttsCalls } = recordingTtsStreamer();
+    const { context } = createContext();
+    const session = new LiveVoiceSession(context, {
+      resolveTranscriber: mock(async () => transcriber),
+      startVoiceTurn,
+      streamTtsAudio,
+    });
+
+    try {
+      await session.start();
+      await session.handleBinaryAudio(new Uint8Array([1]));
+      await session.handleClientFrame({ type: "ptt_release" });
+      await waitFor(() => ttsCalls.length >= 1);
+
+      expect(ttsCalls[0]?.language).toBe("es");
+    } finally {
+      await session.close("websocket_close");
+      saveRawConfig(originalRaw);
+    }
+  });
+
+  test('the default "multi" with tag-less finals leaves every language-aware path untouched', async () => {
+    const transcriber = new MockStreamingTranscriber();
+    const startVoiceTurn = speakingVoiceTurnStarter();
+    const { streamTtsAudio, ttsCalls } = recordingTtsStreamer();
+    const { context } = createContext();
+    const session = new LiveVoiceSession(context, {
+      resolveTranscriber: mock(async () => transcriber),
+      startVoiceTurn,
+      streamTtsAudio,
+    });
+
+    await session.start();
+    await session.handleBinaryAudio(new Uint8Array([1]));
+    await session.handleClientFrame({ type: "ptt_release" });
+    await waitFor(() => ttsCalls.length >= 1);
+
+    // With the language unknown the TTS request carries no language key at
+    // all and the control prompt has no per-turn language note: byte-for-byte
+    // the language-blind behavior.
+    expect("language" in ttsCalls[0]!).toBe(false);
+    expect(startVoiceTurn.mock.calls[0]?.[0]?.voiceControlPrompt).not.toContain(
+      "language with code",
+    );
   });
 
   test("uses the production streaming transcriber resolver by default", () => {

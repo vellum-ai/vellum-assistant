@@ -206,11 +206,12 @@ describe("credentials/prompt route", () => {
     expect(capturedMetadata?.usageDescription).toBeUndefined();
   });
 
-  test("stores a non-slack credential to secure storage without a message", async () => {
+  test("stores a non-slack credential to secure storage and reports the value as received", async () => {
     /**
      * The default delivery persists the value to secure storage and runs the
-     * manual-token connection sync, returning no message so the CLI prints its
-     * generic "Stored credential" line.
+     * manual-token connection sync. The message must name the outcome (the
+     * value is in hand) so a bare `ok: true` cannot be misread as "the prompt
+     * opened".
      */
     // GIVEN a standard store-delivery prompt for a non-slack credential
     // WHEN the route handles it
@@ -227,8 +228,52 @@ describe("credentials/prompt route", () => {
     // AND the manual token connection is synced for the service
     expect(syncedServices).toEqual(["stripe"]);
 
-    // AND no message is returned (the CLI falls back to its default line)
-    expect(result.message).toBeUndefined();
+    // AND the message reports the credential as received and stored
+    expect(result.message).toContain(
+      "Credential received from the user and stored as stripe/api_key.",
+    );
+  });
+
+  test("every successful outcome states that the prompt has closed", async () => {
+    /**
+     * The prompt blocks until answered, so a caller reads the result only once
+     * the secure input is gone. Every success path states the close, not just
+     * the plain vault write, so the result cannot be read as "the prompt is
+     * open, paste it there".
+     */
+    const closed = "The secure prompt has closed.";
+
+    // GIVEN a plain vault write
+    const stored = (await promptRoute!.handler({
+      body: { service: "stripe", field: "api_key", label: "Stripe API Key" },
+    })) as PromptResponse;
+
+    // THEN it reports the prompt as closed
+    expect(stored.message).toContain(closed);
+
+    // GIVEN a one-time send instead
+    secretResult = { value: "secret-value", delivery: "transient_send" };
+    const transient = (await promptRoute!.handler({
+      body: { service: "stripe", field: "api_key", label: "Stripe API Key" },
+    })) as PromptResponse;
+
+    // THEN it reports the prompt as closed too
+    expect(transient.message).toContain(closed);
+
+    // GIVEN a Slack channel token, whose status line owns the outcome summary
+    secretResult = { value: "secret-value", delivery: "store" };
+    slackConfigResult = slackResult({ connected: true, teamName: "Acme" });
+    const slack = (await promptRoute!.handler({
+      body: {
+        service: "slack_channel",
+        field: "bot_token",
+        label: "Slack Bot Token",
+      },
+    })) as PromptResponse;
+
+    // THEN the close notice rides along with the connection status
+    expect(slack.message).toContain("Slack channel connected to Acme.");
+    expect(slack.message).toContain(closed);
   });
 
   test("connects the channel when a slack_channel token is provided", async () => {
@@ -259,7 +304,9 @@ describe("credentials/prompt route", () => {
 
     // AND the connection status is surfaced as the response message
     expect(result.ok).toBe(true);
-    expect(result.message).toBe("Slack channel connected to Acme (@acmebot).");
+    expect(result.message).toContain(
+      "Slack channel connected to Acme (@acmebot).",
+    );
   });
 
   test("surfaces the warning when a slack_channel connection is incomplete", async () => {
@@ -284,7 +331,7 @@ describe("credentials/prompt route", () => {
 
     // THEN the warning is surfaced as the response message
     expect(result.ok).toBe(true);
-    expect(result.message).toBe(
+    expect(result.message).toContain(
       "Slack channel connection incomplete; provide the app token.",
     );
   });

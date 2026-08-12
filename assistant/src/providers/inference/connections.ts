@@ -163,6 +163,14 @@ export type CreateConnectionInput = {
 
 export type UpdateConnectionInput = {
   auth: Auth;
+  /**
+   * Optional provider correction. The HTTP PATCH route never passes this
+   * (provider is immutable there); it exists for owners of well-known rows
+   * to keep the provider truthful when they rewrite the auth, e.g. the
+   * ChatGPT sign-in flow stamping "openai" on the subscription row so a
+   * claiming row with a different provider cannot strand the fresh token.
+   */
+  provider?: string;
   label?: string | null;
   baseUrl?: string | null;
   models?: ConnectionModel[] | null;
@@ -178,6 +186,7 @@ export type ConnectionCreateError =
 export type ConnectionUpdateError =
   | { code: "not_found" }
   | { code: "invalid_auth" }
+  | { code: "invalid_provider"; provider: string }
   | { code: "base_url_required" }
   | { code: "models_required" };
 
@@ -278,12 +287,23 @@ export function updateConnection(
     return { ok: false, error: { code: "invalid_auth" } };
   }
 
+  if (
+    input.provider !== undefined &&
+    !VALID_CONNECTION_PROVIDERS.includes(input.provider as never)
+  ) {
+    return {
+      ok: false,
+      error: { code: "invalid_provider", provider: input.provider },
+    };
+  }
+  const nextProvider = input.provider ?? existing.provider;
+
   const nextBaseUrl =
     input.baseUrl !== undefined ? input.baseUrl : existing.baseUrl;
   const nextModels =
     input.models !== undefined ? input.models : existing.models;
 
-  if (PROVIDERS_REQUIRING_BASE_URL_AND_MODELS.has(existing.provider)) {
+  if (PROVIDERS_REQUIRING_BASE_URL_AND_MODELS.has(nextProvider)) {
     if (!nextBaseUrl) {
       return { ok: false, error: { code: "base_url_required" } };
     }
@@ -296,10 +316,14 @@ export function updateConnection(
   const setClause: {
     auth: string;
     updatedAt: number;
+    provider?: string;
     label?: string | null;
     baseUrl?: string | null;
     models?: string | null;
   } = { auth: JSON.stringify(auth), updatedAt: now };
+  if (input.provider !== undefined) {
+    setClause.provider = input.provider;
+  }
   if (input.label !== undefined) {
     setClause.label = input.label;
   }
@@ -324,10 +348,12 @@ export function updateConnection(
     connection: {
       ...existing,
       auth,
+      provider: nextProvider,
       label: input.label !== undefined ? input.label : existing.label,
       baseUrl: nextBaseUrl,
       models: nextModels,
       updatedAt: now,
+      isManaged: isManagedRow({ name, provider: nextProvider, auth }),
     },
   };
 }

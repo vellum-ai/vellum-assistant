@@ -3,7 +3,7 @@
 openapi: 3.1.0
 info:
   title: Vellum Assistant API
-  version: 0.11.2
+  version: 0.11.3
   description: Auto-generated OpenAPI specification for the Vellum Assistant runtime HTTP server.
 servers:
   - url: http://127.0.0.1:7821
@@ -4017,8 +4017,8 @@ paths:
       summary: Get available channels
       description:
         Return the channels this assistant can surface to clients, with display metadata (label, icon, verification
-        capability, setup copy). Today this is a fixed base list plus `email` when an inbox is registered; will become
-        plugin/skill-driven in future.
+        capability, setup copy). A fixed base list plus `email` when an inbox is registered, plus the channels installed
+        plugins bring by declaring ingress routes. Each carries a `source` saying which of those it is.
       tags:
         - channels
       responses:
@@ -4036,16 +4036,9 @@ paths:
                       properties:
                         id:
                           type: string
-                          enum:
-                            - telegram
-                            - phone
-                            - vellum
-                            - whatsapp
-                            - slack
-                            - email
-                            - platform
-                            - a2a
-                            - discord
+                        source:
+                          type: string
+                          description: "`default` for a channel the assistant ships, `plugin:<name>` for one an installed plugin brings"
                         label:
                           type: string
                         subtitle:
@@ -4067,13 +4060,16 @@ paths:
                           additionalProperties: false
                       required:
                         - id
+                        - source
                         - label
                         - subtitle
                         - icon
                         - supportsVerification
                         - setupMessages
                       additionalProperties: false
-                    description: Available channels in display order
+                    description:
+                      "Available channels in display order: the ones the assistant ships, then the ones installed plugins bring
+                      by declaring ingress routes. `source` distinguishes them."
                 required:
                   - channels
                 additionalProperties: false
@@ -4358,6 +4354,7 @@ paths:
                             - platform
                             - a2a
                             - discord
+                            - plugin
                         ready:
                           type: boolean
                         setupStatus:
@@ -4448,6 +4445,7 @@ paths:
                     - platform
                     - a2a
                     - discord
+                    - plugin
                 includeRemote:
                   description: Include remote checks (default true)
                   type: boolean
@@ -4478,6 +4476,7 @@ paths:
                             - platform
                             - a2a
                             - discord
+                            - plugin
                         ready:
                           type: boolean
                         setupStatus:
@@ -4614,6 +4613,43 @@ paths:
                     description: Number of disposed subscribers.
                 required:
                   - disconnected
+                additionalProperties: false
+  /v1/clients/presence:
+    post:
+      operationId: clients_presence_post
+      summary: Report desktop presence
+      description: Record the desktop presence state reported by the client identified by the X-Vellum-Client-Id header.
+      tags:
+        - clients
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                state:
+                  type: string
+                  enum:
+                    - active
+                    - idle
+                    - away
+                  description: Reported desktop presence state.
+              required:
+                - state
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  recorded:
+                    type: boolean
+                    description: Whether a connected client matched the reporting clientId.
+                required:
+                  - recorded
                 additionalProperties: false
   /v1/config:
     get:
@@ -4790,6 +4826,7 @@ paths:
                     - gemini
                     - fireworks
                     - openrouter
+                    - chatgpt
                     - vellum
                     - together
                     - vercel-ai-gateway
@@ -6545,9 +6582,20 @@ paths:
               - platform
               - a2a
               - discord
+              - plugin
           description:
             Filter by origin channel. When provided, only conversations with this exact origin_channel value are
             returned. Omit to include all channels.
+        - name: groupId
+          in: query
+          required: false
+          schema:
+            type: string
+          description:
+            Filter to a single group, so each sidebar section can load independently of the paginated list. Pass
+            "system:all" for conversations in no group, "system:pinned" for the Pinned section, or a custom group id. A
+            group-scoped request is recency-ordered like every list read (COALESCE(last_message_at, updated_at)
+            descending) and never has pinned rows appended to it. Omit to span every group.
       responses:
         "200":
           description: Successful response
@@ -6671,6 +6719,7 @@ paths:
                                 - platform
                                 - a2a
                                 - discord
+                                - plugin
                             - type: "null"
                         assistantAttention:
                           type: object
@@ -6725,6 +6774,9 @@ paths:
                             - messageId
                             - title
                           additionalProperties: false
+                        historyOrphaned:
+                          type: boolean
+                          const: true
                         archivedAt:
                           type: number
                         surfacedAt:
@@ -6798,9 +6850,15 @@ paths:
                     `id`.
                   type: string
                 conversationType:
-                  description: Only standard conversations are created by this endpoint
+                  description:
+                    Conversation type for the new row. "background" keeps it out of the foreground list and the sidebar's
+                    Recents grouping, used by internal side-channel flows (onboarding research, persona/identity
+                    rewrites) that mint a throwaway thread the user should never see. "scheduled" is not accepted here;
+                    scheduled rows are owned by the schedule pipeline.
                   type: string
-                  const: standard
+                  enum:
+                    - standard
+                    - background
                 title:
                   description:
                     Explicit title for the conversation. When provided on creation, it is persisted as a user-set title (never
@@ -7025,6 +7083,7 @@ paths:
                               - platform
                               - a2a
                               - discord
+                              - plugin
                           - type: "null"
                       assistantAttention:
                         type: object
@@ -7079,6 +7138,9 @@ paths:
                           - messageId
                           - title
                         additionalProperties: false
+                      historyOrphaned:
+                        type: boolean
+                        const: true
                       archivedAt:
                         type: number
                       surfacedAt:
@@ -8235,6 +8297,7 @@ paths:
                               - platform
                               - a2a
                               - discord
+                              - plugin
                           - type: "null"
                       assistantAttention:
                         type: object
@@ -8289,6 +8352,9 @@ paths:
                           - messageId
                           - title
                         additionalProperties: false
+                      historyOrphaned:
+                        type: boolean
+                        const: true
                       archivedAt:
                         type: number
                       surfacedAt:
@@ -9231,8 +9297,10 @@ paths:
   /v1/conversations/reorder:
     post:
       operationId: conversations_reorder_post
-      summary: Reorder conversations
-      description: Batch-update display order and pin state for conversations.
+      summary: Move conversations between sections
+      description:
+        Batch-update which group holds each conversation, and its pin state. Lists are ordered by recency, so this
+        sets placement, not order.
       tags:
         - conversations
       requestBody:
@@ -9249,8 +9317,6 @@ paths:
                     properties:
                       conversationId:
                         type: string
-                      displayOrder:
-                        type: number
                       isPinned:
                         type: boolean
                       groupId:
@@ -9316,6 +9382,107 @@ paths:
                 required:
                   - query
                   - results
+                additionalProperties: false
+  /v1/conversations/sections:
+    get:
+      operationId: conversations_sections_get
+      summary: Sidebar section index
+      description:
+        "One row per renderable sidebar section (Pinned, each non-empty custom group, each origin channel with
+        unassigned conversations, Chats) with total and unread counts and no conversation rows. Lets a client know which
+        sections exist, and what their badges say, without fetching any conversation list. Totals follow the standard
+        listing visibility; unread applies the same rules as GET /v1/conversations/unread-count scoped to the section.
+        Chats is always present, even at zero: it is the leftover bucket and renders regardless."
+      tags:
+        - conversations
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  sections:
+                    type: array
+                    items:
+                      oneOf:
+                        - type: object
+                          properties:
+                            kind:
+                              type: string
+                              const: pinned
+                            total:
+                              type: number
+                            unread:
+                              type: number
+                          required:
+                            - kind
+                            - total
+                            - unread
+                          additionalProperties: false
+                        - type: object
+                          properties:
+                            kind:
+                              type: string
+                              const: group
+                            groupId:
+                              type: string
+                            name:
+                              type: string
+                            icon:
+                              anyOf:
+                                - type: string
+                                - type: "null"
+                            sortPosition:
+                              type: number
+                            total:
+                              type: number
+                            unread:
+                              type: number
+                          required:
+                            - kind
+                            - groupId
+                            - name
+                            - icon
+                            - sortPosition
+                            - total
+                            - unread
+                          additionalProperties: false
+                        - type: object
+                          properties:
+                            kind:
+                              type: string
+                              const: channel
+                            channelId:
+                              type: string
+                            total:
+                              type: number
+                            unread:
+                              type: number
+                          required:
+                            - kind
+                            - channelId
+                            - total
+                            - unread
+                          additionalProperties: false
+                        - type: object
+                          properties:
+                            kind:
+                              type: string
+                              const: chats
+                            total:
+                              type: number
+                            unread:
+                              type: number
+                          required:
+                            - kind
+                            - total
+                            - unread
+                          additionalProperties: false
+                      type: object
+                required:
+                  - sections
                 additionalProperties: false
   /v1/conversations/seen:
     post:
@@ -9522,6 +9689,28 @@ paths:
                 required:
                   - ok
                 additionalProperties: false
+  /v1/conversations/unread-count:
+    get:
+      operationId: conversations_unreadcount_get
+      summary: Unread conversation count
+      description:
+        "Count of foreground conversations whose latest assistant message is unseen. Matches the sidebar's unread
+        indicators: archived rows and non-surfaced background/scheduled rows are excluded."
+      tags:
+        - conversations
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  count:
+                    type: number
+                required:
+                  - count
+                additionalProperties: false
   /v1/conversations/wake:
     post:
       operationId: conversations_wake_post
@@ -9546,6 +9735,9 @@ paths:
                   default: cli
                   type: string
                 cronRunId:
+                  type: string
+                  minLength: 1
+                scheduleId:
                   type: string
                   minLength: 1
                 persist:
@@ -14745,7 +14937,7 @@ paths:
             type: string
           description:
             "Filter by provider. One of: anthropic, openai, gemini, ollama, fireworks, together, openrouter,
-            vercel-ai-gateway, litellm, openai-compatible, minimax, atlascloud, baseten, poolside, vellum"
+            vercel-ai-gateway, litellm, openai-compatible, minimax, atlascloud, baseten, poolside, vellum, chatgpt"
       responses:
         "200":
           description: Successful response
@@ -19989,8 +20181,8 @@ paths:
                   type: string
                 clientOs:
                   description:
-                    Client OS surface ("web" | "ios" | "macos" | "android"), reported separately from `interface`. Drives the
-                    per-turn `client_os` context only; does not affect transport/host-proxy capabilities.
+                    Client OS surface ("web" | "ios" | "macos" | "windows" | "android"), reported separately from `interface`.
+                    Drives the per-turn `client_os` context only; does not affect transport/host-proxy capabilities.
                   type: string
                 visibleAppId:
                   description:
@@ -20805,6 +20997,10 @@ paths:
       responses:
         "200":
           description: Successful response
+        "403":
+          description: The queued message was enqueued by a different actor principal.
+        "404":
+          description: Conversation or queued message not found.
   /v1/migrations/export:
     post:
       operationId: migrations_export_post
@@ -21871,6 +22067,7 @@ paths:
                     - platform
                     - a2a
                     - discord
+                    - plugin
                     - scheduler
                     - watcher
                 sourceContextId:
@@ -21920,8 +22117,6 @@ paths:
                   type: string
                 throwOnError:
                   type: boolean
-                originatingConversationId:
-                  type: string
               required:
                 - sourceEventName
                 - sourceChannel
@@ -22062,6 +22257,11 @@ paths:
                             anyOf:
                               - type: string
                               - type: "null"
+                          acts_as:
+                            type: string
+                            enum:
+                              - user
+                              - assistant
                         required:
                           - provider_key
                           - display_name
@@ -22073,6 +22273,7 @@ paths:
                           - supports_managed_mode
                           - managed_service_is_paid
                           - feature_flag
+                          - acts_as
                         additionalProperties: false
                       - type: "null"
                   apps:
@@ -22590,6 +22791,11 @@ paths:
                           anyOf:
                             - type: string
                             - type: "null"
+                        acts_as:
+                          type: string
+                          enum:
+                            - user
+                            - assistant
                       required:
                         - provider_key
                         - display_name
@@ -22601,6 +22807,7 @@ paths:
                         - supports_managed_mode
                         - managed_service_is_paid
                         - feature_flag
+                        - acts_as
                       additionalProperties: false
                 required:
                   - providers
@@ -24165,14 +24372,43 @@ paths:
                             description:
                               Registered tool names from `tools/<name>.{ts,js}` (filenames derived to tool names, e.g. `create-issue` →
                               `create_issue`).
+                          schedules:
+                            type: array
+                            items:
+                              type: object
+                              properties:
+                                name:
+                                  type: string
+                                  description: "Schedule name: the declaration directory's name."
+                                cadence:
+                                  type: string
+                                  description: Raw schedule `expression` string from the declaration's config.
+                                mode:
+                                  type: string
+                                  enum:
+                                    - execute
+                                    - script
+                                  description: "`execute` for a markdown prompt entrypoint, `script` for `index.sh`."
+                              required:
+                                - name
+                                - cadence
+                                - mode
+                              additionalProperties: false
+                            description:
+                              Schedules declared under `schedules/`, each a `<name>/` directory with `config.json` plus one entrypoint.
+                              Display surface only; files directly under `schedules/` and unsupported declarations are
+                              omitted.
                         required:
                           - skills
                           - hooks
                           - tools
+                          - schedules
                         additionalProperties: false
                         description: Surfaces the installed copy contributes, read from its on-disk tree.
                       - type: "null"
-                    description: Surfaces the installed copy contributes (skills, hooks, tools); null when the plugin is not installed.
+                    description:
+                      Surfaces the installed copy contributes (skills, hooks, tools, schedules); null when the plugin is not
+                      installed.
                 required:
                   - name
                   - installed
@@ -24205,8 +24441,9 @@ paths:
         non-conflicting edits from both sides forward and resolving conflicting hunks toward the local edit (`ours`) or
         the target (`theirs`), or writing git conflict markers into the file and reporting them in
         `conflicts`/`binaryConflicts` for the assistant to resolve (`assistant`). A merge strategy whose install-time
-        baseline cannot be reconstructed returns 409. Mirrors the CLI''s `assistant plugins upgrade <name> [--strategy
-        <s>]`.'
+        baseline cannot be reconstructed returns 409. Pass `marketplaceOnly` to refuse the untrusted direct path
+        outright (409), which is what the unattended auto-update sweep does. Mirrors the CLI''s `assistant plugins
+        upgrade <name> [--strategy <s>]`.'
       tags:
         - plugins
       parameters:
@@ -24236,6 +24473,13 @@ paths:
                     - theirs
                     - overwrite
                     - assistant
+                marketplaceOnly:
+                  description:
+                    Refuse the upgrade (409) when the marketplace does not claim this plugin, instead of advancing it to
+                    whatever its recorded GitHub ref now resolves to. Set by unattended callers such as the automatic
+                    update sweep, for which running code no curator reviewed is never an acceptable outcome. Defaults to
+                    false.
+                  type: boolean
       responses:
         "200":
           description: Successful response
@@ -24335,8 +24579,9 @@ paths:
           description: No copy of the plugin is installed, or its source resolves to nothing.
         "409":
           description:
-            The install has neither a marketplace entry nor a recorded GitHub source to advance to, or a merge strategy
-            was requested whose install-time baseline cannot be reconstructed.
+            The install has neither a marketplace entry nor a recorded GitHub source to advance to, a `marketplaceOnly`
+            upgrade was requested for an install the marketplace does not claim, or a merge strategy was requested whose
+            install-time baseline cannot be reconstructed.
         "503":
           description: The plugin source (GitHub) was temporarily unavailable; the upgrade is retryable.
   /v1/plugins/{name}/versions:
@@ -25110,8 +25355,9 @@ paths:
         per conversation after activity (time/message thresholds, pre-compaction) — there is no global schedule, so
         `nextRunAt` is always null and no run-now endpoint exists. `intervalMs` is the per-conversation time threshold
         (`memory.retrospective.timeThresholdMs`), `lastRunAt` is the `createdAt` of the most recent retrospective
-        conversation across both legacy and fork sources, and `available` gates on `memory.enabled` (not
-        `memory.v2.enabled`).
+        conversation across both legacy and fork sources, `available` gates on `memory.enabled` (not
+        `memory.v2.enabled`), and `enabled` narrows that by `memory.retrospective.enabled`, the per-pass kill switch
+        that stops retrospectives without disabling the rest of memory.
       tags:
         - retrospective
       responses:
@@ -25397,6 +25643,12 @@ paths:
           schema:
             type: string
           description: When 'true', include deferred schedules that are normally hidden.
+        - name: inference_profile
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Return only schedules pinned to this inference profile (llm.profiles key).
       responses:
         "200":
           description: Successful response
@@ -25512,7 +25764,23 @@ paths:
                           anyOf:
                             - type: string
                             - type: "null"
+                        sourceKey:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                          description:
+                            Plugin declaration this schedule mirrors (plugin:<pluginName>/<scheduleName>); null for user-created
+                            schedules
+                        userEnabled:
+                          anyOf:
+                            - type: boolean
+                            - type: "null"
+                          description:
+                            User enable/disable override on a plugin-sourced schedule; null when the declaration's own enabled value
+                            applies. Always null for user-created schedules.
                         isOneShot:
+                          type: boolean
+                        isDeferred:
                           type: boolean
                       required:
                         - id
@@ -25544,7 +25812,10 @@ paths:
                         - reuseConversation
                         - wakeConversationId
                         - workflowName
+                        - sourceKey
+                        - userEnabled
                         - isOneShot
+                        - isDeferred
                       additionalProperties: false
                     description: Schedule objects
                 required:
@@ -25606,8 +25877,10 @@ paths:
                     - type: string
                     - type: "null"
                   description:
-                    Inference profile (llm.profiles key) the schedule's runs use. Omitted or null = default, i.e. the mainAgent
-                    call-site model selection.
+                    Inference profile (llm.profiles key) the schedule's runs use. Omitted or null pins the schedule to the
+                    currently resolved default profile, so its model does not move when that default changes.
+                    Workflow-mode schedules resolve a model per workflow step, so the pin is recorded but does not
+                    govern their runs.
               required:
                 - name
                 - expression
@@ -25724,7 +25997,23 @@ paths:
                         anyOf:
                           - type: string
                           - type: "null"
+                      sourceKey:
+                        anyOf:
+                          - type: string
+                          - type: "null"
+                        description:
+                          Plugin declaration this schedule mirrors (plugin:<pluginName>/<scheduleName>); null for user-created
+                          schedules
+                      userEnabled:
+                        anyOf:
+                          - type: boolean
+                          - type: "null"
+                        description:
+                          User enable/disable override on a plugin-sourced schedule; null when the declaration's own enabled value
+                          applies. Always null for user-created schedules.
                       isOneShot:
+                        type: boolean
+                      isDeferred:
                         type: boolean
                     required:
                       - id
@@ -25756,7 +26045,10 @@ paths:
                       - reuseConversation
                       - wakeConversationId
                       - workflowName
+                      - sourceKey
+                      - userEnabled
                       - isOneShot
+                      - isDeferred
                     additionalProperties: false
                     description: The created schedule
                 required:
@@ -25890,7 +26182,23 @@ paths:
                           anyOf:
                             - type: string
                             - type: "null"
+                        sourceKey:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                          description:
+                            Plugin declaration this schedule mirrors (plugin:<pluginName>/<scheduleName>); null for user-created
+                            schedules
+                        userEnabled:
+                          anyOf:
+                            - type: boolean
+                            - type: "null"
+                          description:
+                            User enable/disable override on a plugin-sourced schedule; null when the declaration's own enabled value
+                            applies. Always null for user-created schedules.
                         isOneShot:
+                          type: boolean
+                        isDeferred:
                           type: boolean
                       required:
                         - id
@@ -25922,7 +26230,10 @@ paths:
                         - reuseConversation
                         - wakeConversationId
                         - workflowName
+                        - sourceKey
+                        - userEnabled
                         - isOneShot
+                        - isDeferred
                       additionalProperties: false
                     description: Updated schedule list
                 required:
@@ -26053,7 +26364,23 @@ paths:
                         anyOf:
                           - type: string
                           - type: "null"
+                      sourceKey:
+                        anyOf:
+                          - type: string
+                          - type: "null"
+                        description:
+                          Plugin declaration this schedule mirrors (plugin:<pluginName>/<scheduleName>); null for user-created
+                          schedules
+                      userEnabled:
+                        anyOf:
+                          - type: boolean
+                          - type: "null"
+                        description:
+                          User enable/disable override on a plugin-sourced schedule; null when the declaration's own enabled value
+                          applies. Always null for user-created schedules.
                       isOneShot:
+                        type: boolean
+                      isDeferred:
                         type: boolean
                     required:
                       - id
@@ -26085,7 +26412,10 @@ paths:
                       - reuseConversation
                       - wakeConversationId
                       - workflowName
+                      - sourceKey
+                      - userEnabled
                       - isOneShot
+                      - isDeferred
                     additionalProperties: false
                     description: Schedule object
                 required:
@@ -26158,8 +26488,9 @@ paths:
                     - type: string
                     - type: "null"
                   description:
-                    Inference profile (llm.profiles key) the schedule's runs use; null clears it back to the default mainAgent
-                    call-site model selection
+                    Inference profile (llm.profiles key) the schedule's runs use; null re-pins the schedule to the currently
+                    resolved default profile. Workflow-mode schedules resolve a model per workflow step, so the pin is
+                    recorded but does not govern their runs.
       responses:
         "200":
           description: Successful response
@@ -26275,7 +26606,23 @@ paths:
                           anyOf:
                             - type: string
                             - type: "null"
+                        sourceKey:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                          description:
+                            Plugin declaration this schedule mirrors (plugin:<pluginName>/<scheduleName>); null for user-created
+                            schedules
+                        userEnabled:
+                          anyOf:
+                            - type: boolean
+                            - type: "null"
+                          description:
+                            User enable/disable override on a plugin-sourced schedule; null when the declaration's own enabled value
+                            applies. Always null for user-created schedules.
                         isOneShot:
+                          type: boolean
+                        isDeferred:
                           type: boolean
                       required:
                         - id
@@ -26307,7 +26654,10 @@ paths:
                         - reuseConversation
                         - wakeConversationId
                         - workflowName
+                        - sourceKey
+                        - userEnabled
                         - isOneShot
+                        - isDeferred
                       additionalProperties: false
                     description: Updated schedule list
                 required:
@@ -26441,7 +26791,23 @@ paths:
                           anyOf:
                             - type: string
                             - type: "null"
+                        sourceKey:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                          description:
+                            Plugin declaration this schedule mirrors (plugin:<pluginName>/<scheduleName>); null for user-created
+                            schedules
+                        userEnabled:
+                          anyOf:
+                            - type: boolean
+                            - type: "null"
+                          description:
+                            User enable/disable override on a plugin-sourced schedule; null when the declaration's own enabled value
+                            applies. Always null for user-created schedules.
                         isOneShot:
+                          type: boolean
+                        isDeferred:
                           type: boolean
                       required:
                         - id
@@ -26473,7 +26839,10 @@ paths:
                         - reuseConversation
                         - wakeConversationId
                         - workflowName
+                        - sourceKey
+                        - userEnabled
                         - isOneShot
+                        - isDeferred
                       additionalProperties: false
                     description: Updated schedule list
                 required:
@@ -26483,7 +26852,9 @@ paths:
     post:
       operationId: schedules_by_id_run_post
       summary: Run schedule now
-      description: Trigger an immediate execution of a schedule.
+      description:
+        Trigger an immediate execution of a schedule. A plugin-sourced schedule is rejected with a 400 when its
+        plugin is disabled or no longer declares it.
       tags:
         - schedules
       parameters:
@@ -26607,7 +26978,23 @@ paths:
                           anyOf:
                             - type: string
                             - type: "null"
+                        sourceKey:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                          description:
+                            Plugin declaration this schedule mirrors (plugin:<pluginName>/<scheduleName>); null for user-created
+                            schedules
+                        userEnabled:
+                          anyOf:
+                            - type: boolean
+                            - type: "null"
+                          description:
+                            User enable/disable override on a plugin-sourced schedule; null when the declaration's own enabled value
+                            applies. Always null for user-created schedules.
                         isOneShot:
+                          type: boolean
+                        isDeferred:
                           type: boolean
                       required:
                         - id
@@ -26639,7 +27026,10 @@ paths:
                         - reuseConversation
                         - wakeConversationId
                         - workflowName
+                        - sourceKey
+                        - userEnabled
                         - isOneShot
+                        - isDeferred
                       additionalProperties: false
                     description: Updated schedule list
                 required:
@@ -26774,7 +27164,7 @@ paths:
     post:
       operationId: schedules_by_id_toggle_post
       summary: Toggle schedule
-      description: Enable or disable a schedule.
+      description: Enable or disable a schedule. On a plugin-managed schedule this records the user's override (userEnabled).
       tags:
         - schedules
       parameters:
@@ -26910,7 +27300,23 @@ paths:
                           anyOf:
                             - type: string
                             - type: "null"
+                        sourceKey:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                          description:
+                            Plugin declaration this schedule mirrors (plugin:<pluginName>/<scheduleName>); null for user-created
+                            schedules
+                        userEnabled:
+                          anyOf:
+                            - type: boolean
+                            - type: "null"
+                          description:
+                            User enable/disable override on a plugin-sourced schedule; null when the declaration's own enabled value
+                            applies. Always null for user-created schedules.
                         isOneShot:
+                          type: boolean
+                        isDeferred:
                           type: boolean
                       required:
                         - id
@@ -26942,11 +27348,54 @@ paths:
                         - reuseConversation
                         - wakeConversationId
                         - workflowName
+                        - sourceKey
+                        - userEnabled
                         - isOneShot
+                        - isDeferred
                       additionalProperties: false
                     description: Updated schedule list
                 required:
                   - schedules
+                additionalProperties: false
+  /v1/schedules/reassign-profile:
+    post:
+      operationId: schedules_reassignprofile_post
+      summary: Reassign schedules to another inference profile
+      description:
+        Move schedules onto one inference profile. Pass 'from' to move only the schedules pinned to that profile,
+        so deleting a profile does not leave its schedules pointing at a name that no longer exists. Omit 'from' to move
+        every schedule, which re-pins the whole set onto one profile. Schedules already pinned to the target are
+        skipped.
+      tags:
+        - schedules
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                from:
+                  description: Inference profile key the schedules are pinned to now; omit to select every schedule
+                  type: string
+                to:
+                  type: string
+                  description: Inference profile key to move them to; must be configured
+              required:
+                - to
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  reassigned:
+                    type: number
+                    description: Number of schedules moved
+                required:
+                  - reassigned
                 additionalProperties: false
   /v1/schedules/usage-summary:
     get:
@@ -29092,6 +29541,73 @@ paths:
                   - mimeType
                   - isBinary
                   - content
+                additionalProperties: false
+  /v1/skills/{id}/history:
+    get:
+      operationId: skills_by_id_history_get
+      summary: Get skill revision history
+      description:
+        "Return a skill's recent updates, newest first, each with a combined diff across the skill directory.
+        Read-only: revisions come from the workspace git repository, which already retains prior content. Commits whose
+        only in-skill change is the `lastUsedAt` usage stamp are omitted, so entries are edits rather than loads."
+      tags:
+        - skills
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+          description: Maximum revisions to return, newest first. Defaults to 20 and is clamped to 100.
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  skillId:
+                    type: string
+                    description: The skill these revisions belong to
+                  revisions:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                          description: Opaque revision identifier
+                        changedAt:
+                          type: string
+                          description: ISO-8601 time of the update
+                        files:
+                          type: array
+                          items:
+                            type: string
+                          description: Paths changed, relative to the skill directory
+                        diff:
+                          type: string
+                          description: Unified diff of this update, scoped to the skill
+                      required:
+                        - id
+                        - changedAt
+                        - files
+                        - diff
+                      additionalProperties: false
+                    description: Recent updates, newest first
+                  truncatedByCompaction:
+                    type: boolean
+                    description: Older history was squashed away, so the oldest entry is a floor rather than the skill's creation
+                required:
+                  - skillId
+                  - revisions
+                  - truncatedByCompaction
                 additionalProperties: false
   /v1/skills/{id}/inspect:
     get:
@@ -33511,23 +34027,7 @@ components:
       additionalProperties: {}
     LLMProvider:
       type: string
-      enum:
-        - anthropic
-        - openai
-        - gemini
-        - ollama
-        - fireworks
-        - openrouter
-        - vercel-ai-gateway
-        - openai-compatible
-        - minimax
-        - atlascloud
-        - together
-        - litellm
-        - baseten
-        - poolside
-        - vellum
-        - chatgpt
+      minLength: 1
     ProfilePatchEntry:
       type: object
       properties:
@@ -33908,6 +34408,7 @@ components:
         - baseten
         - poolside
         - vellum
+        - chatgpt
     Auth:
       oneOf:
         - type: object
@@ -34125,6 +34626,7 @@ components:
                     - gemini
                     - fireworks
                     - openrouter
+                    - chatgpt
                     - vellum
                     - together
                     - vercel-ai-gateway
@@ -34502,6 +35004,7 @@ components:
                 - gemini
                 - fireworks
                 - openrouter
+                - chatgpt
                 - vellum
                 - together
                 - vercel-ai-gateway
@@ -34523,13 +35026,14 @@ components:
               type: string
               enum:
                 - ok
-                - missing_default
+                - incomplete
                 - missing_connection
                 - missing_credential
                 - provider_mismatch
                 - unsupported_auth
                 - vellum_unauthenticated
                 - unknown
+                - missing_default
             message:
               type: string
           required:
@@ -34755,6 +35259,7 @@ components:
           type: string
           enum:
             - ok
+            - incomplete
             - missing_connection
             - missing_credential
             - provider_mismatch

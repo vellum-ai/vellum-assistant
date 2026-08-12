@@ -1,0 +1,66 @@
+{
+  "actions": {
+    "markAsRead": "Mark as read",
+    "markAsUnread": "Mark as unread",
+    "restore": "Restore",
+    "dismiss": "Dismiss",
+    "goToThread": "Go to thread",
+    "goToConversation": "Go to Conversation",
+    "goToConvo": "Go to Convo",
+    "viewSchedule": "View schedule",
+    "viewSkill": "View skill",
+    "markAllAsRead": "Mark all as read",
+    "clearAll": "Clear all"
+  },
+  "category": {
+    "all": "All",
+    "security": "Security",
+    "email": "Email",
+    "scheduling": "Scheduling",
+    "background": "Background",
+    "system": "System"
+  },
+  "homeTopHeader": { "title": "Activity" },
+  "homeFeedFilterBar": { "ariaLabel": "Filter notifications" },
+  "homeFeedList": {
+    "today": "Today",
+    "yesterday": "Yesterday",
+    "older": "Older",
+    "noMatches": "No items match the selected filter.",
+    "emptyTitle": "No notifications yet",
+    "emptyBody": "Updates and activity from your assistant will appear here.",
+    "earlier": "Earlier ({count, number})",
+    "dismissed": "Dismissed ({count, number})"
+  },
+  "homePage": {
+    "loadFailed": "Couldn't load home feed.",
+    "loadFailedDetail": "Couldn't load home feed: {message}"
+  },
+  "homeDetailPanel": {
+    "back": "Back",
+    "heading": "Details",
+    "close": "Close",
+    "closeAriaLabel": "Close detail panel",
+    "untitled": "Notification"
+  },
+  "homeToolPermissionCard": {
+    "missingScopes": "Missing scopes",
+    "status": {
+      "revoked": "Revoked",
+      "expired": "Expired",
+      "missingScopes": "Missing scopes",
+      "missingToken": "Missing token",
+      "pingFailed": "Ping failed",
+      "unreachable": "Unreachable"
+    }
+  },
+  "notificationsBell": {
+    "ariaLabel": "Notifications",
+    "ariaLabelUnread": "Notifications (unread)",
+    "heading": "Notifications",
+    "loadFailed": "Couldn't load notifications.",
+    "empty": "No notifications yet.",
+    "actionFailed": "Couldn't start that conversation. Try again."
+  },
+  "notificationsBellDetail": { "back": "Back to notifications" }
+}

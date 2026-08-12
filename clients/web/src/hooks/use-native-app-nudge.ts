@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 import {
   getLocalBool,
@@ -170,12 +170,23 @@ export function useNativeAppNudgeState(platform: NativeAppPlatform): {
     setBannerDismissed(true);
   }, [platform]);
 
-  return {
-    bannerShouldShow:
-      promotionAvailable && !downloaded && !bannerDismissed,
-    handleDownload,
-    handleBannerDismiss,
-  };
+  // Stable identity: consumers feed this into `useMemo` deps that build
+  // banner elements. See docs/CONVENTIONS.md, "Never key an effect on a
+  // ReactNode prop".
+  return useMemo(
+    () => ({
+      bannerShouldShow: promotionAvailable && !downloaded && !bannerDismissed,
+      handleDownload,
+      handleBannerDismiss,
+    }),
+    [
+      promotionAvailable,
+      downloaded,
+      bannerDismissed,
+      handleDownload,
+      handleBannerDismiss,
+    ],
+  );
 }
 
 export const __testing = {

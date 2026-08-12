@@ -71,6 +71,8 @@ export {
   isAdmissionPolicy,
   isAdmissionPolicyExemptChannel,
   isAdmissionPolicyHiddenChannel,
+  meetsAdmissionFloor,
+  TRUST_CLASS_RANK,
 } from "./admission-policy-contract.js";
 
 export type { AdmissionPolicy } from "./admission-policy-contract.js";
@@ -157,6 +159,8 @@ export {
   hashVerificationSecret,
   IdentityBindingStatusSchema,
   ResolveBootstrapSessionIpcParamsSchema,
+  bindsSameIdentity,
+  boundIdentity,
   RevokePendingSessionsIpcParamsSchema,
   SessionLookupIpcResponseSchema,
   SessionMutationIpcResponseSchema,
@@ -172,6 +176,7 @@ export {
 
 export type {
   BindSessionIdentityIpcParams,
+  BoundIdentity,
   CountRecentSendsIpcParams,
   CountRecentSendsIpcResponse,
   CreateInboundSessionIpcParams,
@@ -183,6 +188,7 @@ export type {
   FindActiveSessionIpcParams,
   GetPendingSessionIpcParams,
   IdentityBindingStatus,
+  IdentityBoundSession,
   ResolveBootstrapSessionIpcParams,
   RevokePendingSessionsIpcParams,
   SessionLookupIpcResponse,

@@ -192,6 +192,49 @@ describe("handleListMessages in-memory queue", () => {
     expect(body.messages[0].queuePosition).toBe(1);
   });
 
+  test("filters daemon-injected notifications from the snapshot, keeping positions contiguous", async () => {
+    // A subagent's completion summary injected into a busy parent queues like
+    // any other turn, but it is scaffolding the user follows through the
+    // subagent card — never a queued bubble they could steer or cancel. Same
+    // for ACP run outcomes and wake triggers.
+    const conv = createConversation();
+    registerLiveConversation(conv.id, [
+      makeQueued({
+        requestId: "req-subagent",
+        content: '[Subagent "hermes-local-review" — important] review finished',
+        metadata: {
+          subagentNotification: {
+            subagentId: "sub-1",
+            label: "hermes-local-review",
+            status: "completed",
+            conversationId: "conv-sub-1",
+            objective: "review the diff",
+          },
+        },
+      }),
+      makeQueued({
+        requestId: "req-acp",
+        content: "[ACP run finished]",
+        metadata: { acpNotification: { acpSessionId: "acp-1" } },
+      }),
+      makeQueued({
+        requestId: "req-wake",
+        content: '<background_event source="schedule">',
+        metadata: { backgroundEventSource: "schedule" },
+      }),
+      makeQueued({ requestId: "req-visible", content: "a real message" }),
+    ]);
+
+    const response = await handleListMessages({
+      queryParams: { conversationId: conv.id },
+    });
+    const body = response as { messages: MessagePayload[] };
+
+    expect(body.messages).toHaveLength(1);
+    expect(body.messages[0].id).toBe("req-visible");
+    expect(body.messages[0].queuePosition).toBe(1);
+  });
+
   test("does not append queued messages to an older-history page", async () => {
     // GIVEN history requested with beforeTimestamp (older page)
     const conv = createConversation();

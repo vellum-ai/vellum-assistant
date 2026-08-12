@@ -6,16 +6,29 @@
  * single-row projection per conversation (conversation_assistant_attention_state).
  */
 
-import { and, desc, eq, inArray, isNull, lt, or, sql } from "drizzle-orm";
+import {
+  and,
+  desc,
+  eq,
+  inArray,
+  isNull,
+  lt,
+  or,
+  type SQL,
+  sql,
+} from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 
 import { UserError } from "../util/errors.js";
 import { getDb } from "./db-connection.js";
 import {
+  latestAssistantMessage,
+  latestAssistantMessageBefore,
+} from "./message-reads.js";
+import {
   conversationAssistantAttentionState,
   conversationAttentionEvents,
   conversations,
-  messages,
 } from "./schema/index.js";
 
 // ── Types ────────────────────────────────────────────────────────────
@@ -85,6 +98,24 @@ export function hasUnseenLatestAssistantMessage(
     state.lastSeenAssistantMessageAt == null ||
     state.lastSeenAssistantMessageAt < state.latestAssistantMessageAt
   );
+}
+
+/**
+ * SQL twin of {@link hasUnseenLatestAssistantMessage}: conditions over
+ * `conversation_assistant_attention_state` selecting rows whose latest
+ * assistant cursor is ahead of the last-seen cursor. Shared by
+ * {@link listConversationAttention} and `countUnreadConversations`
+ * (`conversation-queries.ts`) so every SQL reader of "unseen" agrees with
+ * the TS predicate.
+ */
+export function unseenAttentionStateConditions(): SQL[] {
+  return [
+    sql`${conversationAssistantAttentionState.latestAssistantMessageAt} IS NOT NULL`,
+    or(
+      isNull(conversationAssistantAttentionState.lastSeenAssistantMessageAt),
+      sql`${conversationAssistantAttentionState.lastSeenAssistantMessageAt} < ${conversationAssistantAttentionState.latestAssistantMessageAt}`,
+    )!,
+  ];
 }
 
 // ── Row mappers ──────────────────────────────────────────────────────
@@ -333,19 +364,11 @@ export function recordConversationSeenSignal(params: {
     if (!state) {
       // No state row yet — look up the conversation's latest assistant message so
       // upgraded databases (with existing messages but no attention row) correctly
-      // initialize the full state on the first seen signal.
-      const latestMsg = tx
-        .select({ id: messages.id, createdAt: messages.createdAt })
-        .from(messages)
-        .where(
-          and(
-            eq(messages.conversationId, conversationId),
-            eq(messages.role, "assistant"),
-          ),
-        )
-        .orderBy(desc(messages.createdAt))
-        .limit(1)
-        .get();
+      // initialize the full state on the first seen signal. Finalized-only via
+      // the accessor: a still-streaming reply is not a reply the user has seen,
+      // and anchoring the watermark on it would classify the finished reply as
+      // seen the moment it completes.
+      const latestMsg = latestAssistantMessage(conversationId, { db: tx });
 
       const latestMsgId = latestMsg?.id ?? null;
       const latestMsgAt = latestMsg?.createdAt ?? null;
@@ -433,26 +456,11 @@ function resolveAssistantCursor(params: {
     latestAssistantMessageAt,
   } = params;
 
-  // Unread classification compares timestamps strictly, so rewinding to a
-  // same-timestamp sibling would leave the latest reply classified as seen.
-  const previousAssistantMessageBefore = (before: number) =>
-    db
-      .select({ id: messages.id, createdAt: messages.createdAt })
-      .from(messages)
-      .where(
-        and(
-          eq(messages.conversationId, conversationId),
-          eq(messages.role, "assistant"),
-          lt(messages.createdAt, before),
-        ),
-      )
-      .orderBy(desc(messages.createdAt), desc(messages.id))
-      .limit(1)
-      .get();
-
   if (latestAssistantMessageId && latestAssistantMessageAt != null) {
-    const previousMessage = previousAssistantMessageBefore(
+    const previousMessage = latestAssistantMessageBefore(
+      conversationId,
       latestAssistantMessageAt,
+      { db },
     );
 
     return {
@@ -463,25 +471,16 @@ function resolveAssistantCursor(params: {
     };
   }
 
-  const latestMessage = db
-    .select({ id: messages.id, createdAt: messages.createdAt })
-    .from(messages)
-    .where(
-      and(
-        eq(messages.conversationId, conversationId),
-        eq(messages.role, "assistant"),
-      ),
-    )
-    .orderBy(desc(messages.createdAt), desc(messages.id))
-    .limit(1)
-    .get();
+  const latestMessage = latestAssistantMessage(conversationId, { db });
 
   if (!latestMessage) {
     return null;
   }
 
-  const previousMessage = previousAssistantMessageBefore(
+  const previousMessage = latestAssistantMessageBefore(
+    conversationId,
     latestMessage.createdAt,
+    { db },
   );
   return {
     latestAssistantMessageId: latestMessage.id,
@@ -654,15 +653,7 @@ export function listConversationAttention(
 
   if (filterState === "unseen") {
     // Unseen: latest assistant message exists but no seen cursor, or seen cursor is behind latest
-    conditions.push(
-      sql`${conversationAssistantAttentionState.latestAssistantMessageAt} IS NOT NULL`,
-    );
-    conditions.push(
-      or(
-        isNull(conversationAssistantAttentionState.lastSeenAssistantMessageAt),
-        sql`${conversationAssistantAttentionState.lastSeenAssistantMessageAt} < ${conversationAssistantAttentionState.latestAssistantMessageAt}`,
-      )!,
-    );
+    conditions.push(...unseenAttentionStateConditions());
   } else if (filterState === "seen") {
     // Seen: seen cursor equals latest assistant message
     conditions.push(

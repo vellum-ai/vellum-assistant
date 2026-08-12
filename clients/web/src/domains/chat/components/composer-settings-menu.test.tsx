@@ -35,6 +35,12 @@ mock.module("@/hooks/use-is-mobile", () => ({
   MOBILE_MEDIA_QUERY: "(max-width: 767px)",
 }));
 
+const isTouchMobileRef = { value: false };
+mock.module("@/hooks/use-touch-mobile", () => ({
+  useTouchMobile: () => isTouchMobileRef.value,
+  TOUCH_MOBILE_MEDIA_QUERY: "(width < 48rem) and (pointer: coarse)",
+}));
+
 // --- toast -------------------------------------------------------------------
 const toastSuccess = mock((_msg: string) => {});
 const toastError = mock((_msg: string) => {});
@@ -143,7 +149,13 @@ const configGetMock = mock(
     data: {
       llm: {
         profileOrder: ["smart"],
-        profiles: { smart: { label: "Smart" } },
+        profiles: {
+          smart: {
+            label: "Smart",
+            provider: "anthropic",
+            model: "claude-fable-5",
+          },
+        },
         activeProfile: "smart",
       },
     },
@@ -172,6 +184,7 @@ mock.module("@/generated/daemon/sdk.gen", () => ({
   conversationsByIdInferenceprofilePut: inferenceprofilePut,
 }));
 
+import { ComposerCompactProvider } from "@/domains/chat/components/chat-composer/composer-compact";
 import { ComposerSettingsMenu } from "@/domains/chat/components/composer-settings-menu";
 // Real store (not mocked) — the component reads the draft conversation id and
 // the pending-profile stash from it.
@@ -196,6 +209,7 @@ function renderMenu() {
 
 beforeEach(() => {
   isMobileRef.value = false;
+  isTouchMobileRef.value = false;
   openProfileQuickAdd.mockClear();
   inferenceprofilePut.mockClear();
   configPatchMock.mockClear();
@@ -223,6 +237,7 @@ describe("Model Profile quick-add", () => {
 
   test('"+" New Profile renders on mobile', async () => {
     isMobileRef.value = true;
+    isTouchMobileRef.value = true;
     renderMenu();
     await waitFor(() => {
       expect(screen.getByLabelText("New Profile")).toBeTruthy();
@@ -284,8 +299,16 @@ describe("Model Profile quick-add", () => {
         llm: {
           profileOrder: ["smart", NEW_PROFILE_NAME],
           profiles: {
-            smart: { label: "Smart" },
-            [NEW_PROFILE_NAME]: { label: NEW_PROFILE_LABEL },
+            smart: {
+              label: "Smart",
+              provider: "anthropic",
+              model: "claude-fable-5",
+            },
+            [NEW_PROFILE_NAME]: {
+              label: NEW_PROFILE_LABEL,
+              provider: "anthropic",
+              model: "claude-fable-5",
+            },
           },
           activeProfile: "smart",
         },
@@ -412,8 +435,16 @@ describe("Profile trigger updates", () => {
       llm: {
         profileOrder: ["balanced", "quality"],
         profiles: {
-          balanced: { label: "Balanced" },
-          quality: { label: "Quality" },
+          balanced: {
+            label: "Balanced",
+            provider: "anthropic",
+            model: "claude-fable-5",
+          },
+          quality: {
+            label: "Quality",
+            provider: "anthropic",
+            model: "claude-fable-5",
+          },
         },
         activeProfile: "balanced",
       },
@@ -483,7 +514,13 @@ describe("Profile selection with no active conversation (new draft chat)", () =>
       data: {
         llm: {
           profileOrder: ["smart"],
-          profiles: { smart: { label: "Smart" } },
+          profiles: {
+            smart: {
+              label: "Smart",
+              provider: "anthropic",
+              model: "claude-fable-5",
+            },
+          },
           activeProfile: "smart",
         },
       },
@@ -541,7 +578,13 @@ describe("Profile activation rejected by the daemon", () => {
       data: {
         llm: {
           profileOrder: ["smart"],
-          profiles: { smart: { label: "Smart" } },
+          profiles: {
+            smart: {
+              label: "Smart",
+              provider: "anthropic",
+              model: "claude-fable-5",
+            },
+          },
           activeProfile: "smart",
         },
       },
@@ -591,5 +634,62 @@ describe("Profile activation rejected by the daemon", () => {
         "Failed to switch profile. Please try again.",
       );
     });
+  });
+});
+
+describe("compact composer collapse", () => {
+  function renderCompact(segments: "both" | "access" | "profile") {
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: { retry: false },
+        mutations: { retry: false },
+      },
+    });
+    return render(
+      createElement(
+        QueryClientProvider,
+        { client: queryClient },
+        createElement(ComposerCompactProvider, {
+          compact: true,
+          children: createElement(ComposerSettingsMenu, {
+            assistantId: "assistant-1",
+            conversationId: "conv-1",
+            segments,
+          }),
+        }),
+      ),
+    );
+  }
+
+  test("folds both segments into one hamburger trigger", async () => {
+    // The composer mounts only the access-segment instance when compact, so
+    // that instance has to carry the model profile too, or the picker is
+    // unreachable on a narrow window.
+    renderCompact("access");
+
+    const trigger = await screen.findByLabelText(
+      "Assistant access and model profile",
+    );
+    expect(trigger).toBeTruthy();
+    // No labelled split triggers alongside it.
+    expect(screen.queryByLabelText("Model profile")).toBeNull();
+
+    await waitFor(() => {
+      expect(screen.getByText("Smart")).toBeTruthy();
+    });
+    // Access presets live in the same menu, under their own section label.
+    expect(screen.getByText("Assistant Access")).toBeTruthy();
+    expect(screen.getByText("Model Profile")).toBeTruthy();
+  });
+
+  test("stays split when the composer is wide", async () => {
+    renderMenu();
+
+    await waitFor(() => {
+      expect(screen.getByLabelText("Model profile")).toBeTruthy();
+    });
+    expect(
+      screen.queryByLabelText("Assistant access and model profile"),
+    ).toBeNull();
   });
 });

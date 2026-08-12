@@ -1,7 +1,11 @@
 /**
- * Fetch wrappers for user-created schedule CRUD (list, create, update, toggle,
+ * Fetch wrappers for user-created schedule CRUD (create, update, toggle,
  * delete, runs, usage summary). System-task queries (heartbeat, consolidation,
- * retrospective) use generated SDK options directly — see use-system-tasks.ts.
+ * retrospective) use generated SDK options directly, see use-system-tasks.ts.
+ *
+ * Reading the schedule list is not here: `@/utils/schedules` owns it, because
+ * its consumers span domains (settings, schedules, home, intelligence) and a
+ * domain may not import a peer's internals.
  */
 import {
   schedulesByIdDelete,
@@ -9,19 +13,17 @@ import {
   schedulesByIdRunPost,
   schedulesByIdRunsGet,
   schedulesByIdTogglePost,
+  schedulesReassignprofilePost,
   schedulesUsagesummaryGet,
   schedulesPost,
 } from "@/generated/daemon/sdk.gen";
-import { schedulesGetQueryKey } from "@/generated/daemon/@tanstack/react-query.gen";
 import {
   ApiError,
   assertHasResponse,
   extractErrorMessage,
 } from "@/utils/api-errors";
-import { fetchSchedules as fetchSharedSchedules } from "@/utils/schedules";
 
 import type {
-  Schedule,
   ScheduleRun,
   ScheduleUsageSummary,
 } from "@/domains/settings/types/schedules";
@@ -67,6 +69,12 @@ export async function createSchedule(
 
 export interface UpdateSchedulePayload {
   timeoutMs?: number | null;
+  /**
+   * Inference profile the schedule runs on. Every schedule carries a concrete
+   * pin, so sending `null` does not unpin it: the daemon re-snapshots the
+   * currently resolved default. Send a profile key to move the schedule.
+   */
+  inferenceProfile?: string | null;
 }
 
 export async function updateSchedule(
@@ -88,27 +96,40 @@ export async function updateSchedule(
   }
 }
 
-export async function fetchSchedules(assistantId: string): Promise<Schedule[]> {
-  return fetchSharedSchedules(assistantId);
-}
+const REASSIGN_PROFILE_ERROR =
+  "Failed to move schedules to the selected profile.";
 
 /**
- * TanStack Query options for the schedules list. The single definition of
- * the list's query key + staleTime, so every consumer (the Schedules page
- * data hook, the Activity page's "View schedule" link validation) reads one
- * shared cache entry instead of hand-copying the key.
+ * Move schedules onto `toProfile`, returning how many actually moved.
+ *
+ * `fromProfile` narrows the move to the schedules pinned to that profile,
+ * which is what the profile-delete flow needs so a deleted inference profile
+ * never leaves schedules naming it. Passing `null` selects every schedule,
+ * which is what re-pinning the whole set onto the current default needs:
+ * schedules pinned under earlier defaults name several different profiles.
+ * Schedules already on `toProfile` are skipped either way.
  */
-export function schedulesListQueryOptions(assistantId: string | undefined) {
-  return {
-    queryKey: schedulesGetQueryKey({
-      path: { assistant_id: assistantId ?? "" },
-    }),
-    queryFn: () =>
-      assistantId
-        ? fetchSchedules(assistantId)
-        : Promise.resolve<Schedule[]>([]),
-    staleTime: 10_000,
-  };
+export async function reassignScheduleInferenceProfile(
+  assistantId: string,
+  fromProfile: string | null,
+  toProfile: string,
+): Promise<number> {
+  const { data, error, response } = await schedulesReassignprofilePost({
+    path: { assistant_id: assistantId },
+    body: {
+      ...(fromProfile == null ? {} : { from: fromProfile }),
+      to: toProfile,
+    },
+    throwOnError: false,
+  });
+  assertHasResponse(response, error, REASSIGN_PROFILE_ERROR);
+  if (!response.ok) {
+    throw new ApiError(
+      response.status,
+      extractErrorMessage(error, response, REASSIGN_PROFILE_ERROR),
+    );
+  }
+  return data?.reassigned ?? 0;
 }
 
 export async function fetchScheduleRuns(

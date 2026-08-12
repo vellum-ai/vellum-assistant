@@ -1,0 +1,112 @@
+{
+  "assistantChannelsList": {
+    "drawerTitle": "Canales",
+    "disconnectTitle": "¿Desconectar {channel}?",
+    "disconnectConfirm": "Desconectar",
+    "confirmFallback": "Confirmar"
+  },
+  "channelAdapterList": {
+    "pluginChannelAria": "{channel}, de un plugin"
+  },
+  "connectionCard": {
+    "connected": "Conectado",
+    "disconnecting": "Desconectando…",
+    "disconnect": "Desconectar"
+  },
+  "slackChannelCard": {
+    "setupHeading": "Configuración de Slack"
+  },
+  "channelPanel": {
+    "incompleteTitle": "{channel} aún no funciona",
+    "disconnectedTitle": "{channel} no está conectado",
+    "incompleteDescription": "{channel} está configurado pero todavía no entrega mensajes. Tu asistente puede retomar donde se quedó la configuración y decirte qué falla.",
+    "opening": "Abriendo…",
+    "finishSetup": "Terminar la configuración con tu asistente",
+    "setUp": "Configurar",
+    "connectManually": "o conectar manualmente"
+  },
+  "pluginChannelPanel": {
+    "openPluginPage": "Abrir la página del plugin",
+    "ingressLoading": "Comprobando quién puede contactar con {channel}…",
+    "ingressUnsupported": "La puerta de enlace de este asistente no informa de las aprobaciones de entrada, así que aquí no hay nada que decidir.",
+    "ingressForbidden": "Solo el guardián de este asistente puede ver o cambiar las aprobaciones de entrada.",
+    "ingressUnreadable": "No se pudo leer la aprobación de entrada de {channel}.",
+    "ingressNone": "La puerta de enlace no ve ninguna declaración de entrada para {channel}, así que todavía no hay nada que aprobar.",
+    "ingressApprovedTag": "Entrada aprobada",
+    "ingressPendingTag": "Entrada pendiente de aprobación",
+    "approvedAddresses": "{channel} recibe mensajes en estas direcciones:",
+    "pendingAddresses": "{channel} pide recibir mensajes en estas direcciones. Hasta que lo apruebes, se rechazan las entregas:",
+    "ungovernedAddresses": "Estas direcciones están abiertas decidas lo que decidas, porque solo Vellum puede alcanzarlas:",
+    "deliversInbound": "Lo que llegue aquí se convierte en un mensaje para tu asistente, no solo en una llamada de vuelta que {channel} recibe. Quién consigue pasar lo sigue decidiendo a quién permites escribirle.",
+    "revokeIngress": "Revocar la entrada",
+    "approveIngress": "Aprobar la entrada"
+  },
+  "channelTrustFloor": {
+    "heading": "Quién puede escribir a {assistant}",
+    "loading": "Cargando…",
+    "loadFailed": "No se pudo cargar este ajuste. Prueba a volver a abrir esta página.",
+    "selectAria": "Quién puede escribir a {assistant}",
+    "trustedContactsNotice": "Las personas que aún no has verificado (incluso compañeros del mismo canal) no pueden pasar: {assistant} les avisa de que necesitan verificarse y te lo notifica. Puedes verificar personas por adelantado en Contactos."
+  },
+  "slackChannelTypeDefaults": {
+    "heading": "Acceso predeterminado",
+    "subtitle": "Cuánto hace {assistant} por su cuenta, según el tipo de conversación. Cada canal puede anular esto más abajo, y las <trustRules>Reglas de confianza</trustRules> afinan cuándo pregunta.",
+    "bucketAria": "Acceso predeterminado del asistente para {bucket}"
+  },
+  "tierPicker": {
+    "defaultSuffix": "predeterminado",
+    "defaultPlaceholder": "Predeterminado"
+  },
+  "slackChannelTierLegend": {
+    "defaultMarker": "· predeterminado"
+  },
+  "slackChannelSection": {
+    "overridesLoadFailed": "No se pudieron cargar los ajustes de acceso. Estos controles seguirán desactivados hasta que se carguen. Prueba a volver a abrir esta página.",
+    "perChannelOverrides": "Anulaciones por canal"
+  },
+  "slackThreadBehavior": {
+    "heading": "Comportamiento en hilos",
+    "selectAria": "Comportamiento de Slack en hilos",
+    "mentionsOnly": "Solo menciones",
+    "mentionsOnlyHelp": "El bot solo responde cuando se le menciona con @.",
+    "followThreads": "Seguir el hilo tras la primera mención",
+    "followThreadsHelp": "Tras una mención con @ en un hilo, el bot escucha el resto de ese hilo."
+  },
+  "slackChannelList": {
+    "presenceHint": "Añádelo con <invite>/invite {handle}</invite> o quítalo con <remove>/remove {handle}</remove> en ese canal de Slack. Aquí solo aparecen los canales en los que está {assistant}.",
+    "loading": "Cargando…",
+    "loadFailed": "No se pudieron cargar los canales. Prueba a volver a abrir esta página.",
+    "emptyTitle": "Aún no hay canales",
+    "searchPlaceholder": "Buscar canales",
+    "searchAria": "Buscar canales",
+    "filterGroupAria": "Filtrar canales por tipo",
+    "noMatches": "Ningún canal coincide.",
+    "accessAria": "Acceso del asistente en {channel}",
+    "filterAll": "{count, plural, one {Todos (#)} other {Todos (#)}}",
+    "filterPublic": "{count, plural, one {Público (#)} other {Públicos (#)}}",
+    "filterPrivate": "{count, plural, one {Privado (#)} other {Privados (#)}}"
+  },
+  "twilioCredentialEntry": {
+    "accountSid": "SID de la cuenta",
+    "authToken": "Token de autenticación",
+    "authTokenPlaceholder": "Token de autenticación de Twilio",
+    "saving": "Guardando…",
+    "save": "Guardar"
+  },
+  "channelMeta": {
+    "slack": {
+      "label": "Slack",
+      "disconnectMessage": "Esto borra los tokens de bot y de aplicación de Slack guardados para este asistente. Puedes volver a conectarlo más tarde."
+    },
+    "telegram": {
+      "label": "Telegram",
+      "disconnectMessage": "Esto borra el token de bot de Telegram guardado para este asistente. Puedes volver a conectarlo más tarde.",
+      "disconnectedPitch": "Conecta un bot de Telegram para que {assistant} pueda enviar y recibir mensajes en Telegram."
+    },
+    "phone": {
+      "label": "Llamadas telefónicas",
+      "disconnectMessage": "Esto borra las credenciales de Twilio guardadas para este asistente. Puedes volver a conectarlo más tarde.",
+      "disconnectedPitch": "Conecta tu cuenta de Twilio para que {assistant} pueda hacer y contestar llamadas."
+    }
+  }
+}

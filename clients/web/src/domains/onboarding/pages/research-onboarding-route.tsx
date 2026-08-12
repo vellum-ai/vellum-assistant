@@ -31,7 +31,11 @@ import { lifecycleService } from "@/assistant/lifecycle-service";
 import { isGatewayAuthMode } from "@/lib/auth/gateway-session";
 import { isLocalClient } from "@/lib/local-mode";
 import { POST_CHECKOUT_HATCH_PARAM } from "@/lib/navigation/navigation-resolver";
-import { useAuthStore } from "@/stores/auth-store";
+import {
+  useAuthStore,
+  useHasPlatformSession,
+  useIsPlatformSessionSettled,
+} from "@/stores/auth-store";
 import { routes } from "@/utils/routes";
 import { preloadBundledAvatarComponents } from "@/utils/use-bundled-avatar-components";
 import { DEFAULT_GROUP_ID } from "@/domains/onboarding/prechat-names";
@@ -89,10 +93,7 @@ import {
 } from "@/domains/onboarding/screens/research-result-steps";
 import { OnboardingTonedBackdrop } from "@/domains/onboarding/components/onboarding-toned-backdrop";
 import { HatchErrorOverlay } from "@/domains/onboarding/components/hatch-error-overlay";
-import {
-  OnboardingStageSizeProvider,
-  useElementSize,
-} from "@/domains/onboarding/hooks/use-onboarding-stage-size";
+import { OnboardingStage } from "@/domains/onboarding/components/onboarding-stage";
 import { getBrowserTimezone } from "@/utils/browser-timezone";
 import {
   checkEstablishedAssistant,
@@ -154,10 +155,6 @@ export function ResearchOnboardingRoute() {
   // persistent backdrop so the avatars/eyes stay put. The handoff fires from
   // the "let's chat tomorrow" step (or the picker's skip).
   const [step, setStep] = useState<ResearchStep>("form");
-  // Measure the shared toned-step container so the persistent backdrop, eyes,
-  // peekers, and coin all position against the same box as the foreground
-  // content (see use-onboarding-stage-size).
-  const { ref: tonedStageRef, size: tonedStageSize } = useElementSize();
   // Forward-history (redo) stack: pushed when the user steps back, popped when
   // they step forward via the header's forward chevron. The chevron only shows
   // while this is non-empty — i.e. only after a back. A deliberate forward move
@@ -303,6 +300,34 @@ export function ResearchOnboardingRoute() {
   // entirely and go straight to the research reveal. Vellum-cloud onboarding
   // keeps them: a managed hatch implies a platform session.
   const skipCheckinSteps = adoptExistingAssistant;
+  // The claim-credits step ("integration") promises managed free credits,
+  // which only a platform account can hold. A self-hosted onboarding with no
+  // platform login has no account to credit, so the promise would be empty:
+  // skip the step. A signed-in self-hosted user keeps it (their platform
+  // account is real, credits and all), and so does the probe's pre-settle
+  // window, where "no session yet" is not an answer. Skipping is a one-way
+  // transition with no later correction, so only a settled absent session may
+  // take it; every settle path resolves "unknown", including local gateway
+  // boot, which settles "absent" directly.
+  const hasPlatformSession = useHasPlatformSession();
+  const platformSessionSettled = useIsPlatformSessionSettled();
+  const skipClaimCreditsStep =
+    adoptExistingAssistant && platformSessionSettled && !hasPlatformSession;
+  // Where "personality" advances to: the claim-credits step, or, when that's
+  // skipped, straight to the research reveal (skipping credits implies a
+  // self-hosted flow, which skips the calendar steps too).
+  const stepAfterPersonality: ResearchStep = skipClaimCreditsStep
+    ? "looking"
+    : "integration";
+  // The skip verdict can land while the credits step is already on screen:
+  // the pre-settle window kept the step (or restored a snapshot onto it) and
+  // the probe then settled absent. Move along to the reveal so the empty
+  // promise can't be claimed.
+  useEffect(() => {
+    if (skipClaimCreditsStep && step === "integration") {
+      setStep("looking");
+    }
+  }, [skipClaimCreditsStep, step]);
   const {
     start: startHatch,
     retry: retryHatch,
@@ -499,15 +524,15 @@ export function ResearchOnboardingRoute() {
         setResumeGuardPending(true);
       }
       // A snapshot written before the calendar steps were dropped from the
-      // local flow (or by a signed-in web session) may resume onto them —
-      // remap to the research reveal the skip lands on.
+      // local flow (or by a signed-in web session) may resume onto them, and
+      // one written while the claim-credits step still showed may resume onto
+      // it: remap to the research reveal the skips land on.
       const resumeStep = resolveResumeStep(snapshot);
-      setStep(
-        skipCheckinSteps &&
-          (resumeStep === "letschat" || resumeStep === "meeting")
-          ? "looking"
-          : resumeStep,
-      );
+      const resumeStepDropped =
+        (skipCheckinSteps &&
+          (resumeStep === "letschat" || resumeStep === "meeting")) ||
+        (skipClaimCreditsStep && resumeStep === "integration");
+      setStep(resumeStepDropped ? "looking" : resumeStep);
       setForwardStack([]);
     }
     setRestored(true);
@@ -517,6 +542,7 @@ export function ResearchOnboardingRoute() {
     hydrateResearch,
     awaitHatchReady,
     skipCheckinSteps,
+    skipClaimCreditsStep,
     syncDroppedClaimsScrubbed,
   ]);
 
@@ -992,269 +1018,271 @@ export function ResearchOnboardingRoute() {
       ? edgeAvatars
       : 0;
     return withHatchError(
-      <div
-        ref={tonedStageRef}
-        data-theme="dark"
-        className="relative h-full overflow-hidden"
-      >
-        <OnboardingStageSizeProvider size={tonedStageSize}>
-          <OnboardingTonedBackdrop
-            eyesBumpNonce={eyesBump}
-            peekLevel={peekLevel}
-            darkBg={postCalendar}
-            // The pitch step ("different") choreographs its own eyes (rising to
-            // speak the lines in), so hide the backdrop's resting pair there to
-            // avoid doubling. Every other toned step uses the backdrop's resting
-            // eyes. The top-right team isn't persistent — the pitch step peeks
-            // its own transient team in and out (see PitchStep).
-            showBottomEyes={!postCalendar && step !== "different"}
-            // The eyes are hidden on "different" (PitchStep owns its own) and
-            // first mount here on "personality" — play the grow-in entrance
-            // only for that handoff so they don't re-animate on later steps.
-            eyesEntrance={step === "personality"}
+      <OnboardingStage>
+        <OnboardingTonedBackdrop
+          eyesBumpNonce={eyesBump}
+          peekLevel={peekLevel}
+          darkBg={postCalendar}
+          // The pitch step ("different") choreographs its own eyes (rising to
+          // speak the lines in), so hide the backdrop's resting pair there to
+          // avoid doubling. Every other toned step uses the backdrop's resting
+          // eyes. The top-right team isn't persistent — the pitch step peeks
+          // its own transient team in and out (see PitchStep).
+          showBottomEyes={!postCalendar && step !== "different"}
+          // The eyes are hidden on "different" (PitchStep owns its own) and
+          // first mount here on "personality" — play the grow-in entrance
+          // only for that handoff so they don't re-animate on later steps.
+          eyesEntrance={step === "personality"}
+        />
+        {step === "different" && (
+          <PitchStep
+            onContinue={() =>
+              goForwardTo(
+                personalityEnabled ? "personality" : stepAfterPersonality,
+              )
+            }
+            onBack={() => goBackTo("intro")}
+            onForward={onForward}
           />
-          {step === "different" && (
-            <PitchStep
-              onContinue={() =>
-                goForwardTo(personalityEnabled ? "personality" : "integration")
+        )}
+        {step === "personality" && (
+          <CreatePersonalityStep
+            values={personalityValues}
+            onValueChange={(axisId, value) =>
+              setPersonalityValues((prev) => ({ ...prev, [axisId]: value }))
+            }
+            locked={personalityLocked}
+            onContinue={() => {
+              // First continue applies the sliders and locks them — the prompt
+              // has been sent, so a later step-back can't silently diverge. A
+              // continue while already locked just advances.
+              if (!personalityLocked) {
+                startPersonalityApply();
+                setPersonalityLocked(true);
               }
-              onBack={() => goBackTo("intro")}
-              onForward={onForward}
-            />
-          )}
-          {step === "personality" && (
-            <CreatePersonalityStep
-              values={personalityValues}
-              onValueChange={(axisId, value) =>
-                setPersonalityValues((prev) => ({ ...prev, [axisId]: value }))
-              }
-              locked={personalityLocked}
-              onContinue={() => {
-                // First continue applies the sliders and locks them — the prompt
-                // has been sent, so a later step-back can't silently diverge. A
-                // continue while already locked just advances.
-                if (!personalityLocked) {
-                  startPersonalityApply();
-                  setPersonalityLocked(true);
-                }
-                goForwardTo("integration");
-              }}
-              onBack={() => goBackTo("different")}
-              onForward={onForward}
-            />
-          )}
-          {step === "integration" && (
-            <IntegrationStep
-              onClaim={() =>
-                goForwardTo(skipCheckinSteps ? "looking" : "letschat")
-              }
-              onBumpEyes={() => setEyesBump((n) => n + 1)}
-              onBack={() =>
-                goBackTo(personalityEnabled ? "personality" : "different")
-              }
-              onForward={onForward}
-            />
-          )}
-          {step === "letschat" && (
-            <LetsChatTomorrowStep
-              assistantId={hatchedAssistantId}
-              assistantReady={hatchReady}
-              hatchError={hatchError}
-              onConnected={handleCheckinConnected}
-              missingCalendarScope={missingCalendarScope}
-              onRetry={() => setMissingCalendarScope(false)}
-              onSkip={() => {
-                setMissingCalendarScope(false);
-                goForwardTo("looking", "skipped");
-              }}
-              onBack={() => goBackTo("integration")}
-              onForward={onForward}
-            />
-          )}
-          {step === "meeting" && (
-            <MeetingCreatedStep
-              scheduledTime={checkinTime ?? undefined}
-              awaitingTime={checkinPending}
-              onDone={() => goForwardTo("looking")}
-              onBack={() => goBackTo("letschat")}
-              onForward={onForward}
-            />
-          )}
-          {step === "looking" && (
-            <LookingYouUpStep
-              onDone={() => goForwardTo(noClaims ? "suggestions" : "results")}
-              onBack={() =>
-                goBackTo(skipCheckinSteps ? "integration" : "letschat")
-              }
-              onAdvance={(i) => setEdgeAvatars(Math.min(i + 1, 4))}
-              onForward={onForward}
-              // Gate only on the web-search turn — the personality rewrite runs
-              // decoupled in the background and is finished off in its own step
-              // right before the chat handoff (see the "finishing" step), so this
-              // quick loading state isn't held hostage to the persona turn.
-              // A hatch failure holds the carousel too: the turn settles "error"
-              // the moment the hatch dies, and advancing would walk the user past
-              // the result steps into a handoff behind the failure banner, out
-              // from under its retry.
-              ready={!researchLoading && hatchError === null}
-            />
-          )}
-          {step === "results" && (
-            <ResearchResultsStep
-              claims={research.claims}
-              loading={researchLoading}
-              onContinue={(removed) => {
-                const removedSet = new Set(removed);
-                setKeptFindings(
-                  research.claims
-                    .filter((c) => !removedSet.has(c.claim))
-                    .map((c) => c.claim),
-                );
-                // Pruned claims are wrong — tell the assistant to disregard them so
-                // they don't leak into the real chat (the research turn taught its
-                // memory these facts). Fold in the aggregator-only claims the card
-                // hid: they live in the same memory but were never shown, so the
-                // user couldn't prune them. Skip that fold if a resume already
-                // scrubbed them, so stepping back to this card can't re-send them.
-                // The chat handoff awaits this promise, so the correction is
-                // persisted before the first conversation is minted.
-                const dropsToFold = droppedClaimsScrubbedRef.current
-                  ? []
-                  : research.droppedClaims;
-                const toDisregard = [...removed, ...dropsToFold];
-                if (
-                  researchConversationId &&
-                  hatchedAssistantId &&
-                  toDisregard.length > 0
-                ) {
-                  if (dropsToFold.length > 0) {
-                    syncDroppedClaimsScrubbed(true);
-                  }
-                  researchCorrectionRef.current = sendResearchCorrection({
-                    assistantId: hatchedAssistantId,
-                    conversationId: researchConversationId,
-                    removedClaims: toDisregard,
-                    rejectedAll: false,
-                  });
-                }
-                goForwardTo("suggestions");
-              }}
-              onRejectAll={() => {
-                setKeptFindings([]);
-                // "This is not me" — the search matched someone else. Disown the
-                // whole result so none of it carries into the assistant's context;
-                // that covers the hidden drops too, so mark them scrubbed.
-                if (researchConversationId && hatchedAssistantId) {
+              goForwardTo(stepAfterPersonality);
+            }}
+            onBack={() => goBackTo("different")}
+            onForward={onForward}
+          />
+        )}
+        {step === "integration" && (
+          <IntegrationStep
+            onClaim={() =>
+              goForwardTo(skipCheckinSteps ? "looking" : "letschat")
+            }
+            onBumpEyes={() => setEyesBump((n) => n + 1)}
+            onBack={() =>
+              goBackTo(personalityEnabled ? "personality" : "different")
+            }
+            onForward={onForward}
+          />
+        )}
+        {step === "letschat" && (
+          <LetsChatTomorrowStep
+            assistantId={hatchedAssistantId}
+            assistantReady={hatchReady}
+            hatchError={hatchError}
+            onConnected={handleCheckinConnected}
+            missingCalendarScope={missingCalendarScope}
+            onRetry={() => setMissingCalendarScope(false)}
+            onSkip={() => {
+              setMissingCalendarScope(false);
+              goForwardTo("looking", "skipped");
+            }}
+            onBack={() => goBackTo("integration")}
+            onForward={onForward}
+          />
+        )}
+        {step === "meeting" && (
+          <MeetingCreatedStep
+            scheduledTime={checkinTime ?? undefined}
+            awaitingTime={checkinPending}
+            onDone={() => goForwardTo("looking")}
+            onBack={() => goBackTo("letschat")}
+            onForward={onForward}
+          />
+        )}
+        {step === "looking" && (
+          <LookingYouUpStep
+            onDone={() => goForwardTo(noClaims ? "suggestions" : "results")}
+            onBack={() =>
+              goBackTo(
+                skipClaimCreditsStep
+                  ? "personality"
+                  : skipCheckinSteps
+                    ? "integration"
+                    : "letschat",
+              )
+            }
+            onAdvance={(i) => setEdgeAvatars(Math.min(i + 1, 4))}
+            onForward={onForward}
+            // Gate only on the web-search turn — the personality rewrite runs
+            // decoupled in the background and is finished off in its own step
+            // right before the chat handoff (see the "finishing" step), so this
+            // quick loading state isn't held hostage to the persona turn.
+            // A hatch failure holds the carousel too: the turn settles "error"
+            // the moment the hatch dies, and advancing would walk the user past
+            // the result steps into a handoff behind the failure banner, out
+            // from under its retry.
+            ready={!researchLoading && hatchError === null}
+          />
+        )}
+        {step === "results" && (
+          <ResearchResultsStep
+            claims={research.claims}
+            loading={researchLoading}
+            onContinue={(removed) => {
+              const removedSet = new Set(removed);
+              setKeptFindings(
+                research.claims
+                  .filter((c) => !removedSet.has(c.claim))
+                  .map((c) => c.claim),
+              );
+              // Pruned claims are wrong — tell the assistant to disregard them so
+              // they don't leak into the real chat (the research turn taught its
+              // memory these facts). Fold in the aggregator-only claims the card
+              // hid: they live in the same memory but were never shown, so the
+              // user couldn't prune them. Skip that fold if a resume already
+              // scrubbed them, so stepping back to this card can't re-send them.
+              // The chat handoff awaits this promise, so the correction is
+              // persisted before the first conversation is minted.
+              const dropsToFold = droppedClaimsScrubbedRef.current
+                ? []
+                : research.droppedClaims;
+              const toDisregard = [...removed, ...dropsToFold];
+              if (
+                researchConversationId &&
+                hatchedAssistantId &&
+                toDisregard.length > 0
+              ) {
+                if (dropsToFold.length > 0) {
                   syncDroppedClaimsScrubbed(true);
-                  researchCorrectionRef.current = sendResearchCorrection({
-                    assistantId: hatchedAssistantId,
-                    conversationId: researchConversationId,
-                    removedClaims: research.claims.map((c) => c.claim),
-                    rejectedAll: true,
-                  });
                 }
-                goForwardTo("suggestions", "skipped");
-              }}
-              onBack={() => goBackTo("looking")}
-              onForward={onForward}
-            />
-          )}
-          {step === "suggestions" && personalityEnabled && (
-            <LetsChatReadyStep
-              installedPlugins={research.installedPlugins}
-              pluginCatalog={research.pluginCatalog}
-              // Hold the handoff until a resumed done journey's guard settles, so
-              // it can't fire against an established assistant before the verdict
-              // — and until the hatch has a live assistant to hand off to, since a
-              // resumed COMPLETED snapshot lands straight here (past the gated
-              // carousel) and the handoff would clear the snapshot and navigate to
-              // a null assistant. Readiness is its own condition: a retry clears
-              // the error while the fresh attempt is still provisioning.
-              disabled={
-                resumeGuardPending ||
-                hatchError !== null ||
-                !hatchReady ||
-                hatchedAssistantId === null
-              }
-              onStart={async () => {
-                // Terminal step: the handoff leaves via enterAssistant, not
-                // goForwardTo, so emit the completion here (mirrors SuggestionsStep).
-                emitResearchOnboardingStepCompleted(
-                  RESEARCH_ONBOARDING_FUNNEL_STEPS.suggestions,
-                  { userId, outcome: "completed" },
-                );
-                // If the personality rewrite is still running, show the dedicated
-                // "finishing" carousel that holds until it settles, then enters
-                // chat — so the persona is fully written first without the invisible
-                // "Starting…" button stalling on a long turn. If it's already done,
-                // drop straight into chat.
-                if (personalityPending) {
-                  setForwardStack([]);
-                  setStep("finishing");
-                  return;
-                }
-                await finishAndEnterChat();
-              }}
-              onBack={() => goBackTo(noClaims ? "looking" : "results")}
-              onForward={onForward}
-            />
-          )}
-          {step === "suggestions" && !personalityEnabled && (
-            <SuggestionsStep
-              suggestions={research.suggestions}
-              loading={researchLoading}
-              installedPlugins={research.installedPlugins}
-              onSuggestionClick={async (suggestion) => {
-                // Terminal step: the handoff leaves via enterAssistant, not
-                // goForwardTo, so emit the suggestions completion here (mirrors the
-                // pre-chat funnel emitting on its final step before completeFlow).
-                emitResearchOnboardingStepCompleted(
-                  RESEARCH_ONBOARDING_FUNNEL_STEPS.suggestions,
-                  { userId, outcome: "completed" },
-                );
-                // Wait out any background capability installs so the new chat can
-                // discover their skills (else it silently degrades to a generic
-                // prompt). Usually instant — installs kicked off while the user
-                // reviewed the results. Also wait for any removal correction to
-                // persist so rejected claims can't leak into this first chat.
-                await Promise.all([
-                  research.awaitPluginInstalls(),
-                  researchCorrectionRef.current,
-                ]);
-                enterAssistant(formValues, faceValues, suggestion.prompt);
-              }}
-              onSkip={async () => {
-                // "Skip to Chat" — record the suggestions step as skipped.
-                emitResearchOnboardingStepCompleted(
-                  RESEARCH_ONBOARDING_FUNNEL_STEPS.suggestions,
-                  { userId, outcome: "skipped" },
-                );
-                await Promise.all([
-                  research.awaitPluginInstalls(),
-                  researchCorrectionRef.current,
-                ]);
-                enterAssistant(formValues, faceValues, undefined, {
-                  skip: true,
+                researchCorrectionRef.current = sendResearchCorrection({
+                  assistantId: hatchedAssistantId,
+                  conversationId: researchConversationId,
+                  removedClaims: toDisregard,
+                  rejectedAll: false,
                 });
-              }}
-              onBack={() => goBackTo(noClaims ? "looking" : "results")}
-              onForward={onForward}
-            />
-          )}
-          {step === "finishing" && (
-            <FinishingUpStep
-              // Hold the carousel until the personality rewrite settles, then hand
-              // off. `finishAndEnterChat` also awaits the (usually already-resolved)
-              // plugin installs + correction before dropping into chat. A hatch
-              // failure holds it too: the rewrite settles the moment the hatch
-              // rejects, and handing off would clear the snapshot and navigate away
-              // behind the failure overlay, out from under its retry.
-              ready={!personalityPending && hatchError === null}
-              onDone={() => void finishAndEnterChat()}
-            />
-          )}
-        </OnboardingStageSizeProvider>
-      </div>,
+              }
+              goForwardTo("suggestions");
+            }}
+            onRejectAll={() => {
+              setKeptFindings([]);
+              // "This is not me" — the search matched someone else. Disown the
+              // whole result so none of it carries into the assistant's context;
+              // that covers the hidden drops too, so mark them scrubbed.
+              if (researchConversationId && hatchedAssistantId) {
+                syncDroppedClaimsScrubbed(true);
+                researchCorrectionRef.current = sendResearchCorrection({
+                  assistantId: hatchedAssistantId,
+                  conversationId: researchConversationId,
+                  removedClaims: research.claims.map((c) => c.claim),
+                  rejectedAll: true,
+                });
+              }
+              goForwardTo("suggestions", "skipped");
+            }}
+            onBack={() => goBackTo("looking")}
+            onForward={onForward}
+          />
+        )}
+        {step === "suggestions" && personalityEnabled && (
+          <LetsChatReadyStep
+            installedPlugins={research.installedPlugins}
+            pluginCatalog={research.pluginCatalog}
+            // Hold the handoff until a resumed done journey's guard settles, so
+            // it can't fire against an established assistant before the verdict
+            // — and until the hatch has a live assistant to hand off to, since a
+            // resumed COMPLETED snapshot lands straight here (past the gated
+            // carousel) and the handoff would clear the snapshot and navigate to
+            // a null assistant. Readiness is its own condition: a retry clears
+            // the error while the fresh attempt is still provisioning.
+            disabled={
+              resumeGuardPending ||
+              hatchError !== null ||
+              !hatchReady ||
+              hatchedAssistantId === null
+            }
+            onStart={async () => {
+              // Terminal step: the handoff leaves via enterAssistant, not
+              // goForwardTo, so emit the completion here (mirrors SuggestionsStep).
+              emitResearchOnboardingStepCompleted(
+                RESEARCH_ONBOARDING_FUNNEL_STEPS.suggestions,
+                { userId, outcome: "completed" },
+              );
+              // If the personality rewrite is still running, show the dedicated
+              // "finishing" carousel that holds until it settles, then enters
+              // chat — so the persona is fully written first without the invisible
+              // "Starting…" button stalling on a long turn. If it's already done,
+              // drop straight into chat.
+              if (personalityPending) {
+                setForwardStack([]);
+                setStep("finishing");
+                return;
+              }
+              await finishAndEnterChat();
+            }}
+            onBack={() => goBackTo(noClaims ? "looking" : "results")}
+            onForward={onForward}
+          />
+        )}
+        {step === "suggestions" && !personalityEnabled && (
+          <SuggestionsStep
+            suggestions={research.suggestions}
+            loading={researchLoading}
+            installedPlugins={research.installedPlugins}
+            onSuggestionClick={async (suggestion) => {
+              // Terminal step: the handoff leaves via enterAssistant, not
+              // goForwardTo, so emit the suggestions completion here (mirrors the
+              // pre-chat funnel emitting on its final step before completeFlow).
+              emitResearchOnboardingStepCompleted(
+                RESEARCH_ONBOARDING_FUNNEL_STEPS.suggestions,
+                { userId, outcome: "completed" },
+              );
+              // Wait out any background capability installs so the new chat can
+              // discover their skills (else it silently degrades to a generic
+              // prompt). Usually instant — installs kicked off while the user
+              // reviewed the results. Also wait for any removal correction to
+              // persist so rejected claims can't leak into this first chat.
+              await Promise.all([
+                research.awaitPluginInstalls(),
+                researchCorrectionRef.current,
+              ]);
+              enterAssistant(formValues, faceValues, suggestion.prompt);
+            }}
+            onSkip={async () => {
+              // "Skip to Chat" — record the suggestions step as skipped.
+              emitResearchOnboardingStepCompleted(
+                RESEARCH_ONBOARDING_FUNNEL_STEPS.suggestions,
+                { userId, outcome: "skipped" },
+              );
+              await Promise.all([
+                research.awaitPluginInstalls(),
+                researchCorrectionRef.current,
+              ]);
+              enterAssistant(formValues, faceValues, undefined, {
+                skip: true,
+              });
+            }}
+            onBack={() => goBackTo(noClaims ? "looking" : "results")}
+            onForward={onForward}
+          />
+        )}
+        {step === "finishing" && (
+          <FinishingUpStep
+            // Hold the carousel until the personality rewrite settles, then hand
+            // off. `finishAndEnterChat` also awaits the (usually already-resolved)
+            // plugin installs + correction before dropping into chat. A hatch
+            // failure holds it too: the rewrite settles the moment the hatch
+            // rejects, and handing off would clear the snapshot and navigate away
+            // behind the failure overlay, out from under its retry.
+            ready={!personalityPending && hatchError === null}
+            onDone={() => void finishAndEnterChat()}
+          />
+        )}
+      </OnboardingStage>,
     );
   }
 

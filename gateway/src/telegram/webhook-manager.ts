@@ -1,5 +1,6 @@
 import type { CredentialCache } from "../credential-cache.js";
 import type { ConfigFileCache } from "../config-file-cache.js";
+import { mutateConfigFile } from "../config-file-utils.js";
 import { credentialKey } from "../credential-key.js";
 import { fetchImpl } from "../fetch.js";
 import {
@@ -145,17 +146,30 @@ async function resolveExpectedTelegramWebhookUrl(
   // resolver declines makes setup report success while setWebhook never runs
   // (LUM-2899).
   //
-  //   1. An explicit `ingress.enabled: false` is a decision not to accept
+  //   1. Platform pods (`IS_PLATFORM`) always use the managed callback route
+  //      and never consult ingress at all — a pod has no self-owned ingress to
+  //      advertise. Its `ingress.publicBaseUrl` is written by the Velay tunnel
+  //      client, not by a user, and that address is only live while the tunnel
+  //      is: `clearManagedPublicBaseUrl` wipes the key when the tunnel drops,
+  //      but Telegram keeps delivering to whatever was last registered, so a
+  //      pod that resolved through this tier would be pointed at a dead
+  //      address until something triggered another reconciliation. The
+  //      platform callback route is the pod's stable inbound address.
+  //   2. An explicit `ingress.enabled: false` is a decision not to accept
   //      inbound webhooks at all; it precedes both tiers below and actively
   //      deregisters, so `reconcileTelegramWebhook` handles it before calling
   //      this resolver. Platform pods are exempt (see the comment there).
-  //   2. A configured public ingress URL wins (a self-hosted tunnel, or the
+  //   3. A configured public ingress URL wins (a self-hosted tunnel, or the
   //      Velay-published URL while the tunnel is registered).
-  //   3. Platform-connected assistants (platform pods and local assistants
-  //      holding vellum credentials) fall back to a managed platform callback
-  //      route. `registerManagedTelegramCallbackRoute` self-gates on platform
+  //   4. Platform-connected local assistants holding vellum credentials fall
+  //      back to a managed platform callback route.
+  //      `registerManagedTelegramCallbackRoute` self-gates on platform
   //      features and credential presence, so a gateway with no platform
   //      context resolves to undefined and reconciliation skips.
+  if (isPlatformMode()) {
+    return registerManagedTelegramCallbackRoute(caches);
+  }
+
   let ingressUrl: string | undefined;
   if (caches?.configFile) {
     ingressUrl = caches.configFile.getString("ingress", "publicBaseUrl");
@@ -222,6 +236,10 @@ export async function reconcileTelegramWebhook(
     caches?.configFile?.getBoolean("ingress", "enabled") === false
   ) {
     await callTelegramApi("deleteWebhook", {}, apiOpts);
+    // Clear the record alongside the registration. Leaving it would outlive the
+    // webhook it describes, and the health sweep would then compare a live
+    // getWebhookInfo against an address nothing is registered at.
+    await recordRegisteredWebhookUrl(undefined, caches?.configFile);
     log.info(
       "Telegram webhook deregistered: public ingress is explicitly disabled",
     );
@@ -276,4 +294,82 @@ export async function reconcileTelegramWebhook(
   );
 
   log.info({ url: expectedUrl }, "Telegram webhook registered successfully");
+
+  // Record only after setWebhook returns. The daemon's health sweep treats a
+  // recorded URL as "this deployment put it there", so recording an address we
+  // failed to register would manufacture the agreement the check exists to
+  // test. Written after the call, never before it.
+  await recordRegisteredWebhookUrl(expectedUrl, caches?.configFile);
+}
+
+/**
+ * Persist the webhook URL this deployment just registered, for the daemon's
+ * health sweep to compare against `getWebhookInfo`.
+ *
+ * Without this the sweep can only ask "is some webhook registered and not
+ * erroring", which a stale tunnel address or another deployment's callback
+ * satisfies. Telegram reports delivery errors only when it has something to
+ * deliver, so on a quiet channel the wrong URL is indistinguishable from the
+ * right one until a message is lost.
+ *
+ * Failure to write is logged and swallowed: reconciliation succeeded, and the
+ * sweep degrades to reporting unverified rather than claiming health it cannot
+ * establish.
+ */
+async function recordRegisteredWebhookUrl(
+  url: string | undefined,
+  configFile?: ConfigFileCache,
+): Promise<void> {
+  if (!configFile) {
+    return;
+  }
+  try {
+    await writeRecordedWebhookUrl(url, configFile);
+  } catch (err) {
+    // Recording is bookkeeping for the health sweep, and it runs after
+    // setWebhook has already succeeded. Letting it throw would fail a
+    // reconciliation that worked, and callers treat a throw as "the webhook is
+    // not registered", which would be the opposite of the truth.
+    log.error(
+      { err, cleared: url === undefined },
+      "Telegram webhook reconciliation succeeded but its recorded URL could not be updated; the health sweep will fall back to reporting unverified",
+    );
+  }
+}
+
+async function writeRecordedWebhookUrl(
+  url: string | undefined,
+  configFile: ConfigFileCache,
+): Promise<void> {
+  const result = await mutateConfigFile(
+    (data) => {
+      const telegram = (data.telegram ?? {}) as Record<string, unknown>;
+      if (url === undefined) {
+        if (telegram.registeredWebhookUrl === undefined) {
+          return false;
+        }
+        delete telegram.registeredWebhookUrl;
+        data.telegram = telegram;
+        return true;
+      }
+      if (telegram.registeredWebhookUrl === url) {
+        return false;
+      }
+      telegram.registeredWebhookUrl = url;
+      data.telegram = telegram;
+      return true;
+    },
+    {
+      shouldWrite: (changed) => changed,
+      onWritten: () => {
+        configFile.invalidate();
+      },
+    },
+  );
+  if (!result.ok) {
+    log.error(
+      { detail: result.detail, cleared: url === undefined },
+      "Telegram webhook reconciliation succeeded but its recorded URL could not be updated; the health sweep will fall back to reporting unverified",
+    );
+  }
 }

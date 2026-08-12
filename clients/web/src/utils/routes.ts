@@ -227,6 +227,11 @@ export const routes = {
     // Deep-link straight to the Billing sub-tab (only shown when signed in to
     // the Vellum platform).
     usageBilling: `${SETTINGS_USAGE_PATH}?tab=billing`,
+    // Lands on the daily credit limit card inside the Billing tab. The hash
+    // must match `DAILY_CREDIT_LIMIT_ANCHOR_ID` in `daily-credit-limit-card.tsx`
+    // (guarded by that card's test); the platform's daily-limit email links
+    // here via the `/assistant/settings/billing` redirect.
+    usageBillingDailyLimit: `${SETTINGS_USAGE_PATH}?tab=billing#daily-credit-limit`,
     usageBillingConfigureTopUps: `${SETTINGS_USAGE_PATH}?tab=billing&configure_top_up=1`,
     // Post-Stripe-Checkout return. The Billing tab opens the Pro onboarding
     // wizard while `session_id` is in the URL — the same param the platform's

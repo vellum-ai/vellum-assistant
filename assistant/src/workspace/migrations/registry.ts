@@ -137,6 +137,12 @@ import { repairStaleFireworksKimiModelIdMigration } from "./136-repair-stale-fir
 import { repairRetiredFireworksMinimaxModelIdMigration } from "./137-repair-retired-fireworks-minimax-model-id.js";
 import { backfillHomeFeedTitlesMigration } from "./138-backfill-home-feed-titles.js";
 import { clearRenamedCostProfileLabelMigration } from "./139-clear-renamed-cost-profile-label.js";
+import { repairSeedPinnedMemoryV3LiveMigration } from "./140-repair-seed-pinned-memory-v3-live.js";
+import { sttEnglishDefaultToMultilingualMigration } from "./141-stt-english-default-to-multilingual.js";
+import { consolidateVoiceFrontDoorMigration } from "./142-consolidate-voice-front-door.js";
+import { repairDeprecatedCodexModelIdMigration } from "./143-repair-deprecated-codex-model-id.js";
+import { convertStrandedSubscriptionOpenaiProfilesMigration } from "./144-convert-stranded-subscription-openai-profiles.js";
+import { collapseProfileBindingsToEntriesMigration } from "./145-collapse-profile-bindings-to-entries.js";
 import { migrateToWorkspaceVolumeMigration } from "./migrate-to-workspace-volume.js";
 import type { WorkspaceMigration } from "./types.js";
 
@@ -289,4 +295,10 @@ export const WORKSPACE_MIGRATIONS: WorkspaceMigration[] = [
   repairRetiredFireworksMinimaxModelIdMigration,
   backfillHomeFeedTitlesMigration,
   clearRenamedCostProfileLabelMigration,
+  repairSeedPinnedMemoryV3LiveMigration,
+  sttEnglishDefaultToMultilingualMigration,
+  consolidateVoiceFrontDoorMigration,
+  repairDeprecatedCodexModelIdMigration,
+  convertStrandedSubscriptionOpenaiProfilesMigration,
+  collapseProfileBindingsToEntriesMigration,
 ];

@@ -14,6 +14,9 @@
  *  - Arriving with `?configure_top_up=1` replays the toggle-on path (reveal the
  *    form, or the add-card gate with no PM), no-ops while enabled, and never
  *    fires an update mutation.
+ *  - The enable form announces the default daily credit limit only when the org
+ *    has none, and a successful enable invalidates the daily-limit and billing
+ *    summary queries so the daily-limit card picks up the applied default.
  *
  * Strategy: the render-only cases pre-populate the React Query cache so the
  * card's `useQuery` resolves synchronously — `renderToStaticMarkup` is
@@ -31,12 +34,16 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { MemoryRouter } from "react-router";
 
 import * as sdkGen from "@/generated/api/sdk.gen";
-import type { AutoTopUpConfigResponse } from "@/generated/api/types.gen";
+import type {
+  AutoTopUpConfigResponse,
+  DailyCreditLimitResponse,
+} from "@/generated/api/types.gen";
 
 let removeCalls: Array<Record<string, unknown>> = [];
 let updateCalls: Array<Record<string, unknown>> = [];
 let removeShouldFail = false;
 let retrieveResponse: AutoTopUpConfigResponse;
+let dailyLimitResponse: DailyCreditLimitResponse;
 
 mock.module("@/generated/api/sdk.gen", () => ({
   ...sdkGen,
@@ -73,9 +80,15 @@ mock.module("@/generated/api/sdk.gen", () => ({
   },
   organizationsBillingAutoTopUpRetrieve: () =>
     Promise.resolve({ data: retrieveResponse, response: { ok: true } }),
+  organizationsBillingDailyCreditLimitRetrieve: () =>
+    Promise.resolve({ data: dailyLimitResponse, response: { ok: true } }),
 }));
 
-import { organizationsBillingAutoTopUpRetrieveQueryKey } from "@/generated/api/@tanstack/react-query.gen";
+import {
+  organizationsBillingAutoTopUpRetrieveQueryKey,
+  organizationsBillingDailyCreditLimitRetrieveQueryKey,
+  organizationsBillingSummaryRetrieveQueryKey,
+} from "@/generated/api/@tanstack/react-query.gen";
 
 const { AutoTopUpCard, DISABLED_CONFIG } = await import("./auto-top-up-card");
 
@@ -87,16 +100,26 @@ function makeClient(config: AutoTopUpConfigResponse): QueryClient {
     },
   });
   client.setQueryData(organizationsBillingAutoTopUpRetrieveQueryKey(), config);
+  client.setQueryData(
+    organizationsBillingDailyCreditLimitRetrieveQueryKey(),
+    dailyLimitResponse,
+  );
   return client;
 }
 
 /**
- * Wrap the card in a QueryClientProvider (cache pre-seeded from `config`) and a
- * MemoryRouter at `route`, so both `useQuery` and `useSearchParams` resolve.
+ * Wrap the card in a QueryClientProvider (cache pre-seeded from `config` and
+ * the current `dailyLimitResponse`) and a MemoryRouter at `route`, so both
+ * `useQuery` and `useSearchParams` resolve. Pass `client` to observe the cache
+ * from the test.
  */
-function wrap(config: AutoTopUpConfigResponse, route = "/") {
+function wrap(
+  config: AutoTopUpConfigResponse,
+  route = "/",
+  client: QueryClient = makeClient(config),
+) {
   return (
-    <QueryClientProvider client={makeClient(config)}>
+    <QueryClientProvider client={client}>
       <MemoryRouter initialEntries={[route]}>
         <AutoTopUpCard />
       </MemoryRouter>
@@ -133,6 +156,11 @@ beforeEach(() => {
   updateCalls = [];
   removeShouldFail = false;
   retrieveResponse = { ...DISABLED_CONFIG };
+  dailyLimitResponse = {
+    daily_credit_limit_usd: null,
+    current_day_spent_usd: "0.00",
+    day_bucket: null,
+  };
 });
 
 afterEach(cleanup);
@@ -619,5 +647,110 @@ describe("AutoTopUpCard configure_top_up deeplink", () => {
       container.querySelector('[data-testid="auto-top-up-save-button"]'),
     ).toBeNull();
     expect(updateCalls.length).toBe(0);
+  });
+});
+
+describe("AutoTopUpCard default daily credit limit", () => {
+  const NOTE = '[data-testid="auto-top-up-default-daily-limit-note"]';
+
+  test("announces the applied default when enabling with no daily limit", () => {
+    const { container, getByLabelText } = render(wrap(DISABLED_WITH_CARD));
+
+    fireEvent.click(getByLabelText("Enable Extra Usage"));
+
+    const note = container.querySelector(NOTE);
+    expect(note).not.toBeNull();
+    expect(note?.textContent).toContain(
+      "A default daily credit limit of $25 per day will be applied.",
+    );
+  });
+
+  test("stays quiet when the org already has a daily limit", () => {
+    dailyLimitResponse = {
+      daily_credit_limit_usd: "40.00",
+      current_day_spent_usd: "0.00",
+      day_bucket: "2026-07-20",
+    };
+    const { container, getByLabelText } = render(wrap(DISABLED_WITH_CARD));
+
+    fireEvent.click(getByLabelText("Enable Extra Usage"));
+
+    expect(
+      container.querySelector('[data-testid="auto-top-up-save-button"]'),
+    ).not.toBeNull();
+    expect(container.querySelector(NOTE)).toBeNull();
+  });
+
+  test("stays quiet when adjusting an already-enabled config", () => {
+    retrieveResponse = { ...ENABLED_WITH_CARD };
+    const { container, getByTestId } = render(wrap(ENABLED_WITH_CARD));
+
+    fireEvent.click(getByTestId("auto-top-up-edit-button"));
+
+    expect(container.querySelector(NOTE)).toBeNull();
+  });
+
+  test("invalidates the daily-limit and summary queries after a successful enable", async () => {
+    const client = makeClient(DISABLED_WITH_CARD);
+    const invalidated: string[] = [];
+    const invalidateQueries = client.invalidateQueries.bind(client);
+    client.invalidateQueries = (filters, options) => {
+      invalidated.push(JSON.stringify(filters?.queryKey));
+      return invalidateQueries(filters, options);
+    };
+
+    const { getByLabelText, getByTestId } = render(
+      wrap(DISABLED_WITH_CARD, "/", client),
+    );
+
+    fireEvent.click(getByLabelText("Enable Extra Usage"));
+    fireEvent.click(getByTestId("auto-top-up-save-button"));
+
+    await waitFor(() => {
+      if (updateCalls.length === 0) {
+        throw new Error("update endpoint not called");
+      }
+    });
+
+    // The server applies its default daily limit on enable, so both the
+    // daily-limit card's query and the summary that carries the derived limit
+    // fields are refreshed.
+    await waitFor(() => {
+      const expected = [
+        JSON.stringify(organizationsBillingDailyCreditLimitRetrieveQueryKey()),
+        JSON.stringify(organizationsBillingSummaryRetrieveQueryKey()),
+      ];
+      for (const key of expected) {
+        if (!invalidated.includes(key)) {
+          throw new Error(`missing invalidation for ${key}`);
+        }
+      }
+    });
+  });
+
+  test("does not invalidate the daily-limit query when adjusting an enabled config", async () => {
+    retrieveResponse = { ...ENABLED_WITH_CARD };
+    const client = makeClient(ENABLED_WITH_CARD);
+    const invalidated: string[] = [];
+    const invalidateQueries = client.invalidateQueries.bind(client);
+    client.invalidateQueries = (filters, options) => {
+      invalidated.push(JSON.stringify(filters?.queryKey));
+      return invalidateQueries(filters, options);
+    };
+
+    const { getByTestId } = render(wrap(ENABLED_WITH_CARD, "/", client));
+
+    fireEvent.click(getByTestId("auto-top-up-edit-button"));
+    fireEvent.click(getByTestId("auto-top-up-save-button"));
+
+    await waitFor(() => {
+      if (updateCalls.length === 0) {
+        throw new Error("update endpoint not called");
+      }
+    });
+
+    expect(invalidated).not.toContain(
+      JSON.stringify(organizationsBillingDailyCreditLimitRetrieveQueryKey()),
+    );
   });
 });

@@ -33,7 +33,7 @@ describe("custom-group standard-listing visibility", () => {
   });
 
   function listedIds(): string[] {
-    return listConversations(undefined, "standard").map((c) => c.id);
+    return listConversations({ conversationType: "standard" }).map((c) => c.id);
   }
 
   test("scheduled conversation in a custom group is listed", () => {

@@ -9,32 +9,34 @@
 
 import { isAbsolute, resolve, sep } from "node:path";
 
+import { DOCUMENT_MUTATION_TOOL_NAMES } from "../api/constants/document-tools.js";
 import type { AssistantEvent } from "../api/index.js";
 import { getApp, linkAppToConversationLineage } from "../apps/app-store.js";
-import { findActiveSession } from "../channels/gateway-verification-sessions.js";
 import { getConfig } from "../config/loader.js";
 import { generateAppIcon } from "../media/app-icon-generator.js";
 import { invalidateEdgeIndex } from "../plugins/defaults/memory/substrate/edge-index.js";
 import { invalidatePageIndex } from "../plugins/defaults/memory/substrate/page-index.js";
 import { getConceptsDir } from "../plugins/defaults/memory/substrate/page-store.js";
 import { broadcastMessage } from "../runtime/assistant-event-hub.js";
-import { publishAppsChanged } from "../runtime/sync/resource-sync-events.js";
-import { deliverVerificationSlack } from "../runtime/verification-outbound-actions.js";
+import {
+  publishAppsChanged,
+  publishDocumentsChanged,
+} from "../runtime/sync/resource-sync-events.js";
 import { updatePublishedAppDeployment } from "../services/published-app-updater.js";
 import type { ToolExecutionResult } from "../tools/types.js";
 import { getLogger } from "../util/logger.js";
 import { getWorkspaceDir } from "../util/platform.js";
 import { ensureAppSourceWatcher } from "./app-source-watcher.js";
+import type { Conversation } from "./conversation.js";
 import { refreshSurfacesForApp } from "./conversation-surfaces.js";
 import { isDoordashCommand, updateDoordashProgress } from "./doordash-steps.js";
-import type { ToolSetupContext } from "./tool-setup-types.js";
 
 const log = getLogger("tool-side-effects");
 
 // ── Types ────────────────────────────────────────────────────────────
 
 export interface SideEffectContext {
-  ctx: ToolSetupContext;
+  ctx: Conversation;
 }
 
 export type PostExecutionHook = (
@@ -57,7 +59,7 @@ export type PostExecutionHook = (
  * and would race with the executor's own output (LUM-1153).
  */
 function notifyAppChanged(
-  ctx: ToolSetupContext,
+  ctx: Conversation,
   appId: string,
   opts?: { fileChange?: boolean; status?: string },
 ): void {
@@ -179,6 +181,15 @@ function registerAppSurfaceRefreshHook(toolName: string): void {
 registerAppSurfaceRefreshHook("app_refresh");
 registerAppSurfaceRefreshHook("app_update");
 
+// The mutating document tools carry no list-level change signal of their own,
+// so the conversation assets pill and the Library keep serving a cached list
+// after an edit, and a deleted document lingers as a ghost row. `skill_execute`
+// calls reach the runner already unwrapped to the inner tool name, so the
+// bundled document-editor skill needs no separate registration.
+registerHook([...DOCUMENT_MUTATION_TOOL_NAMES], () => {
+  publishDocumentsChanged();
+});
+
 registerHook("voice_config_update", (_name, input) => {
   const setting = input.setting as string | undefined;
   if (!setting) {
@@ -227,94 +238,6 @@ registerHook("voice_config_update", (_name, input) => {
     key,
     value: coerced,
   } as unknown as AssistantEvent);
-});
-
-// Dispatch pending Slack DM delivery when a CLI verification command
-// completes.  The CLI subprocess is sandboxed and cannot reach the
-// gateway, so it includes a `_pendingSlackDm` field in its JSON output.
-// This hook runs in the unsandboxed daemon process and delivers the DM.
-registerHook("bash", async (_name, input, result) => {
-  const command = (input.command ?? "") as string;
-  if (!command.includes("channel-verification-sessions")) {
-    return;
-  }
-  if (!result.content.includes("_pendingSlackDm")) {
-    return;
-  }
-
-  type PendingDm = { userId: string; text: string; assistantId: string };
-  type Parsed = { _pendingSlackDm?: PendingDm };
-
-  // Returns "delivered" when DM was sent, "rejected" when _pendingSlackDm
-  // was found but failed validation, or null when the field was absent.
-  const dispatch = async (
-    parsed: Parsed,
-  ): Promise<"delivered" | "rejected" | null> => {
-    if (parsed._pendingSlackDm) {
-      const { userId, text, assistantId } = parsed._pendingSlackDm;
-
-      // Validate that an active Slack verification session exists and
-      // that the destination matches the userId in the parsed payload.
-      // Fail closed: an unverifiable DM (gateway unreachable) is not sent.
-      let session;
-      try {
-        session = await findActiveSession("slack");
-      } catch (err) {
-        log.warn(
-          { err, userId, assistantId },
-          "Bash hook: gateway session lookup failed — ignoring _pendingSlackDm",
-        );
-        return "rejected";
-      }
-      if (!session) {
-        log.warn(
-          { userId, assistantId },
-          "Bash hook: no active Slack verification session — ignoring _pendingSlackDm",
-        );
-        return "rejected";
-      }
-      if (session.destinationAddress !== userId) {
-        log.warn(
-          { userId, expected: session.destinationAddress, assistantId },
-          "Bash hook: Slack DM userId does not match active session destination — ignoring",
-        );
-        return "rejected";
-      }
-
-      deliverVerificationSlack(userId, text, assistantId);
-      return "delivered";
-    }
-    return null;
-  };
-
-  // Try full content first (handles pretty-printed single-object JSON)
-  let singleObject: Parsed | undefined;
-  try {
-    singleObject = JSON.parse(result.content.trim()) as Parsed;
-  } catch {
-    // Not a single JSON object — fall back to line-by-line for
-    // multi-object output (e.g. cancel + create chained with &&).
-  }
-  if (singleObject !== undefined) {
-    if ((await dispatch(singleObject)) !== null) {
-      return;
-    }
-  }
-  for (const line of result.content.split("\n")) {
-    const trimmed = line.trim();
-    if (!trimmed.startsWith("{")) {
-      continue;
-    }
-    let parsed: Parsed;
-    try {
-      parsed = JSON.parse(trimmed) as Parsed;
-    } catch {
-      continue;
-    }
-    if ((await dispatch(parsed)) === "delivered") {
-      return;
-    }
-  }
 });
 
 // Invalidate the in-memory v2 edge index and page index when the LLM writes

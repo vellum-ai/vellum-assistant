@@ -1,7 +1,7 @@
 /**
- * Spoken-language selection for the speech-to-text surfaces (the settings
- * form, the voice first-run card, and the voice-room gear popover, hence
- * `components/speech/` rather than any one domain). Reads the current
+ * Spoken-language selection for the speech-to-text surfaces (Settings →
+ * Voice, the Models & Services provider form, and the voice first-run card,
+ * hence `components/speech/` rather than any one domain). Reads the current
  * language from daemon config and writes the chosen one back; the source of
  * truth is `services.stt.language`, never a client store (server data has
  * one owner).
@@ -26,32 +26,51 @@ import {
 } from "@/generated/daemon/@tanstack/react-query.gen";
 import { useIsOrgReady } from "@/hooks/use-is-org-ready";
 import {
-  AUTO_DETECT_WHEN_UNSET_DAEMON_PROVIDERS,
+  MULTI_DEFAULT_DAEMON_PROVIDERS,
   STT_LANGUAGE_DEFAULT_CODE,
+  STT_PINNED_ENGLISH_CODE,
 } from "@/lib/stt/language-catalog";
 
 import { useSerializedConfigSelection } from "@/components/speech/use-serialized-config-selection";
 
 /**
- * The code written when the user picks the default option. The daemon cannot
- * delete `services.stt.language`: `config_patch` deep-merges, and a `null`
- * leaf lands as a literal null in raw config.json, which then fails the
- * `z.string().min(1)` schema on every subsequent load. So the default pick
- * writes explicit English (the provider default is English anyway), and
- * reads treat unset and `"en"` as the same default code. The equivalence is
- * provider-scoped: under a provider whose unset state means native
- * auto-detection (see `AUTO_DETECT_WHEN_UNSET_DAEMON_PROVIDERS`), `"en"` is
- * a real English pin and reads back as itself.
+ * How a config value reads on the picker, per provider.
+ *
+ * Under `MULTI_DEFAULT_DAEMON_PROVIDERS` there is no sentinel row: config
+ * always carries a real language (the schema defaults it to `"multi"`), so
+ * Multilingual and English are concrete, separately selectable rows and each
+ * reads as itself. An absent language can only come from a daemon predating
+ * that default, and on those it meant English, so that is what it shows. The
+ * Multilingual row stays one click away and writes a real `"multi"`, which
+ * those daemons have honored since language selection shipped.
+ *
+ * Natively detecting providers keep their sentinel: unset means detection
+ * there, which no language code expresses.
  */
-const DEFAULT_WRITE_CODE = "en";
+function configuredCodeForProvider(
+  daemonProviderId: string,
+  configured: string | undefined,
+): string {
+  if (configured) {
+    return configured;
+  }
+  if (MULTI_DEFAULT_DAEMON_PROVIDERS.has(daemonProviderId)) {
+    return STT_PINNED_ENGLISH_CODE;
+  }
+  return STT_LANGUAGE_DEFAULT_CODE;
+}
 
-// Module-level so `select` identity only tracks real state (see
-// `useSerializedConfigSelection`). The default pick writes the explicit
-// English fallback described on `DEFAULT_WRITE_CODE`.
+/**
+ * The write body for a picked code. The sentinel row (natively detecting
+ * providers only) carries no code of its own, so it writes explicit English,
+ * the only thing `config_patch` can express: it cannot delete the key,
+ * because a `null` leaf lands in raw config.json and fails the
+ * `z.string().min(1)` schema on every subsequent load.
+ */
 const buildLanguagePatchBody = (code: string) => ({
   services: {
     stt: {
-      language: code === STT_LANGUAGE_DEFAULT_CODE ? DEFAULT_WRITE_CODE : code,
+      language: code === STT_LANGUAGE_DEFAULT_CODE ? "en" : code,
     },
   },
 });
@@ -65,10 +84,10 @@ export interface UseSttLanguageSelection {
   available: boolean;
   /**
    * The currently-selected catalog code: the pick a write is still carrying,
-   * else the config value. Unset and `"en"` both read as
-   * `STT_LANGUAGE_DEFAULT_CODE` (display equivalence, see
-   * `DEFAULT_WRITE_CODE`), except under a provider whose unset state means
-   * native auto-detection, where `"en"` reads as itself.
+   * else the config value. Unset and the provider's resolved default code
+   * both read as `STT_LANGUAGE_DEFAULT_CODE` (display equivalence, see
+   * `defaultCodeForProvider`), so under a code-switching provider `"multi"`
+   * reads as the default row while `"en"` reads as a deliberate pin.
    */
   currentCode: string;
   /**
@@ -130,18 +149,10 @@ export function useSttLanguageSelection(
   // provider is a guess, and the control must not flash in and out.
   const available = enabled && !!daemonConfig && providerAcceptsLanguage;
 
-  // Unset and the explicit English fallback both read as the default code
-  // (display equivalence, see `DEFAULT_WRITE_CODE`). Not under a provider
-  // whose unset state means native auto-detection: there the default row
-  // reads "Auto-detect", so collapsing a persisted "en" into it would
-  // misreport a real English pin as auto-detection.
-  const configured = daemonStt?.language;
-  const englishReadsAsDefault =
-    !AUTO_DETECT_WHEN_UNSET_DAEMON_PROVIDERS.has(configuredProvider);
-  const configuredCode =
-    !configured || (englishReadsAsDefault && configured === DEFAULT_WRITE_CODE)
-      ? STT_LANGUAGE_DEFAULT_CODE
-      : configured;
+  const configuredCode = configuredCodeForProvider(
+    configuredProvider,
+    daemonStt?.language,
+  );
 
   const {
     currentValue: currentCode,
