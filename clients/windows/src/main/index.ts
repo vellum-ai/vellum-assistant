@@ -11,6 +11,7 @@ import { getDeviceId } from "@vellumai/electron-desktop/device-id";
 import { resolveLocalConfigFromEnv } from "@vellumai/local-mode";
 
 import { APP_PROTOCOL, WINDOWS_RELEASE_INFO } from "./app-config";
+import { provisionCliForCurrentUser } from "./cli-path-flow";
 import { installMainFeatures } from "./features";
 import { handleSync } from "./ipc.client";
 import log from "./logger";
@@ -49,11 +50,11 @@ const isDev = !app.isPackaged;
 // environment. Append an environment suffix for non-production builds so
 // dev/staging/production installs can run side-by-side; production keeps the
 // original path for backwards compatibility.
+const releaseChannel = WINDOWS_RELEASE_INFO.releaseChannel;
 if (app.isPackaged) {
-  const env = WINDOWS_RELEASE_INFO.releaseChannel;
-  if (env !== "production") {
+  if (releaseChannel !== "production") {
     const base = app.getPath("userData");
-    app.setPath("userData", `${base}-${env}`);
+    app.setPath("userData", `${base}-${releaseChannel}`);
   }
 }
 
@@ -173,6 +174,24 @@ app
   .then(() => {
     if (!isDev) {
       registerAppProtocol();
+    }
+    if (app.isPackaged && process.platform === "win32") {
+      try {
+        const result = provisionCliForCurrentUser({
+          userDataDir: app.getPath("userData"),
+          resourcesDir: process.resourcesPath,
+          localAppData:
+            process.env.LOCALAPPDATA ??
+            path.join(app.getPath("home"), "AppData", "Local"),
+          releaseChannel,
+          version: app.getVersion(),
+        });
+        if (["foreign", "shadowed"].includes(result.launcherState)) {
+          log.warn(`[cli] Windows launcher is ${result.launcherState}`);
+        }
+      } catch (error) {
+        log.error("[cli] Failed to provision the Windows CLI:", error);
+      }
     }
     installMainFeatures();
   })

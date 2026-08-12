@@ -1,11 +1,16 @@
 import { spawn } from "child_process";
 import { homedir } from "os";
 import { existsSync, mkdirSync, renameSync, writeFileSync } from "fs";
-import { basename, dirname, join } from "path";
+import { basename, dirname, join, win32 } from "path";
 
-import { getDaemonPidPath, loadAllAssistants } from "./assistant-config.js";
+import {
+  getDaemonPidPath,
+  loadAllAssistants,
+  loadAllAssistantsAcrossEnvs,
+} from "./assistant-config.js";
 import type { AssistantEntry } from "./assistant-config.js";
 import { stopIngressNginx } from "./nginx-ingress.js";
+import { getKnownPidsFromAssistants } from "./orphan-detection.js";
 import {
   stopOrphanedDaemonProcesses,
   stopProcessByPidFile,
@@ -24,6 +29,61 @@ export interface RetireLocalResult {
   archivePath?: string;
   /** True when another local assistant shared the data dir, so it was kept. */
   sharedDataDir?: boolean;
+}
+
+interface RetireArchiveCommand {
+  command: string;
+  args: string[];
+  env?: Record<string, string>;
+}
+
+const WINDOWS_RETIRE_ARCHIVE_SCRIPT = [
+  "$ErrorActionPreference = 'Stop'",
+  "& tar.exe -czf $env:VELLUM_RETIRE_ARCHIVE_PATH -C $env:VELLUM_RETIRE_ARCHIVE_PARENT $env:VELLUM_RETIRE_STAGING_NAME",
+  "if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }",
+  "Remove-Item -LiteralPath $env:VELLUM_RETIRE_STAGING_DIR -Recurse -Force",
+].join("; ");
+
+export function getRetireArchiveCommand(
+  archivePath: string,
+  stagingDir: string,
+  hostPlatform: NodeJS.Platform = process.platform,
+): RetireArchiveCommand {
+  const archiveParent =
+    hostPlatform === "win32" ? win32.dirname(stagingDir) : dirname(stagingDir);
+  const stagingName =
+    hostPlatform === "win32"
+      ? win32.basename(stagingDir)
+      : basename(stagingDir);
+  if (hostPlatform === "win32") {
+    return {
+      command: "powershell.exe",
+      args: [
+        "-NoProfile",
+        "-NonInteractive",
+        "-Command",
+        WINDOWS_RETIRE_ARCHIVE_SCRIPT,
+      ],
+      env: {
+        VELLUM_RETIRE_ARCHIVE_PATH: archivePath,
+        VELLUM_RETIRE_ARCHIVE_PARENT: archiveParent,
+        VELLUM_RETIRE_STAGING_NAME: stagingName,
+        VELLUM_RETIRE_STAGING_DIR: stagingDir,
+      },
+    };
+  }
+  return {
+    command: "sh",
+    args: [
+      "-c",
+      'tar czf "$1" -C "$2" "$3" && rm -rf "$4"',
+      "vellum-retire",
+      archivePath,
+      archiveParent,
+      stagingName,
+      stagingDir,
+    ],
+  };
 }
 
 export async function retireLocal(
@@ -99,7 +159,14 @@ export async function retireLocal(
   // If the PID file didn't track a running daemon, scan for orphaned
   // daemon processes that may have been started without writing a PID.
   if (!daemonStopped) {
-    await stopOrphanedDaemonProcesses();
+    const otherAssistantPids = getKnownPidsFromAssistants(
+      [...loadAllAssistantsAcrossEnvs(), ...loadAllAssistants()].filter(
+        (other) =>
+          other.assistantId !== name ||
+          other.resources?.instanceDir !== resources.instanceDir,
+      ),
+    );
+    await stopOrphanedDaemonProcesses(otherAssistantPids);
   }
 
   // For named instances (instanceDir differs from the base directory),
@@ -140,14 +207,13 @@ export async function retireLocal(
 
   // Spawn tar + cleanup in the background and detach so the CLI can exit
   // immediately. The staging directory is removed once the archive is written.
-  const tarCmd = [
-    `tar czf ${JSON.stringify(archivePath)} -C ${JSON.stringify(dirname(stagingDir))} ${JSON.stringify(basename(stagingDir))}`,
-    `rm -rf ${JSON.stringify(stagingDir)}`,
-  ].join(" && ");
-
-  const child = spawn("sh", ["-c", tarCmd], {
+  const archiveCommand = getRetireArchiveCommand(archivePath, stagingDir);
+  const child = spawn(archiveCommand.command, archiveCommand.args, {
     stdio: "ignore",
     detached: true,
+    ...(archiveCommand.env
+      ? { env: { ...process.env, ...archiveCommand.env } }
+      : {}),
   });
   child.unref();
 
