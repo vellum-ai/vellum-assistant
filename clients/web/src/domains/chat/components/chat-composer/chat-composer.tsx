@@ -486,6 +486,12 @@ export function ChatComposer({
   }, [startLiveVoiceSession]);
 
   const pointerCoarse = useMemo(() => isPointerCoarse(), []);
+  // `shouldSubmitOnEnter` ignores Enter under a coarse primary pointer, since a
+  // soft keyboard's Enter inserts a newline. Anything that stands in for
+  // keyboard submit reads this, never the viewport width: the two disagree on a
+  // roomy tablet and on a narrowed desktop window, and the substitute belongs to
+  // the absence of the thing it replaces. See `docs/PLATFORM_ADAPTATION.md`.
+  const keyboardCanSubmit = !pointerCoarse;
   const isMobile = useIsMobile();
   const isNative = useIsNativePlatform();
   const isElectronHost = isElectron();
@@ -1004,8 +1010,11 @@ export function ChatComposer({
                   <div className="flex shrink-0 items-center gap-2">
                     {isAssistantBusy ? (
                       <>
-                        {/* Desktop: always show stop. Mobile: show stop only when there is no sendable content. */}
-                        {(!isMobile || !canSendMessageContent) && (
+                        {/* Stop holds the slot wherever the keyboard can send
+                          the draft instead. Where it cannot, the send button
+                          takes the slot as soon as there is something to
+                          queue, since it is the only way to send it. */}
+                        {(keyboardCanSubmit || !canSendMessageContent) && (
                           <Button
                             variant="primary"
                             iconOnly={
@@ -1015,8 +1024,7 @@ export function ChatComposer({
                             aria-label="Stop generating"
                           />
                         )}
-                        {/* Mobile: show send instead of stop when content can be queued. */}
-                        {isMobile && canSendMessageContent && (
+                        {!keyboardCanSubmit && canSendMessageContent && (
                           <Button
                             variant="primary"
                             iconOnly={
