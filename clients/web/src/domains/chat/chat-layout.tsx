@@ -206,8 +206,17 @@ export function ChatLayout({
   // is gated on `isAssistantActive`, and a gated query is pending without
   // fetching, which would leave the sidebar under placeholders for as long as
   // the assistant took to come up (or forever, if it never did).
-  const { conversations, isLoading: isLoadingConversations } =
-    useConversationListQuery(assistantId, isAssistantActive);
+  //
+  // `isAssistantActive` is the assistant record: does this assistant exist and
+  // is it provisioned. Whether its pod is reachable is a separate question,
+  // answered inside the query hook itself, since these keys are shared with
+  // call sites that pass no gate of their own.
+  const {
+    conversations,
+    isLoading: isLoadingConversations,
+    isError: conversationsFailed,
+    refetch: retryConversations,
+  } = useConversationListQuery(assistantId, isAssistantActive);
   const { conversationGroups } = useConversationGroupsQuery(
     assistantId,
     isAssistantActive,
@@ -908,6 +917,8 @@ export function ChatLayout({
       onWidthChange={args.onWidthChange}
       conversations={conversations}
       isLoadingConversations={isLoadingConversations}
+      conversationsFailed={conversationsFailed}
+      onRetryConversations={retryConversations}
       conversationGroups={conversationGroups}
       activeConversationId={sidebarActiveConversationId}
       processingConversationIds={processingConversationIds}

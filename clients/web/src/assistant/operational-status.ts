@@ -196,3 +196,46 @@ export function isHealthyOperationalStatus(
 ): boolean {
   return status?.state === "active";
 }
+
+/**
+ * Whether data-plane requests to this assistant's daemon should be allowed to
+ * run: either the pod is serving, or its health is not knowable from here.
+ *
+ * The distinction the caller needs is not "healthy" but "not known to be
+ * down". Operational status is a platform-only signal: it is `null` for local
+ * and self-hosted assistants, for an org whose platform gate is not `"full"`,
+ * and for any 403/404, and it is `undefined` until the first poll resolves.
+ * Treating any of those as "not serving" would strand every assistant whose
+ * health lives somewhere else (`LocalAssistantHealth`, maintained by the
+ * lifecycle service's heartbeat probes) behind a signal that will never
+ * arrive. So absence opens the gate and only a present, non-`active` status
+ * closes it.
+ *
+ * `state: "waking"` is the case this exists for. The daemon 503s every request
+ * while the pod warms, and the assistant record stays `status: "active"`
+ * throughout, so nothing in {@link AssistantState} can express the difference.
+ */
+export function isServingOperationalStatus(
+  status: OperationalStatus | null | undefined,
+): boolean {
+  if (status === null || status === undefined) {
+    return true;
+  }
+  return isHealthyOperationalStatus(status);
+}
+
+/**
+ * Gate for queries against the assistant's daemon, true when the pod is
+ * serving or its health is unknowable. See
+ * {@link isServingOperationalStatus} for why absence opens the gate.
+ *
+ * Pass this into a query's `enabled` rather than checking it before a manual
+ * fetch. A query gated this way stops issuing requests into a wake window
+ * (where they 503 and burn the retry budget), and TanStack Query refetches it
+ * when the flag flips back to true, which is the edge that carries a sidebar
+ * out of a failed load once the pod comes up.
+ */
+export function useAssistantIsServing(assistantId: string | null): boolean {
+  const { data: status } = useAssistantOperationalStatus(assistantId);
+  return isServingOperationalStatus(status);
+}
