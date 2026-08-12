@@ -30,6 +30,7 @@ import {
   normalizeSlackDirectMessage,
   normalizeSlackGroupDirectMessage,
   normalizeSlackChannelMessage,
+  isIgnoredSlackMessageSubtype,
 } from "./message-normalizer.js";
 import {
   normalizeSlackMessageEdit,
@@ -1798,13 +1799,7 @@ export class SlackSocketModeClient {
     // filter would already drop these and replaying them risks loops.
     if (msg.user === botUserId) return false;
     if (msg.bot_id) return false;
-    if (
-      msg.subtype &&
-      msg.subtype !== "thread_broadcast" &&
-      msg.subtype !== "file_share"
-    ) {
-      return false;
-    }
+    if (isIgnoredSlackMessageSubtype(msg.subtype)) return false;
 
     const mentionsBot = msg.text?.includes(`<@${botUserId}>`) ?? false;
     // `conversations.history`/`replies` carry no `channel_type`, so classify
