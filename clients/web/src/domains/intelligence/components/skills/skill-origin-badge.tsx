@@ -20,10 +20,8 @@ function brandOrCatalogLabel(
 ): string {
   switch (origin) {
     case "vellum":
-      // eslint-disable-next-line local/no-untranslated-strings -- brand name
       return "Vellum";
     case "clawhub":
-      // eslint-disable-next-line local/no-untranslated-strings -- brand name
       return "Clawhub";
     case "skillssh":
       return "skills.sh";

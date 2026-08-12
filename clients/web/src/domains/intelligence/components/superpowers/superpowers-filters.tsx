@@ -56,10 +56,8 @@ type TranslateFilterLabel = (
 function filterLabel(value: SuperpowerFilter, t: TranslateFilterLabel): string {
   switch (value) {
     case "vellum":
-      // eslint-disable-next-line local/no-untranslated-strings -- brand name
       return "Vellum";
     case "clawhub":
-      // eslint-disable-next-line local/no-untranslated-strings -- brand name
       return "Clawhub";
     case "skillssh":
       return "skills.sh";
