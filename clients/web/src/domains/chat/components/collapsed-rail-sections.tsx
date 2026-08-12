@@ -37,7 +37,10 @@ function CollapsedRailSectionIcon({
   processingConversationIds?: Set<string>;
   attentionConversationIds?: Set<string>;
 }) {
-  const conversations = useSectionConversations(assistantId, section);
+  const { conversations, hasMore, loadMore } = useSectionConversations(
+    assistantId,
+    section,
+  );
   return (
     <CollapsedGroupIcon
       icon={sectionIcon(section)}
@@ -56,6 +59,7 @@ function CollapsedRailSectionIcon({
           conversations={conversations}
           onClosePopover={close}
           scrollParent={scrollParent}
+          onEndReached={hasMore ? loadMore : undefined}
         />
       )}
     </CollapsedGroupIcon>

@@ -257,9 +257,15 @@ export function AssistantSideMenu({
   // Pinned, Chats, each channel section, and each custom group — so the bulk
   // actions are identical everywhere and the only per-section difference is
   // the rename/delete pair that custom groups additionally own.
+  //
+  // The bulk actions act on `getAllRows()`, resolved at click time, never on
+  // the rendered rows: a section's cache is a window (LUM-2444), and both
+  // bulk endpoints take explicit id lists, so acting on the window would
+  // silently exclude every row the user hadn't scrolled to.
   const buildGroupMenu = (
     groupName: string,
     conversations: Conversation[],
+    getAllRows: () => Promise<Conversation[]>,
     options?: {
       onRename?: () => void;
       onDelete?: () => void;
@@ -268,6 +274,13 @@ export function AssistantSideMenu({
       onMoveDown?: () => void;
       onToggleGroupByChannel?: () => void;
       isGroupedByChannel?: boolean;
+      /**
+       * The section's server-counted unread (the sections index). Window
+       * rows can't answer "any unread?" once they window - an unread row
+       * past the window is exactly what they miss - so the count decides
+       * when it exists and the row scan only covers the pre-index fallback.
+       */
+      unreadCount?: number;
     },
   ): GroupMenuItemsProps => ({
     onMoveUp: options?.onMoveUp,
@@ -275,13 +288,21 @@ export function AssistantSideMenu({
     onToggleGroupByChannel: options?.onToggleGroupByChannel,
     isGroupedByChannel: options?.isGroupedByChannel,
     onMarkAllRead: onMarkAllReadInGroup
-      ? () => onMarkAllReadInGroup(conversations)
+      ? () => {
+          void getAllRows().then(onMarkAllReadInGroup);
+        }
       : undefined,
     hasUnreadConversations: onMarkAllReadInGroup
-      ? conversations.some((c) => c.hasUnseenLatestAssistantMessage)
+      ? options?.unreadCount !== undefined
+        ? options.unreadCount > 0
+        : conversations.some((c) => c.hasUnseenLatestAssistantMessage)
       : false,
     onArchiveAll: onArchiveAllInGroup
-      ? () => onArchiveAllInGroup(groupName, conversations)
+      ? () => {
+          void getAllRows().then((rows) =>
+            onArchiveAllInGroup(groupName, rows),
+          );
+        }
       : undefined,
     hasConversations: conversations.length > 0,
     onRename: options?.onRename,
@@ -344,8 +365,10 @@ export function AssistantSideMenu({
   const sectionMenu = (
     section: SidebarSection,
     conversations: Conversation[],
+    getAllRows: () => Promise<Conversation[]>,
   ): GroupMenuItemsProps => {
-    const moveOptions = {
+    const sharedOptions = {
+      unreadCount: section.unread,
       onMoveUp: sidebar.canMoveSection(section.key, -1)
         ? () => sidebar.onMoveSection(section.key, -1)
         : undefined,
@@ -358,8 +381,8 @@ export function AssistantSideMenu({
        where a group offers rename and delete, these offer the switch. */
     const isGoverned = section.type === "recents" || section.type === "channel";
     if (section.type !== "group") {
-      return buildGroupMenu(section.label, conversations, {
-        ...moveOptions,
+      return buildGroupMenu(section.label, conversations, getAllRows, {
+        ...sharedOptions,
         ...(isGoverned
           ? {
               onToggleGroupByChannel: () =>
@@ -371,8 +394,8 @@ export function AssistantSideMenu({
           : {}),
       });
     }
-    return buildGroupMenu(section.label, conversations, {
-      ...moveOptions,
+    return buildGroupMenu(section.label, conversations, getAllRows, {
+      ...sharedOptions,
       onRename: onRenameGroup
         ? () => onRenameGroup(section.group.id)
         : undefined,
@@ -388,7 +411,9 @@ export function AssistantSideMenu({
       key={section.key}
       section={section}
       assistantId={assistantId ?? null}
-      groupMenu={(conversations) => sectionMenu(section, conversations)}
+      groupMenu={(conversations, getAllRows) =>
+        sectionMenu(section, conversations, getAllRows)
+      }
       drag={sectionDragFor(section)}
       collapsedIndicator={collapsedActivityDot}
       // Only the bottom-most section ever claims the sidebar's leftover

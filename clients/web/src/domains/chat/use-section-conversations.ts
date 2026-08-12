@@ -18,7 +18,9 @@
  * @see {@link https://tanstack.com/query/latest/docs/framework/react/guides/query-keys}
  */
 
-import { useMemo } from "react";
+import { useCallback, useMemo } from "react";
+
+import { useQueryClient } from "@tanstack/react-query";
 
 import { useAssistantLifecycleStore } from "@/assistant/lifecycle-store";
 import type { SidebarSection } from "@/domains/chat/use-sidebar-state";
@@ -26,11 +28,16 @@ import { useSectionConversationListQuery } from "@/hooks/conversation-queries";
 import { useSupportsGroupFilter } from "@/lib/backwards-compat/use-supports-group-filter";
 import { useSupportsNativeOriginFilter } from "@/lib/backwards-compat/use-supports-native-origin-filter";
 import type { Conversation } from "@/types/conversation-types";
+import { recordDiagnostic } from "@/lib/diagnostics";
+import { loadMoreSectionConversations } from "@/utils/conversation-cache-mutations";
 import {
   NATIVE_ORIGIN_CHANNEL,
   ORIGIN_CHANNELS,
   SYSTEM_ALL_GROUP_ID,
   SYSTEM_PINNED_GROUP_ID,
+  drainSectionConversations,
+  sectionConversationsQueryKey,
+  type ConversationListPage,
   type OriginChannel,
   type SectionConversationFilter,
 } from "@/utils/conversation-list-fetchers";
@@ -153,10 +160,36 @@ function isOriginChannel(
  * The server's order is rendered as-is. Every section is recency-ordered now
  * that nothing writes `display_order` (LUM-3108).
  */
+export interface SectionConversationsResult {
+  conversations: Conversation[];
+  /**
+   * Whether the server holds rows past the loaded window (LUM-2444).
+   * `false` whenever the section is on its derived fallback rows, which
+   * come from the drained foreground list and have no pages to load.
+   */
+  hasMore: boolean;
+  /**
+   * Extend the window by one page. Safe to call redundantly: the fetch is
+   * guarded per section, and a call against a complete or unfetched cache
+   * is a no-op. Failures are recorded, not thrown - the sentinel that
+   * drives this retries on the next scroll intersection.
+   */
+  loadMore: () => void;
+  /**
+   * Every member of this section, drained at call time, for the bulk
+   * actions ("archive all", "mark all read") whose completeness must not
+   * shrink to the loaded window: both send explicit id lists, so what this
+   * returns is exactly what they cover. Resolves to the rendered rows
+   * whenever they are already complete.
+   */
+  getAllRows: () => Promise<Conversation[]>;
+}
+
 export function useSectionConversations(
   assistantId: string | null,
   section: SidebarSection,
-): Conversation[] {
+): SectionConversationsResult {
+  const queryClient = useQueryClient();
   const isAssistantActive = useAssistantLifecycleStore(
     (s) => s.assistantState.kind === "active",
   );
@@ -174,11 +207,42 @@ export function useSectionConversations(
   );
 
   const enabled = filter !== null && isAssistantActive && supportsGroupFilter;
-  const { conversations, hasData } = useSectionConversationListQuery(
+  const { conversations, hasData, hasMore } = useSectionConversationListQuery(
     assistantId,
     filter ?? NO_FILTER,
     enabled,
   );
+  const live = enabled && hasData;
+
+  const loadMore = useCallback(() => {
+    if (!assistantId || filter === null) {
+      return;
+    }
+    loadMoreSectionConversations(queryClient, assistantId, filter).catch(
+      (error: unknown) => {
+        recordDiagnostic("conversation_section_load_more_error", {
+          assistantId,
+          message: error instanceof Error ? error.message : String(error),
+        });
+      },
+    );
+  }, [assistantId, filter, queryClient]);
+
+  const sectionAll = section.all;
+  const getAllRows = useCallback(async (): Promise<Conversation[]> => {
+    if (!assistantId || filter === null || !live) {
+      /* Derived rows come from the drained foreground list; they are the
+         complete membership on this path. */
+      return sectionAll;
+    }
+    const page = queryClient.getQueryData<ConversationListPage>(
+      sectionConversationsQueryKey(assistantId, filter),
+    );
+    if (page && !page.hasMore) {
+      return page.conversations;
+    }
+    return drainSectionConversations(assistantId, filter);
+  }, [assistantId, filter, live, queryClient, sectionAll]);
 
   /* `hasData`, not `!isPending`, and not `!isError` either.
 
@@ -196,5 +260,10 @@ export function useSectionConversations(
      "Has something to show" is the question, and it is false in exactly the
      three cases that need the fallback: never fetched, still pending, or
      failed before ever succeeding. */
-  return enabled && hasData ? conversations : section.all;
+  return {
+    conversations: live ? conversations : sectionAll,
+    hasMore: live ? hasMore : false,
+    loadMore,
+    getAllRows,
+  };
 }

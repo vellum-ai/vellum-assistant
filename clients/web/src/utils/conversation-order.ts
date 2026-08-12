@@ -12,6 +12,7 @@
  */
 
 import type { Conversation } from "@/types/conversation-types";
+import type { ConversationListPage } from "@/utils/conversation-list-fetchers";
 
 /** Sort conversations descending by a timestamp field (newest first). */
 export function byTimestampDesc(
@@ -63,4 +64,41 @@ export function insertByRecency(
     conversation,
     ...conversations.slice(index),
   ];
+}
+
+/**
+ * `page` with `conversation` inserted at its recency position, or `page`
+ * unchanged (same reference) when the row belongs past the loaded window.
+ *
+ * A cache with `hasMore` is a prefix of the true list: rows exist on the
+ * server between its last row and the end. A row that sorts strictly below
+ * that last row belongs somewhere in the unloaded remainder, so appending it
+ * would render it at the wrong position and hide the real page boundary from
+ * the load-more path (the appended row would sit where the next fetched page
+ * starts). Dropping it is correct because membership is not lost: the row is
+ * in this section server-side and scrolls into view through load-more.
+ *
+ * The empty window inserts even under `hasMore`. It has no last row to
+ * compare against, and it only arises transiently, when optimistic removals
+ * empty a window whose deeper pages were never loaded; showing the row
+ * immediately beats showing nothing, and the next first-page merge re-seats
+ * it.
+ */
+export function insertIntoWindow(
+  page: ConversationListPage,
+  conversation: Conversation,
+): ConversationListPage {
+  const { conversations, hasMore } = page;
+  const last = conversations[conversations.length - 1];
+  if (
+    hasMore &&
+    last !== undefined &&
+    compareByRecency(conversation, last) > 0
+  ) {
+    return page;
+  }
+  return {
+    conversations: insertByRecency(conversations, conversation),
+    hasMore,
+  };
 }

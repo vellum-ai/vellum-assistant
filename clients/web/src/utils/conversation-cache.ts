@@ -1,9 +1,13 @@
 /**
  * Low-level read/write helpers over the conversation query caches.
  *
- * Conversations are split across multiple flat `Conversation[]` caches,
- * each identified by a query key under the shared prefix
- * `["conversation-list", assistantId, ...discriminator]`:
+ * Conversations are split across multiple `ConversationListPage` caches
+ * (`{conversations, hasMore}`), each identified by a query key under the
+ * shared prefix `["conversation-list", assistantId, ...discriminator]`.
+ * `hasMore` marks a cache as a *window*, a prefix of the true list whose
+ * older rows load on demand; a drained list is a page with nothing beyond
+ * it. One shape for both is what keeps every helper here shape-blind:
+ * updaters operate on the rows and the window flag rides along.
  *
  * - **Foreground** (`"foreground"`) — the primary list that gates the
  *   initial chat render. Always fetched.
@@ -49,6 +53,15 @@ import {
   reconcileSectionMembership,
 } from "@/utils/section-membership";
 import type { Conversation } from "@/types/conversation-types";
+import type { ConversationListPage } from "@/utils/conversation-list-fetchers";
+
+/**
+ * The shape a list cache holds before anything populates it. `hasMore:
+ * false` because a cache minted by a local write (a draft, a new
+ * conversation) holds everything the client knows; the first real fetch
+ * replaces it wholesale.
+ */
+const EMPTY_PAGE: ConversationListPage = { conversations: [], hasMore: false };
 
 // ---------------------------------------------------------------------------
 // Query lifecycle helpers — cancel, snapshot, restore, invalidate
@@ -92,7 +105,7 @@ export async function cancelConversationQueries(
  * rollback in `onError` after a failed optimistic mutation.
  */
 export type ConversationCacheSnapshot = Array<
-  [queryKey: readonly unknown[], data: Conversation[] | undefined]
+  [queryKey: readonly unknown[], data: ConversationListPage | undefined]
 >;
 
 /**
@@ -105,7 +118,7 @@ export function snapshotConversationCaches(
   assistantId: string,
 ): ConversationCacheSnapshot {
   return queryClient
-    .getQueriesData<Conversation[]>({
+    .getQueriesData<ConversationListPage>({
       queryKey: conversationListPrefix(assistantId),
     })
     .map(([key, data]) => [key, data]);
@@ -159,13 +172,13 @@ function updateCache(
   queryKey: readonly unknown[],
   updater: ConversationUpdater,
 ): void {
-  queryClient.setQueryData<Conversation[]>(queryKey, (prev) => {
-    const list = prev ?? [];
-    const next = updater(list);
-    if (next === list) {
+  queryClient.setQueryData<ConversationListPage>(queryKey, (prev) => {
+    const page = prev ?? EMPTY_PAGE;
+    const next = updater(page.conversations);
+    if (next === page.conversations) {
       return prev;
     }
-    return next;
+    return { conversations: next, hasMore: page.hasMore };
   });
 }
 
@@ -242,16 +255,19 @@ export function updateAllConversationCaches(
   if (!assistantId) {
     return;
   }
-  const entries = queryClient.getQueriesData<Conversation[]>({
+  const entries = queryClient.getQueriesData<ConversationListPage>({
     queryKey: conversationListPrefix(assistantId),
   });
   for (const [queryKey, data] of entries) {
     if (!data) {
       continue;
     }
-    const next = updater(data);
-    if (next !== data) {
-      queryClient.setQueryData<Conversation[]>(queryKey, next);
+    const next = updater(data.conversations);
+    if (next !== data.conversations) {
+      queryClient.setQueryData<ConversationListPage>(queryKey, {
+        conversations: next,
+        hasMore: data.hasMore,
+      });
     }
   }
 }
@@ -270,11 +286,11 @@ export function findConversation(
   if (!assistantId) {
     return undefined;
   }
-  const entries = queryClient.getQueriesData<Conversation[]>({
+  const entries = queryClient.getQueriesData<ConversationListPage>({
     queryKey: conversationListPrefix(assistantId),
   });
   for (const [, data] of entries) {
-    const match = data?.find((c) => c.conversationId === key);
+    const match = data?.conversations.find((c) => c.conversationId === key);
     if (match) {
       return match;
     }
@@ -320,10 +336,10 @@ export function getConversations(
   if (!assistantId) {
     return [];
   }
-  const entries = queryClient.getQueriesData<Conversation[]>({
+  const entries = queryClient.getQueriesData<ConversationListPage>({
     queryKey: conversationListPrefix(assistantId),
   });
-  const lists = entries.map(([, data]) => data ?? []);
+  const lists = entries.map(([, data]) => data?.conversations ?? []);
   return mergeConversationLists(...lists);
 }
 

@@ -93,6 +93,10 @@ mock.module(
       // section back to its derived rows and pass these tests for the wrong
       // reason: green because nothing is filtered, not because it is.
       hasData: true,
+      // A complete list: these tests exercise section rendering, not the
+      // load-more path, and a stub window would mount sentinels under every
+      // section.
+      hasMore: false,
     }),
   }),
 );

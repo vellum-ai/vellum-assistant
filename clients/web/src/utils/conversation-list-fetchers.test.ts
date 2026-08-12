@@ -34,7 +34,9 @@ const {
   listBackgroundConversationsFirstPage,
   listConversations,
   listConversationsFirstPage,
-  listSectionConversations,
+  drainSectionConversations,
+  listSectionConversationsFirstPage,
+  listSectionConversationsPage,
   listScheduledConversations,
   listScheduledConversationsFirstPage,
 } = await import("@/utils/conversation-list-fetchers");
@@ -306,7 +308,7 @@ describe("conversation list drain diagnostics", () => {
 
     stubPages([{ ids: ["c-0"], hasMore: false, contentLength: "10" }]);
     const channel = await diagnosticsDuring(() =>
-      listSectionConversations(ASSISTANT_ID, { originChannel: "slack" }),
+      drainSectionConversations(ASSISTANT_ID, { originChannel: "slack" }),
     );
 
     expect(channel.events[0]?.details).toMatchObject({
@@ -524,7 +526,7 @@ describe("conversation list drain telemetry", () => {
   test("an origin-channel drain is labeled origin_channel, not foreground", async () => {
     stubPages([{ ids: ["c-0"], hasMore: false, contentLength: "10" }]);
 
-    await listSectionConversations(ASSISTANT_ID, { originChannel: "slack" });
+    await drainSectionConversations(ASSISTANT_ID, { originChannel: "slack" });
 
     const emits = drainEmits();
     expect(emits).toHaveLength(1);
@@ -616,7 +618,7 @@ describe("section list filters", () => {
       { ids: ["c-1"], hasMore: false },
     ]);
 
-    await listSectionConversations(ASSISTANT_ID, {
+    await drainSectionConversations(ASSISTANT_ID, {
       groupId: "system:pinned",
     });
 
@@ -632,7 +634,7 @@ describe("section list filters", () => {
     // custom group would render in that group AND in its channel.
     const { queries } = stubPages([{ ids: ["c-0"], hasMore: false }]);
 
-    await listSectionConversations(ASSISTANT_ID, {
+    await drainSectionConversations(ASSISTANT_ID, {
       groupId: "system:all",
       originChannel: "slack",
     });
@@ -646,15 +648,48 @@ describe("section list filters", () => {
   test("omits the filters it was not given rather than sending empties", async () => {
     const { queries } = stubPages([{ ids: ["c-0"], hasMore: false }]);
 
-    await listSectionConversations(ASSISTANT_ID, { groupId: "grp-a" });
+    await drainSectionConversations(ASSISTANT_ID, { groupId: "grp-a" });
 
     expect(queries[0]).not.toHaveProperty("originChannel");
+  });
+
+  test("the first-page fetch carries the filter at offset 0", async () => {
+    // The windowed queryFn (LUM-2444): one request, same filter contract as
+    // the drain it replaced, or the section renders a superset.
+    const { queries } = stubPages([{ ids: ["c-0"], hasMore: true }]);
+
+    const page = await listSectionConversationsFirstPage(ASSISTANT_ID, {
+      groupId: "system:all",
+      originChannel: "slack",
+    });
+
+    expect(queries).toHaveLength(1);
+    expect(queries[0]).toMatchObject({
+      offset: 0,
+      groupId: "system:all",
+      originChannel: "slack",
+    });
+    expect(page.hasMore).toBe(true);
+  });
+
+  test("a load-more page carries the filter and its offset", async () => {
+    const { queries } = stubPages([{ ids: ["c-50"], hasMore: false }]);
+
+    const page = await listSectionConversationsPage(
+      ASSISTANT_ID,
+      { groupId: "grp-a" },
+      50,
+    );
+
+    expect(queries).toHaveLength(1);
+    expect(queries[0]).toMatchObject({ offset: 50, groupId: "grp-a" });
+    expect(page.hasMore).toBe(false);
   });
 
   test("labels a group-only drain 'section', keeping it distinct from a channel", async () => {
     stubPages([{ ids: ["c-0"], hasMore: false, contentLength: "10" }]);
     const group = await diagnosticsDuring(() =>
-      listSectionConversations(ASSISTANT_ID, { groupId: "system:pinned" }),
+      drainSectionConversations(ASSISTANT_ID, { groupId: "system:pinned" }),
     );
 
     expect(group.events[0]?.details).toMatchObject({
@@ -666,7 +701,7 @@ describe("section list filters", () => {
     // so the bounded per-channel budget stays readable.
     stubPages([{ ids: ["c-0"], hasMore: false, contentLength: "10" }]);
     const channel = await diagnosticsDuring(() =>
-      listSectionConversations(ASSISTANT_ID, {
+      drainSectionConversations(ASSISTANT_ID, {
         groupId: "system:all",
         originChannel: "slack",
       }),
