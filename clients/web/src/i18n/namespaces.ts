@@ -50,6 +50,7 @@ export const NAMESPACES = [
   "home",
   "contacts",
   "onboarding",
+  "intelligence",
 ] as const;
 
 export type Namespace = (typeof NAMESPACES)[number];

@@ -11,6 +11,7 @@ import { CreateMemoryModal } from "@/domains/intelligence/components/concept-gra
 import { memoryGraphOptions } from "@/domains/intelligence/memory-graph/get-memory-graph";
 import { memoryStatsOptions } from "@/domains/intelligence/memory-graph/get-memory-stats";
 import { emitMemoryEvent } from "@/domains/intelligence/memory-telemetry";
+import { useTranslation } from "@/i18n";
 import { Button } from "@vellumai/design-library";
 
 interface MemoryPageProps {
@@ -27,6 +28,7 @@ interface MemoryPageProps {
  * The skills constellation stays on the Identity tab.
  */
 export function MemoryPage({ onOpenThread }: MemoryPageProps) {
+  const { t } = useTranslation("intelligence");
   const assistantId = useActiveAssistantId();
   const [createOpen, setCreateOpen] = useState(false);
   // Imperative handle into the graph view: after a create, fly the map to the
@@ -78,7 +80,7 @@ export function MemoryPage({ onOpenThread }: MemoryPageProps) {
               leftIcon={<Plus />}
               onClick={() => setCreateOpen(true)}
             >
-              Create memory
+              {t("memoryPage.createMemory")}
             </Button>
           ) : undefined
         }

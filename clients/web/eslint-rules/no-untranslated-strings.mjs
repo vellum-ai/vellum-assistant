@@ -54,6 +54,9 @@ const STRUCTURAL_PROPS = new Set([
   "fill",
   "fontFamily",
   "points",
+  // SVG fit mode (`xMidYMid meet`) has spaces + capitals, so it reads as
+  // copy to `looksLikeCopy` without this.
+  "preserveAspectRatio",
   "stroke",
   "transform",
   "viewBox",

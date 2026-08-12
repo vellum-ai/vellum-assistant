@@ -1,3 +1,5 @@
+import { t } from "@/i18n";
+
 import type { ConceptNodeKind } from "./types";
 
 /** Node fill/stroke color per taxonomy kind. Values are the resolved hex of
@@ -48,13 +50,20 @@ export const CLUSTER_PALETTE: string[] = [
   "#F5C94E", // amber-500 — gold
 ];
 
-export const NODE_KIND_LABELS: Record<ConceptNodeKind, string> = {
-  concept: "Concept",
-  skill: "Skill",
-  capability: "Capability",
-  pending: "Pending",
-  other: "Other",
+const NODE_KIND_LABEL_KEY: Record<
+  ConceptNodeKind,
+  `conceptGraphConstants.nodeKind.${ConceptNodeKind}`
+> = {
+  concept: "conceptGraphConstants.nodeKind.concept",
+  skill: "conceptGraphConstants.nodeKind.skill",
+  capability: "conceptGraphConstants.nodeKind.capability",
+  pending: "conceptGraphConstants.nodeKind.pending",
+  other: "conceptGraphConstants.nodeKind.other",
 };
+
+export function nodeKindLabel(kind: ConceptNodeKind): string {
+  return t(NODE_KIND_LABEL_KEY[kind], { ns: "intelligence" });
+}
 
 /** Authored/structural links use a neutral theme token; learned associations
  * use Vellum's warm accent (`--system-mid-strong` / amber-600) + dashes so the

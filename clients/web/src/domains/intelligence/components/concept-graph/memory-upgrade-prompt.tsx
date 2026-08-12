@@ -19,6 +19,7 @@ import { memoryStatsOptions } from "@/domains/intelligence/memory-graph/get-memo
 import { invalidateMemoryQueries } from "@/domains/intelligence/memory-graph/invalidate-memory-queries";
 import { emitMemoryEvent } from "@/domains/intelligence/memory-telemetry";
 import { useAssistantCapability } from "@/hooks/use-assistant-capability";
+import { useTranslation } from "@/i18n";
 import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
 import { routes } from "@/utils/routes";
 import { Button } from "@vellumai/design-library";
@@ -26,7 +27,7 @@ import { Button } from "@vellumai/design-library";
 import { CenteredMessage } from "./centered-message";
 import {
   describeMemoryUnavailable,
-  MEMORY_STATUS_ERROR_COPY,
+  memoryStatusErrorCopy,
 } from "./memory-unavailable-copy";
 
 export interface MemoryUpgradePromptProps {
@@ -41,6 +42,7 @@ export function MemoryUpgradePrompt({
   assistantId,
   onOpenThread,
 }: MemoryUpgradePromptProps) {
+  const { t } = useTranslation("intelligence");
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   // Deduped with the Memory page's own stats query by React Query, so this
@@ -82,7 +84,7 @@ export function MemoryUpgradePrompt({
   // us", the other is "we couldn't ask". Only the first justifies telling
   // someone to update their assistant.
   const copy = stats.isError
-    ? MEMORY_STATUS_ERROR_COPY
+    ? memoryStatusErrorCopy()
     : describeMemoryUnavailable(tier);
 
   // Bound to a const so it narrows inside the click handlers.
@@ -102,7 +104,7 @@ export function MemoryUpgradePrompt({
           onOpenThread(seed);
         }}
       >
-        Upgrade memory
+        {t("memoryUpgradePrompt.upgradeMemory")}
       </Button>
     );
   } else if (copy.action === "retry") {
@@ -115,7 +117,7 @@ export function MemoryUpgradePrompt({
           void stats.refetch();
         }}
       >
-        Try again
+        {t("memoryUpgradePrompt.tryAgain")}
       </Button>
     );
   } else if (copy.action === "settings" && canOpenMemorySettings) {
@@ -126,7 +128,7 @@ export function MemoryUpgradePrompt({
         leftIcon={<Settings />}
         onClick={() => navigate(`${routes.settings.developer}?tab=memory`)}
       >
-        Memory settings
+        {t("memoryUpgradePrompt.memorySettings")}
       </Button>
     );
   } else if (copy.action === "settings" && onOpenThread && seed) {
@@ -142,7 +144,7 @@ export function MemoryUpgradePrompt({
           onOpenThread(seed);
         }}
       >
-        Turn memory on
+        {t("memoryUpgradePrompt.turnMemoryOn")}
       </Button>
     );
   }

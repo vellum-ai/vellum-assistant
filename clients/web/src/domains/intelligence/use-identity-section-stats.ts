@@ -21,6 +21,7 @@ import {
   skillsGetOptions,
   workspaceTreeGetOptions,
 } from "@/generated/daemon/@tanstack/react-query.gen";
+import { useTranslation } from "@/i18n";
 import { installedPluginsQueryOptions } from "@/lib/installed-plugins-query";
 import { fetchSchedules } from "@/utils/schedules";
 
@@ -51,10 +52,6 @@ const STATS_STALE_MS = 60_000;
 
 const SCHEDULE_PREVIEW_COUNT = 3;
 
-function pluralLabel(n: number, singular: string, pluralForm: string): string {
-  return n === 1 ? singular : pluralForm;
-}
-
 interface UseIdentitySectionStatsOptions {
   /** Skip the plugin fetch on assistants without the plugin routes. */
   supportsPlugins: boolean;
@@ -69,6 +66,7 @@ export function useIdentitySectionStats(
   assistantId: string,
   { supportsPlugins, isNativeMobile }: UseIdentitySectionStatsOptions,
 ): Record<string, IdentitySectionStat | undefined> {
+  const { t } = useTranslation("intelligence");
   const path = { assistant_id: assistantId };
   const common = { staleTime: STATS_STALE_MS, retry: false, enabled: true };
 
@@ -163,10 +161,12 @@ export function useIdentitySectionStats(
       skills.data !== undefined
         ? {
             text: [
-              `${skills.data} ${pluralLabel(skills.data, "skill", "skills")}`,
+              t("useIdentitySectionStats.skillCount", { count: skills.data }),
               ...(plugins.data !== undefined
                 ? [
-                    `${plugins.data} ${pluralLabel(plugins.data, "plugin", "plugins")}`,
+                    t("useIdentitySectionStats.pluginCount", {
+                      count: plugins.data,
+                    }),
                   ]
                 : []),
             ].join(" · "),
@@ -178,10 +178,12 @@ export function useIdentitySectionStats(
       apps.data !== undefined
         ? {
             text: [
-              `${apps.data} ${pluralLabel(apps.data, "app", "apps")}`,
+              t("useIdentitySectionStats.appCount", { count: apps.data }),
               ...(documents.data !== undefined
                 ? [
-                    `${documents.data} ${pluralLabel(documents.data, "doc", "docs")}`,
+                    t("useIdentitySectionStats.docCount", {
+                      count: documents.data,
+                    }),
                   ]
                 : []),
             ].join(" · "),
@@ -191,27 +193,38 @@ export function useIdentitySectionStats(
       workspace.data !== undefined
         ? {
             value: workspace.data,
-            label: pluralLabel(workspace.data, "item", "items"),
+            label: t("useIdentitySectionStats.itemLabel", {
+              count: workspace.data,
+            }),
           }
         : undefined,
     contacts:
       contacts.data !== undefined
         ? {
             value: contacts.data,
-            label: pluralLabel(contacts.data, "person", "people"),
+            label: t("useIdentitySectionStats.personLabel", {
+              count: contacts.data,
+            }),
           }
         : undefined,
     channels:
       channels.data !== undefined
-        ? { value: channels.data, label: "connected" }
+        ? {
+            value: channels.data,
+            label: t("useIdentitySectionStats.connectedLabel", {
+              count: channels.data,
+            }),
+          }
         : undefined,
     schedules:
       schedules.data !== undefined
         ? schedules.data.count === 0
-          ? { text: "Nothing scheduled yet" }
+          ? { text: t("useIdentitySectionStats.noSchedulesText") }
           : {
               value: schedules.data.count,
-              label: "active",
+              label: t("useIdentitySectionStats.activeLabel", {
+                count: schedules.data.count,
+              }),
               schedules: {
                 items: schedules.data.items,
                 more: schedules.data.count - schedules.data.items.length,

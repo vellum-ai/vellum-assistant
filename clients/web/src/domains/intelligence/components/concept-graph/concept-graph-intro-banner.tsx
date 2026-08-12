@@ -1,5 +1,6 @@
 import { Sparkles, X } from "lucide-react";
 
+import { useTranslation } from "@/i18n";
 import { Button } from "@vellumai/design-library";
 
 interface ConceptGraphIntroBannerProps {
@@ -18,6 +19,7 @@ interface ConceptGraphIntroBannerProps {
 export function ConceptGraphIntroBanner({
   onDismiss,
 }: ConceptGraphIntroBannerProps) {
+  const { t } = useTranslation("intelligence");
   return (
     <div
       data-graph-control
@@ -40,22 +42,20 @@ export function ConceptGraphIntroBanner({
           className="text-body-medium-emphasised"
           style={{ color: "var(--content-default)" }}
         >
-          This is your assistant's mind
+          {t("conceptGraphIntroBanner.title")}
         </p>
         <p
           className="mt-0.5 text-body-small-default"
           style={{ color: "var(--content-tertiary)" }}
         >
-          Every idea it learns — and the links it draws between them — shows up
-          here. The map grows and rearranges itself as you talk, so the more you
-          share, the richer it gets.
+          {t("conceptGraphIntroBanner.description")}
         </p>
       </div>
       <Button
         variant="ghost"
         iconOnly={<X aria-hidden />}
         onClick={onDismiss}
-        aria-label="Dismiss"
+        aria-label={t("conceptGraphIntroBanner.dismissAriaLabel")}
         tintColor="var(--content-tertiary)"
       />
     </div>

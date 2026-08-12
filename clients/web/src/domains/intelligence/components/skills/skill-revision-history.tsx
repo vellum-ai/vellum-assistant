@@ -20,6 +20,7 @@ import {
   type DiffRow,
 } from "@/domains/intelligence/skills/parse-unified-diff";
 import { useSkillHistory, type SkillRevision } from "@/hooks/use-skill-history";
+import { useTranslation } from "@/i18n";
 import { formatFullLocalDate, formatRelativeDate } from "@/utils/format-date";
 import { Collapsible } from "@vellumai/design-library";
 
@@ -30,6 +31,7 @@ export function SkillRevisionHistory({
   assistantId: string;
   skillId: string;
 }) {
+  const { t } = useTranslation("intelligence");
   const { revisions, truncatedByCompaction, isLoading, isError } =
     useSkillHistory(assistantId, skillId);
 
@@ -38,7 +40,7 @@ export function SkillRevisionHistory({
   }
 
   if (isError) {
-    return <EmptyNote>Couldn&apos;t load revision history.</EmptyNote>;
+    return <EmptyNote>{t("skillRevisionHistory.loadError")}</EmptyNote>;
   }
 
   return (
@@ -63,8 +65,9 @@ export function SkillRevisionList({
   revisions: SkillRevision[];
   truncatedByCompaction: boolean;
 }) {
+  const { t } = useTranslation("intelligence");
   if (revisions.length === 0) {
-    return <EmptyNote>No changes recorded yet.</EmptyNote>;
+    return <EmptyNote>{t("skillRevisionHistory.noChanges")}</EmptyNote>;
   }
 
   return (
@@ -77,8 +80,7 @@ export function SkillRevisionList({
           className="px-1 pt-1 text-body-small-lighter"
           style={{ color: "var(--content-tertiary)" }}
         >
-          Showing recent changes. Older history is periodically compacted, so
-          this may not reach back to when the skill was created.
+          {t("skillRevisionHistory.truncatedNotice")}
         </p>
       )}
     </Collapsible.Root>
@@ -103,6 +105,7 @@ function RevisionRow({
   revision: SkillRevision;
   skillId: string;
 }) {
+  const { t } = useTranslation("intelligence");
   // Parsing walks the whole diff, and the collapsed row needs it only for the
   // +/- counts, so keep it off the render path for a list that may hold 20.
   const parsed = useMemo(
@@ -169,7 +172,7 @@ function RevisionRow({
             className="px-3 pb-3 text-body-small-lighter"
             style={{ color: "var(--content-tertiary)" }}
           >
-            No preview available for this change.
+            {t("skillRevisionHistory.noPreviewForChange")}
           </p>
         ) : (
           parsed.files.map((file) => (
