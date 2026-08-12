@@ -1245,6 +1245,22 @@ describe("inbound delivery", () => {
     expect(res.status).toBe(200);
   });
 
+  it("forwards a delivery that names a message but no sender", async () => {
+    // The shape an echo of our own reply takes when the vendor omits the
+    // sender, and the shape many receipts take. There is nobody to admit, so
+    // answering 4xx would tell the vendor its ordinary traffic is malformed
+    // and invite it to disable the endpoint.
+    const { handled, forwards, deps } = harness();
+
+    const res = await deliver(deps, {
+      message: { externalMessageId: "msg-1", content: "delivered" },
+    });
+
+    expect(res.status).toBe(200);
+    expect(handled).toHaveLength(0);
+    expect(forwards).toHaveLength(1);
+  });
+
   it("refuses a delivery the declaration matched only partly", async () => {
     // Half a message means the declaration and the payload disagree. Passing
     // it on would hand the plugin a sender the gateway never checked.
