@@ -29,6 +29,7 @@ module.exports = {
   extraResources: [
     { from: "resources/web-dist", to: "web-dist" },
     { from: "resources/tray.ico", to: "tray.ico" },
+    { from: "resources/cli-runtime", to: "cli-runtime" },
   ],
   fileAssociations: [
     {

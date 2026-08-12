@@ -12,6 +12,7 @@ import { resolveLocalConfigFromEnv } from "@vellumai/local-mode";
 import { VELLUMAPP_PROTOCOL } from "@vellumai/electron-desktop/bundle-platform";
 
 import { APP_PROTOCOL } from "./app-config";
+import { provisionCliForCurrentUser } from "./cli-path-flow";
 import { installMainFeatures } from "./features";
 import { handleSync } from "./ipc.client";
 import log from "./logger";
@@ -51,14 +52,14 @@ const isDev = !app.isPackaged;
 // dev/staging/production installs can run side-by-side; production keeps the
 // original path for backwards compatibility.
 declare const __VELLUM_ENVIRONMENT__: string;
+const releaseChannel =
+  typeof __VELLUM_ENVIRONMENT__ === "string"
+    ? __VELLUM_ENVIRONMENT__
+    : "production";
 if (app.isPackaged) {
-  const env =
-    typeof __VELLUM_ENVIRONMENT__ === "string"
-      ? __VELLUM_ENVIRONMENT__
-      : "production";
-  if (env !== "production") {
+  if (releaseChannel !== "production") {
     const base = app.getPath("userData");
-    app.setPath("userData", `${base}-${env}`);
+    app.setPath("userData", `${base}-${releaseChannel}`);
   }
 }
 
@@ -178,6 +179,24 @@ app
   .then(() => {
     if (!isDev) {
       registerAppProtocol();
+    }
+    if (app.isPackaged && process.platform === "win32") {
+      try {
+        const result = provisionCliForCurrentUser({
+          userDataDir: app.getPath("userData"),
+          resourcesDir: process.resourcesPath,
+          localAppData:
+            process.env.LOCALAPPDATA ??
+            path.join(app.getPath("home"), "AppData", "Local"),
+          releaseChannel,
+          version: app.getVersion(),
+        });
+        if (["foreign", "shadowed"].includes(result.launcherState)) {
+          log.warn(`[cli] Windows launcher is ${result.launcherState}`);
+        }
+      } catch (error) {
+        log.error("[cli] Failed to provision the Windows CLI:", error);
+      }
     }
     installMainFeatures();
   })

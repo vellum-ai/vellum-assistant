@@ -30,6 +30,26 @@ it serves a bundled `resources/web-dist` over a privileged `app://` protocol.
   `electron-log` file logging.
 - `electron-builder` NSIS installer target (`bun run pack`).
 
+## Packaged CLI provisioning
+
+Packaged Windows startup installs the bundled CLI runtime for the current user:
+
+- The immutable payload is read from `resources/cli-runtime` and copied to
+  `<Electron userData>/cli/<version>`.
+- `<Electron userData>/cli/install-state.json` records the current runtime and
+  one valid fallback. Reusing an older installed version preserves the prior
+  current version as the fallback.
+- Owned launchers are installed under `%LOCALAPPDATA%\Vellum\bin`. A launcher
+  without the Vellum ownership marker is left untouched.
+- The launcher directory is added to `HKCU\Environment\Path`. The app broadcasts
+  the environment change to the Windows shell after a successful write.
+- Machine PATH entries are evaluated before user entries. If another
+  `vellum.exe` wins resolution, startup records the launcher as shadowed.
+
+`vellum retire` stages assistant data before archiving it. On Windows the
+background archive uses PowerShell and the built-in `tar.exe`; other platforms
+use the existing POSIX archive process.
+
 ## Not ported yet (see `clients/macos/src/main/` for reference implementations)
 
 - Gateway (`/assistant/__gateway/{port}/*`) and platform (`/v1/*`,
