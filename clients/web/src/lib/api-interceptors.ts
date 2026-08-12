@@ -42,7 +42,10 @@ import {
   isLocalClient,
   isPlatformDisabled,
   isRemoteGatewayMode,
+  primeLocalGatewayConnection,
 } from "@/lib/local-mode";
+import { recordLifecycleDiagnostic } from "@/lib/diagnostics";
+import { captureError } from "@/lib/sentry/capture-error";
 import {
   getSelfHostedActorToken,
   getSelfHostedIngressUrl,
@@ -471,23 +474,37 @@ export function daemonUnreachableInterceptor(response: Response): Response {
  * Daemon response interceptor for local gateway 401 recovery.
  *
  * When the local gateway rejects a request with 401 (stale or invalid
- * token), clears the cached gateway tokens from localStorage and
- * reloads the page so the app acquires a fresh token on startup.
+ * token), re-establishes the session **in place**: clears the cached
+ * gateway token and re-runs {@link primeLocalGatewayConnection}, which
+ * mints a fresh renderer token and re-primes the self-hosted connection
+ * slot the request interceptor reads. Requests whose body is still
+ * readable are then replayed against the recovered session: a 401 means
+ * the gateway never executed the request, so the replay cannot double an
+ * effect. Bodied requests (the chat send POST, uploads) cannot be
+ * replayed, because fetch consumed their body, so their 401 flows back to the
+ * caller, whose own rollback path surfaces the error (the send path
+ * restores the composer text; the immediate retry then rides the fresh
+ * token). Never reload the page here: a reload eats the in-flight
+ * mutation and the composer state with no error shown (LUM-3231).
+ *
+ * Remote-gateway mode is the exception: its pairing token is minted by
+ * the loopback login flow, which is itself a navigation, so there is no
+ * in-place re-auth. It keeps the previous budgeted reload: boot lands
+ * on the login redirect and returns with a fresh token.
  *
  * A sessionStorage cooldown spaces the attempts, and a sessionStorage
- * attempt budget stops them. The cooldown alone only paces a gateway that
- * rejects every token (a mismatched signing key, say): the page reloads
- * once per cooldown for as long as the app stays open, which reaches the
- * user as an app that restarts itself every ten minutes and never settles.
- * Past the budget the 401 is handed back untouched, so the normal error
- * path surfaces it and the tray's re-pair action stays available.
+ * attempt budget stops them. The cooldown alone only paces a gateway
+ * that rejects every token (a mismatched signing key, say); past the
+ * budget the 401 is handed back untouched, so the normal error path
+ * surfaces it and the tray's re-pair action stays available.
  *
  * The budget is spent permanently until the gateway demonstrates that it
  * works: a 2xx from the ingress origin clears it. Elapsed time deliberately
  * does not, because a gateway that is still rejecting every token would
- * otherwise earn a fresh budget out of every quiet spell and reload forever
- * in bursts. A reload that genuinely fixed the session produces that 2xx on
- * its next request, so a transient rejection is not charged for recovering.
+ * otherwise earn a fresh budget out of every quiet spell and retry forever
+ * in bursts. A recovery that genuinely fixed the session produces that 2xx
+ * on its next request, so a transient rejection is not charged for
+ * recovering.
  *
  * Both keys live in sessionStorage, so quitting and reopening the app also
  * grants a fresh budget.
@@ -496,23 +513,89 @@ export function daemonUnreachableInterceptor(response: Response): Response {
  * interceptor, so 401s raised through the generated gateway SDK are not
  * recovered here; see the registrations at the bottom of this file.
  */
-const GW_401_RELOAD_KEY = "vellum:gw:401-reload-at";
+const GW_401_RECOVERY_AT_KEY = "vellum:gw:401-reload-at";
 const GW_401_ATTEMPTS_KEY = "vellum:gw:401-reload-attempts";
 const GW_401_COOLDOWN_MS = 600_000;
-const GW_401_MAX_RELOADS = 3;
+const GW_401_MAX_ATTEMPTS = 3;
 
-// In-memory latch: once recovery fires, all subsequent 401s in the same
-// page lifecycle are no-ops. Resets naturally on reload.
-let gw401RecoveryFired = false;
+// In-memory latch for the remote-gateway reload branch: once the reload
+// fires, all subsequent 401s in the same page lifecycle are no-ops.
+// Resets naturally on reload.
+let gw401ReloadFired = false;
+
+// Single-flight slot: a burst of concurrent 401s (a resume refetch, say)
+// funds one in-place recovery; every caller awaits the same attempt and
+// then makes its own replay decision. Nulled when the attempt settles so
+// a later, unrelated staleness event can recover again.
+let gw401RecoveryInFlight: Promise<boolean> | null = null;
 
 /** @internal Exposed for test teardown only. */
 export function resetGw401RecoveryFlag(): void {
-  gw401RecoveryFired = false;
+  gw401ReloadFired = false;
+  gw401RecoveryInFlight = null;
 }
 
-export function localGatewayAuthRecoveryInterceptor(
+function recoverLocalGatewaySessionInPlace(): Promise<boolean> {
+  gw401RecoveryInFlight ??= (async () => {
+    try {
+      clearGatewayToken();
+      await primeLocalGatewayConnection();
+      recordLifecycleDiagnostic("gw_401_recovery", { outcome: "recovered" });
+      return true;
+    } catch (err) {
+      recordLifecycleDiagnostic("gw_401_recovery", { outcome: "failed" });
+      captureError(err, { context: "gw_401_recovery" });
+      return false;
+    } finally {
+      gw401RecoveryInFlight = null;
+    }
+  })();
+  return gw401RecoveryInFlight;
+}
+
+function clearGw401Budget(): void {
+  try {
+    sessionStorage.removeItem(GW_401_ATTEMPTS_KEY);
+    sessionStorage.removeItem(GW_401_RECOVERY_AT_KEY);
+  } catch {
+    // sessionStorage unavailable; the budget check fails closed anyway.
+  }
+}
+
+/**
+ * Replay a request against the just-recovered session, swapping in the
+ * re-primed bearer. Only callable when the request's body is unconsumed
+ * (`bodyUsed === false`); `new Request(used)` throws. A replayed 2xx is a
+ * real success from the ingress, so it restores the budget just like one
+ * that flowed through the interceptor chain. Returns `null` when the
+ * replay itself fails to complete (network drop, caller aborted), so the
+ * caller hands back the original 401 instead of a new failure shape.
+ */
+async function replayWithRecoveredSession(
+  request: Request,
+): Promise<Response | null> {
+  const headers = new Headers(request.headers);
+  const token = getSelfHostedActorToken();
+  if (token) {
+    headers.set("Authorization", `Bearer ${token}`);
+  } else {
+    headers.delete("Authorization");
+  }
+  try {
+    const replayed = await fetch(new Request(request, { headers }));
+    if (replayed.ok) {
+      clearGw401Budget();
+    }
+    return replayed;
+  } catch {
+    return null;
+  }
+}
+
+export async function localGatewayAuthRecoveryInterceptor(
   response: Response,
-): Response {
+  request?: Request,
+): Promise<Response> {
   if (!isLocalClient()) {
     return response;
   }
@@ -534,19 +617,24 @@ export function localGatewayAuthRecoveryInterceptor(
   // rather than this client, so an unauthenticated liveness check cannot
   // stand in for a real one.
   if (response.ok) {
-    try {
-      sessionStorage.removeItem(GW_401_ATTEMPTS_KEY);
-      sessionStorage.removeItem(GW_401_RELOAD_KEY);
-    } catch {
-      // sessionStorage unavailable; the budget check below fails closed.
-    }
+    clearGw401Budget();
     return response;
   }
 
   if (response.status !== 401) {
     return response;
   }
-  if (gw401RecoveryFired) {
+  if (gw401ReloadFired) {
+    return response;
+  }
+
+  // A recovery is already in flight: ride it instead of spending budget,
+  // so every request in the burst that can replay does.
+  if (gw401RecoveryInFlight) {
+    const recovered = await gw401RecoveryInFlight;
+    if (recovered && request && !request.bodyUsed) {
+      return (await replayWithRecoveredSession(request)) ?? response;
+    }
     return response;
   }
 
@@ -554,28 +642,35 @@ export function localGatewayAuthRecoveryInterceptor(
     const stored = Number(sessionStorage.getItem(GW_401_ATTEMPTS_KEY) ?? "0");
     const attempts = Number.isFinite(stored) ? stored : 0;
 
-    // A spent budget means reloading has not made this gateway work, and
+    // A spent budget means recovering has not made this gateway work, and
     // nothing since has shown that it does; let the 401 through to the
     // error path.
-    if (attempts >= GW_401_MAX_RELOADS) {
+    if (attempts >= GW_401_MAX_ATTEMPTS) {
       return response;
     }
-    const lastReload = sessionStorage.getItem(GW_401_RELOAD_KEY);
-    if (lastReload && Date.now() - Number(lastReload) < GW_401_COOLDOWN_MS) {
+    const lastAttempt = sessionStorage.getItem(GW_401_RECOVERY_AT_KEY);
+    if (lastAttempt && Date.now() - Number(lastAttempt) < GW_401_COOLDOWN_MS) {
       return response;
     }
-    sessionStorage.setItem(GW_401_RELOAD_KEY, String(Date.now()));
+    sessionStorage.setItem(GW_401_RECOVERY_AT_KEY, String(Date.now()));
     sessionStorage.setItem(GW_401_ATTEMPTS_KEY, String(attempts + 1));
   } catch {
     // sessionStorage unavailable: cannot enforce cooldown or budget, skip
-    // reload to avoid infinite reload loops.
+    // recovery to avoid infinite recovery loops.
     return response;
   }
 
-  gw401RecoveryFired = true;
-  clearGatewayToken();
-  window.location.reload();
+  if (isRemoteGatewayMode()) {
+    gw401ReloadFired = true;
+    clearGatewayToken();
+    window.location.reload();
+    return response;
+  }
 
+  const recovered = await recoverLocalGatewaySessionInPlace();
+  if (recovered && request && !request.bodyUsed) {
+    return (await replayWithRecoveredSession(request)) ?? response;
+  }
   return response;
 }
 
