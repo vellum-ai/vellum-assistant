@@ -114,7 +114,7 @@ mock.module("./session-token-store.client", () => ({
 // allowlist reflects the removal immediately. Stub the watcher module so
 // the test asserts the hook fires without installing a real poller.
 const refreshLockfileNowMock = mock(() => {});
-mock.module("./lockfile-watcher", () => ({
+mock.module("./lockfile-watcher.client", () => ({
   refreshLockfileNow: refreshLockfileNowMock,
 }));
 

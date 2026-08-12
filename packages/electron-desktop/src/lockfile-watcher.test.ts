@@ -3,22 +3,12 @@ import fs from "node:fs";
 
 import type { Lockfile } from "@vellumai/local-mode/contract";
 
-// Stub @vellumai/local-mode so we control the resolved paths.
 const CANONICAL_PATH = "/tmp/test-lockfile.json";
 const LEGACY_PATH = "/tmp/test-lockfile-legacy.json";
 let mockPaths = [CANONICAL_PATH];
-mock.module("@vellumai/local-mode", () => ({
-  resolveLockfilePaths: () => mockPaths,
-}));
-
-// Passthrough the real parseLockfile — stubbing the @vellumai/local-mode
-// entry above doesn't touch the /contract subpath it lives in.
-const { parseLockfile } = await import("@vellumai/local-mode/contract");
-mock.module("@vellumai/local-mode/contract", () => ({
-  parseLockfile,
-}));
 
 const {
+  configureLockfileWatcher,
   installLockfileWatcher,
   getWatchedLockfile,
   onLockfileChange,
@@ -50,6 +40,7 @@ const removeLockfile = (): void => {
 beforeEach(() => {
   __resetForTesting();
   mockPaths = [CANONICAL_PATH];
+  configureLockfileWatcher(() => mockPaths);
   removeLockfile();
 });
 
@@ -251,7 +242,9 @@ describe("lockfile-watcher", () => {
       // WHEN a write creates the canonical file (simulating a CLI write)
       await new Promise((resolve) => setTimeout(resolve, 50));
       const updated: Lockfile = {
-        assistants: [{ assistantId: "ast-new", name: "NewAssistant", cloud: "local" }],
+        assistants: [
+          { assistantId: "ast-new", name: "NewAssistant", cloud: "local" },
+        ],
         activeAssistant: "ast-new",
       };
       writeLockfile(updated, CANONICAL_PATH);

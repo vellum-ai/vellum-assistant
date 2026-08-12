@@ -38,7 +38,7 @@ import {
   getBundledBunPath,
   getCliBinPath,
 } from "./cli-installer";
-import { refreshLockfileNow } from "./lockfile-watcher";
+import { refreshLockfileNow } from "./lockfile-watcher.client";
 import { getSessionToken } from "./session-token-store.client";
 
 /**

@@ -1,6 +1,5 @@
 import fs from "node:fs";
 
-import { resolveLockfilePaths } from "@vellumai/local-mode";
 import { parseLockfile, type Lockfile } from "@vellumai/local-mode/contract";
 
 /**
@@ -26,6 +25,7 @@ const DEBOUNCE_MS = 100;
 const EMPTY_LOCKFILE: Lockfile = { assistants: [], activeAssistant: null };
 
 let lockfileCandidates: string[] = [];
+let resolveCandidates: () => readonly string[] = () => [];
 let cachedLockfile: Lockfile = EMPTY_LOCKFILE;
 let lastMtimeMs = 0;
 let pollTimer: ReturnType<typeof setInterval> | null = null;
@@ -61,7 +61,9 @@ const notifyListeners = (): void => {
 
 const checkForChanges = (): void => {
   const canonicalPath = lockfileCandidates[0];
-  if (!canonicalPath) return;
+  if (!canonicalPath) {
+    return;
+  }
 
   let mtimeMs: number;
   try {
@@ -79,11 +81,15 @@ const checkForChanges = (): void => {
     return;
   }
 
-  if (mtimeMs === lastMtimeMs) return;
+  if (mtimeMs === lastMtimeMs) {
+    return;
+  }
   lastMtimeMs = mtimeMs;
 
   // Debounce: atomic rename can produce rapid mtime bumps.
-  if (debounceTimer) clearTimeout(debounceTimer);
+  if (debounceTimer) {
+    clearTimeout(debounceTimer);
+  }
   debounceTimer = setTimeout(() => {
     debounceTimer = null;
     cachedLockfile = readAndParse();
@@ -133,9 +139,19 @@ export const refreshLockfileNow = (): void => {
  * Subscribe to lockfile changes. The listener fires whenever the lockfile's
  * mtime changes (debounced). Returns an unsubscribe function.
  */
-export const onLockfileChange = (listener: LockfileChangeListener): (() => void) => {
+export const onLockfileChange = (
+  listener: LockfileChangeListener,
+): (() => void) => {
   listeners.add(listener);
-  return () => { listeners.delete(listener); };
+  return () => {
+    listeners.delete(listener);
+  };
+};
+
+export const configureLockfileWatcher = (
+  resolvePaths: () => readonly string[],
+): void => {
+  resolveCandidates = resolvePaths;
 };
 
 /**
@@ -147,7 +163,7 @@ export const installLockfileWatcher = (): (() => void) => {
   // Poll only the canonical (first) path: write helpers always target
   // candidates[0], so watching a legacy candidate would miss updates once
   // the canonical file is created.
-  lockfileCandidates = resolveLockfilePaths(process.env);
+  lockfileCandidates = [...resolveCandidates()];
 
   // Initial read — synchronous so the tray menu has data from frame one.
   // readAndParse falls back to legacy candidates when the canonical file
@@ -176,10 +192,17 @@ export const installLockfileWatcher = (): (() => void) => {
 
 // Test seam — exported only for unit tests.
 export const __resetForTesting = (): void => {
-  if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
-  if (debounceTimer) { clearTimeout(debounceTimer); debounceTimer = null; }
+  if (pollTimer) {
+    clearInterval(pollTimer);
+    pollTimer = null;
+  }
+  if (debounceTimer) {
+    clearTimeout(debounceTimer);
+    debounceTimer = null;
+  }
   listeners.clear();
   cachedLockfile = EMPTY_LOCKFILE;
   lastMtimeMs = 0;
   lockfileCandidates = [];
+  resolveCandidates = () => [];
 };

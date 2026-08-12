@@ -30,8 +30,8 @@ import { installWebContentsSecurity } from "./windows.client";
  *
  * Not ported from the macOS client yet (see `clients/macos/src/main/` for the
  * reference implementations): gateway/platform request forwarding for
- * packaged builds, native auth, tray, auto-update, CSP,
- * notifications, and local-mode IPC.
+ * packaged builds, native auth, auto-update, CSP,
+ * notifications, hotkeys, and local-mode IPC.
  */
 
 // Dev-only: override the package `name` (`@vellumai/windows`) so
@@ -203,16 +203,14 @@ app.on("second-instance", () => {
   ensureVisible();
 });
 
+app.on("window-all-closed", () => {
+  // Keep the notification-area tray available to reopen the window.
+});
+
 app.on("web-contents-created", (_event, contents) => {
   installWebContentsSecurity(contents, {
     cookies: () => session.defaultSession.cookies,
     logger: log,
     openExternal: (url) => shell.openExternal(url),
   });
-});
-
-// Unlike macOS, a Windows app with no windows has no dock/menu-bar presence
-// to keep it alive, so quit outright. Revisit when the tray is ported.
-app.on("window-all-closed", () => {
-  app.quit();
 });

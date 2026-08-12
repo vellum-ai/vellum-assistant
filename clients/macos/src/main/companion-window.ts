@@ -21,7 +21,11 @@ import {
   writeCompanionHidden,
 } from "@vellumai/electron-desktop/window-state";
 
-import { getAvatarPng, getCharacter, onAvatarChange } from "./avatar";
+import {
+  getAvatarPng,
+  getCharacter,
+  onAvatarChange,
+} from "@vellumai/electron-desktop/avatar";
 import {
   createFloatingWindow,
   getFloatingWindow,
