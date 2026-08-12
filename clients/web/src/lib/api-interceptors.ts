@@ -42,13 +42,14 @@ import {
   isLocalClient,
   isPlatformDisabled,
   isRemoteGatewayMode,
-  primeLocalGatewayConnection,
+  primeLocalGatewayConnectionWithRepair,
 } from "@/lib/local-mode";
 import { recordLifecycleDiagnostic } from "@/lib/diagnostics";
 import { captureError } from "@/lib/sentry/capture-error";
 import {
   getSelfHostedActorToken,
   getSelfHostedIngressUrl,
+  setSelfHostedConnection,
 } from "@/lib/self-hosted/connection";
 import { getClientRegistrationHeaders } from "@/lib/telemetry/client-identity";
 import {
@@ -475,22 +476,24 @@ export function daemonUnreachableInterceptor(response: Response): Response {
  *
  * When the local gateway rejects a request with 401 (stale or invalid
  * token), re-establishes the session **in place**: clears the cached
- * gateway token and re-runs {@link primeLocalGatewayConnection}, which
- * mints a fresh renderer token and re-primes the self-hosted connection
- * slot the request interceptor reads. Requests whose body is still
- * readable are then replayed against the recovered session: a 401 means
- * the gateway never executed the request, so the replay cannot double an
- * effect. Bodied requests (the chat send POST, uploads) cannot be
- * replayed, because fetch consumed their body, so their 401 flows back to the
- * caller, whose own rollback path surfaces the error (the send path
- * restores the composer text; the immediate retry then rides the fresh
- * token). Never reload the page here: a reload eats the in-flight
- * mutation and the composer state with no error shown (LUM-3231).
+ * gateway token and re-runs {@link primeLocalGatewayConnectionWithRepair},
+ * which mints a fresh renderer token, wakes and re-seeds a stopped or
+ * mis-seeded local assistant when the mint is repairably rejected, and
+ * re-primes the self-hosted connection slot the request interceptor
+ * reads. Requests whose body is still readable are then replayed against
+ * the recovered session: a 401 means the gateway never executed the
+ * request, so the replay cannot double an effect. Bodied requests (the
+ * chat send POST, uploads) cannot be replayed, because fetch consumed
+ * their body, so their 401 flows back to the caller, whose own rollback
+ * path surfaces the error (the send path restores the composer text; the
+ * immediate retry then rides the fresh token). Never reload the page
+ * here: a reload eats the in-flight mutation and the composer state with
+ * no error shown.
  *
  * Remote-gateway mode is the exception: its pairing token is minted by
- * the loopback login flow, which is itself a navigation, so there is no
- * in-place re-auth. It keeps the previous budgeted reload: boot lands
- * on the login redirect and returns with a fresh token.
+ * the loopback login flow, which is navigation-backed, so there is no
+ * in-place re-auth there. A 401 reloads the page under the same budget;
+ * boot lands on the login redirect and returns with a fresh token.
  *
  * A sessionStorage cooldown spaces the attempts, and a sessionStorage
  * attempt budget stops them. The cooldown alone only paces a gateway
@@ -537,12 +540,26 @@ export function resetGw401RecoveryFlag(): void {
 
 function recoverLocalGatewaySessionInPlace(): Promise<boolean> {
   gw401RecoveryInFlight ??= (async () => {
+    // The paired branch of primeLocalGatewayConnection clears the
+    // connection slot before its readyz probe, so a failed recovery would
+    // otherwise leave the renderer with no ingress route and this
+    // interceptor with no ingress to match, disabling every future
+    // attempt. Snapshot the slot and put it back if the prime dies having
+    // nulled it; the guard on null avoids clobbering a concurrent
+    // legitimate re-prime (an assistant switch mid-recovery).
+    const previous = {
+      url: getSelfHostedIngressUrl(),
+      token: getSelfHostedActorToken(),
+    };
     try {
       clearGatewayToken();
-      await primeLocalGatewayConnection();
+      await primeLocalGatewayConnectionWithRepair();
       recordLifecycleDiagnostic("gw_401_recovery", { outcome: "recovered" });
       return true;
     } catch (err) {
+      if (getSelfHostedIngressUrl() === null && previous.url !== null) {
+        setSelfHostedConnection(previous);
+      }
       recordLifecycleDiagnostic("gw_401_recovery", { outcome: "failed" });
       captureError(err, { context: "gw_401_recovery" });
       return false;

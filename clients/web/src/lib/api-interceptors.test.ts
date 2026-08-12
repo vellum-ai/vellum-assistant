@@ -29,10 +29,8 @@ const isPlatformDisabledMock = mock(() => false);
 const isRemoteGatewayModeMock = mock(
   () => window.__VELLUM_CONFIG__?.mode === "remote-gateway",
 );
-let primeLocalGatewayConnectionImpl: () => Promise<void> = async () => {};
-const primeLocalGatewayConnectionMock = mock(() =>
-  primeLocalGatewayConnectionImpl(),
-);
+let primeGatewayWithRepairImpl: () => Promise<void> = async () => {};
+const primeGatewayWithRepairMock = mock(() => primeGatewayWithRepairImpl());
 mock.module("@/lib/local-mode", () => ({
   getActiveAssistant: () => undefined,
   getLocalAssistants: () => [],
@@ -48,8 +46,8 @@ mock.module("@/lib/local-mode", () => ({
   isPlatformAssistant: () => false,
   isRemoteGatewayMode: isRemoteGatewayModeMock,
   loadLockfile: async () => ({ assistants: [], activeAssistant: null }),
-  primeLocalGatewayConnection: primeLocalGatewayConnectionMock,
-  primeLocalGatewayConnectionWithRepair: async () => {},
+  primeLocalGatewayConnection: async () => {},
+  primeLocalGatewayConnectionWithRepair: primeGatewayWithRepairMock,
   reconcileSelectedAssistant: () => {},
   retireLocalAssistant: async () => ({ ok: false }),
   saveLockfileAssistant: async () => {},
@@ -138,7 +136,11 @@ import {
   rewriteForSelfHostedIngress,
 } from "@/lib/api-interceptors";
 import { ApiError } from "@/utils/api-errors";
-import { setSelfHostedConnection } from "@/lib/self-hosted/connection";
+import {
+  getSelfHostedActorToken,
+  getSelfHostedIngressUrl,
+  setSelfHostedConnection,
+} from "@/lib/self-hosted/connection";
 import { getClientId } from "@/lib/telemetry/client-identity";
 import { __resetForTesting as resetSessionToken } from "@/runtime/session-token";
 import { useOrganizationStore } from "@/stores/organization-store";
@@ -1156,10 +1158,10 @@ describe("api-interceptors / localGatewayAuthRecoveryInterceptor", () => {
     sessionStorage.removeItem(GW_401_ATTEMPTS_KEY);
     clearGatewayTokenStorage();
     resetGw401RecoveryFlag();
-    primeLocalGatewayConnectionMock.mockClear();
+    primeGatewayWithRepairMock.mockClear();
     captureErrorMock.mockClear();
     // Model the real prime: a fresh token lands in the connection slot.
-    primeLocalGatewayConnectionImpl = async () => {
+    primeGatewayWithRepairImpl = async () => {
       setSelfHostedConnection({ url: GATEWAY_URL, token: "fresh-tok" });
     };
     replayedRequests = [];
@@ -1185,7 +1187,7 @@ describe("api-interceptors / localGatewayAuthRecoveryInterceptor", () => {
     sessionStorage.removeItem(GW_401_ATTEMPTS_KEY);
     clearGatewayTokenStorage();
     resetGw401RecoveryFlag();
-    primeLocalGatewayConnectionImpl = async () => {};
+    primeGatewayWithRepairImpl = async () => {};
   });
 
   test("recovers the session in place on 401, never reloading the page", async () => {
@@ -1207,7 +1209,7 @@ describe("api-interceptors / localGatewayAuthRecoveryInterceptor", () => {
     for (const key of GW_TOKEN_KEYS) {
       expect(localStorage.getItem(key)).toBeNull();
     }
-    expect(primeLocalGatewayConnectionMock).toHaveBeenCalledTimes(1);
+    expect(primeGatewayWithRepairMock).toHaveBeenCalledTimes(1);
 
     // AND the page never reloads; without a replayable request the 401
     // flows back to the caller's error path
@@ -1291,7 +1293,7 @@ describe("api-interceptors / localGatewayAuthRecoveryInterceptor", () => {
     );
 
     // THEN recovery ran, but the 401 is handed back without a replay
-    expect(primeLocalGatewayConnectionMock).toHaveBeenCalledTimes(1);
+    expect(primeGatewayWithRepairMock).toHaveBeenCalledTimes(1);
     expect(replayedRequests).toHaveLength(0);
     expect(result).toBe(response);
     expect(reloadCalls).toBe(0);
@@ -1299,7 +1301,7 @@ describe("api-interceptors / localGatewayAuthRecoveryInterceptor", () => {
 
   test("hands the 401 back when recovery fails, and captures the failure", async () => {
     // GIVEN the gateway rejects the fresh mint too
-    primeLocalGatewayConnectionImpl = async () => {
+    primeGatewayWithRepairImpl = async () => {
       throw new Error("mint rejected");
     };
 
@@ -1317,6 +1319,29 @@ describe("api-interceptors / localGatewayAuthRecoveryInterceptor", () => {
     expect(captureErrorMock).toHaveBeenCalledTimes(1);
   });
 
+  test("a failed recovery restores the connection slot the prime nulled", async () => {
+    /**
+     * The paired branch of primeLocalGatewayConnection clears the slot
+     * before its readyz probe. Without the restore, a failed recovery
+     * strands the renderer with no ingress route, and this interceptor
+     * (which matches on the ingress URL) could never fire again.
+     */
+
+    // GIVEN a prime that dies after clearing the slot, as the paired
+    // branch does when the readyz probe fails
+    primeGatewayWithRepairImpl = async () => {
+      setSelfHostedConnection(null);
+      throw new Error("readyz failed");
+    };
+
+    // WHEN a 401 reaches the interceptor and recovery fails
+    await localGatewayAuthRecoveryInterceptor(gatewayResponse(401));
+
+    // THEN the pre-recovery connection is back in the slot
+    expect(getSelfHostedIngressUrl()).toBe(GATEWAY_URL);
+    expect(getSelfHostedActorToken()).toBe("tok");
+  });
+
   test("remote-gateway mode keeps the budgeted reload", async () => {
     /**
      * Remote-gateway pairing tokens are minted by the loopback login flow,
@@ -1332,7 +1357,7 @@ describe("api-interceptors / localGatewayAuthRecoveryInterceptor", () => {
 
     // THEN the page reloads instead of recovering in place
     expect(reloadCalls).toBe(1);
-    expect(primeLocalGatewayConnectionMock).not.toHaveBeenCalled();
+    expect(primeGatewayWithRepairMock).not.toHaveBeenCalled();
     for (const key of GW_TOKEN_KEYS) {
       expect(localStorage.getItem(key)).toBeNull();
     }
@@ -1353,7 +1378,7 @@ describe("api-interceptors / localGatewayAuthRecoveryInterceptor", () => {
 
     // THEN gateway tokens are untouched and no recovery runs
     expect(localStorage.getItem(tokenKey)).toBe("valid-jwt");
-    expect(primeLocalGatewayConnectionMock).not.toHaveBeenCalled();
+    expect(primeGatewayWithRepairMock).not.toHaveBeenCalled();
     expect(reloadCalls).toBe(0);
   });
 
@@ -1370,7 +1395,7 @@ describe("api-interceptors / localGatewayAuthRecoveryInterceptor", () => {
     await localGatewayAuthRecoveryInterceptor(gatewayResponse(401));
 
     // THEN no recovery runs
-    expect(primeLocalGatewayConnectionMock).not.toHaveBeenCalled();
+    expect(primeGatewayWithRepairMock).not.toHaveBeenCalled();
     expect(reloadCalls).toBe(0);
   });
 
@@ -1387,7 +1412,7 @@ describe("api-interceptors / localGatewayAuthRecoveryInterceptor", () => {
     await localGatewayAuthRecoveryInterceptor(gatewayResponse(401));
 
     // THEN no recovery runs
-    expect(primeLocalGatewayConnectionMock).not.toHaveBeenCalled();
+    expect(primeGatewayWithRepairMock).not.toHaveBeenCalled();
     expect(reloadCalls).toBe(0);
   });
 
@@ -1407,7 +1432,7 @@ describe("api-interceptors / localGatewayAuthRecoveryInterceptor", () => {
     await localGatewayAuthRecoveryInterceptor(platformResponse);
 
     // THEN no recovery runs
-    expect(primeLocalGatewayConnectionMock).not.toHaveBeenCalled();
+    expect(primeGatewayWithRepairMock).not.toHaveBeenCalled();
     expect(reloadCalls).toBe(0);
   });
 
@@ -1425,7 +1450,7 @@ describe("api-interceptors / localGatewayAuthRecoveryInterceptor", () => {
     await localGatewayAuthRecoveryInterceptor(gatewayResponse(401));
 
     // THEN no additional recovery runs
-    expect(primeLocalGatewayConnectionMock).not.toHaveBeenCalled();
+    expect(primeGatewayWithRepairMock).not.toHaveBeenCalled();
   });
 
   test("cooldown expires and allows a fresh recovery", async () => {
@@ -1445,7 +1470,7 @@ describe("api-interceptors / localGatewayAuthRecoveryInterceptor", () => {
     await localGatewayAuthRecoveryInterceptor(gatewayResponse(401));
 
     // THEN the session recovers again
-    expect(primeLocalGatewayConnectionMock).toHaveBeenCalledTimes(1);
+    expect(primeGatewayWithRepairMock).toHaveBeenCalledTimes(1);
 
     // AND gateway tokens are cleared
     for (const key of GW_TOKEN_KEYS) {
@@ -1473,7 +1498,7 @@ describe("api-interceptors / localGatewayAuthRecoveryInterceptor", () => {
     await localGatewayAuthRecoveryInterceptor(gatewayResponse(401));
 
     // THEN no recovery runs (cooldown cannot be enforced)
-    expect(primeLocalGatewayConnectionMock).not.toHaveBeenCalled();
+    expect(primeGatewayWithRepairMock).not.toHaveBeenCalled();
 
     // cleanup
     Object.defineProperty(sessionStorage, "getItem", {
@@ -1491,7 +1516,7 @@ describe("api-interceptors / localGatewayAuthRecoveryInterceptor", () => {
 
     // GIVEN a recovery that stays in flight until released
     let releasePrime!: () => void;
-    primeLocalGatewayConnectionImpl = () =>
+    primeGatewayWithRepairImpl = () =>
       new Promise<void>((resolve) => {
         releasePrime = () => {
           setSelfHostedConnection({ url: GATEWAY_URL, token: "fresh-tok" });
@@ -1512,7 +1537,7 @@ describe("api-interceptors / localGatewayAuthRecoveryInterceptor", () => {
     const [firstResult, secondResult] = await Promise.all([first, second]);
 
     // THEN one recovery ran and both requests were replayed against it
-    expect(primeLocalGatewayConnectionMock).toHaveBeenCalledTimes(1);
+    expect(primeGatewayWithRepairMock).toHaveBeenCalledTimes(1);
     expect(replayedRequests).toHaveLength(2);
     expect(firstResult.status).toBe(200);
     expect(secondResult.status).toBe(200);
@@ -1528,7 +1553,7 @@ describe("api-interceptors / localGatewayAuthRecoveryInterceptor", () => {
       );
       await localGatewayAuthRecoveryInterceptor(gatewayResponse(401));
     }
-    expect(primeLocalGatewayConnectionMock).toHaveBeenCalledTimes(
+    expect(primeGatewayWithRepairMock).toHaveBeenCalledTimes(
       GW_401_MAX_ATTEMPTS,
     );
 
@@ -1538,7 +1563,7 @@ describe("api-interceptors / localGatewayAuthRecoveryInterceptor", () => {
     );
     await localGatewayAuthRecoveryInterceptor(gatewayResponse(401));
 
-    expect(primeLocalGatewayConnectionMock).toHaveBeenCalledTimes(
+    expect(primeGatewayWithRepairMock).toHaveBeenCalledTimes(
       GW_401_MAX_ATTEMPTS,
     );
   });
@@ -1548,7 +1573,7 @@ describe("api-interceptors / localGatewayAuthRecoveryInterceptor", () => {
     const response = gatewayResponse(401);
 
     expect(await localGatewayAuthRecoveryInterceptor(response)).toBe(response);
-    expect(primeLocalGatewayConnectionMock).not.toHaveBeenCalled();
+    expect(primeGatewayWithRepairMock).not.toHaveBeenCalled();
   });
 
   test("a quiet gap alone does not restore the budget", async () => {
@@ -1562,7 +1587,7 @@ describe("api-interceptors / localGatewayAuthRecoveryInterceptor", () => {
 
     await localGatewayAuthRecoveryInterceptor(gatewayResponse(401));
 
-    expect(primeLocalGatewayConnectionMock).not.toHaveBeenCalled();
+    expect(primeGatewayWithRepairMock).not.toHaveBeenCalled();
   });
 
   test("a successful gateway response restores the budget", async () => {
@@ -1587,7 +1612,7 @@ describe("api-interceptors / localGatewayAuthRecoveryInterceptor", () => {
       );
       await localGatewayAuthRecoveryInterceptor(gatewayResponse(401));
     }
-    expect(primeLocalGatewayConnectionMock).toHaveBeenCalledTimes(
+    expect(primeGatewayWithRepairMock).toHaveBeenCalledTimes(
       GW_401_MAX_ATTEMPTS,
     );
 
@@ -1597,7 +1622,7 @@ describe("api-interceptors / localGatewayAuthRecoveryInterceptor", () => {
     // A genuinely new episode later gets its own budget.
     await localGatewayAuthRecoveryInterceptor(gatewayResponse(401));
 
-    expect(primeLocalGatewayConnectionMock).toHaveBeenCalledTimes(
+    expect(primeGatewayWithRepairMock).toHaveBeenCalledTimes(
       GW_401_MAX_ATTEMPTS + 1,
     );
   });
@@ -1617,7 +1642,7 @@ describe("api-interceptors / localGatewayAuthRecoveryInterceptor", () => {
   test("a fresh renderer session grants a new budget", async () => {
     sessionStorage.setItem(GW_401_ATTEMPTS_KEY, String(GW_401_MAX_ATTEMPTS));
     await localGatewayAuthRecoveryInterceptor(gatewayResponse(401));
-    expect(primeLocalGatewayConnectionMock).not.toHaveBeenCalled();
+    expect(primeGatewayWithRepairMock).not.toHaveBeenCalled();
 
     // Quitting and reopening the app ends the renderer session, which is
     // what clearing sessionStorage models here.
@@ -1626,7 +1651,7 @@ describe("api-interceptors / localGatewayAuthRecoveryInterceptor", () => {
     resetGw401RecoveryFlag();
     await localGatewayAuthRecoveryInterceptor(gatewayResponse(401));
 
-    expect(primeLocalGatewayConnectionMock).toHaveBeenCalledTimes(1);
+    expect(primeGatewayWithRepairMock).toHaveBeenCalledTimes(1);
   });
 });
 
