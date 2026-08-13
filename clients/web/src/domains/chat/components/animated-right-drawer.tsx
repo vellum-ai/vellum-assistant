@@ -32,6 +32,21 @@ import { cn } from "@/utils/misc";
 /** Width of the drag-handle column. Matches the `w-2` handle below (8px). */
 const HANDLE_WIDTH_PX = 8;
 
+/**
+ * The drawer's geometry, held here rather than at the call sites so the two
+ * mounts cannot drift apart.
+ *
+ * The minimum is exported because the width is not the drawer's own business
+ * alone: every detail panel is sized by it, so a story framing one of those
+ * panels derives its box from here instead of picking a number that looks
+ * about right. Default and minimum are deliberately equal, so the drawer opens
+ * at its narrowest and only ever gets wider by dragging: one value that is
+ * both "the width a panel opens at" and "the narrowest a panel must survive".
+ */
+export const RIGHT_DRAWER_MIN_WIDTH_PX = 400;
+const RIGHT_DRAWER_DEFAULT_WIDTH_PX = RIGHT_DRAWER_MIN_WIDTH_PX;
+const RIGHT_DRAWER_MIN_LEFT_WIDTH_PX = 300;
+
 export interface AnimatedRightDrawerProps {
   /** Whether the drawer is open. Drives the width animation in both directions. */
   open: boolean;
@@ -57,9 +72,9 @@ export function AnimatedRightDrawer({
   open,
   left,
   right,
-  defaultWidth = 400,
-  minWidth = 400,
-  minLeftWidth = 300,
+  defaultWidth = RIGHT_DRAWER_DEFAULT_WIDTH_PX,
+  minWidth = RIGHT_DRAWER_MIN_WIDTH_PX,
+  minLeftWidth = RIGHT_DRAWER_MIN_LEFT_WIDTH_PX,
   storageKey,
 }: AnimatedRightDrawerProps) {
   const reduce = useReducedMotion();

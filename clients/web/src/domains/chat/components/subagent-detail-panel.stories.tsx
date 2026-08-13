@@ -2,19 +2,21 @@ import type { Meta, StoryObj } from "@storybook/react-vite";
 
 import type { SubagentEntry } from "@/domains/chat/subagent-store";
 
+import { DetailPanelStoryFrame } from "@/domains/chat/components/detail-panel-story-frame";
+
 import { SubagentDetailPanel } from "./subagent-detail-panel";
 
 const meta: Meta<typeof SubagentDetailPanel> = {
   title: "Chat/SubagentDetailPanel",
   component: SubagentDetailPanel,
   parameters: {
-    layout: "centered",
+    layout: "fullscreen",
   },
   decorators: [
     (Story) => (
-      <div className="h-[600px] w-[440px]">
+      <DetailPanelStoryFrame>
         <Story />
-      </div>
+      </DetailPanelStoryFrame>
     ),
   ],
 };

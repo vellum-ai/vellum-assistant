@@ -2,19 +2,21 @@ import type { Meta, StoryObj } from "@storybook/react-vite";
 
 import type { ToolDetailPayload } from "@/stores/viewer-store";
 
+import { DetailPanelStoryFrame } from "@/domains/chat/components/detail-panel-story-frame";
+
 import { ToolDetailPanel } from "./tool-detail-panel";
 
 const meta: Meta<typeof ToolDetailPanel> = {
   title: "Chat/ToolDetailPanel",
   component: ToolDetailPanel,
   parameters: {
-    layout: "centered",
+    layout: "fullscreen",
   },
   decorators: [
     (Story) => (
-      <div className="h-[600px] w-[440px]">
+      <DetailPanelStoryFrame>
         <Story />
-      </div>
+      </DetailPanelStoryFrame>
     ),
   ],
 };

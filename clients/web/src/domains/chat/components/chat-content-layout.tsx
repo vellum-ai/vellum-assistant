@@ -573,9 +573,6 @@ export function ChatContentLayout(props: ChatMainPanelProps) {
   return (
     <AnimatedRightDrawer
       storageKey="rightPanelWidth"
-      defaultWidth={400}
-      minWidth={400}
-      minLeftWidth={300}
       open={rightPanel != null}
       left={chatContent}
       right={rightPanel}
