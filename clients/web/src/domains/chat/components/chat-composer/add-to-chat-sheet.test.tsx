@@ -47,6 +47,7 @@ mock.module("@vellumai/design-library", () => ({
   },
 }));
 
+import { selectFiles } from "@/domains/chat/components/chat-attachments/attachment-test-helpers";
 import { AddToChatSheet } from "@/domains/chat/components/chat-composer/add-to-chat-sheet";
 
 afterAll(() => {
@@ -110,13 +111,8 @@ describe("AddToChatSheet", () => {
   test("delivers picked files to onAttachFiles", () => {
     const { onAttachFiles, gallery } = renderSheet();
     const file = new File(["hi"], "photo.png", { type: "image/png" });
-    const picked = [file] as unknown as FileList;
-    Object.defineProperty(gallery, "files", {
-      configurable: true,
-      value: picked,
-    });
 
-    fireEvent.change(gallery);
+    const picked = selectFiles(gallery, [file]);
 
     expect(onAttachFiles).toHaveBeenCalledTimes(1);
     expect(onAttachFiles.mock.calls[0]?.[0]).toBe(picked);
