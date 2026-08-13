@@ -6,11 +6,10 @@ import type {
   VellumCommand,
 } from "@vellumai/ipc-contract";
 
+import type { WindowsCoreBridge } from "./core-capabilities";
 import { composePreloadFeatures } from "./features";
 
 export type { AppVersionInfo, VellumBridge, VellumCommand };
-
-const noopUnsubscribe = (): (() => void) => () => undefined;
 
 /**
  * Minimal subset of the `VellumBridge` contract for the Windows skeleton.
@@ -18,25 +17,10 @@ const noopUnsubscribe = (): (() => void) => () => undefined;
  * Most of the renderer's runtime wrappers (`clients/web/src/runtime/`)
  * feature-detect their namespace (`if (!bridge?.hotkeys) return ...`) so a
  * newer renderer can run against an older - or, here, narrower - preload.
- * But a handful are treated as required the moment `platform` reads
- * `"electron"` and are dereferenced unguarded (`window.vellum?.power.onEvent`,
- * `window.vellum!.localMode.*`, dock, menu, mainWindow, deepLinks), so those
- * ship as explicit no-op stubs rather than being absent. Each capability
- * ported from the macOS client (`clients/macos/src/preload/index.ts`) should
- * replace its stub with the real IPC wiring alongside its main-process
- * handlers.
+ * Capabilities that are dereferenced unguarded live in this core bridge or
+ * are installed through the feature modules below.
  */
-const coreBridge: Pick<
-  VellumBridge,
-  | "platform"
-  | "hostOS"
-  | "app"
-  | "identity"
-  | "commands"
-  | "power"
-  | "dock"
-  | "mainWindow"
-> = {
+const coreBridge: WindowsCoreBridge = {
   platform: "electron",
   hostOS: "windows",
   app: {
@@ -44,11 +28,6 @@ const coreBridge: Pick<
       ipcRenderer.invoke("vellum:app:versionInfo") as Promise<AppVersionInfo>,
     openWebsite: (): Promise<void> =>
       ipcRenderer.invoke("vellum:app:openWebsite") as Promise<void>,
-  },
-  identity: {
-    setName: (name: string): void => {
-      ipcRenderer.send("vellum:identity:name", name);
-    },
   },
   commands: {
     on: (callback) => {
@@ -60,16 +39,6 @@ const coreBridge: Pick<
         ipcRenderer.off("vellum:command", handler);
       };
     },
-  },
-  // Stub: no power events until `clients/macos/src/main/power-events.ts` is
-  // ported. The subscription never fires; the unsubscribe is a no-op.
-  power: {
-    onEvent: noopUnsubscribe,
-  },
-  // Stub: the Windows analogue is a taskbar overlay icon
-  // (`win.setOverlayIcon`), not a dock badge.
-  dock: {
-    setBadge: () => undefined,
   },
   mainWindow: {
     ensureVisible: (): Promise<void> =>

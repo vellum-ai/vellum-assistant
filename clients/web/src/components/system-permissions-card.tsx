@@ -1,6 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
 
-import { setDockBadge } from "@/runtime/dock";
+import {
+  getUnreadBadgeSurface,
+  setDockBadge,
+  supportsUnreadBadges,
+} from "@/runtime/dock";
 import {
   openSystemPermissionSettings,
   requestSystemPermission,
@@ -31,7 +35,6 @@ interface LocalPermissionRowMeta {
   id: LocalPermissionRowId;
   type: "local";
   label: string;
-  description: string;
 }
 
 interface PermissionRowViewModel {
@@ -91,8 +94,6 @@ const LOCAL_PERMISSION_ROWS: LocalPermissionRowMeta[] = [
     id: "notificationBadges",
     type: "local",
     label: "Notification Badges",
-    description:
-      "Allows your assistant to show unseen conversation counts on the Dock icon.",
   },
 ];
 
@@ -236,18 +237,20 @@ export function SystemPermissionsCard({
       };
     }).filter(Boolean) as PermissionRowViewModel[];
 
-    const localRows = LOCAL_PERMISSION_ROWS.map((meta) => ({
-      id: meta.id,
-      label: meta.label,
-      description: meta.description,
-      checked: notificationBadgesEnabled,
-      disabled: pendingKind === meta.id,
-    }));
+    const localRows = supportsUnreadBadges()
+      ? LOCAL_PERMISSION_ROWS.map((meta) => ({
+          id: meta.id,
+          label: meta.label,
+          description: `Allows your assistant to show unseen conversation counts on the ${getUnreadBadgeSurface()}.`,
+          checked: notificationBadgesEnabled,
+          disabled: pendingKind === meta.id,
+        }))
+      : [];
 
     return [...systemRows, ...localRows];
   }, [notificationBadgesEnabled, pendingKind, systemRowsById]);
 
-  if (!supported) {
+  if (!supported && rows.length === 0) {
     return null;
   }
 

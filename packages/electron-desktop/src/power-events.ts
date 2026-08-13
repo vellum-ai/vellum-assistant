@@ -38,18 +38,24 @@ const lastEmittedAt: Partial<Record<PowerEventKind, number>> = {};
 const broadcast = (kind: PowerEventKind): void => {
   const now = Date.now();
   const last = lastEmittedAt[kind];
-  if (last !== undefined && now - last < DEBOUNCE_MS) return;
+  if (last !== undefined && now - last < DEBOUNCE_MS) {
+    return;
+  }
   lastEmittedAt[kind] = now;
   const payload: PowerEvent = { kind };
   for (const win of BrowserWindow.getAllWindows()) {
-    if (win.isDestroyed()) continue;
+    if (win.isDestroyed()) {
+      continue;
+    }
     win.webContents.send("vellum:power:event", payload);
   }
 };
 
 let installed = false;
 export const installPowerEvents = (): void => {
-  if (installed) return;
+  if (installed) {
+    return;
+  }
   installed = true;
 
   // Renderer-relevant `powerMonitor` events. `user-did-become-active`

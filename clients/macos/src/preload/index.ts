@@ -47,6 +47,12 @@ import type {
   VoiceActivityStart,
 } from "@vellumai/ipc-contract";
 import {
+  DIAGNOSTICS_SET_SHARE,
+  FEATURE_FLAGS_SET,
+  FEEDBACK_DIAGNOSTICS,
+  FEEDBACK_LOGS,
+} from "@vellumai/ipc-contract";
+import {
   createDeepLinksBridge,
   createLaunchAtLoginBridge,
 } from "@vellumai/electron-desktop/preload";
@@ -159,12 +165,12 @@ const bridge: VellumBridge = {
   launchAtLogin: createLaunchAtLoginBridge(ipcRenderer),
   featureFlags: {
     set: (flags: Record<string, boolean>): void => {
-      ipcRenderer.send("vellum:featureFlags:set", flags);
+      ipcRenderer.send(FEATURE_FLAGS_SET, flags);
     },
   },
   diagnostics: {
     setShareDiagnostics: (enabled: boolean): void => {
-      ipcRenderer.send("vellum:diagnostics:setShareDiagnostics", enabled);
+      ipcRenderer.send(DIAGNOSTICS_SET_SHARE, enabled);
     },
   },
   helper: {
@@ -332,11 +338,11 @@ const bridge: VellumBridge = {
   paths: fileOpenBridge.paths,
   feedback: {
     diagnostics: () =>
-      ipcRenderer.invoke("vellum:feedback:diagnostics") as Promise<
+      ipcRenderer.invoke(FEEDBACK_DIAGNOSTICS) as Promise<
         Record<string, unknown>
       >,
     logs: () =>
-      ipcRenderer.invoke("vellum:feedback:logs") as Promise<string>,
+      ipcRenderer.invoke(FEEDBACK_LOGS) as Promise<string>,
   },
   connectivity: {
     onState: (callback) => {

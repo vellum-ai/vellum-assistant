@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-import { on } from "./ipc";
+import { on } from "./presence-runtime";
 
 /**
  * Active assistant display name (e.g. "Aria"), published by the renderer
@@ -45,9 +45,13 @@ export const onNameChange = (listener: NameListener): (() => void) => {
  */
 export const setName = (name: string | null): void => {
   const next = name?.trim() ? name.trim() : null;
-  if (next === currentName) return;
+  if (next === currentName) {
+    return;
+  }
   currentName = next;
-  for (const listener of listeners) listener(next);
+  for (const listener of listeners) {
+    listener(next);
+  }
 };
 
 const namePayloadSchema = z.tuple([z.string()]);
@@ -61,7 +65,9 @@ const namePayloadSchema = z.tuple([z.string()]);
  */
 let installed = false;
 export const installIdentityIpc = (): void => {
-  if (installed) return;
+  if (installed) {
+    return;
+  }
   installed = true;
 
   on("vellum:identity:name", namePayloadSchema, ([name]) => {

@@ -12,8 +12,20 @@ import {
   type VellumCommand,
   type VoiceActivityState,
 } from "@vellumai/ipc-contract";
+import {
+  onSettingChange,
+  readSetting,
+} from "@vellumai/electron-desktop/settings";
+import {
+  readCompanionHidden,
+  writeCompanionHidden,
+} from "@vellumai/electron-desktop/window-state";
 
-import { getAvatarPng, getCharacter, onAvatarChange } from "./avatar";
+import {
+  getAvatarPng,
+  getCharacter,
+  onAvatarChange,
+} from "@vellumai/electron-desktop/avatar";
 import {
   createFloatingWindow,
   getFloatingWindow,
@@ -24,11 +36,6 @@ import {
   dispatchToMain,
   ensureVisible as ensureMainWindowVisible,
 } from "./main-window";
-import { onSettingChange, readSetting } from "./settings";
-import {
-  readCompanionHidden,
-  writeCompanionHidden,
-} from "@vellumai/electron-desktop/window-state";
 
 /**
  * The flag the whole surface is behind, evaluated for the signed-in user and

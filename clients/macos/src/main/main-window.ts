@@ -12,7 +12,7 @@ import { getRendererRootUrl } from "./app-config";
 import { resolveAllowedOrigin } from "./app-origin";
 import { decideNavigation } from "./auth-nav";
 import { type VellumCommand } from "@vellumai/electron-desktop/commands";
-import { getName, onNameChange } from "./identity";
+import { getName, onNameChange } from "@vellumai/electron-desktop/identity";
 import { handle } from "./ipc";
 import { createWindow } from "./windows";
 
@@ -363,9 +363,13 @@ export const installMainWindow = (): void => {
   // (deep links, future notification clicks, etc.). The renderer
   // wrapper at `clients/web/src/runtime/main-window.ts` calls this; the
   // handler returns void so the caller can `await` without value.
-  handle("vellum:mainWindow:ensureVisible", z.tuple([]), async (): Promise<void> => {
-    await ensureVisible();
-  });
+  handle(
+    "vellum:mainWindow:ensureVisible",
+    z.tuple([]),
+    async (): Promise<void> => {
+      await ensureVisible();
+    },
+  );
 
   // Renderer-driven onboarding mode. The renderer is the only side that
   // knows whether the current route is an onboarding step, so it toggles

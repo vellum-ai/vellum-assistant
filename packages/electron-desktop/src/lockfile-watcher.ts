@@ -25,12 +25,12 @@ const DEBOUNCE_MS = 100;
 const EMPTY_LOCKFILE: Lockfile = { assistants: [], activeAssistant: null };
 
 let lockfileCandidates: string[] = [];
+let resolveCandidates: () => readonly string[] = () => [];
 let cachedLockfile: Lockfile = EMPTY_LOCKFILE;
 let lastMtimeMs = 0;
 let pollTimer: ReturnType<typeof setInterval> | null = null;
 let debounceTimer: ReturnType<typeof setTimeout> | null = null;
 const listeners = new Set<LockfileChangeListener>();
-let resolveCandidates: () => readonly string[] = () => [];
 
 const isAccessDenied = (error: unknown): boolean => {
   const code = (error as NodeJS.ErrnoException).code;

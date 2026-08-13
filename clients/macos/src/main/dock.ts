@@ -4,9 +4,13 @@ import { getLockfileData, resolveLockfilePaths } from "@vellumai/local-mode";
 import { app, nativeImage, type NativeImage } from "electron";
 import { z } from "zod";
 
-import { onAvatarChange } from "./avatar";
-import { avatarBitmap } from "./avatar-image";
-import { applyAlphaMask, compositeCentered, roundedRectCoverage } from "./image-mask";
+import { onAvatarChange } from "@vellumai/electron-desktop/avatar";
+import { avatarBitmap } from "@vellumai/electron-desktop/avatar-image";
+import {
+  applyAlphaMask,
+  compositeCentered,
+  roundedRectCoverage,
+} from "@vellumai/electron-desktop/image-mask";
 import { on } from "./ipc";
 import {
   current as currentMainWindow,
@@ -155,7 +159,11 @@ const scheduleRefresh = (): void => {
   refreshTimer = setTimeout(() => {
     refreshTimer = null;
     void applyPolicy(
-      computePolicy(isMainWindowVisible(), state.signedIn, ALLOW_ACCESSORY_MODE),
+      computePolicy(
+        isMainWindowVisible(),
+        state.signedIn,
+        ALLOW_ACCESSORY_MODE,
+      ),
     );
   }, POLICY_DEBOUNCE_MS);
 };
