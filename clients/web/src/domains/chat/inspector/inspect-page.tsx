@@ -39,6 +39,7 @@ import type {
 } from "@vellumai/assistant-api";
 import { Button } from "@vellumai/design-library";
 import { toast } from "@vellumai/design-library/components/toast";
+import { Tabs } from "@vellumai/design-library/components/tabs";
 import { Toggle } from "@vellumai/design-library/components/toggle";
 
 import { CallRail } from "./components/call-rail";
@@ -47,7 +48,12 @@ import {
   type ExportPhase,
 } from "./components/export-progress-modal";
 import { MobileCallSelector } from "./components/mobile-call-selector";
-import { TabBar, type InspectorTab } from "./components/tab-bar";
+import {
+  TABS,
+  TabBar,
+  isInspectorTab,
+  type InspectorTab,
+} from "./components/tab-bar";
 import { CompactionTab } from "./components/tabs/compaction-tab";
 import { MemoryTab } from "./components/tabs/memory-tab";
 import { OverviewTab } from "./components/tabs/overview-tab";
@@ -739,29 +745,48 @@ function Loaded({
             conversationCallCount={conversationCallCount}
           />
         </div>
-        <TabBar selected={tab} onSelect={setTab} />
-        <div className="min-h-0 min-w-0 flex-1 overflow-y-auto">
-          {selectedEntry ? (
-            <TabContent
-              tab={tab}
-              entry={selectedEntry}
-              previousLog={previousLog}
-              detailState={detailState}
-              logs={logs}
-              buildCallHref={buildCallHref}
-              assistantId={assistantId}
-              conversationId={conversationId}
-              context={context}
-              conversationTotalEstimatedCostUsd={
-                context?.conversationTotalEstimatedCostUsd
-              }
-            />
-          ) : (
-            <CenteredMessage tone="muted">
-              Choose a call from the rail to inspect its context.
-            </CenteredMessage>
-          )}
-        </div>
+        <Tabs.Root
+          value={tab}
+          onValueChange={(next) => {
+            if (isInspectorTab(next)) {
+              setTab(next);
+            }
+          }}
+          className="flex min-h-0 min-w-0 flex-1 flex-col"
+        >
+          <TabBar />
+          {/* One panel per tab, so each trigger points at the pane it drives.
+              Radix fills only the selected one and hides the rest, so the map
+              still renders a single call's worth of content. */}
+          {TABS.map(({ id }) => (
+            <Tabs.Panel
+              key={id}
+              value={id}
+              className="min-h-0 min-w-0 flex-1 overflow-y-auto"
+            >
+              {selectedEntry ? (
+                <TabContent
+                  tab={id}
+                  entry={selectedEntry}
+                  previousLog={previousLog}
+                  detailState={detailState}
+                  logs={logs}
+                  buildCallHref={buildCallHref}
+                  assistantId={assistantId}
+                  conversationId={conversationId}
+                  context={context}
+                  conversationTotalEstimatedCostUsd={
+                    context?.conversationTotalEstimatedCostUsd
+                  }
+                />
+              ) : (
+                <CenteredMessage tone="muted">
+                  Choose a call from the rail to inspect its context.
+                </CenteredMessage>
+              )}
+            </Tabs.Panel>
+          ))}
+        </Tabs.Root>
       </main>
     </>
   );
