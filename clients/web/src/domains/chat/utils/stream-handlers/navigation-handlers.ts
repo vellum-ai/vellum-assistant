@@ -7,6 +7,7 @@ import { submitSurfaceAction } from "@/domains/chat/api/surfaces";
 import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
 import { useConversationStore } from "@/stores/conversation-store";
 import { useViewerStore } from "@/stores/viewer-store";
+import { revealConversationView } from "@/utils/conversation-navigation";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { useSubagentStore } from "@/domains/chat/subagent-store";
 import { useWorkflowStore } from "@/domains/chat/workflow-store";
@@ -65,7 +66,7 @@ export function handleOpenConversation(
   if (event.focus === false) {
     return;
   }
-  useViewerStore.getState().setMainView("chat");
+  revealConversationView(event.conversationId);
   // Only wipe per-conversation process state on a genuine switch — a
   // daemon-directed open of the conversation already in view must not kill
   // the inline cards of still-running subagents (LUM-2875; the store only
