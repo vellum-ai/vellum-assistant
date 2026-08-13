@@ -110,23 +110,6 @@ export function ComposerSettingsMenu({
   const [profileOpen, setProfileOpen] = useState(false);
   const [compactOpen, setCompactOpen] = useState(false);
 
-  // All three flags are set from several places (trigger, row selection, quick
-  // add), so the notification reads the settled trio once instead of being
-  // threaded through every setter. `compactOpen` counts too: the compact branch
-  // renders a single hamburger whose menu is the only surface this instance
-  // opens. The ref keeps it a transition callback like the Radix one it
-  // mirrors: a parent passing an inline closure re-runs the effect on every
-  // render, and the drawers start closed.
-  const anyDrawerOpen = accessOpen || profileOpen || compactOpen;
-  const notifiedOpenRef = useRef(false);
-  useEffect(() => {
-    if (notifiedOpenRef.current === anyDrawerOpen) {
-      return;
-    }
-    notifiedOpenRef.current = anyDrawerOpen;
-    onOpenChange?.(anyDrawerOpen);
-  }, [anyDrawerOpen, onOpenChange]);
-
   // ---------------------------------------------------------------------------
   // Server-state queries — replace the old useEffect + async IIFE pattern.
   // Each query shares its TanStack Query cache entry with the rest of the app.
@@ -582,6 +565,43 @@ export function ComposerSettingsMenu({
   const showAccess = accessSettled && segments !== "profile";
   const showProfile = segments !== "access";
 
+  // Only the branch this render mounts can hold an open surface: the compact
+  // hamburger owns `compactOpen`, the split layout owns whichever of
+  // access/profile it renders. Crossing the compact width (or losing a segment)
+  // unmounts the open branch without React clearing its flag, so the report
+  // below reads the mounted branch only.
+  const anyDrawerOpen = compact
+    ? compactOpen
+    : (showAccess && accessOpen) || (showProfile && profileOpen);
+
+  // Clear the flags the mounted branch doesn't own, so crossing back doesn't
+  // reopen a surface the user left behind at the old width.
+  useEffect(() => {
+    if (compact || !showAccess) {
+      setAccessOpen(false);
+    }
+    if (compact || !showProfile) {
+      setProfileOpen(false);
+    }
+    if (!compact) {
+      setCompactOpen(false);
+    }
+  }, [compact, showAccess, showProfile]);
+
+  // The flags are set from several places (trigger, row selection, quick add),
+  // so the notification reads the settled value once instead of being threaded
+  // through every setter. The ref keeps it a transition callback like the Radix
+  // one it mirrors: a parent passing an inline closure re-runs the effect on
+  // every render, and the drawers start closed.
+  const notifiedOpenRef = useRef(false);
+  useEffect(() => {
+    if (notifiedOpenRef.current === anyDrawerOpen) {
+      return;
+    }
+    notifiedOpenRef.current = anyDrawerOpen;
+    onOpenChange?.(anyDrawerOpen);
+  }, [anyDrawerOpen, onOpenChange]);
+
   // Each trigger is the design library's ghost Button — same chrome and
   // sizing as the row's other icon buttons (attach, mic) — in the action
   // row's tertiary resting tone, held open-highlighted while its own menu
@@ -636,6 +656,10 @@ export function ComposerSettingsMenu({
   // (the label lives in the sheet there), matching the access trigger.
   // Falls back to the sliders icon until the active profile resolves so
   // there's always an affordance to open it.
+  // `profileLabel` is the accessible name on every variant, mirroring
+  // `accessLabel`: an aria-label overrides the visible text, so it has to carry
+  // the selection a labelled trigger shows, or the name says nothing about it
+  // and voice control can't reach the control by what it reads.
   const profileLabel = activeProfileLabel
     ? `Model profile: ${activeProfileLabel}`
     : "Model profile";
@@ -653,7 +677,7 @@ export function ComposerSettingsMenu({
       <Button
         variant="ghost"
         leftIcon={<Sparkles className={pillIconClass} />}
-        aria-label="Model profile"
+        aria-label={profileLabel}
         title={profileLabel}
         className={pillClass}
       >
@@ -663,7 +687,7 @@ export function ComposerSettingsMenu({
       <Button
         variant="ghost"
         iconOnly={activeProfileLabel ? <Sparkles /> : <SlidersHorizontal />}
-        aria-label="Model profile"
+        aria-label={profileLabel}
         title={profileLabel}
         className={triggerClass}
       />
@@ -671,7 +695,7 @@ export function ComposerSettingsMenu({
       <Button
         variant="ghost"
         leftIcon={<Sparkles className="h-3.5 w-3.5 shrink-0" />}
-        aria-label="Model profile"
+        aria-label={profileLabel}
         title={profileLabel}
         className={`${triggerClass} ${triggerLabelClass} min-w-0`}
       >
