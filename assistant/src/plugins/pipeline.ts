@@ -303,9 +303,10 @@ export async function callWithTimeout<T>(
  *
  * When `initialCtx` carries a `conversationId`, it is passed to
  * {@link getHookEntriesFor}, which resolves the conversation's per-chat plugin
- * scope (memory, then DB) and skips a hook whose contributing plugin is outside
- * the effective set. Contexts without a `conversationId` impose no restriction —
- * every globally-enabled plugin's hook runs.
+ * scope (memory, then DB) and skips a user-plugin hook whose owner is
+ * outside the effective set. First-party default plugins always run (unless
+ * workspace-disabled). Contexts without a `conversationId` impose no
+ * restriction: every globally-enabled plugin's hook runs.
  *
  * Before each hook runs, the pipeline stamps the {@link BaseHookContext}
  * capabilities onto its (freshly-cloned) draft, both bound to that hook's
