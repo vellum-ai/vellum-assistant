@@ -1,4 +1,11 @@
 {
+  "addToChatSheet": {
+    "title": "Añadir al chat",
+    "closeAriaLabel": "Cerrar",
+    "camera": "Cámara",
+    "gallery": "Buscar en la galería",
+    "files": "Archivos"
+  },
   "conversationAssets": {
     "heading": "Recursos",
     "label": "{count, plural, one {# recurso} other {# recursos}}",

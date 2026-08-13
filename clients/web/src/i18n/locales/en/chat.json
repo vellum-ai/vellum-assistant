@@ -1,4 +1,11 @@
 {
+  "addToChatSheet": {
+    "title": "Add to chat",
+    "closeAriaLabel": "Close",
+    "camera": "Camera",
+    "gallery": "Find in Gallery",
+    "files": "Files"
+  },
   "conversationAssets": {
     "heading": "Assets",
     "label": "{count, plural, one {# asset} other {# assets}}",

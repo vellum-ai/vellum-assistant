@@ -8,6 +8,7 @@ import {
 } from "lucide-react";
 
 import { useAttachmentFilePicker } from "@/domains/chat/components/chat-attachments/use-attachment-file-picker";
+import { useTranslation } from "@/i18n";
 
 interface AddToChatRowProps {
   icon: LucideIcon;
@@ -56,6 +57,7 @@ export function AddToChatSheet({
   onOpenChange,
   onAttachFiles,
 }: AddToChatSheetProps) {
+  const { t } = useTranslation("chat");
   const camera = useAttachmentFilePicker({
     onFiles: onAttachFiles,
     accept: "image/*",
@@ -97,11 +99,11 @@ export function AddToChatSheet({
           />
           <BottomSheet.Header className="flex-row items-center justify-between gap-2 px-4 pt-3 pb-2">
             <BottomSheet.Title className="text-body-large-default text-[var(--content-tertiary)]">
-              Add to chat
+              {t("addToChatSheet.title")}
             </BottomSheet.Title>
             {/* `-m-2 p-2` grows the tap target without moving the glyph. */}
             <BottomSheet.Close
-              aria-label="Close"
+              aria-label={t("addToChatSheet.closeAriaLabel")}
               className="-m-2 flex shrink-0 items-center justify-center p-2 text-[var(--content-tertiary)]"
             >
               <X className="size-4" />
@@ -110,17 +112,17 @@ export function AddToChatSheet({
           <BottomSheet.Body className="flex flex-col gap-4 px-4 pt-3 pb-4">
             <AddToChatRow
               icon={Camera}
-              label="Camera"
+              label={t("addToChatSheet.camera")}
               onSelect={closeThenPick(camera.openPicker)}
             />
             <AddToChatRow
               icon={ImageIcon}
-              label="Find in Gallery"
+              label={t("addToChatSheet.gallery")}
               onSelect={closeThenPick(gallery.openPicker)}
             />
             <AddToChatRow
               icon={FileIcon}
-              label="Files"
+              label={t("addToChatSheet.files")}
               onSelect={closeThenPick(files.openPicker)}
             />
           </BottomSheet.Body>
