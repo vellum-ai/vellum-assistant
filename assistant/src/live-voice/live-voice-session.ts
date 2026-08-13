@@ -73,6 +73,10 @@ import type {
 import { getSubagentManager } from "../subagent/index.js";
 import { liveVoiceEndScreen } from "../telemetry/live-voice-funnel.js";
 import { getToolOwner } from "../tools/registry.js";
+import {
+  createReasoningTagFilter,
+  type ReasoningTagFilter,
+} from "../tts/reasoning-tag-filter.js";
 import { extractSpeakableSegments } from "../tts/speakable-segments.js";
 import { createAbortReason } from "../util/abort-reasons.js";
 import { hasLocalizedEntry } from "../util/language-subtag.js";
@@ -717,6 +721,10 @@ interface ActiveAssistantTurn {
   // the hand-off idempotent.
   escalationHandedOff: boolean;
   ttsBuffer: string;
+  // Strips inline <think> reasoning spans from the spoken stream. Stateful
+  // per turn because spans and tags cross delta boundaries; display frames
+  // keep the raw text.
+  ttsReasoningFilter: ReasoningTagFilter;
   // A non-empty speakable segment reached the TTS queue — gates the eager
   // first-segment flush that trades clause quality for speech onset.
   ttsSegmentEnqueued: boolean;
@@ -4503,6 +4511,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       deltaEpoch: 0,
       escalationHandedOff: false,
       ttsBuffer: "",
+      ttsReasoningFilter: createReasoningTagFilter(),
       ttsSegmentEnqueued: false,
       ttsJobs: [],
       ttsQueue: Promise.resolve(),
@@ -5492,7 +5501,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       return;
     }
 
-    activeTurn.ttsBuffer += text;
+    activeTurn.ttsBuffer += activeTurn.ttsReasoningFilter.push(text);
     this.flushTtsBuffer(token, false);
   }
 
@@ -5503,6 +5512,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     }
 
     this.clearFillerTimers(activeTurn);
+    activeTurn.ttsBuffer += activeTurn.ttsReasoningFilter.flush();
     this.flushTtsBuffer(token, true);
     activeTurn.ttsQueue = activeTurn.ttsQueue
       .catch(() => {})
