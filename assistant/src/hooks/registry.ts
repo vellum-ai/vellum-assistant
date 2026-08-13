@@ -18,10 +18,10 @@
  * the hooks stay registered but are filtered out on the next turn.
  */
 
-import { collectUserHookEntries } from "./hook-loader.js";
 import { isPluginDisabled } from "../plugins/disabled-state.js";
 import { getDiscoveredUserPluginNames } from "../plugins/mtime-cache.js";
 import type { HookEntry, HookFunction } from "../plugins/types.js";
+import { collectUserHookEntries } from "./hook-loader.js";
 
 // ─── Internal state ──────────────────────────────────────────────────────────
 
