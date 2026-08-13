@@ -17,11 +17,17 @@ import {
   type ChatAttachment,
   useComposerStore,
 } from "@/domains/chat/composer-store";
+import { selectFiles } from "@/domains/chat/components/chat-attachments/attachment-test-helpers";
+import {
+  MOBILE_CONTROL_CLASS,
+  MOBILE_GLYPH_CLASS,
+} from "@/domains/chat/components/chat-composer/composer-mobile-chrome";
 import type { VoiceInputButtonHandle } from "@/domains/chat/components/voice-input-button";
 import type { LiveVoicePreflightVerdict } from "@/domains/chat/voice/live-voice/live-voice-preflight-api";
 import { INITIAL_TURN_STATE, useTurnStore } from "@/domains/chat/turn-store";
 import * as assistantAvatarMod from "@/hooks/use-assistant-avatar";
 import * as emojiCatalogMod from "@/domains/chat/components/chat-composer/emoji-catalog";
+import * as nativeAuthMod from "@/runtime/native-auth";
 import { useVoicePrefsStore } from "@/stores/voice-prefs-store";
 import { viewportAxesStub } from "@/hooks/viewport-axes.test-helper";
 
@@ -54,6 +60,15 @@ mock.module("@/runtime/is-electron", () => ({
 let mockIsNativeIOS = false;
 mock.module("@/runtime/platform-detection", () => ({
   isNativeIOS: () => mockIsNativeIOS,
+}));
+
+// The native shell, which is the only place dictation's inline preview takes
+// the textarea's place in the row. Defaults to the browser; the row-layout
+// cases below flip it.
+let mockIsNativePlatform = false;
+mock.module("@/runtime/native-auth", () => ({
+  ...nativeAuthMod,
+  useIsNativePlatform: () => mockIsNativePlatform,
 }));
 
 // Live-voice integration. The session controller (`useLiveVoice`) lives in
@@ -262,6 +277,7 @@ function resetLiveVoiceMocks() {
   mockSupportsLiveVoice = true;
   mockIsElectron = false;
   mockIsNativeIOS = false;
+  mockIsNativePlatform = false;
   mockVoicePhase = "idle";
   mockPreflightVerdict = { status: "ready" };
   preflightSpy.mockClear();
@@ -760,18 +776,6 @@ function textareaOf(container: HTMLElement) {
  */
 function glyphClassOf(button: Element | null): string {
   return button?.querySelector("span")?.className ?? "";
-}
-
-/** A `FileList` stand-in, which the test DOM cannot construct. */
-function fileListOf(files: File[]): FileList {
-  const list = {
-    length: files.length,
-    item: (index: number) => files[index] ?? null,
-  } as unknown as FileList;
-  files.forEach((file, index) => {
-    (list as unknown as Record<number, File>)[index] = file;
-  });
-  return list;
 }
 
 describe("ChatComposer — placeholder", () => {
@@ -1300,9 +1304,28 @@ describe("ChatComposer: single-row mobile composer", () => {
       // THEN the plus is the row's 40x40 circle carrying a 20px glyph in both,
       // rather than a desktop control sitting inside a mobile row
       const plus = control(container, PLUS_LABEL);
-      expect(plus?.className).toContain("h-10 w-10 rounded-full");
-      expect(glyphClassOf(plus)).toContain("size-5");
+      expect(plus?.className).toContain(MOBILE_CONTROL_CLASS);
+      expect(glyphClassOf(plus)).toContain(MOBILE_GLYPH_CLASS);
     }
+  });
+
+  test("native dictation leaves the row's right controls anchored right", () => {
+    // GIVEN a phone in the native shell mid-dictation, where the inline
+    // waveform takes the textarea's place in the row
+    mockIsNativePlatform = true;
+    mockVoicePhase = "recording";
+    viewport.set({ narrow: true, coarsePointer: true });
+    const { container, queryByLabelText } = renderVoiceComposer();
+
+    // THEN the text field is out of the layout, and its `flex-1` with it
+    expect(container.querySelector("textarea")?.parentElement?.className).toBe(
+      "hidden",
+    );
+
+    // WHILE the right-hand group anchors itself rather than packing against
+    // the plus on the row's left edge
+    const rightGroup = queryByLabelText("Start voice input")?.parentElement;
+    expect(rightGroup?.className).toContain("ml-auto");
   });
 
   test("the context-window indicator centres against the row's controls", () => {
@@ -1374,11 +1397,7 @@ describe("ChatComposer: single-row mobile composer", () => {
 
     // WHEN the picker returns a file
     const picked = new File(["x"], "picked.png", { type: "image/png" });
-    Object.defineProperty(input, "files", {
-      configurable: true,
-      value: fileListOf([picked]),
-    });
-    fireEvent.change(input);
+    selectFiles(input, [picked]);
 
     // THEN it lands on the same callback the paperclip and the sheet feed
     expect(onAddAttachmentFiles).toHaveBeenCalledTimes(1);
@@ -1435,10 +1454,10 @@ describe("ChatComposer: single-row mobile composer", () => {
 // ---------------------------------------------------------------------------
 
 describe("ChatComposer: the mobile send slot", () => {
-  // Plain, unprefixed classes: the row's chrome answers to the same width
-  // signal that produces the row, so it lands on every narrow window rather
-  // than only on the coarse-pointer ones the `touch-mobile:` variant reaches.
-  const CIRCLE_CLASS = "h-10 w-10 rounded-full";
+  // The row's own chrome (`MOBILE_CONTROL_CLASS`) carries plain, unprefixed
+  // classes: it answers to the same width signal that produces the row, so it
+  // lands on every narrow window rather than only on the coarse-pointer ones
+  // the `touch-mobile:` variant reaches.
   const SEND_FILL_CLASS = "bg-[var(--system-positive-strong)]";
 
   test("an empty draft leaves the circular live-voice button in the slot", () => {
@@ -1448,7 +1467,7 @@ describe("ChatComposer: the mobile send slot", () => {
 
     // THEN voice mode holds the slot as a filled circle
     const voice = queryByLabelText("Start voice mode");
-    expect(voice?.className).toContain(CIRCLE_CLASS);
+    expect(voice?.className).toContain(MOBILE_CONTROL_CLASS);
     expect(queryByLabelText("Send message")).toBeNull();
   });
 
@@ -1459,7 +1478,7 @@ describe("ChatComposer: the mobile send slot", () => {
 
     // THEN send takes the circle over, in the filled tone of the design
     const send = queryByLabelText("Send message");
-    expect(send?.className).toContain(CIRCLE_CLASS);
+    expect(send?.className).toContain(MOBILE_CONTROL_CLASS);
     expect(send?.className).toContain(SEND_FILL_CLASS);
     expect(queryByLabelText("Start voice mode")).toBeNull();
 
@@ -1478,7 +1497,7 @@ describe("ChatComposer: the mobile send slot", () => {
     // THEN the circle stays but the filled tone does not, so a blocked send
     // never reads as one waiting to be pressed
     const send = queryByLabelText("Send message");
-    expect(send?.className).toContain(CIRCLE_CLASS);
+    expect(send?.className).toContain(MOBILE_CONTROL_CLASS);
     expect(send?.className).not.toContain(SEND_FILL_CLASS);
   });
 
@@ -1509,8 +1528,8 @@ describe("ChatComposer: the mobile send slot", () => {
     // THEN a turn starting does not shrink the row's right end back to a
     // desktop control
     const stop = empty.queryByLabelText("Stop generating");
-    expect(stop?.className).toContain(CIRCLE_CLASS);
-    expect(glyphClassOf(stop)).toContain("size-5");
+    expect(stop?.className).toContain(MOBILE_CONTROL_CLASS);
+    expect(glyphClassOf(stop)).toContain(MOBILE_GLYPH_CLASS);
 
     // AND the send it gives the slot to, once there is a draft, is the same
     // filled circle the resting composer offers
@@ -1520,7 +1539,7 @@ describe("ChatComposer: the mobile send slot", () => {
       isAssistantBusy: true,
     });
     const send = drafted.queryByLabelText("Send message");
-    expect(send?.className).toContain(CIRCLE_CLASS);
+    expect(send?.className).toContain(MOBILE_CONTROL_CLASS);
     expect(send?.className).toContain(SEND_FILL_CLASS);
   });
 
@@ -1532,9 +1551,9 @@ describe("ChatComposer: the mobile send slot", () => {
     // THEN the row it takes carries the row's chrome throughout, rather than
     // pairing a mobile layout with desktop controls
     const send = queryByLabelText("Send message");
-    expect(send?.className).toContain(CIRCLE_CLASS);
+    expect(send?.className).toContain(MOBILE_CONTROL_CLASS);
     expect(send?.className).toContain(SEND_FILL_CLASS);
-    expect(glyphClassOf(send)).toContain("size-5");
+    expect(glyphClassOf(send)).toContain(MOBILE_GLYPH_CLASS);
   });
 
   test("the voice circle follows the same signal as the send it shares with", () => {
@@ -1546,8 +1565,8 @@ describe("ChatComposer: the mobile send slot", () => {
 
       // THEN voice mode holds the slot as the same filled circle either way
       const voice = queryByLabelText("Start voice mode");
-      expect(voice?.className).toContain(CIRCLE_CLASS);
-      expect(glyphClassOf(voice)).toContain("size-5");
+      expect(voice?.className).toContain(MOBILE_CONTROL_CLASS);
+      expect(glyphClassOf(voice)).toContain(MOBILE_GLYPH_CLASS);
     }
   });
 
@@ -1560,7 +1579,7 @@ describe("ChatComposer: the mobile send slot", () => {
     const send = queryByLabelText("Send message");
     expect(send?.className).not.toContain("rounded-full");
     expect(send?.className).not.toContain(SEND_FILL_CLASS);
-    expect(glyphClassOf(send)).not.toContain("size-5");
+    expect(glyphClassOf(send)).not.toContain(MOBILE_GLYPH_CLASS);
   });
 });
 

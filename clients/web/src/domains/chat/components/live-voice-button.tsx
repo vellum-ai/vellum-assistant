@@ -17,6 +17,10 @@
 
 import { AudioLines } from "lucide-react";
 
+import {
+  MOBILE_CONTROL_CLASS,
+  MOBILE_GLYPH_CLASS,
+} from "@/domains/chat/components/chat-composer/composer-mobile-chrome";
 import { Button } from "@vellumai/design-library";
 
 interface LiveVoiceButtonProps {
@@ -54,9 +58,9 @@ export function LiveVoiceButton({
       // The row's own signal sizes the circle, so the primitive's mobile growth
       // steps aside; the fill is the `primary` token the design's light circle
       // resolves to.
-      iconOnlyGlyphClassName={mobileRow ? "size-5 [&_svg]:size-5" : undefined}
+      iconOnlyGlyphClassName={mobileRow ? MOBILE_GLYPH_CLASS : undefined}
       expandOnMobile={!mobileRow}
-      className={mobileRow ? "h-10 w-10 rounded-full" : undefined}
+      className={mobileRow ? MOBILE_CONTROL_CLASS : undefined}
       // Anchor for the in-chat tour's closing beat, which lands the assistant's
       // avatar on this control.
       data-tour-id="voice-mode"

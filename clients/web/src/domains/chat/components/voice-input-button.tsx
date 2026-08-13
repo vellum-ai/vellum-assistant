@@ -24,6 +24,11 @@ import {
   type SttFailureReason,
 } from "@/domains/chat/voice/stt-api";
 import { useVoiceRecordingStore } from "@/domains/chat/voice/voice-recording-store";
+import {
+  MOBILE_CONTROL_CLASS,
+  MOBILE_GHOST_WASH_CLASS,
+  MOBILE_GLYPH_CLASS,
+} from "@/domains/chat/components/chat-composer/composer-mobile-chrome";
 import { useIsNativePlatform } from "@/runtime/native-auth";
 import { useVellumCommands } from "@/runtime/vellum-commands";
 import { getVoiceInputMediaStream } from "@/utils/voice-input-device";
@@ -1074,7 +1079,7 @@ export const VoiceInputButton = forwardRef<
       // loader keep the Button's default icon-only sizing.
       iconOnlyGlyphClassName={
         mobileRow
-          ? "size-5 [&_svg]:size-5"
+          ? MOBILE_GLYPH_CLASS
           : recording
             ? "[&_svg]:size-5 touch-mobile:[&_svg]:size-5"
             : undefined
@@ -1105,8 +1110,7 @@ export const VoiceInputButton = forwardRef<
         // The press wash comes with the sizing: the primitive paints one for
         // ghost icon-only buttons under `touch-mobile:` alone, which a narrow
         // mouse-driven window never matches.
-        mobileRow &&
-          "h-10 w-10 rounded-full hover:bg-[var(--surface-active)] active:bg-[var(--surface-active)]",
+        mobileRow && cn(MOBILE_CONTROL_CLASS, MOBILE_GHOST_WASH_CLASS),
         isNative && recording && "h-12 w-12 max-md:h-12 max-md:w-12",
       )}
     />
