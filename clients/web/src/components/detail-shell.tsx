@@ -37,7 +37,7 @@ export interface DetailShellHeaderProps {
   headerActions?: ReactNode;
   closeLabel?: string;
   /**
-   * Close-button hover tooltip. Defaults to the untranslated "Close" — fine
+   * Close-button hover tooltip. Defaults to the untranslated "Close": fine
    * for domains outside the i18n cutover, but callers whose path is on the
    * `local/no-untranslated-strings` allowlist (see `eslint.config.mjs`) must
    * pass their own `t()`'d copy here instead.
@@ -95,7 +95,7 @@ export function DetailShellHeader({
         tooltip={closeTooltip}
         // `-ml-1` trims the row's `gap-3` (12px) down to 8px specifically
         // between Close and whatever `headerActions` renders right before it
-        // (a Stop button, "Go to Convo", …) — every other header gap stays at
+        // (a Stop button, "Go to Convo", …). Every other header gap stays at
         // 12px, since the negative margin only pulls in this one edge.
         className={headerActions ? "shrink-0 -ml-1" : "shrink-0"}
       />
@@ -129,7 +129,7 @@ export function DetailShell({
       {/* Scrollable body */}
       <div className="flex-1 overflow-y-auto px-5 py-5">{children}</div>
 
-      {/* Pinned footer. Divider uses `--border-hover`, matching the header —
+      {/* Pinned footer. Divider uses `--border-hover`, matching the header:
           `--border-base` equals the drawer's `--surface-lift` in dark mode
           and renders invisible. */}
       {footer && (

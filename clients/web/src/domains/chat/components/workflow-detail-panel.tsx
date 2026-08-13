@@ -102,7 +102,7 @@ export function WorkflowDetailPanel({
   return (
     <DetailShell
       headerAbove={
-        // Breadcrumb — only shown once a leaf's nested detail is open; the
+        // Breadcrumb: only shown once a leaf's nested detail is open; the
         // top-level subagents list has no breadcrumb. The workflow crumb is a
         // button that returns to the list, mirroring the header Back button.
         selectedLeaf && (
@@ -185,7 +185,7 @@ export function WorkflowDetailPanel({
       closeLabel="Close workflow detail"
       onClose={onClose}
     >
-      {/* Body — swaps to a leaf's nested detail when one is open, keeping the
+      {/* Body: swaps to a leaf's nested detail when one is open, keeping the
           header above mounted in both views. */}
       <motion.div
           key={selectedLeaf ? String(selectedLeaf.seq) : "list"}

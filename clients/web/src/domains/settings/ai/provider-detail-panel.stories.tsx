@@ -8,7 +8,7 @@ import { ProviderDetailPanel } from "./provider-detail-panel";
 
 const ASSISTANT_ID = "story-assistant";
 
-// Casts mirror `profile-detail-panel.test.tsx`'s fixture — `auth`/`models`
+// Casts mirror `profile-detail-panel.test.tsx`'s fixture: `auth`/`models`
 // carry unions the story doesn't need to fully enumerate.
 const CONNECTIONS: ProviderConnection[] = [
   {

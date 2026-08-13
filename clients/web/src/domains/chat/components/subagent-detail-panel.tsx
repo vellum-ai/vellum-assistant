@@ -271,7 +271,7 @@ export function SubagentDetailPanel({
   return (
     <DetailShell
       headerAbove={
-        // Breadcrumb — only shown once a nested step detail is open; the
+        // Breadcrumb: only shown once a nested step detail is open; the
         // top-level subagent timeline has no breadcrumb. The subagent crumb is
         // a button that returns to the timeline (retaining expanded groups),
         // mirroring the header Back button; the step crumb is the current
@@ -351,7 +351,7 @@ export function SubagentDetailPanel({
       closeLabel="Close subagent detail"
       onClose={onClose}
     >
-      {/* Body — swaps to a step's nested detail when one is selected, keeping
+      {/* Body: swaps to a step's nested detail when one is selected, keeping
           the header above mounted in both views. */}
       <motion.div
           key={activeDetail ? "detail" : "list"}

@@ -17,7 +17,7 @@ const noopMutation = {
  * `useSystemTasks`'s return type composes several TanStack Query results and
  * mutations. Storybook only exercises the header + static config display, so
  * the fetched-state fields are faked and the mutation-shaped fields are
- * stand-ins — hence the cast rather than a real hook return.
+ * stand-ins, hence the cast rather than a real hook return.
  */
 function makeSystemTasks() {
   return {

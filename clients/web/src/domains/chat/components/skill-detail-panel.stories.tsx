@@ -12,7 +12,7 @@ import { SkillDetailPanel } from "./skill-detail-panel";
 
 /**
  * Both the skill and its SKILL.md content are seeded into a story-local
- * cache, so the panel renders with no network and no mocks — matching the
+ * cache, so the panel renders with no network and no mocks, matching the
  * pattern in `intelligence/components/skills/skill-detail.stories.tsx`.
  */
 

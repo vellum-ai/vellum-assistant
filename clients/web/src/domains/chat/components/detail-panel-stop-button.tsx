@@ -9,7 +9,7 @@
  * sibling Back/Close buttons in the same header.
  *
  * The gap to the Close button that always follows is trimmed to 8px by
- * `DetailShellHeader` itself, not by this component — every `headerActions`
+ * `DetailShellHeader` itself, not by this component: every `headerActions`
  * control gets that treatment for free.
  *
  * The hover override keeps this button's weak-fill hover instead of
