@@ -26,7 +26,12 @@ import {
   waitFor,
 } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
-import { createElement, type ReactNode } from "react";
+import {
+  createContext,
+  createElement,
+  useContext,
+  type ReactNode,
+} from "react";
 
 // --- use-is-mobile -----------------------------------------------------------
 const isMobileRef = { value: false };
@@ -72,10 +77,39 @@ mock.module("@/components/profile-quick-add-provider", () => ({
 // --- design-library surfaces (render content inline) -------------------------
 const passthrough = ({ children, ...props }: Record<string, unknown>) =>
   createElement("div", props, children as ReactNode);
+// Radix owns the open state on the Root and flips it when the trigger is
+// activated. The mock hands the Root's `onOpenChange` down to its Trigger so a
+// click on a trigger opens the surface the way it does in the app.
+const OpenChangeContext = createContext<((open: boolean) => void) | undefined>(
+  undefined,
+);
+const surfaceRoot = ({
+  children,
+  open: _open,
+  onOpenChange,
+  ...props
+}: Record<string, unknown>) =>
+  createElement(
+    OpenChangeContext.Provider,
+    { value: onOpenChange as ((open: boolean) => void) | undefined },
+    createElement("div", props, children as ReactNode),
+  );
+const SurfaceTrigger = ({
+  children,
+  asChild: _asChild,
+  ...props
+}: Record<string, unknown>) => {
+  const onOpenChange = useContext(OpenChangeContext);
+  return createElement(
+    "div",
+    { ...props, onClick: () => onOpenChange?.(true) },
+    children as ReactNode,
+  );
+};
 mock.module("@vellumai/design-library", () => {
   const MenuMock = {
-    Root: passthrough,
-    Trigger: passthrough,
+    Root: surfaceRoot,
+    Trigger: SurfaceTrigger,
     Content: passthrough,
     Item: ({
       children,
@@ -97,8 +131,8 @@ mock.module("@vellumai/design-library", () => {
     Separator: () => createElement("hr"),
   };
   const BottomSheetMock = {
-    Root: passthrough,
-    Trigger: passthrough,
+    Root: surfaceRoot,
+    Trigger: SurfaceTrigger,
     Content: passthrough,
     Header: passthrough,
     Title: passthrough,
@@ -633,6 +667,118 @@ describe("Profile activation rejected by the daemon", () => {
       expect(toastError).toHaveBeenCalledWith(
         "Failed to switch profile. Please try again.",
       );
+    });
+  });
+});
+
+describe("labeled-pill trigger variant", () => {
+  // Preset[1] ("Conservative") is what the mocked global threshold of 50
+  // resolves to, so it is the label the access trigger settles on.
+  const ACCESS_TRIGGER_LABEL = "Assistant access: Conservative";
+
+  function renderVariant(props: {
+    triggerVariant?: "icon" | "labeled-pill";
+    onOpenChange?: (open: boolean) => void;
+  }) {
+    isMobileRef.value = true;
+    isTouchMobileRef.value = true;
+    // Guard against a hanging/altered impl leaking from a prior test.
+    configGetMock.mockImplementation(async () => ({
+      data: {
+        llm: {
+          profileOrder: ["smart"],
+          profiles: {
+            smart: {
+              label: "Smart",
+              provider: "anthropic",
+              model: "claude-fable-5",
+            },
+          },
+          activeProfile: "smart",
+        },
+      },
+    }));
+    conversationsByIdGetMock.mockImplementation(async () => ({
+      data: { conversation: { inferenceProfile: null } },
+    }));
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: { retry: false },
+        mutations: { retry: false },
+      },
+    });
+    return render(
+      createElement(
+        QueryClientProvider,
+        { client: queryClient },
+        createElement(ComposerSettingsMenu, {
+          assistantId: "assistant-1",
+          conversationId: "conv-1",
+          ...props,
+        }),
+      ),
+    );
+  }
+
+  test("renders the resolved access and profile labels on the pills", async () => {
+    renderVariant({ triggerVariant: "labeled-pill" });
+
+    const accessTrigger = await screen.findByLabelText(ACCESS_TRIGGER_LABEL);
+    expect(accessTrigger.textContent).toContain("Conservative");
+
+    const profileTrigger = await screen.findByLabelText("Model profile");
+    await waitFor(() => {
+      expect(profileTrigger.textContent).toContain("Smart");
+    });
+  });
+
+  test("the default icon variant keeps the mobile triggers unlabeled", async () => {
+    renderVariant({});
+
+    const accessTrigger = await screen.findByLabelText(ACCESS_TRIGGER_LABEL);
+    expect(accessTrigger.textContent).toBe("");
+    expect((await screen.findByLabelText("Model profile")).textContent).toBe(
+      "",
+    );
+  });
+
+  test("tapping a pill opens the same bottom sheet and reports the open state", async () => {
+    const onOpenChange = mock((_open: boolean) => {});
+    renderVariant({ triggerVariant: "labeled-pill", onOpenChange });
+
+    const accessTrigger = await screen.findByLabelText(ACCESS_TRIGGER_LABEL);
+    fireEvent.click(accessTrigger);
+    await waitFor(() => {
+      expect(onOpenChange).toHaveBeenLastCalledWith(true);
+    });
+
+    // The sheet the pill opens holds the same access rows the icon trigger
+    // opens today; picking one closes it again.
+    const relaxed = screen
+      .getAllByTestId("panel-item")
+      .find((row) => row.textContent?.includes("Relaxed"));
+    fireEvent.click(relaxed!);
+    await waitFor(() => {
+      expect(onOpenChange).toHaveBeenLastCalledWith(false);
+    });
+  });
+
+  test("reports the profile sheet's open state too", async () => {
+    const onOpenChange = mock((_open: boolean) => {});
+    renderVariant({ triggerVariant: "labeled-pill", onOpenChange });
+
+    const profileTrigger = await screen.findByLabelText("Model profile");
+    fireEvent.click(profileTrigger);
+    await waitFor(() => {
+      expect(onOpenChange).toHaveBeenLastCalledWith(true);
+    });
+
+    const smart = screen
+      .getAllByTestId("panel-item")
+      .find((row) => row.textContent?.includes("Smart"));
+    fireEvent.click(smart!);
+    await waitFor(() => {
+      expect(onOpenChange).toHaveBeenLastCalledWith(false);
     });
   });
 });
