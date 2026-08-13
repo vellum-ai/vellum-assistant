@@ -43,6 +43,7 @@ export interface CliLauncherInstallOptions extends CliLauncherFileOperations {
 }
 
 const LAUNCHER_VERSION = 1;
+const LEGACY_LAUNCHER_ENTRIES = ["vellum.exe", "bun.exe"] as const;
 
 export type RegistryRunner = (
   command: string,
@@ -117,6 +118,25 @@ function readOwnership(paths: CliLauncherPaths): LauncherOwnership | undefined {
   } catch {
     return undefined;
   }
+}
+
+function isLegacyOwnership(ownership: LauncherOwnership): boolean {
+  return (
+    ownership.launcherVersion === undefined && ownership.ownerId === undefined
+  );
+}
+
+function isOwnedByExpectedInstaller(
+  ownership: LauncherOwnership,
+  expectedOwnerId?: string,
+): boolean {
+  if (!expectedOwnerId) {
+    return true;
+  }
+  if (ownership.ownerId !== undefined) {
+    return sameWindowsPath(ownership.ownerId, expectedOwnerId);
+  }
+  return isLegacyOwnership(ownership);
 }
 
 export function getCliLauncherState(
@@ -386,29 +406,25 @@ export function uninstallCliLauncher(
   expectedOwnerId?: string,
 ): CliLauncherUninstallResult {
   const ownership = readOwnership(paths);
-  if (
-    !ownership ||
-    (expectedOwnerId &&
-      (!ownership.ownerId ||
-        !sameWindowsPath(ownership.ownerId, expectedOwnerId)))
-  ) {
+  if (!ownership || !isOwnedByExpectedInstaller(ownership, expectedOwnerId)) {
     return "not-owned";
   }
   const userPath = readUserPath(run);
   if (userPath === undefined) {
     throw new Error("Unable to read the Windows user PATH.");
   }
-  const pending = existsSync(paths.executable)
-    ? [
-        {
-          target: paths.executable,
-          staging: path.join(
-            paths.binDir,
-            `.vellum.exe.${process.pid}.uninstalling`,
-          ),
-        },
-      ]
-    : [];
+  const ownedTargets = isLegacyOwnership(ownership)
+    ? LEGACY_LAUNCHER_ENTRIES.map((name) => path.join(paths.binDir, name))
+    : [paths.executable];
+  const pending = ownedTargets
+    .filter((target) => existsSync(target))
+    .map((target) => ({
+      target,
+      staging: path.join(
+        paths.binDir,
+        `.${path.basename(target)}.${process.pid}.uninstalling`,
+      ),
+    }));
   const moved: typeof pending = [];
   const restoreMoved = (): void => {
     for (const file of moved.reverse()) {

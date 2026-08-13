@@ -330,6 +330,45 @@ test("preserves a launcher owned by another installed environment", () => {
   );
 });
 
+test("removes a launcher with legacy ownership metadata", () => {
+  const root = makeTempDir();
+  const paths = resolveCliLauncherPaths(path.join(root, "Local App Data"));
+  const source = writeRuntime(path.join(root, "runtime"), "1.0.0");
+  const userRegistry = registry(paths.binDir);
+  const legacyBun = path.join(paths.binDir, "bun.exe");
+  mkdirSync(paths.binDir, { recursive: true });
+  writeFileSync(paths.executable, "legacy vellum", "utf8");
+  writeFileSync(legacyBun, "legacy bun", "utf8");
+  writeFileSync(
+    paths.ownership,
+    JSON.stringify({ sourcePath: source, version: "1.0.0" }),
+    "utf8",
+  );
+
+  expect(
+    uninstallCliLauncher(paths, userRegistry.run, path.join(root, "resources")),
+  ).toBe("removed");
+  expect(existsSync(paths.executable)).toBeFalse();
+  expect(existsSync(legacyBun)).toBeFalse();
+  expect(existsSync(paths.ownership)).toBeFalse();
+  expect(userRegistry.value().split(";")).not.toContain(paths.binDir);
+});
+
+test("requires an owner ID for current launcher metadata", () => {
+  const root = makeTempDir();
+  const paths = resolveCliLauncherPaths(path.join(root, "Local App Data"));
+  const source = writeRuntime(path.join(root, "runtime"), "1.0.0");
+  const userRegistry = registry();
+  installCliLauncher(source, "1.0.0", paths, userRegistry.run);
+
+  expect(
+    uninstallCliLauncher(paths, userRegistry.run, path.join(root, "resources")),
+  ).toBe("not-owned");
+  expect(existsSync(paths.executable)).toBeTrue();
+  expect(existsSync(paths.ownership)).toBeTrue();
+  expect(userRegistry.value().split(";")).toContain(paths.binDir);
+});
+
 test("skips missing and foreign launchers during uninstall", () => {
   const root = makeTempDir();
   const paths = resolveCliLauncherPaths(path.join(root, "Local App Data"));
