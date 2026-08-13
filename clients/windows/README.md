@@ -46,6 +46,8 @@ Packaged Windows startup installs the bundled CLI runtime for the current user:
 - Long-lived assistant, gateway, and worker executables remain in the
   versioned runtime. Provisioning and uninstall never replace or remove those
   executables while they may be running.
+- The versioned runtime includes the web SPA used by the web client and remote
+  web ingress.
 - The launcher directory is added to `HKCU\Environment\Path`. The app broadcasts
   the environment change to the Windows shell after a successful write.
 - Machine PATH entries are evaluated before user entries. If another

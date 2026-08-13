@@ -150,6 +150,7 @@ for (const [source, name] of [
   ["assistant/src/runtime/routes/brain-graph", "brain-graph"],
   ["assistant/src/plugins/defaults", "default-plugins"],
   ["skills", "first-party-skills"],
+  ["clients/windows/resources/web-dist", "web-dist"],
 ] as const) {
   cpSync(path.join(repoRoot, source), path.join(outputDir, name), {
     recursive: true,

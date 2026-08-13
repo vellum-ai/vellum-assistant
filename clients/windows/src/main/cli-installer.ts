@@ -48,6 +48,7 @@ export const CLI_RUNTIME_ASSETS = [
   "brain-graph",
   "default-plugins",
   "first-party-skills",
+  "web-dist",
   "node_modules",
   "feature-flag-registry.json",
   "web-tree-sitter.wasm",
