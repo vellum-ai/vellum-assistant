@@ -89,21 +89,21 @@ export function ByoServiceCard({
   );
 }
 
-export function ManagedServicesBanner() {
-  function PricingLink({ children }: PropsWithChildren) {
-    return (
-      <a
-        href="https://www.vellum.ai/docs/pricing"
-        target="_blank"
-        rel="noopener noreferrer"
-        className="inline-flex items-center gap-1 text-[var(--primary-base)] hover:underline"
-      >
-        {children}
-        <ExternalLink className="h-3.5 w-3.5" />
-      </a>
-    );
-  }
+function ManagedServicesPricingLink({ children }: PropsWithChildren) {
+  return (
+    <a
+      href="https://www.vellum.ai/docs/pricing"
+      target="_blank"
+      rel="noopener noreferrer"
+      className="inline-flex items-center gap-1 text-[var(--primary-base)] hover:underline"
+    >
+      {children}
+      <ExternalLink className="h-3.5 w-3.5" />
+    </a>
+  );
+}
 
+export function ManagedServicesBanner() {
   return (
     <div className="flex items-start gap-2 rounded-lg border border-[var(--border-base)] bg-[var(--surface-base)] px-4 py-2.5">
       <Info className="mt-0.5 h-4 w-4 shrink-0 text-[var(--content-tertiary)]" />
@@ -111,7 +111,7 @@ export function ManagedServicesBanner() {
         <Trans
           i18nKey="sharedUi.managedServicesBanner"
           ns="settings"
-          components={{ link: <PricingLink /> }}
+          components={{ link: <ManagedServicesPricingLink /> }}
         />
       </p>
     </div>

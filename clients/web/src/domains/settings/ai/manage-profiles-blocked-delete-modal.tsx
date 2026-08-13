@@ -5,7 +5,7 @@ import { Typography } from "@vellumai/design-library/components/typography";
 
 import { profilePickerLabel } from "@/assistant/profile-pickers";
 import type { ProfileWithName } from "@/domains/settings/ai/utils";
-import { useTranslation } from "@/i18n";
+import { t, useTranslation } from "@/i18n";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -91,18 +91,17 @@ function ReferenceList({
   );
 }
 
-function buildSummary(
-  blocked: BlockedDeleteState,
-  translate: (key: string, options?: Record<string, unknown>) => string,
-): string {
+function buildSummary(blocked: BlockedDeleteState): string {
   const display = blocked.label || blocked.name;
   const clauses: string[] = [];
   if (blocked.isActive) {
-    clauses.push(translate("manageProfilesBlockedDeleteModal.clauseDefaultProfile"));
+    clauses.push(
+      t("settings:manageProfilesBlockedDeleteModal.clauseDefaultProfile"),
+    );
   }
   if (blocked.callSiteIds.length > 0) {
     clauses.push(
-      translate("manageProfilesBlockedDeleteModal.clauseActionOverrides", {
+      t("settings:manageProfilesBlockedDeleteModal.clauseActionOverrides", {
         count: blocked.callSiteIds.length,
       }),
     );
@@ -111,43 +110,43 @@ function buildSummary(
   const reminderCount = blocked.deferredReminderCount;
   if (scheduleCount > 0 && reminderCount > 0) {
     clauses.push(
-      translate("manageProfilesBlockedDeleteModal.clauseRunsBoth", {
+      t("settings:manageProfilesBlockedDeleteModal.clauseRunsBoth", {
         schedules: scheduleCount,
         reminders: reminderCount,
       }),
     );
   } else if (scheduleCount > 0) {
     clauses.push(
-      translate("manageProfilesBlockedDeleteModal.clauseRunsSchedules", {
+      t("settings:manageProfilesBlockedDeleteModal.clauseRunsSchedules", {
         count: scheduleCount,
       }),
     );
   } else if (reminderCount > 0) {
     clauses.push(
-      translate("manageProfilesBlockedDeleteModal.clauseRunsReminders", {
+      t("settings:manageProfilesBlockedDeleteModal.clauseRunsReminders", {
         count: reminderCount,
       }),
     );
   }
   if (clauses.length === 0) {
-    return translate("manageProfilesBlockedDeleteModal.summaryNoReferences", {
+    return t("settings:manageProfilesBlockedDeleteModal.summaryNoReferences", {
       display,
     });
   }
   if (clauses.length === 1) {
-    return translate("manageProfilesBlockedDeleteModal.summaryOneClause", {
+    return t("settings:manageProfilesBlockedDeleteModal.summaryOneClause", {
       display,
       clause1: clauses[0],
     });
   }
   if (clauses.length === 2) {
-    return translate("manageProfilesBlockedDeleteModal.summaryTwoClauses", {
+    return t("settings:manageProfilesBlockedDeleteModal.summaryTwoClauses", {
       display,
       clause1: clauses[0],
       clause2: clauses[1],
     });
   }
-  return translate("manageProfilesBlockedDeleteModal.summaryThreeClauses", {
+  return t("settings:manageProfilesBlockedDeleteModal.summaryThreeClauses", {
     display,
     clause1: clauses[0],
     clause2: clauses[1],
@@ -202,7 +201,7 @@ export function BlockedDeleteModal({
         <Modal.Body className="space-y-4">
           {blocked && (
             <Typography variant="body-medium-default" as="p">
-              {buildSummary(blocked, t)}
+              {buildSummary(blocked)}
             </Typography>
           )}
           {blocked && blocked.callSiteIds.length > 0 && (
