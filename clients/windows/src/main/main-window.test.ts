@@ -7,13 +7,21 @@ import {
 
 interface WindowState {
   destroyed: boolean;
+  focused: boolean;
   minimized: boolean;
+  visible: boolean;
 }
+
+interface CloseEvent {
+  preventDefault: () => void;
+}
+
+type WindowListener = (event?: CloseEvent) => void;
 
 interface WindowStub {
   state: WindowState;
   options: Record<string, unknown>;
-  emit: (event: string) => void;
+  emit: (event: string, payload?: CloseEvent) => void;
   webContents: {
     emit: (event: string) => void;
     isDestroyed: () => boolean;
@@ -22,17 +30,21 @@ interface WindowStub {
     send: ReturnType<typeof mock>;
   };
   focus: ReturnType<typeof mock>;
+  hide: ReturnType<typeof mock>;
   loadURL: ReturnType<typeof mock>;
   maximize: ReturnType<typeof mock>;
   restore: ReturnType<typeof mock>;
   setTitle: ReturnType<typeof mock>;
   show: ReturnType<typeof mock>;
   isDestroyed: () => boolean;
+  isFocused: () => boolean;
   isMinimized: () => boolean;
-  on: (event: string, handler: () => void) => WindowStub;
-  once: (event: string, handler: () => void) => WindowStub;
+  isVisible: () => boolean;
+  on: (event: string, handler: WindowListener) => WindowStub;
+  once: (event: string, handler: WindowListener) => WindowStub;
 }
 
+const appListeners = new Map<string, () => void>();
 const constructed: WindowStub[] = [];
 
 const createWindowMock = mock(
@@ -40,8 +52,13 @@ const createWindowMock = mock(
     browserWindow: Record<string, unknown>;
     backgroundThrottling?: boolean;
   }) => {
-    const state = { destroyed: false, minimized: false };
-    const listeners = new Map<string, Array<() => void>>();
+    const state = {
+      destroyed: false,
+      focused: false,
+      minimized: false,
+      visible: false,
+    };
+    const listeners = new Map<string, WindowListener[]>();
     const webListeners = new Map<string, Array<() => void>>();
     const stub: WindowStub = {
       state,
@@ -49,46 +66,55 @@ const createWindowMock = mock(
         ...options.browserWindow,
         backgroundThrottling: options.backgroundThrottling,
       },
-      emit(event: string) {
+      emit(event, payload) {
         if (event === "closed") {
           state.destroyed = true;
         }
         for (const handler of listeners.get(event) ?? []) {
-          handler();
+          handler(payload);
         }
       },
       webContents: {
-        emit(event: string) {
+        emit(event) {
           for (const handler of webListeners.get(event) ?? []) {
             handler();
           }
         },
         isDestroyed: () => state.destroyed,
         on: mock(() => undefined),
-        once(event: string, handler: () => void) {
+        once(event, handler) {
           const handlers = webListeners.get(event) ?? [];
           handlers.push(handler);
           webListeners.set(event, handlers);
         },
         send: mock(() => undefined),
       },
-      focus: mock(() => undefined),
+      focus: mock(() => {
+        state.focused = true;
+      }),
+      hide: mock(() => {
+        state.visible = false;
+      }),
       loadURL: mock(() => Promise.resolve()),
       maximize: mock(() => undefined),
       restore: mock(() => {
         state.minimized = false;
       }),
       setTitle: mock(() => undefined),
-      show: mock(() => undefined),
+      show: mock(() => {
+        state.visible = true;
+      }),
       isDestroyed: () => state.destroyed,
+      isFocused: () => state.focused,
       isMinimized: () => state.minimized,
-      on(event: string, handler: () => void) {
+      isVisible: () => state.visible,
+      on(event, handler) {
         const handlers = listeners.get(event) ?? [];
         handlers.push(handler);
         listeners.set(event, handlers);
         return stub;
       },
-      once(event: string, handler: () => void) {
+      once(event, handler) {
         const handlers = listeners.get(event) ?? [];
         handlers.push(handler);
         listeners.set(event, handlers);
@@ -105,7 +131,12 @@ mock.module("./logger", () => ({
   default: { error: () => undefined },
 }));
 mock.module("electron", () => ({
-  app: { isPackaged: false },
+  app: {
+    isPackaged: false,
+    once: (event: string, listener: () => void) => {
+      appListeners.set(event, listener);
+    },
+  },
   BrowserWindow: class {},
   shell: { openExternal: () => Promise.resolve() },
 }));
@@ -127,10 +158,7 @@ mock.module("@vellumai/electron-desktop/window-state", () => ({
   writeOnboardingActive: writeOnboardingActiveMock,
 }));
 
-const invokeHandlers = new Map<
-  string,
-  (args: unknown[]) => unknown
->();
+const invokeHandlers = new Map<string, (args: unknown[]) => unknown>();
 const eventHandlers = new Map<string, (args: unknown[]) => void>();
 
 mock.module("./ipc.client", () => ({
@@ -169,6 +197,7 @@ const destroyWindows = (): void => {
 beforeEach(() => {
   destroyWindows();
   __resetForTesting();
+  appListeners.clear();
   invokeHandlers.clear();
   eventHandlers.clear();
   restoredBounds = { width: 1280, height: 800 };
@@ -269,5 +298,26 @@ describe("Windows main window", () => {
       "vellum:command",
       { kind: "openSettings" },
     );
+  });
+
+  test("hides on close and allows close while quitting", () => {
+    installMainWindow();
+    const win = constructed[0];
+    if (!win) {
+      throw new Error("expected a window");
+    }
+    const hideClose = mock(() => undefined);
+
+    win.emit("close", { preventDefault: hideClose });
+
+    expect(hideClose).toHaveBeenCalledTimes(1);
+    expect(win.hide).toHaveBeenCalledTimes(1);
+
+    const quitClose = mock(() => undefined);
+    appListeners.get("before-quit")?.();
+    win.emit("close", { preventDefault: quitClose });
+
+    expect(quitClose).not.toHaveBeenCalled();
+    expect(win.hide).toHaveBeenCalledTimes(1);
   });
 });

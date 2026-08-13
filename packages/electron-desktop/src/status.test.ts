@@ -29,7 +29,11 @@ type OnRegistration = {
 };
 const registrations: OnRegistration[] = [];
 const onMock = mock(
-  (channel: string, schema: z.ZodType<unknown[]>, fn: (args: unknown[]) => void) => {
+  (
+    channel: string,
+    schema: z.ZodType<unknown[]>,
+    fn: (args: unknown[]) => void,
+  ) => {
     registrations.push({ channel, schema, fn });
   },
 );
@@ -41,14 +45,18 @@ type HandleRegistration = {
 };
 const handleRegistrations: HandleRegistration[] = [];
 const handleMock = mock(
-  (channel: string, schema: z.ZodType<unknown[]>, fn: (args: unknown[]) => unknown) => {
+  (
+    channel: string,
+    schema: z.ZodType<unknown[]>,
+    fn: (args: unknown[]) => unknown,
+  ) => {
     handleRegistrations.push({ channel, schema, fn });
   },
 );
-mock.module("./ipc", () => ({ on: onMock, handle: handleMock }));
-
-mock.module("./logger", () => ({
-  default: { info: () => {}, warn: () => {}, error: () => {} },
+mock.module("./presence-runtime", () => ({
+  on: onMock,
+  handle: handleMock,
+  log: { info: () => {} },
 }));
 
 const {
@@ -106,7 +114,9 @@ describe("statusMenuTitle", () => {
 
   test("interpolates a provided assistant name", () => {
     expect(statusMenuTitle("idle", "Ada")).toBe("Ada is idle");
-    expect(statusMenuTitle("disconnected", "Ada")).toBe("Disconnected from Ada");
+    expect(statusMenuTitle("disconnected", "Ada")).toBe(
+      "Disconnected from Ada",
+    );
   });
 });
 

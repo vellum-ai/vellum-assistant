@@ -22,7 +22,7 @@ const dialogCalls: { message?: string }[] = [];
 let revealedInFinder = 0;
 let settingsStore: Record<string, unknown> = {};
 
-mock.module("./settings", () => ({
+mock.module("@vellumai/electron-desktop/settings", () => ({
   readSetting: (key: string) => settingsStore[key] ?? null,
   writeSetting: (key: string, value: unknown) => {
     settingsStore[key] = value;

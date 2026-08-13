@@ -32,16 +32,16 @@ import {
 
 import { installAbout, openAboutWindow } from "./about.client";
 import { installAutoUpdate } from "./auto-update";
-import { APP_HOST, APP_PROTOCOL } from "./app-config";
 import {
   BUNDLES_DIR_NAME,
   VELLUMAPP_PROTOCOL,
 } from "@vellumai/electron-desktop/bundle-platform";
 import { registerVellumAppProtocol } from "@vellumai/electron-desktop/vellumapp-protocol";
+import { APP_HOST, APP_PROTOCOL } from "./app-config";
 import { resolveAllowedOrigin } from "./app-origin";
 import { writeCliLocator } from "./cli-installer";
 import { provisionCliForWrapper } from "./cli-path-installer";
-import { handleSync } from "./ipc";
+import { handle, handleSync, on } from "./ipc";
 import { installPairedGatewayRequestGuard } from "./paired-gateway-request-guard";
 import { hasPendingDeepLinks, installDeepLinks } from "./deep-links.client";
 import { handleBundleFile, installMacBundleWorkflow } from "./bundles";
@@ -51,7 +51,15 @@ import {
   installFileOpen,
   onFileOpen,
 } from "./file-open.client";
-import { installAvatarIpc } from "./avatar";
+import { installAvatarIpc } from "@vellumai/electron-desktop/avatar";
+import { installConnectivityProbe } from "@vellumai/electron-desktop/connectivity-probe";
+import { installIdentityIpc } from "@vellumai/electron-desktop/identity";
+import { installPowerEvents } from "@vellumai/electron-desktop/power-events";
+import { configurePresenceRuntime } from "@vellumai/electron-desktop/presence-runtime";
+import {
+  installConnectivityIpc,
+  installStatusIpc,
+} from "@vellumai/electron-desktop/status";
 import "./auxiliary-windows.client";
 import { installDock } from "./dock";
 import { installDownloads } from "./downloads";
@@ -60,9 +68,12 @@ import {
   installEscapeMonitor,
   setDictationRecording,
 } from "./escape-monitor";
-import { installDiagnosticsIpc } from "./diagnostics";
-import { installFeatureFlagsIpc } from "./feature-flags";
-import { installFeedbackIpc } from "./feedback";
+import {
+  initSentryMain,
+  installDiagnosticsIpc,
+  installFeatureFlagsIpc,
+  installFeedbackIpc,
+} from "./desktop-diagnostics";
 import { installGlobalShortcuts } from "./global-shortcuts.client";
 import { installHotkeyHelper } from "./hotkey-helper";
 import { installHotkeysIpc } from "./hotkeys.client";
@@ -77,7 +88,7 @@ import { installLoginItem, installLoginItemIpc } from "./login-item.client";
 import {
   getWatchedLockfileSnapshot,
   installLockfileWatcher,
-} from "./lockfile-watcher";
+} from "./lockfile-watcher.client";
 import { installHostProxyBridge } from "./host-proxy-adapter";
 import log from "./logger";
 import {
@@ -92,18 +103,14 @@ import {
 } from "./move-to-applications";
 import { markRelocationSkipped } from "./install-location";
 import { installNativeAuth } from "./native-auth.client";
-import { installConnectivityProbe } from "./connectivity-probe";
 import { installNotifications } from "./notifications";
 import { installPermissionsService } from "./permissions-service";
-import { installPowerEvents } from "./power-events";
-import { installIdentityIpc } from "./identity";
 import {
   installCompanionWindow,
   syncCompanionSurface,
 } from "./companion-window";
-import { installConnectivityIpc, installStatusIpc } from "./status";
 import { installTextInsertionIpc } from "./textInsertion";
-import { installTray } from "./tray";
+import { installTray } from "./tray.client";
 import { installWebContentsSecurity } from "./windows";
 
 // Dev-only: override the workspace `name` (`@vellumai/macos`) so the
@@ -176,8 +183,6 @@ if (app.isPackaged) {
     app.setPath("userData", `${base}-${env}`);
   }
 }
-
-import { initSentryMain } from "./sentry";
 
 initSentryMain();
 
@@ -267,7 +272,10 @@ const registerAppProtocol = (): void => {
     // secure renderer never touches an insecure `http://127.0.0.1` origin
     // directly; the lockfile allowlist is the security boundary. Mirrors the
     // Vite dev-server proxy (`clients/web/vite-plugin-local-mode.ts`).
-    const proxied = await forwardGatewayRequest(request, getAllowedGatewayPorts);
+    const proxied = await forwardGatewayRequest(
+      request,
+      getAllowedGatewayPorts,
+    );
     if (proxied) return proxied;
 
     // Paired remote gateways ride the same-origin path too, via
@@ -404,6 +412,8 @@ app
       return;
     }
 
+    configurePresenceRuntime({ ipc: { handle, on }, logger: log });
+
     // Install into /Applications before any other setup. On the first packaged
     // launch from a mounted DMG (or ~/Downloads), the app silently moves itself
     // there and relaunches — the "double-click to install" half of the DMG flow.
@@ -438,7 +448,9 @@ app
       // version bump rewrites the locator now (and prunes old versions)
       // rather than after the next in-app CLI action.
       void provisionCliForWrapper()
-        .then((provisioned) => (provisioned ? refreshCliPathMenuState() : undefined))
+        .then((provisioned) =>
+          provisioned ? refreshCliPathMenuState() : undefined,
+        )
         .catch((err: unknown) => {
           log.error("[app] startup CLI provisioning failed:", err);
         });

@@ -1,6 +1,12 @@
 import { Menu, type MenuItemConstructorOptions, app, shell } from "electron";
 import { z } from "zod";
 
+import {
+  onSettingChange,
+  readSetting,
+} from "@vellumai/electron-desktop/settings";
+import { readOnboardingActive } from "@vellumai/electron-desktop/window-state";
+
 import { openAboutWindow } from "./about.client";
 import { checkForUpdates } from "./auto-update";
 import {
@@ -25,8 +31,6 @@ import {
 import { areChromeDevToolsEnabled } from "./devtools";
 import { handle } from "./ipc";
 import { dispatchToMain } from "./main-window";
-import { onSettingChange, readSetting } from "./settings";
-import { readOnboardingActive } from "@vellumai/electron-desktop/window-state";
 
 interface MenuState {
   hasPlatformSession: boolean;

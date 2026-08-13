@@ -25,6 +25,7 @@ const DEFAULT_WINDOW_TITLE = "Vellum";
 const TITLE_BAR_HEIGHT = 44;
 
 let mainWindow: BrowserWindow | null = null;
+let isQuitting = false;
 let currentTitle = DEFAULT_WINDOW_TITLE;
 
 const readiness = createWindowReadiness<BrowserWindow>();
@@ -87,6 +88,14 @@ const createMainWindow = (): BrowserWindow => {
     ready.markShown();
   });
 
+  win.on("close", (event) => {
+    if (isQuitting || win.isDestroyed()) {
+      return;
+    }
+    event.preventDefault();
+    win.hide();
+  });
+
   win.on("closed", () => {
     ready.release();
     if (mainWindow === win) {
@@ -126,6 +135,15 @@ export const dispatchToMain = (command: VellumCommand): void => {
   }
 };
 
+export const toggleVisibility = (): void => {
+  const win = current();
+  if (win && !win.isDestroyed() && win.isVisible() && win.isFocused()) {
+    win.hide();
+    return;
+  }
+  ensureVisible();
+};
+
 export const setOnboarding = (active: boolean): void => {
   writeOnboardingActive(active);
 };
@@ -149,6 +167,9 @@ export const installMainWindow = (): void => {
     return;
   }
   installed = true;
+  app.once("before-quit", () => {
+    isQuitting = true;
+  });
 
   handle(MAIN_WINDOW_ENSURE_VISIBLE, z.tuple([]), async () => {
     await ensureVisible();
@@ -169,5 +190,6 @@ export const installMainWindow = (): void => {
 
 export const __resetForTesting = (): void => {
   installed = false;
+  isQuitting = false;
   currentTitle = DEFAULT_WINDOW_TITLE;
 };

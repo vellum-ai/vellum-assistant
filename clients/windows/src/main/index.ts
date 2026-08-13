@@ -6,12 +6,11 @@ import { pathToFileURL } from "node:url";
 import path from "node:path";
 
 import { resolveAppProtocolPath } from "@vellumai/electron-utils/app-protocol";
+import { VELLUMAPP_PROTOCOL } from "@vellumai/electron-desktop/bundle-platform";
 import { getDeviceId } from "@vellumai/electron-desktop/device-id";
 import { resolveLocalConfigFromEnv } from "@vellumai/local-mode";
 
-import { VELLUMAPP_PROTOCOL } from "@vellumai/electron-desktop/bundle-platform";
-
-import { APP_PROTOCOL } from "./app-config";
+import { APP_PROTOCOL, WINDOWS_RELEASE_INFO } from "./app-config";
 import { provisionCliForCurrentUser } from "./cli-path-flow";
 import { installMainFeatures } from "./features";
 import { handleSync } from "./ipc.client";
@@ -31,8 +30,8 @@ import { installWebContentsSecurity } from "./windows.client";
  *
  * Not ported from the macOS client yet (see `clients/macos/src/main/` for the
  * reference implementations): gateway/platform request forwarding for
- * packaged builds, native auth, tray, auto-update, CSP,
- * notifications, and local-mode IPC.
+ * packaged builds, native auth, auto-update, CSP,
+ * notifications, hotkeys, and local-mode IPC.
  */
 
 // Dev-only: override the package `name` (`@vellumai/windows`) so
@@ -51,11 +50,7 @@ const isDev = !app.isPackaged;
 // environment. Append an environment suffix for non-production builds so
 // dev/staging/production installs can run side-by-side; production keeps the
 // original path for backwards compatibility.
-declare const __VELLUM_ENVIRONMENT__: string;
-const releaseChannel =
-  typeof __VELLUM_ENVIRONMENT__ === "string"
-    ? __VELLUM_ENVIRONMENT__
-    : "production";
+const releaseChannel = WINDOWS_RELEASE_INFO.releaseChannel;
 if (app.isPackaged) {
   if (releaseChannel !== "production") {
     const base = app.getPath("userData");
@@ -208,16 +203,14 @@ app.on("second-instance", () => {
   ensureVisible();
 });
 
+app.on("window-all-closed", () => {
+  // Keep the notification-area tray available to reopen the window.
+});
+
 app.on("web-contents-created", (_event, contents) => {
   installWebContentsSecurity(contents, {
     cookies: () => session.defaultSession.cookies,
     logger: log,
     openExternal: (url) => shell.openExternal(url),
   });
-});
-
-// Unlike macOS, a Windows app with no windows has no dock/menu-bar presence
-// to keep it alive, so quit outright. Revisit when the tray is ported.
-app.on("window-all-closed", () => {
-  app.quit();
 });

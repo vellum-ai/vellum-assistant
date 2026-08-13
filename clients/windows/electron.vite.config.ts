@@ -48,6 +48,7 @@ const BUILD_DEFINES = {
     process.env.VELLUM_ENABLE_CHROME_DEVTOOLS === "true" ||
       process.env.VELLUM_ENABLE_CHROME_DEVTOOLS === "1",
   ),
+  __SENTRY_DSN_WINDOWS__: JSON.stringify(process.env.SENTRY_DSN_WINDOWS || ""),
 };
 
 export default defineConfig({

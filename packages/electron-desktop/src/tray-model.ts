@@ -1,30 +1,21 @@
-import { Menu, Tray, app, nativeTheme, shell } from "electron";
+import {
+  Menu,
+  Tray,
+  app,
+  nativeTheme,
+  type MenuItemConstructorOptions,
+  type NativeImage,
+} from "electron";
 
 import {
   pairedHostLabel,
+  type Lockfile,
   type LockfileAssistant,
 } from "@vellumai/local-mode/contract";
+import type { VellumCommand } from "@vellumai/ipc-contract";
 
-import {
-  MENU_ICON_CIRCLECHECK,
-  MENU_ICON_MESSAGECIRCLE,
-  MENU_ICON_MESSAGECIRCLEPLUS,
-  MENU_ICON_MESSAGESQUARE,
-  MENU_ICON_POWER,
-  MENU_ICON_REFRESHCW,
-  MENU_ICON_SETTINGS,
-} from "./assets/menu-icons";
 import { onAvatarChange } from "./avatar";
-import { acceleratorOption } from "./commands.client";
-import {
-  isCompanionSurfaceEnabled,
-  setCompanionSurfaceVisible,
-} from "./companion-window";
 import { getName, onNameChange } from "./identity";
-import { getWatchedLockfile } from "./lockfile-watcher";
-import { dispatchToMain } from "./main-window";
-import { menuIcon } from "./menu-icon";
-import { readSetting } from "./settings";
 import {
   getStatus,
   onStatusChange,
@@ -34,10 +25,44 @@ import {
   type AssistantStatus,
 } from "./status";
 import { invalidateIconCache, statusFrames } from "./status-icon";
-import {
-  readCompanionHidden,
-  readOnboardingActive,
-} from "@vellumai/electron-desktop/window-state";
+
+export type TrayMenuIcon =
+  | "check"
+  | "feedback"
+  | "new-conversation"
+  | "conversation"
+  | "power"
+  | "refresh"
+  | "settings";
+
+export interface TrayModelRuntime {
+  accelerator: (
+    command: VellumCommand["kind"],
+  ) => Pick<MenuItemConstructorOptions, "accelerator">;
+  companionEnabled: () => boolean;
+  companionHidden: () => boolean;
+  dispatch: (command: VellumCommand) => void;
+  featureEnabled: (flag: string) => boolean;
+  getLockfile: () => Lockfile;
+  icon: (icon: TrayMenuIcon) => NativeImage | undefined;
+  onboardingActive: () => boolean;
+  openComponentGallery: () => void;
+  removePairedLabel: string;
+  setCompanionVisible: (visible: boolean) => void;
+}
+
+let runtime: TrayModelRuntime | null = null;
+
+export const configureTrayModel = (next: TrayModelRuntime): void => {
+  runtime = next;
+};
+
+const getRuntime = (): TrayModelRuntime => {
+  if (!runtime) {
+    throw new Error("Tray model is not configured");
+  }
+  return runtime;
+};
 
 /**
  * macOS menu-bar (Tray) status item.
@@ -99,7 +124,9 @@ export interface TrayHandlers {
  * assistant name when present, falling back to a truncated id.
  */
 const assistantDisplayTitle = (assistant: LockfileAssistant): string => {
-  if (assistant.name) return assistant.name;
+  if (assistant.name) {
+    return assistant.name;
+  }
   const id = assistant.assistantId;
   return id.length > 12 ? `${id.slice(0, 12)}\u2026` : id;
 };
@@ -123,8 +150,7 @@ const assistantMenuLabel = (assistant: LockfileAssistant): string => {
  * right-click without requiring an app restart.
  */
 const isMultiAssistantEnabled = (): boolean => {
-  const flags = readSetting("featureFlags");
-  return flags?.["multi-platform-assistant"] === true;
+  return getRuntime().featureEnabled("multi-platform-assistant");
 };
 
 /**
@@ -133,15 +159,15 @@ const isMultiAssistantEnabled = (): boolean => {
  * Component Gallery) in the tray and application menu.
  */
 const isDeveloperMenuEnabled = (): boolean => {
-  const flags = readSetting("featureFlags");
-  return flags?.["developer-menu-items"] === true;
+  return getRuntime().featureEnabled("developer-menu-items");
 };
 
 const buildTrayMenu = (
   handlers: TrayHandlers,
   status: AssistantStatus,
 ): Menu => {
-  const onboarding = readOnboardingActive();
+  const trayRuntime = getRuntime();
+  const onboarding = trayRuntime.onboardingActive();
 
   const items: Electron.MenuItemConstructorOptions[] = [
     {
@@ -153,9 +179,8 @@ const buildTrayMenu = (
   ];
 
   // Assistant switcher: gated by the multi-platform-assistant feature flag.
-  // Reads from the lockfile watcher's in-memory cache (no disk I/O).
   if (isMultiAssistantEnabled() && !onboarding) {
-    const lockfile = getWatchedLockfile();
+    const lockfile = trayRuntime.getLockfile();
     // Managed (platform-hosted) and paired (remote, imported) assistants
     // belong in the switcher. Local/Docker lockfile entries are handled by
     // separate flows and would mis-route through the platform selection path.
@@ -178,7 +203,7 @@ const buildTrayMenu = (
           checked: isActive,
           click: async () => {
             await handlers.ensureMainWindow();
-            dispatchToMain({
+            trayRuntime.dispatch({
               kind: "selectAssistant",
               assistantId: assistant.assistantId,
             });
@@ -192,7 +217,7 @@ const buildTrayMenu = (
       label: "New Assistant\u2026",
       click: async () => {
         await handlers.ensureMainWindow();
-        dispatchToMain({ kind: "createAssistant" });
+        trayRuntime.dispatch({ kind: "createAssistant" });
       },
     });
 
@@ -207,10 +232,10 @@ const buildTrayMenu = (
         // unpairing here in main would leave the window selected on, and
         // still authenticated to, the removed assistant.
         items.push({
-          label: "Remove from this Mac\u2026",
+          label: trayRuntime.removePairedLabel,
           click: async () => {
             await handlers.ensureMainWindow();
-            dispatchToMain({
+            trayRuntime.dispatch({
               kind: "removePairedAssistant",
               assistantId: activeAssistant.assistantId,
             });
@@ -221,7 +246,7 @@ const buildTrayMenu = (
           label: `Retire ${assistantDisplayTitle(activeAssistant)}\u2026`,
           click: async () => {
             await handlers.ensureMainWindow();
-            dispatchToMain({
+            trayRuntime.dispatch({
               kind: "retireAssistant",
               assistantId: activeAssistant.assistantId,
             });
@@ -238,10 +263,10 @@ const buildTrayMenu = (
   if (status === "authFailed") {
     items.push({
       label: "Re-pair Assistant",
-      icon: menuIcon(MENU_ICON_REFRESHCW),
+      icon: trayRuntime.icon("refresh"),
       click: async () => {
         await handlers.ensureMainWindow();
-        dispatchToMain({ kind: "rePair" });
+        trayRuntime.dispatch({ kind: "rePair" });
       },
     });
   }
@@ -250,8 +275,8 @@ const buildTrayMenu = (
     { type: "separator" },
     {
       label: "New Conversation",
-      icon: menuIcon(MENU_ICON_MESSAGECIRCLEPLUS),
-      ...acceleratorOption("newConversation"),
+      icon: trayRuntime.icon("new-conversation"),
+      ...trayRuntime.accelerator("newConversation"),
       click: async () => {
         await handlers.ensureMainWindow();
         // Dispatch by reference (not `dispatchToFocused`'s
@@ -259,25 +284,25 @@ const buildTrayMenu = (
         // the app potentially backgrounded, so even after our
         // `win.focus()` the OS may not have delivered focus by the
         // time this runs. Targeting main directly is unambiguous.
-        dispatchToMain({ kind: "newConversation" });
+        trayRuntime.dispatch({ kind: "newConversation" });
       },
     },
     {
       label: "Current Conversation",
-      icon: menuIcon(MENU_ICON_MESSAGESQUARE),
-      ...acceleratorOption("currentConversation"),
+      icon: trayRuntime.icon("conversation"),
+      ...trayRuntime.accelerator("currentConversation"),
       click: async () => {
         await handlers.ensureMainWindow();
-        dispatchToMain({ kind: "currentConversation" });
+        trayRuntime.dispatch({ kind: "currentConversation" });
       },
     },
     {
       label: "Mark All as Read",
-      icon: menuIcon(MENU_ICON_CIRCLECHECK),
+      icon: trayRuntime.icon("check"),
       enabled: !onboarding,
       click: async () => {
         await handlers.ensureMainWindow();
-        dispatchToMain({ kind: "markAllRead" });
+        trayRuntime.dispatch({ kind: "markAllRead" });
       },
     },
     ...(isDeveloperMenuEnabled()
@@ -287,14 +312,14 @@ const buildTrayMenu = (
             label: "Replay Onboarding",
             click: async () => {
               await handlers.ensureMainWindow();
-              dispatchToMain({ kind: "replayOnboarding" as const });
+              trayRuntime.dispatch({ kind: "replayOnboarding" });
             },
           },
           {
             label: "Replay Hatch Failure",
             click: async () => {
               await handlers.ensureMainWindow();
-              dispatchToMain({ kind: "replayHatchFailure" as const });
+              trayRuntime.dispatch({ kind: "replayHatchFailure" });
             },
           },
           ...(!app.isPackaged
@@ -302,7 +327,7 @@ const buildTrayMenu = (
                 {
                   label: "Component Gallery",
                   click: () => {
-                    void shell.openExternal("http://localhost:6007");
+                    trayRuntime.openComponentGallery();
                   },
                 },
               ]
@@ -318,7 +343,7 @@ const buildTrayMenu = (
     // is on for. Off, there is no surface to show or hide, and an item
     // offering to bring one back would be the only place in the app that
     // mentions it exists.
-    ...(isCompanionSurfaceEnabled()
+    ...(trayRuntime.companionEnabled()
       ? [
           {
             // A checkbox rather than a toggle-action item: once the surface is
@@ -328,9 +353,9 @@ const buildTrayMenu = (
             // being asked for.
             label: "Show Floating Companion",
             type: "checkbox" as const,
-            checked: !readCompanionHidden(),
+            checked: !trayRuntime.companionHidden(),
             click: (item: Electron.MenuItem) => {
-              setCompanionSurfaceVisible(item.checked);
+              trayRuntime.setCompanionVisible(item.checked);
             },
           },
         ]
@@ -338,19 +363,19 @@ const buildTrayMenu = (
     { type: "separator" },
     {
       label: "Settings\u2026",
-      icon: menuIcon(MENU_ICON_SETTINGS),
+      icon: trayRuntime.icon("settings"),
       enabled: !onboarding,
       click: async () => {
         await handlers.ensureMainWindow();
-        dispatchToMain({ kind: "openSettings" });
+        trayRuntime.dispatch({ kind: "openSettings" });
       },
     },
     {
       label: "Send Feedback\u2026",
-      icon: menuIcon(MENU_ICON_MESSAGECIRCLE),
+      icon: trayRuntime.icon("feedback"),
       click: async () => {
         await handlers.ensureMainWindow();
-        dispatchToMain({ kind: "shareFeedback" });
+        trayRuntime.dispatch({ kind: "shareFeedback" });
       },
     },
     {
@@ -360,7 +385,7 @@ const buildTrayMenu = (
     { type: "separator" },
     {
       label: "Restart",
-      icon: menuIcon(MENU_ICON_REFRESHCW),
+      icon: trayRuntime.icon("refresh"),
       enabled: !onboarding,
       click: () => {
         // Deferred to the next event-loop iteration so the call executes
@@ -378,7 +403,7 @@ const buildTrayMenu = (
     },
     {
       label: `Quit ${app.name}`,
-      icon: menuIcon(MENU_ICON_POWER),
+      icon: trayRuntime.icon("power"),
       // `role: "quit"` carries its own accelerator on macOS; we still
       // declare it explicitly so the menu reads consistently across
       // locales and Electron version bumps.
@@ -412,7 +437,9 @@ const stopPulse = (): void => {
  */
 const applyStatus = (status: AssistantStatus): void => {
   const tray = trayInstance;
-  if (!tray) return;
+  if (!tray) {
+    return;
+  }
 
   stopPulse();
   tray.setToolTip(statusMenuTitle(status, getName() ?? undefined));
@@ -446,12 +473,16 @@ const applyStatus = (status: AssistantStatus): void => {
  * accessibility changes — all without `index.ts` having to relay transitions.
  */
 export const installTray = (handlers: TrayHandlers): void => {
-  if (installed) return;
+  if (installed) {
+    return;
+  }
   installed = true;
 
   const initialStatus = getStatus();
   trayInstance = new Tray(statusFrames(initialStatus)[0]!);
-  trayInstance.setIgnoreDoubleClickEvents(true);
+  if (process.platform === "darwin") {
+    trayInstance.setIgnoreDoubleClickEvents(true);
+  }
 
   trayInstance.on("click", () => {
     handlers.toggleMainWindow();
