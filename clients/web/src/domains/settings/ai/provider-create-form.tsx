@@ -9,6 +9,7 @@ import { toast } from "@vellumai/design-library/components/toast";
 import { Typography } from "@vellumai/design-library/components/typography";
 import { ChevronRight } from "lucide-react";
 
+import { Trans, useTranslation } from "@/i18n";
 import {
   credentialPresenceQueryKey,
   useStoredCredentialPresence,
@@ -86,6 +87,7 @@ export function ProviderCreateForm({
   onCancel,
   variant = "modal",
 }: ProviderCreateFormProps) {
+  const { t } = useTranslation("settings");
   const selectableConnectionProviders = useSelectableConnectionProviders();
   const initialProvider: ConnectionProvider =
     defaultProviderType &&
@@ -243,7 +245,7 @@ export function ProviderCreateForm({
               }),
             });
           } catch {
-            setError("Failed to save API key. Please try again.");
+            setError(t("providerCreateForm.failedSaveApiKey"));
             return;
           } finally {
             setIsSavingKey(false);
@@ -256,15 +258,13 @@ export function ProviderCreateForm({
           // usually keyless. No key entered → keyless auth.
           auth = { type: "none" };
         } else {
-          setError("Enter an API key or select an existing credential.");
+          setError(t("providerCreateForm.enterApiKeyOrCredential"));
           return;
         }
       } else if (authType === "oauth_subscription") {
         // OAuth subscription connections are created by the OAuth flow
         // (ChatgptOAuthSection), not through Save.
-        setError(
-          'Use the "Sign in with ChatGPT" button to connect your subscription.',
-        );
+        setError(t("providerCreateForm.useChatgptSignIn"));
         return;
       } else {
         auth = { type: "none" };
@@ -303,15 +303,15 @@ export function ProviderCreateForm({
         return;
       }
       if (!created) {
-        setError("Server returned an empty response. Please try again.");
+        setError(t("providerCreateForm.emptyServerResponse"));
         return;
       }
       // Single success confirmation for both the standalone and inline
       // surfaces; failures above already surface inline via `error` (no toast).
-      toast.success("Provider connected");
+      toast.success(t("providerCreateForm.providerConnectedToast"));
       onCreated(created);
     } catch {
-      setError("Failed to save provider. Please try again.");
+      setError(t("providerCreateForm.failedSaveProvider"));
     } finally {
       setSaving(false);
     }
@@ -329,7 +329,7 @@ export function ProviderCreateForm({
   // disclosure has nothing meaningful to offer.
   const shouldShowAdvancedSection = providerCredentials.length > 0;
   const apiKeyPlaceholder = secretPlaceholder(
-    "Enter your API key",
+    t("providerCreateForm.apiKeyPlaceholder"),
     hasStoredCredential,
   );
 
@@ -347,7 +347,7 @@ export function ProviderCreateForm({
         <ChevronRight
           className={`h-4 w-4 transition-transform ${detailsOpen ? "rotate-90" : ""}`}
         />
-        <span>Advanced</span>
+        <span>{t("providerCreateForm.advanced")}</span>
       </button>
 
       {detailsOpen && (
@@ -355,13 +355,20 @@ export function ProviderCreateForm({
           {/* Display Name */}
           <div className="space-y-1">
             <label className="block text-body-small-default text-[var(--content-tertiary)]">
-              Display Name{" "}
-              <span className="text-[var(--content-disabled)]">(optional)</span>
+              <Trans
+                i18nKey="providerCreateForm.displayNameLabel"
+                ns="settings"
+                components={{
+                  optional: (
+                    <span className="text-[var(--content-disabled)]" />
+                  ),
+                }}
+              />
             </label>
             <Input
               value={label}
               onChange={(e) => handleLabelChange(e.target.value)}
-              placeholder="e.g. My Anthropic Key"
+              placeholder={t("providerCreateForm.displayNamePlaceholder")}
               fullWidth
             />
           </div>
@@ -376,10 +383,10 @@ export function ProviderCreateForm({
       {!hideProviderSelect && (
         <div className="space-y-1">
           <label className="block text-body-small-default text-[var(--content-tertiary)]">
-            Provider
+            {t("providerCreateForm.providerLabel")}
           </label>
           <Select
-            aria-label="Provider"
+            aria-label={t("providerCreateForm.providerAriaLabel")}
             value={selected}
             onChange={(newSelected) => {
               setSelected(newSelected);
@@ -424,7 +431,7 @@ export function ProviderCreateForm({
                 ? [
                     {
                       value: "openai-compatible" as ConnectionProvider,
-                      label: "Custom provider",
+                      label: t("providerCreateForm.customProviderOption"),
                     },
                   ]
                 : []),
@@ -436,8 +443,7 @@ export function ProviderCreateForm({
               as="p"
               className="text-[var(--content-tertiary)]"
             >
-              Custom providers connect to any endpoint that serves the
-              OpenAI-compatible API — xAI, Groq, LM Studio, vLLM, and similar.
+              {t("providerCreateForm.customProviderHint")}
             </Typography>
           ) : null}
         </div>
@@ -449,12 +455,12 @@ export function ProviderCreateForm({
         <>
           <div className="space-y-1">
             <label className="block text-body-small-default text-[var(--content-tertiary)]">
-              Name
+              {t("providerCreateForm.nameLabel")}
             </label>
             <Input
               value={label}
               onChange={(e) => handleLabelChange(e.target.value)}
-              placeholder="xAI"
+              placeholder={t("providerCreateForm.namePlaceholder")}
               fullWidth
             />
             {nameConflict ? (
@@ -469,23 +475,23 @@ export function ProviderCreateForm({
           </div>
           <div className="space-y-1">
             <label className="block text-body-small-default text-[var(--content-tertiary)]">
-              Base URL
+              {t("providerCreateForm.baseUrlLabel")}
             </label>
             <Input
               value={baseUrl}
               onChange={(e) => setBaseUrl(e.target.value)}
-              placeholder="https://api.x.ai/v1"
+              placeholder={t("providerCreateForm.baseUrlPlaceholder")}
               fullWidth
             />
           </div>
           <div className="space-y-1">
             <label className="block text-body-small-default text-[var(--content-tertiary)]">
-              Models
+              {t("providerCreateForm.modelsLabel")}
             </label>
             <Input
               value={connectionModels}
               onChange={(e) => setConnectionModels(e.target.value)}
-              placeholder="model-1, model-2"
+              placeholder={t("providerCreateForm.modelsPlaceholder")}
               fullWidth
             />
             <Typography
@@ -493,7 +499,7 @@ export function ProviderCreateForm({
               as="p"
               className="text-[var(--content-tertiary)]"
             >
-              Comma-separated model identifiers exposed by your endpoint.
+              {t("providerCreateForm.modelsHint")}
             </Typography>
           </div>
         </>
@@ -521,7 +527,7 @@ export function ProviderCreateForm({
           as="p"
           className="text-[var(--content-tertiary)]"
         >
-          Leave the key empty for local endpoints — they connect keyless.
+          {t("providerCreateForm.localEndpointHint")}
         </Typography>
       ) : null}
 
@@ -550,7 +556,7 @@ export function ProviderCreateForm({
   const footer: ReactNode = (
     <>
       <Button variant="ghost" onClick={onCancel}>
-        Cancel
+        {t("providerCreateForm.cancel")}
       </Button>
       {!isChatgpt && (
         <Button
@@ -559,10 +565,10 @@ export function ProviderCreateForm({
           onClick={() => void handleSave()}
         >
           {saving
-            ? "Saving…"
+            ? t("providerCreateForm.saving")
             : isOpenAICompatible && label.trim()
-              ? `Add ${label.trim()}`
-              : "Add"}
+              ? t("providerCreateForm.addNamed", { name: label.trim() })
+              : t("providerCreateForm.add")}
         </Button>
       )}
     </>
@@ -580,9 +586,9 @@ export function ProviderCreateForm({
   return (
     <Modal.Content size="md">
       <Modal.Header>
-        <Modal.Title>Add Provider</Modal.Title>
+        <Modal.Title>{t("providerCreateForm.addProviderTitle")}</Modal.Title>
         <Modal.Description>
-          Choose a provider and paste its API key.
+          {t("providerCreateForm.addProviderDescription")}
         </Modal.Description>
       </Modal.Header>
 

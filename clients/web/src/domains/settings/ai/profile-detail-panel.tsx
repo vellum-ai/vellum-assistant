@@ -17,6 +17,7 @@ import {
   configGetOptions,
   inferenceProviderconnectionsGetOptions,
 } from "@/generated/daemon/@tanstack/react-query.gen";
+import { useTranslation } from "@/i18n";
 
 interface ProfileDetailPanelProps {
   assistantId: string;
@@ -42,6 +43,7 @@ export function ProfileDetailPanel({
   profileName,
   onClose,
 }: ProfileDetailPanelProps) {
+  const { t } = useTranslation("settings");
   const { data: config } = useQuery({
     ...configGetOptions({ path: { assistant_id: assistantId } }),
     staleTime: 30_000,
@@ -114,8 +116,8 @@ export function ProfileDetailPanel({
   const isManaged = mode === "view";
   const title =
     editor.effectiveMode === "create"
-      ? "New Profile"
-      : (initialValues?.label ?? profileName ?? "Profile");
+      ? t("profileDetailPanel.newProfileTitle")
+      : (initialValues?.label ?? profileName ?? t("profileDetailPanel.defaultTitle"));
 
   return (
     <>
@@ -125,7 +127,7 @@ export function ProfileDetailPanel({
         onClose={onClose}
         headerTrailing={
           isManaged && editor.effectiveMode !== "create" ? (
-            <Tag tone="neutral">Managed by Vellum</Tag>
+            <Tag tone="neutral">{t("profileDetailPanel.managedTag")}</Tag>
           ) : null
         }
         headerActions={
@@ -140,7 +142,9 @@ export function ProfileDetailPanel({
               }}
               disabled={editor.saving || deletePending}
             >
-              {deletePending ? "Deleting…" : "Delete"}
+              {deletePending
+                ? t("profileDetailPanel.deleting")
+                : t("profileDetailPanel.delete")}
             </Button>
           ) : null
         }
@@ -152,7 +156,7 @@ export function ProfileDetailPanel({
                 onClick={editor.switchToSaveAsNew}
                 disabled={editor.saving}
               >
-                Save As New
+                {t("profileDetailPanel.saveAsNew")}
               </Button>
               {editor.hasViewModeChanges ? (
                 <Button
@@ -160,7 +164,9 @@ export function ProfileDetailPanel({
                   onClick={() => void editor.handleSave()}
                   disabled={editor.saving}
                 >
-                  {editor.saving ? "Saving…" : "Save"}
+                  {editor.saving
+                    ? t("profileDetailPanel.saving")
+                    : t("profileDetailPanel.save")}
                 </Button>
               ) : null}
             </div>
@@ -172,10 +178,10 @@ export function ProfileDetailPanel({
                 disabled={editor.isInvalid || editor.saving}
               >
                 {editor.saving
-                  ? "Saving…"
+                  ? t("profileDetailPanel.saving")
                   : editor.effectiveMode === "create"
-                    ? "Create Profile"
-                    : "Save Changes"}
+                    ? t("profileDetailPanel.createProfile")
+                    : t("profileDetailPanel.saveChanges")}
               </Button>
             </div>
           )
