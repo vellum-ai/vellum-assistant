@@ -268,6 +268,13 @@ export interface ResizablePaneHandleProps {
 export interface UseResizablePaneResult {
   /** Committed size in px. Does not update per frame while `paneRef` is set. */
   size: number;
+  /**
+   * Measured width of the container element, 0 until the first measure lands.
+   * Lets a caller that renders the pane itself (no `paneRef`) cap the drawn
+   * width when the container is narrower than `size` can clamp to, instead of
+   * overflowing (see `resolveMaxSize`).
+   */
+  containerSize: number;
   /** Attach to the element that bounds both panes, so the maximum can be measured. */
   containerRef: RefObject<HTMLDivElement | null>;
   /** Put on the sized pane. The handle points at it via `aria-controls`. */
@@ -477,6 +484,7 @@ export function useResizablePane({
 
   return {
     size,
+    containerSize,
     containerRef,
     paneId,
     isResizing,

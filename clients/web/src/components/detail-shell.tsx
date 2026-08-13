@@ -65,27 +65,31 @@ export function DetailShellHeader({
     // light) rather than `--border-base`, which equals the drawer's
     // `--surface-lift` in dark mode and would render invisible.
     <div className="flex shrink-0 items-center gap-3 border-b border-[var(--border-hover)] px-5 py-4">
-      {icon ??
-        (Glyph ? (
-          <Glyph
-            className="h-5 w-5 shrink-0 text-[var(--content-secondary)]"
-            aria-hidden
-          />
-        ) : null)}
-      {titleNode ?? (
-        <Typography
-          variant="title-medium"
-          title={title}
-          // `title-medium` ships a tight line-height; combined with `truncate`
-          // (overflow:hidden) it clips descenders (e.g. the "p" in "process").
-          // Bump leading + small vertical padding so glyphs get breathing room.
-          className="min-w-0 shrink truncate py-0.5 leading-snug text-[var(--content-default)]"
-        >
-          {title}
-        </Typography>
-      )}
-      {headerTrailing}
-      <span className="flex-1" />
+      {/* The leading cluster absorbs all the shrink (title truncates first,
+          then the cluster clips) so the trailing controls, above all the
+          close X, stay visible however narrow the panel gets. */}
+      <div className="flex min-w-0 flex-1 items-center gap-3 overflow-hidden">
+        {icon ??
+          (Glyph ? (
+            <Glyph
+              className="h-5 w-5 shrink-0 text-[var(--content-secondary)]"
+              aria-hidden
+            />
+          ) : null)}
+        {titleNode ?? (
+          <Typography
+            variant="title-medium"
+            title={title}
+            // `title-medium` ships a tight line-height; combined with `truncate`
+            // (overflow:hidden) it clips descenders (e.g. the "p" in "process").
+            // Bump leading + small vertical padding so glyphs get breathing room.
+            className="min-w-0 shrink truncate py-0.5 leading-snug text-[var(--content-default)]"
+          >
+            {title}
+          </Typography>
+        )}
+        {headerTrailing}
+      </div>
       {headerActions}
       <Button
         variant={closeVariant === "outlined" ? "outlined" : "ghost"}
