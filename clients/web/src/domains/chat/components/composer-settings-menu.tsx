@@ -593,9 +593,10 @@ export function ComposerSettingsMenu({
 
   // The flags are set from several places (trigger, row selection, quick add),
   // so the notification reads the settled value once instead of being threaded
-  // through every setter. The ref keeps it a transition callback like the Radix
-  // one it mirrors: a parent passing an inline closure re-runs the effect on
-  // every render, and the drawers start closed.
+  // through every setter. Calling through the ref keeps it a transition
+  // callback like the Radix one it mirrors: the effect runs on an open-state
+  // change alone, so a parent passing an inline closure can't re-run it, and
+  // the drawers start closed.
   const notifiedOpenRef = useRef(false);
   const onOpenChangeRef = useRef(onOpenChange);
   useEffect(() => {
@@ -606,8 +607,8 @@ export function ComposerSettingsMenu({
       return;
     }
     notifiedOpenRef.current = anyDrawerOpen;
-    onOpenChange?.(anyDrawerOpen);
-  }, [anyDrawerOpen, onOpenChange]);
+    onOpenChangeRef.current?.(anyDrawerOpen);
+  }, [anyDrawerOpen]);
 
   // Unmounting is the last chance to report. Swapping presentation (a phone
   // rotating into the desktop layout) tears this instance down mid-open, and a
@@ -638,11 +639,14 @@ export function ComposerSettingsMenu({
     "h-8 rounded-full bg-[var(--border-subtle)] text-body-small-default [--vbtn-fg:var(--content-secondary)] hover:bg-[var(--surface-active)] active:bg-[var(--surface-active)] data-[state=open]:bg-[var(--surface-active)]";
   const pillClass = `${pillBaseClass} min-w-0 pl-1.5 pr-2`;
   // Icon-only pills keep the labelled pill's height and shape so the row's
-  // geometry survives a trigger whose label hasn't resolved. `expandOnMobile`
-  // is off because the Button's touch-mobile tap target is 40px, a size that
-  // would break the row.
-  const pillIconOnlyClass = `${pillBaseClass} w-8`;
-  const pillIconClass = "h-3.5 w-3.5 shrink-0 text-[var(--content-tertiary)]";
+  // geometry survives a trigger whose label hasn't resolved. `px-1.5` is the
+  // design's 6px inset around the glyph, which fills the 32px box exactly.
+  const pillIconOnlyClass = `${pillBaseClass} w-8 px-1.5`;
+  // The pills carry a 20px glyph (Figma 7840-8818), wider than the Button's
+  // own icon box, so the glyph rides as a child instead. The Button's
+  // `gap-1.5` then supplies the design's 6px between glyph and label.
+  const pillIconClass =
+    "flex size-5 shrink-0 items-center justify-center text-[var(--content-tertiary)] [&_svg]:size-5";
 
   // Access trigger: the active preset's name beside its icon, as a floating
   // pill on mobile (Figma 7840-8819) and as an action-row button on desktop
@@ -651,11 +655,13 @@ export function ComposerSettingsMenu({
   const accessTrigger = isMobile ? (
     <Button
       variant="ghost"
-      leftIcon={<AccessIcon className={pillIconClass} />}
       aria-label={accessLabel}
       title={accessLabel}
       className={pillClass}
     >
+      <span aria-hidden="true" className={pillIconClass}>
+        <AccessIcon />
+      </span>
       {activePreset.label}
     </Button>
   ) : (
@@ -694,22 +700,26 @@ export function ComposerSettingsMenu({
     activeProfileLabel ? (
       <Button
         variant="ghost"
-        leftIcon={<Sparkles className={pillIconClass} />}
         aria-label={profileLabel}
         title={profileLabel}
         className={pillClass}
       >
+        <span aria-hidden="true" className={pillIconClass}>
+          <Sparkles />
+        </span>
         {profileLabelText}
       </Button>
     ) : (
       <Button
         variant="ghost"
-        iconOnly={<SlidersHorizontal className={pillIconClass} />}
-        expandOnMobile={false}
         aria-label={profileLabel}
         title={profileLabel}
         className={pillIconOnlyClass}
-      />
+      >
+        <span aria-hidden="true" className={pillIconClass}>
+          <SlidersHorizontal />
+        </span>
+      </Button>
     )
   ) : activeProfileLabel ? (
     <Button

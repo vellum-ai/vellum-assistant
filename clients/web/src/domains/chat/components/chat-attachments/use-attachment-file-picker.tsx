@@ -147,5 +147,5 @@ export function useAttachmentFilePicker({
     [multiple, accept, capture, handleChange],
   );
 
-  return useMemo(() => ({ openPicker, inputNode }), [openPicker, inputNode]);
+  return { openPicker, inputNode };
 }
