@@ -52,3 +52,7 @@ Mention migrations, feature flags, rollout state, and companion PRs when relevan
 ## Human Attention Comments
 
 For non-routine changes, leave a PR comment calling out review focus and risk level. Skip this for routine low-risk changes.
+
+## Cursor Cloud GitHub identity
+
+On Cloud Agents, create the PR and mark it ready with the wrapped `gh` CLI (`gh pr create`, `gh pr ready`). Do not use Cursor-hosted pull request tools for those two actions. They authenticate as the human operator. `gh` is already ApolloBot (`vellum-apollo-bot[bot]`).

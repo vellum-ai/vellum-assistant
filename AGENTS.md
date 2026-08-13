@@ -355,6 +355,17 @@ For routes shared between HTTP and IPC, and for the current wire-protocol detail
 
 When publishing domain/live events from inside the daemon process, call the `assistantEventHub` singleton directly rather than adding an HTTP endpoint. For persisted multi-client state invalidation, use `publishSyncInvalidation()` (see Multi-Client Assistant State Sync).
 
+## Cursor Cloud specific instructions
+
+Cloud Agent `git` and `gh` are wrapped as `vellum-apollo-bot[bot]` by the environment start script (`velcro/scripts/cursor-start.sh`). Cursor-hosted GitHub tools, including the built-in pull request tool, authenticate as the human operator instead.
+
+For these GitHub actions, use the wrapped `gh` CLI only. Do not use Cursor-hosted pull request tools:
+
+- Create a pull request with `gh pr create`
+- Mark a pull request ready for review with `gh pr ready`
+
+Confirm `gh auth status` shows `vellum-apollo-bot[bot]` as the active account before those calls.
+
 ## See Also
 
 - **HTTP API patterns & new endpoints**: `assistant/src/runtime/AGENTS.md`
