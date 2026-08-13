@@ -44,6 +44,7 @@ import {
   resetHookCacheForTests,
 } from "../hooks/hook-loader.js";
 import { getHooksFor, getUserHooksFor } from "../hooks/registry.js";
+import { resetPluginCacheForTests } from "../plugins/mtime-cache.js";
 import {
   registerPlugin,
   resetPluginRegistryForTests,
@@ -70,6 +71,7 @@ function buildPlugin(
 describe("getHooksFor per-chat plugin scope (in-process default hooks)", () => {
   beforeEach(() => {
     resetPluginRegistryForTests();
+    resetPluginCacheForTests();
     resolveScopeMock.mockReset();
     resolveScopeMock.mockImplementation(() => null);
   });
