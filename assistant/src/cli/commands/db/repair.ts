@@ -28,6 +28,13 @@ import type { RepairReport, RepairStep, StepResult } from "./repair-steps.js";
 import { formatDurationMs, runRepairSteps } from "./repair-steps.js";
 
 const loadModule = createRequire(import.meta.url);
+let bundledConversationBackfillStep: RepairStep | null = null;
+
+export function setBundledConversationBackfillStep(
+  step: RepairStep | null,
+): void {
+  bundledConversationBackfillStep = step;
+}
 
 // ---------------------------------------------------------------------------
 // Step sequence
@@ -39,9 +46,13 @@ const loadModule = createRequire(import.meta.url);
  * step pulls the DB graph.
  */
 function repairSteps(): RepairStep[] {
-  const { conversationBackfillStep } = loadModule(
-    "./repair-step-conversation-backfill.js",
-  ) as typeof import("./repair-step-conversation-backfill.js");
+  const conversationBackfillStep =
+    bundledConversationBackfillStep ??
+    (
+      loadModule(
+        "./repair-step-conversation-backfill.js",
+      ) as typeof import("./repair-step-conversation-backfill.js")
+    ).conversationBackfillStep;
   return [integrityCheckStep, conversationBackfillStep];
 }
 
