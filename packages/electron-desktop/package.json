@@ -23,7 +23,10 @@
     "./deep-links": "./src/deep-links.ts",
     "./device-id": "./src/device-id.ts",
     "./devtools": "./src/devtools.ts",
+    "./diagnostics": "./src/diagnostics.ts",
     "./dictation-overlay-window": "./src/dictation-overlay-window.ts",
+    "./feature-flags": "./src/feature-flags.ts",
+    "./feedback": "./src/feedback.ts",
     "./floating-window": "./src/floating-window.ts",
     "./gateway-forward": "./src/gateway-forward.ts",
     "./file-open": "./src/file-open.ts",
@@ -48,6 +51,9 @@
     "./preload": "./src/preload.ts",
     "./presence-runtime": "./src/presence-runtime.ts",
     "./quick-input-window": "./src/quick-input-window.ts",
+    "./redact": "./src/redact.ts",
+    "./sentry": "./src/sentry.ts",
+    "./settings": "./src/settings.ts",
     "./session-token-store": "./src/session-token-store.ts",
     "./status": "./src/status.ts",
     "./status-icon": "./src/status-icon.ts",
@@ -71,13 +77,17 @@
     "jszip": "3.10.1"
   },
   "peerDependencies": {
+    "@sentry/electron": ">=7.13.0",
+    "electron-store": ">=11.0.2",
     "electron": ">=42.2.0",
     "zod": ">=4.0.0"
   },
   "devDependencies": {
+    "@sentry/electron": "7.13.0",
     "@types/bun": "1.3.14",
     "@types/node": "22.10.5",
     "electron": "42.2.0",
+    "electron-store": "11.0.2",
     "typescript": "5.9.3",
     "zod": "4.3.6"
   }

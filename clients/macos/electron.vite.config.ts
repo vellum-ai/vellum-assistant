@@ -105,7 +105,7 @@ export default defineConfig({
     },
   },
   preload: {
-    plugins: [externalizeDepsPlugin()],
+    plugins: [externalizeDepsPlugin({ exclude: DEPS_TO_INLINE })],
     build: {
       outDir: "out/preload",
       lib: {

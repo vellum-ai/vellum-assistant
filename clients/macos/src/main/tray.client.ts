@@ -29,7 +29,7 @@ import {
 import { getWatchedLockfile } from "./lockfile-watcher.client";
 import { dispatchToMain } from "./main-window";
 import { menuIcon } from "./menu-icon";
-import { readSetting } from "./settings";
+import { readSetting } from "@vellumai/electron-desktop/settings";
 
 const ICONS: Record<TrayMenuIcon, NativeImage> = {
   check: menuIcon(MENU_ICON_CIRCLECHECK),

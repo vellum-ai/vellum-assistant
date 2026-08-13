@@ -1,12 +1,16 @@
 import { app, BrowserWindow, dialog, shell } from "electron";
 
 import {
+  readSetting,
+  writeSetting,
+} from "@vellumai/electron-desktop/settings";
+
+import {
   getInstallLocation,
   isStrandedOutsideApplications,
   recordInstallLocation,
 } from "./install-location";
 import log from "./logger";
-import { readSetting, writeSetting } from "./settings";
 
 // Build-time define (see electron.vite.config.ts) — the same VELLUM_ENVIRONMENT
 // that electron-builder.config.cjs derives `productName` from.

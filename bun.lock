@@ -299,12 +299,14 @@
       "name": "@vellumai/windows",
       "version": "0.0.1",
       "dependencies": {
+        "@sentry/electron": "7.13.0",
         "@vellumai/electron-desktop": "workspace:*",
         "@vellumai/electron-utils": "workspace:*",
         "@vellumai/environments": "workspace:*",
         "@vellumai/ipc-contract": "workspace:*",
         "@vellumai/local-mode": "workspace:*",
         "electron-log": "5.4.4",
+        "electron-store": "11.0.2",
         "zod": "4.3.6",
       },
       "devDependencies": {
@@ -505,14 +507,18 @@
         "jszip": "3.10.1",
       },
       "devDependencies": {
+        "@sentry/electron": "7.13.0",
         "@types/bun": "1.3.14",
         "@types/node": "22.10.5",
         "electron": "42.2.0",
+        "electron-store": "11.0.2",
         "typescript": "5.9.3",
         "zod": "4.3.6",
       },
       "peerDependencies": {
+        "@sentry/electron": ">=7.13.0",
         "electron": ">=42.2.0",
+        "electron-store": ">=11.0.2",
         "zod": ">=4.0.0",
       },
     },

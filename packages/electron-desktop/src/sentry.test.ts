@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
 /**
  * Unit coverage for the main-process Sentry consent gate, backed by
@@ -24,12 +24,16 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
  * process (scripts/run-tests.ts), so these `mock.module` overrides don't leak.
  */
 
-// Build-time globals injected by the bundler; define them so resolveOptions
-// produces a non-null options object.
-(globalThis as Record<string, unknown>).__SENTRY_DSN_MACOS__ =
-  "https://public@example.test/1";
-(globalThis as Record<string, unknown>).__VELLUM_ENVIRONMENT__ = "test";
-(globalThis as Record<string, unknown>).__VELLUM_BUILD_SHA__ = "test-sha";
+const enabledConfiguration = {
+  dsn: "https://public@example.test/1",
+  environment: "test",
+  release: "test-sha",
+};
+const hostPlatform = process.platform;
+
+function setPlatform(platform: NodeJS.Platform): void {
+  Object.defineProperty(process, "platform", { value: platform });
+}
 
 let sentryClient:
   | { getOptions: () => { enabled?: boolean }; close: () => Promise<boolean> }
@@ -95,7 +99,10 @@ mock.module("./settings", () => ({
   writeSetting: writeSettingMock,
 }));
 
-const { initSentryMain, setShareDiagnostics } = await import("./sentry");
+const { configureSentryMain, initSentryMain, setShareDiagnostics } =
+  await import("./sentry");
+
+configureSentryMain(enabledConfiguration);
 
 // NOTE: `sentry.ts` holds module-level singleton state (`initialized`, the live
 // `enabled` flag, cached options) by design — init must run AT MOST ONCE per
@@ -116,14 +123,17 @@ beforeEach(() => {
   settingChangeCb = null;
 });
 
+afterEach(() => {
+  setPlatform(hostPlatform);
+});
+
 describe("initSentryMain (before any consent)", () => {
   test("does not register the watcher when the DSN is empty", () => {
-    (globalThis as Record<string, unknown>).__SENTRY_DSN_MACOS__ = "";
+    configureSentryMain({ ...enabledConfiguration, dsn: "" });
     initSentryMain();
     expect(initMock).not.toHaveBeenCalled();
     expect(settingChangeCb).toBeNull();
-    (globalThis as Record<string, unknown>).__SENTRY_DSN_MACOS__ =
-      "https://public@example.test/1";
+    configureSentryMain(enabledConfiguration);
   });
 
   test("starts fail-closed: does not initialize Sentry at boot", () => {
@@ -144,7 +154,21 @@ describe("initSentryMain (before any consent)", () => {
 // Runs BEFORE the lifecycle test below, which permanently sets the module's
 // one-shot `initialized` singleton.
 describe("opted-out boot purges queued minidumps (never-initialized path)", () => {
+  test("Windows consent=false purges reports before a later opt-in", () => {
+    setPlatform("win32");
+    initSentryMain();
+    minidumpFs = {
+      "/fake/crash-dumps/reports": ["windows.dmp", "metadata"],
+    };
+
+    setShareDiagnostics(false);
+
+    expect(unlinkMock).toHaveBeenCalledTimes(1);
+    expect(minidumpFs["/fake/crash-dumps/reports"]).toEqual(["metadata"]);
+  });
+
   test("first consent=false with no client deletes queued dumps so a later opt-in can't upload them", () => {
+    setPlatform("darwin");
     initSentryMain();
     expect(initMock).not.toHaveBeenCalled();
 

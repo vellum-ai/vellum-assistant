@@ -6,12 +6,11 @@ import { pathToFileURL } from "node:url";
 import path from "node:path";
 
 import { resolveAppProtocolPath } from "@vellumai/electron-utils/app-protocol";
+import { VELLUMAPP_PROTOCOL } from "@vellumai/electron-desktop/bundle-platform";
 import { getDeviceId } from "@vellumai/electron-desktop/device-id";
 import { resolveLocalConfigFromEnv } from "@vellumai/local-mode";
 
-import { VELLUMAPP_PROTOCOL } from "@vellumai/electron-desktop/bundle-platform";
-
-import { APP_PROTOCOL } from "./app-config";
+import { APP_PROTOCOL, WINDOWS_RELEASE_INFO } from "./app-config";
 import { provisionCliForCurrentUser } from "./cli-path-flow";
 import { installMainFeatures } from "./features";
 import { handleSync } from "./ipc.client";
@@ -51,11 +50,7 @@ const isDev = !app.isPackaged;
 // environment. Append an environment suffix for non-production builds so
 // dev/staging/production installs can run side-by-side; production keeps the
 // original path for backwards compatibility.
-declare const __VELLUM_ENVIRONMENT__: string;
-const releaseChannel =
-  typeof __VELLUM_ENVIRONMENT__ === "string"
-    ? __VELLUM_ENVIRONMENT__
-    : "production";
+const releaseChannel = WINDOWS_RELEASE_INFO.releaseChannel;
 if (app.isPackaged) {
   if (releaseChannel !== "production") {
     const base = app.getPath("userData");
