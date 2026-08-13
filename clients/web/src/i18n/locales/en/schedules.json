@@ -47,7 +47,6 @@
     "delete": "Delete",
     "deleteConfirmMessage": "Delete \"{name}\"? This can't be undone.",
     "cancel": "Cancel",
-    "deleting": "Deleting…",
     "confirmDelete": "Yes, delete",
     "viewUsage": "View usage",
     "turnOnToRun": "Turn this schedule on to run it",

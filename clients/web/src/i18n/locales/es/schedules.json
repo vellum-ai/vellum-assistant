@@ -47,7 +47,6 @@
     "delete": "Eliminar",
     "deleteConfirmMessage": "¿Eliminar \"{name}\"? Esta acción no se puede deshacer.",
     "cancel": "Cancelar",
-    "deleting": "Eliminando…",
     "confirmDelete": "Sí, eliminar",
     "viewUsage": "Ver el uso",
     "turnOnToRun": "Activa esta programación para ejecutarla",
