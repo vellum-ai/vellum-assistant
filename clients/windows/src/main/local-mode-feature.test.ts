@@ -1,8 +1,5 @@
 import { beforeEach, expect, mock, test } from "bun:test";
 
-const once = mock(() => undefined);
-mock.module("electron", () => ({ app: { once } }));
-
 const cliToken = { id: "desktop.local-mode-cli" };
 const pathsToken = { id: "desktop.local-mode-paths" };
 const sessionToken = { id: "desktop.local-mode-session" };
@@ -18,13 +15,8 @@ mock.module("@vellumai/electron-desktop/local-mode", () => ({
   LOCAL_MODE_SESSION: sessionToken,
 }));
 
-const configureLockfileWatcher = mock(() => undefined);
-const teardownWatcher = mock(() => undefined);
-const installLockfileWatcher = mock(() => teardownWatcher);
 const refreshLockfileNow = mock(() => undefined);
 mock.module("@vellumai/electron-desktop/lockfile-watcher", () => ({
-  configureLockfileWatcher,
-  installLockfileWatcher,
   refreshLockfileNow,
 }));
 mock.module("./ipc.client", () => ({ handle: mock(() => undefined) }));
@@ -46,7 +38,6 @@ test("installs an explicit unavailable surface without runtime providers", () =>
     "Local mode is unavailable until its Windows providers are installed.",
   );
   expect(installLocalMode).toHaveBeenCalledTimes(1);
-  expect(installLockfileWatcher).not.toHaveBeenCalled();
 });
 
 test("installs the full runtime when every provider is present", () => {
@@ -68,9 +59,12 @@ test("installs the full runtime when every provider is present", () => {
   localModeFeature.install(registry);
 
   expect(configureLocalMode).toHaveBeenCalledWith(
-    expect.objectContaining({ cli, paths, session }),
+    expect.objectContaining({
+      cli,
+      paths,
+      refreshLockfile: refreshLockfileNow,
+      session,
+    }),
   );
   expect(installLocalMode).toHaveBeenCalledTimes(1);
-  expect(installLockfileWatcher).toHaveBeenCalledTimes(1);
-  expect(once).toHaveBeenCalledWith("before-quit", teardownWatcher);
 });

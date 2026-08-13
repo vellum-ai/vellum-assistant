@@ -1,5 +1,3 @@
-import { app } from "electron";
-
 import type {
   CapabilityModule,
   DesktopCapabilityRegistry,
@@ -12,11 +10,7 @@ import {
   LOCAL_MODE_PATHS,
   LOCAL_MODE_SESSION,
 } from "@vellumai/electron-desktop/local-mode";
-import {
-  configureLockfileWatcher,
-  installLockfileWatcher,
-  refreshLockfileNow,
-} from "@vellumai/electron-desktop/lockfile-watcher";
+import { refreshLockfileNow } from "@vellumai/electron-desktop/lockfile-watcher";
 
 import { handle } from "../ipc.client";
 
@@ -34,10 +28,6 @@ const localModeFeature: CapabilityModule<DesktopCapabilityRegistry> = {
       installLocalMode();
       return;
     }
-
-    configureLockfileWatcher(() => paths.lockfilePaths);
-    const teardownWatcher = installLockfileWatcher();
-    app.once("before-quit", teardownWatcher);
 
     configureLocalMode({
       cli,
