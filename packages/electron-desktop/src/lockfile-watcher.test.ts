@@ -15,7 +15,7 @@ const CANONICAL_PATH = "/tmp/test-lockfile.json";
 const LEGACY_PATH = "/tmp/test-lockfile-legacy.json";
 let mockPaths = [CANONICAL_PATH];
 
-// Passthrough the real parseLockfile — stubbing the @vellumai/local-mode
+// Passthrough the real parseLockfile, stubbing the @vellumai/local-mode
 // entry above doesn't touch the /contract subpath it lives in.
 const { parseLockfile } = await import("@vellumai/local-mode/contract");
 mock.module("@vellumai/local-mode/contract", () => ({
