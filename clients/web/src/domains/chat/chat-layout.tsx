@@ -207,8 +207,11 @@ export function ChatLayout({
   // is gated on `isAssistantActive`, and a gated query is pending without
   // fetching, which would leave the sidebar under placeholders for as long as
   // the assistant took to come up (or forever, if it never did).
-  const { conversations, isLoading: isLoadingConversations } =
-    useConversationListQuery(assistantId, isAssistantActive);
+  const {
+    conversations,
+    isLoading: isLoadingConversations,
+    isPending: isConversationListPending,
+  } = useConversationListQuery(assistantId, isAssistantActive);
   const { conversationGroups } = useConversationGroupsQuery(
     assistantId,
     isAssistantActive,
@@ -242,8 +245,10 @@ export function ChatLayout({
 
   // Mirror the same list into the iOS shell's recent-chats cache, which backs
   // the Shortcuts app's chat picker ("Send Message to Chat"). No-op off
-  // Capacitor iOS; see the hook for the sync/dedupe contract.
-  useNativeRecentChatsSync(conversations);
+  // Capacitor iOS. `isPending` is false only once the query has resolved, so
+  // the pre-load `[]` fallback never wipes the last-known-good native cache;
+  // see the hook for the full contract.
+  useNativeRecentChatsSync(conversations, !isConversationListPending);
 
   // Header slots come from a module-level store so gated routes
   // (which see `ActiveAssistantGate`'s `<Outlet />` as their

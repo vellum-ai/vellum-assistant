@@ -21,6 +21,16 @@ struct RecentChat: Codable, Equatable {
 ///
 /// `UserDefaults.standard` is per bundle id, so the Dev / Staging / production
 /// apps each keep their own cache, matching their separate origins.
+///
+/// ## Cache boundary
+///
+/// There is deliberately no invalidation on sign-out or a self-hosted-origin
+/// switch: the cache holds only ids and titles (no message content), it is
+/// device-local to the same OS user, and the next confirmed list sync from
+/// whoever is signed in replaces it wholesale. Until that sync, the picker
+/// may show the previous account's or origin's titles; picking one produces
+/// an id the web layer cannot resolve, which the `?prompt=` relay refuses
+/// with a visible "chat not found" state rather than sending anywhere.
 enum RecentChatsStore {
     static let defaultsKey = "recentChats"
 

@@ -73,7 +73,11 @@ import { useChatHeaderRegistration } from "@/domains/chat/hooks/use-chat-header-
 import { useConversationChangeEffects } from "@/domains/chat/hooks/use-conversation-change-effects";
 import { useSubagentReconcile } from "@/domains/chat/hooks/use-subagent-reconcile";
 import { useComposerKeyboard } from "@/domains/chat/hooks/use-composer-keyboard";
-import { useAutoSendEffects } from "@/domains/chat/hooks/use-auto-send-effects";
+import {
+  useAutoSendEffects,
+  type UrlPromptTargetResolution,
+} from "@/domains/chat/hooks/use-auto-send-effects";
+import { useConversationListCache } from "@/hooks/conversation-queries";
 import { useOnboardingAttribution } from "@/hooks/use-onboarding-attribution";
 
 import { ChatContentLayout } from "@/domains/chat/components/chat-content-layout";
@@ -287,10 +291,35 @@ export function ActiveChatView() {
     refreshConversations,
   });
 
+  // Resolve the ?prompt= target against live data so the auto-send below can
+  // refuse ids the send path would otherwise treat as new-conversation drafts
+  // (a stale iOS Shortcuts pick, a deleted chat). Draft ids are legitimately
+  // absent from the list; the cache observer never fetches, so "unresolved"
+  // lasts exactly as long as the gated list query does.
+  const conversationListCache = useConversationListCache(assistantId);
+  const draftConversationIds = useConversationStore.use.draftConversationIds();
+  const urlPromptTargetResolution: UrlPromptTargetResolution = useMemo(() => {
+    if (!activeConversationId) {
+      return "unresolved";
+    }
+    if (draftConversationIds.has(activeConversationId)) {
+      return "exists";
+    }
+    if (conversationListCache === undefined) {
+      return "unresolved";
+    }
+    return conversationListCache.some(
+      (conversation) => conversation.conversationId === activeConversationId,
+    )
+      ? "exists"
+      : "missing";
+  }, [activeConversationId, draftConversationIds, conversationListCache]);
+
   // Auto-send: URL ?prompt=, pre-chat reachability probe, onboarding message.
   useAutoSendEffects({
     assistantId,
     activeConversationId,
+    urlPromptTargetResolution,
     searchParams,
     setSearchParams,
     sendMessage,

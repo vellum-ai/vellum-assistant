@@ -28,12 +28,23 @@ const MAX_SYNCED_CHATS = 50;
  * that change nothing the picker can see cost no bridge traffic. Archived
  * conversations are excluded to match the sidebar; titleless ones get the
  * sidebar's own "Untitled" fallback so every picker row has a label.
+ *
+ * `listResolved` must be false until the conversation-list query has actually
+ * resolved (it serves an `[]` fallback while loading, gated, or errored).
+ * Without the guard, every launch would wipe the native cache before the
+ * first load, and a launch that never loads (offline, assistant never ready)
+ * would wipe it permanently, leaving the Shortcuts picker empty despite a
+ * last-known-good cache. An empty list from a *resolved* query does sync:
+ * genuinely having no conversations should clear the picker.
  */
-export function useNativeRecentChatsSync(conversations: Conversation[]): void {
+export function useNativeRecentChatsSync(
+  conversations: Conversation[],
+  listResolved: boolean,
+): void {
   const lastPayloadRef = useRef<string | null>(null);
 
   useEffect(() => {
-    if (!isRecentChatsSyncAvailable()) {
+    if (!isRecentChatsSyncAvailable() || !listResolved) {
       return;
     }
     const chats: RecentChatSyncEntry[] = conversations
@@ -50,5 +61,5 @@ export function useNativeRecentChatsSync(conversations: Conversation[]): void {
     }
     lastPayloadRef.current = serialized;
     void syncRecentChats(chats);
-  }, [conversations]);
+  }, [conversations, listResolved]);
 }

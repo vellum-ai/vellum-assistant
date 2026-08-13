@@ -102,6 +102,23 @@ export function useConversationListQuery(
 }
 
 /**
+ * Observe the foreground conversation-list *cache* for `assistantId` without
+ * ever fetching: `enabled: false` keeps the observer subscribed to cache
+ * updates (the same pattern attention tracking uses on the background list),
+ * so consumers can distinguish "list not loaded yet" (`undefined`) from a
+ * loaded list while leaving fetch policy to the gated subscribers above.
+ */
+export function useConversationListCache(
+  assistantId: string | null,
+): Conversation[] | undefined {
+  const query = useQuery({
+    ...conversationListOptions(assistantId!),
+    enabled: false,
+  });
+  return query.data;
+}
+
+/**
  * Subscribe to the background conversation list for the given assistant.
  * Cached separately from the foreground list under
  * `backgroundConversationsQueryKey`.
