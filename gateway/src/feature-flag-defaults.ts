@@ -32,7 +32,7 @@ const REGISTRY_RELATIVE = join("meta", "feature-flags", REGISTRY_FILENAME);
  *
  * Candidate order:
  *   1. Bundled copy adjacent to gateway source (`gateway/src/<file>`)
- *   2. Packaged executable directory
+ *   2. Packaged Windows executable directory (Windows only)
  *   3. macOS app bundle resources (`Contents/Resources/<file>`)
  *   4. Monorepo layout: walk up two levels from gateway/src/
  *   5. Docker / gateway-only layout: adjacent to gateway src (`<root>/meta/...`)
@@ -53,7 +53,9 @@ function getRegistryCandidates(): string[] {
 
   // 2. Packaged Windows CLI runtime
   const execDir = dirname(process.execPath);
-  candidates.push(join(execDir, REGISTRY_FILENAME));
+  if (process.platform === "win32") {
+    candidates.push(join(execDir, REGISTRY_FILENAME));
+  }
 
   // 3. Packaged macOS app layout: <App>.app/Contents/MacOS/vellum-gateway
   //    defaults live under <App>.app/Contents/Resources/<file>.

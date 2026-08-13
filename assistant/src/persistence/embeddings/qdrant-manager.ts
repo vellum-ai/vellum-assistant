@@ -14,7 +14,6 @@ import { arch, platform } from "node:os";
 import { dirname, join } from "node:path";
 
 import type { Subprocess } from "bun";
-import JSZip from "jszip";
 
 import { getQdrantReadyzTimeoutMs, getQdrantUrlEnv } from "../../config/env.js";
 import { getLogger } from "../../util/logger.js";
@@ -271,6 +270,7 @@ export class QdrantManager {
     const binDir = dirname(binaryPath);
     mkdirSync(binDir, { recursive: true });
     if (release.format === "zip") {
+      const { default: JSZip } = await import("jszip");
       const zip = await JSZip.loadAsync(archive);
       const entry = zip.file(release.binaryName);
       if (!entry) {
