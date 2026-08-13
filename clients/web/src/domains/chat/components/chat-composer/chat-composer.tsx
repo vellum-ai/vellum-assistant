@@ -34,6 +34,12 @@ import {
   useIsCompactComposerWidth,
 } from "@/domains/chat/components/chat-composer/composer-compact";
 import {
+  MOBILE_CONTROL_CLASS,
+  MOBILE_GHOST_WASH_CLASS,
+  MOBILE_GLYPH_CLASS,
+} from "@/domains/chat/components/chat-composer/composer-mobile-chrome";
+import {
+  COMPOSER_MOBILE_RADIUS_CLASS,
   COMPOSER_RADIUS_CLASS,
   VoiceComposerBar,
 } from "@/domains/chat/components/chat-composer/voice-composer-bar";
@@ -68,7 +74,7 @@ import { isElectron } from "@/runtime/is-electron";
 import { isPopoutWindowLifetime } from "@/runtime/popout-window";
 import { useIsNativePlatform } from "@/runtime/native-auth";
 import { isNativeIOS } from "@/runtime/platform-detection";
-import { isPointerCoarse } from "@/utils/pointer";
+import { isPointerCoarse, usePointerCoarse } from "@/utils/pointer";
 import { routes } from "@/utils/routes";
 import { usePlatformGate } from "@/hooks/use-platform-gate";
 import { useTranslation } from "@/i18n";
@@ -232,30 +238,6 @@ function measureVoiceOriginAvatar(): { x: number; y: number } | null {
   }
   return { x: best.left + best.width / 2, y: best.top + best.height / 2 };
 }
-
-/**
- * The 40x40 circle the mobile row's controls stand at.
- *
- * Driven from the composer's own `isMobile` branch, the same signal that
- * produces the row, rather than from the `touch-mobile:` variant. The two
- * disagree on a window dragged under the breakpoint, which would otherwise take
- * the mobile row's structure while every control in it kept desktop chrome. The
- * primitive's own mobile growth is switched off (`expandOnMobile={false}`)
- * wherever these classes land, so one signal owns the whole control. See
- * `docs/PLATFORM_ADAPTATION.md`.
- */
-const MOBILE_CONTROL_CLASS = "h-10 w-10 rounded-full";
-
-/** The 20px glyphs those 40x40 controls carry. */
-const MOBILE_GLYPH_CLASS = "size-5 [&_svg]:size-5";
-
-/**
- * The press wash under the row's unfilled glyphs. The primitive paints one for
- * ghost icon-only buttons under `touch-mobile:` alone, so the row carries its
- * own and every narrow window lights up the same way.
- */
-const MOBILE_GHOST_WASH_CLASS =
-  "hover:bg-[var(--surface-active)] active:bg-[var(--surface-active)]";
 
 /**
  * The mobile send button's filled circle. Applied only while the button can
@@ -610,8 +592,8 @@ export function ChatComposer({
   // Narrow-card collapse: below the compact width the labelled access and
   // model-profile triggers collide, so the pair folds into one hamburger menu
   // (mounted in the access slot, keeping the row's attach | settings | mic |
-  // voice order). Mobile is excluded: its triggers are already icon-only and
-  // open bottom sheets, which fit.
+  // voice order). Mobile is excluded: its settings triggers live in the pills
+  // row above the card, so they never compete for the action row's width.
   const composerCardRef = useRef<HTMLFormElement>(null);
   const compactSettings =
     useIsCompactComposerWidth(composerCardRef) && !isMobile;
@@ -778,7 +760,11 @@ export function ChatComposer({
   );
 
   const [addSheetOpen, setAddSheetOpen] = useState(false);
-  const usesAddSheet = isMobile && pointerCoarse;
+  // Subscribed rather than read once: a convertible whose keyboard comes off
+  // mid-session changes what the plus should open, and the sheet has to be
+  // mounted by then to receive the press.
+  const pointerCoarseNow = usePointerCoarse();
+  const usesAddSheet = isMobile && pointerCoarseNow;
 
   // Every surface opened from the composer moves focus into a portal, the
   // composer's own add-to-chat sheet included, so each one has to hold the row
@@ -788,14 +774,14 @@ export function ChatComposer({
     hasSettingsPills &&
     (composerFocusWithin || settingsSheetOpen || addSheetOpen);
 
-  // 26px is half the mobile card's 52px collapsed height, so the resting
-  // composer is a pill and keeps that corner once attachments make it taller.
-  // The shared `COMPOSER_RADIUS_CLASS` stays the desktop card's, which the
-  // live-voice bar draws from too.
+  // A pill at mobile widths (half the card's 52px collapsed height), the 10px
+  // panel elsewhere, both from the live-voice bar's module: the bar stacks on
+  // this card and has to wear whichever corner it is showing. The banner
+  // variants stay literal, since a bottom-only corner is not the same class.
   const cardShapeClass = isMobile
     ? hasBillingBanner
       ? "rounded-b-[26px]"
-      : "rounded-[26px]"
+      : COMPOSER_MOBILE_RADIUS_CLASS
     : hasBillingBanner
       ? "rounded-b-[10px]"
       : COMPOSER_RADIUS_CLASS;
@@ -1240,51 +1226,54 @@ export function ChatComposer({
         </div>
       )}
       <div ref={composerShellRef} data-slot="chat-composer-shell">
-        {hasSettingsPills && (
-          // Mounted for as long as the composer is, because each pill gates
-          // itself on server state its own menu loads (access waits on the
-          // global-threshold fetch), and a row that mounted on first focus
-          // would rise with that pill still missing. Only its visibility
-          // follows focus: `hidden` is `display: none`, which keeps the resting
-          // row out of the layout, the tab order and the accessibility tree,
-          // and lets the entrance animation run again on every reveal.
-          //
-          // The row rises into place rather than appearing, since it arrives
-          // with the keyboard; reduced motion keeps the placement and drops the
-          // movement.
-          <div
-            data-slot="composer-settings-pills"
-            hidden={!settingsPillsVisible}
-            className={
-              settingsPillsVisible
-                ? "mb-3 flex animate-[fadeInUp_var(--anim-fast)_var(--anim-ease-out)_backwards] justify-end gap-1.5 motion-reduce:animate-none"
-                : undefined
-            }
-          >
-            {thresholdPickerSlot}
-            {modelPickerSlot}
-          </div>
-        )}
-        <Popover.Root open={emoji.show || slash.show}>
-          <Popover.Anchor asChild>
-            <form
-              ref={composerCardRef}
-              data-slot="chat-composer"
-              onSubmit={onSubmit}
-              className={`overflow-hidden bg-[var(--surface-lift)] shadow-[0px_2px_2px_rgba(0,0,0,0.05)] ${cardShapeClass}`}
+        {/* Above every slot placement, the pills row included: what a control
+            does when the card runs narrow is the control's own business, and
+            must not depend on which row it happens to be sitting in. */}
+        <ComposerCompactProvider compact={compactSettings}>
+          {hasSettingsPills && (
+            // Mounted for as long as the composer is, because each pill gates
+            // itself on server state its own menu loads (access waits on the
+            // global-threshold fetch), and a row that mounted on first focus
+            // would rise with that pill still missing. Only its visibility
+            // follows focus: `hidden` is `display: none`, which keeps the resting
+            // row out of the layout, the tab order and the accessibility tree,
+            // and lets the entrance animation run again on every reveal.
+            //
+            // The row rises into place rather than appearing, since it arrives
+            // with the keyboard; reduced motion keeps the placement and drops the
+            // movement.
+            <div
+              data-slot="composer-settings-pills"
+              hidden={!settingsPillsVisible}
+              // The right inset lands the last pill's edge over the send
+              // circle's, so the row reads as hung off the card rather than
+              // floated past it.
+              className={
+                settingsPillsVisible
+                  ? "mb-3 flex animate-[fadeInUp_var(--anim-fast)_var(--anim-ease-out)_backwards] justify-end gap-1.5 pr-1.5 motion-reduce:animate-none"
+                  : undefined
+              }
             >
-              {/* overflow-hidden lives here, not on the form itself: the form
+              {thresholdPickerSlot}
+              {modelPickerSlot}
+            </div>
+          )}
+          <Popover.Root open={emoji.show || slash.show}>
+            <Popover.Anchor asChild>
+              <form
+                ref={composerCardRef}
+                data-slot="chat-composer"
+                onSubmit={onSubmit}
+                className={`overflow-hidden bg-[var(--surface-lift)] shadow-[0px_2px_2px_rgba(0,0,0,0.05)] ${cardShapeClass}`}
+              >
+                {/* overflow-hidden lives here, not on the form itself: the form
                 casts the shadow above, and overflow-hidden on the same box
                 would clip that shadow along with the rounded corners. */}
-              <div className={`overflow-hidden ${cardShapeClass}`}>
-                <ChatAttachmentsStrip
-                  attachments={attachments}
-                  onRemove={removeAttachment}
-                />
-                {/* Above both layouts: what a control does when the card runs
-                    narrow is the control's own business, and must not depend on
-                    which row it happens to be sitting in. */}
-                <ComposerCompactProvider compact={compactSettings}>
+                <div className={`overflow-hidden ${cardShapeClass}`}>
+                  <ChatAttachmentsStrip
+                    attachments={attachments}
+                    onRemove={removeAttachment}
+                  />
                   {isMobile ? (
                     <>
                       {inlineVoicePreview}
@@ -1310,8 +1299,11 @@ export function ChatComposer({
                         {textFieldBlock}
                         {/* The mic's 40x40 box carries 10px of slack around its
                           20px glyph, so 6px of gap lands that glyph the
-                          design's 16px from the voice circle. */}
-                        <div className="flex shrink-0 items-end gap-1.5">
+                          design's 16px from the voice circle. `ml-auto` is the
+                          fallback anchor: native dictation takes the textarea
+                          out of the row, and with its `flex-1` gone there is
+                          nothing left to push this group over. */}
+                        <div className="ml-auto flex shrink-0 items-end gap-1.5">
                           {isAssistantBusy ? (
                             busyRowControl
                           ) : (
@@ -1368,53 +1360,53 @@ export function ChatComposer({
                       </div>
                     </>
                   )}
-                </ComposerCompactProvider>
-              </div>
-            </form>
-          </Popover.Anchor>
-          <Popover.Content
-            side="top"
-            align="start"
-            sideOffset={4}
-            className="w-[var(--radix-popover-trigger-width)] rounded-none bg-transparent p-0 shadow-none"
-            onOpenAutoFocus={(e: Event) => e.preventDefault()}
-            onCloseAutoFocus={(e: Event) => e.preventDefault()}
-            onInteractOutside={(e: Event) => e.preventDefault()}
-            onEscapeKeyDown={(e: Event) => e.preventDefault()}
-            onPointerDownOutside={(e: Event) => e.preventDefault()}
-          >
-            {emoji.show && (
-              <EmojiPickerPopup
-                entries={emoji.items}
-                selectedIndex={emoji.selectedIndex}
-                onSelect={insertEmoji}
-              />
-            )}
-            {slash.show && (
-              <SlashCommandPopup
-                commands={slash.items}
-                selectedIndex={slash.selectedIndex}
-                onSelect={handleSlashCommandSelect}
-              />
-            )}
-          </Popover.Content>
-        </Popover.Root>
-        {pointerCoarse && (
-          // Beside the form, not inside it: the sheet keeps hidden file inputs
-          // mounted while a native picker is up, and those have no business in
-          // the form the composer submits.
-          //
-          // Mounted on the pointer alone rather than on the compound that
-          // decides whether the plus opens it. Rotating a phone into landscape
-          // crosses the width breakpoint, and unmounting the inputs there would
-          // drop a camera or gallery pick still being made. A touch device at
-          // desktop width just keeps a closed sheet mounted.
-          <AddToChatSheet
-            open={addSheetOpen}
-            onOpenChange={setAddSheetOpen}
-            onAttachFiles={onAddAttachmentFiles}
-          />
-        )}
+                </div>
+              </form>
+            </Popover.Anchor>
+            <Popover.Content
+              side="top"
+              align="start"
+              sideOffset={4}
+              className="w-[var(--radix-popover-trigger-width)] rounded-none bg-transparent p-0 shadow-none"
+              onOpenAutoFocus={(e: Event) => e.preventDefault()}
+              onCloseAutoFocus={(e: Event) => e.preventDefault()}
+              onInteractOutside={(e: Event) => e.preventDefault()}
+              onEscapeKeyDown={(e: Event) => e.preventDefault()}
+              onPointerDownOutside={(e: Event) => e.preventDefault()}
+            >
+              {emoji.show && (
+                <EmojiPickerPopup
+                  entries={emoji.items}
+                  selectedIndex={emoji.selectedIndex}
+                  onSelect={insertEmoji}
+                />
+              )}
+              {slash.show && (
+                <SlashCommandPopup
+                  commands={slash.items}
+                  selectedIndex={slash.selectedIndex}
+                  onSelect={handleSlashCommandSelect}
+                />
+              )}
+            </Popover.Content>
+          </Popover.Root>
+          {pointerCoarseNow && (
+            // Beside the form, not inside it: the sheet keeps hidden file inputs
+            // mounted while a native picker is up, and those have no business in
+            // the form the composer submits.
+            //
+            // Mounted on the pointer alone rather than on the compound that
+            // decides whether the plus opens it. Rotating a phone into landscape
+            // crosses the width breakpoint, and unmounting the inputs there would
+            // drop a camera or gallery pick still being made. A touch device at
+            // desktop width just keeps a closed sheet mounted.
+            <AddToChatSheet
+              open={addSheetOpen}
+              onOpenChange={setAddSheetOpen}
+              onAttachFiles={onAddAttachmentFiles}
+            />
+          )}
+        </ComposerCompactProvider>
       </div>
     </>
   );

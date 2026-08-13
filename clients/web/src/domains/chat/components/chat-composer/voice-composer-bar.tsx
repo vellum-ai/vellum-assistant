@@ -105,11 +105,12 @@ export const COMPOSER_RADIUS_CLASS = "rounded-[10px]";
 
 /**
  * The same corner at mobile widths, where the composer card is a 26px pill
- * (half its 52px collapsed height, see `chat-composer.tsx`) rather than the
- * desktop panel. The bar tracks whichever card it is stacked on, so the two
- * still read as one control area; a 10px bar over a pill would not.
+ * (half its 52px collapsed height) rather than the desktop panel. The bar
+ * tracks whichever card it is stacked on, so the two still read as one control
+ * area; a 10px bar over a pill would not. Exported for the same reason as its
+ * desktop sibling: the card and the bar cannot be allowed to drift.
  */
-const COMPOSER_MOBILE_RADIUS_CLASS = "rounded-[26px]";
+export const COMPOSER_MOBILE_RADIUS_CLASS = "rounded-[26px]";
 
 export interface VoiceComposerBarProps {
   state: LiveVoiceSessionState;

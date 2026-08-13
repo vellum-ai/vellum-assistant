@@ -22,6 +22,13 @@ import {
   waitFor,
 } from "@testing-library/react";
 
+// The row chrome the component wears under `mobileRow`, asserted from the
+// same constants it paints with so the two cannot drift.
+import {
+  MOBILE_CONTROL_CLASS,
+  MOBILE_GLYPH_CLASS,
+} from "@/domains/chat/components/chat-composer/composer-mobile-chrome";
+
 const addBreadcrumbSpy = mock((_breadcrumb: unknown) => {});
 mock.module("@sentry/react", () => ({
   addBreadcrumb: addBreadcrumbSpy,
@@ -620,8 +627,10 @@ describe("VoiceInputButton: mobile composer row chrome", () => {
     // primitive's default, and the row sizes the control itself so a narrow
     // mouse-driven window gets the same mic a phone does
     const button = screen.getByRole("button", { name: "Start voice input" });
-    expect(button.className).toContain("h-10 w-10 rounded-full");
-    expect(button.querySelector("span")?.className).toContain("[&_svg]:size-5");
+    expect(button.className).toContain(MOBILE_CONTROL_CLASS);
+    expect(button.querySelector("span")?.className).toContain(
+      MOBILE_GLYPH_CLASS,
+    );
   });
 
   test("the default leaves the idle mic at the primitive's sizing", () => {
@@ -636,10 +645,10 @@ describe("VoiceInputButton: mobile composer row chrome", () => {
     // THEN the row's own sizing does not reach it, and the primitive's
     // `touch-mobile:` chrome is left in charge
     const button = screen.getByRole("button", { name: "Start voice input" });
-    expect(button.className).not.toContain("h-10 w-10 rounded-full");
+    expect(button.className).not.toContain(MOBILE_CONTROL_CLASS);
     expect(button.className).toContain("touch-mobile:h-10");
     expect(button.querySelector("span")?.className).not.toContain(
-      "[&_svg]:size-5",
+      MOBILE_GLYPH_CLASS,
     );
   });
 });

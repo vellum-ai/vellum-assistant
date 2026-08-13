@@ -16,8 +16,9 @@
  *   surfaces over the input's top edge, its lower half hidden behind
  *   the rim, while the input casts a soft unoffset shadow over it so
  *   the body reads as sitting behind the card. This peek is anchored
- *   toward the input's left side. In the browser the top dude retreats
- *   up off screen as it rises.
+ *   toward the input's left side, and starts above the mobile settings
+ *   pills whenever that row is floating between it and the card. In the
+ *   browser the top dude retreats up off screen as it rises.
  *
  * The composer card is located by its `data-slot="chat-composer"` anchor
  * and its rect tracked per-frame, so the overlays stay glued through
@@ -49,6 +50,9 @@ interface TargetRect {
   /** The card's own computed `border-radius`, so the shadow caster below
    *  can trace whatever corner the card is currently wearing. */
   radius: string;
+  /** How far above the card's top edge the focus peek has to start, so it
+   *  clears the settings pills floating there. Zero whenever no row is up. */
+  pillsClearance: number;
 }
 
 /** The composer card itself, which the overlays are measured against. */
@@ -56,19 +60,20 @@ const COMPOSER_SELECTOR = '[data-slot="chat-composer"]';
 /** The wrapper around the card, which also holds controls that float
  *  outside it (the mobile settings pills). */
 const COMPOSER_SHELL_SELECTOR = '[data-slot="chat-composer-shell"]';
+/** Those pills, while they are up. The row stays mounted when it is away, so
+ *  the `hidden` attribute is what separates the two. */
+const COMPOSER_PILLS_SELECTOR =
+  '[data-slot="composer-settings-pills"]:not([hidden])';
 
 /**
  * Whether a focus target belongs to the composer. The shell is the
- * boundary, so tapping a pill floating above the card is not a leave;
- * the card is the fallback for variants that render no shell.
+ * boundary, so tapping a pill floating above the card is not a leave.
  */
 function withinComposer(node: EventTarget | null): boolean {
   if (!(node instanceof Element)) {
     return false;
   }
-  return Boolean(
-    node.closest(COMPOSER_SHELL_SELECTOR) ?? node.closest(COMPOSER_SELECTOR),
-  );
+  return Boolean(node.closest(COMPOSER_SHELL_SELECTOR));
 }
 
 /**
@@ -94,10 +99,6 @@ const CLIP_HEADROOM = 14;
 const PEEK_X_FRACTION = 0.15;
 /** Exit choreography length before the input-peek overlay unmounts. */
 const EXIT_MS = 300;
-/** Radius the shadow caster falls back to when the card's computed one
- *  can't be read. The card's own radius wins wherever it can: mobile
- *  wears a far rounder corner than this. */
-const PANEL_RADIUS_FALLBACK = "10px";
 /** Soft, unoffset shadow the input casts over the peeking avatar, so the
  *  body reads as sitting behind the card. */
 const PEEK_SHADOW = "0 0 20px rgba(0, 0, 0, 0.15)";
@@ -190,14 +191,26 @@ export function ComposerPeek({
       // Read alongside the rect, which has already flushed layout: the
       // caster has to trace the card's real corner, and the card is a
       // 10px panel on desktop and a deep pill on mobile.
-      const radius =
-        window.getComputedStyle(element).borderRadius || PANEL_RADIUS_FALLBACK;
+      const radius = window.getComputedStyle(element).borderRadius;
+      // The mobile settings pills float between the card and this avatar, and
+      // the portal paints over them, so the peek starts above the row instead.
+      // Measured as layout height + margin rather than as a rect: the row
+      // rises into place on a transform, and a rect would move with it and put
+      // a `setRect` in every frame of that animation.
+      const pills = element
+        .closest(COMPOSER_SHELL_SELECTOR)
+        ?.querySelector<HTMLElement>(COMPOSER_PILLS_SELECTOR);
+      const pillsClearance = pills
+        ? pills.offsetHeight +
+          (Number.parseFloat(window.getComputedStyle(pills).marginBottom) || 0)
+        : 0;
       return {
         left: r.left,
         top: r.top,
         width: r.width,
         height: r.height,
         radius,
+        pillsClearance,
       };
     };
     const enter = () => {
@@ -247,7 +260,8 @@ export function ComposerPeek({
           next.top !== last.top ||
           next.width !== last.width ||
           next.height !== last.height ||
-          next.radius !== last.radius)
+          next.radius !== last.radius ||
+          next.pillsClearance !== last.pillsClearance)
       ) {
         last = next;
         recordUpdate("composer-peek");
@@ -453,14 +467,15 @@ export function ComposerPeek({
         </div>
       )}
       {mode !== "rest" && !introActive && (
-        /* Input-peek avatar, clipped at the input's top edge so the
-           body reads as peeking out from behind the rim. */
+        /* Input-peek avatar, clipped at the input's top edge, or at the
+           settings pills' while that row is up, so the body reads as
+           peeking out from behind whichever rim is nearest. */
         <div
           key="focus-peek"
           className="absolute overflow-hidden"
           style={{
             left: rect.left,
-            top: rect.top - clipHeight,
+            top: rect.top - rect.pillsClearance - clipHeight,
             width: rect.width,
             height: clipHeight,
           }}

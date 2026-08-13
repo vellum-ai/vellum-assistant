@@ -11,6 +11,10 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { cleanup, fireEvent, render } from "@testing-library/react";
 
+import {
+  MOBILE_CONTROL_CLASS,
+  MOBILE_GLYPH_CLASS,
+} from "@/domains/chat/components/chat-composer/composer-mobile-chrome";
 import { LiveVoiceButton } from "@/domains/chat/components/live-voice-button";
 
 const onStartSpy = mock(() => {});
@@ -52,14 +56,16 @@ describe("LiveVoiceButton", () => {
     // THEN it is the design's filled circle, sized here rather than by the
     // primitive's own mobile growth, so every narrow window gets the same one
     const button = getByLabelText("Start voice mode");
-    expect(button.className).toContain("h-10 w-10 rounded-full");
-    expect(button.querySelector("span")?.className).toContain("[&_svg]:size-5");
+    expect(button.className).toContain(MOBILE_CONTROL_CLASS);
+    expect(button.querySelector("span")?.className).toContain(
+      MOBILE_GLYPH_CLASS,
+    );
 
     // WHILE the default leaves the primitive's sizing alone
     cleanup();
     const desktop = render(<LiveVoiceButton onStart={onStartSpy} />);
     const plain = desktop.getByLabelText("Start voice mode");
-    expect(plain.className).not.toContain("h-10 w-10 rounded-full");
+    expect(plain.className).not.toContain(MOBILE_CONTROL_CLASS);
     expect(plain.className).toContain("touch-mobile:h-10");
   });
 
