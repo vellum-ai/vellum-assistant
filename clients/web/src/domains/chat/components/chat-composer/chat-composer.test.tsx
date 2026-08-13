@@ -244,8 +244,9 @@ mock.module("react-router", () => ({
 // "Add to chat" sheet. Stubbed to a probe that surfaces its open state plus a
 // button standing in for a completed pick, so these cases assert the
 // composer's wiring: the plus opens the sheet, and files chosen inside it
-// reach the same attach callback the paperclip feeds. The real sheet, its
-// three hidden file inputs included, is covered by
+// reach the same attach callback the paperclip feeds. A second button stands
+// in for the real sheet closing itself before it launches the OS picker. The
+// real sheet, its three hidden file inputs included, is covered by
 // `add-to-chat-sheet.test.tsx`.
 const SHEET_PICK = [new File(["x"], "picked.png", { type: "image/png" })];
 mock.module(
@@ -253,11 +254,15 @@ mock.module(
   () => ({
     AddToChatSheet: (props: {
       open: boolean;
+      onOpenChange: (open: boolean) => void;
       onAttachFiles: (files: File[]) => void;
     }) => (
       <div data-testid="add-to-chat-sheet" data-open={String(props.open)}>
         <button type="button" onClick={() => props.onAttachFiles(SHEET_PICK)}>
           sheet-pick
+        </button>
+        <button type="button" onClick={() => props.onOpenChange(false)}>
+          sheet-close
         </button>
       </div>
     ),
@@ -1388,6 +1393,24 @@ describe("ChatComposer: single-row mobile composer", () => {
     // THEN the sheet the user is looking at stays up, rather than vanishing
     // with its open state still set and reappearing on the next flip
     expect(addSheet(container)?.getAttribute("data-open")).toBe("true");
+  });
+
+  test("a sheet closed into an OS picker outlives a keyboard reattach", () => {
+    // GIVEN a phone whose sheet has been up and then closed itself, which is
+    // what its rows do before handing off to the OS picker
+    const { container, getByText, rerender } = renderPhoneComposer();
+    fireEvent.click(control(container, PLUS_LABEL)!);
+    fireEvent.click(getByText("sheet-close"));
+    expect(addSheet(container)?.getAttribute("data-open")).toBe("false");
+
+    // WHEN a keyboard is attached while that picker is still up, flipping the
+    // live pointer with the sheet's own open flag already back to false
+    viewport.set({ narrow: true, coarsePointer: false });
+    rerender(composerElement());
+
+    // THEN the latch keeps the sheet's hidden inputs mounted to receive the
+    // selection, rather than both live mount terms going false together
+    expect(addSheet(container)).not.toBeNull();
   });
 
   test("the plus opens the picker directly when a mouse drives the window", () => {

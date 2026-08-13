@@ -728,6 +728,17 @@ export function ChatComposer({
   );
 
   const [addSheetOpen, setAddSheetOpen] = useState(false);
+  // Latched on the first open and never reset. The sheet closes itself before
+  // it hands off to the OS picker, so on a convertible that regained its
+  // keyboard while that picker was up both live terms below would go false in
+  // the same commit and take the sheet's hidden inputs with them.
+  const [addSheetEverPresented, setAddSheetEverPresented] = useState(false);
+  const handleAddSheetOpenChange = useCallback((open: boolean) => {
+    if (open) {
+      setAddSheetEverPresented(true);
+    }
+    setAddSheetOpen(open);
+  }, []);
   // Subscribed rather than read once: a convertible whose keyboard comes off
   // mid-session changes what the plus should open, and the sheet has to be
   // mounted by then to receive the press.
@@ -784,7 +795,9 @@ export function ChatComposer({
     <AddToChatButton
       disabled={attachDisabled}
       label={t("chatComposer.addToChat")}
-      onClick={usesAddSheet ? () => setAddSheetOpen(true) : openAttachPicker}
+      onClick={
+        usesAddSheet ? () => handleAddSheetOpenChange(true) : openAttachPicker
+      }
     />
   );
 
@@ -1371,7 +1384,7 @@ export function ChatComposer({
               The hook lays the input out as `absolute inset-0`, so it needs a
               positioned box of its own. */}
           <div className="relative">{attachPickerInput}</div>
-          {(pointerCoarseNow || addSheetOpen) && (
+          {(pointerCoarseNow || addSheetOpen || addSheetEverPresented) && (
             // The sheet's own three inputs, beside the form for the same reason.
             //
             // Mounted on the pointer rather than on the compound that decides
@@ -1383,9 +1396,15 @@ export function ChatComposer({
             // The pointer is a live signal, so a convertible that regains its
             // keyboard flips it mid-session: an already-open sheet holds itself
             // up through that, rather than vanishing with its `open` still set.
+            //
+            // Both of those are live, though, and a sheet row closes the sheet
+            // before it launches the OS picker, so the keyboard case could take
+            // them false together while a pick is in flight. The latch keeps a
+            // sheet that has ever been presented mounted for the rest of the
+            // session, which costs one hidden row and cannot drop a selection.
             <AddToChatSheet
               open={addSheetOpen}
-              onOpenChange={setAddSheetOpen}
+              onOpenChange={handleAddSheetOpenChange}
               onAttachFiles={onAddAttachmentFiles}
             />
           )}
