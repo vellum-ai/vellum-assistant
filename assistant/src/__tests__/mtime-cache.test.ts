@@ -29,11 +29,11 @@ import {
   test,
 } from "bun:test";
 
+import { getUserHooksFor } from "../hooks/registry.js";
 import { _inspectHookCacheForTests } from "../hooks/hook-loader.js";
 import {
   _inspectToolCacheForTests,
   getCachedUserTools,
-  getUserHooksFor,
   populateCacheAtBoot,
   reconcilePluginSourcesNow,
   resetPluginCacheForTests,
