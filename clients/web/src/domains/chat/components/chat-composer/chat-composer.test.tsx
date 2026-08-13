@@ -607,14 +607,39 @@ function seedAttachments(
   return list;
 }
 
-function renderComposer(
-  props: Partial<Parameters<typeof ChatComposer>[0]> & {
-    input?: string;
-    chatAttachments?: ChatAttachment[];
-    attachmentsUploadingCount?: number;
-    canSendAttachments?: boolean;
-  } = {},
+type RenderComposerProps = Partial<Parameters<typeof ChatComposer>[0]> & {
+  input?: string;
+  chatAttachments?: ChatAttachment[];
+  attachmentsUploadingCount?: number;
+  canSendAttachments?: boolean;
+};
+
+/** The composer under its default props, for `render` and `rerender` alike. */
+function composerElement(
+  props: Partial<Parameters<typeof ChatComposer>[0]> = {},
 ) {
+  return (
+    <ChatComposer
+      placeholder="Custom placeholder"
+      onSubmit={() => {}}
+      inputRef={createRef<HTMLTextAreaElement>()}
+      typingDisabled={false}
+      sendDisabled={false}
+      onAddAttachmentFiles={() => {}}
+      onStopGenerating={() => {}}
+      isAssistantBusy={false}
+      assistantId="asst_test"
+      {...props}
+    />
+  );
+}
+
+/**
+ * Mount the composer and hand back the testing-library result, for cases that
+ * drive events at the mounted DOM. Cases that only read the rendered surface
+ * use `renderComposer` below, which returns the markup directly.
+ */
+function renderComposerView(props: RenderComposerProps = {}) {
   // The composer self-sources its draft + attachments from the store, so seed
   // them there rather than passing them as props.
   const {
@@ -630,21 +655,11 @@ function renderComposer(
       chatAttachments ??
       seedAttachments(attachmentsUploadingCount, canSendAttachments),
   });
-  const { container } = render(
-    <ChatComposer
-      placeholder="Custom placeholder"
-      onSubmit={() => {}}
-      inputRef={createRef<HTMLTextAreaElement>()}
-      typingDisabled={false}
-      sendDisabled={false}
-      onAddAttachmentFiles={() => {}}
-      onStopGenerating={() => {}}
-      isAssistantBusy={false}
-      assistantId="asst_test"
-      {...rest}
-    />,
-  );
-  return container.innerHTML;
+  return render(composerElement(rest));
+}
+
+function renderComposer(props: RenderComposerProps = {}) {
+  return renderComposerView(props).container.innerHTML;
 }
 
 describe("ChatComposer — placeholder", () => {
@@ -944,6 +959,145 @@ describe("ChatComposer — optional slots", () => {
     // VoiceInputButton renders aria-label="Start voice input" / "Stop voice input".
     expect(html).not.toContain("Start voice input");
     expect(html).not.toContain("Stop voice input");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Mobile settings pills: the focus-gated row above the card
+// ---------------------------------------------------------------------------
+
+describe("ChatComposer: mobile settings pills row", () => {
+  const SETTINGS_SLOTS = {
+    thresholdPickerSlot: <span>THR</span>,
+    modelPickerSlot: <span>PROFILE</span>,
+  };
+
+  function pillsRow(container: HTMLElement) {
+    return container.querySelector('[data-slot="composer-settings-pills"]');
+  }
+
+  function textareaOf(container: HTMLElement) {
+    const textarea = container.querySelector("textarea");
+    if (!textarea) {
+      throw new Error("composer rendered without a textarea");
+    }
+    return textarea;
+  }
+
+  function renderPhoneComposer(props: RenderComposerProps = {}) {
+    viewport.set({ narrow: true, coarsePointer: true });
+    return renderComposerView({ ...SETTINGS_SLOTS, ...props });
+  }
+
+  test("an unfocused phone composer keeps the row mounted but hidden", () => {
+    // GIVEN a phone composer nobody has tapped into
+    const { container } = renderPhoneComposer();
+
+    // THEN the row is mounted, so each menu loads the state its pill gates on
+    // before the first focus of the session
+    const row = pillsRow(container);
+    expect(row?.textContent).toBe("THRPROFILE");
+
+    // AND it is hidden: `hidden` is display:none, which takes the resting row
+    // out of the layout, the tab order and the accessibility tree
+    expect(row?.hasAttribute("hidden")).toBe(true);
+    expect(row?.className).toBe("");
+
+    // AND the action row does not carry the pickers either: mobile moves them
+    // out of the card entirely
+    expect(container.querySelector("form")?.innerHTML).not.toContain(">THR<");
+  });
+
+  test("focusing the composer raises the row above the card, access first", () => {
+    // GIVEN a phone composer
+    const { container } = renderPhoneComposer();
+
+    // WHEN it takes focus
+    fireEvent.focusIn(textareaOf(container));
+
+    // THEN both pills sit in one row outside the card, access before profile
+    const row = pillsRow(container);
+    expect(row?.textContent).toBe("THRPROFILE");
+    expect(row?.closest("form")).toBeNull();
+    const html = container.innerHTML;
+    expect(html.indexOf(">THR<")).toBeLessThan(html.indexOf("<form"));
+
+    // AND it is shown, rising into place as the keyboard arrives
+    expect(row?.hasAttribute("hidden")).toBe(false);
+    expect(row?.className).toContain("animate-[fadeInUp");
+    expect(row?.className).toContain("motion-reduce:animate-none");
+  });
+
+  test("blurring to the body puts the row away without unmounting its menus", () => {
+    // GIVEN a focused phone composer
+    const { container } = renderPhoneComposer();
+    const textarea = textareaOf(container);
+    fireEvent.focusIn(textarea);
+
+    // WHEN focus leaves with nowhere to land, as the iOS keyboard dismiss does
+    fireEvent.focusOut(textarea, { relatedTarget: null });
+
+    // THEN the row is hidden again, with its menus still mounted underneath
+    const row = pillsRow(container);
+    expect(row?.hasAttribute("hidden")).toBe(true);
+    expect(row?.textContent).toBe("THRPROFILE");
+  });
+
+  test("an open settings sheet holds the row up after focus leaves", () => {
+    // GIVEN a phone composer whose access sheet is open
+    const { container } = renderPhoneComposer({ settingsSheetOpen: true });
+    const textarea = textareaOf(container);
+    fireEvent.focusIn(textarea);
+
+    // WHEN the sheet takes focus out of the composer
+    fireEvent.focusOut(textarea, { relatedTarget: null });
+
+    // THEN the row the sheet was opened from stays put
+    expect(pillsRow(container)?.hasAttribute("hidden")).toBe(false);
+  });
+
+  test("a sheet flag that goes false with focus gone puts the row away", () => {
+    // GIVEN a phone composer holding the row up for an open sheet, focus gone
+    const { container, rerender } = renderPhoneComposer({
+      settingsSheetOpen: true,
+    });
+    const textarea = textareaOf(container);
+    fireEvent.focusIn(textarea);
+    fireEvent.focusOut(textarea, { relatedTarget: null });
+
+    // WHEN the flag clears, as `useComposerSettingsSheets` clears it when the
+    // breakpoint swap unmounts the menu that owned the sheet
+    rerender(composerElement({ ...SETTINGS_SLOTS, settingsSheetOpen: false }));
+
+    // THEN nothing holds the row up any more
+    expect(pillsRow(container)?.hasAttribute("hidden")).toBe(true);
+  });
+
+  test("desktop keeps both pickers inside the action row, focused or not", () => {
+    // GIVEN a desktop composer
+    viewport.set({ narrow: false, coarsePointer: false });
+    const { container } = renderComposerView(SETTINGS_SLOTS);
+
+    // WHEN it takes focus
+    fireEvent.focusIn(textareaOf(container));
+
+    // THEN the pickers stay in the card and no floating row is added
+    expect(pillsRow(container)).toBeNull();
+    const form = container.querySelector("form");
+    expect(form?.innerHTML).toContain(">THR<");
+    expect(form?.innerHTML).toContain(">PROFILE<");
+  });
+
+  test("a variant with no settings slots renders no row (app-editing panel)", () => {
+    // GIVEN a phone composer that was passed neither settings slot
+    viewport.set({ narrow: true, coarsePointer: true });
+    const { container } = renderComposerView();
+
+    // WHEN it takes focus
+    fireEvent.focusIn(textareaOf(container));
+
+    // THEN there is nothing to float, so no row is rendered
+    expect(pillsRow(container)).toBeNull();
   });
 });
 
