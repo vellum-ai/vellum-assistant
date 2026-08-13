@@ -26,7 +26,12 @@ import {
   waitFor,
 } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
-import { createElement, type ReactNode } from "react";
+import {
+  createContext,
+  createElement,
+  useContext,
+  type ReactNode,
+} from "react";
 
 // --- use-is-mobile -----------------------------------------------------------
 const isMobileRef = { value: false };
@@ -72,33 +77,70 @@ mock.module("@/components/profile-quick-add-provider", () => ({
 // --- design-library surfaces (render content inline) -------------------------
 const passthrough = ({ children, ...props }: Record<string, unknown>) =>
   createElement("div", props, children as ReactNode);
+// Radix owns the open state on the Root and flips it when the trigger is
+// activated. The mock hands the Root's `onOpenChange` down to its Trigger so a
+// click on a trigger opens the surface the way it does in the app.
+const OpenChangeContext = createContext<((open: boolean) => void) | undefined>(
+  undefined,
+);
+const surfaceRoot = ({
+  children,
+  open: _open,
+  onOpenChange,
+  ...props
+}: Record<string, unknown>) =>
+  createElement(
+    OpenChangeContext.Provider,
+    { value: onOpenChange as ((open: boolean) => void) | undefined },
+    createElement("div", props, children as ReactNode),
+  );
+const SurfaceTrigger = ({
+  children,
+  asChild: _asChild,
+  ...props
+}: Record<string, unknown>) => {
+  const onOpenChange = useContext(OpenChangeContext);
+  return createElement(
+    "div",
+    { ...props, onClick: () => onOpenChange?.(true) },
+    children as ReactNode,
+  );
+};
+// Radix dismisses a dropdown when one of its items is selected, so the mocked
+// item reports the close through the same Root callback after running onSelect.
+const MenuItem = ({
+  children,
+  onSelect,
+  leftIcon,
+  ...rest
+}: Record<string, unknown>) => {
+  const onOpenChange = useContext(OpenChangeContext);
+  return createElement(
+    "button",
+    {
+      "data-testid": "menu-item",
+      onClick: () => {
+        (onSelect as (() => void) | undefined)?.();
+        onOpenChange?.(false);
+      },
+      ...rest,
+    },
+    leftIcon as ReactNode,
+    children as ReactNode,
+  );
+};
 mock.module("@vellumai/design-library", () => {
   const MenuMock = {
-    Root: passthrough,
-    Trigger: passthrough,
+    Root: surfaceRoot,
+    Trigger: SurfaceTrigger,
     Content: passthrough,
-    Item: ({
-      children,
-      onSelect,
-      leftIcon,
-      ...rest
-    }: Record<string, unknown>) =>
-      createElement(
-        "button",
-        {
-          "data-testid": "menu-item",
-          onClick: onSelect as (() => void) | undefined,
-          ...rest,
-        },
-        leftIcon as ReactNode,
-        children as ReactNode,
-      ),
+    Item: MenuItem,
     Label: passthrough,
     Separator: () => createElement("hr"),
   };
   const BottomSheetMock = {
-    Root: passthrough,
-    Trigger: passthrough,
+    Root: surfaceRoot,
+    Trigger: SurfaceTrigger,
     Content: passthrough,
     Header: passthrough,
     Title: passthrough,
@@ -474,7 +516,7 @@ describe("Profile trigger updates", () => {
     });
 
     renderMenu();
-    const trigger = await screen.findByLabelText("Model profile");
+    const trigger = await screen.findByLabelText(/^Model profile/);
     await waitFor(() => expect(trigger.textContent).toContain("Balanced"));
 
     const qualityItem = screen
@@ -637,8 +679,142 @@ describe("Profile activation rejected by the daemon", () => {
   });
 });
 
+describe("labeled-pill trigger variant", () => {
+  // Preset[1] ("Conservative") is what the mocked global threshold of 50
+  // resolves to, so it is the label the access trigger settles on.
+  const ACCESS_TRIGGER_LABEL = "Assistant access: Conservative";
+
+  function renderVariant(props: {
+    triggerVariant?: "icon" | "labeled-pill";
+    onOpenChange?: (open: boolean) => void;
+  }) {
+    isMobileRef.value = true;
+    isTouchMobileRef.value = true;
+    // Guard against a hanging/altered impl leaking from a prior test.
+    configGetMock.mockImplementation(async () => ({
+      data: {
+        llm: {
+          profileOrder: ["smart"],
+          profiles: {
+            smart: {
+              label: "Smart",
+              provider: "anthropic",
+              model: "claude-fable-5",
+            },
+          },
+          activeProfile: "smart",
+        },
+      },
+    }));
+    conversationsByIdGetMock.mockImplementation(async () => ({
+      data: { conversation: { inferenceProfile: null } },
+    }));
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: { retry: false },
+        mutations: { retry: false },
+      },
+    });
+    return render(
+      createElement(
+        QueryClientProvider,
+        { client: queryClient },
+        createElement(ComposerSettingsMenu, {
+          assistantId: "assistant-1",
+          conversationId: "conv-1",
+          ...props,
+        }),
+      ),
+    );
+  }
+
+  test("renders the resolved access and profile labels on the pills", async () => {
+    renderVariant({ triggerVariant: "labeled-pill" });
+
+    const accessTrigger = await screen.findByLabelText(ACCESS_TRIGGER_LABEL);
+    expect(accessTrigger.textContent).toContain("Conservative");
+
+    const profileTrigger = await screen.findByLabelText(/^Model profile/);
+    await waitFor(() => {
+      expect(profileTrigger.textContent).toContain("Smart");
+    });
+  });
+
+  test("names the profile pill by the profile it displays", async () => {
+    // An aria-label overrides the pill's visible text, so a generic one leaves
+    // a screen reader unable to announce the selection and voice control unable
+    // to activate the pill by the words it shows.
+    renderVariant({ triggerVariant: "labeled-pill" });
+
+    const profileTrigger = await screen.findByLabelText(/^Model profile/);
+    await waitFor(() => {
+      expect(profileTrigger.getAttribute("aria-label")).toBe(
+        "Model profile: Smart",
+      );
+    });
+    expect(profileTrigger.textContent).toContain("Smart");
+
+    // The access pill already carries its own selection in its name.
+    const accessTrigger = await screen.findByLabelText(ACCESS_TRIGGER_LABEL);
+    expect(accessTrigger.textContent).toContain("Conservative");
+  });
+
+  test("the default icon variant keeps the mobile triggers unlabeled", async () => {
+    renderVariant({});
+
+    const accessTrigger = await screen.findByLabelText(ACCESS_TRIGGER_LABEL);
+    expect(accessTrigger.textContent).toBe("");
+    expect((await screen.findByLabelText(/^Model profile/)).textContent).toBe(
+      "",
+    );
+  });
+
+  test("tapping a pill opens the same bottom sheet and reports the open state", async () => {
+    const onOpenChange = mock((_open: boolean) => {});
+    renderVariant({ triggerVariant: "labeled-pill", onOpenChange });
+
+    const accessTrigger = await screen.findByLabelText(ACCESS_TRIGGER_LABEL);
+    fireEvent.click(accessTrigger);
+    await waitFor(() => {
+      expect(onOpenChange).toHaveBeenLastCalledWith(true);
+    });
+
+    // The sheet the pill opens holds the same access rows the icon trigger
+    // opens today; picking one closes it again.
+    const relaxed = screen
+      .getAllByTestId("panel-item")
+      .find((row) => row.textContent?.includes("Relaxed"));
+    fireEvent.click(relaxed!);
+    await waitFor(() => {
+      expect(onOpenChange).toHaveBeenLastCalledWith(false);
+    });
+  });
+
+  test("reports the profile sheet's open state too", async () => {
+    const onOpenChange = mock((_open: boolean) => {});
+    renderVariant({ triggerVariant: "labeled-pill", onOpenChange });
+
+    const profileTrigger = await screen.findByLabelText(/^Model profile/);
+    fireEvent.click(profileTrigger);
+    await waitFor(() => {
+      expect(onOpenChange).toHaveBeenLastCalledWith(true);
+    });
+
+    const smart = screen
+      .getAllByTestId("panel-item")
+      .find((row) => row.textContent?.includes("Smart"));
+    fireEvent.click(smart!);
+    await waitFor(() => {
+      expect(onOpenChange).toHaveBeenLastCalledWith(false);
+    });
+  });
+});
+
 describe("compact composer collapse", () => {
-  function renderCompact(segments: "both" | "access" | "profile") {
+  function renderCompact(
+    segments: "both" | "access" | "profile",
+    onOpenChange?: (open: boolean) => void,
+  ) {
     const queryClient = new QueryClient({
       defaultOptions: {
         queries: { retry: false },
@@ -655,6 +831,7 @@ describe("compact composer collapse", () => {
             assistantId: "assistant-1",
             conversationId: "conv-1",
             segments,
+            onOpenChange,
           }),
         }),
       ),
@@ -672,7 +849,7 @@ describe("compact composer collapse", () => {
     );
     expect(trigger).toBeTruthy();
     // No labelled split triggers alongside it.
-    expect(screen.queryByLabelText("Model profile")).toBeNull();
+    expect(screen.queryByLabelText(/^Model profile/)).toBeNull();
 
     await waitFor(() => {
       expect(screen.getByText("Smart")).toBeTruthy();
@@ -682,14 +859,93 @@ describe("compact composer collapse", () => {
     expect(screen.getByText("Model Profile")).toBeTruthy();
   });
 
+  test("reports the hamburger menu's open state", async () => {
+    // The compact branch is the only surface this instance opens, so a parent
+    // holding its trigger chrome visible has to hear about it too.
+    const onOpenChange = mock((_open: boolean) => {});
+    renderCompact("access", onOpenChange);
+
+    const trigger = await screen.findByLabelText(
+      "Assistant access and model profile",
+    );
+    fireEvent.click(trigger);
+    await waitFor(() => {
+      expect(onOpenChange).toHaveBeenLastCalledWith(true);
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText("Smart")).toBeTruthy();
+    });
+    const smart = screen
+      .getAllByTestId("menu-item")
+      .find((row) => row.textContent?.includes("Smart"));
+    fireEvent.click(smart!);
+    await waitFor(() => {
+      expect(onOpenChange).toHaveBeenLastCalledWith(false);
+    });
+  });
+
   test("stays split when the composer is wide", async () => {
     renderMenu();
 
     await waitFor(() => {
-      expect(screen.getByLabelText("Model profile")).toBeTruthy();
+      expect(screen.getByLabelText(/^Model profile/)).toBeTruthy();
     });
     expect(
       screen.queryByLabelText("Assistant access and model profile"),
     ).toBeNull();
+  });
+
+  test("stops reporting open when the width swap unmounts the open branch", async () => {
+    // Resizing across the compact threshold unmounts whichever branch was
+    // open. Its flag survives the unmount, so the report has to follow the
+    // branch that is actually mounted or a parent holding trigger chrome
+    // visible never hears the surface close.
+    const onOpenChange = mock((_open: boolean) => {});
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: { retry: false },
+        mutations: { retry: false },
+      },
+    });
+    const tree = (compact: boolean) =>
+      createElement(
+        QueryClientProvider,
+        { client: queryClient },
+        createElement(ComposerCompactProvider, {
+          compact,
+          children: createElement(ComposerSettingsMenu, {
+            assistantId: "assistant-1",
+            conversationId: "conv-1",
+            segments: "both",
+            onOpenChange,
+          }),
+        }),
+      );
+
+    const { rerender } = render(tree(false));
+
+    const profileTrigger = await screen.findByLabelText(/^Model profile/);
+    fireEvent.click(profileTrigger);
+    await waitFor(() => {
+      expect(onOpenChange).toHaveBeenLastCalledWith(true);
+    });
+
+    // The composer narrows: the split triggers give way to the hamburger.
+    rerender(tree(true));
+    await waitFor(() => {
+      expect(onOpenChange).toHaveBeenLastCalledWith(false);
+    });
+
+    // Widening back must not resurrect the surface the resize took away.
+    rerender(tree(false));
+    await screen.findByLabelText(/^Model profile/);
+    await waitFor(() => {
+      expect(onOpenChange).toHaveBeenLastCalledWith(false);
+    });
+    expect(onOpenChange.mock.calls.map((call) => call[0])).toEqual([
+      true,
+      false,
+    ]);
   });
 });

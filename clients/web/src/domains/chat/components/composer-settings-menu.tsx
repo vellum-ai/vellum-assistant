@@ -73,12 +73,27 @@ interface Props {
    * single instance whose hamburger menu carries both sections.
    */
   segments?: "both" | "access" | "profile";
+  /**
+   * `"icon"` renders the composer action-row triggers: icon-only on mobile,
+   * icon plus label on desktop. `"labeled-pill"` renders both segments as
+   * filled rounded chips carrying their resolved label, for the pill row that
+   * floats above the mobile composer.
+   */
+  triggerVariant?: "icon" | "labeled-pill";
+  /**
+   * Called with whether any of this instance's drawers is open. A parent
+   * that positions the triggers itself uses it to hold that surface visible
+   * while focus sits inside the drawer's portal.
+   */
+  onOpenChange?: (open: boolean) => void;
 }
 
 export function ComposerSettingsMenu({
   assistantId,
   conversationId,
   segments = "both",
+  triggerVariant = "icon",
+  onOpenChange,
 }: Props) {
   const isMobile = useIsMobile();
   const isTouchMobile = useTouchMobile();
@@ -550,6 +565,43 @@ export function ComposerSettingsMenu({
   const showAccess = accessSettled && segments !== "profile";
   const showProfile = segments !== "access";
 
+  // Only the branch this render mounts can hold an open surface: the compact
+  // hamburger owns `compactOpen`, the split layout owns whichever of
+  // access/profile it renders. Crossing the compact width (or losing a segment)
+  // unmounts the open branch without React clearing its flag, so the report
+  // below reads the mounted branch only.
+  const anyDrawerOpen = compact
+    ? compactOpen
+    : (showAccess && accessOpen) || (showProfile && profileOpen);
+
+  // Clear the flags the mounted branch doesn't own, so crossing back doesn't
+  // reopen a surface the user left behind at the old width.
+  useEffect(() => {
+    if (compact || !showAccess) {
+      setAccessOpen(false);
+    }
+    if (compact || !showProfile) {
+      setProfileOpen(false);
+    }
+    if (!compact) {
+      setCompactOpen(false);
+    }
+  }, [compact, showAccess, showProfile]);
+
+  // The flags are set from several places (trigger, row selection, quick add),
+  // so the notification reads the settled value once instead of being threaded
+  // through every setter. The ref keeps it a transition callback like the Radix
+  // one it mirrors: a parent passing an inline closure re-runs the effect on
+  // every render, and the drawers start closed.
+  const notifiedOpenRef = useRef(false);
+  useEffect(() => {
+    if (notifiedOpenRef.current === anyDrawerOpen) {
+      return;
+    }
+    notifiedOpenRef.current = anyDrawerOpen;
+    onOpenChange?.(anyDrawerOpen);
+  }, [anyDrawerOpen, onOpenChange]);
+
   // Each trigger is the design library's ghost Button — same chrome and
   // sizing as the row's other icon buttons (attach, mic) — in the action
   // row's tertiary resting tone, held open-highlighted while its own menu
@@ -558,11 +610,29 @@ export function ComposerSettingsMenu({
     "[--vbtn-fg:var(--content-tertiary)] touch-mobile:[--vbtn-fg:var(--content-tertiary)] data-[state=open]:bg-[color-mix(in_srgb,var(--primary-second-hover)_15%,transparent)]";
   const triggerLabelClass = "gap-1.5 px-1.5 text-body-small-default";
 
+  // Labeled pills carry their own fill because they float on the chat
+  // background rather than sitting inside the composer card, so the action
+  // row's transparent ghost chrome would leave them unreadable there.
+  const labeledPill = triggerVariant === "labeled-pill";
+  const pillClass =
+    "h-8 min-w-0 rounded-full bg-[var(--surface-lift)] pl-1.5 pr-2 text-body-small-default [--vbtn-fg:var(--content-secondary)] hover:bg-[var(--surface-active)] active:bg-[var(--surface-active)] data-[state=open]:bg-[var(--surface-active)]";
+  const pillIconClass = "h-3.5 w-3.5 shrink-0 text-[var(--content-tertiary)]";
+
   // Access trigger — icon plus, on desktop, the active preset's name
   // (Figma 7471-25243). Mobile stays icon-only to keep the bottom bar
   // compact; there the label lives in the tooltip and the sheet.
   const accessLabel = `Assistant access: ${activePreset.label}`;
-  const accessTrigger = isMobile ? (
+  const accessTrigger = labeledPill ? (
+    <Button
+      variant="ghost"
+      leftIcon={<AccessIcon className={pillIconClass} />}
+      aria-label={accessLabel}
+      title={accessLabel}
+      className={pillClass}
+    >
+      {activePreset.label}
+    </Button>
+  ) : isMobile ? (
     <Button
       variant="ghost"
       iconOnly={<AccessIcon />}
@@ -586,15 +656,38 @@ export function ComposerSettingsMenu({
   // (the label lives in the sheet there), matching the access trigger.
   // Falls back to the sliders icon until the active profile resolves so
   // there's always an affordance to open it.
+  // `profileLabel` is the accessible name on every variant, mirroring
+  // `accessLabel`: an aria-label overrides the visible text, so it has to carry
+  // the selection a labelled trigger shows, or the name says nothing about it
+  // and voice control can't reach the control by what it reads.
   const profileLabel = activeProfileLabel
     ? `Model profile: ${activeProfileLabel}`
     : "Model profile";
+  // min-w-0 + truncate keeps a long label from pushing the composer's action
+  // buttons off-screen on narrow viewports. leading-snug: text-body-small-default
+  // is line-height:1, so truncate clips descenders (e.g. the "g" in profile
+  // names).
+  const profileLabelText = (
+    <span className="max-w-[10rem] truncate leading-snug">
+      {activeProfileLabel}
+    </span>
+  );
   const profileTrigger =
-    isMobile || !activeProfileLabel ? (
+    labeledPill && activeProfileLabel ? (
+      <Button
+        variant="ghost"
+        leftIcon={<Sparkles className={pillIconClass} />}
+        aria-label={profileLabel}
+        title={profileLabel}
+        className={pillClass}
+      >
+        {profileLabelText}
+      </Button>
+    ) : isMobile || !activeProfileLabel ? (
       <Button
         variant="ghost"
         iconOnly={activeProfileLabel ? <Sparkles /> : <SlidersHorizontal />}
-        aria-label="Model profile"
+        aria-label={profileLabel}
         title={profileLabel}
         className={triggerClass}
       />
@@ -602,17 +695,11 @@ export function ComposerSettingsMenu({
       <Button
         variant="ghost"
         leftIcon={<Sparkles className="h-3.5 w-3.5 shrink-0" />}
-        aria-label="Model profile"
+        aria-label={profileLabel}
         title={profileLabel}
         className={`${triggerClass} ${triggerLabelClass} min-w-0`}
       >
-        {/* min-w-0 + truncate keeps a long label from pushing the composer's
-            action buttons off-screen on narrow viewports. leading-snug:
-            text-body-small-default is line-height:1, so truncate clips
-            descenders (e.g. the "g" in profile names). */}
-        <span className="max-w-[10rem] truncate leading-snug">
-          {activeProfileLabel}
-        </span>
+        {profileLabelText}
       </Button>
     );
 
