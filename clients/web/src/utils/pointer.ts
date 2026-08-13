@@ -1,4 +1,4 @@
-import { useCallback, useSyncExternalStore } from "react";
+import { useMediaQuery } from "@/hooks/use-media-query";
 
 /** The primary pointer being a coarse one, i.e. a finger rather than a mouse. */
 const COARSE_POINTER_QUERY = "(pointer: coarse)";
@@ -26,20 +26,9 @@ export function isPointerCoarse(): boolean {
  * pointer changes, so a convertible whose keyboard comes off (or a tablet
  * docked into one) is picked up without a reload.
  *
- * Mirrors `useTouchSurface` in the design library, which subscribes to the
- * compound touch query the same way.
+ * The subscription, the snapshot and the `false` the server renders all come
+ * from {@link useMediaQuery}, the same shared machinery behind `useIsMobile`.
  */
 export function usePointerCoarse(): boolean {
-  const subscribe = useCallback((onChange: () => void) => {
-    const query = window.matchMedia(COARSE_POINTER_QUERY);
-    query.addEventListener("change", onChange);
-    return () => query.removeEventListener("change", onChange);
-  }, []);
-
-  const getSnapshot = useCallback(
-    () => window.matchMedia(COARSE_POINTER_QUERY).matches,
-    [],
-  );
-
-  return useSyncExternalStore(subscribe, getSnapshot, () => false);
+  return useMediaQuery(COARSE_POINTER_QUERY);
 }

@@ -268,46 +268,14 @@ function AddToChatButton({ disabled, label, onClick }: AddToChatButtonProps) {
       disabled={disabled}
       aria-label={label}
       title={label}
-      // Tertiary resting tone, matching the row's other glyphs.
+      // Tertiary resting tone, matching the row's other glyphs. `shrink-0`
+      // holds the circle at 40px however tight the row runs.
       className={cn(
         MOBILE_CONTROL_CLASS,
         MOBILE_GHOST_WASH_CLASS,
-        "[--vbtn-fg:var(--content-tertiary)]",
+        "shrink-0 [--vbtn-fg:var(--content-tertiary)]",
       )}
     />
-  );
-}
-
-interface AddToChatPickerButtonProps {
-  disabled: boolean;
-  label: string;
-  onAttachFiles: (files: FileList) => void;
-}
-
-/**
- * The plus a mouse gets: it opens the file picker directly, the same picker
- * behind the desktop paperclip, through the same hook so the iOS refocus dance
- * is identical. A window narrowed by dragging its edge takes the compact row,
- * chrome included, but not the touch sheet, whose Camera and Find-in-Gallery
- * rows have nothing to offer a pointer.
- */
-function AddToChatPickerButton({
-  disabled,
-  label,
-  onAttachFiles,
-}: AddToChatPickerButtonProps) {
-  const { openPicker, inputNode } = useAttachmentFilePicker({
-    onFiles: onAttachFiles,
-    multiple: true,
-  });
-
-  // The hook lays the input out as `absolute inset-0`, so it needs a positioned
-  // box of its own rather than whichever ancestor happens to be positioned.
-  return (
-    <div className="relative shrink-0">
-      {inputNode}
-      <AddToChatButton disabled={disabled} label={label} onClick={openPicker} />
-    </div>
   );
 }
 
@@ -766,6 +734,18 @@ export function ChatComposer({
   const pointerCoarseNow = usePointerCoarse();
   const usesAddSheet = isMobile && pointerCoarseNow;
 
+  // The picker the plus opens where the sheet has nothing to offer: the same
+  // picker behind the desktop paperclip, through the same hook so the iOS
+  // refocus dance is identical. Owned by the composer rather than by the plus,
+  // because both signals that decide what the plus opens can change while the
+  // OS picker is up (a keyboard reattached, a phone rotated), and an input that
+  // unmounted under an open picker would drop the selection.
+  const { openPicker: openAttachPicker, inputNode: attachPickerInput } =
+    useAttachmentFilePicker({
+      onFiles: onAddAttachmentFiles,
+      multiple: true,
+    });
+
   // Every surface opened from the composer moves focus into a portal, the
   // composer's own add-to-chat sheet included, so each one has to hold the row
   // up on its way out. Without the sheet's flag the row would drop away as the
@@ -800,17 +780,11 @@ export function ChatComposer({
       disabled={attachDisabled}
       onFilesSelected={onAddAttachmentFiles}
     />
-  ) : usesAddSheet ? (
+  ) : (
     <AddToChatButton
       disabled={attachDisabled}
       label={t("chatComposer.addToChat")}
-      onClick={() => setAddSheetOpen(true)}
-    />
-  ) : (
-    <AddToChatPickerButton
-      disabled={attachDisabled}
-      label={t("chatComposer.addToChat")}
-      onAttachFiles={onAddAttachmentFiles}
+      onClick={usesAddSheet ? () => setAddSheetOpen(true) : openAttachPicker}
     />
   );
 
@@ -1390,16 +1364,25 @@ export function ChatComposer({
               )}
             </Popover.Content>
           </Popover.Root>
-          {pointerCoarseNow && (
-            // Beside the form, not inside it: the sheet keeps hidden file inputs
-            // mounted while a native picker is up, and those have no business in
-            // the form the composer submits.
+          {/* Beside the form, not inside it: a hidden file input stays mounted
+              while a native picker is up, and has no business in the form the
+              composer submits. Mounted whatever the row is showing, so neither
+              signal behind the plus can pull it out from under an open picker.
+              The hook lays the input out as `absolute inset-0`, so it needs a
+              positioned box of its own. */}
+          <div className="relative">{attachPickerInput}</div>
+          {(pointerCoarseNow || addSheetOpen) && (
+            // The sheet's own three inputs, beside the form for the same reason.
             //
-            // Mounted on the pointer alone rather than on the compound that
-            // decides whether the plus opens it. Rotating a phone into landscape
-            // crosses the width breakpoint, and unmounting the inputs there would
+            // Mounted on the pointer rather than on the compound that decides
+            // whether the plus opens it. Rotating a phone into landscape crosses
+            // the width breakpoint, and unmounting the sheet's inputs there would
             // drop a camera or gallery pick still being made. A touch device at
             // desktop width just keeps a closed sheet mounted.
+            //
+            // The pointer is a live signal, so a convertible that regains its
+            // keyboard flips it mid-session: an already-open sheet holds itself
+            // up through that, rather than vanishing with its `open` still set.
             <AddToChatSheet
               open={addSheetOpen}
               onOpenChange={setAddSheetOpen}
