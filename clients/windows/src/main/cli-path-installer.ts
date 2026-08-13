@@ -13,7 +13,12 @@ import path from "node:path";
 import { CLI_RUNTIME_ENTRIES } from "./cli-installer";
 
 export type CliLauncherState =
-  "missing" | "foreign" | "installed" | "shadowed" | "stale";
+  | "missing"
+  | "foreign"
+  | "installed"
+  | "shadowed"
+  | "stale";
+export type CliLauncherUninstallResult = "removed" | "not-owned" | "blocked";
 
 type LauncherOwnership = {
   launcherVersion?: number;
@@ -379,7 +384,7 @@ export function uninstallCliLauncher(
   paths: CliLauncherPaths,
   run: RegistryRunner = systemRegistryRunner,
   expectedOwnerId?: string,
-): boolean {
+): CliLauncherUninstallResult {
   const ownership = readOwnership(paths);
   if (
     !ownership ||
@@ -387,7 +392,7 @@ export function uninstallCliLauncher(
       (!ownership.ownerId ||
         !sameWindowsPath(ownership.ownerId, expectedOwnerId)))
   ) {
-    return false;
+    return "not-owned";
   }
   const userPath = readUserPath(run);
   if (userPath === undefined) {
@@ -418,14 +423,14 @@ export function uninstallCliLauncher(
     for (const file of pending) {
       if (existsSync(file.staging)) {
         restoreMoved();
-        return false;
+        return "blocked";
       }
       renameSync(file.target, file.staging);
       moved.push(file);
     }
   } catch {
     restoreMoved();
-    return false;
+    return "blocked";
   }
   const entries = userPath
     .split(";")
@@ -442,8 +447,8 @@ export function uninstallCliLauncher(
     } catch {}
   }
   if (moved.some((file) => existsSync(file.staging))) {
-    return false;
+    return "blocked";
   }
   rmSync(paths.ownership, { force: true });
-  return true;
+  return "removed";
 }

@@ -14,12 +14,12 @@ export function uninstallPackagedCli(
   const runtimeDir = path.dirname(execPath);
   const releaseChannel =
     readRuntimeManifest(runtimeDir)?.releaseChannel ?? "production";
-  const removed = uninstallLauncher(
+  const result = uninstallLauncher(
     resolveCliLauncherPaths(localAppData, releaseChannel),
     undefined,
     path.dirname(runtimeDir),
   );
-  if (!removed) {
+  if (result === "blocked") {
     throw new Error(
       "Unable to remove the Vellum command launcher. Close active vellum commands and try again.",
     );

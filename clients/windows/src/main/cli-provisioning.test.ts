@@ -271,7 +271,7 @@ test("repairs stale ownership and updates the user PATH", () => {
   expect(installCliLauncher(source, "1.0.0", paths, userRegistry.run)).toBe(
     "installed",
   );
-  expect(uninstallCliLauncher(paths, userRegistry.run)).toBeTrue();
+  expect(uninstallCliLauncher(paths, userRegistry.run)).toBe("removed");
   expect(userRegistry.broadcasts()).toBe(2);
   expect(userRegistry.value().split(";")).not.toContain(paths.binDir);
   expect(getCliLauncherState(paths, source)).toBe("missing");
@@ -304,7 +304,7 @@ test("requires every packaged entry but puts only the launcher on PATH", () => {
       (name) => !existsSync(path.join(paths.binDir, name)),
     ),
   ).toBeTrue();
-  expect(uninstallCliLauncher(paths, userRegistry.run)).toBeTrue();
+  expect(uninstallCliLauncher(paths, userRegistry.run)).toBe("removed");
   expect(existsSync(paths.executable)).toBeFalse();
 });
 
@@ -321,13 +321,28 @@ test("preserves a launcher owned by another installed environment", () => {
   });
   expect(
     uninstallCliLauncher(paths, userRegistry.run, productionResources),
-  ).toBeFalse();
+  ).toBe("not-owned");
   expect(getCliLauncherState(paths, source, userRegistry.value())).toBe(
     "installed",
   );
-  expect(
-    uninstallCliLauncher(paths, userRegistry.run, stagingResources),
-  ).toBeTrue();
+  expect(uninstallCliLauncher(paths, userRegistry.run, stagingResources)).toBe(
+    "removed",
+  );
+});
+
+test("skips missing and foreign launchers during uninstall", () => {
+  const root = makeTempDir();
+  const paths = resolveCliLauncherPaths(path.join(root, "Local App Data"));
+  const failRegistry: RegistryRunner = () => {
+    throw new Error("registry should not be read");
+  };
+
+  expect(uninstallCliLauncher(paths, failRegistry)).toBe("not-owned");
+
+  mkdirSync(paths.binDir, { recursive: true });
+  writeFileSync(paths.executable, "foreign", "utf8");
+  expect(uninstallCliLauncher(paths, failRegistry)).toBe("not-owned");
+  expect(readFileSync(paths.executable, "utf8")).toBe("foreign");
 });
 
 test("restores owned entries when uninstall cannot update PATH", () => {
