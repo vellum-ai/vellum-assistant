@@ -1175,8 +1175,8 @@ describe("ChatComposer: mobile settings pills row", () => {
     fireEvent.focusIn(textarea);
     fireEvent.focusOut(textarea, { relatedTarget: null });
 
-    // WHEN the flag clears, as `useComposerSettingsSheets` clears it when the
-    // breakpoint swap unmounts the menu that owned the sheet
+    // WHEN the flag clears, as the settings menu clears it on its way out when
+    // the breakpoint swap unmounts the menu that owned the sheet
     rerender(composerElement({ ...SETTINGS_SLOTS, settingsSheetOpen: false }));
 
     // THEN nothing holds the row up any more
