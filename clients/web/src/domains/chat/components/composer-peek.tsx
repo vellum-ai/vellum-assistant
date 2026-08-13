@@ -19,9 +19,11 @@
  *   toward the input's left side. In the browser the top dude retreats
  *   up off screen as it rises.
  *
- * The composer is located by its `data-slot="chat-composer"` anchor and
- * its rect tracked per-frame, so the overlays stay glued through
- * reflows and composer remounts. Rendered into a `document.body`
+ * The composer card is located by its `data-slot="chat-composer"` anchor
+ * and its rect tracked per-frame, so the overlays stay glued through
+ * reflows and composer remounts. Focus, though, is judged against the
+ * wider `data-slot="chat-composer-shell"` wrapper, which also holds the
+ * controls that float outside the card. Rendered into a `document.body`
  * portal, decorative and pointer-transparent. Fully suppressed under
  * `prefers-reduced-motion` and while the in-chat onboarding tour owns
  * the chrome.
@@ -44,6 +46,29 @@ interface TargetRect {
   top: number;
   width: number;
   height: number;
+  /** The card's own computed `border-radius`, so the shadow caster below
+   *  can trace whatever corner the card is currently wearing. */
+  radius: string;
+}
+
+/** The composer card itself, which the overlays are measured against. */
+const COMPOSER_SELECTOR = '[data-slot="chat-composer"]';
+/** The wrapper around the card, which also holds controls that float
+ *  outside it (the mobile settings pills). */
+const COMPOSER_SHELL_SELECTOR = '[data-slot="chat-composer-shell"]';
+
+/**
+ * Whether a focus target belongs to the composer. The shell is the
+ * boundary, so tapping a pill floating above the card is not a leave;
+ * the card is the fallback for variants that render no shell.
+ */
+function withinComposer(node: EventTarget | null): boolean {
+  if (!(node instanceof Element)) {
+    return false;
+  }
+  return Boolean(
+    node.closest(COMPOSER_SHELL_SELECTOR) ?? node.closest(COMPOSER_SELECTOR),
+  );
 }
 
 /**
@@ -69,8 +94,10 @@ const CLIP_HEADROOM = 14;
 const PEEK_X_FRACTION = 0.15;
 /** Exit choreography length before the input-peek overlay unmounts. */
 const EXIT_MS = 300;
-/** The composer card's own radius — the shadow caster matches it. */
-const PANEL_RADIUS = 10;
+/** Radius the shadow caster falls back to when the card's computed one
+ *  can't be read. The card's own radius wins wherever it can: mobile
+ *  wears a far rounder corner than this. */
+const PANEL_RADIUS_FALLBACK = "10px";
 /** Soft, unoffset shadow the input casts over the peeking avatar, so the
  *  body reads as sitting behind the card. */
 const PEEK_SHADOW = "0 0 20px rgba(0, 0, 0, 0.15)";
@@ -154,13 +181,24 @@ export function ComposerPeek({
     // reference would go stale — a detached node measures 0×0 and the
     // overlay would freeze on the pre-remount rect.
     const measure = (): TargetRect | null => {
-      const r = document
-        .querySelector<HTMLElement>('[data-slot="chat-composer"]')
-        ?.getBoundingClientRect();
-      if (!r || r.width === 0 || r.height === 0) {
+      const element =
+        document.querySelector<HTMLElement>(COMPOSER_SELECTOR) ?? null;
+      const r = element?.getBoundingClientRect();
+      if (!element || !r || r.width === 0 || r.height === 0) {
         return null;
       }
-      return { left: r.left, top: r.top, width: r.width, height: r.height };
+      // Read alongside the rect, which has already flushed layout: the
+      // caster has to trace the card's real corner, and the card is a
+      // 10px panel on desktop and a deep pill on mobile.
+      const radius =
+        window.getComputedStyle(element).borderRadius || PANEL_RADIUS_FALLBACK;
+      return {
+        left: r.left,
+        top: r.top,
+        width: r.width,
+        height: r.height,
+        radius,
+      };
     };
     const enter = () => {
       clearTimeout(exitTimer);
@@ -172,24 +210,19 @@ export function ComposerPeek({
       exitTimer = setTimeout(() => setMode("rest"), EXIT_MS);
     };
     // Document-level so listeners survive composer remounts. Focus moving
-    // within the composer (textarea → mic button) isn't a leave — only
-    // retract when it lands outside the card.
+    // within the composer (textarea → mic button → a pill floating above
+    // the card) isn't a leave: only retract when it lands outside the
+    // whole composer.
     const onFocusIn = (event: FocusEvent) => {
-      if (
-        event.target instanceof Element &&
-        event.target.closest('[data-slot="chat-composer"]')
-      ) {
+      if (withinComposer(event.target)) {
         enter();
       }
     };
     const onFocusOut = (event: FocusEvent) => {
-      const from =
-        event.target instanceof Element &&
-        event.target.closest('[data-slot="chat-composer"]');
-      const to =
-        event.relatedTarget instanceof Element &&
-        event.relatedTarget.closest('[data-slot="chat-composer"]');
-      if (from && !to) {
+      if (
+        withinComposer(event.target) &&
+        !withinComposer(event.relatedTarget)
+      ) {
         leave();
       }
     };
@@ -213,7 +246,8 @@ export function ComposerPeek({
           next.left !== last.left ||
           next.top !== last.top ||
           next.width !== last.width ||
-          next.height !== last.height)
+          next.height !== last.height ||
+          next.radius !== last.radius)
       ) {
         last = next;
         recordUpdate("composer-peek");
@@ -229,10 +263,7 @@ export function ComposerPeek({
     // The composer may already hold focus when the act arms (it autofocuses
     // on a fresh chat) — surface immediately instead of waiting for a blur
     // round-trip.
-    if (
-      document.activeElement instanceof Element &&
-      document.activeElement.closest('[data-slot="chat-composer"]')
-    ) {
+    if (withinComposer(document.activeElement)) {
       enter();
     }
 
@@ -474,7 +505,7 @@ export function ComposerPeek({
           top: rect.top,
           width: rect.width,
           height: rect.height,
-          borderRadius: PANEL_RADIUS,
+          borderRadius: rect.radius,
           boxShadow: PEEK_SHADOW,
         }}
         initial={{ opacity: 0 }}
