@@ -106,27 +106,35 @@ const SurfaceTrigger = ({
     children as ReactNode,
   );
 };
+// Radix dismisses a dropdown when one of its items is selected, so the mocked
+// item reports the close through the same Root callback after running onSelect.
+const MenuItem = ({
+  children,
+  onSelect,
+  leftIcon,
+  ...rest
+}: Record<string, unknown>) => {
+  const onOpenChange = useContext(OpenChangeContext);
+  return createElement(
+    "button",
+    {
+      "data-testid": "menu-item",
+      onClick: () => {
+        (onSelect as (() => void) | undefined)?.();
+        onOpenChange?.(false);
+      },
+      ...rest,
+    },
+    leftIcon as ReactNode,
+    children as ReactNode,
+  );
+};
 mock.module("@vellumai/design-library", () => {
   const MenuMock = {
     Root: surfaceRoot,
     Trigger: SurfaceTrigger,
     Content: passthrough,
-    Item: ({
-      children,
-      onSelect,
-      leftIcon,
-      ...rest
-    }: Record<string, unknown>) =>
-      createElement(
-        "button",
-        {
-          "data-testid": "menu-item",
-          onClick: onSelect as (() => void) | undefined,
-          ...rest,
-        },
-        leftIcon as ReactNode,
-        children as ReactNode,
-      ),
+    Item: MenuItem,
     Label: passthrough,
     Separator: () => createElement("hr"),
   };
@@ -784,7 +792,10 @@ describe("labeled-pill trigger variant", () => {
 });
 
 describe("compact composer collapse", () => {
-  function renderCompact(segments: "both" | "access" | "profile") {
+  function renderCompact(
+    segments: "both" | "access" | "profile",
+    onOpenChange?: (open: boolean) => void,
+  ) {
     const queryClient = new QueryClient({
       defaultOptions: {
         queries: { retry: false },
@@ -801,6 +812,7 @@ describe("compact composer collapse", () => {
             assistantId: "assistant-1",
             conversationId: "conv-1",
             segments,
+            onOpenChange,
           }),
         }),
       ),
@@ -826,6 +838,32 @@ describe("compact composer collapse", () => {
     // Access presets live in the same menu, under their own section label.
     expect(screen.getByText("Assistant Access")).toBeTruthy();
     expect(screen.getByText("Model Profile")).toBeTruthy();
+  });
+
+  test("reports the hamburger menu's open state", async () => {
+    // The compact branch is the only surface this instance opens, so a parent
+    // holding its trigger chrome visible has to hear about it too.
+    const onOpenChange = mock((_open: boolean) => {});
+    renderCompact("access", onOpenChange);
+
+    const trigger = await screen.findByLabelText(
+      "Assistant access and model profile",
+    );
+    fireEvent.click(trigger);
+    await waitFor(() => {
+      expect(onOpenChange).toHaveBeenLastCalledWith(true);
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText("Smart")).toBeTruthy();
+    });
+    const smart = screen
+      .getAllByTestId("menu-item")
+      .find((row) => row.textContent?.includes("Smart"));
+    fireEvent.click(smart!);
+    await waitFor(() => {
+      expect(onOpenChange).toHaveBeenLastCalledWith(false);
+    });
   });
 
   test("stays split when the composer is wide", async () => {

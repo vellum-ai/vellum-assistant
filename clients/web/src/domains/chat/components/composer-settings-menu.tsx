@@ -81,7 +81,7 @@ interface Props {
    */
   triggerVariant?: "icon" | "labeled-pill";
   /**
-   * Called with whether either of this instance's drawers is open. A parent
+   * Called with whether any of this instance's drawers is open. A parent
    * that positions the triggers itself uses it to hold that surface visible
    * while focus sits inside the drawer's portal.
    */
@@ -110,12 +110,14 @@ export function ComposerSettingsMenu({
   const [profileOpen, setProfileOpen] = useState(false);
   const [compactOpen, setCompactOpen] = useState(false);
 
-  // Both flags are set from several places (trigger, row selection, quick
-  // add), so the notification reads the settled pair once instead of being
-  // threaded through every setter. The ref keeps it a transition callback like
-  // the Radix one it mirrors: a parent passing an inline closure re-runs the
-  // effect on every render, and the drawers start closed.
-  const anyDrawerOpen = accessOpen || profileOpen;
+  // All three flags are set from several places (trigger, row selection, quick
+  // add), so the notification reads the settled trio once instead of being
+  // threaded through every setter. `compactOpen` counts too: the compact branch
+  // renders a single hamburger whose menu is the only surface this instance
+  // opens. The ref keeps it a transition callback like the Radix one it
+  // mirrors: a parent passing an inline closure re-runs the effect on every
+  // render, and the drawers start closed.
+  const anyDrawerOpen = accessOpen || profileOpen || compactOpen;
   const notifiedOpenRef = useRef(false);
   useEffect(() => {
     if (notifiedOpenRef.current === anyDrawerOpen) {
