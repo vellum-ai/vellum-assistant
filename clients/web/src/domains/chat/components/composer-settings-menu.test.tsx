@@ -682,6 +682,19 @@ describe("mobile pill triggers", () => {
   // `--surface-lift`, which reads as no pill at all against the card.
   const PILL_FILL_CLASS = "bg-[var(--border-subtle)]";
 
+  /**
+   * The pill's glyph sits at the design's 20px (Figma 7840-8818), so it rides
+   * as a child of the button rather than in the Button's own narrower icon
+   * box. Both classes matter: the box holds the space, the `svg` rule sizes
+   * the icon, which would otherwise render at its own default.
+   */
+  function expectGlyphSizedForPill(pill: HTMLElement) {
+    const glyph = pill.querySelector('span[aria-hidden="true"]');
+    const glyphClass = glyph?.getAttribute("class") ?? "";
+    expect(glyphClass).toContain("size-5");
+    expect(glyphClass).toContain("[&_svg]:size-5");
+  }
+
   beforeEach(() => {
     isMobileRef.value = true;
     isTouchMobileRef.value = true;
@@ -704,6 +717,19 @@ describe("mobile pill triggers", () => {
       expect(profileTrigger.textContent).toContain("Smart");
     });
     expect(profileTrigger.getAttribute("class")).toContain(PILL_FILL_CLASS);
+  });
+
+  test("renders both pill glyphs at the design's 20px", async () => {
+    renderMenu();
+
+    const accessTrigger = await screen.findByLabelText(ACCESS_TRIGGER_LABEL);
+    expectGlyphSizedForPill(accessTrigger);
+
+    const profileTrigger = await screen.findByLabelText(/^Model profile/);
+    await waitFor(() => {
+      expect(profileTrigger.textContent).toContain("Smart");
+    });
+    expectGlyphSizedForPill(profileTrigger);
   });
 
   test("names the profile pill by the profile it displays", async () => {
@@ -741,6 +767,7 @@ describe("mobile pill triggers", () => {
     expect(pillClass).toContain("w-8");
     expect(pillClass).toContain("rounded-full");
     expect(pillClass).toContain(PILL_FILL_CLASS);
+    expectGlyphSizedForPill(profileTrigger);
   });
 
   test("tapping a pill opens the same bottom sheet and reports the open state", async () => {
