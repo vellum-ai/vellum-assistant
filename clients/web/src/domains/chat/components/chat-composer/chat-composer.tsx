@@ -64,7 +64,6 @@ import { useVoiceSurfacePaint } from "@/domains/chat/voice/voice-room/use-voice-
 import { useVoiceRecordingStore } from "@/domains/chat/voice/voice-recording-store";
 import { useVoicePrefsStore } from "@/stores/voice-prefs-store";
 import { useIsMobile } from "@/hooks/use-is-mobile";
-import { useTouchMobile } from "@/hooks/use-touch-mobile";
 import { isElectron } from "@/runtime/is-electron";
 import { isPopoutWindowLifetime } from "@/runtime/popout-window";
 import { useIsNativePlatform } from "@/runtime/native-auth";
@@ -234,16 +233,38 @@ function measureVoiceOriginAvatar(): { x: number; y: number } | null {
   return { x: best.left + best.width / 2, y: best.top + best.height / 2 };
 }
 
-/** The 20px glyphs the mobile row's 40x40 controls carry. */
-const MOBILE_GLYPH_CLASS = "touch-mobile:size-5 touch-mobile:[&_svg]:size-5";
+/**
+ * The 40x40 circle the mobile row's controls stand at.
+ *
+ * Driven from the composer's own `isMobile` branch, the same signal that
+ * produces the row, rather than from the `touch-mobile:` variant. The two
+ * disagree on a window dragged under the breakpoint, which would otherwise take
+ * the mobile row's structure while every control in it kept desktop chrome. The
+ * primitive's own mobile growth is switched off (`expandOnMobile={false}`)
+ * wherever these classes land, so one signal owns the whole control. See
+ * `docs/PLATFORM_ADAPTATION.md`.
+ */
+const MOBILE_CONTROL_CLASS = "h-10 w-10 rounded-full";
+
+/** The 20px glyphs those 40x40 controls carry. */
+const MOBILE_GLYPH_CLASS = "size-5 [&_svg]:size-5";
+
+/**
+ * The press wash under the row's unfilled glyphs. The primitive paints one for
+ * ghost icon-only buttons under `touch-mobile:` alone, so the row carries its
+ * own and every narrow window lights up the same way.
+ */
+const MOBILE_GHOST_WASH_CLASS =
+  "hover:bg-[var(--surface-active)] active:bg-[var(--surface-active)]";
 
 /**
  * The mobile send button's filled circle. Applied only while the button can
  * actually send, so a blocked draft keeps the `Button` primitive's disabled
- * fill rather than a green control nobody can press.
+ * fill rather than a green control nobody can press. Hover holds the fill
+ * alongside active, since a mouse reaches this row too.
  */
 const MOBILE_SEND_FILL_CLASS =
-  "touch-mobile:bg-[var(--system-positive-strong)] touch-mobile:active:bg-[var(--system-positive-strong)] touch-mobile:[--vbtn-fg:var(--aux-white)]";
+  "bg-[var(--system-positive-strong)] hover:bg-[var(--system-positive-strong)] active:bg-[var(--system-positive-strong)] [--vbtn-fg:var(--aux-white)]";
 
 interface AddToChatButtonProps {
   disabled: boolean;
@@ -258,14 +279,19 @@ function AddToChatButton({ disabled, label, onClick }: AddToChatButtonProps) {
       variant="ghost"
       iconOnly={<Plus strokeWidth={2} />}
       iconOnlyGlyphClassName={MOBILE_GLYPH_CLASS}
+      // The row sizes its own controls, so the primitive's mobile growth is
+      // off here and every narrow window gets the same plus.
+      expandOnMobile={false}
       onClick={onClick}
       disabled={disabled}
       aria-label={label}
       title={label}
-      // Tertiary resting tone, matching the row's other glyphs. The
-      // touch-mobile override beats the ghost icon-only variant's default-tone
-      // mobile chrome.
-      className="[--vbtn-fg:var(--content-tertiary)] touch-mobile:[--vbtn-fg:var(--content-tertiary)]"
+      // Tertiary resting tone, matching the row's other glyphs.
+      className={cn(
+        MOBILE_CONTROL_CLASS,
+        MOBILE_GHOST_WASH_CLASS,
+        "[--vbtn-fg:var(--content-tertiary)]",
+      )}
     />
   );
 }
@@ -279,9 +305,9 @@ interface AddToChatPickerButtonProps {
 /**
  * The plus a mouse gets: it opens the file picker directly, the same picker
  * behind the desktop paperclip, through the same hook so the iOS refocus dance
- * is identical. A window narrowed by dragging its edge takes the compact row
- * but not the touch sheet, whose Camera and Find-in-Gallery rows have nothing
- * to offer a pointer and whose `touch-mobile:` chrome does not apply here.
+ * is identical. A window narrowed by dragging its edge takes the compact row,
+ * chrome included, but not the touch sheet, whose Camera and Find-in-Gallery
+ * rows have nothing to offer a pointer.
  */
 function AddToChatPickerButton({
   disabled,
@@ -353,7 +379,6 @@ export function ChatComposer({
     voicePhase === "recording" || voicePhase === "processing";
   // Holds the MediaStream opened by VoiceInputButton so we can reuse it for
   // amplitude analysis rather than opening a second getUserMedia request.
-  const voiceStreamRef = useRef<MediaStream | null>(null);
   const [voiceStream, setVoiceStream] = useState<MediaStream | null>(null);
   const { amplitude } = useAudioAmplitude({
     active: voicePhase === "recording" && voiceStream !== null,
@@ -574,12 +599,11 @@ export function ChatComposer({
   // roomy tablet and on a narrowed desktop window, and the substitute belongs to
   // the absence of the thing it replaces. See `docs/PLATFORM_ADAPTATION.md`.
   const keyboardCanSubmit = !pointerCoarse;
+  // The compact row and everything in it follow the window's width; what the
+  // plus opens follows the input. A narrowed desktop or Electron window keeps
+  // the row, and still wants the picker a mouse can drive. See
+  // `docs/PLATFORM_ADAPTATION.md`.
   const isMobile = useIsMobile();
-  // The compact single row follows the window's width; what the plus opens
-  // follows the input. Both halves are load-bearing for the sheet: a narrowed
-  // desktop or Electron window keeps the row, and still wants the picker a
-  // mouse can drive. See `docs/PLATFORM_ADAPTATION.md`.
-  const isTouchMobile = useTouchMobile();
   const isNative = useIsNativePlatform();
   const isElectronHost = isElectron();
 
@@ -687,11 +711,11 @@ export function ChatComposer({
     phase === "queued" || phase === "thinking" || phase === "streaming";
   const showInlineVoicePreview =
     isVoiceActive && !isLocallyGenerating && !isElectronHost;
+  // Dictation's inline preview takes the textarea's place on native. A
+  // live-voice session does not: its bar sits above the card and the composer
+  // stays a working composer underneath, so the user can type and send
+  // mid-session.
   const hideTextareaForVoice = isNative && showInlineVoicePreview;
-  // A live-voice session no longer touches the textarea row: the bar sits
-  // above the card and the composer stays a working composer underneath, so
-  // the user can type and send mid-session.
-  const hideTextareaRow = hideTextareaForVoice;
   const hasStagedQuotes = useQuoteReplyStore.use.stagedQuotes().length > 0;
   const canSendMessageContent =
     Boolean(input.trim()) || canSendAttachments || hasStagedQuotes;
@@ -737,8 +761,6 @@ export function ChatComposer({
   // passes neither slot (the app-editing panel) has no row to show.
   const hasSettingsPills =
     isMobile && Boolean(thresholdPickerSlot || modelPickerSlot);
-  const settingsPillsVisible =
-    hasSettingsPills && (composerFocusWithin || settingsSheetOpen);
 
   // No longer suppressed during a live-voice session: it was suppressed
   // because the streaming speech rendered in the ghost-suffix mirror's own
@@ -756,7 +778,15 @@ export function ChatComposer({
   );
 
   const [addSheetOpen, setAddSheetOpen] = useState(false);
-  const usesAddSheet = isMobile && isTouchMobile;
+  const usesAddSheet = isMobile && pointerCoarse;
+
+  // Every surface opened from the composer moves focus into a portal, the
+  // composer's own add-to-chat sheet included, so each one has to hold the row
+  // up on its way out. Without the sheet's flag the row would drop away as the
+  // sheet rises and the card would shift down under the scrim.
+  const settingsPillsVisible =
+    hasSettingsPills &&
+    (composerFocusWithin || settingsSheetOpen || addSheetOpen);
 
   // 26px is half the mobile card's 52px collapsed height, so the resting
   // composer is a pill and keeps that corner once attachments make it taller.
@@ -811,10 +841,8 @@ export function ChatComposer({
       onInterimTranscript={onVoiceInterimTranscript}
       onError={onVoiceError}
       onBeforeStart={onVoiceBeforeStart}
-      onStreamReady={(stream: MediaStream | null) => {
-        voiceStreamRef.current = stream;
-        setVoiceStream(stream);
-      }}
+      onStreamReady={setVoiceStream}
+      mobileRow={isMobile}
     />
   ) : null;
 
@@ -833,12 +861,14 @@ export function ChatComposer({
     <LiveVoiceButton
       onStart={handleLiveVoiceStart}
       disabled={typingDisabled || isVoiceActive || isLiveVoiceSessionLive}
+      mobileRow={isMobile}
     />
   ) : (
     <Button
       variant="primary"
       iconOnly={<ArrowUp className="h-4 w-4" strokeWidth={2.5} />}
-      iconOnlyGlyphClassName={MOBILE_GLYPH_CLASS}
+      iconOnlyGlyphClassName={isMobile ? MOBILE_GLYPH_CLASS : undefined}
+      expandOnMobile={!isMobile}
       type="submit"
       disabled={sendBlocked}
       title={
@@ -850,26 +880,40 @@ export function ChatComposer({
       }
       aria-label="Send message"
       className={cn(
-        "touch-mobile:rounded-full",
-        !sendBlocked && MOBILE_SEND_FILL_CLASS,
+        isMobile && MOBILE_CONTROL_CLASS,
+        isMobile && !sendBlocked && MOBILE_SEND_FILL_CLASS,
       )}
     />
   );
 
+  // The busy row's single control wears the same chrome as the resting slot it
+  // stands in for, so a turn starting does not shrink the row's right end back
+  // to a desktop control.
   const busyRowControl = sendReplacesStop ? (
     <Button
       variant="primary"
       iconOnly={<ArrowUp className="h-4 w-4" strokeWidth={2.5} />}
+      iconOnlyGlyphClassName={isMobile ? MOBILE_GLYPH_CLASS : undefined}
+      expandOnMobile={!isMobile}
       type="submit"
       title="Send message"
       aria-label="Send message"
+      className={cn(
+        // Reachable only when the draft can actually go, so the filled tone
+        // never lands on a send nobody can press.
+        isMobile && MOBILE_CONTROL_CLASS,
+        isMobile && MOBILE_SEND_FILL_CLASS,
+      )}
     />
   ) : (
     <Button
       variant="primary"
       iconOnly={<Square className="h-3 w-3" fill="currentColor" />}
+      iconOnlyGlyphClassName={isMobile ? MOBILE_GLYPH_CLASS : undefined}
+      expandOnMobile={!isMobile}
       onClick={onStopGenerating}
       aria-label="Stop generating"
+      className={isMobile ? MOBILE_CONTROL_CLASS : undefined}
     />
   );
 
@@ -916,7 +960,11 @@ export function ChatComposer({
   const textFieldBlock = (
     <div
       className={
-        hideTextareaRow ? "hidden" : isMobile ? "grid min-w-0 flex-1" : "grid"
+        hideTextareaForVoice
+          ? "hidden"
+          : isMobile
+            ? "grid min-w-0 flex-1"
+            : "grid"
       }
     >
       <div
@@ -1233,43 +1281,56 @@ export function ChatComposer({
                   attachments={attachments}
                   onRemove={removeAttachment}
                 />
-                {isMobile ? (
-                  <>
-                    {inlineVoicePreview}
-                    {/* One row: add, divider, input, mic, voice-or-send.
+                {/* Above both layouts: what a control does when the card runs
+                    narrow is the control's own business, and must not depend on
+                    which row it happens to be sitting in. */}
+                <ComposerCompactProvider compact={compactSettings}>
+                  {isMobile ? (
+                    <>
+                      {inlineVoicePreview}
+                      {/* One row: add, divider, input, mic, voice-or-send.
                         `items-end` holds the fixed-height controls on the
                         card's bottom edge while the textarea grows upward. */}
-                    <div className="flex items-end py-1.5 pl-0.5 pr-1.5">
-                      {contextWindowIndicatorSlot}
-                      {!isAssistantBusy && attachControl}
-                      {!isAssistantBusy && (
-                        <div
-                          aria-hidden="true"
-                          className="-ml-0.5 mb-2 h-6 w-px shrink-0 bg-[var(--border-hover)]"
-                        />
-                      )}
-                      {textFieldBlock}
-                      <div className="flex shrink-0 items-end gap-1.5">
-                        {isAssistantBusy ? (
-                          busyRowControl
-                        ) : (
-                          <>
-                            {dictationButton}
-                            {sendSlot}
-                          </>
+                      <div className="flex items-end py-1.5 pl-0.5 pr-1.5">
+                        {contextWindowIndicatorSlot ? (
+                          // A bare slot in an `items-end` row sits flush on the
+                          // card's bottom edge; a control-height box centres it
+                          // against the glyphs beside it instead.
+                          <div className="mr-1 flex h-10 shrink-0 items-center">
+                            {contextWindowIndicatorSlot}
+                          </div>
+                        ) : null}
+                        {!isAssistantBusy && attachControl}
+                        {!isAssistantBusy && (
+                          <div
+                            aria-hidden="true"
+                            className="-ml-0.5 mb-2 h-6 w-px shrink-0 bg-[var(--border-hover)]"
+                          />
                         )}
+                        {textFieldBlock}
+                        {/* The mic's 40x40 box carries 10px of slack around its
+                          20px glyph, so 6px of gap lands that glyph the
+                          design's 16px from the voice circle. */}
+                        <div className="flex shrink-0 items-end gap-1.5">
+                          {isAssistantBusy ? (
+                            busyRowControl
+                          ) : (
+                            <>
+                              {dictationButton}
+                              {sendSlot}
+                            </>
+                          )}
+                        </div>
                       </div>
-                    </div>
-                  </>
-                ) : (
-                  <>
-                    {textFieldBlock}
-                    {inlineVoicePreview}
-                    {/* Action row: attach, divider, access on the left; model
+                    </>
+                  ) : (
+                    <>
+                      {textFieldBlock}
+                      {inlineVoicePreview}
+                      {/* Action row: attach, divider, access on the left; model
                         profile, divider, mic, send on the right. It stays
                         mounted through a live-voice session, whose own
                         controls live in the bar above the card. */}
-                    <ComposerCompactProvider compact={compactSettings}>
                       <div className="flex items-center justify-between gap-1 px-2 pb-2">
                         <div className="flex min-w-0 items-center gap-2">
                           {contextWindowIndicatorSlot}
@@ -1305,9 +1366,9 @@ export function ChatComposer({
                           )}
                         </div>
                       </div>
-                    </ComposerCompactProvider>
-                  </>
-                )}
+                    </>
+                  )}
+                </ComposerCompactProvider>
               </div>
             </form>
           </Popover.Anchor>
@@ -1338,10 +1399,16 @@ export function ChatComposer({
             )}
           </Popover.Content>
         </Popover.Root>
-        {usesAddSheet && (
+        {pointerCoarse && (
           // Beside the form, not inside it: the sheet keeps hidden file inputs
           // mounted while a native picker is up, and those have no business in
           // the form the composer submits.
+          //
+          // Mounted on the pointer alone rather than on the compound that
+          // decides whether the plus opens it. Rotating a phone into landscape
+          // crosses the width breakpoint, and unmounting the inputs there would
+          // drop a camera or gallery pick still being made. A touch device at
+          // desktop width just keeps a closed sheet mounted.
           <AddToChatSheet
             open={addSheetOpen}
             onOpenChange={setAddSheetOpen}
