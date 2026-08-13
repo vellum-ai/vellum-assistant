@@ -83,7 +83,7 @@ import {
   getPairedGuardianAccessToken,
   installLocalMode,
   resolveCliInvocation,
-} from "./local-mode";
+} from "./local-mode.client";
 import { installLoginItem, installLoginItemIpc } from "./login-item.client";
 import {
   getWatchedLockfileSnapshot,

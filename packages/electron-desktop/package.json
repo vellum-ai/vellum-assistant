@@ -41,6 +41,8 @@
     "./image-mask": "./src/image-mask.ts",
     "./ipc": "./src/ipc.ts",
     "./login-item": "./src/login-item.ts",
+    "./local-mode": "./src/local-mode.ts",
+    "./local-mode-bridge": "./src/local-mode-bridge.ts",
     "./lockfile-watcher": "./src/lockfile-watcher.ts",
     "./module-configuration": "./src/module-configuration.ts",
     "./native-auth": "./src/native-auth.ts",

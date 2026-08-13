@@ -6,7 +6,6 @@ export const WINDOWS_CORE_CAPABILITIES = [
   "app",
   "commands",
   "mainWindow",
-  "localMode",
 ] as const satisfies readonly (keyof VellumBridge)[];
 
 export type WindowsCoreBridge = Pick<

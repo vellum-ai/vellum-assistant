@@ -32,6 +32,17 @@ let pollTimer: ReturnType<typeof setInterval> | null = null;
 let debounceTimer: ReturnType<typeof setTimeout> | null = null;
 const listeners = new Set<LockfileChangeListener>();
 
+const isAccessDenied = (error: unknown): boolean => {
+  const code = (error as NodeJS.ErrnoException).code;
+  return code === "EACCES" || code === "EPERM";
+};
+
+export const configureLockfileWatcher = (
+  resolver: () => readonly string[],
+): void => {
+  resolveCandidates = resolver;
+};
+
 /**
  * Parse the first readable candidate lockfile, canonical first. The first
  * readable file is authoritative even when its entry list is empty, matching
@@ -41,12 +52,15 @@ const listeners = new Set<LockfileChangeListener>();
  * canonical file yet) populated. Returns EMPTY_LOCKFILE when no candidate
  * is readable.
  */
-const readAndParse = (): Lockfile => {
+const readAndParse = (): Lockfile | null => {
   for (const candidate of lockfileCandidates) {
     try {
       const raw = fs.readFileSync(candidate, "utf-8");
       return parseLockfile(JSON.parse(raw));
-    } catch {
+    } catch (error) {
+      if (isAccessDenied(error)) {
+        return null;
+      }
       // Missing or corrupt, try the next candidate.
     }
   }
@@ -68,12 +82,18 @@ const checkForChanges = (): void => {
   let mtimeMs: number;
   try {
     mtimeMs = fs.statSync(canonicalPath).mtimeMs;
-  } catch {
+  } catch (error) {
+    if (isAccessDenied(error)) {
+      return;
+    }
     // Canonical file missing or inaccessible. Fall back to the first
     // readable candidate (legacy-only installs, transient gaps) and go
     // empty only when nothing is readable.
     lastMtimeMs = 0;
     const next = readAndParse();
+    if (!next) {
+      return;
+    }
     if (JSON.stringify(next) !== JSON.stringify(cachedLockfile)) {
       cachedLockfile = next;
       notifyListeners();
@@ -84,15 +104,18 @@ const checkForChanges = (): void => {
   if (mtimeMs === lastMtimeMs) {
     return;
   }
-  lastMtimeMs = mtimeMs;
-
   // Debounce: atomic rename can produce rapid mtime bumps.
   if (debounceTimer) {
     clearTimeout(debounceTimer);
   }
   debounceTimer = setTimeout(() => {
     debounceTimer = null;
-    cachedLockfile = readAndParse();
+    const next = readAndParse();
+    if (!next) {
+      return;
+    }
+    lastMtimeMs = mtimeMs;
+    cachedLockfile = next;
     notifyListeners();
   }, DEBOUNCE_MS);
 };
@@ -126,12 +149,18 @@ export const refreshLockfileNow = (): void => {
     clearTimeout(debounceTimer);
     debounceTimer = null;
   }
+  const previousMtimeMs = lastMtimeMs;
   try {
     lastMtimeMs = fs.statSync(canonicalPath).mtimeMs;
   } catch {
     lastMtimeMs = 0;
   }
-  cachedLockfile = readAndParse();
+  const next = readAndParse();
+  if (!next) {
+    lastMtimeMs = previousMtimeMs;
+    return;
+  }
+  cachedLockfile = next;
   notifyListeners();
 };
 
@@ -148,12 +177,6 @@ export const onLockfileChange = (
   };
 };
 
-export const configureLockfileWatcher = (
-  resolvePaths: () => readonly string[],
-): void => {
-  resolveCandidates = resolvePaths;
-};
-
 /**
  * Start polling. Call once from `app.whenReady()`. Reads the lockfile
  * immediately on install (synchronous, so the first `buildTrayMenu`
@@ -168,12 +191,17 @@ export const installLockfileWatcher = (): (() => void) => {
   // Initial read — synchronous so the tray menu has data from frame one.
   // readAndParse falls back to legacy candidates when the canonical file
   // doesn't exist yet, so pre-migration installs still show data.
-  try {
-    lastMtimeMs = fs.statSync(lockfileCandidates[0]!).mtimeMs;
-  } catch {
+  const initial = readAndParse();
+  cachedLockfile = initial ?? EMPTY_LOCKFILE;
+  if (initial) {
+    try {
+      lastMtimeMs = fs.statSync(lockfileCandidates[0]!).mtimeMs;
+    } catch {
+      lastMtimeMs = 0;
+    }
+  } else {
     lastMtimeMs = 0;
   }
-  cachedLockfile = readAndParse();
 
   pollTimer = setInterval(checkForChanges, POLL_INTERVAL_MS);
 

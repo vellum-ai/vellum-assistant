@@ -20,7 +20,7 @@ import {
 
 import { RENDERER_BASE_PROD, getDevRendererBase } from "./app-config";
 import { handle, on } from "./ipc";
-import { resolveCliInvocation } from "./local-mode";
+import { resolveCliInvocation } from "./local-mode.client";
 
 const resolveActiveGateway = (): ActiveBundleGateway | null => {
   const result = getLockfileData(resolveLockfilePaths(process.env));

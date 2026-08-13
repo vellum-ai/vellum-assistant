@@ -1,6 +1,5 @@
 import { contextBridge, ipcRenderer, type IpcRendererEvent } from "electron";
 
-import type { Lockfile } from "@vellumai/local-mode/contract";
 import type {
   AppVersionInfo,
   VellumBridge,
@@ -12,20 +11,14 @@ import { composePreloadFeatures } from "./features";
 
 export type { AppVersionInfo, VellumBridge, VellumCommand };
 
-const NOT_AVAILABLE = "Local mode is not available on the Windows client yet";
-
 /**
  * Minimal subset of the `VellumBridge` contract for the Windows skeleton.
  *
  * Most of the renderer's runtime wrappers (`clients/web/src/runtime/`)
  * feature-detect their namespace (`if (!bridge?.hotkeys) return ...`) so a
  * newer renderer can run against an older - or, here, narrower - preload.
- * But a handful are treated as required the moment `platform` reads
- * `"electron"` and are dereferenced unguarded, so unavailable core features
- * ship as explicit no-op stubs rather than being absent. Each capability
- * ported from the macOS client (`clients/macos/src/preload/index.ts`) should
- * replace its stub with the real IPC wiring alongside its main-process
- * handlers.
+ * Capabilities that are dereferenced unguarded live in this core bridge or
+ * are installed through the feature modules below.
  */
 const coreBridge: WindowsCoreBridge = {
   platform: "electron",
@@ -55,38 +48,6 @@ const coreBridge: WindowsCoreBridge = {
         "vellum:mainWindow:setOnboarding",
         active,
       ) as Promise<void>,
-  },
-  // Stub: local assistants need the CLI provisioning + lockfile IPC port
-  // (`clients/macos/src/main/local-mode.ts`). The empty lockfile renders an
-  // empty assistant list; mutations report a structured failure the
-  // renderer already surfaces by message.
-  localMode: {
-    hatch: () => Promise.resolve({ ok: false, error: NOT_AVAILABLE }),
-    readLockfile: (): Promise<Lockfile> =>
-      Promise.resolve({ assistants: [], activeAssistant: null }),
-    saveLockfileAssistant: () =>
-      Promise.resolve({ ok: false as const, error: NOT_AVAILABLE }),
-    replacePlatformAssistants: () =>
-      Promise.resolve({ ok: false as const, error: NOT_AVAILABLE }),
-    wake: () => Promise.resolve({ ok: false, error: NOT_AVAILABLE }),
-    upgrade: () => Promise.resolve({ ok: false, error: NOT_AVAILABLE }),
-    status: () =>
-      Promise.resolve({
-        ok: false as const,
-        status: 501,
-        error: NOT_AVAILABLE,
-      }),
-    retire: () => Promise.resolve({ ok: false, error: NOT_AVAILABLE }),
-    sleep: () => Promise.resolve({ ok: false, error: NOT_AVAILABLE }),
-    unpair: () => Promise.resolve({ ok: false as const, error: NOT_AVAILABLE }),
-    connectImport: () =>
-      Promise.resolve({ ok: false as const, error: NOT_AVAILABLE }),
-    guardianToken: () =>
-      Promise.resolve({
-        ok: false as const,
-        status: 501,
-        error: NOT_AVAILABLE,
-      }),
   },
 };
 
