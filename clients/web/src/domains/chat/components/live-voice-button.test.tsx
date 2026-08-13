@@ -43,6 +43,26 @@ describe("LiveVoiceButton", () => {
     expect(onStartSpy).toHaveBeenCalledTimes(1);
   });
 
+  test("mobileRow renders the composer row's 40x40 circle with a 20px glyph", () => {
+    // GIVEN the button in the mobile composer row
+    const { getByLabelText } = render(
+      <LiveVoiceButton onStart={onStartSpy} mobileRow />,
+    );
+
+    // THEN it is the design's filled circle, sized here rather than by the
+    // primitive's own mobile growth, so every narrow window gets the same one
+    const button = getByLabelText("Start voice mode");
+    expect(button.className).toContain("h-10 w-10 rounded-full");
+    expect(button.querySelector("span")?.className).toContain("[&_svg]:size-5");
+
+    // WHILE the default leaves the primitive's sizing alone
+    cleanup();
+    const desktop = render(<LiveVoiceButton onStart={onStartSpy} />);
+    const plain = desktop.getByLabelText("Start voice mode");
+    expect(plain.className).not.toContain("h-10 w-10 rounded-full");
+    expect(plain.className).toContain("touch-mobile:h-10");
+  });
+
   test("prevents starting a session when disabled", () => {
     // GIVEN a button the parent has disabled
     const { getByLabelText } = render(

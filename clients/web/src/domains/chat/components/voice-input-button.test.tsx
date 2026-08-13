@@ -599,3 +599,47 @@ describe("VoiceInputButton — forced native provider (macOS Native Dictation)",
     expect(lastBreadcrumb().data.outcome).toBe("error");
   });
 });
+
+describe("VoiceInputButton: mobile composer row chrome", () => {
+  afterEach(() => {
+    cleanup();
+    useVoiceRecordingStore.getState().reset();
+  });
+
+  test("mobileRow gives the idle mic the row's 40x40 circle and 20px glyph", () => {
+    // GIVEN the mic in the mobile composer row
+    render(
+      <VoiceInputButton
+        assistantId="assistant-1"
+        onTranscript={async () => {}}
+        mobileRow
+      />,
+    );
+
+    // THEN the resting mic reads at the design's 20px rather than at the
+    // primitive's default, and the row sizes the control itself so a narrow
+    // mouse-driven window gets the same mic a phone does
+    const button = screen.getByRole("button", { name: "Start voice input" });
+    expect(button.className).toContain("h-10 w-10 rounded-full");
+    expect(button.querySelector("span")?.className).toContain("[&_svg]:size-5");
+  });
+
+  test("the default leaves the idle mic at the primitive's sizing", () => {
+    // GIVEN the mic anywhere else, the desktop action row included
+    render(
+      <VoiceInputButton
+        assistantId="assistant-1"
+        onTranscript={async () => {}}
+      />,
+    );
+
+    // THEN the row's own sizing does not reach it, and the primitive's
+    // `touch-mobile:` chrome is left in charge
+    const button = screen.getByRole("button", { name: "Start voice input" });
+    expect(button.className).not.toContain("h-10 w-10 rounded-full");
+    expect(button.className).toContain("touch-mobile:h-10");
+    expect(button.querySelector("span")?.className).not.toContain(
+      "[&_svg]:size-5",
+    );
+  });
+});

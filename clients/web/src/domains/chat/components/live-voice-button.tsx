@@ -28,11 +28,20 @@ interface LiveVoiceButtonProps {
   onStart: (origin?: { x: number; y: number }) => void;
   /** Disable the control (e.g. while dictation is recording). */
   disabled?: boolean;
+  /**
+   * Render as the mobile composer row's send-slot control: a 40x40 filled
+   * circle holding a 20px glyph. The composer drives this from the same
+   * window-width signal that produces that row, so a phone and a window
+   * dragged narrow get the same circle. Off by default, which leaves the
+   * `Button` primitive's own sizing in charge.
+   */
+  mobileRow?: boolean;
 }
 
 export function LiveVoiceButton({
   onStart,
   disabled = false,
+  mobileRow = false,
 }: LiveVoiceButtonProps) {
   return (
     <Button
@@ -42,12 +51,12 @@ export function LiveVoiceButton({
       // fill) — rather than a low-emphasis ghost that reads as secondary.
       variant="primary"
       iconOnly={<AudioLines strokeWidth={2} />}
-      // Mobile reads the slot as a 40x40 filled circle holding a 20px glyph.
-      // The primitive already grows icon-only buttons to 40x40 under
-      // `touch-mobile:`, so only the corner and the glyph size are left; the
-      // fill is the `primary` token the design's light circle resolves to.
-      iconOnlyGlyphClassName="touch-mobile:size-5 touch-mobile:[&_svg]:size-5"
-      className="touch-mobile:rounded-full"
+      // The row's own signal sizes the circle, so the primitive's mobile growth
+      // steps aside; the fill is the `primary` token the design's light circle
+      // resolves to.
+      iconOnlyGlyphClassName={mobileRow ? "size-5 [&_svg]:size-5" : undefined}
+      expandOnMobile={!mobileRow}
+      className={mobileRow ? "h-10 w-10 rounded-full" : undefined}
       // Anchor for the in-chat tour's closing beat, which lands the assistant's
       // avatar on this control.
       data-tour-id="voice-mode"
