@@ -193,6 +193,7 @@ const i18nEnforcedPaths = [
   "src/components/not-found.tsx",
   "src/domains/chat/components/conversation-assets-pill.tsx",
   "src/domains/chat/components/pinned-app-color-swatches.tsx",
+  "src/domains/chat/components/sidebar-conversation-error.tsx",
   "src/domains/schedules/**/*.{ts,tsx}",
   "src/domains/settings/billing/checkout-bonus-modal.tsx",
   "src/domains/account/**/*.{ts,tsx}",

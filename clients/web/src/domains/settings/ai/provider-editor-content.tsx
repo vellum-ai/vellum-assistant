@@ -416,12 +416,11 @@ export function ProviderEditorContent({
 
   const footer = (
     <>
-      <Button variant="ghost" size="compact" onClick={onCancel}>
+      <Button variant="ghost" onClick={onCancel}>
         Cancel
       </Button>
       <Button
         variant="primary"
-        size="compact"
         disabled={!canSave || saving || isSavingKey}
         onClick={() => void handleSave()}
       >

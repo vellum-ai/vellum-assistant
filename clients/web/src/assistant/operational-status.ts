@@ -196,3 +196,84 @@ export function isHealthyOperationalStatus(
 ): boolean {
   return status?.state === "active";
 }
+
+/**
+ * Whether the daemon can serve requests in each operational state.
+ *
+ * Exhaustive over the generated enum, so a state added to the platform schema
+ * is a compile error here rather than picking up a silent default. Which way a
+ * new state goes is a real decision, and the two mistakes are not symmetric:
+ * wrongly closing the gate blanks a working assistant's sidebar until the
+ * control plane changes its mind, while wrongly opening it costs one failed
+ * request that surfaces with a retry.
+ *
+ * `unreachable` is open deliberately. It means the control plane could not
+ * confirm reachability, which is absence of knowledge rather than evidence the
+ * pod is down. `unreachable` while SSE is connected is this module's
+ * documented split-brain fingerprint: the pod's events are flowing and its
+ * requests succeed while the status pipeline cannot see it (see
+ * {@link recordOperationalStatusTransition}).
+ */
+const DAEMON_SERVES_IN_STATE: Record<OperationalStatusStateEnum, boolean> = {
+  active: true,
+  unreachable: true,
+  waking: false,
+  sleeping: false,
+  initializing: false,
+  provisioning: false,
+  migrating: false,
+  restarting: false,
+  restoring_backup: false,
+  upgrading_assistant_version: false,
+  resizing_machine: false,
+  resizing_storage: false,
+  maintenance_mode: false,
+  crash_loop: false,
+  not_found: false,
+  retiring: false,
+};
+
+/**
+ * Whether data-plane requests to this assistant's daemon should be allowed to
+ * run: either the pod is serving, or its health is not knowable from here.
+ *
+ * The distinction the caller needs is not "healthy" but "not known to be
+ * down". Operational status is a platform-only signal: it is `null` for local
+ * and self-hosted assistants, for an org whose platform gate is not `"full"`,
+ * and for any 403/404, and it is `undefined` until the first poll resolves.
+ * Treating any of those as "not serving" would strand every assistant whose
+ * health lives somewhere else (`LocalAssistantHealth`, maintained by the
+ * lifecycle service's heartbeat probes) behind a signal that will never
+ * arrive. So absence opens the gate, and so does a state that carries no
+ * verdict; only a state that means the daemon cannot answer closes it.
+ *
+ * `state: "waking"` is the case this exists for. The daemon 503s every request
+ * while the pod warms, and the assistant record stays `status: "active"`
+ * throughout, so nothing in {@link AssistantState} can express the difference.
+ */
+export function isServingOperationalStatus(
+  status: OperationalStatus | null | undefined,
+): boolean {
+  if (status === null || status === undefined) {
+    return true;
+  }
+  // `state` is an open string on the wire, so a value this client's schema
+  // predates lands here as `undefined` and opens the gate.
+  return DAEMON_SERVES_IN_STATE[status.state] ?? true;
+}
+
+/**
+ * Gate for queries against the assistant's daemon, true when the pod is
+ * serving or its health is unknowable. See
+ * {@link isServingOperationalStatus} for why absence opens the gate.
+ *
+ * Pass this into a query's `enabled` rather than checking it before a manual
+ * fetch. A query gated this way stops issuing requests into a wake window
+ * (where they 503 and burn the retry budget), and TanStack Query refetches it
+ * when the flag flips back to true, which is the edge that carries a sidebar
+ * out of a failed load once the pod comes up.
+ */
+export function useAssistantIsServing(assistantId: string | null): boolean {
+  const { data: status } = useAssistantOperationalStatus(assistantId);
+  return isServingOperationalStatus(status);
+}

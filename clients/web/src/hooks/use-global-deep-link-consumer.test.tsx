@@ -13,6 +13,7 @@ import type { ReactNode } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
 import { organizationsBillingSummaryRetrieveOptions } from "@/generated/api/@tanstack/react-query.gen";
+import { consumePendingComposerFocus } from "@/domains/chat/composer-focus";
 import { useSubagentStore } from "@/domains/chat/subagent-store";
 import { useWorkflowStore } from "@/domains/chat/workflow-store";
 import { useLiveVoiceStore } from "@/domains/chat/voice/live-voice/live-voice-store";
@@ -139,6 +140,9 @@ beforeEach(() => {
   ensureMainWindowVisibleMock.mockClear();
   sentryBreadcrumbMock.mockClear();
   toastSuccessMock.mockClear();
+  // Module-level one-shot flag; drain so a prior test's focus request can't
+  // satisfy this test's assertion.
+  consumePendingComposerFocus();
   resetStores();
 });
 
@@ -620,10 +624,10 @@ describe("deeplink.startVoice", () => {
     expect(isVoiceRoomVisible()).toBe(false);
   });
 
-  test("a prompt is parked in the composer inbox and the session starts as for mode=new", async () => {
-    // The live-voice wire protocol has no text-turn frame (see the hook's
-    // docstring), so the spoken question surfaces in the composer while the
-    // session starts exactly as a plain `mode=new` link starts it.
+  test("a prompt with nothing running pre-fills the composer and starts no session", async () => {
+    // Both constraints documented on the hook: a session could not hear the
+    // question (no text-turn frame), and the unauthenticated URL scheme means
+    // the text must never be auto-sent, only surfaced for the user to send.
     seedEligibleAssistant();
     const starter = mock((_a: string, _c: string | null) => undefined);
     useLiveVoiceStore.getState().setStarter(asStarter(starter));
@@ -638,10 +642,36 @@ describe("deeplink.startVoice", () => {
     await flush();
 
     expect(navigateMock).toHaveBeenCalledWith("/assistant");
-    expect(starter).toHaveBeenCalledWith("assistant-1", null);
     expect(usePendingDeepLinkStore.getState().pendingComposerMessage).toBe(
       "what's on my calendar?",
     );
+    // One tap from sent: the composer is asked to focus so the keyboard is up.
+    expect(consumePendingComposerFocus()).toBe(true);
+    // No voice session and no parked voice start: the room would hide the
+    // pre-fill and the session could not consume it.
+    expect(starter).not.toHaveBeenCalled();
+    expect(usePendingDeepLinkStore.getState().pendingVoiceStartAt).toBeNull();
+    expect(ensureMainWindowVisibleMock).toHaveBeenCalledTimes(1);
+  });
+
+  test("the prompt is surfaced even when the assistant can't serve live voice", async () => {
+    // The pre-fill has no live-voice version gate: an assistant too old for
+    // voice still gets the question into the composer.
+    seedEligibleAssistant("0.10.11");
+    const starter = mock((_a: string, _c: string | null) => undefined);
+    useLiveVoiceStore.getState().setStarter(asStarter(starter));
+    renderConsumer();
+
+    act(() => {
+      publish("deeplink.startVoice", { mode: "new", prompt: "still works?" });
+    });
+    await flush();
+
+    expect(navigateMock).toHaveBeenCalledWith("/assistant");
+    expect(usePendingDeepLinkStore.getState().pendingComposerMessage).toBe(
+      "still works?",
+    );
+    expect(starter).not.toHaveBeenCalled();
   });
 
   test("a null prompt behaves identically to a plain mode=new link", async () => {
@@ -685,7 +715,8 @@ describe("deeplink.startVoice", () => {
     expect(usePendingDeepLinkStore.getState().pendingComposerMessage).toBe(
       null,
     );
-    expect(starter).toHaveBeenCalledTimes(1);
+    expect(starter).not.toHaveBeenCalled();
+    expect(navigateMock.mock.calls.length).toBe(1);
   });
 
   test("a prompt on a resume link that rejoins a running session is still not dropped", async () => {

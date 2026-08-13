@@ -173,10 +173,9 @@ export function ProviderEditorApiKeySection({
                 </div>
               )}
 
-              <div className="flex justify-end">
+              <div className="flex justify-start">
                 <Button
                   variant="ghost"
-                  size="compact"
                   onClick={() => {
                     if (isCreatingNewCredential) {
                       setIsCreatingNewCredential(false);

@@ -8,11 +8,11 @@ import {
   Loader2,
   Repeat,
   Trash2,
-  X,
 } from "lucide-react";
 import { useState } from "react";
 import { useNavigate } from "react-router";
 
+import { DetailShellHeader } from "@/components/detail-shell";
 import { useTranslation } from "@/i18n";
 import { SCHEDULE_USAGE_WINDOW_DAYS } from "@/utils/usage-window";
 import { pluginNameFromSourceKey } from "@/domains/schedules/plugin-source";
@@ -42,6 +42,7 @@ import {
 import { navigateToConversation } from "@/utils/conversation-navigation";
 import { routes } from "@/utils/routes";
 import { Button, Skeleton, Typography, cn } from "@vellumai/design-library";
+import { ConfirmDialog } from "@vellumai/design-library/components/confirm-dialog";
 import { toast } from "@vellumai/design-library/components/toast";
 
 import type { Schedule, ScheduleRun } from "@/domains/settings/types/schedules";
@@ -553,171 +554,161 @@ export function ScheduleDetailPanel({
   };
 
   return (
-    <div
-      className={cn(
-        "flex h-full flex-col bg-[var(--surface-overlay)]",
-        !isMobile &&
-          "rounded-[var(--radius-xl)] border border-[var(--border-base)]",
-      )}
-    >
-      {/* Header */}
-      <div className="flex shrink-0 items-center gap-3 border-b border-[var(--border-base)] p-[var(--app-spacing-lg)]">
-        <div className="min-w-0 flex-1">
-          <Typography
-            variant="title-small"
-            className="truncate text-[var(--content-default)]"
-          >
-            {schedule.name}
-          </Typography>
-        </div>
-        <Button
-          variant="ghost"
-          iconOnly={<X />}
-          onClick={onClose}
-          aria-label={t("scheduleDetail.closeAria")}
-          tooltip={t("scheduleDetail.close")}
-          className="shrink-0"
+    <>
+      <div
+        className={cn(
+          "flex h-full flex-col bg-[var(--surface-overlay)]",
+          !isMobile &&
+            "rounded-[var(--radius-xl)] border border-[var(--border-base)]",
+        )}
+      >
+        <DetailShellHeader
+          title={schedule.name}
+          headerActions={
+            pluginName ? undefined : (
+              <Button
+                variant="dangerOutline"
+                leftIcon={<Trash2 className="h-3.5 w-3.5" />}
+                onClick={() => setConfirmingDelete(true)}
+              >
+                {t("scheduleDetail.delete")}
+              </Button>
+            )
+          }
+          closeLabel={t("scheduleDetail.closeAria")}
+          closeTooltip={t("scheduleDetail.close")}
+          onClose={onClose}
         />
-      </div>
 
-      {/* Scrollable body */}
-      <div className="flex-1 space-y-6 overflow-y-auto px-[var(--app-spacing-lg)] py-[var(--app-spacing-lg)]">
-        {schedule.description ? (
-          <p className="text-body-medium-lighter text-[var(--content-secondary)]">
-            {schedule.description}
-          </p>
-        ) : null}
+        {/* Scrollable body */}
+        <div className="flex-1 space-y-6 overflow-y-auto px-[var(--app-spacing-lg)] py-[var(--app-spacing-lg)]">
+          {schedule.description ? (
+            <p className="text-body-medium-lighter text-[var(--content-secondary)]">
+              {schedule.description}
+            </p>
+          ) : null}
 
-        <section>
-          <SectionLabel>{t("scheduleDetail.details")}</SectionLabel>
-          <div className="rounded-lg border border-[var(--border-base)] bg-[var(--surface-lift)] px-4 py-2">
-            {schedule.cadenceDescription ? (
-              <InfoRow
-                label={t("scheduleDetail.cadence")}
-                value={schedule.cadenceDescription}
+          <section>
+            <SectionLabel>{t("scheduleDetail.details")}</SectionLabel>
+            <div className="rounded-lg border border-[var(--border-base)] bg-[var(--surface-lift)] px-4 py-2">
+              {schedule.cadenceDescription ? (
+                <InfoRow
+                  label={t("scheduleDetail.cadence")}
+                  value={schedule.cadenceDescription}
+                />
+              ) : null}
+              <InfoRow label={t("scheduleDetail.mode")} value={schedule.mode} />
+              <ScheduleModelProfileField
+                schedule={schedule}
+                assistantId={assistantId}
+                isPast={isPast}
               />
-            ) : null}
-            <InfoRow label={t("scheduleDetail.mode")} value={schedule.mode} />
-            <ScheduleModelProfileField
-              schedule={schedule}
-              assistantId={assistantId}
-              isPast={isPast}
-            />
-            <InfoRow
-              label={t("scheduleDetail.status")}
-              value={
-                schedule.enabled
-                  ? t("scheduleDetail.enabled")
-                  : t("scheduleDetail.disabled")
+              <InfoRow
+                label={t("scheduleDetail.status")}
+                value={
+                  schedule.enabled
+                    ? t("scheduleDetail.enabled")
+                    : t("scheduleDetail.disabled")
+                }
+              />
+              <InfoRow
+                label={t("scheduleDetail.nextRun")}
+                value={formatTimestamp(schedule.nextRunAt)}
+              />
+              {schedule.lastRunAt ? (
+                <InfoRow
+                  label={t("scheduleDetail.lastRun")}
+                  value={
+                    <span className="flex items-center justify-end gap-2">
+                      <StatusDot status={schedule.lastStatus} />
+                      {formatTimestamp(schedule.lastRunAt)}
+                    </span>
+                  }
+                />
+              ) : null}
+            </div>
+          </section>
+
+          <StatCards usage={usage} />
+
+          <section>
+            <SectionLabel>{t("scheduleDetail.recentRuns")}</SectionLabel>
+            <RecentRuns
+              runs={runs?.runs}
+              isLoading={isLoading}
+              disableDirectOpen={schedule.mode === "script"}
+              onOpenConversation={(conversationId) =>
+                navigateToConversation(navigate, conversationId)
               }
             />
-            <InfoRow
-              label={t("scheduleDetail.nextRun")}
-              value={formatTimestamp(schedule.nextRunAt)}
-            />
-            {schedule.lastRunAt ? (
-              <InfoRow
-                label={t("scheduleDetail.lastRun")}
-                value={
-                  <span className="flex items-center justify-end gap-2">
-                    <StatusDot status={schedule.lastStatus} />
-                    {formatTimestamp(schedule.lastRunAt)}
-                  </span>
-                }
-              />
-            ) : null}
-          </div>
-        </section>
+          </section>
+        </div>
 
-        <StatCards usage={usage} />
-
-        <section>
-          <SectionLabel>{t("scheduleDetail.recentRuns")}</SectionLabel>
-          <RecentRuns
-            runs={runs?.runs}
-            isLoading={isLoading}
-            disableDirectOpen={schedule.mode === "script"}
-            onOpenConversation={(conversationId) =>
-              navigateToConversation(navigate, conversationId)
-            }
-          />
-        </section>
-      </div>
-
-      {/* Footer actions */}
-      <div className="flex shrink-0 items-center justify-between gap-2 border-t border-[var(--border-base)] p-[var(--app-spacing-lg)]">
-        {pluginName ? (
-          // Plugin-sourced schedules cannot be deleted here; the plugin's
-          // schedule file is the source of truth, so only attribution shows.
-          <span className="text-body-small-default text-[var(--content-tertiary)]">
-            {t("scheduleDetail.managedByPlugin", { plugin: pluginName })}
-          </span>
-        ) : !confirmingDelete ? (
-          <Button
-            variant="dangerOutline"
-            leftIcon={<Trash2 className="h-3.5 w-3.5" />}
-            onClick={() => setConfirmingDelete(true)}
-          >
-            {t("scheduleDetail.delete")}
-          </Button>
-        ) : (
+        {/* Footer actions */}
+        <div className="flex shrink-0 items-center justify-between gap-2 border-t border-[var(--border-hover)] p-[var(--app-spacing-lg)]">
+          {pluginName ? (
+            // Plugin-sourced schedules cannot be deleted here; the plugin's
+            // schedule file is the source of truth, so only attribution shows.
+            // Delete itself now lives in the header, next to Close.
+            <span className="text-body-small-default text-[var(--content-tertiary)]">
+              {t("scheduleDetail.managedByPlugin", { plugin: pluginName })}
+            </span>
+          ) : (
+            <span />
+          )}
           <div className="flex items-center gap-2">
             <Button
-              variant="ghost"
-              onClick={() => setConfirmingDelete(false)}
-              disabled={isDeleting}
+              variant="outlined"
+              leftIcon={<BarChart3 className="h-3.5 w-3.5" />}
+              onClick={() =>
+                navigate(routes.settings.usageForSchedule(schedule.id))
+              }
             >
-              {t("scheduleDetail.cancel")}
+              {t("scheduleDetail.viewUsage")}
             </Button>
-            <Button
-              variant="danger"
-              onClick={() => void handleDelete()}
-              disabled={isDeleting}
-            >
-              {isDeleting
-                ? t("scheduleDetail.deleting")
-                : t("scheduleDetail.confirmDelete")}
-            </Button>
+            {schedule.mode === "script" ? (
+              <>
+                {runNowBlocked ? (
+                  // Plain text rather than a tooltip: a tooltip on a disabled
+                  // button never opens, so the reason would be invisible exactly
+                  // when it is needed.
+                  <span className="text-body-small-default text-[var(--content-tertiary)]">
+                    {t("scheduleDetail.turnOnToRun")}
+                  </span>
+                ) : null}
+                <Button
+                  variant="primary"
+                  leftIcon={
+                    isRunning ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    ) : undefined
+                  }
+                  onClick={() => void handleRunNow()}
+                  disabled={isRunning || runNowBlocked}
+                >
+                  {isRunning
+                    ? t("scheduleDetail.running")
+                    : t("scheduleDetail.runNow")}
+                </Button>
+              </>
+            ) : null}
           </div>
-        )}
-        <div className="flex items-center gap-2">
-          <Button
-            variant="outlined"
-            leftIcon={<BarChart3 className="h-3.5 w-3.5" />}
-            onClick={() =>
-              navigate(routes.settings.usageForSchedule(schedule.id))
-            }
-          >
-            {t("scheduleDetail.viewUsage")}
-          </Button>
-          {schedule.mode === "script" ? (
-            <>
-              {runNowBlocked ? (
-                // Plain text rather than a tooltip: a tooltip on a disabled
-                // button never opens, so the reason would be invisible exactly
-                // when it is needed.
-                <span className="text-body-small-default text-[var(--content-tertiary)]">
-                  {t("scheduleDetail.turnOnToRun")}
-                </span>
-              ) : null}
-              <Button
-                variant="primary"
-                leftIcon={
-                  isRunning ? (
-                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                  ) : undefined
-                }
-                onClick={() => void handleRunNow()}
-                disabled={isRunning || runNowBlocked}
-              >
-                {isRunning
-                  ? t("scheduleDetail.running")
-                  : t("scheduleDetail.runNow")}
-              </Button>
-            </>
-          ) : null}
         </div>
       </div>
-    </div>
+
+      <ConfirmDialog
+        open={confirmingDelete}
+        title={t("scheduleDetail.delete")}
+        message={t("scheduleDetail.deleteConfirmMessage", {
+          name: schedule.name,
+        })}
+        confirmLabel={t("scheduleDetail.confirmDelete")}
+        cancelLabel={t("scheduleDetail.cancel")}
+        destructive
+        isPending={isDeleting}
+        onConfirm={() => void handleDelete()}
+        onCancel={() => setConfirmingDelete(false)}
+      />
+    </>
   );
 }

@@ -132,12 +132,11 @@ export function SkillDetailPanel({ skillId, onClose }: SkillDetailPanelProps) {
           ) : undefined
         }
         footer={
-          <Button
-            fullWidth
-            onClick={() => navigate(routes.skills.detail(skillId))}
-          >
-            Go to Skill
-          </Button>
+          <div className="flex justify-end">
+            <Button onClick={() => navigate(routes.skills.detail(skillId))}>
+              Go to Skill
+            </Button>
+          </div>
         }
       >
         {/* A failed background/window-focus revalidation sets `isError`

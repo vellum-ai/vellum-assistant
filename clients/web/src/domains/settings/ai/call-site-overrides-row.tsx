@@ -208,7 +208,7 @@ export function CallSiteOverrideRow({
   }
 
   return (
-    <div className="rounded-lg border border-[var(--border-base)] bg-[var(--surface-base)] p-3">
+    <div className="rounded-lg border border-[var(--border-base)] bg-[var(--surface-overlay)] p-3">
       <div className="flex items-start gap-3">
         <div className="min-w-0 flex-1">
           {/* typography: off-scale — call-site name uses medium weight for visual hierarchy within card */}
@@ -226,24 +226,26 @@ export function CallSiteOverrideRow({
             </p>
           )}
         </div>
-        <div className="flex shrink-0 items-center gap-2">
-          {overrideOn && (
-            <Select
-              value={profileVal}
-              onChange={handleProfilePickerChange}
-              options={profileOptions}
-              className="w-44"
-              menuMinWidth={280}
-              menuAlign="end"
-            />
-          )}
-          <Toggle
-            checked={overrideOn}
-            onChange={(on) => onToggle(id, on)}
-            aria-label={`Override ${displayName}`}
+        <Toggle
+          checked={overrideOn}
+          onChange={(on) => onToggle(id, on)}
+          aria-label={`Override ${displayName}`}
+          className="shrink-0"
+        />
+      </div>
+
+      {overrideOn && (
+        <div className="mt-3">
+          <Select
+            value={profileVal}
+            onChange={handleProfilePickerChange}
+            options={profileOptions}
+            className="w-44"
+            menuMinWidth={280}
+            menuAlign="start"
           />
         </div>
-      </div>
+      )}
 
       {/* Custom provider + model pickers */}
       {overrideOn && isCustom && (

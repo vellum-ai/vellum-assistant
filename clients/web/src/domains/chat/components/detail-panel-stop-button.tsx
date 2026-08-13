@@ -5,8 +5,12 @@
  * `dangerGhost` icon-only stop. Keeping both panels on this one component stops
  * their headers from drifting apart.
  *
- * `rounded-lg` matches the sibling Back/Close buttons in the same header, which
- * override the design-library default the same way.
+ * Corner radius is the design-library default (no override) so it matches the
+ * sibling Back/Close buttons in the same header.
+ *
+ * The gap to the Close button that always follows is trimmed to 8px by
+ * `DetailShellHeader` itself, not by this component: every `headerActions`
+ * control gets that treatment for free.
  *
  * The hover override keeps this button's weak-fill hover instead of
  * `dangerOutline`'s text/border recolor. Letting the recolor land on top of the
@@ -16,7 +20,7 @@
 
 import { Square } from "lucide-react";
 
-import { Button, Typography } from "@vellumai/design-library";
+import { Button } from "@vellumai/design-library";
 
 export interface DetailPanelStopButtonProps {
   onStop: () => void;
@@ -38,9 +42,9 @@ export function DetailPanelStopButton({
       aria-label={ariaLabel}
       onClick={onStop}
       disabled={disabled}
-      className="shrink-0 rounded-lg hover:border-[var(--system-negative-strong)] hover:bg-[var(--system-negative-weak)] hover:[--vbtn-fg:var(--system-negative-strong)]"
+      className="shrink-0 hover:border-[var(--system-negative-strong)] hover:bg-[var(--system-negative-weak)] hover:[--vbtn-fg:var(--system-negative-strong)]"
     >
-      <Typography variant="label-small-default">Stop</Typography>
+      Stop
     </Button>
   );
 }
