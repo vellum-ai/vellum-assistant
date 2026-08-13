@@ -277,7 +277,8 @@ export async function resolveProcessState(
 
 /**
  * Stop a process by PID: SIGTERM, wait up to `timeoutMs`, then SIGKILL if still alive.
- * Returns true if the process was stopped, false if it wasn't alive.
+ * Returns true if the process was stopped, false if it wasn't alive or
+ * termination failed.
  */
 export async function stopProcess(
   pid: number,
@@ -339,8 +340,15 @@ export async function stopProcess(
     }
   }
   console.log(`${label} did not exit after SIGTERM, sending SIGKILL...`);
-  process.kill(pid, "SIGKILL");
-  return true;
+  try {
+    process.kill(pid, "SIGKILL");
+    return true;
+  } catch (error) {
+    return (
+      error instanceof Error &&
+      (error as NodeJS.ErrnoException).code === "ESRCH"
+    );
+  }
 }
 
 /** Remove one or more files, ignoring missing-file errors. */

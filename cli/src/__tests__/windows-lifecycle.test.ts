@@ -118,6 +118,25 @@ test("reports a failed forced Windows process-tree termination", async () => {
   ]);
 });
 
+test("treats a Unix exit before SIGKILL as a successful stop", async () => {
+  const signals: Array<NodeJS.Signals | number | undefined> = [];
+  const originalKill = process.kill.bind(process);
+  process.kill = ((_pid: number, signal?: NodeJS.Signals | number) => {
+    signals.push(signal);
+    if (signal === "SIGKILL") {
+      throw Object.assign(new Error("no such process"), { code: "ESRCH" });
+    }
+    return true;
+  }) as typeof process.kill;
+
+  try {
+    expect(await stopProcess(4812, "test process", 0, "darwin")).toBeTrue();
+    expect(signals).toEqual([0, "SIGTERM", 0, "SIGKILL"]);
+  } finally {
+    process.kill = originalKill;
+  }
+});
+
 test("preserves PID tracking when process termination fails", async () => {
   const dir = mkdtempSync(path.join(tmpdir(), "vellum live pid "));
   const pidFile = path.join(dir, "assistant.pid");
