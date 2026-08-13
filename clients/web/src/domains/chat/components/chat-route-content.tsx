@@ -91,6 +91,7 @@ import { SuggestionDetailPanel } from "@/domains/chat/components/suggestion-deta
 import type { DetectedSecret } from "@vellumai/service-contracts/secret-detection";
 import type { ThreadSuggestion } from "@/domains/chat/suggestions/types";
 import { useIsMobile } from "@/hooks/use-is-mobile";
+import { useTranslation } from "@/i18n";
 import { BottomSheet } from "@vellumai/design-library";
 import { useEditMessage } from "@/domains/chat/hooks/use-edit-message";
 import { useOnboardingChoice } from "@/domains/chat/hooks/use-onboarding-choice";
@@ -1239,6 +1240,18 @@ export function ChatMainPanel({
   const { settingsSheetOpen, onAccessOpenChange, onProfileOpenChange } =
     useComposerSettingsSheets(isMobile);
 
+  // The narrow composer is one slim row with no room for a sentence, so it
+  // names the assistant it is addressed to instead. An assistant whose name
+  // has not loaded keeps the wider copy.
+  const { t } = useTranslation("chat");
+  const composerAssistantName = assistantName?.trim();
+  const mobilePlaceholder =
+    isMobile && composerAssistantName
+      ? t("chatComposer.askAssistantPlaceholder", {
+          assistantName: composerAssistantName,
+        })
+      : null;
+
   // Explicit props (no spread bundle): the contract is visible here, and the
   // composer self-sources its own store state, so nothing high-frequency is
   // threaded through. `ChatBody` renders this node as-is.
@@ -1246,9 +1259,10 @@ export function ChatMainPanel({
     <ChatComposer
       cmdEnterMode={cmdEnterMode}
       placeholder={
-        isEmptyConversation
+        mobilePlaceholder ??
+        (isEmptyConversation
           ? emptyStatePlaceholder
-          : "What would you like to do?"
+          : "What would you like to do?")
       }
       onSubmit={handleFormSubmit}
       inputRef={inputRef}

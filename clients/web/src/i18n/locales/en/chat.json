@@ -6,6 +6,10 @@
     "gallery": "Find in Gallery",
     "files": "Files"
   },
+  "chatComposer": {
+    "addToChat": "Add to chat",
+    "askAssistantPlaceholder": "Ask {assistantName}"
+  },
   "conversationAssets": {
     "heading": "Assets",
     "label": "{count, plural, one {# asset} other {# assets}}",

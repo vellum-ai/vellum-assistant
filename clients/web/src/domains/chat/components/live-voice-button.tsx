@@ -42,6 +42,12 @@ export function LiveVoiceButton({
       // fill) — rather than a low-emphasis ghost that reads as secondary.
       variant="primary"
       iconOnly={<AudioLines strokeWidth={2} />}
+      // Mobile reads the slot as a 40x40 filled circle holding a 20px glyph.
+      // The primitive already grows icon-only buttons to 40x40 under
+      // `touch-mobile:`, so only the corner and the glyph size are left; the
+      // fill is the `primary` token the design's light circle resolves to.
+      iconOnlyGlyphClassName="touch-mobile:size-5 touch-mobile:[&_svg]:size-5"
+      className="touch-mobile:rounded-full"
       // Anchor for the in-chat tour's closing beat, which lands the assistant's
       // avatar on this control.
       data-tour-id="voice-mode"

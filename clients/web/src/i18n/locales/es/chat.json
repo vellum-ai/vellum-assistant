@@ -6,6 +6,10 @@
     "gallery": "Buscar en la galería",
     "files": "Archivos"
   },
+  "chatComposer": {
+    "addToChat": "Añadir al chat",
+    "askAssistantPlaceholder": "Pregunta a {assistantName}"
+  },
   "conversationAssets": {
     "heading": "Recursos",
     "label": "{count, plural, one {# recurso} other {# recursos}}",
