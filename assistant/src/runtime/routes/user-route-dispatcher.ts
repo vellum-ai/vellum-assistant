@@ -142,7 +142,7 @@ export class UserRouteDispatcher {
       ? resolveHandlerFile(location.routesDir, location.subPath)
       : null;
 
-    if (!filePath) {
+    if (!location || !filePath) {
       return httpError(
         "NOT_FOUND",
         `No route handler found for /x/${routePath}`,

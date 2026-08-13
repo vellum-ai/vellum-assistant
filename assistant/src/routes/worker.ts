@@ -25,6 +25,11 @@ import type { IpcEnvelope } from "@vellumai/ipc-server-utils";
 import { IpcFrameReader, writeMessage } from "@vellumai/ipc-server-utils";
 
 import { disableStreamSeqStamping } from "../runtime/assistant-stream-state.js";
+import {
+  evictRouteSourceTree,
+  importRouteModule,
+  sourceRootForHandler,
+} from "../runtime/routes/user-route-import.js";
 import { getLogger } from "../util/logger.js";
 import {
   ensureProcDir,
@@ -35,11 +40,6 @@ import {
   cleanupWorkerPidFile,
   startWorkerPidFileGuard,
 } from "../util/worker-process.js";
-import {
-  evictRouteSourceTree,
-  importRouteModule,
-  sourceRootForHandler,
-} from "../runtime/routes/user-route-import.js";
 import {
   ROUTE_HOST_PROC_NAME,
   ROUTE_INVOKE_METHOD,
