@@ -266,6 +266,12 @@ EXPOSE 3001
 ENV RUNTIME_HTTP_PORT=3001
 ENV IS_CONTAINERIZED=true
 
+# Dev builds pass the full build identity here so the runtime reports the exact
+# build it came from, for example 0.11.3-local.<ts>.<sha>. Release builds leave
+# this empty and assistant/src/version.ts falls back to the package.json version.
+ARG APP_VERSION=""
+ENV APP_VERSION=${APP_VERSION}
+
 COPY packages/block-volume-bootstrap/scripts/*.sh /usr/local/bin/
 
 RUN chmod +x \
