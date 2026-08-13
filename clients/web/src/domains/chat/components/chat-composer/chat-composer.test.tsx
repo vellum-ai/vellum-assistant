@@ -1136,12 +1136,34 @@ describe("ChatComposer: single-row mobile composer", () => {
     return renderComposerView(props);
   }
 
+  /** A window dragged narrow that a mouse still drives: web, or Electron. */
+  function renderNarrowMouseComposer(props: RenderComposerProps = {}) {
+    viewport.set({ narrow: true, coarsePointer: false });
+    return renderComposerView(props);
+  }
+
   function control(container: HTMLElement, label: string) {
     return container.querySelector(`[aria-label="${label}"]`);
   }
 
   function addSheet(container: HTMLElement) {
     return container.querySelector('[data-testid="add-to-chat-sheet"]');
+  }
+
+  function fileInput(container: HTMLElement) {
+    return container.querySelector<HTMLInputElement>('input[type="file"]');
+  }
+
+  /** A `FileList` stand-in, which the test DOM cannot construct. */
+  function fileListOf(files: File[]): FileList {
+    const list = {
+      length: files.length,
+      item: (index: number) => files[index] ?? null,
+    } as unknown as FileList;
+    files.forEach((file, index) => {
+      (list as unknown as Record<number, File>)[index] = file;
+    });
+    return list;
   }
 
   test("a phone composer swaps the paperclip for the plus", () => {
@@ -1196,6 +1218,67 @@ describe("ChatComposer: single-row mobile composer", () => {
     // runs the vision gate and queues the upload
     expect(onAddAttachmentFiles).toHaveBeenCalledTimes(1);
     expect(onAddAttachmentFiles.mock.calls[0]?.[0]).toBe(SHEET_PICK);
+  });
+
+  test("a phone leaves the hidden file inputs to the sheet", () => {
+    // GIVEN a phone composer, where the sheet owns the pickers
+    const { container } = renderPhoneComposer();
+
+    // THEN the row mounts none of its own
+    expect(addSheet(container)).not.toBeNull();
+    expect(fileInput(container)).toBeNull();
+  });
+
+  test("a narrow window a mouse drives keeps the plus and mounts no sheet", () => {
+    // GIVEN a web or Electron window dragged under the mobile breakpoint,
+    // still driven by a mouse
+    const { container } = renderNarrowMouseComposer();
+
+    // THEN the compact row keeps its plus, while the touch sheet, whose camera
+    // and gallery rows have nothing to offer a mouse, never mounts
+    expect(control(container, PLUS_LABEL)).not.toBeNull();
+    expect(addSheet(container)).toBeNull();
+  });
+
+  test("the plus opens the picker directly when a mouse drives the window", () => {
+    // GIVEN a narrow mouse-driven window
+    const { container } = renderNarrowMouseComposer();
+    const input = fileInput(container);
+
+    // AND a picker that takes several files of any type, as the desktop
+    // paperclip's does
+    expect(input?.multiple).toBe(true);
+    expect(input?.getAttribute("accept")).toBeNull();
+
+    // WHEN the plus is pressed
+    let opened = 0;
+    input?.addEventListener("click", () => {
+      opened += 1;
+    });
+    fireEvent.click(control(container, PLUS_LABEL)!);
+
+    // THEN the native picker comes up with no sheet in between
+    expect(opened).toBe(1);
+    expect(addSheet(container)).toBeNull();
+  });
+
+  test("files picked from that plus reach the composer's attach callback", () => {
+    // GIVEN a narrow mouse-driven window
+    const onAddAttachmentFiles = mock((_files: FileList | File[]) => {});
+    const { container } = renderNarrowMouseComposer({ onAddAttachmentFiles });
+    const input = fileInput(container)!;
+
+    // WHEN the picker returns a file
+    const picked = new File(["x"], "picked.png", { type: "image/png" });
+    Object.defineProperty(input, "files", {
+      configurable: true,
+      value: fileListOf([picked]),
+    });
+    fireEvent.change(input);
+
+    // THEN it lands on the same callback the paperclip and the sheet feed
+    expect(onAddAttachmentFiles).toHaveBeenCalledTimes(1);
+    expect(onAddAttachmentFiles.mock.calls[0]?.[0]?.[0]).toBe(picked);
   });
 
   test("a busy assistant takes the plus away, as it does the paperclip", () => {

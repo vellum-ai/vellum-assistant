@@ -17,6 +17,7 @@ import {
   AttachFileButton,
   ChatAttachmentsStrip,
 } from "@/domains/chat/components/chat-attachments/chat-attachments";
+import { useAttachmentFilePicker } from "@/domains/chat/components/chat-attachments/use-attachment-file-picker";
 import {
   selectPathReferencePaths,
   selectUploadedIds,
@@ -63,6 +64,7 @@ import { useVoiceSurfacePaint } from "@/domains/chat/voice/voice-room/use-voice-
 import { useVoiceRecordingStore } from "@/domains/chat/voice/voice-recording-store";
 import { useVoicePrefsStore } from "@/stores/voice-prefs-store";
 import { useIsMobile } from "@/hooks/use-is-mobile";
+import { useTouchMobile } from "@/hooks/use-touch-mobile";
 import { isElectron } from "@/runtime/is-electron";
 import { isPopoutWindowLifetime } from "@/runtime/popout-window";
 import { useIsNativePlatform } from "@/runtime/native-auth";
@@ -242,6 +244,64 @@ const MOBILE_GLYPH_CLASS = "touch-mobile:size-5 touch-mobile:[&_svg]:size-5";
  */
 const MOBILE_SEND_FILL_CLASS =
   "touch-mobile:bg-[var(--system-positive-strong)] touch-mobile:active:bg-[var(--system-positive-strong)] touch-mobile:[--vbtn-fg:var(--aux-white)]";
+
+interface AddToChatButtonProps {
+  disabled: boolean;
+  label: string;
+  onClick: () => void;
+}
+
+/** The narrow row's plus. What a press opens is the caller's decision. */
+function AddToChatButton({ disabled, label, onClick }: AddToChatButtonProps) {
+  return (
+    <Button
+      variant="ghost"
+      iconOnly={<Plus strokeWidth={2} />}
+      iconOnlyGlyphClassName={MOBILE_GLYPH_CLASS}
+      onClick={onClick}
+      disabled={disabled}
+      aria-label={label}
+      title={label}
+      // Tertiary resting tone, matching the row's other glyphs. The
+      // touch-mobile override beats the ghost icon-only variant's default-tone
+      // mobile chrome.
+      className="[--vbtn-fg:var(--content-tertiary)] touch-mobile:[--vbtn-fg:var(--content-tertiary)]"
+    />
+  );
+}
+
+interface AddToChatPickerButtonProps {
+  disabled: boolean;
+  label: string;
+  onAttachFiles: (files: FileList) => void;
+}
+
+/**
+ * The plus a mouse gets: it opens the file picker directly, the same picker
+ * behind the desktop paperclip, through the same hook so the iOS refocus dance
+ * is identical. A window narrowed by dragging its edge takes the compact row
+ * but not the touch sheet, whose Camera and Find-in-Gallery rows have nothing
+ * to offer a pointer and whose `touch-mobile:` chrome does not apply here.
+ */
+function AddToChatPickerButton({
+  disabled,
+  label,
+  onAttachFiles,
+}: AddToChatPickerButtonProps) {
+  const { openPicker, inputNode } = useAttachmentFilePicker({
+    onFiles: onAttachFiles,
+    multiple: true,
+  });
+
+  // The hook lays the input out as `absolute inset-0`, so it needs a positioned
+  // box of its own rather than whichever ancestor happens to be positioned.
+  return (
+    <div className="relative shrink-0">
+      {inputNode}
+      <AddToChatButton disabled={disabled} label={label} onClick={openPicker} />
+    </div>
+  );
+}
 
 export function ChatComposer({
   placeholder = "What would you like to do?",
@@ -515,6 +575,11 @@ export function ChatComposer({
   // the absence of the thing it replaces. See `docs/PLATFORM_ADAPTATION.md`.
   const keyboardCanSubmit = !pointerCoarse;
   const isMobile = useIsMobile();
+  // The compact single row follows the window's width; what the plus opens
+  // follows the input. Both halves are load-bearing for the sheet: a narrowed
+  // desktop or Electron window keeps the row, and still wants the picker a
+  // mouse can drive. See `docs/PLATFORM_ADAPTATION.md`.
+  const isTouchMobile = useTouchMobile();
   const isNative = useIsNativePlatform();
   const isElectronHost = isElectron();
 
@@ -691,6 +756,7 @@ export function ChatComposer({
   );
 
   const [addSheetOpen, setAddSheetOpen] = useState(false);
+  const usesAddSheet = isMobile && isTouchMobile;
 
   // 26px is half the mobile card's 52px collapsed height, so the resting
   // composer is a pill and keeps that corner once attachments make it taller.
@@ -709,26 +775,26 @@ export function ChatComposer({
   // card at 52px.
   const textFieldPaddingClass = isMobile ? "px-2 py-2" : "px-4 pt-3 pb-2";
 
-  // Mobile hands the attach flow to a plus that opens a sheet; both controls
-  // answer to the same gating, so a busy assistant hides either one.
-  const attachControl = isMobile ? (
-    <Button
-      variant="ghost"
-      iconOnly={<Plus strokeWidth={2} />}
-      iconOnlyGlyphClassName={MOBILE_GLYPH_CLASS}
+  // Mobile hands the attach flow to a plus, which opens the sheet on a touch
+  // surface and the file picker anywhere else. Every attach control answers to
+  // the same gating, so a busy assistant hides whichever one is mounted.
+  const attachDisabled = typingDisabled || !assistantId;
+  const attachControl = !isMobile ? (
+    <AttachFileButton
+      disabled={attachDisabled}
+      onFilesSelected={onAddAttachmentFiles}
+    />
+  ) : usesAddSheet ? (
+    <AddToChatButton
+      disabled={attachDisabled}
+      label={t("chatComposer.addToChat")}
       onClick={() => setAddSheetOpen(true)}
-      disabled={typingDisabled || !assistantId}
-      aria-label={t("chatComposer.addToChat")}
-      title={t("chatComposer.addToChat")}
-      // Tertiary resting tone, matching the row's other glyphs. The
-      // touch-mobile override beats the ghost icon-only variant's default-tone
-      // mobile chrome.
-      className="[--vbtn-fg:var(--content-tertiary)] touch-mobile:[--vbtn-fg:var(--content-tertiary)]"
     />
   ) : (
-    <AttachFileButton
-      disabled={typingDisabled || !assistantId}
-      onFilesSelected={onAddAttachmentFiles}
+    <AddToChatPickerButton
+      disabled={attachDisabled}
+      label={t("chatComposer.addToChat")}
+      onAttachFiles={onAddAttachmentFiles}
     />
   );
 
@@ -1272,7 +1338,7 @@ export function ChatComposer({
             )}
           </Popover.Content>
         </Popover.Root>
-        {isMobile && (
+        {usesAddSheet && (
           // Beside the form, not inside it: the sheet keeps hidden file inputs
           // mounted while a native picker is up, and those have no business in
           // the form the composer submits.
