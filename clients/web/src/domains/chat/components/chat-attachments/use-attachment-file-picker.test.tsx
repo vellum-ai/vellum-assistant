@@ -17,6 +17,7 @@ mock.module("@/domains/chat/composer-focus", () => ({
   requestComposerFocus: requestComposerFocusMock,
 }));
 
+import { selectFiles } from "@/domains/chat/components/chat-attachments/attachment-test-helpers";
 import { useAttachmentFilePicker } from "@/domains/chat/components/chat-attachments/use-attachment-file-picker";
 
 afterAll(() => {
@@ -55,24 +56,8 @@ function renderPicker(props: Parameters<typeof PickerProbe>[0]) {
   return { ...result, input, open };
 }
 
-function makeFileList(files: File[]): FileList {
-  const list = {
-    length: files.length,
-    item: (i: number) => files[i] ?? null,
-  } as unknown as FileList;
-  files.forEach((f, i) => {
-    (list as unknown as Record<number, File>)[i] = f;
-  });
-  return list;
-}
-
-function selectFile(input: HTMLInputElement, name = "note.txt") {
-  const file = new File(["hi"], name, { type: "text/plain" });
-  Object.defineProperty(input, "files", {
-    configurable: true,
-    value: makeFileList([file]),
-  });
-  fireEvent.change(input);
+function selectFile(input: HTMLInputElement, name = "note.txt"): FileList {
+  return selectFiles(input, [new File(["hi"], name, { type: "text/plain" })]);
 }
 
 describe("useAttachmentFilePicker", () => {
