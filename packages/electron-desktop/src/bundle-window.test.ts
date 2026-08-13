@@ -4,15 +4,22 @@ import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 // Stubs
 // ---------------------------------------------------------------------------
 
-type WillNavigateListener = (event: { preventDefault: () => void }, url: string) => void;
+type WillNavigateListener = (
+  event: { preventDefault: () => void },
+  url: string,
+) => void;
 
 interface StubWebContents {
-  on: (event: string, listener: (...args: unknown[]) => void) => StubWebContents;
+  on: (
+    event: string,
+    listener: (...args: unknown[]) => void,
+  ) => StubWebContents;
   setWindowOpenHandler: (
     handler: (details: { url: string }) => { action: "deny" | "allow" },
   ) => void;
   willNavigateListeners: WillNavigateListener[];
-  windowOpenHandler: ((details: { url: string }) => { action: "deny" | "allow" }) | null;
+  windowOpenHandler:
+    ((details: { url: string }) => { action: "deny" | "allow" }) | null;
 }
 
 interface StubWindow {
@@ -66,8 +73,12 @@ const makeWindow = (options: Record<string, unknown>): StubWindow => {
     loadURL: loadURLMock,
     webContents,
     emit: (event) => {
-      if (event === "closed") destroyed = true;
-      for (const l of listeners.get(event) ?? []) l();
+      if (event === "closed") {
+        destroyed = true;
+      }
+      for (const listener of listeners.get(event) ?? []) {
+        listener();
+      }
     },
     constructorOptions: options,
   };
@@ -77,12 +88,8 @@ const makeWindow = (options: Record<string, unknown>): StubWindow => {
 const sessionProtocolHandleMock = mock(
   (_scheme: string, _handler: unknown) => undefined,
 );
-const setPermissionRequestHandlerMock = mock(
-  (_handler: unknown) => undefined,
-);
-const setPermissionCheckHandlerMock = mock(
-  (_handler: unknown) => undefined,
-);
+const setPermissionRequestHandlerMock = mock((_handler: unknown) => undefined);
+const setPermissionCheckHandlerMock = mock((_handler: unknown) => undefined);
 const fromPartitionMock = mock(
   (_partition: string, _opts?: { cache: boolean }) => ({
     protocol: { handle: sessionProtocolHandleMock },
@@ -111,11 +118,30 @@ mock.module("./vellumapp-protocol", () => ({
   createVellumAppHandler: createVellumAppHandlerMock,
 }));
 
-const {
-  openBundleWindow,
-  closeBundleWindow,
-  getOpenBundleWindows,
-} = await import("./bundle-window");
+mock.module("./bundle-platform", () => ({
+  VELLUMAPP_PROTOCOL: "vellumapp",
+  getBundlePlatform: () => ({
+    bundlesRoot: () => "/fake/user-data/bundles",
+    denyAllPermissions: (targetSession: {
+      setPermissionRequestHandler: (handler: unknown) => void;
+      setPermissionCheckHandler: (handler: unknown) => void;
+    }) => {
+      targetSession.setPermissionRequestHandler(
+        (
+          _webContents: unknown,
+          _permission: string,
+          callback: (allowed: boolean) => void,
+        ) => {
+          callback(false);
+        },
+      );
+      targetSession.setPermissionCheckHandler(() => false);
+    },
+  }),
+}));
+
+const { openBundleWindow, closeBundleWindow, getOpenBundleWindows } =
+  await import("./bundle-window");
 
 // ---------------------------------------------------------------------------
 // Lifecycle
@@ -136,7 +162,9 @@ beforeEach(() => {
 afterEach(() => {
   // Drain open windows so module-scope tracking resets between tests.
   for (const win of constructed) {
-    if (!win.isDestroyed()) win.emit("closed");
+    if (!win.isDestroyed()) {
+      win.emit("closed");
+    }
   }
 });
 
@@ -174,19 +202,24 @@ describe("openBundleWindow", () => {
     expect(setPermissionRequestHandlerMock).toHaveBeenCalledTimes(1);
     expect(setPermissionCheckHandlerMock).toHaveBeenCalledTimes(1);
 
-    const requestHandler = setPermissionRequestHandlerMock.mock.calls[0]![0] as (
+    const requestHandler = setPermissionRequestHandlerMock.mock
+      .calls[0]![0] as (
       wc: unknown,
       perm: string,
       cb: (allowed: boolean) => void,
     ) => void;
     let granted = true;
-    requestHandler({}, "media", (allowed) => { granted = allowed; });
+    requestHandler({}, "media", (allowed) => {
+      granted = allowed;
+    });
     expect(granted).toBe(false);
 
     const checkHandler = setPermissionCheckHandlerMock.mock.calls[0]![0] as (
       ...args: unknown[]
     ) => boolean;
-    expect(checkHandler({}, "clipboard-read", "vellumapp://example")).toBe(false);
+    expect(checkHandler({}, "clipboard-read", "vellumapp://example")).toBe(
+      false,
+    );
   });
 
   test("registers the vellumapp:// handler on the bundle session", () => {
@@ -242,7 +275,9 @@ describe("openBundleWindow", () => {
     openBundleWindow(UUID, "index.html", "Test Bundle");
     const win = constructed[0]!;
     expect(win.webContents.windowOpenHandler).not.toBeNull();
-    expect(win.webContents.windowOpenHandler!({ url: "https://example.com" })).toEqual({
+    expect(
+      win.webContents.windowOpenHandler!({ url: "https://example.com" }),
+    ).toEqual({
       action: "deny",
     });
   });
