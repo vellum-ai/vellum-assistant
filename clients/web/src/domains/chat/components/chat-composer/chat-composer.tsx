@@ -658,10 +658,10 @@ export function ChatComposer({
   // passes neither slot (the app-editing panel) has no row to show.
   const rowThresholdPickerSlot = isMobile ? null : thresholdPickerSlot;
   const rowModelPickerSlot = isMobile ? null : modelPickerSlot;
-  const showSettingsPills =
-    isMobile &&
-    Boolean(thresholdPickerSlot || modelPickerSlot) &&
-    (composerFocusWithin || settingsSheetOpen);
+  const hasSettingsPills =
+    isMobile && Boolean(thresholdPickerSlot || modelPickerSlot);
+  const settingsPillsVisible =
+    hasSettingsPills && (composerFocusWithin || settingsSheetOpen);
 
   // No longer suppressed during a live-voice session: it was suppressed
   // because the streaming speech rendered in the ghost-suffix mirror's own
@@ -763,13 +763,26 @@ export function ChatComposer({
         </div>
       )}
       <div ref={composerShellRef} data-slot="chat-composer-shell">
-        {showSettingsPills && (
+        {hasSettingsPills && (
+          // Mounted for as long as the composer is, because each pill gates
+          // itself on server state its own menu loads (access waits on the
+          // global-threshold fetch), and a row that mounted on first focus
+          // would rise with that pill still missing. Only its visibility
+          // follows focus: `hidden` is `display: none`, which keeps the resting
+          // row out of the layout, the tab order and the accessibility tree,
+          // and lets the entrance animation run again on every reveal.
+          //
           // The row rises into place rather than appearing, since it arrives
           // with the keyboard; reduced motion keeps the placement and drops the
           // movement.
           <div
             data-slot="composer-settings-pills"
-            className="mb-3 flex animate-[fadeInUp_var(--anim-fast)_var(--anim-ease-out)_backwards] justify-end gap-1.5 motion-reduce:animate-none"
+            hidden={!settingsPillsVisible}
+            className={
+              settingsPillsVisible
+                ? "mb-3 flex animate-[fadeInUp_var(--anim-fast)_var(--anim-ease-out)_backwards] justify-end gap-1.5 motion-reduce:animate-none"
+                : undefined
+            }
           >
             {thresholdPickerSlot}
             {modelPickerSlot}

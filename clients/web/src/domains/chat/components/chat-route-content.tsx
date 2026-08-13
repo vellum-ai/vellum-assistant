@@ -38,6 +38,7 @@ import { useChatUIState } from "@/domains/chat/hooks/use-chat-ui-state";
 import { useTranscriptData } from "@/domains/chat/hooks/use-transcript-data";
 import { useTranscriptMessages } from "@/domains/chat/transcript/use-transcript-messages";
 import { useChatEmptyState } from "@/domains/chat/hooks/use-chat-empty-state";
+import { useComposerSettingsSheets } from "@/domains/chat/hooks/use-composer-settings-sheets";
 import { useComposerSubmit } from "@/domains/chat/hooks/use-composer-submit";
 import { useDraftSecretDetection } from "@/domains/chat/hooks/use-draft-secret-detection";
 import type { SendChatMessageOptions } from "@/domains/chat/hooks/use-send-message";
@@ -1235,8 +1236,8 @@ export function ChatMainPanel({
   // floats those two triggers above its card and hides them when focus leaves,
   // and opening one takes focus out of the composer, so it needs the open state
   // to hold the row in place underneath the sheet.
-  const [accessSurfaceOpen, setAccessSurfaceOpen] = useState(false);
-  const [profileSurfaceOpen, setProfileSurfaceOpen] = useState(false);
+  const { settingsSheetOpen, onAccessOpenChange, onProfileOpenChange } =
+    useComposerSettingsSheets(isMobile);
 
   // Explicit props (no spread bundle): the contract is visible here, and the
   // composer self-sources its own store state, so nothing high-frequency is
@@ -1276,7 +1277,7 @@ export function ChatMainPanel({
       textareaMaxHeightPx={isEmptyConversation ? 320 : undefined}
       suggestion={suggestion}
       hasBillingBanner={composerBillingBanner !== null}
-      settingsSheetOpen={accessSurfaceOpen || profileSurfaceOpen}
+      settingsSheetOpen={settingsSheetOpen}
       thresholdPickerSlot={
         assistantId ? (
           <ComposerSettingsMenu
@@ -1284,7 +1285,7 @@ export function ChatMainPanel({
             conversationId={activeConversation?.conversationId}
             segments="access"
             triggerVariant={isMobile ? "labeled-pill" : "icon"}
-            onOpenChange={setAccessSurfaceOpen}
+            onOpenChange={onAccessOpenChange}
           />
         ) : undefined
       }
@@ -1295,7 +1296,7 @@ export function ChatMainPanel({
             conversationId={activeConversation?.conversationId}
             segments="profile"
             triggerVariant={isMobile ? "labeled-pill" : "icon"}
-            onOpenChange={setProfileSurfaceOpen}
+            onOpenChange={onProfileOpenChange}
           />
         ) : undefined
       }

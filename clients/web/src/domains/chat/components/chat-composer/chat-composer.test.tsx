@@ -614,6 +614,26 @@ type RenderComposerProps = Partial<Parameters<typeof ChatComposer>[0]> & {
   canSendAttachments?: boolean;
 };
 
+/** The composer under its default props, for `render` and `rerender` alike. */
+function composerElement(
+  props: Partial<Parameters<typeof ChatComposer>[0]> = {},
+) {
+  return (
+    <ChatComposer
+      placeholder="Custom placeholder"
+      onSubmit={() => {}}
+      inputRef={createRef<HTMLTextAreaElement>()}
+      typingDisabled={false}
+      sendDisabled={false}
+      onAddAttachmentFiles={() => {}}
+      onStopGenerating={() => {}}
+      isAssistantBusy={false}
+      assistantId="asst_test"
+      {...props}
+    />
+  );
+}
+
 /**
  * Mount the composer and hand back the testing-library result, for cases that
  * drive events at the mounted DOM. Cases that only read the rendered surface
@@ -635,20 +655,7 @@ function renderComposerView(props: RenderComposerProps = {}) {
       chatAttachments ??
       seedAttachments(attachmentsUploadingCount, canSendAttachments),
   });
-  return render(
-    <ChatComposer
-      placeholder="Custom placeholder"
-      onSubmit={() => {}}
-      inputRef={createRef<HTMLTextAreaElement>()}
-      typingDisabled={false}
-      sendDisabled={false}
-      onAddAttachmentFiles={() => {}}
-      onStopGenerating={() => {}}
-      isAssistantBusy={false}
-      assistantId="asst_test"
-      {...rest}
-    />,
-  );
+  return render(composerElement(rest));
 }
 
 function renderComposer(props: RenderComposerProps = {}) {
@@ -982,15 +989,23 @@ describe("ChatComposer: mobile settings pills row", () => {
     return renderComposerView({ ...SETTINGS_SLOTS, ...props });
   }
 
-  test("an unfocused phone composer shows neither pill anywhere", () => {
+  test("an unfocused phone composer keeps the row mounted but hidden", () => {
     // GIVEN a phone composer nobody has tapped into
     const { container } = renderPhoneComposer();
 
-    // THEN the row is absent, and the action row does not carry the pickers
-    // either: mobile moves them out of the card entirely.
-    expect(pillsRow(container)).toBeNull();
-    expect(container.innerHTML).not.toContain(">THR<");
-    expect(container.innerHTML).not.toContain(">PROFILE<");
+    // THEN the row is mounted, so each menu loads the state its pill gates on
+    // before the first focus of the session
+    const row = pillsRow(container);
+    expect(row?.textContent).toBe("THRPROFILE");
+
+    // AND it is hidden: `hidden` is display:none, which takes the resting row
+    // out of the layout, the tab order and the accessibility tree
+    expect(row?.hasAttribute("hidden")).toBe(true);
+    expect(row?.className).toBe("");
+
+    // AND the action row does not carry the pickers either: mobile moves them
+    // out of the card entirely
+    expect(container.querySelector("form")?.innerHTML).not.toContain(">THR<");
   });
 
   test("focusing the composer raises the row above the card, access first", () => {
@@ -1006,9 +1021,14 @@ describe("ChatComposer: mobile settings pills row", () => {
     expect(row?.closest("form")).toBeNull();
     const html = container.innerHTML;
     expect(html.indexOf(">THR<")).toBeLessThan(html.indexOf("<form"));
+
+    // AND it is shown, rising into place as the keyboard arrives
+    expect(row?.hasAttribute("hidden")).toBe(false);
+    expect(row?.className).toContain("animate-[fadeInUp");
+    expect(row?.className).toContain("motion-reduce:animate-none");
   });
 
-  test("blurring to the body puts the row away", () => {
+  test("blurring to the body puts the row away without unmounting its menus", () => {
     // GIVEN a focused phone composer
     const { container } = renderPhoneComposer();
     const textarea = textareaOf(container);
@@ -1017,8 +1037,10 @@ describe("ChatComposer: mobile settings pills row", () => {
     // WHEN focus leaves with nowhere to land, as the iOS keyboard dismiss does
     fireEvent.focusOut(textarea, { relatedTarget: null });
 
-    // THEN the row is gone
-    expect(pillsRow(container)).toBeNull();
+    // THEN the row is hidden again, with its menus still mounted underneath
+    const row = pillsRow(container);
+    expect(row?.hasAttribute("hidden")).toBe(true);
+    expect(row?.textContent).toBe("THRPROFILE");
   });
 
   test("an open settings sheet holds the row up after focus leaves", () => {
@@ -1031,7 +1053,24 @@ describe("ChatComposer: mobile settings pills row", () => {
     fireEvent.focusOut(textarea, { relatedTarget: null });
 
     // THEN the row the sheet was opened from stays put
-    expect(pillsRow(container)).not.toBeNull();
+    expect(pillsRow(container)?.hasAttribute("hidden")).toBe(false);
+  });
+
+  test("a sheet flag that goes false with focus gone puts the row away", () => {
+    // GIVEN a phone composer holding the row up for an open sheet, focus gone
+    const { container, rerender } = renderPhoneComposer({
+      settingsSheetOpen: true,
+    });
+    const textarea = textareaOf(container);
+    fireEvent.focusIn(textarea);
+    fireEvent.focusOut(textarea, { relatedTarget: null });
+
+    // WHEN the flag clears, as `useComposerSettingsSheets` clears it when the
+    // breakpoint swap unmounts the menu that owned the sheet
+    rerender(composerElement({ ...SETTINGS_SLOTS, settingsSheetOpen: false }));
+
+    // THEN nothing holds the row up any more
+    expect(pillsRow(container)?.hasAttribute("hidden")).toBe(true);
   });
 
   test("desktop keeps both pickers inside the action row, focused or not", () => {
