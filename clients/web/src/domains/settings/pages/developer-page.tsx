@@ -1,5 +1,6 @@
 import { useMemo } from "react";
 import { Navigate, useSearchParams } from "react-router";
+import { Tabs } from "@vellumai/design-library/components/tabs";
 
 import { MemoryCard } from "@/domains/settings/components/memory-card";
 import { AssistantLifecyclePanel } from "@/domains/settings/components/panels/assistant-lifecycle-panel";
@@ -8,7 +9,6 @@ import { FeatureFlagsPanel } from "@/domains/settings/components/panels/feature-
 import { SentryTestingPanel } from "@/domains/settings/components/panels/sentry-testing-panel";
 import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
 import { routes } from "@/utils/routes";
-import { Tabs } from "@vellumai/design-library/components/tabs";
 
 const ALL_TABS = [
   { id: "feature-flags", label: "Feature Flags" },
