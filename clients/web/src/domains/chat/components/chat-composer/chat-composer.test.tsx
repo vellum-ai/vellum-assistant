@@ -213,6 +213,29 @@ mock.module("react-router", () => ({
   useLocation: () => ({ search: "" }),
 }));
 
+// "Add to chat" sheet. Stubbed to a probe that surfaces its open state plus a
+// button standing in for a completed pick, so these cases assert the
+// composer's wiring: the plus opens the sheet, and files chosen inside it
+// reach the same attach callback the paperclip feeds. The real sheet, its
+// three hidden file inputs included, is covered by
+// `add-to-chat-sheet.test.tsx`.
+const SHEET_PICK = [new File(["x"], "picked.png", { type: "image/png" })];
+mock.module(
+  "@/domains/chat/components/chat-composer/add-to-chat-sheet",
+  () => ({
+    AddToChatSheet: (props: {
+      open: boolean;
+      onAttachFiles: (files: File[]) => void;
+    }) => (
+      <div data-testid="add-to-chat-sheet" data-open={String(props.open)}>
+        <button type="button" onClick={() => props.onAttachFiles(SHEET_PICK)}>
+          sheet-pick
+        </button>
+      </div>
+    ),
+  }),
+);
+
 // Flush the microtask/timer queue so the composer's awaited preflight
 // resolves and the follow-on `starter` call / notice render settle. Wrapped in
 // `act` to absorb the post-await state updates.
@@ -1098,6 +1121,289 @@ describe("ChatComposer: mobile settings pills row", () => {
 
     // THEN there is nothing to float, so no row is rendered
     expect(pillsRow(container)).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The single-row mobile composer: plus, divider, input, mic, circular action
+// ---------------------------------------------------------------------------
+
+describe("ChatComposer: single-row mobile composer", () => {
+  const PLUS_LABEL = "Add to chat";
+
+  function renderPhoneComposer(props: RenderComposerProps = {}) {
+    viewport.set({ narrow: true, coarsePointer: true });
+    return renderComposerView(props);
+  }
+
+  /** A window dragged narrow that a mouse still drives: web, or Electron. */
+  function renderNarrowMouseComposer(props: RenderComposerProps = {}) {
+    viewport.set({ narrow: true, coarsePointer: false });
+    return renderComposerView(props);
+  }
+
+  function control(container: HTMLElement, label: string) {
+    return container.querySelector(`[aria-label="${label}"]`);
+  }
+
+  function addSheet(container: HTMLElement) {
+    return container.querySelector('[data-testid="add-to-chat-sheet"]');
+  }
+
+  function fileInput(container: HTMLElement) {
+    return container.querySelector<HTMLInputElement>('input[type="file"]');
+  }
+
+  /** A `FileList` stand-in, which the test DOM cannot construct. */
+  function fileListOf(files: File[]): FileList {
+    const list = {
+      length: files.length,
+      item: (index: number) => files[index] ?? null,
+    } as unknown as FileList;
+    files.forEach((file, index) => {
+      (list as unknown as Record<number, File>)[index] = file;
+    });
+    return list;
+  }
+
+  test("a phone composer swaps the paperclip for the plus", () => {
+    // GIVEN a phone composer
+    const { container } = renderPhoneComposer();
+
+    // THEN the attach control is the plus that opens the sheet, and the
+    // paperclip's own picker is gone from the card
+    expect(control(container, PLUS_LABEL)).not.toBeNull();
+    expect(control(container, "Attach file")).toBeNull();
+  });
+
+  test("plus, input and the send slot share one row", () => {
+    // GIVEN a phone composer
+    const { container } = renderPhoneComposer();
+
+    // THEN the textarea sits in the same row as the controls, rather than
+    // above an action row of its own
+    const textarea = container.querySelector("textarea");
+    const row = textarea?.parentElement?.parentElement;
+    expect(row?.contains(control(container, PLUS_LABEL)!)).toBe(true);
+    expect(row?.contains(control(container, "Send message")!)).toBe(true);
+
+    // AND the plus leads the row, with the input after it
+    const html = container.innerHTML;
+    expect(html.indexOf(`aria-label="${PLUS_LABEL}"`)).toBeLessThan(
+      html.indexOf("<textarea"),
+    );
+  });
+
+  test("tapping the plus opens the add-to-chat sheet", () => {
+    // GIVEN a phone composer whose sheet is closed
+    const { container } = renderPhoneComposer();
+    expect(addSheet(container)?.getAttribute("data-open")).toBe("false");
+
+    // WHEN the plus is tapped
+    fireEvent.click(control(container, PLUS_LABEL)!);
+
+    // THEN the sheet comes up
+    expect(addSheet(container)?.getAttribute("data-open")).toBe("true");
+  });
+
+  test("files picked in the sheet reach the composer's attach callback", () => {
+    // GIVEN a phone composer
+    const onAddAttachmentFiles = mock((_files: FileList | File[]) => {});
+    const { getByText } = renderPhoneComposer({ onAddAttachmentFiles });
+
+    // WHEN a sheet row delivers its files
+    fireEvent.click(getByText("sheet-pick"));
+
+    // THEN they land on the same callback the paperclip feeds, which is what
+    // runs the vision gate and queues the upload
+    expect(onAddAttachmentFiles).toHaveBeenCalledTimes(1);
+    expect(onAddAttachmentFiles.mock.calls[0]?.[0]).toBe(SHEET_PICK);
+  });
+
+  test("a phone leaves the hidden file inputs to the sheet", () => {
+    // GIVEN a phone composer, where the sheet owns the pickers
+    const { container } = renderPhoneComposer();
+
+    // THEN the row mounts none of its own
+    expect(addSheet(container)).not.toBeNull();
+    expect(fileInput(container)).toBeNull();
+  });
+
+  test("a narrow window a mouse drives keeps the plus and mounts no sheet", () => {
+    // GIVEN a web or Electron window dragged under the mobile breakpoint,
+    // still driven by a mouse
+    const { container } = renderNarrowMouseComposer();
+
+    // THEN the compact row keeps its plus, while the touch sheet, whose camera
+    // and gallery rows have nothing to offer a mouse, never mounts
+    expect(control(container, PLUS_LABEL)).not.toBeNull();
+    expect(addSheet(container)).toBeNull();
+  });
+
+  test("the plus opens the picker directly when a mouse drives the window", () => {
+    // GIVEN a narrow mouse-driven window
+    const { container } = renderNarrowMouseComposer();
+    const input = fileInput(container);
+
+    // AND a picker that takes several files of any type, as the desktop
+    // paperclip's does
+    expect(input?.multiple).toBe(true);
+    expect(input?.getAttribute("accept")).toBeNull();
+
+    // WHEN the plus is pressed
+    let opened = 0;
+    input?.addEventListener("click", () => {
+      opened += 1;
+    });
+    fireEvent.click(control(container, PLUS_LABEL)!);
+
+    // THEN the native picker comes up with no sheet in between
+    expect(opened).toBe(1);
+    expect(addSheet(container)).toBeNull();
+  });
+
+  test("files picked from that plus reach the composer's attach callback", () => {
+    // GIVEN a narrow mouse-driven window
+    const onAddAttachmentFiles = mock((_files: FileList | File[]) => {});
+    const { container } = renderNarrowMouseComposer({ onAddAttachmentFiles });
+    const input = fileInput(container)!;
+
+    // WHEN the picker returns a file
+    const picked = new File(["x"], "picked.png", { type: "image/png" });
+    Object.defineProperty(input, "files", {
+      configurable: true,
+      value: fileListOf([picked]),
+    });
+    fireEvent.change(input);
+
+    // THEN it lands on the same callback the paperclip and the sheet feed
+    expect(onAddAttachmentFiles).toHaveBeenCalledTimes(1);
+    expect(onAddAttachmentFiles.mock.calls[0]?.[0]?.[0]).toBe(picked);
+  });
+
+  test("a busy assistant takes the plus away, as it does the paperclip", () => {
+    // GIVEN a phone composer while the assistant is working
+    const { container } = renderPhoneComposer({ isAssistantBusy: true });
+
+    // THEN nothing offers to attach
+    expect(control(container, PLUS_LABEL)).toBeNull();
+    expect(control(container, "Attach file")).toBeNull();
+  });
+
+  test("the card is a pill on a phone and keeps its desktop corner elsewhere", () => {
+    // GIVEN a phone composer
+    const { container } = renderPhoneComposer();
+
+    // THEN the radius is half the collapsed height
+    expect(container.querySelector("form")?.className).toContain(
+      "rounded-[26px]",
+    );
+
+    // WHILE the desktop card keeps the radius it shares with the voice bar
+    cleanup();
+    viewport.set({ narrow: false, coarsePointer: false });
+    const desktop = renderComposerView();
+    expect(desktop.container.querySelector("form")?.className).toContain(
+      "rounded-[10px]",
+    );
+  });
+
+  test("desktop keeps the paperclip, its own row, and mounts no sheet", () => {
+    // GIVEN a desktop composer
+    viewport.set({ narrow: false, coarsePointer: false });
+    const { container } = renderComposerView();
+
+    // THEN the attach control is the paperclip and the sheet never mounts
+    expect(control(container, "Attach file")).not.toBeNull();
+    expect(control(container, PLUS_LABEL)).toBeNull();
+    expect(addSheet(container)).toBeNull();
+
+    // AND the textarea stays above the action row rather than inside it
+    const html = container.innerHTML;
+    expect(html.indexOf("<textarea")).toBeLessThan(
+      html.indexOf('aria-label="Attach file"'),
+    );
+  });
+
+  test("a variant with no settings slots attaches but grows no pill row", () => {
+    // GIVEN the app-editing variant on a phone: no settings slots. Attach is
+    // part of every variant, so the plus is the control it gets.
+    const { container } = renderPhoneComposer();
+
+    // THEN there is nothing to float above the card
+    expect(
+      container.querySelector('[data-slot="composer-settings-pills"]'),
+    ).toBeNull();
+    expect(control(container, PLUS_LABEL)).not.toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The mobile send slot: filled voice circle until there is something to send
+// ---------------------------------------------------------------------------
+
+describe("ChatComposer: the mobile send slot", () => {
+  const CIRCLE_CLASS = "touch-mobile:rounded-full";
+  const SEND_FILL_CLASS = "touch-mobile:bg-[var(--system-positive-strong)]";
+
+  test("an empty draft leaves the circular live-voice button in the slot", () => {
+    // GIVEN a phone composer with nothing to send
+    viewport.set({ narrow: true, coarsePointer: true });
+    const { queryByLabelText } = renderVoiceComposer({ input: "" });
+
+    // THEN voice mode holds the slot as a filled circle
+    const voice = queryByLabelText("Start voice mode");
+    expect(voice?.className).toContain(CIRCLE_CLASS);
+    expect(queryByLabelText("Send message")).toBeNull();
+  });
+
+  test("a draft swaps in the circular send and the mic stays", () => {
+    // GIVEN a phone composer with something to send
+    viewport.set({ narrow: true, coarsePointer: true });
+    const { queryByLabelText } = renderVoiceComposer({ input: "hello" });
+
+    // THEN send takes the circle over, in the filled tone of the design
+    const send = queryByLabelText("Send message");
+    expect(send?.className).toContain(CIRCLE_CLASS);
+    expect(send?.className).toContain(SEND_FILL_CLASS);
+    expect(queryByLabelText("Start voice mode")).toBeNull();
+
+    // AND dictation is untouched beside it
+    expect(queryByLabelText("Start voice input")).not.toBeNull();
+  });
+
+  test("a send nobody can press keeps the primitive's disabled fill", () => {
+    // GIVEN a draft the composer refuses to send
+    viewport.set({ narrow: true, coarsePointer: true });
+    const { queryByLabelText } = renderVoiceComposer({
+      input: "hello",
+      sendDisabled: true,
+    });
+
+    // THEN the circle stays but the filled tone does not, so a blocked send
+    // never reads as one waiting to be pressed
+    const send = queryByLabelText("Send message");
+    expect(send?.className).toContain(CIRCLE_CLASS);
+    expect(send?.className).not.toContain(SEND_FILL_CLASS);
+  });
+
+  test("a busy turn keeps the phone row's stop/send swap", () => {
+    // GIVEN a busy turn with nothing drafted
+    viewport.set({ narrow: true, coarsePointer: true });
+    const empty = renderVoiceComposer({ input: "", isAssistantBusy: true });
+
+    // THEN stop is the row's only control
+    expect(empty.queryByLabelText("Stop generating")).not.toBeNull();
+    expect(empty.queryByLabelText("Send message")).toBeNull();
+
+    // WHILE a draft hands the slot to send, since Enter cannot submit here
+    cleanup();
+    const drafted = renderVoiceComposer({
+      input: "hello",
+      isAssistantBusy: true,
+    });
+    expect(drafted.queryByLabelText("Send message")).not.toBeNull();
+    expect(drafted.queryByLabelText("Stop generating")).toBeNull();
   });
 });
 
