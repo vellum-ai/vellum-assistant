@@ -5,6 +5,7 @@ import { useCallback, useState } from "react";
 import { createMemory } from "@/domains/intelligence/memory-graph/create-memory";
 import { memoryGraphOptions } from "@/domains/intelligence/memory-graph/get-memory-graph";
 import { memoryStatsOptions } from "@/domains/intelligence/memory-graph/get-memory-stats";
+import { useTranslation } from "@/i18n";
 import { Button, Modal, toast, Typography } from "@vellumai/design-library";
 import { Textarea } from "@vellumai/design-library/components/input";
 
@@ -33,6 +34,7 @@ export function CreateMemoryModal({
   assistantId,
   onCreated,
 }: CreateMemoryModalProps) {
+  const { t } = useTranslation("intelligence");
   const queryClient = useQueryClient();
   const [content, setContent] = useState("");
   const [isSaving, setIsSaving] = useState(false);
@@ -51,15 +53,15 @@ export function CreateMemoryModal({
       // failure so the fact isn't lost and the user can retry.
       const result = await createMemory(assistantId, trimmed);
       if (!result.success) {
-        toast.error(result.message || "Couldn't save that memory.");
+        toast.error(result.message || t("createMemoryModal.saveError"));
         return;
       }
       // When the daemon returns the pending node id the map flies to it, so
       // the toast just confirms; otherwise it sets the "look for it" tone.
       toast.success(
         result.pendingNodeId
-          ? "Got it. Taking you to it."
-          : "Got it. It's on your map while I file it away.",
+          ? t("createMemoryModal.savedFoundToast")
+          : t("createMemoryModal.savedPendingToast"),
       );
       setContent("");
       onOpenChange(false);
@@ -80,24 +82,24 @@ export function CreateMemoryModal({
       ]);
     } catch (err) {
       const message =
-        err instanceof Error ? err.message : "Failed to create memory.";
+        err instanceof Error ? err.message : t("createMemoryModal.createError");
       toast.error(message);
     } finally {
       setIsSaving(false);
     }
-  }, [assistantId, content, onOpenChange, onCreated, queryClient]);
+  }, [assistantId, content, onOpenChange, onCreated, queryClient, t]);
 
   return (
     <Modal.Root open={open} onOpenChange={onOpenChange}>
       <Modal.Content size="sm">
         <Modal.Header>
-          <Modal.Title>New memory</Modal.Title>
+          <Modal.Title>{t("createMemoryModal.title")}</Modal.Title>
         </Modal.Header>
         <Modal.Body>
           <div className="flex flex-col gap-4">
             <Textarea
-              label="What should I remember?"
-              placeholder="e.g. I prefer concise, bulleted summaries."
+              label={t("createMemoryModal.contentLabel")}
+              placeholder={t("createMemoryModal.contentPlaceholder")}
               value={content}
               onChange={(e) => setContent(e.target.value)}
               disabled={isSaving}
@@ -109,15 +111,14 @@ export function CreateMemoryModal({
               variant="body-medium-lighter"
               className="text-(--content-secondary)"
             >
-              It lands on the map right away, then settles into a concept as
-              it's filed.
+              {t("createMemoryModal.helperText")}
             </Typography>
           </div>
         </Modal.Body>
         <Modal.Footer>
           <Modal.Close asChild>
             <Button variant="outlined" disabled={isSaving}>
-              Cancel
+              {t("createMemoryModal.cancel")}
             </Button>
           </Modal.Close>
           <Button
@@ -128,7 +129,9 @@ export function CreateMemoryModal({
               isSaving ? <Loader2 className="animate-spin" /> : undefined
             }
           >
-            {isSaving ? "Creating…" : "Create memory"}
+            {isSaving
+              ? t("createMemoryModal.creating")
+              : t("createMemoryModal.create")}
           </Button>
         </Modal.Footer>
       </Modal.Content>

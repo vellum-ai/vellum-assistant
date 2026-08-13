@@ -239,7 +239,7 @@ const OPEN_THREAD_DEEP_LINK_HOST = "thread";
 /**
  * What a `<scheme>://thread/<id>?message=...` deep link asks the app to do:
  * open the given conversation and, when `message` survives sanitization,
- * relay it into that conversation.
+ * stage it in that conversation's composer.
  *
  * - `threadId` is the daemon conversation id from the path. The parser only
  *   checks its *shape*; whether it names a live conversation is the
@@ -278,8 +278,10 @@ const OPEN_THREAD_ID_RE = /^[A-Za-z0-9._-]{1,128}$/;
  * single well-formed path segment for the id. `message` gets the same
  * treatment as the start-voice `prompt` and for the same reason: it is
  * free-form text on a surface any app or web page can open, and the consumer
- * relays it into a conversation, so this parser is the one place where the
- * untrusted text becomes trusted (see {@link sanitizeDeepLinkText}).
+ * stages it in a conversation's composer, so this parser is the one place
+ * where the untrusted text is bounded (see {@link sanitizeDeepLinkText};
+ * the send itself stays with the user, per the consumer's caller-identity
+ * note).
  */
 export function parseOpenThreadDeepLink(
   rawUrl: string,

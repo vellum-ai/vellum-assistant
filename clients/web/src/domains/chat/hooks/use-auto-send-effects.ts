@@ -40,12 +40,12 @@ import type {
  *   until it has (the effect re-runs when this settles).
  * - `"exists"`: the id is a known conversation row or a registered
  *   client-side draft; safe to send.
- * - `"missing"`: the loaded list does not contain the id and it is no
- *   registered draft. The send must be dropped: the send path treats an
- *   unknown id as a draft and server-mints a NEW conversation, so relaying
- *   would silently send the message outside the chat the caller targeted
- *   (a deleted or archived chat, or one from another assistant; the iOS
- *   Shortcuts picker cache can serve such stale ids).
+ * - `"missing"`: the target definitively does not exist (a settled 404 on
+ *   its row) and it is no registered draft. The send must be dropped: the
+ *   send path treats an unknown id as a draft and server-mints a NEW
+ *   conversation, so relaying would silently send the message outside the
+ *   chat the caller targeted (a conversation deleted since the relay URL
+ *   was built, or an id from another assistant).
  */
 export type UrlPromptTargetResolution = "unresolved" | "exists" | "missing";
 

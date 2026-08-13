@@ -29,8 +29,9 @@ struct RecentChat: Codable, Equatable {
 /// device-local to the same OS user, and the next confirmed list sync from
 /// whoever is signed in replaces it wholesale. Until that sync, the picker
 /// may show the previous account's or origin's titles; picking one produces
-/// an id the web layer cannot resolve, which the `?prompt=` relay refuses
-/// with a visible "chat not found" state rather than sending anywhere.
+/// an id the web layer cannot resolve, which lands on the conversation
+/// route's missing-thread state with nothing sent (the message only ever
+/// sits in the composer awaiting the user's tap).
 enum RecentChatsStore {
     static let defaultsKey = "recentChats"
 

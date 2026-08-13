@@ -17,6 +17,7 @@ import type channels from "@/i18n/locales/en/channels.json";
 import type contacts from "@/i18n/locales/en/contacts.json";
 import type credentialRequests from "@/i18n/locales/en/credential-requests.json";
 import type home from "@/i18n/locales/en/home.json";
+import type intelligence from "@/i18n/locales/en/intelligence.json";
 import type library from "@/i18n/locales/en/library.json";
 import type logs from "@/i18n/locales/en/logs.json";
 import type onboarding from "@/i18n/locales/en/onboarding.json";
@@ -47,6 +48,7 @@ declare module "i18next" {
       home: typeof home;
       contacts: typeof contacts;
       onboarding: typeof onboarding;
+      intelligence: typeof intelligence;
     };
     returnNull: false;
   }

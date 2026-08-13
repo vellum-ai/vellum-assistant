@@ -2,8 +2,8 @@ import Foundation
 import UIKit
 
 /// The `<scheme>://thread/<id>?message=…` command `SendMessageToChatIntent`
-/// hands to the web layer: open the given conversation and relay `message`
-/// into it.
+/// hands to the web layer: open the given conversation with `message` staged
+/// in its composer.
 ///
 /// Mirrors the macOS shell's `vellum://thread/<id>` link (see
 /// `clients/macos/src/main/deep-links.ts`) with a `message` query parameter
@@ -25,7 +25,7 @@ struct ThreadDeepLink {
     /// message to the wrong app's assistant is strictly worse than sending
     /// nothing.
     ///
-    /// - Parameter message: what to relay into the conversation. Omitted from
+    /// - Parameter message: what to stage in the conversation. Omitted from
     ///   the URL when blank, so such a link degrades to just opening the
     ///   thread. The web parser bounds and sanitizes whatever arrives;
     ///   nothing is trusted for being locally produced.

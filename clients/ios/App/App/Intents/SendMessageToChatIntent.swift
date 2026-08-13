@@ -1,13 +1,18 @@
 import AppIntents
 
-/// "Send Message to Chat": relay a message into a chosen existing
-/// conversation, continuing that conversation's context (LUM-3230).
+/// "Send Message to Chat": open a chosen existing conversation with a
+/// message staged in its composer, one tap from sent, continuing that
+/// conversation's context (LUM-3230).
 ///
 /// The chat comes from `ChatEntity`'s picker (backed by the synced
 /// recent-chats cache) and the message is free-form text, so a Shortcuts
 /// automation can feed both. The pair rides a `<scheme>://thread/<id>` deep
-/// link into the SPA, which navigates to the conversation and auto-sends the
-/// message through the same `?prompt=` relay pathway its own surfaces use.
+/// link into the SPA, which navigates to the conversation, pre-fills the
+/// composer, and focuses it. The final send deliberately stays with the
+/// user: a custom-scheme URL is openable by any app or web page, so nothing
+/// a deep link delivers may become a tool-capable turn on its own (the same
+/// interim contract as `AskVellumIntent`'s prompt; JARVIS-1522 tracks the
+/// provenance seam that could make a proven-intent link auto-send).
 ///
 /// The app must open for that to happen: the web view is the only executor
 /// this shell has, so this is a foreground intent, not a background send.
@@ -24,7 +29,7 @@ import AppIntents
 struct SendMessageToChatIntent: AppIntent {
     static var title: LocalizedStringResource = "Send Message to Chat"
     static var description = IntentDescription(
-        "Open a chosen Vellum chat and send a message there, continuing that conversation."
+        "Open a chosen Vellum chat with your message filled in, ready to send."
     )
 
     @Parameter(

@@ -40,6 +40,11 @@ function hoverHolds(query: string, coarsePointer: boolean): boolean {
   return true;
 }
 
+export interface ViewportAxes {
+  narrow: boolean;
+  coarsePointer: boolean;
+}
+
 /**
  * Answers media queries for a given device shape, so a test can drive the two
  * device-side platform-adaptation axes independently.
@@ -60,10 +65,7 @@ function hoverHolds(query: string, coarsePointer: boolean): boolean {
 export function stubViewportAxes({
   narrow,
   coarsePointer,
-}: {
-  narrow: boolean;
-  coarsePointer: boolean;
-}): () => void {
+}: ViewportAxes): () => void {
   const original = window.matchMedia;
   window.matchMedia = (query: string): MediaQueryList => {
     return {
@@ -82,5 +84,37 @@ export function stubViewportAxes({
   };
   return () => {
     window.matchMedia = original;
+  };
+}
+
+/**
+ * A `stubViewportAxes` installation a suite can re-point between tests, for the
+ * common shape of "one default device in `beforeEach`, a different one inside a
+ * handful of cases". Owns the restore fn so each suite stops hand-rolling the
+ * same module-level `let`.
+ *
+ * ```ts
+ * const viewport = viewportAxesStub();
+ * beforeEach(() => viewport.set({ narrow: false, coarsePointer: false }));
+ * afterEach(() => { cleanup(); viewport.restore(); });
+ * ```
+ *
+ * `set` restores the previous stub first, so the real `matchMedia` is always
+ * what `restore` puts back however many times the suite re-points.
+ */
+export function viewportAxesStub(): {
+  set: (axes: ViewportAxes) => void;
+  restore: () => void;
+} {
+  let restore: () => void = () => {};
+  return {
+    set: (axes) => {
+      restore();
+      restore = stubViewportAxes(axes);
+    },
+    restore: () => {
+      restore();
+      restore = () => {};
+    },
   };
 }

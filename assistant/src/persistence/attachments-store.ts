@@ -477,6 +477,11 @@ const ALLOWED_MIME_TYPES = new Set([
   // Source code
   "text/javascript",
   "text/typescript",
+  // Shell scripts (browsers and OS file pickers report these for .sh files)
+  "application/x-sh",
+  "application/x-shellscript",
+  "text/x-sh",
+  "text/x-shellscript",
   // Archives
   "application/zip",
   "application/gzip",
@@ -504,7 +509,6 @@ const ALLOWED_MIME_TYPES = new Set([
  */
 const DANGEROUS_EXTENSIONS = new Set([
   "exe",
-  "sh",
   "bat",
   "cmd",
   "com",

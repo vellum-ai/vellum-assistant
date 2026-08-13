@@ -15,5 +15,9 @@
       "teal": "Teal",
       "yellow": "Yellow"
     }
+  },
+  "sidebarConversationError": {
+    "message": "Your conversations failed to load.",
+    "retry": "Try again"
   }
 }

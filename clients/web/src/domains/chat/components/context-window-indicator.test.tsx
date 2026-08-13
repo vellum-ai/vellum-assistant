@@ -16,7 +16,7 @@ import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
 import { cleanup, render, screen } from "@testing-library/react";
 
-import { stubViewportAxes } from "@/hooks/viewport-axes.test-helper";
+import { viewportAxesStub } from "@/hooks/viewport-axes.test-helper";
 
 let indicatorEnabled = false;
 
@@ -31,22 +31,16 @@ import { ContextWindowIndicator } from "@/domains/chat/components/context-window
 
 const USAGE = { tokens: 90_000, maxTokens: 200_000, fillRatio: 0.45 };
 
-let restoreViewport: () => void = () => {};
-
-function setViewport(axes: { narrow: boolean; coarsePointer: boolean }): void {
-  restoreViewport();
-  restoreViewport = stubViewportAxes(axes);
-}
+const viewport = viewportAxesStub();
 
 beforeEach(() => {
   indicatorEnabled = false;
-  setViewport({ narrow: false, coarsePointer: false });
+  viewport.set({ narrow: false, coarsePointer: false });
 });
 
 afterEach(() => {
   cleanup();
-  restoreViewport();
-  restoreViewport = () => {};
+  viewport.restore();
 });
 
 describe("ContextWindowIndicator", () => {
@@ -121,7 +115,7 @@ describe("ContextWindowIndicator presentation axis", () => {
     // GIVEN a tablet in landscape: a coarse pointer with plenty of room.
     // Roomy and thumb-driven is the combination the two axes only disagree
     // on, and the one a width check answers wrongly.
-    setViewport({ narrow: false, coarsePointer: true });
+    viewport.set({ narrow: false, coarsePointer: true });
 
     // WHEN the ring renders
     const { container } = render(
@@ -139,7 +133,7 @@ describe("ContextWindowIndicator presentation axis", () => {
 
   test("a phone-sized touch window gets the same tappable trigger", () => {
     // GIVEN a phone in portrait: coarse and narrow
-    setViewport({ narrow: true, coarsePointer: true });
+    viewport.set({ narrow: true, coarsePointer: true });
 
     // WHEN the ring renders
     const { container } = render(
@@ -154,7 +148,7 @@ describe("ContextWindowIndicator presentation axis", () => {
   test("a narrow mouse window keeps the hover presentation", () => {
     // GIVEN a desktop window dragged narrow, or an Electron shell: still a
     // mouse. Width alone must not push a hover-capable pointer to the sheet.
-    setViewport({ narrow: true, coarsePointer: false });
+    viewport.set({ narrow: true, coarsePointer: false });
 
     // WHEN the ring renders
     const { container } = render(

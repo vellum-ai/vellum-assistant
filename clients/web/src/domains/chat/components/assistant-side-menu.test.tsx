@@ -97,6 +97,18 @@ mock.module(
   }),
 );
 
+// Each section gates its fetch on the pod being reachable, which polls
+// operational status through React Query; stub it so static SSR rendering
+// resolves without a QueryClient. Open, because these tests are about what the
+// sidebar draws from the rows it is handed, not about the gate. The gate's own
+// behavior is covered in `assistant/operational-status.test.tsx`.
+mock.module(
+  "@/assistant/operational-status",
+  (): Partial<typeof OperationalStatus> => ({
+    useAssistantIsServing: () => true,
+  }),
+);
+
 // The assistant nav item reads the avatar through React Query; stub it so
 // static SSR rendering resolves without a QueryClient.
 mock.module("@/hooks/use-assistant-avatar", () => ({
@@ -110,6 +122,7 @@ mock.module("@/hooks/use-assistant-avatar", () => ({
 }));
 
 import type * as ConversationQueries from "@/hooks/conversation-queries";
+import type * as OperationalStatus from "@/assistant/operational-status";
 import type {
   Conversation,
   ConversationGroup,
@@ -153,6 +166,8 @@ function renderMenu(props: {
   includeFooterAction?: boolean;
   includeTipCard?: boolean;
   isLoadingConversations?: boolean;
+  conversationsFailed?: boolean;
+  onRetryConversations?: () => void;
   onWidthChange?: (width: number) => void;
 }): string {
   setSectionRows(props.conversations);
@@ -164,6 +179,8 @@ function renderMenu(props: {
       variant: props.variant ?? "rail",
       conversations: props.conversations,
       isLoadingConversations: props.isLoadingConversations,
+      conversationsFailed: props.conversationsFailed,
+      onRetryConversations: props.onRetryConversations,
       conversationGroups: props.conversationGroups,
       activeConversationId: props.activeConversationId,
       width: props.onWidthChange ? 280 : undefined,
@@ -1822,5 +1839,76 @@ describe("AssistantSideMenu · conversation list loading state", () => {
 
     expect(html).not.toContain(SKELETON);
     expect(html).toContain(">Recent thread<");
+  });
+});
+
+/**
+ * A conversation list that failed before it ever loaded renders the same empty
+ * scrollport as an assistant with no conversations: every section derives from
+ * this list, and an empty section is dropped from the sidebar. These assert
+ * the failure stays visible as a failure, and that it never displaces rows the
+ * sidebar already holds.
+ */
+describe("AssistantSideMenu · conversation list failure state", () => {
+  const ERROR = 'data-slot="sidebar-conversation-error"';
+  const SKELETON = 'data-slot="sidebar-conversation-skeleton"';
+
+  test("draws the failure instead of an empty section tree", () => {
+    const html = renderMenu({
+      conversations: [],
+      conversationsFailed: true,
+    });
+
+    expect(html).toContain(ERROR);
+    // The empty tree is what this stands in for, so it must not render too.
+    expect(html).not.toContain(">Chats<");
+  });
+
+  test("offers a retry when one is wired", () => {
+    const html = renderMenu({
+      conversations: [],
+      conversationsFailed: true,
+      onRetryConversations: () => {},
+    });
+
+    expect(html).toContain("Try again");
+  });
+
+  test("draws no failure once an empty list has loaded", () => {
+    // The sensitivity check: an assistant with genuinely no conversations must
+    // not be told its list failed.
+    const html = renderMenu({
+      conversations: [],
+      conversationsFailed: false,
+    });
+
+    expect(html).not.toContain(ERROR);
+  });
+
+  test("keeps live rows when a refetch fails", () => {
+    // React Query holds the last successful data through a failed refetch, so
+    // those rows are still the real list and must beat the failure state.
+    const html = renderMenu({
+      conversations: [
+        makeConversation({ conversationId: "r1", title: "Recent thread" }),
+      ],
+      conversationsFailed: true,
+    });
+
+    expect(html).not.toContain(ERROR);
+    expect(html).toContain(">Recent thread<");
+  });
+
+  test("prefers the failure over placeholders when both are set", () => {
+    // A retry puts the query back in flight while it still holds the previous
+    // failure. Reverting to placeholders would re-hide that the list failed.
+    const html = renderMenu({
+      conversations: [],
+      conversationsFailed: true,
+      isLoadingConversations: true,
+    });
+
+    expect(html).toContain(ERROR);
+    expect(html).not.toContain(SKELETON);
   });
 });

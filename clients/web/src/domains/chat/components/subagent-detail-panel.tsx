@@ -5,7 +5,6 @@ import {
   Bolt,
   ChevronDown,
   ChevronRight,
-  X,
 } from "lucide-react";
 
 import {
@@ -20,6 +19,7 @@ import {
 import { motion, useReducedMotion } from "motion/react";
 
 import { AvatarRenderer } from "@/components/avatar-renderer";
+import { DetailShell } from "@/components/detail-shell";
 import {
   AnimatedMetricCard,
   formatNumber,
@@ -269,102 +269,91 @@ export function SubagentDetailPanel({
   const headerTitle = activeDetail ? detailTitle : entry.label;
 
   return (
-    <div className="flex h-full flex-col overflow-hidden rounded-xl bg-[var(--surface-lift)]">
-      {/* Breadcrumb — only shown once a nested step detail is open; the
-          top-level subagent timeline has no breadcrumb. The subagent crumb is a
-          button that returns to the timeline (retaining expanded groups),
-          mirroring the header Back button; the step crumb is the current
-          (deepest) level. */}
-      {activeDetail && (
-        <div className="flex shrink-0 items-center gap-2 border-b border-[var(--border-hover)] px-5 py-3">
-          <Button
-            variant="link"
-            onClick={handleBack}
-            title={entry.label}
-            // inline-flex: the `link` variant is `display: inline`, which can't
-            // constrain the label for truncation. border-0: the button base
-            // carries a 1px transparent border the raw crumb never had, which
-            // would grow the breadcrumb row by 2px.
-            className="inline-flex min-w-0 shrink border-0 text-left text-[color:var(--content-default)]"
-          >
+    <DetailShell
+      headerAbove={
+        // Breadcrumb: only shown once a nested step detail is open; the
+        // top-level subagent timeline has no breadcrumb. The subagent crumb is
+        // a button that returns to the timeline (retaining expanded groups),
+        // mirroring the header Back button; the step crumb is the current
+        // (deepest) level.
+        activeDetail && (
+          <div className="flex shrink-0 items-center gap-2 border-b border-[var(--border-hover)] px-5 py-3">
+            <Button
+              variant="link"
+              onClick={handleBack}
+              title={entry.label}
+              // inline-flex: the `link` variant is `display: inline`, which can't
+              // constrain the label for truncation. border-0: the button base
+              // carries a 1px transparent border the raw crumb never had, which
+              // would grow the breadcrumb row by 2px.
+              className="inline-flex min-w-0 shrink border-0 text-left text-[color:var(--content-default)]"
+            >
+              <Typography
+                variant="body-small-default"
+                as="span"
+                className="min-w-0 truncate"
+              >
+                {entry.label}
+              </Typography>
+            </Button>
+            <ChevronRight
+              className="h-2.5 w-2.5 shrink-0 text-[var(--content-tertiary)]"
+              aria-hidden
+            />
             <Typography
               variant="body-small-default"
               as="span"
-              className="min-w-0 truncate"
+              title={detailTitle}
+              className="min-w-0 shrink truncate text-[var(--content-secondary)]"
             >
-              {entry.label}
+              {detailTitle}
             </Typography>
-          </Button>
-          <ChevronRight
-            className="h-2.5 w-2.5 shrink-0 text-[var(--content-tertiary)]"
-            aria-hidden
-          />
-          <Typography
-            variant="body-small-default"
-            as="span"
-            title={detailTitle}
-            className="min-w-0 shrink truncate text-[var(--content-secondary)]"
-          >
-            {detailTitle}
-          </Typography>
-        </div>
-      )}
-
-      {/* Header */}
-      <div className="flex shrink-0 items-center gap-3 border-b border-[var(--border-hover)] px-5 py-4">
-        {activeDetail && (
-          <Button
-            variant="outlined"
-            iconOnly={<ArrowLeft />}
-            onClick={handleBack}
-            aria-label="Back to timeline"
-            tooltip="Back"
-            className="shrink-0 rounded-lg"
-          />
-        )}
-        {activeDetail ? (
-          <NestedHeaderGlyph detail={activeDetail} />
-        ) : components ? (
-          <AvatarRenderer
-            components={components}
-            bodyShapeId={traits.bodyShape}
-            eyeStyleId={traits.eyeStyle}
-            colorId={traits.color}
-            size={32}
-          />
-        ) : (
-          <div style={{ width: 32, height: 32, flexShrink: 0 }} aria-hidden />
-        )}
-        <Typography
-          variant="title-medium"
-          title={headerTitle}
-          // leading-snug: title-medium is line-height:1, so truncate clips the descenders.
-          className="min-w-0 shrink truncate leading-snug text-[var(--content-default)]"
-        >
-          {headerTitle}
-        </Typography>
-        <StatusBadge status={entry.status} />
-        <span className="flex-1" />
-        {isRunning && onStop && (
+          </div>
+        )
+      }
+      icon={
+        <>
+          {activeDetail && (
+            <Button
+              variant="outlined"
+              iconOnly={<ArrowLeft />}
+              onClick={handleBack}
+              aria-label="Back to timeline"
+              tooltip="Back"
+              className="shrink-0"
+            />
+          )}
+          {activeDetail ? (
+            <NestedHeaderGlyph detail={activeDetail} />
+          ) : components ? (
+            <AvatarRenderer
+              components={components}
+              bodyShapeId={traits.bodyShape}
+              eyeStyleId={traits.eyeStyle}
+              colorId={traits.color}
+              size={32}
+            />
+          ) : (
+            <div style={{ width: 32, height: 32, flexShrink: 0 }} aria-hidden />
+          )}
+        </>
+      }
+      title={headerTitle}
+      headerTrailing={<StatusBadge status={entry.status} />}
+      headerActions={
+        isRunning && onStop ? (
           <DetailPanelStopButton
             onStop={() => onStop(entry.subagentId)}
             ariaLabel="Stop subagent"
           />
-        )}
-        <Button
-          variant="outlined"
-          iconOnly={<X />}
-          onClick={onClose}
-          aria-label="Close subagent detail"
-          tooltip="Close"
-          className="shrink-0 rounded-lg"
-        />
-      </div>
-
-      {/* Scrollable body — swaps to a step's nested detail when one is selected,
-          keeping the header above mounted in both views. */}
-      <div className="flex-1 overflow-y-auto px-5 py-5">
-        <motion.div
+        ) : undefined
+      }
+      closeLabel="Close subagent detail"
+      onClose={onClose}
+    >
+      {/* Body: swaps to a step's nested detail when one is selected, keeping
+          the header above mounted in both views. */}
+      <motion.div
           key={activeDetail ? "detail" : "list"}
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
@@ -536,7 +525,6 @@ export function SubagentDetailPanel({
             </>
           )}
         </motion.div>
-      </div>
-    </div>
+    </DetailShell>
   );
 }

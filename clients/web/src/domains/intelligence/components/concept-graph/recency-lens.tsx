@@ -3,6 +3,8 @@ import {
   type SegmentControlItem,
 } from "@vellumai/design-library";
 
+import { useTranslation } from "@/i18n";
+
 /** The recency window the graph highlights. "all" disables the lens. */
 export type RecencyWindow = "all" | "month" | "week";
 
@@ -10,12 +12,6 @@ interface RecencyLensProps {
   value: RecencyWindow;
   onChange: (value: RecencyWindow) => void;
 }
-
-const ITEMS: SegmentControlItem<RecencyWindow>[] = [
-  { value: "all", label: "All" },
-  { value: "month", label: "Month" },
-  { value: "week", label: "Week" },
-];
 
 /**
  * Segmented "All · Month · Week" control that picks the recency window the graph
@@ -25,10 +21,16 @@ const ITEMS: SegmentControlItem<RecencyWindow>[] = [
  * orbit drag.
  */
 export function RecencyLens({ value, onChange }: RecencyLensProps) {
+  const { t } = useTranslation("intelligence");
+  const items: SegmentControlItem<RecencyWindow>[] = [
+    { value: "all", label: t("recencyLens.all") },
+    { value: "month", label: t("recencyLens.month") },
+    { value: "week", label: t("recencyLens.week") },
+  ];
   return (
     <SegmentControl<RecencyWindow>
-      ariaLabel="Recency window"
-      items={ITEMS}
+      ariaLabel={t("recencyLens.ariaLabel")}
+      items={items}
       value={value}
       onChange={onChange}
       // Labeled mode defaults to full width with flex-1 segments; keep it

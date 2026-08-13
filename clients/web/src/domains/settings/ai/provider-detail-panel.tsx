@@ -10,6 +10,7 @@ import {
   inferenceProviderconnectionsGetOptions,
   inferenceProviderconnectionsGetQueryKey,
 } from "@/generated/daemon/@tanstack/react-query.gen";
+import { useTranslation } from "@/i18n";
 
 interface ProviderDetailPanelProps {
   assistantId: string;
@@ -32,6 +33,7 @@ export function ProviderDetailPanel({
   connectionName,
   onClose,
 }: ProviderDetailPanelProps) {
+  const { t } = useTranslation("settings");
   const queryClient = useQueryClient();
   const { data } = useQuery(
     inferenceProviderconnectionsGetOptions({
@@ -80,7 +82,7 @@ export function ProviderDetailPanel({
       title={
         connection
           ? providerConnectionDisplayName(connection)
-          : "Add Provider"
+          : t("providerDetailPanel.addProviderTitle")
       }
       closeVariant="outlined"
       onClose={onClose}

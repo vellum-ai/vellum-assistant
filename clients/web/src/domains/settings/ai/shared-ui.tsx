@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import type { PropsWithChildren, ReactNode } from "react";
 
 import {
   AlertCircle,
@@ -10,6 +10,7 @@ import {
 } from "lucide-react";
 
 import { DetailCard } from "@/components/detail-card";
+import { Trans, useTranslation } from "@/i18n";
 import { SegmentControl } from "@vellumai/design-library/components/segment-control";
 
 import type { ServiceMode } from "@/generated/daemon/types.gen";
@@ -36,15 +37,17 @@ interface ByoServiceCardProps {
 }
 
 export function ModeToggle({ mode, onChange }: ModeToggleProps) {
+  const { t } = useTranslation("settings");
+
   return (
     <div className="max-w-[280px]">
       <SegmentControl<ServiceMode>
-        ariaLabel="Service mode"
+        ariaLabel={t("sharedUi.modeToggleAriaLabel")}
         value={mode}
         onChange={onChange}
         items={[
-          { value: "managed", label: "Managed" },
-          { value: "your-own", label: "Your Own" },
+          { value: "managed", label: t("sharedUi.managedLabel") },
+          { value: "your-own", label: t("sharedUi.yourOwnLabel") },
         ]}
       />
     </div>
@@ -86,22 +89,30 @@ export function ByoServiceCard({
   );
 }
 
+function ManagedServicesPricingLink({ children }: PropsWithChildren) {
+  return (
+    <a
+      href="https://www.vellum.ai/docs/pricing"
+      target="_blank"
+      rel="noopener noreferrer"
+      className="inline-flex items-center gap-1 text-[var(--primary-base)] hover:underline"
+    >
+      {children}
+      <ExternalLink className="h-3.5 w-3.5" />
+    </a>
+  );
+}
+
 export function ManagedServicesBanner() {
   return (
     <div className="flex items-start gap-2 rounded-lg border border-[var(--border-base)] bg-[var(--surface-base)] px-4 py-2.5">
       <Info className="mt-0.5 h-4 w-4 shrink-0 text-[var(--content-tertiary)]" />
       <p className="text-body-medium-lighter text-[var(--content-secondary)]">
-        Managed services are metered and deducted from your Vellum account
-        balance.{" "}
-        <a
-          href="https://www.vellum.ai/docs/pricing"
-          target="_blank"
-          rel="noopener noreferrer"
-          className="inline-flex items-center gap-1 text-[var(--primary-base)] hover:underline"
-        >
-          View pricing
-          <ExternalLink className="h-3.5 w-3.5" />
-        </a>
+        <Trans
+          i18nKey="sharedUi.managedServicesBanner"
+          ns="settings"
+          components={{ link: <ManagedServicesPricingLink /> }}
+        />
       </p>
     </div>
   );
@@ -116,11 +127,13 @@ export function DomainVerificationChip({
   message: string | undefined;
   isLoading: boolean;
 }) {
+  const { t } = useTranslation("settings");
+
   if (isLoading) {
     return (
       <span className="inline-flex items-center gap-1 rounded-full bg-[var(--tag-bg-neutral)] px-2.5 py-0.5 text-body-small-default text-[var(--content-quiet)]">
         <Loader2 className="h-3 w-3 animate-spin" />
-        Checking domain…
+        {t("sharedUi.checkingDomain")}
       </span>
     );
   }
@@ -129,9 +142,9 @@ export function DomainVerificationChip({
     return (
       <span
         className="inline-flex items-center gap-1 rounded-full bg-[var(--tag-bg-neutral)] px-2.5 py-0.5 text-body-small-default text-[var(--content-quiet)]"
-        title="Unable to retrieve domain verification status."
+        title={t("sharedUi.unknownStatusTitle")}
       >
-        Unknown status
+        {t("sharedUi.unknownStatus")}
       </span>
     );
   }
@@ -140,10 +153,10 @@ export function DomainVerificationChip({
     return (
       <span
         className="inline-flex items-center gap-1 rounded-full bg-[var(--system-positive-weak)] px-2.5 py-0.5 text-body-small-default text-[var(--system-positive-strong)]"
-        title="DNS records have been verified. Your domain is ready to send and receive email."
+        title={t("sharedUi.verifiedTitle")}
       >
         <Check className="h-3 w-3" />
-        Domain verified
+        {t("sharedUi.domainVerified")}
       </span>
     );
   }
@@ -152,10 +165,10 @@ export function DomainVerificationChip({
     return (
       <span
         className="inline-flex items-center gap-1 rounded-full bg-[var(--system-mid-weak)] px-2.5 py-0.5 text-body-small-default text-[var(--system-mid-strong)]"
-        title="DNS records have been provisioned. Waiting for the email provider to verify them — this usually takes a few minutes."
+        title={t("sharedUi.verifyingTitle")}
       >
         <Clock className="h-3 w-3" />
-        Verifying domain…
+        {t("sharedUi.verifyingDomain")}
       </span>
     );
   }
@@ -163,10 +176,10 @@ export function DomainVerificationChip({
   return (
     <span
       className="inline-flex items-center gap-1 rounded-full bg-[var(--system-negative-weak)] px-2.5 py-0.5 text-body-small-default text-[var(--system-negative-strong)]"
-      title="Domain verification failed. DNS records may not have propagated correctly. You could try releasing and re-registering the domain."
+      title={t("sharedUi.failedTitle")}
     >
       <AlertCircle className="h-3 w-3" />
-      Verification failed
+      {t("sharedUi.verificationFailed")}
     </span>
   );
 }

@@ -1,7 +1,8 @@
 import { useInfiniteQuery } from "@tanstack/react-query";
-import { Loader2, Play, Settings, X } from "lucide-react";
+import { Loader2, Play, Settings } from "lucide-react";
 import { useNavigate } from "react-router";
 
+import { DetailShellHeader } from "@/components/detail-shell";
 import { useTranslation } from "@/i18n";
 import { SCHEDULE_RUNS_PAGE_SIZE } from "@/domains/settings/api/schedules";
 import { ModelProfileRow } from "@/domains/settings/components/model-profile-row";
@@ -198,34 +199,31 @@ export function SystemTaskDetailPanel({
           "rounded-[var(--radius-xl)] border border-[var(--border-base)]",
       )}
     >
-      {/* Header */}
-      <div className="flex shrink-0 items-center gap-3 border-b border-[var(--border-base)] p-[var(--app-spacing-lg)]">
-        <div className="min-w-0 flex-1">
-          <Typography
-            variant="title-small"
-            className="truncate text-[var(--content-default)]"
-          >
-            {name}
-          </Typography>
-          {subtitle ? (
+      <DetailShellHeader
+        titleNode={
+          <div className="min-w-0 flex-1">
             <Typography
-              variant="body-small-default"
-              as="p"
-              className="truncate text-[var(--content-tertiary)]"
+              variant="title-medium"
+              title={name}
+              className="truncate py-0.5 leading-snug text-[var(--content-default)]"
             >
-              {subtitle}
+              {name}
             </Typography>
-          ) : null}
-        </div>
-        <Button
-          variant="ghost"
-          iconOnly={<X />}
-          onClick={onClose}
-          aria-label={t("scheduleDetail.closeAria")}
-          tooltip={t("scheduleDetail.close")}
-          className="shrink-0"
-        />
-      </div>
+            {subtitle ? (
+              <Typography
+                variant="body-small-default"
+                as="p"
+                className="truncate text-[var(--content-tertiary)]"
+              >
+                {subtitle}
+              </Typography>
+            ) : null}
+          </div>
+        }
+        closeLabel={t("scheduleDetail.closeAria")}
+        closeTooltip={t("scheduleDetail.close")}
+        onClose={onClose}
+      />
 
       {/* Scrollable body */}
       <div className="flex-1 space-y-6 overflow-y-auto px-[var(--app-spacing-lg)] py-[var(--app-spacing-lg)]">
@@ -308,7 +306,7 @@ export function SystemTaskDetailPanel({
 
       {/* Footer actions */}
       {showMemorySettings || onRunNow ? (
-        <div className="flex shrink-0 items-center justify-end gap-2 border-t border-[var(--border-base)] p-[var(--app-spacing-lg)]">
+        <div className="flex shrink-0 items-center justify-end gap-2 border-t border-[var(--border-hover)] p-[var(--app-spacing-lg)]">
           {showMemorySettings ? (
             <Button
               variant="outlined"

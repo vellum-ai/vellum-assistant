@@ -77,7 +77,10 @@ import {
   useAutoSendEffects,
   type UrlPromptTargetResolution,
 } from "@/domains/chat/hooks/use-auto-send-effects";
-import { useConversationListCache } from "@/hooks/conversation-queries";
+import { useQuery } from "@tanstack/react-query";
+
+import { conversationsByIdGetOptions } from "@/generated/daemon/@tanstack/react-query.gen";
+import { ConversationNotFoundError } from "@/utils/fetch-conversation-detail";
 import { useOnboardingAttribution } from "@/hooks/use-onboarding-attribution";
 
 import { ChatContentLayout } from "@/domains/chat/components/chat-content-layout";
@@ -203,9 +206,6 @@ export function ActiveChatView() {
   // Keyboard focus: Electron host focus relay + typing auto-focus.
   useComposerKeyboard(inputRef);
 
-  // Inbound deep links: pre-fill composer with `deeplink.send` text.
-  useDeepLinkConsumer();
-
   // -------------------------------------------------------------------------
   // Derived state
   // -------------------------------------------------------------------------
@@ -242,6 +242,15 @@ export function ActiveChatView() {
     reachabilityReadyEpoch,
     onboardingDraftConversationIdRef,
   });
+
+  // Inbound deep links: pre-fill the composer with parked `deeplink.send` /
+  // `deeplink.sendToThread` / start-voice-prompt text. Registered AFTER
+  // useConversationLoader on purpose: its consume effect and the loader's
+  // switchToConversation effect can fire in the same commit (park + navigate
+  // happen in one bus callback), and effects run in registration order — were
+  // this hook first, handleConversationSwitch would read the just-set input
+  // and misfile the parked message as the *outgoing* conversation's draft.
+  useDeepLinkConsumer();
 
   // Persist the composer draft across reloads (debounced autosave + unload
   // flush) and restore it on cold load. Mounted after useConversationLoader
@@ -293,10 +302,22 @@ export function ActiveChatView() {
 
   // Resolve the ?prompt= target against live data so the auto-send below can
   // refuse ids the send path would otherwise treat as new-conversation drafts
-  // (a stale iOS Shortcuts pick, a deleted chat). Draft ids are legitimately
-  // absent from the list; the cache observer never fetches, so "unresolved"
-  // lasts exactly as long as the gated list query does.
-  const conversationListCache = useConversationListCache(assistantId);
+  // (a stale iOS Shortcuts pick, a deleted chat). `activeConversation` covers
+  // every loaded cache (foreground, background, scheduled, archived) plus the
+  // single-row fetch `useActiveConversation` fires for a thread in none of
+  // them; the probe below passively observes that fetch's query entry
+  // (`enabled: false`, never fetches) so a settled 404 is distinguishable
+  // from "still resolving". Only a definitive not-found flips to "missing":
+  // a transient fetch error keeps holding the send rather than dropping it.
+  const conversationRowProbe = useQuery({
+    ...conversationsByIdGetOptions({
+      path: {
+        assistant_id: assistantId ?? "",
+        id: activeConversationId ?? "",
+      },
+    }),
+    enabled: false,
+  });
   const draftConversationIds = useConversationStore.use.draftConversationIds();
   const urlPromptTargetResolution: UrlPromptTargetResolution = useMemo(() => {
     if (!activeConversationId) {
@@ -305,15 +326,18 @@ export function ActiveChatView() {
     if (draftConversationIds.has(activeConversationId)) {
       return "exists";
     }
-    if (conversationListCache === undefined) {
-      return "unresolved";
+    if (activeConversation) {
+      return "exists";
     }
-    return conversationListCache.some(
-      (conversation) => conversation.conversationId === activeConversationId,
-    )
-      ? "exists"
-      : "missing";
-  }, [activeConversationId, draftConversationIds, conversationListCache]);
+    return conversationRowProbe.error instanceof ConversationNotFoundError
+      ? "missing"
+      : "unresolved";
+  }, [
+    activeConversationId,
+    draftConversationIds,
+    activeConversation,
+    conversationRowProbe.error,
+  ]);
 
   // Auto-send: URL ?prompt=, pre-chat reachability probe, onboarding message.
   useAutoSendEffects({

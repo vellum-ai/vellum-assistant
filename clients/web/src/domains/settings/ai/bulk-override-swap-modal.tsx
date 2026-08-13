@@ -28,6 +28,7 @@ import type {
   ConfigGetResponse,
   ConfigLlmCallsitesGetResponse,
 } from "@/generated/daemon/types.gen";
+import { useTranslation } from "@/i18n";
 import { captureError } from "@/lib/sentry/capture-error";
 import { badRequestMessage } from "@/utils/api-errors";
 
@@ -53,10 +54,6 @@ export interface BulkOverrideSwapModalProps {
   onApplied: () => void;
 }
 
-function actionCount(n: number): string {
-  return `${n} ${n === 1 ? "action" : "actions"}`;
-}
-
 // ---------------------------------------------------------------------------
 // BulkOverrideSwapModal
 // ---------------------------------------------------------------------------
@@ -78,6 +75,7 @@ export function BulkOverrideSwapModal({
   onClose,
   onApplied,
 }: BulkOverrideSwapModalProps) {
+  const { t } = useTranslation("settings");
   const configMutation = useLlmConfigPatch(assistantId);
   // Older assistants live-inherit blank profile fields, so a sparse profile
   // dispatches there and must not be filtered out of the target list.
@@ -195,7 +193,10 @@ export function BulkOverrideSwapModal({
         body: { llm: { callSites: callSitePatch } },
       });
       toast.success(
-        `Updated ${actionCount(selectedIds.length)} to "${targetLabel}".`,
+        t("bulkOverrideSwapModal.successToast", {
+          count: selectedIds.length,
+          targetLabel,
+        }),
       );
       onApplied();
       onClose();
@@ -204,7 +205,7 @@ export function BulkOverrideSwapModal({
       // profile that no longer exists). Show it verbatim and skip Sentry.
       const serverMessage = badRequestMessage(error);
       toast.error(
-        serverMessage ?? "Failed to update overrides. Please try again.",
+        serverMessage ?? t("bulkOverrideSwapModal.updateFailedToast"),
       );
       if (!serverMessage) {
         captureError(error, { context: "settings-ai-bulk-override-swap" });
@@ -225,50 +226,50 @@ export function BulkOverrideSwapModal({
     >
       <Modal.Content size="md">
         <Modal.Header>
-          <Modal.Title>Change Action Overrides</Modal.Title>
+          <Modal.Title>{t("bulkOverrideSwapModal.title")}</Modal.Title>
         </Modal.Header>
         <Modal.Body className="space-y-4">
           <Typography variant="body-medium-default" as="p">
-            Update the actions that currently use one profile. The result is
-            saved as individual overrides.
+            {t("bulkOverrideSwapModal.intro")}
           </Typography>
 
           <div className="grid grid-cols-2 gap-3">
             <Select
               id="bulk-swap-source"
-              label="Currently using"
+              label={t("bulkOverrideSwapModal.currentlyUsingLabel")}
               value={source}
               onChange={handleSourceChange}
               options={sourceOptions}
             />
             <Select
               id="bulk-swap-target"
-              label="Change to"
+              label={t("bulkOverrideSwapModal.changeToLabel")}
               value={target}
               onChange={setTarget}
               options={targetOptions}
-              placeholder="Select a profile…"
+              placeholder={t("bulkOverrideSwapModal.targetPlaceholder")}
             />
           </div>
 
-          <Notice tone="info" title="This happens once.">
-            It changes the selected actions that use {sourceLabel} today. It
-            does not create an ongoing rule between profiles.
+          <Notice tone="info" title={t("bulkOverrideSwapModal.noticeTitle")}>
+            {t("bulkOverrideSwapModal.noticeBody", { sourceLabel })}
           </Notice>
 
           <div>
             <div className="mb-2 flex items-baseline justify-between gap-2">
               <div>
                 <Typography variant="body-medium-default" as="p">
-                  {actionCount(affected.length)} currently{" "}
-                  {affected.length === 1 ? "uses" : "use"} {sourceLabel}
+                  {t("bulkOverrideSwapModal.affectedSummary", {
+                    count: affected.length,
+                    profile: sourceLabel,
+                  })}
                 </Typography>
                 <Typography
                   variant="body-small-default"
                   as="p"
                   className="text-[color:var(--content-secondary)]"
                 >
-                  Choose which actions to update.
+                  {t("bulkOverrideSwapModal.chooseActions")}
                 </Typography>
               </div>
               <Button
@@ -281,7 +282,9 @@ export function BulkOverrideSwapModal({
                   )
                 }
               >
-                {allSelected ? "Clear all" : "Select all"}
+                {allSelected
+                  ? t("bulkOverrideSwapModal.clearAll")
+                  : t("bulkOverrideSwapModal.selectAll")}
               </Button>
             </div>
             <div className="max-h-72 space-y-1 overflow-y-auto">
@@ -301,8 +304,8 @@ export function BulkOverrideSwapModal({
                   />
                   <span className="shrink-0 text-body-small-default text-[color:var(--content-tertiary)]">
                     {effectiveByCallSite.get(cs.id)?.via === "override"
-                      ? "Override"
-                      : "Default"}
+                      ? t("bulkOverrideSwapModal.viaOverride")
+                      : t("bulkOverrideSwapModal.viaDefault")}
                   </span>
                 </div>
               ))}
@@ -315,10 +318,12 @@ export function BulkOverrideSwapModal({
             as="p"
             className="mr-auto self-center text-[color:var(--content-secondary)]"
           >
-            {actionCount(selectedIds.length)} will change
+            {t("bulkOverrideSwapModal.willChange", {
+              count: selectedIds.length,
+            })}
           </Typography>
           <Button variant="ghost" onClick={onClose} disabled={applying}>
-            Cancel
+            {t("bulkOverrideSwapModal.cancel")}
           </Button>
           <Button
             variant="primary"
@@ -330,7 +335,9 @@ export function BulkOverrideSwapModal({
             {applying ? (
               <Loader2 className="h-4 w-4 animate-spin" />
             ) : (
-              `Apply to ${actionCount(selectedIds.length)}`
+              t("bulkOverrideSwapModal.applyTo", {
+                count: selectedIds.length,
+              })
             )}
           </Button>
         </Modal.Footer>
