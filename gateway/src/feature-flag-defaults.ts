@@ -88,13 +88,18 @@ function parseRegistryToDefaults(parsed: unknown): FeatureFlagDefaultsRegistry {
   for (const flag of registry.flags) {
     if (!flag || typeof flag !== "object" || Array.isArray(flag)) continue;
     const entry = flag as Record<string, unknown>;
-    if (entry.scope !== "assistant" && entry.scope !== "both") continue;
-    if (typeof entry.key !== "string") continue;
+    if (entry.scope !== "assistant" && entry.scope !== "both") {
+      continue;
+    }
+    if (typeof entry.key !== "string") {
+      continue;
+    }
     if (
       typeof entry.defaultEnabled !== "boolean" &&
       typeof entry.defaultEnabled !== "string"
-    )
+    ) {
       continue;
+    }
     if (typeof entry.description !== "string") {
       log.warn(
         { key: entry.key },

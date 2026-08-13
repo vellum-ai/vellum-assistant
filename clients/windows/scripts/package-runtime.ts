@@ -2,13 +2,32 @@ import { copyFileSync, cpSync, mkdirSync, rmSync } from "node:fs";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 
+import { resolveBuildCommitSha } from "./build-metadata";
+
+interface RuntimeTarget {
+  readonly name: string;
+  readonly entry: string;
+  readonly externals?: readonly string[];
+  readonly defines?: Readonly<Record<string, string>>;
+}
+
 const windowsDir = path.resolve(import.meta.dir, "..");
 const repoRoot = path.resolve(windowsDir, "..", "..");
 const outputDir = path.join(windowsDir, "resources", "cli-runtime");
 const releaseChannel = process.env.VELLUM_ENVIRONMENT || "local";
-const appPackage = (await Bun.file(
-  path.join(windowsDir, "package.json"),
-).json()) as { version: string };
+const readPackageVersion = async (packageDir: string): Promise<string> => {
+  const manifest = (await Bun.file(
+    path.join(repoRoot, packageDir, "package.json"),
+  ).json()) as { version?: unknown };
+  if (typeof manifest.version !== "string" || !manifest.version.trim()) {
+    throw new Error(`${packageDir}/package.json has no valid version.`);
+  }
+  return manifest.version;
+};
+const appVersion = await readPackageVersion("clients/windows");
+const assistantVersion = await readPackageVersion("assistant");
+const gatewayVersion = await readPackageVersion("gateway");
+const commitSha = resolveBuildCommitSha();
 const bunVersion = (
   await Bun.file(path.join(repoRoot, ".tool-versions")).text()
 ).match(/^bun\s+(\S+)$/m)?.[1];
@@ -29,22 +48,32 @@ if (currentBun.status !== 0 || currentBun.stdout.trim() !== bunVersion) {
 
 rmSync(outputDir, { recursive: true, force: true });
 mkdirSync(outputDir, { recursive: true });
-const targets = [
-  ["vellum.exe", "cli/src/index.ts", ["react-devtools-core"]],
-  [
-    "assistant.exe",
-    "assistant/src/windows-compiled-entry.ts",
-    ["chromium-bidi/*"],
-  ],
-  [
-    "vellum-daemon.exe",
-    "assistant/src/daemon/windows-compiled-entry.ts",
-    ["chromium-bidi/*"],
-  ],
-  [
-    "vellum-gateway.exe",
-    "gateway/src/index.ts",
-    [
+const assistantDefines = {
+  "process.env.APP_VERSION": JSON.stringify(assistantVersion),
+  "process.env.COMMIT_SHA": JSON.stringify(commitSha),
+};
+const targets: readonly RuntimeTarget[] = [
+  {
+    name: "vellum.exe",
+    entry: "cli/src/index.ts",
+    externals: ["react-devtools-core"],
+  },
+  {
+    name: "assistant.exe",
+    entry: "assistant/src/windows-compiled-entry.ts",
+    externals: ["chromium-bidi/*"],
+    defines: assistantDefines,
+  },
+  {
+    name: "vellum-daemon.exe",
+    entry: "assistant/src/daemon/windows-compiled-entry.ts",
+    externals: ["chromium-bidi/*"],
+    defines: assistantDefines,
+  },
+  {
+    name: "vellum-gateway.exe",
+    entry: "gateway/src/index.ts",
+    externals: [
       "@electric-sql/*",
       "@aws-sdk/client-rds-data",
       "@libsql/*",
@@ -57,20 +86,36 @@ const targets = [
       "pg",
       "postgres",
     ],
-  ],
-  [
-    "vellum-worker.exe",
-    "assistant/src/windows-compiled-worker-entry.ts",
-    ["chromium-bidi/*"],
-  ],
-  ["credential-executor.exe", "credential-executor/src/main.ts"],
-  ["cli-launcher.exe", "clients/windows/scripts/launch-cli.ts"],
-  ["cli-uninstaller.exe", "clients/windows/scripts/uninstall-cli.ts"],
-] as const;
-for (const [name, entry, externals] of targets) {
+    defines: {
+      "process.env.APP_VERSION": JSON.stringify(gatewayVersion),
+    },
+  },
+  {
+    name: "vellum-worker.exe",
+    entry: "assistant/src/windows-compiled-worker-entry.ts",
+    externals: ["chromium-bidi/*"],
+    defines: assistantDefines,
+  },
+  {
+    name: "credential-executor.exe",
+    entry: "credential-executor/src/main.ts",
+  },
+  {
+    name: "cli-launcher.exe",
+    entry: "clients/windows/scripts/launch-cli.ts",
+  },
+  {
+    name: "cli-uninstaller.exe",
+    entry: "clients/windows/scripts/uninstall-cli.ts",
+  },
+];
+for (const { name, entry, externals, defines } of targets) {
   const args = ["build", "--compile"];
   for (const external of externals ?? []) {
     args.push("--external", external);
+  }
+  for (const [key, value] of Object.entries(defines ?? {})) {
+    args.push("--define", `${key}=${value}`);
   }
   args.push(
     path.join(repoRoot, entry),
@@ -85,6 +130,19 @@ for (const [name, entry, externals] of targets) {
   if (build.status !== 0) {
     throw new Error(`Failed to compile ${name} (exit ${build.status}).`);
   }
+}
+const versionCheck = spawnSync(
+  path.join(outputDir, "assistant.exe"),
+  ["--version"],
+  { encoding: "utf8", windowsHide: true },
+);
+if (
+  versionCheck.status !== 0 ||
+  versionCheck.stdout.trim() !== assistantVersion
+) {
+  throw new Error(
+    `Packaged assistant version check failed: expected ${assistantVersion}, got ${versionCheck.stdout.trim() || "no output"}.`,
+  );
 }
 for (const [source, name] of [
   ["assistant/src/prompts/templates", "templates"],
@@ -130,5 +188,5 @@ if (pluginApiShim.status !== 0) {
 copyFileSync(process.execPath, path.join(outputDir, "bun.exe"));
 await Bun.write(
   path.join(outputDir, "runtime.json"),
-  `${JSON.stringify({ version: appPackage.version, bunVersion, releaseChannel })}\n`,
+  `${JSON.stringify({ version: appVersion, bunVersion, releaseChannel })}\n`,
 );

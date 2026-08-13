@@ -55,3 +55,16 @@ test("rejects a launcher that points back to itself", () => {
     "installed Vellum CLI runtime is unavailable",
   );
 });
+
+test("rejects a case-variant launcher path that points back to itself", () => {
+  const { launcher } = writeLauncher();
+  writeFileSync(
+    path.join(path.dirname(launcher), ".vellum-owned.json"),
+    JSON.stringify({ sourcePath: launcher.toUpperCase() }),
+    "utf8",
+  );
+
+  expect(() => resolveOwnedCliTarget(launcher)).toThrow(
+    "installed Vellum CLI runtime is unavailable",
+  );
+});

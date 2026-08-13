@@ -455,6 +455,40 @@ test("treats Windows PATH entries as case-insensitive", () => {
   expect(userRegistry.value()).toBe(registeredBinDir);
 });
 
+test("treats launcher source paths as case-insensitive", () => {
+  const root = makeTempDir();
+  const paths = resolveCliLauncherPaths(path.join(root, "Local App Data"));
+  const source = writeRuntime(path.join(root, "runtime"), "1.0.0");
+  installCliLauncher(source, "1.0.0", paths, registry().run);
+  const ownership = JSON.parse(readFileSync(paths.ownership, "utf8")) as {
+    sourcePath: string;
+  };
+  writeFileSync(
+    paths.ownership,
+    JSON.stringify({ ...ownership, sourcePath: source.toUpperCase() }),
+    "utf8",
+  );
+
+  expect(getCliLauncherState(paths, source)).toBe("installed");
+});
+
+test("retries cleanup of a staged launcher", () => {
+  const root = makeTempDir();
+  const paths = resolveCliLauncherPaths(path.join(root, "Local App Data"));
+  const source = writeRuntime(path.join(root, "runtime"), "1.0.0");
+  const userRegistry = registry();
+  installCliLauncher(source, "1.0.0", paths, userRegistry.run);
+  const stagedLauncher = path.join(paths.binDir, ".vellum.exe.uninstalling");
+  renameSync(paths.executable, stagedLauncher);
+  const retryRegistry = registry();
+
+  expect(uninstallCliLauncher(paths, retryRegistry.run)).toBe("removed");
+  expect(existsSync(stagedLauncher)).toBeFalse();
+  expect(existsSync(paths.ownership)).toBeFalse();
+  expect(retryRegistry.broadcasts()).toBe(0);
+  expect(retryRegistry.value().split(";")).not.toContain(paths.binDir);
+});
+
 test("restores the last launcher when PATH registration fails", () => {
   const root = makeTempDir();
   const paths = resolveCliLauncherPaths(path.join(root, "Local App Data"));

@@ -11,6 +11,12 @@ import {
 import path from "node:path";
 
 import { CLI_RUNTIME_ENTRIES } from "./cli-installer";
+import {
+  normalizeWindowsPathEntry,
+  sameWindowsPath,
+} from "../shared/windows-path";
+
+export { normalizeWindowsPathEntry } from "../shared/windows-path";
 
 export type CliLauncherState =
   | "missing"
@@ -56,27 +62,6 @@ export const systemRegistryRunner: RegistryRunner = (command, args) =>
     timeout: 5000,
     windowsHide: true,
   });
-
-export function normalizeWindowsPathEntry(
-  entry: string,
-  environment: NodeJS.ProcessEnv = process.env,
-): string {
-  const trimmed = entry.trim();
-  const unquoted =
-    trimmed.startsWith('"') && trimmed.endsWith('"')
-      ? trimmed.slice(1, -1)
-      : trimmed;
-  return unquoted.replace(/%([^%]+)%/g, (match, name: string) => {
-    const key = Object.keys(environment).find(
-      (candidate) => candidate.toLowerCase() === name.toLowerCase(),
-    );
-    return key ? (environment[key] ?? match) : match;
-  });
-}
-
-const sameWindowsPath = (left: string, right: string): boolean =>
-  path.win32.resolve(normalizeWindowsPathEntry(left)).toLowerCase() ===
-  path.win32.resolve(normalizeWindowsPathEntry(right)).toLowerCase();
 
 const ENVIRONMENT_CHANGE_SCRIPT = [
   "$signature = '[System.Runtime.InteropServices.DllImport(\"user32.dll\", SetLastError = true, CharSet = System.Runtime.InteropServices.CharSet.Auto)] public static extern System.IntPtr SendMessageTimeout(System.IntPtr hWnd, uint message, System.UIntPtr wParam, string lParam, uint flags, uint timeout, out System.UIntPtr result);'",
@@ -155,10 +140,7 @@ export function getCliLauncherState(
   if (!launcherExists) {
     return "stale";
   }
-  if (
-    sourcePath &&
-    path.resolve(ownership.sourcePath) !== path.resolve(sourcePath)
-  ) {
+  if (sourcePath && !sameWindowsPath(ownership.sourcePath, sourcePath)) {
     return "stale";
   }
   if (userPath) {
@@ -417,14 +399,14 @@ export function uninstallCliLauncher(
     ? LEGACY_LAUNCHER_ENTRIES.map((name) => path.join(paths.binDir, name))
     : [paths.executable];
   const pending = ownedTargets
-    .filter((target) => existsSync(target))
     .map((target) => ({
       target,
       staging: path.join(
         paths.binDir,
-        `.${path.basename(target)}.${process.pid}.uninstalling`,
+        `.${path.basename(target)}.uninstalling`,
       ),
-    }));
+    }))
+    .filter((file) => existsSync(file.target) || existsSync(file.staging));
   const moved: typeof pending = [];
   const restoreMoved = (): void => {
     for (const file of moved.reverse()) {
@@ -437,25 +419,30 @@ export function uninstallCliLauncher(
   };
   try {
     for (const file of pending) {
-      if (existsSync(file.staging)) {
+      if (existsSync(file.target) && existsSync(file.staging)) {
         restoreMoved();
         return "blocked";
       }
-      renameSync(file.target, file.staging);
+      if (!existsSync(file.staging)) {
+        renameSync(file.target, file.staging);
+      }
       moved.push(file);
     }
   } catch {
     restoreMoved();
     return "blocked";
   }
-  const entries = userPath
-    .split(";")
-    .filter((entry) => entry && !sameWindowsPath(entry, paths.binDir));
-  try {
-    writeUserPath(entries.join(";"), run);
-  } catch (error) {
-    restoreMoved();
-    throw error;
+  const currentEntries = userPath.split(";").filter(Boolean);
+  const entries = currentEntries.filter(
+    (entry) => !sameWindowsPath(entry, paths.binDir),
+  );
+  if (entries.length !== currentEntries.length) {
+    try {
+      writeUserPath(entries.join(";"), run);
+    } catch (error) {
+      restoreMoved();
+      throw error;
+    }
   }
   for (const file of moved) {
     try {
