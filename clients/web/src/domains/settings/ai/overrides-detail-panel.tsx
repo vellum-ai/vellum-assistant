@@ -36,6 +36,7 @@ import {
 import { useLlmConfigPatch } from "@/domains/settings/ai/use-llm-config-patch";
 import { useSupportsCompleteProfileSnapshots } from "@/lib/backwards-compat/complete-profile-snapshots";
 import { captureError } from "@/lib/sentry/capture-error";
+import { useTranslation } from "@/i18n";
 import { DetailShell } from "@/components/detail-shell";
 import { Button } from "@vellumai/design-library/components/button";
 import { ConfirmDialog } from "@vellumai/design-library/components/confirm-dialog";
@@ -58,6 +59,7 @@ export function OverridesDetailPanel({
   assistantId,
   onClose,
 }: OverridesDetailPanelProps) {
+  const { t } = useTranslation("settings");
   const { data: daemonConfig } = useQuery({
     ...configGetOptions({ path: { assistant_id: assistantId } }),
     staleTime: 30_000,
@@ -239,10 +241,10 @@ export function OverridesDetailPanel({
       );
       return [
         ...visible.map(toProfileOption),
-        { value: CUSTOM_SENTINEL, label: "Custom" },
+        { value: CUSTOM_SENTINEL, label: t("overridesDetailPanel.customProfileOption") },
       ];
     },
-    [orderedProfiles, toProfileOption, dispatchOptions],
+    [orderedProfiles, toProfileOption, dispatchOptions, t],
   );
 
   const filteredCallSites = useMemo(() => {
@@ -277,12 +279,12 @@ export function OverridesDetailPanel({
     );
     if (unknownSites.length > 0) {
       groups.push({
-        domain: { id: "other", displayName: "Other" },
+        domain: { id: "other", displayName: t("overridesDetailPanel.otherDomain") },
         sites: unknownSites,
       });
     }
     return groups;
-  }, [catalog, filteredCallSites]);
+  }, [catalog, filteredCallSites, t]);
 
   // ---------------------------------------------------------------------------
   // Row callbacks
@@ -341,9 +343,9 @@ export function OverridesDetailPanel({
         },
       });
       onClose();
-      toast.success("Overrides saved.");
+      toast.success(t("overridesDetailPanel.overridesSavedToast"));
     } catch (error) {
-      toast.error("Failed to save overrides. Please try again.");
+      toast.error(t("overridesDetailPanel.saveFailedToast"));
       captureError(error, { context: "call_site_overrides_save" });
     } finally {
       setSaving(false);
@@ -356,6 +358,7 @@ export function OverridesDetailPanel({
     onClose,
     configMutation,
     assistantId,
+    t,
   ]);
 
   const handleReset = useCallback(async () => {
@@ -367,14 +370,14 @@ export function OverridesDetailPanel({
         body: { llm: { callSites: resetPatch } },
       });
       onClose();
-      toast.success("Overrides reset.");
+      toast.success(t("overridesDetailPanel.overridesResetToast"));
     } catch (error) {
-      toast.error("Failed to reset overrides. Please try again.");
+      toast.error(t("overridesDetailPanel.resetFailedToast"));
       captureError(error, { context: "call_site_overrides_reset" });
     } finally {
       setSaving(false);
     }
-  }, [buildResetPatch, onClose, configMutation, assistantId]);
+  }, [buildResetPatch, onClose, configMutation, assistantId, t]);
 
   // ---------------------------------------------------------------------------
   // Render
@@ -390,7 +393,7 @@ export function OverridesDetailPanel({
           tintColor="var(--system-negative-strong)"
           className="mr-auto"
         >
-          Reset to Defaults
+          {t("overridesDetailPanel.resetToDefaults")}
         </Button>
       )}
       <Button
@@ -398,21 +401,24 @@ export function OverridesDetailPanel({
         onClick={() => void handleSave()}
         disabled={!hasUnsavedDrafts || hasValidationError || saving}
       >
-        {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : "Save"}
+        {saving ? (
+          <Loader2 className="h-4 w-4 animate-spin" />
+        ) : (
+          t("overridesDetailPanel.save")
+        )}
       </Button>
     </div>
   );
 
   return (
     <DetailShell
-      title="Action Overrides"
+      title={t("overridesDetailPanel.title")}
       closeVariant="outlined"
       onClose={onClose}
       footer={footer}
     >
       <p className="mb-4 text-body-medium-lighter text-[var(--content-tertiary)]">
-        Customize which model profile specific actions should use. Uses your
-        default profile if no override is set.
+        {t("overridesDetailPanel.description")}
       </p>
 
       <div>
@@ -426,7 +432,7 @@ export function OverridesDetailPanel({
               type="search"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search actions…"
+              placeholder={t("overridesDetailPanel.searchPlaceholder")}
               leftIcon={<Search className="h-4 w-4" />}
               fullWidth
             />
@@ -439,13 +445,13 @@ export function OverridesDetailPanel({
             }
             title={
               hasUnsavedDrafts
-                ? "Save or reset your changes first"
+                ? t("overridesDetailPanel.bulkChangeUnsavedTitle")
                 : !hasBulkSwapCandidates
-                  ? "No actions currently use a profile"
+                  ? t("overridesDetailPanel.bulkChangeNoCandidatesTitle")
                   : undefined
             }
           >
-            Bulk change
+            {t("overridesDetailPanel.bulkChange")}
           </Button>
         </div>
 
@@ -456,7 +462,7 @@ export function OverridesDetailPanel({
           <div className="mb-4">
             {/* typography: off-scale. Matches the domain section label below */}
             <p className="mb-2 text-body-small-default font-semibold uppercase tracking-wider text-[var(--content-tertiary)]">
-              Advisor
+              {t("overridesDetailPanel.advisorSection")}
             </p>
             <AdvisorProfileRow
               value={advisorProfile}
@@ -478,13 +484,13 @@ export function OverridesDetailPanel({
         {isError && (
           <div className="flex flex-col items-center gap-3 py-12 text-center">
             <p className="text-body-medium-default text-[var(--content-default)]">
-              Couldn&apos;t load actions
+              {t("overridesDetailPanel.loadErrorTitle")}
             </p>
             <p className="text-body-medium-lighter text-[var(--content-tertiary)]">
-              Make sure your assistant is running
+              {t("overridesDetailPanel.loadErrorHint")}
             </p>
             <Button variant="outlined" onClick={() => void refetch()}>
-              Retry
+              {t("overridesDetailPanel.retry")}
             </Button>
           </div>
         )}
@@ -521,9 +527,9 @@ export function OverridesDetailPanel({
 
       <ConfirmDialog
         open={showResetConfirmation}
-        title="Reset to Defaults"
-        message="Every action override will be reset and will follow its default. This cannot be undone."
-        confirmLabel="Reset to Defaults"
+        title={t("overridesDetailPanel.resetToDefaults")}
+        message={t("overridesDetailPanel.resetConfirmMessage")}
+        confirmLabel={t("overridesDetailPanel.resetToDefaults")}
         destructive
         onConfirm={() => {
           setShowResetConfirmation(false);
