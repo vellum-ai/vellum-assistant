@@ -45,6 +45,7 @@
     "recentRuns": "Ejecuciones recientes",
     "managedByPlugin": "Gestionada por el plugin {plugin}",
     "delete": "Eliminar",
+    "deleteConfirmMessage": "¿Eliminar \"{name}\"? Esta acción no se puede deshacer.",
     "cancel": "Cancelar",
     "deleting": "Eliminando…",
     "confirmDelete": "Sí, eliminar",

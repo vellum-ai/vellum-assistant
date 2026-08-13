@@ -131,10 +131,8 @@ export function ProfileDetailPanel({
         headerActions={
           editor.effectiveMode !== "create" && !editor.isReadOnly ? (
             <Button
-              variant="outlined"
-              size="compact"
+              variant="dangerOutline"
               leftIcon={<Trash2 />}
-              tintColor="var(--system-negative-strong)"
               onClick={() => {
                 if (profileName != null) {
                   deleteFlow.requestDelete(profileName);
