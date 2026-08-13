@@ -1274,13 +1274,20 @@ describe("ChatComposer: single-row mobile composer", () => {
     expect(onAddAttachmentFiles.mock.calls[0]?.[0]).toBe(SHEET_PICK);
   });
 
-  test("a phone leaves the hidden file inputs to the sheet", () => {
-    // GIVEN a phone composer, where the sheet owns the pickers
-    const { container } = renderPhoneComposer();
+  test("the hidden picker input outlives a swap of what the plus opens", () => {
+    // GIVEN a phone composer, whose plus opens the sheet
+    const { container, rerender } = renderPhoneComposer();
+    const before = fileInput(container);
+    expect(before).not.toBeNull();
 
-    // THEN the row mounts none of its own
-    expect(addSheet(container)).not.toBeNull();
-    expect(fileInput(container)).toBeNull();
+    // WHEN a keyboard is attached mid-session, handing the plus the picker
+    // instead, while an OS file dialog opened from it is still up
+    viewport.set({ narrow: true, coarsePointer: false });
+    rerender(composerElement());
+
+    // THEN the very same input is still mounted to receive the selection,
+    // rather than a fresh one that never opened the dialog
+    expect(fileInput(container)).toBe(before);
   });
 
   test("a narrow window a mouse drives keeps the plus and mounts no sheet", () => {
@@ -1364,6 +1371,22 @@ describe("ChatComposer: single-row mobile composer", () => {
 
     // THEN the sheet is still there to receive it, since what mounts it is the
     // pointer, which rotating does not change
+    expect(addSheet(container)?.getAttribute("data-open")).toBe("true");
+  });
+
+  test("attaching a keyboard leaves an open sheet up", () => {
+    // GIVEN a convertible on a touch screen with its sheet up
+    const { container, rerender } = renderPhoneComposer();
+    fireEvent.click(control(container, PLUS_LABEL)!);
+    expect(addSheet(container)?.getAttribute("data-open")).toBe("true");
+
+    // WHEN its keyboard is reattached, which flips the live pointer signal the
+    // sheet is mounted on
+    viewport.set({ narrow: true, coarsePointer: false });
+    rerender(composerElement());
+
+    // THEN the sheet the user is looking at stays up, rather than vanishing
+    // with its open state still set and reappearing on the next flip
     expect(addSheet(container)?.getAttribute("data-open")).toBe("true");
   });
 
