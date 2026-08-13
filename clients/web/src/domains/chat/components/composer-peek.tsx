@@ -267,7 +267,10 @@ export function ComposerPeek({
             (Number.parseFloat(window.getComputedStyle(pills).marginBottom) ||
               0)
           : 0;
-      if (measuredClearance > 0) {
+      // Tracks the last measured value, zero included: holding only non-zero
+      // ones would let a blur taken after the row stopped overlapping (or
+      // unmounted) apply a stale clearance and teleport the exiting avatar up.
+      if (!exiting) {
         heldPillsClearance = measuredClearance;
       }
       const pillsClearance =
