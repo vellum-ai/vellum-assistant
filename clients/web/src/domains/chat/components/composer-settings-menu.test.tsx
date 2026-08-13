@@ -68,6 +68,7 @@ mock.module("@/lib/threshold-api", () => ({
 type QuickAddArgs = {
   existingNames?: string[];
   onCreated?: (name: string, label: string | null) => void;
+  onClosed?: () => void;
 };
 const openProfileQuickAdd = mock((_args?: QuickAddArgs) => {});
 mock.module("@/components/profile-quick-add-provider", () => ({
@@ -153,6 +154,8 @@ mock.module("@vellumai/design-library", () => {
       onClick,
       "aria-label": ariaLabel,
       iconOnly: _i,
+      leftIcon: _l,
+      expandOnMobile: _e,
       ...rest
     }: Record<string, unknown>) =>
       createElement("button", { onClick, "aria-label": ariaLabel, ...rest }),
@@ -233,20 +236,64 @@ import { ComposerSettingsMenu } from "@/domains/chat/components/composer-setting
 import { useConversationStore } from "@/stores/conversation-store";
 import { ApiError } from "@/utils/api-errors";
 
-function renderMenu() {
-  const queryClient = new QueryClient({
+/** The config payload most cases mount against: one profile, "Smart". */
+const SMART_CONFIG = {
+  llm: {
+    profileOrder: ["smart"],
+    profiles: {
+      smart: {
+        label: "Smart",
+        provider: "anthropic",
+        model: "claude-fable-5",
+      },
+    },
+    activeProfile: "smart",
+  },
+};
+
+function createQueryClient() {
+  return new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   });
-  return render(
-    createElement(
-      QueryClientProvider,
-      { client: queryClient },
-      createElement(ComposerSettingsMenu, {
-        assistantId: "assistant-1",
-        conversationId: "conv-1",
-      }),
-    ),
+}
+
+interface Scaffold {
+  /** Props for the menu under test, over the shared assistant/conversation. */
+  props?: {
+    conversationId?: string;
+    segments?: "both" | "access" | "profile";
+    onOpenChange?: (open: boolean) => void;
+  };
+  /**
+   * Mount inside a `ComposerCompactProvider` at this width. Left out, the menu
+   * mounts bare, the way the wide composer renders it.
+   */
+  compact?: boolean;
+  /** Pass a client to keep its cache across a `rerender`. */
+  queryClient?: QueryClient;
+}
+
+/**
+ * The one provider scaffold for this file: a QueryClient wrapper, optionally a
+ * compact composer around it, and the menu with the shared ids.
+ */
+function menuElement({ props, compact, queryClient }: Scaffold = {}) {
+  const menu = createElement(ComposerSettingsMenu, {
+    assistantId: "assistant-1",
+    conversationId: "conv-1",
+    ...props,
+  });
+  return createElement(
+    QueryClientProvider,
+    { client: queryClient ?? createQueryClient() },
+    compact === undefined
+      ? menu
+      : createElement(ComposerCompactProvider, { compact, children: menu }),
   );
+}
+
+function renderMenu(scaffold?: Scaffold) {
+  return render(menuElement(scaffold));
 }
 
 beforeEach(() => {
@@ -432,18 +479,9 @@ describe("Model Profile quick-add", () => {
 
 describe("Profile selection after conversation change (LUM-2279)", () => {
   test("selecting a profile works immediately after conversationId changes", async () => {
-    const qc = new QueryClient({
-      defaultOptions: { queries: { retry: false } },
-    });
-    const tree = (convId: string) =>
-      createElement(
-        QueryClientProvider,
-        { client: qc },
-        createElement(ComposerSettingsMenu, {
-          assistantId: "assistant-1",
-          conversationId: convId,
-        }),
-      );
+    const queryClient = createQueryClient();
+    const tree = (conversationId: string) =>
+      menuElement({ props: { conversationId }, queryClient });
 
     const { rerender } = render(tree("conv-1"));
     // "Smart" now renders both on the composer trigger and in the menu row, so
@@ -552,41 +590,12 @@ describe("Profile trigger updates", () => {
 describe("Profile selection with no active conversation (new draft chat)", () => {
   test("stashes the selection for the draft instead of overwriting the global default", async () => {
     // Guard against a hanging/altered config impl leaking from a prior test.
-    configGetMock.mockImplementation(async () => ({
-      data: {
-        llm: {
-          profileOrder: ["smart"],
-          profiles: {
-            smart: {
-              label: "Smart",
-              provider: "anthropic",
-              model: "claude-fable-5",
-            },
-          },
-          activeProfile: "smart",
-        },
-      },
-    }));
+    configGetMock.mockImplementation(async () => ({ data: SMART_CONFIG }));
     // The composer is on a brand-new draft chat: a draft id lives in the store,
     // but there is no server conversation yet (conversationId prop undefined).
     useConversationStore.getState().setActiveConversationId("draft-xyz");
 
-    const qc = new QueryClient({
-      defaultOptions: {
-        queries: { retry: false },
-        mutations: { retry: false },
-      },
-    });
-    render(
-      createElement(
-        QueryClientProvider,
-        { client: qc },
-        createElement(ComposerSettingsMenu, {
-          assistantId: "assistant-1",
-          conversationId: undefined,
-        }),
-      ),
-    );
+    renderMenu({ props: { conversationId: undefined } });
 
     // "Smart" now renders both on the composer trigger and in the menu row, so
     // wait for at least one occurrence rather than asserting a single match.
@@ -616,21 +625,7 @@ describe("Profile activation rejected by the daemon", () => {
   /** Load the menu and click the "Smart" profile row. */
   async function selectSmart() {
     // Guard against a hanging/altered config impl leaking from a prior test.
-    configGetMock.mockImplementation(async () => ({
-      data: {
-        llm: {
-          profileOrder: ["smart"],
-          profiles: {
-            smart: {
-              label: "Smart",
-              provider: "anthropic",
-              model: "claude-fable-5",
-            },
-          },
-          activeProfile: "smart",
-        },
-      },
-    }));
+    configGetMock.mockImplementation(async () => ({ data: SMART_CONFIG }));
     renderMenu();
     await waitFor(() =>
       expect(screen.getAllByText("Smart").length).toBeGreaterThan(0),
@@ -679,72 +674,43 @@ describe("Profile activation rejected by the daemon", () => {
   });
 });
 
-describe("labeled-pill trigger variant", () => {
+describe("mobile pill triggers", () => {
   // Preset[1] ("Conservative") is what the mocked global threshold of 50
   // resolves to, so it is the label the access trigger settles on.
   const ACCESS_TRIGGER_LABEL = "Assistant access: Conservative";
+  // The fill the pills float on. Distinct from the composer card's own
+  // `--surface-lift`, which reads as no pill at all against the card.
+  const PILL_FILL_CLASS = "bg-[var(--border-subtle)]";
 
-  function renderVariant(props: {
-    triggerVariant?: "icon" | "labeled-pill";
-    onOpenChange?: (open: boolean) => void;
-  }) {
+  beforeEach(() => {
     isMobileRef.value = true;
     isTouchMobileRef.value = true;
     // Guard against a hanging/altered impl leaking from a prior test.
-    configGetMock.mockImplementation(async () => ({
-      data: {
-        llm: {
-          profileOrder: ["smart"],
-          profiles: {
-            smart: {
-              label: "Smart",
-              provider: "anthropic",
-              model: "claude-fable-5",
-            },
-          },
-          activeProfile: "smart",
-        },
-      },
-    }));
+    configGetMock.mockImplementation(async () => ({ data: SMART_CONFIG }));
     conversationsByIdGetMock.mockImplementation(async () => ({
       data: { conversation: { inferenceProfile: null } },
     }));
-    const queryClient = new QueryClient({
-      defaultOptions: {
-        queries: { retry: false },
-        mutations: { retry: false },
-      },
-    });
-    return render(
-      createElement(
-        QueryClientProvider,
-        { client: queryClient },
-        createElement(ComposerSettingsMenu, {
-          assistantId: "assistant-1",
-          conversationId: "conv-1",
-          ...props,
-        }),
-      ),
-    );
-  }
+  });
 
   test("renders the resolved access and profile labels on the pills", async () => {
-    renderVariant({ triggerVariant: "labeled-pill" });
+    renderMenu();
 
     const accessTrigger = await screen.findByLabelText(ACCESS_TRIGGER_LABEL);
     expect(accessTrigger.textContent).toContain("Conservative");
+    expect(accessTrigger.getAttribute("class")).toContain(PILL_FILL_CLASS);
 
     const profileTrigger = await screen.findByLabelText(/^Model profile/);
     await waitFor(() => {
       expect(profileTrigger.textContent).toContain("Smart");
     });
+    expect(profileTrigger.getAttribute("class")).toContain(PILL_FILL_CLASS);
   });
 
   test("names the profile pill by the profile it displays", async () => {
     // An aria-label overrides the pill's visible text, so a generic one leaves
     // a screen reader unable to announce the selection and voice control unable
     // to activate the pill by the words it shows.
-    renderVariant({ triggerVariant: "labeled-pill" });
+    renderMenu();
 
     const profileTrigger = await screen.findByLabelText(/^Model profile/);
     await waitFor(() => {
@@ -759,19 +725,27 @@ describe("labeled-pill trigger variant", () => {
     expect(accessTrigger.textContent).toContain("Conservative");
   });
 
-  test("the default icon variant keeps the mobile triggers unlabeled", async () => {
-    renderVariant({});
+  test("keeps the pill shape when the profile label never resolves", async () => {
+    // No profile to name, so the pill has no label to carry. It still has to
+    // hold the row's geometry: the action row's icon button would render a
+    // 40px circle beside the 32px access pill.
+    configGetMock.mockImplementation(async () => ({
+      data: { llm: { profileOrder: [], profiles: {}, activeProfile: null } },
+    }));
+    renderMenu();
 
-    const accessTrigger = await screen.findByLabelText(ACCESS_TRIGGER_LABEL);
-    expect(accessTrigger.textContent).toBe("");
-    expect((await screen.findByLabelText(/^Model profile/)).textContent).toBe(
-      "",
-    );
+    const profileTrigger = await screen.findByLabelText("Model profile");
+    expect(profileTrigger.textContent).toBe("");
+    const pillClass = profileTrigger.getAttribute("class") ?? "";
+    expect(pillClass).toContain("h-8");
+    expect(pillClass).toContain("w-8");
+    expect(pillClass).toContain("rounded-full");
+    expect(pillClass).toContain(PILL_FILL_CLASS);
   });
 
   test("tapping a pill opens the same bottom sheet and reports the open state", async () => {
     const onOpenChange = mock((_open: boolean) => {});
-    renderVariant({ triggerVariant: "labeled-pill", onOpenChange });
+    renderMenu({ props: { onOpenChange } });
 
     const accessTrigger = await screen.findByLabelText(ACCESS_TRIGGER_LABEL);
     fireEvent.click(accessTrigger);
@@ -792,7 +766,7 @@ describe("labeled-pill trigger variant", () => {
 
   test("reports the profile sheet's open state too", async () => {
     const onOpenChange = mock((_open: boolean) => {});
-    renderVariant({ triggerVariant: "labeled-pill", onOpenChange });
+    renderMenu({ props: { onOpenChange } });
 
     const profileTrigger = await screen.findByLabelText(/^Model profile/);
     fireEvent.click(profileTrigger);
@@ -810,39 +784,75 @@ describe("labeled-pill trigger variant", () => {
   });
 });
 
-describe("compact composer collapse", () => {
-  function renderCompact(
-    segments: "both" | "access" | "profile",
-    onOpenChange?: (open: boolean) => void,
-  ) {
-    const queryClient = new QueryClient({
-      defaultOptions: {
-        queries: { retry: false },
-        mutations: { retry: false },
-      },
-    });
-    return render(
-      createElement(
-        QueryClientProvider,
-        { client: queryClient },
-        createElement(ComposerCompactProvider, {
-          compact: true,
-          children: createElement(ComposerSettingsMenu, {
-            assistantId: "assistant-1",
-            conversationId: "conv-1",
-            segments,
-            onOpenChange,
-          }),
-        }),
-      ),
-    );
-  }
+describe("open-state reporting across the quick-add and unmount", () => {
+  test("stays open while the quick-add modal it launched is up", async () => {
+    // The modal renders outside the composer, and opening it closes the sheet
+    // it was launched from. Reporting that close would put the pills row away
+    // mid-flow, under a modal the user is still filling in.
+    const onOpenChange = mock((_open: boolean) => {});
+    renderMenu({ props: { onOpenChange } });
 
+    const profileTrigger = await screen.findByLabelText(/^Model profile/);
+    fireEvent.click(profileTrigger);
+    await waitFor(() => {
+      expect(onOpenChange).toHaveBeenLastCalledWith(true);
+    });
+
+    await waitFor(() => {
+      const plus = screen.getByLabelText("New Profile") as HTMLButtonElement;
+      expect(plus.disabled).toBe(false);
+    });
+    fireEvent.click(screen.getByLabelText("New Profile"));
+    await waitFor(() => {
+      expect(openProfileQuickAdd).toHaveBeenCalledTimes(1);
+    });
+
+    // The surface closed, but the flow it started has not.
+    expect(onOpenChange).toHaveBeenLastCalledWith(true);
+
+    // The provider reports the modal's close, whether it saved or cancelled.
+    const onClosed = openProfileQuickAdd.mock.calls[0]![0]!.onClosed!;
+    act(() => onClosed());
+    await waitFor(() => {
+      expect(onOpenChange).toHaveBeenLastCalledWith(false);
+    });
+  });
+
+  test("reports closed when it unmounts with a surface open", async () => {
+    // Crossing the mobile breakpoint swaps the presentation and unmounts this
+    // instance. A parent left holding `true` would keep a row up that nothing
+    // is left to close.
+    const onOpenChange = mock((_open: boolean) => {});
+    const { unmount } = renderMenu({ props: { onOpenChange } });
+
+    const profileTrigger = await screen.findByLabelText(/^Model profile/);
+    fireEvent.click(profileTrigger);
+    await waitFor(() => {
+      expect(onOpenChange).toHaveBeenLastCalledWith(true);
+    });
+
+    unmount();
+
+    expect(onOpenChange).toHaveBeenLastCalledWith(false);
+  });
+
+  test("stays quiet when it unmounts with everything closed", async () => {
+    const onOpenChange = mock((_open: boolean) => {});
+    const { unmount } = renderMenu({ props: { onOpenChange } });
+
+    await screen.findByLabelText(/^Model profile/);
+    unmount();
+
+    expect(onOpenChange).not.toHaveBeenCalled();
+  });
+});
+
+describe("compact composer collapse", () => {
   test("folds both segments into one hamburger trigger", async () => {
     // The composer mounts only the access-segment instance when compact, so
     // that instance has to carry the model profile too, or the picker is
     // unreachable on a narrow window.
-    renderCompact("access");
+    renderMenu({ compact: true, props: { segments: "access" } });
 
     const trigger = await screen.findByLabelText(
       "Assistant access and model profile",
@@ -863,7 +873,7 @@ describe("compact composer collapse", () => {
     // The compact branch is the only surface this instance opens, so a parent
     // holding its trigger chrome visible has to hear about it too.
     const onOpenChange = mock((_open: boolean) => {});
-    renderCompact("access", onOpenChange);
+    renderMenu({ compact: true, props: { segments: "access", onOpenChange } });
 
     const trigger = await screen.findByLabelText(
       "Assistant access and model profile",
@@ -902,26 +912,13 @@ describe("compact composer collapse", () => {
     // branch that is actually mounted or a parent holding trigger chrome
     // visible never hears the surface close.
     const onOpenChange = mock((_open: boolean) => {});
-    const queryClient = new QueryClient({
-      defaultOptions: {
-        queries: { retry: false },
-        mutations: { retry: false },
-      },
-    });
+    const queryClient = createQueryClient();
     const tree = (compact: boolean) =>
-      createElement(
-        QueryClientProvider,
-        { client: queryClient },
-        createElement(ComposerCompactProvider, {
-          compact,
-          children: createElement(ComposerSettingsMenu, {
-            assistantId: "assistant-1",
-            conversationId: "conv-1",
-            segments: "both",
-            onOpenChange,
-          }),
-        }),
-      );
+      menuElement({
+        compact,
+        queryClient,
+        props: { segments: "both", onOpenChange },
+      });
 
     const { rerender } = render(tree(false));
 

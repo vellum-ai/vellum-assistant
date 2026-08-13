@@ -38,7 +38,6 @@ import { useChatUIState } from "@/domains/chat/hooks/use-chat-ui-state";
 import { useTranscriptData } from "@/domains/chat/hooks/use-transcript-data";
 import { useTranscriptMessages } from "@/domains/chat/transcript/use-transcript-messages";
 import { useChatEmptyState } from "@/domains/chat/hooks/use-chat-empty-state";
-import { useComposerSettingsSheets } from "@/domains/chat/hooks/use-composer-settings-sheets";
 import { useComposerSubmit } from "@/domains/chat/hooks/use-composer-submit";
 import { useDraftSecretDetection } from "@/domains/chat/hooks/use-draft-secret-detection";
 import type { SendChatMessageOptions } from "@/domains/chat/hooks/use-send-message";
@@ -1236,9 +1235,12 @@ export function ChatMainPanel({
   // Whether the surface each settings menu owns is open. The mobile composer
   // floats those two triggers above its card and hides them when focus leaves,
   // and opening one takes focus out of the composer, so it needs the open state
-  // to hold the row in place underneath the sheet.
-  const { settingsSheetOpen, onAccessOpenChange, onProfileOpenChange } =
-    useComposerSettingsSheets(isMobile);
+  // to hold the row in place underneath the sheet. Each menu reports `false` on
+  // its way out, so a presentation swap that unmounts an open one clears the
+  // flag it set.
+  const [accessSheetOpen, setAccessSheetOpen] = useState(false);
+  const [profileSheetOpen, setProfileSheetOpen] = useState(false);
+  const settingsSheetOpen = accessSheetOpen || profileSheetOpen;
 
   // The narrow composer is one slim row with no room for a sentence, so it
   // names the assistant it is addressed to instead. An assistant whose name
@@ -1298,8 +1300,7 @@ export function ChatMainPanel({
             assistantId={assistantId}
             conversationId={activeConversation?.conversationId}
             segments="access"
-            triggerVariant={isMobile ? "labeled-pill" : "icon"}
-            onOpenChange={onAccessOpenChange}
+            onOpenChange={setAccessSheetOpen}
           />
         ) : undefined
       }
@@ -1309,8 +1310,7 @@ export function ChatMainPanel({
             assistantId={assistantId}
             conversationId={activeConversation?.conversationId}
             segments="profile"
-            triggerVariant={isMobile ? "labeled-pill" : "icon"}
-            onOpenChange={onProfileOpenChange}
+            onOpenChange={setProfileSheetOpen}
           />
         ) : undefined
       }
