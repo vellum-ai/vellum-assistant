@@ -39,11 +39,14 @@ uninstall removes the whole directory. Nothing touches the assistant's
 own database. Every store operation fails open: a broken store degrades
 to no-op tallies rather than blocking the turn.
 
-One wrinkle worth copying: the route module cannot share the hooks'
-in-memory handle, because the dispatcher re-imports route files with a
-cache-busting URL. The store therefore lazily opens the same file from
-the plugin's data directory (derived from `getWorkspaceDir()`) whenever
-a surface with a fresh module instance touches it.
+One wrinkle worth copying: module state set by `init` is not always
+there. Route modules are re-imported with a cache-busting URL, and hooks
+can be dispatched in processes that never run the plugin lifecycle
+(sidecar workers waking a conversation). The store therefore lazily
+opens the same file from the plugin's data directory (derived from
+`getWorkspaceDir()`), and the parsed config is lazily re-read from
+`config.json` the same way, whenever a surface runs where `init` has
+not.
 
 ## Try it
 
