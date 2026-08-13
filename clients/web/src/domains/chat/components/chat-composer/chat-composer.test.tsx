@@ -607,14 +607,19 @@ function seedAttachments(
   return list;
 }
 
-function renderComposer(
-  props: Partial<Parameters<typeof ChatComposer>[0]> & {
-    input?: string;
-    chatAttachments?: ChatAttachment[];
-    attachmentsUploadingCount?: number;
-    canSendAttachments?: boolean;
-  } = {},
-) {
+type RenderComposerProps = Partial<Parameters<typeof ChatComposer>[0]> & {
+  input?: string;
+  chatAttachments?: ChatAttachment[];
+  attachmentsUploadingCount?: number;
+  canSendAttachments?: boolean;
+};
+
+/**
+ * Mount the composer and hand back the testing-library result, for cases that
+ * drive events at the mounted DOM. Cases that only read the rendered surface
+ * use `renderComposer` below, which returns the markup directly.
+ */
+function renderComposerView(props: RenderComposerProps = {}) {
   // The composer self-sources its draft + attachments from the store, so seed
   // them there rather than passing them as props.
   const {
@@ -630,7 +635,7 @@ function renderComposer(
       chatAttachments ??
       seedAttachments(attachmentsUploadingCount, canSendAttachments),
   });
-  const { container } = render(
+  return render(
     <ChatComposer
       placeholder="Custom placeholder"
       onSubmit={() => {}}
@@ -644,7 +649,10 @@ function renderComposer(
       {...rest}
     />,
   );
-  return container.innerHTML;
+}
+
+function renderComposer(props: RenderComposerProps = {}) {
+  return renderComposerView(props).container.innerHTML;
 }
 
 describe("ChatComposer — placeholder", () => {
@@ -944,6 +952,113 @@ describe("ChatComposer — optional slots", () => {
     // VoiceInputButton renders aria-label="Start voice input" / "Stop voice input".
     expect(html).not.toContain("Start voice input");
     expect(html).not.toContain("Stop voice input");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Mobile settings pills: the focus-gated row above the card
+// ---------------------------------------------------------------------------
+
+describe("ChatComposer: mobile settings pills row", () => {
+  const SETTINGS_SLOTS = {
+    thresholdPickerSlot: <span>THR</span>,
+    modelPickerSlot: <span>PROFILE</span>,
+  };
+
+  function pillsRow(container: HTMLElement) {
+    return container.querySelector('[data-slot="composer-settings-pills"]');
+  }
+
+  function textareaOf(container: HTMLElement) {
+    const textarea = container.querySelector("textarea");
+    if (!textarea) {
+      throw new Error("composer rendered without a textarea");
+    }
+    return textarea;
+  }
+
+  function renderPhoneComposer(props: RenderComposerProps = {}) {
+    viewport.set({ narrow: true, coarsePointer: true });
+    return renderComposerView({ ...SETTINGS_SLOTS, ...props });
+  }
+
+  test("an unfocused phone composer shows neither pill anywhere", () => {
+    // GIVEN a phone composer nobody has tapped into
+    const { container } = renderPhoneComposer();
+
+    // THEN the row is absent, and the action row does not carry the pickers
+    // either: mobile moves them out of the card entirely.
+    expect(pillsRow(container)).toBeNull();
+    expect(container.innerHTML).not.toContain(">THR<");
+    expect(container.innerHTML).not.toContain(">PROFILE<");
+  });
+
+  test("focusing the composer raises the row above the card, access first", () => {
+    // GIVEN a phone composer
+    const { container } = renderPhoneComposer();
+
+    // WHEN it takes focus
+    fireEvent.focusIn(textareaOf(container));
+
+    // THEN both pills sit in one row outside the card, access before profile
+    const row = pillsRow(container);
+    expect(row?.textContent).toBe("THRPROFILE");
+    expect(row?.closest("form")).toBeNull();
+    const html = container.innerHTML;
+    expect(html.indexOf(">THR<")).toBeLessThan(html.indexOf("<form"));
+  });
+
+  test("blurring to the body puts the row away", () => {
+    // GIVEN a focused phone composer
+    const { container } = renderPhoneComposer();
+    const textarea = textareaOf(container);
+    fireEvent.focusIn(textarea);
+
+    // WHEN focus leaves with nowhere to land, as the iOS keyboard dismiss does
+    fireEvent.focusOut(textarea, { relatedTarget: null });
+
+    // THEN the row is gone
+    expect(pillsRow(container)).toBeNull();
+  });
+
+  test("an open settings sheet holds the row up after focus leaves", () => {
+    // GIVEN a phone composer whose access sheet is open
+    const { container } = renderPhoneComposer({ settingsSheetOpen: true });
+    const textarea = textareaOf(container);
+    fireEvent.focusIn(textarea);
+
+    // WHEN the sheet takes focus out of the composer
+    fireEvent.focusOut(textarea, { relatedTarget: null });
+
+    // THEN the row the sheet was opened from stays put
+    expect(pillsRow(container)).not.toBeNull();
+  });
+
+  test("desktop keeps both pickers inside the action row, focused or not", () => {
+    // GIVEN a desktop composer
+    viewport.set({ narrow: false, coarsePointer: false });
+    const { container } = renderComposerView(SETTINGS_SLOTS);
+
+    // WHEN it takes focus
+    fireEvent.focusIn(textareaOf(container));
+
+    // THEN the pickers stay in the card and no floating row is added
+    expect(pillsRow(container)).toBeNull();
+    const form = container.querySelector("form");
+    expect(form?.innerHTML).toContain(">THR<");
+    expect(form?.innerHTML).toContain(">PROFILE<");
+  });
+
+  test("a variant with no settings slots renders no row (app-editing panel)", () => {
+    // GIVEN a phone composer that was passed neither settings slot
+    viewport.set({ narrow: true, coarsePointer: true });
+    const { container } = renderComposerView();
+
+    // WHEN it takes focus
+    fireEvent.focusIn(textareaOf(container));
+
+    // THEN there is nothing to float, so no row is rendered
+    expect(pillsRow(container)).toBeNull();
   });
 });
 

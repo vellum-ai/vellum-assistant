@@ -1231,6 +1231,13 @@ export function ChatMainPanel({
 
   const cmdEnterMode = cmdEnterToSend.useValue();
 
+  // Whether the surface each settings menu owns is open. The mobile composer
+  // floats those two triggers above its card and hides them when focus leaves,
+  // and opening one takes focus out of the composer, so it needs the open state
+  // to hold the row in place underneath the sheet.
+  const [accessSurfaceOpen, setAccessSurfaceOpen] = useState(false);
+  const [profileSurfaceOpen, setProfileSurfaceOpen] = useState(false);
+
   // Explicit props (no spread bundle): the contract is visible here, and the
   // composer self-sources its own store state, so nothing high-frequency is
   // threaded through. `ChatBody` renders this node as-is.
@@ -1269,12 +1276,15 @@ export function ChatMainPanel({
       textareaMaxHeightPx={isEmptyConversation ? 320 : undefined}
       suggestion={suggestion}
       hasBillingBanner={composerBillingBanner !== null}
+      settingsSheetOpen={accessSurfaceOpen || profileSurfaceOpen}
       thresholdPickerSlot={
         assistantId ? (
           <ComposerSettingsMenu
             assistantId={assistantId}
             conversationId={activeConversation?.conversationId}
             segments="access"
+            triggerVariant={isMobile ? "labeled-pill" : "icon"}
+            onOpenChange={setAccessSurfaceOpen}
           />
         ) : undefined
       }
@@ -1284,6 +1294,8 @@ export function ChatMainPanel({
             assistantId={assistantId}
             conversationId={activeConversation?.conversationId}
             segments="profile"
+            triggerVariant={isMobile ? "labeled-pill" : "icon"}
+            onOpenChange={setProfileSurfaceOpen}
           />
         ) : undefined
       }
