@@ -6,7 +6,9 @@ skills, and more.
 If you're authoring a plugin against the current convention, this file is
 your map. Read [`vellum-ai/simple-memory`](https://github.com/vellum-ai/simple-memory)
 alongside, it's the canonical reference implementation and exercises every
-wired surface.
+wired surface. For a miniature in-repo example that demonstrates each core
+surface (hooks with self-contained SQLite state, a tool, a route, and a
+skill) in one small install, see [`turn-tally/`](turn-tally/).
 
 ## Table of contents
 

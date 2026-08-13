@@ -1,0 +1,11 @@
+{
+  "name": "turn-tally",
+  "version": "0.1.0",
+  "description": "Example plugin: per-conversation activity tallies, demonstrating every core plugin surface.",
+  "type": "module",
+  "license": "MIT",
+  "peerDependencies": {
+    "@vellumai/plugin-api": "^0.11.0"
+  },
+  "vellum": {}
+}
