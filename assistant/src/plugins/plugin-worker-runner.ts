@@ -136,7 +136,7 @@ async function executeWorker(
   runtime: WorkerRuntime,
   rejectOnFailure: boolean,
 ): Promise<void> {
-  let result: PluginWorkerResult | void;
+  let result: PluginWorkerResult | void = undefined;
   try {
     result = await runInPluginContext(runtime.definition.pluginId, () =>
       runtime.definition.run(runtime.context),
@@ -148,7 +148,6 @@ async function executeWorker(
     if (!runtime.controller.signal.aborted) {
       runtime.context.logger.error({ err }, "plugin worker failed");
     }
-    return;
   }
   if (!runtime.stopped && !runtime.controller.signal.aborted) {
     scheduleNextWake(runtime, result);

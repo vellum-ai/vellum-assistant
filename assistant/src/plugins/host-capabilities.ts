@@ -1,5 +1,8 @@
 import semver from "semver";
 
+export const ASSISTANT_PEER_ROUTES_CAPABILITY_ID =
+  "plugins.routes.assistant-peer";
+
 export const HOST_CAPABILITIES = Object.freeze({
   "plugins.activation.requirements": "1.0.0",
   "plugins.readiness": "1.0.0",

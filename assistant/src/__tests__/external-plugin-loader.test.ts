@@ -62,6 +62,23 @@ function writeHostRequirements(
   );
 }
 
+function writeAssistantPeerRouteManifest(dir: string): void {
+  writeSurfaceFile(
+    dir,
+    "routes/manifest.json",
+    JSON.stringify({
+      schemaVersion: 1,
+      routes: [
+        {
+          path: "exchange",
+          method: "POST",
+          authorization: { principal: "assistant_peer" },
+        },
+      ],
+    }),
+  );
+}
+
 function writeSurfaceFile(dir: string, relPath: string, body: string): void {
   const parts = relPath.split("/");
   parts.pop();
@@ -250,6 +267,31 @@ describe("loadExternalPlugin — plugin-api peerDependency", () => {
     await loadExternalPlugin(dir);
 
     expect(registeredNames()).toContain("requirements-ok");
+  });
+
+  test("fails closed until assistant-peer route support is advertised", async () => {
+    const dir = freshPluginDir("peer-routes-staged");
+    writePackageJson(dir, {
+      name: "peer-routes-staged",
+      version: "0.1.0",
+      peerDependencies: { "@vellumai/plugin-api": "*" },
+    });
+    writeHostRequirements(dir, {
+      "plugins.routes.assistant-peer": "^1.0.0",
+    });
+    writeAssistantPeerRouteManifest(dir);
+
+    const eligibility = getPluginActivationEligibility(dir);
+    await loadExternalPlugin(dir);
+
+    expect(eligibility).toMatchObject({
+      eligible: false,
+      code: "host_capability_unsatisfied",
+      missingCapabilities: [
+        { id: "plugins.routes.assistant-peer", hostVersion: undefined },
+      ],
+    });
+    expect(registeredNames()).not.toContain("peer-routes-staged");
   });
 
   test("refreshes compatibility after a same-size same-mtime rewrite", () => {

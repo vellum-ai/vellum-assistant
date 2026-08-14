@@ -242,6 +242,39 @@ export default function run(context) {
     expect(readFileSync(countPath, "utf8")).toBe("2");
   });
 
+  test("honors a wake request after a non-initial failure", async () => {
+    const pluginDir = createPlugin("worker-failed-wake");
+    const countPath = join(pluginDir, "data", "count.txt");
+    writeWorker(
+      pluginDir,
+      "wake",
+      `import { existsSync, readFileSync, writeFileSync } from "node:fs";
+export default function run(context) {
+  const countPath = context.pluginStorageDir + "/count.txt";
+  const count = existsSync(countPath) ? Number(readFileSync(countPath, "utf8")) + 1 : 1;
+  writeFileSync(countPath, String(count));
+  if (count <= 2) {
+    context.requestWake();
+  }
+  if (count === 2) {
+    throw new Error("retry requested");
+  }
+}
+`,
+    );
+
+    await startPluginWorkers(pluginDir);
+    const deadline = Date.now() + 1_000;
+    while (
+      (!existsSync(countPath) || readFileSync(countPath, "utf8") !== "3") &&
+      Date.now() <= deadline
+    ) {
+      await new Promise<void>((resolve) => setTimeout(resolve, 1));
+    }
+
+    expect(readFileSync(countPath, "utf8")).toBe("3");
+  });
+
   test("aborts an active worker when its plugin stops", async () => {
     const pluginDir = createPlugin("worker-stop");
     const startedPath = join(pluginDir, "data", "started.txt");

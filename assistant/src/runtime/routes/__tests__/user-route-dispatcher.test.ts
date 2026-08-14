@@ -907,7 +907,7 @@ describe("plugin routes", () => {
     });
   });
 
-  test("keeps actor and assistant-peer route policies disjoint", async () => {
+  test("keeps assistant-peer routes unavailable before host support", async () => {
     const plugin = "peer-policy";
     writePluginHandler(
       plugin,
@@ -940,7 +940,7 @@ describe("plugin routes", () => {
         },
       },
     );
-    expect(actorResponse.status).toBe(403);
+    expect(actorResponse.status).toBe(503);
 
     const verifiedPeer = {
       peerId: "peer-123",
@@ -963,8 +963,13 @@ describe("plugin routes", () => {
         verifiedPeer,
       },
     );
-    expect(peerResponse.status).toBe(200);
-    expect(await peerResponse.json()).toEqual(verifiedPeer);
+    expect(peerResponse.status).toBe(503);
+    expect(await readErrorBody(peerResponse)).toMatchObject({
+      error: {
+        code: "plugin_incompatible",
+        message: expect.stringContaining("plugins.routes.assistant-peer"),
+      },
+    });
   });
 
   test("a new route export is not bound to a stale helper after upgrade", async () => {

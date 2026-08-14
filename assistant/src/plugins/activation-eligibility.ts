@@ -6,12 +6,17 @@ import semver from "semver";
 import { z } from "zod";
 
 import assistantPkg from "../../package.json" with { type: "json" };
+import { ASSISTANT_PEER_ROUTES_CAPABILITY_ID } from "./host-capabilities.js";
 import {
   findUnsatisfiedHostCapabilities,
   HOST_REQUIREMENTS_FILENAME,
   readHostRequirements,
   type UnsatisfiedHostCapability,
 } from "./host-requirements.js";
+import {
+  PLUGIN_ROUTE_MANIFEST_PATH,
+  readPluginRouteManifest,
+} from "./plugin-route-manifest.js";
 
 const PLUGIN_API_PEER_DEP = "@vellumai/plugin-api";
 const MAX_SIGNATURE_FILE_BYTES = 1024 * 1024;
@@ -49,6 +54,7 @@ export type PluginActivationEligibility =
 interface CachedEligibility {
   readonly packageSignature: string;
   readonly requirementsSignature: string;
+  readonly routeManifestSignature: string;
   readonly value: PluginActivationEligibility;
 }
 
@@ -95,15 +101,43 @@ function evaluatePluginActivation(
 ): PluginActivationEligibility {
   const pluginId = basename(pluginDir);
   const requirements = readHostRequirements(pluginDir);
-  if (requirements.kind === "legacy") {
-    return { eligible: true, mode: "legacy", pluginId };
-  }
   if (requirements.kind === "invalid") {
     return incompatible(
       pluginId,
       "host_requirements_invalid",
       requirements.reason,
     );
+  }
+
+  const routeManifest = readPluginRouteManifest(pluginDir);
+  const declaresAssistantPeerRoute =
+    routeManifest.kind === "valid" &&
+    routeManifest.manifest.routes.some(
+      (route) => route.authorization.principal === "assistant_peer",
+    );
+  if (declaresAssistantPeerRoute) {
+    if (requirements.kind === "legacy") {
+      return incompatible(
+        pluginId,
+        "host_requirements_invalid",
+        `assistant-peer routes require host-requirements.json to declare ${ASSISTANT_PEER_ROUTES_CAPABILITY_ID}`,
+      );
+    }
+    if (
+      requirements.requirements.requires[
+        ASSISTANT_PEER_ROUTES_CAPABILITY_ID
+      ] === undefined
+    ) {
+      return incompatible(
+        pluginId,
+        "host_requirements_invalid",
+        `assistant-peer routes require capability ${ASSISTANT_PEER_ROUTES_CAPABILITY_ID}`,
+      );
+    }
+  }
+
+  if (requirements.kind === "legacy") {
+    return { eligible: true, mode: "legacy", pluginId };
   }
 
   let rawPackage: unknown;
@@ -183,14 +217,18 @@ export function getPluginActivationEligibility(
 ): PluginActivationEligibility {
   const packagePath = join(pluginDir, "package.json");
   const requirementsPath = join(pluginDir, HOST_REQUIREMENTS_FILENAME);
+  const routeManifestPath = join(pluginDir, PLUGIN_ROUTE_MANIFEST_PATH);
   const packageContent = getContentSignature(packagePath);
   const requirementsContent = getContentSignature(requirementsPath);
+  const routeManifestContent = getContentSignature(routeManifestPath);
   const packageSignature = packageContent.value;
   const requirementsSignature = requirementsContent.value;
+  const routeManifestSignature = routeManifestContent.value;
   const cached = cache.get(pluginDir);
   if (
     cached?.packageSignature === packageSignature &&
-    cached.requirementsSignature === requirementsSignature
+    cached.requirementsSignature === requirementsSignature &&
+    cached.routeManifestSignature === routeManifestSignature
   ) {
     return cached.value;
   }
@@ -211,7 +249,12 @@ export function getPluginActivationEligibility(
   } else {
     value = evaluatePluginActivation(pluginDir);
   }
-  cache.set(pluginDir, { packageSignature, requirementsSignature, value });
+  cache.set(pluginDir, {
+    packageSignature,
+    requirementsSignature,
+    routeManifestSignature,
+    value,
+  });
   return value;
 }
 
