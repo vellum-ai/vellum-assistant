@@ -466,10 +466,19 @@ describe("package-resolver", () => {
     expect(ALLOWED_PACKAGES).toContain("clsx");
   });
 
-  // `lucide` (the vanilla package) unpacks to ~29 MB, far above the resolver's
-  // size cap, so it is installed then deleted and never resolves. It also
-  // exports icon data arrays, not Preact components. Apps use inline SVG.
+  // `lucide` (the vanilla package) exports icon data arrays, not Preact
+  // components, and unpacks to ~29 MB for no benefit. Apps use inline SVG.
   test("ALLOWED_PACKAGES excludes lucide", () => {
     expect(ALLOWED_PACKAGES).not.toContain("lucide");
   });
+
+  // `chart.js` unpacks well past the 5 MB cap the resolver used to enforce,
+  // which deleted it right after install and broke every app that imported it.
+  test("resolvePackage installs a large allowlisted package", async () => {
+    const result = await resolvePackage("chart.js");
+    expect(result).not.toBeNull();
+    expect(existsSync(join(getCacheDir(), "node_modules", "chart.js"))).toBe(
+      true,
+    );
+  }, 30_000);
 });
