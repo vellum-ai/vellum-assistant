@@ -859,8 +859,11 @@ describe("processChannelMessageInBackground — admission (queue if busy)", () =
 
   test("enqueues a Telegram follow-up while the conversation is mid-turn", async () => {
     const conversationId = "conv-tg-followup-queue";
-    const enqueued: Array<{ content: string; metadata?: Record<string, unknown> }> =
-      [];
+    const enqueued: Array<{
+      content: string;
+      metadata?: Record<string, unknown>;
+      channelDelivery?: { eventId: string };
+    }> = [];
     let processMessageCalls = 0;
     setConversation(conversationId, {
       isProcessing: () => true,
