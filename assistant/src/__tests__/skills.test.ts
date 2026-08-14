@@ -916,8 +916,12 @@ describe("managed browser skill", () => {
     const browserSkill = catalog.find((s) => s.id === "vellum-browser-use");
     expect(browserSkill).toBeDefined();
     expect(browserSkill!.description).toBe(
-      "Browse the web using `assistant browser` CLI commands",
+      "Browse the web using `assistant browser` CLI commands (Chrome extension, CDP inspect, or local Playwright). Do not use this when the user wants the workspace Browser plugin app; that plugin ships its own skill.",
     );
+    expect(browserSkill!.avoidWhen).toEqual([
+      "User wants to use the workspace Browser plugin or the Browser app",
+      "User asks to browse via plugins~browser~browser",
+    ]);
   });
 
   test("browser skill has no tool manifest", () => {

@@ -1,6 +1,9 @@
 ---
 name: vellum-browser-use
-description: Browse the web using `assistant browser` CLI commands
+description: >-
+  Browse the web using `assistant browser` CLI commands (Chrome extension,
+  CDP inspect, or local Playwright). Do not use this when the user wants the
+  workspace Browser plugin app; that plugin ships its own skill.
 compatibility: "Designed for Vellum personal assistants"
 metadata:
   emoji: "🌐"
@@ -8,10 +11,19 @@ metadata:
     category: "browsing"
     display-name: "Browser"
     activation-hints:
-      - "Load first if you need to browse the web (navigating, clicking, extracting web content) via `assistant browser` commands"
+      - "Load when the user wants the Chrome extension, assistant browser CLI, or their real Chrome tabs"
+    avoid-when:
+      - "User wants to use the workspace Browser plugin or the Browser app"
+      - "User asks to browse via plugins~browser~browser"
 ---
 
-Use this skill to browse the web. All browser operations are executed through the `assistant browser` CLI, invoked via `bash` or `host_bash`. Each operation is a subcommand:
+Use this skill to browse the web through the `assistant browser` CLI (Chrome
+extension, CDP inspect, or local Playwright), invoked via `bash` or
+`host_bash`. Each operation is a subcommand.
+
+If the user wants the workspace Browser app (`plugins~browser~browser`), do
+not use this skill. Load the plugin's `browser` skill and drive that session
+through its scripts. That is a different browser.
 
 | Command                               | Description                                        |
 | ------------------------------------- | -------------------------------------------------- |

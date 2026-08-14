@@ -1026,19 +1026,23 @@
     {
       "id": "vellum-browser-use",
       "name": "vellum-browser-use",
-      "description": "Browse the web using `assistant browser` CLI commands",
+      "description": "Browse the web using `assistant browser` CLI commands (Chrome extension, CDP inspect, or local Playwright). Do not use this when the user wants the workspace Browser plugin app; that plugin ships its own skill.",
       "metadata": {
         "emoji": "🌐",
         "vellum": {
           "category": "browsing",
           "display-name": "Browser",
           "activation-hints": [
-            "Load first if you need to browse the web (navigating, clicking, extracting web content) via `assistant browser` commands"
+            "Load when the user wants the Chrome extension, assistant browser CLI, or their real Chrome tabs"
+          ],
+          "avoid-when": [
+            "User wants to use the workspace Browser plugin or the Browser app",
+            "User asks to browse via plugins~browser~browser"
           ]
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-07-07T20:33:02.000Z"
+      "updatedAt": "2026-08-14T00:00:00.000Z"
     },
     {
       "id": "vellum-conversation-management",
