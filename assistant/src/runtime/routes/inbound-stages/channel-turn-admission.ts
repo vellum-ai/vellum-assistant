@@ -6,16 +6,15 @@
  * conversation is mid-turn and runs it once the turn completes (HTTP
  * `/v1/messages` calls `conversation.enqueueMessage`; see `runtime/CLAUDE.md`
  * "Queue if busy").
- * Channel inbound cannot reuse that queue directly: the queue drains replies
- * onto the SSE event hub, whereas a channel turn delivers its reply back
- * through the provider callback URL (streaming session + `finalizeEventDelivery`
- * + processed/delivery bookkeeping), orchestration that lives in the
- * fire-and-forget background path (`background-dispatch.ts`), not the shared,
- * batching-aware queue drain. Rather than relocate that delivery into the drain
- * — destabilizing the path every surface shares — we DEFER the whole background
- * flow until the conversation's processing lock is free, then run it. Same
- * "process when the current turn completes" guarantee; delivery orchestration
- * kept intact and in one place.
+ * Slack and idle Telegram inbound cannot reuse that queue for the *first*
+ * turn of a busy conversation without losing provider-callback delivery
+ * (streaming session + `finalizeEventDelivery`). Telegram follow-ups that
+ * arrive while a turn is already in flight go through `enqueueMessage`
+ * instead; drain delivers via `completeQueuedChannelFollowUps`.
+ * Remaining channel turns DEFER the whole background flow until the
+ * conversation's processing lock is free, then run it. Same
+ * "process when the current turn completes" guarantee; Slack live-ingress
+ * delivery orchestration stays in `background-dispatch.ts`.
  *
  * Without this, a channel message routed to a busy conversation throws
  * `CONVERSATION_BUSY_MESSAGE` inside `processMessage`, which the background

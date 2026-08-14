@@ -22,6 +22,13 @@ mock.module("../runtime/assistant-event-hub.js", () => ({
   },
 }));
 
+const markedProcessedEventIds: string[] = [];
+mock.module("../persistence/delivery-status.js", () => ({
+  markProcessed: (eventId: string) => {
+    markedProcessedEventIds.push(eventId);
+  },
+}));
+
 import type { Conversation } from "../daemon/conversation.js";
 import type { QueuedMessage } from "../daemon/conversation-queue-manager.js";
 import {
@@ -102,6 +109,7 @@ function registerLatchedTurn(): LatchedTurn {
 describe("deleteQueuedMessage", () => {
   afterEach(() => {
     broadcasts.length = 0;
+    markedProcessedEventIds.length = 0;
     deleteConversation(CONV);
   });
 
@@ -162,6 +170,29 @@ describe("deleteQueuedMessage", () => {
     });
     expect(sent).toEqual([]);
     expect(broadcasts).toEqual([]);
+  });
+
+  test("marks the Telegram inbound event processed so the retry sweep does not replay it", () => {
+    const sent = registerWithQueuedMessage({
+      requestId: "req-tg",
+      metadata: { userMessageChannel: "telegram" },
+      channelDelivery: {
+        eventId: "evt-tg-deleted",
+        externalChatId: "12345",
+        sourceChannel: "telegram",
+        replyCallbackUrl: "https://example.test/deliver/telegram",
+      },
+    });
+
+    expect(deleteQueuedMessage(CONV, "req-tg")).toEqual({ removed: true });
+    expect(markedProcessedEventIds).toEqual(["evt-tg-deleted"]);
+    expect(sent).toEqual([
+      {
+        type: "message_queued_deleted",
+        conversationId: CONV,
+        requestId: "req-tg",
+      },
+    ]);
   });
 });
 

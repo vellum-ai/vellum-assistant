@@ -76,6 +76,8 @@ mock.module("../../../persistence/delivery-status.js", () => ({
     deferredRetryEvents.push(eventId);
   },
   getSiblingEventDeliveryStatuses: () => siblingDeliveryStatuses,
+  isDeduplicatedDeliveryOwnedBySibling: () =>
+    siblingDeliveryStatuses.some((status) => status !== "pending"),
 }));
 
 mock.module("../../gateway-client.js", () => ({
@@ -853,6 +855,93 @@ describe("processChannelMessageInBackground — admission (queue if busy)", () =
     expect(processingFailureEvents).toEqual([]);
     expect(markedProcessedEvents).toEqual([]);
     expect(deliveredEvents).toEqual([]);
+  });
+
+  test("enqueues a Telegram follow-up while the conversation is mid-turn", async () => {
+    const conversationId = "conv-tg-followup-queue";
+    const enqueued: Array<{ content: string; metadata?: Record<string, unknown> }> =
+      [];
+    let processMessageCalls = 0;
+    setConversation(conversationId, {
+      isProcessing: () => true,
+      enqueueMessage: (options: {
+        content: string;
+        metadata?: Record<string, unknown>;
+        channelDelivery?: { eventId: string };
+      }) => {
+        enqueued.push(options);
+        return { queued: true, requestId: "req-tg-1" };
+      },
+    } as unknown as Conversation);
+
+    const processMessage: MessageProcessor = async () => {
+      processMessageCalls += 1;
+      return { messageId: "should-not-run" };
+    };
+
+    processChannelMessageInBackground({
+      processMessage,
+      conversationId,
+      eventId: "evt-tg-followup",
+      content: "second telegram prompt",
+      sourceChannel: "telegram",
+      sourceInterface: "telegram",
+      externalChatId: "12345",
+      trustCtx,
+      metadataHints: [],
+      chatType: "private",
+      replyCallbackUrl: "https://example.test/deliver/telegram",
+    });
+
+    await flush();
+
+    expect(processMessageCalls).toBe(0);
+    expect(enqueued).toHaveLength(1);
+    expect(enqueued[0]!.content).toBe("second telegram prompt");
+    expect(enqueued[0]!.metadata).toMatchObject({
+      userMessageChannel: "telegram",
+      assistantMessageChannel: "telegram",
+    });
+    expect(enqueued[0]!.channelDelivery).toMatchObject({
+      eventId: "evt-tg-followup",
+      externalChatId: "12345",
+      sourceChannel: "telegram",
+    });
+    expect(markedProcessedEvents).toEqual([]);
+    expect(deferredRetryEvents).toEqual([]);
+  });
+
+  test("defers a Telegram follow-up to the retry sweep when the queue is full", async () => {
+    const conversationId = "conv-tg-queue-full";
+    setConversation(conversationId, {
+      isProcessing: () => true,
+      enqueueMessage: () => ({
+        queued: false,
+        requestId: "req-full",
+        rejected: true,
+      }),
+    } as unknown as Conversation);
+
+    let processMessageCalls = 0;
+    processChannelMessageInBackground({
+      processMessage: async () => {
+        processMessageCalls += 1;
+        return { messageId: "should-not-run" };
+      },
+      conversationId,
+      eventId: "evt-tg-full",
+      content: "overflow",
+      sourceChannel: "telegram",
+      sourceInterface: "telegram",
+      externalChatId: "12345",
+      trustCtx,
+      metadataHints: [],
+      replyCallbackUrl: "https://example.test/deliver/telegram",
+    });
+
+    await flush();
+    expect(processMessageCalls).toBe(0);
+    expect(deferredRetryEvents).toEqual(["evt-tg-full"]);
   });
 });
 
