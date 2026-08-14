@@ -83,7 +83,6 @@ import { Button, cn, Notice, Popover } from "@vellumai/design-library";
 import {
   computeGhostSuffix,
   isDraftPastOneLine,
-  isDraftScrolledOutOfView,
   shouldSubmitOnEnter,
 } from "@/domains/chat/components/chat-composer/chat-composer-utils";
 import {
@@ -797,40 +796,20 @@ export function ChatComposer({
   const textFieldPaddingClass = isMobile ? "px-2 py-2" : "px-4 pt-3 pb-2";
 
   // ---- Mobile draft geometry --------------------------------------------
-  // Two questions the draft's own text cannot answer: whether it still fits
-  // the one line the inline row gives it, and whether it has grown past the
-  // field's cap and pushed its earlier lines out of view. Both are measured
-  // after commit, from the boxes below.
+  // One question the draft's own text cannot answer: whether it still fits the
+  // one line the inline row gives it. Measured after commit, from the boxes
+  // below.
   const mobileRowRef = useRef<HTMLDivElement>(null);
   const inlineActionsStartRef = useRef<HTMLDivElement>(null);
   const inlineActionsEndRef = useRef<HTMLDivElement>(null);
   const draftProbeRef = useRef<HTMLDivElement>(null);
   const [isMultilineDraft, setIsMultilineDraft] = useState(false);
-  const [isDraftScrolled, setIsDraftScrolled] = useState(false);
-  // Where the field sits in its own scroll moves under the user with no
-  // re-render behind it, so the fade is read back off the element itself: on
-  // every measurement, and on every scroll of the field. Written only when the
-  // verdict flips, which keeps a flick of the draft off the render path.
-  const syncDraftScrolled = useCallback(() => {
-    const textarea = inputRef.current;
-    const next =
-      isMobile &&
-      !hideTextareaForVoice &&
-      textarea !== null &&
-      isDraftScrolledOutOfView({
-        scrollHeightPx: textarea.scrollHeight,
-        clientHeightPx: textarea.clientHeight,
-        scrollTopPx: textarea.scrollTop,
-      });
-    setIsDraftScrolled((current) => (current === next ? current : next));
-  }, [hideTextareaForVoice, inputRef, isMobile]);
   const measureDraftGeometry = useCallback(() => {
     const start = inlineActionsStartRef.current;
     const end = inlineActionsEndRef.current;
     const probe = draftProbeRef.current;
     if (!isMobile || hideTextareaForVoice || !start || !end || !probe) {
       setIsMultilineDraft(false);
-      setIsDraftScrolled(false);
       return;
     }
     // The span between the two control clusters. They keep their widths and
@@ -849,8 +828,7 @@ export function ChatComposer({
         hasHardBreak: input.includes("\n"),
       }),
     );
-    syncDraftScrolled();
-  }, [hideTextareaForVoice, input, isMobile, syncDraftScrolled]);
+  }, [hideTextareaForVoice, input, isMobile]);
   useLayoutEffect(() => {
     measureDraftGeometry();
   }, [measureDraftGeometry]);
@@ -1086,9 +1064,6 @@ export function ChatComposer({
         autoComplete="off"
         data-1p-ignore
         data-lpignore="true"
-        // Scrolling the draft by hand moves what the top edge hides without
-        // changing a thing React renders from, so the fade is re-read here.
-        onScroll={syncDraftScrolled}
         onChange={(e) => {
           const value = e.target.value;
           cursorRef.current = e.target.selectionStart ?? value.length;
@@ -1253,17 +1228,6 @@ export function ChatComposer({
         className={`col-start-1 row-start-1 w-full resize-none overflow-y-auto border-none bg-transparent text-chat text-[var(--content-default)] placeholder:text-[var(--content-disabled)] focus:outline-none disabled:opacity-50 ${textFieldPaddingClass}`}
         style={{ maxHeight: `${textareaMaxHeightPx}px` }}
       />
-      {isDraftScrolled && (
-        // A draft past the field's cap scrolls its earlier lines up behind the
-        // card's top edge. One line's worth of the card's own surface over
-        // that edge lets them leave rather than end. Positioned so it paints
-        // over the field it fades, and out of the way of anything aimed at it.
-        <div
-          aria-hidden
-          data-slot="composer-draft-fade"
-          className="pointer-events-none relative col-start-1 row-start-1 h-6 self-start bg-gradient-to-b from-[var(--surface-lift)] to-transparent"
-        />
-      )}
     </div>
   );
 

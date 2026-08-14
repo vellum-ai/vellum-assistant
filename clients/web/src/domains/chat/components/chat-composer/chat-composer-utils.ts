@@ -154,32 +154,3 @@ export function isDraftPastOneLine(metrics: DraftLineMetrics): boolean {
     metrics.naturalWidthPx > metrics.inlineWidthPx + DRAFT_FIT_TOLERANCE_PX
   );
 }
-
-export interface DraftScrollMetrics {
-  /** Height the whole draft would need. */
-  scrollHeightPx: number;
-  /** Height the text field actually shows, at its cap. */
-  clientHeightPx: number;
-  /** How far the field has been scrolled down from its first line. */
-  scrollTopPx: number;
-}
-
-/**
- * Whether the draft has lines above the text field's top edge right now: it
- * has to have grown past the field's cap, and the field has to be scrolled off
- * its first line. What the fade over the top edge answers to. Outgrowing the
- * cap alone is not enough, since a long draft parked at the top (restored, or
- * scrolled back up) still shows its first line whole, with nothing behind that
- * edge to fade.
- */
-export function isDraftScrolledOutOfView(metrics: DraftScrollMetrics): boolean {
-  if (metrics.clientHeightPx <= 0) {
-    return false;
-  }
-  if (metrics.scrollTopPx <= 0) {
-    return false;
-  }
-  return (
-    metrics.scrollHeightPx > metrics.clientHeightPx + DRAFT_FIT_TOLERANCE_PX
-  );
-}
