@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { basename, join } from "node:path";
 
@@ -11,9 +12,9 @@ import {
   readHostRequirements,
   type UnsatisfiedHostCapability,
 } from "./host-requirements.js";
-import { getFileSignature } from "./surface-import.js";
 
 const PLUGIN_API_PEER_DEP = "@vellumai/plugin-api";
+const MAX_SIGNATURE_FILE_BYTES = 1024 * 1024;
 
 const PackageCompatibilitySchema = z
   .object({
@@ -52,6 +53,30 @@ interface CachedEligibility {
 }
 
 const cache = new Map<string, CachedEligibility>();
+
+interface BoundedContentSignature {
+  readonly value: string;
+  readonly oversized: boolean;
+}
+
+function getContentSignature(path: string): BoundedContentSignature {
+  try {
+    const content = readFileSync(path);
+    if (content.byteLength > MAX_SIGNATURE_FILE_BYTES) {
+      return { value: `oversized:${content.byteLength}`, oversized: true };
+    }
+    return {
+      value: createHash("sha256").update(content).digest("hex"),
+      oversized: false,
+    };
+  } catch (err) {
+    const code = (err as NodeJS.ErrnoException).code;
+    return {
+      value: code === "ENOENT" ? "missing" : `unreadable:${code ?? "unknown"}`,
+      oversized: false,
+    };
+  }
+}
 
 function incompatible(
   pluginId: string,
@@ -158,8 +183,10 @@ export function getPluginActivationEligibility(
 ): PluginActivationEligibility {
   const packagePath = join(pluginDir, "package.json");
   const requirementsPath = join(pluginDir, HOST_REQUIREMENTS_FILENAME);
-  const packageSignature = getFileSignature(packagePath);
-  const requirementsSignature = getFileSignature(requirementsPath);
+  const packageContent = getContentSignature(packagePath);
+  const requirementsContent = getContentSignature(requirementsPath);
+  const packageSignature = packageContent.value;
+  const requirementsSignature = requirementsContent.value;
   const cached = cache.get(pluginDir);
   if (
     cached?.packageSignature === packageSignature &&
@@ -168,7 +195,22 @@ export function getPluginActivationEligibility(
     return cached.value;
   }
 
-  const value = evaluatePluginActivation(pluginDir);
+  let value: PluginActivationEligibility;
+  if (requirementsContent.oversized) {
+    value = incompatible(
+      basename(pluginDir),
+      "host_requirements_invalid",
+      `host-requirements.json exceeds ${MAX_SIGNATURE_FILE_BYTES} bytes`,
+    );
+  } else if (requirementsSignature !== "missing" && packageContent.oversized) {
+    value = incompatible(
+      basename(pluginDir),
+      "plugin_manifest_invalid",
+      `package.json exceeds ${MAX_SIGNATURE_FILE_BYTES} bytes`,
+    );
+  } else {
+    value = evaluatePluginActivation(pluginDir);
+  }
   cache.set(pluginDir, { packageSignature, requirementsSignature, value });
   return value;
 }

@@ -166,7 +166,9 @@ async function invokeWorker(
   ) {
     return;
   }
-  const run = executeWorker(runtime, rejectOnFailure);
+  const run = Promise.resolve().then(() =>
+    executeWorker(runtime, rejectOnFailure),
+  );
   runtime.inFlight = run;
   try {
     await run;

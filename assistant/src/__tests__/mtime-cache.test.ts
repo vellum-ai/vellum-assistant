@@ -254,6 +254,33 @@ export default { description: "failed tool", execute: async () => "unsafe" };`,
     expect(getPluginReadiness("failed-plugin")?.status).toBe("failed");
   });
 
+  test("an unchanged reconcile retries a failed activation", async () => {
+    const dir = freshPluginDir("retry-plugin");
+    const activationGate = join(ROOT, "retry-plugin-ready.txt");
+    writePackageJson(dir, { ...SIMPLE_PKG, name: "retry-plugin" });
+    writeHook(
+      dir,
+      "init",
+      `import { existsSync } from "node:fs";
+export default () => {
+  if (!existsSync(${JSON.stringify(activationGate)})) {
+    throw new Error("not ready");
+  }
+};`,
+    );
+    writeHook(dir, "user-prompt-submit", `export default () => "recovered";`);
+
+    await populateCacheAtBoot();
+    expect(getPluginReadiness("retry-plugin")?.status).toBe("failed");
+    expect(await getUserHooksFor("user-prompt-submit")).toHaveLength(0);
+
+    writeFileSync(activationGate, "ready");
+    await reconcilePluginSourcesNow();
+
+    expect(getPluginReadiness("retry-plugin")?.status).toBe("ready");
+    expect(await getUserHooksFor("user-prompt-submit")).toHaveLength(1);
+  });
+
   test("populateCacheAtBoot discovers and caches hooks", async () => {
     const dir = freshPluginDir("hook-plugin");
     writePackageJson(dir, { ...SIMPLE_PKG, name: "hook-plugin" });

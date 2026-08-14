@@ -252,25 +252,58 @@ describe("loadExternalPlugin — plugin-api peerDependency", () => {
     expect(registeredNames()).toContain("requirements-ok");
   });
 
-  test("refreshes compatibility when a same-mtime requirement changes size", () => {
+  test("refreshes compatibility after a same-size same-mtime rewrite", () => {
     const dir = freshPluginDir("requirements-signature-refresh");
     writePackageJson(dir, {
       name: "requirements-signature-refresh-package",
       version: "0.1.0",
       peerDependencies: { "@vellumai/plugin-api": "*" },
     });
-    writeHostRequirements(dir, { "plugins.unknown": "^1.0.0" });
+    writeHostRequirements(dir);
     const requirementsPath = join(dir, "host-requirements.json");
     const originalStat = statSync(requirementsPath);
-
-    expect(getPluginActivationEligibility(dir).eligible).toBe(false);
-
-    writeHostRequirements(dir);
-    utimesSync(requirementsPath, originalStat.atime, originalStat.mtime);
 
     expect(getPluginActivationEligibility(dir)).toMatchObject({
       eligible: true,
       mode: "requirements",
+    });
+
+    writeHostRequirements(dir, {
+      "plugins.activation.requirements": "^9.0.0",
+    });
+    expect(statSync(requirementsPath).size).toBe(originalStat.size);
+    utimesSync(requirementsPath, originalStat.atime, originalStat.mtime);
+
+    expect(getPluginActivationEligibility(dir)).toMatchObject({
+      eligible: false,
+      code: "host_capability_unsatisfied",
+    });
+  });
+
+  test("refreshes package compatibility after a same-size same-mtime rewrite", () => {
+    const dir = freshPluginDir("package-signature-refresh");
+    writePackageJson(dir, {
+      name: "package-signature-refresh-package",
+      version: "0.1.0",
+      peerDependencies: { "@vellumai/plugin-api": "*" },
+    });
+    writeHostRequirements(dir);
+    const packagePath = join(dir, "package.json");
+    const originalStat = statSync(packagePath);
+
+    expect(getPluginActivationEligibility(dir).eligible).toBe(true);
+
+    writePackageJson(dir, {
+      name: "package-signature-refresh-package",
+      version: "0.1.0",
+      peerDependencies: { "@vellumai/plugin-api": "!" },
+    });
+    expect(statSync(packagePath).size).toBe(originalStat.size);
+    utimesSync(packagePath, originalStat.atime, originalStat.mtime);
+
+    expect(getPluginActivationEligibility(dir)).toMatchObject({
+      eligible: false,
+      code: "plugin_api_peer_invalid",
     });
   });
 

@@ -426,16 +426,16 @@ async function applySourceVersions(
         await evictPlugin(dir, activeName);
         sweepModules(before, after);
         membershipChanged = true;
-      } else if (
-        activeName === undefined &&
-        shouldBeUp &&
-        (before === undefined ||
+      } else if (activeName === undefined && shouldBeUp) {
+        if (
+          before === undefined ||
           before.disabled ||
-          before.fingerprint !== after.fingerprint)
-      ) {
-        // Reinstalls land at the same path: sweep any modules cached from a
-        // prior install before the fresh import.
-        sweepModules(before, after);
+          before.fingerprint !== after.fingerprint
+        ) {
+          // Reinstalls land at the same path: sweep any modules cached from a
+          // prior install before the fresh import.
+          sweepModules(before, after);
+        }
         if (await bringUpPlugin(dir, after.sourceFingerprint)) {
           membershipChanged = true;
         }

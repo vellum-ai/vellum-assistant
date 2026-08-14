@@ -211,6 +211,37 @@ export default function run(context) {
     );
   });
 
+  test("keeps a synchronous wake request ahead of a future wake", async () => {
+    const pluginDir = createPlugin("worker-sync-wake");
+    const countPath = join(pluginDir, "data", "count.txt");
+    writeWorker(
+      pluginDir,
+      "wake",
+      `import { existsSync, readFileSync, writeFileSync } from "node:fs";
+export default function run(context) {
+  const countPath = context.pluginStorageDir + "/count.txt";
+  const count = existsSync(countPath) ? Number(readFileSync(countPath, "utf8")) + 1 : 1;
+  writeFileSync(countPath, String(count));
+  if (count === 1) {
+    context.requestWake();
+    return { nextWakeAt: Date.now() + 60_000 };
+  }
+}
+`,
+    );
+
+    await startPluginWorkers(pluginDir);
+    const deadline = Date.now() + 1_000;
+    while (
+      (!existsSync(countPath) || readFileSync(countPath, "utf8") !== "2") &&
+      Date.now() <= deadline
+    ) {
+      await new Promise<void>((resolve) => setTimeout(resolve, 1));
+    }
+
+    expect(readFileSync(countPath, "utf8")).toBe("2");
+  });
+
   test("aborts an active worker when its plugin stops", async () => {
     const pluginDir = createPlugin("worker-stop");
     const startedPath = join(pluginDir, "data", "started.txt");
