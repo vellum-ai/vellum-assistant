@@ -57,6 +57,29 @@ This file is the cross-system architecture index. Detailed designs live in domai
 - **Context overflow resilience**: The session loop implements a deterministic overflow convergence pipeline that recovers from context-too-large failures without surfacing errors to users. A preflight budget check catches overflow before provider calls; a tiered reducer (forced compaction, tool-result truncation, media stubbing, injection downgrade) iteratively shrinks the payload; and when all tiers are exhausted the overflow policy resolver auto-compresses the latest turn with no user prompt — this applies equally to interactive and non-interactive sessions. Setting `contextWindow.overflowRecovery.interactiveLatestTurnCompression` to `"drop"` opts interactive sessions out, and `contextWindow.overflowRecovery.nonInteractiveLatestTurnCompression: "drop"` opts non-interactive/background sessions out independently — either short-circuits to a graceful failure for that session type; setting `contextWindow.overflowRecovery.enabled: false` also yields a graceful failure. Config lives under `contextWindow.overflowRecovery`. See [`assistant/ARCHITECTURE.md`](assistant/ARCHITECTURE.md#context-overflow-recovery) for the full design and [`assistant/docs/architecture/memory.md`](assistant/docs/architecture/memory.md#context-compaction-and-overflow-recovery-interaction) for compaction interaction details.
 - **Embedding-dimension reconciliation**: The embedding dimension is a committed property of the Qdrant collection, derived from the backend that built it. At daemon startup `reconcileEmbeddingIdentity` probes the configured backend and reconciles the committed dimension confirm-before-destroy: backend down → defer (recall degrades to empty results, surfaced via `memory_worker_status`'s `embedding.degraded`); no committed dimension → commit the probed dimension and create the collections; match → no-op; mismatch with an explicit provider → migrate (recreate, the only destructive path, gated on a successful probe); mismatch under `auto` → no-op (no thrash on transient backend availability). Platform intent is a fill-only deployment default (`IS_PLATFORM` → `provider: "gemini"`, in-memory, not persisted) — there is no on-disk provider/dimension migration. See [`assistant/docs/architecture/memory.md`](assistant/docs/architecture/memory.md#embedding-dimension-reconciliation).
 
+## External Plugin Platform
+
+Installed plugins pass a static eligibility check before the host imports any executable contribution. A plugin can opt into `host-requirements.json` to require named, versioned host capabilities. Plugins without that file retain the legacy compatibility path. Invalid requirements, unsupported capabilities, failed initialization, and failed initial worker recovery keep every plugin surface unavailable.
+
+```mermaid
+flowchart LR
+    FILES["Installed plugin files"] --> ELIGIBILITY["Static eligibility and compatibility"]
+    ELIGIBILITY --> INIT["Initialization hook"]
+    INIT --> WORKERS["Initial worker recovery"]
+    WORKERS --> READY["Persisted readiness generation"]
+    READY --> ASSISTANT_SURFACES["Assistant routes, apps, skills, schedules, and channels"]
+    READY --> GATEWAY_INGRESS["Gateway plugin ingress"]
+    ASSISTANT_SURFACES --> ROUTE_HOST["Plugin route host process"]
+    ROUTE_HOST --> BROKER["Closed route-host broker"]
+    BROKER --> ASSISTANT["Main assistant process"]
+```
+
+The assistant owns the readiness snapshot at `data/plugin-readiness-v1.json`. Each ready entry binds a host-derived plugin ID to the current source fingerprint. The source watcher publishes the matching fingerprint in `data/monitoring/plugin-source-versions.json`. The gateway reads both documents through `@vellumai/service-contracts/plugin-readiness` and fails closed when either document is missing, malformed, disabled, not ready, or stale. Persisted generations let a gateway-only restart recover settled readiness without importing plugin code.
+
+Plugin workers run once after successful initialization and recover durable work from the plugin's `data/` directory. Disable, reload, and uninstall invalidate readiness before teardown. Shutdown stops workers before running shutdown hooks. Plugins do not store durable state in the main assistant database.
+
+Opted-in route manifests declare each path, method, and host-owned authorization class. Authorization runs before route-module import. Route handlers receive a host-derived plugin ID, actor scopes, request ID, abort signal, and optional verified peer operation context. The route host uses a closed broker for approved main-process operations; direct public conversation-store and conversation-loop calls are rejected there. The route host is process isolation for liveness and an API boundary, not a filesystem sandbox against hostile code running as the same OS user.
+
 ## Environment and Data Layout
 
 Environments are **namespaces**, not containers. `VELLUM_ENVIRONMENT` selects a path prefix (`vellum` for `production`, `vellum-<env>` for the non-production seeds `dev`, `staging`, `test`, `local`). It does not own data. Data directories are always per-assistant, and the lockfile's `resources.instanceDir` field is the source of truth for any given assistant's on-disk location.

@@ -15,7 +15,9 @@ import { existsSync, rmSync, statSync } from "node:fs";
 import { join } from "node:path";
 
 import { runShutdownHook } from "../../hooks/hook-loader.js";
+import { getPluginActivationEligibility } from "../../plugins/activation-eligibility.js";
 import { isPluginDisabled } from "../../plugins/disabled-state.js";
+import { stopPluginWorkers } from "../../plugins/plugin-worker-runner.js";
 import { getWorkspacePluginsDir } from "../../util/platform.js";
 import {
   InvalidPluginNameError,
@@ -87,13 +89,21 @@ export async function uninstallPlugin(
     throw new PluginNotInstalledError(name, target);
   }
 
+  // Stop workers before shutdown and deletion so no durable work races either.
+  // This is unconditional because a disable and uninstall can overlap before
+  // the assistant has reconciled the `.disabled` sentinel.
+  await stopPluginWorkers(name);
+
   // Skip the shutdown hook when the plugin is disabled. A `.disabled` plugin
   // is never loaded — no hooks, tools, or init — so its shutdown was never
   // paired with an init. Running it on uninstall would be the first and only
   // execution of the plugin's code, which inverts the disabled contract and
   // is especially dangerous for untrusted/direct-installed plugins where
   // removal should never be the action that first runs plugin code.
-  if (!isPluginDisabled(name)) {
+  if (
+    !isPluginDisabled(name) &&
+    getPluginActivationEligibility(target).eligible
+  ) {
     await runShutdownHook("plugin", name, "uninstall");
   }
 

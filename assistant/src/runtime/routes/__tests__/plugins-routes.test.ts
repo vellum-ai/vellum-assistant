@@ -490,6 +490,7 @@ describe("GET /v1/plugins", () => {
       name: "alpha",
       // No `.disabled` sentinel → the plugin is enabled.
       enabled: true,
+      activation: { status: "ready" },
       description: "Alpha plugin",
       version: "1.2.3",
       path: "/workspace/plugins/alpha",

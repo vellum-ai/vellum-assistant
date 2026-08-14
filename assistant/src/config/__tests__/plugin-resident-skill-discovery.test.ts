@@ -14,6 +14,10 @@ import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { beforeEach, describe, expect, test } from "bun:test";
 
+import {
+  markPluginReady,
+  resetPluginReadinessForTests,
+} from "../../plugins/plugin-readiness.js";
 import { getWorkspacePluginsDir } from "../../util/platform.js";
 import { loadSkillCatalog } from "../skills.js";
 
@@ -21,7 +25,11 @@ function writePlugin(
   dirName: string,
   packageName: string,
   skills: Array<{ id: string; description: string }>,
-  opts: { disabled?: boolean; packageJson?: string | null } = {},
+  opts: {
+    disabled?: boolean;
+    packageJson?: string | null;
+    optsIntoReadiness?: boolean;
+  } = {},
 ): void {
   const pluginDir = join(getWorkspacePluginsDir(), dirName);
   mkdirSync(pluginDir, { recursive: true });
@@ -44,6 +52,18 @@ function writePlugin(
     writeFileSync(join(pluginDir, ".disabled"), "");
   }
 
+  if (opts.optsIntoReadiness) {
+    writeFileSync(
+      join(pluginDir, "host-requirements.json"),
+      JSON.stringify({
+        schemaVersion: 1,
+        requires: { "plugins.readiness": "^1.0.0" },
+      }),
+    );
+  }
+
+  markPluginReady(dirName, "c".repeat(64));
+
   for (const skill of skills) {
     const skillDir = join(pluginDir, "skills", skill.id);
     mkdirSync(skillDir, { recursive: true });
@@ -60,6 +80,7 @@ function skillById(id: string) {
 
 describe("discoverPluginResidentSkills (via loadSkillCatalog)", () => {
   beforeEach(() => {
+    resetPluginReadinessForTests();
     const pluginsDir = getWorkspacePluginsDir();
     if (existsSync(pluginsDir)) {
       rmSync(pluginsDir, { recursive: true, force: true });
@@ -136,5 +157,17 @@ describe("discoverPluginResidentSkills (via loadSkillCatalog)", () => {
     );
 
     expect(skillById("qa-disabled-skill")).toBeUndefined();
+  });
+
+  test("hides resident skills until the plugin is ready", () => {
+    writePlugin(
+      "initializing-plugin",
+      "initializing-pkg",
+      [{ id: "qa-initializing-skill", description: "Hidden during init." }],
+      { optsIntoReadiness: true },
+    );
+    resetPluginReadinessForTests();
+
+    expect(skillById("qa-initializing-skill")).toBeUndefined();
   });
 });

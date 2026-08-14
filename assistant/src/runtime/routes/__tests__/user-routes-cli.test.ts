@@ -42,8 +42,13 @@ function writeWorkspaceRoute(relPath: string): void {
 }
 
 function writePluginRoute(plugin: string, relPath: string): void {
-  const full = join(getWorkspacePluginsDir(), plugin, "routes", relPath);
+  const pluginDir = join(getWorkspacePluginsDir(), plugin);
+  const full = join(pluginDir, "routes", relPath);
   mkdirSync(full.slice(0, full.lastIndexOf("/")), { recursive: true });
+  writeFileSync(
+    join(pluginDir, "package.json"),
+    JSON.stringify({ name: plugin, version: "1.0.0" }),
+  );
   writeFileSync(full, GET_HANDLER);
 }
 

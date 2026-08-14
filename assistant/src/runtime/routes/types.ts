@@ -5,6 +5,7 @@
 import type { z } from "zod";
 
 import type { RoutePolicy } from "../auth/route-policy.js";
+import type { AuthContext } from "../auth/types.js";
 
 export interface RouteQueryParam {
   name: string;
@@ -115,6 +116,12 @@ export interface RouteHandlerArgs {
    * `undefined` when no abort semantic is available.
    */
   abortSignal?: AbortSignal;
+  /**
+   * Verified HTTP actor context. It is intentionally not serialized through
+   * IPC; IPC routes continue to receive their trusted identity projection in
+   * `headers`.
+   */
+  authContext?: AuthContext;
 }
 
 /**

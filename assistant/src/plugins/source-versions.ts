@@ -1,8 +1,8 @@
 /**
  * The plugin source-versions sentinel — the broadcast contract between the
- * resource monitor's source watcher (the single writer, running in its own
- * OS process) and every process that holds plugin code in a module registry
- * (the readers: the daemon, platform workers, plugin-spawned workers).
+ * assistant lifecycle, resource monitor, and every process that holds plugin
+ * code in a module registry. The assistant publishes a boot/reconcile baseline
+ * while the monitor continues polling for out-of-band source changes.
  *
  * The watcher rewrites the document atomically (temp + rename) and only when
  * plugin source actually changed, so "the sentinel's mtime moved" is exactly
@@ -18,8 +18,16 @@
  * fingerprint diffs stay idempotent across restarts.
  */
 
-import { readFileSync } from "node:fs";
+import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+
+import {
+  PLUGIN_SOURCE_VERSIONS_FILENAME,
+  PLUGIN_SOURCE_VERSIONS_FORMAT,
+  type PluginSourceVersion,
+  type PluginSourceVersionsSnapshot,
+  PluginSourceVersionsSnapshotSchema,
+} from "@vellumai/service-contracts/plugin-readiness";
 
 import { getMonitoringDataDir } from "../util/platform.js";
 
@@ -30,51 +38,19 @@ import { getMonitoringDataDir } from "../util/platform.js";
  * workspace git-service ignore rules — the document carries absolute
  * host-specific paths that must never be committed into workspace history.
  */
-export const SOURCE_VERSIONS_FILENAME = "plugin-source-versions.json";
+export const SOURCE_VERSIONS_FILENAME = PLUGIN_SOURCE_VERSIONS_FILENAME;
 
 /** Document format version; readers ignore documents from a different format. */
-export const SOURCE_VERSIONS_FORMAT = 1;
+export const SOURCE_VERSIONS_FORMAT = PLUGIN_SOURCE_VERSIONS_FORMAT;
 
 /**
  * One watched directory's source state: a plugin directory, or the
  * standalone workspace hooks directory.
  */
-export interface PluginSourceVersion {
-  /**
-   * Opaque stamp over the directory's source files (see
-   * `./source-fingerprint.ts`). Changes iff a source file was edited,
-   * added, removed, or renamed.
-   */
-  readonly fingerprint: string;
-  /**
-   * Absolute module paths a reader must evict from its module registry when
-   * this fingerprint changes — the realpath of every source file, plus
-   * symlink-rooted aliases when the directory is reached through a symlink.
-   * Eviction cost scales with the plugin, not with the reader's whole
-   * module graph.
-   */
-  readonly evictionPaths: readonly string[];
-  /** Whether a `.disabled` sentinel is present. Dotfiles are excluded from
-   * the fingerprint, so this surfaces disable/enable transitions. */
-  readonly disabled: boolean;
-}
+export type { PluginSourceVersion };
 
 /** The on-disk sentinel document. */
-export interface SourceVersionsDocument {
-  readonly format: number;
-  /** Increments on every rewrite within one watcher lifetime. Bookkeeping
-   * only — readers diff fingerprints, not this. */
-  readonly generation: number;
-  /** ISO timestamp of the last rewrite, for staleness logging. */
-  readonly writtenAt: string;
-  /**
-   * Keyed by the absolute directory path as the platform helpers construct
-   * it (`getWorkspacePluginsDir()`-derived plugin dirs, plus
-   * `getWorkspaceHooksDir()` for standalone workspace hooks), so readers
-   * can key their own state the same way without any name resolution.
-   */
-  readonly plugins: Readonly<Record<string, PluginSourceVersion>>;
-}
+export type SourceVersionsDocument = PluginSourceVersionsSnapshot;
 
 /** Absolute path of the sentinel document. */
 export function getSourceVersionsPath(): string {
@@ -91,18 +67,53 @@ export function readSourceVersions(): SourceVersionsDocument | null {
     const raw: unknown = JSON.parse(
       readFileSync(getSourceVersionsPath(), "utf8"),
     );
-    if (typeof raw !== "object" || raw === null) {
-      return null;
-    }
-    const doc = raw as SourceVersionsDocument;
-    if (doc.format !== SOURCE_VERSIONS_FORMAT) {
-      return null;
-    }
-    if (typeof doc.plugins !== "object" || doc.plugins === null) {
-      return null;
-    }
-    return doc;
+    const parsed = PluginSourceVersionsSnapshotSchema.safeParse(raw);
+    return parsed.success ? parsed.data : null;
   } catch {
     return null;
   }
+}
+
+/** Atomically publish a complete source-version snapshot. */
+export function writeSourceVersions(doc: SourceVersionsDocument): void {
+  const path = getSourceVersionsPath();
+  mkdirSync(getMonitoringDataDir(), { recursive: true });
+  const tempPath = `${path}.${process.pid}.${Date.now()}.tmp`;
+  writeFileSync(tempPath, JSON.stringify(doc, null, 2));
+  renameSync(tempPath, path);
+}
+
+/** Publish source versions when the durable snapshot is missing or stale. */
+export function publishSourceVersions(
+  plugins: Readonly<Record<string, PluginSourceVersion>>,
+): boolean {
+  const existing = readSourceVersions();
+  if (existing && sameSourceVersions(existing.plugins, plugins)) {
+    return false;
+  }
+  writeSourceVersions({
+    format: SOURCE_VERSIONS_FORMAT,
+    generation: (existing?.generation ?? 0) + 1,
+    writtenAt: new Date().toISOString(),
+    plugins: { ...plugins },
+  });
+  return true;
+}
+
+function sameSourceVersions(
+  left: Readonly<Record<string, PluginSourceVersion>>,
+  right: Readonly<Record<string, PluginSourceVersion>>,
+): boolean {
+  const leftKeys = Object.keys(left);
+  if (leftKeys.length !== Object.keys(right).length) {
+    return false;
+  }
+  return leftKeys.every((key) => {
+    const other = right[key];
+    return (
+      other !== undefined &&
+      left[key]?.fingerprint === other.fingerprint &&
+      left[key]?.disabled === other.disabled
+    );
+  });
 }

@@ -48,6 +48,10 @@ mock.module("../../notifications/emit-signal.js", () => ({
 import { setOverridesForTesting } from "../../__tests__/feature-flag-test-helpers.js";
 import { getDb } from "../../persistence/db-connection.js";
 import { initializeDb } from "../../persistence/db-init.js";
+import {
+  markPluginReady,
+  resetPluginReadinessForTests,
+} from "../../plugins/plugin-readiness.js";
 import { getWorkspacePluginsDir } from "../../util/platform.js";
 import {
   reconcilePluginSchedules,
@@ -80,13 +84,33 @@ function rawJob(id: string): Record<string, unknown> {
  * Write a plugin fixture: a `package.json` plus the given files under
  * `schedules/` (paths relative to the schedules dir).
  */
-function writePlugin(name: string, files: Record<string, string>): string {
+function writePlugin(
+  name: string,
+  files: Record<string, string>,
+  opts: { optsIntoReadiness?: boolean } = {},
+): string {
   const dir = join(pluginsDir, name);
   mkdirSync(dir, { recursive: true });
   writeFileSync(
     join(dir, "package.json"),
-    JSON.stringify({ name, version: "1.0.0" }),
+    JSON.stringify({
+      name,
+      version: "1.0.0",
+      ...(opts.optsIntoReadiness
+        ? { peerDependencies: { "@vellumai/plugin-api": "*" } }
+        : {}),
+    }),
   );
+  if (opts.optsIntoReadiness) {
+    writeFileSync(
+      join(dir, "host-requirements.json"),
+      JSON.stringify({
+        schemaVersion: 1,
+        requires: { "plugins.readiness": "^1.0.0" },
+      }),
+    );
+  }
+  markPluginReady(name, "d".repeat(64));
   for (const [rel, content] of Object.entries(files)) {
     const abs = join(dir, "schedules", rel);
     mkdirSync(dirname(abs), { recursive: true });
@@ -175,6 +199,7 @@ function resetReconcilerFixtures(): void {
   emittedSignals.length = 0;
   emitResultOverride = null;
   emitGate = null;
+  resetPluginReadinessForTests();
   resetDefinitionErrorEmitGuardForTests();
 }
 
@@ -396,6 +421,20 @@ describe("reconcilePluginSchedules", () => {
     expect(restored.id).toBe(created.id);
     expect(restored.enabled).toBe(true);
     expect(restored.userEnabled).toBeNull();
+  });
+
+  test("a plugin that is not ready contributes no armed schedules", async () => {
+    writePlugin("news", digest(), { optsIntoReadiness: true });
+    await reconcilePluginSchedules();
+    const created = listDeclaredSchedules()[0]!;
+    expect(created.enabled).toBe(true);
+
+    resetPluginReadinessForTests();
+    await reconcilePluginSchedules();
+
+    const disarmed = listDeclaredSchedules()[0]!;
+    expect(disarmed.id).toBe(created.id);
+    expect(disarmed.enabled).toBe(false);
   });
 
   test("a parse error keeps the last-good execute row running and emits a deduped notification", async () => {

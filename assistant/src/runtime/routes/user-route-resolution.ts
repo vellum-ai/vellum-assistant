@@ -29,6 +29,11 @@ import {
   getDefaultPluginRoutesDir,
 } from "../../plugins/defaults/main.js";
 import { isPluginDisabled } from "../../plugins/disabled-state.js";
+import { isPluginSurfaceReady } from "../../plugins/plugin-readiness.js";
+import {
+  type PluginRouteManifestResult,
+  readPluginRouteManifest,
+} from "../../plugins/plugin-route-manifest.js";
 import {
   getWorkspacePluginsDir,
   getWorkspaceRoutesDir,
@@ -64,6 +69,12 @@ export interface RouteLocation {
   routesDir: string;
   /** Path within `routesDir`, relative and without the `/x/` prefix. */
   subPath: string;
+  /** Host-derived install-directory plugin ID for plugin routes. */
+  pluginId?: string;
+  /** Absolute installed plugin directory. Omitted for workspace/default routes. */
+  pluginDir?: string;
+  /** Static policy manifest for installed plugin routes. */
+  routeManifest?: PluginRouteManifestResult;
 }
 
 /**
@@ -97,9 +108,18 @@ export function resolveRouteLocation(routePath: string): RouteLocation | null {
     if (isPluginDisabled(pluginName)) {
       return null;
     }
+    const pluginRoot = resolvePluginRoutesDir(pluginName);
+    if (pluginRoot === null) {
+      return null;
+    }
     return {
-      routesDir: resolvePluginRoutesDir(pluginName),
+      routesDir: pluginRoot.routesDir,
       subPath: segments.slice(2).join("/"),
+      pluginId: pluginName,
+      pluginDir: pluginRoot.pluginDir,
+      routeManifest: pluginRoot.pluginDir
+        ? readPluginRouteManifest(pluginRoot.pluginDir)
+        : { kind: "legacy" },
     };
   }
   return { routesDir: getWorkspaceRoutesDir(), subPath: routePath };
@@ -113,20 +133,21 @@ export function resolveRouteLocation(routePath: string): RouteLocation | null {
  * Falls back to the (missing) workspace path when the name matches neither, so
  * {@link resolveHandlerFile} reports a 404.
  */
-function resolvePluginRoutesDir(pluginName: string): string {
-  const workspaceRoutesDir = join(
-    getWorkspacePluginsDir(),
-    pluginName,
-    "routes",
-  );
-  if (existsSync(workspaceRoutesDir)) {
-    return workspaceRoutesDir;
+function resolvePluginRoutesDir(pluginName: string): {
+  routesDir: string;
+  pluginDir?: string;
+} | null {
+  const pluginDir = join(getWorkspacePluginsDir(), pluginName);
+  const workspaceRoutesDir = join(pluginDir, "routes");
+  const isInstalled = existsSync(join(pluginDir, "package.json"));
+  if (isInstalled && existsSync(workspaceRoutesDir)) {
+    return { routesDir: workspaceRoutesDir, pluginDir };
   }
   const defaultRoutesDir = getDefaultPluginRoutesDir(pluginName);
   if (defaultRoutesDir && existsSync(defaultRoutesDir)) {
-    return defaultRoutesDir;
+    return { routesDir: defaultRoutesDir };
   }
-  return workspaceRoutesDir;
+  return isInstalled ? { routesDir: workspaceRoutesDir, pluginDir } : null;
 }
 
 /**
@@ -208,7 +229,13 @@ export function listPluginRouteRoots(): {
         continue;
       }
       const routesDir = join(pluginsDir, entry.name, "routes");
-      if (existsSync(routesDir) && statSync(routesDir).isDirectory()) {
+      const pluginDir = join(pluginsDir, entry.name);
+      if (
+        existsSync(join(pluginDir, "package.json")) &&
+        existsSync(routesDir) &&
+        statSync(routesDir).isDirectory() &&
+        isPluginRouteRootDiscoverable(entry.name, pluginDir)
+      ) {
         byName.set(entry.name, routesDir);
       }
     }
@@ -218,4 +245,15 @@ export function listPluginRouteRoots(): {
     pluginName,
     routesDir,
   }));
+}
+
+function isPluginRouteRootDiscoverable(
+  pluginId: string,
+  pluginDir: string,
+): boolean {
+  const manifest = readPluginRouteManifest(pluginDir);
+  if (manifest.kind === "invalid") {
+    return false;
+  }
+  return isPluginSurfaceReady(pluginId, pluginDir);
 }

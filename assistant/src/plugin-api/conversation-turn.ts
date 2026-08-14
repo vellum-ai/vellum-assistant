@@ -18,6 +18,7 @@ import type { ChannelId } from "../channels/types.js";
 import type { LLMCallSite } from "../config/schemas/llm.js";
 import type { UserMessageAttachment } from "../daemon/message-types/shared.js";
 import type { ContentBlock, MediaSource } from "../providers/types.js";
+import { assertNotPluginRouteHost } from "./route-context.js";
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -269,6 +270,7 @@ async function resolveChannelConversation(
 export async function runConversationTurn(
   options: RunConversationTurnOptions,
 ): Promise<RunConversationTurnResult> {
+  assertNotPluginRouteHost("Conversation turns");
   const { v7: uuidv7 } = await import("uuid");
   const { getOrCreateConversation } =
     await import("../daemon/conversation-store.js");

@@ -12,6 +12,9 @@
  */
 
 import { isHttpAuthDisabled } from "../../config/env.js";
+import type { PluginRouteActorContext } from "../../plugin-api/route-context.js";
+import type { VerifiedPeerOperationContext } from "../../plugin-api/verified-peer-context.js";
+import type { PluginRouteAuthorization } from "../../plugins/plugin-route-manifest.js";
 import { getLogger } from "../../util/logger.js";
 import type { AuthContext, PrincipalType, Scope } from "./types.js";
 
@@ -61,6 +64,15 @@ export const GATEWAY_PRINCIPALS: PrincipalType[] = ["svc_gateway"];
  * IPC socket.
  */
 export const LOCAL_PRINCIPALS: PrincipalType[] = ["local"];
+
+/** Verified peer operations can call only routes that opt into this principal. */
+export const ASSISTANT_PEER_PRINCIPALS: PrincipalType[] = ["assistant_peer"];
+
+/** Principals admitted to the dynamic plugin route policy check. */
+export const PLUGIN_ROUTE_PRINCIPALS: PrincipalType[] = [
+  ...ACTOR_PRINCIPALS,
+  ...ASSISTANT_PEER_PRINCIPALS,
+];
 
 // ---------------------------------------------------------------------------
 // Enforcement
@@ -134,5 +146,61 @@ export function enforcePolicy(
     }
   }
 
+  return null;
+}
+
+function forbidden(message: string): Response {
+  return Response.json(
+    { error: { code: "FORBIDDEN", message } },
+    { status: 403 },
+  );
+}
+
+/**
+ * Enforce one static plugin route declaration before its handler module is
+ * imported. Local actor routes and verified peer routes are disjoint.
+ */
+export function enforcePluginRoutePolicy(
+  endpoint: string,
+  pluginId: string,
+  authorization: PluginRouteAuthorization,
+  actor: PluginRouteActorContext,
+  verifiedPeer: VerifiedPeerOperationContext | null,
+): Response | null {
+  if (authorization.principal === "actor") {
+    if (!ACTOR_PRINCIPALS.includes(actor.principalType)) {
+      log.warn(
+        { endpoint, pluginId, principalType: actor.principalType },
+        "Plugin route policy denied: actor principal required",
+      );
+      return forbidden("Local actor principal required for this plugin route");
+    }
+
+    const hasLocalAuthority = actor.scopes.includes("local.all");
+    for (const scope of authorization.requiredScopes) {
+      if (!hasLocalAuthority && !actor.scopes.includes(scope)) {
+        log.warn(
+          { endpoint, pluginId, missingScope: scope },
+          "Plugin route policy denied: missing required scope",
+        );
+        return forbidden(`Missing required scope: ${scope}`);
+      }
+    }
+    return null;
+  }
+
+  if (actor.principalType !== "assistant_peer" || !verifiedPeer) {
+    log.warn(
+      { endpoint, pluginId, principalType: actor.principalType },
+      "Plugin route policy denied: verified peer required",
+    );
+    return forbidden("Verified assistant peer required for this plugin route");
+  }
+  if (
+    authorization.operationKinds &&
+    !authorization.operationKinds.includes(verifiedPeer.operation.kind)
+  ) {
+    return forbidden("Peer operation kind is not permitted for this route");
+  }
   return null;
 }

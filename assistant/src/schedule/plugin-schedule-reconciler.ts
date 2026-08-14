@@ -33,6 +33,7 @@ import type { AttentionHints } from "../notifications/signal.js";
 import { isPluginDisabled } from "../plugins/disabled-state.js";
 import { parsePluginManifest } from "../plugins/external-plugin-loader.js";
 import { listInstalledPluginDirs } from "../plugins/installed-plugin-dirs.js";
+import { isPluginSurfaceReady } from "../plugins/plugin-readiness.js";
 import { getLogger } from "../util/logger.js";
 import {
   type DeclarationError,
@@ -264,7 +265,7 @@ function isCompletedRecurrence(
  * as the plugin source collector) and gather their schedule declarations.
  * Identity = the directory basename, mirroring `parsePluginManifest`.
  *
- * Disabled plugins and plugins without a `schedules/` directory are skipped
+ * Disabled, unready, and schedule-free plugins are skipped
  * entirely; in particular, only schedule-declaring plugins pay the manifest
  * parse each pass. A schedule-declaring plugin whose manifest fails
  * `parsePluginManifest` (unreadable or schema-invalid `package.json`) also
@@ -279,7 +280,7 @@ async function collectDesiredDeclarations(): Promise<CollectedDeclarations> {
   const manifestFailures: DeclarationError[] = [];
 
   for (const { name, dir } of listInstalledPluginDirs()) {
-    if (isPluginDisabled(name)) {
+    if (isPluginDisabled(name) || !isPluginSurfaceReady(name, dir)) {
       continue;
     }
     if (!existsSync(join(dir, "schedules"))) {

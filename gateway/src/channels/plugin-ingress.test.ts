@@ -1,6 +1,10 @@
+import { createHash } from "node:crypto";
 import {
+  existsSync,
   mkdirSync,
   mkdtempSync,
+  readFileSync,
+  renameSync,
   rmSync,
   symlinkSync,
   writeFileSync,
@@ -8,7 +12,8 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { afterEach, describe, expect, it } from "bun:test";
+import { PLUGIN_HOST_REQUIREMENTS_FILENAME } from "@vellumai/service-contracts/plugin-readiness";
+import { afterEach, describe, expect, it, spyOn } from "bun:test";
 
 import {
   PLUGIN_INGRESS_MANIFEST_RELPATH,
@@ -35,6 +40,91 @@ function makeWorkspace(): string {
   return dir;
 }
 
+function writeAtomically(path: string, contents: string): void {
+  const temporaryPath = `${path}.tmp`;
+  writeFileSync(temporaryPath, contents);
+  renameSync(temporaryPath, path);
+}
+
+function setReadiness(
+  workspaceDir: string,
+  plugin: string,
+  status: "initializing" | "ready" | "incompatible" | "failed" = "ready",
+): void {
+  const rawSourceFingerprint = `source:${plugin}`;
+  const sourceFingerprint = createHash("sha256")
+    .update(rawSourceFingerprint)
+    .digest("hex");
+  const path = join(workspaceDir, "data", "plugin-readiness-v1.json");
+  let plugins: Record<string, unknown> = {};
+  if (existsSync(path)) {
+    plugins = JSON.parse(readFileSync(path, "utf8")).plugins;
+  }
+  mkdirSync(join(workspaceDir, "data"), { recursive: true });
+  writeAtomically(
+    path,
+    JSON.stringify({
+      schemaVersion: 1,
+      generation: "11111111-1111-4111-8111-111111111111",
+      plugins: {
+        ...plugins,
+        [plugin]: {
+          pluginId: plugin,
+          sourceFingerprint,
+          status,
+          updatedAt: new Date().toISOString(),
+        },
+      },
+    }),
+  );
+  const sourceVersionsPath = join(
+    workspaceDir,
+    "data",
+    "monitoring",
+    "plugin-source-versions.json",
+  );
+  let versions: Record<string, unknown> = {};
+  if (existsSync(sourceVersionsPath)) {
+    try {
+      versions = JSON.parse(readFileSync(sourceVersionsPath, "utf8")).plugins;
+    } catch {
+      versions = {};
+    }
+  }
+  mkdirSync(join(workspaceDir, "data", "monitoring"), { recursive: true });
+  writeAtomically(
+    sourceVersionsPath,
+    JSON.stringify({
+      format: 2,
+      generation: 1,
+      writtenAt: new Date().toISOString(),
+      plugins: {
+        ...versions,
+        [join(workspaceDir, "plugins", plugin)]: {
+          fingerprint: rawSourceFingerprint,
+          sourceFingerprint,
+          evictionPaths: [],
+          disabled: false,
+        },
+      },
+    }),
+  );
+}
+
+function writeStaleSourceVersion(workspaceDir: string, plugin: string): void {
+  const path = join(
+    workspaceDir,
+    "data",
+    "monitoring",
+    "plugin-source-versions.json",
+  );
+  const document = JSON.parse(readFileSync(path, "utf8"));
+  document.generation += 1;
+  document.plugins[join(workspaceDir, "plugins", plugin)].sourceFingerprint =
+    "b".repeat(64);
+  writeAtomically(path, JSON.stringify(document));
+}
+
 /** Write a plugin's ingress manifest (raw string, so invalid JSON is testable). */
 function writeManifest(
   workspaceDir: string,
@@ -49,6 +139,22 @@ function writeManifest(
   );
   writeFileSync(join(pluginDir, PLUGIN_INGRESS_MANIFEST_RELPATH), contents);
   return pluginDir;
+}
+
+function writeHostRequirements(workspaceDir: string, plugin: string): void {
+  writeFileSync(
+    join(workspaceDir, "plugins", plugin, PLUGIN_HOST_REQUIREMENTS_FILENAME),
+    JSON.stringify({ schemaVersion: 1, requires: {} }),
+  );
+}
+
+function optIntoReadiness(
+  workspaceDir: string,
+  plugin: string,
+  status: "initializing" | "ready" | "incompatible" | "failed" = "ready",
+): void {
+  writeHostRequirements(workspaceDir, plugin);
+  setReadiness(workspaceDir, plugin, status);
 }
 
 const VALID = JSON.stringify({
@@ -470,7 +576,7 @@ describe("discoverPluginIngress", () => {
     });
   });
 
-  it("discovers a declaring plugin and composes its paths", () => {
+  it("keeps a legacy declaration visible without activation snapshots", () => {
     const workspaceDir = makeWorkspace();
     writeManifest(workspaceDir, "meeting-bot", VALID);
 
@@ -499,6 +605,61 @@ describe("discoverPluginIngress", () => {
     expect(discoverPluginIngress({ workspaceDir }).plugins).toEqual([]);
   });
 
+  it("fails closed until the assistant marks the plugin ready", () => {
+    const workspaceDir = makeWorkspace();
+    writeManifest(workspaceDir, "meeting-bot", VALID);
+    optIntoReadiness(workspaceDir, "meeting-bot", "initializing");
+
+    expect(discoverPluginIngress({ workspaceDir }).plugins).toEqual([]);
+
+    setReadiness(workspaceDir, "meeting-bot", "ready");
+    expect(
+      discoverPluginIngress({ workspaceDir }).plugins.map((p) => p.plugin),
+    ).toEqual(["meeting-bot"]);
+  });
+
+  it("fails closed for opted-in plugins when readiness is missing or invalid", () => {
+    const workspaceDir = makeWorkspace();
+    writeManifest(workspaceDir, "meeting-bot", VALID);
+    writeHostRequirements(workspaceDir, "meeting-bot");
+    const readinessPath = join(
+      workspaceDir,
+      "data",
+      "plugin-readiness-v1.json",
+    );
+    expect(discoverPluginIngress({ workspaceDir }).plugins).toEqual([]);
+
+    mkdirSync(join(workspaceDir, "data"), { recursive: true });
+    writeFileSync(readinessPath, "{ not json");
+    expect(discoverPluginIngress({ workspaceDir }).plugins).toEqual([]);
+  });
+
+  it("fails closed for opted-in plugins when source versions are missing or invalid", () => {
+    const workspaceDir = makeWorkspace();
+    writeManifest(workspaceDir, "meeting-bot", VALID);
+    writeHostRequirements(workspaceDir, "meeting-bot");
+    const sourceVersionsPath = join(
+      workspaceDir,
+      "data",
+      "monitoring",
+      "plugin-source-versions.json",
+    );
+    expect(discoverPluginIngress({ workspaceDir }).plugins).toEqual([]);
+
+    mkdirSync(join(workspaceDir, "data", "monitoring"), { recursive: true });
+    writeFileSync(sourceVersionsPath, "{ not json");
+    expect(discoverPluginIngress({ workspaceDir }).plugins).toEqual([]);
+  });
+
+  it("fails closed when source versions are stale", () => {
+    const workspaceDir = makeWorkspace();
+    writeManifest(workspaceDir, "meeting-bot", VALID);
+    optIntoReadiness(workspaceDir, "meeting-bot");
+
+    writeStaleSourceVersion(workspaceDir, "meeting-bot");
+    expect(discoverPluginIngress({ workspaceDir }).plugins).toEqual([]);
+  });
+
   it("discovers a plugin installed as a symlinked root", () => {
     // Plugins may be installed by symlinking a checkout into place, where
     // Dirent.isDirectory() is false but the target is a directory.
@@ -514,7 +675,6 @@ describe("discoverPluginIngress", () => {
 
     mkdirSync(join(workspaceDir, "plugins"), { recursive: true });
     symlinkSync(target, join(workspaceDir, "plugins", "meeting-bot"));
-
     const { plugins, problems } = discoverPluginIngress({ workspaceDir });
     expect(problems).toEqual([]);
     expect(plugins.map((p) => p.plugin)).toEqual(["meeting-bot"]);
@@ -582,29 +742,84 @@ describe("discoverPluginIngress", () => {
 });
 
 describe("PluginIngressCache", () => {
-  it("serves a cached snapshot within the TTL and re-scans after it", () => {
+  it("does not reread unchanged files within the TTL", async () => {
     const workspaceDir = makeWorkspace();
-    const cache = new PluginIngressCache({ workspaceDir, ttlMs: 10_000 });
-    expect(cache.get().plugins).toEqual([]);
-
     writeManifest(workspaceDir, "meeting-bot", VALID);
-    // Still inside the TTL — the new plugin is not visible yet.
-    expect(cache.get().plugins).toEqual([]);
+    const cache = new PluginIngressCache({ workspaceDir, ttlMs: 10_000 });
+    const fs = await import("node:fs");
+    const readSpy = spyOn(fs, "readFileSync");
 
-    // Invalidating stands in for the TTL elapsing, so the test does not
-    // have to sleep.
-    cache.invalidate();
+    try {
+      expect(cache.get().plugins.map((p) => p.plugin)).toEqual(["meeting-bot"]);
+      readSpy.mockClear();
+
+      expect(cache.get().plugins.map((p) => p.plugin)).toEqual(["meeting-bot"]);
+      expect(readSpy).not.toHaveBeenCalled();
+    } finally {
+      readSpy.mockRestore();
+    }
+  });
+
+  it("rereads files after the TTL expires", async () => {
+    const workspaceDir = makeWorkspace();
+    writeManifest(workspaceDir, "meeting-bot", VALID);
+    const cache = new PluginIngressCache({ workspaceDir, ttlMs: 0 });
+    const fs = await import("node:fs");
+    const readSpy = spyOn(fs, "readFileSync");
+
+    try {
+      cache.get();
+      readSpy.mockClear();
+
+      cache.get();
+      expect(readSpy).toHaveBeenCalled();
+    } finally {
+      readSpy.mockRestore();
+    }
+  });
+
+  it("serves a cached snapshot until invalidated", () => {
+    const workspaceDir = makeWorkspace();
+    const pluginDir = writeManifest(workspaceDir, "meeting-bot", VALID);
+    const cache = new PluginIngressCache({ workspaceDir, ttlMs: 10_000 });
     expect(cache.get().plugins.map((p) => p.plugin)).toEqual(["meeting-bot"]);
+
+    rmSync(pluginDir, { recursive: true, force: true });
+    expect(cache.get().plugins.map((p) => p.plugin)).toEqual(["meeting-bot"]);
+
+    cache.invalidate();
+    expect(cache.get().plugins).toEqual([]);
   });
 
   it("force re-scans regardless of the TTL", () => {
     const workspaceDir = makeWorkspace();
+    const pluginDir = writeManifest(workspaceDir, "meeting-bot", VALID);
+    const cache = new PluginIngressCache({ workspaceDir, ttlMs: 10_000 });
+    expect(cache.get().plugins.map((p) => p.plugin)).toEqual(["meeting-bot"]);
+
+    rmSync(pluginDir, { recursive: true, force: true });
+    expect(cache.get({ force: true }).plugins).toEqual([]);
+  });
+
+  it("refreshes immediately after an atomic readiness rewrite", () => {
+    const workspaceDir = makeWorkspace();
+    writeManifest(workspaceDir, "meeting-bot", VALID);
+    optIntoReadiness(workspaceDir, "meeting-bot", "initializing");
     const cache = new PluginIngressCache({ workspaceDir, ttlMs: 10_000 });
     expect(cache.get().plugins).toEqual([]);
 
+    setReadiness(workspaceDir, "meeting-bot", "ready");
+    expect(cache.get().plugins.map((p) => p.plugin)).toEqual(["meeting-bot"]);
+  });
+
+  it("refreshes immediately after an atomic source-version rewrite", () => {
+    const workspaceDir = makeWorkspace();
     writeManifest(workspaceDir, "meeting-bot", VALID);
-    expect(cache.get({ force: true }).plugins.map((p) => p.plugin)).toEqual([
-      "meeting-bot",
-    ]);
+    optIntoReadiness(workspaceDir, "meeting-bot");
+    const cache = new PluginIngressCache({ workspaceDir, ttlMs: 10_000 });
+    expect(cache.get().plugins.map((p) => p.plugin)).toEqual(["meeting-bot"]);
+
+    writeStaleSourceVersion(workspaceDir, "meeting-bot");
+    expect(cache.get().plugins).toEqual([]);
   });
 });

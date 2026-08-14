@@ -12,10 +12,8 @@
  * the socket, then write the PID file as the readiness signal, arm the
  * PID-file guard so a superseded instance self-exits, and clean up on exit.
  *
- * Handlers run with **no injected context**. Reaching daemon state (publishing
- * events, running conversation turns) is deferred to the plugin-api once it is
- * safe out-of-process; today the host serves pure request→response handlers
- * (CRUD, file persistence, external API proxying).
+ * Plugin handlers run inside a host-derived route context. Its bounded host
+ * facade uses the closed local broker for approved main-process operations.
  */
 
 import { existsSync, unlinkSync, writeFileSync } from "node:fs";
@@ -24,12 +22,14 @@ import { createServer, type Server, type Socket } from "node:net";
 import type { IpcEnvelope } from "@vellumai/ipc-server-utils";
 import { IpcFrameReader, writeMessage } from "@vellumai/ipc-server-utils";
 
-import { disableStreamSeqStamping } from "../runtime/assistant-stream-state.js";
 import {
-  evictRouteSourceTree,
-  importRouteModule,
-  sourceRootForHandler,
-} from "../runtime/routes/user-route-import.js";
+  markCurrentProcessAsPluginRouteHost,
+  type PluginRouteContext,
+  runInPluginRouteContext,
+} from "../plugin-api/route-context.js";
+import { runInPluginContext } from "../plugins/plugin-execution-context.js";
+import { disableStreamSeqStamping } from "../runtime/assistant-stream-state.js";
+import { importRouteModule } from "../runtime/routes/user-route-import.js";
 import { getLogger } from "../util/logger.js";
 import {
   ensureProcDir,
@@ -41,15 +41,31 @@ import {
   startWorkerPidFileGuard,
 } from "../util/worker-process.js";
 import {
+  type RouteHostBrokerRequest,
+  type RouteHostBrokerResult,
+  runWithRouteHostBroker,
+} from "./route-host-broker.js";
+import {
+  ROUTE_BROKER_METHOD,
+  ROUTE_CANCEL_METHOD,
   ROUTE_HOST_PROC_NAME,
   ROUTE_INVOKE_METHOD,
-  type RouteInvokeParams,
+  type RouteCancelParams,
+  type RouteInvokeWireParams,
 } from "./route-host-protocol.js";
 
 const log = getLogger("route-host");
 
-/** Last entry-file mtime imported in this process, keyed by handler path. */
-const lastHandlerMtime = new Map<string, number>();
+const activeAbortControllers = new Map<string, AbortController>();
+
+interface PendingBrokerCall {
+  readonly invokeId: string;
+  resolve: (result: RouteHostBrokerResult) => void;
+  reject: (error: Error) => void;
+}
+
+const pendingBrokerCalls = new Map<string, PendingBrokerCall>();
+let brokerCallSeq = 0;
 
 const socketPath = getProcSocketPath(ROUTE_HOST_PROC_NAME);
 const pidPath = getProcPidPath(ROUTE_HOST_PROC_NAME);
@@ -67,14 +83,15 @@ function toArrayBuffer(bytes: Uint8Array): ArrayBuffer {
 }
 
 function reconstructRequest(
-  params: RouteInvokeParams,
+  params: RouteInvokeWireParams,
   body: Uint8Array | undefined,
+  signal: AbortSignal,
 ): Request {
   const headers = new Headers();
   for (const [name, value] of params.headers) {
     headers.append(name, value);
   }
-  const init: RequestInit = { method: params.method, headers };
+  const init: RequestInit = { method: params.method, headers, signal };
   if (body && params.method !== "GET" && params.method !== "HEAD") {
     init.body = toArrayBuffer(body);
   }
@@ -115,59 +132,142 @@ const HTTP_METHODS = [
 async function handleInvoke(
   socket: Socket,
   id: string,
-  params: RouteInvokeParams,
+  params: RouteInvokeWireParams,
   body: Uint8Array | undefined,
 ): Promise<void> {
-  // Each worker has its own module cache. When the entry file's mtime
-  // moves, evict the whole source tree so a new handler cannot bind to a
-  // stale helper, then re-import.
-  const lastMtime = lastHandlerMtime.get(params.filePath);
-  if (lastMtime !== params.mtimeMs) {
-    evictRouteSourceTree(sourceRootForHandler(params.filePath));
-    lastHandlerMtime.set(params.filePath, params.mtimeMs);
-  }
-  const mod = await importRouteModule(params.filePath);
+  const abortController = new AbortController();
+  activeAbortControllers.set(id, abortController);
+  try {
+    const mod = await importRouteModule(params.filePath);
 
-  const handler = mod[params.method];
-  if (typeof handler !== "function") {
-    const allowed = HTTP_METHODS.filter((m) => typeof mod[m] === "function");
+    const handler = mod[params.method];
+    if (typeof handler !== "function") {
+      const allowed = HTTP_METHODS.filter((m) => typeof mod[m] === "function");
+      replyResult(
+        socket,
+        id,
+        405,
+        allowed.length ? [["allow", allowed.join(", ")]] : [],
+        null,
+      );
+      return;
+    }
+
+    const request = reconstructRequest(params, body, abortController.signal);
+    const serializedContext = params.pluginContext;
+    const brokerTransport = serializedContext
+      ? createBrokerTransport(socket, id, params.brokerCapability)
+      : undefined;
+    const pluginContext: PluginRouteContext | undefined =
+      serializedContext && brokerTransport
+        ? {
+            pluginId: serializedContext.pluginId,
+            actor: serializedContext.actor,
+            requestId: serializedContext.requestId,
+            signal: abortController.signal,
+            verifiedPeer: serializedContext.verifiedPeer,
+            host: {
+              async getPluginStorageDir(): Promise<string> {
+                const result = await brokerTransport({
+                  operation: "plugin.storage-dir",
+                });
+                return result.pluginStorageDir;
+              },
+            },
+          }
+        : undefined;
+    const invoke = () => (handler as (req: Request) => unknown)(request);
+    const response = (await (pluginContext && brokerTransport
+      ? runWithRouteHostBroker(brokerTransport, () =>
+          runInPluginContext(pluginContext.pluginId, () =>
+            runInPluginRouteContext(pluginContext, invoke),
+          ),
+        )
+      : invoke())) as Response;
+
+    const buffer = new Uint8Array(await response.arrayBuffer());
+    const headers: [string, string][] = [];
+    response.headers.forEach((value, name) => {
+      headers.push([name, value]);
+    });
     replyResult(
       socket,
       id,
-      405,
-      allowed.length ? [["allow", allowed.join(", ")]] : [],
-      null,
+      response.status,
+      headers,
+      buffer.byteLength > 0 ? buffer : null,
     );
-    return;
+  } finally {
+    activeAbortControllers.delete(id);
+    for (const [brokerId, pending] of pendingBrokerCalls) {
+      if (pending.invokeId === id) {
+        pendingBrokerCalls.delete(brokerId);
+        pending.reject(new Error("route invocation completed"));
+      }
+    }
   }
+}
 
-  const request = reconstructRequest(params, body);
-  const response = (await (handler as (req: Request) => unknown)(
-    request,
-  )) as Response;
-
-  const buffer = new Uint8Array(await response.arrayBuffer());
-  const headers: [string, string][] = [];
-  response.headers.forEach((value, name) => {
-    headers.push([name, value]);
-  });
-  replyResult(
-    socket,
-    id,
-    response.status,
-    headers,
-    buffer.byteLength > 0 ? buffer : null,
-  );
+function createBrokerTransport(
+  socket: Socket,
+  invokeId: string,
+  capability: string | null,
+): (request: RouteHostBrokerRequest) => Promise<RouteHostBrokerResult> {
+  return (request) => {
+    const id = `broker:${process.pid}:${++brokerCallSeq}`;
+    return new Promise<RouteHostBrokerResult>((resolve, reject) => {
+      if (capability === null) {
+        reject(new Error("route host broker capability is unavailable"));
+        return;
+      }
+      pendingBrokerCalls.set(id, { invokeId, resolve, reject });
+      writeMessage(socket, {
+        id,
+        method: ROUTE_BROKER_METHOD,
+        params: {
+          invokeId,
+          capability,
+          request,
+        } as unknown as Record<string, unknown>,
+      });
+    });
+  };
 }
 
 function onConnection(socket: Socket): void {
   const reader = new IpcFrameReader(
     (envelope, binary) => {
+      if (envelope.id && pendingBrokerCalls.has(envelope.id)) {
+        const pending = pendingBrokerCalls.get(envelope.id)!;
+        pendingBrokerCalls.delete(envelope.id);
+        if (envelope.error != null) {
+          pending.reject(new Error(envelope.error));
+        } else {
+          pending.resolve(envelope.result as RouteHostBrokerResult);
+        }
+        return;
+      }
+      if (envelope.method === ROUTE_CANCEL_METHOD) {
+        const params = envelope.params as unknown as RouteCancelParams;
+        const controller = activeAbortControllers.get(params.requestId);
+        if (controller) {
+          controller.abort(
+            new DOMException("Route request aborted", "AbortError"),
+          );
+        }
+        if (envelope.id) {
+          writeMessage(socket, {
+            id: envelope.id,
+            result: { cancelled: controller !== undefined },
+          });
+        }
+        return;
+      }
       if (envelope.method !== ROUTE_INVOKE_METHOD || !envelope.id) {
         return;
       }
       const id = envelope.id;
-      const params = envelope.params as unknown as RouteInvokeParams;
+      const params = envelope.params as unknown as RouteInvokeWireParams;
       handleInvoke(socket, id, params, binary).catch((err: unknown) => {
         const message = err instanceof Error ? err.message : String(err);
         log.error({ err, id }, "Route handler invocation failed");
@@ -178,6 +278,12 @@ function onConnection(socket: Socket): void {
   );
 
   socket.on("data", (chunk: Buffer) => reader.push(chunk));
+  socket.on("close", () => {
+    for (const [, pending] of pendingBrokerCalls) {
+      pending.reject(new Error("route host broker connection closed"));
+    }
+    pendingBrokerCalls.clear();
+  });
   socket.on("error", (err) => log.warn({ err }, "Route host socket error"));
 }
 
@@ -202,6 +308,8 @@ function shutdown(reason: string): void {
 }
 
 function start(): void {
+  markCurrentProcessAsPluginRouteHost();
+
   // Only the daemon stamps SSE seqs and writes the shared reservation file; a
   // worker that stamped would issue overlapping seqs and race the daemon.
   disableStreamSeqStamping();

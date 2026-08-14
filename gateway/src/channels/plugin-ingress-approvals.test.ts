@@ -239,7 +239,7 @@ describe("ingressDeclarationDigest", () => {
 });
 
 describe("resolvePluginIngress", () => {
-  it("holds an unapproved declaration as pending, never approved", () => {
+  it("keeps a legacy unapproved declaration pending", () => {
     const workspaceDir = makeWorkspace();
     writePlugin(workspaceDir, "meeting-bot");
 

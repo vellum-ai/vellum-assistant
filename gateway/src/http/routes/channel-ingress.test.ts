@@ -110,7 +110,7 @@ describe("approve", () => {
     expect(getPluginIngressApproval("meeting-bot")?.digest).toBe(digest);
   });
 
-  it("refuses a digest that is not what the plugin currently declares", async () => {
+  it("returns a digest conflict for a legacy declaration", async () => {
     // Otherwise a guardian could record a grant for routes nobody has seen,
     // which would activate the moment a manifest happened to match.
     writePlugin("meeting-bot");
@@ -205,7 +205,7 @@ describe("revoke", () => {
 });
 
 describe("list", () => {
-  it("says what is pending and which digest would approve it", async () => {
+  it("lists a legacy declaration and the digest that would approve it", async () => {
     // The only place this is visible. On the public surface a route held back
     // by approval 404s exactly like one nobody declared.
     writePlugin("meeting-bot");

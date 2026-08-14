@@ -9,6 +9,10 @@ import {
   listPluginApps,
   resolveAppSource,
 } from "../apps/app-store.js";
+import {
+  markPluginReady,
+  resetPluginReadinessForTests,
+} from "../plugins/plugin-readiness.js";
 import { getWorkspacePluginsDir } from "../util/platform.js";
 
 let workspaceDir: string;
@@ -26,17 +30,33 @@ function freshWorkspace(): string {
  */
 function installPlugin(
   name: string,
-  opts: { disabled?: boolean } = {},
+  opts: { disabled?: boolean; optsIntoReadiness?: boolean } = {},
 ): string {
   const pluginDir = join(getWorkspacePluginsDir(), name);
   mkdirSync(pluginDir, { recursive: true });
   writeFileSync(
     join(pluginDir, "package.json"),
-    JSON.stringify({ name, version: "1.0.0" }),
+    JSON.stringify({
+      name,
+      version: "1.0.0",
+      ...(opts.optsIntoReadiness
+        ? { peerDependencies: { "@vellumai/plugin-api": "*" } }
+        : {}),
+    }),
   );
+  if (opts.optsIntoReadiness) {
+    writeFileSync(
+      join(pluginDir, "host-requirements.json"),
+      JSON.stringify({
+        schemaVersion: 1,
+        requires: { "plugins.readiness": "^1.0.0" },
+      }),
+    );
+  }
   if (opts.disabled) {
     writeFileSync(join(pluginDir, ".disabled"), "");
   }
+  markPluginReady(name, "a".repeat(64));
   return pluginDir;
 }
 
@@ -52,6 +72,7 @@ function bundleApp(pluginDir: string, app: string): void {
 beforeEach(() => {
   workspaceDir = freshWorkspace();
   process.env.VELLUM_WORKSPACE_DIR = workspaceDir;
+  resetPluginReadinessForTests();
 });
 
 afterEach(() => {
@@ -89,6 +110,7 @@ describe("listAllApps", () => {
     });
     const pluginDir = installPlugin("acme");
     bundleApp(pluginDir, "acme-dashboard");
+    resetPluginReadinessForTests();
 
     const plugin = listPluginApps();
     expect(plugin).toHaveLength(1);
@@ -124,6 +146,7 @@ describe("listAllApps", () => {
 
     mkdirSync(getWorkspacePluginsDir(), { recursive: true });
     symlinkSync(realPluginDir, join(getWorkspacePluginsDir(), "acme"));
+    markPluginReady("acme", "a".repeat(64));
 
     const plugin = listPluginApps();
     expect(plugin).toHaveLength(1);
@@ -137,6 +160,15 @@ describe("listAllApps", () => {
 
     expect(listPluginApps()).toEqual([]);
     expect(listAllApps()).toEqual([]);
+  });
+
+  test("excludes apps until the plugin is ready", () => {
+    const pluginDir = installPlugin("acme", { optsIntoReadiness: true });
+    bundleApp(pluginDir, "acme-dashboard");
+    resetPluginReadinessForTests();
+
+    expect(listPluginApps()).toEqual([]);
+    expect(resolveAppSource("plugins~acme~acme-dashboard")).toBeNull();
   });
 });
 

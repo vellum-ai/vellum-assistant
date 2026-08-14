@@ -26,6 +26,7 @@ import { join } from "node:path";
 import { isPluginDisabled } from "../plugins/disabled-state.js";
 import { parsePluginPresentation } from "../plugins/external-plugin-loader.js";
 import { listInstalledPluginDirs } from "../plugins/installed-plugin-dirs.js";
+import { isPluginSurfaceReady } from "../plugins/plugin-readiness.js";
 import { type AvailableChannel, isChannelId } from "./types.js";
 
 /**
@@ -62,16 +63,14 @@ function declaresIngress(pluginDir: string): boolean {
 }
 
 /**
- * Every channel brought by an installed, enabled plugin.
+ * Every channel brought by an installed, ready plugin.
  *
  * A plugin whose directory name is one of the assistant's own channels is
  * skipped: two rows sharing an id would be ambiguous to any client keying on
  * one, and the resolution that lets a plugin win would let it impersonate a
  * built-in channel. The assistant's keep the name.
  *
- * Disabled plugins are skipped too, matching the source of truth the loader
- * uses for hooks, tools and routes: a disabled plugin holds no ingress either,
- * and one that reappeared here would offer a setup flow that cannot run.
+ * Disabled and unready plugins are skipped because their ingress cannot run.
  *
  * Order follows the plugins directory, and is stable for a stable install set.
  */
@@ -79,7 +78,12 @@ export async function discoverPluginChannels(): Promise<AvailableChannel[]> {
   const channels: AvailableChannel[] = [];
 
   for (const { name, dir } of listInstalledPluginDirs()) {
-    if (isPluginDisabled(name) || isChannelId(name) || !declaresIngress(dir)) {
+    if (
+      isPluginDisabled(name) ||
+      !isPluginSurfaceReady(name, dir) ||
+      isChannelId(name) ||
+      !declaresIngress(dir)
+    ) {
       continue;
     }
     const presentation = await parsePluginPresentation(dir);
