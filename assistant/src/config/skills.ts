@@ -20,6 +20,7 @@ import { z } from "zod";
 
 import { getDefaultPluginSkillRoots } from "../plugins/defaults/main.js";
 import { isPluginDisabled } from "../plugins/disabled-state.js";
+import { isPluginReady } from "../plugins/plugin-readiness.js";
 import { parseFrontmatterFields } from "../skills/frontmatter.js";
 import type { InlineCommandExpansion } from "../skills/inline-command-expansions.js";
 import { parseInlineCommandExpansions } from "../skills/inline-command-expansions.js";
@@ -872,10 +873,12 @@ function discoverInstalledPluginResidentSkills(): SkillSummary[] {
       continue;
     }
 
-    // Honor the `.disabled` sentinel the runtime plugin scan checks
-    // (`plugins/mtime-cache.ts`): a disabled plugin contributes no hooks or
-    // tools, so its resident skills must not be loadable either.
+    // A disabled plugin contributes no resident skills.
     if (existsSync(join(pluginDir, ".disabled"))) {
+      continue;
+    }
+
+    if (!isPluginReady(entry.name)) {
       continue;
     }
 

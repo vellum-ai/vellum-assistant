@@ -1,13 +1,11 @@
 /**
- * Deprecated `/x/*` route context — a telemetry-emitting compatibility shim.
+ * Deprecated `/x/*` route context, with compatibility-use telemetry.
  *
- * Route handlers now reach daemon capabilities through `@vellumai/plugin-api`
- * (`publishEvent`, `runConversationTurn`), which work identically in-process and
- * in the route-host subprocess. Installed route files written against the older
- * `(request, context)` signature keep working: each `context` field delegates
- * to its plugin-api equivalent and records a deprecation-usage telemetry signal
- * the first time a given route touches it, so usage can be watched down to zero
- * before the argument is removed.
+ * The in-process dispatcher passes this shim to installed route files written
+ * against the older `(request, context)` signature. Each field delegates to
+ * its plugin-api equivalent and records a deprecation-usage telemetry signal
+ * the first time a route touches it. The route-host subprocess does not expose
+ * this compatibility argument or main-process-only conversation APIs.
  *
  * This whole module — and the handler's second parameter — is intended to be
  * deleted once the telemetry shows no route still depends on `context`.

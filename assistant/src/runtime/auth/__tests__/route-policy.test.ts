@@ -213,6 +213,13 @@ describe("ROUTES policy declarations", () => {
     expect(route!.policy!.allowedPrincipalTypes).toContain("actor");
     expect(route!.policy!.allowedPrincipalTypes).toContain("local");
     expect(route!.policy!.requiredScopes).toContain("settings.read");
+
+    const peerCtx = buildTestContext({
+      principalType: "assistant_peer",
+      scopes: ["settings.read"],
+    });
+    const denied = enforcePolicy(route!.endpoint, route!.policy!, peerCtx);
+    expect(denied?.status).toBe(403);
   });
 
   test("confirm declares an approval-write policy", async () => {

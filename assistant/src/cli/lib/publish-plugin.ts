@@ -13,9 +13,18 @@
  */
 
 import { execFile } from "node:child_process";
-import { existsSync, readdirSync, readFileSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
+import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
+import { basename, dirname, join, resolve } from "node:path";
 import { promisify } from "node:util";
+
+import { readHostRequirements } from "../../plugins/host-requirements.js";
+import { readPluginRouteManifest } from "../../plugins/plugin-route-manifest.js";
+import { walkPluginTree } from "../../plugins/plugin-tree-walk.js";
+import { parsePluginScheduleDeclarations } from "../../schedule/plugin-schedule-declarations.js";
+import {
+  FRONTMATTER_REGEX,
+  parseFrontmatterFields,
+} from "../../skills/frontmatter.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -29,6 +38,21 @@ export interface PublishValidation {
   warnings: string[];
   packageJson: ParsedPackageJson;
   pluginDir: string;
+  /** Static inventory collected without importing plugin code. */
+  surfaces?: PublishSurfaceInventory;
+}
+
+export interface PublishSurfaceInventory {
+  readonly hooks: readonly string[];
+  readonly tools: readonly string[];
+  readonly routes: readonly string[];
+  readonly workers: readonly string[];
+  readonly apps: readonly string[];
+  readonly skills: readonly string[];
+  readonly schedules: readonly string[];
+  readonly ingress: readonly string[];
+  readonly hostRequirements: readonly string[];
+  readonly uiDescriptors: readonly string[];
 }
 
 export interface ParsedPackageJson {
@@ -83,6 +107,321 @@ export interface PublishDeps {
 // Plugin discovery + validation
 // ---------------------------------------------------------------------------
 
+const CODE_SURFACE_DIRS = ["hooks", "tools", "routes", "workers"] as const;
+const MAX_DESCRIPTOR_BYTES = 256 * 1024;
+const MAX_DESCRIPTOR_DEPTH = 12;
+const MAX_DESCRIPTOR_NODES = 5_000;
+const MAX_DESCRIPTOR_STRING_LENGTH = 32_768;
+
+function isModuleFile(name: string): boolean {
+  return (
+    !name.endsWith(".d.ts") && (name.endsWith(".ts") || name.endsWith(".js"))
+  );
+}
+
+function isDirectory(path: string): boolean {
+  try {
+    return statSync(path).isDirectory();
+  } catch {
+    return false;
+  }
+}
+
+function listDirectModules(dir: string): string[] {
+  try {
+    return readdirSync(dir)
+      .filter((entry) => isModuleFile(entry))
+      .sort();
+  } catch {
+    return [];
+  }
+}
+
+function listImmediateDirectories(dir: string): string[] {
+  try {
+    return readdirSync(dir)
+      .filter((entry) => isDirectory(join(dir, entry)))
+      .sort();
+  } catch {
+    return [];
+  }
+}
+
+function listRecursiveFiles(
+  root: string,
+  include: (relativePath: string) => boolean,
+): string[] {
+  const files: string[] = [];
+  walkPluginTree(root, { bestEffort: true }, (relativePath) => {
+    if (include(relativePath)) {
+      files.push(relativePath);
+    }
+  });
+  return files.sort();
+}
+
+export function inventoryPluginSurfaces(
+  pluginDir: string,
+): PublishSurfaceInventory {
+  const skillDirs = listImmediateDirectories(join(pluginDir, "skills"));
+  const skills = skillDirs.filter((id) =>
+    existsSync(join(pluginDir, "skills", id, "SKILL.md")),
+  );
+  const ingressPath = join(pluginDir, "channels", "ingress.json");
+  const requirementsPath = join(pluginDir, "host-requirements.json");
+  const routeManifestPath = join(pluginDir, "routes", "manifest.json");
+
+  return {
+    hooks: listDirectModules(join(pluginDir, "hooks")),
+    tools: listDirectModules(join(pluginDir, "tools")),
+    routes: [
+      ...(existsSync(routeManifestPath) ? ["manifest.json"] : []),
+      ...listRecursiveFiles(join(pluginDir, "routes"), isModuleFile),
+    ],
+    workers: listDirectModules(join(pluginDir, "workers")),
+    apps: listImmediateDirectories(join(pluginDir, "apps")),
+    skills,
+    schedules: listImmediateDirectories(join(pluginDir, "schedules")),
+    ingress: existsSync(ingressPath) ? ["channels/ingress.json"] : [],
+    hostRequirements: existsSync(requirementsPath)
+      ? ["host-requirements.json"]
+      : [],
+    uiDescriptors: listRecursiveFiles(join(pluginDir, "ui"), (path) =>
+      path.endsWith(".json"),
+    ),
+  };
+}
+
+function readJsonDescriptor(
+  path: string,
+  label: string,
+  issues: string[],
+): unknown | undefined {
+  let size: number;
+  try {
+    size = statSync(path).size;
+  } catch (err) {
+    issues.push(
+      `${label} cannot be read: ${err instanceof Error ? err.message : String(err)}`,
+    );
+    return undefined;
+  }
+  if (size > MAX_DESCRIPTOR_BYTES) {
+    issues.push(`${label} exceeds ${MAX_DESCRIPTOR_BYTES} bytes`);
+    return undefined;
+  }
+  try {
+    return JSON.parse(readFileSync(path, "utf8"));
+  } catch (err) {
+    issues.push(
+      `${label} is not valid JSON: ${err instanceof Error ? err.message : String(err)}`,
+    );
+    return undefined;
+  }
+}
+
+function descriptorBoundsError(value: unknown): string | undefined {
+  let nodes = 0;
+
+  function visit(current: unknown, depth: number): string | undefined {
+    nodes += 1;
+    if (nodes > MAX_DESCRIPTOR_NODES) {
+      return `contains more than ${MAX_DESCRIPTOR_NODES} values`;
+    }
+    if (depth > MAX_DESCRIPTOR_DEPTH) {
+      return `is nested more than ${MAX_DESCRIPTOR_DEPTH} levels`;
+    }
+    if (typeof current === "string") {
+      return current.length > MAX_DESCRIPTOR_STRING_LENGTH
+        ? `contains a string longer than ${MAX_DESCRIPTOR_STRING_LENGTH} characters`
+        : undefined;
+    }
+    if (Array.isArray(current)) {
+      for (const item of current) {
+        const error = visit(item, depth + 1);
+        if (error) {
+          return error;
+        }
+      }
+      return undefined;
+    }
+    if (current !== null && typeof current === "object") {
+      for (const [key, item] of Object.entries(current)) {
+        if (key.length > 256) {
+          return "contains an object key longer than 256 characters";
+        }
+        const error = visit(item, depth + 1);
+        if (error) {
+          return error;
+        }
+      }
+    }
+    return undefined;
+  }
+
+  return visit(value, 0);
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function validateBoundedObjectDescriptor(
+  path: string,
+  label: string,
+  issues: string[],
+): Record<string, unknown> | undefined {
+  const value = readJsonDescriptor(path, label, issues);
+  if (value === undefined) {
+    return undefined;
+  }
+  if (!isRecord(value)) {
+    issues.push(`${label} must contain a JSON object`);
+    return undefined;
+  }
+  const boundsError = descriptorBoundsError(value);
+  if (boundsError) {
+    issues.push(`${label} ${boundsError}`);
+    return undefined;
+  }
+  return value;
+}
+
+function validateRouteManifest(pluginDir: string, issues: string[]): void {
+  const manifest = readPluginRouteManifest(pluginDir);
+  if (manifest.kind === "invalid") {
+    issues.push(`routes/manifest.json is invalid: ${manifest.reason}`);
+  }
+}
+
+function validateIngressManifest(pluginDir: string, issues: string[]): void {
+  const path = join(pluginDir, "channels", "ingress.json");
+  if (!existsSync(path)) {
+    return;
+  }
+  const raw = validateBoundedObjectDescriptor(
+    path,
+    "channels/ingress.json",
+    issues,
+  );
+  if (!raw) {
+    return;
+  }
+  if (!Array.isArray(raw.routes) || raw.routes.length === 0) {
+    issues.push("channels/ingress.json must declare a non-empty routes array");
+    return;
+  }
+  for (const [index, route] of raw.routes.entries()) {
+    if (
+      !isRecord(route) ||
+      typeof route.path !== "string" ||
+      route.path.length === 0 ||
+      (route.kind !== "http" && route.kind !== "websocket") ||
+      typeof route.description !== "string" ||
+      route.description.length === 0
+    ) {
+      issues.push(`channels/ingress.json route ${index} has an invalid shape`);
+    }
+  }
+}
+
+function validateWorkerModules(pluginDir: string, issues: string[]): void {
+  for (const file of listDirectModules(join(pluginDir, "workers"))) {
+    const path = join(pluginDir, "workers", file);
+    let source: string;
+    try {
+      source = readFileSync(path, "utf8");
+    } catch (err) {
+      issues.push(
+        `workers/${file} cannot be read: ${err instanceof Error ? err.message : String(err)}`,
+      );
+      continue;
+    }
+    if (
+      !/\bexport\s+default\b/.test(source) &&
+      !/\bexport\s*{[^}]*\bas\s+default\b/s.test(source)
+    ) {
+      issues.push(`workers/${file} must export a default plugin worker`);
+    }
+  }
+}
+
+function validateScheduleDeclarations(
+  pluginDir: string,
+  issues: string[],
+): void {
+  const parsed = parsePluginScheduleDeclarations(
+    pluginDir,
+    basename(pluginDir),
+  );
+  for (const error of parsed.errors) {
+    issues.push(`schedules/${error.scheduleName}: ${error.reason}`);
+  }
+}
+
+function validateAppDirectories(
+  pluginDir: string,
+  apps: readonly string[],
+  issues: string[],
+): void {
+  for (const app of apps) {
+    const appDir = join(pluginDir, "apps", app);
+    if (
+      !isDirectory(join(appDir, "src")) &&
+      !existsSync(join(appDir, "index.html"))
+    ) {
+      issues.push(`apps/${app} must contain src/ or index.html`);
+    }
+  }
+}
+
+function validateSkillDirectories(pluginDir: string, issues: string[]): void {
+  for (const skill of listImmediateDirectories(join(pluginDir, "skills"))) {
+    const path = join(pluginDir, "skills", skill, "SKILL.md");
+    if (!existsSync(path)) {
+      issues.push(`skills/${skill} must contain SKILL.md`);
+      continue;
+    }
+    try {
+      const source = readFileSync(path, "utf8");
+      const parsed = parseFrontmatterFields(source);
+      if (parsed === null && FRONTMATTER_REGEX.test(source)) {
+        issues.push(`skills/${skill}/SKILL.md has invalid frontmatter`);
+      } else if (parsed === null) {
+        issues.push(`skills/${skill}/SKILL.md must contain frontmatter`);
+      }
+    } catch (err) {
+      issues.push(
+        `skills/${skill}/SKILL.md cannot be read: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+  }
+}
+
+function validateStaticSurfaces(
+  pluginDir: string,
+  surfaces: PublishSurfaceInventory,
+  issues: string[],
+): void {
+  const requirements = readHostRequirements(pluginDir);
+  if (requirements.kind === "invalid") {
+    issues.push(`host-requirements.json is invalid: ${requirements.reason}`);
+  }
+  validateRouteManifest(pluginDir, issues);
+  validateWorkerModules(pluginDir, issues);
+  validateAppDirectories(pluginDir, surfaces.apps, issues);
+  validateSkillDirectories(pluginDir, issues);
+  validateScheduleDeclarations(pluginDir, issues);
+  validateIngressManifest(pluginDir, issues);
+  for (const descriptor of surfaces.uiDescriptors) {
+    validateBoundedObjectDescriptor(
+      join(pluginDir, "ui", descriptor),
+      `ui/${descriptor}`,
+      issues,
+    );
+  }
+}
+
 /**
  * Walk up from `startDir` to find the nearest directory containing a
  * `package.json`. Returns the directory path, or `null` if none is found
@@ -107,12 +446,13 @@ export function findPluginRoot(startDir: string): string | null {
  *
  * Checks the same things the review team will verify:
  * - package.json exists with name, version, and @vellumai/plugin-api peer dep
- * - At least one surface directory (hooks/, tools/, skills/) has entries
+ * - Every supported plugin surface is inventoried and statically validated
  * - No stale .js artifacts without matching .ts source
  */
 export function validatePluginForPublish(dir: string): PublishValidation {
   const issues: string[] = [];
   const warnings: string[] = [];
+  const surfaces = inventoryPluginSurfaces(dir);
 
   const pkgPath = join(dir, "package.json");
   if (!existsSync(pkgPath)) {
@@ -122,6 +462,7 @@ export function validatePluginForPublish(dir: string): PublishValidation {
       warnings: [],
       packageJson: {},
       pluginDir: dir,
+      surfaces,
     };
   }
 
@@ -135,6 +476,7 @@ export function validatePluginForPublish(dir: string): PublishValidation {
       warnings: [],
       packageJson: {},
       pluginDir: dir,
+      surfaces,
     };
   }
 
@@ -157,26 +499,24 @@ export function validatePluginForPublish(dir: string): PublishValidation {
     );
   }
 
-  // Check for at least one surface directory with entries
-  const surfaceDirs = ["hooks", "tools", "skills"];
-  const hasAnySurface = surfaceDirs.some((d) => {
-    const dirPath = join(dir, d);
-    return existsSync(dirPath) && readdirSync(dirPath).length > 0;
-  });
+  const hasAnySurface = Object.values(surfaces).some(
+    (surface) => surface.length > 0,
+  );
   if (!hasAnySurface) {
     warnings.push(
-      "No hooks/, tools/, or skills/ directories with entries found. The plugin may not contribute any surfaces.",
+      "No supported plugin surfaces found. The plugin may not contribute anything.",
     );
   }
 
   // Check for stale .js without matching .ts
-  for (const d of surfaceDirs) {
+  for (const d of CODE_SURFACE_DIRS) {
     const dirPath = join(dir, d);
-    if (!existsSync(dirPath)) {
-      continue;
-    }
-    for (const file of readdirSync(dirPath)) {
-      if (file.endsWith(".js") && !file.endsWith(".d.ts")) {
+    const files =
+      d === "routes"
+        ? listRecursiveFiles(dirPath, isModuleFile)
+        : listDirectModules(dirPath);
+    for (const file of files) {
+      if (file.endsWith(".js")) {
         const tsFile = file.replace(/\.js$/, ".ts");
         if (!existsSync(join(dirPath, tsFile))) {
           warnings.push(`Stale .js found without matching .ts: ${d}/${file}`);
@@ -185,12 +525,15 @@ export function validatePluginForPublish(dir: string): PublishValidation {
     }
   }
 
+  validateStaticSurfaces(dir, surfaces, issues);
+
   return {
     valid: issues.length === 0,
     issues,
     warnings,
     packageJson: pkg,
     pluginDir: dir,
+    surfaces,
   };
 }
 
@@ -642,7 +985,7 @@ export function formatPublishResult(result: PublishResult): string {
     "  • Pinned commit is reachable and public",
     "  • package.json has @vellumai/plugin-api peer dependency",
     "  • Plugin loads cleanly (hooks register, tools validate)",
-    "  • Surfaces contribute on boot (not silently failing)",
+    "  • Declarative routes, workers, apps, skills, schedules, ingress, requirements, and UI validate",
     "",
     "You'll get a notification when the review is complete.",
   ];

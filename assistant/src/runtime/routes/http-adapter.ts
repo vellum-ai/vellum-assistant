@@ -120,6 +120,7 @@ export function routeDefinitionsToHTTPRoutes(
         // the gateway IPC proxy (gateway/src/http/routes/ipc-runtime-proxy.ts).
         delete headers["x-vellum-actor-principal-id"];
         delete headers["x-vellum-principal-type"];
+        delete headers["x-vellum-scope-profile"];
 
         // Inject auth context fields so transport-agnostic handlers can
         // resolve trust context without importing auth internals.
@@ -129,6 +130,9 @@ export function routeDefinitionsToHTTPRoutes(
         if (authContext?.principalType) {
           headers["x-vellum-principal-type"] = authContext.principalType;
         }
+        if (authContext?.scopeProfile) {
+          headers["x-vellum-scope-profile"] = authContext.scopeProfile;
+        }
 
         const result = await r.handler({
           pathParams,
@@ -137,6 +141,7 @@ export function routeDefinitionsToHTTPRoutes(
           rawBody,
           headers,
           abortSignal: req.signal,
+          authContext,
         });
 
         const headerArgs: ResponseHeaderArgs = {

@@ -96,6 +96,7 @@ import {
   deactivatePluginForUpdate,
   reconcilePluginSourcesNow,
 } from "../../plugins/mtime-cache.js";
+import { getPluginReadiness } from "../../plugins/plugin-readiness.js";
 import { getLocalCategorySlugs } from "../../skills/categories-cache.js";
 import { getLogger } from "../../util/logger.js";
 import { getWorkspacePluginsDir } from "../../util/platform.js";
@@ -130,6 +131,22 @@ const pluginInfoSchema = z.object({
     .boolean()
     .describe(
       "Whether the plugin is active in this workspace. `false` when a `.disabled` sentinel is present under its directory; `true` otherwise.",
+    ),
+  activation: z
+    .object({
+      status: z.enum([
+        "disabled",
+        "initializing",
+        "ready",
+        "incompatible",
+        "failed",
+        "unavailable",
+      ]),
+      code: z.string().optional(),
+      message: z.string().optional(),
+    })
+    .describe(
+      "Host activation state. Plugin surfaces are available only when status is `ready`.",
     ),
   description: z
     .string()
@@ -770,6 +787,17 @@ interface PluginView {
   id: string;
   name: string;
   enabled: boolean;
+  activation: {
+    status:
+      | "disabled"
+      | "initializing"
+      | "ready"
+      | "incompatible"
+      | "failed"
+      | "unavailable";
+    code?: string;
+    message?: string;
+  };
   description: string | null;
   version: string | null;
   path: string;
@@ -784,11 +812,25 @@ function projectPlugin(entry: InstalledPluginInfo): PluginView {
   // `id` and `name` both track the directory name. `package.json#name` can
   // be scoped (e.g. `@vendor/plugin-name`) which is fine for npm but not
   // what the CLI uses to install — so we don't surface it as `name`.
+  const enabled = !isPluginDisabled(entry.name);
+  const readiness = getPluginReadiness(entry.name);
+  const activation: PluginView["activation"] = !enabled
+    ? { status: "disabled" }
+    : readiness === undefined
+      ? { status: "unavailable" }
+      : {
+          status: readiness.status,
+          ...(readiness.code === undefined ? {} : { code: readiness.code }),
+          ...(readiness.message === undefined
+            ? {}
+            : { message: readiness.message }),
+        };
   const view: PluginView = {
     id: entry.name,
     name: entry.name,
     // `entry.name` is the plugin directory name, which is the sentinel key.
-    enabled: !isPluginDisabled(entry.name),
+    enabled,
+    activation,
     description: entry.packageJson?.description ?? null,
     version: entry.packageJson?.version ?? null,
     path: entry.target,

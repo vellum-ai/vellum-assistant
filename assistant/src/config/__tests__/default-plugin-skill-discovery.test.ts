@@ -19,6 +19,10 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
 import { getDefaultPluginSkillRoots } from "../../plugins/defaults/main.js";
+import {
+  markPluginReady,
+  resetPluginReadinessForTests,
+} from "../../plugins/plugin-readiness.js";
 import { getWorkspacePluginsDir } from "../../util/platform.js";
 import {
   discoverDefaultPluginResidentSkills,
@@ -57,6 +61,7 @@ function writeWorkspacePlugin(dirName: string, skillIds: string[]): void {
     join(pluginDir, "package.json"),
     JSON.stringify({ name: dirName, version: "1.0.0" }),
   );
+  markPluginReady(dirName, "b".repeat(64));
   for (const id of skillIds) {
     const skillDir = join(pluginDir, "skills", id);
     mkdirSync(skillDir, { recursive: true });
@@ -76,6 +81,7 @@ function disablePlugin(pluginName: string): void {
 
 describe("default plugin resident skills", () => {
   beforeEach(() => {
+    resetPluginReadinessForTests();
     const pluginsDir = getWorkspacePluginsDir();
     if (existsSync(pluginsDir)) {
       rmSync(pluginsDir, { recursive: true, force: true });

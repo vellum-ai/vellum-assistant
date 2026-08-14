@@ -17,7 +17,10 @@ import { join } from "node:path";
 
 import { getWorkspaceHooksDir } from "../util/platform.js";
 import { listInstalledPluginDirs } from "./installed-plugin-dirs.js";
-import { snapshotPluginSource } from "./source-fingerprint.js";
+import {
+  derivePluginSourceFingerprint,
+  snapshotPluginSource,
+} from "./source-fingerprint.js";
 import type { PluginSourceVersion } from "./source-versions.js";
 
 /**
@@ -35,7 +38,8 @@ export function collectSourceVersions(): Record<string, PluginSourceVersion> {
     const snapshot = snapshotPluginSource(dir);
     out[dir] = {
       fingerprint: snapshot.fingerprint,
-      evictionPaths: snapshot.evictionPaths,
+      sourceFingerprint: derivePluginSourceFingerprint(snapshot.fingerprint),
+      evictionPaths: [...snapshot.evictionPaths],
       disabled: existsSync(join(dir, ".disabled")),
     };
   }
@@ -45,7 +49,8 @@ export function collectSourceVersions(): Record<string, PluginSourceVersion> {
     const snapshot = snapshotPluginSource(workspaceHooksDir);
     out[workspaceHooksDir] = {
       fingerprint: snapshot.fingerprint,
-      evictionPaths: snapshot.evictionPaths,
+      sourceFingerprint: derivePluginSourceFingerprint(snapshot.fingerprint),
+      evictionPaths: [...snapshot.evictionPaths],
       disabled: false,
     };
   }

@@ -30,6 +30,7 @@
  * unsupported.
  */
 
+import { createHash } from "node:crypto";
 import { realpathSync, statSync } from "node:fs";
 
 import {
@@ -58,6 +59,11 @@ export interface SourceSnapshot {
    * depending on the path the importer used.
    */
   readonly evictionPaths: readonly string[];
+}
+
+/** Stable readiness digest for a source snapshot fingerprint. */
+export function derivePluginSourceFingerprint(fingerprint: string): string {
+  return createHash("sha256").update(fingerprint).digest("hex");
 }
 
 /**

@@ -66,8 +66,31 @@
  * - {@link ToolExecutionResult} — return shape of a plugin tool's `execute`
  */
 
+export type { PluginActivationContext } from "./activation.js";
 export type { HookName } from "./constants.js";
 export { HOOKS, INTERNAL_NUDGE_OUTPUT_SUPPRESSION } from "./constants.js";
+export type {
+  PluginWorker,
+  PluginWorkerContext,
+  PluginWorkerResult,
+  PluginWorkerWakeTime,
+} from "./plugin-worker.js";
+export type {
+  PluginRouteActorContext,
+  PluginRouteContext,
+  PluginRouteHost,
+  PluginRoutePrincipalType,
+} from "./route-context.js";
+export {
+  getPluginRouteContext,
+  requirePluginRouteContext,
+} from "./route-context.js";
+export type { VerifiedPeerOperationContext } from "./verified-peer-context.js";
+export {
+  parseVerifiedPeerOperationContext,
+  PeerOperationKindSchema,
+  VerifiedPeerOperationContextSchema,
+} from "./verified-peer-context.js";
 // Conversation message/content shapes. A hook receives the live message
 // history (e.g. `PostToolUseContext.latestMessages: Message[]`), so plugins
 // that inspect or narrow content blocks — reading a `tool_use` block's input,

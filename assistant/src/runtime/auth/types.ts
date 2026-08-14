@@ -5,6 +5,8 @@
  * and the normalized AuthContext that downstream code consumes.
  */
 
+import type { VerifiedPeerOperationContext } from "../../plugin-api/verified-peer-context.js";
+
 // ---------------------------------------------------------------------------
 // Scope profiles — named bundles of permissions
 // ---------------------------------------------------------------------------
@@ -43,7 +45,12 @@ export type Scope =
 // Principal types — derived from the sub pattern
 // ---------------------------------------------------------------------------
 
-export type PrincipalType = "actor" | "svc_gateway" | "svc_daemon" | "local";
+export type PrincipalType =
+  | "actor"
+  | "svc_gateway"
+  | "svc_daemon"
+  | "local"
+  | "assistant_peer";
 
 // ---------------------------------------------------------------------------
 // Token audience — which service the JWT is intended for
@@ -79,4 +86,6 @@ export interface AuthContext {
   scopeProfile: ScopeProfile;
   scopes: ReadonlySet<Scope>;
   policyEpoch: number;
+  /** Present only after the host verifies an assistant-peer operation. */
+  verifiedPeerContext?: VerifiedPeerOperationContext;
 }

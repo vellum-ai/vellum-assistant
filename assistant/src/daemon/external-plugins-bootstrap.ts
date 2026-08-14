@@ -44,7 +44,7 @@
  * bring-up, via {@link teardownPlugin}.
  */
 
-import { existsSync, mkdirSync } from "node:fs";
+import { existsSync } from "node:fs";
 import { join } from "node:path";
 
 import { getConfig } from "../config/loader.js";
@@ -61,6 +61,8 @@ import {
 } from "../plugins/injector-registry.js";
 import { registerDeclaredCredentialKeyPatterns } from "../plugins/mtime-cache.js";
 import { runInPluginContext } from "../plugins/plugin-execution-context.js";
+import { resetPluginReadinessForBoot } from "../plugins/plugin-readiness.js";
+import { resolvePluginStorageDir } from "../plugins/plugin-storage.js";
 import { getRegisteredPlugins, unregisterPlugin } from "../plugins/registry.js";
 import {
   type Plugin,
@@ -74,7 +76,7 @@ import {
   unregisterPluginTools,
 } from "../tools/registry.js";
 import { getLogger } from "../util/logger.js";
-import { getWorkspaceDir, getWorkspacePluginsDir } from "../util/platform.js";
+import { getWorkspacePluginsDir } from "../util/platform.js";
 import { APP_VERSION } from "../version.js";
 
 const log = getLogger("plugins-bootstrap");
@@ -124,15 +126,6 @@ function getPluginConfigRaw(
 }
 
 /**
- * Ensure `<workspaceDir>/plugins-data/<name>/` exists and return its absolute path.
- */
-function ensurePluginStorageDir(pluginName: string): string {
-  const dir = join(getWorkspaceDir(), "plugins-data", pluginName);
-  mkdirSync(dir, { recursive: true });
-  return dir;
-}
-
-/**
  * Bring the plugin layer up during daemon startup. Runs the full sequence in
  * the one order the rest of the system depends on:
  *
@@ -148,7 +141,15 @@ function ensurePluginStorageDir(pluginName: string): string {
  */
 export async function initializePlugins(): Promise<void> {
   registerDefaultPlugins();
-  await loadUserPlugins();
+  try {
+    resetPluginReadinessForBoot();
+    await loadUserPlugins();
+  } catch (err) {
+    log.error(
+      { err },
+      "External plugin readiness could not be initialized, skipping user plugins",
+    );
+  }
   try {
     await bootstrapPlugins();
   } catch (err) {
@@ -278,7 +279,7 @@ async function initializePlugin(
     const initContext = {
       config,
       logger: log.child({ plugin: name }),
-      pluginStorageDir: ensurePluginStorageDir(name),
+      pluginStorageDir: resolvePluginStorageDir(name, null),
       assistantVersion: APP_VERSION,
     };
 

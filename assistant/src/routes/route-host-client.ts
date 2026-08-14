@@ -23,12 +23,21 @@ import { connect, type Socket } from "node:net";
 import type { IpcEnvelope } from "@vellumai/ipc-server-utils";
 import { IpcFrameReader, writeMessage } from "@vellumai/ipc-server-utils";
 
+import { snapshotPluginSource } from "../plugins/source-fingerprint.js";
+import { sourceRootForHandler } from "../runtime/routes/user-route-import.js";
 import { getLogger } from "../util/logger.js";
 import { getProcPidPath, getProcSocketPath } from "../util/platform.js";
 import { spawnWorkerProcess } from "../util/worker-process.js";
 import {
+  dispatchRouteHostBrokerRequest,
+  type RouteHostBrokerContext,
+} from "./route-host-broker.js";
+import {
+  ROUTE_BROKER_METHOD,
+  ROUTE_CANCEL_METHOD,
   ROUTE_HOST_PROC_NAME,
   ROUTE_INVOKE_METHOD,
+  type RouteBrokerParams,
   type RouteInvokeParams,
   type RouteInvokeResult,
 } from "./route-host-protocol.js";
@@ -64,6 +73,16 @@ interface Pending {
   resolve: (value: RouteInvokeResponse) => void;
   reject: (err: Error) => void;
   timer: ReturnType<typeof setTimeout>;
+  brokerContext?: RouteHostBrokerContext;
+  signal?: AbortSignal;
+  onAbort?: () => void;
+  aborted: boolean;
+}
+
+export interface RouteHostInvokeOptions {
+  readonly body: Uint8Array | null;
+  readonly signal?: AbortSignal;
+  readonly brokerContext?: RouteHostBrokerContext;
 }
 
 export interface RouteHostClientOptions {
@@ -83,6 +102,7 @@ export class RouteHostClient {
   private connecting: Promise<Socket> | undefined;
   private pid: number | undefined;
   private readonly pending = new Map<string, Pending>();
+  private readonly sourceFingerprints = new Map<string, string>();
   private idSeq = 0;
 
   constructor(options?: RouteHostClientOptions) {
@@ -99,14 +119,59 @@ export class RouteHostClient {
    */
   async invoke(
     params: RouteInvokeParams,
-    body: Uint8Array | null,
+    options: RouteHostInvokeOptions,
   ): Promise<RouteInvokeResponse> {
+    const { body, signal, brokerContext } = options;
+    if (signal?.aborted) {
+      throw signal.reason ?? new DOMException("Aborted", "AbortError");
+    }
+    const sourceRoot = sourceRootForHandler(params.filePath);
+    const sourceFingerprint = snapshotPluginSource(sourceRoot).fingerprint;
+    const previousFingerprint = this.sourceFingerprints.get(sourceRoot);
+    if (
+      previousFingerprint !== undefined &&
+      previousFingerprint !== sourceFingerprint
+    ) {
+      this.killHost("route source changed");
+    }
+    this.sourceFingerprints.set(sourceRoot, sourceFingerprint);
     const socket = await this.ensureConnected();
     const id = String(++this.idSeq);
 
     return new Promise<RouteInvokeResponse>((resolve, reject) => {
       const timer = setTimeout(() => this.onTimeout(id), this.invokeTimeoutMs);
-      this.pending.set(id, { resolve, reject, timer });
+      const onAbort = signal
+        ? () => {
+            const pending = this.pending.get(id);
+            if (pending) {
+              pending.aborted = true;
+              pending.reject(
+                signal.reason instanceof Error
+                  ? signal.reason
+                  : new DOMException("Aborted", "AbortError"),
+              );
+            }
+            if (!socket.destroyed) {
+              writeMessage(socket, {
+                id: `cancel:${id}`,
+                method: ROUTE_CANCEL_METHOD,
+                params: { requestId: id },
+              });
+            }
+          }
+        : undefined;
+      if (signal && onAbort) {
+        signal.addEventListener("abort", onAbort, { once: true });
+      }
+      this.pending.set(id, {
+        resolve,
+        reject,
+        timer,
+        brokerContext,
+        signal,
+        onAbort,
+        aborted: false,
+      });
 
       const envelope: IpcEnvelope = {
         id,
@@ -118,6 +183,9 @@ export class RouteHostClient {
         writeMessage(socket, envelope, body);
       } else {
         writeMessage(socket, envelope);
+      }
+      if (signal?.aborted) {
+        onAbort?.();
       }
     });
   }
@@ -194,6 +262,10 @@ export class RouteHostClient {
     envelope: IpcEnvelope,
     binary: Uint8Array | undefined,
   ): void {
+    if (envelope.method === ROUTE_BROKER_METHOD && envelope.id) {
+      void this.onBrokerRequest(envelope);
+      return;
+    }
     if (!envelope.id) {
       return;
     }
@@ -202,7 +274,7 @@ export class RouteHostClient {
       return;
     }
     this.pending.delete(envelope.id);
-    clearTimeout(pending.timer);
+    this.cleanupPending(pending);
 
     if (envelope.error != null) {
       pending.reject(new Error(envelope.error));
@@ -220,12 +292,52 @@ export class RouteHostClient {
     });
   }
 
+  private async onBrokerRequest(envelope: IpcEnvelope): Promise<void> {
+    const socket = this.socket;
+    if (!socket || socket.destroyed || !envelope.id) {
+      return;
+    }
+    const params = envelope.params as unknown as RouteBrokerParams;
+    const invocation = this.pending.get(params.invokeId);
+    if (!invocation?.brokerContext) {
+      writeMessage(socket, {
+        id: envelope.id,
+        error: "broker request has no active plugin invocation",
+      });
+      return;
+    }
+    if (invocation.aborted) {
+      writeMessage(socket, {
+        id: envelope.id,
+        error: "broker request rejected after invocation abort",
+      });
+      return;
+    }
+
+    try {
+      const result = await dispatchRouteHostBrokerRequest(
+        params.request,
+        invocation.brokerContext,
+      );
+      writeMessage(socket, {
+        id: envelope.id,
+        result: result as unknown as Record<string, unknown>,
+      });
+    } catch (err) {
+      writeMessage(socket, {
+        id: envelope.id,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+
   private onTimeout(id: string): void {
     const pending = this.pending.get(id);
     if (!pending) {
       return;
     }
     this.pending.delete(id);
+    this.cleanupPending(pending);
     log.error(
       { id, pid: this.pid, timeoutMs: this.invokeTimeoutMs },
       "Route handler timed out — hard-killing route host",
@@ -282,9 +394,16 @@ export class RouteHostClient {
 
   private rejectAllPending(err: Error): void {
     for (const [, pending] of this.pending) {
-      clearTimeout(pending.timer);
+      this.cleanupPending(pending);
       pending.reject(err);
     }
     this.pending.clear();
+  }
+
+  private cleanupPending(pending: Pending): void {
+    clearTimeout(pending.timer);
+    if (pending.signal && pending.onAbort) {
+      pending.signal.removeEventListener("abort", pending.onAbort);
+    }
   }
 }

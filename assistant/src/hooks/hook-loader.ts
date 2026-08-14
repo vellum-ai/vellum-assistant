@@ -44,14 +44,7 @@
  * this module lets it sit below the plugin cache with no import cycle.
  */
 
-import {
-  cpSync,
-  existsSync,
-  mkdirSync,
-  readFileSync,
-  rmSync,
-  writeFileSync,
-} from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import type { HookEventOwner } from "../api/events/hook-event.js";
@@ -63,6 +56,7 @@ import type {
   ShutdownContext,
 } from "../plugin-api/types.js";
 import { listSurfaceDir } from "../plugins/external-plugin-loader.js";
+import { resolvePluginStorageDir } from "../plugins/plugin-storage.js";
 import {
   evictModule,
   importWithTimeout,
@@ -71,7 +65,6 @@ import {
 import type { HookEntry } from "../plugins/types.js";
 import { getLogger } from "../util/logger.js";
 import {
-  getWorkspaceDir,
   getWorkspaceHooksDir,
   getWorkspacePluginsDir,
 } from "../util/platform.js";
@@ -313,16 +306,18 @@ export function hasWorkspaceHooks(): boolean {
 export async function runInitHook(
   ownerName: string,
   pluginDir: string | null = null,
-): Promise<void> {
+): Promise<boolean> {
   // A plugin always has a directory; only the workspace owner passes `null`.
   const kind: HookOwnerKind = pluginDir === null ? "workspace" : "plugin";
 
-  const initHook = await resolveHook(kind, ownerName, HOOKS.INIT);
-  if (initHook === null) {
-    return;
-  }
-
   try {
+    const hasInitHook = listSurfaceDir(ownerHooksDir(kind, ownerName)).some(
+      (file) => file.name === HOOKS.INIT,
+    );
+    const initHook = await resolveHook(kind, ownerName, HOOKS.INIT);
+    if (initHook === null) {
+      return !hasInitHook;
+    }
     const initContext: InitContext = {
       config: resolvePluginConfig(ownerName, pluginDir),
       logger: log.child({ plugin: ownerName }),
@@ -331,11 +326,13 @@ export async function runInitHook(
     };
     await initHook(initContext);
     log.info({ plugin: ownerName }, "user hooks initialized");
+    return true;
   } catch (err) {
     log.error(
       { err, plugin: ownerName },
-      `User hooks for ${ownerName} init() failed — continuing`,
+      `User hooks for ${ownerName} init() failed`,
     );
+    return false;
   }
 }
 
@@ -415,11 +412,6 @@ export function clearPluginHooks(): void {
 const PLUGIN_CONFIG_FILENAME = "config.json";
 
 /**
- * Directory name for per-plugin runtime data inside the plugin directory.
- */
-const PLUGIN_DATA_DIRNAME = "data";
-
-/**
  * Resolve a plugin's config for the init context. For user plugins with a
  * `pluginDir`, config lives at `<pluginDir>/config.json`. If that file
  * doesn't exist yet but the old global config block (`config.plugins.<name>`)
@@ -471,62 +463,6 @@ function resolvePluginConfig(
     );
     return undefined;
   }
-}
-
-/**
- * Resolve a plugin's runtime data directory for the init context. For user
- * plugins with a `pluginDir`, data lives at `<pluginDir>/data/`. If that
- * directory doesn't exist but the old `<workspace>/plugins-data/<name>/` does,
- * its contents are moved into the new location as a one-time migration.
- *
- * For standalone workspace hooks (no `pluginDir`), the old
- * `<workspace>/plugins-data/<name>/` path is used and created as-is.
- */
-function resolvePluginStorageDir(
-  ownerName: string,
-  pluginDir: string | null,
-): string {
-  if (pluginDir === null) {
-    return ensureLegacyStorageDir(ownerName);
-  }
-
-  const dataDir = join(pluginDir, PLUGIN_DATA_DIRNAME);
-
-  // Migrate: if data/ doesn't exist but the old plugins-data/<name>/ does,
-  // move its contents into the new location.
-  if (!existsSync(dataDir)) {
-    const oldDir = join(getWorkspaceDir(), "plugins-data", ownerName);
-    if (existsSync(oldDir)) {
-      try {
-        mkdirSync(dataDir, { recursive: true });
-        cpSync(oldDir, dataDir, { recursive: true });
-        rmSync(oldDir, { recursive: true, force: true });
-        log.info(
-          { plugin: ownerName, oldDir, dataDir },
-          "migrated plugin data from plugins-data to plugin directory",
-        );
-      } catch (err) {
-        log.warn(
-          { err, plugin: ownerName, oldDir, dataDir },
-          "failed to migrate plugin data to plugin directory — using old location",
-        );
-        return ensureLegacyStorageDir(ownerName);
-      }
-    }
-  }
-
-  mkdirSync(dataDir, { recursive: true });
-  return dataDir;
-}
-
-/**
- * Ensure `<workspaceDir>/plugins-data/<name>/` exists and return its path.
- * Used only for standalone workspace hooks and as a fallback during migration.
- */
-function ensureLegacyStorageDir(ownerName: string): string {
-  const dir = join(getWorkspaceDir(), "plugins-data", ownerName);
-  mkdirSync(dir, { recursive: true });
-  return dir;
 }
 
 // ─── Test hooks ──────────────────────────────────────────────────────────────

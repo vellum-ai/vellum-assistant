@@ -14,10 +14,9 @@
  *   each other.
  *
  * Each handler file exports named functions for HTTP methods (GET, POST, PUT,
- * etc.) using the standard Web API Request/Response signature. New handlers
- * reach daemon capabilities by importing `@vellumai/plugin-api` (e.g.
- * `publishEvent`, `runConversationTurn`), which broker process-safe access — so
- * a handler behaves identically in-process and in the route-host subprocess.
+ * etc.) using the standard Web API Request/Response signature. Plugin handlers
+ * receive a bounded route context from `@vellumai/plugin-api`. Its host facade
+ * exposes only operations approved for both execution modes.
  *
  * For backward compatibility, the in-process path still passes a **deprecated**
  * `context` second argument (see `deprecated-route-context.ts`): a thin shim
@@ -35,15 +34,32 @@
  * of time.
  */
 
+import { randomUUID } from "node:crypto";
 import { statSync } from "node:fs";
 
+import {
+  type PluginRouteActorContext,
+  type PluginRouteContext,
+  runInPluginRouteContext,
+} from "../../plugin-api/route-context.js";
+import type { VerifiedPeerOperationContext } from "../../plugin-api/verified-peer-context.js";
+import { runInPluginContext } from "../../plugins/plugin-execution-context.js";
+import { getPluginReadiness } from "../../plugins/plugin-readiness.js";
+import {
+  findPluginRouteDeclaration,
+  type PluginRouteAuthorization,
+  type PluginRouteManifestResult,
+} from "../../plugins/plugin-route-manifest.js";
+import { resolvePluginStorageDir } from "../../plugins/plugin-storage.js";
 import { isRouteHostEnabled } from "../../routes/control.js";
+import type { RouteHostBrokerContext } from "../../routes/route-host-broker.js";
 import {
   RouteHostClient,
   RouteHostTimeoutError,
   RouteHostUnavailableError,
 } from "../../routes/route-host-client.js";
 import { getLogger } from "../../util/logger.js";
+import { enforcePluginRoutePolicy } from "../auth/route-policy.js";
 import { httpError } from "../http-errors.js";
 import {
   buildDeprecatedRouteContext,
@@ -100,6 +116,18 @@ interface CachedModule {
   mtimeMs: number;
 }
 
+interface PluginRouteExecution {
+  readonly context: PluginRouteContext;
+  readonly brokerContext: RouteHostBrokerContext;
+}
+
+export interface UserRouteDispatchContext {
+  readonly actor: PluginRouteActorContext;
+  readonly requestId?: string;
+  readonly verifiedPeer?: VerifiedPeerOperationContext | null;
+  readonly signal?: AbortSignal;
+}
+
 /** Default per-request timeout for user-defined route handlers (2 minutes). */
 const DEFAULT_HANDLER_TIMEOUT_MS = 120_000;
 
@@ -132,17 +160,17 @@ export class UserRouteDispatcher {
    * @param request   The original HTTP request.
    * @returns A Response from the handler, or an error response (404, 405, 500).
    */
-  async dispatch(routePath: string, request: Request): Promise<Response> {
+  async dispatch(
+    routePath: string,
+    request: Request,
+    dispatchContext?: UserRouteDispatchContext,
+  ): Promise<Response> {
     if (routePath.includes("..")) {
       return httpError("BAD_REQUEST", "Path traversal is not allowed", 400);
     }
 
     const location = resolveRouteLocation(routePath);
-    const filePath = location
-      ? resolveHandlerFile(location.routesDir, location.subPath)
-      : null;
-
-    if (!location || !filePath) {
+    if (!location) {
       return httpError(
         "NOT_FOUND",
         `No route handler found for /x/${routePath}`,
@@ -150,8 +178,91 @@ export class UserRouteDispatcher {
       );
     }
 
+    if (
+      !location.pluginId &&
+      dispatchContext?.actor.principalType === "assistant_peer"
+    ) {
+      return Response.json(
+        {
+          error: {
+            code: "FORBIDDEN",
+            message: "Assistant peers cannot call workspace routes",
+          },
+        },
+        { status: 403 },
+      );
+    }
+
+    if (
+      !location.pluginId &&
+      dispatchContext &&
+      !dispatchContext.actor.scopes.includes("settings.read") &&
+      !dispatchContext.actor.scopes.includes("local.all")
+    ) {
+      return Response.json(
+        {
+          error: {
+            code: "FORBIDDEN",
+            message: "Missing required scope: settings.read",
+          },
+        },
+        { status: 403 },
+      );
+    }
+
+    if (location.pluginId) {
+      const isInstalledPlugin = location.pluginDir !== undefined;
+      const unavailable = this.pluginUnavailableResponse(
+        location.pluginId,
+        location.routeManifest,
+        isInstalledPlugin,
+      );
+      if (unavailable) {
+        return unavailable;
+      }
+
+      const authorization = this.resolveAuthorization(
+        location.pluginId,
+        location.subPath,
+        request.method,
+        location.routeManifest,
+      );
+      if (authorization instanceof Response) {
+        return authorization;
+      }
+
+      const denied = enforcePluginRoutePolicy(
+        `/x/${routePath}`,
+        location.pluginId,
+        authorization,
+        this.resolvePluginRouteActor(dispatchContext),
+        dispatchContext?.verifiedPeer ?? null,
+      );
+      if (denied) {
+        return denied;
+      }
+    }
+
+    const filePath = resolveHandlerFile(location.routesDir, location.subPath);
+    if (!filePath) {
+      return httpError(
+        "NOT_FOUND",
+        `No route handler found for /x/${routePath}`,
+        404,
+      );
+    }
+
+    const pluginRoute = location.pluginId
+      ? this.buildPluginRouteContext(
+          location.pluginId,
+          location.pluginDir,
+          request,
+          dispatchContext,
+        )
+      : undefined;
+
     if (isRouteHostEnabled()) {
-      return this.dispatchViaHost(filePath, routePath, request);
+      return this.dispatchViaHost(filePath, routePath, request, pluginRoute);
     }
 
     const mod = await this.loadModule(filePath, location.routesDir);
@@ -166,7 +277,162 @@ export class UserRouteDispatcher {
       });
     }
 
-    return this.executeHandler(handler, request, routePath);
+    return this.executeHandler(
+      handler,
+      request,
+      routePath,
+      pluginRoute?.context,
+    );
+  }
+
+  private buildPluginRouteContext(
+    pluginId: string,
+    pluginDir: string | undefined,
+    request: Request,
+    dispatchContext: UserRouteDispatchContext | undefined,
+  ): PluginRouteExecution {
+    const actor = this.resolvePluginRouteActor(dispatchContext);
+    const pluginStorageDir = resolvePluginStorageDir(
+      pluginId,
+      pluginDir ?? null,
+    );
+    const context: PluginRouteContext = {
+      pluginId,
+      actor,
+      requestId: dispatchContext?.requestId ?? randomUUID(),
+      signal: dispatchContext?.signal ?? request.signal,
+      verifiedPeer: dispatchContext?.verifiedPeer ?? null,
+      host: {
+        async getPluginStorageDir(): Promise<string> {
+          return pluginStorageDir;
+        },
+      },
+    };
+    return {
+      context,
+      brokerContext: { pluginId, pluginStorageDir },
+    };
+  }
+
+  private resolvePluginRouteActor(
+    dispatchContext: UserRouteDispatchContext | undefined,
+  ): PluginRouteActorContext {
+    return (
+      dispatchContext?.actor ?? {
+        principalType: "local",
+        principalId: null,
+        scopes: ["local.all"],
+      }
+    );
+  }
+
+  private pluginUnavailableResponse(
+    pluginId: string,
+    manifest: PluginRouteManifestResult | undefined,
+    isInstalledPlugin: boolean,
+  ): Response | null {
+    if (manifest?.kind === "invalid") {
+      return this.pluginStatusResponse(
+        pluginId,
+        "failed",
+        "plugin_route_manifest_invalid",
+        manifest.reason,
+      );
+    }
+
+    if (!isInstalledPlugin) {
+      return null;
+    }
+
+    const readiness = getPluginReadiness(pluginId);
+    if (!readiness) {
+      return this.pluginStatusResponse(
+        pluginId,
+        "initializing",
+        "plugin_initializing",
+        "Plugin is initializing",
+      );
+    }
+    if (readiness.status === "ready") {
+      return null;
+    }
+
+    const code =
+      readiness.status === "incompatible"
+        ? "plugin_incompatible"
+        : readiness.status === "failed"
+          ? "plugin_initialization_failed"
+          : "plugin_initializing";
+    return this.pluginStatusResponse(
+      pluginId,
+      readiness.status,
+      code,
+      readiness.message ??
+        (readiness.status === "initializing"
+          ? "Plugin is initializing"
+          : "Plugin is unavailable"),
+    );
+  }
+
+  private pluginStatusResponse(
+    pluginId: string,
+    status: "initializing" | "incompatible" | "failed",
+    code: string,
+    message: string,
+  ): Response {
+    return Response.json(
+      {
+        error: {
+          code,
+          message,
+          details: { pluginId, status },
+        },
+      },
+      { status: 503 },
+    );
+  }
+
+  private resolveAuthorization(
+    pluginId: string,
+    subPath: string,
+    method: string,
+    manifest: PluginRouteManifestResult | undefined,
+  ): PluginRouteAuthorization | Response {
+    if (!manifest || manifest.kind === "legacy") {
+      return { principal: "actor", requiredScopes: ["settings.read"] };
+    }
+    if (manifest.kind === "invalid") {
+      return this.pluginStatusResponse(
+        pluginId,
+        "failed",
+        "plugin_route_manifest_invalid",
+        manifest.reason,
+      );
+    }
+
+    const declaration = findPluginRouteDeclaration(
+      manifest.manifest,
+      subPath,
+      method,
+    );
+    if (declaration) {
+      return declaration.authorization;
+    }
+
+    const allowed = manifest.manifest.routes
+      .filter((route) => route.path === subPath)
+      .map((route) => route.method);
+    if (allowed.length > 0) {
+      return new Response(null, {
+        status: 405,
+        headers: { Allow: allowed.join(", ") },
+      });
+    }
+    return httpError(
+      "NOT_FOUND",
+      `No route handler found for /x/plugins/${pluginId}/${subPath}`,
+      404,
+    );
   }
 
   /**
@@ -180,9 +446,8 @@ export class UserRouteDispatcher {
     filePath: string,
     routePath: string,
     request: Request,
+    pluginRoute: PluginRouteExecution | undefined,
   ): Promise<Response> {
-    const mtimeMs = statSync(filePath).mtimeMs;
-
     const headers: [string, string][] = [];
     request.headers.forEach((value, name) => {
       headers.push([name, value]);
@@ -197,12 +462,23 @@ export class UserRouteDispatcher {
       const result = await this.routeHostClient.invoke(
         {
           filePath,
-          mtimeMs,
           method: request.method,
           url: request.url,
           headers,
+          pluginContext: pluginRoute
+            ? {
+                pluginId: pluginRoute.context.pluginId,
+                actor: pluginRoute.context.actor,
+                requestId: pluginRoute.context.requestId,
+                verifiedPeer: pluginRoute.context.verifiedPeer,
+              }
+            : null,
         },
-        body,
+        {
+          body,
+          signal: pluginRoute?.context.signal ?? request.signal,
+          brokerContext: pluginRoute?.brokerContext,
+        },
       );
       const responseHeaders = new Headers();
       for (const [name, value] of result.headers) {
@@ -303,12 +579,20 @@ export class UserRouteDispatcher {
     handler: RouteHandler,
     request: Request,
     routePath: string,
+    pluginContext: PluginRouteContext | undefined,
   ): Promise<Response> {
     try {
-      const result = await Promise.race([
+      const invoke = () =>
         Promise.resolve(
           handler(request, buildDeprecatedRouteContext(routePath)),
-        ),
+        );
+      const execution = pluginContext
+        ? runInPluginContext(pluginContext.pluginId, () =>
+            runInPluginRouteContext(pluginContext, invoke),
+          )
+        : invoke();
+      const result = await Promise.race([
+        execution,
         new Promise<never>((_, reject) =>
           setTimeout(
             () => reject(new Error("Handler timed out")),

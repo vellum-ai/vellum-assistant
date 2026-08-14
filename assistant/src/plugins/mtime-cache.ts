@@ -32,7 +32,7 @@
  */
 
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 
 import type { Logger } from "pino";
 
@@ -60,6 +60,11 @@ import {
   getWorkspaceHooksDir,
   getWorkspacePluginsDir,
 } from "../util/platform.js";
+import {
+  evictPluginActivationEligibility,
+  getPluginActivationEligibility,
+  resetPluginActivationEligibilityCacheForTests,
+} from "./activation-eligibility.js";
 import { collectSourceVersions } from "./collect-source-versions.js";
 import {
   deriveToolName,
@@ -67,6 +72,21 @@ import {
   parsePluginManifest,
 } from "./external-plugin-loader.js";
 import { isInsidePluginRoot } from "./installed-plugin-dirs.js";
+import {
+  derivePluginSourceFingerprint,
+  getPluginReadiness,
+  isPluginReady,
+  markPluginFailed,
+  markPluginIncompatible,
+  markPluginInitializing,
+  markPluginReady,
+  removePluginReadiness,
+  resetPluginReadinessForTests,
+} from "./plugin-readiness.js";
+import {
+  startPluginWorkers,
+  stopPluginWorkers,
+} from "./plugin-worker-runner.js";
 import { snapshotPluginSource } from "./source-fingerprint.js";
 import type { PluginSourceVersion } from "./source-versions.js";
 import {
@@ -230,7 +250,7 @@ export async function getUserHookEntriesFor<TCtx = unknown>(
 ): Promise<HookEntry<TCtx>[]> {
   return collectUserHookEntries<TCtx>(
     hookName,
-    discoveredPluginDirs.values(),
+    Array.from(discoveredPluginDirs.values()).filter(isPluginReady),
     effectiveEnabledPlugins,
   );
 }
@@ -398,15 +418,22 @@ async function applySourceVersions(
       if (activeName !== undefined && !shouldBeUp) {
         const reason: ShutdownReason =
           after === undefined ? "uninstall" : "disable";
+        removePluginReadiness(activeName);
         await deactivatePlugin(activeName, reason);
         await evictPlugin(dir, activeName);
         sweepModules(before, after);
         membershipChanged = true;
-      } else if (activeName === undefined && shouldBeUp) {
+      } else if (
+        activeName === undefined &&
+        shouldBeUp &&
+        (before === undefined ||
+          before.disabled ||
+          before.fingerprint !== after.fingerprint)
+      ) {
         // Reinstalls land at the same path: sweep any modules cached from a
         // prior install before the fresh import.
         sweepModules(before, after);
-        if (await bringUpPlugin(dir)) {
+        if (await bringUpPlugin(dir, after.sourceFingerprint)) {
           membershipChanged = true;
         }
       } else if (
@@ -419,6 +446,7 @@ async function applySourceVersions(
           { plugin: activeName, dir },
           "plugin source changed — reloading",
         );
+        markPluginInitializing(activeName, after.sourceFingerprint);
         // Tear the old version down first: `deactivatePlugin` runs `shutdown`,
         // then `evictHooksForOwner` drops the owner's cached resolutions so the
         // next read re-resolves fresh.
@@ -426,24 +454,13 @@ async function applySourceVersions(
         evictHooksForOwner("plugin", activeName);
         evictToolCacheEntries(activeName);
         sweepModules(before, after);
-        // Re-read the manifest — the edit may have renamed the plugin (or
-        // broken the manifest, in which case the plugin stays down until a
-        // later edit fixes it and moves the fingerprint again).
-        const manifest = await parsePluginManifest(dir);
-        if (manifest === undefined) {
-          discoveredPluginDirs.delete(dir);
-          membershipChanged = true;
-        } else {
-          if (manifest.name !== activeName) {
-            discoveredPluginDirs.set(dir, manifest.name);
-            membershipChanged = true;
-          }
-          await reconcilePluginTools(dir, manifest.name);
-          await activatePlugin(
-            dir,
-            manifest.name,
-            manifest.credentialKeyPatterns,
-          );
+        discoveredPluginDirs.delete(dir);
+        await bringUpPlugin(dir, after.sourceFingerprint);
+        membershipChanged = true;
+      } else if (!shouldBeUp) {
+        removePluginReadiness(basename(dir));
+        if (after === undefined) {
+          evictPluginActivationEligibility(dir);
         }
       }
     }
@@ -471,17 +488,49 @@ async function applySourceVersions(
  * whether the plugin joined the discovered set (a malformed manifest is
  * logged by the parser and the directory is skipped until it changes again).
  */
-async function bringUpPlugin(dir: string): Promise<boolean> {
+async function bringUpPlugin(
+  dir: string,
+  sourceFingerprint: string,
+): Promise<boolean> {
+  const eligibility = getPluginActivationEligibility(dir);
+  if (!eligibility.eligible) {
+    markPluginIncompatible(eligibility, sourceFingerprint);
+    log.warn(
+      {
+        plugin: eligibility.pluginId,
+        code: eligibility.code,
+        reason: eligibility.reason,
+      },
+      "plugin is incompatible, skipping activation",
+    );
+    return false;
+  }
+
+  markPluginInitializing(eligibility.pluginId, sourceFingerprint);
   const manifest = await parsePluginManifest(dir);
   if (manifest === undefined) {
+    markPluginFailed(
+      eligibility.pluginId,
+      sourceFingerprint,
+      "plugin manifest could not be parsed",
+    );
+    return false;
+  }
+  disabledPluginDirs.delete(dir);
+  log.info({ plugin: manifest.name, dir }, "plugin discovered");
+  const activated = await activatePlugin(
+    dir,
+    manifest.name,
+    sourceFingerprint,
+    manifest.credentialKeyPatterns,
+  );
+  if (!activated) {
+    evictHooksForOwner("plugin", manifest.name);
+    evictToolCacheEntries(manifest.name);
     return false;
   }
   discoveredPluginDirs.set(dir, manifest.name);
-  disabledPluginDirs.delete(dir);
-  log.info({ plugin: manifest.name, dir }, "plugin discovered");
-  await reconcilePluginTools(dir, manifest.name);
-  await activatePlugin(dir, manifest.name, manifest.credentialKeyPatterns);
-  return true;
+  return activated;
 }
 
 /**
@@ -538,25 +587,7 @@ async function reconcileWorkspaceHooks(
  * loaded (an unchanged plugin costs a fingerprint compare, not a redeploy).
  */
 function seedVersionBaseline(): void {
-  const seeded: Record<string, PluginSourceVersion> = {};
-  for (const [dir] of discoveredPluginDirs) {
-    const snapshot = snapshotPluginSource(dir);
-    seeded[dir] = {
-      fingerprint: snapshot.fingerprint,
-      evictionPaths: snapshot.evictionPaths,
-      disabled: false,
-    };
-  }
-  const workspaceHooksDir = getWorkspaceHooksDir();
-  if (existsSync(workspaceHooksDir)) {
-    const snapshot = snapshotPluginSource(workspaceHooksDir);
-    seeded[workspaceHooksDir] = {
-      fingerprint: snapshot.fingerprint,
-      evictionPaths: snapshot.evictionPaths,
-      disabled: false,
-    };
-  }
-  lastVersions = seeded;
+  lastVersions = collectSourceVersions();
 }
 
 // ─── Tool cache ──────────────────────────────────────────────────────────────
@@ -757,6 +788,7 @@ async function scanPlugins(): Promise<void> {
     string,
     PluginCredentialKeyPattern[] | undefined
   >();
+  const sourceFingerprintsByDir = new Map<string, string>();
 
   for (const entry of entries) {
     const pluginDir = join(pluginsDir, entry);
@@ -789,6 +821,7 @@ async function scanPlugins(): Promise<void> {
     if (existsSync(join(pluginDir, ".disabled"))) {
       const manifest = await parsePluginManifest(pluginDir);
       const pluginName = manifest?.name ?? entry;
+      removePluginReadiness(pluginName);
       if (discoveredPluginDirs.has(pluginDir)) {
         await deactivatePlugin(pluginName, "disable");
         await evictPlugin(pluginDir, pluginName);
@@ -803,22 +836,43 @@ async function scanPlugins(): Promise<void> {
       continue;
     }
 
+    const rawSourceFingerprint = snapshotPluginSource(pluginDir).fingerprint;
+    const sourceFingerprint =
+      derivePluginSourceFingerprint(rawSourceFingerprint);
+    const eligibility = getPluginActivationEligibility(pluginDir);
+    if (!eligibility.eligible) {
+      markPluginIncompatible(eligibility, sourceFingerprint);
+      log.warn(
+        {
+          plugin: eligibility.pluginId,
+          code: eligibility.code,
+          reason: eligibility.reason,
+        },
+        "plugin is incompatible, skipping activation",
+      );
+      continue;
+    }
+    markPluginInitializing(eligibility.pluginId, sourceFingerprint);
+
     const manifest = await parsePluginManifest(pluginDir);
     if (manifest === undefined) {
+      markPluginFailed(
+        eligibility.pluginId,
+        sourceFingerprint,
+        "plugin manifest could not be parsed",
+      );
       continue;
     }
     const { name: pluginName } = manifest;
 
     currentDirs.set(pluginDir, pluginName);
     credentialPatternsByDir.set(pluginDir, manifest.credentialKeyPatterns);
+    sourceFingerprintsByDir.set(pluginDir, sourceFingerprint);
     disabledPluginDirs.delete(pluginDir);
 
     if (!discoveredPluginDirs.has(pluginDir)) {
       log.info({ plugin: pluginName, pluginDir }, "plugin discovered");
     }
-
-    // Reconcile this plugin's tools (re-imports changed files).
-    await reconcilePluginTools(pluginDir, pluginName);
   }
 
   // Deactivate and evict cache entries for deleted plugins.
@@ -839,11 +893,24 @@ async function scanPlugins(): Promise<void> {
 
   // Activate any plugin not yet brought up. Idempotent: already-active plugins
   // are skipped by the `activatedNames` guard, so steady-state scans (one per
-  // hook dispatch) cost only a membership check per plugin. Tools were imported
-  // into `toolCache` by `reconcilePluginTools` above, so they are visible to
-  // the registry's pull reconcile as soon as activation flips.
+  // hook dispatch) cost only a membership check per plugin. Successful
+  // activation imports tools into `toolCache` before the plugin becomes ready.
   for (const [dir, name] of discoveredPluginDirs) {
-    await activatePlugin(dir, name, credentialPatternsByDir.get(dir));
+    const sourceFingerprint = sourceFingerprintsByDir.get(dir);
+    if (sourceFingerprint === undefined) {
+      continue;
+    }
+    const activated = await activatePlugin(
+      dir,
+      name,
+      sourceFingerprint,
+      credentialPatternsByDir.get(dir),
+    );
+    if (!activated) {
+      discoveredPluginDirs.delete(dir);
+      evictHooksForOwner("plugin", name);
+      evictToolCacheEntries(name);
+    }
   }
 }
 
@@ -887,6 +954,7 @@ async function evictPlugin(
   );
   discoveredPluginDirs.delete(pluginDir);
   installDateCache.delete(pluginDir);
+  evictPluginActivationEligibility(pluginDir);
 }
 
 /** Drop every `toolCache` entry owned by `pluginName`. */
@@ -907,8 +975,10 @@ function evictToolCacheEntries(pluginName: string): void {
  */
 async function evictAll(): Promise<void> {
   clearPluginHooks();
-  for (const pluginName of discoveredPluginDirs.values()) {
+  for (const [pluginDir, pluginName] of discoveredPluginDirs) {
     unregisterPluginSecretPatterns(pluginName);
+    removePluginReadiness(pluginName);
+    evictPluginActivationEligibility(pluginDir);
   }
   toolCache.clear();
   discoveredPluginDirs.clear();
@@ -933,13 +1003,12 @@ async function evictAll(): Promise<void> {
 const activatedPlugins: Array<{ kind: HookOwnerKind; name: string }> = [];
 
 /**
- * Names in {@link activatedPlugins}, kept as a set for O(1) membership and —
- * critically — reserved *synchronously* at the top of `activatePlugin`. The
- * per-turn hook dispatch reaches `scanPlugins` on every turn (sometimes
- * concurrently), so the synchronous reservation is what prevents a second scan
- * from double-activating a plugin while its async `init()` is still in flight.
+ * Names in {@link activatedPlugins}, kept as a set for O(1) membership.
+ * {@link activatingNames} reserves a name synchronously before async init so
+ * overlapping lifecycle callers cannot activate the same plugin twice.
  */
 const activatedNames = new Set<string>();
+const activatingNames = new Set<string>();
 
 /**
  * Activate a single discovered plugin: mark its cached tools live (the tool
@@ -947,38 +1016,66 @@ const activatedNames = new Set<string>();
  * reconcile) and run its `init` hook. Running `init` also resolves the owner's
  * `shutdown` (caching it for teardown), so no separate pre-import step is
  * needed; dispatch hooks resolve on their first read. Idempotent — a plugin
- * already activated (or mid-activation) is skipped. Never throws; per-surface
- * failures are logged and the plugin still counts as activated so the shutdown
- * teardown handles whatever came up (mirrors boot semantics).
- *
- * Called from `scanPlugins`, which runs both at boot and on every subsequent
- * scan — so a plugin whose files appear at runtime (installed via the CLI or
- * provisioned out-of-band) becomes live without a daemon restart.
+ * already activated is a no-op. A concurrent activation or failed required
+ * surface returns false, and failed partial activation is rolled back.
  */
 async function activatePlugin(
   pluginDir: string,
   pluginName: string,
+  sourceFingerprint: string,
   credentialKeyPatterns?: PluginCredentialKeyPattern[],
-): Promise<void> {
+): Promise<boolean> {
   if (activatedNames.has(pluginName)) {
-    return;
+    return true;
   }
-  // Reserve synchronously, before any await, so a re-entrant or concurrent
-  // scan observes this plugin as already handled. From this point the
-  // plugin's cached tools are visible to the registry's pull reconcile.
-  activatedNames.add(pluginName);
+  if (activatingNames.has(pluginName)) {
+    return false;
+  }
+  activatingNames.add(pluginName);
+  try {
+    // Register declared credential key patterns before `init` so init-time
+    // logging is covered by redaction. Every failed path unregisters them.
+    registerDeclaredCredentialKeyPatterns(
+      pluginName,
+      credentialKeyPatterns,
+      log,
+    );
 
-  // Register declared credential key patterns BEFORE the `init` hook runs so
-  // init-time logging (including caught-error paths that echo a configured
-  // key) is already covered by log redaction — mirroring the default-plugin
-  // bootstrap. Activation never aborts (init failures are swallowed below and
-  // the plugin still counts as activated), so every teardown path unregisters.
-  registerDeclaredCredentialKeyPatterns(pluginName, credentialKeyPatterns, log);
+    const initialized = await runInitHook(pluginName, pluginDir);
+    if (!initialized) {
+      unregisterPluginSecretPatterns(pluginName);
+      markPluginFailed(
+        pluginName,
+        sourceFingerprint,
+        "plugin init hook failed",
+      );
+      return false;
+    }
 
-  // Run the `init` hook if present.
-  await runInitHook(pluginName, pluginDir);
+    try {
+      // Plugin modules outside `init` cannot execute until initialization has
+      // succeeded. Workers run only after the tool cache is fully reconciled.
+      await reconcilePluginTools(pluginDir, pluginName);
+      await startPluginWorkers(pluginDir);
+    } catch (err) {
+      await stopPluginWorkers(pluginName);
+      await runShutdownHook("plugin", pluginName, "reload");
+      unregisterPluginSecretPatterns(pluginName);
+      evictHooksForOwner("plugin", pluginName);
+      evictToolCacheEntries(pluginName);
+      const message = err instanceof Error ? err.message : String(err);
+      markPluginFailed(pluginName, sourceFingerprint, message);
+      log.error({ err, plugin: pluginName }, "plugin surfaces failed to start");
+      return false;
+    }
 
-  activatedPlugins.push({ kind: "plugin", name: pluginName });
+    activatedNames.add(pluginName);
+    activatedPlugins.push({ kind: "plugin", name: pluginName });
+    markPluginReady(pluginName, sourceFingerprint);
+    return true;
+  } finally {
+    activatingNames.delete(pluginName);
+  }
 }
 
 /**
@@ -1018,20 +1115,6 @@ export function registerDeclaredCredentialKeyPatterns(
 }
 
 /**
- * Deactivate a plugin that was disabled (`disable`), removed (`uninstall`), or
- * is being redeployed (`reload`) at runtime: drop it from the active set (the
- * tool registry's pull reconcile removes its tools on its next pass) and run
- * its `shutdown` hook. Must run *before* `evictPlugin` / `evictHooksForOwner`
- * clear the owner's cache. Idempotent — a plugin that was never activated is a
- * no-op.
- *
- * `disable` and `reload` keep the directory present, so {@link runShutdownHook}
- * resolves and runs the on-disk `shutdown` (via the same resolution the dispatch
- * path uses). `uninstall` runs nothing here: a managed uninstall runs `shutdown`
- * *before* removing the directory (see `cli/lib/uninstall-plugin.ts`), and an
- * out-of-band `rm` leaves nothing to resolve.
- */
-/**
  * Deactivate a plugin ahead of an in-place upgrade's file swap: run the
  * outgoing version's `shutdown` while its files are still on disk and drop
  * its cached hook/tool resolutions. The upgrade route passes this as the
@@ -1044,15 +1127,21 @@ export function registerDeclaredCredentialKeyPatterns(
 export async function deactivatePluginForUpdate(
   pluginName: string,
 ): Promise<void> {
+  const readiness = getPluginReadiness(pluginName);
+  if (readiness !== undefined) {
+    markPluginInitializing(pluginName, readiness.sourceFingerprint);
+  }
   await deactivatePlugin(pluginName, "reload");
   evictHooksForOwner("plugin", pluginName);
   evictToolCacheEntries(pluginName);
 }
 
+/** Stop workers and remove one plugin from the active lifecycle set. */
 async function deactivatePlugin(
   pluginName: string,
   reason: ShutdownReason,
 ): Promise<void> {
+  await stopPluginWorkers(pluginName);
   if (!activatedNames.has(pluginName)) {
     return;
   }
@@ -1142,9 +1231,12 @@ export function resetPluginCacheForTests(): void {
   installDateCache.clear();
   activatedPlugins.length = 0;
   activatedNames.clear();
+  activatingNames.clear();
   disabledPluginDirs.clear();
   lastVersions = {};
   reconcileInFlight = null;
+  resetPluginActivationEligibilityCacheForTests();
+  resetPluginReadinessForTests();
 }
 
 /**

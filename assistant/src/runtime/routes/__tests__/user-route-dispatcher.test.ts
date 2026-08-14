@@ -1,7 +1,12 @@
-import { mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
+import {
+  markPluginReady,
+  resetPluginReadinessForTests,
+} from "../../../plugins/plugin-readiness.js";
+import { resetPluginRouteManifestCacheForTests } from "../../../plugins/plugin-route-manifest.js";
 // ---------------------------------------------------------------------------
 // Mocks
 // ---------------------------------------------------------------------------
@@ -10,6 +15,11 @@ import {
   getWorkspaceRoutesDir,
 } from "../../../util/platform.js";
 import { UserRouteDispatcher } from "../user-route-dispatcher.js";
+
+const PLUGIN_ROUTE_CONTEXT_MODULE_URL = new URL(
+  "../../../plugin-api/route-context.ts",
+  import.meta.url,
+).href;
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -44,16 +54,32 @@ function writePluginHandler(
   relativePath: string,
   content: string,
 ): string {
-  const fullPath = join(
+  const pluginDir = join(getWorkspacePluginsDir(), pluginName);
+  const fullPath = join(pluginDir, "routes", relativePath);
+  const dir = fullPath.substring(0, fullPath.lastIndexOf("/"));
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(
+    join(pluginDir, "package.json"),
+    JSON.stringify({ name: pluginName }),
+  );
+  writeFileSync(fullPath, content);
+  markPluginReady(pluginName, "a".repeat(64));
+  return fullPath;
+}
+
+function writePluginRouteManifest(
+  pluginName: string,
+  routes: Array<Record<string, unknown>>,
+): void {
+  const path = join(
     getWorkspacePluginsDir(),
     pluginName,
     "routes",
-    relativePath,
+    "manifest.json",
   );
-  const dir = fullPath.substring(0, fullPath.lastIndexOf("/"));
-  mkdirSync(dir, { recursive: true });
-  writeFileSync(fullPath, content);
-  return fullPath;
+  mkdirSync(dirname(path), { recursive: true });
+  writeFileSync(path, JSON.stringify({ schemaVersion: 1, routes }));
+  resetPluginRouteManifestCacheForTests();
 }
 
 async function readErrorBody(
@@ -67,10 +93,14 @@ async function readErrorBody(
 // ---------------------------------------------------------------------------
 
 beforeEach(() => {
+  resetPluginReadinessForTests();
+  resetPluginRouteManifestCacheForTests();
   mkdirSync(getWorkspaceRoutesDir(), { recursive: true });
 });
 
 afterEach(() => {
+  resetPluginReadinessForTests();
+  resetPluginRouteManifestCacheForTests();
   rmSync(getWorkspaceRoutesDir(), { recursive: true, force: true });
   rmSync(getWorkspacePluginsDir(), { recursive: true, force: true });
 });
@@ -162,6 +192,61 @@ describe("successful dispatch", () => {
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body.format).toBe("js");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Workspace route authorization
+// ---------------------------------------------------------------------------
+
+describe("workspace route authorization", () => {
+  test("requires settings.read or local.all before importing the handler", async () => {
+    const importMarker = join(getWorkspaceRoutesDir(), "imported");
+    writeHandler(
+      "protected.ts",
+      `import { writeFileSync } from "node:fs";
+       writeFileSync(${JSON.stringify(importMarker)}, "yes");
+       export function GET() { return Response.json({ ok: true }); }`,
+    );
+    const dispatcher = makeDispatcher();
+
+    const denied = await dispatcher.dispatch("protected", makeRequest("GET"), {
+      actor: {
+        principalType: "actor",
+        principalId: "user-123",
+        scopes: ["chat.read"],
+      },
+    });
+
+    expect(denied.status).toBe(403);
+    expect(existsSync(importMarker)).toBe(false);
+
+    const settingsReader = await dispatcher.dispatch(
+      "protected",
+      makeRequest("GET"),
+      {
+        actor: {
+          principalType: "actor",
+          principalId: "user-123",
+          scopes: ["settings.read"],
+        },
+      },
+    );
+    expect(settingsReader.status).toBe(200);
+    expect(existsSync(importMarker)).toBe(true);
+
+    const localCaller = await dispatcher.dispatch(
+      "protected",
+      makeRequest("GET"),
+      {
+        actor: {
+          principalType: "local",
+          principalId: null,
+          scopes: ["local.all"],
+        },
+      },
+    );
+    expect(localCaller.status).toBe(200);
   });
 });
 
@@ -466,6 +551,28 @@ describe("plugin routes", () => {
     expect(body.plugin).toBe(true);
   });
 
+  test("keeps legacy POST routes compatible with read-only actors", async () => {
+    writePluginHandler(
+      "legacy-post",
+      "submit.ts",
+      `export function POST() { return new Response("ok"); }`,
+    );
+
+    const response = await makeDispatcher().dispatch(
+      "plugins/legacy-post/submit",
+      makeRequest("POST"),
+      {
+        actor: {
+          principalType: "actor",
+          principalId: "user-123",
+          scopes: ["settings.read"],
+        },
+      },
+    );
+
+    expect(response.status).toBe(200);
+  });
+
   test("resolves nested paths and the index (namespace root)", async () => {
     writePluginHandler(
       "my-plugin",
@@ -575,6 +682,156 @@ describe("plugin routes", () => {
     expect(other.status).toBe(404);
   });
 
+  test("denies a read-only actor on a declared write route before import", async () => {
+    const plugin = "write-policy";
+    const importMarker = join(getWorkspacePluginsDir(), plugin, "imported");
+    writePluginHandler(
+      plugin,
+      "settings.ts",
+      `import { writeFileSync } from "node:fs";
+       writeFileSync(${JSON.stringify(importMarker)}, "yes");
+       export function PATCH() { return Response.json({ ok: true }); }`,
+    );
+    writePluginRouteManifest(plugin, [
+      {
+        path: "settings",
+        method: "PATCH",
+        authorization: {
+          principal: "actor",
+          requiredScopes: ["settings.write"],
+        },
+      },
+    ]);
+    markPluginReady(plugin, "a".repeat(64));
+
+    const response = await makeDispatcher().dispatch(
+      `plugins/${plugin}/settings`,
+      makeRequest("PATCH"),
+      {
+        actor: {
+          principalType: "actor",
+          principalId: "user-123",
+          scopes: ["settings.read"],
+        },
+      },
+    );
+
+    expect(response.status).toBe(403);
+    expect(existsSync(importMarker)).toBe(false);
+  });
+
+  test("exposes host-derived route context to an authorized handler", async () => {
+    const plugin = "route-context";
+    writePluginHandler(
+      plugin,
+      "settings.ts",
+      `import { requirePluginRouteContext } from ${JSON.stringify(PLUGIN_ROUTE_CONTEXT_MODULE_URL)};
+       export async function PATCH() {
+         const context = requirePluginRouteContext();
+         return Response.json({
+           pluginId: context.pluginId,
+           principalId: context.actor.principalId,
+           requestId: context.requestId,
+           hasSignal: context.signal instanceof AbortSignal,
+           storageDir: await context.host.getPluginStorageDir(),
+         });
+       }`,
+    );
+    writePluginRouteManifest(plugin, [
+      {
+        path: "settings",
+        method: "PATCH",
+        authorization: {
+          principal: "actor",
+          requiredScopes: ["settings.write"],
+        },
+      },
+    ]);
+    markPluginReady(plugin, "b".repeat(64));
+
+    const response = await makeDispatcher().dispatch(
+      `plugins/${plugin}/settings`,
+      makeRequest("PATCH"),
+      {
+        actor: {
+          principalType: "actor",
+          principalId: "user-123",
+          scopes: ["settings.write"],
+        },
+        requestId: "request-123",
+      },
+    );
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({
+      pluginId: plugin,
+      principalId: "user-123",
+      requestId: "request-123",
+      hasSignal: true,
+      storageDir: join(getWorkspacePluginsDir(), plugin, "data"),
+    });
+  });
+
+  test("keeps actor and assistant-peer route policies disjoint", async () => {
+    const plugin = "peer-policy";
+    writePluginHandler(
+      plugin,
+      "exchange.ts",
+      `import { requirePluginRouteContext } from ${JSON.stringify(PLUGIN_ROUTE_CONTEXT_MODULE_URL)};
+       export function POST() {
+         return Response.json(requirePluginRouteContext().verifiedPeer);
+       }`,
+    );
+    writePluginRouteManifest(plugin, [
+      {
+        path: "exchange",
+        method: "POST",
+        authorization: {
+          principal: "assistant_peer",
+          operationKinds: ["conversation.copy"],
+        },
+      },
+    ]);
+    markPluginReady(plugin, "c".repeat(64));
+
+    const actorResponse = await makeDispatcher().dispatch(
+      `plugins/${plugin}/exchange`,
+      makeRequest("POST"),
+      {
+        actor: {
+          principalType: "actor",
+          principalId: "user-123",
+          scopes: ["settings.write"],
+        },
+      },
+    );
+    expect(actorResponse.status).toBe(403);
+
+    const verifiedPeer = {
+      peerId: "peer-123",
+      generation: "generation-1",
+      operation: {
+        id: "operation-123",
+        kind: "conversation.copy",
+        payloadHash: `sha256:${"d".repeat(64)}`,
+      },
+    } as const;
+    const peerResponse = await makeDispatcher().dispatch(
+      `plugins/${plugin}/exchange`,
+      makeRequest("POST"),
+      {
+        actor: {
+          principalType: "assistant_peer",
+          principalId: null,
+          scopes: [],
+        },
+        verifiedPeer,
+      },
+    );
+    expect(peerResponse.status).toBe(200);
+    expect(await peerResponse.json()).toEqual(verifiedPeer);
+  });
+
   test("a new route export is not bound to a stale helper after upgrade", async () => {
     // Reproduces the browser plugin 500: `/frame` loaded `src/http.ts`
     // first, then an upgrade added `requireNumber` to http.ts and a new
@@ -583,10 +840,7 @@ describe("plugin routes", () => {
     const plugin = "stale-helper";
     const helperPath = join(getWorkspacePluginsDir(), plugin, "src", "http.ts");
     mkdirSync(dirname(helperPath), { recursive: true });
-    writeFileSync(
-      helperPath,
-      `export function label() { return "v1"; }\n`,
-    );
+    writeFileSync(helperPath, `export function label() { return "v1"; }\n`);
     writePluginHandler(
       plugin,
       "frame.ts",

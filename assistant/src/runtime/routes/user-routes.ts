@@ -15,10 +15,15 @@
  * over both HTTP and IPC.
  */
 
-import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
+import { PLUGIN_ROUTE_PRINCIPALS } from "../auth/route-policy.js";
+import { resolveScopeProfile } from "../auth/scopes.js";
+import type { ScopeProfile } from "../auth/types.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 import { RouteResponse } from "./types.js";
-import { UserRouteDispatcher } from "./user-route-dispatcher.js";
+import {
+  type UserRouteDispatchContext,
+  UserRouteDispatcher,
+} from "./user-route-dispatcher.js";
 
 const dispatcher = new UserRouteDispatcher();
 
@@ -84,6 +89,45 @@ function decomposeResponse(response: Response): RouteResponse {
   return new RouteResponse(response.body, headers, response.status);
 }
 
+function buildDispatchContext(
+  args: RouteHandlerArgs,
+): UserRouteDispatchContext {
+  const authContext = args.authContext;
+  if (authContext) {
+    return {
+      actor: {
+        principalType: authContext.principalType,
+        principalId: authContext.actorPrincipalId ?? null,
+        scopes: [...authContext.scopes],
+      },
+      verifiedPeer: authContext.verifiedPeerContext ?? null,
+      signal: args.abortSignal,
+    };
+  }
+
+  const principalType =
+    args.headers?.["x-vellum-principal-type"] === "local"
+      ? "local"
+      : "svc_gateway";
+  const forwardedProfile = args.headers?.["x-vellum-scope-profile"] as
+    | ScopeProfile
+    | undefined;
+  return {
+    actor: {
+      principalType,
+      principalId: args.headers?.["x-vellum-actor-principal-id"] ?? null,
+      scopes:
+        principalType === "local"
+          ? ["local.all"]
+          : forwardedProfile
+            ? [...resolveScopeProfile(forwardedProfile)]
+            : [],
+    },
+    verifiedPeer: null,
+    signal: args.abortSignal,
+  };
+}
+
 /**
  * HTTP methods supported by user-defined route handlers.
  *
@@ -109,14 +153,15 @@ export const ROUTES: RouteDefinition[] = METHODS.map((method) => ({
   description: `Dispatches ${method} requests to user-defined handler files in the workspace routes directory.`,
   tags: ["user-routes"],
   policy: {
-    requiredScopes: ["settings.read"],
-    allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    requiredScopes: [],
+    allowedPrincipalTypes: PLUGIN_ROUTE_PRINCIPALS,
   },
   handler: async (args: RouteHandlerArgs) => {
     const request = synthesizeRequest(method, args);
     const response = await dispatcher.dispatch(
       args.pathParams?.path ?? "",
       request,
+      buildDispatchContext(args),
     );
     return decomposeResponse(response);
   },

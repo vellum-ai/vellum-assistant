@@ -11,6 +11,7 @@ import { join } from "node:path";
 import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
 const workspacePluginsDir = mkdtempSync(join(tmpdir(), "plugin-channels-"));
+const readyPlugins = new Set<string>();
 
 const realPlatform = await import("../../util/platform.js");
 
@@ -19,9 +20,12 @@ mock.module("../../util/platform.js", () => ({
   getWorkspacePluginsDir: () => workspacePluginsDir,
 }));
 
-const { discoverPluginChannels } = await import(
-  "../plugin-channel-declarations.js"
-);
+mock.module("../../plugins/plugin-readiness.js", () => ({
+  isPluginReady: (pluginId: string) => readyPlugins.has(pluginId),
+}));
+
+const { discoverPluginChannels } =
+  await import("../plugin-channel-declarations.js");
 
 interface PluginOptions {
   /** Contents of `channels/ingress.json`; omit for a plugin with no ingress. */
@@ -44,10 +48,12 @@ function writePlugin(name: string, options: PluginOptions = {}): string {
     mkdirSync(join(dir, "channels"), { recursive: true });
     writeFileSync(join(dir, "channels", "ingress.json"), options.ingress);
   }
+  readyPlugins.add(name);
   return dir;
 }
 
 beforeEach(() => {
+  readyPlugins.clear();
   rmSync(workspacePluginsDir, { recursive: true, force: true });
   mkdirSync(workspacePluginsDir, { recursive: true });
 });
@@ -109,6 +115,13 @@ describe("discoverPluginChannels", () => {
     // disabled plugin would otherwise offer a setup flow that cannot run.
     const dir = writePlugin("courier", { ingress: INGRESS });
     writeFileSync(join(dir, ".disabled"), "");
+
+    expect(await discoverPluginChannels()).toEqual([]);
+  });
+
+  test("skips a channel until the plugin is ready", async () => {
+    writePlugin("courier", { ingress: INGRESS });
+    readyPlugins.clear();
 
     expect(await discoverPluginChannels()).toEqual([]);
   });

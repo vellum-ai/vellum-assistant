@@ -23688,6 +23688,26 @@ paths:
                           description:
                             Whether the plugin is active in this workspace. `false` when a `.disabled` sentinel is present under its
                             directory; `true` otherwise.
+                        activation:
+                          type: object
+                          properties:
+                            status:
+                              type: string
+                              enum:
+                                - disabled
+                                - initializing
+                                - ready
+                                - incompatible
+                                - failed
+                                - unavailable
+                            code:
+                              type: string
+                            message:
+                              type: string
+                          required:
+                            - status
+                          additionalProperties: false
+                          description: Host activation state. Plugin surfaces are available only when status is `ready`.
                         description:
                           anyOf:
                             - type: string
@@ -23730,6 +23750,7 @@ paths:
                         - id
                         - name
                         - enabled
+                        - activation
                         - description
                         - version
                       additionalProperties: false

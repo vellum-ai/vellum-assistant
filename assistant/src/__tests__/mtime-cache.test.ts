@@ -38,7 +38,11 @@ import {
   reconcilePluginSourcesNow,
   resetPluginCacheForTests,
 } from "../plugins/mtime-cache.js";
-import { getSourceVersionsPath } from "../plugins/source-versions.js";
+import { getPluginReadiness } from "../plugins/plugin-readiness.js";
+import {
+  getSourceVersionsPath,
+  SOURCE_VERSIONS_FORMAT,
+} from "../plugins/source-versions.js";
 import {
   __resetRegistryForTesting,
   getAllToolDefinitions,
@@ -49,12 +53,13 @@ import {
 
 // ─── Test fixtures ───────────────────────────────────────────────────────────
 
-const ROOT = join(
+const ROOT_PARENT = join(
   tmpdir(),
   `vellum-mtime-cache-test-${process.pid}-${Date.now()}`,
 );
+let ROOT = join(ROOT_PARENT, "initial");
 
-const PLUGINS_DIR = join(ROOT, "plugins");
+let PLUGINS_DIR = join(ROOT, "plugins");
 
 function ensurePluginsDir(): void {
   rmSync(PLUGINS_DIR, { recursive: true, force: true });
@@ -70,6 +75,18 @@ function freshPluginDir(name: string): string {
 
 function writePackageJson(dir: string, pkg: Record<string, unknown>): void {
   writeFileSync(join(dir, "package.json"), JSON.stringify(pkg, null, 2));
+}
+
+function writeHostRequirements(
+  dir: string,
+  requires: Record<string, string> = {
+    "plugins.activation.requirements": "^1.0.0",
+  },
+): void {
+  writeFileSync(
+    join(dir, "host-requirements.json"),
+    JSON.stringify({ schemaVersion: 1, requires }, null, 2),
+  );
 }
 
 function writeHook(dir: string, hookName: string, body: string): void {
@@ -100,7 +117,7 @@ function writeTool(dir: string, toolName: string, body: string): void {
 }
 
 /** The standalone workspace hooks directory (`<workspace>/hooks/`). */
-const WORKSPACE_HOOKS_DIR = join(ROOT, "hooks");
+let WORKSPACE_HOOKS_DIR = join(ROOT, "hooks");
 
 function ensureWorkspaceHooksDir(): void {
   rmSync(WORKSPACE_HOOKS_DIR, { recursive: true, force: true });
@@ -132,6 +149,7 @@ const SIMPLE_PKG = {
 
 /** Strictly increasing mtime offset for source-file touches within one test. */
 let touchSeq = 0;
+let fixtureSeq = 0;
 
 /**
  * Apply pending source changes exactly the way production does: the
@@ -149,6 +167,10 @@ beforeAll(() => {
 });
 
 beforeEach(() => {
+  ROOT = join(ROOT_PARENT, String(fixtureSeq++));
+  PLUGINS_DIR = join(ROOT, "plugins");
+  WORKSPACE_HOOKS_DIR = join(ROOT, "hooks");
+  process.env.VELLUM_WORKSPACE_DIR = ROOT;
   ensurePluginsDir();
   ensureWorkspaceHooksDir();
   rmSync(getSourceVersionsPath(), { force: true });
@@ -160,12 +182,63 @@ beforeEach(() => {
 });
 
 afterAll(() => {
-  rmSync(ROOT, { recursive: true, force: true });
+  rmSync(ROOT_PARENT, { recursive: true, force: true });
 });
 
 // ─── Tests ───────────────────────────────────────────────────────────────────
 
 describe("plugin mtime cache (per-surface)", () => {
+  test("an incompatible plugin imports no surfaces", async () => {
+    const dir = freshPluginDir("incompatible-plugin");
+    const marker = join(ROOT, "incompatible-init-imported.txt");
+    rmSync(marker, { force: true });
+    writePackageJson(dir, {
+      ...SIMPLE_PKG,
+      name: "incompatible-plugin",
+    });
+    writeHostRequirements(dir, { "plugins.unknown": "^1.0.0" });
+    writeHook(
+      dir,
+      "init",
+      `import { writeFileSync } from "node:fs"; writeFileSync(${JSON.stringify(marker)}, "imported"); export default () => {};`,
+    );
+
+    await populateCacheAtBoot();
+
+    expect(existsSync(marker)).toBe(false);
+    expect(getPluginReadiness("incompatible-plugin")?.status).toBe(
+      "incompatible",
+    );
+    expect(_inspectToolCacheForTests()).toHaveLength(0);
+  });
+
+  test("a plugin whose init fails contributes no cached surface", async () => {
+    const dir = freshPluginDir("failed-plugin");
+    const toolImportMarker = join(ROOT, "failed-tool-imported.txt");
+    rmSync(toolImportMarker, { force: true });
+    writePackageJson(dir, { ...SIMPLE_PKG, name: "failed-plugin" });
+    writeHook(
+      dir,
+      "init",
+      `export default () => { throw new Error("boom"); };`,
+    );
+    writeHook(dir, "user-prompt-submit", `export default () => "unsafe";`);
+    writeTool(
+      dir,
+      "failed-tool",
+      `import { writeFileSync } from "node:fs";
+writeFileSync(${JSON.stringify(toolImportMarker)}, "imported");
+export default { description: "failed tool", execute: async () => "unsafe" };`,
+    );
+
+    await populateCacheAtBoot();
+
+    expect(await getUserHooksFor("user-prompt-submit")).toHaveLength(0);
+    expect(getCachedUserTools()).toHaveLength(0);
+    expect(existsSync(toolImportMarker)).toBe(false);
+    expect(getPluginReadiness("failed-plugin")?.status).toBe("failed");
+  });
+
   test("populateCacheAtBoot discovers and caches hooks", async () => {
     const dir = freshPluginDir("hook-plugin");
     writePackageJson(dir, { ...SIMPLE_PKG, name: "hook-plugin" });
@@ -981,12 +1054,13 @@ describe("plugin root validation (ATL-983)", () => {
     writeFileSync(
       sentinelPath,
       JSON.stringify({
-        format: 1,
+        format: SOURCE_VERSIONS_FORMAT,
         generation: 1,
         writtenAt: new Date().toISOString(),
         plugins: {
           [evilDir]: {
             fingerprint: snapshot.fingerprint,
+            sourceFingerprint: "a".repeat(64),
             evictionPaths: snapshot.evictionPaths,
             disabled: false,
           },

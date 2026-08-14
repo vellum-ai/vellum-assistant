@@ -53,6 +53,7 @@ import { PLUGIN_SECRET_PATTERN_LIMITS } from "../security/plugin-secret-patterns
 import { finalizeTool } from "../tools/tool-defaults.js";
 import type { Tool, ToolDefinition } from "../tools/types.js";
 import { getLogger } from "../util/logger.js";
+import { getPluginActivationEligibility } from "./activation-eligibility.js";
 import { registerPlugin } from "./registry.js";
 import type {
   HookFunction,
@@ -270,6 +271,13 @@ async function loadHooks(
  * timeout/try-catch/register triple.
  */
 async function buildPluginFromDir(pluginDir: string): Promise<Plugin> {
+  const eligibility = getPluginActivationEligibility(pluginDir);
+  if (!eligibility.eligible) {
+    throw new Error(
+      `external plugin ${eligibility.pluginId} is incompatible (${eligibility.code}): ${eligibility.reason}`,
+    );
+  }
+
   const pkgPath = join(pluginDir, "package.json");
   let rawPkg: unknown;
   try {
@@ -311,7 +319,7 @@ async function buildPluginFromDir(pluginDir: string): Promise<Plugin> {
   // If the peerDep is absent, the plugin loads without a host-compat
   // claim; we log a warning so the omission is visible at boot.
   const range = pkg.peerDependencies?.[PLUGIN_API_PEER_DEP];
-  if (range !== undefined) {
+  if (eligibility.mode === "legacy" && range !== undefined) {
     if (!semver.validRange(range)) {
       log.error(
         { pluginDir, plugin: name, peerDep: PLUGIN_API_PEER_DEP, range },
@@ -333,7 +341,7 @@ async function buildPluginFromDir(pluginDir: string): Promise<Plugin> {
         `external plugin ${name}: peerDependencies["${PLUGIN_API_PEER_DEP}"] requires "${range}" but assistant is ${assistantPkg.version} — loading anyway`,
       );
     }
-  } else {
+  } else if (eligibility.mode === "legacy") {
     log.warn(
       { pluginDir, plugin: name, peerDep: PLUGIN_API_PEER_DEP },
       "external plugin missing plugin-api peerDependency — loading without host-compat claim",

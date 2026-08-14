@@ -1,3 +1,4 @@
+import { assertNotPluginRouteHost } from "../plugin-api/route-context.js";
 import type {
   AddMessageOptions,
   ConversationRow,
@@ -40,6 +41,7 @@ type AddMessageResult = Awaited<
 export async function getConversation(
   id: string,
 ): Promise<ConversationRow | null> {
+  assertNotPluginRouteHost("Conversation store access");
   const { getConversation: fn } = await import("./conversation-crud.js");
   return fn(id);
 }
@@ -48,12 +50,14 @@ export async function getConversation(
 export async function getMessages(
   conversationId: string,
 ): Promise<MessageRow[]> {
+  assertNotPluginRouteHost("Conversation store access");
   const { getMessages: fn } = await import("./conversation-crud.js");
   return fn(conversationId);
 }
 
 /** Whether the conversation currently has a turn in flight. */
 export async function isConversationProcessing(id: string): Promise<boolean> {
+  assertNotPluginRouteHost("Conversation store access");
   const { isConversationProcessing: fn } =
     await import("./conversation-crud.js");
   return fn(id);
@@ -68,6 +72,7 @@ export async function isConversationProcessing(id: string): Promise<boolean> {
 export async function getConversationProcessingStartedAt(
   id: string,
 ): Promise<number | null> {
+  assertNotPluginRouteHost("Conversation store access");
   const { getConversationProcessingStartedAt: fn } =
     await import("./conversation-crud.js");
   return fn(id);
@@ -77,6 +82,7 @@ export async function getConversationProcessingStartedAt(
 export async function parseMessageMetadata(
   metadataJson: string | null,
 ): Promise<MessageMetadata> {
+  assertNotPluginRouteHost("Conversation store access");
   const { parseMessageMetadata: fn } = await import("./conversation-crud.js");
   return fn(metadataJson);
 }
@@ -86,6 +92,7 @@ export async function updateMessageMetadata(
   messageId: string,
   updates: Record<string, unknown>,
 ): Promise<void> {
+  assertNotPluginRouteHost("Conversation store access");
   const { updateMessageMetadata: fn } = await import("./conversation-crud.js");
   return fn(messageId, updates);
 }
@@ -104,6 +111,7 @@ export async function addMessage(
   content: string,
   options?: AddMessageOptions,
 ): Promise<AddMessageResult> {
+  assertNotPluginRouteHost("Conversation store access");
   const { addMessage: fn } = await import("./conversation-crud.js");
   return fn(conversationId, role, content, options);
 }
@@ -116,6 +124,7 @@ export async function addMessage(
  * purge runs inside the delete itself via the persistence hook.
  */
 export async function deleteConversation(id: string): Promise<void> {
+  assertNotPluginRouteHost("Conversation store access");
   const [{ deleteConversationGently: fn }, { enqueueMemoryJob }] =
     await Promise.all([
       import("./conversation-crud.js"),
@@ -150,6 +159,7 @@ export async function listConversations(
   archiveStatus?: ArchiveStatusFilter,
   originChannel?: string,
 ): Promise<ConversationRow[]> {
+  assertNotPluginRouteHost("Conversation store access");
   const { listConversations: fn } = await import("./conversation-queries.js");
   return fn({
     ...(limit !== undefined ? { limit } : {}),
@@ -166,6 +176,7 @@ export async function searchMessageIdsLexical(
   limit: number,
   opts?: { conversationId?: string },
 ): Promise<MessageLexicalSearchResult[]> {
+  assertNotPluginRouteHost("Conversation store access");
   const { searchMessageIdsLexical: fn } =
     await import("./conversation-search-lexical.js");
   return fn(query, limit, opts);
@@ -173,6 +184,7 @@ export async function searchMessageIdsLexical(
 
 /** Whether the text tokenizes to at least one lexical search token. */
 export async function hasLexicalTokens(text: string): Promise<boolean> {
+  assertNotPluginRouteHost("Conversation store access");
   const { hasLexicalTokens: fn } = await import("./conversation-queries.js");
   return fn(text);
 }
@@ -186,6 +198,7 @@ export async function buildMessageExcerpt(
   rawContent: string,
   query: string,
 ): Promise<string> {
+  assertNotPluginRouteHost("Conversation store access");
   const { buildRecallEvidenceExcerpt: fn } =
     await import("./conversation-queries.js");
   return fn(rawContent, query);
@@ -199,6 +212,7 @@ export async function getConversationDirPath(
   id: string,
   createdAtMs: number,
 ): Promise<string> {
+  assertNotPluginRouteHost("Conversation store access");
   const { getConversationDirPath: fn } =
     await import("./conversation-directories.js");
   return fn(id, createdAtMs);
@@ -210,6 +224,7 @@ export async function syncMessageToDisk(
   messageId: string,
   createdAtMs: number,
 ): Promise<void> {
+  assertNotPluginRouteHost("Conversation store access");
   const { syncMessageToDisk: fn } = await import("./conversation-disk-view.js");
   return fn(conversationId, messageId, createdAtMs);
 }

@@ -1,7 +1,7 @@
 import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { describe, expect, it } from "bun:test";
 
 import {
@@ -10,6 +10,7 @@ import {
   formatPayloadForPrint,
   formatPublishResult,
   formatValidationResult,
+  inventoryPluginSurfaces,
   type ParsedPackageJson,
   type PublishValidation,
   runPublish,
@@ -201,7 +202,7 @@ describe("validatePluginForPublish", () => {
     const result = validatePluginForPublish(dir);
     expect(result.valid).toBe(true);
     expect(result.warnings.length).toBeGreaterThan(0);
-    expect(result.warnings.some((w) => w.includes("No hooks/"))).toBe(true);
+    expect(result.warnings.some((w) => w.includes("No supported"))).toBe(true);
     rmSync(dir, { recursive: true });
   });
 
@@ -212,6 +213,136 @@ describe("validatePluginForPublish", () => {
     const result = validatePluginForPublish(dir);
     expect(result.valid).toBe(true);
     expect(result.warnings.some((w) => w.includes("orphan.js"))).toBe(true);
+    rmSync(dir, { recursive: true });
+  });
+
+  it("inventories and validates every supported external plugin surface", () => {
+    const dir = makePluginDir(tmpdir(), validPkg);
+    const write = (relativePath: string, contents: string): void => {
+      const path = join(dir, relativePath);
+      mkdirSync(dirname(path), { recursive: true });
+      writeFileSync(path, contents);
+    };
+
+    write("hooks/init.ts", 'throw new Error("must not import");');
+    write("tools/ping.ts", 'throw new Error("must not import");');
+    write("routes/capabilities.ts", 'throw new Error("must not import");');
+    write(
+      "routes/manifest.json",
+      JSON.stringify({
+        schemaVersion: 1,
+        routes: [
+          {
+            path: "capabilities",
+            method: "GET",
+            authorization: {
+              principal: "actor",
+              requiredScopes: ["settings.read"],
+            },
+          },
+        ],
+      }),
+    );
+    write(
+      "workers/outbox.ts",
+      'throw new Error("must not import"); export default async function run() {}',
+    );
+    write("apps/connections/src/index.html", "<main></main>");
+    write(
+      "skills/contact-assistant/SKILL.md",
+      "---\nname: contact-assistant\ndescription: Contact another assistant.\n---\n\nInstructions.\n",
+    );
+    write(
+      "schedules/digest/config.json",
+      JSON.stringify({ expression: "0 9 * * *" }),
+    );
+    write("schedules/digest/index.md", "Summarize the day.\n");
+    write(
+      "channels/ingress.json",
+      JSON.stringify({
+        routes: [
+          { path: "events", kind: "http", description: "Inbound events" },
+        ],
+      }),
+    );
+    write(
+      "host-requirements.json",
+      JSON.stringify({ schemaVersion: 1, requires: {} }),
+    );
+    write(
+      "ui/contacts-detail.json",
+      JSON.stringify({ schemaVersion: 1, sections: [] }),
+    );
+    write(
+      "ui/locales/en.json",
+      JSON.stringify({ "contacts.title": "Collaboration" }),
+    );
+
+    const result = validatePluginForPublish(dir);
+    expect(result.valid).toBe(true);
+    expect(result.issues).toEqual([]);
+    expect(inventoryPluginSurfaces(dir)).toEqual({
+      hooks: ["init.ts"],
+      tools: ["ping.ts"],
+      routes: ["manifest.json", "capabilities.ts"],
+      workers: ["outbox.ts"],
+      apps: ["connections"],
+      skills: ["contact-assistant"],
+      schedules: ["digest"],
+      ingress: ["channels/ingress.json"],
+      hostRequirements: ["host-requirements.json"],
+      uiDescriptors: ["contacts-detail.json", "locales/en.json"],
+    });
+    rmSync(dir, { recursive: true });
+  });
+
+  it("reports malformed declarative and executable surface contracts", () => {
+    const dir = makePluginDir(tmpdir(), validPkg);
+    const write = (relativePath: string, contents: string): void => {
+      const path = join(dir, relativePath);
+      mkdirSync(dirname(path), { recursive: true });
+      writeFileSync(path, contents);
+    };
+
+    write("workers/outbox.ts", "export function run() {}");
+    write("apps/connections/README.md", "missing source");
+    write("skills/contact-assistant/SKILL.md", "missing frontmatter");
+    write("schedules/digest/index.py", "print('unsupported')");
+    write("channels/ingress.json", JSON.stringify({ routes: [{}] }));
+    write(
+      "routes/manifest.json",
+      JSON.stringify({
+        schemaVersion: 1,
+        routes: [
+          {
+            path: "settings",
+            method: "POST",
+            authorization: { principal: "actor", requiredScopes: ["admin"] },
+          },
+        ],
+      }),
+    );
+    write(
+      "host-requirements.json",
+      JSON.stringify({
+        schemaVersion: 1,
+        requires: { "plugins.readiness": "not-a-range" },
+      }),
+    );
+    write("ui/contacts-detail.json", JSON.stringify(["not", "an", "object"]));
+
+    const result = validatePluginForPublish(dir);
+    expect(result.valid).toBe(false);
+    expect(result.issues.join("\n")).toContain("host-requirements.json");
+    expect(result.issues.join("\n")).toContain("routes/manifest.json");
+    expect(result.issues.join("\n")).toContain("default plugin worker");
+    expect(result.issues.join("\n")).toContain("apps/connections");
+    expect(result.issues.join("\n")).toContain("must contain frontmatter");
+    expect(result.issues.join("\n")).toContain("schedules/digest:");
+    expect(result.issues.join("\n")).toContain("channels/ingress.json route 0");
+    expect(result.issues.join("\n")).toContain(
+      "ui/contacts-detail.json must contain a JSON object",
+    );
     rmSync(dir, { recursive: true });
   });
 });

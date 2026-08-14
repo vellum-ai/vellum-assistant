@@ -15,6 +15,7 @@ import { stopQdrantManager } from "../persistence/embeddings/qdrant-manager.js";
 import { stopConsentRefresh } from "../platform/consent-cache.js";
 import { HOOKS } from "../plugin-api/constants.js";
 import { runHook } from "../plugins/pipeline.js";
+import { stopAllPluginWorkers } from "../plugins/plugin-worker-runner.js";
 import { stopRouteHost } from "../routes/control.js";
 import { stopRuntimeHttpServer } from "../runtime/http-server.js";
 import { stopScheduler } from "../schedule/scheduler.js";
@@ -102,6 +103,8 @@ async function shutdown(): Promise<void> {
 
   // Stop the periodic consent-cache refresh (a daemon-owned interval).
   await stopConsentRefresh();
+
+  await stopAllPluginWorkers();
 
   // Fire plugin / user / workspace / skill `shutdown` hooks through the unified
   // hook pipeline — the same dispatch path every other lifecycle hook uses —

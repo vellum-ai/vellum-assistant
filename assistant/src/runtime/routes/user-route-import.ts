@@ -52,18 +52,37 @@ export function sourceRootForHandler(filePath: string): string {
  * including query-string aliases (`file.ts?t=mtime`) the dispatcher uses to
  * cache-bust the entry file.
  */
-export function evictRouteSourceTree(sourceRoot: string): void {
+export function evictRouteSourceTree(
+  sourceRoot: string,
+  preserveFilePath?: string,
+): void {
   const { evictionPaths } = snapshotPluginSource(sourceRoot);
   for (const path of evictionPaths) {
-    evictModule(path);
+    if (path === preserveFilePath) {
+      continue;
+    }
+    if (Object.prototype.hasOwnProperty.call(require.cache, path)) {
+      evictModule(path);
+    }
   }
-  evictRegistryAliases(sourceRoot);
+  evictRegistryAliases(sourceRoot, preserveFilePath);
 }
 
-function evictRegistryAliases(sourceRoot: string): void {
+function evictRegistryAliases(
+  sourceRoot: string,
+  preserveFilePath?: string,
+): void {
   const prefix = sourceRoot.endsWith("/") ? sourceRoot : `${sourceRoot}/`;
   const fileUrlPrefix = pathToFileURL(prefix).href;
   for (const key of Object.keys(require.cache)) {
+    const bareKey = key.split("?")[0] ?? key;
+    if (
+      preserveFilePath &&
+      (bareKey === preserveFilePath ||
+        bareKey === pathToFileURL(preserveFilePath).href)
+    ) {
+      continue;
+    }
     if (!keyBelongsToTree(key, sourceRoot, prefix, fileUrlPrefix)) {
       continue;
     }

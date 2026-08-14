@@ -9,11 +9,22 @@
  * tempdir. Surface files use plain TypeScript with default exports so
  * bun can dynamic-import them at runtime without a build step.
  */
-import { mkdirSync, rmSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  rmSync,
+  statSync,
+  utimesSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeEach, describe, expect, test } from "bun:test";
 
+import {
+  getPluginActivationEligibility,
+  resetPluginActivationEligibilityCacheForTests,
+} from "../plugins/activation-eligibility.js";
 import {
   loadExternalPlugin,
   parsePluginManifest,
@@ -39,6 +50,18 @@ function writePackageJson(dir: string, pkg: Record<string, unknown>): void {
   writeFileSync(join(dir, "package.json"), JSON.stringify(pkg, null, 2));
 }
 
+function writeHostRequirements(
+  dir: string,
+  requires: Record<string, string> = {
+    "plugins.activation.requirements": "^1.0.0",
+  },
+): void {
+  writeFileSync(
+    join(dir, "host-requirements.json"),
+    JSON.stringify({ schemaVersion: 1, requires }, null, 2),
+  );
+}
+
 function writeSurfaceFile(dir: string, relPath: string, body: string): void {
   const parts = relPath.split("/");
   parts.pop();
@@ -54,6 +77,7 @@ function registeredNames(): string[] {
 
 beforeEach(() => {
   resetPluginRegistryForTests();
+  resetPluginActivationEligibilityCacheForTests();
 });
 
 afterAll(() => {
@@ -214,7 +238,79 @@ describe("loadExternalPlugin — plugin-api peerDependency", () => {
     expect(registeredNames()).toContain("compat-ok");
   });
 
-  test("loads plugin whose peerDependency range excludes assistant version (logs error)", async () => {
+  test("loads an opted-in plugin with satisfied host requirements", async () => {
+    const dir = freshPluginDir("requirements-ok");
+    writePackageJson(dir, {
+      name: "requirements-ok",
+      version: "0.1.0",
+      peerDependencies: { "@vellumai/plugin-api": "*" },
+    });
+    writeHostRequirements(dir);
+
+    await loadExternalPlugin(dir);
+
+    expect(registeredNames()).toContain("requirements-ok");
+  });
+
+  test("refreshes compatibility when a same-mtime requirement changes size", () => {
+    const dir = freshPluginDir("requirements-signature-refresh");
+    writePackageJson(dir, {
+      name: "requirements-signature-refresh-package",
+      version: "0.1.0",
+      peerDependencies: { "@vellumai/plugin-api": "*" },
+    });
+    writeHostRequirements(dir, { "plugins.unknown": "^1.0.0" });
+    const requirementsPath = join(dir, "host-requirements.json");
+    const originalStat = statSync(requirementsPath);
+
+    expect(getPluginActivationEligibility(dir).eligible).toBe(false);
+
+    writeHostRequirements(dir);
+    utimesSync(requirementsPath, originalStat.atime, originalStat.mtime);
+
+    expect(getPluginActivationEligibility(dir)).toMatchObject({
+      eligible: true,
+      mode: "requirements",
+    });
+  });
+
+  test("rejects an opted-in plugin before importing a surface", async () => {
+    const dir = freshPluginDir("requirements-incompatible");
+    const marker = join(ROOT, "incompatible-imported.txt");
+    rmSync(marker, { force: true });
+    writePackageJson(dir, {
+      name: "requirements-incompatible",
+      version: "0.1.0",
+      peerDependencies: { "@vellumai/plugin-api": "*" },
+    });
+    writeHostRequirements(dir, { "plugins.unknown": "^1.0.0" });
+    writeSurfaceFile(
+      dir,
+      "tools/unsafe.ts",
+      `import { writeFileSync } from "node:fs"; writeFileSync(${JSON.stringify(marker)}, "imported"); export default {};`,
+    );
+
+    await loadExternalPlugin(dir);
+
+    expect(registeredNames()).not.toContain("requirements-incompatible");
+    expect(existsSync(marker)).toBe(false);
+  });
+
+  test("rejects an opted-in plugin with an unsatisfied plugin API range", async () => {
+    const dir = freshPluginDir("requirements-peer-incompatible");
+    writePackageJson(dir, {
+      name: "requirements-peer-incompatible",
+      version: "0.1.0",
+      peerDependencies: { "@vellumai/plugin-api": ">=999.0.0" },
+    });
+    writeHostRequirements(dir);
+
+    await loadExternalPlugin(dir);
+
+    expect(registeredNames()).not.toContain("requirements-peer-incompatible");
+  });
+
+  test("keeps a legacy plugin whose peerDependency range excludes assistant version", async () => {
     // The host-compat gate is soft while the installation flow is in
     // flux — an unsatisfied range produces a `log.error` but the
     // plugin still loads. Once installation settles, this case should
@@ -232,7 +328,7 @@ describe("loadExternalPlugin — plugin-api peerDependency", () => {
     expect(registeredNames()).toContain("compat-bad");
   });
 
-  test("loads plugin whose peerDependency range is unparseable (logs error)", async () => {
+  test("keeps a legacy plugin whose peerDependency range is unparseable", async () => {
     // Same soft-gate rationale as the excluded-range case above.
     const dir = freshPluginDir("compat-bogus");
     writePackageJson(dir, {

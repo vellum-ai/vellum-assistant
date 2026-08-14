@@ -155,6 +155,7 @@ export async function tryIpcProxy(
   // `assistant/src/runtime/routes/http-adapter.ts`.
   delete headers["x-vellum-actor-principal-id"];
   delete headers["x-vellum-principal-type"];
+  delete headers["x-vellum-scope-profile"];
   if (claims) {
     const sub = parseSub(claims.sub);
     if (sub.ok) {
@@ -162,6 +163,7 @@ export async function tryIpcProxy(
       if (sub.actorPrincipalId) {
         headers["x-vellum-actor-principal-id"] = sub.actorPrincipalId;
       }
+      headers["x-vellum-scope-profile"] = claims.scope_profile;
     }
   }
 

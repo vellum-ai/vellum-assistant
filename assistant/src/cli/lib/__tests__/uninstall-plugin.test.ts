@@ -24,6 +24,10 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
 import { resetHookCacheForTests } from "../../../hooks/hook-loader.js";
+import {
+  resetPluginWorkerRunnerForTests,
+  startPluginWorkers,
+} from "../../../plugins/plugin-worker-runner.js";
 import { getWorkspacePluginsDir } from "../../../util/platform.js";
 import { InvalidPluginNameError } from "../install-from-github.js";
 import {
@@ -40,7 +44,8 @@ beforeEach(() => {
   resetHookCacheForTests();
 });
 
-afterEach(() => {
+afterEach(async () => {
+  await resetPluginWorkerRunnerForTests();
   rmSync(pluginsDir, { recursive: true, force: true });
 });
 
@@ -94,6 +99,51 @@ describe("uninstallPlugin", () => {
     expect(existsSync(target)).toBe(false);
     expect(existsSync(marker)).toBe(true);
     expect(readFileSync(marker, "utf8")).toBe("uninstall");
+  });
+
+  test("stops plugin workers before running shutdown", async () => {
+    const target = writePlugin("worker-shutdown-order");
+    const marker = join(pluginsDir, "shutdown-worker-state.txt");
+    const startedMarker = join(target, "data", "worker-started.txt");
+    const stoppedMarker = join(target, "data", "worker-stopped.txt");
+    mkdirSync(join(target, "workers"), { recursive: true });
+    writeFileSync(
+      join(target, "workers", "blocking.ts"),
+      `import { writeFileSync } from "node:fs";
+export default async (ctx: { pluginStorageDir: string; signal: AbortSignal }) => {
+  writeFileSync(ctx.pluginStorageDir + "/worker-started.txt", "yes");
+  await new Promise<void>((resolve) => {
+    ctx.signal.addEventListener("abort", () => {
+      writeFileSync(ctx.pluginStorageDir + "/worker-stopped.txt", "yes");
+      resolve();
+    }, { once: true });
+  });
+};\n`,
+    );
+    writeFileSync(
+      join(target, "hooks", "shutdown.ts"),
+      `import { existsSync, writeFileSync } from "node:fs";\n` +
+        `export default () => {\n` +
+        `  writeFileSync(${JSON.stringify(marker)}, String(existsSync(${JSON.stringify(stoppedMarker)})));\n` +
+        `};\n`,
+    );
+
+    const activation = startPluginWorkers(target);
+    const deadline = Date.now() + 1_000;
+    while (!existsSync(startedMarker)) {
+      if (Date.now() > deadline) {
+        throw new Error("timed out waiting for plugin worker to start");
+      }
+      await new Promise<void>((resolve) => setTimeout(resolve, 1));
+    }
+
+    await uninstallPlugin({
+      name: "worker-shutdown-order",
+      workspacePluginsDir: pluginsDir,
+    });
+    await activation;
+
+    expect(readFileSync(marker, "utf8")).toBe("true");
   });
 
   test("throws PluginNotInstalledError when no directory exists", async () => {
@@ -161,6 +211,40 @@ describe("uninstallPlugin", () => {
     expect(existsSync(target)).toBe(false);
     // The shutdown hook must NOT have run — a disabled plugin's code
     // should never execute, including during uninstall.
+    expect(existsSync(marker)).toBe(false);
+  });
+
+  test("does not import shutdown for an incompatible plugin", async () => {
+    const target = writePlugin("incompatible-plugin");
+    const marker = join(pluginsDir, "shutdown-imported.txt");
+    writeFileSync(
+      join(target, "package.json"),
+      JSON.stringify({
+        name: "incompatible-plugin",
+        version: "0.0.1",
+        peerDependencies: { "@vellumai/plugin-api": "*" },
+      }),
+    );
+    writeFileSync(
+      join(target, "host-requirements.json"),
+      JSON.stringify({
+        schemaVersion: 1,
+        requires: { "plugins.unsupported": "1.x" },
+      }),
+    );
+    writeFileSync(
+      join(target, "hooks", "shutdown.ts"),
+      `import { writeFileSync } from "node:fs";\n` +
+        `writeFileSync(${JSON.stringify(marker)}, "imported");\n` +
+        `export default () => {};\n`,
+    );
+
+    await uninstallPlugin({
+      name: "incompatible-plugin",
+      workspacePluginsDir: pluginsDir,
+    });
+
+    expect(existsSync(target)).toBe(false);
     expect(existsSync(marker)).toBe(false);
   });
 

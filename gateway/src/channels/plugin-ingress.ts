@@ -3,6 +3,14 @@
 import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { join, posix } from "node:path";
 
+import {
+  PLUGIN_READINESS_FILENAME,
+  PLUGIN_SOURCE_VERSIONS_FILENAME,
+  PluginReadinessSnapshotSchema,
+  PluginSourceVersionsSnapshotSchema,
+  type PluginReadinessSnapshot,
+  type PluginSourceVersionsSnapshot,
+} from "@vellumai/service-contracts/plugin-readiness";
 import { z } from "zod";
 
 import { getLogger } from "../logger.js";
@@ -293,15 +301,96 @@ export interface DiscoverPluginIngressOptions {
   workspaceDir?: string;
 }
 
+interface PluginActivationPaths {
+  readiness: string;
+  sourceVersions: string;
+}
+
+interface PluginActivationSignatures {
+  readiness: string | null;
+  sourceVersions: string | null;
+}
+
+function getPluginActivationPaths(workspaceDir: string): PluginActivationPaths {
+  return {
+    readiness: join(workspaceDir, "data", PLUGIN_READINESS_FILENAME),
+    sourceVersions: join(
+      workspaceDir,
+      "data",
+      "monitoring",
+      PLUGIN_SOURCE_VERSIONS_FILENAME,
+    ),
+  };
+}
+
+function getFileSignature(path: string): string | null {
+  try {
+    const stats = statSync(path);
+    return `${stats.dev}:${stats.ino}:${stats.size}:${stats.mtimeMs}`;
+  } catch {
+    return null;
+  }
+}
+
+function getPluginActivationSignatures(
+  paths: PluginActivationPaths,
+): PluginActivationSignatures {
+  return {
+    readiness: getFileSignature(paths.readiness),
+    sourceVersions: getFileSignature(paths.sourceVersions),
+  };
+}
+
+function signaturesMatch(
+  left: PluginActivationSignatures | undefined,
+  right: PluginActivationSignatures,
+): boolean {
+  return (
+    left?.readiness === right.readiness &&
+    left.sourceVersions === right.sourceVersions
+  );
+}
+
+function readJsonSnapshot<T>(
+  path: string,
+  schema: z.ZodType<T>,
+): T | undefined {
+  try {
+    return schema.parse(JSON.parse(readFileSync(path, "utf8")));
+  } catch {
+    return undefined;
+  }
+}
+
+function readPluginActivationSnapshots(
+  paths: PluginActivationPaths,
+  signatures?: PluginActivationSignatures,
+): {
+  readiness: PluginReadinessSnapshot | undefined;
+  sourceVersions: PluginSourceVersionsSnapshot | undefined;
+} {
+  return {
+    readiness:
+      signatures?.readiness === null
+        ? undefined
+        : readJsonSnapshot(paths.readiness, PluginReadinessSnapshotSchema),
+    sourceVersions:
+      signatures?.sourceVersions === null
+        ? undefined
+        : readJsonSnapshot(
+            paths.sourceVersions,
+            PluginSourceVersionsSnapshotSchema,
+          ),
+  };
+}
+
 /**
  * Scan the workspace for plugin ingress declarations.
  *
  * A manifest is untrusted input from the assistant and is validated here
  * independently of any checks the plugin performs on itself.
  *
- * Plugins carrying a `.disabled` sentinel are skipped, matching the source
- * of truth the assistant uses for hooks, tools, and routes, so a disabled
- * plugin holds no public routes.
+ * Disabled or unready plugins hold no public routes.
  *
  * Only workspace-installed plugins are visible. Default plugins ship
  * inside the assistant binary, which the gateway cannot read.
@@ -310,9 +399,28 @@ export function discoverPluginIngress(
   opts: DiscoverPluginIngressOptions = {},
 ): PluginIngressDiscovery {
   const workspaceDir = opts.workspaceDir ?? getWorkspaceDir();
-  const pluginsDir = join(workspaceDir, "plugins");
+  const activation = readPluginActivationSnapshots(
+    getPluginActivationPaths(workspaceDir),
+  );
+  return discoverPluginIngressWithReadiness(
+    workspaceDir,
+    activation.readiness,
+    activation.sourceVersions,
+  );
+}
+
+function discoverPluginIngressWithReadiness(
+  workspaceDir: string,
+  readiness: PluginReadinessSnapshot | undefined,
+  sourceVersions: PluginSourceVersionsSnapshot | undefined,
+): PluginIngressDiscovery {
   const plugins: DiscoveredPluginIngress[] = [];
   const problems: PluginIngressProblem[] = [];
+  if (!readiness || !sourceVersions) {
+    return { plugins, problems };
+  }
+
+  const pluginsDir = join(workspaceDir, "plugins");
 
   let entries: string[];
   try {
@@ -333,7 +441,6 @@ export function discoverPluginIngress(
     } catch {
       continue;
     }
-
     // A directory only counts as a plugin when it carries a package.json,
     // the same gate the assistant's scan applies. Without it a symlink to
     // any directory holding an ingress manifest would hold public routes
@@ -352,6 +459,17 @@ export function discoverPluginIngress(
     }
 
     if (existsSync(join(pluginDir, ".disabled"))) {
+      continue;
+    }
+
+    const readinessEntry = readiness?.plugins[plugin];
+    const sourceVersion = sourceVersions?.plugins[pluginDir];
+    if (
+      readinessEntry?.status !== "ready" ||
+      sourceVersion === undefined ||
+      sourceVersion.disabled ||
+      sourceVersion.sourceFingerprint !== readinessEntry.sourceFingerprint
+    ) {
       continue;
     }
 
@@ -396,15 +514,16 @@ export function discoverPluginIngress(
 const DEFAULT_TTL_MS = 5000;
 
 /**
- * TTL-cached view of {@link discoverPluginIngress}, so the request path
- * does not re-walk the filesystem per connection and plugin installs or
- * toggles take effect without a gateway restart.
+ * TTL-cached view of {@link discoverPluginIngress}. Readiness document changes
+ * bypass the TTL so an assistant restart or activation transition closes or
+ * opens ingress immediately.
  */
 export class PluginIngressCache {
   private readonly ttlMs: number;
   private readonly workspaceDir: string | undefined;
   private snapshot: PluginIngressDiscovery = { plugins: [], problems: [] };
   private lastReadAt = 0;
+  private activationSignatures: PluginActivationSignatures | undefined;
 
   constructor(opts?: { ttlMs?: number; workspaceDir?: string }) {
     this.ttlMs = opts?.ttlMs ?? DEFAULT_TTL_MS;
@@ -414,10 +533,24 @@ export class PluginIngressCache {
   /** Current discovery, refreshed if the snapshot is stale. */
   get(opts?: { force?: boolean }): PluginIngressDiscovery {
     const now = Date.now();
-    if (opts?.force || now - this.lastReadAt >= this.ttlMs) {
-      this.snapshot = discoverPluginIngress({
-        workspaceDir: this.workspaceDir,
-      });
+    const workspaceDir = this.workspaceDir ?? getWorkspaceDir();
+    const activationPaths = getPluginActivationPaths(workspaceDir);
+    const activationSignatures = getPluginActivationSignatures(activationPaths);
+    if (
+      opts?.force ||
+      !signaturesMatch(this.activationSignatures, activationSignatures) ||
+      now - this.lastReadAt >= this.ttlMs
+    ) {
+      const activation = readPluginActivationSnapshots(
+        activationPaths,
+        activationSignatures,
+      );
+      this.snapshot = discoverPluginIngressWithReadiness(
+        workspaceDir,
+        activation.readiness,
+        activation.sourceVersions,
+      );
+      this.activationSignatures = activationSignatures;
       this.lastReadAt = Date.now();
     }
     return this.snapshot;
