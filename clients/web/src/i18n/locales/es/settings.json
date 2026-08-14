@@ -7,6 +7,21 @@
   "aiProviderPicker": {
     "defaultEntryMeta": "Predeterminado"
   },
+  "billingOnboardingModal": {
+    "backgroundConfirmContinue": "Continuar",
+    "backgroundConfirmKeepWaiting": "Seguir esperando",
+    "backgroundConfirmTitle": "¿Continuar en segundo plano?"
+  },
+  "billingPage": {
+    "billingTab": "Facturación",
+    "billingUnavailable": "La facturación no está disponible para el estado actual del asistente.",
+    "finishSetupBody": "La dirección de correo de tu asistente aún no se ha configurado.",
+    "finishSetupButton": "Finalizar configuración",
+    "finishSetupTitle": "Termina de configurar tu plan {plan}",
+    "loadingBilling": "Cargando facturación…",
+    "platformLoginNotice": "Inicia sesión en la plataforma Vellum para administrar la facturación y el uso.",
+    "usageTab": "Uso"
+  },
   "billingStatusHandler": {
     "successToast": "¡Pago recibido! Tu saldo de créditos se actualizará en breve.",
     "topUpCancelToast": "Se canceló el pago. No se añadieron créditos.",
@@ -69,6 +84,65 @@
     "title": "Aquí tienes {amount} de nuestra parte",
     "unavailableToast": "Esta oferta ya no está disponible."
   },
+  "checkoutPage": {
+    "awaitingReturnMessage": "El pago se abrió en tu navegador. Complétalo allí para finalizar la mejora.",
+    "checkoutFailedMessage": "No pudimos iniciar el pago. Inténtalo de nuevo.",
+    "continueSetup": "Continuar configuración",
+    "preparingCheckout": "Preparando pago…",
+    "preparingCheckoutAriaLabel": "Preparando pago",
+    "reopenCheckout": "Reabrir pago",
+    "tryAgain": "Intentar de nuevo",
+    "viewPlans": "Ver planes"
+  },
+  "completeState": {
+    "assistantFallbackName": "tu asistente",
+    "returnTo": "Volver a {assistantName}",
+    "title": "¡Ya está todo listo!"
+  },
+  "customPlanModal": {
+    "cancel": "Cancelar",
+    "comparedToPrevious": "{delta} en comparación con el anterior ({previous})",
+    "continue": "Continuar",
+    "creditBundleAriaLabel": "Paquete de créditos",
+    "creditBundlePlaceholder": "Selecciona un paquete de créditos",
+    "creditsDocsAriaLabel": "Más información sobre paquetes de créditos",
+    "creditsLabel": "Añade créditos:",
+    "learnMore": "Más información",
+    "machineSizeAriaLabel": "Tamaño de máquina",
+    "machineSizeDocsAriaLabel": "Más información sobre tamaños de máquina",
+    "machineSizeLabel": "Selecciona un tamaño de máquina:",
+    "machineSizePlaceholder": "Selecciona un tamaño de máquina",
+    "recap": "Resumen",
+    "storageAriaLabel": "Almacenamiento",
+    "storageDocsAriaLabel": "Más información sobre almacenamiento",
+    "storageLabel": "Selecciona almacenamiento:",
+    "storagePlaceholder": "Selecciona almacenamiento",
+    "subtitle": "Simplemente mejor.",
+    "title": "Crear un plan personalizado",
+    "totalBilledMonthly": "Total · Facturación mensual",
+    "yourSelection": "Tu selección:"
+  },
+  "customPlanRow": {
+    "configure": "Configurar",
+    "currentPlanTag": "Tu plan actual",
+    "genericDescriptor": "Selecciona potencia de CPU, RAM y almacenamiento personalizados. O añade algunos tokens.",
+    "prompt": "¿Necesitas algo más adaptado a tus necesidades?",
+    "title": "Plan personalizado"
+  },
+  "domainStep": {
+    "continue": "Continuar",
+    "domainLockedMessage": "Este dominio ya está establecido y no se puede cambiar.",
+    "domainSetRedirecting": "Dominio establecido. Redirigiendo…",
+    "handleImmutableNotice": "No podrás cambiar el identificador una vez establecido.",
+    "handleLabel": "Identificador (público)",
+    "machineBusyNotice": "Tu asistente se está reiniciando; podrás establecer el dominio en un momento.",
+    "next": "Siguiente",
+    "prefixLabel": "Prefijo",
+    "registerSubdomainFailed": "No se pudo registrar ese subdominio. Prueba con otro.",
+    "skip": "Omitir",
+    "subtitle": "Configura un correo para tu asistente.",
+    "title": "Correo del asistente"
+  },
   "emailManagedContent": {
     "addressLabel": "Dirección",
     "checkingSubscription": "Comprobando suscripción…",
@@ -124,6 +198,17 @@
     "setupInstructions": "Configura {providerName} mediante la CLI del asistente: pídele al asistente que ejecute la habilidad <code>{setupSkill}</code>. Te guiará para guardar la clave API, detectar el dominio y (opcionalmente) configurar un webhook entrante.",
     "subtitle": "Configura cómo tu asistente envía y recibe correo",
     "title": "Correo"
+  },
+  "errorStates": {
+    "fetchErrorTitle": "No se pudo acceder a facturación",
+    "goToBilling": "Ir a facturación"
+  },
+  "freeDowngradeConfirmModal": {
+    "bodyCancelOnly": "Se te llevará a Stripe para cancelar tu suscripción.",
+    "bodyWithFeatures": "Al bajar de plan se eliminan las siguientes funciones Pro. Se te llevará a Stripe para cancelar tu suscripción.",
+    "cancel": "Cancelar",
+    "confirm": "Bajar a Base",
+    "title": "¿Bajar a Base?"
   },
   "imageGenerationCard": {
     "activeModelLabel": "Modelo activo",
@@ -193,6 +278,35 @@
     "saveFailedToast": "No se pudieron guardar las anulaciones. Inténtalo de nuevo.",
     "searchPlaceholder": "Buscar acciones…",
     "title": "Anulaciones de acciones"
+  },
+  "packageSwitchConfirmModal": {
+    "cancel": "Cancelar"
+  },
+  "planColumnCard": {
+    "currentPlan": "Plan actual",
+    "includes": "Incluye:",
+    "recommended": "Recomendado"
+  },
+  "plansPage": {
+    "alreadyOnPlanToast": "Ya estás en este plan.",
+    "back": "Atrás",
+    "billedMonthlyCaption": "Facturación mensual",
+    "cancelAnytimeFooter": "Puedes cancelar o cambiar tu plan cuando quieras. Para obtener más información, <docsLink>Lee nuestra documentación.</docsLink>",
+    "checkoutFailedToast": "No se pudo iniciar el pago de mejora. Inténtalo de nuevo.",
+    "downgradeTo": "Bajar a {name}",
+    "featureComputer": "Ordenador {machine}",
+    "featureCreditsIncluded": "{amount} en créditos incluidos",
+    "featureStorage": "{gib} GB de almacenamiento",
+    "foreverCaption": "Para siempre",
+    "freeFeaturePayAsYouGo": "Créditos de pago por uso",
+    "freeFeatureSmallComputer": "Ordenador pequeño",
+    "freeFeatureStorage": "{gib} GB de almacenamiento",
+    "freePriceLabel": "Gratis",
+    "heading": "Dale más potencia a tu asistente",
+    "loadingPlansAriaLabel": "Cargando planes",
+    "planUpdatedToast": "Plan actualizado.",
+    "startFreeCta": "Empezar gratis",
+    "subheading": "Elige el nivel que se ajuste a cuánto quieres que se encargue."
   },
   "profileAdvancedParams": {
     "contextWindowLabel": "Ventana de contexto",
@@ -384,6 +498,27 @@
     "loadError": "No se pudieron cargar los proveedores. Inténtalo de nuevo.",
     "title": "Proveedores"
   },
+  "provisioningState": {
+    "allDoneStatus": "¡Todo listo!",
+    "confirmingCaption": "Esto puede tardar unos segundos.",
+    "continueInBackground": "Continuar en segundo plano",
+    "creditsChip": "{count} créditos",
+    "dimensionsComplete": "{dimensions} completado",
+    "goToBilling": "Ir a facturación",
+    "machineLabel": "Máquina",
+    "packageChip": "paquete {name}",
+    "planReadyStatus": "Tu plan está listo",
+    "retryInBackground": "Reintentar en segundo plano",
+    "srOnlyTo": "a",
+    "stalledCaption": "Esto puede tardar un par de minutos.",
+    "statusComplete": "Completado",
+    "statusPending": "Pendiente",
+    "storageLabel": "Almacenamiento",
+    "takingLongerStatus": "Esto está tardando más de lo esperado",
+    "tryAgain": "Intentar de nuevo",
+    "waitingCaptionLong": "Seguimos trabajando. Esto puede tardar uno o dos minutos.",
+    "waitingCaptionShort": "Esto puede tardar unos segundos."
+  },
   "sharedUi": {
     "checkingDomain": "Comprobando dominio…",
     "domainVerified": "Dominio verificado",
@@ -406,6 +541,73 @@
   "textToSpeechCard": {
     "subtitle": "Configura cómo habla tu asistente",
     "title": "Texto a voz"
+  },
+  "upgradeCancelPage": {
+    "billingUnavailable": "La facturación no está disponible para el estado actual del asistente.",
+    "platformLoginNotice": "Inicie sesión en la plataforma Vellum para administrar facturación y uso.",
+    "redirectingBody": "Regresándolo a la configuración de facturación…",
+    "returnToBilling": "Volver a facturación",
+    "title": "Actualización cancelada"
+  },
+  "upgradeSuccessPage": {
+    "cantConfirmUpgrade": "No podemos confirmar su actualización para el asistente actual. Vuelva a facturación para reintentar.",
+    "fetchErrorBody": "Tuvimos un problema al verificar su suscripción. Su actualización puede seguir procesándose. Vuelva a facturación para actualizar.",
+    "fetchErrorTitle": "No se pudo acceder a facturación",
+    "finalizingBody": "Stripe está confirmando su suscripción. Esto suele tardar unos segundos.",
+    "finalizingTitle": "Finalizando su actualización…",
+    "goToBilling": "Ir a facturación",
+    "platformLoginNotice": "Inicie sesión en la plataforma Vellum para administrar facturación y uso.",
+    "processingFallback": "Estamos procesando su actualización. Actualice en un momento para ver su nuevo plan.",
+    "successBody": "Su plan Pro está activo. Será redirigido a facturación en un momento.",
+    "welcomeTitle": "Bienvenido a Pro"
+  },
+  "usageTab": {
+    "analyzeCostsButton": "Analizar costos con el asistente",
+    "breakdownTitle": "Desglose",
+    "cacheCreatedLabel": "Caché creada",
+    "cacheReadLabel": "Caché leída",
+    "costAssistantSubtitle": "Revise el gasto reciente y ajuste las opciones de perfil del modelo.",
+    "costAssistantTitle": "Asistente de costos",
+    "costLabel": "Costo",
+    "dailyTrend": "Tendencia diaria",
+    "dailyTrendBy": "Tendencia diaria por {group}",
+    "directInputTokensLabel": "Tokens de entrada directa",
+    "failedToLoadUsage": "No se pudo cargar el uso.",
+    "groupByActor": "Actor",
+    "groupByConversation": "Conversación",
+    "groupByModel": "Modelo",
+    "groupByProfile": "Perfil",
+    "groupByProvider": "Proveedor",
+    "groupBySchedule": "Programación",
+    "groupByTask": "Acción",
+    "groupColumnLabel": "Grupo",
+    "hourlyTrend": "Tendencia por hora",
+    "hourlyTrendBy": "Tendencia por hora por {group}",
+    "inferenceUsageTitle": "Uso de inferencia",
+    "llmCallsLabel": "Llamadas LLM",
+    "noBreakdownDataSubtitle": "No hay uso registrado para esta agrupación",
+    "noBreakdownDataTitle": "Sin datos de desglose",
+    "optimizeSettingsButton": "Optimizar ajustes",
+    "outputTokensLabel": "Tokens de salida",
+    "percentOfTotalLabel": "% del total",
+    "range30d": "Últimos 30 días",
+    "range7d": "Últimos 7 días",
+    "range90d": "Últimos 90 días",
+    "rangeAll": "Todo el tiempo",
+    "rangeToday": "Hoy",
+    "rangeYesterday": "Ayer",
+    "retry": "Reintentar",
+    "title": "Uso",
+    "tokensLabel": "Tokens",
+    "totalsAriaLabel": "Totales",
+    "turnsLabel": "Turnos",
+    "unknownSchedule": "Programación desconocida ({scheduleId})"
+  },
+  "usageTrendChart": {
+    "noDailyData": "Sin datos diarios",
+    "noHourlyData": "Sin datos por hora",
+    "noUsageInRange": "No hay uso registrado en este intervalo",
+    "total": "Total"
   },
   "useDaemonConfig": {
     "assistantNotReadyToast": "El asistente no está listo. Inténtalo de nuevo.",

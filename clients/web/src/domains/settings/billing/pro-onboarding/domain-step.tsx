@@ -8,6 +8,7 @@ import {
   organizationsBillingSubscriptionOnboardingDomainCreateMutation,
   organizationsBillingSubscriptionOnboardingRetrieveQueryKey,
 } from "@/generated/api/@tanstack/react-query.gen";
+import { useTranslation } from "@/i18n";
 import { useEnvironmentStore } from "@/stores/environment-store";
 import { Button } from "@vellumai/design-library/components/button";
 import { Modal } from "@vellumai/design-library/components/modal";
@@ -37,6 +38,7 @@ export function DomainStep({
   /** The provisioning target assistant (onboarding primary, else active). */
   assistantId?: string | null;
 }) {
+  const { t } = useTranslation("settings");
   const queryClient = useQueryClient();
   const emailRootDomain = useEnvironmentStore.use.emailRootDomain();
   const { assistant, assistantId, domains } = useAssistantDomains(
@@ -116,7 +118,7 @@ export function DomainStep({
           setErrorMsg(
             extractOnboardingErrorMessage(
               err,
-              "Couldn't register that subdomain. Try a different one.",
+              t("domainStep.registerSubdomainFailed"),
             ),
           );
         },
@@ -142,8 +144,8 @@ export function DomainStep({
       <Modal.Body className="animate-[onboarding-step-in_350ms_ease-out] space-y-6 pb-0 motion-reduce:animate-none">
         <CreatureCorners variant="top" />
         <WizardCardHeading
-          title="Assistant Email"
-          subtitle="Set up an email for your assistant."
+          title={t("domainStep.title")}
+          subtitle={t("domainStep.subtitle")}
         />
 
         <div className="space-y-1.5">
@@ -153,7 +155,7 @@ export function DomainStep({
                 htmlFor="onboarding-email-prefix"
                 className={LABEL_CLASSES}
               >
-                Prefix
+                {t("domainStep.prefixLabel")}
               </label>
               <input
                 id="onboarding-email-prefix"
@@ -163,7 +165,7 @@ export function DomainStep({
                 }
                 disabled={busy || isLocked}
                 readOnly={isLocked}
-                placeholder="hi"
+                placeholder={t("emailManagedContent.emailUsernamePlaceholder")}
                 className={`${FIELD_CLASSES} w-24`}
               />
             </div>
@@ -175,7 +177,7 @@ export function DomainStep({
                 htmlFor="onboarding-email-handle"
                 className={LABEL_CLASSES}
               >
-                Handle (public)
+                {t("domainStep.handleLabel")}
               </label>
               <input
                 id="onboarding-email-handle"
@@ -189,7 +191,7 @@ export function DomainStep({
                 disabled={busy || isLocked}
                 readOnly={isLocked}
                 autoFocus
-                placeholder="my-assistant"
+                placeholder={t("emailManagedContent.subdomainExamplePlaceholder")}
                 aria-invalid={!!errorMsg}
                 className={`${FIELD_CLASSES} w-full min-w-0`}
               />
@@ -205,25 +207,23 @@ export function DomainStep({
           )}
           {isLocked && (
             <p className="text-body-small-default text-[var(--content-tertiary)]">
-              This domain has been set and cannot be changed.
+              {t("domainStep.domainLockedMessage")}
             </p>
           )}
         </div>
 
         {machineBusy && !isLocked && (
-          <Notice tone="neutral">
-            Your assistant is restarting — you can set the domain in a moment.
-          </Notice>
+          <Notice tone="neutral">{t("domainStep.machineBusyNotice")}</Notice>
         )}
         {!isLocked && (
           <Notice tone="info" className={SUBTLE_NOTICE_CLASS}>
             <span className={SUBTLE_NOTICE_TEXT_CLASS}>
-              You won&apos;t be able to change the handle once set.
+              {t("domainStep.handleImmutableNotice")}
             </span>
           </Notice>
         )}
         {confirmed ? (
-          <Notice tone="success">Domain set — redirecting…</Notice>
+          <Notice tone="success">{t("domainStep.domainSetRedirecting")}</Notice>
         ) : null}
       </Modal.Body>
       <Modal.Footer className="items-center pt-6">
@@ -233,7 +233,7 @@ export function DomainStep({
             data-testid="onboarding-domain-continue"
             onClick={onExit}
           >
-            Continue
+            {t("domainStep.continue")}
           </Button>
         ) : (
           <>
@@ -243,7 +243,7 @@ export function DomainStep({
               disabled={busy}
               onClick={handleSkip}
             >
-              Skip
+              {t("domainStep.skip")}
             </Button>
             <Button
               variant="primary"
@@ -251,7 +251,7 @@ export function DomainStep({
               disabled={!subdomain || busy || machineBusy}
               onClick={handleSet}
             >
-              Next
+              {t("domainStep.next")}
             </Button>
           </>
         )}

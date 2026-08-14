@@ -2,6 +2,7 @@ import { CircleCheck } from "lucide-react";
 
 import { PlanTierAvatar } from "@/domains/settings/billing/plan-tier-meta";
 import type { TierRelation } from "@/domains/settings/billing/package-types";
+import { useTranslation } from "@/i18n";
 import { Button } from "@vellumai/design-library/components/button";
 import { Tag } from "@vellumai/design-library/components/tag";
 
@@ -55,6 +56,7 @@ export function PlanColumnCard({
   pending,
   onCta,
 }: PlanColumnCardProps) {
+  const { t } = useTranslation("settings");
   const isDowngrade = intent === "downgrade" && !isCurrent;
   return (
     <div
@@ -70,7 +72,7 @@ export function PlanColumnCard({
           </span>
           {recommended && !isDowngrade && !isCurrent ? (
             <Tag className="bg-[var(--feed-digest-weak)] text-[12px] font-semibold uppercase text-[var(--credits-accent)]">
-              Recommended
+              {t("planColumnCard.recommended")}
             </Tag>
           ) : null}
         </div>
@@ -97,14 +99,14 @@ export function PlanColumnCard({
         disabled={isCurrent || pending}
         onClick={onCta}
       >
-        {isCurrent ? "Current Plan" : ctaLabel}
+        {isCurrent ? t("planColumnCard.currentPlan") : ctaLabel}
       </Button>
 
       <div className="h-px w-full bg-[var(--border-hover)]" />
 
       <div className="flex flex-col gap-2 sm:gap-4">
         <span className="text-[12px] font-medium text-[var(--content-tertiary)]">
-          Includes:
+          {t("planColumnCard.includes")}
         </span>
         <ul className="flex flex-col gap-2">
           {features.map((feature) => (

@@ -32,9 +32,9 @@ import { FreeDowngradeConfirmModal } from "@/domains/settings/billing/plans/free
 import { PackageSwitchConfirmModal } from "@/domains/settings/billing/plans/package-switch-confirm-modal";
 import { PlanColumnCard } from "@/domains/settings/billing/plans/plan-column-card";
 import {
-  downgradeLabel,
   getPlanTierCopy,
 } from "@/domains/settings/billing/plans/plans-copy";
+import { Trans, useTranslation } from "@/i18n";
 import {
   BillingOnboardingModal,
   type ResizeTakeoverContext,
@@ -106,24 +106,31 @@ const TAKEOVER_DIRECTION: Record<SwitchRelation, TakeoverDirection> = {
 // module load so they resolve before first paint instead of popping in.
 preloadBundledAvatarComponents();
 
-const FREE_FEATURES: readonly string[] = [
-  "Small Computer",
-  `${FREE_STORAGE_GIB} GB Storage`,
-  "Pay-as-you-go credits",
-];
+type SettingsTranslate = ReturnType<typeof useTranslation<"settings">>["t"];
 
 /** Machine label for a package's feature row, e.g. "Medium Computer". */
-function machineComputerLabel(pkg: ProPackage): string {
-  return `${machineLabel(pkg)} Computer`;
+function machineComputerLabel(
+  pkg: ProPackage,
+  translate: SettingsTranslate,
+): string {
+  return translate("plansPage.featureComputer", {
+    machine: machineLabel(pkg),
+  });
 }
 
 /** Catalog-derived feature rows, plus any static extras from the copy. */
-function packageFeatures(pkg: ProPackage, extra: readonly string[]): string[] {
+function packageFeatures(
+  pkg: ProPackage,
+  extra: readonly string[],
+  translate: SettingsTranslate,
+): string[] {
   const credits = pkg.credits_usd ?? FREE_CREDITS_USD;
   return [
-    machineComputerLabel(pkg),
-    `${pkg.storage_gib} GB Storage`,
-    `${formatDollars(credits * 100)} in credits included`,
+    machineComputerLabel(pkg, translate),
+    translate("plansPage.featureStorage", { gib: pkg.storage_gib }),
+    translate("plansPage.featureCreditsIncluded", {
+      amount: formatDollars(credits * 100),
+    }),
     ...extra,
   ];
 }
@@ -145,6 +152,7 @@ function customCurrentSummary(current: CurrentTiers, proPlan: ProPlan): string {
  * the billing page.
  */
 function PlansPageContent() {
+  const { t } = useTranslation("settings");
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const queryClient = useQueryClient();
@@ -374,7 +382,7 @@ function PlansPageContent() {
       toast.error(
         extractMutationError(
           error,
-          "Failed to start the upgrade checkout. Please try again.",
+          t("plansPage.checkoutFailedToast"),
         ),
       );
     } finally {
@@ -632,7 +640,7 @@ function PlansPageContent() {
       setSwitchTarget(null);
       if (result.status === "no_op") {
         // Already on this package — nothing to provision.
-        toast.success("You're already on this plan.");
+        toast.success(t("plansPage.alreadyOnPlanToast"));
         return;
       }
       // status === "ok": every direction restarts the pod, a downgrade included
@@ -694,7 +702,7 @@ function PlansPageContent() {
         });
         setResizeTakeoverOpen(true);
       } else {
-        toast.success("Plan updated.");
+        toast.success(t("plansPage.planUpdatedToast"));
       }
     };
 
@@ -726,6 +734,12 @@ function PlansPageContent() {
       ? "downgrade"
       : tierRelation(currentTierKey, "free");
 
+    const freeFeatures = [
+      t("plansPage.freeFeatureSmallComputer"),
+      t("plansPage.freeFeatureStorage", { gib: FREE_STORAGE_GIB }),
+      t("plansPage.freeFeaturePayAsYouGo"),
+    ];
+
     body = (
       <div className="my-auto flex w-full flex-col items-center">
         <header className="flex flex-col items-center gap-2 text-center">
@@ -738,10 +752,10 @@ function PlansPageContent() {
               letterSpacing: "1.2px",
             }}
           >
-            Give your assistant more power
+            {t("plansPage.heading")}
           </h1>
           <p className="text-[20px] font-medium text-[var(--content-tertiary)]">
-            Choose the level that matches how much you want it to take on.
+            {t("plansPage.subheading")}
           </p>
         </header>
 
@@ -754,14 +768,14 @@ function PlansPageContent() {
             tierKey="free"
             name="Base"
             tagline={freeCopy?.tagline ?? ""}
-            priceLabel="Free"
-            priceCaption={freeCopy?.priceCaption ?? "Forever"}
+            priceLabel={t("plansPage.freePriceLabel")}
+            priceCaption={freeCopy?.priceCaption ?? t("plansPage.foreverCaption")}
             ctaLabel={
               freeRelation === "downgrade"
-                ? downgradeLabel("Base")
-                : (freeCopy?.cta ?? "Start Free")
+                ? t("plansPage.downgradeTo", { name: "Base" })
+                : (freeCopy?.cta ?? t("plansPage.startFreeCta"))
             }
-            features={FREE_FEATURES}
+            features={freeFeatures}
             tone="dark"
             isCurrent={currentTierKey === "free"}
             intent={freeRelation}
@@ -778,13 +792,15 @@ function PlansPageContent() {
                 name={pkg.name}
                 tagline={copy?.tagline ?? ""}
                 priceLabel={priceLabelFromCents(pkg.total_price_cents)}
-                priceCaption={copy?.priceCaption ?? "Billed monthly"}
+                priceCaption={
+                  copy?.priceCaption ?? t("plansPage.billedMonthlyCaption")
+                }
                 ctaLabel={
                   relation === "downgrade"
-                    ? downgradeLabel(pkg.name)
+                    ? t("plansPage.downgradeTo", { name: pkg.name })
                     : (copy?.cta ?? pkg.name)
                 }
-                features={packageFeatures(pkg, copy?.extraFeatures ?? [])}
+                features={packageFeatures(pkg, copy?.extraFeatures ?? [], t)}
                 recommended={copy?.recommended}
                 tone={copy?.recommended ? "light" : "dark"}
                 isCurrent={currentTierKey === pkg.key}
@@ -853,15 +869,20 @@ function PlansPageContent() {
         />
 
         <p className="mt-6 text-center text-[12px] font-medium text-[var(--content-tertiary)] sm:mt-10">
-          You can cancel or change your plan anytime you want. To learn more{" "}
-          <a
-            href={PRICING_DOCS_URL}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-[var(--content-default)] underline"
-          >
-            Read our Docs.
-          </a>
+          <Trans
+            ns="settings"
+            i18nKey="plansPage.cancelAnytimeFooter"
+            components={{
+              docsLink: (
+                <a
+                  href={PRICING_DOCS_URL}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-[var(--content-default)] underline"
+                />
+              ),
+            }}
+          />
         </p>
       </div>
     );
@@ -870,7 +891,7 @@ function PlansPageContent() {
       <div className="my-auto flex items-center justify-center">
         <Loader2
           className="h-6 w-6 animate-spin text-[var(--content-tertiary)]"
-          aria-label="Loading plans"
+          aria-label={t("plansPage.loadingPlansAriaLabel")}
         />
       </div>
     );
@@ -894,7 +915,7 @@ function PlansPageContent() {
           onClick={handleBack}
           className="[-webkit-app-region:no-drag]"
         >
-          Back
+          {t("plansPage.back")}
         </Button>
       </div>
 

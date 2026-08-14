@@ -7,6 +7,21 @@
   "aiProviderPicker": {
     "defaultEntryMeta": "Default"
   },
+  "billingOnboardingModal": {
+    "backgroundConfirmContinue": "Continue",
+    "backgroundConfirmKeepWaiting": "Keep waiting",
+    "backgroundConfirmTitle": "Continue in the background?"
+  },
+  "billingPage": {
+    "billingTab": "Billing",
+    "billingUnavailable": "Billing isn't available for the current assistant state.",
+    "finishSetupBody": "Your assistant's email address hasn't been set up yet.",
+    "finishSetupButton": "Finish setup",
+    "finishSetupTitle": "Finish setting up your {plan} plan",
+    "loadingBilling": "Loading billing…",
+    "platformLoginNotice": "Log in to the Vellum platform to manage billing and usage.",
+    "usageTab": "Usage"
+  },
   "billingStatusHandler": {
     "successToast": "Payment received! Your credit balance will update shortly.",
     "topUpCancelToast": "Checkout was cancelled. No credits were added.",
@@ -69,6 +84,65 @@
     "title": "Here's {amount} on us",
     "unavailableToast": "This offer is no longer available."
   },
+  "checkoutPage": {
+    "awaitingReturnMessage": "Checkout opened in your browser. Finish there to complete your upgrade.",
+    "checkoutFailedMessage": "We couldn't start your checkout. Please try again.",
+    "continueSetup": "Continue setup",
+    "preparingCheckout": "Preparing checkout…",
+    "preparingCheckoutAriaLabel": "Preparing checkout",
+    "reopenCheckout": "Reopen checkout",
+    "tryAgain": "Try again",
+    "viewPlans": "View plans"
+  },
+  "completeState": {
+    "assistantFallbackName": "your assistant",
+    "returnTo": "Return to {assistantName}",
+    "title": "You're all set!"
+  },
+  "customPlanModal": {
+    "cancel": "Cancel",
+    "comparedToPrevious": "{delta} compared to previous ({previous})",
+    "continue": "Continue",
+    "creditBundleAriaLabel": "Credit bundle",
+    "creditBundlePlaceholder": "Select a credit bundle",
+    "creditsDocsAriaLabel": "Learn more about credit bundles",
+    "creditsLabel": "Bundle some credits:",
+    "learnMore": "Learn more",
+    "machineSizeAriaLabel": "Machine size",
+    "machineSizeDocsAriaLabel": "Learn more about machine sizes",
+    "machineSizeLabel": "Select a machine size:",
+    "machineSizePlaceholder": "Select a machine size",
+    "recap": "Recap",
+    "storageAriaLabel": "Storage",
+    "storageDocsAriaLabel": "Learn more about storage",
+    "storageLabel": "Select storage:",
+    "storagePlaceholder": "Select storage",
+    "subtitle": "Just better.",
+    "title": "Create a custom plan",
+    "totalBilledMonthly": "Total · Billed monthly",
+    "yourSelection": "Your selection:"
+  },
+  "customPlanRow": {
+    "configure": "Configure",
+    "currentPlanTag": "Your Current Plan",
+    "genericDescriptor": "Select custom CPU power, Ram and Storage. Or just throw in some tokens.",
+    "prompt": "Need something more tailored to your needs?",
+    "title": "Custom Plan"
+  },
+  "domainStep": {
+    "continue": "Continue",
+    "domainLockedMessage": "This domain has been set and cannot be changed.",
+    "domainSetRedirecting": "Domain set - redirecting…",
+    "handleImmutableNotice": "You won't be able to change the handle once set.",
+    "handleLabel": "Handle (public)",
+    "machineBusyNotice": "Your assistant is restarting - you can set the domain in a moment.",
+    "next": "Next",
+    "prefixLabel": "Prefix",
+    "registerSubdomainFailed": "Couldn't register that subdomain. Try a different one.",
+    "skip": "Skip",
+    "subtitle": "Set up an email for your assistant.",
+    "title": "Assistant Email"
+  },
   "emailManagedContent": {
     "addressLabel": "Address",
     "checkingSubscription": "Checking subscription…",
@@ -124,6 +198,17 @@
     "setupInstructions": "Configure {providerName} via the assistant CLI: ask the assistant to run the <code>{setupSkill}</code> skill. It walks you through storing the API key, detecting the domain, and (optionally) wiring up an inbound webhook.",
     "subtitle": "Configure how your assistant sends and receives email",
     "title": "Email"
+  },
+  "errorStates": {
+    "fetchErrorTitle": "Couldn't reach billing",
+    "goToBilling": "Go to billing"
+  },
+  "freeDowngradeConfirmModal": {
+    "bodyCancelOnly": "You'll be taken to Stripe to cancel your subscription.",
+    "bodyWithFeatures": "Downgrading removes the following Pro features. You'll be taken to Stripe to cancel your subscription.",
+    "cancel": "Cancel",
+    "confirm": "Downgrade to Base",
+    "title": "Downgrade to Base?"
   },
   "imageGenerationCard": {
     "activeModelLabel": "Active Model",
@@ -193,6 +278,35 @@
     "saveFailedToast": "Failed to save overrides. Please try again.",
     "searchPlaceholder": "Search actions…",
     "title": "Action Overrides"
+  },
+  "packageSwitchConfirmModal": {
+    "cancel": "Cancel"
+  },
+  "planColumnCard": {
+    "currentPlan": "Current Plan",
+    "includes": "Includes:",
+    "recommended": "Recommended"
+  },
+  "plansPage": {
+    "alreadyOnPlanToast": "You're already on this plan.",
+    "back": "Back",
+    "billedMonthlyCaption": "Billed monthly",
+    "cancelAnytimeFooter": "You can cancel or change your plan anytime you want. To learn more <docsLink>Read our Docs.</docsLink>",
+    "checkoutFailedToast": "Failed to start the upgrade checkout. Please try again.",
+    "downgradeTo": "Downgrade to {name}",
+    "featureComputer": "{machine} Computer",
+    "featureCreditsIncluded": "{amount} in credits included",
+    "featureStorage": "{gib} GB Storage",
+    "foreverCaption": "Forever",
+    "freeFeaturePayAsYouGo": "Pay-as-you-go credits",
+    "freeFeatureSmallComputer": "Small Computer",
+    "freeFeatureStorage": "{gib} GB Storage",
+    "freePriceLabel": "Free",
+    "heading": "Give your assistant more power",
+    "loadingPlansAriaLabel": "Loading plans",
+    "planUpdatedToast": "Plan updated.",
+    "startFreeCta": "Start Free",
+    "subheading": "Choose the level that matches how much you want it to take on."
   },
   "profileAdvancedParams": {
     "contextWindowLabel": "Context Window",
@@ -384,6 +498,27 @@
     "loadError": "Failed to load providers. Please try again.",
     "title": "Providers"
   },
+  "provisioningState": {
+    "allDoneStatus": "All done!",
+    "confirmingCaption": "This might take a couple seconds.",
+    "continueInBackground": "Continue in the background",
+    "creditsChip": "{count} credits",
+    "dimensionsComplete": "{dimensions} complete",
+    "goToBilling": "Go to billing",
+    "machineLabel": "Machine",
+    "packageChip": "{name} package",
+    "planReadyStatus": "Your plan is ready",
+    "retryInBackground": "Retry in the background",
+    "srOnlyTo": "to",
+    "stalledCaption": "This may take a couple of minutes.",
+    "statusComplete": "Complete",
+    "statusPending": "Pending",
+    "storageLabel": "Storage",
+    "takingLongerStatus": "This is taking longer than expected",
+    "tryAgain": "Try again",
+    "waitingCaptionLong": "Still working. This can take a minute or two.",
+    "waitingCaptionShort": "This might take a couple seconds."
+  },
   "sharedUi": {
     "checkingDomain": "Checking domain…",
     "domainVerified": "Domain verified",
@@ -406,6 +541,73 @@
   "textToSpeechCard": {
     "subtitle": "Configure how your assistant speaks",
     "title": "Text-to-Speech"
+  },
+  "upgradeCancelPage": {
+    "billingUnavailable": "Billing isn't available for the current assistant state.",
+    "platformLoginNotice": "Log in to the Vellum platform to manage billing and usage.",
+    "redirectingBody": "Returning you to billing settings…",
+    "returnToBilling": "Return to billing",
+    "title": "Upgrade canceled"
+  },
+  "upgradeSuccessPage": {
+    "cantConfirmUpgrade": "We can't confirm your upgrade for the current assistant. Return to billing to retry.",
+    "fetchErrorBody": "We hit a problem checking your subscription. Your upgrade may still be processing. Return to billing to refresh.",
+    "fetchErrorTitle": "Couldn't reach billing",
+    "finalizingBody": "Stripe is confirming your subscription. This usually takes a few seconds.",
+    "finalizingTitle": "Finalizing your upgrade…",
+    "goToBilling": "Go to billing",
+    "platformLoginNotice": "Log in to the Vellum platform to manage billing and usage.",
+    "processingFallback": "We're processing your upgrade. Refresh in a moment to see your new plan.",
+    "successBody": "Your Pro plan is active. You'll be redirected back to billing in a moment.",
+    "welcomeTitle": "Welcome to Pro"
+  },
+  "usageTab": {
+    "analyzeCostsButton": "Analyze costs with assistant",
+    "breakdownTitle": "Breakdown",
+    "cacheCreatedLabel": "Cache Created",
+    "cacheReadLabel": "Cache Read",
+    "costAssistantSubtitle": "Review recent spend and tune model profile choices.",
+    "costAssistantTitle": "Cost assistant",
+    "costLabel": "Cost",
+    "dailyTrend": "Daily Trend",
+    "dailyTrendBy": "Daily Trend by {group}",
+    "directInputTokensLabel": "Direct Input Tokens",
+    "failedToLoadUsage": "Failed to load usage.",
+    "groupByActor": "Actor",
+    "groupByConversation": "Conversation",
+    "groupByModel": "Model",
+    "groupByProfile": "Profile",
+    "groupByProvider": "Provider",
+    "groupBySchedule": "Schedule",
+    "groupByTask": "Action",
+    "groupColumnLabel": "Group",
+    "hourlyTrend": "Hourly Trend",
+    "hourlyTrendBy": "Hourly Trend by {group}",
+    "inferenceUsageTitle": "Inference Usage",
+    "llmCallsLabel": "LLM Calls",
+    "noBreakdownDataSubtitle": "No usage recorded for this grouping",
+    "noBreakdownDataTitle": "No breakdown data",
+    "optimizeSettingsButton": "Optimize settings",
+    "outputTokensLabel": "Output Tokens",
+    "percentOfTotalLabel": "% of total",
+    "range30d": "Last 30 days",
+    "range7d": "Last 7 days",
+    "range90d": "Last 90 days",
+    "rangeAll": "All time",
+    "rangeToday": "Today",
+    "rangeYesterday": "Yesterday",
+    "retry": "Retry",
+    "title": "Usage",
+    "tokensLabel": "Tokens",
+    "totalsAriaLabel": "Totals",
+    "turnsLabel": "Turns",
+    "unknownSchedule": "Unknown schedule ({scheduleId})"
+  },
+  "usageTrendChart": {
+    "noDailyData": "No daily data",
+    "noHourlyData": "No hourly data",
+    "noUsageInRange": "No usage recorded in this time range",
+    "total": "Total"
   },
   "useDaemonConfig": {
     "assistantNotReadyToast": "Assistant not ready. Please try again.",
