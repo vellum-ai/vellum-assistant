@@ -19,6 +19,7 @@ import { afterEach, beforeEach, describe, expect, it, mock } from "bun:test";
 
 import type { StreamHandlerContext } from "@/domains/chat/utils/stream-handlers/types";
 import type { OpenPanelEvent, OpenUrlEvent } from "@vellumai/assistant-api";
+import { stubViewportAxes } from "@/hooks/viewport-axes.test-helper";
 
 const submitSurfaceActionCalls: Array<{
   assistantId: string;
@@ -268,6 +269,12 @@ describe("handleOpenUrl", () => {
 });
 
 describe("handleOpenConversation", () => {
+  beforeEach(() => {
+    useViewerStore.getState().reset();
+    useConversationStore.getState().reset();
+    useSubagentStore.getState().reset();
+  });
+
   it("switches to and focuses the target conversation by default", () => {
     useConversationStore.getState().setActiveConversationId("conv-origin");
     const push = mock((_url: string) => {});
@@ -284,6 +291,39 @@ describe("handleOpenConversation", () => {
     );
     expect(push).toHaveBeenCalledTimes(1);
     expect(push.mock.calls[0]?.[0]).toContain("conv-target");
+  });
+
+  it("keeps an open app in the side-by-side layout instead of dismissing it", () => {
+    const restoreViewport = stubViewportAxes({
+      narrow: false,
+      coarsePointer: false,
+    });
+    useConversationStore.getState().setActiveConversationId("conv-origin");
+    useViewerStore.setState({
+      mainView: "app",
+      activeAppId: "app-1",
+      openedAppState: { appId: "app-1", name: "My App", html: "<h1>hi</h1>" },
+    });
+    const push = mock((_url: string) => {});
+    const ctx = { router: { push } } as unknown as StreamHandlerContext;
+
+    try {
+      handleOpenConversation(
+        { type: "open_conversation", conversationId: "conv-target" },
+        ctx,
+      );
+
+      expect(useViewerStore.getState().mainView).toBe("app-editing");
+      expect(useConversationStore.getState().editingConversationId).toBe(
+        "conv-target",
+      );
+      expect(useConversationStore.getState().activeConversationId).toBe(
+        "conv-target",
+      );
+    } finally {
+      restoreViewport();
+      useViewerStore.getState().reset();
+    }
   });
 
   it("does not switch focus when focus is false", () => {

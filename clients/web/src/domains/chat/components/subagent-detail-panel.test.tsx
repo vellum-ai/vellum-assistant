@@ -1,8 +1,8 @@
 /**
- * The detail panel's Input/Output/Cost cards always render their real
- * formatted values. The metrics stream in as the subagent makes LLM calls, so
- * the cards start at `0` / `0.00` and tick up — there are no skeleton loading
- * states, even while the subagent is still running with zeroed usage.
+ * The detail panel's Input/Output cards always render their real formatted
+ * values. The metrics stream in as the subagent makes LLM calls, so the
+ * cards start at `0` and tick up; there are no skeleton loading states,
+ * even while the subagent is still running with zeroed usage.
  *
  * Heavy children (avatar, status badge, timeline) are stubbed so we can assert
  * the metric-row behavior without depending on their internals.
@@ -122,7 +122,6 @@ function makeEntry(overrides: Partial<SubagentEntry> = {}): SubagentEntry {
     isFork: false,
     inputTokens: 0,
     outputTokens: 0,
-    totalCost: 0,
     spawnedAt: Date.now(),
     events: [],
     ...overrides,
@@ -149,7 +148,6 @@ describe("SubagentDetailPanel — metric cards", () => {
           status: "running",
           inputTokens: 0,
           outputTokens: 0,
-          totalCost: 0,
         })}
         onClose={noop}
       />,
@@ -158,7 +156,7 @@ describe("SubagentDetailPanel — metric cards", () => {
     expect(skeletonCount(container)).toBe(0);
     expect(screen.getByText("Input")).toBeDefined();
     expect(screen.getByText("Output")).toBeDefined();
-    // Cost was removed — only Input + Output remain, each a live "0".
+    // Only Input + Output render, each a live "0"; cost is never shown.
     expect(screen.queryByText("Cost")).toBeNull();
     expect(screen.getAllByText("0").length).toBe(2);
   });
@@ -170,7 +168,6 @@ describe("SubagentDetailPanel — metric cards", () => {
           status: "running",
           inputTokens: 1200,
           outputTokens: 340,
-          totalCost: 0.68,
         })}
         onClose={noop}
       />,
@@ -188,14 +185,13 @@ describe("SubagentDetailPanel — metric cards", () => {
           status: "completed",
           inputTokens: 0,
           outputTokens: 0,
-          totalCost: 0,
         })}
         onClose={noop}
       />,
     );
 
     expect(skeletonCount(container)).toBe(0);
-    // Two "0" inputs/outputs render as real text (the cost section was removed).
+    // Both zero input/output values render as real text, never skeletons.
     expect(screen.getAllByText("0").length).toBe(2);
   });
 });

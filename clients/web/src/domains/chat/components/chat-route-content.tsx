@@ -217,9 +217,6 @@ export interface ChatMainPanelProps {
   onboardingConversationId: string | null;
 }
 
-/** @deprecated Use {@link ChatMainPanelProps} — kept as a re-export for migration. */
-export type ChatRouteContentProps = ChatMainPanelProps;
-
 /**
  * Builds the registry-driven row of active background-process overlays.
  *
@@ -1551,6 +1548,3 @@ export function ChatMainPanel({
     </>
   );
 }
-
-/** @deprecated Use {@link ChatMainPanel} — kept for migration. */
-export const ChatRouteContent = ChatMainPanel;

@@ -26,6 +26,7 @@ import {
 } from "@/domains/chat/inspector/cache-diff";
 import { useLlmCallDetail } from "@/domains/chat/inspector/inspector-detail-api";
 import { formatCount } from "@/domains/chat/inspector/inspector-formatters";
+import { useTranslation } from "@/i18n";
 import type { LLMRequestLogEntry } from "@vellumai/assistant-api";
 import {
   Button,
@@ -35,6 +36,7 @@ import {
   Tag,
   type TagTone,
 } from "@vellumai/design-library";
+type ChatTranslate = ReturnType<typeof useTranslation<"chat">>["t"];
 
 export interface CacheDiffCardProps {
   current: LLMRequestLogEntry;
@@ -58,59 +60,73 @@ function capitalize(text: string): string {
  * re-created the cache first (tools → system → messages), with model and
  * settings as the bracketing special cases.
  */
-function buildStatus(result: CacheDiffResult): CacheDiffStatus {
+function buildStatus(
+  result: CacheDiffResult,
+  t: ChatTranslate,
+): CacheDiffStatus {
   switch (result.cause) {
     case "model": {
-      const previous = result.previousModel ?? "the previous model";
-      const current = result.currentModel ?? "this model";
+      const previous =
+        result.previousModel ?? t("cacheDiffCard.previousModelFallback");
+      const current =
+        result.currentModel ?? t("cacheDiffCard.currentModelFallback");
       return {
         tone: "error",
-        title: "Model changed",
-        body: `This turn used ${current} but the previous turn used ${previous}. A different model can't reuse the previous prompt cache, so the whole prompt is re-created.`,
+        title: t("cacheDiffCard.statusModelTitle"),
+        body: t("cacheDiffCard.statusModelBody", { current, previous }),
       };
     }
     case "tools":
       return {
         tone: "warning",
-        title: "Tool definitions changed",
-        body: "The tool set or its definitions differ from the previous turn. Tools sit at the front of the cached prefix, so any change here re-creates the cache before it reaches the system prompt and messages.",
+        title: t("cacheDiffCard.statusToolsTitle"),
+        body: t("cacheDiffCard.statusToolsBody"),
       };
     case "system":
       return {
         tone: "warning",
-        title: "System prompt changed",
-        body: "Part of the system prompt changed since the previous turn. Volatile content here — a timestamp, memory, or a per-turn block — re-creates the cache every turn.",
+        title: t("cacheDiffCard.statusSystemTitle"),
+        body: t("cacheDiffCard.statusSystemBody"),
       };
     case "messages": {
       if (result.firstChangedMessageIndex >= 0) {
-        const label = result.changedMessageLabel ?? "a message";
+        const label =
+          result.changedMessageLabel ??
+          t("cacheDiffCard.changedMessageFallback");
         return {
           tone: "warning",
-          title: "An earlier message changed",
-          body: `${capitalize(label)} #${result.firstChangedMessageIndex + 1} differs from the previous turn, so everything cached after it is re-processed this turn.`,
+          title: t("cacheDiffCard.statusMessagesEarlierTitle"),
+          body: t("cacheDiffCard.statusMessagesEarlierBody", {
+            label: capitalize(label),
+            index: result.firstChangedMessageIndex + 1,
+          }),
         };
       }
       return {
         tone: "warning",
-        title: "Message history changed",
-        body: `${formatCount(result.removedMessageCount)} earlier message(s) are gone this turn (likely history compaction), so the cached message prefix no longer matches.`,
+        title: t("cacheDiffCard.statusMessagesHistoryTitle"),
+        body: t("cacheDiffCard.statusMessagesHistoryBody", {
+          removedCount: formatCount(result.removedMessageCount),
+        }),
       };
     }
     case "settings":
       return {
         tone: "info",
-        title: "Request settings changed",
-        body: "Only request settings (e.g. temperature) differ from the previous turn. For most providers this alone won't bust the prompt cache.",
+        title: t("cacheDiffCard.statusSettingsTitle"),
+        body: t("cacheDiffCard.statusSettingsBody"),
       };
     case "none":
     case "no-previous":
       return {
         tone: "success",
-        title: "Prompt prefix unchanged",
+        title: t("cacheDiffCard.statusPrefixUnchangedTitle"),
         body:
           result.appendedMessageCount > 0
-            ? `The cached prefix matches the previous turn and ${formatCount(result.appendedMessageCount)} new message(s) were appended. A cache miss here points to cache TTL expiry rather than changed content.`
-            : "The cached prefix is identical to the previous turn. A cache miss here points to cache TTL expiry rather than changed content.",
+            ? t("cacheDiffCard.statusPrefixUnchangedBodyAppended", {
+                count: formatCount(result.appendedMessageCount),
+              })
+            : t("cacheDiffCard.statusPrefixUnchangedBodyIdentical"),
       };
   }
 }
@@ -121,38 +137,78 @@ interface ChangedChip {
   tone: TagTone;
 }
 
-function changedChips(groups: CacheDiffChangedGroups): ChangedChip[] {
+function changedChips(
+  groups: CacheDiffChangedGroups,
+  t: ChatTranslate,
+): ChangedChip[] {
   const chips: ChangedChip[] = [];
   if (groups.model) {
-    chips.push({ key: "model", label: "Model", tone: "negative" });
+    chips.push({
+      key: "model",
+      label: t("cacheDiffCard.chipModel"),
+      tone: "negative",
+    });
   }
   if (groups.tools) {
-    chips.push({ key: "tools", label: "Tools", tone: "warning" });
+    chips.push({
+      key: "tools",
+      label: t("cacheDiffCard.chipTools"),
+      tone: "warning",
+    });
   }
   if (groups.system) {
-    chips.push({ key: "system", label: "System", tone: "warning" });
+    chips.push({
+      key: "system",
+      label: t("cacheDiffCard.chipSystem"),
+      tone: "warning",
+    });
   }
   if (groups.messages) {
-    chips.push({ key: "messages", label: "Messages", tone: "warning" });
+    chips.push({
+      key: "messages",
+      label: t("cacheDiffCard.chipMessages"),
+      tone: "warning",
+    });
   }
   if (groups.settings) {
-    chips.push({ key: "settings", label: "Settings", tone: "neutral" });
+    chips.push({
+      key: "settings",
+      label: t("cacheDiffCard.chipSettings"),
+      tone: "neutral",
+    });
   }
   return chips;
 }
 
-function messageStats(result: CacheDiffResult): string | null {
+function messageStats(
+  result: CacheDiffResult,
+  t: ChatTranslate,
+): string | null {
   const parts: string[] = [];
   if (result.sharedMessageCount > 0) {
-    parts.push(`${formatCount(result.sharedMessageCount)} shared`);
+    parts.push(
+      t("cacheDiffCard.messageStatsShared", {
+        count: formatCount(result.sharedMessageCount),
+      }),
+    );
   }
   if (result.appendedMessageCount > 0) {
-    parts.push(`${formatCount(result.appendedMessageCount)} appended`);
+    parts.push(
+      t("cacheDiffCard.messageStatsAppended", {
+        count: formatCount(result.appendedMessageCount),
+      }),
+    );
   }
   if (result.removedMessageCount > 0) {
-    parts.push(`${formatCount(result.removedMessageCount)} removed`);
+    parts.push(
+      t("cacheDiffCard.messageStatsRemoved", {
+        count: formatCount(result.removedMessageCount),
+      }),
+    );
   }
-  return parts.length > 0 ? `Leading messages: ${parts.join(" · ")}` : null;
+  return parts.length > 0
+    ? t("cacheDiffCard.messageStatsLeading", { parts: parts.join(" · ") })
+    : null;
 }
 
 interface StateNoteProps {
@@ -161,13 +217,15 @@ interface StateNoteProps {
 
 /** Titled card used for the loading / error / unavailable states. */
 function StateNote({ children }: StateNoteProps): ReactNode {
+  const { t } = useTranslation("chat");
+
   return (
     <Card>
       <p
         className="text-body-medium-default"
         style={{ color: "var(--content-default)" }}
       >
-        Cache diff
+        {t("cacheDiffCard.title")}
       </p>
       <p
         className="mt-1 text-body-medium-lighter"
@@ -238,6 +296,8 @@ function DiffPreviewActions({
   onToggleExpanded,
   onComputeFull,
 }: DiffPreviewActionsProps): ReactNode {
+  const { t } = useTranslation("chat");
+
   if (truncated) {
     if (onDemand.status === "tooLarge") {
       return (
@@ -245,7 +305,9 @@ function DiffPreviewActions({
           className="mt-1 text-label-default"
           style={{ color: "var(--content-tertiary)" }}
         >
-          {`Still too large to diff here (over ${formatCount(MAX_ON_DEMAND_DIFF_LINES)} lines) — open the Raw tab for the full payload.`}
+          {t("cacheDiffCard.diffStillTooLarge", {
+            maxLines: formatCount(MAX_ON_DEMAND_DIFF_LINES),
+          })}
         </p>
       );
     }
@@ -255,8 +317,7 @@ function DiffPreviewActions({
           className="mt-1 text-label-default"
           style={{ color: "var(--content-tertiary)" }}
         >
-          The changed text is too large to diff here — open the Raw tab for the
-          full payload.
+          {t("cacheDiffCard.diffTooLarge")}
         </p>
       );
     }
@@ -270,10 +331,12 @@ function DiffPreviewActions({
           className="text-label-default"
           style={{ color: "var(--content-tertiary)" }}
         >
-          The changed text is large, so it isn't diffed by default.
+          {t("cacheDiffCard.diffLargeDefault")}
         </p>
         <Button variant="ghost" size="compact" onClick={onComputeFull}>
-          {`Diff anyway (${formatCount(lineCount)} lines)`}
+          {t("cacheDiffCard.diffAnyway", {
+            lineCount: formatCount(lineCount),
+          })}
         </Button>
       </div>
     );
@@ -288,8 +351,10 @@ function DiffPreviewActions({
         onClick={onToggleExpanded}
       >
         {expanded
-          ? "Show less"
-          : `Show ${formatCount(cappedCount)} more diff line(s)`}
+          ? t("cacheDiffCard.showLess")
+          : t("cacheDiffCard.showMoreDiffLines", {
+              count: formatCount(cappedCount),
+            })}
       </Button>
     );
   }
@@ -316,6 +381,7 @@ function DiffPreview({
   truncated,
   source,
 }: DiffPreviewProps): ReactNode {
+  const { t } = useTranslation("chat");
   const [expanded, setExpanded] = useState(false);
   const [onDemand, setOnDemand] = useState<OnDemandDiff>({ status: "idle" });
 
@@ -352,7 +418,7 @@ function DiffPreview({
         className="text-label-default"
         style={{ color: "var(--content-tertiary)" }}
       >
-        {label} diff
+        {t("cacheDiffCard.diffLabel", { label })}
       </p>
       {visible.length > 0 ? (
         <pre
@@ -371,7 +437,9 @@ function DiffPreview({
                   className="italic"
                   style={{ color: "var(--content-faint)" }}
                 >
-                  {`⋯ ${formatCount(entry.count)} unchanged line(s)`}
+                  {t("cacheDiffCard.unchangedLines", {
+                    count: formatCount(entry.count),
+                  })}
                 </div>
               );
             }
@@ -410,6 +478,7 @@ export function CacheDiffCard({
   previous,
   assistantId,
 }: CacheDiffCardProps): ReactNode {
+  const { t } = useTranslation("chat");
   const hasPreviousSections =
     previous != null &&
     previous.requestSections != null &&
@@ -436,11 +505,13 @@ export function CacheDiffCard({
 
   if (needsPreviousFetch) {
     if (isPreviousLoading) {
-      return <StateNote>Loading the previous call to compare…</StateNote>;
+      return (
+        <StateNote>{t("cacheDiffCard.loadingPreviousCall")}</StateNote>
+      );
     }
     if (isPreviousError) {
       return (
-        <StateNote>Couldn't load the previous call to diff against.</StateNote>
+        <StateNote>{t("cacheDiffCard.loadPreviousCallError")}</StateNote>
       );
     }
   }
@@ -450,9 +521,7 @@ export function CacheDiffCard({
     : (previousDetail?.requestSections ?? null);
   if (!previousSections || previousSections.length === 0) {
     return (
-      <StateNote>
-        The previous call's prompt isn't available to compare.
-      </StateNote>
+      <StateNote>{t("cacheDiffCard.previousPromptUnavailable")}</StateNote>
     );
   }
 
@@ -461,9 +530,9 @@ export function CacheDiffCard({
     { sections: previousSections, model: previous.summary?.model },
   );
 
-  const status = buildStatus(result);
-  const chips = changedChips(result.changedGroups);
-  const stats = messageStats(result);
+  const status = buildStatus(result, t);
+  const chips = changedChips(result.changedGroups, t);
+  const stats = messageStats(result, t);
 
   return (
     <Card>
@@ -472,14 +541,13 @@ export function CacheDiffCard({
           className="text-body-medium-default"
           style={{ color: "var(--content-default)" }}
         >
-          Cache diff
+          {t("cacheDiffCard.title")}
         </p>
         <p
           className="mt-1 text-body-medium-lighter"
           style={{ color: "var(--content-secondary)" }}
         >
-          What changed since the previous turn's request — the block that
-          re-created the prompt cache.
+          {t("cacheDiffCard.description")}
         </p>
       </div>
 
@@ -489,7 +557,7 @@ export function CacheDiffCard({
             className="text-label-default"
             style={{ color: "var(--content-tertiary)" }}
           >
-            Changed
+            {t("cacheDiffCard.changedLabel")}
           </span>
           {chips.map((chip) => (
             <Tag key={chip.key} tone={chip.tone}>

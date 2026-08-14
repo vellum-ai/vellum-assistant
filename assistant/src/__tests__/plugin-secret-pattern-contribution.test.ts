@@ -34,8 +34,8 @@ import {
 } from "bun:test";
 
 import { bootstrapPlugins } from "../daemon/external-plugins-bootstrap.js";
+import { getUserHooksFor } from "../hooks/registry.js";
 import {
-  getUserHooksFor,
   populateCacheAtBoot,
   reconcilePluginSourcesNow,
   resetPluginCacheForTests,

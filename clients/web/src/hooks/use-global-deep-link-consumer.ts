@@ -17,8 +17,10 @@ import { ensureMainWindowVisible } from "@/runtime/main-window";
 import { useConnectDialogStore } from "@/stores/connect-dialog-store";
 import { useConversationStore } from "@/stores/conversation-store";
 import { usePendingDeepLinkStore } from "@/stores/pending-deep-link-store";
-import { useViewerStore } from "@/stores/viewer-store";
-import { navigateToConversation } from "@/utils/conversation-navigation";
+import {
+  navigateToConversation,
+  revealConversationView,
+} from "@/utils/conversation-navigation";
 import { routes } from "@/utils/routes";
 
 /**
@@ -136,7 +138,7 @@ export function useGlobalDeepLinkConsumer(): void {
   const openThread = (threadId: string) => {
     // Same thread: skip store resets — the id doesn't change, so re-seed effects wouldn't re-run and live cards would vanish.
     if (threadId === useConversationStore.getState().activeConversationId) {
-      useViewerStore.getState().setMainView("chat");
+      revealConversationView(threadId);
       navigateRef.current(routes.conversation(threadId));
       return;
     }

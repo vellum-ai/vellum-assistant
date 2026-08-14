@@ -45,29 +45,6 @@ function connectionModelsToCatalog(
 }
 
 /**
- * Copy for the Model field's empty states, keyed by the `modelEmptyState`
- * discriminator. The "no-provider" hint is `null` because the hint only
- * renders once a provider is selected.
- */
-const NO_PROVIDER_CONNECTIONS_HINT =
-  "No provider connections. Open Providers to add one.";
-
-const MODEL_EMPTY_STATE_COPY = {
-  "no-provider": {
-    placeholder: "Select a provider first",
-    hint: null,
-  },
-  "configure-connection": {
-    placeholder: "Configure models on connection",
-    hint: "No models available. Configure models on the provider connection first.",
-  },
-  "unknown-to-catalog": {
-    placeholder: "No models available",
-    hint: "No models are available for this provider in this app version. Update the app, or enter a custom model ID.",
-  },
-} as const;
-
-/**
  * Sentinel value for the Model dropdown option that switches the field into
  * free-text entry. Namespaced so it can never collide with a real model id.
  */
@@ -306,9 +283,31 @@ export function ProfileEditorProviderSection({
         ? "configure-connection"
         : "unknown-to-catalog"
       : null;
-  const modelEmptyStateCopy = modelEmptyState
-    ? MODEL_EMPTY_STATE_COPY[modelEmptyState]
-    : null;
+  const modelEmptyStateCopy = useMemo(() => {
+    switch (modelEmptyState) {
+      case "no-provider":
+        return {
+          placeholder: t("profileEditorProviderSection.modelEmptyNoProviderPlaceholder"),
+          hint: null,
+        };
+      case "configure-connection":
+        return {
+          placeholder: t(
+            "profileEditorProviderSection.modelEmptyConfigureConnectionPlaceholder",
+          ),
+          hint: t(
+            "profileEditorProviderSection.modelEmptyConfigureConnectionHint",
+          ),
+        };
+      case "unknown-to-catalog":
+        return {
+          placeholder: t("profileEditorProviderSection.modelEmptyUnknownPlaceholder"),
+          hint: t("profileEditorProviderSection.modelEmptyUnknownHint"),
+        };
+      default:
+        return null;
+    }
+  }, [modelEmptyState, t]);
 
   // Clear the bound model when it isn't selectable for the current connection.
   // Per-connection providers (openai-compatible) derive their model list from
@@ -372,7 +371,7 @@ export function ProfileEditorProviderSection({
     ) {
       base.push({
         value: entryPickerValue(OPENAI_COMPATIBLE_PROVIDER, providerConnection),
-        label: `${providerConnection} (not found)`,
+        label: `${providerConnection} ${t("profileEditorProviderSection.providerNotFoundSuffix")}`,
         suffix: undefined,
       });
     }
@@ -396,6 +395,7 @@ export function ProfileEditorProviderSection({
     provider,
     providerConnection,
     defaultEntryMetaLabel,
+    t,
   ]);
 
   const entryValue =
@@ -435,19 +435,19 @@ export function ProfileEditorProviderSection({
       {!hideProviderField && (
         <Select
           id="profile-editor-provider"
-          label="Provider"
+          label={t("profileEditorProviderSection.providerLabel")}
           errorText={
             // With nothing to select, "add a connection" is both the reason
             // Save is blocked and the way out, so it becomes the error.
             // Passing it as helper text would hide it: the field shows one
             // message, and the error wins.
             providerError && noProviderConnections
-              ? NO_PROVIDER_CONNECTIONS_HINT
+              ? t("profileEditorProviderSection.noProviderConnectionsHint")
               : providerError
           }
           helperText={
             noProviderConnections && !providerError
-              ? NO_PROVIDER_CONNECTIONS_HINT
+              ? t("profileEditorProviderSection.noProviderConnectionsHint")
               : subscriptionSteeringHint
           }
           value={selectValue}
@@ -470,7 +470,7 @@ export function ProfileEditorProviderSection({
             }
           }}
           disabled={isReadOnly}
-          placeholder="Select a provider…"
+          placeholder={t("profileEditorProviderSection.selectProviderPlaceholder")}
           options={providerOptions}
         />
       )}
@@ -486,8 +486,7 @@ export function ProfileEditorProviderSection({
           as="p"
           className="text-(--system-negative-strong)"
         >
-          This profile referenced a credential that no longer exists. Saving
-          resets it to use the provider&rsquo;s available key.
+          {t("profileEditorProviderSection.connectionNotFound")}
         </Typography>
       )}
 
@@ -496,7 +495,7 @@ export function ProfileEditorProviderSection({
           build doesn't list (e.g. a new OpenRouter model). */}
       <div className="space-y-1">
         <label className="block text-body-small-default text-[var(--content-tertiary)]">
-          Model
+          {t("profileEditorProviderSection.modelLabel")}
         </label>
         {isEnteringCustomModel ? (
           <>
@@ -504,8 +503,8 @@ export function ProfileEditorProviderSection({
               value={model}
               onChange={(e) => onModelChange(e.target.value)}
               disabled={isReadOnly}
-              placeholder="provider/model-id"
-              aria-label="Custom model ID"
+              placeholder={t("profileEditorProviderSection.customModelPlaceholder")}
+              aria-label={t("profileEditorProviderSection.customModelAriaLabel")}
               fullWidth
               autoFocus
             />
@@ -515,7 +514,7 @@ export function ProfileEditorProviderSection({
               disabled={isReadOnly}
               onClick={() => setIsEnteringCustomModel(false)}
             >
-              Choose from list
+              {t("profileEditorProviderSection.chooseFromList")}
             </Button>
           </>
         ) : (
@@ -523,11 +522,14 @@ export function ProfileEditorProviderSection({
             value={model}
             onChange={handleModelSelection}
             disabled={isReadOnly || !provider}
-            aria-label="Model"
+            aria-label={t("profileEditorProviderSection.modelAriaLabel")}
             // Radix reserves the empty string, and the leading row this used
             // to fake is what `placeholder` is for: an unset field, not a
             // choosable option.
-            placeholder={modelEmptyStateCopy?.placeholder ?? "Select a model"}
+            placeholder={
+              modelEmptyStateCopy?.placeholder ??
+              t("profileEditorProviderSection.selectModelPlaceholder")
+            }
             options={[
               ...modelOptions.map((m) => ({
                 value: m.id,
@@ -537,7 +539,7 @@ export function ProfileEditorProviderSection({
                 ? [
                     {
                       value: CUSTOM_MODEL_OPTION_VALUE,
-                      label: "Enter a custom model ID…",
+                      label: t("profileEditorProviderSection.enterCustomModelIdOption"),
                     },
                   ]
                 : []),
@@ -550,8 +552,7 @@ export function ProfileEditorProviderSection({
             as="p"
             className="text-[var(--content-tertiary)]"
           >
-            Enter the exact model identifier your provider expects. It's sent to
-            the connection as-is.
+            {t("profileEditorProviderSection.enterCustomModelIdHint")}
           </Typography>
         ) : providerWithoutModel && !isReadOnly ? (
           <Typography
@@ -559,7 +560,8 @@ export function ProfileEditorProviderSection({
             as="p"
             className="text-(--system-negative-strong)"
           >
-            {modelEmptyStateCopy?.hint ?? "Select a model."}
+            {modelEmptyStateCopy?.hint ??
+              t("profileEditorProviderSection.selectModelError")}
           </Typography>
         ) : null}
       </div>

@@ -718,7 +718,7 @@ clients/
     │   │   ├── Shared/               # Compiled into app + widget extension
     │   │   └── Info.plist
     │   ├── VoiceActivity/            # WidgetKit extension: Live Activity
-    │   │                             # presentations + Control Center control
+    │   │                             # presentations + Control Center controls
     │   └── CapApp-SPM/               # SPM local package: pulls in @capacitor/ios
     │                                 # and any Capacitor plugin native deps
     └── debug.xcconfig                # Sets CAPACITOR_DEBUG for Debug builds

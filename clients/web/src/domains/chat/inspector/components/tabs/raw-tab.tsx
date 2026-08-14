@@ -3,6 +3,7 @@ import { useState, type ReactNode } from "react";
 
 import { CopyButton } from "@/domains/chat/inspector/components/copy-button";
 import { useLlmLogPayload } from "@/domains/chat/inspector/inspector-payload-api";
+import { t, useTranslation } from "@/i18n";
 import { captureError } from "@/lib/sentry/capture-error";
 import type { LLMRequestLogEntry } from "@vellumai/assistant-api";
 import { Button, Card } from "@vellumai/design-library";
@@ -21,6 +22,7 @@ interface RawTabProps {
  * for each pane. Payloads are cached for 5 minutes (immutable).
  */
 export function RawTab({ entry, assistantId }: RawTabProps): ReactNode {
+  const { t } = useTranslation("chat");
   const [pane, setPane] = useState<RawPane>("request");
   const { data, isLoading, isError, error, refetch } = useLlmLogPayload(
     assistantId,
@@ -35,7 +37,7 @@ export function RawTab({ entry, assistantId }: RawTabProps): ReactNode {
     const msg =
       error && typeof error === "object" && "message" in error
         ? String((error as { message: unknown }).message)
-        : "The payload request failed. Try again.";
+        : t("rawTab.payloadRequestFailed");
     return <ErrorState message={msg} onRetry={() => void refetch()} />;
   }
 
@@ -64,7 +66,9 @@ export function RawTab({ entry, assistantId }: RawTabProps): ReactNode {
               border: "1px solid var(--border-base)",
             }}
           >
-            {p === "request" ? "Request" : "Response"}
+            {p === "request"
+              ? t("rawTab.request")
+              : t("rawTab.response")}
           </button>
         ))}
       </div>
@@ -75,19 +79,32 @@ export function RawTab({ entry, assistantId }: RawTabProps): ReactNode {
             className="text-body-medium-default"
             style={{ color: "var(--content-default)" }}
           >
-            {pane === "request" ? "Request payload" : "Response payload"}
+            {pane === "request"
+              ? t("rawTab.requestPayload")
+              : t("rawTab.responsePayload")}
           </span>
           <div className="flex items-center gap-1">
             <Button
               variant="ghost"
               size="compact"
               iconOnly={<Download aria-hidden />}
-              aria-label={`Download ${pane} payload`}
+              aria-label={
+                pane === "request"
+                  ? t("rawTab.downloadRequestPayloadAriaLabel")
+                  : t("rawTab.downloadResponsePayloadAriaLabel")
+              }
               onClick={() =>
                 void downloadRawPayload(displayText, downloadFilename)
               }
             />
-            <CopyButton text={displayText} ariaLabel={`Copy ${pane} payload`} />
+            <CopyButton
+              text={displayText}
+              ariaLabel={
+                pane === "request"
+                  ? t("rawTab.copyRequestPayloadAriaLabel")
+                  : t("rawTab.copyResponsePayloadAriaLabel")
+              }
+            />
           </div>
         </div>
         <pre
@@ -154,18 +171,20 @@ async function downloadRawPayload(
     await saveFile(blob, filename);
   } catch (error) {
     captureError(error, { context: "download_raw_payload" });
-    toast.error("Failed to download the payload.");
+    toast.error(t("chat:rawTab.downloadFailedToast"));
   }
 }
 
 function LoadingState(): ReactNode {
+  const { t } = useTranslation("chat");
+
   return (
     <div className="flex h-48 w-full flex-col items-center justify-center gap-2">
       <p
         className="text-label-default"
         style={{ color: "var(--content-secondary)" }}
       >
-        Loading raw payloads…
+        {t("rawTab.loading")}
       </p>
     </div>
   );
@@ -177,6 +196,8 @@ interface ErrorStateProps {
 }
 
 function ErrorState({ message, onRetry }: ErrorStateProps): ReactNode {
+  const { t } = useTranslation("chat");
+
   return (
     <div className="flex h-48 w-full flex-col items-center justify-center gap-3 p-8 text-center">
       <AlertCircle
@@ -188,7 +209,7 @@ function ErrorState({ message, onRetry }: ErrorStateProps): ReactNode {
         className="text-body-medium-default"
         style={{ color: "var(--content-default)" }}
       >
-        Couldn&rsquo;t load raw payloads
+        {t("rawTab.loadErrorTitle")}
       </p>
       <p
         className="max-w-xs text-label-default"
@@ -202,7 +223,7 @@ function ErrorState({ message, onRetry }: ErrorStateProps): ReactNode {
         leftIcon={<RefreshCw size={14} aria-hidden />}
         onClick={onRetry}
       >
-        Retry
+        {t("rawTab.retry")}
       </Button>
     </div>
   );

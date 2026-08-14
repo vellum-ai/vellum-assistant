@@ -101,12 +101,6 @@ export type {
   VoiceActivityState,
 };
 
-// Legacy aliases — existing consumers import these `Electron`-prefixed names.
-// They are structurally identical to the contract types.
-export type ElectronShowNotificationPayload = ShowNotificationPayload;
-export type ElectronTextInsertionResult = TextInsertionResult;
-export type ElectronNotificationActionEvent = NotificationActionEvent;
-
 // ─── Window augmentation ────────────────────────────────────────────────
 // The renderer's `window.vellum` declaration intentionally marks many
 // capability groups optional for version-skew tolerance: a newer renderer
