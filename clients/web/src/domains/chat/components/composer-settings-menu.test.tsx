@@ -775,6 +775,10 @@ describe("mobile pill triggers", () => {
     renderMenu({ props: { onOpenChange } });
 
     const accessTrigger = await screen.findByLabelText(ACCESS_TRIGGER_LABEL);
+    // iOS blurs the textarea before the click if pointerdown is allowed to
+    // move focus. The pill must cancel that transfer so the focus-gated row
+    // remains mounted long enough for the sheet trigger to receive the click.
+    expect(fireEvent.pointerDown(accessTrigger)).toBe(false);
     fireEvent.click(accessTrigger);
     await waitFor(() => {
       expect(onOpenChange).toHaveBeenLastCalledWith(true);

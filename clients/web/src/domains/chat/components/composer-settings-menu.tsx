@@ -658,6 +658,11 @@ export function ComposerSettingsMenu({
       aria-label={accessLabel}
       title={accessLabel}
       className={pillClass}
+      // Keep the textarea focused until the trigger's click opens the sheet.
+      // iOS can emit focusout with a null relatedTarget before click; the
+      // composer would otherwise hide this focus-gated row before Radix sees
+      // the trigger activation.
+      onPointerDown={(event) => event.preventDefault()}
     >
       <span aria-hidden="true" className={pillIconClass}>
         <AccessIcon />
@@ -703,6 +708,9 @@ export function ComposerSettingsMenu({
         aria-label={profileLabel}
         title={profileLabel}
         className={pillClass}
+        // Match the access pill: do not let iOS blur the composer and hide the
+        // focus-gated trigger before the sheet's click handler runs.
+        onPointerDown={(event) => event.preventDefault()}
       >
         <span aria-hidden="true" className={pillIconClass}>
           <Sparkles />
@@ -715,6 +723,7 @@ export function ComposerSettingsMenu({
         aria-label={profileLabel}
         title={profileLabel}
         className={pillIconOnlyClass}
+        onPointerDown={(event) => event.preventDefault()}
       >
         <span aria-hidden="true" className={pillIconClass}>
           <SlidersHorizontal />
