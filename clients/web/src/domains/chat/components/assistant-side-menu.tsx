@@ -554,7 +554,13 @@ export function AssistantSideMenu({
                   action. */}
                 <CollapsibleNavSection.Root
                   type="multiple"
-                  className={SIDEBAR_STACK_GAP}
+                  /* min-h-0 flex-1: the root must claim the body's height so
+                     the bottom-most open card's flex-fill has leftover space
+                     to take. Without it every layer below sizes to content,
+                     and a windowed row list (which renders only what fits a
+                     bounded viewport) resolves to zero height and draws no
+                     rows at all. */
+                  className={cn(SIDEBAR_STACK_GAP, "min-h-0 flex-1")}
                   value={sidebar.effectiveOpenSections}
                   onValueChange={sidebar.onOpenSectionsChange}
                 >
