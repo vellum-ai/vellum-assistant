@@ -37,6 +37,8 @@ import { viewportAxesStub } from "@/hooks/viewport-axes.test-helper";
 // resolve against the mocked modules.
 import {
   computeGhostSuffix,
+  isDraftPastOneLine,
+  isDraftScrolledOutOfView,
   shouldSubmitOnEnter,
 } from "@/domains/chat/components/chat-composer/chat-composer-utils";
 import { useQuoteReplyStore } from "@/domains/chat/quote-reply-store";
@@ -604,6 +606,90 @@ describe("computeGhostSuffix", () => {
   });
 });
 
+describe("isDraftPastOneLine", () => {
+  test("a draft wider than its inline line has outgrown it", () => {
+    expect(
+      isDraftPastOneLine({
+        naturalWidthPx: 260,
+        inlineWidthPx: 220,
+        hasHardBreak: false,
+      }),
+    ).toBe(true);
+  });
+
+  test("a draft that fits stays on the one line", () => {
+    expect(
+      isDraftPastOneLine({
+        naturalWidthPx: 180,
+        inlineWidthPx: 220,
+        hasHardBreak: false,
+      }),
+    ).toBe(false);
+  });
+
+  test("a draft filling its line to the pixel still fits", () => {
+    // Whole-pixel natural widths against a fractional line: without the slack
+    // a draft that fits would read as one pixel too wide and stack itself.
+    expect(
+      isDraftPastOneLine({
+        naturalWidthPx: 221,
+        inlineWidthPx: 220.4,
+        hasHardBreak: false,
+      }),
+    ).toBe(false);
+  });
+
+  test("a draft with a line break of its own is past one line at any width", () => {
+    expect(
+      isDraftPastOneLine({
+        naturalWidthPx: 40,
+        inlineWidthPx: 220,
+        hasHardBreak: true,
+      }),
+    ).toBe(true);
+  });
+
+  test("an unmeasured row leaves the draft on one line", () => {
+    // Before first layout (and in a test DOM that has none) every measurement
+    // reads zero, which the inset turns negative. Nothing to outgrow.
+    expect(
+      isDraftPastOneLine({
+        naturalWidthPx: 0,
+        inlineWidthPx: -16,
+        hasHardBreak: false,
+      }),
+    ).toBe(false);
+  });
+
+  test("the verdict does not move with the width the draft currently has", () => {
+    // The stacked layout hands the draft the whole card. Judged there, a draft
+    // that wrapped would fit again, flip the row back, wrap again, and never
+    // settle, so the answer is anchored to the inline width in both layouts.
+    const draft = { naturalWidthPx: 300, hasHardBreak: false };
+    expect(isDraftPastOneLine({ ...draft, inlineWidthPx: 220 })).toBe(true);
+  });
+});
+
+describe("isDraftScrolledOutOfView", () => {
+  test("a draft taller than the field it sits in has lines out of view", () => {
+    expect(
+      isDraftScrolledOutOfView({ scrollHeightPx: 400, clientHeightPx: 240 }),
+    ).toBe(true);
+  });
+
+  test("a draft the field still shows whole has none", () => {
+    expect(
+      isDraftScrolledOutOfView({ scrollHeightPx: 120, clientHeightPx: 240 }),
+    ).toBe(false);
+  });
+
+  test("an unmeasured field has nothing out of view", () => {
+    expect(
+      isDraftScrolledOutOfView({ scrollHeightPx: 0, clientHeightPx: 0 }),
+    ).toBe(false);
+  });
+});
+
 // ---------------------------------------------------------------------------
 // HTML rendering — placeholder and send/stop button surface
 // ---------------------------------------------------------------------------
@@ -785,6 +871,109 @@ function textareaOf(container: HTMLElement) {
  */
 function glyphClassOf(button: Element | null): string {
   return button?.querySelector("span")?.className ?? "";
+}
+
+function inlineActionsStart(container: HTMLElement) {
+  const el = container.querySelector<HTMLElement>(
+    '[data-slot="composer-inline-actions-start"]',
+  );
+  if (!el) {
+    throw new Error("composer rendered without its leading control cluster");
+  }
+  return el;
+}
+
+function inlineActionsEnd(container: HTMLElement) {
+  const el = container.querySelector<HTMLElement>(
+    '[data-slot="composer-inline-actions-end"]',
+  );
+  if (!el) {
+    throw new Error("composer rendered without its trailing control cluster");
+  }
+  return el;
+}
+
+/** The flex container both control clusters and the text field sit in. */
+function composerRow(container: HTMLElement) {
+  const row = inlineActionsStart(container).parentElement;
+  if (!row) {
+    throw new Error("the leading control cluster has no row");
+  }
+  return row;
+}
+
+/** The grid the textarea, its mirror and the draft probe share. */
+function textFieldBlock(container: HTMLElement) {
+  const block = textareaOf(container).parentElement;
+  if (!block) {
+    throw new Error("the textarea has no block");
+  }
+  return block;
+}
+
+/** The horizontal padding the composer takes off its measured inline span. */
+const TEXT_FIELD_INSET_X_PX = 16;
+
+function stubEdge(el: Element, edge: "left" | "right", valuePx: number) {
+  const rect: DOMRect = {
+    x: 0,
+    y: 0,
+    top: 0,
+    bottom: 0,
+    width: 0,
+    height: 0,
+    left: edge === "left" ? valuePx : 0,
+    right: edge === "right" ? valuePx : 0,
+    toJSON: () => ({}),
+  };
+  el.getBoundingClientRect = () => rect;
+}
+
+/**
+ * happy-dom lays nothing out, so every measurement the composer takes comes
+ * back zero. Stand in for a laid-out row: the span the inline layout leaves
+ * between the two control clusters, and the width the draft would take in it
+ * with nothing to wrap it.
+ */
+function stubDraftGeometry(
+  container: HTMLElement,
+  widths: { inlineWidthPx: number; naturalWidthPx: number },
+) {
+  stubEdge(inlineActionsStart(container), "right", 0);
+  stubEdge(
+    inlineActionsEnd(container),
+    "left",
+    widths.inlineWidthPx + TEXT_FIELD_INSET_X_PX,
+  );
+  const probe = container.querySelector('[data-slot="composer-draft-probe"]');
+  if (!probe) {
+    throw new Error("composer rendered without its draft probe");
+  }
+  Object.defineProperty(probe, "scrollWidth", {
+    configurable: true,
+    value: widths.naturalWidthPx,
+  });
+}
+
+/** Stand in for a text field that has scrolled its earlier lines out of view. */
+function stubDraftScroll(
+  container: HTMLElement,
+  heights: { scrollHeightPx: number; clientHeightPx: number },
+) {
+  const textarea = textareaOf(container);
+  Object.defineProperty(textarea, "scrollHeight", {
+    configurable: true,
+    value: heights.scrollHeightPx,
+  });
+  Object.defineProperty(textarea, "clientHeight", {
+    configurable: true,
+    value: heights.clientHeightPx,
+  });
+}
+
+/** Type into the draft, which is what re-runs the composer's measurements. */
+function typeDraft(container: HTMLElement, value: string) {
+  fireEvent.change(textareaOf(container), { target: { value } });
 }
 
 describe("ChatComposer — placeholder", () => {
@@ -1597,6 +1786,140 @@ describe("ChatComposer: single-row mobile composer", () => {
     expect(html.indexOf("<textarea")).toBeLessThan(
       html.indexOf('aria-label="Attach file"'),
     );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Past one line the mobile row wraps: full-width draft, controls beneath it
+// ---------------------------------------------------------------------------
+
+describe("ChatComposer: a mobile draft past one line", () => {
+  test("a draft that still fits keeps every control on the one row", () => {
+    // GIVEN a phone composer whose draft is narrower than the row's own span
+    const { container } = renderPhoneComposer();
+    stubDraftGeometry(container, { inlineWidthPx: 220, naturalWidthPx: 90 });
+
+    // WHEN it is typed
+    typeDraft(container, "short");
+
+    // THEN the row stays a single line, with the text field taking whatever
+    // the controls beside it leave
+    expect(composerRow(container).className).not.toContain("flex-wrap");
+    expect(textFieldBlock(container).className).toContain("flex-1");
+    expect(textFieldBlock(container).className).not.toContain("basis-full");
+  });
+
+  test("a draft past the line takes the full width and drops the controls below", () => {
+    // GIVEN a phone composer whose draft has outgrown the row's span
+    const { container } = renderPhoneComposer();
+    stubDraftGeometry(container, { inlineWidthPx: 220, naturalWidthPx: 640 });
+
+    // WHEN it is typed
+    typeDraft(container, "a draft long enough to run past the row's one line");
+
+    // THEN the row wraps, and the text field takes the whole of the first
+    // line, ahead of the controls
+    expect(composerRow(container).className).toContain("flex-wrap");
+    expect(textFieldBlock(container).className).toContain("basis-full");
+    expect(textFieldBlock(container).className).toContain("order-first");
+    expect(textFieldBlock(container).className).not.toContain("flex-1");
+
+    // AND the controls keep their sides of the row that wrapped beneath it:
+    // the plus and its divider lead, the send slot anchors the far end
+    const start = inlineActionsStart(container);
+    expect(start.contains(control(container, PLUS_LABEL)!)).toBe(true);
+    expect(start.innerHTML).toContain("var(--border-hover)");
+    expect(
+      inlineActionsEnd(container).contains(control(container, "Send message")!),
+    ).toBe(true);
+    expect(inlineActionsEnd(container).className).toContain("ml-auto");
+  });
+
+  test("the layout change never rebuilds the textarea under the caret", () => {
+    // GIVEN a phone composer on its inline row
+    const { container } = renderPhoneComposer();
+    stubDraftGeometry(container, { inlineWidthPx: 220, naturalWidthPx: 90 });
+    typeDraft(container, "short");
+    const before = textareaOf(container);
+
+    // WHEN the draft grows past the line mid-typing
+    stubDraftGeometry(container, { inlineWidthPx: 220, naturalWidthPx: 640 });
+    typeDraft(container, "short but then rather a lot longer than that");
+    expect(composerRow(container).className).toContain("flex-wrap");
+
+    // THEN it is the very same node, so focus and selection ride the change
+    expect(textareaOf(container)).toBe(before);
+
+    // AND again on the way back, which is what deleting past the boundary does
+    stubDraftGeometry(container, { inlineWidthPx: 220, naturalWidthPx: 90 });
+    typeDraft(container, "short");
+    expect(composerRow(container).className).not.toContain("flex-wrap");
+    expect(textareaOf(container)).toBe(before);
+  });
+
+  test("the draft keeps its place in the DOM through the change", () => {
+    // GIVEN a phone composer whose draft has gone past the line
+    const { container } = renderPhoneComposer();
+    stubDraftGeometry(container, { inlineWidthPx: 220, naturalWidthPx: 640 });
+    typeDraft(container, "a draft long enough to run past the row's one line");
+
+    // THEN the visual reordering is the layout's alone: the plus still comes
+    // before the textarea in the markup, which is what keeps React from
+    // reparenting the field it is typed into
+    const html = container.innerHTML;
+    expect(html.indexOf(`aria-label="${PLUS_LABEL}"`)).toBeLessThan(
+      html.indexOf("<textarea"),
+    );
+  });
+
+  test("lines pushed out of view get a fade over the field's top edge", () => {
+    // GIVEN a phone composer whose draft has grown past the field's cap
+    const { container } = renderPhoneComposer();
+    stubDraftScroll(container, { scrollHeightPx: 400, clientHeightPx: 240 });
+
+    // WHEN it is typed
+    typeDraft(container, "a draft with more lines than the field can show");
+
+    // THEN a fade stands over the top edge the earlier lines leave through,
+    // and takes neither taps nor a place in the accessibility tree
+    const fade = container.querySelector('[data-slot="composer-draft-fade"]');
+    expect(fade).not.toBeNull();
+    expect(fade?.className).toContain("pointer-events-none");
+    expect(fade?.getAttribute("aria-hidden")).toBe("true");
+    expect(fade?.className).toContain("var(--surface-lift)");
+  });
+
+  test("a draft the field shows whole gets no fade", () => {
+    // GIVEN a phone composer whose draft fits inside the field's cap
+    const { container } = renderPhoneComposer();
+    stubDraftScroll(container, { scrollHeightPx: 120, clientHeightPx: 240 });
+
+    // WHEN it is typed
+    typeDraft(container, "a draft the field shows whole");
+
+    // THEN nothing is faded, since nothing has left the top
+    expect(
+      container.querySelector('[data-slot="composer-draft-fade"]'),
+    ).toBeNull();
+  });
+
+  test("desktop keeps its stacked card and measures no draft", () => {
+    // GIVEN a desktop composer, whose card already stacks the text above its
+    // own action row
+    viewport.set({ narrow: false, coarsePointer: false });
+    const { container } = renderComposerView();
+
+    // WHEN a long draft is typed
+    typeDraft(container, "a draft long enough to run past any single line");
+
+    // THEN it neither carries the mobile row's probe nor takes its wrapping
+    expect(
+      container.querySelector('[data-slot="composer-draft-probe"]'),
+    ).toBeNull();
+    expect(
+      container.querySelector('[data-slot="composer-draft-fade"]'),
+    ).toBeNull();
+    expect(textFieldBlock(container).className).toBe("grid");
   });
 });
 

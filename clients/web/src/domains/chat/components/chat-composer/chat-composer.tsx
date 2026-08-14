@@ -82,6 +82,8 @@ import { Button, cn, Notice, Popover } from "@vellumai/design-library";
 
 import {
   computeGhostSuffix,
+  isDraftPastOneLine,
+  isDraftScrolledOutOfView,
   shouldSubmitOnEnter,
 } from "@/domains/chat/components/chat-composer/chat-composer-utils";
 import {
@@ -247,6 +249,13 @@ function measureVoiceOriginAvatar(): { x: number; y: number } | null {
  */
 const MOBILE_SEND_FILL_CLASS =
   "bg-[var(--system-positive-strong)] hover:bg-[var(--system-positive-strong)] active:bg-[var(--system-positive-strong)] [--vbtn-fg:var(--aux-white)]";
+
+/**
+ * The padding the mobile text field carries on each side (`px-2`). Taken off
+ * the span measured between the row's two control clusters, which is a border
+ * box, to leave the width the draft itself gets on the inline row.
+ */
+const MOBILE_TEXT_FIELD_INSET_X_PX = 16;
 
 interface AddToChatButtonProps {
   disabled: boolean;
@@ -787,6 +796,78 @@ export function ChatComposer({
   // card at 52px.
   const textFieldPaddingClass = isMobile ? "px-2 py-2" : "px-4 pt-3 pb-2";
 
+  // ---- Mobile draft geometry --------------------------------------------
+  // Two questions the draft's own text cannot answer: whether it still fits
+  // the one line the inline row gives it, and whether it has grown past the
+  // field's cap and pushed its earlier lines out of view. Both are measured
+  // after commit, from the boxes below.
+  const mobileRowRef = useRef<HTMLDivElement>(null);
+  const inlineActionsStartRef = useRef<HTMLDivElement>(null);
+  const inlineActionsEndRef = useRef<HTMLDivElement>(null);
+  const draftProbeRef = useRef<HTMLDivElement>(null);
+  const [isMultilineDraft, setIsMultilineDraft] = useState(false);
+  const [isDraftScrolled, setIsDraftScrolled] = useState(false);
+  const measureDraftGeometry = useCallback(() => {
+    const start = inlineActionsStartRef.current;
+    const end = inlineActionsEndRef.current;
+    const probe = draftProbeRef.current;
+    if (!isMobile || hideTextareaForVoice || !start || !end || !probe) {
+      setIsMultilineDraft(false);
+      setIsDraftScrolled(false);
+      return;
+    }
+    // The span between the two control clusters. They keep their widths and
+    // their line through the change, so this is the width the draft has on the
+    // inline row whichever layout is currently up: the fixed reference the
+    // stacked layout has to be judged against to settle (see
+    // `isDraftPastOneLine`).
+    const inlineWidthPx =
+      end.getBoundingClientRect().left -
+      start.getBoundingClientRect().right -
+      MOBILE_TEXT_FIELD_INSET_X_PX;
+    setIsMultilineDraft(
+      isDraftPastOneLine({
+        naturalWidthPx: probe.scrollWidth,
+        inlineWidthPx,
+        hasHardBreak: input.includes("\n"),
+      }),
+    );
+    const textarea = inputRef.current;
+    setIsDraftScrolled(
+      textarea !== null &&
+        isDraftScrolledOutOfView({
+          scrollHeightPx: textarea.scrollHeight,
+          clientHeightPx: textarea.clientHeight,
+        }),
+    );
+  }, [hideTextareaForVoice, input, inputRef, isMobile]);
+  useLayoutEffect(() => {
+    measureDraftGeometry();
+  }, [measureDraftGeometry]);
+  // Latest measurement behind a stable identity, so the observer below is set
+  // up once per row rather than torn down and rebuilt on every keystroke.
+  const measureDraftGeometryRef = useRef(measureDraftGeometry);
+  useLayoutEffect(() => {
+    measureDraftGeometryRef.current = measureDraftGeometry;
+  });
+  useEffect(() => {
+    const row = mobileRowRef.current;
+    const start = inlineActionsStartRef.current;
+    const end = inlineActionsEndRef.current;
+    if (!row || !start || !end || typeof ResizeObserver === "undefined") {
+      return;
+    }
+    const observer = new ResizeObserver(() =>
+      measureDraftGeometryRef.current(),
+    );
+    // The card's own width, and the two clusters it reserves room for: a turn
+    // starting takes the plus away, which is 41px the draft gets back.
+    observer.observe(row);
+    observer.observe(start);
+    observer.observe(end);
+    return () => observer.disconnect();
+  }, [isMobile]);
+
   // Mobile hands the attach flow to a plus, which opens the sheet on a touch
   // surface and the file picker anywhere else. Every attach control answers to
   // the same gating, so a busy assistant hides whichever one is mounted.
@@ -941,10 +1022,39 @@ export function ChatComposer({
         hideTextareaForVoice
           ? "hidden"
           : isMobile
-            ? "grid min-w-0 flex-1"
+            ? cn(
+                "grid min-w-0",
+                isMultilineDraft
+                  ? // Past one line the block takes the row's whole width and
+                    // steps ahead of the controls, which wrap into a row of
+                    // their own beneath it. The 2px lands the text on the
+                    // card's 12px inset, where the plus below it already sits.
+                    "order-first basis-full pl-0.5"
+                  : "flex-1",
+              )
             : "grid"
       }
     >
+      {isMobile && (
+        // What the row asks whether the draft still fits its one line: the
+        // same text with nothing to wrap it, in a box with no width of its
+        // own, so `scrollWidth` reports what the draft would take unbroken.
+        // The autogrow mirror below cannot answer that, since it wraps, and
+        // its width is the very thing the answer decides.
+        //
+        // The suggestion is deliberately left out. It is somebody else's text
+        // arriving on its own schedule, and restructuring the composer around
+        // it would move the card under the user mid-sentence.
+        <div
+          ref={draftProbeRef}
+          aria-hidden
+          data-slot="composer-draft-probe"
+          className="pointer-events-none invisible col-start-1 row-start-1 h-0 w-0 overflow-hidden whitespace-pre text-chat"
+          style={{ fontFamily: "inherit", letterSpacing: "inherit" }}
+        >
+          {input}
+        </div>
+      )}
       <div
         aria-hidden
         className={`pointer-events-none col-start-1 row-start-1 overflow-hidden whitespace-pre-wrap break-words text-chat ${textFieldPaddingClass}`}
@@ -1130,6 +1240,17 @@ export function ChatComposer({
         className={`col-start-1 row-start-1 w-full resize-none overflow-y-auto border-none bg-transparent text-chat text-[var(--content-default)] placeholder:text-[var(--content-disabled)] focus:outline-none disabled:opacity-50 ${textFieldPaddingClass}`}
         style={{ maxHeight: `${textareaMaxHeightPx}px` }}
       />
+      {isDraftScrolled && (
+        // A draft past the field's cap scrolls its earlier lines up behind the
+        // card's top edge. One line's worth of the card's own surface over
+        // that edge lets them leave rather than end. Positioned so it paints
+        // over the field it fades, and out of the way of anything aimed at it.
+        <div
+          aria-hidden
+          data-slot="composer-draft-fade"
+          className="pointer-events-none relative col-start-1 row-start-1 h-6 self-start bg-gradient-to-b from-[var(--surface-lift)] to-transparent"
+        />
+      )}
     </div>
   );
 
@@ -1271,31 +1392,56 @@ export function ChatComposer({
                       {inlineVoicePreview}
                       {/* One row: add, divider, input, mic, voice-or-send.
                         `items-end` holds the fixed-height controls on the
-                        card's bottom edge while the textarea grows upward. */}
-                      <div className="flex items-end py-1.5 pl-0.5 pr-1.5">
-                        {contextWindowIndicatorSlot ? (
-                          // A bare slot in an `items-end` row sits flush on the
-                          // card's bottom edge; a control-height box centres it
-                          // against the glyphs beside it instead.
-                          <div className="mr-1 flex h-10 shrink-0 items-center">
-                            {contextWindowIndicatorSlot}
-                          </div>
-                        ) : null}
-                        {!isAssistantBusy && attachControl}
-                        {!isAssistantBusy && (
-                          <div
-                            aria-hidden="true"
-                            className="-ml-0.5 mb-2 h-6 w-px shrink-0 bg-[var(--border-hover)]"
-                          />
+                        card's bottom edge while the textarea grows upward.
+                        Once the draft outgrows that line the same row wraps:
+                        the text takes the full width and the two control
+                        clusters drop beneath it. Every control keeps its place
+                        in this one flex container across the change, so the
+                        textarea is never rebuilt under a caret mid-word. */}
+                      <div
+                        ref={mobileRowRef}
+                        className={cn(
+                          "flex items-end py-1.5 pl-0.5 pr-1.5",
+                          // 4px against the field's own 8px of bottom padding
+                          // is the 12px the design leaves between the draft
+                          // and the controls.
+                          isMultilineDraft && "flex-wrap gap-y-1",
                         )}
+                      >
+                        <div
+                          ref={inlineActionsStartRef}
+                          data-slot="composer-inline-actions-start"
+                          className="flex shrink-0 items-end"
+                        >
+                          {contextWindowIndicatorSlot ? (
+                            // A bare slot in an `items-end` row sits flush on
+                            // the card's bottom edge; a control-height box
+                            // centres it against the glyphs beside it instead.
+                            <div className="mr-1 flex h-10 shrink-0 items-center">
+                              {contextWindowIndicatorSlot}
+                            </div>
+                          ) : null}
+                          {!isAssistantBusy && attachControl}
+                          {!isAssistantBusy && (
+                            <div
+                              aria-hidden="true"
+                              className="-ml-0.5 mb-2 h-6 w-px shrink-0 bg-[var(--border-hover)]"
+                            />
+                          )}
+                        </div>
                         {textFieldBlock}
                         {/* The mic's 40x40 box carries 10px of slack around its
                           20px glyph, so 6px of gap lands that glyph the
-                          design's 16px from the voice circle. `ml-auto` is the
-                          fallback anchor: native dictation takes the textarea
-                          out of the row, and with its `flex-1` gone there is
-                          nothing left to push this group over. */}
-                        <div className="ml-auto flex shrink-0 items-end gap-1.5">
+                          design's 16px from the voice circle. `ml-auto` anchors
+                          the group to the right end of whichever line it is
+                          on: the wrapped control row, and the inline row once
+                          native dictation has taken the textarea's `flex-1`
+                          out of it. */}
+                        <div
+                          ref={inlineActionsEndRef}
+                          data-slot="composer-inline-actions-end"
+                          className="ml-auto flex shrink-0 items-end gap-1.5"
+                        >
                           {isAssistantBusy ? (
                             busyRowControl
                           ) : (
