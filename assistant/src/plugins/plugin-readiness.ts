@@ -20,9 +20,28 @@ import {
   getPluginActivationEligibility,
   type PluginActivationEligibility,
 } from "./activation-eligibility.js";
+import {
+  derivePluginSourceFingerprint,
+  snapshotPluginSource,
+} from "./source-fingerprint.js";
+import { getFileSignature } from "./surface-import.js";
 export { derivePluginSourceFingerprint } from "./source-fingerprint.js";
 
 let snapshot: PluginReadinessSnapshot = createSnapshot();
+let durableReadsEnabled =
+  process.env.BUN_TEST !== "1" && process.env.NODE_ENV !== "test";
+let durableSnapshotCache:
+  | {
+      readonly path: string;
+      readonly signature: string;
+      readonly value: PluginReadinessSnapshot | undefined;
+    }
+  | undefined;
+const sourceFingerprintCache = new Map<
+  string,
+  { readonly checkedAt: number; readonly fingerprint: string }
+>();
+const SOURCE_FINGERPRINT_CACHE_MS = 1_000;
 
 function createSnapshot(): PluginReadinessSnapshot {
   return { schemaVersion: 1, generation: randomUUID(), plugins: {} };
@@ -162,7 +181,9 @@ export function getPluginSurfaceActivation(
     return { status: "ready" };
   }
 
-  const readiness = getPluginReadiness(pluginId);
+  const readiness =
+    getPluginReadiness(pluginId) ??
+    getDurablePluginReadiness(pluginId, pluginDir);
   if (!readiness) {
     return {
       status: "initializing",
@@ -190,6 +211,36 @@ export function getPluginSurfaceActivation(
   };
 }
 
+function getDurablePluginReadiness(
+  pluginId: string,
+  pluginDir: string,
+): PluginReadinessEntry | undefined {
+  if (!durableReadsEnabled) {
+    return undefined;
+  }
+  const readiness = readPluginReadinessSnapshot()?.plugins[pluginId];
+  if (!readiness) {
+    return undefined;
+  }
+  const now = Date.now();
+  const cached = sourceFingerprintCache.get(pluginDir);
+  let sourceFingerprint: string;
+  if (cached && now - cached.checkedAt < SOURCE_FINGERPRINT_CACHE_MS) {
+    sourceFingerprint = cached.fingerprint;
+  } else {
+    sourceFingerprint = derivePluginSourceFingerprint(
+      snapshotPluginSource(pluginDir).fingerprint,
+    );
+    sourceFingerprintCache.set(pluginDir, {
+      checkedAt: now,
+      fingerprint: sourceFingerprint,
+    });
+  }
+  return readiness.sourceFingerprint === sourceFingerprint
+    ? readiness
+    : undefined;
+}
+
 export function isPluginSurfaceReady(
   pluginId: string,
   pluginDir: string,
@@ -197,22 +248,36 @@ export function isPluginSurfaceReady(
   return getPluginSurfaceActivation(pluginId, pluginDir).status === "ready";
 }
 
-export function readPluginReadinessSnapshot(
+function readPluginReadinessSnapshot(
   workspaceDir = getWorkspaceDir(),
 ): PluginReadinessSnapshot | undefined {
   const path = getPluginReadinessPath(workspaceDir);
-  if (!existsSync(path)) {
-    return undefined;
+  const signature = getFileSignature(path);
+  if (
+    durableSnapshotCache?.path === path &&
+    durableSnapshotCache.signature === signature
+  ) {
+    return durableSnapshotCache.value;
   }
+  let value: PluginReadinessSnapshot | undefined;
   try {
-    return PluginReadinessSnapshotSchema.parse(
-      JSON.parse(readFileSync(path, "utf8")),
-    );
+    value = existsSync(path)
+      ? PluginReadinessSnapshotSchema.parse(
+          JSON.parse(readFileSync(path, "utf8")),
+        )
+      : undefined;
   } catch {
-    return undefined;
+    value = undefined;
   }
+  durableSnapshotCache = { path, signature, value };
+  return value;
 }
 
-export function resetPluginReadinessForTests(): void {
+export function resetPluginReadinessForTests(
+  options: { readonly durableReads?: boolean } = {},
+): void {
   snapshot = createSnapshot();
+  durableReadsEnabled = options.durableReads ?? false;
+  durableSnapshotCache = undefined;
+  sourceFingerprintCache.clear();
 }

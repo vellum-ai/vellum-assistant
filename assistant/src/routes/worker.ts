@@ -51,7 +51,7 @@ import {
   ROUTE_HOST_PROC_NAME,
   ROUTE_INVOKE_METHOD,
   type RouteCancelParams,
-  type RouteInvokeParams,
+  type RouteInvokeWireParams,
 } from "./route-host-protocol.js";
 
 const log = getLogger("route-host");
@@ -59,6 +59,7 @@ const log = getLogger("route-host");
 const activeAbortControllers = new Map<string, AbortController>();
 
 interface PendingBrokerCall {
+  readonly invokeId: string;
   resolve: (result: RouteHostBrokerResult) => void;
   reject: (error: Error) => void;
 }
@@ -82,7 +83,7 @@ function toArrayBuffer(bytes: Uint8Array): ArrayBuffer {
 }
 
 function reconstructRequest(
-  params: RouteInvokeParams,
+  params: RouteInvokeWireParams,
   body: Uint8Array | undefined,
   signal: AbortSignal,
 ): Request {
@@ -131,7 +132,7 @@ const HTTP_METHODS = [
 async function handleInvoke(
   socket: Socket,
   id: string,
-  params: RouteInvokeParams,
+  params: RouteInvokeWireParams,
   body: Uint8Array | undefined,
 ): Promise<void> {
   const abortController = new AbortController();
@@ -155,7 +156,7 @@ async function handleInvoke(
     const request = reconstructRequest(params, body, abortController.signal);
     const serializedContext = params.pluginContext;
     const brokerTransport = serializedContext
-      ? createBrokerTransport(socket, id)
+      ? createBrokerTransport(socket, id, params.brokerCapability)
       : undefined;
     const pluginContext: PluginRouteContext | undefined =
       serializedContext && brokerTransport
@@ -198,21 +199,36 @@ async function handleInvoke(
     );
   } finally {
     activeAbortControllers.delete(id);
+    for (const [brokerId, pending] of pendingBrokerCalls) {
+      if (pending.invokeId === id) {
+        pendingBrokerCalls.delete(brokerId);
+        pending.reject(new Error("route invocation completed"));
+      }
+    }
   }
 }
 
 function createBrokerTransport(
   socket: Socket,
   invokeId: string,
+  capability: string | null,
 ): (request: RouteHostBrokerRequest) => Promise<RouteHostBrokerResult> {
   return (request) => {
     const id = `broker:${process.pid}:${++brokerCallSeq}`;
     return new Promise<RouteHostBrokerResult>((resolve, reject) => {
-      pendingBrokerCalls.set(id, { resolve, reject });
+      if (capability === null) {
+        reject(new Error("route host broker capability is unavailable"));
+        return;
+      }
+      pendingBrokerCalls.set(id, { invokeId, resolve, reject });
       writeMessage(socket, {
         id,
         method: ROUTE_BROKER_METHOD,
-        params: { invokeId, request } as unknown as Record<string, unknown>,
+        params: {
+          invokeId,
+          capability,
+          request,
+        } as unknown as Record<string, unknown>,
       });
     });
   };
@@ -239,13 +255,19 @@ function onConnection(socket: Socket): void {
             new DOMException("Route request aborted", "AbortError"),
           );
         }
+        if (envelope.id) {
+          writeMessage(socket, {
+            id: envelope.id,
+            result: { cancelled: controller !== undefined },
+          });
+        }
         return;
       }
       if (envelope.method !== ROUTE_INVOKE_METHOD || !envelope.id) {
         return;
       }
       const id = envelope.id;
-      const params = envelope.params as unknown as RouteInvokeParams;
+      const params = envelope.params as unknown as RouteInvokeWireParams;
       handleInvoke(socket, id, params, binary).catch((err: unknown) => {
         const message = err instanceof Error ? err.message : String(err);
         log.error({ err, id }, "Route handler invocation failed");

@@ -65,7 +65,7 @@ function incompatible(
   return { eligible: false, pluginId, code, reason, ...extras };
 }
 
-export function evaluatePluginActivation(
+function evaluatePluginActivation(
   pluginDir: string,
 ): PluginActivationEligibility {
   const pluginId = basename(pluginDir);

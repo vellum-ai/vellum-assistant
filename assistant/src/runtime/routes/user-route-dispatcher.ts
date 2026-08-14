@@ -91,6 +91,7 @@ const HTTP_METHODS = [
   "HEAD",
   "OPTIONS",
 ] as const;
+const MUTATING_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
 
 type HttpMethod = (typeof HTTP_METHODS)[number];
 
@@ -163,8 +164,11 @@ export class UserRouteDispatcher {
   async dispatch(
     routePath: string,
     request: Request,
-    dispatchContext?: UserRouteDispatchContext,
+    dispatchContext: UserRouteDispatchContext,
   ): Promise<Response> {
+    if (!dispatchContext) {
+      return httpError("FORBIDDEN", "Verified route context is required", 403);
+    }
     if (routePath.includes("..")) {
       return httpError("BAD_REQUEST", "Path traversal is not allowed", 400);
     }
@@ -180,7 +184,7 @@ export class UserRouteDispatcher {
 
     if (
       !location.pluginId &&
-      dispatchContext?.actor.principalType === "assistant_peer"
+      dispatchContext.actor.principalType === "assistant_peer"
     ) {
       return Response.json(
         {
@@ -195,7 +199,6 @@ export class UserRouteDispatcher {
 
     if (
       !location.pluginId &&
-      dispatchContext &&
       !dispatchContext.actor.scopes.includes("settings.read") &&
       !dispatchContext.actor.scopes.includes("local.all")
     ) {
@@ -235,7 +238,7 @@ export class UserRouteDispatcher {
         location.pluginId,
         authorization,
         this.resolvePluginRouteActor(dispatchContext),
-        dispatchContext?.verifiedPeer ?? null,
+        dispatchContext.verifiedPeer ?? null,
       );
       if (denied) {
         return denied;
@@ -261,7 +264,13 @@ export class UserRouteDispatcher {
       : undefined;
 
     if (isRouteHostEnabled()) {
-      return this.dispatchViaHost(filePath, routePath, request, pluginRoute);
+      return this.dispatchViaHost(
+        filePath,
+        routeSourceRoot(location.routesDir),
+        routePath,
+        request,
+        pluginRoute,
+      );
     }
 
     const mod = await this.loadModule(filePath, location.routesDir);
@@ -288,9 +297,9 @@ export class UserRouteDispatcher {
     pluginId: string,
     pluginDir: string | undefined,
     request: Request,
-    dispatchContext: UserRouteDispatchContext | undefined,
+    dispatchContext: UserRouteDispatchContext,
   ): PluginRouteExecution {
-    const actor = this.resolvePluginRouteActor(dispatchContext);
+    const actor = dispatchContext.actor;
     const pluginStorageDir = resolvePluginStorageDir(
       pluginId,
       pluginDir ?? null,
@@ -298,9 +307,9 @@ export class UserRouteDispatcher {
     const context: PluginRouteContext = {
       pluginId,
       actor,
-      requestId: dispatchContext?.requestId ?? randomUUID(),
-      signal: dispatchContext?.signal ?? request.signal,
-      verifiedPeer: dispatchContext?.verifiedPeer ?? null,
+      requestId: dispatchContext.requestId ?? randomUUID(),
+      signal: dispatchContext.signal ?? request.signal,
+      verifiedPeer: dispatchContext.verifiedPeer ?? null,
       host: {
         async getPluginStorageDir(): Promise<string> {
           return pluginStorageDir;
@@ -314,15 +323,9 @@ export class UserRouteDispatcher {
   }
 
   private resolvePluginRouteActor(
-    dispatchContext: UserRouteDispatchContext | undefined,
+    dispatchContext: UserRouteDispatchContext,
   ): PluginRouteActorContext {
-    return (
-      dispatchContext?.actor ?? {
-        principalType: "local",
-        principalId: null,
-        scopes: ["local.all"],
-      }
-    );
+    return dispatchContext.actor;
   }
 
   private pluginUnavailableResponse(
@@ -387,7 +390,12 @@ export class UserRouteDispatcher {
     manifest: PluginRouteManifestResult | undefined,
   ): PluginRouteAuthorization | Response {
     if (!manifest || manifest.kind === "legacy") {
-      return { principal: "actor", requiredScopes: ["settings.read"] };
+      return {
+        principal: "actor",
+        requiredScopes: [
+          MUTATING_METHODS.has(method) ? "settings.write" : "settings.read",
+        ],
+      };
     }
     if (manifest.kind === "invalid") {
       return this.pluginStatusResponse(
@@ -432,6 +440,7 @@ export class UserRouteDispatcher {
    */
   private async dispatchViaHost(
     filePath: string,
+    sourceRoot: string,
     routePath: string,
     request: Request,
     pluginRoute: PluginRouteExecution | undefined,
@@ -450,6 +459,7 @@ export class UserRouteDispatcher {
       const result = await this.routeHostClient.invoke(
         {
           filePath,
+          sourceRoot,
           method: request.method,
           url: request.url,
           headers,

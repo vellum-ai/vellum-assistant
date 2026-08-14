@@ -17,14 +17,16 @@
  * follow-up; the daemon stays responsive regardless.
  */
 
+import { randomBytes } from "node:crypto";
 import { existsSync, unlinkSync } from "node:fs";
 import { connect, type Socket } from "node:net";
+import { dirname } from "node:path";
 
 import type { IpcEnvelope } from "@vellumai/ipc-server-utils";
 import { IpcFrameReader, writeMessage } from "@vellumai/ipc-server-utils";
 
 import { snapshotPluginSource } from "../plugins/source-fingerprint.js";
-import { sourceRootForHandler } from "../runtime/routes/user-route-import.js";
+import { getFileSignature } from "../plugins/surface-import.js";
 import { getLogger } from "../util/logger.js";
 import { getProcPidPath, getProcSocketPath } from "../util/platform.js";
 import { spawnWorkerProcess } from "../util/worker-process.js";
@@ -40,6 +42,7 @@ import {
   type RouteBrokerParams,
   type RouteInvokeParams,
   type RouteInvokeResult,
+  type RouteInvokeWireParams,
 } from "./route-host-protocol.js";
 
 const log = getLogger("route-host-client");
@@ -77,6 +80,12 @@ interface Pending {
   signal?: AbortSignal;
   onAbort?: () => void;
   aborted: boolean;
+  brokerCapability: string | null;
+}
+
+interface RouteSourceVersion {
+  readonly fingerprint: string;
+  readonly entrySignatures: Map<string, string>;
 }
 
 export interface RouteHostInvokeOptions {
@@ -102,7 +111,9 @@ export class RouteHostClient {
   private connecting: Promise<Socket> | undefined;
   private pid: number | undefined;
   private readonly pending = new Map<string, Pending>();
-  private readonly sourceFingerprints = new Map<string, string>();
+  private readonly sourceVersions = new Map<string, RouteSourceVersion>();
+  private readonly drainWaiters = new Set<() => void>();
+  private sourceReloadPromise: Promise<void> | undefined;
   private idSeq = 0;
 
   constructor(options?: RouteHostClientOptions) {
@@ -125,16 +136,38 @@ export class RouteHostClient {
     if (signal?.aborted) {
       throw signal.reason ?? new DOMException("Aborted", "AbortError");
     }
-    const sourceRoot = sourceRootForHandler(params.filePath);
-    const sourceFingerprint = snapshotPluginSource(sourceRoot).fingerprint;
-    const previousFingerprint = this.sourceFingerprints.get(sourceRoot);
+    const sourceRoot = params.sourceRoot ?? dirname(params.filePath);
+    const entrySignature = getFileSignature(params.filePath);
+    const sourceVersion = this.sourceVersions.get(sourceRoot);
     if (
-      previousFingerprint !== undefined &&
-      previousFingerprint !== sourceFingerprint
+      sourceVersion === undefined ||
+      sourceVersion.entrySignatures.get(params.filePath) !== entrySignature
     ) {
-      this.killHost("route source changed");
+      const fingerprint = snapshotPluginSource(sourceRoot).fingerprint;
+      const sourceChanged =
+        sourceVersion !== undefined &&
+        sourceVersion.fingerprint !== fingerprint;
+      const entrySignatures = sourceChanged
+        ? new Map<string, string>()
+        : new Map(sourceVersion?.entrySignatures);
+      entrySignatures.set(params.filePath, entrySignature);
+      const nextSourceVersion = {
+        fingerprint,
+        entrySignatures,
+      };
+      if (sourceChanged) {
+        await this.reloadHostAfterPendingInvocations(signal);
+      }
+      this.sourceVersions.set(sourceRoot, nextSourceVersion);
     }
-    this.sourceFingerprints.set(sourceRoot, sourceFingerprint);
+    const brokerCapability = brokerContext
+      ? randomBytes(32).toString("base64url")
+      : null;
+    const wireParams: RouteInvokeWireParams = {
+      ...params,
+      sourceRoot,
+      brokerCapability,
+    };
     const socket = await this.ensureConnectedOrAbort(signal);
     const id = String(++this.idSeq);
 
@@ -171,12 +204,13 @@ export class RouteHostClient {
         signal,
         onAbort,
         aborted: false,
+        brokerCapability,
       });
 
       const envelope: IpcEnvelope = {
         id,
         method: ROUTE_INVOKE_METHOD,
-        params: params as unknown as Record<string, unknown>,
+        params: wireParams as unknown as Record<string, unknown>,
       };
       if (body && body.byteLength > 0) {
         envelope.headers = { "content-length": String(body.byteLength) };
@@ -300,12 +334,27 @@ export class RouteHostClient {
     if (!envelope.id) {
       return;
     }
+    if (envelope.id.startsWith("cancel:")) {
+      const invocationId = envelope.id.slice("cancel:".length);
+      const pending = this.pending.get(invocationId);
+      if (pending?.aborted) {
+        this.pending.delete(invocationId);
+        this.cleanupPending(pending);
+        this.notifyPendingDrained();
+      }
+      return;
+    }
     const pending = this.pending.get(envelope.id);
     if (!pending) {
       return;
     }
     this.pending.delete(envelope.id);
     this.cleanupPending(pending);
+    this.notifyPendingDrained();
+
+    if (pending.aborted) {
+      return;
+    }
 
     if (envelope.error != null) {
       pending.reject(new Error(envelope.error));
@@ -344,6 +393,16 @@ export class RouteHostClient {
       });
       return;
     }
+    if (
+      invocation.brokerCapability === null ||
+      params.capability !== invocation.brokerCapability
+    ) {
+      writeMessage(socket, {
+        id: envelope.id,
+        error: "broker request capability is invalid",
+      });
+      return;
+    }
 
     try {
       const result = await dispatchRouteHostBrokerRequest(
@@ -369,6 +428,7 @@ export class RouteHostClient {
     }
     this.pending.delete(id);
     this.cleanupPending(pending);
+    this.notifyPendingDrained();
     log.error(
       { id, pid: this.pid, timeoutMs: this.invokeTimeoutMs },
       "Route handler timed out — hard-killing route host",
@@ -429,6 +489,7 @@ export class RouteHostClient {
       pending.reject(err);
     }
     this.pending.clear();
+    this.notifyPendingDrained();
   }
 
   private cleanupPending(pending: Pending): void {
@@ -436,5 +497,59 @@ export class RouteHostClient {
     if (pending.signal && pending.onAbort) {
       pending.signal.removeEventListener("abort", pending.onAbort);
     }
+  }
+
+  private async reloadHostAfterPendingInvocations(
+    signal: AbortSignal | undefined,
+  ): Promise<void> {
+    if (!this.sourceReloadPromise) {
+      this.sourceReloadPromise = this.waitForPendingInvocations()
+        .then(() => this.killHost("route source changed"))
+        .finally(() => {
+          this.sourceReloadPromise = undefined;
+        });
+    }
+    if (!signal) {
+      await this.sourceReloadPromise;
+      return;
+    }
+    if (signal.aborted) {
+      throw signal.reason ?? new DOMException("Aborted", "AbortError");
+    }
+    await Promise.race([
+      this.sourceReloadPromise,
+      new Promise<never>((_, reject) => {
+        const onAbort = () => {
+          reject(
+            signal.reason instanceof Error
+              ? signal.reason
+              : new DOMException("Aborted", "AbortError"),
+          );
+        };
+        signal.addEventListener("abort", onAbort, { once: true });
+        void this.sourceReloadPromise?.finally(() => {
+          signal.removeEventListener("abort", onAbort);
+        });
+      }),
+    ]);
+  }
+
+  private waitForPendingInvocations(): Promise<void> {
+    if (this.pending.size === 0) {
+      return Promise.resolve();
+    }
+    return new Promise<void>((resolve) => {
+      this.drainWaiters.add(resolve);
+    });
+  }
+
+  private notifyPendingDrained(): void {
+    if (this.pending.size !== 0) {
+      return;
+    }
+    for (const resolve of this.drainWaiters) {
+      resolve();
+    }
+    this.drainWaiters.clear();
   }
 }

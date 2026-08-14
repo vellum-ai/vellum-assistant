@@ -52,6 +52,14 @@ export interface RouteInvokeParams {
   /** Request header entries as `[name, value]` pairs (preserves duplicates). */
   readonly headers: ReadonlyArray<readonly [string, string]>;
   readonly pluginContext?: SerializedPluginRouteContext | null;
+  /** Source tree to reload as one unit. Production callers provide this. */
+  readonly sourceRoot?: string;
+}
+
+/** Internal daemon-to-host invocation fields. */
+export interface RouteInvokeWireParams extends RouteInvokeParams {
+  readonly sourceRoot: string;
+  readonly brokerCapability: string | null;
 }
 
 export interface RouteCancelParams {
@@ -60,6 +68,7 @@ export interface RouteCancelParams {
 
 export interface RouteBrokerParams {
   readonly invokeId: string;
+  readonly capability: string;
   readonly request: unknown;
 }
 

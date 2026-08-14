@@ -41,6 +41,20 @@ const DEFAULT_PLUGIN_DIR = "platform-hosted";
 /** Its route namespace = `default-<dir>` by convention. */
 const DEFAULT_PLUGIN = `default-${DEFAULT_PLUGIN_DIR}`;
 
+function dispatch(
+  dispatcher: UserRouteDispatcher,
+  routePath: string,
+  request: Request,
+): Promise<Response> {
+  return dispatcher.dispatch(routePath, request, {
+    actor: {
+      principalType: "local",
+      principalId: null,
+      scopes: ["local.all"],
+    },
+  });
+}
+
 /** Create a workspace plugin dir; returns its `routes/` dir. Cleaned up per test. */
 function writeWorkspacePluginHandler(
   pluginName: string,
@@ -137,7 +151,8 @@ describe("default plugin route source resolution", () => {
 describe("default plugin route dispatch", () => {
   test("serves the default plugin's source route (GET on a POST-only handler → 405)", async () => {
     const dispatcher = new UserRouteDispatcher();
-    const response = await dispatcher.dispatch(
+    const response = await dispatch(
+      dispatcher,
       `plugins/${DEFAULT_PLUGIN}/reengage`,
       new Request(`http://localhost/v1/x/plugins/${DEFAULT_PLUGIN}/reengage`, {
         method: "GET",
@@ -163,7 +178,8 @@ describe("default plugin route dispatch", () => {
     ).toBe(false);
 
     const dispatcher = new UserRouteDispatcher();
-    const response = await dispatcher.dispatch(
+    const response = await dispatch(
+      dispatcher,
       `plugins/${DEFAULT_PLUGIN}/reengage`,
       new Request(`http://localhost/v1/x/plugins/${DEFAULT_PLUGIN}/reengage`, {
         method: "GET",
@@ -185,7 +201,8 @@ describe("default plugin route dispatch", () => {
     );
 
     const dispatcher = new UserRouteDispatcher();
-    const response = await dispatcher.dispatch(
+    const response = await dispatch(
+      dispatcher,
       `plugins/${DEFAULT_PLUGIN}/reengage`,
       new Request(`http://localhost/v1/x/plugins/${DEFAULT_PLUGIN}/reengage`, {
         method: "GET",
@@ -216,7 +233,8 @@ describe("default plugin route dispatch", () => {
 
     const dispatcher = new UserRouteDispatcher();
     for (const path of ["poison.test", "__tests__/poison"]) {
-      const response = await dispatcher.dispatch(
+      const response = await dispatch(
+        dispatcher,
         `plugins/${DEFAULT_PLUGIN}/${path}`,
         new Request(`http://localhost/v1/x/plugins/${DEFAULT_PLUGIN}/${path}`, {
           method: "GET",

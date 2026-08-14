@@ -1,8 +1,15 @@
-import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  rmSync,
+  utimesSync,
+  writeFileSync,
+} from "node:fs";
 import { dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
 import {
+  derivePluginSourceFingerprint,
   getPluginReadiness,
   markPluginFailed,
   markPluginInitializing,
@@ -10,6 +17,7 @@ import {
   resetPluginReadinessForTests,
 } from "../../../plugins/plugin-readiness.js";
 import { resetPluginRouteManifestCacheForTests } from "../../../plugins/plugin-route-manifest.js";
+import { snapshotPluginSource } from "../../../plugins/source-fingerprint.js";
 import { getWorkspacePluginsDir } from "../../../util/platform.js";
 import { UserRouteDispatcher } from "../user-route-dispatcher.js";
 
@@ -70,6 +78,13 @@ async function dispatch(pluginId: string, method = "GET"): Promise<Response> {
   return new UserRouteDispatcher().dispatch(
     `plugins/${pluginId}/status`,
     new Request("http://localhost/v1/x/status", { method }),
+    {
+      actor: {
+        principalType: "local",
+        principalId: null,
+        scopes: ["local.all"],
+      },
+    },
   );
 }
 
@@ -94,6 +109,36 @@ describe("plugin route readiness", () => {
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({ ok: true });
     expect(existsSync(marker)).toBe(true);
+  });
+
+  test("uses a durable ready snapshot only for matching plugin source", async () => {
+    const pluginId = "durable-ready-route";
+    const marker = writeRouteFixture(pluginId);
+    const pluginDir = join(getWorkspacePluginsDir(), pluginId);
+    const sourceFingerprint = derivePluginSourceFingerprint(
+      snapshotPluginSource(pluginDir).fingerprint,
+    );
+    markPluginReady(pluginId, sourceFingerprint);
+    resetPluginReadinessForTests({ durableReads: true });
+
+    const ready = await dispatch(pluginId);
+
+    expect(ready.status).toBe(200);
+    rmSync(marker, { force: true });
+    writeFileSync(
+      join(pluginDir, "routes", "status.ts"),
+      `import { writeFileSync } from "node:fs";
+       writeFileSync(${JSON.stringify(marker)}, "changed");
+       export function GET() { return Response.json({ changed: true }); }`,
+    );
+    const changedAt = new Date(Date.now() + 2_000);
+    utimesSync(join(pluginDir, "routes", "status.ts"), changedAt, changedAt);
+    resetPluginReadinessForTests({ durableReads: true });
+
+    const stale = await dispatch(pluginId);
+
+    expect(stale.status).toBe(503);
+    expect(existsSync(marker)).toBe(false);
   });
 
   test("keeps the timestamp for an unchanged readiness state", async () => {

@@ -1,4 +1,11 @@
-import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  rmSync,
+  statSync,
+  utimesSync,
+  writeFileSync,
+} from "node:fs";
 import { dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
@@ -6,7 +13,10 @@ import {
   markPluginReady,
   resetPluginReadinessForTests,
 } from "../../../plugins/plugin-readiness.js";
-import { resetPluginRouteManifestCacheForTests } from "../../../plugins/plugin-route-manifest.js";
+import {
+  readPluginRouteManifest,
+  resetPluginRouteManifestCacheForTests,
+} from "../../../plugins/plugin-route-manifest.js";
 // ---------------------------------------------------------------------------
 // Mocks
 // ---------------------------------------------------------------------------
@@ -14,7 +24,10 @@ import {
   getWorkspacePluginsDir,
   getWorkspaceRoutesDir,
 } from "../../../util/platform.js";
-import { UserRouteDispatcher } from "../user-route-dispatcher.js";
+import {
+  type UserRouteDispatchContext,
+  UserRouteDispatcher,
+} from "../user-route-dispatcher.js";
 
 const PLUGIN_ROUTE_CONTEXT_MODULE_URL = new URL(
   "../../../plugin-api/route-context.ts",
@@ -26,10 +39,31 @@ const PLUGIN_ROUTE_CONTEXT_MODULE_URL = new URL(
 // ---------------------------------------------------------------------------
 
 /** Create a dispatcher with optional overrides. */
+const LOCAL_DISPATCH_CONTEXT = {
+  actor: {
+    principalType: "local",
+    principalId: null,
+    scopes: ["local.all"],
+  },
+} as const satisfies UserRouteDispatchContext;
+
+interface TestDispatcher {
+  dispatch(
+    routePath: string,
+    request: Request,
+    context?: UserRouteDispatchContext,
+  ): Promise<Response>;
+}
+
 function makeDispatcher(options?: {
   handlerTimeoutMs?: number;
-}): UserRouteDispatcher {
-  return new UserRouteDispatcher(options);
+}): TestDispatcher {
+  const dispatcher = new UserRouteDispatcher(options);
+  return {
+    dispatch(routePath, request, context = LOCAL_DISPATCH_CONTEXT) {
+      return dispatcher.dispatch(routePath, request, context);
+    },
+  };
 }
 
 function makeRequest(
@@ -551,7 +585,7 @@ describe("plugin routes", () => {
     expect(body.plugin).toBe(true);
   });
 
-  test("keeps legacy POST routes compatible with read-only actors", async () => {
+  test("requires write scope for legacy mutating routes", async () => {
     writePluginHandler(
       "legacy-post",
       "submit.ts",
@@ -570,7 +604,38 @@ describe("plugin routes", () => {
       },
     );
 
-    expect(response.status).toBe(200);
+    expect(response.status).toBe(403);
+
+    const allowed = await makeDispatcher().dispatch(
+      "plugins/legacy-post/submit",
+      makeRequest("POST"),
+      {
+        actor: {
+          principalType: "actor",
+          principalId: "user-123",
+          scopes: ["settings.write"],
+        },
+      },
+    );
+    expect(allowed.status).toBe(200);
+  });
+
+  test("fails closed without verified dispatch context", async () => {
+    writePluginHandler(
+      "missing-context",
+      "status.ts",
+      `export function GET() { return new Response("unexpected"); }`,
+    );
+    const dispatcher = new UserRouteDispatcher();
+
+    const response = await (
+      dispatcher.dispatch as unknown as (
+        routePath: string,
+        request: Request,
+      ) => Promise<Response>
+    )("plugins/missing-context/status", makeRequest("GET"));
+
+    expect(response.status).toBe(403);
   });
 
   test("resolves nested paths and the index (namespace root)", async () => {
@@ -680,6 +745,76 @@ describe("plugin routes", () => {
       makeRequest("GET"),
     );
     expect(other.status).toBe(404);
+  });
+
+  test("does not execute routes from a directory without package metadata", async () => {
+    const pluginDir = join(getWorkspacePluginsDir(), "uninstalled-plugin");
+    const marker = join(pluginDir, "imported");
+    mkdirSync(join(pluginDir, "routes"), { recursive: true });
+    writeFileSync(
+      join(pluginDir, "routes", "status.ts"),
+      `import { writeFileSync } from "node:fs";
+       writeFileSync(${JSON.stringify(marker)}, "yes");
+       export function GET() { return new Response("unexpected"); }`,
+    );
+
+    const response = await makeDispatcher().dispatch(
+      "plugins/uninstalled-plugin/status",
+      makeRequest("GET"),
+    );
+
+    expect(response.status).toBe(404);
+    expect(existsSync(marker)).toBe(false);
+  });
+
+  test("reloads a same-size route manifest with preserved mtime", () => {
+    const plugin = "manifest-replacement";
+    writePluginRouteManifest(plugin, [
+      {
+        path: "status",
+        method: "GET",
+        authorization: {
+          principal: "actor",
+          requiredScopes: ["settings.write"],
+        },
+      },
+    ]);
+    const manifestPath = join(
+      getWorkspacePluginsDir(),
+      plugin,
+      "routes",
+      "manifest.json",
+    );
+    const first = readPluginRouteManifest(
+      join(getWorkspacePluginsDir(), plugin),
+    );
+    const before = statSync(manifestPath);
+    const replacement = JSON.stringify({
+      schemaVersion: 1,
+      routes: [
+        {
+          path: "status",
+          method: "PUT",
+          authorization: {
+            principal: "actor",
+            requiredScopes: ["settings.write"],
+          },
+        },
+      ],
+    });
+    expect(Buffer.byteLength(replacement)).toBe(before.size);
+
+    writeFileSync(manifestPath, replacement);
+    utimesSync(manifestPath, before.atime, before.mtime);
+    const second = readPluginRouteManifest(
+      join(getWorkspacePluginsDir(), plugin),
+    );
+
+    expect(first.kind).toBe("valid");
+    expect(second.kind).toBe("valid");
+    if (second.kind === "valid") {
+      expect(second.manifest.routes[0]?.method).toBe("PUT");
+    }
   });
 
   test("denies a read-only actor on a declared write route before import", async () => {

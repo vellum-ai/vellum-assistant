@@ -41,6 +41,7 @@ import {
 import { getPluginReadiness } from "../plugins/plugin-readiness.js";
 import {
   getSourceVersionsPath,
+  readSourceVersions,
   SOURCE_VERSIONS_FORMAT,
 } from "../plugins/source-versions.js";
 import {
@@ -188,6 +189,20 @@ afterAll(() => {
 // ─── Tests ───────────────────────────────────────────────────────────────────
 
 describe("plugin mtime cache (per-surface)", () => {
+  test("boot publishes a source baseline without the monitor process", async () => {
+    const dir = freshPluginDir("boot-source-baseline");
+    writePackageJson(dir, {
+      ...SIMPLE_PKG,
+      name: "boot-source-baseline",
+    });
+
+    await populateCacheAtBoot();
+
+    const sourceVersions = readSourceVersions();
+    expect(sourceVersions).not.toBeNull();
+    expect(sourceVersions?.plugins[dir]?.disabled).toBe(false);
+  });
+
   test("an incompatible plugin imports no surfaces", async () => {
     const dir = freshPluginDir("incompatible-plugin");
     const marker = join(ROOT, "incompatible-init-imported.txt");
@@ -698,6 +713,42 @@ async function reconcileAndPull(): Promise<void> {
 }
 
 describe("plugin runtime activation", () => {
+  test("concurrent boot callers share one in-flight activation", async () => {
+    const dir = freshPluginDir("concurrent-activation");
+    const started = join(ROOT, "concurrent-started");
+    const release = join(ROOT, "concurrent-release");
+    writePackageJson(dir, {
+      ...SIMPLE_PKG,
+      name: "concurrent-activation",
+    });
+    writeHook(
+      dir,
+      "init",
+      `import { existsSync, writeFileSync } from "node:fs";
+       export default async function init() {
+         writeFileSync(${JSON.stringify(started)}, "yes");
+         while (!existsSync(${JSON.stringify(release)})) {
+           await Bun.sleep(1);
+         }
+       }`,
+    );
+
+    const first = populateCacheAtBoot();
+    while (!existsSync(started)) {
+      await Bun.sleep(1);
+    }
+    let secondSettled = false;
+    const second = populateCacheAtBoot().finally(() => {
+      secondSettled = true;
+    });
+    await Bun.sleep(10);
+
+    expect(secondSettled).toBe(false);
+    writeFileSync(release, "yes");
+    await Promise.all([first, second]);
+    expect(getPluginReadiness("concurrent-activation")?.status).toBe("ready");
+  });
+
   test("a plugin installed after boot becomes live once reconciled", async () => {
     await populateCacheAtBoot(); // empty plugins dir
     expect(getAllToolDefinitions().some((t) => t.name === "late-tool")).toBe(

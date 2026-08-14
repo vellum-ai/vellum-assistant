@@ -109,6 +109,9 @@ export function resolveRouteLocation(routePath: string): RouteLocation | null {
       return null;
     }
     const pluginRoot = resolvePluginRoutesDir(pluginName);
+    if (pluginRoot === null) {
+      return null;
+    }
     return {
       routesDir: pluginRoot.routesDir,
       subPath: segments.slice(2).join("/"),
@@ -133,7 +136,7 @@ export function resolveRouteLocation(routePath: string): RouteLocation | null {
 function resolvePluginRoutesDir(pluginName: string): {
   routesDir: string;
   pluginDir?: string;
-} {
+} | null {
   const pluginDir = join(getWorkspacePluginsDir(), pluginName);
   const workspaceRoutesDir = join(pluginDir, "routes");
   const isInstalled = existsSync(join(pluginDir, "package.json"));
@@ -144,9 +147,7 @@ function resolvePluginRoutesDir(pluginName: string): {
   if (defaultRoutesDir && existsSync(defaultRoutesDir)) {
     return { routesDir: defaultRoutesDir };
   }
-  return isInstalled
-    ? { routesDir: workspaceRoutesDir, pluginDir }
-    : { routesDir: workspaceRoutesDir };
+  return isInstalled ? { routesDir: workspaceRoutesDir, pluginDir } : null;
 }
 
 /**
@@ -230,6 +231,7 @@ export function listPluginRouteRoots(): {
       const routesDir = join(pluginsDir, entry.name, "routes");
       const pluginDir = join(pluginsDir, entry.name);
       if (
+        existsSync(join(pluginDir, "package.json")) &&
         existsSync(routesDir) &&
         statSync(routesDir).isDirectory() &&
         isPluginRouteRootDiscoverable(entry.name, pluginDir)

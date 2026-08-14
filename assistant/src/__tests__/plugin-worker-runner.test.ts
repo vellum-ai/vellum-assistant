@@ -276,6 +276,53 @@ export default async function run(context) {
     expect(getActivePluginWorkerCount("worker-initial-failure")).toBe(0);
   });
 
+  test("bounds initial recovery and aborts the timed-out plugin", async () => {
+    const pluginDir = createPlugin("worker-initial-timeout");
+    const abortedPath = join(pluginDir, "data", "aborted.txt");
+    writeWorker(
+      pluginDir,
+      "blocking",
+      `import { writeFileSync } from "node:fs";
+export default async function run(context) {
+  await new Promise((resolve) => {
+    context.signal.addEventListener("abort", () => {
+      writeFileSync(context.pluginStorageDir + "/aborted.txt", "yes");
+      resolve();
+    }, { once: true });
+  });
+}
+`,
+    );
+
+    await expect(
+      startPluginWorkers(pluginDir, { initialRunTimeoutMs: 10 }),
+    ).rejects.toThrow("initial worker run timed out");
+
+    await waitForFile(abortedPath);
+    expect(getActivePluginWorkerCount("worker-initial-timeout")).toBe(0);
+  });
+
+  test("does not run a distant next wake immediately", async () => {
+    const pluginDir = createPlugin("worker-distant-wake");
+    writeWorker(
+      pluginDir,
+      "scheduled",
+      `import { existsSync, readFileSync, writeFileSync } from "node:fs";
+export default function run(context) {
+  const path = context.pluginStorageDir + "/runs.txt";
+  const prior = existsSync(path) ? Number(readFileSync(path, "utf8")) : 0;
+  writeFileSync(path, String(prior + 1));
+  return { nextWakeAt: Date.now() + 2_147_483_647 + 60_000 };
+}
+`,
+    );
+
+    await startPluginWorkers(pluginDir);
+    await new Promise<void>((resolve) => setTimeout(resolve, 25));
+
+    expect(readFileSync(join(pluginDir, "data", "runs.txt"), "utf8")).toBe("1");
+  });
+
   test("prevents restart while a worker is still stopping", async () => {
     const pluginDir = createPlugin("worker-slow-stop");
     const startedPath = join(pluginDir, "data", "started.txt");

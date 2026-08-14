@@ -7,18 +7,6 @@ export const HOST_CAPABILITIES = Object.freeze({
 
 export type HostCapabilityId = keyof typeof HOST_CAPABILITIES;
 
-export interface HostCapability {
-  readonly id: HostCapabilityId;
-  readonly version: string;
-}
-
-export function listHostCapabilities(): HostCapability[] {
-  return Object.entries(HOST_CAPABILITIES).map(([id, version]) => ({
-    id: id as HostCapabilityId,
-    version,
-  }));
-}
-
 export function resolveHostCapabilityVersion(id: string): string | undefined {
   return Object.prototype.hasOwnProperty.call(HOST_CAPABILITIES, id)
     ? HOST_CAPABILITIES[id as HostCapabilityId]

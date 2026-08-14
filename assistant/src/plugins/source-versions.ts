@@ -1,8 +1,8 @@
 /**
  * The plugin source-versions sentinel — the broadcast contract between the
- * resource monitor's source watcher (the single writer, running in its own
- * OS process) and every process that holds plugin code in a module registry
- * (the readers: the daemon, platform workers, plugin-spawned workers).
+ * assistant lifecycle, resource monitor, and every process that holds plugin
+ * code in a module registry. The assistant publishes a boot/reconcile baseline
+ * while the monitor continues polling for out-of-band source changes.
  *
  * The watcher rewrites the document atomically (temp + rename) and only when
  * plugin source actually changed, so "the sentinel's mtime moved" is exactly
@@ -18,7 +18,7 @@
  * fingerprint diffs stay idempotent across restarts.
  */
 
-import { readFileSync } from "node:fs";
+import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import {
@@ -72,4 +72,48 @@ export function readSourceVersions(): SourceVersionsDocument | null {
   } catch {
     return null;
   }
+}
+
+/** Atomically publish a complete source-version snapshot. */
+export function writeSourceVersions(doc: SourceVersionsDocument): void {
+  const path = getSourceVersionsPath();
+  mkdirSync(getMonitoringDataDir(), { recursive: true });
+  const tempPath = `${path}.${process.pid}.${Date.now()}.tmp`;
+  writeFileSync(tempPath, JSON.stringify(doc, null, 2));
+  renameSync(tempPath, path);
+}
+
+/** Publish source versions when the durable snapshot is missing or stale. */
+export function publishSourceVersions(
+  plugins: Readonly<Record<string, PluginSourceVersion>>,
+): boolean {
+  const existing = readSourceVersions();
+  if (existing && sameSourceVersions(existing.plugins, plugins)) {
+    return false;
+  }
+  writeSourceVersions({
+    format: SOURCE_VERSIONS_FORMAT,
+    generation: (existing?.generation ?? 0) + 1,
+    writtenAt: new Date().toISOString(),
+    plugins: { ...plugins },
+  });
+  return true;
+}
+
+function sameSourceVersions(
+  left: Readonly<Record<string, PluginSourceVersion>>,
+  right: Readonly<Record<string, PluginSourceVersion>>,
+): boolean {
+  const leftKeys = Object.keys(left);
+  if (leftKeys.length !== Object.keys(right).length) {
+    return false;
+  }
+  return leftKeys.every((key) => {
+    const other = right[key];
+    return (
+      other !== undefined &&
+      left[key]?.fingerprint === other.fingerprint &&
+      left[key]?.disabled === other.disabled
+    );
+  });
 }

@@ -14,7 +14,7 @@
  */
 
 import { statSync } from "node:fs";
-import { dirname, sep } from "node:path";
+import { dirname } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 import { snapshotPluginSource } from "../../plugins/source-fingerprint.js";
@@ -35,54 +35,24 @@ export function routeSourceRoot(routesDir: string): string {
 }
 
 /**
- * Infer the source root from a handler path when the caller has no
- * {@link routeSourceRoot} (the route-host worker only sees `filePath`).
- */
-export function sourceRootForHandler(filePath: string): string {
-  const marker = `${sep}routes${sep}`;
-  const idx = filePath.lastIndexOf(marker);
-  if (idx !== -1) {
-    return filePath.slice(0, idx);
-  }
-  return dirname(filePath);
-}
-
-/**
  * Drop every source module under `sourceRoot` from the runtime registry,
  * including query-string aliases (`file.ts?t=mtime`) the dispatcher uses to
  * cache-bust the entry file.
  */
-export function evictRouteSourceTree(
-  sourceRoot: string,
-  preserveFilePath?: string,
-): void {
+export function evictRouteSourceTree(sourceRoot: string): void {
   const { evictionPaths } = snapshotPluginSource(sourceRoot);
   for (const path of evictionPaths) {
-    if (path === preserveFilePath) {
-      continue;
-    }
     if (Object.prototype.hasOwnProperty.call(require.cache, path)) {
       evictModule(path);
     }
   }
-  evictRegistryAliases(sourceRoot, preserveFilePath);
+  evictRegistryAliases(sourceRoot);
 }
 
-function evictRegistryAliases(
-  sourceRoot: string,
-  preserveFilePath?: string,
-): void {
+function evictRegistryAliases(sourceRoot: string): void {
   const prefix = sourceRoot.endsWith("/") ? sourceRoot : `${sourceRoot}/`;
   const fileUrlPrefix = pathToFileURL(prefix).href;
   for (const key of Object.keys(require.cache)) {
-    const bareKey = key.split("?")[0] ?? key;
-    if (
-      preserveFilePath &&
-      (bareKey === preserveFilePath ||
-        bareKey === pathToFileURL(preserveFilePath).href)
-    ) {
-      continue;
-    }
     if (!keyBelongsToTree(key, sourceRoot, prefix, fileUrlPrefix)) {
       continue;
     }

@@ -88,7 +88,10 @@ import {
   stopPluginWorkers,
 } from "./plugin-worker-runner.js";
 import { snapshotPluginSource } from "./source-fingerprint.js";
-import type { PluginSourceVersion } from "./source-versions.js";
+import {
+  type PluginSourceVersion,
+  publishSourceVersions,
+} from "./source-versions.js";
 import {
   clearSurfaceImportInflight,
   evictModule,
@@ -475,6 +478,7 @@ async function applySourceVersions(
     );
 
     lastVersions = { ...next };
+    publishSourceVersions(lastVersions);
   } catch (err) {
     log.error(
       { err },
@@ -588,6 +592,7 @@ async function reconcileWorkspaceHooks(
  */
 function seedVersionBaseline(): void {
   lastVersions = collectSourceVersions();
+  publishSourceVersions(lastVersions);
 }
 
 // ─── Tool cache ──────────────────────────────────────────────────────────────
@@ -1004,11 +1009,9 @@ const activatedPlugins: Array<{ kind: HookOwnerKind; name: string }> = [];
 
 /**
  * Names in {@link activatedPlugins}, kept as a set for O(1) membership.
- * {@link activatingNames} reserves a name synchronously before async init so
- * overlapping lifecycle callers cannot activate the same plugin twice.
  */
 const activatedNames = new Set<string>();
-const activatingNames = new Set<string>();
+const activationPromises = new Map<string, Promise<boolean>>();
 
 /**
  * Activate a single discovered plugin: mark its cached tools live (the tool
@@ -1016,8 +1019,8 @@ const activatingNames = new Set<string>();
  * reconcile) and run its `init` hook. Running `init` also resolves the owner's
  * `shutdown` (caching it for teardown), so no separate pre-import step is
  * needed; dispatch hooks resolve on their first read. Idempotent — a plugin
- * already activated is a no-op. A concurrent activation or failed required
- * surface returns false, and failed partial activation is rolled back.
+ * already activated is a no-op. Concurrent callers share the same activation,
+ * and failed partial activation is rolled back.
  */
 async function activatePlugin(
   pluginDir: string,
@@ -1028,54 +1031,65 @@ async function activatePlugin(
   if (activatedNames.has(pluginName)) {
     return true;
   }
-  if (activatingNames.has(pluginName)) {
+  const current = activationPromises.get(pluginName);
+  if (current !== undefined) {
+    return current;
+  }
+
+  const activation = performPluginActivation(
+    pluginDir,
+    pluginName,
+    sourceFingerprint,
+    credentialKeyPatterns,
+  );
+  activationPromises.set(pluginName, activation);
+  try {
+    return await activation;
+  } finally {
+    if (activationPromises.get(pluginName) === activation) {
+      activationPromises.delete(pluginName);
+    }
+  }
+}
+
+async function performPluginActivation(
+  pluginDir: string,
+  pluginName: string,
+  sourceFingerprint: string,
+  credentialKeyPatterns?: PluginCredentialKeyPattern[],
+): Promise<boolean> {
+  // Register declared credential key patterns before `init` so init-time
+  // logging is covered by redaction. Every failed path unregisters them.
+  registerDeclaredCredentialKeyPatterns(pluginName, credentialKeyPatterns, log);
+
+  const initialized = await runInitHook(pluginName, pluginDir);
+  if (!initialized) {
+    unregisterPluginSecretPatterns(pluginName);
+    markPluginFailed(pluginName, sourceFingerprint, "plugin init hook failed");
     return false;
   }
-  activatingNames.add(pluginName);
+
   try {
-    // Register declared credential key patterns before `init` so init-time
-    // logging is covered by redaction. Every failed path unregisters them.
-    registerDeclaredCredentialKeyPatterns(
-      pluginName,
-      credentialKeyPatterns,
-      log,
-    );
-
-    const initialized = await runInitHook(pluginName, pluginDir);
-    if (!initialized) {
-      unregisterPluginSecretPatterns(pluginName);
-      markPluginFailed(
-        pluginName,
-        sourceFingerprint,
-        "plugin init hook failed",
-      );
-      return false;
-    }
-
-    try {
-      // Plugin modules outside `init` cannot execute until initialization has
-      // succeeded. Workers run only after the tool cache is fully reconciled.
-      await reconcilePluginTools(pluginDir, pluginName);
-      await startPluginWorkers(pluginDir);
-    } catch (err) {
-      await stopPluginWorkers(pluginName);
-      await runShutdownHook("plugin", pluginName, "reload");
-      unregisterPluginSecretPatterns(pluginName);
-      evictHooksForOwner("plugin", pluginName);
-      evictToolCacheEntries(pluginName);
-      const message = err instanceof Error ? err.message : String(err);
-      markPluginFailed(pluginName, sourceFingerprint, message);
-      log.error({ err, plugin: pluginName }, "plugin surfaces failed to start");
-      return false;
-    }
-
-    activatedNames.add(pluginName);
-    activatedPlugins.push({ kind: "plugin", name: pluginName });
-    markPluginReady(pluginName, sourceFingerprint);
-    return true;
-  } finally {
-    activatingNames.delete(pluginName);
+    // Plugin modules outside `init` cannot execute until initialization has
+    // succeeded. Workers run only after the tool cache is fully reconciled.
+    await reconcilePluginTools(pluginDir, pluginName);
+    await startPluginWorkers(pluginDir);
+  } catch (err) {
+    await stopPluginWorkers(pluginName);
+    await runShutdownHook("plugin", pluginName, "reload");
+    unregisterPluginSecretPatterns(pluginName);
+    evictHooksForOwner("plugin", pluginName);
+    evictToolCacheEntries(pluginName);
+    const message = err instanceof Error ? err.message : String(err);
+    markPluginFailed(pluginName, sourceFingerprint, message);
+    log.error({ err, plugin: pluginName }, "plugin surfaces failed to start");
+    return false;
   }
+
+  activatedNames.add(pluginName);
+  activatedPlugins.push({ kind: "plugin", name: pluginName });
+  markPluginReady(pluginName, sourceFingerprint);
+  return true;
 }
 
 /**
@@ -1231,7 +1245,7 @@ export function resetPluginCacheForTests(): void {
   installDateCache.clear();
   activatedPlugins.length = 0;
   activatedNames.clear();
-  activatingNames.clear();
+  activationPromises.clear();
   disabledPluginDirs.clear();
   lastVersions = {};
   reconcileInFlight = null;

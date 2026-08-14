@@ -16,11 +16,14 @@ import { runInPluginContext } from "./plugin-execution-context.js";
 import { resolvePluginStorageDir } from "./plugin-storage.js";
 
 const STOP_TIMEOUT_MS = 5_000;
+const INITIAL_RUN_TIMEOUT_MS = 30_000;
 const MIN_WAKE_DELAY_MS = 10;
+const MAX_TIMER_DELAY_MS = 2_147_483_647;
 const log = getLogger("plugin-worker-runner");
 
 export interface StartPluginWorkersOptions {
   readonly importTimeoutMs?: number;
+  readonly initialRunTimeoutMs?: number;
 }
 
 export interface StartPluginWorkersResult {
@@ -40,6 +43,7 @@ interface WorkerRuntime {
   timer: ReturnType<typeof setTimeout> | null;
   inFlight: Promise<void> | null;
   wakeRequested: boolean;
+  nextWakeAt: number | null;
   stopped: boolean;
 }
 
@@ -60,6 +64,29 @@ function clearWakeTimer(runtime: WorkerRuntime): void {
     clearTimeout(runtime.timer);
     runtime.timer = null;
   }
+  runtime.nextWakeAt = null;
+}
+
+function armWakeTimer(runtime: WorkerRuntime): void {
+  if (runtime.stopped || runtime.controller.signal.aborted) {
+    return;
+  }
+  const nextWakeAt = runtime.nextWakeAt;
+  if (nextWakeAt === null) {
+    return;
+  }
+  const remainingMs = nextWakeAt - Date.now();
+  const delayMs = Math.min(MAX_TIMER_DELAY_MS, Math.max(0, remainingMs));
+  runtime.timer = setTimeout(() => {
+    runtime.timer = null;
+    if (runtime.nextWakeAt !== null && runtime.nextWakeAt > Date.now()) {
+      armWakeTimer(runtime);
+      return;
+    }
+    runtime.nextWakeAt = null;
+    void invokeWorker(runtime);
+  }, delayMs);
+  runtime.timer.unref?.();
 }
 
 function scheduleWorker(runtime: WorkerRuntime, delayMs: number): void {
@@ -67,14 +94,8 @@ function scheduleWorker(runtime: WorkerRuntime, delayMs: number): void {
     return;
   }
   clearWakeTimer(runtime);
-  runtime.timer = setTimeout(
-    () => {
-      runtime.timer = null;
-      void invokeWorker(runtime);
-    },
-    Math.max(0, delayMs),
-  );
-  runtime.timer.unref?.();
+  runtime.nextWakeAt = Date.now() + Math.max(0, delayMs);
+  armWakeTimer(runtime);
 }
 
 function requestWorkerWake(runtime: WorkerRuntime): void {
@@ -179,6 +200,7 @@ function createWorkerRuntime(
     timer: null,
     inFlight: null,
     wakeRequested: false,
+    nextWakeAt: null,
     stopped: false,
   };
   return runtime;
@@ -214,14 +236,31 @@ export async function startPluginWorkers(
     state: "active",
   };
   activations.set(pluginId, activation);
+  let initialRunTimer: ReturnType<typeof setTimeout> | undefined;
   try {
-    await Promise.all(
-      activation.workers.map((runtime) => invokeWorker(runtime, true)),
-    );
+    await Promise.race([
+      Promise.all(
+        activation.workers.map((runtime) => invokeWorker(runtime, true)),
+      ),
+      new Promise<never>((_, reject) => {
+        initialRunTimer = setTimeout(
+          () =>
+            reject(
+              new Error(`plugin ${pluginId} initial worker run timed out`),
+            ),
+          options.initialRunTimeoutMs ?? INITIAL_RUN_TIMEOUT_MS,
+        );
+        initialRunTimer.unref?.();
+      }),
+    ]);
   } catch (err) {
     await stopPluginWorkers(pluginId);
     log.error({ err, plugin: pluginId }, "plugin initial worker run failed");
     throw err;
+  } finally {
+    if (initialRunTimer !== undefined) {
+      clearTimeout(initialRunTimer);
+    }
   }
   return { pluginId, workerCount: workers.length, started: true };
 }

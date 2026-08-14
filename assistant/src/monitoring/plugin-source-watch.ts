@@ -22,14 +22,7 @@
  * a walk trips over a half-written plugin directory.
  */
 
-import {
-  existsSync,
-  mkdirSync,
-  readdirSync,
-  renameSync,
-  statSync,
-  writeFileSync,
-} from "node:fs";
+import { existsSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 
 import { collectSourceVersions } from "../plugins/collect-source-versions.js";
@@ -38,12 +31,11 @@ import type {
   SourceVersionsDocument,
 } from "../plugins/source-versions.js";
 import {
-  getSourceVersionsPath,
   readSourceVersions,
   SOURCE_VERSIONS_FORMAT,
+  writeSourceVersions,
 } from "../plugins/source-versions.js";
 import { getLogger } from "../util/logger.js";
-import { getMonitoringDataDir } from "../util/platform.js";
 
 const log = getLogger("plugin-source-watch");
 
@@ -176,7 +168,7 @@ export function runSourceWatchPass(state: SourceWatchState): boolean {
       writtenAt: new Date().toISOString(),
       plugins: current,
     };
-    writeSentinelAtomically(doc);
+    writeSourceVersions(doc);
     state.lastPlugins = current;
 
     log.info(
@@ -201,19 +193,6 @@ export function runSourceWatchPass(state: SourceWatchState): boolean {
     log.error({ err }, "plugin source watch pass failed — will retry");
     return false;
   }
-}
-
-/**
- * Write the sentinel via temp-file + rename so readers never observe a torn
- * document. Both files live in the monitoring data directory, outside every
- * fingerprint walk and outside the workspace git surface.
- */
-function writeSentinelAtomically(doc: SourceVersionsDocument): void {
-  const path = getSourceVersionsPath();
-  mkdirSync(getMonitoringDataDir(), { recursive: true });
-  const tmpPath = `${path}.tmp`;
-  writeFileSync(tmpPath, JSON.stringify(doc, null, 2));
-  renameSync(tmpPath, path);
 }
 
 /** Handle for the running watcher loop. */

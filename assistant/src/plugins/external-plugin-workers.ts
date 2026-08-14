@@ -13,7 +13,7 @@ export interface ExternalPluginWorker extends ExternalPluginWorkerSource {
   readonly run: PluginWorker;
 }
 
-export class PluginWorkersIneligibleError extends Error {
+class PluginWorkersIneligibleError extends Error {
   constructor(
     readonly pluginId: string,
     readonly reason: string,

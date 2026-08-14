@@ -332,6 +332,105 @@ describe("route host subprocess", () => {
     );
   });
 
+  test("an acknowledged abort does not later kill the shared host", async () => {
+    const startedMarker = join(handlerDir, "noncooperative-started");
+    const { filePath } = writeHandler(
+      "noncooperative-abort.ts",
+      `import { writeFileSync } from "node:fs";
+       export function GET(request) {
+         if (new URL(request.url).searchParams.has("slow")) {
+           writeFileSync(${JSON.stringify(startedMarker)}, String(process.pid));
+           return new Promise((resolve) => {
+             setTimeout(() => resolve(new Response("late")), 1500);
+           });
+         }
+         return Response.json({ pid: process.pid });
+       }`,
+    );
+    const controller = new AbortController();
+    const invocation = client.invoke(
+      {
+        filePath,
+        method: "GET",
+        url: `${url("noncooperative-abort")}?slow=1`,
+        headers: [],
+      },
+      { body: null, signal: controller.signal },
+    );
+    for (
+      let attempt = 0;
+      attempt < 100 && !existsSync(startedMarker);
+      attempt++
+    ) {
+      await Bun.sleep(10);
+    }
+    const originalPid = Number(readFileSync(startedMarker, "utf8"));
+    controller.abort();
+    await expect(invocation).rejects.toMatchObject({ name: "AbortError" });
+
+    await Bun.sleep(1100);
+    const response = await client.invoke(
+      {
+        filePath,
+        method: "GET",
+        url: url("noncooperative-abort"),
+        headers: [],
+      },
+      { body: null },
+    );
+
+    expect(decode(response.body)).toEqual({ pid: originalPid });
+  });
+
+  test("waits for in-flight work before recycling changed route source", async () => {
+    const startedMarker = join(handlerDir, "drain-started");
+    const slow = writeHandler(
+      "drain-slow.ts",
+      `import { writeFileSync } from "node:fs";
+       export async function GET() {
+         writeFileSync(${JSON.stringify(startedMarker)}, "yes");
+         await new Promise((resolve) => setTimeout(resolve, 100));
+         return new Response("completed");
+       }`,
+    );
+    const first = client.invoke(
+      {
+        filePath: slow.filePath,
+        method: "GET",
+        url: url("drain-slow"),
+        headers: [],
+      },
+      { body: null },
+    );
+    for (
+      let attempt = 0;
+      attempt < 100 && !existsSync(startedMarker);
+      attempt++
+    ) {
+      await Bun.sleep(10);
+    }
+    const next = writeHandler(
+      "drain-next.ts",
+      `export function GET() { return new Response("next"); }`,
+    );
+    const second = client.invoke(
+      {
+        filePath: next.filePath,
+        method: "GET",
+        url: url("drain-next"),
+        headers: [],
+      },
+      { body: null },
+    );
+
+    expect(new TextDecoder().decode((await first).body ?? undefined)).toBe(
+      "completed",
+    );
+    expect(new TextDecoder().decode((await second).body ?? undefined)).toBe(
+      "next",
+    );
+  });
+
   test("a synchronous stall is hard-killed on timeout, and the host recovers", async () => {
     const stall = writeHandler(
       "stall.ts",

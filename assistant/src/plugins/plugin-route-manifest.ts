@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { existsSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 
@@ -141,14 +142,13 @@ export type PluginRouteManifestResult =
   | { readonly kind: "invalid"; readonly reason: string };
 
 interface CachedManifest {
-  readonly mtimeMs: number;
-  readonly size: number;
+  readonly contentSignature: string;
   readonly result: PluginRouteManifestResult;
 }
 
 const cache = new Map<string, CachedManifest>();
 
-export function getPluginRouteManifestPath(pluginDir: string): string {
+function getPluginRouteManifestPath(pluginDir: string): string {
   return join(pluginDir, PLUGIN_ROUTE_MANIFEST_PATH);
 }
 
@@ -170,12 +170,8 @@ export function readPluginRouteManifest(
     };
   }
 
-  const cached = cache.get(pluginDir);
-  if (cached?.mtimeMs === stat.mtimeMs && cached.size === stat.size) {
-    return cached.result;
-  }
-
   let result: PluginRouteManifestResult;
+  let contentSignature = `${stat.dev}:${stat.ino}:${stat.size}`;
   if (!stat.isFile()) {
     result = { kind: "invalid", reason: "route manifest must be a file" };
   } else if (stat.size > MAX_MANIFEST_BYTES) {
@@ -185,8 +181,14 @@ export function readPluginRouteManifest(
     };
   } else {
     try {
+      const contents = readFileSync(manifestPath);
+      contentSignature = createHash("sha256").update(contents).digest("hex");
+      const cached = cache.get(pluginDir);
+      if (cached?.contentSignature === contentSignature) {
+        return cached.result;
+      }
       const parsed = PluginRouteManifestSchema.safeParse(
-        JSON.parse(readFileSync(manifestPath, "utf8")),
+        JSON.parse(contents.toString("utf8")),
       );
       result = parsed.success
         ? { kind: "valid", manifest: parsed.data }
@@ -199,7 +201,7 @@ export function readPluginRouteManifest(
     }
   }
 
-  cache.set(pluginDir, { mtimeMs: stat.mtimeMs, size: stat.size, result });
+  cache.set(pluginDir, { contentSignature, result });
   return result;
 }
 
