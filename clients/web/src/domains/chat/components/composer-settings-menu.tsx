@@ -13,6 +13,7 @@ import {
   useMemo,
   useRef,
   useState,
+  type PointerEvent as ReactPointerEvent,
   type ReactNode,
 } from "react";
 
@@ -58,6 +59,19 @@ import {
   Tooltip,
 } from "@vellumai/design-library";
 import { toast } from "@vellumai/design-library/components/toast";
+
+/**
+ * Keeps a press from moving focus off the composer's textarea. iOS blurs the
+ * textarea on a press without focusing the pressed button, and the pills row is
+ * focus-gated, so it goes away before the tap's click reaches the trigger.
+ *
+ * Only ever wired on the touch presentation: its bottom sheet opens on the
+ * click that follows, while the mouse presentation's menu opens on the
+ * pointerdown itself and cancelling that would leave the pill inert.
+ */
+function preventPointerFocusTransfer(event: ReactPointerEvent<HTMLElement>) {
+  event.preventDefault();
+}
 
 interface Props {
   assistantId: string;
@@ -658,11 +672,11 @@ export function ComposerSettingsMenu({
       aria-label={accessLabel}
       title={accessLabel}
       className={pillClass}
-      // Keep the textarea focused until the trigger's click opens the sheet.
-      // iOS can emit focusout with a null relatedTarget before click; the
-      // composer would otherwise hide this focus-gated row before Radix sees
-      // the trigger activation.
-      onPointerDown={(event) => event.preventDefault()}
+      // Touch only: the bottom sheet opens on the click that follows, so the
+      // press has to leave the composer's focus alone until then. The mouse
+      // presentation below wraps this same pill in a menu that opens on
+      // pointerdown, which this would cancel outright.
+      onPointerDown={isTouchMobile ? preventPointerFocusTransfer : undefined}
     >
       <span aria-hidden="true" className={pillIconClass}>
         <AccessIcon />
@@ -708,9 +722,9 @@ export function ComposerSettingsMenu({
         aria-label={profileLabel}
         title={profileLabel}
         className={pillClass}
-        // Match the access pill: do not let iOS blur the composer and hide the
-        // focus-gated trigger before the sheet's click handler runs.
-        onPointerDown={(event) => event.preventDefault()}
+        // Match the access pill: hold the composer's focus for the sheet's
+        // click, and only on the touch presentation that opens that way.
+        onPointerDown={isTouchMobile ? preventPointerFocusTransfer : undefined}
       >
         <span aria-hidden="true" className={pillIconClass}>
           <Sparkles />
@@ -723,7 +737,7 @@ export function ComposerSettingsMenu({
         aria-label={profileLabel}
         title={profileLabel}
         className={pillIconOnlyClass}
-        onPointerDown={(event) => event.preventDefault()}
+        onPointerDown={isTouchMobile ? preventPointerFocusTransfer : undefined}
       >
         <span aria-hidden="true" className={pillIconClass}>
           <SlidersHorizontal />
