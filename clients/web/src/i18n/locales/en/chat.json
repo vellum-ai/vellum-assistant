@@ -8,7 +8,8 @@
   },
   "chatComposer": {
     "addToChat": "Add to chat",
-    "askAssistantPlaceholder": "Ask {assistantName}"
+    "askAssistantPlaceholder": "Ask {assistantName}",
+    "disclaimer": "Vellum uses external AI models and can make mistakes"
   },
   "conversationAssets": {
     "heading": "Assets",

@@ -755,6 +755,10 @@ function pillsRow(container: HTMLElement) {
   return container.querySelector('[data-slot="composer-settings-pills"]');
 }
 
+function disclaimer(container: HTMLElement) {
+  return container.querySelector('[data-slot="composer-disclaimer"]');
+}
+
 function addSheet(container: HTMLElement) {
   return container.querySelector('[data-testid="add-to-chat-sheet"]');
 }
@@ -1217,6 +1221,107 @@ describe("ChatComposer: mobile settings pills row", () => {
 
     // THEN there is nothing to float, so no row is rendered
     expect(pillsRow(container)).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The resting caption below the card, the pills row's opposite number
+// ---------------------------------------------------------------------------
+
+describe("ChatComposer: the mobile external-models caption", () => {
+  const DISCLAIMER = "Vellum uses external AI models and can make mistakes";
+
+  test("an unfocused phone composer stands the caption under the card", () => {
+    // GIVEN a phone composer nobody has tapped into
+    const { container } = renderPhoneComposer(SETTINGS_SLOTS);
+
+    // THEN the caption is shown, below the card and outside it
+    const caption = disclaimer(container);
+    expect(caption?.textContent).toBe(DISCLAIMER);
+    expect(caption?.hasAttribute("hidden")).toBe(false);
+    expect(caption?.closest("form")).toBeNull();
+    const html = container.innerHTML;
+    expect(html.indexOf("<form")).toBeLessThan(
+      html.indexOf('data-slot="composer-disclaimer"'),
+    );
+  });
+
+  test("focusing the composer takes the caption away, as the keyboard covers it", () => {
+    // GIVEN a phone composer
+    const { container } = renderPhoneComposer(SETTINGS_SLOTS);
+
+    // WHEN it takes focus
+    fireEvent.focusIn(textareaOf(container));
+
+    // THEN the caption is hidden, still mounted, exactly as the pills row it
+    // trades places with
+    const caption = disclaimer(container);
+    expect(caption?.hasAttribute("hidden")).toBe(true);
+    expect(pillsRow(container)?.hasAttribute("hidden")).toBe(false);
+  });
+
+  test("an open settings sheet keeps the caption away with focus gone", () => {
+    // GIVEN a phone composer whose access sheet is open
+    const { container } = renderPhoneComposer({
+      ...SETTINGS_SLOTS,
+      settingsSheetOpen: true,
+    });
+    const textarea = textareaOf(container);
+    fireEvent.focusIn(textarea);
+
+    // WHEN the sheet takes focus out of the composer
+    fireEvent.focusOut(textarea, { relatedTarget: null });
+
+    // THEN the caption stays away rather than surfacing under the scrim
+    expect(disclaimer(container)?.hasAttribute("hidden")).toBe(true);
+  });
+
+  test("the composer's own add-to-chat sheet keeps it away too", () => {
+    // GIVEN a focused phone composer
+    const { container } = renderPhoneComposer(SETTINGS_SLOTS);
+    const textarea = textareaOf(container);
+    fireEvent.focusIn(textarea);
+
+    // WHEN the plus opens the add-to-chat sheet, which takes focus into a
+    // portal of its own
+    fireEvent.click(control(container, PLUS_LABEL)!);
+    fireEvent.focusOut(textarea, { relatedTarget: null });
+
+    // THEN the caption stays away for as long as the sheet is up
+    expect(disclaimer(container)?.hasAttribute("hidden")).toBe(true);
+  });
+
+  test("blurring back to the body brings the caption back", () => {
+    // GIVEN a focused phone composer
+    const { container } = renderPhoneComposer(SETTINGS_SLOTS);
+    const textarea = textareaOf(container);
+    fireEvent.focusIn(textarea);
+
+    // WHEN focus leaves with nowhere to land, as the iOS keyboard dismiss does
+    fireEvent.focusOut(textarea, { relatedTarget: null });
+
+    // THEN the composer is at rest again and the caption is back
+    expect(disclaimer(container)?.hasAttribute("hidden")).toBe(false);
+  });
+
+  test("desktop renders no caption, focused or not", () => {
+    // GIVEN a desktop composer
+    viewport.set({ narrow: false, coarsePointer: false });
+    const { container } = renderComposerView(SETTINGS_SLOTS);
+
+    // THEN nothing hangs under the card, and focus does not add it
+    expect(disclaimer(container)).toBeNull();
+    fireEvent.focusIn(textareaOf(container));
+    expect(disclaimer(container)).toBeNull();
+  });
+
+  test("a variant with no settings slots renders no caption (app-editing panel)", () => {
+    // GIVEN a phone composer that was passed neither settings slot
+    viewport.set({ narrow: true, coarsePointer: true });
+    const { container } = renderComposerView();
+
+    // THEN the panel's composer carries no caption of its own
+    expect(disclaimer(container)).toBeNull();
   });
 });
 
