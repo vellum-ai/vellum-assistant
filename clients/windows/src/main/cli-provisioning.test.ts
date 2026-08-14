@@ -246,6 +246,37 @@ test("reuses an unchanged launcher without replacing its executables", () => {
   expect(readLauncherSource(paths.ownership)).toBe(source);
 });
 
+test("refreshes ownership without replacing an unchanged launcher", () => {
+  const root = makeTempDir();
+  const paths = resolveCliLauncherPaths(path.join(root, "Local App Data"));
+  const source = writeRuntime(path.join(root, "runtime"), "1.0.0");
+  const userRegistry = registry();
+  const firstOwner = path.join(root, "First Install", "resources");
+  const secondOwner = path.join(root, "Second Install", "resources");
+  installCliLauncher(source, "1.0.0", paths, userRegistry.run, {
+    ownerId: firstOwner,
+  });
+
+  const rejectLauncherReplacement: typeof renameSync = (from, to) => {
+    if (from === paths.executable || to === paths.executable) {
+      throw new Error("unchanged launcher must not be replaced");
+    }
+    renameSync(from, to);
+  };
+  expect(
+    installCliLauncher(source, "1.0.0", paths, userRegistry.run, {
+      ownerId: secondOwner,
+      renameFile: rejectLauncherReplacement,
+    }),
+  ).toBe("installed");
+  expect(uninstallCliLauncher(paths, userRegistry.run, firstOwner)).toBe(
+    "not-owned",
+  );
+  expect(uninstallCliLauncher(paths, userRegistry.run, secondOwner)).toBe(
+    "removed",
+  );
+});
+
 test("repairs stale ownership and updates the user PATH", () => {
   const root = makeTempDir();
   const paths = resolveCliLauncherPaths(path.join(root, "Local App Data"));

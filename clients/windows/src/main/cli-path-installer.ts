@@ -291,10 +291,13 @@ export function installCliLauncher(
     return initialState;
   }
   const ownership = readOwnership(paths);
-  if (
+  const reusesLauncher =
     initialState === "installed" &&
     ownership?.launcherVersion === LAUNCHER_VERSION &&
-    ownership.version === version
+    ownership.version === version;
+  if (
+    reusesLauncher &&
+    isOwnedByExpectedInstaller(ownership, options.ownerId)
   ) {
     const launcherState = ensureLauncherPath(paths, sourcePath, run);
     removeLegacyRuntimeEntries(paths);
@@ -303,14 +306,16 @@ export function installCliLauncher(
   mkdirSync(paths.binDir, { recursive: true });
   const files: Array<{ source?: string; contents?: string; target: string }> = [
     {
-      source: path.join(path.dirname(sourcePath), "cli-launcher.exe"),
-      target: paths.executable,
-    },
-    {
       contents: `${JSON.stringify({ launcherVersion: LAUNCHER_VERSION, ownerId: options.ownerId, sourcePath, version })}\n`,
       target: paths.ownership,
     },
   ];
+  if (!reusesLauncher) {
+    files.unshift({
+      source: path.join(path.dirname(sourcePath), "cli-launcher.exe"),
+      target: paths.executable,
+    });
+  }
   const pending = files.map((file) => ({
     ...file,
     staging: `${file.target}.${process.pid}.tmp`,
