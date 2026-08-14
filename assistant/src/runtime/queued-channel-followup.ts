@@ -4,6 +4,7 @@ import { linkMessage, storeReplyMessageId } from "../persistence/delivery-crud.j
 import {
   markDeliveryDelivered,
   markProcessed,
+  recordProcessingFailure,
 } from "../persistence/delivery-status.js";
 import { getLogger } from "../util/logger.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "./assistant-scope.js";
@@ -117,5 +118,18 @@ export async function completeQueuedChannelFollowUps(params: {
       },
       "Queued Telegram follow-up reply delivery failed",
     );
+  }
+}
+
+export function failQueuedChannelFollowUps(
+  items: QueuedMessage[],
+  err: unknown,
+): void {
+  for (const item of items) {
+    const eventId = item.channelDelivery?.eventId;
+    if (!eventId) {
+      continue;
+    }
+    recordProcessingFailure(eventId, err);
   }
 }

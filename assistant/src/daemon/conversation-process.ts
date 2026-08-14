@@ -42,6 +42,7 @@ import {
 import {
   captureReplyMessageId,
   completeQueuedChannelFollowUps,
+  failQueuedChannelFollowUps,
   linkQueuedChannelIngress,
   startQueuedTelegramTyping,
 } from "../runtime/queued-channel-followup.js";
@@ -1333,6 +1334,7 @@ async function drainSingleMessage(
         },
         "Error processing queued message",
       );
+      failQueuedChannelFollowUps([next], err);
       next.onEvent({
         type: "error",
         conversationId: conversation.conversationId,
@@ -1846,6 +1848,7 @@ async function drainBatch(
         },
         "Error processing batched queued messages",
       );
+      failQueuedChannelFollowUps(successfulBatch, err);
       fanOutOnEvent({
         type: "error",
         conversationId: conversation.conversationId,

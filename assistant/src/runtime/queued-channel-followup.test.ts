@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 const markedProcessed: string[] = [];
 const markedDelivered: string[] = [];
+const processingFailures: Array<{ eventId: string; err: unknown }> = [];
 const linked: Array<{ eventId: string; messageId: string }> = [];
 const storedReplies: Array<{ eventId: string; replyMessageId: string }> = [];
 const finalized: Array<{ eventId: string; userMessageId?: string }> = [];
@@ -21,6 +22,9 @@ mock.module("../persistence/delivery-status.js", () => ({
   },
   markDeliveryDelivered: (eventId: string) => {
     markedDelivered.push(eventId);
+  },
+  recordProcessingFailure: (eventId: string, err: unknown) => {
+    processingFailures.push({ eventId, err });
   },
 }));
 
@@ -43,6 +47,7 @@ mock.module("./gateway-client.js", () => ({
 import type { QueuedMessage } from "../daemon/conversation-queue-manager.js";
 import {
   completeQueuedChannelFollowUps,
+  failQueuedChannelFollowUps,
   linkQueuedChannelIngress,
 } from "./queued-channel-followup.js";
 
@@ -66,6 +71,7 @@ describe("queued Telegram follow-up delivery", () => {
   beforeEach(() => {
     markedProcessed.length = 0;
     markedDelivered.length = 0;
+    processingFailures.length = 0;
     linked.length = 0;
     storedReplies.length = 0;
     finalized.length = 0;
@@ -111,5 +117,17 @@ describe("queued Telegram follow-up delivery", () => {
     });
     expect(markedProcessed).toEqual([]);
     expect(finalized).toEqual([]);
+  });
+
+  test("records a processing failure for each queued Telegram inbound event", () => {
+    const err = new Error("agent loop failed");
+    failQueuedChannelFollowUps(
+      [telegramQueued("evt-fail-a"), telegramQueued("evt-fail-b")],
+      err,
+    );
+    expect(processingFailures).toEqual([
+      { eventId: "evt-fail-a", err },
+      { eventId: "evt-fail-b", err },
+    ]);
   });
 });
