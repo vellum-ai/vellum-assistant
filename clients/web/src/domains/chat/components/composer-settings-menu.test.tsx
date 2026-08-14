@@ -30,6 +30,7 @@ import {
   createContext,
   createElement,
   useContext,
+  type PointerEvent as ReactPointerEvent,
   type ReactNode,
 } from "react";
 
@@ -79,8 +80,10 @@ mock.module("@/components/profile-quick-add-provider", () => ({
 const passthrough = ({ children, ...props }: Record<string, unknown>) =>
   createElement("div", props, children as ReactNode);
 // Radix owns the open state on the Root and flips it when the trigger is
-// activated. The mock hands the Root's `onOpenChange` down to its Trigger so a
-// click on a trigger opens the surface the way it does in the app.
+// activated. The mock hands the Root's `onOpenChange` down to its Trigger so
+// activating a trigger opens the surface the way it does in the app. Each
+// surface keeps its own activation gesture (see the two triggers below), since
+// which one a pill answers to is exactly what the mobile tests pin down.
 const OpenChangeContext = createContext<((open: boolean) => void) | undefined>(
   undefined,
 );
@@ -95,7 +98,8 @@ const surfaceRoot = ({
     { value: onOpenChange as ((open: boolean) => void) | undefined },
     createElement("div", props, children as ReactNode),
   );
-const SurfaceTrigger = ({
+// The sheet is a Radix Dialog underneath, whose trigger opens on click.
+const SheetTrigger = ({
   children,
   asChild: _asChild,
   ...props
@@ -104,6 +108,31 @@ const SurfaceTrigger = ({
   return createElement(
     "div",
     { ...props, onClick: () => onOpenChange?.(true) },
+    children as ReactNode,
+  );
+};
+// The menu is a Radix DropdownMenu, whose trigger opens on pointerdown rather
+// than click, through a composed handler that bails once the child's own
+// handler has called preventDefault. Both halves matter here: a trigger child
+// that cancels the press would be inert in this surface, so the mock has to be
+// able to show that.
+const MenuTrigger = ({
+  children,
+  asChild: _asChild,
+  ...props
+}: Record<string, unknown>) => {
+  const onOpenChange = useContext(OpenChangeContext);
+  return createElement(
+    "div",
+    {
+      ...props,
+      onPointerDown: (event: ReactPointerEvent) => {
+        if (event.defaultPrevented) {
+          return;
+        }
+        onOpenChange?.(true);
+      },
+    },
     children as ReactNode,
   );
 };
@@ -133,7 +162,7 @@ const MenuItem = ({
 mock.module("@vellumai/design-library", () => {
   const MenuMock = {
     Root: surfaceRoot,
-    Trigger: SurfaceTrigger,
+    Trigger: MenuTrigger,
     Content: passthrough,
     Item: MenuItem,
     Label: passthrough,
@@ -141,7 +170,7 @@ mock.module("@vellumai/design-library", () => {
   };
   const BottomSheetMock = {
     Root: surfaceRoot,
-    Trigger: SurfaceTrigger,
+    Trigger: SheetTrigger,
     Content: passthrough,
     Header: passthrough,
     Title: passthrough,
@@ -775,6 +804,10 @@ describe("mobile pill triggers", () => {
     renderMenu({ props: { onOpenChange } });
 
     const accessTrigger = await screen.findByLabelText(ACCESS_TRIGGER_LABEL);
+    // iOS blurs the textarea before the click if pointerdown is allowed to
+    // move focus. The pill must cancel that transfer so the focus-gated row
+    // remains mounted long enough for the sheet trigger to receive the click.
+    expect(fireEvent.pointerDown(accessTrigger)).toBe(false);
     fireEvent.click(accessTrigger);
     await waitFor(() => {
       expect(onOpenChange).toHaveBeenLastCalledWith(true);
@@ -809,6 +842,36 @@ describe("mobile pill triggers", () => {
       expect(onOpenChange).toHaveBeenLastCalledWith(false);
     });
   });
+
+  test("presses through to the menu in a narrow window with a mouse", async () => {
+    // Same pills, mouse pointer: the surface is a dropdown, which opens on the
+    // pointerdown itself. Cancelling that press to protect the touch sheet
+    // would leave the pill dead here, with no click activation to fall back on.
+    isTouchMobileRef.value = false;
+    const onOpenChange = mock((_open: boolean) => {});
+    renderMenu({ props: { onOpenChange } });
+
+    const accessTrigger = await screen.findByLabelText(ACCESS_TRIGGER_LABEL);
+    expect(fireEvent.pointerDown(accessTrigger)).toBe(true);
+    await waitFor(() => {
+      expect(onOpenChange).toHaveBeenLastCalledWith(true);
+    });
+  });
+
+  test("presses the profile pill through to its menu too", async () => {
+    isTouchMobileRef.value = false;
+    const onOpenChange = mock((_open: boolean) => {});
+    renderMenu({ props: { onOpenChange } });
+
+    const profileTrigger = await screen.findByLabelText(/^Model profile/);
+    await waitFor(() => {
+      expect(profileTrigger.textContent).toContain("Smart");
+    });
+    expect(fireEvent.pointerDown(profileTrigger)).toBe(true);
+    await waitFor(() => {
+      expect(onOpenChange).toHaveBeenLastCalledWith(true);
+    });
+  });
 });
 
 describe("open-state reporting across the quick-add and unmount", () => {
@@ -820,7 +883,7 @@ describe("open-state reporting across the quick-add and unmount", () => {
     renderMenu({ props: { onOpenChange } });
 
     const profileTrigger = await screen.findByLabelText(/^Model profile/);
-    fireEvent.click(profileTrigger);
+    fireEvent.pointerDown(profileTrigger);
     await waitFor(() => {
       expect(onOpenChange).toHaveBeenLastCalledWith(true);
     });
@@ -853,7 +916,7 @@ describe("open-state reporting across the quick-add and unmount", () => {
     const { unmount } = renderMenu({ props: { onOpenChange } });
 
     const profileTrigger = await screen.findByLabelText(/^Model profile/);
-    fireEvent.click(profileTrigger);
+    fireEvent.pointerDown(profileTrigger);
     await waitFor(() => {
       expect(onOpenChange).toHaveBeenLastCalledWith(true);
     });
@@ -905,7 +968,7 @@ describe("compact composer collapse", () => {
     const trigger = await screen.findByLabelText(
       "Assistant access and model profile",
     );
-    fireEvent.click(trigger);
+    fireEvent.pointerDown(trigger);
     await waitFor(() => {
       expect(onOpenChange).toHaveBeenLastCalledWith(true);
     });
@@ -950,7 +1013,7 @@ describe("compact composer collapse", () => {
     const { rerender } = render(tree(false));
 
     const profileTrigger = await screen.findByLabelText(/^Model profile/);
-    fireEvent.click(profileTrigger);
+    fireEvent.pointerDown(profileTrigger);
     await waitFor(() => {
       expect(onOpenChange).toHaveBeenLastCalledWith(true);
     });
