@@ -707,9 +707,10 @@ export function ChatComposer({
     !isLiveVoiceActive;
 
   // Mobile lifts the access and profile triggers out of the action row into a
-  // row that floats above the card while the composer is in use. A variant that
-  // passes neither slot (the app-editing panel) has no row to show.
-  const hasSettingsPills =
+  // row that floats above the card while the composer is in use, and hangs a
+  // caption under the card while it rests. A variant that passes neither
+  // settings slot is the app-editing panel, which gets neither.
+  const isMobileMainComposer =
     isMobile && Boolean(thresholdPickerSlot || modelPickerSlot);
 
   // No longer suppressed during a live-voice session: it was suppressed
@@ -761,9 +762,13 @@ export function ChatComposer({
   // composer's own add-to-chat sheet included, so each one has to hold the row
   // up on its way out. Without the sheet's flag the row would drop away as the
   // sheet rises and the card would shift down under the scrim.
-  const settingsPillsVisible =
-    hasSettingsPills &&
-    (composerFocusWithin || settingsSheetOpen || addSheetOpen);
+  const composerInUse =
+    composerFocusWithin || settingsSheetOpen || addSheetOpen;
+  const settingsPillsVisible = isMobileMainComposer && composerInUse;
+  // The caption is the row's opposite number: it stands under the card at rest
+  // and steps aside the moment anything takes the bottom of the screen, which
+  // is where the keyboard and every sheet cover it anyway.
+  const disclaimerVisible = isMobileMainComposer && !composerInUse;
 
   // A pill at mobile widths (half the card's 52px collapsed height), the 10px
   // panel elsewhere, both from the live-voice bar's module: the bar stacks on
@@ -1217,7 +1222,7 @@ export function ChatComposer({
             does when the card runs narrow is the control's own business, and
             must not depend on which row it happens to be sitting in. */}
         <ComposerCompactProvider compact={compactSettings}>
-          {hasSettingsPills && (
+          {isMobileMainComposer && (
             // Mounted for as long as the composer is, because each pill gates
             // itself on server state its own menu loads (access waits on the
             // global-threshold fetch), and a row that mounted on first focus
@@ -1377,6 +1382,21 @@ export function ChatComposer({
               )}
             </Popover.Content>
           </Popover.Root>
+          {isMobileMainComposer && (
+            // Mounted for as long as the composer is and toggled with `hidden`,
+            // the same treatment the pills row above the card gets: one caption
+            // that comes and goes rather than a node that mounts and unmounts
+            // under the card the composer is anchored to. Inside the shell, so
+            // focus judged against the shell is unaffected, and below the form,
+            // which is the box `composer-peek` measures.
+            <p
+              data-slot="composer-disclaimer"
+              hidden={!disclaimerVisible}
+              className="mt-2 px-4 text-center text-[10px] leading-3 text-[var(--content-tertiary)]"
+            >
+              {t("chatComposer.disclaimer")}
+            </p>
+          )}
           {/* Beside the form, not inside it: a hidden file input stays mounted
               while a native picker is up, and has no business in the form the
               composer submits. Mounted whatever the row is showing, so neither
