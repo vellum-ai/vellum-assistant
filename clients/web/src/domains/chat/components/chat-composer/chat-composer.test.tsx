@@ -671,21 +671,45 @@ describe("isDraftPastOneLine", () => {
 });
 
 describe("isDraftScrolledOutOfView", () => {
-  test("a draft taller than the field it sits in has lines out of view", () => {
+  test("a draft taller than the field, scrolled down, has lines out of view", () => {
     expect(
-      isDraftScrolledOutOfView({ scrollHeightPx: 400, clientHeightPx: 240 }),
+      isDraftScrolledOutOfView({
+        scrollHeightPx: 400,
+        clientHeightPx: 240,
+        scrollTopPx: 120,
+      }),
     ).toBe(true);
   });
 
   test("a draft the field still shows whole has none", () => {
     expect(
-      isDraftScrolledOutOfView({ scrollHeightPx: 120, clientHeightPx: 240 }),
+      isDraftScrolledOutOfView({
+        scrollHeightPx: 120,
+        clientHeightPx: 240,
+        scrollTopPx: 0,
+      }),
+    ).toBe(false);
+  });
+
+  test("a long draft parked at its first line has nothing above the edge", () => {
+    // A restored draft, or one the user scrolled back to the top, outgrows the
+    // field's cap while still showing its first line whole.
+    expect(
+      isDraftScrolledOutOfView({
+        scrollHeightPx: 400,
+        clientHeightPx: 240,
+        scrollTopPx: 0,
+      }),
     ).toBe(false);
   });
 
   test("an unmeasured field has nothing out of view", () => {
     expect(
-      isDraftScrolledOutOfView({ scrollHeightPx: 0, clientHeightPx: 0 }),
+      isDraftScrolledOutOfView({
+        scrollHeightPx: 0,
+        clientHeightPx: 0,
+        scrollTopPx: 0,
+      }),
     ).toBe(false);
   });
 });
@@ -955,7 +979,7 @@ function stubDraftGeometry(
   });
 }
 
-/** Stand in for a text field that has scrolled its earlier lines out of view. */
+/** Stand in for a text field whose draft has outgrown the cap it is shown at. */
 function stubDraftScroll(
   container: HTMLElement,
   heights: { scrollHeightPx: number; clientHeightPx: number },
@@ -974,6 +998,16 @@ function stubDraftScroll(
 /** Type into the draft, which is what re-runs the composer's measurements. */
 function typeDraft(container: HTMLElement, value: string) {
   fireEvent.change(textareaOf(container), { target: { value } });
+}
+
+/** Scroll the text field to a given offset, as a finger on the draft would. */
+function scrollDraftTo(container: HTMLElement, scrollTopPx: number) {
+  const textarea = textareaOf(container);
+  Object.defineProperty(textarea, "scrollTop", {
+    configurable: true,
+    value: scrollTopPx,
+  });
+  fireEvent.scroll(textarea);
 }
 
 describe("ChatComposer — placeholder", () => {
@@ -1876,9 +1910,10 @@ describe("ChatComposer: a mobile draft past one line", () => {
     // GIVEN a phone composer whose draft has grown past the field's cap
     const { container } = renderPhoneComposer();
     stubDraftScroll(container, { scrollHeightPx: 400, clientHeightPx: 240 });
-
-    // WHEN it is typed
     typeDraft(container, "a draft with more lines than the field can show");
+
+    // WHEN the field is scrolled off its first line
+    scrollDraftTo(container, 160);
 
     // THEN a fade stands over the top edge the earlier lines leave through,
     // and takes neither taps nor a place in the accessibility tree
@@ -1887,6 +1922,40 @@ describe("ChatComposer: a mobile draft past one line", () => {
     expect(fade?.className).toContain("pointer-events-none");
     expect(fade?.getAttribute("aria-hidden")).toBe("true");
     expect(fade?.className).toContain("var(--surface-lift)");
+  });
+
+  test("a long draft still parked at its first line gets no fade", () => {
+    // GIVEN a phone composer whose draft outgrows the field's cap, as a
+    // restored draft assigned whole does, with the field left at the top
+    const { container } = renderPhoneComposer();
+    stubDraftScroll(container, { scrollHeightPx: 400, clientHeightPx: 240 });
+
+    // WHEN it is put in the field
+    typeDraft(container, "a draft with more lines than the field can show");
+
+    // THEN nothing is faded, since the first line is still shown whole
+    expect(
+      container.querySelector('[data-slot="composer-draft-fade"]'),
+    ).toBeNull();
+  });
+
+  test("scrolling back up to the first line takes the fade away again", () => {
+    // GIVEN a phone composer whose draft has been scrolled off its first line
+    const { container } = renderPhoneComposer();
+    stubDraftScroll(container, { scrollHeightPx: 400, clientHeightPx: 240 });
+    typeDraft(container, "a draft with more lines than the field can show");
+    scrollDraftTo(container, 160);
+    expect(
+      container.querySelector('[data-slot="composer-draft-fade"]'),
+    ).not.toBeNull();
+
+    // WHEN the user scrolls it back to the top
+    scrollDraftTo(container, 0);
+
+    // THEN the fade goes with the lines it stood over
+    expect(
+      container.querySelector('[data-slot="composer-draft-fade"]'),
+    ).toBeNull();
   });
 
   test("a draft the field shows whole gets no fade", () => {

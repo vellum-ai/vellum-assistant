@@ -807,6 +807,23 @@ export function ChatComposer({
   const draftProbeRef = useRef<HTMLDivElement>(null);
   const [isMultilineDraft, setIsMultilineDraft] = useState(false);
   const [isDraftScrolled, setIsDraftScrolled] = useState(false);
+  // Where the field sits in its own scroll moves under the user with no
+  // re-render behind it, so the fade is read back off the element itself: on
+  // every measurement, and on every scroll of the field. Written only when the
+  // verdict flips, which keeps a flick of the draft off the render path.
+  const syncDraftScrolled = useCallback(() => {
+    const textarea = inputRef.current;
+    const next =
+      isMobile &&
+      !hideTextareaForVoice &&
+      textarea !== null &&
+      isDraftScrolledOutOfView({
+        scrollHeightPx: textarea.scrollHeight,
+        clientHeightPx: textarea.clientHeight,
+        scrollTopPx: textarea.scrollTop,
+      });
+    setIsDraftScrolled((current) => (current === next ? current : next));
+  }, [hideTextareaForVoice, inputRef, isMobile]);
   const measureDraftGeometry = useCallback(() => {
     const start = inlineActionsStartRef.current;
     const end = inlineActionsEndRef.current;
@@ -832,15 +849,8 @@ export function ChatComposer({
         hasHardBreak: input.includes("\n"),
       }),
     );
-    const textarea = inputRef.current;
-    setIsDraftScrolled(
-      textarea !== null &&
-        isDraftScrolledOutOfView({
-          scrollHeightPx: textarea.scrollHeight,
-          clientHeightPx: textarea.clientHeight,
-        }),
-    );
-  }, [hideTextareaForVoice, input, inputRef, isMobile]);
+    syncDraftScrolled();
+  }, [hideTextareaForVoice, input, isMobile, syncDraftScrolled]);
   useLayoutEffect(() => {
     measureDraftGeometry();
   }, [measureDraftGeometry]);
@@ -1076,6 +1086,9 @@ export function ChatComposer({
         autoComplete="off"
         data-1p-ignore
         data-lpignore="true"
+        // Scrolling the draft by hand moves what the top edge hides without
+        // changing a thing React renders from, so the fade is re-read here.
+        onScroll={syncDraftScrolled}
         onChange={(e) => {
           const value = e.target.value;
           cursorRef.current = e.target.selectionStart ?? value.length;
