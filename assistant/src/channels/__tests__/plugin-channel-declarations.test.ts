@@ -10,18 +10,17 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
-const workspacePluginsDir = mkdtempSync(join(tmpdir(), "plugin-channels-"));
-const readyPlugins = new Set<string>();
+import {
+  markPluginReady,
+  resetPluginReadinessForTests,
+} from "../../plugins/plugin-readiness.js";
 
+const workspacePluginsDir = mkdtempSync(join(tmpdir(), "plugin-channels-"));
 const realPlatform = await import("../../util/platform.js");
 
 mock.module("../../util/platform.js", () => ({
   ...realPlatform,
   getWorkspacePluginsDir: () => workspacePluginsDir,
-}));
-
-mock.module("../../plugins/plugin-readiness.js", () => ({
-  isPluginReady: (pluginId: string) => readyPlugins.has(pluginId),
 }));
 
 const { discoverPluginChannels } =
@@ -31,6 +30,7 @@ interface PluginOptions {
   /** Contents of `channels/ingress.json`; omit for a plugin with no ingress. */
   ingress?: string;
   manifest?: Record<string, unknown>;
+  optsIntoReadiness?: boolean;
 }
 
 const INGRESS = JSON.stringify({
@@ -42,18 +42,33 @@ function writePlugin(name: string, options: PluginOptions = {}): string {
   mkdirSync(dir, { recursive: true });
   writeFileSync(
     join(dir, "package.json"),
-    JSON.stringify({ name, ...options.manifest }),
+    JSON.stringify({
+      name,
+      ...(options.optsIntoReadiness
+        ? { peerDependencies: { "@vellumai/plugin-api": "*" } }
+        : {}),
+      ...options.manifest,
+    }),
   );
+  if (options.optsIntoReadiness) {
+    writeFileSync(
+      join(dir, "host-requirements.json"),
+      JSON.stringify({
+        schemaVersion: 1,
+        requires: { "plugins.readiness": "^1.0.0" },
+      }),
+    );
+  }
   if (options.ingress !== undefined) {
     mkdirSync(join(dir, "channels"), { recursive: true });
     writeFileSync(join(dir, "channels", "ingress.json"), options.ingress);
   }
-  readyPlugins.add(name);
+  markPluginReady(name, "a".repeat(64));
   return dir;
 }
 
 beforeEach(() => {
-  readyPlugins.clear();
+  resetPluginReadinessForTests();
   rmSync(workspacePluginsDir, { recursive: true, force: true });
   mkdirSync(workspacePluginsDir, { recursive: true });
 });
@@ -120,10 +135,17 @@ describe("discoverPluginChannels", () => {
   });
 
   test("skips a channel until the plugin is ready", async () => {
-    writePlugin("courier", { ingress: INGRESS });
-    readyPlugins.clear();
+    writePlugin("courier", { ingress: INGRESS, optsIntoReadiness: true });
+    resetPluginReadinessForTests();
 
     expect(await discoverPluginChannels()).toEqual([]);
+  });
+
+  test("keeps a legacy channel visible without readiness state", async () => {
+    writePlugin("courier", { ingress: INGRESS });
+    resetPluginReadinessForTests();
+
+    expect((await discoverPluginChannels())[0]?.id).toBe("courier");
   });
 
   test("refuses to let a plugin take a built-in channel's id", async () => {

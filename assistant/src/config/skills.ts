@@ -20,7 +20,7 @@ import { z } from "zod";
 
 import { getDefaultPluginSkillRoots } from "../plugins/defaults/main.js";
 import { isPluginDisabled } from "../plugins/disabled-state.js";
-import { isPluginReady } from "../plugins/plugin-readiness.js";
+import { isPluginSurfaceReady } from "../plugins/plugin-readiness.js";
 import { parseFrontmatterFields } from "../skills/frontmatter.js";
 import type { InlineCommandExpansion } from "../skills/inline-command-expansions.js";
 import { parseInlineCommandExpansions } from "../skills/inline-command-expansions.js";
@@ -878,7 +878,7 @@ function discoverInstalledPluginResidentSkills(): SkillSummary[] {
       continue;
     }
 
-    if (!isPluginReady(entry.name)) {
+    if (!isPluginSurfaceReady(entry.name, pluginDir)) {
       continue;
     }
 

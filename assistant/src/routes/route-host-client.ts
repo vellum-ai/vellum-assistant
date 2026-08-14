@@ -135,7 +135,7 @@ export class RouteHostClient {
       this.killHost("route source changed");
     }
     this.sourceFingerprints.set(sourceRoot, sourceFingerprint);
-    const socket = await this.ensureConnected();
+    const socket = await this.ensureConnectedOrAbort(signal);
     const id = String(++this.idSeq);
 
     return new Promise<RouteInvokeResponse>((resolve, reject) => {
@@ -187,6 +187,37 @@ export class RouteHostClient {
       if (signal?.aborted) {
         onAbort?.();
       }
+    });
+  }
+
+  private async ensureConnectedOrAbort(signal?: AbortSignal): Promise<Socket> {
+    if (!signal) {
+      return this.ensureConnected();
+    }
+    if (signal.aborted) {
+      throw signal.reason ?? new DOMException("Aborted", "AbortError");
+    }
+
+    const connecting = this.ensureConnected();
+    return new Promise<Socket>((resolve, reject) => {
+      const onAbort = () => {
+        reject(
+          signal.reason instanceof Error
+            ? signal.reason
+            : new DOMException("Aborted", "AbortError"),
+        );
+      };
+      signal.addEventListener("abort", onAbort, { once: true });
+      void connecting.then(
+        (socket) => {
+          signal.removeEventListener("abort", onAbort);
+          resolve(socket);
+        },
+        (error: unknown) => {
+          signal.removeEventListener("abort", onAbort);
+          reject(error);
+        },
+      );
     });
   }
 

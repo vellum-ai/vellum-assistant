@@ -54,6 +54,10 @@ function writeWorkspacePluginHandler(
     relativePath,
   );
   mkdirSync(dirname(full), { recursive: true });
+  writeFileSync(
+    join(getWorkspacePluginsDir(), pluginName, "package.json"),
+    JSON.stringify({ name: pluginName }),
+  );
   writeFileSync(full, content);
 }
 

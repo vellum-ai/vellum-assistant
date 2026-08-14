@@ -30,14 +30,29 @@ function freshWorkspace(): string {
  */
 function installPlugin(
   name: string,
-  opts: { disabled?: boolean } = {},
+  opts: { disabled?: boolean; optsIntoReadiness?: boolean } = {},
 ): string {
   const pluginDir = join(getWorkspacePluginsDir(), name);
   mkdirSync(pluginDir, { recursive: true });
   writeFileSync(
     join(pluginDir, "package.json"),
-    JSON.stringify({ name, version: "1.0.0" }),
+    JSON.stringify({
+      name,
+      version: "1.0.0",
+      ...(opts.optsIntoReadiness
+        ? { peerDependencies: { "@vellumai/plugin-api": "*" } }
+        : {}),
+    }),
   );
+  if (opts.optsIntoReadiness) {
+    writeFileSync(
+      join(pluginDir, "host-requirements.json"),
+      JSON.stringify({
+        schemaVersion: 1,
+        requires: { "plugins.readiness": "^1.0.0" },
+      }),
+    );
+  }
   if (opts.disabled) {
     writeFileSync(join(pluginDir, ".disabled"), "");
   }
@@ -95,6 +110,7 @@ describe("listAllApps", () => {
     });
     const pluginDir = installPlugin("acme");
     bundleApp(pluginDir, "acme-dashboard");
+    resetPluginReadinessForTests();
 
     const plugin = listPluginApps();
     expect(plugin).toHaveLength(1);
@@ -147,7 +163,7 @@ describe("listAllApps", () => {
   });
 
   test("excludes apps until the plugin is ready", () => {
-    const pluginDir = installPlugin("acme");
+    const pluginDir = installPlugin("acme", { optsIntoReadiness: true });
     bundleApp(pluginDir, "acme-dashboard");
     resetPluginReadinessForTests();
 

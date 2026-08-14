@@ -225,16 +225,47 @@ describe("route host subprocess", () => {
     ).rejects.toThrow("Conversation store access is unavailable");
   });
 
-  test("propagates caller abort to the handler without waiting for timeout", async () => {
+  test("aborts while the route host is starting without invoking the handler", async () => {
+    const invokedMarker = join(handlerDir, "startup-abort-invoked");
+    const { filePath } = writeHandler(
+      "startup-abort.ts",
+      `import { writeFileSync } from "node:fs";
+       export function GET() {
+         writeFileSync(${JSON.stringify(invokedMarker)}, "invoked");
+         return new Promise(() => {});
+       }`,
+    );
+    const controller = new AbortController();
+    const startedAt = Date.now();
+    const invocation = client.invoke(
+      {
+        filePath,
+        method: "GET",
+        url: url("startup-abort"),
+        headers: [],
+      },
+      { body: null, signal: controller.signal },
+    );
+
+    controller.abort();
+
+    await expect(invocation).rejects.toMatchObject({ name: "AbortError" });
+    expect(Date.now() - startedAt).toBeLessThan(500);
+    expect(existsSync(invokedMarker)).toBe(false);
+  });
+
+  test("propagates caller abort to an active handler", async () => {
+    const startedMarker = join(handlerDir, "request-started");
     const abortMarker = join(handlerDir, "request-aborted");
     const { filePath } = writeHandler(
       "abort.ts",
       `import { writeFileSync } from "node:fs";
        import { requirePluginRouteContext } from ${JSON.stringify(PLUGIN_API_MODULE_URL)};
        export function GET(request) {
+         const context = requirePluginRouteContext();
+         writeFileSync(${JSON.stringify(startedMarker)}, "started");
          return new Promise((resolve) => {
            const onAbort = async () => {
-             const context = requirePluginRouteContext();
              try {
                await context.host.getPluginStorageDir();
                writeFileSync(${JSON.stringify(abortMarker)}, "broker allowed");
@@ -252,7 +283,6 @@ describe("route host subprocess", () => {
        }`,
     );
     const controller = new AbortController();
-    const startedAt = Date.now();
     const invocation = client.invoke(
       {
         filePath,
@@ -280,10 +310,19 @@ describe("route host subprocess", () => {
       },
     );
 
+    for (
+      let attempt = 0;
+      attempt < 100 && !existsSync(startedMarker);
+      attempt++
+    ) {
+      await Bun.sleep(10);
+    }
+    expect(existsSync(startedMarker)).toBe(true);
+    const abortStartedAt = Date.now();
     controller.abort();
 
     await expect(invocation).rejects.toMatchObject({ name: "AbortError" });
-    expect(Date.now() - startedAt).toBeLessThan(500);
+    expect(Date.now() - abortStartedAt).toBeLessThan(500);
     for (let attempt = 0; attempt < 50 && !existsSync(abortMarker); attempt++) {
       await Bun.sleep(10);
     }

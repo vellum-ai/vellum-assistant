@@ -15,15 +15,32 @@ import { UserRouteDispatcher } from "../user-route-dispatcher.js";
 
 const SOURCE_FINGERPRINT = "a".repeat(64);
 
-function writeRouteFixture(pluginId: string): string {
+function writeRouteFixture(
+  pluginId: string,
+  opts: { optsIntoReadiness?: boolean } = { optsIntoReadiness: true },
+): string {
   const pluginDir = join(getWorkspacePluginsDir(), pluginId);
   const routesDir = join(pluginDir, "routes");
   const marker = join(pluginDir, "imported");
   mkdirSync(routesDir, { recursive: true });
   writeFileSync(
     join(pluginDir, "package.json"),
-    JSON.stringify({ name: pluginId }),
+    JSON.stringify({
+      name: pluginId,
+      ...(opts.optsIntoReadiness
+        ? { peerDependencies: { "@vellumai/plugin-api": "*" } }
+        : {}),
+    }),
   );
+  if (opts.optsIntoReadiness) {
+    writeFileSync(
+      join(pluginDir, "host-requirements.json"),
+      JSON.stringify({
+        schemaVersion: 1,
+        requires: { "plugins.readiness": "^1.0.0" },
+      }),
+    );
+  }
   writeFileSync(
     join(routesDir, "status.ts"),
     `import { writeFileSync } from "node:fs";
@@ -68,6 +85,17 @@ afterEach(() => {
 });
 
 describe("plugin route readiness", () => {
+  test("serves a legacy plugin route without readiness state", async () => {
+    const pluginId = "legacy-route";
+    const marker = writeRouteFixture(pluginId, { optsIntoReadiness: false });
+
+    const response = await dispatch(pluginId);
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ ok: true });
+    expect(existsSync(marker)).toBe(true);
+  });
+
   test("keeps the timestamp for an unchanged readiness state", async () => {
     const pluginId = "stable-readiness";
     markPluginFailed(pluginId, SOURCE_FINGERPRINT, "initialization failed");
@@ -95,6 +123,24 @@ describe("plugin route readiness", () => {
     expect(body.error.details).toMatchObject({
       pluginId,
       status: "initializing",
+    });
+    expect(existsSync(marker)).toBe(false);
+  });
+
+  test("fails closed on an invalid readiness opt-in", async () => {
+    const pluginId = "invalid-readiness-opt-in";
+    const marker = writeRouteFixture(pluginId);
+    writeFileSync(
+      join(getWorkspacePluginsDir(), pluginId, "host-requirements.json"),
+      "{invalid",
+    );
+
+    const response = await dispatch(pluginId);
+
+    expect(response.status).toBe(503);
+    expect((await response.json()).error).toMatchObject({
+      code: "plugin_incompatible",
+      details: { pluginId, status: "incompatible" },
     });
     expect(existsSync(marker)).toBe(false);
   });

@@ -26,7 +26,7 @@ import { join } from "node:path";
 import { isPluginDisabled } from "../plugins/disabled-state.js";
 import { parsePluginPresentation } from "../plugins/external-plugin-loader.js";
 import { listInstalledPluginDirs } from "../plugins/installed-plugin-dirs.js";
-import { isPluginReady } from "../plugins/plugin-readiness.js";
+import { isPluginSurfaceReady } from "../plugins/plugin-readiness.js";
 import { type AvailableChannel, isChannelId } from "./types.js";
 
 /**
@@ -80,7 +80,7 @@ export async function discoverPluginChannels(): Promise<AvailableChannel[]> {
   for (const { name, dir } of listInstalledPluginDirs()) {
     if (
       isPluginDisabled(name) ||
-      !isPluginReady(name) ||
+      !isPluginSurfaceReady(name, dir) ||
       isChannelId(name) ||
       !declaresIngress(dir)
     ) {

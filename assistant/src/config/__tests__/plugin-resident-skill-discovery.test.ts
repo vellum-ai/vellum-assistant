@@ -25,7 +25,11 @@ function writePlugin(
   dirName: string,
   packageName: string,
   skills: Array<{ id: string; description: string }>,
-  opts: { disabled?: boolean; packageJson?: string | null } = {},
+  opts: {
+    disabled?: boolean;
+    packageJson?: string | null;
+    optsIntoReadiness?: boolean;
+  } = {},
 ): void {
   const pluginDir = join(getWorkspacePluginsDir(), dirName);
   mkdirSync(pluginDir, { recursive: true });
@@ -46,6 +50,16 @@ function writePlugin(
 
   if (opts.disabled) {
     writeFileSync(join(pluginDir, ".disabled"), "");
+  }
+
+  if (opts.optsIntoReadiness) {
+    writeFileSync(
+      join(pluginDir, "host-requirements.json"),
+      JSON.stringify({
+        schemaVersion: 1,
+        requires: { "plugins.readiness": "^1.0.0" },
+      }),
+    );
   }
 
   markPluginReady(dirName, "c".repeat(64));
@@ -146,9 +160,12 @@ describe("discoverPluginResidentSkills (via loadSkillCatalog)", () => {
   });
 
   test("hides resident skills until the plugin is ready", () => {
-    writePlugin("initializing-plugin", "initializing-pkg", [
-      { id: "qa-initializing-skill", description: "Hidden during init." },
-    ]);
+    writePlugin(
+      "initializing-plugin",
+      "initializing-pkg",
+      [{ id: "qa-initializing-skill", description: "Hidden during init." }],
+      { optsIntoReadiness: true },
+    );
     resetPluginReadinessForTests();
 
     expect(skillById("qa-initializing-skill")).toBeUndefined();

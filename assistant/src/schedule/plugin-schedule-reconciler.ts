@@ -33,7 +33,7 @@ import type { AttentionHints } from "../notifications/signal.js";
 import { isPluginDisabled } from "../plugins/disabled-state.js";
 import { parsePluginManifest } from "../plugins/external-plugin-loader.js";
 import { listInstalledPluginDirs } from "../plugins/installed-plugin-dirs.js";
-import { isPluginReady } from "../plugins/plugin-readiness.js";
+import { isPluginSurfaceReady } from "../plugins/plugin-readiness.js";
 import { getLogger } from "../util/logger.js";
 import {
   type DeclarationError,
@@ -280,7 +280,7 @@ async function collectDesiredDeclarations(): Promise<CollectedDeclarations> {
   const manifestFailures: DeclarationError[] = [];
 
   for (const { name, dir } of listInstalledPluginDirs()) {
-    if (isPluginDisabled(name) || !isPluginReady(name)) {
+    if (isPluginDisabled(name) || !isPluginSurfaceReady(name, dir)) {
       continue;
     }
     if (!existsSync(join(dir, "schedules"))) {

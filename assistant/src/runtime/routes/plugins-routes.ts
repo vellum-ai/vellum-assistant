@@ -96,7 +96,7 @@ import {
   deactivatePluginForUpdate,
   reconcilePluginSourcesNow,
 } from "../../plugins/mtime-cache.js";
-import { getPluginReadiness } from "../../plugins/plugin-readiness.js";
+import { getPluginSurfaceActivation } from "../../plugins/plugin-readiness.js";
 import { getLocalCategorySlugs } from "../../skills/categories-cache.js";
 import { getLogger } from "../../util/logger.js";
 import { getWorkspacePluginsDir } from "../../util/platform.js";
@@ -813,18 +813,9 @@ function projectPlugin(entry: InstalledPluginInfo): PluginView {
   // be scoped (e.g. `@vendor/plugin-name`) which is fine for npm but not
   // what the CLI uses to install — so we don't surface it as `name`.
   const enabled = !isPluginDisabled(entry.name);
-  const readiness = getPluginReadiness(entry.name);
   const activation: PluginView["activation"] = !enabled
     ? { status: "disabled" }
-    : readiness === undefined
-      ? { status: "unavailable" }
-      : {
-          status: readiness.status,
-          ...(readiness.code === undefined ? {} : { code: readiness.code }),
-          ...(readiness.message === undefined
-            ? {}
-            : { message: readiness.message }),
-        };
+    : getPluginSurfaceActivation(entry.name, entry.target);
   const view: PluginView = {
     id: entry.name,
     name: entry.name,

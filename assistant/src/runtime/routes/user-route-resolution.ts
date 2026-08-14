@@ -29,7 +29,7 @@ import {
   getDefaultPluginRoutesDir,
 } from "../../plugins/defaults/main.js";
 import { isPluginDisabled } from "../../plugins/disabled-state.js";
-import { isPluginReady } from "../../plugins/plugin-readiness.js";
+import { isPluginSurfaceReady } from "../../plugins/plugin-readiness.js";
 import {
   type PluginRouteManifestResult,
   readPluginRouteManifest,
@@ -253,5 +253,5 @@ function isPluginRouteRootDiscoverable(
   if (manifest.kind === "invalid") {
     return false;
   }
-  return isPluginReady(pluginId);
+  return isPluginSurfaceReady(pluginId, pluginDir);
 }

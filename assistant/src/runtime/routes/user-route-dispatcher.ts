@@ -44,7 +44,7 @@ import {
 } from "../../plugin-api/route-context.js";
 import type { VerifiedPeerOperationContext } from "../../plugin-api/verified-peer-context.js";
 import { runInPluginContext } from "../../plugins/plugin-execution-context.js";
-import { getPluginReadiness } from "../../plugins/plugin-readiness.js";
+import { getPluginSurfaceActivation } from "../../plugins/plugin-readiness.js";
 import {
   findPluginRouteDeclaration,
   type PluginRouteAuthorization,
@@ -211,11 +211,10 @@ export class UserRouteDispatcher {
     }
 
     if (location.pluginId) {
-      const isInstalledPlugin = location.pluginDir !== undefined;
       const unavailable = this.pluginUnavailableResponse(
         location.pluginId,
+        location.pluginDir,
         location.routeManifest,
-        isInstalledPlugin,
       );
       if (unavailable) {
         return unavailable;
@@ -328,8 +327,8 @@ export class UserRouteDispatcher {
 
   private pluginUnavailableResponse(
     pluginId: string,
+    pluginDir: string | undefined,
     manifest: PluginRouteManifestResult | undefined,
-    isInstalledPlugin: boolean,
   ): Response | null {
     if (manifest?.kind === "invalid") {
       return this.pluginStatusResponse(
@@ -340,37 +339,26 @@ export class UserRouteDispatcher {
       );
     }
 
-    if (!isInstalledPlugin) {
+    if (!pluginDir) {
       return null;
     }
 
-    const readiness = getPluginReadiness(pluginId);
-    if (!readiness) {
-      return this.pluginStatusResponse(
-        pluginId,
-        "initializing",
-        "plugin_initializing",
-        "Plugin is initializing",
-      );
-    }
-    if (readiness.status === "ready") {
+    const activation = getPluginSurfaceActivation(pluginId, pluginDir);
+    if (activation.status === "ready") {
       return null;
     }
 
     const code =
-      readiness.status === "incompatible"
+      activation.status === "incompatible"
         ? "plugin_incompatible"
-        : readiness.status === "failed"
+        : activation.status === "failed"
           ? "plugin_initialization_failed"
           : "plugin_initializing";
     return this.pluginStatusResponse(
       pluginId,
-      readiness.status,
+      activation.status,
       code,
-      readiness.message ??
-        (readiness.status === "initializing"
-          ? "Plugin is initializing"
-          : "Plugin is unavailable"),
+      activation.message,
     );
   }
 

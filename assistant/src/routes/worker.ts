@@ -41,7 +41,6 @@ import {
   startWorkerPidFileGuard,
 } from "../util/worker-process.js";
 import {
-  callRouteHostBroker,
   type RouteHostBrokerRequest,
   type RouteHostBrokerResult,
   runWithRouteHostBroker,
@@ -155,26 +154,30 @@ async function handleInvoke(
 
     const request = reconstructRequest(params, body, abortController.signal);
     const serializedContext = params.pluginContext;
-    const pluginContext: PluginRouteContext | undefined = serializedContext
-      ? {
-          pluginId: serializedContext.pluginId,
-          actor: serializedContext.actor,
-          requestId: serializedContext.requestId,
-          signal: abortController.signal,
-          verifiedPeer: serializedContext.verifiedPeer,
-          host: {
-            async getPluginStorageDir(): Promise<string> {
-              const result = await callRouteHostBroker({
-                operation: "plugin.storage-dir",
-              });
-              return result.pluginStorageDir;
-            },
-          },
-        }
+    const brokerTransport = serializedContext
+      ? createBrokerTransport(socket, id)
       : undefined;
+    const pluginContext: PluginRouteContext | undefined =
+      serializedContext && brokerTransport
+        ? {
+            pluginId: serializedContext.pluginId,
+            actor: serializedContext.actor,
+            requestId: serializedContext.requestId,
+            signal: abortController.signal,
+            verifiedPeer: serializedContext.verifiedPeer,
+            host: {
+              async getPluginStorageDir(): Promise<string> {
+                const result = await brokerTransport({
+                  operation: "plugin.storage-dir",
+                });
+                return result.pluginStorageDir;
+              },
+            },
+          }
+        : undefined;
     const invoke = () => (handler as (req: Request) => unknown)(request);
-    const response = (await (pluginContext
-      ? runWithRouteHostBroker(createBrokerTransport(socket, id), () =>
+    const response = (await (pluginContext && brokerTransport
+      ? runWithRouteHostBroker(brokerTransport, () =>
           runInPluginContext(pluginContext.pluginId, () =>
             runInPluginRouteContext(pluginContext, invoke),
           ),

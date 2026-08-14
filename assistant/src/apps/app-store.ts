@@ -37,7 +37,7 @@ import {
 import { resolveConversationLineage } from "../daemon/conversation-lineage.js";
 import { rawAll } from "../persistence/raw-query.js";
 import { isPluginDisabled } from "../plugins/disabled-state.js";
-import { isPluginReady } from "../plugins/plugin-readiness.js";
+import { isPluginSurfaceReady } from "../plugins/plugin-readiness.js";
 import type { EditEngineResult } from "../tools/shared/filesystem/edit-engine.js";
 import { applyEdit } from "../tools/shared/filesystem/edit-engine.js";
 import { getLogger } from "../util/logger.js";
@@ -808,7 +808,7 @@ export function listPluginApps(): EnumeratedApp[] {
     if (!existsSync(join(pluginDir, "package.json"))) {
       continue;
     }
-    if (isPluginDisabled(name) || !isPluginReady(name)) {
+    if (isPluginDisabled(name) || !isPluginSurfaceReady(name, pluginDir)) {
       continue;
     }
     apps.push(...listAppsForPlugin(name, pluginDir));
@@ -894,7 +894,10 @@ export function resolveAppSource(id: string): ResolvedAppSource | null {
     if (!existsSync(join(pluginDir, "package.json"))) {
       return null;
     }
-    if (isPluginDisabled(pluginName) || !isPluginReady(pluginName)) {
+    if (
+      isPluginDisabled(pluginName) ||
+      !isPluginSurfaceReady(pluginName, pluginDir)
+    ) {
       return null;
     }
     const sourceDir = join(pluginDir, "apps", appDirName);

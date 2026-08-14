@@ -16,6 +16,9 @@ interface InvokeCall {
   params: RouteInvokeParams;
   body: Uint8Array | null;
 }
+interface InvokeOptions {
+  body: Uint8Array | null;
+}
 
 let hostEnabled = false;
 let invokeImpl: (call: InvokeCall) => Promise<RouteInvokeResponse>;
@@ -37,8 +40,8 @@ mock.module("../../../routes/route-host-client.js", () => ({
     constructor(options?: { invokeTimeoutMs?: number }) {
       ctorOptions.push(options);
     }
-    async invoke(params: RouteInvokeParams, body: Uint8Array | null) {
-      const call = { params, body };
+    async invoke(params: RouteInvokeParams, options: InvokeOptions) {
+      const call = { params, body: options.body };
       invokeCalls.push(call);
       return invokeImpl(call);
     }
