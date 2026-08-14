@@ -17,7 +17,10 @@ import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
 import { promisify } from "node:util";
 
-import { readHostRequirements } from "../../plugins/host-requirements.js";
+import {
+  HOST_REQUIREMENTS_FILENAME,
+  readHostRequirements,
+} from "../../plugins/host-requirements.js";
 import { readPluginRouteManifest } from "../../plugins/plugin-route-manifest.js";
 import { walkPluginTree } from "../../plugins/plugin-tree-walk.js";
 import { parsePluginScheduleDeclarations } from "../../schedule/plugin-schedule-declarations.js";
@@ -168,7 +171,7 @@ export function inventoryPluginSurfaces(
     existsSync(join(pluginDir, "skills", id, "SKILL.md")),
   );
   const ingressPath = join(pluginDir, "channels", "ingress.json");
-  const requirementsPath = join(pluginDir, "host-requirements.json");
+  const requirementsPath = join(pluginDir, HOST_REQUIREMENTS_FILENAME);
   const routeManifestPath = join(pluginDir, "routes", "manifest.json");
 
   return {
@@ -184,7 +187,7 @@ export function inventoryPluginSurfaces(
     schedules: listImmediateDirectories(join(pluginDir, "schedules")),
     ingress: existsSync(ingressPath) ? ["channels/ingress.json"] : [],
     hostRequirements: existsSync(requirementsPath)
-      ? ["host-requirements.json"]
+      ? [HOST_REQUIREMENTS_FILENAME]
       : [],
     uiDescriptors: listRecursiveFiles(join(pluginDir, "ui"), (path) =>
       path.endsWith(".json"),

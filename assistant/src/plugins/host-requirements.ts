@@ -1,6 +1,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
+import { PLUGIN_HOST_REQUIREMENTS_FILENAME } from "@vellumai/service-contracts/plugin-readiness";
 import semver from "semver";
 import { z } from "zod";
 
@@ -9,7 +10,7 @@ import {
   satisfiesHostCapability,
 } from "./host-capabilities.js";
 
-export const HOST_REQUIREMENTS_FILENAME = "host-requirements.json";
+export const HOST_REQUIREMENTS_FILENAME = PLUGIN_HOST_REQUIREMENTS_FILENAME;
 
 const CAPABILITY_ID = /^[a-z][a-z0-9.-]{0,127}$/;
 

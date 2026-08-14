@@ -4,6 +4,7 @@ import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { join, posix } from "node:path";
 
 import {
+  PLUGIN_HOST_REQUIREMENTS_FILENAME,
   PLUGIN_READINESS_FILENAME,
   PLUGIN_SOURCE_VERSIONS_FILENAME,
   PluginReadinessSnapshotSchema,
@@ -390,7 +391,9 @@ function readPluginActivationSnapshots(
  * A manifest is untrusted input from the assistant and is validated here
  * independently of any checks the plugin performs on itself.
  *
- * Disabled or unready plugins hold no public routes.
+ * Legacy plugins retain the historical disk-backed behavior. A plugin opts
+ * into activation readiness by declaring host requirements, and then holds no
+ * public routes until the assistant publishes a matching ready generation.
  *
  * Only workspace-installed plugins are visible. Default plugins ship
  * inside the assistant binary, which the gateway cannot read.
@@ -416,9 +419,6 @@ function discoverPluginIngressWithReadiness(
 ): PluginIngressDiscovery {
   const plugins: DiscoveredPluginIngress[] = [];
   const problems: PluginIngressProblem[] = [];
-  if (!readiness || !sourceVersions) {
-    return { plugins, problems };
-  }
 
   const pluginsDir = join(workspaceDir, "plugins");
 
@@ -462,15 +462,17 @@ function discoverPluginIngressWithReadiness(
       continue;
     }
 
-    const readinessEntry = readiness?.plugins[plugin];
-    const sourceVersion = sourceVersions?.plugins[pluginDir];
-    if (
-      readinessEntry?.status !== "ready" ||
-      sourceVersion === undefined ||
-      sourceVersion.disabled ||
-      sourceVersion.sourceFingerprint !== readinessEntry.sourceFingerprint
-    ) {
-      continue;
+    if (existsSync(join(pluginDir, PLUGIN_HOST_REQUIREMENTS_FILENAME))) {
+      const readinessEntry = readiness?.plugins[plugin];
+      const sourceVersion = sourceVersions?.plugins[pluginDir];
+      if (
+        readinessEntry?.status !== "ready" ||
+        sourceVersion === undefined ||
+        sourceVersion.disabled ||
+        sourceVersion.sourceFingerprint !== readinessEntry.sourceFingerprint
+      ) {
+        continue;
+      }
     }
 
     const manifestPath = join(pluginDir, PLUGIN_INGRESS_MANIFEST_RELPATH);

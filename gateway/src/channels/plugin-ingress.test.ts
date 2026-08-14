@@ -12,6 +12,7 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+import { PLUGIN_HOST_REQUIREMENTS_FILENAME } from "@vellumai/service-contracts/plugin-readiness";
 import { afterEach, describe, expect, it, spyOn } from "bun:test";
 
 import {
@@ -137,8 +138,23 @@ function writeManifest(
     JSON.stringify({ name: plugin }),
   );
   writeFileSync(join(pluginDir, PLUGIN_INGRESS_MANIFEST_RELPATH), contents);
-  setReadiness(workspaceDir, plugin);
   return pluginDir;
+}
+
+function writeHostRequirements(workspaceDir: string, plugin: string): void {
+  writeFileSync(
+    join(workspaceDir, "plugins", plugin, PLUGIN_HOST_REQUIREMENTS_FILENAME),
+    JSON.stringify({ schemaVersion: 1, requires: {} }),
+  );
+}
+
+function optIntoReadiness(
+  workspaceDir: string,
+  plugin: string,
+  status: "initializing" | "ready" | "incompatible" | "failed" = "ready",
+): void {
+  writeHostRequirements(workspaceDir, plugin);
+  setReadiness(workspaceDir, plugin, status);
 }
 
 const VALID = JSON.stringify({
@@ -560,7 +576,7 @@ describe("discoverPluginIngress", () => {
     });
   });
 
-  it("discovers a declaring plugin and composes its paths", () => {
+  it("keeps a legacy declaration visible without activation snapshots", () => {
     const workspaceDir = makeWorkspace();
     writeManifest(workspaceDir, "meeting-bot", VALID);
 
@@ -592,7 +608,7 @@ describe("discoverPluginIngress", () => {
   it("fails closed until the assistant marks the plugin ready", () => {
     const workspaceDir = makeWorkspace();
     writeManifest(workspaceDir, "meeting-bot", VALID);
-    setReadiness(workspaceDir, "meeting-bot", "initializing");
+    optIntoReadiness(workspaceDir, "meeting-bot", "initializing");
 
     expect(discoverPluginIngress({ workspaceDir }).plugins).toEqual([]);
 
@@ -602,58 +618,43 @@ describe("discoverPluginIngress", () => {
     ).toEqual(["meeting-bot"]);
   });
 
-  it("fails closed before scanning when readiness is missing or invalid", async () => {
+  it("fails closed for opted-in plugins when readiness is missing or invalid", () => {
     const workspaceDir = makeWorkspace();
     writeManifest(workspaceDir, "meeting-bot", VALID);
+    writeHostRequirements(workspaceDir, "meeting-bot");
     const readinessPath = join(
       workspaceDir,
       "data",
       "plugin-readiness-v1.json",
     );
-    const fs = await import("node:fs");
-    const readdirSpy = spyOn(fs, "readdirSync");
+    expect(discoverPluginIngress({ workspaceDir }).plugins).toEqual([]);
 
-    try {
-      rmSync(readinessPath);
-      expect(discoverPluginIngress({ workspaceDir }).plugins).toEqual([]);
-      expect(readdirSpy).not.toHaveBeenCalled();
-
-      writeFileSync(readinessPath, "{ not json");
-      expect(discoverPluginIngress({ workspaceDir }).plugins).toEqual([]);
-      expect(readdirSpy).not.toHaveBeenCalled();
-    } finally {
-      readdirSpy.mockRestore();
-    }
+    mkdirSync(join(workspaceDir, "data"), { recursive: true });
+    writeFileSync(readinessPath, "{ not json");
+    expect(discoverPluginIngress({ workspaceDir }).plugins).toEqual([]);
   });
 
-  it("fails closed before scanning when source versions are missing or invalid", async () => {
+  it("fails closed for opted-in plugins when source versions are missing or invalid", () => {
     const workspaceDir = makeWorkspace();
     writeManifest(workspaceDir, "meeting-bot", VALID);
+    writeHostRequirements(workspaceDir, "meeting-bot");
     const sourceVersionsPath = join(
       workspaceDir,
       "data",
       "monitoring",
       "plugin-source-versions.json",
     );
-    const fs = await import("node:fs");
-    const readdirSpy = spyOn(fs, "readdirSync");
+    expect(discoverPluginIngress({ workspaceDir }).plugins).toEqual([]);
 
-    try {
-      rmSync(sourceVersionsPath);
-      expect(discoverPluginIngress({ workspaceDir }).plugins).toEqual([]);
-      expect(readdirSpy).not.toHaveBeenCalled();
-
-      writeFileSync(sourceVersionsPath, "{ not json");
-      expect(discoverPluginIngress({ workspaceDir }).plugins).toEqual([]);
-      expect(readdirSpy).not.toHaveBeenCalled();
-    } finally {
-      readdirSpy.mockRestore();
-    }
+    mkdirSync(join(workspaceDir, "data", "monitoring"), { recursive: true });
+    writeFileSync(sourceVersionsPath, "{ not json");
+    expect(discoverPluginIngress({ workspaceDir }).plugins).toEqual([]);
   });
 
   it("fails closed when source versions are stale", () => {
     const workspaceDir = makeWorkspace();
     writeManifest(workspaceDir, "meeting-bot", VALID);
+    optIntoReadiness(workspaceDir, "meeting-bot");
 
     writeStaleSourceVersion(workspaceDir, "meeting-bot");
     expect(discoverPluginIngress({ workspaceDir }).plugins).toEqual([]);
@@ -674,8 +675,6 @@ describe("discoverPluginIngress", () => {
 
     mkdirSync(join(workspaceDir, "plugins"), { recursive: true });
     symlinkSync(target, join(workspaceDir, "plugins", "meeting-bot"));
-    setReadiness(workspaceDir, "meeting-bot");
-
     const { plugins, problems } = discoverPluginIngress({ workspaceDir });
     expect(problems).toEqual([]);
     expect(plugins.map((p) => p.plugin)).toEqual(["meeting-bot"]);
@@ -805,7 +804,7 @@ describe("PluginIngressCache", () => {
   it("refreshes immediately after an atomic readiness rewrite", () => {
     const workspaceDir = makeWorkspace();
     writeManifest(workspaceDir, "meeting-bot", VALID);
-    setReadiness(workspaceDir, "meeting-bot", "initializing");
+    optIntoReadiness(workspaceDir, "meeting-bot", "initializing");
     const cache = new PluginIngressCache({ workspaceDir, ttlMs: 10_000 });
     expect(cache.get().plugins).toEqual([]);
 
@@ -816,6 +815,7 @@ describe("PluginIngressCache", () => {
   it("refreshes immediately after an atomic source-version rewrite", () => {
     const workspaceDir = makeWorkspace();
     writeManifest(workspaceDir, "meeting-bot", VALID);
+    optIntoReadiness(workspaceDir, "meeting-bot");
     const cache = new PluginIngressCache({ workspaceDir, ttlMs: 10_000 });
     expect(cache.get().plugins.map((p) => p.plugin)).toEqual(["meeting-bot"]);
 

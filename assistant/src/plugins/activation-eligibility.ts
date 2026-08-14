@@ -7,6 +7,7 @@ import { z } from "zod";
 import assistantPkg from "../../package.json" with { type: "json" };
 import {
   findUnsatisfiedHostCapabilities,
+  HOST_REQUIREMENTS_FILENAME,
   readHostRequirements,
   type UnsatisfiedHostCapability,
 } from "./host-requirements.js";
@@ -156,7 +157,7 @@ export function getPluginActivationEligibility(
   pluginDir: string,
 ): PluginActivationEligibility {
   const packagePath = join(pluginDir, "package.json");
-  const requirementsPath = join(pluginDir, "host-requirements.json");
+  const requirementsPath = join(pluginDir, HOST_REQUIREMENTS_FILENAME);
   const packageSignature = getFileSignature(packagePath);
   const requirementsSignature = getFileSignature(requirementsPath);
   const cached = cache.get(pluginDir);

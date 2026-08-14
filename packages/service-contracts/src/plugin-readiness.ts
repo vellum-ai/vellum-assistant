@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 export const PLUGIN_READINESS_FILENAME = "plugin-readiness-v1.json";
+export const PLUGIN_HOST_REQUIREMENTS_FILENAME = "host-requirements.json";
 export const PLUGIN_SOURCE_VERSIONS_FILENAME = "plugin-source-versions.json";
 export const PLUGIN_SOURCE_VERSIONS_FORMAT = 2;
 
