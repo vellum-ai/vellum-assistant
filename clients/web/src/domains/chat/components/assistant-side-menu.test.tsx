@@ -1590,8 +1590,11 @@ describe("AssistantSideMenu · equal section treatment", () => {
    * own. Its box therefore needs two things, and losing either blanks the
    * whole list while the caches stay fully populated: the accordion root must
    * forward the sidebar body's height down to the card's flex-fill, and the
-   * box itself must floor at the section cap so a squeezed (or broken) chain
-   * still yields a scrollable section rather than a zero-height one.
+   * box itself must open at the section-cap flex basis so a chain that stops
+   * forwarding height still yields a scrollable section rather than a
+   * zero-height one. A basis, not a min-height: under real squeeze the box
+   * must shrink with the min-h-0 chain, or Collapsible.Content clips it and
+   * virtuoso ranges over rows the clip makes unreachable.
    */
   test("past the virtualize threshold, Chats windows into a bounded, filling box", () => {
     localStorage.setItem("vellum:sidebar-view-mode:asst-1", "all");
@@ -1626,7 +1629,7 @@ describe("AssistantSideMenu · equal section treatment", () => {
 
     const box = windowed.parentElement;
     expect(box.classList.contains("flex-1")).toBe(true);
-    expect(box.style.minHeight).toBe(`${SIDEBAR_SECTION_MAX_HEIGHT}px`);
+    expect(box.style.flexBasis).toBe(`${SIDEBAR_SECTION_MAX_HEIGHT}px`);
 
     // The fill above the floor only resolves if the accordion root passes
     // the body's height to the card's flex-fill.

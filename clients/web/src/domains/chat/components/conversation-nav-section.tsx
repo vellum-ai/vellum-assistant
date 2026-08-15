@@ -147,13 +147,19 @@ export function ConversationRowList({
      sidebar body and this box forwards the body's height (flex column with
      flex-1/min-h-0 at each layer). A windowed list renders only what fits
      its viewport, so unlike the mounted-rows path a broken chain here does
-     not degrade to a tall list, it degrades to an empty one. The min-height
-     floor caps that failure at "a section-sized scrollable box": rows stay
-     reachable even if a layout change above drops the chain. */
+     not degrade to a tall list, it degrades to an empty one. The section-cap
+     flex BASIS is the fallback that keeps it visible: against an ancestor
+     that stops forwarding height (which resolves percentages and flex-1's
+     0% basis to nothing) the box still opens at the cap, while under real
+     squeeze it shrinks with the min-h-0 chain like any flex item. A
+     min-height here would hold the box at the cap instead, and
+     `Collapsible.Content`'s overflow-hidden would clip it while virtuoso
+     keeps ranging over a cap-sized viewport, leaving the tail rows
+     unreachable at max scroll. */
   return isLast ? (
     <div
-      className="h-full flex-1"
-      style={{ minHeight: SIDEBAR_SECTION_MAX_HEIGHT }}
+      className="min-h-0 flex-1"
+      style={{ flexBasis: SIDEBAR_SECTION_MAX_HEIGHT }}
     >
       {windowed}
     </div>
