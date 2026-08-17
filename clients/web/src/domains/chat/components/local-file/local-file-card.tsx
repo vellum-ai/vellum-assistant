@@ -38,18 +38,6 @@ export interface LocalFileCardProps {
   assistantId?: string;
 }
 
-/**
- * The click hint keeps its slot in the layout at all times and is only faded
- * in, so revealing it on hover cannot reflow the name or the size beside it.
- * Coarse pointers have no hover, so there it stays visible.
- */
-const HINT_REVEAL_CLASSES = [
-  "opacity-0 transition-opacity",
-  "group-hover/local-file-card:opacity-100",
-  "group-focus-visible/local-file-card:opacity-100",
-  "[@media(pointer:coarse)]:opacity-100",
-].join(" ");
-
 /** What a click does, spelled out so nothing navigates the user by surprise. */
 interface ClickHint {
   label: string;
@@ -138,8 +126,9 @@ export function LocalFileCard({
             }
           : undefined
       }
+      data-reveal-row=""
       className={cn(
-        "group/local-file-card my-2 flex w-full max-w-md items-center gap-2.5 rounded-lg border p-2 transition-colors",
+        "my-2 flex w-full max-w-md items-center gap-2.5 rounded-lg border p-2 transition-colors",
         isOpenInDrawer
           ? "border-[var(--border-active)] bg-[var(--surface-active)]"
           : "border-[var(--border-element)] bg-[var(--surface-lift)]",
@@ -190,11 +179,11 @@ export function LocalFileCard({
         // Named by the card's own aria-label, so it is decorative here.
         <span
           aria-hidden="true"
-          className={cn(
-            "flex shrink-0 items-center gap-1",
-            HINT_REVEAL_CLASSES,
-            "text-[var(--content-tertiary)]",
-          )}
+          /* The hint keeps its slot in the layout at all times and is only
+             faded, so revealing it cannot reflow the name or the size beside
+             it. */
+          data-reveal=""
+          className="flex shrink-0 items-center gap-1 text-[var(--content-tertiary)]"
         >
           <HintIcon className="h-3.5 w-3.5" />
           <Typography

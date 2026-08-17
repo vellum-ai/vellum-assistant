@@ -38,7 +38,10 @@ import { recordDiagnostic } from "@/lib/diagnostics";
 import { emitClientPerfEvent } from "@/lib/telemetry/client-perf";
 import type { Conversation } from "@/types/conversation-types";
 import { readContentLength } from "@/utils/content-length";
-import { byTimestampDesc } from "@/utils/conversation-order";
+import {
+  byTimestampDesc,
+  mergeListFirstPage,
+} from "@/utils/conversation-order";
 import { isScheduledConversation } from "@/utils/conversation-predicates";
 import { toConversation } from "@/utils/conversation-transforms";
 
@@ -304,7 +307,7 @@ type FirstPageFetchSource = "drain" | "first_page_refresh";
  * caller of {@link fetchConversationListPage} can produce, including the
  * onboarding existence probe.
  */
-type ListFetchSource = FirstPageFetchSource | "existence_probe";
+type ListFetchSource = FirstPageFetchSource | "existence_probe" | "load_more";
 
 /**
  * Ring entry for one offset-0 list GET, shared by the drain's first page and
@@ -634,32 +637,6 @@ export const SYSTEM_ALL_GROUP_ID = "system:all";
 export const NATIVE_ORIGIN_CHANNEL: NonNullable<OriginChannel> = "vellum";
 
 /**
- * Fetch every active conversation matching one section's filter: Pinned, a
- * custom group, the ungrouped remainder, or a channel within it.
- *
- * Drained rather than paginated. A section that shows only its first page is
- * a section whose unread indicator and bulk actions silently exclude the rest
- * of its own contents.
- *
- * "Drained" means up to `CONVERSATION_LIST_MAX_PAGES` pages
- * (200 x 50 = 10,000 rows), the shared watchdog bound on every list drain, and
- * the loop stops there without signalling truncation. Pinned and custom groups
- * do not realistically reach it. `system:all` is the ungrouped remainder, so on
- * a heavy account it is the one section that can, and past 10,000 rows its
- * unread indicator and bulk actions describe only the prefix. Lifting that
- * needs a windowed section list, not a bigger cap.
- *
- * Rendered in the server's order, which is recency for every section,
- * pinned and custom groups included. The client applies no sort of its own.
- */
-export async function listSectionConversations(
-  assistantId: string,
-  filter: SectionConversationFilter,
-): Promise<Conversation[]> {
-  return fetchConversationList(assistantId, filter);
-}
-
-/**
  * Fetch all archived conversations for the archive page.
  * Sorted by `archivedAt` descending (most recently archived first).
  */
@@ -823,12 +800,11 @@ export async function listScheduledConversationsFirstPage(
 }
 
 /**
- * First page of {@link listSectionConversations} (one sidebar section).
+ * First page of one sidebar section's conversations.
  *
- * Server order is preserved rather than re-sorted, exactly as the full
- * section fetcher preserves it: a section renders the server's order as-is
- * (recency, LUM-3108), and a client-side sort here could disagree with it
- * on ties.
+ * Server order is preserved rather than re-sorted: a section renders the
+ * server's order as-is (recency, LUM-3108), and a client-side sort here
+ * could disagree with it on ties.
  */
 export async function listSectionConversationsFirstPage(
   assistantId: string,
@@ -849,6 +825,51 @@ export async function listSectionConversationsFirstPage(
   return { conversations: page.conversations, hasMore: page.hasMore };
 }
 
+/**
+ * Every row of one section, drained page by page.
+ *
+ * Transitional, and deliberately narrow: the only caller is the bulk-action
+ * path (`getAllRows` in `use-section-conversations.ts`), which must cover a
+ * section's full membership while the rendered cache is a window
+ * (LUM-2444). Bulk archive / mark-all-read send explicit id lists, so their
+ * completeness is exactly this list's completeness. The better shape is a
+ * server-side group-scoped bulk operation (one filter parameter instead of
+ * an id list); when that exists, this drain goes with it. Do not reach for
+ * this anywhere new - a windowed cache plus load-more is the shape
+ * everything else uses.
+ */
+export async function drainSectionConversations(
+  assistantId: string,
+  filter: SectionConversationFilter,
+): Promise<Conversation[]> {
+  return fetchConversationList(assistantId, filter);
+}
+
+/**
+ * One page of a section's conversations at an arbitrary offset, for
+ * extending a windowed cache (`loadMoreSectionConversations`).
+ *
+ * The offset is the caller's cached row count, not a stored page cursor:
+ * optimistic writes add and remove rows, so a cursor recorded at fetch time
+ * would drift from the rows actually held. Computing from the live cache
+ * self-corrects; overlap from concurrent server-side changes is deduped by
+ * id at the append, and a skipped row surfaces on the next first-page merge
+ * or deeper load.
+ */
+export async function listSectionConversationsPage(
+  assistantId: string,
+  filter: SectionConversationFilter,
+  offset: number,
+): Promise<ConversationListPage> {
+  const page = await fetchConversationListPage(
+    assistantId,
+    offset,
+    "load_more",
+    filter,
+  );
+  return { conversations: page.conversations, hasMore: page.hasMore };
+}
+
 // ---------------------------------------------------------------------------
 // queryOptions factories
 //
@@ -863,13 +884,25 @@ export async function listSectionConversationsFirstPage(
 const QUERY_STALE_TIME_MS = 30_000;
 
 /**
+ * A fully drained list as a {@link ConversationListPage}. Every list cache
+ * holds the page shape, windowed or not, so the cross-cache helpers in
+ * `conversation-cache.ts` never branch on shape; a drained list is simply a
+ * page the server has nothing beyond.
+ */
+async function drainedPage(
+  fetchAll: Promise<Conversation[]>,
+): Promise<ConversationListPage> {
+  return { conversations: await fetchAll, hasMore: false };
+}
+
+/**
  * Query options for the foreground conversation list. Spread into
  * `useQuery()` and override `enabled` at the hook level.
  */
 export function conversationListOptions(assistantId: string) {
   return queryOptions({
     queryKey: conversationsQueryKey(assistantId),
-    queryFn: () => listConversations(assistantId),
+    queryFn: () => drainedPage(listConversations(assistantId)),
     staleTime: QUERY_STALE_TIME_MS,
   });
 }
@@ -880,7 +913,7 @@ export function conversationListOptions(assistantId: string) {
 export function backgroundConversationListOptions(assistantId: string) {
   return queryOptions({
     queryKey: backgroundConversationsQueryKey(assistantId),
-    queryFn: () => listBackgroundConversations(assistantId),
+    queryFn: () => drainedPage(listBackgroundConversations(assistantId)),
     staleTime: QUERY_STALE_TIME_MS,
   });
 }
@@ -891,7 +924,7 @@ export function backgroundConversationListOptions(assistantId: string) {
 export function scheduledConversationListOptions(assistantId: string) {
   return queryOptions({
     queryKey: scheduledConversationsQueryKey(assistantId),
-    queryFn: () => listScheduledConversations(assistantId),
+    queryFn: () => drainedPage(listScheduledConversations(assistantId)),
     staleTime: QUERY_STALE_TIME_MS,
   });
 }
@@ -902,7 +935,7 @@ export function scheduledConversationListOptions(assistantId: string) {
 export function archivedConversationListOptions(assistantId: string) {
   return queryOptions({
     queryKey: archivedConversationsQueryKey(assistantId),
-    queryFn: () => listArchivedConversations(assistantId),
+    queryFn: () => drainedPage(listArchivedConversations(assistantId)),
     staleTime: QUERY_STALE_TIME_MS,
   });
 }
@@ -914,6 +947,23 @@ export function archivedConversationListOptions(assistantId: string) {
  * factory per filter axis: a section can constrain both at once, which a
  * per-axis factory cannot express. Caches independently per
  * `(assistantId, groupId, originChannel)`.
+ *
+ * The fetch is one page, not a drain (LUM-2444): a cold section costs a
+ * single GET, `hasMore` marks the cache as a window, and older rows arrive
+ * through `loadMoreSectionConversations` as the user scrolls.
+ *
+ * The queryFn is *window-preserving*: a windowed cache holds every page the
+ * user scrolled in, and a plain refetch (focus past staleTime, the settle
+ * invalidation after every placement) that returned page one bare would
+ * truncate the window back to 50 rows under the user's scrollbar. Merging
+ * the fresh page over the cached window (`mergeListFirstPage`, the same
+ * rule the sync refresh uses) makes every refresh path "refresh the top,
+ * keep the window". The cache is read through the query function's own
+ * context, so the factory stays keyed by request identity alone like its
+ * siblings; the read happens after the response so it merges against the
+ * freshest rows, and a mutation that lands mid-fetch cancels this query
+ * outright (`cancelConversationQueries`), so the merge cannot land on top
+ * of an optimistic write.
  */
 export function sectionConversationListOptions(
   assistantId: string,
@@ -921,7 +971,15 @@ export function sectionConversationListOptions(
 ) {
   return queryOptions({
     queryKey: sectionConversationsQueryKey(assistantId, filter),
-    queryFn: () => listSectionConversations(assistantId, filter),
+    queryFn: async ({ client, queryKey }) => {
+      const page = await listSectionConversationsFirstPage(assistantId, filter);
+      const prev = client.getQueryData<ConversationListPage>(queryKey);
+      /* A section page has no daemon pinned-row injection; see
+         mergeListFirstPage. */
+      return prev
+        ? mergeListFirstPage(prev, page, { pinnedInjected: false })
+        : page;
+    },
     staleTime: QUERY_STALE_TIME_MS,
   });
 }

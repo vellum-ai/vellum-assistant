@@ -72,7 +72,7 @@ export const ROUTES: RouteDefinition[] = [
         if (circuitOpenForMs === 0) {
           if (circuit.compactionCircuitOpenUntil !== null) {
             circuit.compactionCircuitOpenUntil = null;
-            conversation.sendToClient({
+            conversation.emit({
               type: "compaction_circuit_closed",
               conversationId: conversation.conversationId,
             });
@@ -80,7 +80,7 @@ export const ROUTES: RouteDefinition[] = [
         } else {
           const openUntil = Date.now() + circuitOpenForMs;
           circuit.compactionCircuitOpenUntil = openUntil;
-          conversation.sendToClient({
+          conversation.emit({
             type: "compaction_circuit_open",
             conversationId: conversation.conversationId,
             reason: "3_consecutive_failures",

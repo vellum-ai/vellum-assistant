@@ -702,10 +702,10 @@ interface SourceParityPins {
  * parity; no system-prompt section branches on the flag, so this pin does not
  * affect prompt output) and the tool-context pin (the live consumer, gating
  * tool availability), using the live-turn derivation: interactive
- * interfaces run `updateClient(_, false)` (`hasNoClient = false`), while
- * channel-routed and chrome-extension turns stay clientless (`true`) — the
- * exact `isInteractiveInterface` predicate `conversation-routes.ts` /
- * `process-message.ts` apply. Pinned explicitly even when it matches the
+ * interfaces run their turns with `isInteractive: true` (`hasNoClient` reads
+ * `false` for the turn), while channel-routed and chrome-extension turns stay
+ * clientless (`true`) — the exact `isInteractiveInterface` predicate
+ * `conversation-routes.ts` / `process-message.ts` apply. Pinned explicitly even when it matches the
  * fork's hydrated value (`true`) so the parity contract doesn't depend on
  * hydration defaults.
  *

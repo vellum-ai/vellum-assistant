@@ -273,12 +273,13 @@ function CollapsibleNavSectionSection({
   const headerEl = (
     <div
       data-slot="collapsible-nav-section-header"
+      /* The hover scope for the trailing "…": hovering anywhere on the header
+         reveals it. Attribute-keyed rather than a Tailwind group, so the
+         trigger's own unnamed `group` (the icon/chevron swap) cannot answer to
+         it and this cannot answer to the trigger's. */
+      data-reveal-row=""
       className={cn(
-        // Named group so the trailing "…" can react to hovering anywhere on
-        // the header. The trigger carries its own unnamed `group` for the
-        // icon/chevron swap, and it is a *sibling* of the trailing slot, so
-        // that one can't reach it.
-        "group/header flex shrink-0 items-center justify-between",
+        "flex shrink-0 items-center justify-between",
         // The title trigger's Accordion.Header wrapper must grow to fill
         // the row, so the whole header (minus the trailing cluster) is
         // the click target and long labels still truncate. The primitive
@@ -333,25 +334,14 @@ function CollapsibleNavSectionSection({
                    with. */
                 <span
                   data-slot="collapsible-nav-section-indicator"
+                  /* Yields the cell on exactly the conditions that bring the
+                     trailing control in, or the two paint over each other. With
+                     no trailing control there is nothing to yield to, and a
+                     section whose only header signal is this dot keeps it
+                     wherever the device cannot hover. */
+                  data-reveal-yield={trailing ? "" : undefined}
                   className={cn(
                     "pointer-events-none flex items-center",
-                    "opacity-100 transition-opacity",
-                    /* Yields the cell on exactly the conditions that bring the
-                       trailing control in, or the two paint over each other.
-                       Focus and the open-menu state are read off the trailing
-                       slot rather than the whole header, since the header's own
-                       trigger takes focus on a toggle click and carries an
-                       `aria-expanded` of its own.
-
-                       With no trailing control there is nothing to yield to,
-                       and a section whose only header signal is this dot keeps
-                       it wherever the device cannot hover. */
-                    trailing && [
-                      "[@media(hover:none)]:opacity-0",
-                      "[@media(hover:hover)]:group-hover/header:opacity-0",
-                      "group-has-[[data-slot=collapsible-nav-section-trailing]:focus-within]/header:opacity-0",
-                      "group-has-[[data-slot=collapsible-nav-section-trailing]:has([aria-expanded=true])]/header:opacity-0",
-                    ],
                     "group-data-[state=open]/section:hidden",
                   )}
                 >
@@ -362,36 +352,9 @@ function CollapsibleNavSectionSection({
                 <span
                   data-slot="collapsible-nav-section-trailing"
                   /* `empty:hidden` so a trailing component that renders nothing
-                 doesn't leave a padded box behind.
-
-                 Revealed on hover so a column of resting headers stays quiet.
-                 It stays up while its own menu is open (`aria-expanded`), or
-                 the control would vanish the moment it was clicked, and while
-                 anything inside holds focus, so it is keyboard reachable.
-                 Where the device cannot hover the control would be
-                 unreachable, so there it simply stays visible.
-
-                 Pointer input lands on it under the same conditions that paint
-                 it, since an unpainted control at the header's right edge
-                 would take the click that belongs to the toggle.
-
-                 `hoverRevealClasses` spelled out because the header's group is
-                 named: Tailwind's `group-*` matches any ancestor, so an
-                 unnamed `group` here would also answer to the title trigger's
-                 own. Focus is read off this slot rather than the group, since
-                 the trigger filling the rest of the row takes focus on a
-                 toggle click. */
-                  className={cn(
-                    "flex items-center shrink-0 empty:hidden",
-                    "pointer-events-none opacity-0 transition-opacity",
-                    "[@media(hover:none)]:pointer-events-auto",
-                    "[@media(hover:none)]:opacity-100",
-                    "[@media(hover:hover)]:group-hover/header:pointer-events-auto",
-                    "[@media(hover:hover)]:group-hover/header:opacity-100",
-                    "focus-within:pointer-events-auto focus-within:opacity-100",
-                    "has-[[aria-expanded=true]]:pointer-events-auto",
-                    "has-[[aria-expanded=true]]:opacity-100",
-                  )}
+                     doesn't leave a padded box behind. */
+                  data-reveal=""
+                  className="flex items-center shrink-0 empty:hidden"
                   onClick={(event) => event.stopPropagation()}
                 >
                   {trailing}

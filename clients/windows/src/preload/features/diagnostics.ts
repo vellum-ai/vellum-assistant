@@ -6,7 +6,6 @@ import type {
 } from "@vellumai/electron-desktop/capability-registry";
 import {
   DIAGNOSTICS_SET_SHARE,
-  FEATURE_FLAGS_SET,
   FEEDBACK_DIAGNOSTICS,
   FEEDBACK_LOGS,
   type VellumBridge,
@@ -17,11 +16,7 @@ const diagnosticsFeature: CapabilityModule<
 > = {
   id: "diagnostics",
   install: (registry) => {
-    registry.contribute("featureFlags", {
-      set: (flags) => {
-        ipcRenderer.send(FEATURE_FLAGS_SET, flags);
-      },
-    });
+    // `featureFlags` is contributed by the presence feature module.
     registry.contribute("diagnostics", {
       setShareDiagnostics: (enabled) => {
         ipcRenderer.send(DIAGNOSTICS_SET_SHARE, enabled);

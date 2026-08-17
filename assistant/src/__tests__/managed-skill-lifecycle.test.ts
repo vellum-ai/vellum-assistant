@@ -47,6 +47,9 @@ import { skillLoadTool } from "../tools/skills/load.js";
 import { executeScaffoldManagedSkill } from "../tools/skills/scaffold-managed.js";
 import type { ToolContext } from "../tools/types.js";
 
+/** scaffold_managed_skill requires activation hints; a fixed set for tests. */
+const HINTS = ["user asks to run the lifecycle test procedure"];
+
 function makeContext(): ToolContext {
   return {
     workingDir: "/tmp",
@@ -126,6 +129,7 @@ Run the custom lifecycle verification procedure.
         name: "Lifecycle Test",
         description: "Integration test skill.",
         body_markdown: "Run the lifecycle test procedure.",
+        activation_hints: HINTS,
         emoji: "🧪",
       },
       makeContext(),
@@ -185,6 +189,7 @@ Run the custom lifecycle verification procedure.
         name: "V1",
         description: "Version 1.",
         body_markdown: "Original body.",
+        activation_hints: HINTS,
       },
       ctx,
     );
@@ -196,6 +201,7 @@ Run the custom lifecycle verification procedure.
         name: "V2",
         description: "Version 2.",
         body_markdown: "Updated body.",
+        activation_hints: HINTS,
         overwrite: true,
       },
       ctx,
@@ -241,6 +247,7 @@ Run the custom lifecycle verification procedure.
         description: "Created from scaffold.",
         body_markdown:
           "This skill was dynamically created.\n\nRun: `echo chain-test-ok`",
+        activation_hints: HINTS,
       },
       ctx,
     );

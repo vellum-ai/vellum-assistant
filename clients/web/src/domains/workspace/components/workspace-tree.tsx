@@ -30,7 +30,7 @@ import {
 import { type FormEvent, useCallback, useMemo, useRef, useState } from "react";
 
 import { Trans, useTranslation } from "@/i18n";
-import { formatFileSize } from "@/domains/workspace/utils/format-file-size";
+import { formatFileSize } from "@/utils/format-file-size";
 import { isHiddenPath } from "@/domains/workspace/utils/is-hidden-path";
 import {
   sortEntries,
