@@ -10,6 +10,10 @@
     "gallery": "Buscar en la galería",
     "files": "Archivos"
   },
+  "allowOptionsMenu": {
+    "allowAndCreateRule": "Permitir y crear regla",
+    "trigger": "Más opciones para permitir"
+  },
   "cacheBreakpointMapCard": {
     "description": "Dónde {count, plural, one {cayó # punto de corte de caché} other {cayeron # puntos de corte de caché}} en el prefijo de esta solicitud, y qué segmentos se leyeron frente a los que se volvieron a crear.",
     "estimatedTokens": "≈ {count} tokens",

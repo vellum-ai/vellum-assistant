@@ -27,10 +27,7 @@ import {
 
 import { Button } from "@vellumai/design-library";
 
-import {
-  AllowOptionsMenu,
-  ALLOW_OPTIONS_LABEL,
-} from "@/domains/chat/components/allow-options-menu";
+import { AllowOptionsMenu } from "@/domains/chat/components/allow-options-menu";
 import { useChatSessionStore } from "@/domains/chat/chat-session-store";
 
 import {
@@ -235,7 +232,6 @@ export function InlineConfirmationCard({
                   variant="primary"
                   disabled={isSubmitting}
                   className="rounded-l-none px-1.5"
-                  aria-label={ALLOW_OPTIONS_LABEL}
                 >
                   <ChevronDown className="h-3.5 w-3.5" />
                 </Button>

@@ -1,10 +1,7 @@
 import { ChevronDown, ChevronRight, Loader2, Shield } from "lucide-react";
 import { useState } from "react";
 
-import {
-  AllowOptionsMenu,
-  ALLOW_OPTIONS_LABEL,
-} from "@/domains/chat/components/allow-options-menu";
+import { AllowOptionsMenu } from "@/domains/chat/components/allow-options-menu";
 import { getRiskBadgeStyle } from "@/domains/chat/utils/risk";
 import type { ConfirmationDecision } from "@/types/event-types";
 import type {
@@ -102,7 +99,6 @@ export function ConfirmationPromptCard({
                     type="button"
                     disabled={isSubmitting}
                     className="flex items-center rounded-r-md border-l border-[var(--content-inset)]/30 bg-[var(--primary-base)] px-1.5 py-1.5 text-[var(--content-inset)] transition-colors hover:opacity-90 disabled:opacity-50"
-                    aria-label={ALLOW_OPTIONS_LABEL}
                   >
                     <ChevronDown className="h-3.5 w-3.5" />
                   </button>

@@ -10,6 +10,10 @@
     "gallery": "Find in Gallery",
     "files": "Files"
   },
+  "allowOptionsMenu": {
+    "allowAndCreateRule": "Allow & Create Rule",
+    "trigger": "More allow options"
+  },
   "cacheBreakpointMapCard": {
     "description": "Where the {count, plural, one {# cache breakpoint} other {# cache breakpoints}} fell across this request's prefix, and which segments were read versus re-created.",
     "estimatedTokens": "≈ {count} tokens",

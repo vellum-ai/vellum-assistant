@@ -2,8 +2,7 @@ import type { ReactElement } from "react";
 
 import { ActionMenu } from "@vellumai/design-library";
 
-/** Names the trigger and the surface, so both presentations announce the same. */
-export const ALLOW_OPTIONS_LABEL = "More allow options";
+import { useTranslation } from "@/i18n";
 
 /**
  * The menu of extra allow decisions hung off the chevron half of a
@@ -24,9 +23,10 @@ export const ALLOW_OPTIONS_LABEL = "More allow options";
  *
  * The trigger is the caller's element, not this component's: the two cards
  * paint their split pill differently, and that chrome is the only part of the
- * control they do not share. `ActionMenu` supplies the chevron's
- * `aria-haspopup`, `aria-expanded`, and open handler, so the caller sets only
- * {@link ALLOW_OPTIONS_LABEL} as its accessible name and its own classes.
+ * control they do not share. Callers pass the chevron button and style it;
+ * everything a user reads or hears belongs to this component, so the accessible
+ * name rides on `ActionMenu.Trigger` and Radix's `Slot` merges it onto the
+ * caller's element (a prop the child does not set passes through).
  */
 export function AllowOptionsMenu({
   align,
@@ -38,12 +38,17 @@ export function AllowOptionsMenu({
   trigger: ReactElement;
   onAllowAndCreateRule: () => void;
 }) {
+  const { t } = useTranslation("chat");
+  const label = t("allowOptionsMenu.trigger");
+
   return (
     <ActionMenu.Root>
-      <ActionMenu.Trigger asChild>{trigger}</ActionMenu.Trigger>
-      <ActionMenu.Content title={ALLOW_OPTIONS_LABEL} align={align}>
+      <ActionMenu.Trigger asChild aria-label={label}>
+        {trigger}
+      </ActionMenu.Trigger>
+      <ActionMenu.Content title={label} align={align}>
         <ActionMenu.Item
-          label="Allow & Create Rule"
+          label={t("allowOptionsMenu.allowAndCreateRule")}
           onSelect={onAllowAndCreateRule}
         />
       </ActionMenu.Content>
