@@ -40,8 +40,8 @@ function renderSingleSection(opts: {
   );
 }
 
-/** The indicator's classes, for the slot compositions that decide them. */
-function indicatorClasses(slots: {
+/** The indicator element, for the slot compositions that decide its markers. */
+function indicatorElement(slots: {
   trailing?: ReactNode;
   collapsedIndicator: ReactNode;
 }) {
@@ -64,10 +64,8 @@ function indicatorClasses(slots: {
   );
   const container = document.createElement("div");
   container.innerHTML = html;
-  return (
-    container
-      .querySelector('[data-slot="collapsible-nav-section-indicator"]')
-      ?.getAttribute("class") ?? ""
+  return container.querySelector(
+    '[data-slot="collapsible-nav-section-indicator"]',
   );
 }
 
@@ -252,48 +250,45 @@ describe("CollapsibleNavSection", () => {
     expect(slots.at(-1)).toBe("collapsible-nav-section-chevron");
   });
 
-  /* The reveal is keyed on the hover capability it depends on. `hover` is
-     independent of viewport width, so a roomy touch surface reports
-     `hover: none` at a desktop width, and a control hidden behind a hover the
-     device cannot perform is unreachable rather than merely tucked away. */
-  test("the trailing control stays visible where the device cannot hover", () => {
+  /* The reveal conditions live in one rule in the design library's stylesheet,
+     keyed on the hover capability the affordance depends on. What the header
+     owes that rule is the scope: the trailing control is revealed by hovering
+     anywhere on the header, so the header is the hover scope and the control is
+     the affordance inside it. */
+  test("the header scopes the reveal of its trailing control", () => {
     const html = renderSingleSection({
       value: "pinned",
       label: "Pinned",
       trailing: "4",
     });
-    expect(html).toContain("[@media(hover:none)]:opacity-100");
-    expect(html).toContain(
-      "[@media(hover:hover)]:group-hover/header:opacity-100",
+    const container = document.createElement("div");
+    container.innerHTML = html;
+
+    const header = container.querySelector(
+      '[data-slot="collapsible-nav-section-header"]',
     );
+    expect(header?.hasAttribute("data-reveal-row")).toBe(true);
+
+    const trailing = container.querySelector(
+      '[data-slot="collapsible-nav-section-trailing"]',
+    );
+    expect(trailing?.hasAttribute("data-reveal")).toBe(true);
+    /* Inside the scope, not the scope itself: a marker on the header would
+       reveal the control whenever the header was hovered by its own hover. */
+    expect(trailing?.closest("[data-reveal-row]")).toBe(header);
   });
 
   /* The indicator and the trailing control crossfade in one cell, so the
-     indicator has to leave under exactly the conditions that bring the
-     control in. Where the device cannot hover the control is permanently
-     shown, and an indicator that only left on hover would sit underneath it. */
-  test("the collapsed indicator yields the cell where there is no hover", () => {
-    const cls = indicatorClasses({
+     indicator has to leave under exactly the conditions that bring the control
+     in. Marking it the yielding occupant is what ties the two to one set of
+     conditions: where the device cannot hover the control is permanently shown,
+     and an indicator that only left on hover would sit underneath it. */
+  test("the collapsed indicator yields the cell to the trailing control", () => {
+    const indicator = indicatorElement({
       trailing: createElement("button", { type: "button" }, "action"),
       collapsedIndicator: createElement("span", null, "3"),
     });
-    expect(cls).toContain("[@media(hover:none)]:opacity-0");
-    expect(cls).toContain("[@media(hover:hover)]:group-hover/header:opacity-0");
-  });
-
-  /* The trailing control is revealed by focus inside the control itself, so the
-     indicator has to yield on the same reading. Keyed on the whole header it
-     would also fire on a toggle click, which focuses the title trigger and
-     would leave the dot suppressed with the pointer nowhere near the row. */
-  test("the indicator yields to focus in the trailing control, not the header", () => {
-    const cls = indicatorClasses({
-      trailing: createElement("button", { type: "button" }, "action"),
-      collapsedIndicator: createElement("span", null, "3"),
-    });
-    expect(cls).toContain(
-      "group-has-[[data-slot=collapsible-nav-section-trailing]:focus-within]/header:opacity-0",
-    );
-    expect(cls).not.toContain("group-focus-within/header:opacity-0");
+    expect(indicator?.hasAttribute("data-reveal-yield")).toBe(true);
   });
 
   /* The yield exists only to keep two occupants of one cell from painting over
@@ -301,15 +296,10 @@ describe("CollapsibleNavSection", () => {
      an unconditional yield would delete its only header status signal on every
      device that cannot hover. */
   test("the collapsed indicator keeps the cell when there is no trailing control", () => {
-    const cls = indicatorClasses({
+    const indicator = indicatorElement({
       collapsedIndicator: createElement("span", null, "3"),
     });
-    expect(cls).toContain("opacity-100");
-    expect(cls).not.toContain("[@media(hover:none)]:opacity-0");
-    expect(cls).not.toContain(
-      "[@media(hover:hover)]:group-hover/header:opacity-0",
-    );
-    expect(cls).not.toContain("group-focus-within/header:opacity-0");
+    expect(indicator?.hasAttribute("data-reveal-yield")).toBe(false);
   });
 
   test("composes on top of design library Collapsible", () => {

@@ -35,7 +35,7 @@ describe("live-call question provenance", () => {
 
   test("a row persisted after the turn settled carries the owner, not the stale turn actor", async () => {
     registerConversationNotifiers("conv-n1", {
-      sendToClient: () => {},
+      emit: () => {},
       messages: [],
       // Voice cleanup restored the owner; the per-turn field still holds the
       // finished voice turn's contact.

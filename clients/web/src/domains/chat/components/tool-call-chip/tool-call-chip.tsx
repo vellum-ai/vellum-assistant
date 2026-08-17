@@ -27,6 +27,7 @@ import {
 
 import { Button } from "@vellumai/design-library";
 
+import { AllowOptionsMenu } from "@/domains/chat/components/allow-options-menu";
 import { useChatSessionStore } from "@/domains/chat/chat-session-store";
 
 import {
@@ -150,25 +151,6 @@ export function InlineConfirmationCard({
   onAllowAndCreateRule?: () => void;
 }) {
   const [showDetails, setShowDetails] = useState(false);
-  const [showSplitMenu, setShowSplitMenu] = useState(false);
-  const splitMenuRef = useRef<HTMLDivElement>(null);
-
-  // Close split menu when clicking outside
-  useEffect(() => {
-    if (!showSplitMenu) {
-      return;
-    }
-    const handleClickOutside = (e: MouseEvent) => {
-      if (
-        splitMenuRef.current &&
-        !splitMenuRef.current.contains(e.target as Node)
-      ) {
-        setShowSplitMenu(false);
-      }
-    };
-    document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, [showSplitMenu]);
 
   const confirmation = toolCall.pendingConfirmation;
   if (!confirmation) {
@@ -227,7 +209,7 @@ export function InlineConfirmationCard({
           options exist; the chevron opens the "Allow & Create Rule" menu. */}
       <div className="flex items-start gap-2">
         {hasAllowlistOptions && onAllowAndCreateRule ? (
-          <div ref={splitMenuRef} className="relative flex">
+          <div className="flex">
             <Button
               variant="primary"
               disabled={isSubmitting}
@@ -242,31 +224,19 @@ export function InlineConfirmationCard({
               aria-hidden
               className="h-5 w-px self-center bg-[var(--content-inset)] opacity-20"
             />
-            <Button
-              variant="primary"
-              disabled={isSubmitting}
-              onClick={() => setShowSplitMenu((v) => !v)}
-              className="rounded-l-none px-1.5"
-              aria-label="More allow options"
-              aria-haspopup="menu"
-              aria-expanded={showSplitMenu}
-            >
-              <ChevronDown className="h-3.5 w-3.5" />
-            </Button>
-            {showSplitMenu && (
-              <div className="absolute left-0 top-full z-10 mt-1 min-w-[180px] rounded-md border border-[var(--border-base)] bg-[var(--surface-lift)] py-1 shadow-lg">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setShowSplitMenu(false);
-                    onAllowAndCreateRule();
-                  }}
-                  className="flex w-full items-center px-3 py-2 text-body-small-default text-[var(--content-default)] transition-colors hover:bg-[var(--ghost-hover)]"
+            <AllowOptionsMenu
+              align="start"
+              onAllowAndCreateRule={onAllowAndCreateRule}
+              trigger={
+                <Button
+                  variant="primary"
+                  disabled={isSubmitting}
+                  className="rounded-l-none px-1.5"
                 >
-                  Allow &amp; Create Rule
-                </button>
-              </div>
-            )}
+                  <ChevronDown className="h-3.5 w-3.5" />
+                </Button>
+              }
+            />
           </div>
         ) : (
           <Button

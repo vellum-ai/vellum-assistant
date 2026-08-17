@@ -11,7 +11,6 @@ import type {
 } from "../agent/loop.js";
 import type { AssistantEvent } from "../api/index.js";
 import type { Message, ProviderResponse } from "../providers/types.js";
-import { broadcastMessage } from "../runtime/assistant-event-hub.js";
 import { stampAndBuffer } from "../runtime/assistant-stream-state.js";
 import { createAbortReason } from "../util/abort-reasons.js";
 import { setConfig } from "./helpers/set-config.js";
@@ -2989,6 +2988,9 @@ describe("Conversation host attachment directives", () => {
         attachments: [],
         onEvent: (e) => events.push(e),
         requestId: "req-1",
+        // A host attachment read prompts only when a human is present to
+        // answer; presence is declared per turn.
+        isInteractive: true,
       });
       await waitForPendingRun(1);
 
@@ -3059,6 +3061,9 @@ describe("Conversation host attachment directives", () => {
         attachments: [],
         onEvent: (e) => events.push(e),
         requestId: "req-1",
+        // A host attachment read prompts only when a human is present to
+        // answer; presence is declared per turn.
+        isInteractive: true,
       });
       await waitForPendingRun(1);
 
@@ -3925,57 +3930,20 @@ describe("subagent notification user_message_echo suppression", () => {
   });
 });
 
-describe("interactive drain sender rebind", () => {
+describe("drained turns deliver through the conversation sink", () => {
   beforeEach(() => {
     pendingRuns = [];
   });
 
-  test("a drained interactive message rebinds the hub sender for its turn, then restores the pre-drain state", async () => {
-    const conversation = makeConversation();
-    await conversation.loadFromDb();
-
-    const p1 = conversation.processMessage({
-      content: "msg-1",
-      attachments: [],
-      onEvent: () => {},
-      requestId: "req-1",
-    });
-    await waitForPendingRun(1);
-
-    // Queue an interactive item the way the /v1/messages route does when the
-    // conversation is busy.
-    const result = conversation.enqueueMessage({
-      content: "msg-2",
-      requestId: "req-2",
-      onEvent: () => {},
-      isInteractive: true,
-    });
-    expect(result.queued).toBe(true);
-
-    // The interactive turn that finishes ahead of the drain resets the
-    // conversation-level sender to a no-op (process-message.ts contract).
-    // The drained turn must not inherit that dead sender: the
-    // PermissionPrompter reads the conversation-level sender, so a
-    // confirmation_request raised during the drained turn would otherwise
-    // reach no client and hang until the permission timeout.
-    conversation.updateClient(() => {}, true);
-
-    await resolveRun(0);
-    await p1;
-    await waitForPendingRun(2);
-
-    expect(conversation.getCurrentSender()).toBe(broadcastMessage);
-    expect(conversation.hasNoClient).toBe(false);
-
-    await resolveRun(1);
-    await waitForCondition(
-      () => conversation.getCurrentSender() !== broadcastMessage,
-    );
-    expect(conversation.hasNoClient).toBe(true);
-  });
-
-  test("a drained interactive message restores a live pre-drain binding instead of clearing it", async () => {
-    const conversation = makeConversation();
+  test("a confirmation prompt raised in a drained interactive turn reaches the sink", async () => {
+    // The sink is fixed for the conversation's life, so an interactive turn
+    // drained from the queue delivers exactly like a live one: no per-turn
+    // rebinding, nothing for the previous turn's cleanup to clobber. This is
+    // the invariant behind the acp_spawn permission-prompt timeouts (a queued
+    // interactive turn's confirmation_request used to be emitted into a
+    // reset no-op sender and hang until the permission timeout).
+    const sink: AssistantEvent[] = [];
+    const conversation = makeConversation((msg) => sink.push(msg));
     await conversation.loadFromDb();
 
     const p1 = conversation.processMessage({
@@ -3993,27 +3961,39 @@ describe("interactive drain sender rebind", () => {
       isInteractive: true,
     });
 
-    // A live binding predates the drained turn (the send route installs one
-    // when a message is queued behind a non-interactive turn, which performs
-    // no restore). The drain's restore must preserve it for out-of-turn
-    // producers (call transcript and completion notifiers), not clear it.
-    conversation.updateClient(broadcastMessage, false);
-
     await resolveRun(0);
     await p1;
     await waitForPendingRun(2);
 
-    expect(conversation.getCurrentSender()).toBe(broadcastMessage);
+    // The drained turn is in flight and interactive: presence reads a human.
     expect(conversation.hasNoClient).toBe(false);
+
+    // A prompt raised now, mid-drained-turn, must land on the sink.
+    void conversation.prompter.prompt(
+      "acp_spawn",
+      { agent: "claude", task: "t" },
+      "high",
+      [],
+      [],
+      undefined,
+      conversation.conversationId,
+      "host",
+      false,
+      undefined,
+      "tool-use-1",
+    );
+    const prompt = sink.find((e) => e.type === "confirmation_request");
+    expect(prompt).toBeDefined();
+    expect((prompt as { toolName: string }).toolName).toBe("acp_spawn");
+    // Settle it so the prompt's timer does not outlive the test.
+    conversation.prompter.denyAllPending();
 
     await resolveRun(1);
-    // The drained turn has ended; the pre-drain live binding must survive.
-    await waitForCondition(() => !conversation.isProcessing());
-    expect(conversation.getCurrentSender()).toBe(broadcastMessage);
-    expect(conversation.hasNoClient).toBe(false);
+    // Turn over: nothing is in flight, so no human is asserted present.
+    await waitForCondition(() => conversation.hasNoClient);
   });
 
-  test("a drained non-interactive message leaves the no-op sender in place", async () => {
+  test("a drained non-interactive turn asserts no human present", async () => {
     const conversation = makeConversation();
     await conversation.loadFromDb();
 
@@ -4032,13 +4012,10 @@ describe("interactive drain sender rebind", () => {
       isInteractive: false,
     });
 
-    conversation.updateClient(() => {}, true);
-
     await resolveRun(0);
     await p1;
     await waitForPendingRun(2);
 
-    expect(conversation.getCurrentSender()).not.toBe(broadcastMessage);
     expect(conversation.hasNoClient).toBe(true);
 
     await resolveRun(1);

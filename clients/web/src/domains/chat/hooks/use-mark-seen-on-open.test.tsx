@@ -15,10 +15,12 @@ import { createElement, type ReactNode } from "react";
 
 import * as sdkGen from "@/generated/daemon/sdk.gen";
 import type { Conversation } from "@/types/conversation-types";
+import type { ConversationListPage } from "@/utils/conversation-list-fetchers";
 import {
   conversationsQueryKey,
   unreadConversationCountQueryKey,
 } from "@/utils/conversation-list-fetchers";
+import { listPage } from "@/utils/conversation-list.test-helper";
 
 const seenCalls: Array<{ conversationId: string }> = [];
 let seenImpl: () => Promise<unknown> = async () => ({
@@ -40,9 +42,8 @@ mock.module("@sentry/react", () => ({
   addBreadcrumb: () => {},
 }));
 
-const { useMarkSeenOnOpen } = await import(
-  "@/domains/chat/hooks/use-mark-seen-on-open"
-);
+const { useMarkSeenOnOpen } =
+  await import("@/domains/chat/hooks/use-mark-seen-on-open");
 
 const ASSISTANT_ID = "asst-1";
 
@@ -59,7 +60,7 @@ function setup(conversation: Conversation | undefined, unreadCount: number) {
   });
   client.setQueryData(
     conversationsQueryKey(ASSISTANT_ID),
-    conversation ? [conversation] : [],
+    listPage(conversation ? [conversation] : []),
   );
   client.setQueryData(
     unreadConversationCountQueryKey(ASSISTANT_ID),
@@ -91,8 +92,8 @@ function readCount(client: QueryClient): number | null | undefined {
 
 function readUnseen(client: QueryClient): boolean | undefined {
   return client
-    .getQueryData<Conversation[]>(conversationsQueryKey(ASSISTANT_ID))
-    ?.find((c) => c.conversationId === "conv-1")
+    .getQueryData<ConversationListPage>(conversationsQueryKey(ASSISTANT_ID))
+    ?.conversations.find((c) => c.conversationId === "conv-1")
     ?.hasUnseenLatestAssistantMessage;
 }
 

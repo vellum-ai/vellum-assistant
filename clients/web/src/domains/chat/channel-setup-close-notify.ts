@@ -86,11 +86,16 @@ async function sendChannelSetupSignal(
     if (!(await resolveSupportsChannelSetupCloseNotify())) {
       return;
     }
+    // `scripted: true` is required: this text is machine-authored (the
+    // `[User action on ...]` synthetic convention), and the daemon defaults
+    // unmarked sends to `scripted: false` ("the user typed this"), which
+    // counts the turn toward activation and trips the
+    // `assert_scripted_signals_agree` dbt test against the text classifier.
     const result = await postChatMessage(
       payload.assistantId,
       conversationId,
       content,
-      { hidden: true },
+      { hidden: true, scripted: true },
     );
     if (!result.ok) {
       captureError(

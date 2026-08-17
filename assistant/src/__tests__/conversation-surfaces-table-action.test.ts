@@ -49,7 +49,7 @@ function makeContext(): Conversation & {
 
   return asConversation({
     conversationId: "test-convo",
-    sendToClient: (msg) => sentMessages.push(msg),
+    emit: (msg) => sentMessages.push(msg),
     pendingSurfaceActions: new Map<string, { surfaceType: SurfaceType }>(),
     lastSurfaceAction: new Map<
       string,

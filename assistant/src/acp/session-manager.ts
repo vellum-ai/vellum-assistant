@@ -1224,9 +1224,14 @@ export class AcpSessionManager {
       );
       return;
     }
+    // The notification turn streams to whoever is watching (the parent's sink is
+    // its client hub), but it is machine-injected with no human asserted to be
+    // present, so it runs non-interactive: a tool that would need approval is
+    // denied rather than left waiting on a prompt nobody may answer.
     const enqueueResult = parentConversation.enqueueMessage({
       content: message,
       metadata: { acpNotification },
+      isInteractive: false,
     });
     if (enqueueResult.queued || enqueueResult.rejected) {
       return;
@@ -1234,7 +1239,9 @@ export class AcpSessionManager {
     parentConversation
       .persistUserMessage({ content: message, metadata: { acpNotification } })
       .then(({ id: messageId }) =>
-        parentConversation.runAgentLoop(message, messageId),
+        parentConversation.runAgentLoop(message, messageId, {
+          isInteractive: false,
+        }),
       )
       .catch((err) => {
         log.error(

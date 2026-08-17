@@ -104,6 +104,7 @@ function makeContext(): Conversation {
     conversationId: CONVERSATION_ID,
     trustContext: { trustClass: "guardian", sourceChannel: "vellum" },
     sendToClient: () => {},
+    emit: () => {},
     pendingSurfaceActions: new Map<string, { surfaceType: SurfaceType }>(),
     lastSurfaceAction: new Map(),
     surfaceState: new Map(),
