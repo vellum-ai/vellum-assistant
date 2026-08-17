@@ -624,10 +624,38 @@ while the error is surfaced as a notification.
 Lifecycle. The declaration directory is the source of truth: edits and
 upgrades update the schedule row in place, uninstalling or disabling the
 plugin pauses its schedules (runs and history are kept), and reinstalling
-re-links them. Users can enable/disable a declared schedule from the
-schedules UI; that override survives plugin upgrades. Rows are managed by
-the reconciler, so declared schedules cannot be edited or deleted
-imperatively: change the declaration instead.
+re-links them. What counts as an edit is narrow. The reconciler hashes
+`config.json` and the entrypoint and nothing else, so changing either one
+updates the row on the next reconcile pass while any other file in the
+declaration directory changes without producing a definition change. A
+helper script alongside the entrypoint still takes effect at the next
+fire, because a script schedule runs its entrypoint by path and reads
+whatever is on disk at that moment. Users can enable/disable a declared
+schedule from the schedules UI; that override survives plugin upgrades.
+Rows are managed by the reconciler, so declared schedules cannot be
+edited or deleted imperatively: change the declaration instead. A
+declared schedule that sits off says why in `assistant schedules` and in
+the schedules UI: turned off by you, plugin removed, plugin disabled,
+removed from plugin, or paused by plugin.
+
+Activation. A declared schedule arms only for a plugin the assistant has
+loaded. Installing or upgrading a plugin loads it as part of that
+operation, and a restart loads every plugin present, so a plugin
+directory copied into the plugins root by hand stays disarmed until one
+of those happens. The reconciler's sweep also disarms the rows of a
+plugin that is no longer loaded.
+
+State. A schedule runs with the workspace directory as its working
+directory. Keep whatever state the schedule accumulates in the plugin's
+own `data/` directory, the same directory hooks receive as
+`ctx.pluginStorageDir`. A script reaches it as `plugins/<plugin>/data/`
+and should `mkdir -p` it first, since a plugin with no `init` hook never
+has it created for it. That directory is the one part of the plugin tree
+the runtime leaves to the plugin. Everything else is source, so a file
+written under `schedules/<name>/` moves the plugin's live-reload
+fingerprint, which makes the next reconcile tear the plugin down and
+bring it back up, and the write reads as local drift the next time the
+plugin is upgraded.
 
 ---
 
