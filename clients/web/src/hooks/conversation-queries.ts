@@ -402,6 +402,18 @@ export function useArchivedConversationListQuery(
  * Reads only. It never fetches; a consumer that needs the row present when
  * no cache holds it (a deep-linked open) fetches it into its home cache
  * first (`refreshConversationRow`) and this subscription picks it up.
+ *
+ * Transitional. TanStack has no hook for "the row with id X in whichever
+ * list holds it"; its idiom is a detail query per entity that the writers
+ * keep in sync with the lists (`fetchConversationDetail` already runs the
+ * single-row fetch through `conversationsByIdGetOptions`). Today the
+ * placement and seen-state writers write only into the list caches, so a
+ * detail query would go stale on every optimistic write; once they also
+ * write the row into its detail key, `useActiveConversation` becomes a
+ * plain `useQuery` on that key and this subscription is deleted. Until
+ * then this is the one correct way to follow a row across an open set of
+ * caches, and it is cheaper than the four-list scan it replaced. Do not
+ * add new consumers; reach for the detail query when it lands.
  */
 export function useConversationRow(
   assistantId: string | null,
