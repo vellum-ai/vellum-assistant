@@ -19,7 +19,10 @@ const loadLockfileHost = mock(async (): Promise<localModeHost.Lockfile> => {
 });
 
 const saveLockfileAssistantHost = mock(
-  async (_assistant: Record<string, unknown>, _activeId?: string) => ({
+  async (
+    _assistant: Record<string, unknown>,
+    _activeId?: string,
+  ): Promise<localModeHost.LockfileWriteResult> => ({
     ok: true as const,
     lockfile: { assistants: [], activeAssistant: null },
   }),
@@ -79,6 +82,7 @@ import {
   reconcileSelectedAssistant,
   removePairedAssistantFromLockfile,
   removePlatformAssistantFromLockfile,
+  renameLockfileAssistant,
   saveManagedLockfileAssistant,
   syncPlatformAssistantsToLockfile,
   UnresolvedLocalGatewayError,
@@ -546,6 +550,102 @@ describe("saveManagedLockfileAssistant", () => {
     const [entry] = saveLockfileAssistantHost.mock.calls[0]!;
     expect(entry.organizationId).toBeUndefined();
     expect(entry.name).toBeUndefined();
+  });
+});
+
+describe("renameLockfileAssistant", () => {
+  const named: LockfileAssistant = {
+    assistantId: "local-a",
+    cloud: "local",
+    name: "Old Name",
+    resources: { gatewayPort: 7830 },
+  } as LockfileAssistant;
+
+  // A non-remote injected config marks the local-mode host as available.
+  function enableLocalHost(): void {
+    window.__VELLUM_CONFIG__ = {};
+  }
+
+  test("writes the partial payload without retargeting the active assistant, and commits", async () => {
+    enableLocalHost();
+    setLockfile({ assistants: [named], activeAssistant: "local-a" });
+    const resulting = {
+      assistants: [{ ...named, name: "Credence" }],
+      activeAssistant: "local-a",
+    };
+    saveLockfileAssistantHost.mockResolvedValueOnce({
+      ok: true as const,
+      lockfile: resulting,
+    });
+
+    await renameLockfileAssistant("local-a", "  Credence  ");
+
+    expect(saveLockfileAssistantHost).toHaveBeenCalledTimes(1);
+    expect(saveLockfileAssistantHost.mock.calls[0]).toEqual([
+      { assistantId: "local-a", name: "Credence" },
+      undefined,
+    ]);
+    expect(useLockfileStore.getState().lockfile).toEqual(resulting);
+    expect(useLockfileStore.getState().committed).toBe(true);
+  });
+
+  test("no-op when the lockfile has no entry for the id", async () => {
+    enableLocalHost();
+    setLockfile({ assistants: [named], activeAssistant: "local-a" });
+
+    await renameLockfileAssistant("nope", "Credence");
+
+    expect(saveLockfileAssistantHost).not.toHaveBeenCalled();
+  });
+
+  test("no-op when the entry already carries the trimmed name", async () => {
+    enableLocalHost();
+    setLockfile({ assistants: [named], activeAssistant: "local-a" });
+
+    await renameLockfileAssistant("local-a", "  Old Name  ");
+
+    expect(saveLockfileAssistantHost).not.toHaveBeenCalled();
+  });
+
+  test("no-op on an empty or whitespace-only name", async () => {
+    enableLocalHost();
+    setLockfile({ assistants: [named], activeAssistant: "local-a" });
+
+    await renameLockfileAssistant("local-a", "");
+    await renameLockfileAssistant("local-a", "   ");
+
+    expect(saveLockfileAssistantHost).not.toHaveBeenCalled();
+  });
+
+  test("no-op when no local-mode host backs this runtime", async () => {
+    // Default test env: no injected config, not Electron.
+    setLockfile({ assistants: [named], activeAssistant: "local-a" });
+
+    await renameLockfileAssistant("local-a", "Credence");
+
+    expect(saveLockfileAssistantHost).not.toHaveBeenCalled();
+  });
+
+  test("no-op in remote-gateway mode", async () => {
+    window.__VELLUM_CONFIG__ = { mode: "remote-gateway" };
+
+    await renameLockfileAssistant("self", "Credence");
+
+    expect(saveLockfileAssistantHost).not.toHaveBeenCalled();
+  });
+
+  test("does not commit on a host write failure", async () => {
+    enableLocalHost();
+    setLockfile({ assistants: [named], activeAssistant: "local-a" });
+    saveLockfileAssistantHost.mockResolvedValueOnce({
+      ok: false,
+      error: "disk unavailable",
+    });
+
+    await renameLockfileAssistant("local-a", "Credence");
+
+    expect(saveLockfileAssistantHost).toHaveBeenCalledTimes(1);
+    expect(useLockfileStore.getState().lockfile?.assistants).toEqual([named]);
   });
 });
 

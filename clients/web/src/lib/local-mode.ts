@@ -27,6 +27,7 @@ import {
   connectImportHost,
   fetchGuardianTokenHost,
   GuardianTokenError,
+  isLocalModeHostAvailable,
   loadLockfileHost,
   parseLockfile,
   replacePlatformAssistantsHost,
@@ -290,6 +291,37 @@ export async function updateLockfileAssistant(
   assistant: LockfileAssistant,
 ): Promise<void> {
   const result = await saveLockfileAssistantHost({ ...assistant }, undefined);
+  if (result.ok) {
+    commitLockfile(result.lockfile);
+  }
+}
+
+/**
+ * Rename an existing assistant entry without touching its other fields or the
+ * active assistant pointer. The partial payload rides the host's shallow
+ * on-disk merge, so `resources`, secrets, and unknown fields survive.
+ */
+export async function renameLockfileAssistant(
+  assistantId: string,
+  name: string,
+): Promise<void> {
+  const trimmed = name.trim();
+  if (!trimmed) {
+    // Fresh assistants report "" — never write an empty name.
+    return;
+  }
+  if (isRemoteGatewayMode() || !isLocalModeHostAvailable()) {
+    return;
+  }
+  const entry = getLockfileAssistant(assistantId);
+  if (!entry || entry.name === trimmed) {
+    // Rename-only: never create an entry, never write redundantly.
+    return;
+  }
+  const result = await saveLockfileAssistantHost(
+    { assistantId, name: trimmed },
+    undefined,
+  );
   if (result.ok) {
     commitLockfile(result.lockfile);
   }
