@@ -49,14 +49,17 @@ const PAIRING_REQUEST_DENY_PATH = `${PAIRING_REQUESTS_PATH}/deny`;
 export const PAIRING_CONNECTIVITY_HINT =
   "If a scan can't connect, make sure a tunnel is running on the host (`vellum tunnel`) and the public URL points at it, then generate a new code.";
 
-/** A pairing mint that failed, carrying an optional actionable hint. */
+/** A pairing request that failed, carrying an optional actionable hint. */
 export class PairDeviceError extends Error {
   readonly hint?: string;
+  /** HTTP status of the rejecting response; unset for network failures. */
+  readonly status?: number;
 
-  constructor(message: string, hint?: string) {
+  constructor(message: string, hint?: string, status?: number) {
     super(message);
     this.name = "PairDeviceError";
     this.hint = hint;
+    this.status = status;
   }
 }
 
@@ -137,6 +140,7 @@ async function pairingRouteRequest<T>(
       serverErrorMessage(payload) ??
         `Pairing failed (HTTP ${response.status}).`,
       rejectionHint,
+      response.status,
     );
   }
 

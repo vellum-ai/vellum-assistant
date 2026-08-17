@@ -111,14 +111,18 @@ describe("listPendingPairingRequests", () => {
     );
   });
 
-  test("maps a network failure to PairDeviceError", async () => {
+  test("maps a network failure to a PairDeviceError with no status", async () => {
     installFetch(() => {
       throw new TypeError("Failed to fetch");
     });
 
-    await expect(listPendingPairingRequests({ base: BASE })).rejects.toThrow(
+    const err = await capturePairDeviceError(
+      listPendingPairingRequests({ base: BASE }),
+    );
+    expect(err.message).toBe(
       "Couldn't reach the assistant. Make sure it's running and try again.",
     );
+    expect(err.status).toBeUndefined();
   });
 
   test("rethrows AbortError when the caller cancels", async () => {
@@ -177,6 +181,7 @@ describe("approvePairingRequest", () => {
     );
     expect(err.message).toBe("Unknown request.");
     expect(err.hint).toBeUndefined();
+    expect(err.status).toBe(404);
   });
 
   test("maps a network failure to PairDeviceError", async () => {
@@ -240,6 +245,7 @@ describe("denyPairingRequest", () => {
     );
     expect(err.message).toBe("Request expired.");
     expect(err.hint).toBeUndefined();
+    expect(err.status).toBe(410);
   });
 
   test("rethrows AbortError when the caller cancels", async () => {
