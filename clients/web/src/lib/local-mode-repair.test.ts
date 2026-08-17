@@ -64,6 +64,7 @@ mock.module("@/lib/auth/gateway-session", () => ({
 }));
 
 mock.module("@/lib/self-hosted/connection", () => ({
+  getSelfHostedIngressUrl: () => null,
   setSelfHostedConnection: () => {},
 }));
 
@@ -193,6 +194,41 @@ describe("primeLocalGatewayConnectionAfterRestart", () => {
       "http://127.0.0.1:7831/token",
       "http://127.0.0.1:7833/token",
     ]);
+  });
+
+  test("clears the restarted session when restoring the selection fails", async () => {
+    let releaseRestartedMint: (() => void) | undefined;
+    let mintAttempts = 0;
+    ensureGatewayTokenImpl = async () => {
+      mintAttempts++;
+      if (mintAttempts === 1) {
+        await new Promise<void>((resolve) => {
+          releaseRestartedMint = resolve;
+        });
+        return;
+      }
+      throw new GatewayTokenError(401, "selected assistant rejected");
+    };
+
+    const reconnect = primeLocalGatewayConnectionAfterRestart("local-a");
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    const otherAssistant = {
+      ...localAssistant,
+      assistantId: "local-b",
+      resources: { gatewayPort: 7831, daemonPort: 7832 },
+    };
+    useLockfileStore.setState({
+      lockfile: {
+        assistants: [localAssistant, otherAssistant],
+        activeAssistant: "local-b",
+      },
+    });
+    writeSelectedAssistantId("local-b");
+    releaseRestartedMint?.();
+
+    await expect(reconnect).rejects.toBeInstanceOf(GatewayTokenError);
+
+    expect(clearGatewayTokenMock).toHaveBeenCalledTimes(1);
   });
 });
 

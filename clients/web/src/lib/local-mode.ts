@@ -1057,7 +1057,20 @@ export async function primeLocalGatewayConnectionAfterRestart(
       setSelfHostedConnection(null);
       return;
     }
-    await primeLocalGatewayConnection(selected);
+    try {
+      await primeLocalGatewayConnection(selected);
+    } catch (error) {
+      const latest = getSelectedAssistant();
+      if (latest?.assistantId !== selected.assistantId) {
+        continue;
+      }
+      const selectedIngressUrl = getAuthGatewayIngressUrl(selected);
+      if (getSelfHostedIngressUrl() !== selectedIngressUrl) {
+        clearGatewayToken();
+        setSelfHostedConnection(null);
+      }
+      throw error;
+    }
     connectedAssistantId = selected.assistantId;
   }
 }
