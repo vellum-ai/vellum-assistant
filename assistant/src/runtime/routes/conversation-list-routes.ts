@@ -287,15 +287,19 @@ function handleListConversations({ queryParams = {} }: RouteHandlerArgs) {
   // Skipped for group-scoped queries for the same reason: a caller asking
   // for one group gets that group, and a client that fetches the Pinned
   // section via `groupId=system:pinned` has no use for rows appended to
-  // some other group's page. This is the compatibility shim for clients
-  // that still read Pinned out of the unfiltered list; it goes away once
-  // every section fetches its own group.
+  // some other group's page. Skipped for attention-scoped queries too: the
+  // caller asked for the unseen subset, and a seen pinned row appended to
+  // it would put a row outside the filter in the page while `hasMore` is
+  // computed from the filtered count. This is the compatibility shim for
+  // clients that still read Pinned out of the unfiltered list; it goes
+  // away once every section fetches its own group.
   if (
     offset === 0 &&
     conversationType === "standard" &&
     archiveStatus === "active" &&
     originChannel === undefined &&
-    groupId === undefined
+    groupId === undefined &&
+    needsAttention === undefined
   ) {
     const pinned = listPinnedConversations(archiveStatus);
     const seen = new Set(rows.map((c) => c.id));

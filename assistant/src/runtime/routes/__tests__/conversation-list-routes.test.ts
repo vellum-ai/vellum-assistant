@@ -597,6 +597,26 @@ describe("GET /v1/conversations with needsAttention", () => {
     expect(rest.hasMore).toBe(false);
   });
 
+  test("an attention-scoped first page has no pinned rows appended to it", async () => {
+    /* Same rule as the group-scoped page: the pinned injection exists for
+       a client reading Pinned out of the unfiltered list, and a caller
+       that asked for the unseen subset is not that client. A seen pinned
+       row appended here would be a row outside the filter, on a page whose
+       hasMore was computed from the filtered count. */
+    const unseen = createConversation("unseen-only");
+    seedUnseen(unseen.id);
+    const pinnedSeen = createConversation("pinned-and-seen");
+    rawRun(
+      "test:pinConversation",
+      "UPDATE conversations SET is_pinned = 1, group_id = 'system:pinned' WHERE id = ?",
+      pinnedSeen.id,
+    );
+
+    const result = await invoke({ needsAttention: "true" });
+
+    expect(result.conversations.map((c) => c.title)).toEqual(["unseen-only"]);
+  });
+
   test("composes with the other filters", async () => {
     const group = createGroup("Work");
     const inGroupUnseen = createConversation("in-group-unseen");

@@ -369,10 +369,10 @@ function conversationListWhere(filter: ConversationListFilter) {
  * predicate lives on `conversation_assistant_attention_state`, so
  * `needsAttention` joins it. Inner, not left: a conversation with no
  * attention row has no unseen message by definition. Joined only when the
- * filter asks, so every other query stays exactly as it was, no join and no
- * row it did not have before. One place for both {@link listConversations}
- * and {@link countConversations}, so a page and its total always describe
- * the same set.
+ * filter asks, so a query without the filter runs without the join and
+ * lists every conversation the predicates admit. One place for both
+ * {@link listConversations} and {@link countConversations}, so a page and
+ * its total always describe the same set.
  */
 function withListFilterJoins<T extends SQLiteSelect>(
   query: T,
