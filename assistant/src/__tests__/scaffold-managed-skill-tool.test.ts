@@ -125,6 +125,27 @@ function installMetaFor(skillId: string) {
   return readInstallMeta(join(TEST_DIR, "skills", skillId));
 }
 
+/** The scaffold_managed_skill entry as declared in the skill-management manifest. */
+function readScaffoldToolEntry(): {
+  input_schema: {
+    properties: Record<string, unknown>;
+    required: string[];
+  };
+} {
+  const tools = JSON.parse(
+    readFileSync(
+      join(
+        import.meta.dirname,
+        "../config/bundled-skills/skill-management/TOOLS.json",
+      ),
+      "utf-8",
+    ),
+  );
+  return tools.tools.find(
+    (tool: { name: string }) => tool.name === "scaffold_managed_skill",
+  );
+}
+
 beforeEach(() => {
   mkdirSync(join(TEST_DIR, "skills"), { recursive: true });
   mockRefreshSkillCapabilityMemories.mockClear();
@@ -140,18 +161,7 @@ afterEach(() => {
 
 describe("scaffold_managed_skill tool", () => {
   test("keeps legacy index control as a deprecated no-op schema field", () => {
-    const tools = JSON.parse(
-      readFileSync(
-        join(
-          import.meta.dirname,
-          "../config/bundled-skills/skill-management/TOOLS.json",
-        ),
-        "utf-8",
-      ),
-    );
-    const scaffoldTool = tools.tools.find(
-      (tool: { name: string }) => tool.name === "scaffold_managed_skill",
-    );
+    const scaffoldTool = readScaffoldToolEntry();
 
     expect(scaffoldTool).toBeDefined();
     expect(scaffoldTool.input_schema.properties.add_to_index).toEqual({
@@ -165,18 +175,7 @@ describe("scaffold_managed_skill tool", () => {
     // A call through the registered tool is validated against TOOLS.json
     // first (skill-tool-factory), so the requirement has to live in the
     // schema's `required` list, not only in the executor.
-    const tools = JSON.parse(
-      readFileSync(
-        join(
-          import.meta.dirname,
-          "../config/bundled-skills/skill-management/TOOLS.json",
-        ),
-        "utf-8",
-      ),
-    );
-    const scaffoldTool = tools.tools.find(
-      (tool: { name: string }) => tool.name === "scaffold_managed_skill",
-    );
+    const scaffoldTool = readScaffoldToolEntry();
     expect(scaffoldTool.input_schema.required).toContain("activation_hints");
 
     const result = validateInputAgainstSchema(
