@@ -382,14 +382,6 @@ describe("pair command", () => {
     const origFetch = globalThis.fetch;
     globalThis.fetch = (async (url: string, init?: RequestInit) => {
       calls.push([url, init]);
-      if (url === `${LOCAL_URL}/v1/assistants/pair-test/feature-flags`) {
-        return new Response(
-          JSON.stringify({
-            flags: [{ key: "web-remote-ingress", enabled: true }],
-          }),
-          { status: 200, headers: { "content-type": "application/json" } },
-        );
-      }
       if (url === `${LOCAL_URL}/v1/remote-web/pairing-challenge`) {
         return new Response(
           JSON.stringify({
@@ -430,9 +422,9 @@ describe("pair command", () => {
       globalThis.fetch = origFetch;
     }
 
-    expect(calls).toHaveLength(2);
-    expect(calls[1][0]).toBe(`${LOCAL_URL}/v1/remote-web/pairing-challenge`);
-    expect(JSON.parse(calls[1][1]?.body as string)).toEqual({
+    expect(calls).toHaveLength(1);
+    expect(calls[0][0]).toBe(`${LOCAL_URL}/v1/remote-web/pairing-challenge`);
+    expect(JSON.parse(calls[0][1]?.body as string)).toEqual({
       publicBaseUrl: "https://abc123.ngrok.app/assistant-123",
     });
 
@@ -447,58 +439,6 @@ describe("pair command", () => {
     });
     expect(logs.join("\n")).not.toContain("access");
     expect(logs.join("\n")).not.toContain("refresh");
-  });
-
-  test("--web refuses when the web remote ingress feature flag is off", async () => {
-    const calls: Array<[string, RequestInit | undefined]> = [];
-    const origFetch = globalThis.fetch;
-    globalThis.fetch = (async (url: string, init?: RequestInit) => {
-      calls.push([url, init]);
-      return new Response(
-        JSON.stringify({
-          flags: [{ key: "web-remote-ingress", enabled: false }],
-        }),
-        { status: 200, headers: { "content-type": "application/json" } },
-      );
-    }) as unknown as typeof fetch;
-
-    const errors: string[] = [];
-    const errSpy = spyOn(console, "error").mockImplementation(
-      (...a: unknown[]) => {
-        errors.push(a.join(" "));
-      },
-    );
-    const exitSpy = spyOn(process, "exit").mockImplementation(((
-      code?: number,
-    ) => {
-      throw new Error(`exit:${code}`);
-    }) as never);
-
-    process.argv = [
-      "bun",
-      "vellum",
-      "pair",
-      "--web",
-      "--url",
-      "https://abc123.ngrok.app",
-    ];
-    let exited = false;
-    try {
-      await pair();
-    } catch (e) {
-      exited = (e as Error).message === "exit:1";
-    } finally {
-      errSpy.mockRestore();
-      exitSpy.mockRestore();
-      globalThis.fetch = origFetch;
-    }
-
-    expect(exited).toBe(true);
-    expect(errors.join("\n")).toContain("web-remote-ingress");
-    expect(calls).toHaveLength(1);
-    expect(calls[0][0]).toBe(
-      `${LOCAL_URL}/v1/assistants/pair-test/feature-flags`,
-    );
   });
 
   test("--web-approve approves a browser pairing code over loopback", async () => {
@@ -521,14 +461,6 @@ describe("pair command", () => {
     const origFetch = globalThis.fetch;
     globalThis.fetch = (async (url: string, init?: RequestInit) => {
       calls.push([url, init]);
-      if (url === `${LOCAL_URL}/v1/assistants/pair-test/feature-flags`) {
-        return new Response(
-          JSON.stringify({
-            flags: [{ key: "web-remote-ingress", enabled: true }],
-          }),
-          { status: 200, headers: { "content-type": "application/json" } },
-        );
-      }
       if (url === `${LOCAL_URL}/v1/remote-web/pairing-verification`) {
         return new Response(
           JSON.stringify({
@@ -564,9 +496,9 @@ describe("pair command", () => {
       globalThis.fetch = origFetch;
     }
 
-    expect(calls).toHaveLength(2);
-    expect(calls[1][0]).toBe(`${LOCAL_URL}/v1/remote-web/pairing-verification`);
-    expect(JSON.parse(calls[1][1]?.body as string)).toEqual({
+    expect(calls).toHaveLength(1);
+    expect(calls[0][0]).toBe(`${LOCAL_URL}/v1/remote-web/pairing-verification`);
+    expect(JSON.parse(calls[0][1]?.body as string)).toEqual({
       userCode: "ABCD-EFGH",
     });
     expect(JSON.parse(logs.join("\n"))).toEqual({
@@ -581,14 +513,6 @@ describe("pair command", () => {
     const origFetch = globalThis.fetch;
     globalThis.fetch = (async (url: string, init?: RequestInit) => {
       calls.push([url, init]);
-      if (url === `${LOCAL_URL}/v1/assistants/pair-test/feature-flags`) {
-        return new Response(
-          JSON.stringify({
-            flags: [{ key: "web-remote-ingress", enabled: true }],
-          }),
-          { status: 200, headers: { "content-type": "application/json" } },
-        );
-      }
       if (url === `${LOCAL_URL}/v1/remote-web/pairing-challenge`) {
         return new Response(
           JSON.stringify({
@@ -637,18 +561,17 @@ describe("pair command", () => {
       globalThis.fetch = origFetch;
     }
 
-    // Flag check → create challenge → approve it, all over loopback. The
+    // Create challenge → approve it, all over loopback. The
     // approval is the whole point: running the CLI on the host IS the approval,
     // so the scan alone completes pairing.
     expect(calls.map((c) => c[0])).toEqual([
-      `${LOCAL_URL}/v1/assistants/pair-test/feature-flags`,
       `${LOCAL_URL}/v1/remote-web/pairing-challenge`,
       `${LOCAL_URL}/v1/remote-web/pairing-verification`,
     ]);
-    expect(JSON.parse(calls[1][1]?.body as string)).toEqual({
+    expect(JSON.parse(calls[0][1]?.body as string)).toEqual({
       publicBaseUrl: "https://pair.example.ts.net",
     });
-    expect(JSON.parse(calls[2][1]?.body as string)).toEqual({
+    expect(JSON.parse(calls[1][1]?.body as string)).toEqual({
       userCode: "ABCD-EFGH",
     });
 
@@ -669,14 +592,6 @@ describe("pair command", () => {
   test("--qr renders a QR and prints the fallback URL and expiry", async () => {
     const origFetch = globalThis.fetch;
     globalThis.fetch = (async (url: string) => {
-      if (url === `${LOCAL_URL}/v1/assistants/pair-test/feature-flags`) {
-        return new Response(
-          JSON.stringify({
-            flags: [{ key: "web-remote-ingress", enabled: true }],
-          }),
-          { status: 200, headers: { "content-type": "application/json" } },
-        );
-      }
       if (url === `${LOCAL_URL}/v1/remote-web/pairing-challenge`) {
         return new Response(
           JSON.stringify({
@@ -903,59 +818,6 @@ describe("pair command", () => {
     expect(fetchCalled).toBe(false);
   });
 
-  test("--qr refuses when the web remote ingress feature flag is off", async () => {
-    const calls: Array<[string, RequestInit | undefined]> = [];
-    const origFetch = globalThis.fetch;
-    globalThis.fetch = (async (url: string, init?: RequestInit) => {
-      calls.push([url, init]);
-      return new Response(
-        JSON.stringify({
-          flags: [{ key: "web-remote-ingress", enabled: false }],
-        }),
-        { status: 200, headers: { "content-type": "application/json" } },
-      );
-    }) as unknown as typeof fetch;
-
-    const errors: string[] = [];
-    const errSpy = spyOn(console, "error").mockImplementation(
-      (...a: unknown[]) => {
-        errors.push(a.join(" "));
-      },
-    );
-    const exitSpy = spyOn(process, "exit").mockImplementation(((
-      code?: number,
-    ) => {
-      throw new Error(`exit:${code}`);
-    }) as never);
-
-    process.argv = [
-      "bun",
-      "vellum",
-      "pair",
-      "--qr",
-      "--url",
-      "https://pair.example.ts.net",
-    ];
-    let exited = false;
-    try {
-      await pair();
-    } catch (e) {
-      exited = (e as Error).message === "exit:1";
-    } finally {
-      errSpy.mockRestore();
-      exitSpy.mockRestore();
-      globalThis.fetch = origFetch;
-    }
-
-    // Only the flag check runs; no challenge is minted when the flag is off.
-    expect(exited).toBe(true);
-    expect(errors.join("\n")).toContain("web-remote-ingress");
-    expect(calls).toHaveLength(1);
-    expect(calls[0][0]).toBe(
-      `${LOCAL_URL}/v1/assistants/pair-test/feature-flags`,
-    );
-  });
-
   test("buildAppConnectUrl composes and encodes the connect link", () => {
     expect(
       buildAppConnectUrl(
@@ -1004,14 +866,6 @@ describe("pair command", () => {
   test("--qr --app emits an app connect URL alongside the browser URL", async () => {
     const origFetch = globalThis.fetch;
     globalThis.fetch = (async (url: string) => {
-      if (url === `${LOCAL_URL}/v1/assistants/pair-test/feature-flags`) {
-        return new Response(
-          JSON.stringify({
-            flags: [{ key: "web-remote-ingress", enabled: true }],
-          }),
-          { status: 200, headers: { "content-type": "application/json" } },
-        );
-      }
       if (url === `${LOCAL_URL}/v1/remote-web/pairing-challenge`) {
         return new Response(
           JSON.stringify({
@@ -1079,14 +933,6 @@ describe("pair command", () => {
   test("--qr --app --label overrides the assistant name in the connect link", async () => {
     const origFetch = globalThis.fetch;
     globalThis.fetch = (async (url: string) => {
-      if (url === `${LOCAL_URL}/v1/assistants/pair-test/feature-flags`) {
-        return new Response(
-          JSON.stringify({
-            flags: [{ key: "web-remote-ingress", enabled: true }],
-          }),
-          { status: 200, headers: { "content-type": "application/json" } },
-        );
-      }
       if (url === `${LOCAL_URL}/v1/remote-web/pairing-challenge`) {
         return new Response(
           JSON.stringify({
@@ -1205,14 +1051,6 @@ describe("pair command", () => {
     const origFetch = globalThis.fetch;
     globalThis.fetch = (async (url: string, init?: RequestInit) => {
       calls.push(url);
-      if (url === `${LOCAL_URL}/v1/assistants/pair-test/feature-flags`) {
-        return new Response(
-          JSON.stringify({
-            flags: [{ key: "web-remote-ingress", enabled: true }],
-          }),
-          { status: 200, headers: { "content-type": "application/json" } },
-        );
-      }
       if (url === `${LOCAL_URL}/v1/remote-web/pairing-challenge`) {
         // The minted challenge must advertise the entry's recorded URL.
         expect(JSON.parse(init?.body as string)).toEqual({
@@ -1272,14 +1110,6 @@ describe("pair command", () => {
 
     const origFetch = globalThis.fetch;
     globalThis.fetch = (async (url: string, init?: RequestInit) => {
-      if (url === `${LOCAL_URL}/v1/assistants/pair-test/feature-flags`) {
-        return new Response(
-          JSON.stringify({
-            flags: [{ key: "web-remote-ingress", enabled: true }],
-          }),
-          { status: 200, headers: { "content-type": "application/json" } },
-        );
-      }
       if (url === `${LOCAL_URL}/v1/remote-web/pairing-challenge`) {
         expect(JSON.parse(init?.body as string)).toEqual({
           publicBaseUrl: "https://explicit.example.ts.net",
@@ -1338,15 +1168,7 @@ describe("pair command", () => {
 
     const origFetch = globalThis.fetch;
     let minted = false;
-    globalThis.fetch = (async (url: string) => {
-      if (url === `${LOCAL_URL}/v1/assistants/pair-test/feature-flags`) {
-        return new Response(
-          JSON.stringify({
-            flags: [{ key: "web-remote-ingress", enabled: true }],
-          }),
-          { status: 200, headers: { "content-type": "application/json" } },
-        );
-      }
+    globalThis.fetch = (async () => {
       minted = true;
       return new Response("{}", { status: 200 });
     }) as unknown as typeof fetch;
@@ -1387,15 +1209,7 @@ describe("pair command", () => {
 
     const origFetch = globalThis.fetch;
     let minted = false;
-    globalThis.fetch = (async (url: string) => {
-      if (url === `${LOCAL_URL}/v1/assistants/pair-test/feature-flags`) {
-        return new Response(
-          JSON.stringify({
-            flags: [{ key: "web-remote-ingress", enabled: true }],
-          }),
-          { status: 200, headers: { "content-type": "application/json" } },
-        );
-      }
+    globalThis.fetch = (async () => {
       minted = true;
       return new Response("{}", { status: 200 });
     }) as unknown as typeof fetch;

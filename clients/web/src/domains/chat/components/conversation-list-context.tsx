@@ -16,6 +16,13 @@ import type {
 } from "@/types/conversation-types";
 
 export interface ConversationListContextValue {
+  /**
+   * True inside the mobile overlay drawer, where sections are drawn as
+   * self-contained cards rather than runs of rows on the panel surface.
+   * Carried here because the components that need it sit several levels
+   * below the menu that knows which variant is mounted.
+   */
+  overlayCards?: boolean;
   activeConversationId?: string;
   /** Whether the *active* conversation is mid-turn (its row shows a spinner). */
   activeConversationProcessing?: boolean;

@@ -61,7 +61,7 @@ function makeStreamingSession(events: AssistantEvent[]): Conversation {
     setTurnChannelContext: () => {},
     setTurnInterfaceContext: () => {},
     setVoiceCallControlPrompt: () => {},
-    updateClient: () => {},
+    addEventObserver: () => () => {},
     ensureActorScopedHistory: async () => {},
     runAgentLoop: async (
       _content: string,
@@ -116,7 +116,7 @@ function makePersistingStreamingSession(
       turnInterfaceContext = ctx;
     },
     setVoiceCallControlPrompt: () => {},
-    updateClient: () => {},
+    addEventObserver: () => () => {},
     ensureActorScopedHistory: async () => {},
     runAgentLoop: async (
       _content: string,
@@ -254,7 +254,7 @@ describe("voice-session-bridge", () => {
       setTurnChannelContext: () => {},
       setTurnInterfaceContext: () => {},
       setVoiceCallControlPrompt: () => {},
-      updateClient: () => {},
+      addEventObserver: () => () => {},
       ensureActorScopedHistory: async () => {},
       runAgentLoop: async () => {
         await new Promise((r) => setTimeout(r, 200));
@@ -321,6 +321,51 @@ describe("voice-session-bridge", () => {
     expect(capturedOptions?.callSite).toBe("callAgent");
   });
 
+  test("startVoiceTurn declares the turn interactive so approval prompts are raised for its observer", async () => {
+    // A caller is on the line. If the turn ran non-interactive the permission
+    // checker would deny an approval-gated tool before any prompt existed, and
+    // the bridge's approval observer (auto-resolve for a non-guardian caller, a
+    // real card for the guardian) would never get to decide. Presence is per
+    // turn, so the bridge has to say so.
+    const conversation = createConversation("voice bridge interactive test");
+    const events: AssistantEvent[] = [
+      { type: "message_complete", conversationId: conversation.id },
+    ];
+
+    let capturedOptions: Record<string, unknown> | undefined;
+    const session = {
+      ...makeStreamingSession(events),
+      runAgentLoop: async (
+        _content: string,
+        _messageId: string,
+        options?: Record<string, unknown>,
+      ) => {
+        capturedOptions = options;
+        const onEvent =
+          (options as { onEvent?: (msg: AssistantEvent) => void })?.onEvent ??
+          (() => {});
+        for (const event of events) {
+          onEvent(event);
+        }
+      },
+    } as unknown as Conversation;
+
+    injectDeps(() => session);
+
+    await startVoiceTurn({
+      conversationId: conversation.id,
+      content: "Hello",
+      isInbound: true,
+      onTextDelta: () => {},
+      onComplete: () => {},
+      onError: () => {},
+    });
+
+    await new Promise((r) => setTimeout(r, 50));
+
+    expect(capturedOptions?.isInteractive).toBe(true);
+  });
+
   test("external AbortSignal triggers turn abort", async () => {
     const conversation = createConversation("voice bridge signal test");
     let abortCalled = false;
@@ -339,7 +384,7 @@ describe("voice-session-bridge", () => {
       setTurnChannelContext: () => {},
       setTurnInterfaceContext: () => {},
       setVoiceCallControlPrompt: () => {},
-      updateClient: () => {},
+      addEventObserver: () => () => {},
       ensureActorScopedHistory: async () => {},
       runAgentLoop: async () => {
         await new Promise((r) => setTimeout(r, 200));
@@ -704,13 +749,14 @@ describe("voice-session-bridge", () => {
       setTurnChannelContext: () => {},
       setTurnInterfaceContext: () => {},
       setVoiceCallControlPrompt: () => {},
-      updateClient: (handler: (msg: AssistantEvent) => void) => {
+      addEventObserver: (handler: (msg: AssistantEvent) => void) => {
         clientHandler = handler;
+        return () => {};
       },
       ensureActorScopedHistory: async () => {},
       runAgentLoop: async () => {
-        // Simulate the prompter emitting a confirmation_request via the
-        // updateClient callback (this is how the real prompter works).
+        // Simulate the conversation emitting a confirmation_request to its
+        // event observer (this is how the real conversation fans out).
         clientHandler({
           type: "confirmation_request",
           requestId: "req-voice-1",
@@ -796,8 +842,9 @@ describe("voice-session-bridge", () => {
       setTurnChannelContext: () => {},
       setTurnInterfaceContext: () => {},
       setVoiceCallControlPrompt: () => {},
-      updateClient: (handler: (msg: AssistantEvent) => void) => {
+      addEventObserver: (handler: (msg: AssistantEvent) => void) => {
         clientHandler = handler;
+        return () => {};
       },
       ensureActorScopedHistory: async () => {},
       runAgentLoop: async () => {
@@ -879,8 +926,9 @@ describe("voice-session-bridge", () => {
       setTurnChannelContext: () => {},
       setTurnInterfaceContext: () => {},
       setVoiceCallControlPrompt: () => {},
-      updateClient: (handler: (msg: AssistantEvent) => void) => {
+      addEventObserver: (handler: (msg: AssistantEvent) => void) => {
         clientHandler = handler;
+        return () => {};
       },
       ensureActorScopedHistory: async () => {},
       runAgentLoop: async () => {
@@ -946,8 +994,9 @@ describe("voice-session-bridge", () => {
       setTurnChannelContext: () => {},
       setTurnInterfaceContext: () => {},
       setVoiceCallControlPrompt: () => {},
-      updateClient: (handler: (msg: AssistantEvent) => void) => {
+      addEventObserver: (handler: (msg: AssistantEvent) => void) => {
         clientHandler = handler;
+        return () => {};
       },
       ensureActorScopedHistory: async () => {},
       runAgentLoop: async () => {
@@ -1009,8 +1058,9 @@ describe("voice-session-bridge", () => {
       setTurnChannelContext: () => {},
       setTurnInterfaceContext: () => {},
       setVoiceCallControlPrompt: () => {},
-      updateClient: (handler: (msg: AssistantEvent) => void) => {
+      addEventObserver: (handler: (msg: AssistantEvent) => void) => {
         clientHandler = handler;
+        return () => {};
       },
       ensureActorScopedHistory: async () => {},
       runAgentLoop: async () => {
@@ -1061,13 +1111,20 @@ describe("voice-session-bridge", () => {
   // broadcast in voice-session-bridge.ts's confirmation_request branch. The
   // fake's handleConfirmationResponse mirrors production's synchronous
   // `interaction_resolved` broadcast so the wire order is observable through
-  // the event hub, which serializes publishes in call order.
+  // the event hub, which serializes publishes in call order. Its `emit`
+  // mirrors a real conversation's: the sink (the hub) delivers first, then
+  // observers run, so the bridge's resolution lands after the request.
   function makeConfirmationOrderingSession(
     conversationId: string,
     requestId: string,
   ): Conversation {
     let clientHandler: (msg: AssistantEvent) => void = () => {};
+    const emit = (msg: AssistantEvent) => {
+      broadcastMessage(msg);
+      clientHandler(msg);
+    };
     return {
+      emit,
       isProcessing: () => false,
       persistUserMessage: async () => ({
         id: "test-msg-id",
@@ -1080,12 +1137,13 @@ describe("voice-session-bridge", () => {
       setTurnChannelContext: () => {},
       setTurnInterfaceContext: () => {},
       setVoiceCallControlPrompt: () => {},
-      updateClient: (handler: (msg: AssistantEvent) => void) => {
+      addEventObserver: (handler: (msg: AssistantEvent) => void) => {
         clientHandler = handler;
+        return () => {};
       },
       ensureActorScopedHistory: async () => {},
       runAgentLoop: async () => {
-        clientHandler({
+        emit({
           type: "confirmation_request",
           requestId,
           toolName: "host_bash",
@@ -1222,8 +1280,9 @@ describe("voice-session-bridge", () => {
       setTurnChannelContext: () => {},
       setTurnInterfaceContext: () => {},
       setVoiceCallControlPrompt: () => {},
-      updateClient: (handler: (msg: AssistantEvent) => void) => {
+      addEventObserver: (handler: (msg: AssistantEvent) => void) => {
         clientHandler = handler;
+        return () => {};
       },
       ensureActorScopedHistory: async () => {},
       runAgentLoop: async () => {
@@ -1290,7 +1349,7 @@ describe("voice-session-bridge", () => {
       setTurnChannelContext: () => {},
       setTurnInterfaceContext: () => {},
       setVoiceCallControlPrompt: () => {},
-      updateClient: () => {},
+      addEventObserver: () => () => {},
       ensureActorScopedHistory: async () => {},
       runAgentLoop: async () => {},
       handleConfirmationResponse: () => {},
@@ -1349,7 +1408,7 @@ describe("voice-session-bridge", () => {
       setTurnChannelContext: recordLast("setTurnChannelContext"),
       setTurnInterfaceContext: recordLast("setTurnInterfaceContext"),
       setVoiceCallControlPrompt: recordLast("setVoiceCallControlPrompt"),
-      updateClient: () => {},
+      addEventObserver: () => () => {},
       ensureActorScopedHistory: async () => {},
       runAgentLoop: async () => {},
       handleConfirmationResponse: () => {},
@@ -1391,15 +1450,12 @@ describe("voice-session-bridge", () => {
     expect(session.forcePromptSideEffects).toBe(false);
   });
 
-  test("cleanup on early persistUserMessage throw does not detach prior client sender", async () => {
+  test("cleanup on early persistUserMessage throw does not detach a prior turn's observer", async () => {
     const conversation = createConversation(
       "voice bridge sender detach guard test",
     );
 
-    const updateClientCalls: Array<{
-      callback: unknown;
-      replace: boolean | undefined;
-    }> = [];
+    const addEventObserverCalls: unknown[] = [];
 
     const session = {
       isProcessing: () => false,
@@ -1415,8 +1471,9 @@ describe("voice-session-bridge", () => {
       setTurnChannelContext: () => {},
       setTurnInterfaceContext: () => {},
       setVoiceCallControlPrompt: () => {},
-      updateClient: (callback: unknown, replace?: boolean) => {
-        updateClientCalls.push({ callback, replace });
+      addEventObserver: (observer: unknown) => {
+        addEventObserverCalls.push(observer);
+        return () => {};
       },
       ensureActorScopedHistory: async () => {},
       runAgentLoop: async () => {},
@@ -1451,10 +1508,9 @@ describe("voice-session-bridge", () => {
     expect(caught?.message).toBe(
       "persist failed before bridge installed callback",
     );
-    // The bridge never reached its `conversation.updateClient(...)` install
-    // site, so cleanup must not touch updateClient — otherwise it would
-    // detach a sender installed by a prior turn on the same conversation.
-    expect(updateClientCalls).toEqual([]);
+    // The bridge never reached its `conversation.addEventObserver(...)`
+    // install site, so no observer was registered for cleanup to detach.
+    expect(addEventObserverCalls).toEqual([]);
   });
 
   test("pre-aborted signal triggers immediate abort", async () => {
@@ -1475,7 +1531,7 @@ describe("voice-session-bridge", () => {
       setTurnChannelContext: () => {},
       setTurnInterfaceContext: () => {},
       setVoiceCallControlPrompt: () => {},
-      updateClient: () => {},
+      addEventObserver: () => () => {},
       ensureActorScopedHistory: async () => {},
       runAgentLoop: async () => {
         await new Promise((r) => setTimeout(r, 200));

@@ -15,7 +15,6 @@
 import { useState } from "react";
 import { Ban } from "lucide-react";
 
-import { hoverRevealClasses } from "@vellumai/design-library";
 import { Popover } from "@vellumai/design-library/components/popover";
 import { Tag } from "@vellumai/design-library/components/tag";
 
@@ -85,7 +84,11 @@ function ClaimRow({
 
   return (
     <li
-      className={`group flex flex-col rounded-lg border border-[var(--border-base)] bg-[var(--surface-lift)] transition-opacity ${
+      data-reveal-row=""
+      /* A removed fact holds its remove control open: it is the control that
+         reverses the removal, so it has to be there without a hover. */
+      data-reveal-hold={removed ? "" : undefined}
+      className={`flex flex-col rounded-lg border border-[var(--border-base)] bg-[var(--surface-lift)] transition-opacity ${
         removed ? "opacity-50" : ""
       }`}
       style={{ animation: "fadeInUp 0.35s ease-out both" }}
@@ -121,9 +124,8 @@ function ClaimRow({
               type="button"
               aria-label={removed ? "Edit removal" : "Remove"}
               onClick={(e) => e.stopPropagation()}
-              className={`ml-auto shrink-0 cursor-pointer text-[var(--content-tertiary)] transition-opacity hover:text-[var(--content-default)] focus-visible:opacity-100 ${
-                removed ? "opacity-100" : hoverRevealClasses
-              }`}
+              data-reveal=""
+              className="ml-auto shrink-0 cursor-pointer text-[var(--content-tertiary)] hover:text-[var(--content-default)]"
             >
               <Ban className="size-[18px]" />
             </button>

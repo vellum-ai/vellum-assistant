@@ -96,7 +96,8 @@
       "workspace": "All the files that power me"
     },
     "defaultAssistantName": "Assistant",
-    "memoryCountLabel": "{count, plural, one {# memory} other {# memories}}",
+    "memoryCount": "{count, plural, one {# memory} other {# memories}}",
+    "memoryCountLabel": "{count, plural, one {memory} other {memories}}",
     "renameErrorToast": "The rename didn't go through. Please try again.",
     "renameSuccessToast": "Say hi to {newName}!",
     "scheduleCadence": "{cadence} · next {nextRun}",
@@ -382,12 +383,16 @@
     "upgradePluginAriaLabel": "Upgrade plugin"
   },
   "useIdentitySectionStats": {
+    "activeCount": "{count, plural, one {# active} other {# active}}",
     "activeLabel": "{count, plural, one {active} other {active}}",
     "appCount": "{count, plural, one {# app} other {# apps}}",
+    "connectedCount": "{count, plural, one {# connected} other {# connected}}",
     "connectedLabel": "{count, plural, one {connected} other {connected}}",
     "docCount": "{count, plural, one {# doc} other {# docs}}",
+    "itemCount": "{count, plural, one {# item} other {# items}}",
     "itemLabel": "{count, plural, one {item} other {items}}",
     "noSchedulesText": "Nothing scheduled yet",
+    "personCount": "{count, plural, one {# person} other {# people}}",
     "personLabel": "{count, plural, one {person} other {people}}",
     "pluginCount": "{count, plural, one {# plugin} other {# plugins}}",
     "skillCount": "{count, plural, one {# skill} other {# skills}}"

@@ -223,6 +223,7 @@ export {
   SIDE_MENU_COLLAPSED_WIDTH,
   SIDE_MENU_COLLAPSED_INSET,
   SIDE_MENU_TILE_SIZE,
+  SIDE_MENU_OVERLAY_TILE_SIZE,
   SIDE_MENU_MIN_WIDTH,
   SIDE_MENU_MAX_WIDTH,
   type SideMenuProps,
@@ -273,10 +274,6 @@ export {
 } from "./components/shortcut-keys";
 export { cn } from "./utils/cn";
 export type { CustomPropertyStyle } from "./utils/custom-property-style";
-export {
-  hoverRevealClasses,
-  hoverRevealYieldClasses,
-} from "./utils/hover-reveal";
 export { initInputModality } from "./utils/input-modality";
 export {
   PANEL_ITEM_WASH,

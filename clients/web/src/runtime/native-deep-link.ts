@@ -109,6 +109,52 @@ export function parseBillingCheckoutCompleteDeepLink(
   return null;
 }
 
+/**
+ * Query item the iOS shell adds to a command URL an App Intent produced, and
+ * strips from every URL that arrived from outside the process (Safari,
+ * another app, the Live Activity's tap). Name and value are shared with
+ * `CommandURLProvenance.swift`, which owns the trust argument: intent URLs
+ * are handed to the delegate in-process and never pass through
+ * `application(_:open:)`, so by the time a URL reaches Capacitor's
+ * `appUrlOpen` the marker is present exactly when an intent produced it.
+ */
+const COMMAND_URL_PROVENANCE_PARAM = "src";
+const COMMAND_URL_PROVENANCE_INTENT = "intent";
+
+/**
+ * Where a command URL came from, as far as the shell can prove.
+ *
+ * - `"intent"`: an iOS App Intent produced it on the user's explicit action
+ *   (a Shortcut, Siri, the Action Button). Text it carries may be acted on
+ *   without a further tap.
+ * - `null`: unknown, which for a custom URL scheme means "anyone". Text it
+ *   carries is staged for the user to send, never sent.
+ */
+export type CommandUrlProvenance = "intent" | null;
+
+/**
+ * Whether a parser may honor the provenance marker at all. Only a shell that
+ * strips the marker at its external entry points can vouch for it, and today
+ * that is the iOS shell alone; the Capacitor source passes `true` only there.
+ * Defaults to `false` so a new caller cannot trust the marker by omission.
+ */
+export interface DeepLinkParseOptions {
+  acceptProvenance?: boolean;
+}
+
+function readProvenance(
+  url: URL,
+  options: DeepLinkParseOptions | undefined,
+): CommandUrlProvenance {
+  if (options?.acceptProvenance !== true) {
+    return null;
+  }
+  return url.searchParams.get(COMMAND_URL_PROVENANCE_PARAM) ===
+    COMMAND_URL_PROVENANCE_INTENT
+    ? "intent"
+    : null;
+}
+
 /** Host segment shared with `VoiceModeDeepLink.swift` on the native side. */
 const START_VOICE_DEEP_LINK_HOST = "voice";
 
@@ -125,6 +171,8 @@ const START_VOICE_DEEP_LINK_HOST = "voice";
 interface StartVoiceDeepLinkPayload {
   mode: "new" | "resume";
   prompt: string | null;
+  /** See {@link CommandUrlProvenance}; `null` unless the caller opted in. */
+  provenance: CommandUrlProvenance;
 }
 
 /**
@@ -209,6 +257,7 @@ function sanitizeDeepLinkText(
  */
 export function parseStartVoiceDeepLink(
   rawUrl: string,
+  options?: DeepLinkParseOptions,
 ): StartVoiceDeepLinkPayload | null {
   let url: URL;
   try {
@@ -230,6 +279,7 @@ export function parseStartVoiceDeepLink(
       url.searchParams.get("prompt"),
       MAX_START_VOICE_PROMPT_LENGTH,
     ),
+    provenance: readProvenance(url, options),
   };
 }
 
@@ -252,6 +302,8 @@ const OPEN_THREAD_DEEP_LINK_HOST = "thread";
 interface OpenThreadDeepLinkPayload {
   threadId: string;
   message: string | null;
+  /** See {@link CommandUrlProvenance}; `null` unless the caller opted in. */
+  provenance: CommandUrlProvenance;
 }
 
 /**
@@ -285,6 +337,7 @@ const OPEN_THREAD_ID_RE = /^[A-Za-z0-9._-]{1,128}$/;
  */
 export function parseOpenThreadDeepLink(
   rawUrl: string,
+  options?: DeepLinkParseOptions,
 ): OpenThreadDeepLinkPayload | null {
   let url: URL;
   try {
@@ -312,6 +365,7 @@ export function parseOpenThreadDeepLink(
       MAX_OPEN_THREAD_MESSAGE_LENGTH,
       { multiline: true },
     ),
+    provenance: readProvenance(url, options),
   };
 }
 

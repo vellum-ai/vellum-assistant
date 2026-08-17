@@ -35,9 +35,11 @@ import {
   type UseSidebarStateParams,
 } from "@/domains/chat/use-sidebar-state";
 import { copyIdToClipboard } from "@/domains/chat/utils/copy-id-to-clipboard";
+import { useTranslation } from "@/i18n";
+import { captureError } from "@/lib/sentry/capture-error";
 import { NATIVE_MOBILE_BARE_ICON_BUTTON } from "@/domains/chat/utils/native-mobile-button-constants";
 import type { Conversation } from "@/types/conversation-types";
-import { Button, cn, SideMenu } from "@vellumai/design-library";
+import { Button, cn, SideMenu, toast } from "@vellumai/design-library";
 
 export interface AssistantSideMenuProps extends UseSidebarStateParams {
   assistantName?: string | null;
@@ -72,6 +74,13 @@ export interface AssistantSideMenuProps extends UseSidebarStateParams {
   activeAppId?: string;
   onStartNewConversation?: () => void;
   footerAction?: ReactNode;
+  /**
+   * Trailing control in the overlay's glyph row, opposite dismiss and search.
+   * A slot rather than a direct render: the control belongs to another
+   * domain, so the page composes it and this menu stays free of the
+   * dependency (and of the router context it needs).
+   */
+  notificationsAction?: ReactNode;
   /**
    * Rendered above `footerAction` in the rail footer (hidden when collapsed)
    * and above the floating action pills on the overlay.
@@ -201,6 +210,7 @@ export function AssistantSideMenu({
   activeAppId,
   onStartNewConversation,
   footerAction,
+  notificationsAction,
   tipCard,
   onPinConversation,
   onRenameConversation,
@@ -263,6 +273,8 @@ export function AssistantSideMenu({
   // variant is up, so a stale value from a dismissed overlay is inert.
   const [overlayBottomColumnHeight, setOverlayBottomColumnHeight] = useState(0);
 
+  const { t } = useTranslation("chat");
+
   // Whole-section reordering. Rows themselves do not reorder: every section
   // is recency-sorted (LUM-3108).
   const sectionDragFor = useSectionDragReorder({
@@ -274,9 +286,15 @@ export function AssistantSideMenu({
   // Pinned, Chats, each channel section, and each custom group — so the bulk
   // actions are identical everywhere and the only per-section difference is
   // the rename/delete pair that custom groups additionally own.
+  //
+  // The bulk actions act on `getAllRows()`, resolved at click time, never on
+  // the rendered rows: a section's cache is a window (LUM-2444), and both
+  // bulk endpoints take explicit id lists, so acting on the window would
+  // silently exclude every row the user hadn't scrolled to.
   const buildGroupMenu = (
     groupName: string,
     conversations: Conversation[],
+    getAllRows: () => Promise<Conversation[]>,
     options?: {
       onRename?: () => void;
       onDelete?: () => void;
@@ -285,6 +303,13 @@ export function AssistantSideMenu({
       onMoveDown?: () => void;
       onToggleGroupByChannel?: () => void;
       isGroupedByChannel?: boolean;
+      /**
+       * The section's server-counted unread (the sections index). Window
+       * rows can't answer "any unread?" once they window - an unread row
+       * past the window is exactly what they miss - so the count decides
+       * when it exists and the row scan only covers the pre-index fallback.
+       */
+      unreadCount?: number;
     },
   ): GroupMenuItemsProps => ({
     onMoveUp: options?.onMoveUp,
@@ -292,13 +317,32 @@ export function AssistantSideMenu({
     onToggleGroupByChannel: options?.onToggleGroupByChannel,
     isGroupedByChannel: options?.isGroupedByChannel,
     onMarkAllRead: onMarkAllReadInGroup
-      ? () => onMarkAllReadInGroup(conversations)
+      ? () => {
+          getAllRows().then(onMarkAllReadInGroup, (error: unknown) => {
+            /* A user-clicked action, so the failure is reported to the
+               user and, unfiltered, to Sentry: nothing about a click has
+               a natural retry surface. The action performs nothing rather
+               than acting on a partial member list. */
+            toast.error(t("assistantSideMenu.bulkActionMembersFailed"));
+            captureError(error, { context: "markAllReadInGroup:getAllRows" });
+          });
+        }
       : undefined,
     hasUnreadConversations: onMarkAllReadInGroup
-      ? conversations.some((c) => c.hasUnseenLatestAssistantMessage)
+      ? options?.unreadCount !== undefined
+        ? options.unreadCount > 0
+        : conversations.some((c) => c.hasUnseenLatestAssistantMessage)
       : false,
     onArchiveAll: onArchiveAllInGroup
-      ? () => onArchiveAllInGroup(groupName, conversations)
+      ? () => {
+          getAllRows().then(
+            (rows) => onArchiveAllInGroup(groupName, rows),
+            (error: unknown) => {
+              toast.error(t("assistantSideMenu.bulkActionMembersFailed"));
+              captureError(error, { context: "archiveAllInGroup:getAllRows" });
+            },
+          );
+        }
       : undefined,
     hasConversations: conversations.length > 0,
     onRename: options?.onRename,
@@ -334,6 +378,7 @@ export function AssistantSideMenu({
   };
 
   const listContext: ConversationListContextValue = {
+    overlayCards: variant === "overlay",
     activeConversationId,
     activeConversationProcessing,
     processingConversationIds,
@@ -361,8 +406,10 @@ export function AssistantSideMenu({
   const sectionMenu = (
     section: SidebarSection,
     conversations: Conversation[],
+    getAllRows: () => Promise<Conversation[]>,
   ): GroupMenuItemsProps => {
-    const moveOptions = {
+    const sharedOptions = {
+      unreadCount: section.unread,
       onMoveUp: sidebar.canMoveSection(section.key, -1)
         ? () => sidebar.onMoveSection(section.key, -1)
         : undefined,
@@ -375,8 +422,8 @@ export function AssistantSideMenu({
        where a group offers rename and delete, these offer the switch. */
     const isGoverned = section.type === "recents" || section.type === "channel";
     if (section.type !== "group") {
-      return buildGroupMenu(section.label, conversations, {
-        ...moveOptions,
+      return buildGroupMenu(section.label, conversations, getAllRows, {
+        ...sharedOptions,
         ...(isGoverned
           ? {
               onToggleGroupByChannel: () =>
@@ -388,15 +435,15 @@ export function AssistantSideMenu({
           : {}),
       });
     }
-    return buildGroupMenu(section.label, conversations, {
-      ...moveOptions,
+    return buildGroupMenu(section.label, conversations, getAllRows, {
+      ...sharedOptions,
       onRename: onRenameGroup
         ? () => onRenameGroup(section.group.id)
         : undefined,
       onDelete: onDeleteGroup
         ? () => onDeleteGroup(section.group.id)
         : undefined,
-      onCopyGroupId: () => copyIdToClipboard(section.group.id, "Group ID"),
+      onCopyGroupId: () => copyIdToClipboard(section.group.id, "group"),
     });
   };
 
@@ -405,7 +452,9 @@ export function AssistantSideMenu({
       key={section.key}
       section={section}
       assistantId={assistantId ?? null}
-      groupMenu={(conversations) => sectionMenu(section, conversations)}
+      groupMenu={(conversations, getAllRows) =>
+        sectionMenu(section, conversations, getAllRows)
+      }
       drag={sectionDragFor(section)}
       collapsedIndicator={collapsedActivityDot}
       // Only the bottom-most section ever claims the sidebar's leftover
@@ -464,21 +513,29 @@ export function AssistantSideMenu({
       >
         <SideMenu.Header>
           {variant === "overlay" ? (
-            /* Close on the left, Search pinned to the right so it stays put
-               and always reads as the persistent search affordance
-               (Figma 6788:6749). In Capacitor mobile shells the row floats
-               over the scrollport so list content travels beneath the bare
-               glyphs; `pointer-events-none` keeps the empty span between the
-               two buttons scrollable. */
-            <div className="flex items-center justify-between gap-2 native-mobile:pointer-events-none native-mobile:absolute native-mobile:inset-x-4 native-mobile:top-4 native-mobile:z-10">
-              <Button
-                variant="ghost"
-                iconOnly={<X />}
-                aria-label="Close navigation"
-                className={`pointer-events-auto ${NATIVE_MOBILE_BARE_ICON_BUTTON}`}
-                onClick={() => onClose?.()}
-              />
-              <SearchButton />
+            /* Dismiss and search lead together on the left, notifications
+               sits alone on the right (Figma 7842-83305). In Capacitor
+               mobile shells the row floats over the scrollport so list
+               content travels beneath the bare glyphs;
+               `pointer-events-none` keeps the gap between the clusters
+               scrollable. */
+            <div
+              data-slot="side-menu-glyph-row"
+              className="flex items-center justify-between gap-2 native-mobile:pointer-events-none native-mobile:absolute native-mobile:inset-x-4 native-mobile:top-4 native-mobile:z-10"
+            >
+              <div className="flex items-center gap-1">
+                <Button
+                  variant="ghost"
+                  iconOnly={<X />}
+                  aria-label="Close navigation"
+                  className={`pointer-events-auto ${NATIVE_MOBILE_BARE_ICON_BUTTON}`}
+                  onClick={() => onClose?.()}
+                />
+                <SearchButton />
+              </div>
+              {notificationsAction ? (
+                <div className="pointer-events-auto">{notificationsAction}</div>
+              ) : null}
             </div>
           ) : (
             builtInNav

@@ -30,12 +30,11 @@ const PAIRING_VERIFICATION_PATH = "/v1/remote-web/pairing-verification";
 
 /**
  * Guidance appended when the host rejects the mint. The routes themselves only
- * require loopback, but a scan can only complete against the public URL when
- * remote web ingress is enabled on the host — the usual reason pairing doesn't
- * work end to end.
+ * require loopback, but a scan can only complete when the public URL actually
+ * fronts this assistant, the usual reason pairing doesn't work end to end.
  */
-export const WEB_REMOTE_INGRESS_HINT =
-  "If a scan can't connect, enable remote web access on the host with `vellum flags set web-remote-ingress true`, then generate a new code.";
+export const PAIRING_CONNECTIVITY_HINT =
+  "If a scan can't connect, make sure a tunnel is running on the host (`vellum tunnel`) and the public URL points at it, then generate a new code.";
 
 /** A pairing mint that failed, carrying an optional actionable hint. */
 export class PairDeviceError extends Error {
@@ -128,7 +127,7 @@ async function postPairingRoute<T>(
     throw new PairDeviceError(
       serverErrorMessage(payload) ??
         `Pairing failed (HTTP ${response.status}).`,
-      WEB_REMOTE_INGRESS_HINT,
+      PAIRING_CONNECTIVITY_HINT,
     );
   }
 

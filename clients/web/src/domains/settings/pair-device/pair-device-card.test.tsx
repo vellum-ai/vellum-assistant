@@ -11,7 +11,6 @@ import {
 let gatewayPath: string | undefined = "/assistant/__gateway/20100";
 let supportsPairingRoutes = true;
 let webRemoteIngressOn = true;
-let flagsHydrated = true;
 let selectedAssistant: {
   assistantId: string;
   cloud: string;
@@ -28,11 +27,10 @@ mock.module("@/lib/backwards-compat/remote-web-pairing-gate", () => ({
   useSupportsRemoteWebPairing: () => supportsPairingRoutes,
 }));
 
-mock.module("@/stores/assistant-feature-flag-store", () => ({
-  useAssistantFeatureFlagStore: {
+mock.module("@/stores/client-feature-flag-store", () => ({
+  useClientFeatureFlagStore: {
     use: {
       webRemoteIngress: () => webRemoteIngressOn,
-      hasHydrated: () => flagsHydrated,
     },
   },
 }));
@@ -109,7 +107,6 @@ beforeEach(() => {
   gatewayPath = "/assistant/__gateway/20100";
   supportsPairingRoutes = true;
   webRemoteIngressOn = true;
-  flagsHydrated = true;
   selectedAssistant = { assistantId: "self", cloud: "local" };
   requests = [];
   localStorage.clear();
@@ -144,20 +141,8 @@ describe("PairDeviceCard", () => {
     expect(screen.queryByText("Pair a device")).toBeNull();
   });
 
-  test("renders nothing until feature flags hydrate", () => {
-    // Before hydration the store reports registry defaults, not this
-    // assistant's values, so the card waits rather than showing an action it
-    // may have to take away.
-    flagsHydrated = false;
-    webRemoteIngressOn = true;
-    const { container } = render(<PairDeviceCard />);
-    expect(container.firstChild).toBeNull();
-    expect(screen.queryByText("Pair a device")).toBeNull();
-  });
-
   test("renders nothing when web-remote-ingress is off", () => {
-    // A scanned code could not connect without the ingress, so the card is
-    // absent rather than present and failing on use.
+    // The client flag only controls the card's visibility.
     webRemoteIngressOn = false;
     const { container } = render(<PairDeviceCard />);
     expect(container.firstChild).toBeNull();
@@ -188,7 +173,7 @@ describe("PairDeviceCard", () => {
     expect(requests[1]?.body).toEqual({ userCode: "WXYZ-1234" });
   });
 
-  test("surfaces the server's rejection message with a flag hint", async () => {
+  test("surfaces the server's rejection message with a connectivity hint", async () => {
     installFetch(() =>
       jsonResponse(
         { error: { code: "LOOPBACK_REQUIRED", message: "loopback required" } },
@@ -204,7 +189,7 @@ describe("PairDeviceCard", () => {
     await waitFor(() =>
       expect(screen.getByText("loopback required")).toBeTruthy(),
     );
-    expect(screen.getByText(/web-remote-ingress/)).toBeTruthy();
+    expect(screen.getByText(/vellum tunnel/)).toBeTruthy();
   });
 
   test("blocks a loopback URL client-side without a network call", () => {

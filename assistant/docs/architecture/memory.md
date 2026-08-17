@@ -172,6 +172,21 @@ Ingested pages carry provenance frontmatter with distinct consumers:
   machinery (graph extraction, summarization, PKB indexing/filing, PKB
   injection) is suppressed while the substrate is active.
 
+#### Live voice front-door memory
+
+The live voice front door does not await current-turn memory retrieval. Its
+prompt hook skips legacy graph retrieval, and both v3 injectors skip
+orchestration for `voiceFrontDoor`. Frozen cards from prior turns and the static
+substrate context remain available. When the answer depends on a saved personal
+fact that is absent from that context, the front-door rule escalates instead of
+guessing.
+
+The escalated leg runs the ordinary memory pipeline before the quality model.
+V3 retrieval routes on the latest visible caller message, ignoring the hidden
+continuation message used to start that leg. The selector uses low effort to
+keep retrieval latency bounded. This keeps current-turn memory work off the
+front-door TTFT path without maintaining speculative cross-leg state.
+
 ### Boot-time maintenance
 
 `substrate/boot-maintenance.ts`, invoked from the memory plugin's

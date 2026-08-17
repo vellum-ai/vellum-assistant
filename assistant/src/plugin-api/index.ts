@@ -67,7 +67,11 @@
  */
 
 export type { HookName } from "./constants.js";
-export { HOOKS, INTERNAL_NUDGE_OUTPUT_SUPPRESSION } from "./constants.js";
+export {
+  HOOKS,
+  INTERNAL_NUDGE_OUTPUT_SUPPRESSION,
+  VOICE_ESCALATION_CONTINUATION_MESSAGE_KIND,
+} from "./constants.js";
 // Conversation message/content shapes. A hook receives the live message
 // history (e.g. `PostToolUseContext.latestMessages: Message[]`), so plugins
 // that inspect or narrow content blocks — reading a `tool_use` block's input,

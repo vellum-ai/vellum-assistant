@@ -50,6 +50,7 @@ import { useMessageLifecycle } from "@/domains/chat/hooks/use-message-lifecycle"
 import { useActiveAppPinSync } from "@/domains/chat/hooks/use-active-app-pin-sync";
 import { useAcpAutoContinue } from "@/domains/chat/hooks/use-acp-auto-continue";
 import { useDeepLinkConsumer } from "@/domains/chat/hooks/use-deep-link-consumer";
+import { useDeepLinkThreadSend } from "@/domains/chat/hooks/use-deep-link-thread-send";
 import { ACP_CONNECT_CONTINUE_PROMPT } from "@/domains/chat/utils/acp-connect";
 
 import { useChatDebugRegistration } from "@/domains/chat/hooks/use-chat-debug-registration";
@@ -291,6 +292,18 @@ export function ActiveChatView() {
     startReconciliationLoop,
     cancelReconciliation,
     refreshConversations,
+  });
+
+  // A proven iOS "Send Message to Chat" intent parks a send request rather
+  // than a pre-fill; fulfil it here once the target thread is confirmed (or
+  // demote it to a pre-fill when the target is gone). Needs the loader's
+  // existence verdict and `sendMessage`, hence this placement.
+  useDeepLinkThreadSend({
+    assistantId,
+    isAssistantActive: assistantState.kind === "active",
+    activeConversationId,
+    conversationExistsOnServer,
+    sendMessage,
   });
 
   // Auto-send: URL ?prompt=, pre-chat reachability probe, onboarding message.

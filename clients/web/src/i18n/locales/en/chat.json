@@ -10,6 +10,13 @@
     "gallery": "Find in Gallery",
     "files": "Files"
   },
+  "allowOptionsMenu": {
+    "allowAndCreateRule": "Allow & Create Rule",
+    "trigger": "More allow options"
+  },
+  "assistantSideMenu": {
+    "bulkActionMembersFailed": "Couldn't load every conversation in this section. Try again."
+  },
   "cacheBreakpointMapCard": {
     "description": "Where the {count, plural, one {# cache breakpoint} other {# cache breakpoints}} fell across this request's prefix, and which segments were read versus re-created.",
     "estimatedTokens": "≈ {count} tokens",
@@ -138,6 +145,30 @@
     "tokenRangeWithReduction": "{before} → {after}  ({reduction})",
     "trigger": "Trigger"
   },
+  "conversationActions": {
+    "archive": "Archive",
+    "copyConversation": "Copy Full Conversation",
+    "copyConversationId": "Copy conversation ID",
+    "forkConversation": "Fork Conversation",
+    "inspect": "Analyze Conversation",
+    "markRead": "Mark as read",
+    "markUnread": "Mark as unread",
+    "moveToGroup": "Move to group",
+    "newGroup": "New group…",
+    "openInNewWindow": "Open in New Window",
+    "pin": "Pin",
+    "refresh": "Refresh",
+    "removeFromGroup": "Remove from group",
+    "rename": "Rename",
+    "shareFeedback": "Share Feedback",
+    "triggerAriaLabel": "Conversation actions",
+    "unarchive": "Unarchive",
+    "unpin": "Unpin"
+  },
+  "conversationActionsSheet": {
+    "closeAriaLabel": "Close",
+    "title": "Conversation Actions"
+  },
   "conversationAssets": {
     "ariaLabel": "Conversation assets, {count, plural, one {# item} other {# items}}",
     "ariaLabelUnseen": "Conversation assets, {count, plural, one {# item} other {# items}} (unseen changes)",
@@ -147,6 +178,12 @@
   "copyButton": {
     "copied": "Copied",
     "copyFailed": "Could not copy to the clipboard."
+  },
+  "copyIdToClipboard": {
+    "conversationCopied": "Conversation ID copied to clipboard.",
+    "conversationFailed": "Couldn't copy the conversation ID.",
+    "groupCopied": "Group ID copied to clipboard.",
+    "groupFailed": "Couldn't copy the group ID."
   },
   "detailPanelStopButton": {
     "tooltip": "Stop"

@@ -39,10 +39,12 @@ import {
 } from "../daemon/conversation-surfaces.js";
 import { asConversation } from "./helpers/mock-conversation.js";
 
-function makeContext(): Conversation {
+function makeContext(
+  emit: (msg: AssistantEvent) => void = () => {},
+): Conversation {
   return asConversation({
     conversationId: "session-1",
-    sendToClient: () => {},
+    emit,
     pendingSurfaceActions: new Map<string, { surfaceType: SurfaceType }>(),
     lastSurfaceAction: new Map<
       string,
@@ -131,8 +133,7 @@ describe("starter task surface actions", () => {
 
   test("app_open registers dynamic_page surface as action-capable", async () => {
     const sent: AssistantEvent[] = [];
-    const ctx = makeContext();
-    ctx.sendToClient = (msg) => sent.push(msg);
+    const ctx = makeContext((msg) => sent.push(msg));
 
     const result = await surfaceProxyResolver(ctx, "app_open", {
       app_id: "test-app",

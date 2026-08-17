@@ -89,7 +89,8 @@ const CALL_SESSION_ID = "call-session-voice-grant-test";
 
 /**
  * Create a mock session that, when runAgentLoop is called, emits a
- * confirmation_request through the updateClient callback before completing.
+ * confirmation_request through the registered event observer before
+ * completing.
  */
 function createMockSession(opts?: {
   confirmationRequestId?: string;
@@ -118,8 +119,9 @@ function createMockSession(opts?: {
     currentRequestId: requestId,
     abort: () => {},
     persistUserMessage: async () => ({ id: "msg-1", deduplicated: false }),
-    updateClient: (cb: (msg: AssistantEvent) => void, _reset?: boolean) => {
+    addEventObserver: (cb: (msg: AssistantEvent) => void) => {
       clientCallback = cb;
+      return () => {};
     },
     handleConfirmationResponse: (
       reqId: string,
@@ -138,7 +140,7 @@ function createMockSession(opts?: {
       _messageId: string,
       options?: { onEvent?: (msg: AssistantEvent) => void },
     ) => {
-      // Emit a confirmation_request through the client callback
+      // Emit a confirmation_request through the event observer
       if (clientCallback) {
         clientCallback({
           type: "confirmation_request",

@@ -1979,20 +1979,18 @@ export async function handleSendMessage(
       sourceActorPrincipalId,
     );
   }
-  // Wire sendToClient to the SSE hub so all subsystems can reach the HTTP client.
-  // hasNoClient must remain `!isInteractive` so downstream tool gating
-  // (`isToolActiveForContext` for HOST_TOOL_NAMES, `createToolExecutor`'s
-  // `isInteractive: !ctx.hasNoClient`) keeps host_bash/host_file/host_cu
-  // tools gated for non-desktop interfaces. The chrome-extension interface
-  // is non-interactive (no SSE prompter UI) but still has a connected client
-  // that can service host_browser_request events; we restore that single
-  // proxy explicitly below without relaxing `hasNoClient`.
-  conversation.updateClient(broadcastMessage, !isInteractive);
+  // Delivery needs no wiring: the conversation's sink is the SSE hub for its
+  // whole life. Presence travels with the turn (`isInteractive` below), which
+  // is what keeps host_bash/host_file/host_cu gated for non-desktop
+  // interfaces. The chrome-extension interface is non-interactive (no SSE
+  // prompter UI) but still has a connected client that can service
+  // host_browser_request events; that single proxy is restored explicitly
+  // below without claiming a human is present.
   if (isInteractive) {
-    getSubagentManager().updateParentSender(
-      mapping.conversationId,
-      broadcastMessage,
-    );
+    // A client that reconnected mid-phase resyncs the current activity state
+    // and any subagent card it left stale while disconnected.
+    conversation.replayActivityState();
+    getSubagentManager().reannounceChildStatuses(mapping.conversationId);
   }
 
   // ── URL scan path: rewrite first message for scan onboarding ──

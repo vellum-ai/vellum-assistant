@@ -349,7 +349,7 @@ The Electron renderer uses `@sentry/react` (not `@sentry/electron/renderer`): `@
 
 ## CLI ↔ Daemon Communication
 
-CLI commands that need to invoke daemon-side state (conversations, wake, in-memory lookups) call into the daemon over the Unix domain socket via `cliIpcCall()` from `assistant/src/ipc/cli-client.ts`. Add a route file in `assistant/src/ipc/routes/` and register it in `routes/index.ts` — `AssistantIpcServer` auto-registers from the index. File-based signals and the daemon HTTP port are deprecated for new CLI→daemon interactions.
+CLI commands that need to invoke daemon-side state (conversations, wake, in-memory lookups) call into the daemon over the Unix domain socket via `cliIpcCall()` from `assistant/src/ipc/cli-client.ts`. Add a route file in `assistant/src/ipc/routes/` that exports a `*_IPC_METHODS` map, and add that map to the list `AssistantIpcServer` iterates in `assistant/src/ipc/assistant-server.ts` (there is no index file; each map is imported by hand). File-based signals and the daemon HTTP port are deprecated for new CLI→daemon interactions.
 
 For routes shared between HTTP and IPC, and for the current wire-protocol details (length-prefixed binary framing with JSON envelopes, plus binary/chunked response shapes), see `assistant/CLAUDE.md` § Route architecture and § CLI ↔ daemon communication protocol.
 

@@ -243,6 +243,9 @@ reaches it.
   bounds and sanitizes it — 2000 characters max, control characters rejected —
   because a deep link is reachable from any app or web page that can open a URL.
   A rejected prompt does not reject the link: the session still starts.
+- `src=intent` is the provenance marker, added by `AppDelegate.deliverCommandURL`
+  and stripped from every externally opened URL; see "Delivery paths" below.
+  Producers never set it themselves.
 
 Native producers build the URL through `VoiceModeDeepLink.url(prompt:)`
 ([`App/App/Shared/VoiceModeDeepLink.swift`](../App/App/Shared/VoiceModeDeepLink.swift)),
@@ -272,6 +275,20 @@ the bridge web view exists, so the URL surfaces to JS as Capacitor's `appUrlOpen
 and needs no new web code. `AppPlugin` posts that event with
 `retainUntilConsumed: true`, so a command delivered before the SPA registers its
 listener is replayed rather than lost.
+
+That in-process path is also what lets the SPA *trust* an intent's text.
+`deliverCommandURL(_:)` adds a `src=intent` query item, and the two methods
+through which a URL can arrive from outside the process,
+`application(_:open:options:)` and `launchOptions[.url]`, strip it before
+storing or forwarding (`App/App/CommandURLProvenance.swift`). Because intents
+never pass through those methods and nothing else calls `deliverCommandURL`,
+the marker reaches `appUrlOpen` exactly when an App Intent produced the URL. The
+web parser reads it as `provenance: "intent"` (only when told the running shell
+strips it, which is iOS alone), and on that evidence the consumer sends the
+text on the user's behalf instead of staging it (LUM-3281). The Live Activity's
+`widgetURL` and any Safari test link go through `application(_:open:)`, so they
+never carry it, and a link that arrives with a forged marker is stripped and
+logged.
 
 A **terminated** launch is the case that needs care, and the reason is the
 opposite of the obvious one: the launch URL arrives **twice**, not zero times.

@@ -43,6 +43,7 @@ function makeContext(sent: AssistantEvent[] = []): Conversation & {
   return asConversation({
     conversationId: "conv-1",
     sendToClient: (msg: AssistantEvent) => sent.push(msg),
+    emit: (msg: AssistantEvent) => sent.push(msg),
     pendingSurfaceActions: new Map<string, { surfaceType: SurfaceType }>(),
     lastSurfaceAction: new Map<
       string,

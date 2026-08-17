@@ -34,6 +34,7 @@ import {
   recordConversationPersistedSeq,
   updateMessageContent,
 } from "../persistence/conversation-crud.js";
+import { VOICE_ESCALATION_CONTINUATION_MESSAGE_KIND } from "../plugin-api/constants.js";
 import { pinnedListeningLanguage } from "../providers/speech-to-text/provider-catalog.js";
 import type { ContentBlock } from "../providers/types.js";
 import { broadcastMessage } from "../runtime/assistant-event-hub.js";
@@ -783,11 +784,13 @@ export async function startVoiceTurn(
   // model wakes, but they are not user speech and must not render as a live
   // user bubble. Their echo is suppressed below (parity with
   // `isEchoSuppressedUserMessage` on the text path).
+  const isEscalationContinuation =
+    opts.content === ESCALATION_CONTINUATION_CONTENT;
   const isSyntheticVoicePrompt =
     opts.hiddenSyntheticPrompt === true ||
     opts.content === CALL_OPENING_MARKER ||
     opts.content === CALL_VERIFICATION_COMPLETE_MARKER ||
-    opts.content === ESCALATION_CONTINUATION_CONTENT;
+    isEscalationContinuation;
 
   // The escalation-continuation prompt is a pure internal instruction ("give
   // the full answer now"), not a real utterance and not the sort of scaffolding
@@ -799,8 +802,7 @@ export async function startVoiceTurn(
   // affects client display. A caller whose prompt text is not a fixed sentinel
   // opts into the same treatment with `hiddenSyntheticPrompt`.
   const isHiddenSyntheticPrompt =
-    opts.hiddenSyntheticPrompt === true ||
-    opts.content === ESCALATION_CONTINUATION_CONTENT;
+    opts.hiddenSyntheticPrompt === true || isEscalationContinuation;
 
   // Build the call-control protocol prompt so the model knows how to emit
   // control markers (ASK_GUARDIAN, END_CALL, etc.) and recognize opener turns.
@@ -934,10 +936,10 @@ export async function startVoiceTurn(
   // failed while no concurrent turn held the lock). Paths where this turn
   // LOST the conversation to a concurrent winner must use `restoreTurnState`
   // instead — this reset-to-defaults would clobber the winner's live state.
-  // The client callback is only reset when this turn actually installed it
-  // (tracked via `clientCallbackInstalled`); otherwise cleanup would detach
-  // an active sender installed by a prior turn.
-  let clientCallbackInstalled = false;
+  // The approval observer is only detached when this turn installed it
+  // (`detachApprovalObserver` is set); otherwise cleanup would detach an
+  // observer installed by a prior turn.
+  let detachApprovalObserver: (() => void) | undefined;
   /**
    * Confirmations this voice turn left pending for the user to answer, and the
    * timers that stop them waiting forever.
@@ -976,11 +978,10 @@ export async function startVoiceTurn(
     conversation.setVoiceCallControlPrompt(null);
     conversation.callSessionId = undefined;
     conversation.forcePromptSideEffects = false;
-    if (clientCallbackInstalled) {
-      // Reset the client callback to a no-op so the stale closure doesn't
-      // intercept events from future turns on the same conversation.
-      conversation.updateClient(() => {}, true);
-    }
+    // Detach so the stale closure doesn't act on events from future turns on
+    // the same conversation.
+    detachApprovalObserver?.();
+    detachApprovalObserver = undefined;
   };
 
   const requestId = uuidv7();
@@ -994,6 +995,9 @@ export async function startVoiceTurn(
         // `isVoiceSessionUserMessage` for why the channel fields cannot carry it.
         voiceSessionTurn: true,
         ...(isHiddenSyntheticPrompt ? { hidden: true } : {}),
+        ...(isEscalationContinuation
+          ? { messageKind: VOICE_ESCALATION_CONTINUATION_MESSAGE_KIND }
+          : {}),
         ...(opts.voiceTelemetry
           ? {
               // Projected onto `TurnTelemetryEvent.client` by
@@ -1245,24 +1249,25 @@ export async function startVoiceTurn(
     publishConversationMessagesChanged(opts.conversationId);
   }
 
-  // Hook into conversation to intercept confirmation_request and secret_request events.
-  // Voice auto-denies/auto-allows/auto-resolves these since there's no interactive UI.
+  // Observe confirmation_request and secret_request events so voice can
+  // auto-deny/auto-allow/auto-resolve them (there is no interactive UI on a
+  // call). Delivery is not this observer's job: the conversation's sink has
+  // already put each event on the wire before the observer sees it, which is
+  // what keeps a resolution's `interaction_resolved` after the request it
+  // answers.
   let lastError: string | null = null;
-  conversation.updateClient(async (msg: AssistantEvent) => {
+  const handleVoiceEvent = async (msg: AssistantEvent): Promise<void> => {
     // The user (or anything else) answered: stop the fallback from firing on a
     // request that is already decided.
     if (msg.type === "interaction_resolved") {
       settleVoiceApproval(msg.requestId);
     }
     if (msg.type === "confirmation_request") {
-      // Broadcast the request BEFORE resolving it: resolution synchronously
-      // broadcasts `interaction_resolved` (handleConfirmationResponse →
-      // prompter → pending-interactions), and attached clients (e.g. the
-      // web app behind a live-voice room) clear their approval card only on
-      // that event — resolving first would put `interaction_resolved`
-      // before `confirmation_request` on the wire, leaving an orphaned card
-      // whose Allow/Deny buttons 404.
-      broadcastMessage(msg);
+      // The request is already on the wire (the sink delivered it before this
+      // observer ran), so a resolution below lands after it: attached clients
+      // (e.g. the web app behind a live-voice room) clear their approval card
+      // only on `interaction_resolved`, and the reverse order would leave an
+      // orphaned card whose Allow/Deny buttons 404.
       if (!isGuardian) {
         // Non-guardian voice callers have no interactive approval UI.
         // The pre-exec gate (tool-approval-handler.ts) handles grant
@@ -1420,9 +1425,15 @@ export async function startVoiceTurn(
       conversation.handleSecretResponse(msg.requestId, undefined, "store");
       return;
     }
-    broadcastMessage(msg);
+  };
+  detachApprovalObserver = conversation.addEventObserver((msg) => {
+    handleVoiceEvent(msg).catch((err) => {
+      log.warn(
+        { turnId, eventType: msg.type, err },
+        "Voice approval observer failed",
+      );
+    });
   });
-  clientCallbackInstalled = true;
 
   // Registered before the agent loop starts so the NEXT turn on this
   // conversation waits for this turn's `finally { cleanup() }` — not just
@@ -1709,11 +1720,19 @@ export async function startVoiceTurn(
         // ordinary call-agent resolution.
         callSite:
           opts.routingLeg === "front-door" ? "voiceFrontDoor" : "callAgent",
+        // A caller is on the line, so the turn is interactive: approval prompts
+        // must be raised rather than pre-denied, because the approval observer
+        // above is what decides them (auto-resolve for a non-guardian caller,
+        // a real card the guardian can answer).
+        isInteractive: true,
         // The escalation-continuation prompt is a transcript-suppressed machine
         // signal (persisted `hidden`), so flag the turn to match — keeps
         // prompt-as-user-speech consumers (e.g. title generation) from treating
         // it as user speech.
         ...(isHiddenSyntheticPrompt ? { isHiddenPrompt: true } : {}),
+        ...(isEscalationContinuation
+          ? { messageKind: VOICE_ESCALATION_CONTINUATION_MESSAGE_KIND }
+          : {}),
         // Triage-and-escalate routing pins this turn to the fast front-door or
         // strong escalation profile. `forceOverrideProfile` floats it above the
         // callAgent call-site layers (callAgent is not `mainAgent`, so the

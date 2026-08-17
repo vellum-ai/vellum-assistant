@@ -16,7 +16,10 @@ import { DetailShellHeader } from "@/components/detail-shell";
 import { InsetDetailCard } from "@/components/inset-detail-card";
 import { useTranslation } from "@/i18n";
 import { SCHEDULE_USAGE_WINDOW_DAYS } from "@/utils/usage-window";
-import { pluginNameFromSourceKey } from "@/domains/schedules/plugin-source";
+import {
+  disarmReasonLabelKey,
+  pluginNameFromSourceKey,
+} from "@/domains/schedules/plugin-source";
 import {
   deleteSchedule,
   fetchScheduleRuns,
@@ -487,7 +490,6 @@ export interface ScheduleDetailPanelProps {
   usage: ScheduleRowUsage;
   /** True for a one-shot that has already fired, which is read-only. */
   isPast?: boolean;
-  isMobile?: boolean;
   onClose: () => void;
   onDeleted: () => void;
 }
@@ -502,7 +504,6 @@ export function ScheduleDetailPanel({
   assistantId,
   usage,
   isPast = false,
-  isMobile,
   onClose,
   onDeleted,
 }: ScheduleDetailPanelProps) {
@@ -520,6 +521,7 @@ export function ScheduleDetailPanel({
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const pluginName = pluginNameFromSourceKey(schedule.sourceKey);
+  const disarmReasonKey = disarmReasonLabelKey(schedule);
   // A plugin-sourced schedule is off either because the user turned it off or
   // because the plugin is disabled. Running it would execute the plugin's
   // script anyway, which the daemon refuses, so the affordance is disabled
@@ -553,13 +555,9 @@ export function ScheduleDetailPanel({
 
   return (
     <>
-      <div
-        className={cn(
-          "flex h-full flex-col bg-[var(--surface-overlay)]",
-          !isMobile &&
-            "rounded-[var(--radius-xl)] border border-[var(--border-base)]",
-        )}
-      >
+      {/* Card chrome is the docked pane's, not the full-screen takeover's, so
+          it keys off the same `md:` breakpoint the page docks the pane at. */}
+      <div className="flex h-full flex-col bg-[var(--surface-overlay)] md:rounded-[var(--radius-xl)] md:border md:border-[var(--border-base)]">
         <DetailShellHeader
           title={schedule.name}
           headerActions={
@@ -645,9 +643,16 @@ export function ScheduleDetailPanel({
           {pluginName ? (
             // Plugin-sourced schedules cannot be deleted here; the plugin's
             // schedule file is the source of truth, so only attribution shows.
-            // Delete itself now lives in the header, next to Close.
+            // Delete itself lives in the header, next to Close. An off
+            // schedule says why alongside it, since the user is not
+            // necessarily the one who turned it off.
             <span className="text-body-small-default text-[var(--content-tertiary)]">
-              {t("scheduleDetail.managedByPlugin", { plugin: pluginName })}
+              {disarmReasonKey
+                ? t("scheduleDetail.managedByPluginPaused", {
+                    plugin: pluginName,
+                    reason: t(disarmReasonKey),
+                  })
+                : t("scheduleDetail.managedByPlugin", { plugin: pluginName })}
             </span>
           ) : (
             <span />
