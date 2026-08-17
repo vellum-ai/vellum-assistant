@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 
-import { formatFileSize } from "@/domains/workspace/utils/format-file-size";
+import { formatFileSize } from "@/utils/format-file-size";
 import type { BundleScanData } from "@/runtime/is-electron";
 import { cn } from "@/utils/misc";
 
