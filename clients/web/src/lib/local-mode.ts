@@ -1161,6 +1161,13 @@ export async function primeLocalGatewayConnectionWithStartupRetry(
       { forceMint: true },
       reservation.generation,
     );
+    if (!committed) {
+      settleGatewayPrime(reservation, false);
+      await newerCommittedGatewayPrimeAssistant(reservation.generation);
+      await Promise.resolve();
+      await primeLocalGatewayConnectionWithStartupRetry();
+      return;
+    }
     settleGatewayPrime(reservation, committed);
   } catch (error) {
     settleGatewayPrime(reservation, false);

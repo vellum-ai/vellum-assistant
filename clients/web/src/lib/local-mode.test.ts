@@ -1076,6 +1076,45 @@ describe("primeLocalGatewayConnectionWithStartupRetry", () => {
     expect(getSelfHostedActorToken()).toBe("fresh-actor-token");
   });
 
+  test("force-validates again when another prime supersedes the boot mint", async () => {
+    enableLocalMode();
+    setLockfile({ assistants: [localA], activeAssistant: "local-a" });
+    seedGatewayToken({
+      token: "stale-actor-token",
+      expiresAtEpochSeconds: Math.floor(Date.now() / 1000) + 3600,
+      source: "/assistant/__gateway/7830/auth/token",
+    });
+    let releaseBootMint: (() => void) | undefined;
+    let fetchCalls = 0;
+    globalThis.fetch = mock(async () => {
+      fetchCalls++;
+      if (fetchCalls === 1) {
+        await new Promise<void>((resolve) => {
+          releaseBootMint = resolve;
+        });
+        return Response.json({
+          token: "superseded-token",
+          expiresAt: Math.floor(Date.now() / 1000) + 3600,
+        });
+      }
+      return Response.json({
+        token: "fresh-actor-token",
+        expiresAt: Math.floor(Date.now() / 1000) + 3600,
+      });
+    }) as unknown as typeof fetch;
+
+    const bootPrime = primeLocalGatewayConnectionWithStartupRetry(localA);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    await primeLocalGatewayConnection(localA);
+    expect(getGatewayToken()).toBe("stale-actor-token");
+    releaseBootMint?.();
+    await bootPrime;
+
+    expect(fetchCalls).toBe(2);
+    expect(getGatewayToken()).toBe("fresh-actor-token");
+    expect(getSelfHostedActorToken()).toBe("fresh-actor-token");
+  });
+
   test("invalidates the cached gateway session when boot validation fails", async () => {
     enableLocalMode();
     setLockfile({ assistants: [localA], activeAssistant: "local-a" });
