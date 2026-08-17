@@ -1494,16 +1494,13 @@ export class SubagentManager {
   }
 
   /**
-   * Re-emit every child's current status to the parent's sink. The send route
-   * calls this on each interactive send so a client that reconnected mid-run
-   * resyncs any status it missed while disconnected (e.g. a subagent marked
-   * `interrupted` during rehydration after a daemon restart, whose card would
-   * otherwise stay stuck on a stale `running`).
+   * Re-emit every child's current status through its parent sink. The send
+   * route calls this on each interactive send so a client that reconnected
+   * mid-run resyncs any status it missed while disconnected (e.g. a subagent
+   * marked `interrupted` during rehydration after a daemon restart, whose card
+   * would otherwise stay stuck on a stale `running`).
    */
-  reannounceChildStatuses(
-    parentConversationId: string,
-    parentSendToClient: (msg: AssistantEvent) => void,
-  ): void {
+  reannounceChildStatuses(parentConversationId: string): void {
     const children = this.parentToChildren.get(parentConversationId);
     if (!children) {
       return;
@@ -1514,7 +1511,7 @@ export class SubagentManager {
       if (!managed) {
         continue;
       }
-      parentSendToClient({
+      managed.parentSendToClient({
         type: "subagent_status_changed",
         subagentId: childId,
         status: managed.state.status,

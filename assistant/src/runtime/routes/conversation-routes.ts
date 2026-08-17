@@ -1990,10 +1990,7 @@ export async function handleSendMessage(
     // A client that reconnected mid-phase resyncs the current activity state
     // and any subagent card it left stale while disconnected.
     conversation.replayActivityState();
-    getSubagentManager().reannounceChildStatuses(
-      mapping.conversationId,
-      broadcastMessage,
-    );
+    getSubagentManager().reannounceChildStatuses(mapping.conversationId);
   }
 
   // ── URL scan path: rewrite first message for scan onboarding ──

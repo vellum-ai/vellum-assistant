@@ -1111,13 +1111,20 @@ describe("voice-session-bridge", () => {
   // broadcast in voice-session-bridge.ts's confirmation_request branch. The
   // fake's handleConfirmationResponse mirrors production's synchronous
   // `interaction_resolved` broadcast so the wire order is observable through
-  // the event hub, which serializes publishes in call order.
+  // the event hub, which serializes publishes in call order. Its `emit`
+  // mirrors a real conversation's: the sink (the hub) delivers first, then
+  // observers run, so the bridge's resolution lands after the request.
   function makeConfirmationOrderingSession(
     conversationId: string,
     requestId: string,
   ): Conversation {
     let clientHandler: (msg: AssistantEvent) => void = () => {};
+    const emit = (msg: AssistantEvent) => {
+      broadcastMessage(msg);
+      clientHandler(msg);
+    };
     return {
+      emit,
       isProcessing: () => false,
       persistUserMessage: async () => ({
         id: "test-msg-id",
@@ -1136,7 +1143,7 @@ describe("voice-session-bridge", () => {
       },
       ensureActorScopedHistory: async () => {},
       runAgentLoop: async () => {
-        clientHandler({
+        emit({
           type: "confirmation_request",
           requestId,
           toolName: "host_bash",

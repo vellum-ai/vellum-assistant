@@ -1422,7 +1422,12 @@ export async function startVoiceTurn(
     }
   };
   detachApprovalObserver = conversation.addEventObserver((msg) => {
-    void handleVoiceEvent(msg);
+    handleVoiceEvent(msg).catch((err) => {
+      log.warn(
+        { turnId, eventType: msg.type, err },
+        "Voice approval observer failed",
+      );
+    });
   });
 
   // Registered before the agent loop starts so the NEXT turn on this

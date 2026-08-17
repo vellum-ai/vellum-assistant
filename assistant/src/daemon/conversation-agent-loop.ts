@@ -406,11 +406,9 @@ export async function runAgentLoopImpl(
   ctx.currentTurnChannelCapabilities = ctx.channelCapabilities;
   // Presence is the third per-turn snapshot: whether a human is present to see
   // UI and answer prompts. Callers declare it via `isInteractive`; a caller
-  // that omits it gets a non-interactive turn (`hasNoClient` reads this very
-  // field, and between turns it is unset, so the fallback resolves to no
-  // human present). Set before the prompt build below, which reads it.
-  const isInteractiveResolved =
-    options?.isInteractive ?? (!ctx.hasNoClient && !ctx.headlessLock);
+  // that omits it gets a non-interactive turn. Set before the prompt build
+  // below, which reads it (through `hasNoClient`).
+  const isInteractiveResolved = options?.isInteractive ?? false;
   // Resolved once and threaded into every re-injection (including the
   // post-compaction hook) rather than re-read per assembly call, and exposed
   // to tool execution so tools (e.g. ask_question) see whether a human is

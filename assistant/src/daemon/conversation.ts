@@ -323,11 +323,10 @@ export class Conversation {
    * The conversation's event sink, fixed for its whole life. Top-level
    * conversations deliver to the SSE hub, so every subscribed client sees
    * every event without any per-turn wiring; a subagent's sink re-envelopes
-   * its events under the parent conversation. Prefer {@link emit}, which also
-   * notifies {@link addEventObserver} observers, over calling this directly.
-   * @internal
+   * its events under the parent conversation. Reached only through
+   * {@link emit}, which also notifies {@link addEventObserver} observers.
    */
-  readonly sendToClient: (msg: AssistantEvent) => void;
+  private readonly sendToClient: (msg: AssistantEvent) => void;
   /**
    * Observers notified after every {@link emit}, in registration order. An
    * observer sees the event after the sink delivered it, so anything it does
