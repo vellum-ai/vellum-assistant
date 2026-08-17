@@ -82,7 +82,9 @@ Apple's [HIG — Requesting permission](https://developer.apple.com/design/human
 
 Which signal to reach for (viewport size vs pointer capability vs native platform) and where the branch belongs is covered in [`PLATFORM_ADAPTATION.md`](./PLATFORM_ADAPTATION.md).
 
-When the *only* way to act on a UI element is a hardware-keyboard gesture (e.g. `Tab` to accept an inline suggestion, `Cmd+Enter` to submit), gate its rendering on `!isPointerCoarse()` from [`@/utils/pointer`](../src/utils/pointer.ts). Touch soft keyboards on iOS and Android do not expose `Tab` or most modifier-key combinations, so the affordance is non-actionable on coarse-pointer devices and may also overflow narrow viewports if its layout depends on a paired keypress. To support touch as well, add a tap-equivalent (button, gesture) instead of suppressing.
+When the *only* way to act on a UI element is a hardware-keyboard gesture (e.g. `Tab` to accept an inline suggestion, `Cmd+Enter` to submit), gate its rendering on the coarse-pointer signal from [`@/utils/pointer`](../src/utils/pointer.ts). Touch soft keyboards on iOS and Android do not expose `Tab` or most modifier-key combinations, so the affordance is non-actionable on coarse-pointer devices and may also overflow narrow viewports if its layout depends on a paired keypress. To support touch as well, add a tap-equivalent (button, gesture) instead of suppressing.
+
+Which of the two forms depends on whether the answer has to survive the pointer changing. **A gate on rendering wants `!usePointerCoarse()`**, the subscribed hook: the affordance is on screen while a convertible's keyboard comes off or a tablet is docked into one, and a one-shot read would leave it advertising a chord the device can no longer press (or hiding one it now can). Reserve the imperative `isPointerCoarse()` for a decision taken at a moment rather than held on screen: inside an event handler, or seeding state that deliberately should not move mid-session.
 
 Reference: [MDN: `(pointer)` media feature](https://developer.mozilla.org/en-US/docs/Web/CSS/@media/pointer).
 

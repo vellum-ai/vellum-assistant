@@ -23,7 +23,7 @@ import { createPortal } from "react-dom";
 import { CommandPaletteItem } from "@/components/command-palette/command-palette-item";
 import { useIsMobile } from "@/hooks/use-is-mobile";
 import { useIsNativeMobile } from "@/runtime/platform-detection";
-import { isPointerCoarse } from "@/utils/pointer";
+import { usePointerCoarse } from "@/utils/pointer";
 
 // z-50 keeps the full-screen palette above the navigation drawer (fixed z-40
 // in chat-layout), which stays mounted underneath so dismissing search returns
@@ -163,7 +163,7 @@ const MobileSheet: FC<MobileSheetProps> = ({ onKeyDown, children }) => {
  *
  * Two independent questions, two signals. How much room there is decides the
  * container (`useIsMobile()`); whether a chord can be pressed at all decides
- * the keyboard hints, per-item and the ⌘K cap (`isPointerCoarse()`). They come
+ * the keyboard hints, per-item and the ⌘K cap (`usePointerCoarse()`). They come
  * apart on shipped hardware in both directions: a tablet is roomy with no ⌘
  * key, and a desktop window narrowed past the breakpoint still has the whole
  * keyboard. See `docs/PLATFORM_ADAPTATION.md`, and `docs/CAPACITOR.md`
@@ -186,6 +186,10 @@ export const CommandPalette: FC<CommandPaletteProps> = ({
 }) => {
   const isMobile = useIsMobile();
   const isNativeMobileShell = useIsNativeMobile();
+  // Subscribed rather than read once: the palette outlives any one pointer, so
+  // a convertible whose keyboard comes off has to stop advertising ⌘K without
+  // a reload, and a tablet docked into one has to start.
+  const pointerCoarse = usePointerCoarse();
   const overlayRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
@@ -227,7 +231,7 @@ export const CommandPalette: FC<CommandPaletteProps> = ({
   // hint here names a gesture the device cannot make. Width would answer the
   // wrong question: it hides the hints on a narrowed desktop window that can
   // still press all of them, and shows them on a tablet that cannot press any.
-  const showKeyboardHints = !isPointerCoarse();
+  const showKeyboardHints = !pointerCoarse;
   // Native mobile shells keep the sheet mounted while AnimatePresence plays
   // the slide-out exit.
   const animateMobileSheet = isNativeMobileShell && useMobileLayout;
