@@ -234,6 +234,43 @@ public class SelfHostedServerTest {
     }
 
     @Test
+    public void appEntryUrlAppendsTheAssistantSegmentPreservingPrefixes() {
+        assertEquals(
+            "https://example.com/assistant-123/assistant",
+            SelfHostedServer.appEntryUrl(SelfHostedServer.validate("https://example.com/assistant-123")).toASCIIString()
+        );
+        assertEquals(
+            "https://example.com/assistant",
+            SelfHostedServer.appEntryUrl(SelfHostedServer.validate("https://example.com")).toASCIIString()
+        );
+        assertEquals(
+            "https://example.com/assistant",
+            SelfHostedServer.appEntryUrl(SelfHostedServer.validate("https://example.com/assistant")).toASCIIString()
+        );
+    }
+
+    @Test
+    public void appRouteJoinsRelativePathsKeepingQueries() {
+        assertEquals(
+            "https://host/assistant-123/assistant/select-assistant?noAutoSkip=1",
+            SelfHostedServer.appRoute("https://host/assistant-123/assistant", "select-assistant?noAutoSkip=1")
+        );
+        assertEquals(
+            "https://host/assistant/pair",
+            SelfHostedServer.appRoute("https://host/assistant/", "pair")
+        );
+    }
+
+    @Test
+    public void appRouteRejectsAbsoluteSchemefulFragmentClimbingAndBlankPaths() {
+        assertNull(SelfHostedServer.appRoute("https://host/assistant", "/absolute"));
+        assertNull(SelfHostedServer.appRoute("https://host/assistant", "https://evil.example/route"));
+        assertNull(SelfHostedServer.appRoute("https://host/assistant", "pair#fragment"));
+        assertNull(SelfHostedServer.appRoute("https://host/assistant", "a/../b"));
+        assertNull(SelfHostedServer.appRoute("https://host/assistant", "   "));
+    }
+
+    @Test
     public void parsesBakedServerUrlFromCapacitorConfig() {
         assertEquals(
             "https://www.vellum.ai/assistant",
