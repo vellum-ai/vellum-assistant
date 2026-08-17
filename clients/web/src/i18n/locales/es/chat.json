@@ -14,6 +14,9 @@
     "allowAndCreateRule": "Permitir y crear regla",
     "trigger": "Más opciones para permitir"
   },
+  "assistantSideMenu": {
+    "bulkActionMembersFailed": "No se pudieron cargar todas las conversaciones de esta sección. Inténtalo de nuevo."
+  },
   "cacheBreakpointMapCard": {
     "description": "Dónde {count, plural, one {cayó # punto de corte de caché} other {cayeron # puntos de corte de caché}} en el prefijo de esta solicitud, y qué segmentos se leyeron frente a los que se volvieron a crear.",
     "estimatedTokens": "≈ {count} tokens",

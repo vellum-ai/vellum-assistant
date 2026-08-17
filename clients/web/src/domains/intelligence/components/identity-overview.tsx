@@ -250,6 +250,7 @@ export function IdentityOverview({ assistantId }: IdentityOverviewProps) {
             label: t("identityOverview.memoryCountLabel", {
               count: memories,
             }),
+            text: t("identityOverview.memoryCount", { count: memories }),
           },
   };
 
@@ -457,8 +458,6 @@ function SectionCard({
   );
 
   if (mini) {
-    const miniStat =
-      stat?.value !== undefined ? `${stat.value} ${stat.label}` : stat?.text;
     // Bottom-strip tile per Figma (New-App 6944-89405): left-aligned,
     // 12px radius, 40px icon slot in the secondary tone, 16px title over
     // an 11px tertiary stat.
@@ -492,7 +491,7 @@ function SectionCard({
             >
               {section.label}
             </span>
-            {miniStat && (
+            {stat?.text && (
               <span
                 className={`truncate text-[11px] leading-normal font-medium transition-colors duration-300 ${
                   flooded
@@ -500,7 +499,7 @@ function SectionCard({
                     : "text-[var(--content-tertiary)]"
                 }`}
               >
-                {miniStat}
+                {stat.text}
               </span>
             )}
           </span>

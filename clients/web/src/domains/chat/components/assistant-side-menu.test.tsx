@@ -15,6 +15,7 @@
 
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 import { act, cleanup, render, waitFor } from "@testing-library/react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 
@@ -93,6 +94,10 @@ mock.module(
       // section back to its derived rows and pass these tests for the wrong
       // reason: green because nothing is filtered, not because it is.
       hasData: true,
+      // A complete list: these tests exercise section rendering, not the
+      // load-more path, and a stub window would mount sentinels under every
+      // section.
+      hasMore: false,
     }),
   }),
 );
@@ -158,6 +163,27 @@ function makeConversation(overrides: Partial<Conversation>): Conversation {
   };
 }
 
+/**
+ * The component under test behind a QueryClientProvider.
+ * `useSectionConversations` reads the query client for load-more and the
+ * bulk-path drain, so every render needs the context even though the query
+ * hooks themselves are mocked; a per-render client keeps tests isolated,
+ * and hooks resolve under `renderToStaticMarkup` too.
+ */
+function SideMenuUnderTest(
+  props: Parameters<typeof AssistantSideMenu>[0],
+): ReturnType<typeof AssistantSideMenu> {
+  return createElement(
+    QueryClientProvider,
+    {
+      client: new QueryClient({
+        defaultOptions: { queries: { retry: false } },
+      }),
+    },
+    createElement(AssistantSideMenu, props),
+  );
+}
+
 function renderMenu(props: {
   conversations: Conversation[];
   conversationGroups?: ConversationGroup[];
@@ -174,7 +200,7 @@ function renderMenu(props: {
   setSectionRows(props.conversations);
   const includeFooterAction = props.includeFooterAction ?? true;
   const { container } = render(
-    createElement(AssistantSideMenu, {
+    createElement(SideMenuUnderTest, {
       assistantId: "asst-1",
       collapsed: props.collapsed ?? false,
       variant: props.variant ?? "rail",
@@ -698,7 +724,7 @@ describe("AssistantSideMenu · overlay bottom scroll reserve", () => {
 
     try {
       const { container } = render(
-        createElement(AssistantSideMenu, {
+        createElement(SideMenuUnderTest, {
           assistantId: "asst-1",
           collapsed: false,
           variant: "overlay",
@@ -758,7 +784,7 @@ describe("AssistantSideMenu · new conversation affordance", () => {
 
   test("renders the New Chat row (below the assistant row) when onStartNewConversation is supplied", () => {
     const html = renderToStaticMarkup(
-      createElement(AssistantSideMenu, {
+      createElement(SideMenuUnderTest, {
         ...baseProps,
         onStartNewConversation: () => {},
       }),
@@ -775,7 +801,7 @@ describe("AssistantSideMenu · new conversation affordance", () => {
 
   test("omits the New Chat row when onStartNewConversation is absent", () => {
     const html = renderToStaticMarkup(
-      createElement(AssistantSideMenu, { ...baseProps }),
+      createElement(SideMenuUnderTest, { ...baseProps }),
     );
 
     expect(html).not.toContain(">New Chat<");
@@ -783,7 +809,7 @@ describe("AssistantSideMenu · new conversation affordance", () => {
 
   test("the overlay drawer omits the New Chat row — its floating pill owns the action", () => {
     const html = renderToStaticMarkup(
-      createElement(AssistantSideMenu, {
+      createElement(SideMenuUnderTest, {
         ...baseProps,
         variant: "overlay" as const,
         onStartNewConversation: () => {},
@@ -907,7 +933,7 @@ describe("AssistantSideMenu · section header menus", () => {
     archiveAll?: (label: string, conversations: Conversation[]) => void;
   }) {
     return render(
-      createElement(AssistantSideMenu, {
+      createElement(SideMenuUnderTest, {
         assistantId: "asst-1",
         collapsed: false,
         variant: "rail" as const,
@@ -958,8 +984,15 @@ describe("AssistantSideMenu · section header menus", () => {
       ).find((el) => el.textContent?.includes("Archive All"));
       expect(item).toBeDefined();
     });
+    const before = received.length;
     act(() => {
       item!.click();
+    });
+    /* The handler fires after getAllRows() resolves (the section's full
+       membership, LUM-2444), one microtask after the click; wait for it
+       rather than reading synchronously. */
+    await waitFor(() => {
+      expect(received.length).toBeGreaterThan(before);
     });
     const last = received.at(-1);
     if (!last) {
@@ -1091,7 +1124,7 @@ describe("AssistantSideMenu · channel grouping toggle", () => {
     useSidebarLayoutStore.setState({ assistantId: null });
     setSectionRows(conversations);
     return render(
-      createElement(AssistantSideMenu, {
+      createElement(SideMenuUnderTest, {
         assistantId: "asst-1",
         collapsed: false,
         variant: "rail" as const,
@@ -1461,7 +1494,7 @@ describe("AssistantSideMenu · equal section treatment", () => {
     // A real DOM render, not `parse`: `scrollParent` only takes effect once
     // the sidebar body's ref has mounted.
     const { container } = render(
-      createElement(AssistantSideMenu, {
+      createElement(SideMenuUnderTest, {
         assistantId: "asst-1",
         collapsed: false,
         variant: "rail",
@@ -1508,7 +1541,7 @@ describe("AssistantSideMenu · equal section treatment", () => {
    */
   function renderRail(openSections: string[] = []) {
     const { container } = render(
-      createElement(AssistantSideMenu, {
+      createElement(SideMenuUnderTest, {
         assistantId: "asst-1",
         collapsed: false,
         variant: "rail",
@@ -1701,7 +1734,7 @@ describe("AssistantSideMenu · section reordering", () => {
      `onDragLeave`) - the guard, not the position, is what holds this. */
   test("the card is the drag handle, the drag image and the drop edge", async () => {
     const { container } = render(
-      createElement(AssistantSideMenu, {
+      createElement(SideMenuUnderTest, {
         assistantId: "asst-1",
         collapsed: false,
         variant: "rail" as const,
@@ -1808,7 +1841,7 @@ describe("AssistantSideMenu · section reordering", () => {
     "%s offers the move actions its position allows",
     async (label, expected) => {
       const { container } = render(
-        createElement(AssistantSideMenu, {
+        createElement(SideMenuUnderTest, {
           assistantId: "asst-1",
           collapsed: false,
           variant: "rail" as const,

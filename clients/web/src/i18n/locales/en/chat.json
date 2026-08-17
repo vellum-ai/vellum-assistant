@@ -14,6 +14,9 @@
     "allowAndCreateRule": "Allow & Create Rule",
     "trigger": "More allow options"
   },
+  "assistantSideMenu": {
+    "bulkActionMembersFailed": "Couldn't load every conversation in this section. Try again."
+  },
   "cacheBreakpointMapCard": {
     "description": "Where the {count, plural, one {# cache breakpoint} other {# cache breakpoints}} fell across this request's prefix, and which segments were read versus re-created.",
     "estimatedTokens": "≈ {count} tokens",

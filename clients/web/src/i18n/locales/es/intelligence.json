@@ -96,7 +96,8 @@
       "workspace": "Todos los archivos que me hacen funcionar"
     },
     "defaultAssistantName": "Asistente",
-    "memoryCountLabel": "{count, plural, one {# recuerdo} other {# recuerdos}}",
+    "memoryCount": "{count, plural, one {# recuerdo} other {# recuerdos}}",
+    "memoryCountLabel": "{count, plural, one {recuerdo} other {recuerdos}}",
     "renameErrorToast": "El cambio de nombre no se completó. Vuelve a intentarlo.",
     "renameSuccessToast": "¡Saluda a {newName}!",
     "scheduleCadence": "{cadence} · próxima {nextRun}",
@@ -382,12 +383,16 @@
     "upgradePluginAriaLabel": "Actualizar plugin"
   },
   "useIdentitySectionStats": {
+    "activeCount": "{count, plural, one {# activa} other {# activas}}",
     "activeLabel": "{count, plural, one {activa} other {activas}}",
     "appCount": "{count, plural, one {# app} other {# apps}}",
+    "connectedCount": "{count, plural, one {# conectado} other {# conectados}}",
     "connectedLabel": "{count, plural, one {conectado} other {conectados}}",
     "docCount": "{count, plural, one {# documento} other {# documentos}}",
+    "itemCount": "{count, plural, one {# elemento} other {# elementos}}",
     "itemLabel": "{count, plural, one {elemento} other {elementos}}",
     "noSchedulesText": "Todavía no hay nada programado",
+    "personCount": "{count, plural, one {# persona} other {# personas}}",
     "personLabel": "{count, plural, one {persona} other {personas}}",
     "pluginCount": "{count, plural, one {# plugin} other {# plugins}}",
     "skillCount": "{count, plural, one {# habilidad} other {# habilidades}}"
