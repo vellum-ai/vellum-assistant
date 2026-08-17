@@ -5,6 +5,9 @@
  * the shared ROUTES array.
  */
 
+import { statSync } from "node:fs";
+import { join } from "node:path";
+
 import { z } from "zod";
 
 import { getOrCreateConversation } from "../../daemon/conversation-store.js";
@@ -15,6 +18,7 @@ import {
   getUsageCostForRun,
   listRunConversationIds,
 } from "../../persistence/llm-usage-store.js";
+import { isPluginDisabled } from "../../plugins/disabled-state.js";
 import { isDeferSchedule } from "../../schedule/defer-provenance.js";
 import { validateScheduleInferenceProfile } from "../../schedule/inference-profile.js";
 import { declarationExistsOnDisk } from "../../schedule/plugin-schedule-declarations.js";
@@ -49,6 +53,7 @@ import { buildWakeScheduleOptions } from "../../schedule/wake-schedule-options.j
 import { initializeTools } from "../../tools/registry.js";
 import { UserError } from "../../util/errors.js";
 import { getLogger } from "../../util/logger.js";
+import { getWorkspacePluginsDir } from "../../util/platform.js";
 import { normalizeCapabilityManifest } from "../../workflows/capabilities.js";
 import { getWorkflowRunManager } from "../../workflows/run-manager.js";
 import { isOwnerCaller } from "../auth/owner-caller.js";
@@ -108,6 +113,57 @@ async function assertWakeMutationAllowed(
 // Response schemas (shared by all schedule routes)
 // ---------------------------------------------------------------------------
 
+const DISARM_REASONS = [
+  "user_disabled",
+  "plugin_removed",
+  "plugin_disabled",
+  "declaration_removed",
+  "declaration_disabled",
+] as const;
+
+type DisarmReason = (typeof DISARM_REASONS)[number];
+
+/**
+ * Why a plugin-sourced schedule sits disarmed, so a client can say so instead
+ * of showing an off row with no explanation.
+ *
+ * Only a sourced row that is off can have one, which also bounds the disk
+ * probes below to those rows. The first matching cause wins, ordered so the
+ * most specific answer comes first: the user's own override outranks anything
+ * the plugin's files say, a plugin that is gone outranks one that is merely
+ * disabled, and a declaration that is gone outranks one that is still there.
+ * `declaration_disabled` is the fallback the plugin's own files account for:
+ * a declared `enabled: false`, a declaration too broken to arm, or a manifest
+ * that no longer parses.
+ */
+function deriveDisarmReason(
+  job: Pick<ScheduleJob, "sourceKey" | "enabled" | "userEnabled">,
+): DisarmReason | null {
+  if (job.sourceKey === null || job.enabled) {
+    return null;
+  }
+  if (job.userEnabled === false) {
+    return "user_disabled";
+  }
+  const match = /^plugin:([^/]+)\/(.+)$/.exec(job.sourceKey);
+  if (!match) {
+    return null;
+  }
+  const [, pluginName, scheduleName] = match;
+  const pluginDir = join(getWorkspacePluginsDir(), pluginName!);
+  if (!statSync(pluginDir, { throwIfNoEntry: false })?.isDirectory()) {
+    return "plugin_removed";
+  }
+  if (isPluginDisabled(pluginName!)) {
+    return "plugin_disabled";
+  }
+  const declarationDir = join(pluginDir, "schedules", scheduleName!);
+  if (!statSync(declarationDir, { throwIfNoEntry: false })?.isDirectory()) {
+    return "declaration_removed";
+  }
+  return "declaration_disabled";
+}
+
 const scheduleSchema = z.object({
   id: z.string(),
   name: z.string(),
@@ -149,6 +205,12 @@ const scheduleSchema = z.object({
     .nullable()
     .describe(
       "User enable/disable override on a plugin-sourced schedule; null when the declaration's own enabled value applies. Always null for user-created schedules.",
+    ),
+  disarmReason: z
+    .enum(DISARM_REASONS)
+    .nullable()
+    .describe(
+      "Why a plugin-sourced schedule is off: the user turned it off, the plugin is gone, the plugin is disabled, the declaration is gone, or the plugin's own files turned it off. Null whenever the schedule is on, and always null for user-created schedules.",
     ),
   isOneShot: z.boolean(),
   // A deferred wake ("remind me about this tomorrow") is an ordinary schedule
@@ -302,6 +364,7 @@ function serializeSchedule(
     workflowName: j.workflowName,
     sourceKey: j.sourceKey,
     userEnabled: j.userEnabled,
+    disarmReason: deriveDisarmReason(j),
     isOneShot: isOneShotForDisplay(j),
     isDeferred: isDeferSchedule(j.createdBy),
   };
