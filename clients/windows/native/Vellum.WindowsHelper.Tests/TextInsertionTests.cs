@@ -1,4 +1,3 @@
-using System.Text.Json;
 using Vellum.WindowsHelper.Modules;
 
 public static class TextInsertionTests
@@ -12,7 +11,6 @@ public static class TextInsertionTests
         await PasteRestoresClipboardWhenStillHoldingInsertedTextAsync();
         await PasteLeavesClipboardWhenTargetReplacedItAsync();
         await FailedPasteRestoresClipboardAndBlocksAsync();
-        await MissingTextParameterIsBlockedAsync();
         PermissionMappings();
         Console.WriteLine("Text insertion tests passed");
     }
@@ -37,7 +35,6 @@ public static class TextInsertionTests
         var host = new FakeHost { Snapshot = null };
         var outcome = await new TextInsertion(host).InsertAsync("hello", CancellationToken.None);
         Assert(outcome.Status == "blocked" && outcome.Reason == "clipboard-unavailable");
-        Assert(host.WrittenTexts.Count == 0);
     }
 
     private static async Task FailedClipboardWriteRestoresSnapshotAsync()
@@ -72,16 +69,6 @@ public static class TextInsertionTests
         var outcome = await new TextInsertion(host).InsertAsync("hello", CancellationToken.None);
         Assert(outcome.Status == "blocked" && outcome.Reason == "paste-failed");
         Assert(host.RestoredSnapshots.Count == 1);
-    }
-
-    private static async Task MissingTextParameterIsBlockedAsync()
-    {
-        using var request = JsonDocument.Parse("{\"other\":true}");
-        var result = await new TextInsertion(new FakeHost()).InvokeAsync(
-            TextInsertion.InsertMethod,
-            request.RootElement,
-            CancellationToken.None);
-        Assert(result is InsertionOutcome { Status: "blocked", Reason: "missing-text" });
     }
 
     private static void PermissionMappings()

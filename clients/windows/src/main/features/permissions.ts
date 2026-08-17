@@ -83,14 +83,12 @@ class WindowsPermissionsService {
     return state;
   }
 
-  // Windows has no programmatic permission prompt for desktop apps; the
-  // only request path is the matching Settings page.
+  // Windows has no programmatic permission prompt for desktop apps.
   request(kind: SystemPermissionKind): Promise<SystemPermissionStateItem> {
     return this.openSettings(kind);
   }
 
-  // A change made in Windows Settings is picked up by the refresh that runs
-  // when the app window regains focus.
+  // Settings changes are picked up by the refresh on window focus.
   async openSettings(
     kind: SystemPermissionKind,
   ): Promise<SystemPermissionStateItem> {
