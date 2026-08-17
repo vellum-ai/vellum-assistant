@@ -5,19 +5,37 @@ import { expect, screen, userEvent, waitFor } from "storybook/test";
 
 import { SegmentControl, type SegmentControlItem } from "./segment-control";
 
-const SIZE_ITEMS: SegmentControlItem<string>[] = [
+/**
+ * Every value any story's items offer, as one union. A call site instantiates
+ * `SegmentControl<T>` with its own domain union, and these stories keep that
+ * property rather than widening to `string`: a `value` arg that matches no
+ * item is then a type error, not a control that silently renders nothing
+ * active.
+ */
+type DemoValue =
+  | "small"
+  | "medium"
+  | "large"
+  | "system"
+  | "light"
+  | "dark"
+  | "daily"
+  | "weekly"
+  | "monthly";
+
+const SIZE_ITEMS: SegmentControlItem<DemoValue>[] = [
   { value: "small", label: "Small" },
   { value: "medium", label: "Medium" },
   { value: "large", label: "Large" },
 ];
 
-const THEME_ITEMS: SegmentControlItem<string>[] = [
+const THEME_ITEMS: SegmentControlItem<DemoValue>[] = [
   { value: "system", label: "System", icon: <Monitor className="h-4 w-4" /> },
   { value: "light", label: "Light", icon: <Sun className="h-4 w-4" /> },
   { value: "dark", label: "Dark", icon: <Moon className="h-4 w-4" /> },
 ];
 
-const meta: Meta<typeof SegmentControl<string>> = {
+const meta: Meta<typeof SegmentControl<DemoValue>> = {
   title: "Components/SegmentControl",
   component: SegmentControl,
   args: {
@@ -41,7 +59,7 @@ const meta: Meta<typeof SegmentControl<string>> = {
   // Controlled: drive `value` from the arg and write it back on change so the
   // Controls panel and canvas stay in sync.
   render: function Render(args) {
-    const [{ value }, updateArgs] = useArgs();
+    const [{ value }, updateArgs] = useArgs<{ value: DemoValue | null }>();
     return (
       <SegmentControl
         {...args}
@@ -64,7 +82,7 @@ const meta: Meta<typeof SegmentControl<string>> = {
 
 export default meta;
 
-type Story = StoryObj<typeof SegmentControl<string>>;
+type Story = StoryObj<typeof SegmentControl<DemoValue>>;
 
 /**
  * Arg-driven text mode: pick the selected segment in Controls and the canvas
