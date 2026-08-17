@@ -1,4 +1,12 @@
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import {
+  afterAll,
+  beforeEach,
+  describe,
+  expect,
+  mock,
+  setSystemTime,
+  test,
+} from "bun:test";
 
 import type { PlatformSessionStatus } from "@/stores/session-status";
 
@@ -62,6 +70,20 @@ mock.module("@/lib/sentry/capture-error", () => ({
   captureError: captureErrorMock,
 }));
 
+// Event bus: capture the `app.resume` subscriber so tests can fire resume
+// signals, and count unsubscribes.
+type ResumeHandler = (payload: { signal: string }) => void;
+let resumeHandler: ResumeHandler | null = null;
+const resumeUnsubscribeMock = mock(() => {});
+mock.module("@/lib/event-bus", () => ({
+  subscribe: (topic: string, handler: ResumeHandler) => {
+    if (topic === "app.resume") {
+      resumeHandler = handler;
+    }
+    return resumeUnsubscribeMock;
+  },
+}));
+
 // Auth store: a getState + subscribe seam the sync module wires onto. Tests
 // drive transitions by invoking the captured subscriber with (next, prev) and
 // mutate `authState` directly to simulate logout / account-switch mid-load.
@@ -85,8 +107,11 @@ mock.module("@/stores/auth-store", () => ({
   },
 }));
 
-const { reloadPlatformAssistants, setupPlatformAssistantsSync } =
-  await import("@/assistant/platform-assistants-sync");
+const {
+  refreshPlatformAssistantsIfStale,
+  reloadPlatformAssistants,
+  setupPlatformAssistantsSync,
+} = await import("@/assistant/platform-assistants-sync");
 
 /** Move the mocked auth store to `next` (keeping the user) and notify. */
 function transition(next: PlatformSessionStatus): void {
@@ -98,7 +123,21 @@ function transition(next: PlatformSessionStatus): void {
 const tick = (): Promise<void> =>
   new Promise((resolve) => setTimeout(resolve, 0));
 
+// Frozen mock clock for the stale-refresh window. Each test starts a minute
+// past the previous one so any earlier stamp is already stale.
+const STALE_TIME_MS = 10_000;
+let now = new Date("2026-01-01T00:00:00Z").getTime();
+function advance(ms: number): void {
+  now += ms;
+  setSystemTime(new Date(now));
+}
+
+afterAll(() => {
+  setSystemTime();
+});
+
 beforeEach(() => {
+  advance(60_000);
   mockIsLocalClient = false;
   mockIsRemoteGatewayMode = false;
   mockIsGatewayAuthEnabled = false;
@@ -107,6 +146,8 @@ beforeEach(() => {
   listAssistantsGates = null;
   authState = { platformSession: "unknown", user: null };
   subscriber = null;
+  resumeHandler = null;
+  resumeUnsubscribeMock.mockClear();
   listAssistantsMock.mockClear();
   fetchOrganizationsMock.mockClear();
   setFromApiMock.mockClear();
@@ -160,7 +201,7 @@ describe("setupPlatformAssistantsSync", () => {
     expect(listAssistantsMock).not.toHaveBeenCalled();
   });
 
-  test("unsubscribing stops further reloads", async () => {
+  test("unsubscribing stops further reloads and drops the resume listener", async () => {
     const cleanup = setupPlatformAssistantsSync();
     cleanup();
 
@@ -168,6 +209,98 @@ describe("setupPlatformAssistantsSync", () => {
     await tick();
 
     expect(listAssistantsMock).not.toHaveBeenCalled();
+    expect(resumeUnsubscribeMock).toHaveBeenCalledTimes(1);
+  });
+
+  test("app.resume reloads when the list is stale and a session is present", async () => {
+    authState = { platformSession: "present", user: { id: "u1" } };
+    setupPlatformAssistantsSync();
+
+    resumeHandler?.({ signal: "visibility" });
+    await tick();
+
+    expect(listAssistantsMock).toHaveBeenCalledTimes(1);
+  });
+
+  test("app.resume does not reload within the stale window", async () => {
+    authState = { platformSession: "present", user: { id: "u1" } };
+    setupPlatformAssistantsSync();
+
+    resumeHandler?.({ signal: "visibility" });
+    await tick();
+    expect(listAssistantsMock).toHaveBeenCalledTimes(1);
+
+    advance(STALE_TIME_MS / 2);
+    resumeHandler?.({ signal: "visibility" });
+    await tick();
+    expect(listAssistantsMock).toHaveBeenCalledTimes(1);
+
+    advance(STALE_TIME_MS);
+    resumeHandler?.({ signal: "visibility" });
+    await tick();
+    expect(listAssistantsMock).toHaveBeenCalledTimes(2);
+  });
+
+  test("app.resume does not reload without a live platform session", async () => {
+    authState = { platformSession: "absent", user: null };
+    setupPlatformAssistantsSync();
+
+    resumeHandler?.({ signal: "visibility" });
+    await tick();
+
+    expect(listAssistantsMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("refreshPlatformAssistantsIfStale", () => {
+  test("respects the stale window across consecutive calls", async () => {
+    authState = { platformSession: "present", user: { id: "u1" } };
+
+    await refreshPlatformAssistantsIfStale();
+    expect(listAssistantsMock).toHaveBeenCalledTimes(1);
+
+    await refreshPlatformAssistantsIfStale();
+    expect(listAssistantsMock).toHaveBeenCalledTimes(1);
+
+    advance(STALE_TIME_MS + 1);
+    await refreshPlatformAssistantsIfStale();
+    expect(listAssistantsMock).toHaveBeenCalledTimes(2);
+  });
+
+  test("no-ops when the platform session is not present", async () => {
+    authState = { platformSession: "unknown", user: null };
+
+    await refreshPlatformAssistantsIfStale();
+
+    expect(listAssistantsMock).not.toHaveBeenCalled();
+  });
+
+  test("coalesces onto an in-flight reload instead of starting a duplicate", async () => {
+    const gates: Array<(result: unknown) => void> = [];
+    listAssistantsGates = gates;
+    authState = { platformSession: "present", user: { id: "u1" } };
+
+    const reload = reloadPlatformAssistants();
+    await tick();
+    expect(gates.length).toBe(1);
+
+    const refresh = refreshPlatformAssistantsIfStale();
+    await tick();
+    expect(listAssistantsMock).toHaveBeenCalledTimes(1);
+
+    const data = [{ id: "a1" }];
+    gates[0]!({ ok: true, status: 200, data });
+    await Promise.all([reload, refresh]);
+
+    // The lone reload's write lands; nothing superseded it.
+    expect(setFromApiMock).toHaveBeenCalledTimes(1);
+    expect(setFromApiMock).toHaveBeenCalledWith(data);
+
+    // The refresh path fetches again once the settled load goes stale.
+    advance(STALE_TIME_MS + 1);
+    listAssistantsGates = null;
+    await refreshPlatformAssistantsIfStale();
+    expect(listAssistantsMock).toHaveBeenCalledTimes(2);
   });
 });
 

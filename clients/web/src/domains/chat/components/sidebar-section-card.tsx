@@ -35,6 +35,7 @@ import { useLayoutEffect, useRef, type ComponentProps } from "react";
 import { Card } from "@vellumai/design-library";
 import { cn } from "@vellumai/design-library/utils/cn";
 
+import { useConversationListContext } from "@/domains/chat/components/conversation-list-context";
 import { ConversationNavSection } from "@/domains/chat/components/conversation-nav-section";
 
 export type SidebarSectionCardProps = ComponentProps<
@@ -50,6 +51,7 @@ export function SidebarSectionCard({
   ...section
 }: SidebarSectionCardProps) {
   const cardRef = useRef<HTMLDivElement>(null);
+  const { overlayCards } = useConversationListContext();
 
   /* `width` toggling between the sizing keywords `fit-content` and a
      percentage doesn't animate smoothly on its own - measured directly,
@@ -122,7 +124,12 @@ export function SidebarSectionCard({
            `rounded-full` and a smaller radius. Same value means nothing
            needs to transition or interpolate for it at all: it can never
            lag behind the width/height change since it never moves. */
-        "w-[var(--section-collapsed-width,fit-content)] rounded-[18px]",
+        "w-[var(--section-collapsed-width,fit-content)]",
+        /* The overlay's card is squarer than the rail's pill and carries the
+           inset its header and row list sit flush inside (Figma 7842-83305);
+           the rail keeps the radius that makes its 36px header read as fully
+           round. */
+        overlayCards ? "rounded-[16px] pt-2.5 pr-3 pb-1.5 pl-2" : "rounded-[18px]",
         "has-[[data-state=open]]:w-full",
         /* `width` toggles between the measured `--section-collapsed-width`
            (a real length - see the `ResizeObserver` above) and a percentage,

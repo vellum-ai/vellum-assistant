@@ -11,8 +11,9 @@ import { resolveShortBuildCommitSha } from "./scripts/build-metadata";
 //
 // Dependencies that must be bundled inline rather than externalized as
 // runtime `require(...)` calls. The cross-client rules (and the sandboxed
-// preload rationale) live in the shared list; only Windows-specific deps are
-// added here. Guarded by scripts/preload-externals.test.ts.
+// preload rationale) live in the shared list; Windows also starts its native
+// helper through the local sidecar package.
+// Guarded by scripts/preload-externals.test.ts.
 const DEPS_TO_INLINE = [
   ...SHARED_DESKTOP_INLINE_DEPS,
   "@vellumai/native-sidecar",

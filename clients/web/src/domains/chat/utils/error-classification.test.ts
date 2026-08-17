@@ -214,6 +214,52 @@ describe("resolveComposerBillingBanner", () => {
     ).toBe("daily_limit");
   });
 
+  test("an active skip clears the banner the failed send left behind", () => {
+    // The stored chat error keeps its daily-limit decision after a successful
+    // skip, so without this the banner would sit over a limit that is no
+    // longer enforced until the user sends again.
+    expect(
+      resolveComposerBillingBanner({
+        billingBannerDecision: "daily_limit",
+        isLowBalance: false,
+        dismissed: false,
+        dailyLimitSnoozed: true,
+      }),
+    ).toBeNull();
+  });
+
+  test("an active skip also clears the state-driven daily-limit banner", () => {
+    expect(
+      resolveComposerBillingBanner({
+        billingBannerDecision: null,
+        isLowBalance: false,
+        dismissed: false,
+        dailyLimitReached: true,
+        dailyLimitSnoozed: true,
+      }),
+    ).toBeNull();
+  });
+
+  test("an active skip leaves the other billing banners alone", () => {
+    // A skipped daily limit says nothing about the provider account or the
+    // credit balance.
+    expect(
+      resolveComposerBillingBanner({
+        billingBannerDecision: "provider_billing",
+        isLowBalance: false,
+        dismissed: false,
+        dailyLimitSnoozed: true,
+      }),
+    ).toBe("provider_billing");
+    expect(
+      resolveComposerBillingBanner({
+        billingBannerDecision: null,
+        ...lowBalanceInputs,
+        dailyLimitSnoozed: true,
+      }),
+    ).toBe("low_balance");
+  });
+
   test("the daily-limit banner ignores the low-balance session dismissal", () => {
     // Dismissal is the low-balance banner's affordance; the daily-limit
     // banner has none, so a latched dismissal must not hide it.

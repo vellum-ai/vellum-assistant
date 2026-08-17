@@ -152,6 +152,9 @@ dependencies {
     implementation "com.google.firebase:firebase-messaging:$firebaseMessagingVersion"
     implementation project(':capacitor-android')
     testImplementation "junit:junit:$junitVersion"
+    // AOSP-derived org.json for JVM tests (Apache-2.0), matching platform
+    // semantics the mockable android.jar stubs out.
+    testImplementation "com.vaadin.external.google:android-json:0.0.20131108.vaadin1"
     androidTestImplementation "androidx.test.ext:junit:$androidxJunitVersion"
     androidTestImplementation "androidx.test.espresso:espresso-core:$androidxEspressoCoreVersion"
     implementation project(':capacitor-cordova-android-plugins')

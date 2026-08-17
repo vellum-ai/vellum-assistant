@@ -2716,6 +2716,8 @@ export class Conversation {
       titleText?: string;
       /** See {@link runAgentLoopImpl} — hidden machine-signal turn marker. */
       isHiddenPrompt?: boolean;
+      /** See {@link runAgentLoopImpl}: triggering row's daemon-authored kind. */
+      messageKind?: string;
       /**
        * See {@link runAgentLoopImpl}: the row the end-of-turn reply
        * notification treats as the prompt this turn answers.

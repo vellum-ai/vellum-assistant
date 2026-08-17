@@ -10,6 +10,7 @@ import {
 import { type ReactNode, useEffect, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router";
 
+import { refreshPlatformAssistantsIfStale } from "@/assistant/platform-assistants-sync";
 import { resolveSelectedAssistantId } from "@/assistant/selection";
 import { retireAssistant } from "@/assistant/retire-service";
 import { isCurrentOrigin, switchToOrigin } from "@/assistant/switch-origin";
@@ -163,6 +164,7 @@ export function SelectAssistantScreen() {
   const currentOrganizationId =
     useOrganizationStore.use.currentOrganizationId();
   const assistantSwitcher = useClientFeatureFlagStore.use.assistantSwitcher();
+  const webRemoteIngress = useClientFeatureFlagStore.use.webRemoteIngress();
   const flagsHydrated = useClientFeatureFlagStore.use.hydrated();
   const origins = useRememberedOriginsStore.use.origins();
   const originsHydrated = useRememberedOriginsStore.use.hydrated();
@@ -258,6 +260,13 @@ export function SelectAssistantScreen() {
   // sudden auto-connect to the sole remaining assistant would be jarring, so
   // the auto-skip stands down for the rest of the visit.
   const removedThisVisitRef = useRef(false);
+
+  // Post-hatch ingress provisioning can land after the last list fetch;
+  // refresh on mount so the new assistant shows up. Session and mode guards
+  // live in the sync module, so this is a no-op off a logged-in hub.
+  useEffect(() => {
+    void refreshPlatformAssistantsIfStale();
+  }, []);
 
   // Platform-mode access gate: the hub chooser exists only behind the
   // assistant-switcher flag, whose real value lands asynchronously, so a
@@ -847,8 +856,9 @@ export function SelectAssistantScreen() {
           )}
           {/* Hostless surfaces (hub browser, remote-gateway mode, native
               mobile) add origins by URL; local desktop clients keep the
-              bundle-paste connect flow above instead. */}
-          {assistantSwitcher && !localModeHostAvailable && (
+              bundle-paste connect flow above instead. The web-remote-ingress
+              client flag decides whether the affordance shows at all. */}
+          {assistantSwitcher && webRemoteIngress && !localModeHostAvailable && (
             <DashedActionButton
               icon={<Globe className="h-4 w-4" />}
               label={t("selectAssistantScreen.addRemote")}

@@ -11,5 +11,7 @@
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="System.Speech" Version="9.0.0" />
+    <!-- UI Automation client for focused-field checks. -->
+    <FrameworkReference Include="Microsoft.WindowsDesktop.App" />
   </ItemGroup>
 </Project>

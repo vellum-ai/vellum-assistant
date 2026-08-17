@@ -51,6 +51,7 @@ const SUMMARY: BillingSummaryResponse = {
   daily_credit_limit_usd: null,
   daily_spend_usd: "0.00",
   daily_limit_reached: false,
+  daily_limit_snoozed: false,
   low_balance_threshold_usd: "5.00",
   low_balance_warning: false,
   credits_expiring_soon_usd: "0.00",

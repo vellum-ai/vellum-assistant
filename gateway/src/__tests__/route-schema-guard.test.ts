@@ -174,9 +174,10 @@ function regexToOpenApiPath(escaped: string): string | null {
   path = path.replace(/\(\?(?:=|!|<=|<!).*?\)/g, "");
 
   // Replace capture groups with numbered params.
-  // Handles both `([^/]+)` (single segment) and `(.+)` (greedy) patterns.
+  // Handles `([^/]+)` (single segment), `(.+)` (greedy), and `(.+?)`
+  // (non-greedy, used when an optional trailing slash sits outside the group).
   let paramIndex = 0;
-  path = path.replace(/\(\[\^\/\]\+\)|\(\.\+\)/g, () => {
+  path = path.replace(/\(\[\^\/\]\+\)|\(\.\+\??\)/g, () => {
     paramIndex++;
     return `{param${paramIndex}}`;
   });

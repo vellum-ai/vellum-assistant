@@ -1,5 +1,4 @@
 import { BrowserWindow, app, type WebContents } from "electron";
-import path from "node:path";
 import { z } from "zod";
 
 import type {
@@ -21,12 +20,13 @@ import {
   type HelperRestartResult,
 } from "@vellumai/ipc-contract";
 import {
-  NativeSidecarClient,
+  type NativeSidecarClient,
   type NativeSidecarState,
 } from "@vellumai/native-sidecar/supervisor";
 
 import { handle, on } from "../ipc.client";
 import log from "../logger";
+import { getWindowsHelperClient } from "../windows-helper";
 
 /**
  * Windows native helper bridge for dictation partials, served over the
@@ -43,35 +43,7 @@ const HELPER_RESULT_SCHEMA = z.object({
 const DICTATION_TEXT_SCHEMA = z.object({ text: z.string() });
 const DICTATION_PUSH_SAMPLE_RATE = 16000;
 
-const HELPER_ARCH = process.arch === "arm64" ? "arm64" : "x64";
-
-/**
- * Packaged installs carry the helper under the install's resources dir;
- * development runs read the publish output of `bun run build:native-helper`.
- */
-export const getWindowsHelperPath = (): string =>
-  app.isPackaged
-    ? path.join(
-        process.resourcesPath,
-        "native-helper",
-        HELPER_ARCH,
-        "Vellum.WindowsHelper.exe",
-      )
-    : path.join(
-        app.getAppPath(),
-        "resources",
-        "native-helper",
-        HELPER_ARCH,
-        "Vellum.WindowsHelper.exe",
-      );
-
-let clientFactory = (): NativeSidecarClient =>
-  new NativeSidecarClient({
-    name: "windows helper",
-    resolveExecutablePath: getWindowsHelperPath,
-    logger: log,
-    platform: process.platform,
-  });
+let clientFactory = (): NativeSidecarClient => getWindowsHelperClient();
 let client: NativeSidecarClient | null = null;
 const getClient = (): NativeSidecarClient => (client ??= clientFactory());
 
@@ -217,7 +189,5 @@ export const __resetForTesting = (
   installed = false;
   dictationOwners.clear();
   client = null;
-  if (factory) {
-    clientFactory = factory;
-  }
+  clientFactory = factory ?? getWindowsHelperClient;
 };

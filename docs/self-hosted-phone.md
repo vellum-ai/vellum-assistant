@@ -16,7 +16,7 @@ This is a CLI-driven flow for people who already run their assistant locally
 this; sign in and your devices are already connected.
 
 > **Check your version first.** This flow uses recent additions to the `vellum`
-> CLI and the assistant it runs: remote web ingress (Step 1), `vellum tunnel`
+> CLI and the assistant it runs: `vellum tunnel`
 > providers (Step 3), `vellum pair --qr` (Step 4), and the iOS app's connect
 > handler (Step 5). They ship in the next release; until then they're available
 > on builds from source. Check what you have with `vellum --version` (it prints
@@ -59,25 +59,15 @@ terminates TLS and makes the edge reachable from your devices.
   alternatives.)
 - If you run more than one local assistant, decide which one your devices
   connect to: every step below applies to a single assistant (see
-  [Step 1](#1-enable-remote-web-ingress)).
+  [Step 1](#1-pick-the-assistant-your-devices-connect-to)).
 
-## 1. Enable remote web ingress
+## 1. Pick the assistant your devices connect to
 
-Remote web access is gated behind a feature flag. Turn it on for your
-assistant:
-
-```bash
-vellum flags set web-remote-ingress true
-```
-
-> **One assistant at a time.** The feature flag, the tunnel URL, and pairing
+> **One assistant at a time.** The tunnel URL and pairing
 > all belong to a _specific_ assistant. With several local assistants, point
 > every step at the same one. `vellum ps` lists them and marks the active one
 > with `*`. `pair`, `tunnel`, and `nginx-ingress` take an assistant name as
-> their first argument (e.g. `vellum tunnel my-assistant`); `vellum flags`
-> takes `--assistant <name>`.
-
-**Verify:** `vellum flags get web-remote-ingress` prints `Enabled: true`.
+> their first argument (e.g. `vellum tunnel my-assistant`).
 
 ## 2. The web app ships with the CLI
 

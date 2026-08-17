@@ -12,7 +12,7 @@ Flux is a spike. `liveVoice.flux.turnEnd.enabled` defaults to `false`, the exist
 
 It is stamped in `releaseUtterance` (`live-voice-session.ts`), which every committed turn passes through whichever decider released it, from the same speech-stop anchor on both. So the two arms are one population measured over one span. It is absent only on a turn that never committed, and in push-to-talk, which this spike does not run.
 
-It is also the only endpoint number that the Flux socket teardown stays out of: `releaseUtterance` stamps it before it stops the transcriber. `roundTripMs`, `llmFirstDeltaMs`, and `totalMs` all carry that teardown on a Flux arm, and so does what the caller hears. Read "The per-turn socket teardown, and why it is load-bearing" in section 3 before you compare any of those three against a `deepgram` run.
+It is also the only endpoint number that a Flux socket teardown stays out of: `releaseUtterance` stamps it before any stop. On a turn Flux itself closed there is no teardown to carry; on a caller-side release `roundTripMs`, `llmFirstDeltaMs`, and `totalMs` still carry one, and so does what the caller hears. Read "The socket teardown, and when it is load-bearing" in section 3 before you compare any of those three against a `deepgram` run.
 
 ### Why the other endpoint fields are not the comparison
 
@@ -105,18 +105,23 @@ The rest of `liveVoice.flux` is optional and defaulted (`config/schemas/live-voi
 
 Say the same scripted set of utterances in both arms. Include at least a few deliberate mid-sentence thinking pauses, because that is the case the hold path exists for and the case Flux has to not regress.
 
-### The per-turn socket teardown, and why it is load-bearing
+### The socket teardown, and when it is load-bearing
 
 The Flux adapter implements no `finalizeUtterance`. That is forced by Flux's wire protocol, not a statement that Flux owns the turn boundary, and adding the method as a no-op would break transcript correctness.
 
 `parseFluxFrame` emits `final` only on `EndOfTurn`, and that is the adapter's sole source of `final`. Flux offers no mid-stream flush, so `CloseStream` is the only message that makes it answer for a turn still in progress, which is exactly what `stop()` sends. A no-op `finalizeUtterance` would report `finalized` without flushing anything, so a turn released on a caller-side boundary would dispatch on an empty transcript while its real text arrived afterwards and was dropped as a late final segment. With `turnEnd.enabled` at its default `false` that is every turn, because the release always comes from the local silence path. With the latch on it is still every fail-open fallback, every max-duration force-end, and every barge-in, all of which release with a Flux turn open.
 
-So the release path is: `stop()` sends `CloseStream`, the adapter waits for Deepgram's close frame under a `CLOSE_GRACE_MS` ceiling (**5000ms**, `deepgram-flux-realtime.ts`), and then emits `closed`. The cycle only reaches `transcriber_closed` on that `closed` event, and `startAssistantTurnIfReady` refuses to dispatch before it. Two consequences for the numbers:
+That reasoning holds for a turn the **caller** releases, and only for those. A turn Flux itself closes needs no flush at all: `EndOfTurn` emits the `final` immediately before `turn-end`, so the transcript is already complete when the release runs, and the stream can stay open (JARVIS-1538). The session reflects that split:
 
-- **`endpointCommitLatencyMs` does not contain the teardown.** `releaseUtterance` stamps the commit latency and `utteranceEndAtMs` before it calls `stop()`, so the headline comparison is clean on both arms.
-- **`roundTripMs`, `llmFirstDeltaMs`, and `totalMs` do contain it,** and so does the silence the caller sits through. On a Flux arm the assistant turn cannot start until the socket has closed. A `deepgram` run pays none of that: the shared stream stays open and the cycle reaches `transcriber_closed` on the `finalized` event instead.
+- **Provider-closed turns seal in place.** `handleProviderTurnEnd` marks the cycle `providerClosedTurn`, and the release moves it straight to `transcriber_closed` without stopping the transcriber. The stream serves the whole session, and `rearmAfterTurn` re-arms onto it synchronously.
+- **Caller-side releases still close it.** The fail-open deadline, a max-duration force-end, and barge-in all release with a Flux turn potentially still open, and `CloseStream` remains the only message that makes Flux answer for one. Those releases retire the shared stream and tear it down; the next arm dials a fresh one.
 
-The re-dial is off the end-of-turn path but is not free either. `rearmAfterTurn` opens the next `/v2/listen` socket once the assistant turn finishes, and speech arriving during that handshake is held in the VAD pre-roll buffer, so its cost lands on the next utterance's first partial rather than on its commit.
+Consequences for the numbers, all now specific to the caller-side path:
+
+- **`endpointCommitLatencyMs` never contains a teardown.** `releaseUtterance` stamps the commit latency and `utteranceEndAtMs` before any stop, so the headline comparison is clean on both arms.
+- **`roundTripMs`, `llmFirstDeltaMs`, and `totalMs` contain it only when the caller released the turn,** which with the latch on means the exceptional paths rather than every turn.
+
+Before JARVIS-1538 every utterance dialed its own socket, and the audio arriving during that handshake was lost rather than replayed from the VAD pre-roll buffer. The opening words of each turn after the first went missing ("How many days are in February?" transcribed as "many days are in February?"). A persistent stream removes the handshake, and with it the gap.
 
 ### What this A/B still does not hold constant
 

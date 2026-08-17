@@ -112,15 +112,38 @@ vellum-assistant-dev://connect?url=https%3A%2F%2Fassistant.example.com&code=devi
 ```
 
 The production and staging builds use their matching auth schemes from the
-Build Variants table. Scanning a connect link switches the native shell to the
-validated server, opens `<server>/assistant/pair`, and keeps an existing server
-path prefix intact. Cold and warm app launches use the same route.
+Build Variants table. An optional `name=<label>` parameter supplies a
+user-facing label; the value is trimmed and a blank label is treated as
+absent. Scanning a connect link switches the native shell to the validated
+server, opens `<server>/assistant/pair`, and keeps an existing server path
+prefix intact. Cold and warm app launches use the same route.
 
-Only the validated server base is saved after the pairing page loads. The
-one-time device code is kept out of app preferences and the generated
-Capacitor configuration. HTTPS is required except for `localhost`, `127.0.0.1`,
-and the Android emulator host alias `10.0.2.2`. Use `adb reverse` when a physical
-development device needs to reach a service through `localhost`.
+Only the validated server base is saved after the pairing page loads; the
+same deferred write appends the server, with its label, to the remembered
+list. The one-time device code is kept out of app preferences and the
+generated Capacitor configuration. HTTPS is required except for `localhost`,
+`127.0.0.1`, and the Android emulator host alias `10.0.2.2`. Use `adb reverse`
+when a physical development device needs to reach a service through
+`localhost`.
+
+Paired servers accumulate in a remembered list, stored as JSON `{name?, url}`
+entries in the same `self_hosted_server` SharedPreferences file as the active
+server. Entries are keyed by the canonical URL the web chooser's
+`normalizeOriginUrl` also computes (scheme-default ports collapse, trailing
+slashes are stripped, and percent-escape casing and interior duplicate
+separators are preserved), so both sides agree on which strings mean the same
+HTTPS server. The cleartext development hosts are the exception: the web
+normalizer rejects every non-HTTPS URL, so an `http://localhost`-style server
+stays in the native list and remains switchable through a connect link, but
+never surfaces as a chooser card.
+
+The web assistant chooser is the management surface. The `SelfHostedServers`
+Capacitor plugin exposes the list to it and handles switch and forget
+(`list`/`add`/`remove`/`switchTo`/`switchToPath`). Switching recreates the
+activity so Capacitor starts on a configuration rebuilt around the new
+`server.url`; that configuration loads `<base>/assistant`, so a hosting path
+prefix survives the ingress redirect that would otherwise drop it. Forgetting
+the active server returns the shell to Vellum Cloud the same way.
 
 If Android terminates the app before the pairing page loads, scan the connect
 link again. The shell intentionally does not save the one-time code for process
@@ -215,6 +238,7 @@ clients/
     │       │   ├── NativeLaunchScreenPlugin.java
     │       │   ├── BiometricTokenStore.java
     │       │   ├── SelfHostedServer.java
+    │       │   ├── SelfHostedServersPlugin.java
     │       │   ├── VoiceAudioSessionPlugin.java
     │       │   ├── VoiceDeepLink.java
     │       │   ├── VoiceLiveActivityPlugin.java
