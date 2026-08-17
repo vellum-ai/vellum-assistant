@@ -724,10 +724,12 @@ export async function localGatewayAuthRecoveryInterceptor(
 
   // A bearer that no longer matches the slot means the request was built
   // before a recovery (or any other re-prime) that has since completed.
-  // The session is already healthy, so replay straight away: no recovery,
-  // no budget spent.
-  if (replayable && !carriesCurrentBearer(request)) {
-    return (await replayWithRecoveredSession(request)) ?? response;
+  // The session is already healthy, so replay when possible and otherwise
+  // return the original response without spending another recovery attempt.
+  if (request !== undefined && !carriesCurrentBearer(request)) {
+    return replayable
+      ? ((await replayWithRecoveredSession(request)) ?? response)
+      : response;
   }
 
   // A recovery already in flight is ridden rather than charged to the

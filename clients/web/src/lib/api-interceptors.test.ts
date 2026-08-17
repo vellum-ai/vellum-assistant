@@ -1359,6 +1359,18 @@ describe("api-interceptors / localGatewayAuthRecoveryInterceptor", () => {
     expect(primeGatewayWithRepairMock).toHaveBeenCalledTimes(1);
   });
 
+  test("a consumed request with a superseded bearer does not recover again", async () => {
+    const request = await consumedPost();
+    setSelfHostedConnection({ url: GATEWAY_URL, token: "fresh-tok" });
+    const response = gatewayResponse(401);
+
+    const result = await localGatewayAuthRecoveryInterceptor(response, request);
+
+    expect(result).toBe(response);
+    expect(primeGatewayWithRepairMock).not.toHaveBeenCalled();
+    expect(sessionStorage.getItem(GW_401_ATTEMPTS_KEY)).toBeNull();
+  });
+
   test("remote-gateway mode refreshes the paired session in place", async () => {
     /**
      * A paired browser session has a refresh cookie; a rejected access
