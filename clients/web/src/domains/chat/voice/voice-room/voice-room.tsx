@@ -135,9 +135,9 @@ import {
 } from "@/domains/chat/voice/live-voice/live-voice-store";
 import { OAuthConnectSurface } from "@/domains/chat/components/surfaces/oauth-connect-surface";
 import { handleSurfaceAction } from "@/domains/chat/surface-actions";
+import { useChatHeaderBottom } from "@/domains/chat/hooks/use-chat-header-bottom";
 import { useAssistantAvatar } from "@/hooks/use-assistant-avatar";
 import { useSupportsNoninteractiveVoiceTurns } from "@/lib/backwards-compat/use-supports-noninteractive-voice-turns";
-import { useChatHeaderBottom } from "@/domains/chat/hooks/use-chat-header-bottom";
 import { useSupportsVoiceCamera } from "@/lib/backwards-compat/use-supports-voice-camera";
 import { AVATAR_ACCENT_CSS_VAR } from "@/hooks/use-avatar-accent-var";
 import { useVoicePrefsStore } from "@/stores/voice-prefs-store";
