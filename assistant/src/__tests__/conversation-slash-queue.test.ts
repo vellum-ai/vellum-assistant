@@ -62,6 +62,9 @@ mock.module("../persistence/conversation-crud.js", () => ({
   getLastUserTimestampBefore: () => 0,
   reserveMessage: mock(async () => ({ id: "msg-reserve" })),
   updateMessageContent: mock(() => {}),
+  // Probe: hub-routed emissions stamp seqs, so the drain now reaches the real
+  // recorder with seq > 0 and it hits SQLite the crud mock exists to avoid.
+  recordConversationPersistedSeq: () => {},
 }));
 
 mock.module("../persistence/conversation-queries.js", () => ({
