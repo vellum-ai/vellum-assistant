@@ -42,7 +42,7 @@
       <AdditionalIncludeDirectories>$(MSBuildThisFileDirectory);%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ClCompile>
     <Link Condition="'$(Configuration)'=='Release'">
-      <AdditionalDependencies>windowscodecs.lib;shlwapi.lib;ole32.lib;gdi32.lib;user32.lib;zlib.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>windowscodecs.lib;shlwapi.lib;ole32.lib;gdi32.lib;user32.lib;%(AdditionalDependencies)</AdditionalDependencies>
       <DataExecutionPrevention>true</DataExecutionPrevention>
       <RandomizedBaseAddress>true</RandomizedBaseAddress>
       <ControlFlowGuard>Guard</ControlFlowGuard>
@@ -58,7 +58,7 @@
     <ClInclude Include="ComServer.h" />
   </ItemGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)'=='Tests'">
-    <Link><AdditionalDependencies>zlib.lib;%(AdditionalDependencies)</AdditionalDependencies></Link>
+    <!-- zlib comes from the vcpkg MSBuild autolink wildcard. -->
   </ItemDefinitionGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
 </Project>
