@@ -29,7 +29,7 @@ function useInvalidateAfterSkipChange(): () => void {
 /**
  * Skip the org's daily credit limit for the rest of the current UTC day.
  *
- * The limit itself is left untouched — only its enforcement pauses, and it
+ * The limit itself is left untouched. Only its enforcement pauses, and it
  * resumes on its own at the next reset. Shared by the composer's daily-limit
  * banner and the billing settings card so both refresh the same queries.
  */

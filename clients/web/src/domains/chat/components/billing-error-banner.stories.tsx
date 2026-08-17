@@ -156,7 +156,7 @@ export const WithIcon: Story = {
  * "Skip for today" is deliberately the lighter button: it suspends the
  * guardrail the user set on purpose, so it should not be the easiest click on
  * screen. It opens a confirm rather than acting immediately, and that confirm
- * carries the full explanation — what stops applying and when it returns — so
+ * carries the full explanation, what stops applying and when it returns, so
  * the banner itself stays two short buttons.
  */
 export const RealDailyLimitBanner: Story = {

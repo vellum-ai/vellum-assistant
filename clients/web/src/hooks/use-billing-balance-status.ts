@@ -27,7 +27,7 @@ export interface BillingBalanceStatus {
   /**
    * Server-computed: the daily limit has been skipped for the current UTC day,
    * so it is configured but not being enforced. Mutually exclusive with
-   * {@link BillingBalanceStatus.dailyLimitReached} by construction — the
+   * {@link BillingBalanceStatus.dailyLimitReached} by construction: the
    * platform derives `daily_limit_reached` as false while a skip is active.
    */
   dailyLimitSnoozed: boolean;

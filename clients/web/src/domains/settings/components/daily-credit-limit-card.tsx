@@ -14,6 +14,7 @@ import {
 import { useResumeDailyLimit } from "@/hooks/use-daily-limit-skip";
 import { useScrollToAnchor } from "@/hooks/use-scroll-to-anchor";
 import { dailyResetTimePhrase } from "@/utils/daily-reset-time";
+import { formatUsd } from "@/utils/format-usd";
 import { Button } from "@vellumai/design-library/components/button";
 import { Input } from "@vellumai/design-library/components/input";
 import { Notice } from "@vellumai/design-library/components/notice";
@@ -25,12 +26,6 @@ import { Toggle } from "@vellumai/design-library/components/toggle";
  * `routes.settings.usageBillingDailyLimit`.
  */
 export const DAILY_CREDIT_LIMIT_ANCHOR_ID = "daily-credit-limit";
-
-/** Format a USD decimal string ("5.00") as "$5.00" for display copy. */
-function formatUsd(value: string): string {
-  const n = parseFloat(value);
-  return Number.isFinite(n) ? `$${n.toFixed(2)}` : `$${value}`;
-}
 
 /**
  * Validate the daily-limit input against the bounds the backend enforces
@@ -292,22 +287,33 @@ export function DailyCreditLimitCard() {
             )}
 
             {limitSkipped && (
-              <Notice tone="info" data-testid="daily-credit-limit-skipped">
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <span>
-                    Skipped for today — this limit resumes at {resetPhrase}.
-                  </span>
-                  <Button
-                    variant="outlined"
-                    size="compact"
-                    onClick={() => resumeMutation.mutate({})}
-                    disabled={resumeMutation.isPending}
-                    data-testid="daily-credit-limit-resume-button"
+              <>
+                <Notice
+                  tone="info"
+                  data-testid="daily-credit-limit-skipped"
+                  actions={
+                    <Button
+                      variant="outlined"
+                      size="compact"
+                      onClick={() => resumeMutation.mutate({})}
+                      disabled={resumeMutation.isPending}
+                      data-testid="daily-credit-limit-resume-button"
+                    >
+                      Resume now
+                    </Button>
+                  }
+                >
+                  Skipped for today. This limit resumes at {resetPhrase}.
+                </Notice>
+                {resumeMutation.isError && (
+                  <Notice
+                    tone="error"
+                    data-testid="daily-credit-limit-resume-error"
                   >
-                    Resume now
-                  </Button>
-                </div>
-              </Notice>
+                    Failed to resume the daily credit limit. Please try again.
+                  </Notice>
+                )}
+              </>
             )}
 
             {limitReached && (

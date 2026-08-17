@@ -7,19 +7,11 @@ import { organizationsBillingAutoTopUpRetrieveOptions } from "@/generated/api/@t
 import { useBillingBalanceStatus } from "@/hooks/use-billing-balance-status";
 import { useSkipDailyLimitToday } from "@/hooks/use-daily-limit-skip";
 import { dailyResetTimePhrase } from "@/utils/daily-reset-time";
+import { formatUsd } from "@/utils/format-usd";
 import { ConfirmDialog } from "@vellumai/design-library/components/confirm-dialog";
 
 interface DailyLimitBannerProps {
   onAdjustLimit: () => void;
-}
-
-/** Format a USD decimal string ("25.00") as "$25.00" for display copy. */
-function formatUsd(value: string | null): string | null {
-  if (value == null) {
-    return null;
-  }
-  const n = parseFloat(value);
-  return Number.isFinite(n) ? `$${n.toFixed(2)}` : `$${value}`;
 }
 
 /**
@@ -32,9 +24,9 @@ function formatUsd(value: string | null): string | null {
  * lightest-weight click on screen.
  *
  * The skip is confirmed rather than immediate. That confirm step is also where
- * the full explanation lives — what stops applying, for how long, and (when
- * relevant) that auto top-up keeps charging — so the banner itself stays two
- * short buttons instead of a paragraph.
+ * the full explanation lives: what stops applying, for how long, and (when
+ * relevant) that auto top-up keeps charging. The banner itself stays two short
+ * buttons instead of a paragraph.
  */
 export function DailyLimitBanner({ onAdjustLimit }: DailyLimitBannerProps) {
   const [confirmOpen, setConfirmOpen] = useState(false);
@@ -44,7 +36,7 @@ export function DailyLimitBanner({ onAdjustLimit }: DailyLimitBannerProps) {
   // Only claim that top-ups will keep charging when we positively know they
   // are on. An errored or in-flight query means we do not know, and a
   // confident-but-wrong statement about someone's card is worse than omitting
-  // the line — the billing settings page states this authoritatively either way.
+  // the line. The billing settings page states this authoritatively either way.
   const autoTopUpQuery = useQuery(
     organizationsBillingAutoTopUpRetrieveOptions(),
   );
@@ -55,16 +47,36 @@ export function DailyLimitBanner({ onAdjustLimit }: DailyLimitBannerProps) {
   const limitDisplay = formatUsd(dailyLimit);
   const spendDisplay = formatUsd(dailySpend);
 
+  // Assembled from whole sentences so an unknown amount drops its clause
+  // without leaving a double space or a stranded period behind it.
+  const confirmMessage = [
+    limitDisplay
+      ? `Your ${limitDisplay} daily limit won't apply for the rest of today.`
+      : "Your daily limit won't apply for the rest of today.",
+    spendDisplay ? `You've spent ${spendDisplay} so far.` : null,
+    `It comes back automatically at ${resetPhrase}.`,
+    autoTopUpOn
+      ? "Automatic top-ups stay on, so your card can be charged again today."
+      : null,
+  ]
+    .filter((sentence) => sentence !== null)
+    .join(" ");
+
   const handleConfirmSkip = () => {
-    skipMutation.mutate(
-      {},
-      {
-        // The banner unmounts as soon as the refreshed summary reports the
-        // limit is no longer reached, so closing here only matters when the
-        // request fails.
-        onSettled: () => setConfirmOpen(false),
-      },
-    );
+    // The dialog closes on success, where the refreshed summary also unmounts
+    // the banner. A rejected skip keeps it open carrying the failure, so the
+    // user sees that their limit is still in force and can retry in place.
+    skipMutation.mutate({}, { onSuccess: () => setConfirmOpen(false) });
+  };
+
+  const handleOpenConfirm = () => {
+    skipMutation.reset();
+    setConfirmOpen(true);
+  };
+
+  const handleCancelConfirm = () => {
+    skipMutation.reset();
+    setConfirmOpen(false);
   };
 
   return (
@@ -81,7 +93,7 @@ export function DailyLimitBanner({ onAdjustLimit }: DailyLimitBannerProps) {
         subtitle={`Vellum credit spend is paused until your limit resets at ${resetPhrase}.`}
         secondaryAction={{
           label: "Skip for today",
-          onClick: () => setConfirmOpen(true),
+          onClick: handleOpenConfirm,
           disabled: skipMutation.isPending,
         }}
         action={{ label: "Settings", onClick: onAdjustLimit }}
@@ -89,22 +101,16 @@ export function DailyLimitBanner({ onAdjustLimit }: DailyLimitBannerProps) {
       <ConfirmDialog
         open={confirmOpen}
         title="Skip today's credit limit?"
-        message={
-          <>
-            {limitDisplay
-              ? `Your ${limitDisplay} daily limit won't apply for the rest of today`
-              : "Your daily limit won't apply for the rest of today"}
-            {spendDisplay ? ` — you've spent ${spendDisplay} so far` : ""}. It
-            comes back automatically at {resetPhrase}.
-            {autoTopUpOn
-              ? " Automatic top-ups stay on, so your card can be charged again today."
-              : ""}
-          </>
+        message={confirmMessage}
+        error={
+          skipMutation.isError
+            ? "Could not skip today's limit. Please try again."
+            : undefined
         }
         confirmLabel="Skip for today"
         isPending={skipMutation.isPending}
         onConfirm={handleConfirmSkip}
-        onCancel={() => setConfirmOpen(false)}
+        onCancel={handleCancelConfirm}
       />
     </>
   );

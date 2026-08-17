@@ -13,7 +13,7 @@ import { Modal } from "@vellumai/design-library/components/modal";
 import { toast } from "@vellumai/design-library/components/toast";
 import { Typography } from "@vellumai/design-library/components/typography";
 
-import { formatUsdShort } from "@/domains/settings/billing/format-usd";
+import { formatUsdShort } from "@/utils/format-usd";
 
 export interface CheckoutBonusModalProps {
   open: boolean;

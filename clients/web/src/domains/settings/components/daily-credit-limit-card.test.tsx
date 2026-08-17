@@ -43,6 +43,7 @@ import type {
 let updateCalls: Array<Record<string, unknown>> = [];
 let resumeCalls: Array<Record<string, unknown>> = [];
 let updateError: unknown = null;
+let resumeError: unknown = null;
 let limitResponse: DailyCreditLimitResponse;
 let summaryResponse: BillingSummaryResponse;
 let autoTopUpResponse: AutoTopUpConfigResponse;
@@ -81,6 +82,9 @@ mock.module("@/generated/api/sdk.gen", () => ({
     opts: Record<string, unknown>,
   ) => {
     resumeCalls.push(opts);
+    if (resumeError !== null) {
+      return Promise.reject(resumeError);
+    }
     // Ending a skip returns the limit with the skip cleared.
     limitResponse = { ...limitResponse, daily_limit_snoozed: false };
     return Promise.resolve({ data: limitResponse, response: { ok: true } });
@@ -241,6 +245,7 @@ beforeEach(() => {
   updateCalls = [];
   resumeCalls = [];
   updateError = null;
+  resumeError = null;
   limitResponse = { ...OFF };
   summaryResponse = { ...SUMMARY };
   autoTopUpResponse = { ...AUTO_TOP_UP_OFF };
@@ -271,7 +276,8 @@ describe("DailyCreditLimitCard skipped state", () => {
 
   test("surfaces that the limit is skipped for today", () => {
     // Without this the page would show a configured limit with no hint that
-    // it is not in force — the UI lying about the user's own money control.
+    // it is not in force, which is the UI lying about the user's own money
+    // control.
     const { getByTestId } = renderCard(SKIPPED);
     const notice = getByTestId("daily-credit-limit-skipped");
     expect(notice.textContent).toContain("Skipped for today");
@@ -302,6 +308,19 @@ describe("DailyCreditLimitCard skipped state", () => {
       await flushMicrotasks();
     });
     expect(resumeCalls.length).toBe(1);
+  });
+
+  test("a rejected Resume now says the limit is still skipped", async () => {
+    // Silence here reads as success, and the user walks away believing the
+    // limit is back on when it is not.
+    resumeError = new Error("network down");
+    const { getByTestId, queryByTestId } = renderCard(SKIPPED);
+    await act(async () => {
+      fireEvent.click(getByTestId("daily-credit-limit-resume-button"));
+      await flushMicrotasks();
+    });
+    expect(queryByTestId("daily-credit-limit-resume-error")).not.toBeNull();
+    expect(queryByTestId("daily-credit-limit-skipped")).not.toBeNull();
   });
 });
 

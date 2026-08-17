@@ -6,7 +6,8 @@
  * immediate, the confirm copy states when enforcement returns, and the
  * auto-top-up warning appears only when top-ups are positively known to be on
  * (asserting someone's card will be charged when we are not sure is worse than
- * saying nothing).
+ * saying nothing), and a rejected skip stays on screen instead of closing as
+ * if it had worked.
  *
  * Every SDK call the banner makes is mocked at the SDK boundary and seeded into
  * the query cache, matching the sibling billing tests.
@@ -25,6 +26,7 @@ let skipCalls: Array<Record<string, unknown>> = [];
 let summaryResponse: BillingSummaryResponse;
 let autoTopUpResponse: AutoTopUpConfigResponse;
 let autoTopUpShouldFail = false;
+let skipShouldFail = false;
 
 mock.module("@/generated/api/sdk.gen", () => ({
   ...sdkGen,
@@ -40,6 +42,9 @@ mock.module("@/generated/api/sdk.gen", () => ({
     opts: Record<string, unknown>,
   ) => {
     skipCalls.push(opts);
+    if (skipShouldFail) {
+      return Promise.reject(new Error("skip rejected"));
+    }
     return Promise.resolve({ data: {}, response: { ok: true } });
   },
 }));
@@ -131,6 +136,7 @@ beforeEach(() => {
   summaryResponse = { ...SUMMARY };
   autoTopUpResponse = { ...AUTO_TOP_UP_OFF };
   autoTopUpShouldFail = false;
+  skipShouldFail = false;
 });
 
 afterEach(cleanup);
@@ -168,6 +174,33 @@ describe("DailyLimitBanner", () => {
       await new Promise((resolve) => setTimeout(resolve, 0));
     });
     expect(skipCalls.length).toBe(1);
+  });
+
+  test("a rejected skip keeps the dialog open and says so", async () => {
+    // Closing on failure would leave the user believing the limit is skipped
+    // while it is still blocking every send.
+    skipShouldFail = true;
+    const { getByRole, getAllByRole, queryByRole } = renderBanner();
+    fireEvent.click(getByRole("button", { name: "Skip for today" }));
+    const confirm = getAllByRole("button", { name: "Skip for today" }).at(-1)!;
+    await act(async () => {
+      fireEvent.click(confirm);
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    const dialog = queryByRole("dialog");
+    expect(dialog).toBeTruthy();
+    expect(dialog!.textContent).toContain("Could not skip today's limit");
+  });
+
+  test("a successful skip closes the dialog", async () => {
+    const { getByRole, getAllByRole, queryByRole } = renderBanner();
+    fireEvent.click(getByRole("button", { name: "Skip for today" }));
+    const confirm = getAllByRole("button", { name: "Skip for today" }).at(-1)!;
+    await act(async () => {
+      fireEvent.click(confirm);
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(queryByRole("dialog")).toBeNull();
   });
 
   test("warns that auto top-ups keep charging when they are on", () => {
