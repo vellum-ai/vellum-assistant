@@ -403,17 +403,18 @@ export function useArchivedConversationListQuery(
  * no cache holds it (a deep-linked open) fetches it into its home cache
  * first (`refreshConversationRow`) and this subscription picks it up.
  *
- * Transitional. TanStack has no hook for "the row with id X in whichever
- * list holds it"; its idiom is a detail query per entity that the writers
- * keep in sync with the lists (`fetchConversationDetail` already runs the
- * single-row fetch through `conversationsByIdGetOptions`). Today the
- * placement and seen-state writers write only into the list caches, so a
- * detail query would go stale on every optimistic write; once they also
- * write the row into its detail key, `useActiveConversation` becomes a
- * plain `useQuery` on that key and this subscription is deleted. Until
- * then this is the one correct way to follow a row across an open set of
- * caches, and it is cheaper than the four-list scan it replaced. Do not
- * add new consumers; reach for the detail query when it lands.
+ * Why a cache subscription and not a query hook. TanStack has no hook for
+ * "the list row with id X in whichever list holds it", and the two hooks
+ * that look close both fail here: `useQueries` needs the caches enumerated
+ * at render time, and the section caches are an open set created as
+ * sections mount; a per-row `useQuery` would make the row live in two
+ * places, its own query and a list, and every optimistic write (placement,
+ * seen-state) updates the list and not the copy. The detail query
+ * (`conversationsByIdGetOptions`) is a different resource, the full record
+ * with fields no list row carries, read as such by its own consumers; it is
+ * not this row's home. So the row stays in its list cache, one owner, and
+ * this follows it. The same primitive serves the same need in
+ * `use-pro-provisioning.ts`.
  */
 export function useConversationRow(
   assistantId: string | null,
