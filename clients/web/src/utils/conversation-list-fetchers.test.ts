@@ -10,9 +10,9 @@
 
 import { afterEach, describe, expect, mock, test } from "bun:test";
 import { QueryClient } from "@tanstack/react-query";
-import { listPage } from "@/utils/conversation-list.test-helper";
 
 import { client as daemonClient } from "@/generated/daemon/client.gen";
+import { listPage } from "@/utils/conversation-list.test-helper";
 import { getDiagnosticsEvents, type DiagnosticsEvent } from "@/lib/diagnostics";
 import { ApiError } from "@/utils/api-errors";
 import type { RawConversationSummary } from "@/utils/conversation-transforms";
@@ -661,8 +661,8 @@ describe("section list filters", () => {
   });
 
   test("the first-page fetch carries the filter at offset 0", async () => {
-    // The windowed queryFn (LUM-2444): one request, same filter contract as
-    // the drain it replaced, or the section renders a superset.
+    // One request, carrying the section's filter, or the section renders a
+    // superset.
     const { queries } = stubPages([{ ids: ["c-0"], hasMore: true }]);
 
     const page = await listSectionConversationsFirstPage(ASSISTANT_ID, {
@@ -716,7 +716,7 @@ describe("section list filters", () => {
     // fresh data without running the queryFn, which would pass this test
     // without exercising the merge at all.
     const result = await client.fetchQuery({
-      ...sectionConversationListOptions(client, ASSISTANT_ID, filter),
+      ...sectionConversationListOptions(ASSISTANT_ID, filter),
       staleTime: 0,
     });
 

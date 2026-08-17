@@ -21,7 +21,7 @@
  */
 
 import { useMemo } from "react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 
 import { groupsGetOptions } from "@/generated/daemon/@tanstack/react-query.gen";
 import type { Options } from "@/generated/daemon/sdk.gen";
@@ -237,9 +237,8 @@ export function useSectionConversationListQuery(
   hasMore: boolean;
 } {
   const canQuery = useCanQueryDaemon(assistantId);
-  const queryClient = useQueryClient();
   const query = useQuery({
-    ...sectionConversationListOptions(queryClient, assistantId!, filter),
+    ...sectionConversationListOptions(assistantId!, filter),
     enabled: enabled && Boolean(assistantId) && canQuery,
   });
   return {
