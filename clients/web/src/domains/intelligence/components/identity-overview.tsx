@@ -450,9 +450,6 @@ function SectionCard({
   );
 
   if (mini) {
-    // The one-line form only; the hero numeral and unit label are the
-    // full-size card's layout.
-    const miniStat = stat?.text;
     // Bottom-strip tile per Figma (New-App 6944-89405): left-aligned,
     // 12px radius, 40px icon slot in the secondary tone, 16px title over
     // an 11px tertiary stat.
@@ -486,7 +483,7 @@ function SectionCard({
             >
               {section.label}
             </span>
-            {miniStat && (
+            {stat?.text && (
               <span
                 className={`truncate text-[11px] leading-normal font-medium transition-colors duration-300 ${
                   flooded
@@ -494,7 +491,7 @@ function SectionCard({
                     : "text-[var(--content-tertiary)]"
                 }`}
               >
-                {miniStat}
+                {stat.text}
               </span>
             )}
           </span>

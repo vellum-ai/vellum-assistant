@@ -1,10 +1,10 @@
 /**
  * A countable stat on the overview's bento cards has two copy shapes. The
  * full-size card draws the hero numeral (`IdentitySectionStat.value`) with a
- * small unit label under it (`IdentitySectionStat.label`), so the label must
- * name the unit only; one that also spells the count (`# memories`) shows it
- * twice: "34 34 memories". The mini tile renders `IdentitySectionStat.text`,
- * a whole ICU message, so that one must carry the count itself.
+ * small unit label under it (`IdentitySectionStat.label`), so the label names
+ * the unit only and the card supplies the number. The mini tile renders
+ * `IdentitySectionStat.text`, a whole ICU message, so that one carries the
+ * count itself.
  *
  * `catalogs.test.ts` proves these messages parse and keep their placeholders;
  * a `#` in the wrong shape passes both. This formats every key of each shape,
@@ -65,22 +65,26 @@ function lookup(catalog: unknown, key: string): string | undefined {
   return typeof node === "string" ? node : undefined;
 }
 
+function format(message: string, locale: string, count: number): string {
+  return String(new IntlMessageFormat(message, locale).format({ count }));
+}
+
 /**
- * The message under `key` rendered at each of `COUNTS`, or `undefined` when
- * the locale has no translation (it then falls back to English, which is
- * checked on its own pass).
+ * The message under `key` rendered at each of `COUNTS`. Empty when the locale
+ * has no translation: it then falls back to English, which is checked on its
+ * own pass.
  */
 function renderings(
   locale: string,
   key: string,
-): Array<{ count: number; rendered: string }> | undefined {
+): Array<{ count: number; rendered: string }> {
   const message = lookup(CATALOGS[locale].intelligence, key);
   if (message === undefined) {
-    return undefined;
+    return [];
   }
   return COUNTS.map((count) => ({
     count,
-    rendered: String(new IntlMessageFormat(message, locale).format({ count })),
+    rendered: format(message, locale, count),
   }));
 }
 
@@ -93,15 +97,14 @@ function requireEnglish(key: string): (count: number) => string {
   if (message === undefined) {
     throw new Error(`en catalog is missing ${key}`);
   }
-  return (count) =>
-    String(new IntlMessageFormat(message, "en").format({ count }));
+  return (count) => format(message, "en", count);
 }
 
 describe("identity section unit labels", () => {
   for (const locale of SUPPORTED_LOCALES) {
     for (const key of UNIT_LABEL_KEYS) {
       test(`${locale}/${key}: names the unit without repeating the count`, () => {
-        for (const { count, rendered } of renderings(locale, key) ?? []) {
+        for (const { count, rendered } of renderings(locale, key)) {
           expect(
             rendered,
             `${locale}/${key} at count=${count} rendered "${rendered}"`,
@@ -122,7 +125,7 @@ describe("identity section count phrases", () => {
   for (const locale of SUPPORTED_LOCALES) {
     for (const key of COUNT_PHRASE_KEYS) {
       test(`${locale}/${key}: states the count exactly once`, () => {
-        for (const { count, rendered } of renderings(locale, key) ?? []) {
+        for (const { count, rendered } of renderings(locale, key)) {
           expect(
             occurrences(rendered, String(count)),
             `${locale}/${key} at count=${count} rendered "${rendered}"`,
