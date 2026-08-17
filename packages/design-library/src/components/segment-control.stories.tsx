@@ -35,6 +35,29 @@ const THEME_ITEMS: SegmentControlItem<DemoValue>[] = [
   { value: "dark", label: "Dark", icon: <Moon className="h-4 w-4" /> },
 ];
 
+/**
+ * A tap as Safari sequences it: the compatibility mouse burst, and so `focus`,
+ * arrives after `pointerup` rather than between `pointerdown` and it. Written
+ * out by hand because `userEvent` emits the Chromium ordering, in which focus
+ * lands while the pointer is still down.
+ */
+function dispatchSafariTap(target: HTMLElement) {
+  const touch = {
+    bubbles: true,
+    cancelable: true,
+    composed: true,
+    pointerId: 1,
+    isPrimary: true,
+    pointerType: "touch",
+  } as const;
+  target.dispatchEvent(new PointerEvent("pointerdown", touch));
+  target.dispatchEvent(new PointerEvent("pointerup", touch));
+  // Radix clears its pointer-down flag from a document-level `pointerup`.
+  document.dispatchEvent(new PointerEvent("pointerup", touch));
+  target.focus();
+  target.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+}
+
 const meta: Meta<typeof SegmentControl<DemoValue>> = {
   title: "Components/SegmentControl",
   component: SegmentControl,
@@ -95,13 +118,21 @@ export const Default: Story = {};
  *
  * The play function pins the pointer-dependence of that tooltip. A tap leaves
  * no tooltip behind, and a hover opens one. Both halves are needed: the hover
- * is what stops the tap assertion passing vacuously, since a harness that
- * dispatched nothing at all would satisfy the first and fail the second.
+ * is what stops the tap assertions passing vacuously, since a harness that
+ * dispatched nothing at all would satisfy them and fail the hover.
  *
- * The tap half waits out the tooltip's open delay rather than sampling once,
- * so it fails on a tooltip that opens late as well as one that opens at once.
- * A tooltip that opened on focus unconditionally would strand a label over the
- * UI after every tap, and would fail here.
+ * Two tap orderings are checked, because browsers disagree about when focus
+ * lands. Chromium delivers it inside the pointer sequence, where Radix's
+ * pointer-down flag is still set and suppresses the focus-open, so nothing
+ * opens at all. Safari delivers focus in the compatibility mouse burst *after*
+ * `pointerup`, by which point that flag is clear: focus does open the tooltip,
+ * and the `click` from the same burst closes it a render later. `userEvent`
+ * emits only the Chromium sequence, so the Safari one is dispatched by hand.
+ *
+ * The gestures that would strand a label are the ones with no `click` to close
+ * it, and they are unreachable for the same reason: a scroll cancels the touch
+ * and a long press takes the callout path, and neither delivers `focus`
+ * either, so neither opens anything to begin with.
  */
 export const IconOnly: Story = {
   args: {
@@ -119,16 +150,29 @@ export const IconOnly: Story = {
   play: async () => {
     const segment = await screen.findByRole("radio", { name: "Light" });
 
+    /**
+     * No tooltip may survive a tap. A transient one is tolerated, because the
+     * Safari ordering opens on focus and closes on the `click` from the same
+     * burst, and those are separate renders. What must not happen is a tooltip
+     * that is still there once the dust settles, or one that arrives later:
+     * hence settling first and then holding the absence across the open delay,
+     * rather than sampling once.
+     */
+    const expectNoTooltipSurvivesTap = async () => {
+      await waitFor(() => expect(screen.queryByRole("tooltip")).toBeNull());
+      await expect(
+        waitFor(() => expect(screen.getByRole("tooltip")).toBeInTheDocument(), {
+          timeout: 600,
+        }),
+      ).rejects.toThrow();
+    };
+
     await userEvent.pointer({ keys: "[TouchA]", target: segment });
-    // Poll for a tooltip across a window wider than the 200ms open delay and
-    // require the wait to time out. Sampling once right after the tap would
-    // pass on a tooltip that opens a moment later, which is the shape a
-    // regression here takes.
-    await expect(
-      waitFor(() => expect(screen.getByRole("tooltip")).toBeInTheDocument(), {
-        timeout: 600,
-      }),
-    ).rejects.toThrow();
+    await expectNoTooltipSurvivesTap();
+
+    segment.blur();
+    dispatchSafariTap(segment);
+    await expectNoTooltipSurvivesTap();
 
     await userEvent.hover(segment);
     await waitFor(() => {
