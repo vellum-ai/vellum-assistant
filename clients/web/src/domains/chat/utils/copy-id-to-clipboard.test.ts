@@ -1,89 +1,38 @@
 /**
- * The two failure cases pin the delegation: a helper owning its own
- * `navigator.clipboard.writeText` throws where the Clipboard API is absent
- * and reports nothing where the write is refused, and both reach the user as
- * a menu item that silently does nothing.
+ * Pins the delegation and the wording, which is all this helper owns. What
+ * happens when a write is refused or the Clipboard API is missing belongs to
+ * `copyToClipboard` and is covered in `lib/copy-to-clipboard.test.ts`; a
+ * helper that writes for itself is a helper that skips both of those.
  */
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
-const toastSuccess = mock(() => {});
-const toastError = mock(() => {});
-mock.module("@vellumai/design-library/components/toast", () => ({
-  toast: { success: toastSuccess, error: toastError },
-}));
-
-const captureErrorMock = mock(() => {});
-mock.module("@/lib/sentry/capture-error", () => ({
-  captureError: captureErrorMock,
+const copyToClipboardMock = mock((_text: string, _options: unknown) => {});
+mock.module("@/lib/copy-to-clipboard", () => ({
+  copyToClipboard: copyToClipboardMock,
 }));
 
 const { copyIdToClipboard } = await import("./copy-id-to-clipboard");
 
-let writeTextResult: Promise<void>;
-const writeText = mock((_text: string) => writeTextResult);
-
-Object.defineProperty(navigator, "clipboard", {
-  configurable: true,
-  value: { writeText },
-});
-
-function flushMicrotasks(): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, 0));
-}
-
 beforeEach(() => {
-  toastSuccess.mockClear();
-  toastError.mockClear();
-  captureErrorMock.mockClear();
-  writeText.mockClear();
-  writeTextResult = Promise.resolve();
+  copyToClipboardMock.mockClear();
 });
 
 describe("copyIdToClipboard", () => {
-  test("writes the id and names it in the success toast", async () => {
+  test("hands the id and both messages to the shared clipboard helper", () => {
     copyIdToClipboard("conv_123", "Conversation ID");
-    await flushMicrotasks();
 
-    expect(writeText).toHaveBeenCalledWith("conv_123");
-    expect(toastSuccess).toHaveBeenCalledWith(
-      "Conversation ID copied to clipboard.",
-    );
-    expect(toastError).not.toHaveBeenCalled();
-  });
-
-  test("reports the failure as well as toasting when the write is refused", async () => {
-    writeTextResult = Promise.reject(new Error("denied"));
-
-    copyIdToClipboard("grp_456", "Group ID");
-    await flushMicrotasks();
-
-    expect(toastSuccess).not.toHaveBeenCalled();
-    expect(toastError).toHaveBeenCalledWith("Couldn't copy the group id.");
-    expect(captureErrorMock).toHaveBeenCalledTimes(1);
-  });
-
-  test("toasts and reports instead of throwing when the Clipboard API is absent", () => {
-    Object.defineProperty(navigator, "clipboard", {
-      configurable: true,
-      value: undefined,
+    expect(copyToClipboardMock).toHaveBeenCalledWith("conv_123", {
+      successMessage: "Conversation ID copied to clipboard.",
+      errorMessage: "Couldn't copy the conversation id.",
     });
-    try {
-      // A bare `navigator.clipboard.writeText` throws a TypeError here, and it
-      // throws inside the menu's click handler, so nothing is toasted.
-      expect(() =>
-        copyIdToClipboard("conv_123", "Conversation ID"),
-      ).not.toThrow();
+  });
 
-      expect(toastSuccess).not.toHaveBeenCalled();
-      expect(toastError).toHaveBeenCalledWith(
-        "Couldn't copy the conversation id.",
-      );
-      expect(captureErrorMock).toHaveBeenCalledTimes(1);
-    } finally {
-      Object.defineProperty(navigator, "clipboard", {
-        configurable: true,
-        value: { writeText },
-      });
-    }
+  test("lower-cases the label in the failure message only", () => {
+    copyIdToClipboard("grp_456", "Group ID");
+
+    expect(copyToClipboardMock).toHaveBeenCalledWith("grp_456", {
+      successMessage: "Group ID copied to clipboard.",
+      errorMessage: "Couldn't copy the group id.",
+    });
   });
 });
