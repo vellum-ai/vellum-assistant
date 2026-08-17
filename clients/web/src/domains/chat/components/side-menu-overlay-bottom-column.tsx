@@ -88,7 +88,7 @@ export function SideMenuOverlayBottomColumn({
         {onStartNewConversation ? (
           <Button
             variant="primary"
-            className="pointer-events-auto h-11 w-full min-w-0 flex-1 rounded-full px-3 shadow-[var(--shadow-lg)]"
+            className="pointer-events-auto h-[var(--side-menu-tile-size,36px)] w-full min-w-0 flex-1 rounded-full px-3 shadow-[var(--shadow-lg)]"
             leftIcon={<MessageSquarePlus />}
             onClick={() => {
               onStartNewConversation();
