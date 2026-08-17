@@ -1366,12 +1366,11 @@ describe("AssistantSideMenu · default section order", () => {
   });
 });
 
-/* Membership in `sidebar.sections` and what renders have to be decided by
-   one predicate. When they were two - the list built unconditionally, the
-   section returning `null` when its query came back empty - `curatedSectionCount`
-   counted an entry nothing drew, so the curated rule appeared over an empty
-   tier and the header menu offered a move that swapped with an off-screen
-   section. */
+/* Membership in `sidebar.sections` and what renders are decided by one
+   predicate. Were they two, a section could be listed while drawing
+   nothing, and the header menu's move-up/move-down nudges count listed
+   entries: the menu would offer a move that swapped with a section the
+   user cannot see. */
 describe("AssistantSideMenu · a listed section is a rendered section", () => {
   test("a custom group with no conversations still renders its header", () => {
     const html = renderMenu({

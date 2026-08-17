@@ -256,7 +256,7 @@ this order:
    is itself a button): nothing more is needed. The row does the work; the hint only previews it.
 2. **One action**: don't hide it. A row with a single affordance has nothing to gain from hiding it and
    a reachability bug to lose.
-3. **Several actions**: one always-visible trigger opening an [`ActionMenu`](../../../packages/design-library/src/components/action-menu),
+3. **Several actions**: one always-visible trigger opening an [`ActionMenu`](../../../packages/design-library/src/components/action-menu.tsx),
    which is a dropdown under a mouse and a sheet under a thumb.
 4. **A long list of like rows** (conversations, library apps): swipe or long-press, and the caller
    drops the hover control on touch rather than asking the primitive to hide it. See

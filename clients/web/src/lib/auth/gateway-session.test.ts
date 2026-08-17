@@ -7,7 +7,6 @@ import {
   isGatewayAuthEnabled,
   isGatewayAuthMode,
   isRepairableGatewayTokenError,
-  refreshGatewayToken,
   seedGatewayToken,
   setRemoteGatewayToken,
 } from "@/lib/auth/gateway-session";
@@ -173,7 +172,7 @@ describe("ensureGatewayToken mint failure", () => {
   });
 });
 
-describe("refreshGatewayToken", () => {
+describe("ensureGatewayToken forced mint", () => {
   test("keeps the active session available until its replacement is minted", async () => {
     selectLocalWithToken();
 
@@ -191,9 +190,10 @@ describe("refreshGatewayToken", () => {
         }),
     ) as unknown as typeof fetch;
 
-    const refresh = refreshGatewayToken(
-      "/assistant/__gateway/20100/auth/token",
+    const refresh = ensureGatewayToken(
+      "/assistant/__gateway/20101/auth/token",
       "guardian-token",
+      { forceMint: true },
     );
 
     expect(isGatewayAuthMode()).toBe(true);
@@ -207,9 +207,10 @@ describe("refreshGatewayToken", () => {
     globalThis.fetch = mock(async () => new Response(null, { status: 503 }));
 
     await expect(
-      refreshGatewayToken(
-        "/assistant/__gateway/20100/auth/token",
+      ensureGatewayToken(
+        "/assistant/__gateway/20101/auth/token",
         "guardian-token",
+        { forceMint: true },
       ),
     ).rejects.toBeInstanceOf(GatewayTokenError);
 

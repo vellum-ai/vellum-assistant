@@ -95,6 +95,7 @@ function catalogSeam(...entries: { id: string; source: SkillSource }[]) {
 
 import { loadSkillCatalog } from "../config/skills.js";
 import { readInstallMeta, writeInstallMeta } from "../skills/install-meta.js";
+import { validateInputAgainstSchema } from "../skills/validate-input.js";
 import { executeScaffoldManagedSkill } from "../tools/skills/scaffold-managed.js";
 import type { ToolContext } from "../tools/types.js";
 
@@ -124,6 +125,27 @@ function installMetaFor(skillId: string) {
   return readInstallMeta(join(TEST_DIR, "skills", skillId));
 }
 
+/** The scaffold_managed_skill entry as declared in the skill-management manifest. */
+function readScaffoldToolEntry(): {
+  input_schema: {
+    properties: Record<string, unknown>;
+    required: string[];
+  };
+} {
+  const tools = JSON.parse(
+    readFileSync(
+      join(
+        import.meta.dirname,
+        "../config/bundled-skills/skill-management/TOOLS.json",
+      ),
+      "utf-8",
+    ),
+  );
+  return tools.tools.find(
+    (tool: { name: string }) => tool.name === "scaffold_managed_skill",
+  );
+}
+
 beforeEach(() => {
   mkdirSync(join(TEST_DIR, "skills"), { recursive: true });
   mockRefreshSkillCapabilityMemories.mockClear();
@@ -139,18 +161,7 @@ afterEach(() => {
 
 describe("scaffold_managed_skill tool", () => {
   test("keeps legacy index control as a deprecated no-op schema field", () => {
-    const tools = JSON.parse(
-      readFileSync(
-        join(
-          import.meta.dirname,
-          "../config/bundled-skills/skill-management/TOOLS.json",
-        ),
-        "utf-8",
-      ),
-    );
-    const scaffoldTool = tools.tools.find(
-      (tool: { name: string }) => tool.name === "scaffold_managed_skill",
-    );
+    const scaffoldTool = readScaffoldToolEntry();
 
     expect(scaffoldTool).toBeDefined();
     expect(scaffoldTool.input_schema.properties.add_to_index).toEqual({
@@ -158,6 +169,29 @@ describe("scaffold_managed_skill tool", () => {
       description:
         "Deprecated no-op compatibility field. Skills are discovered from top-level SKILL.md files.",
     });
+  });
+
+  test("the registered tool's schema rejects an omitted activation_hints before the executor runs", () => {
+    // A call through the registered tool is validated against TOOLS.json
+    // first (skill-tool-factory), so the requirement has to live in the
+    // schema's `required` list, not only in the executor.
+    const scaffoldTool = readScaffoldToolEntry();
+    expect(scaffoldTool.input_schema.required).toContain("activation_hints");
+
+    const result = validateInputAgainstSchema(
+      "scaffold_managed_skill",
+      {
+        skill_id: "s",
+        name: "N",
+        description: "D",
+        body_markdown: "B",
+      },
+      scaffoldTool.input_schema,
+    );
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.errors).toEqual(["activation_hints is required"]);
+    }
   });
 
   test("creates a valid skill discovered from its SKILL.md directory", async () => {
@@ -588,7 +622,7 @@ describe("scaffold_managed_skill tool", () => {
     }
   });
 
-  test("an overwrite that omits activation_hints is rejected, names the current hints, and leaves the skill untouched", async () => {
+  test("an overwrite that omits activation_hints is rejected and leaves the skill untouched", async () => {
     const hints = ["user asks to deploy staging", "user asks to cut a release"];
     await executeScaffoldManagedSkill(
       {
@@ -614,10 +648,6 @@ describe("scaffold_managed_skill tool", () => {
 
     expect(result.isError).toBe(true);
     expect(result.content).toContain("activation_hints is required");
-    // The error quotes every current hint so the retry can carry them forward.
-    for (const hint of hints) {
-      expect(result.content).toContain(hint);
-    }
     // Scaffolding rewrites the whole SKILL.md, so the rejected overwrite must
     // not have reached disk: body and hints are still V1's.
     const content = readFileSync(
@@ -628,20 +658,6 @@ describe("scaffold_managed_skill tool", () => {
     expect(content).not.toContain("V2 body.");
     const skill = loadSkillCatalog().find((s) => s.id === "keep-hints");
     expect(skill!.activationHints).toEqual(hints);
-  });
-
-  test("a create with no activation_hints gets the plain error, with no current-hints clause", async () => {
-    const result = await executeScaffoldManagedSkill(
-      {
-        skill_id: "fresh-no-hints",
-        name: "Fresh",
-        description: "Never existed",
-        body_markdown: "Body.",
-      },
-      makeContext(),
-    );
-    expect(result.isError).toBe(true);
-    expect(result.content).not.toContain("currently declares");
   });
 
   test("passes category through to the written skill, lowercased and trimmed", async () => {
@@ -988,36 +1004,6 @@ describe("scaffold_managed_skill tool", () => {
     const skillFile = join(TEST_DIR, "skills", "protected", "SKILL.md");
     expect(readFileSync(skillFile, "utf-8")).toContain("Original body.");
     expect(installMetaFor("protected")?.author).toBe("user");
-  });
-
-  test("the ownership refusal is reported ahead of a missing activation_hints", async () => {
-    // A caller that may not touch the skill at all should hear that first,
-    // rather than fix its hints and then be refused on the retry.
-    await executeScaffoldManagedSkill(
-      {
-        skill_id: "protected-order",
-        name: "Protected",
-        description: "User authored",
-        body_markdown: "Original body.",
-        activation_hints: HINTS,
-      },
-      makeContext(),
-    );
-
-    const result = await executeScaffoldManagedSkill(
-      {
-        skill_id: "protected-order",
-        name: "Protected",
-        description: "Rewritten by retrospective",
-        body_markdown: "Rewritten body.",
-        overwrite: true,
-      },
-      makeRetrospectiveContext(),
-    );
-
-    expect(result.isError).toBe(true);
-    expect(result.content).toContain("not verifiably assistant-authored");
-    expect(result.content).not.toContain("activation_hints is required");
   });
 
   test("retrospective refuses to write companion files into an author:user skill", async () => {

@@ -294,7 +294,8 @@ src/
     telemetry/                     #   client identity for daemon registration
   runtime/                         # framework adapters, platform bridges
     native-auth.ts
-    route-adapter.ts
+    native-deep-link.ts
+    event-sources/                 #   event-bus signal sources
   components/                      # cross-domain shared UI
 ```
 
@@ -415,25 +416,24 @@ conversations (Slack, email, Telegram) have keys like
 **Rules:**
 
 1. **API queries from web must send `conversationId` (the UUID), never
-   `conversationKey`.** Assistant 0.8.5+ accepts `conversationId` on
+   `conversationKey`.** Assistant 0.8.6+ accepts `conversationId` on
    `POST /v1/messages` and `GET /v1/events` and looks it up directly
    against the `conversations` table. The version gate that picks
-   between `conversationId` (>= 0.8.5) and the legacy `conversationKey`
-   (< 0.8.5) lives in
+   between `conversationId` (>= 0.8.6) and the legacy `conversationKey`
+   (< 0.8.6, or version not yet known) lives in
    [`lib/backwards-compat/conversation-id-wire-field.ts`](../src/lib/backwards-compat/conversation-id-wire-field.ts).
    The legacy `conversationKey` path is supported indefinitely for
-   non-vellum channel adapters (Telegram, WhatsApp, etc.), but web
-   code never uses it.
+   non-vellum channel adapters (Telegram, WhatsApp, etc.); web code
+   reaches it only through that gate, never by hand.
 
    ```ts
    // Correct
    query: { conversationId }
    ```
 
-2. **URL route params carry UUIDs.** The route param is currently named
-   `:conversationKey` for historical reasons but the value must be a
-   UUID. Never put a channel-scoped key (e.g. `default:slack:C0123`)
-   in the URL.
+2. **URL route params carry UUIDs.** The route param is
+   `:conversationId` and the value must be a UUID. Never put a
+   channel-scoped key (e.g. `default:slack:C0123`) in the URL.
 
 3. **When the codebase says `conversationKey`, read it as "the
    identifier we route by" — which for web is always a UUID.** The
@@ -481,7 +481,7 @@ owns it.
 | `utils/` | Pure utility functions (no side effects, no third-party SDKs) | `format-date.ts`, `semver.ts`, `to-error.ts`, `create-selectors.ts` |
 | `types/` | Cross-domain shared type definitions with no clear owning module. Types consumed by a single module live with that module. Types produced by a module live in the module that produces them — consumers use `import type`. | `window.d.ts`, `event-types.ts`, `conversation-types.ts` |
 | `lib/` | Third-party SDK wrappers and app-internal infrastructure (registries, transports, interceptors). Side effects, module-level state, or lifecycle ownership. See [`lib/` vs `utils/`](#lib-vs-utils--where-does-my-code-go) below. | `sentry/` (error reporting), `auth/` (allauth + CSRF), `feature-flags/` (catalog + registry), `sync/` (state sync), `streaming/` (SSE transport), `event-bus.ts` (pub/sub registry), `diagnostics.ts` (session ring buffer), `api-interceptors.ts` (HeyAPI) |
-| `runtime/` | Framework adapters and native platform bridges | `route-adapter.ts`, `native-auth.ts`, `native-deep-link.ts`, `app-bridge.ts` |
+| `runtime/` | Framework adapters and native platform bridges | `native-auth.ts`, `native-deep-link.ts`, `platform-detection.ts`, `event-sources/` |
 | `components/` | Cross-domain shared UI | `error-boundary.tsx`, `sign-in-gate.tsx`, `providers.tsx` |
 
 | `generated/` | Auto-generated code (HeyAPI, catalogs) | `api/`, `catalogs/` |
@@ -555,7 +555,7 @@ flow through a single event bus. See
 
 Quick summary:
 
-- **One SSE connection per tab.** Only `useEventBusInit` calls `subscribeChatEvents`; every other consumer subscribes to `bus.sse.event`.
+- **One SSE connection per tab.** Only `useEventBusInit` calls `sseService.attach()`; every other consumer subscribes to `bus.sse.event`.
 - **No per-component `visibilitychange` listeners** for data-refresh. Subscribe to `bus.app.resume` / `bus.app.hidden` instead.
 - **No `window.online` / `window.offline` listeners** in components or stores. Subscribe to `bus.app.online` / `bus.app.offline`.
 - **No polling** for state the daemon could push. Emit a typed event over `/v1/events` and subscribe via the bus.
