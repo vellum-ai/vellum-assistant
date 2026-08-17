@@ -150,7 +150,8 @@
     "trigger": "Disparador"
   },
   "composerSettingsMenu": {
-    "profileSwitchFailed": "Perfil creado, pero no se pudo cambiar a él"
+    "profileSwitchFailed": "Perfil creado, pero no se pudo cambiar a él",
+    "profileSwitchFallback": "No se pudo cambiar de perfil. Inténtalo de nuevo."
   },
   "conversationActions": {
     "archive": "Archivar",
@@ -577,6 +578,11 @@
   },
   "useConversationLoader": {
     "authFailed": "No se pudo autenticar al usuario."
+  },
+  "useConversationSecondaryActions": {
+    "assistantBusy": "Tu asistente está ocupado. Inténtalo de nuevo cuando termine de responder.",
+    "retryFailed": "No se pudo reintentar la respuesta",
+    "summarizeFailed": "No se pudo resumir la conversación"
   },
   "useSendMessage": {
     "commandFailed": "No se pudo ejecutar ese comando. Inténtalo de nuevo.",

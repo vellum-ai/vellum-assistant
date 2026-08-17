@@ -150,7 +150,8 @@
     "trigger": "Trigger"
   },
   "composerSettingsMenu": {
-    "profileSwitchFailed": "Profile created, but couldn't switch to it"
+    "profileSwitchFailed": "Profile created, but couldn't switch to it",
+    "profileSwitchFallback": "Failed to switch profile. Please try again."
   },
   "conversationActions": {
     "archive": "Archive",
@@ -577,6 +578,11 @@
   },
   "useConversationLoader": {
     "authFailed": "Failed to authenticate user."
+  },
+  "useConversationSecondaryActions": {
+    "assistantBusy": "Your assistant is busy. Try again when it finishes replying.",
+    "retryFailed": "Couldn't retry the response",
+    "summarizeFailed": "Couldn't summarize the conversation"
   },
   "useSendMessage": {
     "commandFailed": "Couldn't run that command. Please try again.",

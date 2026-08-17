@@ -471,7 +471,7 @@ export function ComposerSettingsMenu({
           // would send the user round the same failing loop.
           toast.error(
             badRequestMessage(error) ??
-              "Failed to switch profile. Please try again.",
+              t("chat:composerSettingsMenu.profileSwitchFallback"),
           );
         }
         return false;
