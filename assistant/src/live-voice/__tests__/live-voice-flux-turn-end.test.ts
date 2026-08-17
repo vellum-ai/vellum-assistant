@@ -75,11 +75,18 @@ class MockFluxTranscriber implements StreamingTranscriber {
     this.received.push(Buffer.from(chunk));
   }
 
+  // Transcript Flux answers `CloseStream` with, for a turn still in flight
+  // when the caller released. Null models a stop with nothing left to flush.
+  pendingFlushText: string | null = null;
+
   stop(): void {
     if (this.stopped) {
       return;
     }
     this.stopped = true;
+    if (this.pendingFlushText !== null) {
+      this.onEvent?.({ type: "final", text: this.pendingFlushText });
+    }
     this.onEvent?.({ type: "closed" });
   }
 
@@ -947,7 +954,7 @@ describe("LiveVoiceSession Flux end-of-turn during the STT dial", () => {
     await flushAsyncCallbacks();
 
     // Second utterance on the same session. A stream torn down per utterance
-    // would lose the audio arriving while its replacement dials — which is
+    // would lose the audio arriving while its replacement dials, which is
     // what eats the opening words of every turn after the first.
     await session.handleBinaryAudio(LOUD_CHUNK);
     transcribers[0]?.startOfTurn(1);
@@ -981,12 +988,39 @@ describe("LiveVoiceSession Flux end-of-turn during the STT dial", () => {
     );
     expect(transcribers[0]?.stopped).toBe(true);
 
-    // The retired stream is not re-armed onto: the next cycle dials a fresh one.
+    // The closing stream stays routable: its flush and its close both arrive
+    // after stop(), and the cycle is sealed by that close.
     await session.handleBinaryAudio(LOUD_CHUNK);
     await waitFor(
       () => transcribers.length === 2,
       "The next utterance never dialed a replacement stream",
     );
+
+    await session.close("client_end");
+  }, 10_000);
+
+  test("routes a closing stream's flush into the turn it released", async () => {
+    const { session, transcribers, turnCalls } = createHarness({
+      fluxConfig: FLUX_ON,
+      startVoiceTurn: autoCompletingTurn(),
+    });
+
+    await session.start();
+    await session.handleBinaryAudio(LOUD_CHUNK);
+    await waitFor(() => transcribers.length > 0);
+    const transcriber = transcribers[0];
+    // Flux transcribes nothing and never closes the turn, so the fail-open
+    // deadline releases a cycle with no transcript: there is no speculative
+    // dispatch to answer this turn, only what the close flushes.
+    if (transcriber) {
+      transcriber.pendingFlushText = "the whole sentence";
+    }
+
+    await waitFor(
+      () => turnCalls.length === 1,
+      "The flushed transcript never reached an assistant turn",
+    );
+    expect(turnCalls[0]?.content).toBe("the whole sentence");
 
     await session.close("client_end");
   }, 10_000);
@@ -1002,8 +1036,9 @@ describe("LiveVoiceSession Flux end-of-turn during the STT dial", () => {
     await waitFor(() => transcribers.length > 0);
     transcribers[0]?.emit({ type: "final", text: "hello there" });
 
-    // The local silence boundary owns this turn, exactly as before: a stream
-    // the caller can neither flush nor rely on to seal itself must close.
+    // With provider turn-end disabled the local silence boundary owns the
+    // turn, and a stream the caller can neither flush nor rely on to seal
+    // itself must close for its transcript to land.
     await waitFor(
       () => turnCalls.length === 1,
       "The silence boundary never committed the turn",

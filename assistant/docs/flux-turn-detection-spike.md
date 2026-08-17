@@ -121,7 +121,7 @@ Consequences for the numbers, all now specific to the caller-side path:
 - **`endpointCommitLatencyMs` never contains a teardown.** `releaseUtterance` stamps the commit latency and `utteranceEndAtMs` before any stop, so the headline comparison is clean on both arms.
 - **`roundTripMs`, `llmFirstDeltaMs`, and `totalMs` contain it only when the caller released the turn,** which with the latch on means the exceptional paths rather than every turn.
 
-Before JARVIS-1538 every utterance dialed its own socket, and the audio arriving during that handshake was lost rather than replayed from the VAD pre-roll buffer — the opening words of each turn after the first went missing ("How many days are in February?" transcribed as "many days are in February?"). A persistent stream removes the handshake, and with it the gap.
+Before JARVIS-1538 every utterance dialed its own socket, and the audio arriving during that handshake was lost rather than replayed from the VAD pre-roll buffer. The opening words of each turn after the first went missing ("How many days are in February?" transcribed as "many days are in February?"). A persistent stream removes the handshake, and with it the gap.
 
 ### What this A/B still does not hold constant
 

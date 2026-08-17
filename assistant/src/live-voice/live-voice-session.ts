@@ -1226,7 +1226,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
   private readonly metricsClock: LiveVoiceMetricsClock;
   // Persistent mode: a server-VAD session keeps one streaming transcriber for
   // the whole session when the stream can be sealed per utterance without
-  // closing it — either the provider is finalize-capable (release flushes via
+  // closing it. Either the provider is finalize-capable (release flushes via
   // finalizeUtterance()) or the provider decides turn ends itself (release is
   // already sealed by the end-of-turn that triggered it). Re-arm reuses this
   // instance synchronously. Null in manual mode, for a stream that offers
@@ -1650,7 +1650,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
           // on the normal path: its end-of-turn IS the flush, and it commits
           // the transcript in the same event. Gating persistence on
           // `finalizeUtterance` alone asks "can the caller flush this stream"
-          // when the question is "will the caller ever have to" — and answering
+          // when the question is "will the caller ever have to", and answering
           // it wrong costs a socket per utterance, which drops the audio that
           // arrives while the next one dials.
           this.providerTurnEndActive)
@@ -3755,9 +3755,14 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       }
       // A caller-side boundary on a stream with no flush: only closing it can
       // make the provider answer for a turn still open, so this one release
-      // costs the stream. Retire it first so the next arm dials a fresh one
-      // rather than re-arming onto a closing socket.
-      this.releaseSharedTranscriber(shared);
+      // costs the stream. The stream stays installed as the shared one across
+      // the close: its flush `final` and its `closed` both arrive after
+      // `stop()`, and the shared router drops events from a stream it no
+      // longer recognizes. `closed` is what retires it, seals this cycle and
+      // dispatches the turn, so clearing the reference here would strand the
+      // cycle in `released` with the flushed transcript discarded. Nothing can
+      // re-arm onto the closing stream in the meantime: the next arm waits on
+      // the assistant turn, which waits on that same `closed`.
     }
 
     utterance.phase = "released";
@@ -3780,7 +3785,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
   // Persistent-mode release for a provider-decided turn end: the event that
   // released this cycle already carried its final transcript, so there is
   // nothing to flush and no reason to close the stream. Sealing the phase is
-  // the whole of the teardown — the same "transcript complete, stream open"
+  // the whole of the teardown: the same "transcript complete, stream open"
   // state the `finalized` path reaches, arrived at without a round trip.
   private async sealProviderClosedUtterance(
     utterance: UtteranceCycle,
