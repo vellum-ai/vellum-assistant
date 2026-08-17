@@ -7,13 +7,12 @@ import type { WorkspaceMigration } from "./types.js";
  * Repair the retired undated Fireworks DeepSeek V4 Flash model ID in
  * workspace LLM config.
  *
- * Fireworks removed the undated `accounts/fireworks/models/deepseek-v4-flash`
- * deployment (404 "Model not found, inaccessible, and/or not deployed") and
- * now serves only the dated official release
- * `accounts/fireworks/models/deepseek-v4-flash-0731`. Existing configs can
- * still pin the undated ID in `llm.default`, `llm.callSites.*`, and
- * `llm.profiles.*` — the cost-optimized default profile carried it and
- * migration 136 rewrote stale kimi-k2p5 pins to it.
+ * Fireworks serves DeepSeek V4 Flash only under the dated official release
+ * ID `accounts/fireworks/models/deepseek-v4-flash-0731`; the undated
+ * `accounts/fireworks/models/deepseek-v4-flash` has no deployment and every
+ * call to it fails with a 404 "Model not found, inaccessible, and/or not
+ * deployed". Existing configs can still pin the undated ID in
+ * `llm.default`, `llm.callSites.*`, and `llm.profiles.*`.
  *
  * Repair those leaves only on an exact stale match, replacing with the
  * dated ID.
@@ -21,11 +20,10 @@ import type { WorkspaceMigration } from "./types.js";
  * Provider guard: the stale ID belongs to the `fireworks` provider and also
  * appears in managed profiles stamped `provider: "vellum"` (which route
  * Fireworks-account model IDs through the managed proxy). A fragment is
- * repaired when its `provider` is `"fireworks"`, `"vellum"`, or absent; an
- * explicit other provider — including a connection entry name written by
- * migration 145 — is left untouched: an `openai-compatible` endpoint may
- * legitimately serve a model by the stale name, and an entry-bound profile
- * is the user's to manage.
+ * repaired when its `provider` is `"fireworks"`, `"vellum"`, or absent. An
+ * explicit other provider, including a connection entry name, is left
+ * untouched: an `openai-compatible` endpoint may legitimately serve a model
+ * by the stale name, and an entry-bound profile is the user's to manage.
  */
 export const repairRetiredFireworksDeepseekFlashModelIdMigration: WorkspaceMigration =
   {
