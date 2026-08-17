@@ -394,20 +394,13 @@ final class SelfHostedServer {
         if (rawPath == null || rawPath.isEmpty() || "/".equals(rawPath)) {
             return "";
         }
+        // Percent-escape casing is preserved, matching the iOS canonicalizer
+        // and the web normalizeOriginUrl.
         String normalized = rawPath;
         while (normalized.endsWith("/") && normalized.length() > 1) {
             normalized = normalized.substring(0, normalized.length() - 1);
         }
-        StringBuilder canonical = new StringBuilder(normalized.length());
-        for (int index = 0; index < normalized.length(); index++) {
-            char item = normalized.charAt(index);
-            canonical.append(item);
-            if (item == '%' && index + 2 < normalized.length()) {
-                canonical.append(Character.toUpperCase(normalized.charAt(++index)));
-                canonical.append(Character.toUpperCase(normalized.charAt(++index)));
-            }
-        }
-        return canonical.toString();
+        return normalized;
     }
 
     private static boolean containsEncodedDotSegment(String rawPath) {

@@ -19,9 +19,11 @@ public class SelfHostedServerTest {
 
     @Test
     public void preservesEscapedReservedCharacters() {
-        URI server = SelfHostedServer.validate("https://example.com/tenant%2fabc/");
+        URI lower = SelfHostedServer.validate("https://example.com/tenant%2fabc/");
+        URI upper = SelfHostedServer.validate("https://example.com/tenant%2Fabc/");
 
-        assertEquals("https://example.com/tenant%2Fabc", server.toASCIIString());
+        assertEquals("https://example.com/tenant%2fabc", lower.toASCIIString());
+        assertEquals("https://example.com/tenant%2Fabc", upper.toASCIIString());
     }
 
     @Test
@@ -86,7 +88,7 @@ public class SelfHostedServerTest {
     public void keepsEscapedSeparatorsDistinctWhenMatchingPrefixes() {
         URI server = SelfHostedServer.validate("https://example.com/tenant%2Fabc");
 
-        assertTrue(SelfHostedServer.contains(server, "https://example.com/tenant%2fabc/assistant/pair"));
+        assertTrue(SelfHostedServer.contains(server, "https://example.com/tenant%2Fabc/assistant/pair"));
         assertFalse(SelfHostedServer.contains(server, "https://example.com/tenant/abc/assistant/pair"));
     }
 
