@@ -104,11 +104,18 @@ export interface SkillSummary {
   owner?: OwnerInfo;
   /** Parsed tool manifest metadata, if the skill has a valid TOOLS.json. */
   toolManifest?: SkillToolManifestMeta;
-  /** IDs of child skills that this skill includes (metadata-only, not auto-activated). */
+  /**
+   * IDs of child skills this skill composes. `skill_load` inlines each child's
+   * body and projects its tools when the parent loads (tools/skills/load.ts);
+   * they play no part in which skills get selected for a turn.
+   */
   includes?: string[];
   /** Feature flag ID declared in frontmatter. Only skills with this field are subject to feature flag gating. */
   featureFlag?: string;
-  /** Compact routing cues projected into <available_skills> XML to guide skill selection. */
+  /**
+   * Intent phrases rendered into the skill's capability card as "Use when: ..."
+   * (memory substrate/skill-content.ts), which is the text skill routing scores.
+   */
   activationHints?: string[];
   /** Conditions under which this skill should NOT be loaded. */
   avoidWhen?: string[];
