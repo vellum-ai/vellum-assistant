@@ -1,14 +1,15 @@
 /**
- * The overview's bento cards draw a countable stat as two elements: the hero
- * numeral (`IdentitySectionStat.value`) and, under it, a small unit label
- * (`IdentitySectionStat.label`). The mini tile joins the same two as
- * `${value} ${label}`. Either way the card supplies the number, so a unit
- * label that also spells the count (`# memories`) shows it twice: "34 34
- * memories".
+ * A countable stat on the overview's bento cards has two copy shapes. The
+ * full-size card draws the hero numeral (`IdentitySectionStat.value`) with a
+ * small unit label under it (`IdentitySectionStat.label`), so the label must
+ * name the unit only; one that also spells the count (`# memories`) shows it
+ * twice: "34 34 memories". The mini tile renders `IdentitySectionStat.text`,
+ * a whole ICU message, so that one must carry the count itself.
  *
  * `catalogs.test.ts` proves these messages parse and keep their placeholders;
- * a `#` inside a plural branch passes both. This asserts the rendered label
- * for every unit-label key, in every locale, never contains the count.
+ * a `#` in the wrong shape passes both. This formats every key of each shape,
+ * in every locale, and asserts the count is absent from unit labels and
+ * present exactly once in the one-line phrases.
  */
 import { describe, expect, test } from "bun:test";
 import IntlMessageFormat from "intl-messageformat";
@@ -27,6 +28,18 @@ const UNIT_LABEL_KEYS = [
   "useIdentitySectionStats.connectedLabel",
   "useIdentitySectionStats.itemLabel",
   "useIdentitySectionStats.personLabel",
+] as const;
+
+/**
+ * Every `intelligence` key read into `IdentitySectionStat.text` for a
+ * countable stat (same producers as the unit labels).
+ */
+const COUNT_PHRASE_KEYS = [
+  "identityOverview.memoryCount",
+  "useIdentitySectionStats.activeCount",
+  "useIdentitySectionStats.connectedCount",
+  "useIdentitySectionStats.itemCount",
+  "useIdentitySectionStats.personCount",
 ] as const;
 
 /** Exercises the `one` and `other` categories and a multi-digit count. */
@@ -52,20 +65,43 @@ function lookup(catalog: unknown, key: string): string | undefined {
   return typeof node === "string" ? node : undefined;
 }
 
+/**
+ * The message under `key` rendered at each of `COUNTS`, or `undefined` when
+ * the locale has no translation (it then falls back to English, which is
+ * checked on its own pass).
+ */
+function renderings(
+  locale: string,
+  key: string,
+): Array<{ count: number; rendered: string }> | undefined {
+  const message = lookup(CATALOGS[locale].intelligence, key);
+  if (message === undefined) {
+    return undefined;
+  }
+  return COUNTS.map((count) => ({
+    count,
+    rendered: String(new IntlMessageFormat(message, locale).format({ count })),
+  }));
+}
+
+function occurrences(haystack: string, needle: string): number {
+  return haystack.split(needle).length - 1;
+}
+
+function requireEnglish(key: string): (count: number) => string {
+  const message = lookup(CATALOGS.en.intelligence, key);
+  if (message === undefined) {
+    throw new Error(`en catalog is missing ${key}`);
+  }
+  return (count) =>
+    String(new IntlMessageFormat(message, "en").format({ count }));
+}
+
 describe("identity section unit labels", () => {
   for (const locale of SUPPORTED_LOCALES) {
     for (const key of UNIT_LABEL_KEYS) {
       test(`${locale}/${key}: names the unit without repeating the count`, () => {
-        const message = lookup(CATALOGS[locale].intelligence, key);
-        // A missing translation falls back to English, which is checked on
-        // its own pass.
-        if (message === undefined) {
-          return;
-        }
-        for (const count of COUNTS) {
-          const rendered = String(
-            new IntlMessageFormat(message, locale).format({ count }),
-          );
+        for (const { count, rendered } of renderings(locale, key) ?? []) {
           expect(
             rendered,
             `${locale}/${key} at count=${count} rendered "${rendered}"`,
@@ -76,18 +112,29 @@ describe("identity section unit labels", () => {
   }
 
   test("en: the Memory card's unit label reads memory / memories", () => {
-    const message = lookup(
-      CATALOGS.en.intelligence,
-      "identityOverview.memoryCountLabel",
-    );
-    if (message === undefined) {
-      throw new Error(
-        "en catalog is missing identityOverview.memoryCountLabel",
-      );
-    }
-    const label = (count: number) =>
-      String(new IntlMessageFormat(message, "en").format({ count }));
+    const label = requireEnglish("identityOverview.memoryCountLabel");
     expect(label(1)).toBe("memory");
     expect(label(34)).toBe("memories");
+  });
+});
+
+describe("identity section count phrases", () => {
+  for (const locale of SUPPORTED_LOCALES) {
+    for (const key of COUNT_PHRASE_KEYS) {
+      test(`${locale}/${key}: states the count exactly once`, () => {
+        for (const { count, rendered } of renderings(locale, key) ?? []) {
+          expect(
+            occurrences(rendered, String(count)),
+            `${locale}/${key} at count=${count} rendered "${rendered}"`,
+          ).toBe(1);
+        }
+      });
+    }
+  }
+
+  test("en: the Memory tile reads N memory / N memories", () => {
+    const phrase = requireEnglish("identityOverview.memoryCount");
+    expect(phrase(1)).toBe("1 memory");
+    expect(phrase(34)).toBe("34 memories");
   });
 });

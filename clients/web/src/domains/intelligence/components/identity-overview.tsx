@@ -250,6 +250,7 @@ export function IdentityOverview({ assistantId }: IdentityOverviewProps) {
             label: t("identityOverview.memoryCountLabel", {
               count: memories,
             }),
+            text: t("identityOverview.memoryCount", { count: memories }),
           },
   };
 
@@ -449,8 +450,9 @@ function SectionCard({
   );
 
   if (mini) {
-    const miniStat =
-      stat?.value !== undefined ? `${stat.value} ${stat.label}` : stat?.text;
+    // The one-line form only; the hero numeral and unit label are the
+    // full-size card's layout.
+    const miniStat = stat?.text;
     // Bottom-strip tile per Figma (New-App 6944-89405): left-aligned,
     // 12px radius, 40px icon slot in the secondary tone, 16px title over
     // an 11px tertiary stat.
