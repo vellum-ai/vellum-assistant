@@ -138,14 +138,19 @@ describe("primeLocalGatewayConnectionAfterRestart", () => {
     expect(wakeLocalAssistantHost).not.toHaveBeenCalled();
   });
 
-  test("restores a newly selected assistant after restart", async () => {
+  test("follows assistant selection changes until the connection is stable", async () => {
     const tokenUrls: (string | undefined)[] = [];
     let releaseRestartedMint: (() => void) | undefined;
+    let releaseSecondMint: (() => void) | undefined;
     ensureGatewayTokenImpl = async (tokenUrl) => {
       tokenUrls.push(tokenUrl);
       if (tokenUrls.length === 1) {
         await new Promise<void>((resolve) => {
           releaseRestartedMint = resolve;
+        });
+      } else if (tokenUrls.length === 2) {
+        await new Promise<void>((resolve) => {
+          releaseSecondMint = resolve;
         });
       }
     };
@@ -165,12 +170,28 @@ describe("primeLocalGatewayConnectionAfterRestart", () => {
     });
     writeSelectedAssistantId("local-b");
     releaseRestartedMint?.();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    const latestAssistant = {
+      ...localAssistant,
+      assistantId: "local-c",
+      resources: { gatewayPort: 7833, daemonPort: 7834 },
+    };
+    useLockfileStore.setState({
+      lockfile: {
+        assistants: [localAssistant, otherAssistant, latestAssistant],
+        activeAssistant: "local-c",
+      },
+    });
+    writeSelectedAssistantId("local-c");
+    releaseSecondMint?.();
 
     await reconnect;
 
     expect(tokenUrls).toEqual([
       "http://127.0.0.1:7830/token",
       "http://127.0.0.1:7831/token",
+      "http://127.0.0.1:7833/token",
     ]);
   });
 });
@@ -306,7 +327,11 @@ describe("repairLocalAssistantAfterRestart", () => {
 
     const result = await repairLocalAssistantAfterRestart("local-a");
 
-    expect(result).toEqual({ ok: false, error: "repair failed" });
+    expect(result).toEqual({
+      ok: false,
+      reason: "repair_failed",
+      error: "repair failed",
+    });
     expect(isLocalGatewayRestartInProgress()).toBe(false);
   });
 });

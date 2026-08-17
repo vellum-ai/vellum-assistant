@@ -1042,26 +1042,33 @@ export async function primeLocalGatewayConnectionAfterRestart(
     isGatewayRestartTransient,
     { forceMint: true },
   );
-  // Selection can change while restart waits. Keep the current assistant live.
-  const selected = getSelectedAssistant();
-  if (selected?.assistantId === assistantId) {
-    return;
+  let connectedAssistantId = assistantId;
+  for (;;) {
+    // Selection can change while a prime waits. Follow it until it is stable.
+    const selected = getSelectedAssistant();
+    if (selected?.assistantId === connectedAssistantId) {
+      return;
+    }
+    if (
+      !selected ||
+      (!expectsLocalGateway(selected) && !expectsPairedGateway(selected))
+    ) {
+      clearGatewayToken();
+      setSelfHostedConnection(null);
+      return;
+    }
+    await primeLocalGatewayConnection(selected);
+    connectedAssistantId = selected.assistantId;
   }
-  if (
-    !selected ||
-    (!expectsLocalGateway(selected) && !expectsPairedGateway(selected))
-  ) {
-    clearGatewayToken();
-    setSelfHostedConnection(null);
-    return;
-  }
-  await primeLocalGatewayConnection(selected);
 }
 
 type RestartLocalAssistantResult = {
   ok: boolean;
   error?: string;
-  reason?: "reconnect_failed" | "guardian_repair_required";
+  reason?:
+    | "reconnect_failed"
+    | "guardian_repair_required"
+    | "repair_failed";
 };
 
 /**
@@ -1115,6 +1122,7 @@ export async function repairLocalAssistantAfterRestart(
     if (!repair.ok) {
       return {
         ok: false,
+        reason: "repair_failed",
         error: repair.error ?? "Failed to repair assistant connection.",
       };
     }

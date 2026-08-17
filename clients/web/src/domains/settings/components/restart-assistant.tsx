@@ -80,10 +80,15 @@ export function RestartAssistant({
       if (result.ok) {
         toast.success("Assistant is restarting.");
       } else {
+        if (result.reason === "repair_failed" && result.error) {
+          captureError(new Error(result.error), {
+            context: "restart_assistant_guardian_repair",
+          });
+        }
         toast.error(
           result.reason === "reconnect_failed"
             ? t("settings:restartAssistant.reconnectFailed")
-            : (result.error ?? t("settings:restartAssistant.repairFailed")),
+            : t("settings:restartAssistant.repairFailed"),
         );
       }
     } catch (error) {

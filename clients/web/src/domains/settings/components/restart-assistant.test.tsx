@@ -6,7 +6,15 @@ const restartLocalAssistantMock = mock(async () => ({
   ok: false,
   reason: "guardian_repair_required" as const,
 }));
-const repairLocalAssistantAfterRestartMock = mock(async () => ({ ok: true }));
+const repairLocalAssistantAfterRestartMock = mock(
+  async (): Promise<{
+    ok: boolean;
+    reason?: "repair_failed";
+    error?: string;
+  }> => ({ ok: true }),
+);
+const toastErrorMock = mock(() => {});
+const captureErrorMock = mock(() => {});
 
 mock.module("@/lib/local-mode", () => ({
   isCliWakeableAssistant: () => true,
@@ -74,11 +82,11 @@ mock.module("@vellumai/design-library/components/confirm-dialog", () => ({
 }));
 
 mock.module("@vellumai/design-library/components/toast", () => ({
-  toast: { success: mock(() => {}), error: mock(() => {}) },
+  toast: { success: mock(() => {}), error: toastErrorMock },
 }));
 
 mock.module("@/lib/sentry/capture-error", () => ({
-  captureError: mock(() => {}),
+  captureError: captureErrorMock,
 }));
 
 const { RestartAssistant } = await import("./restart-assistant");
@@ -86,6 +94,11 @@ const { RestartAssistant } = await import("./restart-assistant");
 beforeEach(() => {
   restartLocalAssistantMock.mockClear();
   repairLocalAssistantAfterRestartMock.mockClear();
+  repairLocalAssistantAfterRestartMock.mockImplementation(async () => ({
+    ok: true,
+  }));
+  toastErrorMock.mockClear();
+  captureErrorMock.mockClear();
 });
 
 afterEach(() => {
@@ -110,4 +123,23 @@ test("confirms guardian repair separately after restart authentication fails", a
       "local-a",
     ),
   );
+});
+
+test("logs repair details but shows a localized failure", async () => {
+  repairLocalAssistantAfterRestartMock.mockImplementation(async () => ({
+    ok: false,
+    reason: "repair_failed",
+    error: "low-level host failure",
+  }));
+  render(<RestartAssistant assistantId="local-a" isLocal={true} />);
+
+  fireEvent.click(screen.getByRole("button", { name: "Restart" }));
+  fireEvent.click(screen.getAllByRole("button", { name: "Restart" })[1]);
+  fireEvent.click(
+    await screen.findByRole("button", { name: "Repair connection" }),
+  );
+
+  await waitFor(() => expect(toastErrorMock).toHaveBeenCalledWith("Repair failed"));
+  expect(captureErrorMock).toHaveBeenCalledTimes(1);
+  expect(screen.queryByText("low-level host failure")).toBeNull();
 });
