@@ -139,7 +139,10 @@ export async function handleCreateRemoteWebPairingChallenge(
   const capacityLimited = checkRemoteWebPairingChallengeCapacity();
   if (capacityLimited) return capacityLimitedResponse(capacityLimited);
 
-  const challenge = createRemoteWebPairingChallenge(publicBaseUrl);
+  const challenge = createRemoteWebPairingChallenge(publicBaseUrl, {
+    ip: clientIp,
+    userAgent: req.headers.get("user-agent"),
+  });
 
   return Response.json(challenge, {
     headers: { "Cache-Control": "no-store" },
