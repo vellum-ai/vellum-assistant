@@ -1,11 +1,6 @@
 namespace Vellum.WindowsHelper.Modules;
 
-public enum CuVerdict
-{
-    Allowed,
-    NeedsConfirmation,
-    Blocked,
-}
+public enum CuVerdict { Allowed, NeedsConfirmation, Blocked }
 
 public sealed record CuVerifyResult(CuVerdict Verdict, string? Reason = null);
 
