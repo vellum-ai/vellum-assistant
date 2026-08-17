@@ -14,14 +14,24 @@ const host = await import("@/runtime/local-mode-host");
 let primeShouldSucceed: () => boolean;
 let fetchGuardianTokenHost = mock(async (_id: string) => "tok");
 let sleepLocalAssistantHost = mock(async (_id: string) => ({ ok: true }));
-let wakeLocalAssistantHost = mock(async (_id: string) => ({ ok: true }));
+let wakeLocalAssistantHost = mock(
+  async (_id: string, _options?: { repairGuardian?: boolean }) => ({
+    ok: true,
+  }),
+);
 let clearGatewayTokenMock = mock(() => {});
 
 mock.module("@/runtime/local-mode-host", () => ({
   ...host,
   fetchGuardianTokenHost: (id: string) => fetchGuardianTokenHost(id),
   sleepLocalAssistantHost: (id: string) => sleepLocalAssistantHost(id),
-  wakeLocalAssistantHost: (id: string) => wakeLocalAssistantHost(id),
+  wakeLocalAssistantHost: (
+    id: string,
+    options?: { repairGuardian?: boolean },
+  ) =>
+    options === undefined
+      ? wakeLocalAssistantHost(id)
+      : wakeLocalAssistantHost(id, options),
   // The post-wake reload reads back the lockfile; serve the in-store copy so the
   // retry resolves the selected assistant rather than hitting the real host.
   loadLockfileHost: async () =>
@@ -94,7 +104,11 @@ beforeEach(() => {
     return "tok";
   });
   sleepLocalAssistantHost = mock(async (_id: string) => ({ ok: true }));
-  wakeLocalAssistantHost = mock(async (_id: string) => ({ ok: true }));
+  wakeLocalAssistantHost = mock(
+    async (_id: string, _options?: { repairGuardian?: boolean }) => ({
+      ok: true,
+    }),
+  );
   clearGatewayTokenMock = mock(() => {});
   selectLocalAssistant();
 });
@@ -162,7 +176,63 @@ describe("restartLocalAssistant", () => {
       ok: false,
       reason: "reconnect_failed",
     });
+    expect(wakeLocalAssistantHost).toHaveBeenCalledTimes(1);
     expect(isLocalGatewayRestartInProgress()).toBe(false);
+  });
+
+  test("repairs a guardian lease rejected after restart", async () => {
+    let mintAttempts = 0;
+    ensureGatewayTokenImpl = async () => {
+      if (mintAttempts++ === 0) {
+        throw new GatewayTokenError(401, "guardian rejected");
+      }
+    };
+    LOCAL_GATEWAY_STARTUP_RETRY.attempts = 1;
+
+    await expect(restartLocalAssistant("local-a")).resolves.toEqual({
+      ok: true,
+    });
+
+    expect(wakeLocalAssistantHost).toHaveBeenCalledTimes(2);
+    expect(wakeLocalAssistantHost).toHaveBeenNthCalledWith(1, "local-a");
+    expect(wakeLocalAssistantHost).toHaveBeenNthCalledWith(2, "local-a", {
+      repairGuardian: true,
+    });
+    expect(mintAttempts).toBe(2);
+  });
+
+  test("does not repair a post-restart 403", async () => {
+    ensureGatewayTokenImpl = async () => {
+      throw new GatewayTokenError(403, "boundary refused");
+    };
+    LOCAL_GATEWAY_STARTUP_RETRY.attempts = 1;
+
+    await expect(restartLocalAssistant("local-a")).resolves.toEqual({
+      ok: false,
+      reason: "reconnect_failed",
+    });
+
+    expect(wakeLocalAssistantHost).toHaveBeenCalledTimes(1);
+  });
+
+  test("attempts guardian repair only once", async () => {
+    let mintAttempts = 0;
+    ensureGatewayTokenImpl = async () => {
+      mintAttempts++;
+      throw new GatewayTokenError(401, "guardian rejected");
+    };
+    LOCAL_GATEWAY_STARTUP_RETRY.attempts = 1;
+
+    await expect(restartLocalAssistant("local-a")).resolves.toEqual({
+      ok: false,
+      reason: "reconnect_failed",
+    });
+
+    expect(wakeLocalAssistantHost).toHaveBeenCalledTimes(2);
+    expect(wakeLocalAssistantHost).toHaveBeenLastCalledWith("local-a", {
+      repairGuardian: true,
+    });
+    expect(mintAttempts).toBe(2);
   });
 
   test("releases restart scope when wake fails", async () => {

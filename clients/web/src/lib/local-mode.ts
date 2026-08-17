@@ -1044,6 +1044,25 @@ export async function primeLocalGatewayConnectionAfterRestart(
   );
 }
 
+async function reconnectLocalAssistantAfterRestart(
+  assistantId: string,
+): Promise<void> {
+  try {
+    await primeLocalGatewayConnectionAfterRestart(assistantId);
+  } catch (error) {
+    if (!(error instanceof GatewayTokenError) || error.status !== 401) {
+      throw error;
+    }
+    const repair = await wakeLocalAssistantHost(assistantId, {
+      repairGuardian: true,
+    });
+    if (!repair.ok) {
+      throw error;
+    }
+    await primeLocalGatewayConnectionAfterRestart(assistantId);
+  }
+}
+
 /**
  * Restart a local assistant and restore its renderer gateway session before
  * allowing ordinary gateway 401 recovery to resume.
@@ -1072,7 +1091,7 @@ export async function restartLocalAssistant(
       };
     }
     try {
-      await primeLocalGatewayConnectionAfterRestart(assistantId);
+      await reconnectLocalAssistantAfterRestart(assistantId);
       return { ok: true };
     } catch {
       return {
