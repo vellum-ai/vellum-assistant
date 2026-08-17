@@ -53,6 +53,13 @@ public class SelfHostedServerTest {
     }
 
     @Test
+    public void rejectsNonAsciiHostsButKeepsAsciiAndIpv6LiteralHosts() {
+        assertNull(SelfHostedServer.validate("https://münchen.example"));
+        assertEquals("https://example.com", SelfHostedServer.validate("https://example.com").toASCIIString());
+        assertEquals("https://[::1]:8443", SelfHostedServer.validate("https://[::1]:8443").toASCIIString());
+    }
+
+    @Test
     public void storesOnlyValidatedServerBasesAndCanReset() {
         FakeStore store = new FakeStore();
         URI server = SelfHostedServer.validate("https://example.com/assistant-123");
@@ -205,6 +212,30 @@ public class SelfHostedServerTest {
     }
 
     @Test
+    public void readsExplicitJsonNullNamesAsUnnamed() {
+        FakeStore store = new FakeStore();
+        store.servers = "[{\"name\":null,\"url\":\"https://example.com/assistant-123\"}]";
+
+        List<SelfHostedServer.Entry> servers = SelfHostedServer.servers(store);
+
+        assertEquals(1, servers.size());
+        assertEquals(new SelfHostedServer.Entry(null, "https://example.com/assistant-123"), servers.get(0));
+    }
+
+    @Test
+    public void activateWritesTheActiveSlotAndRemembersTheOrigin() {
+        FakeStore store = new FakeStore();
+        URI server = SelfHostedServer.validate("https://example.com:443/assistant-123/");
+
+        SelfHostedServer.activate(store, server, "Living Room");
+
+        assertTrue(SelfHostedServer.isActive(store, server));
+        List<SelfHostedServer.Entry> servers = SelfHostedServer.servers(store);
+        assertEquals(1, servers.size());
+        assertEquals(new SelfHostedServer.Entry("Living Room", "https://example.com/assistant-123"), servers.get(0));
+    }
+
+    @Test
     public void foldsInLegacyActiveUrlWithoutWritingBack() {
         FakeStore store = new FakeStore();
         SelfHostedServer.store(store, SelfHostedServer.validate("https://example.com:443/assistant-123"));
@@ -268,6 +299,16 @@ public class SelfHostedServerTest {
         assertNull(SelfHostedServer.appRoute("https://host/assistant", "pair#fragment"));
         assertNull(SelfHostedServer.appRoute("https://host/assistant", "a/../b"));
         assertNull(SelfHostedServer.appRoute("https://host/assistant", "   "));
+    }
+
+    @Test
+    public void appRouteRejectsColonsOnlyInTheFirstSegment() {
+        assertNull(SelfHostedServer.appRoute("https://host/assistant", "mailto:x"));
+        assertNull(SelfHostedServer.appRoute("https://host/assistant", "evil.example:8080/x"));
+        assertEquals(
+            "https://host/assistant/conversations/abc:def",
+            SelfHostedServer.appRoute("https://host/assistant", "conversations/abc:def")
+        );
     }
 
     @Test

@@ -104,7 +104,7 @@ public class SelfHostedServersPlugin extends Plugin {
     public void switchToPath(PluginCall call) {
         String raw = call.getString("path");
         String path = raw == null ? "" : raw.trim();
-        if (path.isEmpty() || path.startsWith("/") || path.contains("://") || path.contains("#")) {
+        if (!SelfHostedServer.isRoutePathShape(path)) {
             call.reject("invalid path");
             return;
         }
@@ -132,15 +132,20 @@ public class SelfHostedServersPlugin extends Plugin {
             call.reject("invalid url");
             return false;
         }
-        SelfHostedServer.store(getContext(), url);
-        SelfHostedServer.append(getContext(), url, null);
+        SelfHostedServer.activate(getContext(), url, null);
         return true;
     }
 
     private void scheduleRecreate(String routePath) {
         Activity activity = getActivity();
         if (activity instanceof MainActivity mainActivity) {
-            activity.runOnUiThread(() -> mainActivity.recreateForServerChange(routePath));
+            activity.runOnUiThread(() -> {
+                // A superseded activity must not consume or plant recreation state.
+                if (mainActivity.isFinishing() || mainActivity.isDestroyed()) {
+                    return;
+                }
+                mainActivity.recreateForServerChange(routePath);
+            });
         }
     }
 
