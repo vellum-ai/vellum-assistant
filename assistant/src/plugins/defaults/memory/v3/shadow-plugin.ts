@@ -32,6 +32,7 @@ import {
   stringifyMessageContent,
 } from "@vellumai/plugin-api";
 
+import { ESCALATION_CONTINUATION_CONTENT } from "../../../../calls/voice-triage-escalate.js";
 import { getConfig } from "../../../../config/loader.js";
 import { isMemoryEnabled } from "../../../../config/memory-v3-gate.js";
 import type { AssistantConfig } from "../../../../config/schema.js";
@@ -491,9 +492,10 @@ function buildSituationalContext(): string {
 
 /**
  * Build a v3 {@link MemoryRoutingTurn} from the conversation's persisted messages.
- * `currentMessage` is the latest visible user message;
+ * `currentMessage` is the latest user message, except that the synthetic voice
+ * escalation continuation routes on the preceding caller message;
  * `previousAssistantMessage` is the tail of the last assistant reply BEFORE
- * that message (the reply-query pass's input, absent on a conversation's
+ * the routed message (the reply-query pass's input, absent on a conversation's
  * first turn); `recentContext` is
  * the tail of the recent transcript; `situationalContext` carries the current
  * date and the live NOW.md scratchpad. Returns `null` when there is no user
@@ -512,14 +514,18 @@ async function buildShadowTurn(
   let currentIndex = -1;
   for (let i = rows.length - 1; i >= 0; i--) {
     const row = rows[i]!;
-    if (
-      row.role !== "user" ||
-      (await parseMessageMetadata(row.metadata))?.hidden === true
-    ) {
+    if (row.role !== "user") {
       continue;
     }
-    currentMessage = stringifyMessageContent(row.content);
-    if (currentMessage.length > 0) {
+    const candidate = stringifyMessageContent(row.content);
+    const isVoiceEscalationContinuation =
+      candidate === ESCALATION_CONTINUATION_CONTENT &&
+      (await parseMessageMetadata(row.metadata))?.hidden === true;
+    if (isVoiceEscalationContinuation) {
+      continue;
+    }
+    if (candidate.length > 0) {
+      currentMessage = candidate;
       currentIndex = i;
       break;
     }

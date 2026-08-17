@@ -67,6 +67,7 @@ mock.module("../runtime/assistant-event-hub.js", () => ({
 import type { UserPromptSubmitContext } from "@vellumai/plugin-api";
 
 import type { AssistantEvent } from "../api/index.js";
+import { ESCALATION_CONTINUATION_CONTENT } from "../calls/voice-triage-escalate.js";
 import type { AssistantConfig } from "../config/schema.js";
 import type { Conversation } from "../daemon/conversation.js";
 import type { QdrantSparseVector } from "../persistence/embeddings/qdrant-client.js";
@@ -210,7 +211,7 @@ describe("user-prompt-submit hook (memory retrieval)", () => {
     expect(applyRuntimeInjectionsMock).toHaveBeenCalledTimes(1);
   });
 
-  test("hidden continuation routes legacy retrieval on the preceding user message", async () => {
+  test("voice escalation continuation routes legacy retrieval on the preceding user message", async () => {
     const { memory, prepareMemoryMock } = makeFakeGraphMemory();
     installConversation(memory, { trusted: true });
     const latestMessages: Message[] = [
@@ -237,6 +238,7 @@ describe("user-prompt-submit hook (memory retrieval)", () => {
     const ctx = makeHookCtx({
       latestMessages,
       isHiddenPrompt: true,
+      prompt: ESCALATION_CONTINUATION_CONTENT,
     });
 
     await userPromptSubmitMemoryRetrieval(ctx);
@@ -249,6 +251,31 @@ describe("user-prompt-submit hook (memory retrieval)", () => {
         content: [{ type: "text", text: "What is my preferred editor?" }],
       },
     ]);
+  });
+
+  test("generic hidden prompts route legacy retrieval on their own content", async () => {
+    const { memory, prepareMemoryMock } = makeFakeGraphMemory();
+    installConversation(memory, { trusted: true });
+    const latestMessages: Message[] = [
+      {
+        role: "user",
+        content: [{ type: "text", text: "Visible caller message" }],
+      },
+      {
+        role: "user",
+        content: [{ type: "text", text: "Hidden prompt content" }],
+      },
+    ];
+    const ctx = makeHookCtx({
+      latestMessages,
+      isHiddenPrompt: true,
+      prompt: "Hidden prompt content",
+    });
+
+    await userPromptSubmitMemoryRetrieval(ctx);
+
+    expect(prepareMemoryMock).toHaveBeenCalledTimes(1);
+    expect(prepareMemoryMock.mock.calls[0]?.[4]).toBe(latestMessages);
   });
 
   test("adopts the injected run messages when the actor is trusted", async () => {

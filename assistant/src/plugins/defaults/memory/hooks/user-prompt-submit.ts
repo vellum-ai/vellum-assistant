@@ -34,6 +34,7 @@ import type {
 import { updateMessageMetadata } from "@vellumai/plugin-api";
 
 import type { MemoryRecalledEvent } from "../../../../api/events/memory-recalled.js";
+import { ESCALATION_CONTINUATION_CONTENT } from "../../../../calls/voice-triage-escalate.js";
 import { getConfig } from "../../../../config/loader.js";
 import { isMemoryV3Live } from "../../../../config/memory-v3-gate.js";
 import { findConversationOrSubagent } from "../../../../daemon/conversation-registry.js";
@@ -71,15 +72,15 @@ export function shouldRunLegacyMemoryRetrieval(params: {
 }
 
 /**
- * Internal prompts are model-control messages, not retrieval queries. Route
- * memory on the latest preceding user message and strip the runtime context
- * that was frozen onto it during its original turn.
+ * The voice escalation continuation is a model-control message, not a
+ * retrieval query. Route memory on the latest preceding user message and strip
+ * the runtime context that was frozen onto it during its original turn.
  */
 function legacyRetrievalRoutingMessages(
   messages: UserPromptSubmitContext["latestMessages"],
-  isHiddenPrompt: boolean,
+  routeOnPreviousUser: boolean,
 ): UserPromptSubmitContext["latestMessages"] {
-  if (!isHiddenPrompt) {
+  if (!routeOnPreviousUser) {
     return messages;
   }
 
@@ -350,7 +351,8 @@ const userPromptSubmitMemoryRetrieval: HookFunction<
           broadcastMessage,
           legacyRetrievalRoutingMessages(
             ctx.latestMessages,
-            ctx.isHiddenPrompt === true,
+            ctx.isHiddenPrompt === true &&
+              ctx.prompt === ESCALATION_CONTINUATION_CONTENT,
           ),
         ),
     );
