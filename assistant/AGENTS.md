@@ -75,7 +75,7 @@ The CLI and daemon are always shipped and upgraded together — there is no vers
 
 ### IPC-only routes
 
-Some routes are IPC-only (defined in `src/ipc/routes/`, not in the shared array). These are tool/CLI-specific methods (e.g. `wake_conversation`, `upsert_contact`) that have no HTTP counterpart. They follow the existing pattern: define in `src/ipc/routes/`, register in `src/ipc/routes/index.ts`.
+Some routes are IPC-only (defined in `src/ipc/routes/`, not in the shared array). These are tool/CLI-specific methods (e.g. `wake_conversation`, `upsert_contact`) that have no HTTP counterpart. They follow the existing pattern: define a `*_IPC_METHODS` map in `src/ipc/routes/` and add it to the list `AssistantIpcServer` iterates in `src/ipc/assistant-server.ts` (there is no index file; each map is imported by hand).
 
 The module-level dependency-injection pattern (`registerFooDeps()`) used by some IPC routes is a known antipattern. New IPC-only routes should avoid it.
 
