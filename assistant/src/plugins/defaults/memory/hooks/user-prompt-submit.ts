@@ -329,6 +329,9 @@ const userPromptSubmitMemoryRetrieval: HookFunction<
   // turn (prior turns' frozen v3 cards still ride history).
   const memoryV3Live = isMemoryV3Live(config);
   const isVoiceFrontDoor = conversation?.currentCallSite === "voiceFrontDoor";
+  if (isVoiceFrontDoor && conversation) {
+    conversation.graphMemory.recordPkbQueryVectors(undefined, undefined);
+  }
   let v2BlockPersisted = false;
   if (
     shouldRunLegacyMemoryRetrieval({ isTrustedActor, memoryV3Live }) &&

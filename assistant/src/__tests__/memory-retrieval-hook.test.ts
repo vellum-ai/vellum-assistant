@@ -200,7 +200,8 @@ beforeEach(() => {
 
 describe("user-prompt-submit hook (memory retrieval)", () => {
   test("voice front door skips serial legacy retrieval", async () => {
-    const { memory, prepareMemoryMock } = makeFakeGraphMemory();
+    const { memory, prepareMemoryMock, recordPkbQueryVectorsMock } =
+      makeFakeGraphMemory();
     const conversation = installConversation(memory, { trusted: true });
     conversation.currentCallSite = "voiceFrontDoor";
     const ctx = makeHookCtx({ conversationId: "conv-voice" });
@@ -208,6 +209,10 @@ describe("user-prompt-submit hook (memory retrieval)", () => {
     await userPromptSubmitMemoryRetrieval(ctx);
 
     expect(prepareMemoryMock).not.toHaveBeenCalled();
+    expect(recordPkbQueryVectorsMock).toHaveBeenCalledWith(
+      undefined,
+      undefined,
+    );
     expect(applyRuntimeInjectionsMock).toHaveBeenCalledTimes(1);
   });
 
