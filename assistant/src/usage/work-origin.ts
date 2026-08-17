@@ -76,8 +76,10 @@ const SPAWNED_CONVERSATION_SOURCES: ReadonlySet<string> = new Set([
 /**
  * Call sites whose work is memory maintenance regardless of the conversation
  * (or absence of one) they run in. `recall` fires inside ordinary user turns;
- * `filingAgent` is the memory v1 filing job; the consolidation / extraction /
- * migration / sweep sites run detached from any conversation.
+ * `filingAgent` is the memory v1 filing job; `patternScan` and
+ * `narrativeRefinement` are the v1 memory-graph maintenance jobs; the
+ * consolidation / extraction / migration / sweep sites run detached from any
+ * conversation.
  */
 const MEMORY_MAINTENANCE_CALL_SITES: ReadonlySet<string> = new Set([
   "memoryExtraction",
@@ -91,6 +93,8 @@ const MEMORY_MAINTENANCE_CALL_SITES: ReadonlySet<string> = new Set([
   "memoryRetrospective",
   "recall",
   "filingAgent",
+  "patternScan",
+  "narrativeRefinement",
 ]);
 
 /**

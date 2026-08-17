@@ -161,6 +161,8 @@ describe("classifyWorkOrigin", () => {
         "memoryRetrospective",
         "recall",
         "filingAgent",
+        "patternScan",
+        "narrativeRefinement",
       ] as const
     ).map((callSite) => ({
       name: `${callSite} call site maps to memory_maintenance`,
