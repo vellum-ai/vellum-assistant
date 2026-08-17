@@ -50,7 +50,7 @@ to hide irrelevant sections.
 
 ```
 routes.tsx
-  <App />            ← shared shell (nav, layout, providers)
+  <RootLayout />     ← shared shell (nav, layout, providers)
     <Outlet />
       <ChatPage />           ← lifecycle guards → mounts ActiveChatView
       <LibraryPage />        ← library listing
@@ -59,7 +59,7 @@ routes.tsx
 
 Push hooks down to the route component that needs them. Lift shared
 state to the nearest common ancestor — typically a layout route or a
-context provider mounted in `<App />`.
+context provider mounted in `<RootLayout />`.
 
 ### Layout header slots
 
@@ -852,8 +852,11 @@ Reference: [Vite — SSR guidance](https://vite.dev/guide/ssr.html)
 
 Domain-agnostic UI primitives (Button, Card, Modal, Typography, etc.)
 live in `packages/design-library/` outside `clients/web/`. The package is
-consumed as a `file:` dependency and resolved via its `exports` field
-in `package.json` — no Vite alias or tsconfig `paths` needed.
+a `workspace:*` dependency resolved via its `exports` field in
+`package.json`, so no Vite alias or tsconfig `paths` is needed. Do not
+switch it to a `file:` dependency: that, combined with per-package
+React installs, is what caused the two-Reacts white screen (see
+[`clients/web/AGENTS.md`](../AGENTS.md)).
 
 ```ts
 import { Button, Typography } from "@vellumai/design-library";
