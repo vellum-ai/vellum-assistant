@@ -251,11 +251,28 @@ function handleListConversations({ queryParams = {} }: RouteHandlerArgs) {
       ? queryParams.groupId
       : undefined;
 
+  // Only the literal "true" narrows. Anything else is a 400 for the same
+  // reason an unknown conversationType is: silently reading a typo or a
+  // newer client's value as "no filter" would return the full list where the
+  // client asked for a subset, and that skew is invisible.
+  const rawNeedsAttention = queryParams.needsAttention;
+  let needsAttention: true | undefined;
+  if (rawNeedsAttention !== undefined && rawNeedsAttention !== "") {
+    if (rawNeedsAttention === "true") {
+      needsAttention = true;
+    } else {
+      throw new BadRequestError(
+        `Unknown needsAttention "${rawNeedsAttention}"; expected "true" or omit.`,
+      );
+    }
+  }
+
   const filter: ConversationListFilter = {
     conversationType,
     archiveStatus,
     originChannel,
     groupId,
+    needsAttention,
   };
   let rows = listConversations({ ...filter, limit, offset });
   const totalCount = countConversations(filter);
@@ -579,6 +596,14 @@ export const ROUTES: RouteDefinition[] = [
         required: false,
         description:
           'Filter to a single group, so each sidebar section can load independently of the paginated list. Pass "system:all" for conversations in no group, "system:pinned" for the Pinned section, or a custom group id. A group-scoped request is recency-ordered like every list read (COALESCE(last_message_at, updated_at) descending) and never has pinned rows appended to it. Omit to span every group.',
+      },
+      {
+        name: "needsAttention",
+        type: "string",
+        required: false,
+        description:
+          'Pass "true" to return only conversations whose latest assistant message the user has not seen: the same predicate behind the unread count and the section index, so a client that keeps no complete conversation list can ask for exactly the rows its attention surfaces need. Composes with every other filter. Any value other than "true" is rejected. Omit to span every conversation.',
+        schema: { type: "string", enum: ["true"] },
       },
     ],
     responseBody: listConversationsResponseSchema,
