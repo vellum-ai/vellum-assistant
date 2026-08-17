@@ -53,6 +53,7 @@ const realGatewaySession = await import("@/lib/auth/gateway-session");
 const { GatewayTokenError } = realGatewaySession;
 let ensureGatewayTokenImpl: (
   tokenUrl?: string,
+  options?: EnsureGatewayTokenOptions,
 ) => Promise<string | void> = async () => {};
 
 mock.module("@/lib/auth/gateway-session", () => ({
@@ -63,7 +64,8 @@ mock.module("@/lib/auth/gateway-session", () => ({
     _guardianToken?: string,
     options?: EnsureGatewayTokenOptions,
   ) => {
-    const token = (await ensureGatewayTokenImpl(tokenUrl)) ?? "gateway-tok";
+    const token =
+      (await ensureGatewayTokenImpl(tokenUrl, options)) ?? "gateway-tok";
     options?.commit?.({
       token,
       expiresAtEpochSeconds: 9_999_999_999,
@@ -307,6 +309,44 @@ describe("primeLocalGatewayConnectionAfterRestart", () => {
     expect(setSelfHostedConnectionMock).toHaveBeenLastCalledWith(
       expect.objectContaining({
         token: "reconnected-token",
+        url: `${window.location.origin}/assistant/__gateway/7830`,
+      }),
+    );
+  });
+
+  test("force-mints after a same-assistant prime reuses the cached token", async () => {
+    let releaseRestartedMint: (() => void) | undefined;
+    let aMintAttempts = 0;
+    ensureGatewayTokenImpl = async (_tokenUrl, options) => {
+      aMintAttempts++;
+      if (aMintAttempts === 1) {
+        expect(options?.forceMint).toBe(true);
+        await new Promise<void>((resolve) => {
+          releaseRestartedMint = resolve;
+        });
+        return "superseded-token";
+      }
+      if (aMintAttempts === 2) {
+        expect(options?.forceMint).toBeUndefined();
+        return "cached-token";
+      }
+      expect(options?.forceMint).toBe(true);
+      return "fresh-token";
+    };
+
+    const reconnect = primeLocalGatewayConnectionAfterRestart("local-a");
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    await primeLocalGatewayConnection(localAssistant);
+    releaseRestartedMint?.();
+    await reconnect;
+
+    expect(aMintAttempts).toBe(3);
+    expect(seedGatewayTokenMock).toHaveBeenLastCalledWith(
+      expect.objectContaining({ token: "fresh-token" }),
+    );
+    expect(setSelfHostedConnectionMock).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        token: "fresh-token",
         url: `${window.location.origin}/assistant/__gateway/7830`,
       }),
     );

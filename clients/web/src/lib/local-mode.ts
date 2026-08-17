@@ -839,6 +839,7 @@ export interface PrimeLocalGatewayConnectionOptions
 let gatewayPrimeGeneration = 0;
 
 interface GatewayPrimeReservation {
+  assistantId: string | null;
   completion: Promise<boolean>;
   generation: number;
   resolve: (committed: boolean) => void;
@@ -847,9 +848,12 @@ interface GatewayPrimeReservation {
 
 let latestGatewayPrimeReservation: GatewayPrimeReservation | null = null;
 
-function reserveGatewayPrime(): GatewayPrimeReservation {
+function reserveGatewayPrime(
+  assistantId: string | null,
+): GatewayPrimeReservation {
   let resolve!: (committed: boolean) => void;
   const reservation: GatewayPrimeReservation = {
+    assistantId,
     completion: new Promise<boolean>((settle) => {
       resolve = settle;
     }),
@@ -872,20 +876,20 @@ function settleGatewayPrime(
   reservation.resolve(committed);
 }
 
-async function newerGatewayPrimeCommitted(
+async function newerCommittedGatewayPrimeAssistant(
   generation: number,
-): Promise<boolean> {
+): Promise<string | null> {
   let newer = latestGatewayPrimeReservation;
   while (newer && newer.generation > generation) {
     if (await newer.completion) {
-      return true;
+      return newer.assistantId;
     }
     if (latestGatewayPrimeReservation === newer) {
-      return false;
+      return null;
     }
     newer = latestGatewayPrimeReservation;
   }
-  return false;
+  return null;
 }
 
 async function primeReservedLocalGatewayConnection(
@@ -985,7 +989,9 @@ async function primeLatestLocalGatewayConnection(
   target?: LockfileAssistant,
   options: PrimeLocalGatewayConnectionOptions = {},
 ): Promise<boolean> {
-  const reservation = reserveGatewayPrime();
+  const reservation = reserveGatewayPrime(
+    target?.assistantId ?? getSelectedAssistant()?.assistantId ?? null,
+  );
   try {
     const committed = await primeReservedLocalGatewayConnection(
       target,
@@ -1005,7 +1011,9 @@ export async function primeLocalGatewayConnection(
   target?: LockfileAssistant,
   options: PrimeLocalGatewayConnectionOptions = {},
 ): Promise<void> {
-  const reservation = reserveGatewayPrime();
+  const reservation = reserveGatewayPrime(
+    target?.assistantId ?? getSelectedAssistant()?.assistantId ?? null,
+  );
   try {
     const committed = await primeReservedLocalGatewayConnection(
       target,
@@ -1141,7 +1149,9 @@ async function primeLocalGatewayWithStartupRideout(
 export async function primeLocalGatewayConnectionWithStartupRetry(
   target?: LockfileAssistant,
 ): Promise<void> {
-  const reservation = reserveGatewayPrime();
+  const reservation = reserveGatewayPrime(
+    target?.assistantId ?? getSelectedAssistant()?.assistantId ?? null,
+  );
   try {
     const committed = await primeLocalGatewayWithStartupRideout(
       target,
@@ -1186,7 +1196,9 @@ async function primeReservedLocalGatewayConnectionAfterRestart(
     !restartedCommitted &&
     getSelectedAssistant()?.assistantId === assistantId
   ) {
-    if (await newerGatewayPrimeCommitted(generation)) {
+    const newerAssistantId =
+      await newerCommittedGatewayPrimeAssistant(generation);
+    if (newerAssistantId !== null && newerAssistantId !== assistantId) {
       return;
     }
     await primeLocalGatewayConnectionAfterRestart(assistantId);
@@ -1241,7 +1253,7 @@ async function primeReservedLocalGatewayConnectionAfterRestart(
 export async function primeLocalGatewayConnectionAfterRestart(
   assistantId: string,
 ): Promise<void> {
-  const reservation = reserveGatewayPrime();
+  const reservation = reserveGatewayPrime(assistantId);
   try {
     await primeReservedLocalGatewayConnectionAfterRestart(
       assistantId,
@@ -1270,7 +1282,7 @@ type RestartLocalAssistantResult = {
 export async function restartLocalAssistant(
   assistantId: string,
 ): Promise<RestartLocalAssistantResult> {
-  const reservation = reserveGatewayPrime();
+  const reservation = reserveGatewayPrime(assistantId);
   const finishRestart = beginLocalGatewayRestart();
   try {
     const sleepResult = await sleepLocalAssistantHost(assistantId);
@@ -1314,7 +1326,7 @@ export async function restartLocalAssistant(
 export async function repairLocalAssistantAfterRestart(
   assistantId: string,
 ): Promise<RestartLocalAssistantResult> {
-  const reservation = reserveGatewayPrime();
+  const reservation = reserveGatewayPrime(assistantId);
   const finishRestart = beginLocalGatewayRestart();
   try {
     const repair = await wakeLocalAssistantHost(assistantId, {
@@ -1361,7 +1373,7 @@ export async function primeLocalGatewayConnectionWithRepair(
   options: PrimeLocalGatewayConnectionOptions = {},
 ): Promise<void> {
   const assistant = target ?? getSelectedAssistant();
-  const reservation = reserveGatewayPrime();
+  const reservation = reserveGatewayPrime(assistant?.assistantId ?? null);
   let committed = false;
   try {
     committed = await primeReservedLocalGatewayConnection(
