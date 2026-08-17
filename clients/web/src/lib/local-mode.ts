@@ -16,7 +16,7 @@ import {
   getGatewayToken,
   getLocalTokenUrl,
 } from "@/lib/auth/gateway-session";
-import { withLocalGatewayRestart } from "@/lib/auth/local-gateway-restart";
+import { beginLocalGatewayRestart } from "@/lib/auth/local-gateway-restart";
 import { getPlatformRuntimeUrl } from "@/lib/platform-runtime-url";
 import {
   getSelfHostedIngressUrl,
@@ -1026,7 +1026,9 @@ export async function primeLocalGatewayConnectionAfterRestart(
 export async function restartLocalAssistant(
   assistantId: string,
 ): Promise<{ ok: boolean; error?: string }> {
-  return withLocalGatewayRestart(async () => {
+  const finishRestart = beginLocalGatewayRestart();
+  let reconnecting = false;
+  try {
     const sleepResult = await sleepLocalAssistantHost(assistantId);
     if (!sleepResult.ok) {
       return {
@@ -1041,9 +1043,17 @@ export async function restartLocalAssistant(
         error: wakeResult.error ?? "Failed to start assistant.",
       };
     }
-    await primeLocalGatewayConnectionAfterRestart(assistantId);
+    reconnecting = true;
+    // Wake completed; renderer reconnection stays inside the restart scope.
+    void primeLocalGatewayConnectionAfterRestart(assistantId)
+      .catch(() => {})
+      .finally(finishRestart);
     return { ok: true };
-  });
+  } finally {
+    if (!reconnecting) {
+      finishRestart();
+    }
+  }
 }
 
 /**

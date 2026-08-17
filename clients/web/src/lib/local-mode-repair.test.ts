@@ -122,8 +122,14 @@ describe("primeLocalGatewayConnectionAfterRestart", () => {
 });
 
 describe("restartLocalAssistant", () => {
-  test("sleeps, wakes, and reconnects before reporting success", async () => {
-    const ensureGatewayTokenMock = mock(async () => {});
+  test("reports success after wake while reconnecting in restart scope", async () => {
+    let finishReconnect: (() => void) | undefined;
+    const ensureGatewayTokenMock = mock(
+      () =>
+        new Promise<void>((resolve) => {
+          finishReconnect = resolve;
+        }),
+    );
     ensureGatewayTokenImpl = ensureGatewayTokenMock;
     sleepLocalAssistantHost = mock(async () => {
       expect(isLocalGatewayRestartInProgress()).toBe(true);
@@ -136,7 +142,26 @@ describe("restartLocalAssistant", () => {
     expect(sleepLocalAssistantHost).toHaveBeenCalledWith("local-a");
     expect(wakeLocalAssistantHost).toHaveBeenCalledWith("local-a");
     expect(clearGatewayTokenMock).toHaveBeenCalledTimes(1);
+    await new Promise((resolve) => setTimeout(resolve, 0));
     expect(ensureGatewayTokenMock).toHaveBeenCalledTimes(1);
+    expect(isLocalGatewayRestartInProgress()).toBe(true);
+
+    finishReconnect?.();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(isLocalGatewayRestartInProgress()).toBe(false);
+  });
+
+  test("releases restart scope when wake fails", async () => {
+    wakeLocalAssistantHost = mock(async () => ({
+      ok: false,
+      error: "wake failed",
+    }));
+
+    const result = await restartLocalAssistant("local-a");
+
+    expect(result).toEqual({ ok: false, error: "wake failed" });
+    expect(clearGatewayTokenMock).not.toHaveBeenCalled();
     expect(isLocalGatewayRestartInProgress()).toBe(false);
   });
 });

@@ -127,7 +127,7 @@ import {
   rewriteForSelfHostedIngress,
 } from "@/lib/api-interceptors";
 import { ApiError } from "@/utils/api-errors";
-import { withLocalGatewayRestart } from "@/lib/auth/local-gateway-restart";
+import { beginLocalGatewayRestart } from "@/lib/auth/local-gateway-restart";
 import { setSelfHostedConnection } from "@/lib/self-hosted/connection";
 import { getClientId } from "@/lib/telemetry/client-identity";
 import { __resetForTesting as resetSessionToken } from "@/runtime/session-token";
@@ -1106,6 +1106,17 @@ describe("api-interceptors / localGatewayAuthRecoveryInterceptor", () => {
     );
   }
 
+  async function duringLocalGatewayRestart(
+    operation: () => Promise<void> | void,
+  ): Promise<void> {
+    const finish = beginLocalGatewayRestart();
+    try {
+      await operation();
+    } finally {
+      finish();
+    }
+  }
+
   let originalReload: typeof window.location.reload;
   let reloadCalls: number;
 
@@ -1163,9 +1174,28 @@ describe("api-interceptors / localGatewayAuthRecoveryInterceptor", () => {
   test("does not reload for a 401 during an explicit local restart", async () => {
     seedGatewayTokens();
 
-    await withLocalGatewayRestart(async () => {
+    await duringLocalGatewayRestart(() => {
       localGatewayAuthRecoveryInterceptor(gatewayResponse(401));
     });
+
+    for (const key of GW_TOKEN_KEYS) {
+      expect(localStorage.getItem(key)).not.toBeNull();
+    }
+    expect(reloadCalls).toBe(0);
+    expect(sessionStorage.getItem(GW_401_ATTEMPTS_KEY)).toBeNull();
+  });
+
+  test("does not reload when a restart request returns 401 after restart", async () => {
+    seedGatewayTokens();
+    let request: Request | undefined;
+
+    await duringLocalGatewayRestart(async () => {
+      request = await daemonRequestInterceptor(
+        new Request(GATEWAY_URL + "/v1/assistants/123/conversations"),
+      );
+    });
+
+    localGatewayAuthRecoveryInterceptor(gatewayResponse(401), request);
 
     for (const key of GW_TOKEN_KEYS) {
       expect(localStorage.getItem(key)).not.toBeNull();

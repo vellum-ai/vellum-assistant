@@ -37,7 +37,11 @@ import { client as daemonClient } from "@/generated/daemon/client.gen";
 import { client as gatewayClient } from "@/generated/gateway/client.gen";
 import { ensureCsrfCookie, getCsrfToken } from "@/lib/auth/csrf";
 import { clearGatewayToken } from "@/lib/auth/gateway-session";
-import { isLocalGatewayRestartInProgress } from "@/lib/auth/local-gateway-restart";
+import {
+  isLocalGatewayRestartInProgress,
+  markLocalGatewayRestartRequest,
+  wasLocalGatewayRestartRequest,
+} from "@/lib/auth/local-gateway-restart";
 import { ApiError, toApiError } from "@/utils/api-errors";
 import {
   isLocalClient,
@@ -441,7 +445,9 @@ function createInterceptor({
     } catch {
       // Telemetry must never fail a request.
     }
-    return outgoing;
+    return isDaemonClient
+      ? markLocalGatewayRestartRequest(outgoing)
+      : outgoing;
   };
 }
 
@@ -513,6 +519,7 @@ export function resetGw401RecoveryFlag(): void {
 
 export function localGatewayAuthRecoveryInterceptor(
   response: Response,
+  request?: Request,
 ): Response {
   if (!isLocalClient()) {
     return response;
@@ -547,7 +554,10 @@ export function localGatewayAuthRecoveryInterceptor(
   if (response.status !== 401) {
     return response;
   }
-  if (isLocalGatewayRestartInProgress()) {
+  if (
+    isLocalGatewayRestartInProgress() ||
+    wasLocalGatewayRestartRequest(request)
+  ) {
     return response;
   }
   if (gw401RecoveryFired) {
