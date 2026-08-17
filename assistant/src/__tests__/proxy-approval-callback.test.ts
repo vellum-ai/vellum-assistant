@@ -34,6 +34,7 @@ function makeContext(overrides?: Partial<Conversation>): Conversation {
     workingDir: "/tmp/test-project",
     abortController: null,
     sendToClient: () => {},
+    emit: () => {},
     surfacesByAppId: new Map(),
     ...overrides,
   } as unknown as Conversation;

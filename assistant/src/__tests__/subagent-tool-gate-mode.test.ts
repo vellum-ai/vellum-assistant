@@ -119,6 +119,7 @@ function makeSetupCtx(overrides: Partial<Conversation> = {}): Conversation {
     getTurnActorPrincipalId: () => undefined,
     abortController: null,
     sendToClient: mock(() => {}),
+    emit: mock(() => {}),
     pendingSurfaceActions: new Map(),
     lastSurfaceAction: new Map(),
     surfaceState: new Map(),

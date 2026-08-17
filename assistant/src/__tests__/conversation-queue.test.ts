@@ -2988,6 +2988,9 @@ describe("Conversation host attachment directives", () => {
         attachments: [],
         onEvent: (e) => events.push(e),
         requestId: "req-1",
+        // A host attachment read prompts only when a human is present to
+        // answer; presence is declared per turn.
+        isInteractive: true,
       });
       await waitForPendingRun(1);
 
@@ -3058,6 +3061,9 @@ describe("Conversation host attachment directives", () => {
         attachments: [],
         onEvent: (e) => events.push(e),
         requestId: "req-1",
+        // A host attachment read prompts only when a human is present to
+        // answer; presence is declared per turn.
+        isInteractive: true,
       });
       await waitForPendingRun(1);
 

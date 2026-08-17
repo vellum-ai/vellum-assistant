@@ -1710,6 +1710,11 @@ export async function startVoiceTurn(
         // ordinary call-agent resolution.
         callSite:
           opts.routingLeg === "front-door" ? "voiceFrontDoor" : "callAgent",
+        // A caller is on the line, so the turn is interactive: approval prompts
+        // must be raised rather than pre-denied, because the approval observer
+        // above is what decides them (auto-resolve for a non-guardian caller,
+        // a real card the guardian can answer).
+        isInteractive: true,
         // The escalation-continuation prompt is a transcript-suppressed machine
         // signal (persisted `hidden`), so flag the turn to match — keeps
         // prompt-as-user-speech consumers (e.g. title generation) from treating

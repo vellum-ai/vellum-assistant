@@ -2212,6 +2212,12 @@ export async function handleSurfaceAction(
       activeSurfaceId: surfaceId,
       displayContent,
       sourceActorPrincipalId,
+      // A surface-action turn does not yet learn the actor's interface, so it
+      // cannot declare a human present the way the send route does; it runs
+      // non-interactive, which is what the state-derived fallback resolved to
+      // between turns. Deriving it from the actor's interface is a policy
+      // change tracked separately.
+      isInteractive: false,
       // Rides the metadata bag rather than a typed option: the queue
       // round-trips `metadata` but not `PersistMessageOptions`.
       metadata: { scripted: isSyntheticSurfaceActionContent(content) },
@@ -2274,6 +2280,8 @@ export async function handleSurfaceAction(
         activeSurfaceId: surfaceId,
         displayContent,
         sourceActorPrincipalId,
+        // Same interactivity rule as the queued branch above.
+        isInteractive: false,
         scripted: isSyntheticSurfaceActionContent(content),
       })
       .catch((err) => {
@@ -2460,6 +2468,8 @@ export async function handleSurfaceAction(
     activeSurfaceId: surfaceId,
     displayContent,
     sourceActorPrincipalId,
+    // Same interactivity rule as the queued branch above.
+    isInteractive: false,
     // Rides the metadata bag rather than a typed option: the queue
     // round-trips `metadata` but not `PersistMessageOptions`.
     metadata: { scripted: isSyntheticSurfaceActionContent(content) },
@@ -2532,6 +2542,8 @@ export async function handleSurfaceAction(
       activeSurfaceId: surfaceId,
       displayContent,
       sourceActorPrincipalId,
+      // Same interactivity rule as the queued branch above.
+      isInteractive: false,
       scripted: isSyntheticSurfaceActionContent(content),
     })
     .catch((err) => {
