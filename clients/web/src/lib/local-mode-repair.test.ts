@@ -294,6 +294,20 @@ describe("restartLocalAssistant", () => {
     expect(mintAttempts).toBe(1);
   });
 
+  test("requires confirmation when the guardian token is missing", async () => {
+    fetchGuardianTokenHost = mock(async () => {
+      throw new GuardianTokenError(404, "guardian missing");
+    });
+    LOCAL_GATEWAY_STARTUP_RETRY.attempts = 1;
+
+    await expect(restartLocalAssistant("local-a")).resolves.toEqual({
+      ok: false,
+      reason: "guardian_repair_required",
+    });
+
+    expect(wakeLocalAssistantHost).toHaveBeenCalledTimes(1);
+  });
+
   test("does not repair a post-restart 403", async () => {
     ensureGatewayTokenImpl = async () => {
       throw new GatewayTokenError(403, "boundary refused");

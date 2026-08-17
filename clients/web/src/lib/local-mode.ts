@@ -31,6 +31,7 @@ import {
   loadLockfileHost,
   parseLockfile,
   replacePlatformAssistantsHost,
+  requiresGuardianReprovision,
   retireLocalAssistantHost,
   saveLockfileAssistantHost,
   sleepLocalAssistantHost,
@@ -1114,7 +1115,8 @@ export async function restartLocalAssistant(
       return {
         ok: false,
         reason:
-          error instanceof GatewayTokenError && error.status === 401
+          (error instanceof GatewayTokenError && error.status === 401) ||
+          requiresGuardianReprovision(error)
             ? "guardian_repair_required"
             : "reconnect_failed",
       };

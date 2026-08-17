@@ -1643,6 +1643,32 @@ describe("api-interceptors / localGatewayAuthRecoveryInterceptor", () => {
     expect(primeGatewayWithRepairMock).not.toHaveBeenCalled();
   });
 
+  test("retargets a stale restart request when the gateway port changes", async () => {
+    seedGatewayTokens();
+    let request: Request | undefined;
+
+    await duringLocalGatewayRestart(async () => {
+      request = await daemonRequestInterceptor(
+        new Request("https://platform.test/v1/assistants/123/conversations"),
+      );
+    });
+    const newGatewayUrl = "http://localhost:9191";
+    setSelfHostedConnection({ url: newGatewayUrl, token: "fresh-tok" });
+
+    const result = await localGatewayAuthRecoveryInterceptor(
+      gatewayResponse(401),
+      request,
+    );
+
+    expect(result.status).toBe(200);
+    expect(replayedRequests[0].url).toBe(
+      newGatewayUrl + "/v1/assistants/123/conversations",
+    );
+    expect(replayedRequests[0].headers.get("Authorization")).toBe(
+      "Bearer fresh-tok",
+    );
+  });
+
   test("preserves restart membership across asynchronous request routing", async () => {
     seedGatewayTokens();
     const originalBlob = Request.prototype.blob;

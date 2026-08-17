@@ -80,6 +80,7 @@ import { routes } from "@/utils/routes";
 const MUTATING_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
 const ELECTRON_RENDERER_ORIGIN_HEADER = "X-Vellum-Electron-Renderer-Origin";
 const NGROK_SKIP_BROWSER_WARNING_HEADER = "ngrok-skip-browser-warning";
+const selfHostedGatewayRequests = new WeakSet<Request>();
 
 function getRendererTupleOrigin(): string {
   return `${window.location.protocol}//${window.location.host}`;
@@ -299,7 +300,9 @@ export async function rewriteForSelfHostedIngress(
   if (!isLocalClient() && request.body) {
     (init as RequestInit & { duplex: "half" }).duplex = "half";
   }
-  return new Request(rewrittenUrl.toString(), init);
+  const rewritten = new Request(rewrittenUrl.toString(), init);
+  selfHostedGatewayRequests.add(rewritten);
+  return rewritten;
 }
 
 /**
@@ -668,7 +671,32 @@ async function replayWithRecoveredSession(
   const headers = new Headers(request.headers);
   applySelfHostedBearer(headers);
   try {
-    const replayed = await fetch(new Request(request, { headers }));
+    let replayRequest = new Request(request, { headers });
+    const ingressUrl = getSelfHostedIngressUrl();
+    if (
+      ingressUrl &&
+      selfHostedGatewayRequests.has(request) &&
+      !request.url.startsWith(ingressUrl)
+    ) {
+      const oldUrl = new URL(request.url);
+      const routeIndex = oldUrl.pathname.indexOf("/v1/");
+      if (routeIndex !== -1) {
+        const replayUrl = new URL(ingressUrl);
+        const prefix = replayUrl.pathname.replace(/\/$/, "");
+        replayUrl.pathname = prefix + oldUrl.pathname.slice(routeIndex);
+        replayUrl.search = oldUrl.search;
+        const body = request.body ? await request.clone().blob() : null;
+        replayRequest = new Request(replayUrl, {
+          method: request.method,
+          headers,
+          body,
+          credentials: "omit",
+          redirect: request.redirect,
+          signal: request.signal,
+        });
+      }
+    }
+    const replayed = await fetch(replayRequest);
     if (replayed.ok) {
       clearGw401Budget();
     }
@@ -693,7 +721,12 @@ export async function localGatewayAuthRecoveryInterceptor(
   // Only act on responses that originated from the local gateway. Daemon
   // requests that don't match ASSISTANT_PATH_RE are not rewritten and hit
   // the platform instead; their 401s are handled elsewhere.
-  if (!response.url.startsWith(ingressUrl)) {
+  const fromCurrentIngress = response.url.startsWith(ingressUrl);
+  const fromRetiredIngress =
+    response.status === 401 &&
+    request !== undefined &&
+    selfHostedGatewayRequests.has(request);
+  if (!fromCurrentIngress && !fromRetiredIngress) {
     return response;
   }
 
