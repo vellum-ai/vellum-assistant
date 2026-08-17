@@ -259,6 +259,83 @@ describe("vellum devices", () => {
     expect(fetchCalls).toHaveLength(0);
   });
 
+  test("list --json emits a single JSON document and no human text", async () => {
+    seedLocal("json-host", "http://127.0.0.1:7835");
+    const records = [
+      {
+        hashedDeviceId: "hashAAA111",
+        platform: "cli",
+        issuedAt: 1_700_000_000_000,
+        expiresAt: 1_800_000_000_000,
+        lastUsedAt: null,
+      },
+    ];
+    stubFetch((url) =>
+      url.endsWith("/v1/devices")
+        ? jsonResponse({ devices: records })
+        : jsonResponse({ error: "unexpected" }, 500),
+    );
+
+    process.argv = ["bun", "vellum", "devices", "json-host", "--json"];
+    const { exited, logs, errors } = await runDevices();
+
+    expect(exited).toBe(false);
+    expect(errors).toBe("");
+    // Exactly one line on stdout, parseable, and zero prose.
+    expect(logs).not.toContain("\n");
+    expect(JSON.parse(logs)).toEqual({ devices: records });
+    expect(logs).not.toContain("Devices paired to");
+  });
+
+  test("list --json with zero devices emits {\"devices\":[]}", async () => {
+    seedLocal("json-empty-host");
+    stubFetch(() => jsonResponse({ devices: [] }));
+
+    process.argv = ["bun", "vellum", "devices", "json-empty-host", "--json"];
+    const { exited, logs } = await runDevices();
+
+    expect(exited).toBe(false);
+    expect(logs).toBe('{"devices":[]}');
+  });
+
+  test("revoke --json --yes emits { ok, hashedDeviceId } and no preamble", async () => {
+    seedLocal("json-revoke-host", "http://127.0.0.1:7836");
+    stubFetch((url) =>
+      url.endsWith("/v1/devices/revoke")
+        ? jsonResponse({ revoked: true, hashedDeviceId: "hashAAA111" })
+        : jsonResponse({ error: "unexpected" }, 500),
+    );
+
+    process.argv = [
+      "bun",
+      "vellum",
+      "devices",
+      "revoke",
+      "hashAAA111",
+      "json-revoke-host",
+      "--yes",
+      "--json",
+    ];
+    const { exited, logs } = await runDevices();
+
+    expect(exited).toBe(false);
+    expect(logs).not.toContain("\n");
+    expect(JSON.parse(logs)).toEqual({ ok: true, hashedDeviceId: "hashAAA111" });
+    expect(logs).not.toContain("Device to revoke");
+  });
+
+  test("list --json still exits 1 with stderr on a non-2xx gateway response", async () => {
+    seedLocal("json-err-host");
+    stubFetch(() => jsonResponse({ error: { code: "FORBIDDEN" } }, 403));
+
+    process.argv = ["bun", "vellum", "devices", "json-err-host", "--json"];
+    const { exited, logs, errors } = await runDevices();
+
+    expect(exited).toBe(true);
+    expect(logs).toBe("");
+    expect(errors).toContain("403");
+  });
+
   test("surfaces a non-2xx gateway response on list", async () => {
     seedLocal("err-host");
     stubFetch(() => jsonResponse({ error: { code: "FORBIDDEN" } }, 403));
