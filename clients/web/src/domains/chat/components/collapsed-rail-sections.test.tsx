@@ -19,6 +19,7 @@
 import { describe, expect, mock, test } from "bun:test";
 import { createElement, type ReactNode } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
 import type { Conversation } from "@/types/conversation-types";
 import type { SidebarSection } from "@/domains/chat/use-sidebar-state";
@@ -43,13 +44,20 @@ mock.module("@/domains/chat/components/collapsed-group-icon", () => ({
     createElement("button", { "data-testid": "rail-tile" }, String(label)),
 }));
 
-const { CollapsedRailSections } = await import(
-  "@/domains/chat/components/collapsed-rail-sections"
-);
+const { CollapsedRailSections } =
+  await import("@/domains/chat/components/collapsed-rail-sections");
 
 function railLabels(sections: SidebarSection[]): string[] {
+  /* useSectionConversations reads the query client (load-more, bulk drain),
+     so the render needs the context even with the query hooks mocked. */
   const html = renderToStaticMarkup(
-    <CollapsedRailSections sections={sections} assistantId="asst-1" />,
+    <QueryClientProvider
+      client={
+        new QueryClient({ defaultOptions: { queries: { retry: false } } })
+      }
+    >
+      <CollapsedRailSections sections={sections} assistantId="asst-1" />
+    </QueryClientProvider>,
   );
   return [...html.matchAll(/data-testid="rail-tile">([^<]*)</g)].map(
     (m) => m[1] ?? "",

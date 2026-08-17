@@ -1097,12 +1097,14 @@ describe("applySurfacedConversation", () => {
       "system:all",
       "vellum",
     ] as const;
-    qc.setQueryData(chatsKey, []);
+    qc.setQueryData(chatsKey, listPage([]));
 
     applySurfacedConversation(qc, ASSISTANT_ID, bg, 4242);
 
     expect(
-      qc.getQueryData<Conversation[]>(chatsKey)?.map((c) => c.conversationId),
+      qc
+        .getQueryData<ConversationListPage>(chatsKey)
+        ?.conversations.map((c) => c.conversationId),
     ).toEqual(["bg1"]);
   });
 });

@@ -81,7 +81,10 @@ export function CollapsedGroupFlyout({
         ) : (
           <>
             {conversations.map(renderRow)}
-            {onEndReached ? (
+            {/* Only under a measured scrollport. Unmeasured, nothing clips
+                the sentinel, so it stays visible after every append and
+                would page the entire section in on open. */}
+            {onEndReached && scrollParent ? (
               <LoadMoreSentinel onVisible={onEndReached} />
             ) : null}
           </>
