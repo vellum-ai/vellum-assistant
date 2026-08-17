@@ -195,8 +195,8 @@ export function SkillsReferenceSubagentContent() {
                     Synchronously (your assistant waits for its answer)
                   </td>
                   <td className="px-3 py-2">
-                    Inherits your full context; runs on a more capable model and
-                    returns guidance
+                    A written brief from your assistant; runs on a more capable
+                    model and returns guidance
                   </td>
                 </tr>
               </tbody>
@@ -219,10 +219,11 @@ export function SkillsReferenceSubagentContent() {
               to pressure-test a plan on a consequential or ambiguous task, or
               when it&apos;s stuck. Routine work skips the consult, so
               you&apos;re not paying for sign-off on the obvious. It reasons
-              from your context and can
-              read and search the files in your workspace to check a fact, then
-              replies with focused guidance. It never changes anything, and it
-              cannot see your other conversations.
+              from a brief your assistant writes it (the task, the plan, the
+              evidence gathered so far, and the question) and can read and
+              search the files in your workspace to check a fact, then replies
+              with focused guidance. It never changes anything, and it cannot
+              see your conversations.
             </li>
           </ul>
         </section>
