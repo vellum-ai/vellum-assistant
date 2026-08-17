@@ -52,6 +52,15 @@ export function runWithLatencySubSpans<T>(
 }
 
 /**
+ * Run work outside the current latency sub-span scope. Used for background
+ * preparation launched from inside a measured hook: its wall time overlaps the
+ * provider call and must not be charged to the hook that merely started it.
+ */
+export function runWithoutLatencySubSpans<T>(fn: () => T): T {
+  return storage.exit(fn);
+}
+
+/**
  * Record an already-measured sub-span. No-op when no scope is active or
  * the duration is under {@link MIN_SUB_SPAN_MS}.
  */

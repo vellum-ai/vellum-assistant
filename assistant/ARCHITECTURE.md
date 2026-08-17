@@ -709,6 +709,8 @@ Live voice STT uses the same `resolveStreamingTranscriber()` path as conversatio
 
 Live voice TTS uses `streamLiveVoiceTtsAudio()` and the configured `services.tts.provider`. The selected provider must be registered, catalog-compatible, and expose `capabilities.supportsStreaming` plus `synthesizeStream()`. Providers whose catalog entry advertises `supportsStreaming` (currently all four catalog providers: ElevenLabs, Fish Audio, Deepgram, and xAI) satisfy this requirement; a buffered-only provider would remain available for buffered message playback or other supported surfaces, but live voice reports a TTS error instead of silently falling back to buffered playback.
 
+The `voiceFrontDoor` model and current-turn memory-v3 preparation run concurrently. The front prompt keeps frozen memory cards and static memory context that already ride conversation history, but its v3 injectors do not wait for dense retrieval or the selector LLM. The bridge cancels speculative memory work when the front model answers directly or emits a hold verdict. On escalation, the immediately following agent turn consumes the prepared result, waits if it is still running, commits it under the consuming turn index, and applies the normal memory card and spotlight injectors. The front-door rule escalates rather than guessing when required personal context is absent from the prompt.
+
 V1 is local/gateway-scoped. Managed/cloud WebSocket proxy support, cross-region routing, and p50/p95 latency guarantees are out of scope for this version. Metrics frames expose timing data for measurement, but the architecture does not promise a hard latency SLO.
 
 **Client service-first boundary:**

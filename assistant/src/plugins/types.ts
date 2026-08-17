@@ -132,6 +132,13 @@ export interface TurnContext {
   /** Trust classification and channel identity for the inbound actor. */
   trust: TrustContext;
   /**
+   * Abort signal for work owned by this turn. Injectors should treat it as a
+   * cancellation hint, not a requirement: synthesized/test contexts may omit
+   * it, and background work that intentionally survives one model leg must own
+   * a separate controller.
+   */
+  readonly signal?: AbortSignal;
+  /**
    * Controls which runtime injections are applied. `"full"` (default) runs
    * every gating branch; `"minimal"` skips high-token optional blocks
    * (workspace, PKB, NOW.md, subagent status) and only emits safety-critical

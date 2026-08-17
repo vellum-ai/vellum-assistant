@@ -681,16 +681,18 @@ export function backfillMemoryV3SelectionMessageId(
 }
 
 /**
- * Run v3 orchestration for one turn and log the selection set, returning the
- * orchestrate result so a live caller can render it. Never throws — all
- * failures are logged and swallowed (returning `null`) so the live turn is
- * unaffected. Returns `null` when there is no user message to route on.
+ * Prepare v3 orchestration for one turn without committing selection rows.
+ * Voice starts this work beside the front-door model and commits it only when
+ * the escalated leg consumes the result. Ordinary turns call it through
+ * {@link observeTurn}, which commits immediately.
  */
-export async function observeTurn(
+export async function prepareMemoryV3Turn(
   conversationId: string,
   turnIndex: number,
+  signal?: AbortSignal,
 ): Promise<OrchestrateResult | null> {
   try {
+    signal?.throwIfAborted();
     const turn = await buildShadowTurn(conversationId, turnIndex);
     if (!turn) {
       return null;
@@ -708,6 +710,7 @@ export async function observeTurn(
       "Memory lane init",
       () => getLanes(cfg),
     );
+    signal?.throwIfAborted();
     const v3 = cfg.memory.v3;
     // Re-resolve the corpus-adaptive tuning each turn from the CURRENT config
     // (with the lane-build corpus-size signal) so a live config.json edit to a
@@ -744,6 +747,7 @@ export async function observeTurn(
       learnedPerSeed: v3.learnedEdges.perSeed,
       learnedCap: tuning.learnedEdgesCap,
       selectorEnabled: tuning.selectorEnabled,
+      signal,
       selectorPrompt: resolveSelectorPrompt(
         v3.selectorPromptPath,
         getWorkspaceDir(),
@@ -769,17 +773,11 @@ export async function observeTurn(
         "memory-v3: selector returned zero selections",
       );
     }
-
-    const persistStartedAt = Date.now();
-    const rows = attributeSelections(result);
-    writeSelections(conversationId, turnIndex, rows);
-    recordLatencySubSpan(
-      "v3_persist",
-      "Selection persistence",
-      Date.now() - persistStartedAt,
-    );
     return result;
   } catch (err) {
+    if (signal?.aborted) {
+      return null;
+    }
     // Infrastructure failures are surfaced to callers that want distinct
     // logging from ordinary orchestration misses. Observation callers swallow
     // them so memory-v3 never fails the turn.
@@ -792,4 +790,37 @@ export async function observeTurn(
     );
     return null;
   }
+}
+
+/** Commit a prepared result as the selection set for the consuming turn. */
+export function commitPreparedMemoryV3Turn(
+  conversationId: string,
+  turnIndex: number,
+  result: OrchestrateResult,
+): void {
+  const persistStartedAt = Date.now();
+  const rows = attributeSelections(result);
+  writeSelections(conversationId, turnIndex, rows);
+  recordLatencySubSpan(
+    "v3_persist",
+    "Selection persistence",
+    Date.now() - persistStartedAt,
+  );
+}
+
+/**
+ * Run v3 orchestration for one turn and log the selection set, returning the
+ * orchestrate result so a live caller can render it. Never throws except for
+ * an unavailable selector provider; other failures degrade to `null`.
+ */
+export async function observeTurn(
+  conversationId: string,
+  turnIndex: number,
+  signal?: AbortSignal,
+): Promise<OrchestrateResult | null> {
+  const result = await prepareMemoryV3Turn(conversationId, turnIndex, signal);
+  if (result) {
+    commitPreparedMemoryV3Turn(conversationId, turnIndex, result);
+  }
+  return result;
 }

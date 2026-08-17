@@ -35,7 +35,10 @@ import { updateMessageMetadata } from "@vellumai/plugin-api";
 
 import type { MemoryRecalledEvent } from "../../../../api/events/memory-recalled.js";
 import { getConfig } from "../../../../config/loader.js";
-import { isMemoryV3Live } from "../../../../config/memory-v3-gate.js";
+import {
+  isMemoryEnabled,
+  isMemoryV3Live,
+} from "../../../../config/memory-v3-gate.js";
 import { findConversationOrSubagent } from "../../../../daemon/conversation-registry.js";
 import {
   applyRuntimeInjections,
@@ -49,6 +52,7 @@ import { broadcastMessage } from "../../../../runtime/assistant-event-hub.js";
 import type { GraphMemoryResult } from "../graph/conversation-graph-memory.js";
 import { recordMemoryRecallLog } from "../memory-recall-log-store.js";
 import { MEMORY_V3_INJECTED_BLOCK_METADATA_KEY } from "../v3/ever-injected-store.js";
+import { startVoiceMemoryV3Prefetch } from "../v3/voice-prefetch.js";
 
 /**
  * Whether to run legacy graph-memory retrieval this turn. It gates BOTH
@@ -263,10 +267,12 @@ async function persistInjectionBlocks(
  * runs for every actor, writing the fully injected result back onto
  * `latestMessages` and persisting the assembled blocks.
  *
- * Memory retrieval blocks the turn — there is no soft timeout here. Memory is
- * critical context, and silently dropping it produces a worse outcome than a
- * slower turn. Cancellation still works via `ctx.signal`, which is threaded
- * into `prepareMemory`.
+ * Memory retrieval ordinarily blocks the turn. The voice front door is the
+ * latency-sensitive exception: it starts v3 preparation in parallel, keeps
+ * carried memory in the front prompt, and lets the immediately following
+ * escalated leg consume the result. Cancellation still works via the live
+ * conversation signal for ordinary retrieval and an owned controller for the
+ * cross-leg voice preparation.
  */
 const userPromptSubmitMemoryRetrieval: HookFunction<
   UserPromptSubmitContext
@@ -292,9 +298,20 @@ const userPromptSubmitMemoryRetrieval: HookFunction<
   // fallback — a v3 empty/failed selection yields no NEW injected memory that
   // turn (prior turns' frozen v3 cards still ride history).
   const memoryV3Live = isMemoryV3Live(config);
+  const isVoiceFrontDoor = conversation?.currentCallSite === "voiceFrontDoor";
+  if (
+    isVoiceFrontDoor &&
+    isMemoryEnabled(config) &&
+    memoryV3Live &&
+    isTrustedActor &&
+    conversation
+  ) {
+    startVoiceMemoryV3Prefetch(ctx.conversationId, conversation.turnCount);
+  }
   let v2BlockPersisted = false;
   if (
     shouldRunLegacyMemoryRetrieval({ isTrustedActor, memoryV3Live }) &&
+    !isVoiceFrontDoor &&
     conversation &&
     abortSignal
   ) {

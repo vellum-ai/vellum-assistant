@@ -68,6 +68,7 @@ import {
   queueConversationNotice,
 } from "../../../../daemon/conversation-notices.js";
 import { isPersonalMemoryAllowed } from "../../../../daemon/trust-context.js";
+import { timeLatencySubSpan } from "../../../../daemon/turn-latency-sub-spans.js";
 import {
   type InjectionBlock,
   type Injector,
@@ -94,6 +95,7 @@ import {
   MEMORY_V3_SPOTLIGHT_BLOCK_ID,
   type Slug,
 } from "./types.js";
+import { takeVoiceMemoryV3Prefetch } from "./voice-prefetch.js";
 
 const log = getLogger("memory-v3-shadow");
 
@@ -164,15 +166,24 @@ const observedTurns = new Map<string, ObservedTurn>();
  * paying a second selector call. A new `turnIndex` replaces the entry, so the
  * memo never holds more than one turn per conversation.
  */
-function observeTurnOnce(
-  conversationId: string,
-  turnIndex: number,
-): Promise<OrchestrateResult | null> {
+function observeTurnOnce(ctx: TurnContext): Promise<OrchestrateResult | null> {
+  const { conversationId, turnIndex } = ctx;
   const cached = observedTurns.get(conversationId);
   if (cached && cached.turnIndex === turnIndex) {
     return cached.result;
   }
-  const result = observeTurn(conversationId, turnIndex);
+  const prefetched = takeVoiceMemoryV3Prefetch(
+    conversationId,
+    turnIndex,
+    ctx.signal,
+  );
+  const result = prefetched
+    ? timeLatencySubSpan(
+        "v3_prefetch_wait",
+        "Memory prefetch wait",
+        () => prefetched,
+      )
+    : observeTurn(conversationId, turnIndex, ctx.signal);
   lruSet(observedTurns, conversationId, { turnIndex, result });
   return result;
 }
@@ -286,10 +297,16 @@ export const memoryV3Injector: Injector = {
     if (!isPersonalMemoryAllowed(ctx.trust)) {
       return null;
     }
+    // The front door starts full retrieval in the prompt hook but does not
+    // await or inject it. Carried cards remain in history; the prepared result
+    // is consumed only if this turn hands off to an escalated leg.
+    if (ctx.callSite === "voiceFrontDoor") {
+      return null;
+    }
 
     let observed: OrchestrateResult | null;
     try {
-      observed = await observeTurnOnce(ctx.conversationId, ctx.turnIndex);
+      observed = await observeTurnOnce(ctx);
     } catch (err) {
       if (err instanceof MemoryV3RetrievalUnavailableError) {
         queueMemoryV3ConversationNotice(err, ctx, live);
@@ -412,9 +429,12 @@ export const memoryV3SpotlightInjector: Injector = {
     if (!isPersonalMemoryAllowed(ctx.trust)) {
       return null;
     }
+    if (ctx.callSite === "voiceFrontDoor") {
+      return null;
+    }
 
     try {
-      const result = await observeTurnOnce(ctx.conversationId, ctx.turnIndex);
+      const result = await observeTurnOnce(ctx);
       if (!result || result.selections.length === 0) {
         return null;
       }

@@ -64,6 +64,13 @@ mock.module("../runtime/assistant-event-hub.js", () => ({
   broadcastMessage: broadcastMessageMock,
 }));
 
+const startVoiceMemoryV3PrefetchMock = mock(
+  (_conversationId: string, _turnIndex: number) => {},
+);
+mock.module("../plugins/defaults/memory/v3/voice-prefetch.js", () => ({
+  startVoiceMemoryV3Prefetch: startVoiceMemoryV3PrefetchMock,
+}));
+
 import type { UserPromptSubmitContext } from "@vellumai/plugin-api";
 
 import type { AssistantEvent } from "../api/index.js";
@@ -74,6 +81,7 @@ import type { ConversationGraphMemory } from "../plugins/defaults/memory/graph/c
 import userPromptSubmitMemoryRetrieval from "../plugins/defaults/memory/hooks/user-prompt-submit.js";
 import type { Message } from "../providers/types.js";
 import { asConversation } from "./helpers/mock-conversation.js";
+import { setConfig } from "./helpers/set-config.js";
 
 /** Canonical metrics payload the graph retriever attaches to a real hit. */
 function makeMetrics() {
@@ -175,13 +183,14 @@ function installConversation(
     trusted?: boolean;
     abortController?: AbortController;
   },
-): void {
+): Conversation {
   currentTrustClass = opts?.trusted === false ? "unknown" : "guardian";
   currentConversation = asConversation({
     graphMemory,
     trustContext: undefined,
     abortController: opts?.abortController ?? new AbortController(),
   });
+  return currentConversation;
 }
 
 beforeEach(() => {
@@ -190,11 +199,31 @@ beforeEach(() => {
   applyRuntimeInjectionsMock.mockClear();
   findConversationOrSubagentMock.mockClear();
   broadcastMessageMock.mockReset();
+  startVoiceMemoryV3PrefetchMock.mockClear();
   currentConversation = undefined;
   currentTrustClass = "guardian";
+  setConfig("memory", { enabled: true, v3: { live: false } });
 });
 
 describe("user-prompt-submit hook (memory retrieval)", () => {
+  test("voice front door starts v3 preparation and skips serial legacy retrieval", async () => {
+    setConfig("memory", { enabled: true, v3: { live: true } });
+    const { memory, prepareMemoryMock } = makeFakeGraphMemory();
+    const conversation = installConversation(memory, { trusted: true });
+    conversation.currentCallSite = "voiceFrontDoor";
+    conversation.turnCount = 6;
+    const ctx = makeHookCtx({ conversationId: "conv-voice" });
+
+    await userPromptSubmitMemoryRetrieval(ctx);
+
+    expect(startVoiceMemoryV3PrefetchMock).toHaveBeenCalledWith(
+      "conv-voice",
+      6,
+    );
+    expect(prepareMemoryMock).not.toHaveBeenCalled();
+    expect(applyRuntimeInjectionsMock).toHaveBeenCalledTimes(1);
+  });
+
   test("adopts the injected run messages when the actor is trusted", async () => {
     const injected: Message[] = [
       { role: "user", content: [{ type: "text", text: "injected" }] },

@@ -70,6 +70,11 @@ mock.module("../../persistence/conversation-crud.js", () => ({
   recordConversationPersistedSeq: () => {},
 }));
 
+const cancelVoiceMemoryV3PrefetchMock = mock((_conversationId: string) => {});
+mock.module("../../plugins/defaults/memory/voice-prefetch.js", () => ({
+  cancelVoiceMemoryV3Prefetch: cancelVoiceMemoryV3PrefetchMock,
+}));
+
 import { setConfig } from "../../__tests__/helpers/set-config.js";
 import { ABORT_WATCHDOG_MS } from "../../daemon/abort-watchdog.js";
 import { assistantEventHub } from "../../runtime/assistant-event-hub.js";
@@ -1713,7 +1718,10 @@ describe("cutFrontDoorContentAtVerdict", () => {
  * silent or truncated, which is worse than the leak it fixes.
  */
 describe("front-door hub stream gate", () => {
-  beforeEach(resetCrudLog);
+  beforeEach(() => {
+    resetCrudLog();
+    cancelVoiceMemoryV3PrefetchMock.mockClear();
+  });
 
   /**
    * Conversation whose scripted agent loop announces a reserved row, streams
@@ -1792,6 +1800,7 @@ describe("front-door hub stream gate", () => {
 
     expect(texts).toEqual(["Let me check your calendar."]);
     expect(texts.join("")).not.toContain(ESCALATE_VERDICT_TOKEN);
+    expect(cancelVoiceMemoryV3PrefetchMock).not.toHaveBeenCalled();
   });
 
   test("a front-door answer reaches the hub in full", async () => {
@@ -1802,6 +1811,9 @@ describe("front-door hub stream gate", () => {
     );
 
     expect(texts.join("")).toBe("It is Tuesday, and it is sunny.");
+    expect(cancelVoiceMemoryV3PrefetchMock).toHaveBeenCalledWith(
+      "conv-voice-bridge-test",
+    );
   });
 
   test("an answer that merely opens with a bracket is released in full", async () => {
@@ -1828,6 +1840,9 @@ describe("front-door hub stream gate", () => {
     );
 
     expect(texts).toEqual([]);
+    expect(cancelVoiceMemoryV3PrefetchMock).toHaveBeenCalledWith(
+      "conv-voice-bridge-test",
+    );
   });
 
   test("a leg that completes mid-bridge broadcasts what it handed off with", async () => {
@@ -1848,6 +1863,9 @@ describe("front-door hub stream gate", () => {
     );
 
     expect(texts).toEqual([]);
+    expect(cancelVoiceMemoryV3PrefetchMock).toHaveBeenCalledWith(
+      "conv-voice-bridge-test",
+    );
   });
 
   test("the escalated continuation streams to the hub untouched", async () => {

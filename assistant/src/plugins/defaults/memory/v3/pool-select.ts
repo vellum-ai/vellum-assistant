@@ -396,6 +396,7 @@ export async function selectPool(
   pool: SelectorPool,
   turn: MemoryRoutingTurn,
   systemPrompt: string = SYSTEM_PROMPT,
+  signal?: AbortSignal,
 ): Promise<PoolSelection> {
   // The concatenated numbering: ids 1…m are the stable-prefix cards, ids
   // m+1… are the finder lines.
@@ -406,6 +407,7 @@ export async function selectPool(
   if (ordered.length === 0) {
     return { pages: [], keptAll: false };
   }
+  signal?.throwIfAborted();
 
   const keepAll = (): SelectedPage[] => selectAllPoolCandidates(pool);
 
@@ -479,67 +481,77 @@ export async function selectPool(
   // carried no usable tool_use. It is cleared on every attempt that reaches a
   // response, so it reflects the LAST attempt's failure mode.
   let lastError: unknown = null;
-  const parsed = await retryForResult(async () => {
-    attempt += 1;
-    let response: Awaited<ReturnType<typeof provider.sendMessage>>;
-    try {
-      response = await provider.sendMessage([userMsg], {
-        tools: [SELECT_PAGES_TOOL],
-        systemPrompt,
-        config: {
-          callSite: MEMORY_V3_SELECT_CALL_SITE,
-          conversationId: turn.conversationId,
-          tool_choice: { type: "tool" as const, name: SELECT_PAGES_TOOL_NAME },
-          // The last block of this one-shot message varies every turn; the
-          // provider's auto-applied turn-start breakpoint would land on it and
-          // pay cache_creation with no future hit. The stable-prefix block
-          // above carries its own breakpoint instead.
-          disableTurnStartCache: true,
-        },
-      });
-      lastError = null;
-    } catch (error) {
-      lastError = error;
-      recordFailure({
-        attempt,
-        reason: "provider_error",
-        error: summarizeError(error),
-      });
-      throw error;
-    }
-    const toolBlock = extractToolUse(response);
-    if (!toolBlock) {
-      recordFailure({
-        attempt,
-        reason: "missing_tool_use",
-        response: summarizeResponse(response),
-      });
-      return null;
-    }
-    if (toolBlock.name !== SELECT_PAGES_TOOL_NAME) {
-      recordFailure({
-        attempt,
-        reason: "unexpected_tool_name",
-        response: summarizeResponse(response),
-        toolName: toolBlock.name,
-      });
-      return null;
-    }
-    const result = SelectPagesSchema.safeParse(toolBlock.input);
-    if (!result.success) {
-      recordFailure({
-        attempt,
-        reason: "schema_mismatch",
-        response: summarizeResponse(response),
-        schemaIssues: result.error.issues.map((issue) => ({
-          path: issue.path.join("."),
-          code: issue.code,
-        })),
-      });
-      return null;
-    }
-    return result.data;
-  });
+  const parsed = await retryForResult(
+    async () => {
+      attempt += 1;
+      let response: Awaited<ReturnType<typeof provider.sendMessage>>;
+      try {
+        response = await provider.sendMessage([userMsg], {
+          tools: [SELECT_PAGES_TOOL],
+          systemPrompt,
+          config: {
+            callSite: MEMORY_V3_SELECT_CALL_SITE,
+            conversationId: turn.conversationId,
+            tool_choice: {
+              type: "tool" as const,
+              name: SELECT_PAGES_TOOL_NAME,
+            },
+            // The last block of this one-shot message varies every turn; the
+            // provider's auto-applied turn-start breakpoint would land on it and
+            // pay cache_creation with no future hit. The stable-prefix block
+            // above carries its own breakpoint instead.
+            disableTurnStartCache: true,
+          },
+          signal,
+        });
+        lastError = null;
+      } catch (error) {
+        lastError = error;
+        recordFailure({
+          attempt,
+          reason: "provider_error",
+          error: summarizeError(error),
+        });
+        throw error;
+      }
+      const toolBlock = extractToolUse(response);
+      if (!toolBlock) {
+        recordFailure({
+          attempt,
+          reason: "missing_tool_use",
+          response: summarizeResponse(response),
+        });
+        return null;
+      }
+      if (toolBlock.name !== SELECT_PAGES_TOOL_NAME) {
+        recordFailure({
+          attempt,
+          reason: "unexpected_tool_name",
+          response: summarizeResponse(response),
+          toolName: toolBlock.name,
+        });
+        return null;
+      }
+      const result = SelectPagesSchema.safeParse(toolBlock.input);
+      if (!result.success) {
+        recordFailure({
+          attempt,
+          reason: "schema_mismatch",
+          response: summarizeResponse(response),
+          schemaIssues: result.error.issues.map((issue) => ({
+            path: issue.path.join("."),
+            code: issue.code,
+          })),
+        });
+        return null;
+      }
+      return result.data;
+    },
+    3,
+    signal,
+  );
+
+  signal?.throwIfAborted();
 
   if (parsed === null) {
     if (lastError !== null) {

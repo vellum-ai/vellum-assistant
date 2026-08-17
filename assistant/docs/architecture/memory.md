@@ -172,6 +172,23 @@ Ingested pages carry provenance frontmatter with distinct consumers:
   machinery (graph extraction, summarization, PKB indexing/filing, PKB
   injection) is suppressed while the substrate is active.
 
+#### Live voice front-door preparation
+
+The live voice front door does not await current-turn v3 retrieval. The prompt
+hook starts `prepareMemoryV3Turn()` under a conversation-scoped prefetch entry,
+then assembles the front prompt without running either v3 injector. Frozen cards
+from prior turns and the static substrate context remain in history, and the
+front-door rule escalates when a reply depends on a saved personal fact that is
+not already present.
+
+The memory preparation and `voiceFrontDoor` provider call therefore overlap.
+A direct answer or hold verdict cancels the unused preparation. An escalation
+keeps it alive; the immediately following escalated turn takes the result,
+awaits any unfinished work, commits the selection rows under its own turn
+index, and renders the normal card and spotlight layers. A preparation cannot
+be consumed by a later unrelated turn, and abandoned entries expire after a
+bounded interval.
+
 ### Boot-time maintenance
 
 `substrate/boot-maintenance.ts`, invoked from the memory plugin's

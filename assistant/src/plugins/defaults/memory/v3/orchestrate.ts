@@ -232,6 +232,8 @@ export interface OrchestrateDeps {
   /** Whether to run the selector LLM. False passes all pooled candidates
    *  straight through as selections, preserving pool-order slug dedup. */
   selectorEnabled?: boolean;
+  /** Cancels network-backed dense retrieval and selector generation. */
+  signal?: AbortSignal;
   /** Per-turn injection gate config (the `memory.v3.gate` tuning, threaded
    *  through by observeTurn). Omitted/disabled → the gate never runs and every
    *  turn proceeds to selectPool as before. */
@@ -359,6 +361,7 @@ export async function orchestrate(
         pool,
         turn,
         deps.selectorPrompt,
+        deps.signal,
       );
       return { selections: pages, keptAll };
     });
@@ -391,7 +394,12 @@ export async function orchestrate(
       Promise.all([
         Promise.resolve(deps.needle.queryScored(turn.currentMessage, needleK)),
         denseEnabled
-          ? denseLaneScored(deps.denseConfig, turn.currentMessage, denseK)
+          ? denseLaneScored(
+              deps.denseConfig,
+              turn.currentMessage,
+              denseK,
+              deps.signal,
+            )
           : Promise.resolve([]),
         Promise.resolve(
           replyQuery.length > 0
@@ -399,15 +407,16 @@ export async function orchestrate(
             : [],
         ),
         replyQuery.length > 0 && denseEnabled
-          ? denseLaneScored(deps.denseConfig, replyQuery, replyK)
+          ? denseLaneScored(deps.denseConfig, replyQuery, replyK, deps.signal)
           : Promise.resolve([]),
         Promise.all(
           spanQueries.map((chunk) =>
-            denseLaneScored(deps.denseConfig, chunk, spanK),
+            denseLaneScored(deps.denseConfig, chunk, spanK, deps.signal),
           ),
         ),
       ]),
     );
+  deps.signal?.throwIfAborted();
   // Everything from here to the step-3 selection — finder assembly, the
   // entity lane, the injection gate, edge + learned-edge expansion, pool
   // assembly — is synchronous in-memory work, measured as one `v3_expand`

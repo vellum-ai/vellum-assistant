@@ -85,6 +85,14 @@ describe("front-door decision rule", () => {
     expect(rule.toLowerCase()).toContain("tool");
   });
 
+  test("escalates when an answer needs personal memory absent from context", () => {
+    expect(rule.toLowerCase()).toContain("saved personal fact");
+    expect(rule.toLowerCase()).toContain("escalate rather than guessing");
+    expect(rule.toLowerCase()).toContain(
+      "personal context that is already present is yours to use directly",
+    );
+  });
+
   test("demands a silent decision — no narrated reasoning in spoken output", () => {
     // Regression: a weak front-door model narrated its triage deliberation
     // aloud ("Context is complete — Alex paused...") before the bridge.
@@ -516,6 +524,21 @@ describe("createFrontDoorStreamGate", () => {
 
   test("a hold verdict releases nothing", () => {
     expect(release([HOLD_VERDICT_TOKEN], { holdEnabled: true })).toEqual([]);
+  });
+
+  test("exposes the verdict already classified by the stream gate", () => {
+    const answer = createFrontDoorStreamGate(false);
+    expect(answer.verdict()).toBe("pending");
+    answer.push("It is Tuesday.");
+    expect(answer.verdict()).toBe("answer");
+
+    const escalation = createFrontDoorStreamGate(false);
+    escalation.push(ESCALATE_VERDICT_TOKEN);
+    expect(escalation.verdict()).toBe("escalate");
+
+    const hold = createFrontDoorStreamGate(true);
+    hold.push(HOLD_VERDICT_TOKEN);
+    expect(hold.verdict()).toBe("hold");
   });
 
   test("the hold token is ordinary text on a leg that was never taught it", () => {
