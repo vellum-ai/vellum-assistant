@@ -1372,7 +1372,7 @@ export function openChannelSetupPanel(
       data: safeParseSurfaceData("channel_setup", data) ?? {},
     });
 
-    ctx.sendToClient({
+    ctx.emit({
       type: "open_panel",
       panelType: "channel_setup",
       data,
@@ -1510,7 +1510,7 @@ function pushUndoState(
 export function handleSurfaceUndo(ctx: Conversation, surfaceId: string): void {
   const stack = ctx.surfaceUndoStacks.get(surfaceId);
   if (!stack || stack.length === 0) {
-    ctx.sendToClient({
+    ctx.emit({
       type: "ui_surface_undo_result",
       conversationId: ctx.conversationId,
       surfaceId,
@@ -1523,7 +1523,7 @@ export function handleSurfaceUndo(ctx: Conversation, surfaceId: string): void {
   const previousHtml = stack.pop()!;
   const stored = ctx.surfaceState.get(surfaceId);
   if (!stored || stored.surfaceType !== "dynamic_page") {
-    ctx.sendToClient({
+    ctx.emit({
       type: "ui_surface_undo_result",
       conversationId: ctx.conversationId,
       surfaceId,
@@ -1557,7 +1557,7 @@ export function handleSurfaceUndo(ctx: Conversation, surfaceId: string): void {
         html: previousHtml,
       };
       s.data = revertedData;
-      ctx.sendToClient({
+      ctx.emit({
         type: "ui_surface_update",
         conversationId: ctx.conversationId,
         surfaceId: sid,
@@ -1594,7 +1594,7 @@ export function handleSurfaceUndo(ctx: Conversation, surfaceId: string): void {
       html: previousHtml,
     };
     stored.data = revertedData;
-    ctx.sendToClient({
+    ctx.emit({
       type: "ui_surface_update",
       conversationId: ctx.conversationId,
       surfaceId,
@@ -1602,7 +1602,7 @@ export function handleSurfaceUndo(ctx: Conversation, surfaceId: string): void {
     });
   }
 
-  ctx.sendToClient({
+  ctx.emit({
     type: "ui_surface_undo_result",
     conversationId: ctx.conversationId,
     surfaceId,
@@ -2596,7 +2596,7 @@ export function refreshSurfacesForApp(
     }
 
     // Push the update to the client
-    ctx.sendToClient({
+    ctx.emit({
       type: "ui_surface_update",
       conversationId: ctx.conversationId,
       surfaceId,
@@ -3433,7 +3433,7 @@ export async function surfaceProxyResolver(
       "Sending ui_surface_show to client",
     );
 
-    ctx.sendToClient({
+    ctx.emit({
       type: "ui_surface_show",
       conversationId: ctx.conversationId,
       surfaceId,
@@ -3552,7 +3552,7 @@ export async function surfaceProxyResolver(
       mergedData = patch;
     }
 
-    ctx.sendToClient({
+    ctx.emit({
       type: "ui_surface_update",
       conversationId: ctx.conversationId,
       surfaceId,
@@ -3610,7 +3610,7 @@ export async function surfaceProxyResolver(
           isError: true,
         };
       }
-      ctx.sendToClient({
+      ctx.emit({
         type: "ui_surface_complete",
         conversationId: ctx.conversationId,
         surfaceId,
@@ -3618,7 +3618,7 @@ export async function surfaceProxyResolver(
         submittedData: lastAction.data,
       });
     } else {
-      ctx.sendToClient({
+      ctx.emit({
         type: "ui_surface_dismiss",
         conversationId: ctx.conversationId,
         surfaceId,
@@ -3720,7 +3720,7 @@ export async function surfaceProxyResolver(
       // Inline-only preview card emitted during app_create — do not open a
       // workspace panel and do not register surface state. The client renders
       // this as a tappable inline card that opens the app on demand.
-      ctx.sendToClient({
+      ctx.emit({
         type: "ui_surface_show",
         conversationId: ctx.conversationId,
         surfaceId,
@@ -3750,7 +3750,7 @@ export async function surfaceProxyResolver(
       title: app.name,
     });
 
-    ctx.sendToClient({
+    ctx.emit({
       type: "ui_surface_show",
       conversationId: ctx.conversationId,
       surfaceId,

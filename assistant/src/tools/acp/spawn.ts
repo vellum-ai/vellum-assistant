@@ -70,10 +70,12 @@ export async function executeAcpSpawn(
     return { content: '"task" is required.', isError: true };
   }
 
-  // Pure precondition: check for a connected client BEFORE any side effects
-  // (auto-install mutates the host via a `bun` global install and can block
-  // for up to the install timeout). Without a client the spawn cannot
-  // succeed anyway.
+  // Pure precondition: the session streams its results through the
+  // conversation's event sink, so a context with no sink at all (a tool run
+  // outside any conversation, e.g. the standalone CLI runner) cannot host a
+  // spawn. Checked BEFORE any side effects (auto-install mutates the host via
+  // a `bun` global install and can block for up to the install timeout).
+  // Inside a conversation the sink always exists and is always live.
   const sendToClient = getSendToClient(context);
   if (!sendToClient) {
     return {
