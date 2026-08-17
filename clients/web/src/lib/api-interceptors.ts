@@ -82,6 +82,20 @@ const ELECTRON_RENDERER_ORIGIN_HEADER = "X-Vellum-Electron-Renderer-Origin";
 const NGROK_SKIP_BROWSER_WARNING_HEADER = "ngrok-skip-browser-warning";
 const selfHostedGatewayRequests = new WeakSet<Request>();
 
+function usesSelfHostedIngress(urlValue: string, ingressValue: string): boolean {
+  try {
+    const url = new URL(urlValue);
+    const ingress = new URL(ingressValue);
+    const prefix = ingress.pathname.replace(/\/$/, "");
+    return (
+      url.origin === ingress.origin &&
+      (url.pathname === prefix || url.pathname.startsWith(`${prefix}/`))
+    );
+  } catch {
+    return false;
+  }
+}
+
 function getRendererTupleOrigin(): string {
   return `${window.location.protocol}//${window.location.host}`;
 }
@@ -676,7 +690,7 @@ async function replayWithRecoveredSession(
     if (
       ingressUrl &&
       selfHostedGatewayRequests.has(request) &&
-      !request.url.startsWith(ingressUrl)
+      !usesSelfHostedIngress(request.url, ingressUrl)
     ) {
       const oldUrl = new URL(request.url);
       const routeIndex = oldUrl.pathname.indexOf("/v1/");
@@ -721,7 +735,7 @@ export async function localGatewayAuthRecoveryInterceptor(
   // Only act on responses that originated from the local gateway. Daemon
   // requests that don't match ASSISTANT_PATH_RE are not rewritten and hit
   // the platform instead; their 401s are handled elsewhere.
-  const fromCurrentIngress = response.url.startsWith(ingressUrl);
+  const fromCurrentIngress = usesSelfHostedIngress(response.url, ingressUrl);
   const fromRetiredIngress =
     response.status === 401 &&
     request !== undefined &&
@@ -1015,7 +1029,7 @@ async function recoverFromPlatformSessionRejection(): Promise<void> {
 export function platformAuthRecoveryInterceptor(response: Response): Response {
   const ingressUrl = getSelfHostedIngressUrl();
   const fromSelfHostedGateway =
-    !!ingressUrl && response.url.startsWith(ingressUrl);
+    !!ingressUrl && usesSelfHostedIngress(response.url, ingressUrl);
 
   if (response.ok) {
     // A working self-hosted gateway says nothing about the platform session.

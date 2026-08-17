@@ -1652,7 +1652,7 @@ describe("api-interceptors / localGatewayAuthRecoveryInterceptor", () => {
         new Request("https://platform.test/v1/assistants/123/conversations"),
       );
     });
-    const newGatewayUrl = "http://localhost:9191";
+    const newGatewayUrl = "http://localhost:909";
     setSelfHostedConnection({ url: newGatewayUrl, token: "fresh-tok" });
 
     const result = await localGatewayAuthRecoveryInterceptor(
