@@ -1671,27 +1671,27 @@ function reconcilePluginSchedulesInBackground(): void {
  * names WHICH resource is stale, not the new value. The origin client id is
  * threaded through for self-echo suppression.
  */
-function handleEnablePlugin({ pathParams = {}, headers }: RouteHandlerArgs) {
+async function handleEnablePlugin({
+  pathParams = {},
+  headers,
+}: RouteHandlerArgs) {
   try {
     enablePlugin(pathParams.name ?? "");
-    publishPluginsChanged(getOriginClientId(headers));
-    // A plugin the boot scan skipped for its sentinel has no hooks, tools or
-    // MCP servers in the caches, so clearing the sentinel is not enough to
-    // bring it up. Run the same imperative source reconcile the install and
-    // upgrade routes use, which activates the plugin and then converges its
-    // schedules and MCP servers. Fire-and-forget: the sentinel is already off
-    // disk, so a reconcile failure must not turn a successful enable into a
-    // route error.
-    void reconcilePluginSourcesNow().catch((err: unknown) => {
-      log.error(
-        { err },
-        "plugin source reconcile after a plugin enable failed",
-      );
-    });
-    return { ok: true };
   } catch (err) {
     throw mapTogglePluginError(err);
   }
+  // A plugin the boot scan skipped for its sentinel has no hooks, tools or
+  // MCP servers in the caches, so clearing the sentinel is not enough to
+  // bring it up. Run the same imperative source reconcile the install and
+  // upgrade routes use, which activates the plugin and then converges its
+  // schedules and MCP servers. Awaited, like the install route, so a client
+  // that lists tools right after enabling sees the plugin up; the reconcile
+  // contains its own failures, so a broken plugin cannot turn a successful
+  // enable into a route error. The invalidation publishes after it for the
+  // same reason: refetching clients should see the post-activation state.
+  await reconcilePluginSourcesNow();
+  publishPluginsChanged(getOriginClientId(headers));
+  return { ok: true };
 }
 
 function handleDisablePlugin({ pathParams = {}, headers }: RouteHandlerArgs) {
