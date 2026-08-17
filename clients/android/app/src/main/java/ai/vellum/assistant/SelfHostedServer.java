@@ -397,7 +397,7 @@ final class SelfHostedServer {
         // Percent-escape casing is preserved, matching the iOS canonicalizer
         // and the web normalizeOriginUrl.
         String normalized = rawPath;
-        while (normalized.endsWith("/") && normalized.length() > 1) {
+        while (normalized.endsWith("/")) {
             normalized = normalized.substring(0, normalized.length() - 1);
         }
         return normalized;

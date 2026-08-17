@@ -126,6 +126,19 @@ public class SelfHostedServerTest {
     }
 
     @Test
+    public void stripsEveryTrailingSlashLikeIosAndWebCanonicalizers() {
+        assertEquals("https://example.com", SelfHostedServer.validate("https://example.com//").toASCIIString());
+        assertEquals(
+            "https://example.com",
+            SelfHostedServer.canonicalString(SelfHostedServer.validate("https://example.com:443///"))
+        );
+        assertEquals(
+            "https://example.com/assistant-123",
+            SelfHostedServer.canonicalString(SelfHostedServer.validate("https://example.com/assistant-123//"))
+        );
+    }
+
+    @Test
     public void appendDedupesByCanonicalUrlAndKeepsLabelsAcrossNamelessReappends() {
         FakeStore store = new FakeStore();
         URI server = SelfHostedServer.validate("https://example.com:443/assistant-123/");
