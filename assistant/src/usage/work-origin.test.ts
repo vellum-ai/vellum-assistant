@@ -294,7 +294,32 @@ describe("classifyWorkOrigin", () => {
       }),
       expected: "user_created_schedule",
     },
-    // 10. Recognized call site, no conversation.
+    // 10. User-invoked call sites that run without a conversation.
+    ...(
+      [
+        "inference",
+        "trustRuleSuggestion",
+        "approvalCopy",
+        "approvalConversation",
+        "guardianQuestionCopy",
+        "voiceFrontDoor",
+        "voiceProgressNarration",
+      ] as const
+    ).map((callSite) => ({
+      name: `conversationless ${callSite} call maps to user_interactive`,
+      input: input({ callSite }),
+      expected: "user_interactive" as WorkOrigin,
+    })),
+    {
+      name: "inference call inside a background conversation is not conversationless user work",
+      input: input({
+        conversationType: "background",
+        conversationSource: "plugin-reengage",
+        callSite: "inference",
+      }),
+      expected: "unknown",
+    },
+    // 11. Recognized call site, no conversation.
     {
       name: "recognized call site with no conversation maps to other_system",
       input: input({ callSite: "conversationTitle" }),

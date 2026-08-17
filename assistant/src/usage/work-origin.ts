@@ -29,7 +29,10 @@ import { MEMORY_V2_CONSOLIDATION_SOURCE } from "../persistence/conversation-type
  *   (in-turn recall) or detached from any conversation.
  * - `user_interactive`: a standard conversation the user is present in,
  *   opened from any surface (the app, a Home feed item, imported history, a
- *   messaging channel, or a notification thread they reply in).
+ *   messaging channel, or a notification thread they reply in), or a
+ *   user-invoked call site that legitimately runs without a conversation
+ *   (direct inference sends, approval copy shown to a waiting user, live
+ *   voice; {@link USER_INVOKED_CONVERSATIONLESS_CALL_SITES}).
  * - `other_system`: system work with no user-facing conversation behind it,
  *   either an explicitly system-owned conversation source
  *   ({@link OTHER_SYSTEM_SOURCES}) or a recognized call site running with no
@@ -140,6 +143,27 @@ const RECOGNIZED_CALL_SITES: ReadonlySet<string> = new Set(
 );
 
 /**
+ * Call sites a user invokes directly that legitimately run without a
+ * conversation, so a null conversation must not shove their spend into
+ * `other_system`: direct inference sends (the HTTP route behind
+ * `assistant inference send`; background reuse of the `inference` site
+ * routes through a background conversation turn and never reaches the
+ * conversationless path), the trust-rule suggestion an approval surface
+ * requests, the approval and guardian copy generators shown to a waiting
+ * user, and the live-voice front door and progress narration a caller is
+ * listening to.
+ */
+const USER_INVOKED_CONVERSATIONLESS_CALL_SITES: ReadonlySet<string> = new Set([
+  "inference",
+  "trustRuleSuggestion",
+  "approvalCopy",
+  "approvalConversation",
+  "guardianQuestionCopy",
+  "voiceFrontDoor",
+  "voiceProgressNarration",
+]);
+
+/**
  * The record-time conversation metadata (and call site) a usage row carries,
  * as resolved by the telemetry read path. `callSite` is stored free-form: it
  * is matched against {@link LLMCallSiteEnum} rather than assumed valid.
@@ -174,10 +198,12 @@ export interface WorkOriginInput {
  *   8. a system-owned conversation source,
  *   9. a workflow-leaf call, user-caused work that runs without a
  *      persisted conversation,
- *  10. a recognized call site with no conversation behind it,
- *  11. `unknown`.
+ *  10. a user-invoked call site that runs without a conversation
+ *      ({@link USER_INVOKED_CONVERSATIONLESS_CALL_SITES}),
+ *  11. a recognized call site with no conversation behind it,
+ *  12. `unknown`.
  *
- * Rules 6 to 10 are allowlists. Nothing here may become a residual that
+ * Rules 6 to 11 are allowlists. Nothing here may become a residual that
  * absorbs unrecognized combinations: an unnamed kind of work belongs in
  * `unknown`, where it is visible, not in a bucket whose name asserts a cause
  * nobody verified.
@@ -245,6 +271,14 @@ export function classifyWorkOrigin(input: WorkOriginInput): WorkOrigin {
     // workflow spend lands here too rather than in user_created_schedule; a
     // finer split requires threading run provenance onto usage rows.
     return "user_created_background";
+  }
+  if (
+    conversationType === null &&
+    conversationSource === null &&
+    callSite !== null &&
+    USER_INVOKED_CONVERSATIONLESS_CALL_SITES.has(callSite)
+  ) {
+    return "user_interactive";
   }
   if (
     conversationType === null &&
