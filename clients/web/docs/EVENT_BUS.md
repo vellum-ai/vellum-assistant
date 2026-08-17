@@ -311,7 +311,7 @@ export function setupMyStore(): () => void {
 
 ## Don't do this
 
-- **Don't call `subscribeChatEvents` directly outside `assistant/sse-service.ts`.** Every other consumer subscribes to `bus.sse.event`. A second SSE handle from the same `clientId` will evict the first on the daemon.
+- **Don't call `sseService.attach()` outside `hooks/use-event-bus-init.ts`.** Every other consumer subscribes to `bus.sse.event`. A second SSE handle from the same `clientId` will evict the first on the daemon.
 - **Don't register `document.addEventListener("visibilitychange", ...)`** in a component or store for data-refresh purposes. The bus's `app.resume` signal and TQ's `focusManager` (configured in `lib/query-focus-manager.ts`) handle it. The only legitimate `visibilitychange` registration in the app is `runtime/event-sources/dom-visibility.ts`.
 - **Don't manually `invalidateQueries` inside an `app.resume` handler** for generic cache refresh. TQ's `focusManager` already re-fetches stale queries automatically. Only subscribe to `app.resume` for domain-specific side effects (e.g. computing `timeAwaySeconds`).
 - **Don't register `window.online` / `window.offline` listeners** in a component or store. Subscribe to `bus.app.online` / `bus.app.offline`.
