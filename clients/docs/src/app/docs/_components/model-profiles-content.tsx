@@ -104,7 +104,7 @@ export function ModelProfilesContent() {
                   <td className="py-3 pr-4">
                     <span className="font-semibold text-stone-900 dark:text-stone-100">Cost</span>
                   </td>
-                  <td className="py-3 pr-4">DeepSeek V4 Flash</td>
+                  <td className="py-3 pr-4">DeepSeek V4 Pro</td>
                   <td className="py-3">Simple, short, or structural tasks run at high volume</td>
                 </tr>
               </tbody>
