@@ -210,6 +210,47 @@ describe("user-prompt-submit hook (memory retrieval)", () => {
     expect(applyRuntimeInjectionsMock).toHaveBeenCalledTimes(1);
   });
 
+  test("hidden continuation routes legacy retrieval on the preceding user message", async () => {
+    const { memory, prepareMemoryMock } = makeFakeGraphMemory();
+    installConversation(memory, { trusted: true });
+    const latestMessages: Message[] = [
+      {
+        role: "user",
+        content: [
+          { type: "text", text: "<info>\ncarried context\n</info>" },
+          {
+            type: "text",
+            text: "<turn_context>\nturn context\n</turn_context>",
+          },
+          { type: "text", text: "What is my preferred editor?" },
+        ],
+      },
+      {
+        role: "assistant",
+        content: [{ type: "text", text: "Let me check that." }],
+      },
+      {
+        role: "user",
+        content: [{ type: "text", text: "Continue the answer." }],
+      },
+    ];
+    const ctx = makeHookCtx({
+      latestMessages,
+      isHiddenPrompt: true,
+    });
+
+    await userPromptSubmitMemoryRetrieval(ctx);
+
+    expect(prepareMemoryMock).toHaveBeenCalledTimes(1);
+    expect(prepareMemoryMock.mock.calls[0]?.[0]).toBe(latestMessages);
+    expect(prepareMemoryMock.mock.calls[0]?.[4]).toEqual([
+      {
+        role: "user",
+        content: [{ type: "text", text: "What is my preferred editor?" }],
+      },
+    ]);
+  });
+
   test("adopts the injected run messages when the actor is trusted", async () => {
     const injected: Message[] = [
       { role: "user", content: [{ type: "text", text: "injected" }] },

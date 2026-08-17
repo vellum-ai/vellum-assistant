@@ -48,6 +48,7 @@ import { timeLatencySubSpan } from "../../../../daemon/turn-latency-sub-spans.js
 import { broadcastMessage } from "../../../../runtime/assistant-event-hub.js";
 import type { GraphMemoryResult } from "../graph/conversation-graph-memory.js";
 import { recordMemoryRecallLog } from "../memory-recall-log-store.js";
+import { stripTailInjectionsForReinjection } from "../tail-reinjection-strip.js";
 import { MEMORY_V3_INJECTED_BLOCK_METADATA_KEY } from "../v3/ever-injected-store.js";
 
 /**
@@ -67,6 +68,39 @@ export function shouldRunLegacyMemoryRetrieval(params: {
   memoryV3Live: boolean;
 }): boolean {
   return params.isTrustedActor && !params.memoryV3Live;
+}
+
+/**
+ * Internal prompts are model-control messages, not retrieval queries. Route
+ * memory on the latest preceding user message and strip the runtime context
+ * that was frozen onto it during its original turn.
+ */
+function legacyRetrievalRoutingMessages(
+  messages: UserPromptSubmitContext["latestMessages"],
+  isHiddenPrompt: boolean,
+): UserPromptSubmitContext["latestMessages"] {
+  if (!isHiddenPrompt) {
+    return messages;
+  }
+
+  for (let i = messages.length - 2; i >= 0; i -= 1) {
+    if (messages[i]?.role !== "user") {
+      continue;
+    }
+    const candidate = stripTailInjectionsForReinjection(
+      messages.slice(0, i + 1),
+    );
+    const tail = candidate[candidate.length - 1];
+    if (
+      tail?.role === "user" &&
+      tail.content.some(
+        (block) => block.type === "text" && block.text.trim().length > 0,
+      )
+    ) {
+      return candidate;
+    }
+  }
+  return [];
 }
 
 /**
@@ -314,6 +348,10 @@ const userPromptSubmitMemoryRetrieval: HookFunction<
           config,
           abortSignal,
           broadcastMessage,
+          legacyRetrievalRoutingMessages(
+            ctx.latestMessages,
+            ctx.isHiddenPrompt === true,
+          ),
         ),
     );
 
