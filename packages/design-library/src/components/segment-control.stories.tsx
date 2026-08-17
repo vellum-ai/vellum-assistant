@@ -93,17 +93,15 @@ export const Default: Story = {};
  * to the button's `aria-label`, with a tooltip carrying the label for sighted
  * pointer users.
  *
- * The play function pins the pointer-dependence of that tooltip, in the order
- * that makes each half meaningful. A touch tap must leave no tooltip behind:
- * Radix opens on hover and on keyboard focus, but ignores `pointerType:
- * "touch"` on move and refuses to open on a focus that arrived from a pointer
- * press. A hover must then open one. The hover half is what stops the touch
- * half passing vacuously, since a harness that dispatched nothing at all would
- * satisfy the first assertion and fail the second.
+ * The play function pins the pointer-dependence of that tooltip. A tap leaves
+ * no tooltip behind, and a hover opens one. Both halves are needed: the hover
+ * is what stops the tap assertion passing vacuously, since a harness that
+ * dispatched nothing at all would satisfy the first and fail the second.
  *
- * This is the contract that made a `showTooltips` opt-out unnecessary, so it
- * is worth holding: a hand-rolled tooltip that opened on focus unconditionally
- * would strand a label over the UI after every tap, and would fail here.
+ * The tap half waits out the tooltip's open delay rather than sampling once,
+ * so it fails on a tooltip that opens late as well as one that opens at once.
+ * A tooltip that opened on focus unconditionally would strand a label over the
+ * UI after every tap, and would fail here.
  */
 export const IconOnly: Story = {
   args: {
@@ -122,7 +120,15 @@ export const IconOnly: Story = {
     const segment = await screen.findByRole("radio", { name: "Light" });
 
     await userEvent.pointer({ keys: "[TouchA]", target: segment });
-    expect(screen.queryByRole("tooltip")).toBeNull();
+    // Poll for a tooltip across a window wider than the 200ms open delay and
+    // require the wait to time out. Sampling once right after the tap would
+    // pass on a tooltip that opens a moment later, which is the shape a
+    // regression here takes.
+    await expect(
+      waitFor(() => expect(screen.getByRole("tooltip")).toBeInTheDocument(), {
+        timeout: 600,
+      }),
+    ).rejects.toThrow();
 
     await userEvent.hover(segment);
     await waitFor(() => {
