@@ -10,6 +10,8 @@ import {
   getLockfileData,
   getLocalAssistantStatus,
   replacePlatformAssistants,
+  runDevicesList,
+  runDevicesRevoke,
   runHatch,
   runRetire,
   runSleep,
@@ -24,7 +26,11 @@ import {
   type UpgradeOptions,
   type WakeOptions,
 } from "@vellumai/local-mode";
-import type { LocalConnectImportResult } from "@vellumai/ipc-contract";
+import type {
+  LocalConnectImportResult,
+  LocalListDevicesResult,
+  LocalRevokeDeviceResult,
+} from "@vellumai/ipc-contract";
 import { capabilityToken } from "./capability-registry";
 import type { IpcHandle } from "./ipc";
 
@@ -179,6 +185,41 @@ async function sleep(assistantId: string): Promise<SleepResult> {
   return result.ok ? { ok: true } : { ok: false, error: result.error };
 }
 
+/** List a local assistant's paired devices. Mirrors `hatch`'s never-reject contract. */
+async function listDevices(
+  assistantId: string,
+): Promise<LocalListDevicesResult> {
+  let invocation: CliInvocation;
+  try {
+    invocation = await requireRuntime().cli.resolveInvocation();
+  } catch (err) {
+    return { ok: false, error: (err as Error).message };
+  }
+  const result = await runDevicesList(invocation, assistantId);
+  return result.ok
+    ? { ok: true, devices: result.devices }
+    : { ok: false, error: result.error };
+}
+
+/** Revoke one paired device's tokens. Mirrors `hatch`'s never-reject contract. */
+async function revokeDevice(
+  assistantId: string,
+  hashedDeviceId: string,
+): Promise<LocalRevokeDeviceResult> {
+  let invocation: CliInvocation;
+  try {
+    invocation = await requireRuntime().cli.resolveInvocation();
+  } catch (err) {
+    return { ok: false, error: (err as Error).message };
+  }
+  const result = await runDevicesRevoke(
+    invocation,
+    assistantId,
+    hashedDeviceId,
+  );
+  return result.ok ? { ok: true } : { ok: false, error: result.error };
+}
+
 /**
  * Wake (start) a local assistant's daemon and gateway, re-seeding its
  * guardian token. The non-destructive repair primitive. Mirrors `hatch`'s
@@ -303,6 +344,13 @@ const assistantIdArgs = z.tuple([z.string().optional()]);
 // bundle, including the length cap that bounds what a hostile renderer can
 // make the main process buffer and decode.
 const connectImportArgs = z.tuple([
+  z.string().optional(),
+  z.string().optional(),
+]);
+
+// `revokeDevice` takes an assistant id plus the hashed device id to revoke.
+// Both optional on the wire, validated in the body (never-reject contract).
+const revokeDeviceArgs = z.tuple([
   z.string().optional(),
   z.string().optional(),
 ]);
@@ -460,6 +508,27 @@ export const installLocalMode = (): void => {
     }
     return sleep(assistantId);
   });
+
+  ipc("vellum:localMode:listDevices", assistantIdArgs, ([assistantId]) => {
+    if (!assistantId) {
+      return { ok: false, error: "Missing assistantId" };
+    }
+    return listDevices(assistantId);
+  });
+
+  ipc(
+    "vellum:localMode:revokeDevice",
+    revokeDeviceArgs,
+    ([assistantId, hashedDeviceId]) => {
+      if (!assistantId) {
+        return { ok: false, error: "Missing assistantId" };
+      }
+      if (!hashedDeviceId) {
+        return { ok: false, error: "Missing hashedDeviceId" };
+      }
+      return revokeDevice(assistantId, hashedDeviceId);
+    },
+  );
 
   ipc("vellum:localMode:wake", wakeArgs, ([assistantId, options]) => {
     if (!assistantId) {
