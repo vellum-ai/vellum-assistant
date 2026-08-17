@@ -874,7 +874,12 @@ const useAuthStoreBase = create<AuthStore>()((set, get) => ({
         // session to unauthenticated and surface the recovery controls for an
         // assistant that reconnects on its own moments later. Still no `wake` —
         // app launch must not spawn daemon processes.
-        await primeLocalGatewayConnectionWithStartupRetry();
+        const gatewayValidated =
+          await primeLocalGatewayConnectionWithStartupRetry();
+        if (!gatewayValidated) {
+          await get().initSession();
+          return;
+        }
         set(authenticatedLocalUser());
       } catch {
         // Gateway prime failed: settle to unauthenticated but leave

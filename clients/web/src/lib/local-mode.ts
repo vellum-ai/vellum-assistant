@@ -1148,8 +1148,15 @@ async function primeLocalGatewayWithStartupRideout(
  */
 export async function primeLocalGatewayConnectionWithStartupRetry(
   target?: LockfileAssistant,
-): Promise<void> {
+): Promise<boolean> {
   const targetAssistant = target ?? getSelectedAssistant();
+  if (
+    !targetAssistant ||
+    (!expectsLocalGateway(targetAssistant) &&
+      !expectsPairedGateway(targetAssistant))
+  ) {
+    return false;
+  }
   const targetIngressUrl = getAuthGatewayIngressUrl(targetAssistant);
   const reservation = reserveGatewayPrime(
     targetAssistant?.assistantId ?? null,
@@ -1165,10 +1172,10 @@ export async function primeLocalGatewayConnectionWithStartupRetry(
       settleGatewayPrime(reservation, false);
       await newerCommittedGatewayPrimeAssistant(reservation.generation);
       await Promise.resolve();
-      await primeLocalGatewayConnectionWithStartupRetry();
-      return;
+      return primeLocalGatewayConnectionWithStartupRetry();
     }
     settleGatewayPrime(reservation, committed);
+    return true;
   } catch (error) {
     settleGatewayPrime(reservation, false);
     if (

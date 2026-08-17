@@ -1043,6 +1043,20 @@ describe("primeLocalGatewayConnection", () => {
 });
 
 describe("primeLocalGatewayConnectionWithStartupRetry", () => {
+  test("hands a platform selection back to platform auth", async () => {
+    enableLocalMode();
+    setLockfile({ assistants: [platform], activeAssistant: "platform-a" });
+    const fetchMock = mock(async () => Response.json({ status: "ok" }));
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+    await expect(
+      primeLocalGatewayConnectionWithStartupRetry(platform),
+    ).resolves.toBe(false);
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(fetchGuardianTokenHost).not.toHaveBeenCalled();
+  });
+
   test("replaces a cached gateway token before authenticating at boot", async () => {
     enableLocalMode();
     setLockfile({ assistants: [localA], activeAssistant: "local-a" });
