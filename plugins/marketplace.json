@@ -16,7 +16,7 @@
       "category": "productivity",
       "homepage": "https://github.com/vellum-ai/admin-copilot",
       "license": "MIT",
-      "icon": "🧑‍💼"
+      "icon": "\ud83e\uddd1\u200d\ud83d\udcbc"
     },
     {
       "name": "agent-wrapped",
@@ -30,7 +30,7 @@
       "license": "MIT",
       "submittedBy": "marina",
       "homepage": "https://agent-wrapped.com",
-      "icon": "🎁"
+      "icon": "\ud83c\udf81"
     },
     {
       "name": "ai-hero-engineer-kit",
@@ -39,11 +39,11 @@
         "repo": "marinatrajk/ai-hero-engineer-kit",
         "ref": "18d33c62b15a3e2cc22dc070723fe3077749dcec"
       },
-      "description": "Five engineering skills adapted from Matt Pocock's '5 Agent Skills I Use Every Day' — plans, PRDs, vertical-slice issues, TDD loop, and codebase deepening in one install.",
+      "description": "Five engineering skills adapted from Matt Pocock's '5 Agent Skills I Use Every Day' \u2014 plans, PRDs, vertical-slice issues, TDD loop, and codebase deepening in one install.",
       "category": "developer",
       "homepage": "https://github.com/marinatrajk/ai-hero-engineer-kit",
       "license": "MIT",
-      "icon": "🧰"
+      "icon": "\ud83e\uddf0"
     },
     {
       "name": "amex-perk-reminder",
@@ -56,7 +56,7 @@
       "category": "lifestyle",
       "homepage": "https://github.com/AnitaKirkovska/amex-perk-reminder",
       "license": "MIT",
-      "icon": "💳"
+      "icon": "\ud83d\udcb3"
     },
     {
       "name": "astrology-horoscope",
@@ -69,7 +69,20 @@
       "category": "hobby",
       "homepage": "https://github.com/vellum-ai/astrology-horoscope",
       "license": "MIT",
-      "icon": "🔮"
+      "icon": "\ud83d\udd2e"
+    },
+    {
+      "name": "battleship",
+      "source": {
+        "source": "github",
+        "repo": "vellum-ai/battleship",
+        "ref": "32391ea3af71597b7507bb710bd29ab8308a4604"
+      },
+      "description": "Play Battleship against your assistant. Fire shots, track hits and misses, and sink the fleet before the assistant sinks yours.",
+      "category": "hobby",
+      "homepage": "https://github.com/vellum-ai/battleship",
+      "license": "MIT",
+      "icon": "\u2693"
     },
     {
       "name": "caveman",
@@ -82,7 +95,7 @@
       "category": "productivity",
       "homepage": "https://github.com/JuliusBrussee/caveman",
       "license": "MIT",
-      "icon": "🦴"
+      "icon": "\ud83e\uddb4"
     },
     {
       "name": "coffee-aficionado",
@@ -107,7 +120,7 @@
       "category": "productivity",
       "homepage": "https://github.com/vellum-ai/cofounder",
       "license": "MIT",
-      "icon": "🤝"
+      "icon": "\ud83e\udd1d"
     },
     {
       "name": "cognee",
@@ -120,7 +133,7 @@
       "description": "Cognee knowledge graph memory for Vellum Assistant: session-aware storage, auto-routing recall, and persistent learning across sessions. Supports local mode and Cognee Cloud.",
       "category": "memory",
       "homepage": "https://github.com/topoteretes/cognee-integrations/tree/main/integrations/vellum-assistant",
-      "icon": "🕸️"
+      "icon": "\ud83d\udd78\ufe0f"
     },
     {
       "name": "creatorland",
@@ -134,7 +147,7 @@
       "category": "marketing",
       "homepage": "https://github.com/creatorland/creatorland-mcp-skills/tree/main/plugins/creatorland-data",
       "license": "MIT",
-      "icon": "🎨"
+      "icon": "\ud83c\udfa8"
     },
     {
       "name": "dynamic-notch",
@@ -147,7 +160,7 @@
       "category": "interface",
       "homepage": "https://github.com/AnitaKirkovska/dynamic-notch",
       "license": "MIT",
-      "icon": "💻"
+      "icon": "\ud83d\udcbb"
     },
     {
       "name": "family-briefing",
@@ -160,7 +173,7 @@
       "category": "productivity",
       "homepage": "https://github.com/AnitaKirkovska/family-briefing",
       "license": "MIT",
-      "icon": "👨‍👩‍👧‍👦"
+      "icon": "\ud83d\udc68\u200d\ud83d\udc69\u200d\ud83d\udc67\u200d\ud83d\udc66"
     },
     {
       "name": "fitness-companion",
@@ -173,7 +186,7 @@
       "category": "health",
       "homepage": "https://github.com/vellum-ai/fitness-companion",
       "license": "MIT",
-      "icon": "💪"
+      "icon": "\ud83d\udcaa"
     },
     {
       "name": "git-workflow",
@@ -186,7 +199,7 @@
       "category": "developer",
       "homepage": "https://github.com/vellum-ai/git-workflow",
       "license": "MIT",
-      "icon": "🔀"
+      "icon": "\ud83d\udd00"
     },
     {
       "name": "google-drive-search",
@@ -199,7 +212,7 @@
       "category": "productivity",
       "homepage": "https://github.com/ZeebBoyBlue/google-drive-search",
       "license": "Apache-2.0",
-      "icon": "🔍"
+      "icon": "\ud83d\udd0d"
     },
     {
       "name": "influencer-marketing",
@@ -212,7 +225,7 @@
       "category": "marketing",
       "homepage": "https://github.com/ZeebBoyBlue/influencer",
       "license": "MIT",
-      "icon": "📣"
+      "icon": "\ud83d\udce3"
     },
     {
       "name": "kitchen-companion",
@@ -225,228 +238,7 @@
       "category": "lifestyle",
       "homepage": "https://github.com/vellum-ai/kitchen-companion",
       "license": "MIT",
-      "icon": "🍳"
-    },
-    {
-      "name": "level-up",
-      "source": {
-        "source": "github",
-        "repo": "vellum-ai/level-up",
-        "ref": "d3cbb50f8aba1f8320cd2d59ea3a85d0a4e9210b"
-      },
-      "description": "Surfaces a first-class \"Level Up\" diff card whenever the assistant edits its own skills or plugins, so you can see how it improved itself after the fact.",
-      "category": "developer",
-      "homepage": "https://github.com/vellum-ai/level-up",
-      "license": "MIT",
-      "icon": "🆙"
-    },
-    {
-      "name": "marketing-expert",
-      "source": {
-        "source": "github",
-        "repo": "vellum-ai/marketing-expert",
-        "ref": "6a85ee33e184c2be56ed63cd5681d1287a941eff"
-      },
-      "description": "Acts as a full-stack marketing expert for any business (B2B or B2C): an on-demand persona plus playbook skills (positioning, demand planning, launches, content & copywriting, brand voice, email sequences, SEO & GEO, competitive teardown, board reporting) and deterministic funnel/positioning/GTM/competitive tools.",
-      "category": "marketing",
-      "homepage": "https://github.com/vellum-ai/marketing-expert",
-      "license": "MIT",
-      "icon": "📈"
-    },
-    {
-      "name": "markitdown-vellum",
-      "source": {
-        "source": "github",
-        "repo": "simensgreen/markitdown-vellum",
-        "ref": "5e5a4ecfd6c60d613778106442003a1ed302fc3c"
-      },
-      "description": "Convert workspace documents (PDF, DOCX, PPTX, XLSX, images, MSG, …) to markdown via @cognipeer/to-markdown, with Vellum vision OCR or Tesseract.",
-      "category": "productivity",
-      "homepage": "https://github.com/simensgreen/markitdown-vellum",
-      "license": "MIT",
-      "icon": "📄"
-    },
-    {
-      "name": "model-router",
-      "source": {
-        "source": "github",
-        "repo": "AnitaKirkovska/model-router",
-        "ref": "605100d27b5333b243ada5a29fcb324e2217d336"
-      },
-      "description": "Routes each user-facing message to one of your workspace's inference profiles, so model selection can vary per call instead of staying pinned to a single profile.",
-      "category": "productivity",
-      "homepage": "https://github.com/AnitaKirkovska/model-router",
-      "license": "MIT",
-      "icon": "🚦"
-    },
-    {
-      "name": "motion-design",
-      "source": {
-        "source": "github",
-        "repo": "vellum-ai/motion-design",
-        "ref": "9cdc798c26e0141dcdf6887d7707559c38bfe00e"
-      },
-      "description": "Teaches the assistant to build polished UI animations with Motion (motion.dev) for React: animated product mockups, chat replays, typing effects, and staggered reveals, with a complete animated chat example included.",
-      "category": "creative",
-      "homepage": "https://github.com/vellum-ai/motion-design",
-      "license": "MIT",
-      "icon": "🎬"
-    },
-    {
-      "name": "originkit",
-      "source": {
-        "source": "github",
-        "repo": "vellum-ai/originkit",
-        "ref": "9aa260c2561ad9e765832dc342e9bbb5138858a4"
-      },
-      "description": "Browse and import animated UI components from Originkit, a free library of 50 animated components. Browse by category or search term without an API key; fetch component source code (React, Next.js, Vite, Framer) with a free key from originkit.dev.",
-      "category": "productivity",
-      "homepage": "https://github.com/vellum-ai/originkit",
-      "license": "MIT",
-      "icon": "🧱"
-    },
-    {
-      "name": "personal-finance",
-      "source": {
-        "source": "github",
-        "repo": "AnitaKirkovska/personal-finance",
-        "ref": "f8f9bfba3d86c943001da894b920e7e867507dd4"
-      },
-      "description": "Track expenses, income, recurring bills, and savings funds from your assistant. Multi-currency, receipt OCR, Plaid bank sync, and financial summaries. All data stored locally in SQLite.",
-      "category": "productivity",
-      "homepage": "https://github.com/AnitaKirkovska/personal-finance",
-      "license": "MIT",
-      "icon": "💰"
-    },
-    {
-      "name": "plant-doctor",
-      "source": {
-        "source": "github",
-        "repo": "vellum-ai/plant-doctor",
-        "ref": "1115ac07a5b7f731600f037b743e011a84bd0597"
-      },
-      "description": "Diagnose plants from photos. Identifies the species, assesses health with visible evidence, and returns a care plan. Named plants get a persistent checkup history so you can track whether they are improving.",
-      "category": "lifestyle",
-      "homepage": "https://github.com/vellum-ai/plant-doctor",
-      "license": "MIT",
-      "icon": "🪴"
-    },
-    {
-      "name": "polyglot",
-      "source": {
-        "source": "github",
-        "repo": "vellum-ai/polyglot",
-        "ref": "ab607b7c60b64b0ac5c6bf01609840a004cfd002"
-      },
-      "description": "Ambient language acquisition through your assistant. Three graduated modes (practice, ambient, immersive) weave a target language into your real conversations, with SM-2 spaced repetition, error-pattern tracking, and CEFR level history.",
-      "category": "education",
-      "homepage": "https://github.com/vellum-ai/polyglot",
-      "license": "MIT",
-      "icon": "🗣️"
-    },
-    {
-      "name": "proactive-slacks",
-      "source": {
-        "source": "github",
-        "repo": "AnitaKirkovska/proactive-slacks",
-        "ref": "a5dd35699455ae7a2db3d2243511a8c7edc49aea"
-      },
-      "description": "Let your assistant reach you on Slack on purpose. Route notifications by topic to the right channel at the right volume, with heartbeat-based change detection so it only pings when something actually changed.",
-      "category": "productivity",
-      "homepage": "https://github.com/AnitaKirkovska/proactive-slacks",
-      "license": "MIT",
-      "icon": "💬"
-    },
-    {
-      "name": "reading-pal",
-      "source": {
-        "source": "github",
-        "repo": "vellum-ai/reading-pal",
-        "ref": "5219474719e67db7ea64848f6bd2a0b7312e4f27"
-      },
-      "description": "Your reading life in one plugin. Track your TBR pile, get guilt-tripped about your backlog, find your next read, and sync from Goodreads.",
-      "category": "hobby",
-      "homepage": "https://github.com/vellum-ai/reading-pal",
-      "license": "MIT",
-      "icon": "📚"
-    },
-    {
-      "name": "simple-memory",
-      "source": {
-        "source": "github",
-        "repo": "vellum-ai/simple-memory",
-        "ref": "ed09a4c01bf18e4ac8859faee94cb65c7cbd1ca3"
-      },
-      "description": "Reference memory plugin that exercises the full plugin API with low-cost variants of Vellum's memory defaults.",
-      "category": "memory",
-      "homepage": "https://github.com/vellum-ai/simple-memory",
-      "license": "MIT",
-      "icon": "🧠"
-    },
-    {
-      "name": "smb-inbox-brief",
-      "source": {
-        "source": "github",
-        "repo": "AnitaKirkovska/smb-inbox-brief",
-        "ref": "8e298bd8ded5e0e16c5160edcd547eda1e4d222f"
-      },
-      "description": "Find urgent replies, overdue invoices, quotes, and customer follow-ups before they slip. Scans email, logs business items, delivers urgency-ranked daily briefs.",
-      "category": "productivity",
-      "homepage": "https://github.com/AnitaKirkovska/smb-inbox-brief",
-      "license": "MIT",
-      "icon": "📧"
-    },
-    {
-      "name": "tennis-companion",
-      "source": {
-        "source": "github",
-        "repo": "vellum-ai/tennis-companion",
-        "ref": "1c6d2bd448ee7b5285d37cfee4e0e413522746d1"
-      },
-      "description": "Tennis journal, drill sessions, court finder, and progress tracking. Log matches with opponent tendencies, generate 30-minute practice sessions with progressions, find nearby courts via OpenStreetMap, and track win rate by surface and conditions.",
-      "category": "health",
-      "homepage": "https://github.com/vellum-ai/tennis-companion",
-      "license": "MIT",
-      "icon": "🎾"
-    },
-    {
-      "name": "travel-planner",
-      "source": {
-        "source": "github",
-        "repo": "AnitaKirkovska/travel-planner",
-        "ref": "10c2c4878b017997cb6766b8204b9803c56bc6cf"
-      },
-      "description": "A travel EA for your assistant. Remembers how you travel (carrier, miles, hotel budget, card benefits), keeps per-trip records, watches Gmail for booking changes, syncs your calendar, and emails an EA-style trip brief 48 hours before departure.",
-      "category": "lifestyle",
-      "homepage": "https://github.com/AnitaKirkovska/travel-planner",
-      "license": "MIT",
-      "icon": "✈️"
-    },
-    {
-      "name": "unabyss",
-      "source": {
-        "source": "github",
-        "repo": "Unabyss/unabyss-vellum",
-        "ref": "9f0bb0753dad09dace8578e242961bc2da912af3"
-      },
-      "description": "Personal and company context from Unabyss, available to your agent through the Unabyss MCP server.",
-      "category": "memory",
-      "homepage": "https://unabyss.com",
-      "license": "MIT",
-      "icon": "🌊"
-    },
-    {
-      "name": "vellum-client-qa",
-      "source": {
-        "source": "github",
-        "repo": "vellum-ai/vellum-client-qa",
-        "ref": "4f559d865eaa04b68285f8e4fae4a05fc18fe88f"
-      },
-      "description": "Cross-platform QA rig for vellum-assistant clients: mock the platform backend, boot the real chat UI, and verify feature branches in headless Chromium (web), an iOS simulator, or Electron with screenshot and video proof.",
-      "category": "developer",
-      "homepage": "https://github.com/vellum-ai/vellum-client-qa",
-      "license": "MIT",
-      "icon": "🧪"
+      "icon": "\ud83c\udf73"
     },
     {
       "name": "ledger",
@@ -459,7 +251,253 @@
       "category": "developer",
       "homepage": "https://github.com/simensgreen/ledger",
       "license": "MIT",
-      "icon": "🗄️"
+      "icon": "\ud83d\uddc4\ufe0f"
+    },
+    {
+      "name": "level-up",
+      "source": {
+        "source": "github",
+        "repo": "vellum-ai/level-up",
+        "ref": "d3cbb50f8aba1f8320cd2d59ea3a85d0a4e9210b"
+      },
+      "description": "Surfaces a first-class \"Level Up\" diff card whenever the assistant edits its own skills or plugins, so you can see how it improved itself after the fact.",
+      "category": "developer",
+      "homepage": "https://github.com/vellum-ai/level-up",
+      "license": "MIT",
+      "icon": "\ud83c\udd99"
+    },
+    {
+      "name": "marketing-expert",
+      "source": {
+        "source": "github",
+        "repo": "vellum-ai/marketing-expert",
+        "ref": "6a85ee33e184c2be56ed63cd5681d1287a941eff"
+      },
+      "description": "Acts as a full-stack marketing expert for any business (B2B or B2C): an on-demand persona plus playbook skills (positioning, demand planning, launches, content & copywriting, brand voice, email sequences, SEO & GEO, competitive teardown, board reporting) and deterministic funnel/positioning/GTM/competitive tools.",
+      "category": "marketing",
+      "homepage": "https://github.com/vellum-ai/marketing-expert",
+      "license": "MIT",
+      "icon": "\ud83d\udcc8"
+    },
+    {
+      "name": "markitdown-vellum",
+      "source": {
+        "source": "github",
+        "repo": "simensgreen/markitdown-vellum",
+        "ref": "5e5a4ecfd6c60d613778106442003a1ed302fc3c"
+      },
+      "description": "Convert workspace documents (PDF, DOCX, PPTX, XLSX, images, MSG, \u2026) to markdown via @cognipeer/to-markdown, with Vellum vision OCR or Tesseract.",
+      "category": "productivity",
+      "homepage": "https://github.com/simensgreen/markitdown-vellum",
+      "license": "MIT",
+      "icon": "\ud83d\udcc4"
+    },
+    {
+      "name": "model-router",
+      "source": {
+        "source": "github",
+        "repo": "AnitaKirkovska/model-router",
+        "ref": "605100d27b5333b243ada5a29fcb324e2217d336"
+      },
+      "description": "Routes each user-facing message to one of your workspace's inference profiles, so model selection can vary per call instead of staying pinned to a single profile.",
+      "category": "productivity",
+      "homepage": "https://github.com/AnitaKirkovska/model-router",
+      "license": "MIT",
+      "icon": "\ud83d\udea6"
+    },
+    {
+      "name": "motion-design",
+      "source": {
+        "source": "github",
+        "repo": "vellum-ai/motion-design",
+        "ref": "9cdc798c26e0141dcdf6887d7707559c38bfe00e"
+      },
+      "description": "Teaches the assistant to build polished UI animations with Motion (motion.dev) for React: animated product mockups, chat replays, typing effects, and staggered reveals, with a complete animated chat example included.",
+      "category": "creative",
+      "homepage": "https://github.com/vellum-ai/motion-design",
+      "license": "MIT",
+      "icon": "\ud83c\udfac"
+    },
+    {
+      "name": "octolens",
+      "source": {
+        "source": "github",
+        "repo": "vellum-ai/octolens",
+        "ref": "d9117f5c6b97b3bff75dec1a04bedc32571c6538"
+      },
+      "description": "Social listening plugin for Octolens. Monitor brand mentions, competitor activity, and industry conversations across 13+ platforms. Query mentions, run analytics, manage keywords and feeds via REST API tools, or connect the Octolens MCP server for natural-language workflows.",
+      "category": "growth",
+      "homepage": "https://github.com/vellum-ai/octolens",
+      "license": "MIT"
+    },
+    {
+      "name": "originkit",
+      "source": {
+        "source": "github",
+        "repo": "vellum-ai/originkit",
+        "ref": "9aa260c2561ad9e765832dc342e9bbb5138858a4"
+      },
+      "description": "Browse and import animated UI components from Originkit, a free library of 50 animated components. Browse by category or search term without an API key; fetch component source code (React, Next.js, Vite, Framer) with a free key from originkit.dev.",
+      "category": "productivity",
+      "homepage": "https://github.com/vellum-ai/originkit",
+      "license": "MIT",
+      "icon": "\ud83e\uddf1"
+    },
+    {
+      "name": "personal-finance",
+      "source": {
+        "source": "github",
+        "repo": "AnitaKirkovska/personal-finance",
+        "ref": "f8f9bfba3d86c943001da894b920e7e867507dd4"
+      },
+      "description": "Track expenses, income, recurring bills, and savings funds from your assistant. Multi-currency, receipt OCR, Plaid bank sync, and financial summaries. All data stored locally in SQLite.",
+      "category": "productivity",
+      "homepage": "https://github.com/AnitaKirkovska/personal-finance",
+      "license": "MIT",
+      "icon": "\ud83d\udcb0"
+    },
+    {
+      "name": "plant-doctor",
+      "source": {
+        "source": "github",
+        "repo": "vellum-ai/plant-doctor",
+        "ref": "1115ac07a5b7f731600f037b743e011a84bd0597"
+      },
+      "description": "Diagnose plants from photos. Identifies the species, assesses health with visible evidence, and returns a care plan. Named plants get a persistent checkup history so you can track whether they are improving.",
+      "category": "lifestyle",
+      "homepage": "https://github.com/vellum-ai/plant-doctor",
+      "license": "MIT",
+      "icon": "\ud83e\udeb4"
+    },
+    {
+      "name": "polyglot",
+      "source": {
+        "source": "github",
+        "repo": "vellum-ai/polyglot",
+        "ref": "ab607b7c60b64b0ac5c6bf01609840a004cfd002"
+      },
+      "description": "Ambient language acquisition through your assistant. Three graduated modes (practice, ambient, immersive) weave a target language into your real conversations, with SM-2 spaced repetition, error-pattern tracking, and CEFR level history.",
+      "category": "education",
+      "homepage": "https://github.com/vellum-ai/polyglot",
+      "license": "MIT",
+      "icon": "\ud83d\udde3\ufe0f"
+    },
+    {
+      "name": "proactive-slacks",
+      "source": {
+        "source": "github",
+        "repo": "AnitaKirkovska/proactive-slacks",
+        "ref": "a5dd35699455ae7a2db3d2243511a8c7edc49aea"
+      },
+      "description": "Let your assistant reach you on Slack on purpose. Route notifications by topic to the right channel at the right volume, with heartbeat-based change detection so it only pings when something actually changed.",
+      "category": "productivity",
+      "homepage": "https://github.com/AnitaKirkovska/proactive-slacks",
+      "license": "MIT",
+      "icon": "\ud83d\udcac"
+    },
+    {
+      "name": "reading-pal",
+      "source": {
+        "source": "github",
+        "repo": "vellum-ai/reading-pal",
+        "ref": "5219474719e67db7ea64848f6bd2a0b7312e4f27"
+      },
+      "description": "Your reading life in one plugin. Track your TBR pile, get guilt-tripped about your backlog, find your next read, and sync from Goodreads.",
+      "category": "hobby",
+      "homepage": "https://github.com/vellum-ai/reading-pal",
+      "license": "MIT",
+      "icon": "\ud83d\udcda"
+    },
+    {
+      "name": "simple-memory",
+      "source": {
+        "source": "github",
+        "repo": "vellum-ai/simple-memory",
+        "ref": "ed09a4c01bf18e4ac8859faee94cb65c7cbd1ca3"
+      },
+      "description": "Reference memory plugin that exercises the full plugin API with low-cost variants of Vellum's memory defaults.",
+      "category": "memory",
+      "homepage": "https://github.com/vellum-ai/simple-memory",
+      "license": "MIT",
+      "icon": "\ud83e\udde0"
+    },
+    {
+      "name": "smb-inbox-brief",
+      "source": {
+        "source": "github",
+        "repo": "AnitaKirkovska/smb-inbox-brief",
+        "ref": "8e298bd8ded5e0e16c5160edcd547eda1e4d222f"
+      },
+      "description": "Find urgent replies, overdue invoices, quotes, and customer follow-ups before they slip. Scans email, logs business items, delivers urgency-ranked daily briefs.",
+      "category": "productivity",
+      "homepage": "https://github.com/AnitaKirkovska/smb-inbox-brief",
+      "license": "MIT",
+      "icon": "\ud83d\udce7"
+    },
+    {
+      "name": "tennis-companion",
+      "source": {
+        "source": "github",
+        "repo": "vellum-ai/tennis-companion",
+        "ref": "1c6d2bd448ee7b5285d37cfee4e0e413522746d1"
+      },
+      "description": "Tennis journal, drill sessions, court finder, and progress tracking. Log matches with opponent tendencies, generate 30-minute practice sessions with progressions, find nearby courts via OpenStreetMap, and track win rate by surface and conditions.",
+      "category": "health",
+      "homepage": "https://github.com/vellum-ai/tennis-companion",
+      "license": "MIT",
+      "icon": "\ud83c\udfbe"
+    },
+    {
+      "name": "threadkeeper",
+      "source": {
+        "source": "github",
+        "repo": "vellum-ai/threadkeeper",
+        "ref": "b21666be4f04c5558bcbbd1cd527ad5f6875fa2e"
+      },
+      "description": "Evidence-backed continuity: open loops, context archaeology, memory gardening, and serendipitous connections across conversations.",
+      "category": "productivity",
+      "homepage": "https://github.com/vellum-ai/threadkeeper#readme",
+      "license": "MIT",
+      "submittedBy": "jason"
+    },
+    {
+      "name": "travel-planner",
+      "source": {
+        "source": "github",
+        "repo": "AnitaKirkovska/travel-planner",
+        "ref": "10c2c4878b017997cb6766b8204b9803c56bc6cf"
+      },
+      "description": "A travel EA for your assistant. Remembers how you travel (carrier, miles, hotel budget, card benefits), keeps per-trip records, watches Gmail for booking changes, syncs your calendar, and emails an EA-style trip brief 48 hours before departure.",
+      "category": "lifestyle",
+      "homepage": "https://github.com/AnitaKirkovska/travel-planner",
+      "license": "MIT",
+      "icon": "\u2708\ufe0f"
+    },
+    {
+      "name": "unabyss",
+      "source": {
+        "source": "github",
+        "repo": "Unabyss/unabyss-vellum",
+        "ref": "9f0bb0753dad09dace8578e242961bc2da912af3"
+      },
+      "description": "Personal and company context from Unabyss, available to your agent through the Unabyss MCP server.",
+      "category": "memory",
+      "homepage": "https://unabyss.com",
+      "license": "MIT",
+      "icon": "\ud83c\udf0a"
+    },
+    {
+      "name": "vellum-client-qa",
+      "source": {
+        "source": "github",
+        "repo": "vellum-ai/vellum-client-qa",
+        "ref": "4f559d865eaa04b68285f8e4fae4a05fc18fe88f"
+      },
+      "description": "Cross-platform QA rig for vellum-assistant clients: mock the platform backend, boot the real chat UI, and verify feature branches in headless Chromium (web), an iOS simulator, or Electron with screenshot and video proof.",
+      "category": "developer",
+      "homepage": "https://github.com/vellum-ai/vellum-client-qa",
+      "license": "MIT",
+      "icon": "\ud83e\uddea"
     },
     {
       "name": "virlo",
@@ -473,7 +511,7 @@
       "category": "marketing",
       "homepage": "https://github.com/Virlo-AI/virlo-integrations/tree/main/integrations/vellum",
       "license": "MIT",
-      "icon": "📱"
+      "icon": "\ud83d\udcf1"
     },
     {
       "name": "writing-coach",
@@ -486,32 +524,7 @@
       "category": "hobby",
       "homepage": "https://github.com/vellum-ai/writing-coach",
       "license": "MIT",
-      "icon": "✍️"
-    },
-    {
-      "name": "battleship",
-      "source": {
-        "source": "github",
-        "repo": "vellum-ai/battleship",
-        "ref": "32391ea3af71597b7507bb710bd29ab8308a4604"
-      },
-      "description": "Play Battleship against your assistant. Fire shots, track hits and misses, and sink the fleet before the assistant sinks yours.",
-      "category": "hobby",
-      "homepage": "https://github.com/vellum-ai/battleship",
-      "license": "MIT",
-      "icon": "⚓"
-    },
-    {
-      "name": "octolens",
-      "source": {
-        "source": "github",
-        "repo": "vellum-ai/octolens",
-        "ref": "d9117f5c6b97b3bff75dec1a04bedc32571c6538"
-      },
-      "description": "Social listening plugin for Octolens. Monitor brand mentions, competitor activity, and industry conversations across 13+ platforms. Query mentions, run analytics, manage keywords and feeds via REST API tools, or connect the Octolens MCP server for natural-language workflows.",
-      "category": "growth",
-      "homepage": "https://github.com/vellum-ai/octolens",
-      "license": "MIT"
+      "icon": "\u270d\ufe0f"
     }
   ]
 }
