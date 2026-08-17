@@ -31,13 +31,16 @@ jobs:
         with:
           global-json-file: clients/windows/native/global.json
 
+      # Kept out of the job env: dotnet also honors MSBUILD_EXE_PATH and
+      # would resolve SDKs through the Visual Studio MSBuild.
       - name: Locate MSBuild
+        id: msbuild
         shell: pwsh
         run: |
           $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
           $msbuild = & $vswhere -latest -requires Microsoft.Component.MSBuild -find MSBuild\**\Bin\MSBuild.exe | Select-Object -First 1
           if (-not $msbuild) { throw "MSBuild not found" }
-          "MSBUILD_EXE_PATH=$msbuild" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "path=$msbuild" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
 
       - name: Integrate vcpkg with MSBuild
         run: vcpkg integrate install
@@ -49,6 +52,8 @@ jobs:
         run: bun scripts/build-native-helper.ts --arch ${{ matrix.arch }}
 
       - name: Build preview handler
+        env:
+          MSBUILD_EXE_PATH: ${{ steps.msbuild.outputs.path }}
         run: bun scripts/build-preview-handler.ts --arch ${{ matrix.arch }}
 
       - name: Build packaged runtime
