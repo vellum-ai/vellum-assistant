@@ -21,11 +21,16 @@ import { defineConfig, externalizeDepsPlugin } from "electron-vite";
 // Workspace dependencies such as `@vellumai/local-mode` and
 // `@vellumai/electron-utils` export TypeScript source with no build step.
 // Inlining lets Rollup compile their source into the bundle.
+//
+// `zod` must be inlined too: `@vellumai/ipc-contract` imports it at module
+// scope, and the sandboxed preload can't `require("zod")` at runtime. An
+// external zod kills the whole preload script (no `window.vellum` bridge).
 const DEPS_TO_INLINE = [
   "electron-log",
   "electron-store",
   "electron-updater",
   "conf",
+  "zod",
   "@vellumai/electron-utils",
   "@vellumai/electron-desktop",
   "@vellumai/ipc-contract",
