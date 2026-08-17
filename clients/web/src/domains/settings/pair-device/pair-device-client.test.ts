@@ -4,6 +4,8 @@ import {
   approvePairingRequest,
   denyPairingRequest,
   listPendingPairingRequests,
+  mintDevicePairing,
+  PAIRING_CONNECTIVITY_HINT,
   PairDeviceError,
 } from "./pair-device-client";
 
@@ -39,6 +41,18 @@ function pendingRequest() {
     requesterIp: "203.0.113.7",
     requesterUserAgent: "Mozilla/5.0",
   };
+}
+
+async function capturePairDeviceError(
+  promise: Promise<unknown>,
+): Promise<PairDeviceError> {
+  try {
+    await promise;
+  } catch (err) {
+    expect(err).toBeInstanceOf(PairDeviceError);
+    return err as PairDeviceError;
+  }
+  throw new Error("expected the promise to reject");
 }
 
 beforeEach(() => {
@@ -77,14 +91,16 @@ describe("listPendingPairingRequests", () => {
     expect(await listPendingPairingRequests({ base: BASE })).toEqual([]);
   });
 
-  test("throws PairDeviceError with the server's message on a non-OK response", async () => {
+  test("throws PairDeviceError with the server's message and no hint on a non-OK response", async () => {
     installFetch(() =>
       jsonResponse({ error: { message: "Not available." } }, 503),
     );
 
-    await expect(listPendingPairingRequests({ base: BASE })).rejects.toThrow(
-      new PairDeviceError("Not available."),
+    const err = await capturePairDeviceError(
+      listPendingPairingRequests({ base: BASE }),
     );
+    expect(err.message).toBe("Not available.");
+    expect(err.hint).toBeUndefined();
   });
 
   test("falls back to a status message when the error body is not JSON", async () => {
@@ -151,14 +167,16 @@ describe("approvePairingRequest", () => {
     expect(headers.get("Authorization")).toBeNull();
   });
 
-  test("throws PairDeviceError with the server's message on a non-OK response", async () => {
+  test("throws PairDeviceError with the server's message and no hint on a non-OK response", async () => {
     installFetch(() =>
       jsonResponse({ error: { message: "Unknown request." } }, 404),
     );
 
-    await expect(
+    const err = await capturePairDeviceError(
       approvePairingRequest({ base: BASE, requestId: "req-x" }),
-    ).rejects.toThrow(new PairDeviceError("Unknown request."));
+    );
+    expect(err.message).toBe("Unknown request.");
+    expect(err.hint).toBeUndefined();
   });
 
   test("maps a network failure to PairDeviceError", async () => {
@@ -212,14 +230,16 @@ describe("denyPairingRequest", () => {
     ).toBeNull();
   });
 
-  test("throws PairDeviceError with the server's message on a non-OK response", async () => {
+  test("throws PairDeviceError with the server's message and no hint on a non-OK response", async () => {
     installFetch(() =>
       jsonResponse({ error: { message: "Request expired." } }, 410),
     );
 
-    await expect(
+    const err = await capturePairDeviceError(
       denyPairingRequest({ base: BASE, requestId: "req-1" }),
-    ).rejects.toThrow(new PairDeviceError("Request expired."));
+    );
+    expect(err.message).toBe("Request expired.");
+    expect(err.hint).toBeUndefined();
   });
 
   test("rethrows AbortError when the caller cancels", async () => {
@@ -235,5 +255,36 @@ describe("denyPairingRequest", () => {
         signal: controller.signal,
       }),
     ).rejects.toMatchObject({ name: "AbortError" });
+  });
+});
+
+describe("mintDevicePairing", () => {
+  const MINT_ARGS = { base: BASE, publicBaseUrl: "https://foo.ts.net" };
+
+  test("attaches the connectivity hint when the challenge mint is rejected", async () => {
+    installFetch(() =>
+      jsonResponse({ error: { message: "Mint refused." } }, 403),
+    );
+
+    const err = await capturePairDeviceError(mintDevicePairing(MINT_ARGS));
+    expect(err.message).toBe("Mint refused.");
+    expect(err.hint).toBe(PAIRING_CONNECTIVITY_HINT);
+  });
+
+  test("attaches the connectivity hint when the verification step is rejected", async () => {
+    installFetch((url) =>
+      url.endsWith("/v1/remote-web/pairing-challenge")
+        ? jsonResponse({
+            userCode: "WXYZ-1234",
+            deviceCode: "device-code-1",
+            verificationUri: "https://foo.ts.net/assistant/pair",
+            expiresAt: "2026-08-17T10:10:00.000Z",
+          })
+        : jsonResponse({ error: { message: "Verification failed." } }, 400),
+    );
+
+    const err = await capturePairDeviceError(mintDevicePairing(MINT_ARGS));
+    expect(err.message).toBe("Verification failed.");
+    expect(err.hint).toBe(PAIRING_CONNECTIVITY_HINT);
   });
 });

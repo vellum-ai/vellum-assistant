@@ -114,6 +114,7 @@ async function pairingRouteRequest<T>(
   url: string,
   init: RequestInit,
   signal: AbortSignal | undefined,
+  rejectionHint?: string,
 ): Promise<T> {
   let response: Response;
   try {
@@ -135,7 +136,7 @@ async function pairingRouteRequest<T>(
     throw new PairDeviceError(
       serverErrorMessage(payload) ??
         `Pairing failed (HTTP ${response.status}).`,
-      PAIRING_CONNECTIVITY_HINT,
+      rejectionHint,
     );
   }
 
@@ -149,6 +150,7 @@ function postPairingRoute<T>(
   url: string,
   body: unknown,
   signal: AbortSignal | undefined,
+  rejectionHint?: string,
 ): Promise<T> {
   return pairingRouteRequest<T>(
     url,
@@ -158,6 +160,7 @@ function postPairingRoute<T>(
       body: JSON.stringify(body),
     },
     signal,
+    rejectionHint,
   );
 }
 
@@ -178,6 +181,7 @@ export async function mintDevicePairing(args: {
     `${base}${PAIRING_CHALLENGE_PATH}`,
     { publicBaseUrl } satisfies RemoteWebPairingChallengeRequest,
     signal,
+    PAIRING_CONNECTIVITY_HINT,
   );
 
   await postPairingRoute(
@@ -186,6 +190,7 @@ export async function mintDevicePairing(args: {
       userCode: challenge.userCode,
     } satisfies RemoteWebPairingVerificationRequest,
     signal,
+    PAIRING_CONNECTIVITY_HINT,
   );
 
   return {
