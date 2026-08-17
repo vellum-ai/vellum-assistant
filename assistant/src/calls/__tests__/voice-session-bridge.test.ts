@@ -70,9 +70,11 @@ mock.module("../../persistence/conversation-crud.js", () => ({
   recordConversationPersistedSeq: () => {},
 }));
 
-const cancelVoiceMemoryV3PrefetchMock = mock((_conversationId: string) => {});
-mock.module("../../plugins/defaults/memory/voice-prefetch.js", () => ({
-  cancelVoiceMemoryV3Prefetch: cancelVoiceMemoryV3PrefetchMock,
+const notifyVoiceFrontDoorSettledMock = mock(
+  (_conversationId: string, _outcome: string) => {},
+);
+mock.module("../voice-plugin-hooks.js", () => ({
+  notifyVoiceFrontDoorSettled: notifyVoiceFrontDoorSettledMock,
 }));
 
 import { setConfig } from "../../__tests__/helpers/set-config.js";
@@ -1720,7 +1722,7 @@ describe("cutFrontDoorContentAtVerdict", () => {
 describe("front-door hub stream gate", () => {
   beforeEach(() => {
     resetCrudLog();
-    cancelVoiceMemoryV3PrefetchMock.mockClear();
+    notifyVoiceFrontDoorSettledMock.mockClear();
   });
 
   /**
@@ -1800,7 +1802,11 @@ describe("front-door hub stream gate", () => {
 
     expect(texts).toEqual(["Let me check your calendar."]);
     expect(texts.join("")).not.toContain(ESCALATE_VERDICT_TOKEN);
-    expect(cancelVoiceMemoryV3PrefetchMock).not.toHaveBeenCalled();
+    expect(notifyVoiceFrontDoorSettledMock).toHaveBeenCalledWith(
+      "conv-voice-bridge-test",
+      "escalate",
+    );
+    expect(notifyVoiceFrontDoorSettledMock).toHaveBeenCalledTimes(1);
   });
 
   test("a front-door answer reaches the hub in full", async () => {
@@ -1811,9 +1817,11 @@ describe("front-door hub stream gate", () => {
     );
 
     expect(texts.join("")).toBe("It is Tuesday, and it is sunny.");
-    expect(cancelVoiceMemoryV3PrefetchMock).toHaveBeenCalledWith(
+    expect(notifyVoiceFrontDoorSettledMock).toHaveBeenCalledWith(
       "conv-voice-bridge-test",
+      "answer",
     );
+    expect(notifyVoiceFrontDoorSettledMock).toHaveBeenCalledTimes(1);
   });
 
   test("an answer that merely opens with a bracket is released in full", async () => {
@@ -1840,8 +1848,9 @@ describe("front-door hub stream gate", () => {
     );
 
     expect(texts).toEqual([]);
-    expect(cancelVoiceMemoryV3PrefetchMock).toHaveBeenCalledWith(
+    expect(notifyVoiceFrontDoorSettledMock).toHaveBeenCalledWith(
       "conv-voice-bridge-test",
+      "hold",
     );
   });
 
@@ -1863,8 +1872,9 @@ describe("front-door hub stream gate", () => {
     );
 
     expect(texts).toEqual([]);
-    expect(cancelVoiceMemoryV3PrefetchMock).toHaveBeenCalledWith(
+    expect(notifyVoiceFrontDoorSettledMock).toHaveBeenCalledWith(
       "conv-voice-bridge-test",
+      "cancelled",
     );
   });
 

@@ -182,12 +182,14 @@ front-door rule escalates when a reply depends on a saved personal fact that is
 not already present.
 
 The memory preparation and `voiceFrontDoor` provider call therefore overlap.
-A direct answer or hold verdict cancels the unused preparation. An escalation
-keeps it alive; the immediately following escalated turn takes the result,
-awaits any unfinished work, commits the selection rows under its own turn
-index, and renders the normal card and spotlight layers. A preparation cannot
-be consumed by a later unrelated turn, and abandoned entries expire after a
-bounded interval.
+The voice bridge publishes the plugin-agnostic `voice-front-door-settled` hook
+when routing finishes. The memory plugin cancels the unused preparation for a
+direct answer, hold, failure, cancellation, or discard. An escalation keeps it
+alive; the immediately following escalated turn takes the result, awaits any
+unfinished work, commits the selection rows under its own turn index, and
+renders the normal card and spotlight layers. A preparation cannot be consumed
+by a later unrelated turn, and abandoned entries expire after a bounded
+interval.
 
 ### Boot-time maintenance
 

@@ -28,13 +28,13 @@ import { CONVERSATION_BUSY_MESSAGE } from "../daemon/conversation-messaging.js";
 import { resolveChannelCapabilities } from "../daemon/conversation-runtime-assembly.js";
 import { getOrCreateConversation } from "../daemon/conversation-store.js";
 import type { TrustContext } from "../daemon/trust-context-types.js";
+import type { VoiceFrontDoorOutcome } from "../hooks/types.js";
 import {
   deleteMessageById,
   getMessageById,
   recordConversationPersistedSeq,
   updateMessageContent,
 } from "../persistence/conversation-crud.js";
-import { cancelVoiceMemoryV3Prefetch } from "../plugins/defaults/memory/voice-prefetch.js";
 import { pinnedListeningLanguage } from "../providers/speech-to-text/provider-catalog.js";
 import type { ContentBlock } from "../providers/types.js";
 import { broadcastMessage } from "../runtime/assistant-event-hub.js";
@@ -55,6 +55,7 @@ import {
   MINIMIZE_ROOM_MARKER,
   stripInternalSpeechMarkers,
 } from "./voice-control-protocol.js";
+import { notifyVoiceFrontDoorSettled } from "./voice-plugin-hooks.js";
 import {
   createFrontDoorStreamGate,
   escalatedContinuationRule,
@@ -1462,15 +1463,23 @@ export async function startVoiceTurn(
       ? createFrontDoorStreamGate(opts.unifiedVerdict === true)
       : null;
 
-  const cancelVoiceMemory = (): void => {
-    if (frontDoorStreamGate !== null) {
-      cancelVoiceMemoryV3Prefetch(opts.conversationId);
+  let frontDoorSettled = false;
+  const settleFrontDoor = (outcome: VoiceFrontDoorOutcome): void => {
+    if (frontDoorStreamGate === null || frontDoorSettled) {
+      return;
     }
+    frontDoorSettled = true;
+    notifyVoiceFrontDoorSettled(opts.conversationId, outcome);
   };
-  const cancelVoiceMemoryUnlessEscalating = (): void => {
-    if (frontDoorStreamGate?.verdict() !== "escalate") {
-      cancelVoiceMemory();
-    }
+  const settleCompletedFrontDoor = (): void => {
+    const verdict = frontDoorStreamGate?.verdict();
+    settleFrontDoor(
+      verdict === "escalate"
+        ? "escalate"
+        : verdict === "hold"
+          ? "hold"
+          : "answer",
+    );
   };
 
   /**
@@ -1488,7 +1497,7 @@ export async function startVoiceTurn(
     const released = frontDoorStreamGate.push(msg.text);
     const verdict = frontDoorStreamGate.verdict();
     if (verdict === "answer" || verdict === "hold") {
-      cancelVoiceMemory();
+      settleFrontDoor(verdict);
     }
     if (released.length > 0) {
       broadcastMessage({ ...msg, text: released });
@@ -1668,17 +1677,17 @@ export async function startVoiceTurn(
             opts.routingLeg === "front-door" &&
             msg.type === "message_complete"
           ) {
-            cancelVoiceMemoryUnlessEscalating();
+            settleCompletedFrontDoor();
           } else if (
             opts.routingLeg === "front-door" &&
             msg.type === "generation_cancelled"
           ) {
-            cancelVoiceMemory();
+            settleFrontDoor("cancelled");
           } else if (
             opts.routingLeg === "front-door" &&
             (msg.type === "error" || msg.type === "conversation_error")
           ) {
-            cancelVoiceMemory();
+            settleFrontDoor("failed");
           }
           if (msg.type === "assistant_turn_start") {
             reservedAssistantRowId = msg.messageId;
@@ -1764,7 +1773,7 @@ export async function startVoiceTurn(
         );
       }
     } catch (err) {
-      cancelVoiceMemory();
+      settleFrontDoor("failed");
       const message = err instanceof Error ? err.message : String(err);
       log.error({ err, turnId }, "Voice turn failed");
       eventSink.onError(message);
@@ -1794,13 +1803,13 @@ export async function startVoiceTurn(
   // controller's AbortController), wire it to the turn's abort.
   if (opts.signal) {
     if (opts.signal.aborted) {
-      cancelVoiceMemory();
+      settleFrontDoor("cancelled");
       abortFn();
     } else {
       opts.signal.addEventListener(
         "abort",
         () => {
-          cancelVoiceMemory();
+          settleFrontDoor("cancelled");
           abortFn();
         },
         { once: true },
@@ -1813,7 +1822,7 @@ export async function startVoiceTurn(
       return;
     }
     discarded = true;
-    cancelVoiceMemory();
+    settleFrontDoor("discarded");
     abortFn();
     try {
       // Same rollback pattern as the pointer-turn runner: delete the row,

@@ -24,6 +24,8 @@ export type {
   PreModelCallContext,
   StopContext,
   UserPromptSubmitContext,
+  VoiceFrontDoorOutcome,
+  VoiceFrontDoorSettledContext,
 } from "../hooks/types.js";
 export { RiskLevel } from "../tools/tool-types.js";
 export type {
@@ -53,6 +55,7 @@ export type {
  *   - `init` — {@link InitContext}
  *   - `shutdown` — {@link ShutdownContext}
  *   - `user-prompt-submit` — {@link UserPromptSubmitContext}
+ *   - `voice-front-door-settled`: {@link VoiceFrontDoorSettledContext}
  *   - `post-compact` — {@link PostCompactContext}
  *   - `pre-model-call` — {@link PreModelCallContext}
  *   - `post-tool-use` — {@link PostToolUseContext}
