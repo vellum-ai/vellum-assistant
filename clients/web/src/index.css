@@ -797,6 +797,34 @@ html[data-page-transition="pop"]::view-transition-new(root) {
   height: 0;
 }
 
+/* Any touch surface hides them too, which is a wider net than the shells
+ * above rather than a duplicate of it. The attribute is stamped only inside
+ * Capacitor, so the same app opened in Safari or installed as a PWA on the
+ * same phone keeps the themed browser chrome the shell drops; a pointer
+ * query is what reaches those. Neither rule subsumes the other: an iPad in
+ * the shell with a trackpad attached reports a fine pointer and needs the
+ * attribute, and a phone browser has no attribute and needs the query.
+ *
+ * A coarse pointer cannot hover a thumb to grab it, and the platform already
+ * draws its own transient indicator while a scroll is in flight, so a
+ * persistent styled scrollbar there is chrome nothing can use. Scrolling and
+ * momentum are untouched. */
+@media (pointer: coarse) {
+  :root,
+  :root *,
+  :root *::before,
+  :root *::after {
+    scrollbar-width: none;
+  }
+
+  :root::-webkit-scrollbar,
+  :root ::-webkit-scrollbar {
+    display: none;
+    width: 0;
+    height: 0;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .busy-indicator {
     animation: none;
