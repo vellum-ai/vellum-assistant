@@ -111,6 +111,7 @@ export function MessageAttachmentSquare({
             }
           : undefined
       }
+      data-reveal-row=""
       className={`group flex flex-col gap-1${isClickable ? " cursor-pointer" : ""}`}
     >
       <div className="relative w-fit">

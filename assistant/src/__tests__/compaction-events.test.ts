@@ -436,12 +436,11 @@ describe("forceCompact context-window usage push", () => {
     expect(usageEvent.maxTokens).toBe(200_000);
   });
 
-  test("pushes to the caller's sink when the conversation's own sender is dead", async () => {
-    // A `/compact` draining behind an interactive turn: `process-message.ts`
-    // resets `sendToClient` to a no-op in its `finally`, while the queued item
-    // still carries the live sink its result card streams on. The push has to
-    // follow the card, not the dead sender.
-    const stranded: AssistantEvent[] = [];
+  test("pushes to the caller's sink instead of the conversation sink when one is given", async () => {
+    // A `/compact` draining from the queue carries the queued item's own
+    // sink, the one its result card streams on. The push has to follow the
+    // card so the two can never be delivered to different places.
+    const conversationSink: AssistantEvent[] = [];
     const cardSink: AssistantEvent[] = [];
     mockCompactResult = {
       messages: [],
@@ -460,11 +459,10 @@ describe("forceCompact context-window usage push", () => {
     };
 
     const conversation = makeConversation(
-      stranded,
-      "conv-compact-dead-sender",
+      conversationSink,
+      "conv-compact-caller-sink",
       [56_000, 18_000],
     );
-    conversation.updateClient(() => {}, true);
 
     const result = await conversation.forceCompact((msg) => cardSink.push(msg));
 
@@ -475,7 +473,7 @@ describe("forceCompact context-window usage push", () => {
         .tokens,
     ).toBe(result.estimatedInputTokens);
     expect(
-      stranded.filter((m) => m.type === "context_window_usage").length,
+      conversationSink.filter((m) => m.type === "context_window_usage").length,
     ).toBe(0);
   });
 

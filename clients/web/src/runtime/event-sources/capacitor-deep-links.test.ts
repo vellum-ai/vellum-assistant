@@ -305,7 +305,9 @@ describe("publishCapacitorDeepLinksSource", () => {
 
       urlOpenHandler!({ url: "vellum-assistant://voice?mode=resume" });
 
-      expect(starts).toEqual([{ mode: "resume", prompt: null }]);
+      expect(starts).toEqual([
+        { mode: "resume", prompt: null, provenance: null },
+      ]);
       expect(unknowns).toEqual([]);
     } finally {
       unsubStart();
@@ -359,7 +361,9 @@ describe("publishCapacitorDeepLinksSource", () => {
         url: "vellum-assistant://thread/abc-123?message=gym%20done",
       });
 
-      expect(sends).toEqual([{ threadId: "abc-123", message: "gym done" }]);
+      expect(sends).toEqual([
+        { threadId: "abc-123", message: "gym done", provenance: null },
+      ]);
       expect(opens).toEqual([]);
       expect(unknowns).toEqual([]);
     } finally {
@@ -394,6 +398,73 @@ describe("publishCapacitorDeepLinksSource", () => {
     } finally {
       unsubSend();
       unsubOpen();
+    }
+  });
+
+  test("honors the provenance marker on iOS, where the shell strips it at external entry points", async () => {
+    const sends: unknown[] = [];
+    const starts: unknown[] = [];
+    const unsubSend = subscribe("deeplink.sendToThread", (p) => {
+      sends.push(p);
+    });
+    const unsubStart = subscribe("deeplink.startVoice", (p) => {
+      starts.push(p);
+    });
+
+    try {
+      capacitorPlatform = "ios";
+      publishCapacitorDeepLinksSource();
+      await flushAsyncWork();
+
+      urlOpenHandler!({
+        url: "vellum-assistant://thread/abc-123?message=gym%20done&src=intent",
+      });
+      urlOpenHandler!({
+        url: "vellum-assistant://voice?mode=new&prompt=hi&src=intent",
+      });
+
+      expect(sends).toEqual([
+        { threadId: "abc-123", message: "gym done", provenance: "intent" },
+      ]);
+      expect(starts).toEqual([
+        { mode: "new", prompt: "hi", provenance: "intent" },
+      ]);
+    } finally {
+      unsubSend();
+      unsubStart();
+    }
+  });
+
+  test("never honors the marker on Android: that shell registers the scheme but strips nothing", async () => {
+    const sends: unknown[] = [];
+    const starts: unknown[] = [];
+    const unsubSend = subscribe("deeplink.sendToThread", (p) => {
+      sends.push(p);
+    });
+    const unsubStart = subscribe("deeplink.startVoice", (p) => {
+      starts.push(p);
+    });
+
+    try {
+      capacitorPlatform = "android";
+      publishCapacitorDeepLinksSource();
+      await flushAsyncWork();
+
+      urlOpenHandler!({
+        url: "vellum-assistant://thread/abc-123?message=gym%20done&src=intent",
+      });
+      urlOpenHandler!({
+        url: "vellum-assistant://voice?mode=new&prompt=hi&src=intent",
+      });
+
+      // Same commands, same text, but a forged marker buys nothing.
+      expect(sends).toEqual([
+        { threadId: "abc-123", message: "gym done", provenance: null },
+      ]);
+      expect(starts).toEqual([{ mode: "new", prompt: "hi", provenance: null }]);
+    } finally {
+      unsubSend();
+      unsubStart();
     }
   });
 

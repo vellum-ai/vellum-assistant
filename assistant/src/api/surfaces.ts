@@ -488,6 +488,11 @@ export const WorkResultItemSchema = z.object({
   status: tolerantString(),
   tone: WorkResultToneSchema.optional().catch(undefined),
   metadata: recordArray(WorkResultMetadataSchema).optional().catch(undefined),
+  /**
+   * Makes the item row a link. Clients follow an in-app path
+   * (`/assistant/skills/<skillId>?tab=history`) in place and open an http(s)
+   * URL externally; anything else renders as an unlinked row.
+   */
   href: tolerantString(),
 });
 export type WorkResultItem = z.infer<typeof WorkResultItemSchema>;

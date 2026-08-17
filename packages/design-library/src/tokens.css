@@ -858,4 +858,119 @@
   }
 }
 
+/* ---------------------------------------------------------------------------
+ * Hover reveal: an affordance a row keeps out of the way until it is wanted
+ * (an inline "..." trigger, a remove button, a download button over artwork).
+ *
+ * A row marks itself `data-reveal-row`; the affordance marks itself
+ * `data-reveal`; an element sharing the affordance's slot and having to give it
+ * up marks itself `data-reveal-yield`; a row that wants its affordance held
+ * open regardless of hover (the row a nav marks as the current page, a row
+ * mid-operation) marks itself `data-reveal-hold`. Callers declare the part an
+ * element plays, the conditions live here.
+ *
+ * Everything sits inside `@media (hover: hover)`, so a device that cannot hover
+ * shows the affordance outright. `hover` and `pointer` are independent media
+ * features and neither follows from viewport width: an iPad in landscape
+ * reports `hover: none` at 1024px, so a control behind hover there is
+ * unreachable rather than tucked away.
+ *
+ * Hover is read off the row. Keyboard focus anywhere in the row reveals what
+ * the row offers, whether the row itself takes focus or one of its children
+ * does, so a keyboard user meets the affordance the way a pointer user does.
+ * Focus is matched as `:focus-visible`: ordinary `:focus-within` would leave a
+ * row whose whole surface is a button revealed after a click, with the pointer
+ * elsewhere. `aria-expanded` holds the affordance up while a menu it owns is
+ * open, where focus alone sits in portalled content the row does not contain.
+ *
+ * Opacity and `pointer-events` move together, on the affordance and on the
+ * element yielding to it alike: an unpainted control that still answers a click
+ * is a trap, and a faded occupant left in the hit path swallows the clicks meant
+ * for the affordance painted over it. `pointer-events` does not gate keyboard
+ * activation, so the tab path is unaffected.
+ *
+ * The exceptions are separate rules from the rule they qualify, so an engine
+ * without `:has()` drops them and keeps a quiet resting row rather than
+ * dropping the hiding rule and revealing every affordance at once.
+ *
+ * @see https://developer.mozilla.org/en-US/docs/Web/CSS/@media/hover
+ * @see https://developer.mozilla.org/en-US/docs/Web/CSS/@media/pointer
+ * @see https://www.w3.org/WAI/WCAG22/Understanding/content-on-hover-or-focus
+ * --------------------------------------------------------------------------- */
 
+[data-reveal],
+[data-reveal-yield] {
+  transition: opacity var(--anim-fast) var(--anim-ease-out);
+}
+
+/* Explicit rather than inherited, so an affordance laid inside a click-through
+ * overlay is reachable once it is painted. */
+[data-reveal] {
+  pointer-events: auto;
+}
+
+/* Hidden wherever the affordance it shares a slot with is shown, and out of the
+ * hit path while hidden: the two occupy one cell, so a faded occupant left
+ * clickable takes the affordance's clicks. */
+[data-reveal-yield] {
+  opacity: 0;
+  pointer-events: none;
+}
+
+@media (hover: hover) {
+  [data-reveal-row]:not(:hover):not([data-reveal-hold]) [data-reveal] {
+    opacity: 0;
+    pointer-events: none;
+  }
+
+  [data-reveal-row]:not(:hover):not([data-reveal-hold]):focus-visible
+    [data-reveal],
+  [data-reveal-row]:not(:hover):not([data-reveal-hold]) [data-reveal]:focus-within,
+  [data-reveal-row]:not(:hover):not([data-reveal-hold])
+    [data-reveal][aria-expanded="true"] {
+    opacity: 1;
+    pointer-events: auto;
+  }
+
+  /* Focus on any child, not only the affordance: a card whose primary button
+     takes focus shows its remove control too. */
+  [data-reveal-row]:not(:hover):not([data-reveal-hold]):has(:focus-visible)
+    [data-reveal],
+  [data-reveal-row]:not(:hover):not([data-reveal-hold])
+    [data-reveal]:has([aria-expanded="true"]) {
+    opacity: 1;
+    pointer-events: auto;
+  }
+
+  [data-reveal-row]:not(:hover):not([data-reveal-hold]) [data-reveal-yield] {
+    opacity: 1;
+    pointer-events: auto;
+  }
+
+  [data-reveal-row]:not(:hover):not([data-reveal-hold]):focus-visible
+    [data-reveal-yield] {
+    opacity: 0;
+    pointer-events: none;
+  }
+
+  [data-reveal-row]:not(:hover):not([data-reveal-hold]):has(:focus-visible)
+    [data-reveal-yield],
+  [data-reveal-row]:not(:hover):not([data-reveal-hold]):has(
+      [data-reveal][aria-expanded="true"]
+    )
+    [data-reveal-yield],
+  [data-reveal-row]:not(:hover):not([data-reveal-hold]):has(
+      [data-reveal] [aria-expanded="true"]
+    )
+    [data-reveal-yield] {
+    opacity: 0;
+    pointer-events: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  [data-reveal],
+  [data-reveal-yield] {
+    transition: none;
+  }
+}

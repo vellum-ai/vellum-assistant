@@ -7,6 +7,10 @@ import type {
   DesktopCapabilityRegistry,
 } from "@vellumai/electron-desktop/capability-registry";
 import {
+  DictationOwnerRouter,
+  toAudioBuffer,
+} from "@vellumai/electron-desktop/dictation-routing";
+import {
   HELPER_DICTATION_PARTIAL_EVENT,
   HELPER_DICTATION_SET_PARTIALS,
   HELPER_GET_STATE,
@@ -39,18 +43,25 @@ const HELPER_RESULT_SCHEMA = z.object({
 const DICTATION_TEXT_SCHEMA = z.object({ text: z.string() });
 const DICTATION_PUSH_SAMPLE_RATE = 16000;
 
+const HELPER_ARCH = process.arch === "arm64" ? "arm64" : "x64";
+
+/**
+ * Packaged installs carry the helper under the install's resources dir;
+ * development runs read the publish output of `bun run build:native-helper`.
+ */
 export const getWindowsHelperPath = (): string =>
   app.isPackaged
     ? path.join(
         process.resourcesPath,
         "native-helper",
+        HELPER_ARCH,
         "Vellum.WindowsHelper.exe",
       )
     : path.join(
         app.getAppPath(),
         "resources",
         "native-helper",
-        process.arch === "arm64" ? "arm64" : "x64",
+        HELPER_ARCH,
         "Vellum.WindowsHelper.exe",
       );
 
@@ -65,17 +76,7 @@ let client: NativeSidecarClient | null = null;
 const getClient = (): NativeSidecarClient => (client ??= clientFactory());
 
 let installed = false;
-// The renderer that most recently enabled partials; live transcription
-// events route only there. `finalOwner` survives the disable so the
-// post-stop finalized transcript still reaches its window.
-let partialsOwner: WebContents | null = null;
-let finalOwner: WebContents | null = null;
-
-const liveTarget = (target: WebContents | null): WebContents | null =>
-  target && !target.isDestroyed() ? target : null;
-
-const dictationTarget = (): WebContents | null =>
-  liveTarget(partialsOwner) ?? liveTarget(finalOwner);
+const dictationOwners = new DictationOwnerRouter();
 
 const setDictationPartials = async (
   sender: WebContents,
@@ -99,8 +100,7 @@ const setDictationPartials = async (
     if (enable && !result.data.enabled) {
       return { ok: false, reason: result.data.reason ?? "unavailable" };
     }
-    partialsOwner = enable ? sender : null;
-    finalOwner = sender;
+    dictationOwners.setOwner(sender, enable);
     return { ok: true, enabled: result.data.enabled };
   } catch (err) {
     return {
@@ -108,19 +108,6 @@ const setDictationPartials = async (
       reason: err instanceof Error ? err.message : String(err),
     };
   }
-};
-
-const toAudioBuffer = (chunk: unknown): Buffer | null => {
-  if (Buffer.isBuffer(chunk)) {
-    return chunk;
-  }
-  if (chunk instanceof Uint8Array) {
-    return Buffer.from(chunk);
-  }
-  if (chunk instanceof ArrayBuffer) {
-    return Buffer.from(new Uint8Array(chunk));
-  }
-  return null;
 };
 
 const handleHelperState = (state: NativeSidecarState): void => {
@@ -132,8 +119,7 @@ const handleHelperState = (state: NativeSidecarState): void => {
   if (state.status !== "running") {
     // The partials session died with the helper; the renderer's recording
     // simply continues without live text.
-    partialsOwner = null;
-    finalOwner = null;
+    dictationOwners.clear();
   }
 };
 
@@ -145,7 +131,7 @@ export const installDictation = (): void => {
   const helper = getClient();
 
   helper.onNotification("dictation.partial", DICTATION_TEXT_SCHEMA, (event) => {
-    dictationTarget()?.send(HELPER_DICTATION_PARTIAL_EVENT, event);
+    dictationOwners.target()?.send(HELPER_DICTATION_PARTIAL_EVENT, event);
   });
   helper.onNotification(
     "dictation.finalized",
@@ -153,7 +139,9 @@ export const installDictation = (): void => {
     (event) => {
       // Length only; transcript content must never be logged.
       log.info(`[win-helper] dictation finalized chars=${event.text.length}`);
-      dictationTarget()?.send("vellum:helper:dictation:finalized", event);
+      dictationOwners
+        .target()
+        ?.send("vellum:helper:dictation:finalized", event);
     },
   );
   helper.onNotification(
@@ -193,7 +181,7 @@ export const installDictation = (): void => {
     "vellum:helper:dictation:audio",
     z.tuple([z.unknown()]),
     ([chunk], event) => {
-      if (event.sender !== partialsOwner) {
+      if (!dictationOwners.ownsPartials(event.sender)) {
         return;
       }
       const buf = toAudioBuffer(chunk);
@@ -227,8 +215,7 @@ export const __resetForTesting = (
   factory?: () => NativeSidecarClient,
 ): void => {
   installed = false;
-  partialsOwner = null;
-  finalOwner = null;
+  dictationOwners.clear();
   client = null;
   if (factory) {
     clientFactory = factory;

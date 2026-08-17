@@ -12,6 +12,7 @@ import {
 import {
   clearGatewayToken,
   ensureGatewayToken,
+  type EnsureGatewayTokenOptions,
   GatewayTokenError,
   getGatewayToken,
   getLocalTokenUrl,
@@ -821,9 +822,20 @@ export class UnresolvedPairedGatewayError extends Error {
  * paired assistants use a same-origin proxy whose trusted host injects its
  * guardian bearer. Passing `target` lets connect flows prime the new
  * assistant before the selection write becomes observable.
+ *
+ * `options.forceMint` re-mints a local assistant's renderer token even when
+ * the cache holds an unexpired one, for callers recovering from the gateway
+ * rejecting that token. Paired assistants mint no renderer token, so the
+ * option is a no-op for them.
  */
+export type PrimeLocalGatewayConnectionOptions = Pick<
+  EnsureGatewayTokenOptions,
+  "forceMint"
+>;
+
 export async function primeLocalGatewayConnection(
   target?: LockfileAssistant,
+  options: PrimeLocalGatewayConnectionOptions = {},
 ): Promise<void> {
   const assistant = target ?? getSelectedAssistant();
   if (assistant && expectsPairedGateway(assistant)) {
@@ -834,22 +846,32 @@ export async function primeLocalGatewayConnection(
     const ingressUrl = getAuthGatewayIngressUrl(assistant)!;
     // A request through the paired proxy forces the trusted host to resolve
     // the credential and proves the remote gateway is reachable. The renderer
-    // sends no bearer. It also clears credentials persisted by older clients
-    // that placed paired guardian tokens in the gateway-session cache.
-    if (getSelfHostedIngressUrl() === ingressUrl) {
-      setSelfHostedConnection(null);
-    }
-    const response = await fetch(`${pairedUrl}/readyz`);
-    if (!response.ok) {
-      const message = await response.text();
-      throw new GuardianTokenError(
-        response.status,
-        message || `Paired gateway request failed: ${response.status}`,
-      );
-    }
-    const readiness: unknown = await response.json().catch(() => null);
-    if (!isReadyzResponseReady(readiness)) {
-      throw new Error("Paired assistant is not ready");
+    // sends no bearer. A connection to this same paired gateway stays live
+    // while the probe is in flight (a re-prime must not open a window in
+    // which requests fall through to the platform and gateway-auth predicates
+    // read false) and is dropped only if the probe fails, so a failed prime
+    // never leaves the app believing it is connected. A slot pointing at some
+    // other assistant is left alone either way. It also clears credentials
+    // persisted by older clients that placed paired guardian tokens in the
+    // gateway-session cache.
+    try {
+      const response = await fetch(`${pairedUrl}/readyz`);
+      if (!response.ok) {
+        const message = await response.text();
+        throw new GuardianTokenError(
+          response.status,
+          message || `Paired gateway request failed: ${response.status}`,
+        );
+      }
+      const readiness: unknown = await response.json().catch(() => null);
+      if (!isReadyzResponseReady(readiness)) {
+        throw new Error("Paired assistant is not ready");
+      }
+    } catch (error) {
+      if (getSelfHostedIngressUrl() === ingressUrl) {
+        setSelfHostedConnection(null);
+      }
+      throw error;
     }
     clearGatewayToken();
     setSelfHostedConnection({
@@ -871,7 +893,9 @@ export async function primeLocalGatewayConnection(
   const guardianToken = assistant
     ? await fetchGuardianTokenHost(assistant.assistantId)
     : undefined;
-  await ensureGatewayToken(tokenUrl, guardianToken);
+  await ensureGatewayToken(tokenUrl, guardianToken, {
+    forceMint: options.forceMint,
+  });
   const ingressUrl = getAuthGatewayIngressUrl(assistant);
   if (!ingressUrl) {
     return;
@@ -965,11 +989,12 @@ function isGatewayRestartTransient(error: unknown): boolean {
 async function primeLocalGatewayWithStartupRideout(
   target: LockfileAssistant | undefined,
   shouldRideOut: (error: unknown) => boolean,
+  options: PrimeLocalGatewayConnectionOptions = {},
 ): Promise<void> {
   const { attempts, intervalMs } = LOCAL_GATEWAY_STARTUP_RETRY;
   for (let attempt = 1; attempt <= attempts; attempt++) {
     try {
-      await primeLocalGatewayConnection(target);
+      await primeLocalGatewayConnection(target, options);
       return;
     } catch (error) {
       if (attempt >= attempts || !shouldRideOut(error)) {
@@ -1009,10 +1034,11 @@ export async function primeLocalGatewayConnectionWithStartupRetry(
  */
 export async function primeLocalGatewayConnectionWithRepair(
   target?: LockfileAssistant,
+  options: PrimeLocalGatewayConnectionOptions = {},
 ): Promise<void> {
   const assistant = target ?? getSelectedAssistant();
   try {
-    await primeLocalGatewayConnection(assistant);
+    await primeLocalGatewayConnection(assistant, options);
     return;
   } catch (error) {
     // Wake operates only on plain local assistants (see
@@ -1043,6 +1069,7 @@ export async function primeLocalGatewayConnectionWithRepair(
     await primeLocalGatewayWithStartupRideout(
       refreshed ?? assistant,
       isGatewayRestartTransient,
+      options,
     );
   }
 }

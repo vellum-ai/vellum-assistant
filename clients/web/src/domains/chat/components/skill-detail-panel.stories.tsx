@@ -8,6 +8,8 @@ import {
 } from "@/generated/daemon/@tanstack/react-query.gen";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 
+import { DetailPanelStoryFrame } from "@/domains/chat/components/detail-panel-story-frame";
+
 import { SkillDetailPanel } from "./skill-detail-panel";
 
 /**
@@ -88,9 +90,9 @@ function withClient(client: QueryClient) {
   return function Decorator(Story: () => React.ReactElement) {
     return (
       <QueryClientProvider client={client}>
-        <div className="h-[600px] w-[440px]">
+        <DetailPanelStoryFrame>
           <Story />
-        </div>
+        </DetailPanelStoryFrame>
       </QueryClientProvider>
     );
   };
@@ -100,7 +102,7 @@ const meta: Meta<typeof SkillDetailPanel> = {
   title: "Chat/SkillDetailPanel",
   component: SkillDetailPanel,
   parameters: {
-    layout: "centered",
+    layout: "fullscreen",
   },
   args: {
     skillId: SKILL_ID,

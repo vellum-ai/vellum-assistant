@@ -101,7 +101,7 @@ function makeCtx(overrides: Partial<Conversation> = {}): Conversation {
     workingDir: "/tmp/test",
     getTurnActorPrincipalId: () => undefined,
     abortController: null,
-    sendToClient: mock(() => {}),
+    emit: mock(() => {}),
     pendingSurfaceActions: new Map(),
     lastSurfaceAction: new Map(),
     surfaceState: new Map(),

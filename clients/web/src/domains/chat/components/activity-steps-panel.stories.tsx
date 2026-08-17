@@ -3,6 +3,8 @@ import type { Meta, StoryObj } from "@storybook/react-vite";
 import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
 import type { ToolCallCardItem } from "@/domains/chat/utils/tool-call-card-utils";
 
+import { DetailPanelStoryFrame } from "@/domains/chat/components/detail-panel-story-frame";
+
 import { ActivityStepsPanel } from "./activity-steps-panel";
 
 /**
@@ -118,13 +120,13 @@ const meta: Meta<typeof ActivityStepsPanel> = {
   title: "Chat/ActivityStepsPanel",
   component: ActivityStepsPanel,
   parameters: {
-    layout: "padded",
+    layout: "fullscreen",
   },
   decorators: [
     (Story) => (
-      <div className="h-[720px] w-[560px]">
+      <DetailPanelStoryFrame>
         <Story />
-      </div>
+      </DetailPanelStoryFrame>
     ),
   ],
 };
