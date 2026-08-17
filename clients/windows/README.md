@@ -5,6 +5,11 @@ an Electron shell around the `clients/web` renderer: in dev it loads the Vite de
 server (or vel's edge proxy when `vel up` is running), and in packaged builds
 it serves a bundled `resources/web-dist` over a privileged `app://` protocol.
 
+To run this branch's local renderer against a remote platform API, set
+`VELLUM_DEV_URL` to that platform's `/assistant` URL and run
+`bun run dev:remote-api`. The script keeps the remote origin as Vite's API
+upstream while Electron loads the local renderer at port 5173.
+
 ## What works today
 
 - Hardened main window (context isolation, sandbox, shared creation seam in
