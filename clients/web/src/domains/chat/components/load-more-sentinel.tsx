@@ -45,5 +45,12 @@ export function LoadMoreSentinel({ onVisible }: { onVisible: () => void }) {
     };
   }, []);
 
-  return <div ref={ref} aria-hidden className="h-px" />;
+  return (
+    <div
+      ref={ref}
+      data-slot="load-more-sentinel"
+      aria-hidden
+      className="h-px"
+    />
+  );
 }

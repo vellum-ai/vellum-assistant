@@ -42,6 +42,9 @@ function setSectionRows(conversations: Conversation[]) {
   sectionSource = conversations;
 }
 
+/** Whether the stubbed section query reports rows past its window. */
+let sectionHasMore = false;
+
 /**
  * Both filter axes, because a channel section constrains both: `system:all`
  * for "no group claimed it" AND its own `origin_channel`. Honoring only the
@@ -93,10 +96,9 @@ mock.module(
       // section back to its derived rows and pass these tests for the wrong
       // reason: green because nothing is filtered, not because it is.
       hasData: true,
-      // A complete list: these tests exercise section rendering, not the
-      // load-more path, and a stub window would mount sentinels under every
-      // section.
-      hasMore: false,
+      // A complete list by default: a stub window would mount sentinels
+      // under every section. The load-more tests flip it deliberately.
+      hasMore: sectionHasMore,
     }),
   }),
 );
@@ -144,6 +146,7 @@ import type { PinnedAppEntry } from "@/utils/app-pin-storage";
 // Pinned and the custom groups. The layout store is a module singleton, so
 // each test declares the view it exercises rather than inheriting one.
 beforeEach(() => {
+  sectionHasMore = false;
   // Per-assistant sidebar preferences (view, collapse, section order) all
   // live in localStorage, so a test that seeds one would otherwise carry it
   // into every test after it.
@@ -1999,5 +2002,31 @@ describe("AssistantSideMenu · conversation list failure state", () => {
 
     expect(html).toContain(ERROR);
     expect(html).not.toContain(SKELETON);
+  });
+});
+
+describe("AssistantSideMenu · windowed sections (LUM-2444)", () => {
+  /* Asserted at the DOM through the sentinel's data-slot, not through the
+     hook: what the user gets is a section that keeps loading as they
+     scroll, and a section that does not is a section that must not carry
+     a load-more trigger. Sizing under the virtualize threshold keeps this
+     on the direct-render path, where the sentinel is the trigger. */
+  test("a windowed section carries a load-more sentinel; a complete one does not", () => {
+    const conversations = [
+      makeConversation({ conversationId: "p1", isPinned: true }),
+      makeConversation({ conversationId: "c1" }),
+    ];
+
+    sectionHasMore = true;
+    const windowed = parse(renderMenu({ conversations }));
+    expect(
+      windowed.querySelectorAll('[data-slot="load-more-sentinel"]').length,
+    ).toBeGreaterThan(0);
+
+    sectionHasMore = false;
+    const complete = parse(renderMenu({ conversations }));
+    expect(
+      complete.querySelectorAll('[data-slot="load-more-sentinel"]'),
+    ).toHaveLength(0);
   });
 });
