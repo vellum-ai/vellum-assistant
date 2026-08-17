@@ -26,6 +26,7 @@ import {
 import type * as LocalMode from "@/lib/local-mode";
 import type { LockfileAssistant } from "@/runtime/local-mode-host";
 import type * as CaptureError from "@/lib/sentry/capture-error";
+import type * as RemoteGatewaySession from "@/lib/auth/remote-gateway-session";
 
 const isLocalClientMock = mock(() => !process.env.VITE_PLATFORM_MODE);
 const isPlatformDisabledMock = mock(() => false);
@@ -110,6 +111,19 @@ mock.module(
   "@/lib/sentry/capture-error",
   (): Partial<typeof CaptureError> => ({
     captureError: captureErrorMock,
+  }),
+);
+
+// Paired-browser refresh, stubbed so remote-gateway recovery is driven
+// without a live pairing cookie; a test flips it to model a rejected refresh.
+let refreshRemoteGatewaySessionImpl: () => Promise<boolean> = async () => true;
+const refreshRemoteGatewaySessionMock = mock((_opts?: { force?: boolean }) =>
+  refreshRemoteGatewaySessionImpl(),
+);
+mock.module(
+  "@/lib/auth/remote-gateway-session",
+  (): Partial<typeof RemoteGatewaySession> => ({
+    refreshRemoteGatewaySession: refreshRemoteGatewaySessionMock,
   }),
 );
 
@@ -1140,9 +1154,23 @@ describe("api-interceptors / localGatewayAuthRecoveryInterceptor", () => {
   }
 
   /** A gateway-bound GET whose (empty) body is always replayable. */
+  /**
+   * A gateway-bound GET that went out with the bearer the slot holds now
+   * and came back 401: the shape that needs a recovery.
+   */
   function gatewayGet(): Request {
     return new Request(GATEWAY_URL + "/v1/assistants/123/conversations", {
-      headers: { Authorization: "Bearer stale-tok" },
+      headers: { Authorization: "Bearer tok" },
+    });
+  }
+
+  /**
+   * A gateway-bound GET built before the slot moved on: its bearer no
+   * longer matches, so it is replayable without a recovery.
+   */
+  function staleBearerGet(): Request {
+    return new Request(GATEWAY_URL + "/v1/assistants/123/conversations", {
+      headers: { Authorization: "Bearer superseded-tok" },
     });
   }
 
@@ -1153,7 +1181,11 @@ describe("api-interceptors / localGatewayAuthRecoveryInterceptor", () => {
   async function consumedPost(): Promise<Request> {
     const request = new Request(
       GATEWAY_URL + "/v1/assistants/123/conversations/abc/messages",
-      { method: "POST", body: "hello" },
+      {
+        method: "POST",
+        body: "hello",
+        headers: { Authorization: "Bearer tok" },
+      },
     );
     await request.text();
     return request;
@@ -1180,6 +1212,8 @@ describe("api-interceptors / localGatewayAuthRecoveryInterceptor", () => {
     clearGatewayTokenStorage();
     resetGw401RecoveryState();
     primeGatewayWithRepairMock.mockClear();
+    refreshRemoteGatewaySessionMock.mockClear();
+    refreshRemoteGatewaySessionImpl = async () => true;
     captureErrorMock.mockClear();
     // Model the real prime: a fresh token lands in the connection slot.
     primeGatewayWithRepairImpl = async () => {
@@ -1217,10 +1251,10 @@ describe("api-interceptors / localGatewayAuthRecoveryInterceptor", () => {
 
   test("recovers the session in place on 401, never reloading the page", async () => {
     /**
-     * Validates the core auth recovery: a stale gateway token triggers a
-     * token clear and an in-place re-prime. Reloading here would eat the
-     * in-flight mutation and the composer state with no error shown, so
-     * the page must never reload.
+     * Validates the core auth recovery: a rejected gateway token triggers
+     * an in-place forced re-mint. Reloading here would eat the in-flight
+     * mutation and the composer state with no error shown, so the page
+     * must never reload.
      */
 
     // GIVEN gateway tokens are stored in localStorage
@@ -1230,16 +1264,118 @@ describe("api-interceptors / localGatewayAuthRecoveryInterceptor", () => {
     const response = gatewayResponse(401);
     const result = await localGatewayAuthRecoveryInterceptor(response);
 
-    // THEN all gateway token keys are cleared and the session is re-primed
-    for (const key of GW_TOKEN_KEYS) {
-      expect(localStorage.getItem(key)).toBeNull();
-    }
+    // THEN the session is re-primed with a forced mint
     expect(primeGatewayWithRepairMock).toHaveBeenCalledTimes(1);
+    expect(primeGatewayWithRepairMock).toHaveBeenCalledWith(undefined, {
+      forceMint: true,
+    });
 
     // AND the page never reloads; without a replayable request the 401
     // flows back to the caller's error path
     expect(reloadCalls).toBe(0);
     expect(result).toBe(response);
+  });
+
+  test("the rejected token stays in place until its replacement is minted", async () => {
+    /**
+     * A recovery must not null the cached token while the mint is in
+     * flight: `isGatewayAuthMode()` reads it, and a session refresh or a
+     * lifecycle pass landing in that window would take the platform
+     * branch and could log a local-gateway user out.
+     */
+
+    // GIVEN gateway tokens are stored, and a prime that inspects them
+    seedGatewayTokens();
+    let tokenDuringPrime: string | null | undefined;
+    primeGatewayWithRepairImpl = async () => {
+      tokenDuringPrime = localStorage.getItem("vellum:gw:token");
+      setSelfHostedConnection({ url: GATEWAY_URL, token: "fresh-tok" });
+    };
+
+    // WHEN a 401 triggers recovery
+    await localGatewayAuthRecoveryInterceptor(gatewayResponse(401));
+
+    // THEN the token was still present throughout the mint
+    expect(tokenDuringPrime).toBe("stale-jwt");
+  });
+
+  test("replays a request whose bearer the slot has already moved past, without recovering", async () => {
+    /**
+     * A 401 whose request carries a superseded bearer was built before a
+     * recovery (or any re-prime) that has since completed. The session is
+     * already healthy, so it replays straight away: no recovery, no budget.
+     */
+
+    // WHEN a superseded-bearer GET's 401 reaches the interceptor
+    const result = await localGatewayAuthRecoveryInterceptor(
+      gatewayResponse(401),
+      staleBearerGet(),
+    );
+
+    // THEN it is replayed with the slot's current bearer, with no recovery
+    expect(replayedRequests).toHaveLength(1);
+    expect(replayedRequests[0].headers.get("Authorization")).toBe("Bearer tok");
+    expect(result.status).toBe(200);
+    expect(primeGatewayWithRepairMock).not.toHaveBeenCalled();
+
+    // AND no budget was spent
+    expect(sessionStorage.getItem(GW_401_ATTEMPTS_KEY)).toBeNull();
+  });
+
+  test("a straggler that 401s after the recovery settled is replayed, not refused", async () => {
+    // GIVEN a recovery that has already run and moved the slot to a fresh
+    // token, writing the cooldown timestamp as it went
+    await localGatewayAuthRecoveryInterceptor(gatewayResponse(401));
+    expect(getSelfHostedActorToken()).toBe("fresh-tok");
+    replayedRequests = [];
+
+    // WHEN a request that went out with the old token comes back 401
+    const straggler = new Request(
+      GATEWAY_URL + "/v1/assistants/123/conversations",
+      { headers: { Authorization: "Bearer tok" } },
+    );
+    const result = await localGatewayAuthRecoveryInterceptor(
+      gatewayResponse(401),
+      straggler,
+    );
+
+    // THEN it rides the healthy session instead of hitting the cooldown
+    expect(result.status).toBe(200);
+    expect(replayedRequests[0].headers.get("Authorization")).toBe(
+      "Bearer fresh-tok",
+    );
+    expect(primeGatewayWithRepairMock).toHaveBeenCalledTimes(1);
+  });
+
+  test("remote-gateway mode refreshes the paired session in place", async () => {
+    /**
+     * A paired browser session has a refresh cookie; a rejected access
+     * token is exchanged for a new one without leaving the page.
+     */
+
+    // GIVEN remote-gateway mode and a refresh that lands a new token
+    isRemoteGatewayModeMock.mockImplementation(() => true);
+    refreshRemoteGatewaySessionImpl = async () => {
+      setSelfHostedConnection({ url: GATEWAY_URL, token: "fresh-tok" });
+      return true;
+    };
+
+    // WHEN a gateway GET's 401 reaches the interceptor
+    const result = await localGatewayAuthRecoveryInterceptor(
+      gatewayResponse(401),
+      gatewayGet(),
+    );
+
+    // THEN the refresh was forced and the request replayed on the new token
+    expect(refreshRemoteGatewaySessionMock).toHaveBeenCalledWith({
+      force: true,
+    });
+    expect(replayedRequests[0].headers.get("Authorization")).toBe(
+      "Bearer fresh-tok",
+    );
+    expect(result.status).toBe(200);
+    expect(reloadCalls).toBe(0);
+    expect(primeGatewayWithRepairMock).not.toHaveBeenCalled();
   });
 
   test("replays a bodyless request with the re-primed bearer", async () => {
@@ -1398,21 +1534,29 @@ describe("api-interceptors / localGatewayAuthRecoveryInterceptor", () => {
     expect(getSelfHostedActorToken()).toBeNull();
   });
 
-  test("remote-gateway mode keeps the budgeted reload", async () => {
+  test("remote-gateway mode reloads only when the refresh cookie is rejected too", async () => {
     /**
-     * Remote-gateway pairing tokens are minted by the loopback login flow,
-     * which is itself a navigation, so there is no in-place re-auth there.
+     * A paired session whose refresh is refused cannot be revived from the
+     * renderer, so it boots into the pairing flow. This is the one reload
+     * left, and it is budgeted like every other attempt.
      */
 
-    // GIVEN remote-gateway mode
+    // GIVEN remote-gateway mode and a rejected refresh
     isRemoteGatewayModeMock.mockImplementation(() => true);
+    refreshRemoteGatewaySessionImpl = async () => false;
     seedGatewayTokens();
 
     // WHEN the gateway rejects with 401
-    await localGatewayAuthRecoveryInterceptor(gatewayResponse(401));
+    const response = gatewayResponse(401);
+    const result = await localGatewayAuthRecoveryInterceptor(
+      response,
+      gatewayGet(),
+    );
 
-    // THEN the page reloads instead of recovering in place
+    // THEN the page reloads and the 401 flows back without a replay
     expect(reloadCalls).toBe(1);
+    expect(replayedRequests).toHaveLength(0);
+    expect(result).toBe(response);
     expect(primeGatewayWithRepairMock).not.toHaveBeenCalled();
     for (const key of GW_TOKEN_KEYS) {
       expect(localStorage.getItem(key)).toBeNull();
@@ -1520,18 +1664,11 @@ describe("api-interceptors / localGatewayAuthRecoveryInterceptor", () => {
       GW_401_RECOVERY_AT_KEY,
       String(Date.now() - 700_000),
     );
-    seedGatewayTokens();
-
     // WHEN the daemon receives a 401
     await localGatewayAuthRecoveryInterceptor(gatewayResponse(401));
 
     // THEN the session recovers again
     expect(primeGatewayWithRepairMock).toHaveBeenCalledTimes(1);
-
-    // AND gateway tokens are cleared
-    for (const key of GW_TOKEN_KEYS) {
-      expect(localStorage.getItem(key)).toBeNull();
-    }
   });
 
   test("skips recovery when sessionStorage is unavailable", async () => {

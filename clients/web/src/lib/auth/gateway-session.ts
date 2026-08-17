@@ -190,9 +190,24 @@ async function acquireGatewayToken(
   return token;
 }
 
+/**
+ * Options for {@link ensureGatewayToken}.
+ *
+ * `forceMint` skips the cached token and mints a fresh one even when the
+ * cache holds an unexpired value. Callers use it when the gateway has
+ * rejected the cached token (its expiry is local bookkeeping; a rotated
+ * signing key rejects it early). The cached token stays in place until
+ * the mint seeds its replacement, so `getGatewayToken()` never reads null
+ * mid-mint and predicates such as `isGatewayAuthMode()` hold steady.
+ */
+export interface EnsureGatewayTokenOptions {
+  forceMint?: boolean;
+}
+
 export async function ensureGatewayToken(
   tokenUrl?: string,
   guardianToken?: string,
+  { forceMint = false }: EnsureGatewayTokenOptions = {},
 ): Promise<string> {
   const source = tokenUrl ?? "/auth/token";
   const storedSource =
@@ -202,9 +217,11 @@ export async function ensureGatewayToken(
   if (storedSource && storedSource !== source) {
     clearGatewayToken();
   }
-  const existing = getGatewayToken();
-  if (existing) {
-    return existing;
+  if (!forceMint) {
+    const existing = getGatewayToken();
+    if (existing) {
+      return existing;
+    }
   }
   return acquireGatewayToken(tokenUrl, guardianToken);
 }

@@ -37,6 +37,7 @@ import { client as daemonClient } from "@/generated/daemon/client.gen";
 import { client as gatewayClient } from "@/generated/gateway/client.gen";
 import { ensureCsrfCookie, getCsrfToken } from "@/lib/auth/csrf";
 import { clearGatewayToken } from "@/lib/auth/gateway-session";
+import { refreshRemoteGatewaySession } from "@/lib/auth/remote-gateway-session";
 import { ApiError, toApiError } from "@/utils/api-errors";
 import {
   getSelectedAssistant,
@@ -147,6 +148,11 @@ const FLATTENED_FIRST_SEGMENTS = new Set<string>([
   "contact-channels",
 ]);
 
+function currentSelfHostedBearer(): string | null {
+  const token = getSelfHostedActorToken();
+  return token ? `Bearer ${token}` : null;
+}
+
 /**
  * Stamp the current self-hosted actor token as the request's bearer, or
  * strip any bearer a caller happened to set when there is none. Without a
@@ -155,12 +161,17 @@ const FLATTENED_FIRST_SEGMENTS = new Set<string>([
  * stale credential.
  */
 function applySelfHostedBearer(headers: Headers): void {
-  const token = getSelfHostedActorToken();
-  if (token) {
-    headers.set("Authorization", `Bearer ${token}`);
+  const authorization = currentSelfHostedBearer();
+  if (authorization) {
+    headers.set("Authorization", authorization);
   } else {
     headers.delete("Authorization");
   }
+}
+
+/** True when the request went out with the bearer the slot holds now. */
+function carriesCurrentBearer(request: Request): boolean {
+  return request.headers.get("Authorization") === currentSelfHostedBearer();
 }
 
 /**
@@ -477,24 +488,36 @@ export function daemonUnreachableInterceptor(response: Response): Response {
  * Daemon response interceptor for local gateway 401 recovery.
  *
  * When the local gateway rejects a request with 401 (stale or invalid
- * token), re-establishes the session **in place**: clears the cached
- * gateway token and re-runs {@link primeLocalGatewayConnectionWithRepair},
- * which mints a fresh renderer token, wakes and re-seeds a stopped or
- * mis-seeded local assistant when the mint is repairably rejected, and
- * re-primes the self-hosted connection slot the request interceptor
- * reads. Requests whose body is still readable are then replayed against
- * the recovered session: a 401 means the gateway never executed the
- * request, so the replay cannot double an effect. Bodied requests (the
- * chat send POST, uploads) cannot be replayed, because fetch consumed
- * their body, so their 401 flows back to the caller, whose own failure
- * path surfaces the error and keeps the message retryable; that retry
- * rides the fresh token. Never reload the page here: a reload eats the
- * in-flight mutation and the composer state with no error shown.
+ * token), re-establishes the session **in place**. Local and paired
+ * assistants re-run {@link primeLocalGatewayConnectionWithRepair} with
+ * `forceMint`, which mints a fresh renderer token over the rejected one,
+ * wakes and re-seeds a stopped or mis-seeded local assistant when the
+ * mint is repairably rejected, and re-primes the self-hosted connection
+ * slot the request interceptor reads. Remote-gateway (paired browser)
+ * sessions run {@link refreshRemoteGatewaySession} with `force`, which
+ * exchanges the refresh cookie for a new access token. Neither path
+ * clears the rejected token first: it is replaced atomically by its
+ * successor, so `getGatewayToken()` never reads null and predicates such
+ * as `isGatewayAuthMode()` hold steady across the mint. A session refresh
+ * or lifecycle pass that fires mid-recovery therefore keeps taking the
+ * gateway branch.
  *
- * Remote-gateway mode is the exception: its pairing token is minted by
- * the loopback login flow, which is navigation-backed, so there is no
- * in-place re-auth there. A 401 reloads the page under the same budget;
- * boot lands on the login redirect and returns with a fresh token.
+ * Requests whose body is still readable are then replayed against the
+ * recovered session: a 401 means the gateway never executed the request,
+ * so the replay cannot double an effect. A request whose bearer no longer
+ * matches the slot (issued before a recovery that has since completed)
+ * is replayed directly, without recovering or spending budget. Bodied
+ * requests (the chat send POST, uploads) cannot be replayed, because
+ * fetch consumed their body, so their 401 flows back to the caller, whose
+ * own failure path surfaces the error and keeps the message retryable;
+ * that retry rides the fresh token.
+ *
+ * Never reload the page for a recoverable session: a reload eats the
+ * in-flight mutation and the composer state with no error shown. The one
+ * reload left is the remote-gateway session whose refresh cookie is
+ * itself rejected, a session nothing in the renderer can revive; there
+ * the page reloads under the same budget and boot lands on the pairing
+ * flow.
  *
  * A sessionStorage cooldown spaces the attempts, and a sessionStorage
  * attempt budget stops them. The cooldown alone only paces a gateway
@@ -523,9 +546,9 @@ const GW_401_ATTEMPTS_KEY = "vellum:gw:401-reload-attempts";
 const GW_401_COOLDOWN_MS = 600_000;
 const GW_401_MAX_ATTEMPTS = 3;
 
-// In-memory latch for the remote-gateway reload branch: once the reload
-// fires, all subsequent 401s in the same page lifecycle are no-ops.
-// Resets naturally on reload.
+// In-memory latch for the remote-gateway reload: once the reload fires,
+// all subsequent 401s in the same page lifecycle are no-ops. Resets
+// naturally on reload.
 let gw401ReloadFired = false;
 
 // Single-flight slot: a burst of concurrent 401s (a resume refetch, say)
@@ -540,43 +563,65 @@ export function resetGw401RecoveryState(): void {
   gw401RecoveryInFlight = null;
 }
 
-function recoverLocalGatewaySessionInPlace(): Promise<boolean> {
-  gw401RecoveryInFlight ??= (async () => {
-    // The paired branch of primeLocalGatewayConnection clears the
-    // connection slot before its readyz probe, so a failed recovery would
-    // otherwise leave the renderer with no ingress route and this
-    // interceptor with no ingress to match, disabling every future
-    // attempt. Snapshot the slot and put it back only if the prime dies
-    // having nulled it for the assistant it was recovering: a switch or a
-    // logout mid-recovery clears the slot legitimately (and moves the
-    // selection), and restoring then would route the new selection's
-    // requests to the old local gateway. A concurrent re-prime to another
-    // local assistant leaves the slot non-null and is likewise left alone.
-    const previous = {
-      url: getSelfHostedIngressUrl(),
-      token: getSelfHostedActorToken(),
-    };
-    const recoveringFor = getSelectedAssistant()?.assistantId ?? null;
-    try {
-      clearGatewayToken();
-      await primeLocalGatewayConnectionWithRepair();
-      recordLifecycleDiagnostic("gw_401_recovery", { outcome: "recovered" });
-      return true;
-    } catch (err) {
-      if (
-        getSelfHostedIngressUrl() === null &&
-        previous.url !== null &&
-        (getSelectedAssistant()?.assistantId ?? null) === recoveringFor
-      ) {
-        setSelfHostedConnection(previous);
-      }
-      recordLifecycleDiagnostic("gw_401_recovery", { outcome: "failed" });
-      captureError(err, { context: "gw_401_recovery" });
-      return false;
-    } finally {
-      gw401RecoveryInFlight = null;
+async function recoverRemoteGatewaySessionInPlace(): Promise<boolean> {
+  const refreshed = await refreshRemoteGatewaySession({ force: true });
+  if (refreshed) {
+    recordLifecycleDiagnostic("gw_401_recovery", { outcome: "recovered" });
+    return true;
+  }
+  // The refresh cookie is rejected too: nothing in the renderer can revive
+  // this session, so boot into the pairing flow.
+  recordLifecycleDiagnostic("gw_401_recovery", { outcome: "reload" });
+  gw401ReloadFired = true;
+  clearGatewayToken();
+  window.location.reload();
+  return false;
+}
+
+async function recoverLocalGatewaySessionInPlace(): Promise<boolean> {
+  // The paired branch of primeLocalGatewayConnection clears the
+  // connection slot before its readyz probe, so a failed recovery would
+  // otherwise leave the renderer with no ingress route and this
+  // interceptor with no ingress to match, disabling every future
+  // attempt. Snapshot the slot and put it back only if the prime dies
+  // having nulled it for the assistant it was recovering: a switch or a
+  // logout mid-recovery clears the slot legitimately (and moves the
+  // selection), and restoring then would route the new selection's
+  // requests to the old local gateway. A concurrent re-prime to another
+  // local assistant leaves the slot non-null and is likewise left alone.
+  const previous = {
+    url: getSelfHostedIngressUrl(),
+    token: getSelfHostedActorToken(),
+  };
+  const recoveringFor = getSelectedAssistant()?.assistantId ?? null;
+  try {
+    await primeLocalGatewayConnectionWithRepair(undefined, {
+      forceMint: true,
+    });
+    recordLifecycleDiagnostic("gw_401_recovery", { outcome: "recovered" });
+    return true;
+  } catch (err) {
+    if (
+      getSelfHostedIngressUrl() === null &&
+      previous.url !== null &&
+      (getSelectedAssistant()?.assistantId ?? null) === recoveringFor
+    ) {
+      setSelfHostedConnection(previous);
     }
-  })();
+    recordLifecycleDiagnostic("gw_401_recovery", { outcome: "failed" });
+    captureError(err, { context: "gw_401_recovery" });
+    return false;
+  }
+}
+
+function recoverGatewaySessionInPlace(): Promise<boolean> {
+  gw401RecoveryInFlight ??= (
+    isRemoteGatewayMode()
+      ? recoverRemoteGatewaySessionInPlace()
+      : recoverLocalGatewaySessionInPlace()
+  ).finally(() => {
+    gw401RecoveryInFlight = null;
+  });
   return gw401RecoveryInFlight;
 }
 
@@ -657,6 +702,16 @@ export async function localGatewayAuthRecoveryInterceptor(
     return response;
   }
 
+  const replayable = request !== undefined && !request.bodyUsed;
+
+  // A bearer that no longer matches the slot means the request was built
+  // before a recovery (or any other re-prime) that has since completed.
+  // The session is already healthy, so replay straight away: no recovery,
+  // no budget spent.
+  if (replayable && !carriesCurrentBearer(request)) {
+    return (await replayWithRecoveredSession(request)) ?? response;
+  }
+
   // A recovery already in flight is ridden rather than charged to the
   // budget, so every request in the burst that can replay does. Only a
   // fresh attempt spends an attempt.
@@ -687,18 +742,11 @@ export async function localGatewayAuthRecoveryInterceptor(
       return response;
     }
 
-    if (isRemoteGatewayMode()) {
-      gw401ReloadFired = true;
-      clearGatewayToken();
-      window.location.reload();
-      return response;
-    }
-
-    recovery = recoverLocalGatewaySessionInPlace();
+    recovery = recoverGatewaySessionInPlace();
   }
 
   const recovered = await recovery;
-  if (recovered && request && !request.bodyUsed) {
+  if (recovered && replayable) {
     return (await replayWithRecoveredSession(request)) ?? response;
   }
   return response;

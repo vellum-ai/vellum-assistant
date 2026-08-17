@@ -12,6 +12,7 @@ import {
 import {
   clearGatewayToken,
   ensureGatewayToken,
+  type EnsureGatewayTokenOptions,
   GatewayTokenError,
   getGatewayToken,
   getLocalTokenUrl,
@@ -821,9 +822,20 @@ export class UnresolvedPairedGatewayError extends Error {
  * paired assistants use a same-origin proxy whose trusted host injects its
  * guardian bearer. Passing `target` lets connect flows prime the new
  * assistant before the selection write becomes observable.
+ *
+ * `options.forceMint` re-mints a local assistant's renderer token even when
+ * the cache holds an unexpired one, for callers recovering from the gateway
+ * rejecting that token. Paired assistants mint no renderer token, so the
+ * option is a no-op for them.
  */
+export type PrimeLocalGatewayConnectionOptions = Pick<
+  EnsureGatewayTokenOptions,
+  "forceMint"
+>;
+
 export async function primeLocalGatewayConnection(
   target?: LockfileAssistant,
+  options: PrimeLocalGatewayConnectionOptions = {},
 ): Promise<void> {
   const assistant = target ?? getSelectedAssistant();
   if (assistant && expectsPairedGateway(assistant)) {
@@ -871,7 +883,9 @@ export async function primeLocalGatewayConnection(
   const guardianToken = assistant
     ? await fetchGuardianTokenHost(assistant.assistantId)
     : undefined;
-  await ensureGatewayToken(tokenUrl, guardianToken);
+  await ensureGatewayToken(tokenUrl, guardianToken, {
+    forceMint: options.forceMint,
+  });
   const ingressUrl = getAuthGatewayIngressUrl(assistant);
   if (!ingressUrl) {
     return;
@@ -965,11 +979,12 @@ function isGatewayRestartTransient(error: unknown): boolean {
 async function primeLocalGatewayWithStartupRideout(
   target: LockfileAssistant | undefined,
   shouldRideOut: (error: unknown) => boolean,
+  options: PrimeLocalGatewayConnectionOptions = {},
 ): Promise<void> {
   const { attempts, intervalMs } = LOCAL_GATEWAY_STARTUP_RETRY;
   for (let attempt = 1; attempt <= attempts; attempt++) {
     try {
-      await primeLocalGatewayConnection(target);
+      await primeLocalGatewayConnection(target, options);
       return;
     } catch (error) {
       if (attempt >= attempts || !shouldRideOut(error)) {
@@ -1009,10 +1024,11 @@ export async function primeLocalGatewayConnectionWithStartupRetry(
  */
 export async function primeLocalGatewayConnectionWithRepair(
   target?: LockfileAssistant,
+  options: PrimeLocalGatewayConnectionOptions = {},
 ): Promise<void> {
   const assistant = target ?? getSelectedAssistant();
   try {
-    await primeLocalGatewayConnection(assistant);
+    await primeLocalGatewayConnection(assistant, options);
     return;
   } catch (error) {
     // Wake operates only on plain local assistants (see
@@ -1043,6 +1059,7 @@ export async function primeLocalGatewayConnectionWithRepair(
     await primeLocalGatewayWithStartupRideout(
       refreshed ?? assistant,
       isGatewayRestartTransient,
+      options,
     );
   }
 }
