@@ -2,6 +2,7 @@ import { motion } from "motion/react";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 
+import { CHAT_LAYOUT_HEADER_SELECTOR } from "@/domains/chat/chat-layout-header";
 import { ChatComposer } from "@/domains/chat/components/chat-composer/chat-composer";
 import { type VoiceInputButtonHandle } from "@/domains/chat/components/voice-input-button";
 
@@ -68,7 +69,12 @@ export function TourOverlay({
       return;
     }
     const update = () => {
-      const header = document.querySelector<HTMLElement>("header");
+      // The chat layout's own header. A bare `header` tag selector matches
+      // whichever `<header>` comes first in the document, which the detail
+      // panels also render.
+      const header = document.querySelector<HTMLElement>(
+        CHAT_LAYOUT_HEADER_SELECTOR,
+      );
       setClearTop(header ? header.getBoundingClientRect().bottom : 0);
 
       const menu = document.querySelector<HTMLElement>("#chat-side-menu");

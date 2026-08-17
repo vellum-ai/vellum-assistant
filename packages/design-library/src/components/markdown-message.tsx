@@ -48,11 +48,9 @@ export const MARKDOWN_INLINE_CODE_CLASS =
   "rounded bg-stone-100 px-1 py-0.5 font-mono text-body-small-lighter dark:bg-moss-800";
 
 function CopyButton({
-  visible,
   onClick,
   copied,
 }: {
-  visible: boolean;
   onClick: () => void;
   copied: boolean;
 }) {
@@ -61,14 +59,8 @@ function CopyButton({
       type="button"
       onClick={onClick}
       title={copied ? "Copied!" : "Copy"}
-      className={cn(
-        // Touch devices (hover: none): always visible since hover isn't available.
-        // Constraint: WKWebView on Capacitor iOS lacks hover events.
-        "flex h-6 w-6 cursor-pointer items-center justify-center rounded-md bg-stone-200/80 text-[var(--content-tertiary)] transition-[opacity] duration-150 ease-out hover:bg-stone-300 hover:text-[var(--content-secondary)] [@media(hover:none)]:pointer-events-auto [@media(hover:none)]:opacity-100 dark:bg-moss-600/80 dark:hover:bg-moss-500 dark:hover:text-stone-200",
-        visible
-          ? "pointer-events-auto opacity-100"
-          : "pointer-events-none opacity-0",
-      )}
+      data-reveal=""
+      className="flex h-6 w-6 cursor-pointer items-center justify-center rounded-md bg-stone-200/80 text-[var(--content-tertiary)] hover:bg-stone-300 hover:text-[var(--content-secondary)] dark:bg-moss-600/80 dark:hover:bg-moss-500 dark:hover:text-stone-200"
     >
       <div className="relative h-3.5 w-3.5">
         <Check
@@ -90,8 +82,6 @@ function CopyButton({
 
 function CodeBlockWrapper({ children }: { children: ReactNode }) {
   const [showCopied, setShowCopied] = useState(false);
-  const [isHovered, setIsHovered] = useState(false);
-  const [hasFocusWithin, setHasFocusWithin] = useState(false);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const preRef = useRef<HTMLPreElement>(null);
 
@@ -131,19 +121,10 @@ function CodeBlockWrapper({ children }: { children: ReactNode }) {
       .catch(() => {});
   }, []);
 
-  const buttonVisible = isHovered || hasFocusWithin;
-
   return (
     <div
-      className="group/code relative mb-2 overflow-hidden rounded-md bg-stone-100 last:mb-0 dark:bg-moss-800"
-      onMouseEnter={() => setIsHovered(true)}
-      onMouseLeave={() => setIsHovered(false)}
-      onFocus={() => setHasFocusWithin(true)}
-      onBlur={(e) => {
-        if (!e.currentTarget.contains(e.relatedTarget)) {
-          setHasFocusWithin(false);
-        }
-      }}
+      data-reveal-row=""
+      className="relative mb-2 overflow-hidden rounded-md bg-stone-100 last:mb-0 dark:bg-moss-800"
     >
       {language && (
         <div className="flex items-center justify-between px-3 pt-2">
@@ -152,11 +133,7 @@ function CodeBlockWrapper({ children }: { children: ReactNode }) {
           <span className="font-mono text-xs font-medium uppercase text-[var(--content-tertiary)]">
             {language}
           </span>
-          <CopyButton
-            visible={buttonVisible}
-            onClick={handleCopy}
-            copied={showCopied}
-          />
+          <CopyButton onClick={handleCopy} copied={showCopied} />
         </div>
       )}
       <pre
@@ -168,11 +145,7 @@ function CodeBlockWrapper({ children }: { children: ReactNode }) {
       </pre>
       {!language && (
         <div className="absolute right-2 top-2">
-          <CopyButton
-            visible={buttonVisible}
-            onClick={handleCopy}
-            copied={showCopied}
-          />
+          <CopyButton onClick={handleCopy} copied={showCopied} />
         </div>
       )}
     </div>

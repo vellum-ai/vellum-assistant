@@ -167,7 +167,6 @@ export function SchedulesPage() {
       isPast={schedules.pastOneTime.some(
         (schedule) => schedule.id === selectedSchedule.id,
       )}
-      isMobile={isMobile}
       onClose={() => handleSelectScheduleId(null)}
       onDeleted={() => {
         handleSelectScheduleId(null);
@@ -183,7 +182,6 @@ export function SchedulesPage() {
         assistantId={assistantId}
         systemTasks={systemTasks}
         canOpenMemorySettings={canOpenMemorySettings}
-        isMobile={isMobile}
         onClose={() => setSelectedSystemTaskKind(null)}
       />
     ) : null;

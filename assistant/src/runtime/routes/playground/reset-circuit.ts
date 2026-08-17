@@ -52,7 +52,7 @@ export const ROUTES: RouteDefinition[] = [
       circuit.consecutiveCompactionFailures = 0;
       if (circuit.compactionCircuitOpenUntil !== null) {
         circuit.compactionCircuitOpenUntil = null;
-        conversation.sendToClient({
+        conversation.emit({
           type: "compaction_circuit_closed",
           conversationId: conversation.conversationId,
         });

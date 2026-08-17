@@ -98,6 +98,12 @@ import { readInstallMeta, writeInstallMeta } from "../skills/install-meta.js";
 import { executeScaffoldManagedSkill } from "../tools/skills/scaffold-managed.js";
 import type { ToolContext } from "../tools/types.js";
 
+/**
+ * scaffold_managed_skill requires activation hints. Tests that are not about
+ * hints pass this fixed set so the input they exercise stays the subject.
+ */
+const HINTS = ["user asks to run the procedure under test"];
+
 function makeContext(overrides: Partial<ToolContext> = {}): ToolContext {
   return {
     workingDir: "/tmp",
@@ -161,6 +167,7 @@ describe("scaffold_managed_skill tool", () => {
         name: "Test Skill",
         description: "A test skill",
         body_markdown: "Do the thing.",
+        activation_hints: HINTS,
       },
       makeContext(),
     );
@@ -202,6 +209,7 @@ describe("scaffold_managed_skill tool", () => {
         name: "Legacy Input",
         description: "A test skill",
         body_markdown: "Do the thing.",
+        activation_hints: HINTS,
         add_to_index: true,
       },
       makeContext(),
@@ -222,6 +230,7 @@ describe("scaffold_managed_skill tool", () => {
         name: "Original",
         description: "First",
         body_markdown: "V1.",
+        activation_hints: HINTS,
       },
       makeContext(),
     );
@@ -232,6 +241,7 @@ describe("scaffold_managed_skill tool", () => {
         name: "Duplicate",
         description: "Second",
         body_markdown: "V2.",
+        activation_hints: HINTS,
       },
       makeContext(),
     );
@@ -244,6 +254,7 @@ describe("scaffold_managed_skill tool", () => {
         name: "Overwritten",
         description: "Third",
         body_markdown: "V3.",
+        activation_hints: HINTS,
         overwrite: true,
       },
       makeContext(),
@@ -278,6 +289,7 @@ describe("scaffold_managed_skill tool", () => {
         name: 'Test\ninjected_field: "evil"',
         description: "Desc\rwith\r\ncarriage returns",
         body_markdown: "Body content.",
+        activation_hints: HINTS,
         emoji: "🔥\nextra: true",
       },
       makeContext(),
@@ -306,6 +318,7 @@ describe("scaffold_managed_skill tool", () => {
         name: "Parent",
         description: "Has children",
         body_markdown: "Parent body.",
+        activation_hints: HINTS,
         includes: ["child-a", "child-b"],
       },
       makeContext(),
@@ -326,6 +339,7 @@ describe("scaffold_managed_skill tool", () => {
         name: "Normalized",
         description: "Tests normalization",
         body_markdown: "Body.",
+        activation_hints: HINTS,
         includes: ["  child-a  ", "child-b", "child-a"],
       },
       makeContext(),
@@ -346,6 +360,7 @@ describe("scaffold_managed_skill tool", () => {
         name: "Bad",
         description: "Has non-string",
         body_markdown: "Body.",
+        activation_hints: HINTS,
         includes: ["child-a", 42],
       },
       makeContext(),
@@ -362,6 +377,7 @@ describe("scaffold_managed_skill tool", () => {
         name: "Empty",
         description: "Has empty string",
         body_markdown: "Body.",
+        activation_hints: HINTS,
         includes: ["", "child-a"],
       },
       makeContext(),
@@ -378,6 +394,7 @@ describe("scaffold_managed_skill tool", () => {
         name: "Whitespace",
         description: "Has whitespace-only",
         body_markdown: "Body.",
+        activation_hints: HINTS,
         includes: ["child-a", "  "],
       },
       makeContext(),
@@ -394,6 +411,7 @@ describe("scaffold_managed_skill tool", () => {
         name: "Solo",
         description: "No children",
         body_markdown: "Body.",
+        activation_hints: HINTS,
       },
       makeContext(),
     );
@@ -521,24 +539,109 @@ describe("scaffold_managed_skill tool", () => {
     expect(result.content).toContain("must be an array");
   });
 
-  test("omits activation-hints / avoid-when when not provided", async () => {
+  test("omits avoid-when when not provided", async () => {
     const result = await executeScaffoldManagedSkill(
       {
-        skill_id: "no-hints",
-        name: "No Hints",
-        description: "No triggers",
+        skill_id: "no-avoid",
+        name: "No Avoid",
+        description: "No avoid clause",
         body_markdown: "Body.",
+        activation_hints: HINTS,
       },
       makeContext(),
     );
 
     expect(result.isError).toBe(false);
     const content = readFileSync(
-      join(TEST_DIR, "skills", "no-hints", "SKILL.md"),
+      join(TEST_DIR, "skills", "no-avoid", "SKILL.md"),
       "utf-8",
     );
-    expect(content).not.toContain("activation-hints");
+    expect(content).toContain("activation-hints");
     expect(content).not.toContain("avoid-when");
+  });
+
+  test("rejects a scaffold with no activation_hints and writes nothing, for user and retrospective origins alike", async () => {
+    // Omitted and empty are the same omission: both leave the skill with no
+    // "Use when" retrieval text.
+    const inputs = [
+      { skill_id: "no-hints-omitted" },
+      { skill_id: "no-hints-empty", activation_hints: [] },
+    ];
+    for (const context of [makeContext(), makeRetrospectiveContext()]) {
+      for (const extra of inputs) {
+        const result = await executeScaffoldManagedSkill(
+          {
+            name: "No Hints",
+            description: "No triggers",
+            body_markdown: "Body.",
+            ...extra,
+          },
+          context,
+        );
+        expect(result.isError).toBe(true);
+        expect(result.content).toContain("activation_hints is required");
+        // A rejected create leaves no half-written skill behind.
+        expect(
+          existsSync(join(TEST_DIR, "skills", extra.skill_id, "SKILL.md")),
+        ).toBe(false);
+      }
+    }
+  });
+
+  test("an overwrite that omits activation_hints is rejected, names the current hints, and leaves the skill untouched", async () => {
+    const hints = ["user asks to deploy staging", "user asks to cut a release"];
+    await executeScaffoldManagedSkill(
+      {
+        skill_id: "keep-hints",
+        name: "Keep Hints",
+        description: "V1",
+        body_markdown: "V1 body.",
+        activation_hints: hints,
+      },
+      makeContext(),
+    );
+
+    const result = await executeScaffoldManagedSkill(
+      {
+        skill_id: "keep-hints",
+        name: "Keep Hints",
+        description: "V2",
+        body_markdown: "V2 body.",
+        overwrite: true,
+      },
+      makeContext(),
+    );
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain("activation_hints is required");
+    // The error quotes every current hint so the retry can carry them forward.
+    for (const hint of hints) {
+      expect(result.content).toContain(hint);
+    }
+    // Scaffolding rewrites the whole SKILL.md, so the rejected overwrite must
+    // not have reached disk: body and hints are still V1's.
+    const content = readFileSync(
+      join(TEST_DIR, "skills", "keep-hints", "SKILL.md"),
+      "utf-8",
+    );
+    expect(content).toContain("V1 body.");
+    expect(content).not.toContain("V2 body.");
+    const skill = loadSkillCatalog().find((s) => s.id === "keep-hints");
+    expect(skill!.activationHints).toEqual(hints);
+  });
+
+  test("a create with no activation_hints gets the plain error, with no current-hints clause", async () => {
+    const result = await executeScaffoldManagedSkill(
+      {
+        skill_id: "fresh-no-hints",
+        name: "Fresh",
+        description: "Never existed",
+        body_markdown: "Body.",
+      },
+      makeContext(),
+    );
+    expect(result.isError).toBe(true);
+    expect(result.content).not.toContain("currently declares");
   });
 
   test("passes category through to the written skill, lowercased and trimmed", async () => {
@@ -548,6 +651,7 @@ describe("scaffold_managed_skill tool", () => {
         name: "Categorized",
         description: "Has a category",
         body_markdown: "Body.",
+        activation_hints: HINTS,
         category: "  Development  ",
       },
       makeContext(),
@@ -571,6 +675,7 @@ describe("scaffold_managed_skill tool", () => {
         name: "Bad Category",
         description: "Non-string category",
         body_markdown: "Body.",
+        activation_hints: HINTS,
         category: 42,
       },
       makeContext(),
@@ -587,6 +692,7 @@ describe("scaffold_managed_skill tool", () => {
         name: "No Category",
         description: "Uncategorized",
         body_markdown: "Body.",
+        activation_hints: HINTS,
       },
       makeContext(),
     );
@@ -606,6 +712,7 @@ describe("scaffold_managed_skill tool", () => {
         name: "Bad",
         description: "Bad",
         body_markdown: "Bad.",
+        activation_hints: HINTS,
       },
       makeContext(),
     );
@@ -621,6 +728,7 @@ describe("scaffold_managed_skill tool", () => {
         name: "Files Skill",
         description: "Has companion files",
         body_markdown: "See references/failure-modes.md.",
+        activation_hints: HINTS,
         files: [
           {
             path: "references/failure-modes.md",
@@ -654,6 +762,7 @@ describe("scaffold_managed_skill tool", () => {
         name: "Copy From Skill",
         description: "Bundles a proven script",
         body_markdown: "Run scripts/proven-script.py.",
+        activation_hints: HINTS,
         files: [{ path: "scripts/proven-script.py", copy_from: sourcePath }],
       },
       makeContext(),
@@ -684,6 +793,7 @@ describe("scaffold_managed_skill tool", () => {
         name: "Both",
         description: "Both content and copy_from",
         body_markdown: "Body.",
+        activation_hints: HINTS,
         files: [
           { path: "scripts/dupe.py", content: "x", copy_from: sourcePath },
         ],
@@ -703,6 +813,7 @@ describe("scaffold_managed_skill tool", () => {
         name: "Bad Type",
         description: "copy_from wrong type",
         body_markdown: "Body.",
+        activation_hints: HINTS,
         files: [{ path: "scripts/x.py", copy_from: 42 }],
       },
       makeContext(),
@@ -719,6 +830,7 @@ describe("scaffold_managed_skill tool", () => {
         name: "Traversal",
         description: "Bad path",
         body_markdown: "Body.",
+        activation_hints: HINTS,
         files: [{ path: "../escape.md", content: "owned" }],
       },
       makeContext(),
@@ -750,6 +862,7 @@ describe("scaffold_managed_skill tool", () => {
           name: "Bad",
           description: "Bad files",
           body_markdown: "Body.",
+          activation_hints: HINTS,
           files,
         },
         makeContext(),
@@ -765,6 +878,7 @@ describe("scaffold_managed_skill tool", () => {
         name: "E2E Child",
         description: "Child for e2e test",
         body_markdown: "Child instructions.",
+        activation_hints: HINTS,
       },
       makeContext(),
     );
@@ -776,6 +890,7 @@ describe("scaffold_managed_skill tool", () => {
         name: "E2E Parent",
         description: "Parent with includes",
         body_markdown: "Parent instructions.",
+        activation_hints: HINTS,
         includes: ["e2e-child"],
       },
       makeContext(),
@@ -806,6 +921,7 @@ describe("scaffold_managed_skill tool", () => {
         name: "Retro Skill",
         description: "Authored by a retrospective pass",
         body_markdown: "Do the procedure.",
+        activation_hints: HINTS,
       },
       makeRetrospectiveContext(),
     );
@@ -830,6 +946,7 @@ describe("scaffold_managed_skill tool", () => {
         name: "User Skill",
         description: "Authored interactively",
         body_markdown: "Do the thing.",
+        activation_hints: HINTS,
       },
       makeContext(),
     );
@@ -846,6 +963,7 @@ describe("scaffold_managed_skill tool", () => {
         name: "Protected",
         description: "User authored",
         body_markdown: "Original body.",
+        activation_hints: HINTS,
       },
       makeContext(),
     );
@@ -858,6 +976,7 @@ describe("scaffold_managed_skill tool", () => {
         name: "Protected",
         description: "Rewritten by retrospective",
         body_markdown: "Rewritten body.",
+        activation_hints: HINTS,
         overwrite: true,
       },
       makeRetrospectiveContext(),
@@ -871,6 +990,36 @@ describe("scaffold_managed_skill tool", () => {
     expect(installMetaFor("protected")?.author).toBe("user");
   });
 
+  test("the ownership refusal is reported ahead of a missing activation_hints", async () => {
+    // A caller that may not touch the skill at all should hear that first,
+    // rather than fix its hints and then be refused on the retry.
+    await executeScaffoldManagedSkill(
+      {
+        skill_id: "protected-order",
+        name: "Protected",
+        description: "User authored",
+        body_markdown: "Original body.",
+        activation_hints: HINTS,
+      },
+      makeContext(),
+    );
+
+    const result = await executeScaffoldManagedSkill(
+      {
+        skill_id: "protected-order",
+        name: "Protected",
+        description: "Rewritten by retrospective",
+        body_markdown: "Rewritten body.",
+        overwrite: true,
+      },
+      makeRetrospectiveContext(),
+    );
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain("not verifiably assistant-authored");
+    expect(result.content).not.toContain("activation_hints is required");
+  });
+
   test("retrospective refuses to write companion files into an author:user skill", async () => {
     await executeScaffoldManagedSkill(
       {
@@ -878,6 +1027,7 @@ describe("scaffold_managed_skill tool", () => {
         name: "Protected Files",
         description: "User authored",
         body_markdown: "Original body.",
+        activation_hints: HINTS,
       },
       makeContext(),
     );
@@ -888,6 +1038,7 @@ describe("scaffold_managed_skill tool", () => {
         name: "Protected Files",
         description: "Refine attempt",
         body_markdown: "Original body.",
+        activation_hints: HINTS,
         overwrite: true,
         files: [{ path: "references/notes.md", content: "gotchas" }],
       },
@@ -912,6 +1063,7 @@ describe("scaffold_managed_skill tool", () => {
         name: "Untagged",
         description: "No author",
         body_markdown: "Original body.",
+        activation_hints: HINTS,
       },
       makeContext(),
     );
@@ -929,6 +1081,7 @@ describe("scaffold_managed_skill tool", () => {
         name: "Untagged",
         description: "Rewritten by retrospective",
         body_markdown: "Rewritten body.",
+        activation_hints: HINTS,
         overwrite: true,
       },
       makeRetrospectiveContext(),
@@ -949,6 +1102,7 @@ describe("scaffold_managed_skill tool", () => {
         name: "Assistant Owned",
         description: "First pass",
         body_markdown: "V1 procedure.",
+        activation_hints: HINTS,
       },
       makeRetrospectiveContext(),
     );
@@ -960,6 +1114,7 @@ describe("scaffold_managed_skill tool", () => {
         name: "Assistant Owned",
         description: "Refined",
         body_markdown: "V2 procedure.",
+        activation_hints: HINTS,
         overwrite: true,
         files: [{ path: "references/failure-modes.md", content: "gotchas" }],
       },
@@ -998,6 +1153,7 @@ describe("scaffold_managed_skill tool", () => {
         name: "Lineage Skill",
         description: "Distilled from an observed procedure",
         body_markdown: "Do the procedure.",
+        activation_hints: HINTS,
       },
       makeRetrospectiveContext({ conversationId: "retro-run-conv" }),
       {
@@ -1023,6 +1179,7 @@ describe("scaffold_managed_skill tool", () => {
         name: "User No Lineage",
         description: "Authored interactively",
         body_markdown: "Do the thing.",
+        activation_hints: HINTS,
       },
       makeContext(),
       { getConversation: lookup },
@@ -1054,6 +1211,7 @@ describe("scaffold_managed_skill tool", () => {
           name: "Orphan Lineage",
           description: "Parent not resolvable",
           body_markdown: "Do the procedure.",
+          activation_hints: HINTS,
         },
         makeRetrospectiveContext({ conversationId: "retro-run-conv" }),
         { getConversation: lookup },
@@ -1075,6 +1233,7 @@ describe("scaffold_managed_skill tool", () => {
         name: "Lookup Throws",
         description: "DB unavailable during lineage resolution",
         body_markdown: "Do the procedure.",
+        activation_hints: HINTS,
       },
       makeRetrospectiveContext({ conversationId: "retro-run-conv" }),
       {
@@ -1103,6 +1262,7 @@ describe("scaffold_managed_skill tool", () => {
         name: "No Conversation",
         description: "Context carries no conversation id",
         body_markdown: "Do the procedure.",
+        activation_hints: HINTS,
       },
       context,
       { getConversation: lookup },
@@ -1125,6 +1285,7 @@ describe("scaffold_managed_skill tool", () => {
         name: "Deep Research",
         description: "Shadow attempt",
         body_markdown: "Body.",
+        activation_hints: HINTS,
       },
       makeRetrospectiveContext(),
       catalogSeam({ id: "deep-research", source: "bundled" }),
@@ -1146,6 +1307,7 @@ describe("scaffold_managed_skill tool", () => {
         name: "Blitz",
         description: "Shadow-overwrite attempt",
         body_markdown: "Body.",
+        activation_hints: HINTS,
         overwrite: true,
       },
       makeRetrospectiveContext(),
@@ -1165,6 +1327,7 @@ describe("scaffold_managed_skill tool", () => {
           name: "Covered",
           description: "Shadow attempt",
           body_markdown: "Body.",
+          activation_hints: HINTS,
         },
         makeRetrospectiveContext(),
         catalogSeam({ id: "covered-proc", source }),
@@ -1184,6 +1347,7 @@ describe("scaffold_managed_skill tool", () => {
         name: "No Meta",
         description: "Lost provenance",
         body_markdown: "Original body.",
+        activation_hints: HINTS,
       },
       makeContext(),
     );
@@ -1197,6 +1361,7 @@ describe("scaffold_managed_skill tool", () => {
         name: "No Meta",
         description: "Rewrite attempt",
         body_markdown: "Rewritten body.",
+        activation_hints: HINTS,
         overwrite: true,
       },
       makeRetrospectiveContext(),
@@ -1217,6 +1382,7 @@ describe("scaffold_managed_skill tool", () => {
         name: "Corrupt Meta",
         description: "Bad provenance",
         body_markdown: "Original body.",
+        activation_hints: HINTS,
       },
       makeContext(),
     );
@@ -1229,6 +1395,7 @@ describe("scaffold_managed_skill tool", () => {
         name: "Corrupt Meta",
         description: "Rewrite attempt",
         body_markdown: "Rewritten body.",
+        activation_hints: HINTS,
         overwrite: true,
       },
       makeRetrospectiveContext(),
@@ -1250,6 +1417,7 @@ describe("scaffold_managed_skill tool", () => {
         name: "Fresh Proc",
         description: "Newly observed procedure",
         body_markdown: "Do the procedure.",
+        activation_hints: HINTS,
       },
       makeRetrospectiveContext(),
       catalogSeam({ id: "something-else", source: "bundled" }),
@@ -1281,6 +1449,7 @@ describe("scaffold_managed_skill tool", () => {
         name: "  Card\nSkill  ",
         description: " Does\r\ncard things ",
         body_markdown: "Do the procedure.",
+        activation_hints: HINTS,
         emoji: " 🧭 ",
       },
       makeRetrospectiveContext({ conversationId: "retro-run-conv" }),
@@ -1313,6 +1482,7 @@ describe("scaffold_managed_skill tool", () => {
         name: "No Emoji",
         description: "Card without an emoji",
         body_markdown: "Do the procedure.",
+        activation_hints: HINTS,
         emoji: " \n ",
       },
       makeRetrospectiveContext({ conversationId: "retro-run-conv" }),
@@ -1355,6 +1525,7 @@ describe("scaffold_managed_skill tool", () => {
           name: "No Card",
           description: "Fork parent not resolvable",
           body_markdown: "Do the procedure.",
+          activation_hints: HINTS,
         },
         makeRetrospectiveContext({ conversationId: "retro-run-conv" }),
         { getConversation: lookup },
@@ -1376,6 +1547,7 @@ describe("scaffold_managed_skill tool", () => {
         name: "Refined Skill",
         description: "First pass",
         body_markdown: "V1 procedure.",
+        activation_hints: HINTS,
       },
       makeRetrospectiveContext({ conversationId: "retro-run-conv" }),
       lineageSeam(),
@@ -1390,6 +1562,7 @@ describe("scaffold_managed_skill tool", () => {
         name: "Refined Skill",
         description: "Refined",
         body_markdown: "V2 procedure.",
+        activation_hints: HINTS,
         overwrite: true,
       },
       makeRetrospectiveContext({ conversationId: "retro-run-conv" }),
@@ -1407,6 +1580,7 @@ describe("scaffold_managed_skill tool", () => {
         name: "Overwrite Fresh",
         description: "Overwrite flag on a fresh id",
         body_markdown: "Do the procedure.",
+        activation_hints: HINTS,
         overwrite: true,
       },
       makeRetrospectiveContext({ conversationId: "retro-run-conv" }),
@@ -1431,6 +1605,7 @@ describe("scaffold_managed_skill tool", () => {
         name: "User No Card",
         description: "Authored interactively",
         body_markdown: "Do the thing.",
+        activation_hints: HINTS,
       },
       makeContext({ conversationId: "retro-run-conv" }),
       lineageSeam(),
@@ -1449,6 +1624,7 @@ describe("scaffold_managed_skill tool", () => {
         name: "Enqueue Throws",
         description: "Jobs DB unavailable at enqueue time",
         body_markdown: "Do the procedure.",
+        activation_hints: HINTS,
       },
       makeRetrospectiveContext({ conversationId: "retro-run-conv" }),
       lineageSeam(),
@@ -1469,6 +1645,7 @@ describe("scaffold_managed_skill tool", () => {
           name: `Skill ${skillId}`,
           description: `Does ${skillId}`,
           body_markdown: "Do the procedure.",
+          activation_hints: HINTS,
         },
         makeRetrospectiveContext({ conversationId: "retro-run-conv" }),
         lineageSeam(),
@@ -1507,6 +1684,7 @@ describe("background skill update notification", () => {
         name: "Weekly Report Export",
         description: `seeded ${id}`,
         body_markdown: body,
+        activation_hints: HINTS,
       },
       makeContext(),
     );
@@ -1536,6 +1714,7 @@ describe("background skill update notification", () => {
         name: "Weekly Report Export",
         description: "export the weekly usage report",
         body_markdown: "1. Refined steps.",
+        activation_hints: HINTS,
         overwrite: true,
       },
       makeRetrospectiveContext({ conversationId: "retro-run-conv" }),
@@ -1578,6 +1757,7 @@ describe("background skill update notification", () => {
         name: "Weekly Report Export",
         description: "export the weekly usage report",
         body_markdown: "1. Refined steps.",
+        activation_hints: HINTS,
         overwrite: true,
       },
       makeRetrospectiveContext({ conversationId: "retro-run-conv" }),
@@ -1597,6 +1777,7 @@ describe("background skill update notification", () => {
         name: "Brand New Skill",
         description: "something never seen before",
         body_markdown: "1. Do it.",
+        activation_hints: HINTS,
       },
       makeRetrospectiveContext({ conversationId: "retro-run-conv" }),
       lineage(),
@@ -1614,6 +1795,7 @@ describe("background skill update notification", () => {
         name: "User Skill",
         description: "asked for",
         body_markdown: "V1.",
+        activation_hints: HINTS,
       },
       makeContext(),
     );
@@ -1625,6 +1807,7 @@ describe("background skill update notification", () => {
         name: "User Skill",
         description: "asked for",
         body_markdown: "V2.",
+        activation_hints: HINTS,
         overwrite: true,
       },
       makeContext(),

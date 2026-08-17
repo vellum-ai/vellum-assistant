@@ -321,6 +321,65 @@ describe("upsertFromApi", () => {
   });
 });
 
+describe("setFromApi connectability", () => {
+  type ApiAssistant = Parameters<
+    ReturnType<typeof useResolvedAssistantsStore.getState>["setFromApi"]
+  >[0][number];
+
+  const apiEntry = (overrides: Partial<ApiAssistant>): ApiAssistant =>
+    ({
+      id: "asst-api",
+      name: "Api",
+      created: "2026-01-01T00:00:00Z",
+      is_local: false,
+      ingress_url: null,
+      current_release_version: null,
+      release_channel: "stable",
+      ...overrides,
+    }) as ApiAssistant;
+
+  it("drops a local registration with no ingress and no lockfile entry", () => {
+    useResolvedAssistantsStore.getState().setFromApi([
+      apiEntry({ id: "asst-cloud" }),
+      apiEntry({ id: "asst-dead-local", is_local: true, ingress_url: null }),
+    ]);
+
+    const assistants = useResolvedAssistantsStore.getState().assistants;
+    expect(assistants.map((a) => a.id)).toEqual(["asst-cloud"]);
+    expect(useResolvedAssistantsStore.getState().assistantsHydrated).toBe(true);
+  });
+
+  it("keeps a local registration with a public ingress and carries its url", () => {
+    useResolvedAssistantsStore.getState().setFromApi([
+      apiEntry({
+        id: "asst-tunneled",
+        is_local: true,
+        ingress_url: "https://mac.example.com",
+      }),
+    ]);
+
+    const entry = useResolvedAssistantsStore.getState().assistants[0];
+    expect(entry.id).toBe("asst-tunneled");
+    expect(entry.isLocal).toBe(true);
+    expect(entry.ingressUrl).toBe("https://mac.example.com");
+  });
+
+  it("keeps an ingress-less local registration the lockfile knows", () => {
+    useLockfileStore.getState().setLockfile({
+      assistants: [localAssistant],
+      activeAssistant: "asst-local",
+    });
+
+    useResolvedAssistantsStore.getState().setFromApi([
+      apiEntry({ id: "asst-local", is_local: true, ingress_url: null }),
+    ]);
+
+    const entry = useResolvedAssistantsStore.getState().assistants[0];
+    expect(entry.id).toBe("asst-local");
+    expect(entry.cloud).toBe("local");
+  });
+});
+
 describe("assistantsValidForOrg", () => {
   const local: ResolvedAssistant = {
     id: "local",

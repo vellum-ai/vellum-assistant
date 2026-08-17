@@ -431,3 +431,115 @@ describe("sendToClient receives state signals", () => {
     });
   });
 });
+
+describe("the sink is fixed for the conversation's life", () => {
+  test("a cold instance delivers activity state with no turn ever having run", () => {
+    // The summarize-up-to route resolves its conversation outside the send
+    // path and emits a thinking indicator before any turn: it must reach the
+    // sink the conversation was built with, not depend on a send having wired
+    // one (LUM-2987).
+    const clientMsgs: AssistantEvent[] = [];
+    const conversation = makeConversation((msg) => clientMsgs.push(msg));
+
+    conversation.emitActivityState("thinking", "context_compacting", {
+      statusText: "Summarizing conversation",
+    });
+
+    const activity = clientMsgs.filter(
+      (m) => m.type === "assistant_activity_state",
+    );
+    expect(activity).toHaveLength(1);
+    expect((activity[0] as { statusText?: string }).statusText).toBe(
+      "Summarizing conversation",
+    );
+  });
+
+  test("presence is a property of the turn, not of delivery", () => {
+    // Nothing is in flight, so no human is asserted present, even though the
+    // sink is live and delivering.
+    const clientMsgs: AssistantEvent[] = [];
+    const conversation = makeConversation((msg) => clientMsgs.push(msg));
+    expect(conversation.hasNoClient).toBe(true);
+    conversation.emitActivityState("thinking", "message_dequeued");
+    expect(clientMsgs).toHaveLength(1);
+    expect(conversation.hasNoClient).toBe(true);
+  });
+});
+
+describe("event observers", () => {
+  test("an observer sees each event after the sink delivered it, and detaches", () => {
+    const order: string[] = [];
+    const conversation = makeConversation((msg) => {
+      order.push(`sink:${msg.type}`);
+    });
+    const detach = conversation.addEventObserver((msg) => {
+      order.push(`observer:${msg.type}`);
+    });
+
+    conversation.emitActivityState("thinking", "message_dequeued");
+    expect(order).toEqual([
+      "sink:assistant_activity_state",
+      "observer:assistant_activity_state",
+    ]);
+
+    detach();
+    conversation.emitActivityState("idle", "message_complete");
+    expect(order).toEqual([
+      "sink:assistant_activity_state",
+      "observer:assistant_activity_state",
+      "sink:assistant_activity_state",
+    ]);
+  });
+
+  test("a throwing observer neither blocks the sink nor its siblings", () => {
+    const seen: string[] = [];
+    const conversation = makeConversation((msg) => {
+      seen.push(`sink:${msg.type}`);
+    });
+    conversation.addEventObserver(() => {
+      throw new Error("observer boom");
+    });
+    conversation.addEventObserver((msg) => {
+      seen.push(`second:${msg.type}`);
+    });
+
+    conversation.emitActivityState("thinking", "message_dequeued");
+    expect(seen).toEqual([
+      "sink:assistant_activity_state",
+      "second:assistant_activity_state",
+    ]);
+  });
+
+  test("the prompter's confirmation_request reaches observers after the sink", () => {
+    // Voice auto-resolves approval prompts it has no UI for; it must observe
+    // the request only once the sink has put it on the wire, so its resolution
+    // lands after the request it answers.
+    const order: string[] = [];
+    const conversation = makeConversation((msg) => {
+      order.push(`sink:${msg.type}`);
+    });
+    conversation.addEventObserver((msg) => {
+      if (msg.type === "confirmation_request") {
+        order.push("observer:confirmation_request");
+        conversation.handleConfirmationResponse(msg.requestId, "deny", {
+          emissionContext: { source: "system" },
+        });
+      }
+    });
+
+    void conversation.prompter.prompt(
+      "bash",
+      { command: "rm -rf /tmp/x" },
+      "high",
+      [],
+      [],
+      undefined,
+      conversation.conversationId,
+      "sandbox",
+      false,
+    );
+
+    expect(order[0]).toBe("sink:confirmation_request");
+    expect(order[1]).toBe("observer:confirmation_request");
+  });
+});

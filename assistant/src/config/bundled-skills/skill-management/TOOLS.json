@@ -40,12 +40,12 @@
           "includes": {
             "type": "array",
             "items": { "type": "string" },
-            "description": "Optional list of child skill IDs that this skill includes (metadata only, no auto-activation)."
+            "description": "Optional list of child skill IDs this skill composes. When this skill is loaded via skill_load, each child's body is inlined after the parent's and the child's tools are projected, so the parent can rely on the child's procedure without re-stating it. Does not affect which skills get selected for a turn."
           },
           "activation_hints": {
             "type": "array",
             "items": { "type": "string" },
-            "description": "Optional trigger phrases describing the situations where this skill should activate, phrased as the observed intent (e.g. \"user asks to deploy staging\"). Surfaced in memory as a \"Use when: …\" clause so the skill is retrievable by intent, not just by name."
+            "description": "Required. 1-4 short trigger phrases describing the situations where this skill should activate, phrased as the observed intent (e.g. \"user asks to deploy staging\"). Surfaced in memory as a \"Use when: …\" clause so the skill is retrievable by intent, not just by name. Scaffolding rewrites the whole SKILL.md, so an overwrite must pass the hints the skill should keep, revised if the procedure changed."
           },
           "avoid_when": {
             "type": "array",
@@ -79,7 +79,13 @@
             "description": "Deprecated no-op compatibility field. Skills are discovered from top-level SKILL.md files."
           }
         },
-        "required": ["skill_id", "name", "description", "body_markdown"]
+        "required": [
+          "skill_id",
+          "name",
+          "description",
+          "body_markdown",
+          "activation_hints"
+        ]
       },
       "executor": "tools/scaffold-managed.ts",
       "execution_target": "host"

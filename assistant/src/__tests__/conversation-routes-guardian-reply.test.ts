@@ -163,7 +163,7 @@ describe("handleSendMessage guardian reply interception", () => {
     const runAgentLoop = mock(async () => undefined);
     const session = {
       setTrustContext: () => {},
-      updateClient: () => {},
+      replayActivityState: () => {},
       emitConfirmationStateChanged: () => {},
       emitActivityState: () => {},
       setTurnChannelContext: () => {},
@@ -253,7 +253,7 @@ describe("handleSendMessage guardian reply interception", () => {
     const runAgentLoop = mock(async () => undefined);
     const session = {
       setTrustContext: () => {},
-      updateClient: () => {},
+      replayActivityState: () => {},
       emitConfirmationStateChanged: () => {},
       emitActivityState: () => {},
       setTurnChannelContext: () => {},
@@ -331,7 +331,7 @@ describe("handleSendMessage guardian reply interception", () => {
     const runAgentLoop = mock(async () => undefined);
     const session = {
       setTrustContext: () => {},
-      updateClient: () => {},
+      replayActivityState: () => {},
       emitConfirmationStateChanged: () => {},
       emitActivityState: () => {},
       setTurnChannelContext: () => {},
@@ -419,7 +419,7 @@ describe("handleSendMessage guardian reply interception", () => {
     const runAgentLoop = mock(async () => undefined);
     const session = {
       setTrustContext: () => {},
-      updateClient: () => {},
+      replayActivityState: () => {},
       emitConfirmationStateChanged: () => {},
       emitActivityState: () => {},
       setTurnChannelContext: () => {},
@@ -507,7 +507,7 @@ describe("handleSendMessage guardian reply interception", () => {
     const runAgentLoop = mock(async () => undefined);
     const session = {
       setTrustContext: () => {},
-      updateClient: () => {},
+      replayActivityState: () => {},
       emitConfirmationStateChanged: () => {},
       emitActivityState: () => {},
       setTurnChannelContext: () => {},
@@ -590,7 +590,7 @@ describe("handleSendMessage guardian reply interception", () => {
     const runAgentLoop = mock(async () => undefined);
     const session = {
       setTrustContext: () => {},
-      updateClient: () => {},
+      replayActivityState: () => {},
       emitConfirmationStateChanged: () => {},
       emitActivityState: () => {},
       setTurnChannelContext: () => {},
@@ -667,7 +667,7 @@ describe("handleSendMessage guardian reply interception", () => {
     const runAgentLoop = mock(async () => undefined);
     const session = {
       setTrustContext: () => {},
-      updateClient: () => {},
+      replayActivityState: () => {},
       emitConfirmationStateChanged: () => {},
       emitActivityState: () => {},
       setTurnChannelContext: () => {},
@@ -746,7 +746,7 @@ describe("handleSendMessage guardian reply interception", () => {
     const runAgentLoop = mock(async () => undefined);
     const session = {
       setTrustContext: () => {},
-      updateClient: () => {},
+      replayActivityState: () => {},
       emitConfirmationStateChanged: () => {},
       emitActivityState: () => {},
       setTurnChannelContext: () => {},
@@ -826,7 +826,7 @@ describe("handleSendMessage guardian reply interception", () => {
     const runAgentLoop = mock(async () => undefined);
     const session = {
       setTrustContext: () => {},
-      updateClient: () => {},
+      replayActivityState: () => {},
       emitConfirmationStateChanged: () => {},
       emitActivityState: () => {},
       setTurnChannelContext: () => {},

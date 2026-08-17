@@ -9,8 +9,10 @@
  */
 
 import { afterEach, describe, expect, mock, test } from "bun:test";
+import { QueryClient } from "@tanstack/react-query";
 
 import { client as daemonClient } from "@/generated/daemon/client.gen";
+import { listPage } from "@/utils/conversation-list.test-helper";
 import { getDiagnosticsEvents, type DiagnosticsEvent } from "@/lib/diagnostics";
 import { ApiError } from "@/utils/api-errors";
 import type { RawConversationSummary } from "@/utils/conversation-transforms";
@@ -34,20 +36,24 @@ const {
   listBackgroundConversationsFirstPage,
   listConversations,
   listConversationsFirstPage,
-  listSectionConversations,
+  drainSectionConversations,
+  listSectionConversationsFirstPage,
+  listSectionConversationsPage,
+  sectionConversationListOptions,
+  sectionConversationsQueryKey,
   listScheduledConversations,
   listScheduledConversationsFirstPage,
 } = await import("@/utils/conversation-list-fetchers");
 
 const ASSISTANT_ID = "assistant-1";
 
-function makeRaw(id: string): RawConversationSummary {
+function makeRaw(id: string, lastMessageAt = 0): RawConversationSummary {
   return {
     id,
     title: "",
     createdAt: 0,
     updatedAt: 0,
-    lastMessageAt: 0,
+    lastMessageAt,
     conversationType: "standard",
     source: "vellum",
     groupId: "",
@@ -56,7 +62,8 @@ function makeRaw(id: string): RawConversationSummary {
 }
 
 type PageFixture = {
-  ids: string[];
+  /** Row ids, or `[id, lastMessageAt]` where a test's logic needs recency. */
+  ids: Array<string | [string, number]>;
   hasMore: boolean;
   status?: number;
   contentLength?: string;
@@ -84,7 +91,9 @@ function stubPages(fixtures: PageFixture[]): {
       const status = fixture.status ?? 200;
       const ok = status < 400;
       const body = {
-        conversations: fixture.ids.map(makeRaw),
+        conversations: fixture.ids.map((entry) =>
+          typeof entry === "string" ? makeRaw(entry) : makeRaw(...entry),
+        ),
         hasMore: fixture.hasMore,
       };
       return {
@@ -306,7 +315,7 @@ describe("conversation list drain diagnostics", () => {
 
     stubPages([{ ids: ["c-0"], hasMore: false, contentLength: "10" }]);
     const channel = await diagnosticsDuring(() =>
-      listSectionConversations(ASSISTANT_ID, { originChannel: "slack" }),
+      drainSectionConversations(ASSISTANT_ID, { originChannel: "slack" }),
     );
 
     expect(channel.events[0]?.details).toMatchObject({
@@ -524,7 +533,7 @@ describe("conversation list drain telemetry", () => {
   test("an origin-channel drain is labeled origin_channel, not foreground", async () => {
     stubPages([{ ids: ["c-0"], hasMore: false, contentLength: "10" }]);
 
-    await listSectionConversations(ASSISTANT_ID, { originChannel: "slack" });
+    await drainSectionConversations(ASSISTANT_ID, { originChannel: "slack" });
 
     const emits = drainEmits();
     expect(emits).toHaveLength(1);
@@ -616,7 +625,7 @@ describe("section list filters", () => {
       { ids: ["c-1"], hasMore: false },
     ]);
 
-    await listSectionConversations(ASSISTANT_ID, {
+    await drainSectionConversations(ASSISTANT_ID, {
       groupId: "system:pinned",
     });
 
@@ -632,7 +641,7 @@ describe("section list filters", () => {
     // custom group would render in that group AND in its channel.
     const { queries } = stubPages([{ ids: ["c-0"], hasMore: false }]);
 
-    await listSectionConversations(ASSISTANT_ID, {
+    await drainSectionConversations(ASSISTANT_ID, {
       groupId: "system:all",
       originChannel: "slack",
     });
@@ -646,15 +655,96 @@ describe("section list filters", () => {
   test("omits the filters it was not given rather than sending empties", async () => {
     const { queries } = stubPages([{ ids: ["c-0"], hasMore: false }]);
 
-    await listSectionConversations(ASSISTANT_ID, { groupId: "grp-a" });
+    await drainSectionConversations(ASSISTANT_ID, { groupId: "grp-a" });
 
     expect(queries[0]).not.toHaveProperty("originChannel");
+  });
+
+  test("the first-page fetch carries the filter at offset 0", async () => {
+    // One request, carrying the section's filter, or the section renders a
+    // superset.
+    const { queries } = stubPages([{ ids: ["c-0"], hasMore: true }]);
+
+    const page = await listSectionConversationsFirstPage(ASSISTANT_ID, {
+      groupId: "system:all",
+      originChannel: "slack",
+    });
+
+    expect(queries).toHaveLength(1);
+    expect(queries[0]).toMatchObject({
+      offset: 0,
+      groupId: "system:all",
+      originChannel: "slack",
+    });
+    expect(page.hasMore).toBe(true);
+  });
+
+  test("a plain refetch keeps the scrolled-in window", async () => {
+    /* The queryFn merges the fresh first page over the cached window. A
+       bare page-one return here would mean every focus refetch and every
+       settle invalidation truncated a scrolled window back to 50 rows
+       under the user's scrollbar. */
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    const filter = { groupId: "grp-a" };
+    client.setQueryData(
+      sectionConversationsQueryKey(ASSISTANT_ID, filter),
+      listPage(
+        [
+          {
+            conversationId: "c-top",
+            title: "",
+            createdAt: 0,
+            lastMessageAt: 5000,
+          },
+          {
+            conversationId: "c-scrolled-in",
+            title: "",
+            createdAt: 0,
+            lastMessageAt: 100,
+          },
+        ],
+        true,
+      ),
+    );
+    // The fresh page holds only the window top; the scrolled-in row sorts
+    // below the page's cutoff, so the merge must keep it.
+    stubPages([{ ids: [["c-top", 5000]], hasMore: true }]);
+
+    // staleTime 0: the seeded cache is seconds old, and fetchQuery serves
+    // fresh data without running the queryFn, which would pass this test
+    // without exercising the merge at all.
+    const result = await client.fetchQuery({
+      ...sectionConversationListOptions(ASSISTANT_ID, filter),
+      staleTime: 0,
+    });
+
+    expect(result.conversations.map((c) => c.conversationId)).toEqual([
+      "c-top",
+      "c-scrolled-in",
+    ]);
+    expect(result.hasMore).toBe(true);
+  });
+
+  test("a load-more page carries the filter and its offset", async () => {
+    const { queries } = stubPages([{ ids: ["c-50"], hasMore: false }]);
+
+    const page = await listSectionConversationsPage(
+      ASSISTANT_ID,
+      { groupId: "grp-a" },
+      50,
+    );
+
+    expect(queries).toHaveLength(1);
+    expect(queries[0]).toMatchObject({ offset: 50, groupId: "grp-a" });
+    expect(page.hasMore).toBe(false);
   });
 
   test("labels a group-only drain 'section', keeping it distinct from a channel", async () => {
     stubPages([{ ids: ["c-0"], hasMore: false, contentLength: "10" }]);
     const group = await diagnosticsDuring(() =>
-      listSectionConversations(ASSISTANT_ID, { groupId: "system:pinned" }),
+      drainSectionConversations(ASSISTANT_ID, { groupId: "system:pinned" }),
     );
 
     expect(group.events[0]?.details).toMatchObject({
@@ -666,7 +756,7 @@ describe("section list filters", () => {
     // so the bounded per-channel budget stays readable.
     stubPages([{ ids: ["c-0"], hasMore: false, contentLength: "10" }]);
     const channel = await diagnosticsDuring(() =>
-      listSectionConversations(ASSISTANT_ID, {
+      drainSectionConversations(ASSISTANT_ID, {
         groupId: "system:all",
         originChannel: "slack",
       }),

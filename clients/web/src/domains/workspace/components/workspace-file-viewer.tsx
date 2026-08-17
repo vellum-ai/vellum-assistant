@@ -31,7 +31,7 @@ import {
 import { useTranslation } from "@/i18n";
 import { FileMarkdown, isMarkdown } from "@/components/file-markdown";
 import { isJson, prettifyJson } from "@/domains/workspace/utils/file-json";
-import { formatFileSize } from "@/domains/workspace/utils/format-file-size";
+import { formatFileSize } from "@/utils/format-file-size";
 import { isHiddenPath } from "@/domains/workspace/utils/is-hidden-path";
 import {
   workspaceFileContentGet,

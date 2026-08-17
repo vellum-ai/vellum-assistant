@@ -67,7 +67,8 @@ export function MessageCopyButton({ text }: { text: string }) {
       onClick={handleCopy}
       title={copied ? "Copied!" : "Copy"}
       aria-label={copied ? "Copied" : "Copy to clipboard"}
-      className="flex h-6 w-6 cursor-pointer items-center justify-center rounded-md bg-[var(--surface-overlay)] text-[var(--content-tertiary)] pointer-events-none opacity-0 transition-opacity duration-150 group-hover/msg:pointer-events-auto group-hover/msg:opacity-100 hover:text-[var(--content-secondary)] [@media(hover:none)]:pointer-events-auto [@media(hover:none)]:opacity-100"
+      data-reveal=""
+      className="flex h-6 w-6 cursor-pointer items-center justify-center rounded-md bg-[var(--surface-overlay)] text-[var(--content-tertiary)] hover:text-[var(--content-secondary)]"
     >
       <div className="relative h-3.5 w-3.5">
         <Check
@@ -470,7 +471,7 @@ export function UserOutcomePromptBlock({
 
 export function UserMessage({ entry }: { entry: ChatEntry }) {
   return (
-    <div className="group/msg flex items-start justify-end gap-1.5">
+    <div data-reveal-row="" className="flex items-start justify-end gap-1.5">
       <div className="flex shrink-0 items-center self-center">
         <MessageCopyButton text={entry.content} />
       </div>
@@ -483,7 +484,7 @@ export function UserMessage({ entry }: { entry: ChatEntry }) {
 
 export function AssistantMessage({ entry }: { entry: ChatEntry }) {
   return (
-    <div className="group/msg flex items-start justify-start gap-1.5">
+    <div data-reveal-row="" className="flex items-start justify-start gap-1.5">
       <div className="w-full text-chat text-[var(--content-default)]">
         <MarkdownMessage content={entry.content} />
       </div>

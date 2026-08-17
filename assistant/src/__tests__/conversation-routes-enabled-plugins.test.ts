@@ -158,7 +158,7 @@ function makeConversation() {
     currentRequestId: undefined,
     queue: { length: 0 },
     setTrustContext: () => {},
-    updateClient: () => {},
+    replayActivityState: () => {},
     emitConfirmationStateChanged: () => {},
     emitActivityState: () => {},
     setTurnChannelContext: () => {},

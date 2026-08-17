@@ -487,7 +487,6 @@ export interface ScheduleDetailPanelProps {
   usage: ScheduleRowUsage;
   /** True for a one-shot that has already fired, which is read-only. */
   isPast?: boolean;
-  isMobile?: boolean;
   onClose: () => void;
   onDeleted: () => void;
 }
@@ -502,7 +501,6 @@ export function ScheduleDetailPanel({
   assistantId,
   usage,
   isPast = false,
-  isMobile,
   onClose,
   onDeleted,
 }: ScheduleDetailPanelProps) {
@@ -553,13 +551,9 @@ export function ScheduleDetailPanel({
 
   return (
     <>
-      <div
-        className={cn(
-          "flex h-full flex-col bg-[var(--surface-overlay)]",
-          !isMobile &&
-            "rounded-[var(--radius-xl)] border border-[var(--border-base)]",
-        )}
-      >
+      {/* Card chrome is the docked pane's, not the full-screen takeover's, so
+          it keys off the same `md:` breakpoint the page docks the pane at. */}
+      <div className="flex h-full flex-col bg-[var(--surface-overlay)] md:rounded-[var(--radius-xl)] md:border md:border-[var(--border-base)]">
         <DetailShellHeader
           title={schedule.name}
           headerActions={
