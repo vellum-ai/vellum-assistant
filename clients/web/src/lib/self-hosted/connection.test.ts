@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, test } from "bun:test";
 
 import {
+  getSelfHostedAssistantId,
   getSelfHostedActorToken,
   getSelfHostedIngressUrl,
   setSelfHostedConnection,
@@ -12,17 +13,20 @@ describe("self-hosted connection slot", () => {
   });
 
   test("starts with both slots null", () => {
+    expect(getSelfHostedAssistantId()).toBeNull();
     expect(getSelfHostedIngressUrl()).toBeNull();
     expect(getSelfHostedActorToken()).toBeNull();
   });
 
   test("round-trips url + token through the single setter", () => {
     setSelfHostedConnection({
+      assistantId: "assistant-123",
       url: "https://example.ngrok-free.app",
       token: "token-xyz",
     });
     expect(getSelfHostedIngressUrl()).toBe("https://example.ngrok-free.app");
     expect(getSelfHostedActorToken()).toBe("token-xyz");
+    expect(getSelfHostedAssistantId()).toBe("assistant-123");
   });
 
   test("setting null clears both slots", () => {
@@ -31,6 +35,7 @@ describe("self-hosted connection slot", () => {
       token: "token-xyz",
     });
     setSelfHostedConnection(null);
+    expect(getSelfHostedAssistantId()).toBeNull();
     expect(getSelfHostedIngressUrl()).toBeNull();
     expect(getSelfHostedActorToken()).toBeNull();
   });

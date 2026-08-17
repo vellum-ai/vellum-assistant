@@ -276,6 +276,7 @@ export function activateRemoteGatewaySession(
     accessTokenExpiresAt: session.accessTokenExpiresAt,
   });
   setSelfHostedConnection({
+    assistantId: "self",
     url: `${window.location.origin}${remoteGatewayPublicPathPrefix()}`,
     token: session.accessToken,
   });

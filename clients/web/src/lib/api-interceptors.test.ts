@@ -1226,7 +1226,11 @@ describe("api-interceptors / localGatewayAuthRecoveryInterceptor", () => {
       }),
     });
     isLocalClientMock.mockImplementation(() => true);
-    setSelfHostedConnection({ url: GATEWAY_URL, token: "tok" });
+    setSelfHostedConnection({
+      assistantId: "asst-a",
+      url: GATEWAY_URL,
+      token: "tok",
+    });
     sessionStorage.removeItem(GW_401_RECOVERY_AT_KEY);
     sessionStorage.removeItem(GW_401_ATTEMPTS_KEY);
     clearGatewayTokenStorage();
@@ -1241,7 +1245,11 @@ describe("api-interceptors / localGatewayAuthRecoveryInterceptor", () => {
     });
     // Model the real prime: a fresh token lands in the connection slot.
     primeGatewayWithRepairImpl = async () => {
-      setSelfHostedConnection({ url: GATEWAY_URL, token: "fresh-tok" });
+      setSelfHostedConnection({
+        assistantId: "asst-a",
+        url: GATEWAY_URL,
+        token: "fresh-tok",
+      });
     };
     replayedRequests = [];
     originalFetch = globalThis.fetch;
@@ -1583,6 +1591,7 @@ describe("api-interceptors / localGatewayAuthRecoveryInterceptor", () => {
       });
       if (options?.commitIf?.()) {
         setSelfHostedConnection({
+          assistantId: "asst-a",
           url: GATEWAY_URL,
           token: "assistant-a-token",
         });
@@ -1596,6 +1605,7 @@ describe("api-interceptors / localGatewayAuthRecoveryInterceptor", () => {
 
     selectedAssistantImpl = () => ({ assistantId: "asst-b", cloud: "local" });
     setSelfHostedConnection({
+      assistantId: "asst-b",
       url: "http://localhost:9091",
       token: "assistant-b-token",
     });
@@ -1619,6 +1629,7 @@ describe("api-interceptors / localGatewayAuthRecoveryInterceptor", () => {
       const committed = options?.commitIf?.() ?? true;
       if (committed) {
         setSelfHostedConnection({
+          assistantId: target?.assistantId ?? null,
           url:
             target?.assistantId === "asst-b"
               ? "http://localhost:9091"
@@ -1639,6 +1650,7 @@ describe("api-interceptors / localGatewayAuthRecoveryInterceptor", () => {
 
     selectedAssistantImpl = () => ({ assistantId: "asst-b", cloud: "local" });
     setSelfHostedConnection({
+      assistantId: "asst-b",
       url: "http://localhost:9091",
       token: "assistant-b-token",
     });
@@ -1660,6 +1672,36 @@ describe("api-interceptors / localGatewayAuthRecoveryInterceptor", () => {
     expect(primeGatewayWithRepairMock).toHaveBeenCalledTimes(2);
     expect(getSelfHostedIngressUrl()).toBe("http://localhost:9091");
     expect(getSelfHostedActorToken()).toBe("asst-b-fresh-token");
+  });
+
+  test("does not replay with a pre-selected assistant's session", async () => {
+    const request = await daemonRequestInterceptor(
+      new Request("https://platform.test/v1/assistants/asst-a/conversations"),
+    );
+    setSelfHostedConnection({
+      assistantId: "asst-b",
+      url: "http://localhost:9091",
+      token: "assistant-b-token",
+    });
+    const response = gatewayResponse(401);
+
+    const result = await localGatewayAuthRecoveryInterceptor(
+      response,
+      request,
+    );
+
+    expect(result).toBe(response);
+    expect(replayedRequests).toHaveLength(0);
+    expect(primeGatewayWithRepairMock).not.toHaveBeenCalled();
+  });
+
+  test("refunds recovery when a superseding prime does not commit", async () => {
+    primeGatewayWithRepairImpl = async () => false;
+
+    await localGatewayAuthRecoveryInterceptor(gatewayResponse(401));
+
+    expect(sessionStorage.getItem(GW_401_ATTEMPTS_KEY)).toBeNull();
+    expect(sessionStorage.getItem(GW_401_RECOVERY_AT_KEY)).toBeNull();
   });
 
   test("remote-gateway mode reloads only when the refresh cookie is rejected too", async () => {

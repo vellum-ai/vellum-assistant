@@ -54,6 +54,7 @@ import {
 import { recordLifecycleDiagnostic } from "@/lib/diagnostics";
 import { captureError } from "@/lib/sentry/capture-error";
 import {
+  getSelfHostedAssistantId,
   getSelfHostedActorToken,
   getSelfHostedIngressUrl,
   setSelfHostedConnection,
@@ -87,10 +88,14 @@ function selfHostedRequestMatchesCurrentAssistant(request: Request): boolean {
     return true;
   }
   const routedAssistantId = selfHostedGatewayRequests.get(request);
+  const selectedAssistantId = getSelectedAssistant()?.assistantId;
+  const connectionAssistantId = getSelfHostedAssistantId();
   return (
     routedAssistantId !== undefined &&
     routedAssistantId !== null &&
-    routedAssistantId === getSelectedAssistant()?.assistantId
+    routedAssistantId === selectedAssistantId &&
+    (connectionAssistantId === null ||
+      routedAssistantId === connectionAssistantId)
   );
 }
 
@@ -255,6 +260,13 @@ export async function rewriteForSelfHostedIngress(
     return null;
   }
   const routedAssistantId = getSelectedAssistant()?.assistantId ?? null;
+  const connectionAssistantId = getSelfHostedAssistantId();
+  if (
+    connectionAssistantId !== null &&
+    connectionAssistantId !== routedAssistantId
+  ) {
+    return null;
+  }
 
   const url = new URL(request.url);
 
@@ -596,7 +608,12 @@ let gw401ReloadFired = false;
 
 // Per-assistant single-flight slots let a burst share one recovery without
 // making a newly selected assistant inherit the previous assistant's result.
-const gw401RecoveryInFlight = new Map<string, Promise<boolean>>();
+interface GatewayRecoveryResult {
+  recovered: boolean;
+  refundBudget: boolean;
+}
+
+const gw401RecoveryInFlight = new Map<string, Promise<GatewayRecoveryResult>>();
 
 /** @internal Exposed for test teardown only. */
 export function resetGw401RecoveryState(): void {
@@ -604,11 +621,11 @@ export function resetGw401RecoveryState(): void {
   gw401RecoveryInFlight.clear();
 }
 
-async function recoverRemoteGatewaySessionInPlace(): Promise<boolean> {
+async function recoverRemoteGatewaySessionInPlace(): Promise<GatewayRecoveryResult> {
   const refreshed = await refreshRemoteGatewaySession({ force: true });
   if (refreshed) {
     recordLifecycleDiagnostic("gw_401_recovery", { outcome: "recovered" });
-    return true;
+    return { recovered: true, refundBudget: false };
   }
   // The refresh cookie is rejected too: nothing in the renderer can revive
   // this session, so boot into the pairing flow.
@@ -616,10 +633,10 @@ async function recoverRemoteGatewaySessionInPlace(): Promise<boolean> {
   gw401ReloadFired = true;
   clearGatewayToken();
   window.location.reload();
-  return false;
+  return { recovered: false, refundBudget: false };
 }
 
-async function recoverLocalGatewaySessionInPlace(): Promise<boolean> {
+async function recoverLocalGatewaySessionInPlace(): Promise<GatewayRecoveryResult> {
   // The paired branch of primeLocalGatewayConnection clears the
   // connection slot when its readyz probe fails, so a failed recovery would
   // otherwise leave the renderer with no ingress route and this
@@ -631,13 +648,14 @@ async function recoverLocalGatewaySessionInPlace(): Promise<boolean> {
   // requests to the old local gateway. A concurrent re-prime to another
   // local assistant leaves the slot non-null and is likewise left alone.
   const previous = {
+    assistantId: getSelfHostedAssistantId(),
     url: getSelfHostedIngressUrl(),
     token: getSelfHostedActorToken(),
   };
   const recoveringAssistant = getSelectedAssistant();
   const recoveringFor = recoveringAssistant?.assistantId ?? null;
   if (!recoveringAssistant) {
-    return false;
+    return { recovered: false, refundBudget: false };
   }
   try {
     const committed = await primeLocalGatewayConnectionWithRepair(
@@ -650,10 +668,14 @@ async function recoverLocalGatewaySessionInPlace(): Promise<boolean> {
       },
     );
     if (!committed || getSelectedAssistant()?.assistantId !== recoveringFor) {
-      return false;
+      return {
+        recovered: false,
+        refundBudget:
+          !committed && getSelectedAssistant()?.assistantId === recoveringFor,
+      };
     }
     recordLifecycleDiagnostic("gw_401_recovery", { outcome: "recovered" });
-    return true;
+    return { recovered: true, refundBudget: false };
   } catch (err) {
     if (
       getSelfHostedIngressUrl() === null &&
@@ -664,11 +686,13 @@ async function recoverLocalGatewaySessionInPlace(): Promise<boolean> {
     }
     recordLifecycleDiagnostic("gw_401_recovery", { outcome: "failed" });
     captureError(err, { context: "gw_401_recovery" });
-    return false;
+    return { recovered: false, refundBudget: false };
   }
 }
 
-function recoverGatewaySessionInPlace(scope: string): Promise<boolean> {
+function recoverGatewaySessionInPlace(
+  scope: string,
+): Promise<GatewayRecoveryResult> {
   const existing = gw401RecoveryInFlight.get(scope);
   if (existing) {
     return existing;
@@ -885,8 +909,11 @@ export async function localGatewayAuthRecoveryInterceptor(
     recovery = recoverGatewaySessionInPlace(recoveryScope);
   }
 
-  const recovered = await recovery;
-  if (recovered && replayable) {
+  const recoveryResult = await recovery;
+  if (recoveryResult.refundBudget) {
+    clearGw401Budget(recoveryScope);
+  }
+  if (recoveryResult.recovered && replayable) {
     return (
       (await replayWithRecoveredSession(request, recoveryScope)) ?? response
     );

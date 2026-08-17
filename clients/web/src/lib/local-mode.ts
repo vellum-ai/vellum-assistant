@@ -943,6 +943,7 @@ async function primeReservedLocalGatewayConnection(
     }
     clearGatewayToken();
     setSelfHostedConnection({
+      assistantId: assistant.assistantId,
       url: ingressUrl,
       token: null,
     });
@@ -976,6 +977,7 @@ async function primeReservedLocalGatewayConnection(
       }
       seedGatewayToken(gatewayToken);
       setSelfHostedConnection({
+        assistantId: assistant?.assistantId ?? null,
         url: ingressUrl,
         token: gatewayToken.token,
       });

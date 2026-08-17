@@ -578,6 +578,7 @@ class AssistantLifecycleService {
   private projectSelfHosted(result: GetAssistantResult & { ok: true }): void {
     this.setOperationalStatusAssistantId(null);
     setSelfHostedConnection({
+      assistantId: result.data.id,
       url: result.data.ingress_url,
       token: result.data.platform_actor_token,
     });
@@ -605,7 +606,11 @@ class AssistantLifecycleService {
         }
       }
     }
-    setSelfHostedConnection({ url: ingressUrl, token: rendererToken });
+    setSelfHostedConnection({
+      assistantId: resolvedAssistantId,
+      url: ingressUrl,
+      token: rendererToken,
+    });
     this.setOperationalStatusAssistantId(null);
     useResolvedAssistantsStore
       .getState()
