@@ -834,6 +834,7 @@ export class UnresolvedPairedGatewayError extends Error {
 export interface PrimeLocalGatewayConnectionOptions
   extends Pick<EnsureGatewayTokenOptions, "forceMint"> {
   commitIf?: () => boolean;
+  guardGeneration?: boolean;
 }
 
 let gatewayPrimeGeneration = 0;
@@ -1403,18 +1404,19 @@ export async function repairLocalAssistantAfterRestart(
 export async function primeLocalGatewayConnectionWithRepair(
   target?: LockfileAssistant,
   options: PrimeLocalGatewayConnectionOptions = {},
-): Promise<void> {
+): Promise<boolean> {
   const assistant = target ?? getSelectedAssistant();
   const reservation = reserveGatewayPrime(assistant?.assistantId ?? null);
+  const guardGeneration = options.guardGeneration ?? false;
   let committed = false;
   try {
     committed = await primeReservedLocalGatewayConnection(
       assistant,
       options,
       reservation.generation,
-      false,
+      guardGeneration,
     );
-    return;
+    return committed;
   } catch (error) {
     // Wake operates only on plain local assistants (see
     // `isCliWakeableAssistant`): spawning it for a paired or otherwise
@@ -1446,8 +1448,9 @@ export async function primeLocalGatewayConnectionWithRepair(
       isGatewayRestartTransient,
       options,
       reservation.generation,
-      false,
+      guardGeneration,
     );
+    return committed;
   } finally {
     settleGatewayPrime(reservation, committed);
   }

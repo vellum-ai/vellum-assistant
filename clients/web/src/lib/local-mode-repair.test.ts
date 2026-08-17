@@ -109,6 +109,12 @@ const localAssistant: LockfileAssistant = {
   resources: { gatewayPort: 7830 },
 } as LockfileAssistant;
 
+const localAssistantB: LockfileAssistant = {
+  assistantId: "local-b",
+  cloud: "local",
+  resources: { gatewayPort: 7832 },
+} as LockfileAssistant;
+
 function selectLocalAssistant(): void {
   const lockfile: Lockfile = {
     assistants: [localAssistant],
@@ -543,6 +549,33 @@ describe("repairLocalAssistantAfterRestart", () => {
 });
 
 describe("primeLocalGatewayConnectionWithRepair", () => {
+  test("a newer pre-selection prime invalidates the recovery commit", async () => {
+    let releaseAssistantA: (() => void) | undefined;
+    ensureGatewayTokenImpl = async (tokenUrl) => {
+      if (tokenUrl?.includes(":7830/")) {
+        await new Promise<void>((resolve) => {
+          releaseAssistantA = resolve;
+        });
+        return "assistant-a-token";
+      }
+      return "assistant-b-token";
+    };
+
+    const recovery = primeLocalGatewayConnectionWithRepair(localAssistant, {
+      forceMint: true,
+      guardGeneration: true,
+    });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    await primeLocalGatewayConnection(localAssistantB, { forceMint: true });
+    releaseAssistantA?.();
+
+    await expect(recovery).resolves.toBe(false);
+    expect(seedGatewayTokenMock).toHaveBeenCalledTimes(1);
+    expect(seedGatewayTokenMock).toHaveBeenCalledWith(
+      expect.objectContaining({ token: "assistant-b-token" }),
+    );
+  });
+
   test("a clean first attempt never wakes the assistant", async () => {
     await primeLocalGatewayConnectionWithRepair();
     expect(wakeLocalAssistantHost).not.toHaveBeenCalled();
