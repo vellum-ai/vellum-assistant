@@ -1042,7 +1042,40 @@ describe("primeLocalGatewayConnection", () => {
   });
 });
 
-describe("primeLocalGatewayConnectionWithStartupRetry (paired target)", () => {
+describe("primeLocalGatewayConnectionWithStartupRetry", () => {
+  test("replaces a cached gateway token before authenticating at boot", async () => {
+    enableLocalMode();
+    setLockfile({ assistants: [localA], activeAssistant: "local-a" });
+    seedGatewayToken({
+      token: "stale-actor-token",
+      expiresAtEpochSeconds: Math.floor(Date.now() / 1000) + 3600,
+      source: "/assistant/__gateway/7830/auth/token",
+    });
+    const fetchMock = mock(
+      async (_input: RequestInfo | URL, _init?: RequestInit) =>
+        Response.json({
+          token: "fresh-actor-token",
+          expiresAt: Math.floor(Date.now() / 1000) + 3600,
+        }),
+    );
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+    await primeLocalGatewayConnectionWithStartupRetry(localA);
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock.mock.calls[0]?.[0]).toBe(
+      "/assistant/__gateway/7830/auth/token",
+    );
+    expect(fetchMock.mock.calls[0]?.[1]).toEqual(
+      expect.objectContaining({
+        method: "POST",
+        headers: { Authorization: "Bearer guardian-tok" },
+      }),
+    );
+    expect(getGatewayToken()).toBe("fresh-actor-token");
+    expect(getSelfHostedActorToken()).toBe("fresh-actor-token");
+  });
+
   // The startup ride-out exists for the LOCAL gateway's reboot window and only
   // retries GatewayTokenErrors, which the paired proxy prime never throws. A
   // paired failure (failed host credential read, remote transport error) falls through

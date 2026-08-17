@@ -1146,7 +1146,7 @@ export async function primeLocalGatewayConnectionWithStartupRetry(
     const committed = await primeLocalGatewayWithStartupRideout(
       target,
       isGatewayStillStarting,
-      {},
+      { forceMint: true },
       reservation.generation,
     );
     settleGatewayPrime(reservation, committed);
