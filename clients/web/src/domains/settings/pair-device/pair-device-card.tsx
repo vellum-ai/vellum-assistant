@@ -21,7 +21,7 @@ import { usePairDevice } from "./use-pair-device";
  * Rendered only in desktop/local mode against an on-machine gateway (the gate
  * lives in {@link resolvePairDeviceTarget}) whose assistant version serves the
  * pairing routes ({@link useSupportsRemoteWebPairing}). The client-scoped
- * `web-remote-ingress` flag decides only whether this card renders — it gates
+ * `web-remote-ingress` flag decides only whether this card renders; it gates
  * no pairing functionality.
  */
 export function PairDeviceCard() {

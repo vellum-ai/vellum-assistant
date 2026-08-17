@@ -47,9 +47,9 @@ function wantsTunnelEdge(workspaceDir: string): boolean {
  * `startRemoteWebIngress` performs; injected-config drift (a renamed
  * assistant, a changed hub URL) is repaired by the next explicit
  * `vellum tunnel` or `vellum nginx-ingress up`, not by background wakes.
- * A recorded webhooks-only edge (from a CLI that still gated remote web) is
- * never reused: it goes through `ensureTunnelEdge` so the wake upgrades it to
- * the SPA edge. Edge failures warn
+ * A recorded webhooks-only edge is never reused: it goes through
+ * `ensureTunnelEdge` so the wake upgrades it to the SPA edge.
+ * Edge failures warn
  * (with the error's install or diagnostic text) and fall back to tunneling the
  * gateway port directly, which `maybeStartNgrokTunnel` only does when webhook
  * integrations are configured, so webhook channels on nginx-less machines

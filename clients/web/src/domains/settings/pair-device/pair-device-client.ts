@@ -31,7 +31,7 @@ const PAIRING_VERIFICATION_PATH = "/v1/remote-web/pairing-verification";
 /**
  * Guidance appended when the host rejects the mint. The routes themselves only
  * require loopback, but a scan can only complete when the public URL actually
- * fronts this assistant — the usual reason pairing doesn't work end to end.
+ * fronts this assistant, the usual reason pairing doesn't work end to end.
  */
 export const PAIRING_CONNECTIVITY_HINT =
   "If a scan can't connect, make sure a tunnel is running on the host (`vellum tunnel`) and the public URL points at it, then generate a new code.";
