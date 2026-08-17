@@ -71,7 +71,7 @@ export interface ResolvedAssistant {
  * the lockfile, so its presence means a local/paired transport exists here),
  * or a platform-registered public ingress (`ingressUrl`, the phone-to-Mac
  * self-hosted path). A local API entry with none of these is unreachable from
- * this client — the platform proxy 404s — so list surfaces should not offer
+ * this client (the platform proxy 404s), so list surfaces should not offer
  * it.
  */
 export function isConnectableFromThisDevice(a: ResolvedAssistant): boolean {
