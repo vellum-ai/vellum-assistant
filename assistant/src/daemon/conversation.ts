@@ -462,15 +462,29 @@ export class Conversation {
     return this.currentTurnIsNonInteractive ?? true;
   }
   /**
-   * For subagent conversations, the id of the parent that spawned this one; set
-   * once at construction and never reassigned. `undefined` for top-level
-   * conversations. It is the single source of truth for {@link isSubagent} and
-   * the authoritative (non-writable) routing target for child → parent
-   * notifications — as opposed to the durable subagent record, which lives under
-   * the sandbox workspace and could be tampered with by a sandbox-tool subagent.
+   * For subagent conversations, the id of the parent that spawned this one.
+   * `undefined` for top-level conversations. It is the single source of truth
+   * for {@link isSubagent} and the authoritative (non-writable) routing target
+   * for child to parent notifications, as opposed to the durable subagent
+   * record, which lives under the sandbox workspace and could be tampered with
+   * by a sandbox-tool subagent.
+   *
+   * A live spawn supplies it at construction. A conversation rehydrated after
+   * eviction or a daemon restart takes it from
+   * `conversations.parent_conversation_id` in {@link loadFromDb}, so its
+   * billing-origin snapshot keeps the parent linkage the row records. The
+   * construction value wins when both are present: the spawning process is the
+   * authority on the parent it just passed, and it is the same value it wrote
+   * to the row.
+   *
+   * Read-only to callers: the accessor has no setter, so the two writes above
+   * remain the only ones.
    * @internal
    */
-  readonly parentConversationId?: string;
+  get parentConversationId(): string | undefined {
+    return this.parentConversationIdValue;
+  }
+  private parentConversationIdValue?: string;
   /** @internal */ headlessLock = false;
   /** @internal */ taskRunId?: string;
   /** @internal */ callSessionId?: string;
@@ -785,7 +799,7 @@ export class Conversation {
     const { maxTokens, speedOverride, cacheTtl, modelOverride } = options ?? {};
     const enableNativeWebSearch = options?.enableNativeWebSearch ?? false;
     this.conversationId = conversationId;
-    this.parentConversationId = options?.parentConversationId;
+    this.parentConversationIdValue = options?.parentConversationId;
     this.systemPrompt = systemPrompt;
     this.provider = provider;
     this.workingDir = workingDir;
@@ -1084,6 +1098,7 @@ export class Conversation {
     this.originInterface = parseInterfaceId(conv?.originInterface) ?? undefined;
     this.originChannel = parseChannelId(conv?.originChannel) ?? undefined;
     this.source = conv?.source ?? undefined;
+    this.parentConversationIdValue ??= conv?.parentConversationId ?? undefined;
     this.forkParentConversationId = conv?.forkParentConversationId ?? undefined;
     this.contextSummary = conv?.contextSummary ?? null;
     this.slackContextCompactionWatermarkTs =

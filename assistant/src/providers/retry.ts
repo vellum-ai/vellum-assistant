@@ -4,6 +4,7 @@ import {
   resolveUsageAttribution,
   sanitizeUsageMetadataValue,
 } from "../usage/attribution.js";
+import { resolveFallbackUsageOrigin } from "../usage/fallback-usage-origin.js";
 import { resolveSubagentAttribution } from "../usage/subagent-attribution.js";
 import type { UsageOriginSnapshot } from "../usage/work-origin.js";
 import {
@@ -570,17 +571,32 @@ function normalizeSendMessageOptions(
   // carried without a `callSite`. Sanitized to the platform header contract and
   // merged into the same header map the transport forwards; null snapshot
   // fields are omitted entirely.
-  if (
-    normalizeOptions.forwardUsageAttributionHeaders === true &&
-    config.usageOriginSnapshot
-  ) {
-    const originHeaders = buildUsageOriginHeaders(config.usageOriginSnapshot);
-    if (Object.keys(originHeaders).length > 0) {
-      const existing =
-        (nextConfig.usageAttributionHeaders as
-          | Record<string, string>
-          | undefined) ?? {};
-      nextConfig.usageAttributionHeaders = { ...existing, ...originHeaders };
+  //
+  // A managed call without a snapshot (compaction, workflow leaves,
+  // conversation titles, every other direct `sendMessage` site) falls back to
+  // one derived from its conversation row and call site, so those rows carry
+  // origin attribution too. The explicit snapshot wins whole: the two are
+  // never merged, because a per-turn snapshot already states everything its
+  // caller knows and a row-derived field cannot improve on it.
+  //
+  // `config` is the caller's object; the strips above mutate only `nextConfig`,
+  // so `conversationId` and `callSite` are still readable here.
+  if (normalizeOptions.forwardUsageAttributionHeaders === true) {
+    const originSnapshot =
+      config.usageOriginSnapshot ??
+      resolveFallbackUsageOrigin(
+        config.conversationId ?? null,
+        config.callSite ?? null,
+      );
+    if (originSnapshot) {
+      const originHeaders = buildUsageOriginHeaders(originSnapshot);
+      if (Object.keys(originHeaders).length > 0) {
+        const existing =
+          (nextConfig.usageAttributionHeaders as
+            | Record<string, string>
+            | undefined) ?? {};
+        nextConfig.usageAttributionHeaders = { ...existing, ...originHeaders };
+      }
     }
   }
 

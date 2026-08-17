@@ -61,6 +61,13 @@ import {
 
 const log = getLogger("subagent-manager");
 
+/**
+ * `conversations.source` for a spawned subagent. One literal for the persisted
+ * row and the live conversation's cached copy, so the durable row and the
+ * billing-origin snapshot report the same source.
+ */
+const SUBAGENT_CONVERSATION_SOURCE = "subagent";
+
 /** How long to keep terminal subagent metadata after the live conversation is released (ms). */
 const TERMINAL_RETENTION_MS = 30 * 60 * 1000; // 30 minutes
 /** How often to sweep expired terminal entries (ms). */
@@ -534,7 +541,7 @@ export class SubagentManager {
     // far behind. See migration 362.
     const conversationRecord = await bootstrapConversation({
       conversationType: "background",
-      source: "subagent",
+      source: SUBAGENT_CONVERSATION_SOURCE,
       origin: "subagent",
       systemHint: `Subagent: ${config.label}`,
       parentConversationId: config.parentConversationId,
@@ -691,8 +698,11 @@ export class SubagentManager {
     // interactive prompts (host attachment reads) fail fast.
     // Subagents are created as background conversations (see the
     // `bootstrapConversation` call above) and never call `loadFromDb`, so cache
-    // the type on the live conversation directly for the runtime-assembly path.
+    // the type on the live conversation directly for the runtime-assembly path,
+    // and the source for the billing-origin snapshot, which reads both from
+    // live state.
     conversation.conversationType = "background";
+    conversation.source = SUBAGENT_CONVERSATION_SOURCE;
 
     // Subagents execute as background child conversations, but their tool
     // permissions must still be scoped to the actor that spawned them. Without

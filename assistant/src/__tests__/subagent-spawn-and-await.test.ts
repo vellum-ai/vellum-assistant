@@ -64,6 +64,21 @@ let lastTrustContext: unknown;
 /** Options the most recent `bootstrapConversation` call received. */
 let lastBootstrapOptions: Record<string, unknown> | undefined;
 
+/** The most recent FakeConversation the manager constructed. */
+let lastConversation: FakeConversation | undefined;
+
+function recordConversation(conversation: FakeConversation): void {
+  lastConversation = conversation;
+}
+
+/** Reads {@link lastConversation}, asserting the manager built one. */
+function takeLastConversation(): FakeConversation {
+  if (lastConversation === undefined) {
+    throw new Error("no conversation was constructed");
+  }
+  return lastConversation;
+}
+
 class FakeConversation {
   messages: Message[];
   usageStats = { inputTokens: 10, outputTokens: 5, estimatedCost: 0.001 };
@@ -74,6 +89,12 @@ class FakeConversation {
     filesWritten: new Set<string>(),
   };
   conversationType = "background";
+  /**
+   * Undefined until the manager caches it, mirroring the real `Conversation`,
+   * which fills `source` only in `loadFromDb` (never called for a subagent).
+   */
+  source?: string;
+  readonly conversationId: string;
   hasSystemPromptOverride = false;
 
   private sendToClient: (msg: AssistantEvent) => void;
@@ -82,16 +103,18 @@ class FakeConversation {
   private resolveAbort?: () => void;
 
   constructor(
-    _id: string,
+    id: string,
     _provider: unknown,
     _systemPrompt: string,
     sendToClient: (msg: AssistantEvent) => void,
     _workingDir: string,
     _options?: unknown,
   ) {
+    this.conversationId = id;
     this.sendToClient = sendToClient;
     this.cfg = nextConversationConfig;
     this.messages = this.cfg.messages ?? [];
+    recordConversation(this);
   }
 
   updateClient(sendToClient: (msg: AssistantEvent) => void) {
@@ -207,6 +230,10 @@ import {
   setConversation,
 } from "../daemon/conversation-registry.js";
 import { SubagentAbortedError, SubagentManager } from "../subagent/manager.js";
+import {
+  buildTurnUsageOriginSnapshot,
+  type ConversationUsageOriginContext,
+} from "../usage/usage-origin-snapshot.js";
 import { asConversation } from "./helpers/mock-conversation.js";
 
 function makeConfig(overrides: Record<string, unknown> = {}) {
@@ -654,6 +681,34 @@ describe("SubagentManager.spawn (fire-and-forget) — unaffected", () => {
 
     expect(typeof id).toBe("string");
     expect(id.length).toBeGreaterThan(0);
+  });
+
+  // The manager never calls `loadFromDb`, so anything the billing-origin
+  // snapshot reads off live state has to be cached at spawn. Without the
+  // cached source every managed subagent call omitted
+  // `X-Vellum-Conversation-Source` while its usage row reported "subagent".
+  test("spawn caches the persisted conversation source on the live conversation", async () => {
+    lastConversation = undefined;
+    nextConversationConfig = {
+      messages: [
+        { role: "assistant", content: [{ type: "text", text: "ok" }] },
+      ],
+    };
+
+    const manager = new SubagentManager();
+    await manager.spawn(makeConfig(), () => {});
+
+    const conversation = takeLastConversation();
+    expect(conversation.source).toBe("subagent");
+    // The live copy and the persisted row report one source.
+    expect(lastBootstrapOptions?.source).toBe(conversation.source);
+
+    const snapshot = buildTurnUsageOriginSnapshot(
+      conversation as ConversationUsageOriginContext,
+      "subagentSpawn",
+    );
+    expect(snapshot.conversationSource).toBe("subagent");
+    expect(snapshot.workOrigin).toBe("delegated_child");
   });
 
   test("spawn still injects a terminal notification into the parent", async () => {

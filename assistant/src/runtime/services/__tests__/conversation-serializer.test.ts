@@ -36,6 +36,7 @@ function makeConversationRow(
     source: "task",
     originChannel: null,
     originInterface: null,
+    parentConversationId: null,
     forkParentConversationId: null,
     forkParentMessageId: null,
     forkStrategy: null,

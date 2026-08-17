@@ -88,6 +88,7 @@ import {
   Conversation,
   type ConversationConstructorOptions,
 } from "../daemon/conversation.js";
+import { buildTurnUsageOriginSnapshot } from "../usage/usage-origin-snapshot.js";
 
 beforeEach(() => {
   lifecycleStoreMockActive = true;
@@ -148,6 +149,45 @@ describe("Conversation — subagent identity", () => {
     });
     expect(conv.parentConversationId).toBe("parent-1");
     expect(conv.isSubagent).toBe(true);
+  });
+
+  // A conversation rehydrated after eviction or a daemon restart is
+  // constructed without a parent, so the row is the only place its spawn
+  // linkage survives. Losing it costs the billing-origin snapshot its
+  // parent-linkage headers while telemetry still resolves the parent.
+  test("loadFromDb hydrates the parent from the row and the snapshot carries it", async () => {
+    mockConversation = {
+      ...defaultConv(),
+      conversationType: "background",
+      source: "subagent",
+      parentConversationId: "parent-row",
+    };
+    mockDbMessages = [];
+
+    const conv = makeConversation();
+    expect(conv.parentConversationId).toBeUndefined();
+    await conv.loadFromDb();
+
+    expect(conv.parentConversationId).toBe("parent-row");
+    expect(conv.isSubagent).toBe(true);
+
+    const snapshot = buildTurnUsageOriginSnapshot(conv, "subagentSpawn");
+    expect(snapshot.parentConversationId).toBe("parent-row");
+    expect(snapshot.conversationSource).toBe("subagent");
+    expect(snapshot.workOrigin).toBe("delegated_child");
+  });
+
+  test("loadFromDb leaves a construction-supplied parent in place", async () => {
+    mockConversation = { ...defaultConv(), parentConversationId: null };
+    mockDbMessages = [];
+
+    const conv = makeConversation({
+      maxTokens: 4096,
+      parentConversationId: "parent-live",
+    });
+    await conv.loadFromDb();
+
+    expect(conv.parentConversationId).toBe("parent-live");
   });
 });
 

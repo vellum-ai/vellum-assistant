@@ -618,6 +618,8 @@ export interface ConversationRow {
   source: string;
   originChannel: string | null;
   originInterface: string | null;
+  /** Spawning conversation for a subagent child; null for every other conversation. */
+  parentConversationId: string | null;
   forkParentConversationId: string | null;
   forkParentMessageId: string | null;
   /** `"reference"` on referential forks; `"cloning"` or null on copied ones. */
@@ -660,6 +662,7 @@ export const parseConversation = createRowMapper<
   source: "source",
   originChannel: "originChannel",
   originInterface: "originInterface",
+  parentConversationId: "parentConversationId",
   forkParentConversationId: "forkParentConversationId",
   forkParentMessageId: "forkParentMessageId",
   forkStrategy: "forkStrategy",

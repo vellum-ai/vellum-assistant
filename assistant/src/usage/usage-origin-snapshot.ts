@@ -1,4 +1,7 @@
-import { countRealUserTurns } from "../persistence/llm-usage-store.js";
+import {
+  countRealUserTurns,
+  resolveParentTurnCutoff,
+} from "../persistence/llm-usage-store.js";
 import {
   buildUsageOriginSnapshot,
   resolveSpawnParentConversationId,
@@ -32,10 +35,15 @@ export interface ConversationUsageOriginContext {
  *
  * - `turnIndex` counts this conversation's own real user turns, evaluated once
  *   the turn's user message or messages are persisted.
- * - `parentTurnIndex` counts the spawning conversation's real user turns, and
- *   is null when this conversation was not spawned by another. The spawn parent
- *   comes from {@link resolveSpawnParentConversationId}, which mirrors the
- *   telemetry read path's `parentIdSql` precedence.
+ * - `parentTurnIndex` counts the spawning conversation's real user turns up to
+ *   the spawn cutoff ({@link resolveParentTurnCutoff}: child creation for a
+ *   subagent spawn, the fork boundary message for a background fork), and is
+ *   null when this conversation was not spawned by another. Counting to the
+ *   cutoff rather than to date is what keeps a retrospective fork, whose source
+ *   conversation can gain turns between the boundary and the fork's wake,
+ *   pointing at the turn it branched from. The spawn parent comes from
+ *   {@link resolveSpawnParentConversationId}, which mirrors the telemetry read
+ *   path's `parentIdSql` precedence.
  *
  * Everything here is best-effort. Attribution must never fail or block a
  * provider call, so a failed turn count degrades to 0 and an unresolvable
@@ -64,7 +72,10 @@ export function buildTurnUsageOriginSnapshot(
     forkParentConversationId,
     parentTurnIndex:
       spawnParentConversationId !== null
-        ? countRealUserTurns(spawnParentConversationId)
+        ? countRealUserTurns(
+            spawnParentConversationId,
+            resolveParentTurnCutoff(conversation.conversationId),
+          )
         : null,
   });
 }

@@ -163,6 +163,45 @@ describe("buildTurnUsageOriginSnapshot", () => {
     expect(events[0].parentTurnIndex).toBe(snapshot.parentTurnIndex);
   });
 
+  // A retrospective fork branches through a boundary message captured before
+  // the fork runs, and the source conversation keeps taking user turns in the
+  // meantime. Both surfaces must name the turn the fork branched from, so the
+  // count stops at the boundary message rather than at the source's turns to
+  // date.
+  test("retrospective fork: parentTurnIndex stops at the fork boundary, not the source's later turns", () => {
+    const db = getDb();
+    insertConversation("source-3");
+    insertUserMessage("e1", "source-3", 1000);
+    insertUserMessage("e2", "source-3", 2000);
+    // The fork branches through e2, then the source gains two more real user
+    // turns before the fork's wake records usage.
+    db.run(
+      `INSERT INTO conversations (id, conversation_type, created_at, updated_at, fork_parent_conversation_id, fork_parent_message_id) VALUES ('retro-2', 'background', 3000, 3000, 'source-3', 'e2')`,
+    );
+    insertUserMessage("e3", "source-3", 4000);
+    insertUserMessage("e4", "source-3", 5000);
+    insertEventAt(6000, "retro-2");
+
+    const snapshot = buildTurnUsageOriginSnapshot(
+      {
+        conversationId: "retro-2",
+        conversationType: "background",
+        source: "memory-retrospective-fork",
+        parentConversationId: null,
+        forkParentConversationId: "source-3",
+      },
+      "memoryRetrospective",
+    );
+
+    expect(snapshot.parentConversationId).toBe("source-3");
+    // Two turns existed at the boundary; the source now has four.
+    expect(snapshot.parentTurnIndex).toBe(2);
+
+    const events = queryUnreportedUsageEvents(0, undefined, 100);
+    expect(events).toHaveLength(1);
+    expect(events[0].parentTurnIndex).toBe(snapshot.parentTurnIndex);
+  });
+
   test("user-initiated (standard) fork does not inherit fork-parent attribution", () => {
     insertConversation("source-2");
     insertConversation("user-fork");
