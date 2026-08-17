@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 
 import { SettingsDivider } from "@/domains/settings/components/settings-divider";
 import { cn } from "@vellumai/design-library";
@@ -162,7 +162,6 @@ const MAX_VISIBLE = 200;
 
 export function TimezonePicker({ value, onChange }: TimezonePickerProps) {
   const [searchText, setSearchText] = useState("");
-  const [debouncedQuery, setDebouncedQuery] = useState("");
 
   const allEntries = useMemo(() => {
     const ids = buildKnownTimezones();
@@ -171,26 +170,25 @@ export function TimezonePicker({ value, onChange }: TimezonePickerProps) {
       .filter((entry): entry is TimezoneEntry => entry !== null);
   }, []);
 
-  useEffect(() => {
-    const handle = window.setTimeout(() => {
-      setDebouncedQuery(searchText.trim().toLowerCase());
-    }, 200);
-    return () => window.clearTimeout(handle);
-  }, [searchText]);
-
+  // Filtered straight off the text in the field, with no debounce in between.
+  // A debounce here would let the keyboard walk and commit rows belonging to
+  // a query the field no longer shows: Enter is only safe while the options
+  // are the ones the typing produced. Filtering a few hundred strings is not
+  // the expensive part (see `entriesWithTime`), so there is nothing to defer.
+  const query = searchText.trim().toLowerCase();
   const visible = useMemo(() => {
-    const matching = !debouncedQuery
+    const matching = !query
       ? allEntries
       : allEntries.filter((entry) => {
           return (
-            entry.city.toLowerCase().includes(debouncedQuery) ||
-            entry.region.toLowerCase().includes(debouncedQuery) ||
-            entry.offsetLabel.toLowerCase().includes(debouncedQuery) ||
-            entry.identifier.toLowerCase().includes(debouncedQuery)
+            entry.city.toLowerCase().includes(query) ||
+            entry.region.toLowerCase().includes(query) ||
+            entry.offsetLabel.toLowerCase().includes(query) ||
+            entry.identifier.toLowerCase().includes(query)
           );
         });
     return matching.slice(0, MAX_VISIBLE);
-  }, [allEntries, debouncedQuery]);
+  }, [allEntries, query]);
 
   // What the arrow keys walk: the identifiers of the rows actually rendered.
   const visibleIds = useMemo(
@@ -224,7 +222,7 @@ export function TimezonePicker({ value, onChange }: TimezonePickerProps) {
           }}
           // A query narrows the list to what the typing meant, so Enter
           // commits the top match; with no query it must pick nothing.
-          autoActivateFirst={debouncedQuery.length > 0}
+          autoActivateFirst={query.length > 0}
         >
           <Combobox.Input
             type="text"

@@ -181,10 +181,22 @@ function Root({
   // A new option list retargets the highlight: to the top match while a query
   // is narrowing the list, otherwise to nothing unless the previous highlight
   // survived the change.
+  const wasAutoActivating = useRef(autoActivateFirst);
   useEffect(() => {
+    // Clearing the query is the caller saying Enter should now pick nothing,
+    // so the highlight goes with it. Left alone it would survive into the
+    // unfiltered list (the option is still in there) and Enter would commit
+    // a match for a query that is no longer on screen. Only the transition
+    // clears: an option list that changes for its own reasons must not throw
+    // away a highlight the user put somewhere with the arrow keys.
+    const queryCleared = wasAutoActivating.current && !autoActivateFirst;
+    wasAutoActivating.current = autoActivateFirst;
     setActiveValue((previous) => {
       if (autoActivateFirst) {
         return options[0] ?? null;
+      }
+      if (queryCleared) {
+        return null;
       }
       return previous !== null && indexes.has(previous) ? previous : null;
     });
