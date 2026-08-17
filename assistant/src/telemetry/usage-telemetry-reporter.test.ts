@@ -1838,6 +1838,46 @@ describe("UsageTelemetryReporter", () => {
     });
   });
 
+  test("llm_usage bounds an out-of-contract conversation_source to null while classifying from the raw value", async () => {
+    // The persisted source column is unconstrained (import: and
+    // plugin-supplied sources are free-form) but the wire contract caps the
+    // field at 64 characters, and one out-of-contract value would fail wire
+    // validation for the whole event, losing the row when the watermark
+    // advances. The emitter nulls the field and still classifies work_origin
+    // from the raw value.
+    const longImportSource = `import:${"p".repeat(70)}`;
+    mockQueryUnreportedUsageEvents.mockReturnValue([
+      makeUsageEvent({
+        id: "evt-long-source",
+        conversationId: "conv-import",
+        conversationType: "standard",
+        conversationSource: longImportSource,
+        turnIndex: 1,
+      }),
+    ]);
+    mockFetch.mockImplementation(() =>
+      Promise.resolve(new Response('{"accepted":1}', { status: 200 })),
+    );
+
+    const reporter = makeReporter();
+    await reporter.flush();
+
+    const body = JSON.parse(
+      (mockFetch.mock.calls[0] as [string, RequestInit])[1].body as string,
+    );
+    const event = (
+      body.events as Array<{
+        daemon_event_id: string;
+        conversation_source: string | null;
+        work_origin: string;
+      }>
+    ).find((e) => e.daemon_event_id === "evt-long-source");
+    expect(event).toMatchObject({
+      conversation_source: null,
+      work_origin: "user_interactive",
+    });
+  });
+
   test("flush is skipped and watermarks advanced when share_analytics consent is off", async () => {
     mockGetRawShareAnalytics.mockReturnValue(false);
     const events = [makeUsageEvent()];
