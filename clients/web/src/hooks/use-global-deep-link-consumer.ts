@@ -33,6 +33,10 @@ import { routes } from "@/utils/routes";
  *
  * - `deeplink.openThread` → `ensureMainWindowVisible()` +
  *   `navigateToConversation()`
+ * - `deeplink.sendToThread` → same navigation into the *target* thread,
+ *   with the message parked in `usePendingDeepLinkStore` and the composer
+ *   focused: pre-filled, never auto-sent, per the caller-identity note
+ *   below.
  * - `deeplink.send` → `ensureMainWindowVisible()` + navigate to
  *   `/assistant` + park the message in `usePendingDeepLinkStore`
  *   for `ChatPage`'s composer-domain hook to consume on mount.
@@ -148,6 +152,21 @@ export function useGlobalDeepLinkConsumer(): void {
   useBusSubscription("deeplink.openThread", ({ threadId }) => {
     void ensureMainWindowVisible();
     openThread(threadId);
+  });
+
+  // The iOS "Send Message to Chat" Shortcuts action: land in the chosen
+  // thread with the message pre-filled and focused, one tap from sent. The
+  // same interim contract as the start-voice prompt above, for the same
+  // reason: a custom-scheme link carries no caller identity, so nothing a
+  // deep link delivers may become a tool-capable turn without the user
+  // pressing send. When the native shell can prove a link came from the
+  // intent rather than an external open (JARVIS-1522's provenance seam),
+  // this is where a proven-provenance send would slot in.
+  useBusSubscription("deeplink.sendToThread", ({ threadId, message }) => {
+    void ensureMainWindowVisible();
+    usePendingDeepLinkStore.getState().setPendingComposerMessage(message);
+    openThread(threadId);
+    requestComposerFocus();
   });
 
   // `mode` is deliberately not read. The two modes have collapsed onto the
