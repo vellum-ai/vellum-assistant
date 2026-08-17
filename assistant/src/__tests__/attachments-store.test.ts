@@ -722,12 +722,6 @@ describe("validateAttachmentUpload", () => {
       expect(exeResult.error).toContain(".exe");
     }
 
-    const shResult = validateAttachmentUpload("script.sh", "text/plain");
-    expect(shResult.ok).toBe(false);
-    if (!shResult.ok) {
-      expect(shResult.error).toContain(".sh");
-    }
-
     const isoResult = validateAttachmentUpload(
       "disk.iso",
       "application/octet-stream",
@@ -736,6 +730,24 @@ describe("validateAttachmentUpload", () => {
     if (!isoResult.ok) {
       expect(isoResult.error).toContain(".iso");
     }
+  });
+
+  test("accepts shell scripts as text attachments", () => {
+    expect(validateAttachmentUpload("script.sh", "text/plain").ok).toBe(true);
+    expect(validateAttachmentUpload("script.SH", "text/plain").ok).toBe(true);
+    expect(
+      validateAttachmentUpload("setup.sh", "application/x-sh").ok,
+    ).toBe(true);
+    expect(
+      validateAttachmentUpload("run.sh", "application/x-shellscript").ok,
+    ).toBe(true);
+    expect(validateAttachmentUpload("run.sh", "text/x-sh").ok).toBe(true);
+    expect(validateAttachmentUpload("run.sh", "text/x-shellscript").ok).toBe(
+      true,
+    );
+    expect(
+      validateAttachmentUpload("run.sh", "application/octet-stream").ok,
+    ).toBe(true);
   });
 
   test("rejects dangerous extensions regardless of claimed MIME type", () => {
@@ -748,7 +760,9 @@ describe("validateAttachmentUpload", () => {
     expect(
       validateAttachmentUpload("PROGRAM.EXE", "application/octet-stream").ok,
     ).toBe(false);
-    expect(validateAttachmentUpload("script.SH", "text/plain").ok).toBe(false);
+    expect(validateAttachmentUpload("INSTALL.DMG", "application/octet-stream").ok).toBe(
+      false,
+    );
   });
 
   test("rejects unsupported MIME types", () => {
@@ -812,11 +826,6 @@ describe("validateAttachmentUpload", () => {
     ).toBe(true);
     expect(
       validateAttachmentUpload("payload.exe", "application/octet-stream", {
-        trustedSource: true,
-      }).ok,
-    ).toBe(true);
-    expect(
-      validateAttachmentUpload("build.sh", "text/plain", {
         trustedSource: true,
       }).ok,
     ).toBe(true);

@@ -11,6 +11,7 @@ import {
   summaryFallbackMessage,
 } from "@/domains/chat/inspector/inspector-formatters";
 import { LlmCallErrorCard } from "@/domains/chat/inspector/components/llm-call-error-card";
+import { useTranslation } from "@/i18n";
 import type {
   LatencyBreakdown,
   LLMCallSummary,
@@ -32,6 +33,8 @@ interface MetadataRow {
   rowKey?: string;
 }
 
+type OverviewTranslate = ReturnType<typeof useTranslation<"chat">>["t"];
+
 /**
  * Overview tab rendering the normalized summary as a stack of cards:
  * optional conversation totals, identity (provider/model/created-at),
@@ -42,6 +45,7 @@ export function OverviewTab({
   entry,
   conversationTotalEstimatedCostUsd,
 }: OverviewTabProps): ReactNode {
+  const { t } = useTranslation("chat");
   const summary = entry.summary;
   const error = entry.error ?? null;
   const hasError = error != null;
@@ -49,9 +53,9 @@ export function OverviewTab({
   const latencyCard =
     latency && latency.phases.length > 0 ? (
       <MetadataCard
-        title="First-token latency"
-        subtitle="Where this turn's time-to-first-token went, measured by the assistant."
-        rows={buildLatencyRows(latency)}
+        title={t("overviewTab.firstTokenLatencyTitle")}
+        subtitle={t("overviewTab.firstTokenLatencySubtitle")}
+        rows={buildLatencyRows(latency, t)}
       />
     ) : null;
   // A failed call gets a dedicated banner; only show the generic
@@ -64,6 +68,7 @@ export function OverviewTab({
   const showSummaryCards = summary != null && !isProviderOnlySummary(summary);
   const conversationTotals = renderConversationTotalsCard(
     conversationTotalEstimatedCostUsd,
+    t,
   );
 
   if (showFallback) {
@@ -75,6 +80,7 @@ export function OverviewTab({
             entry.createdAt,
             summary?.provider ?? null,
           )}
+          t={t}
         />
       </div>
     );
@@ -87,19 +93,20 @@ export function OverviewTab({
       {showSummaryCards && (
         <>
           <MetadataCard
-            title="Normalized metadata"
-            subtitle="Provider, model, timestamps, and usage counts."
+            title={t("overviewTab.normalizedMetadataTitle")}
+            subtitle={t("overviewTab.normalizedMetadataSubtitle")}
             rows={buildIdentityRows(
               summary,
               entry.createdAt,
               entry.agentLoopExitReason,
               hasError,
+              t,
             )}
           />
           <MetadataCard
-            title="Usage"
-            subtitle="Token and call counts normalized by the assistant route."
-            rows={buildUsageRows(summary, hasError)}
+            title={t("overviewTab.usageTitle")}
+            subtitle={t("overviewTab.usageSubtitle")}
+            rows={buildUsageRows(summary, hasError, t)}
           />
         </>
       )}
@@ -108,8 +115,8 @@ export function OverviewTab({
   );
 }
 
-function formatMs(ms: number): string {
-  return `${formatCount(Math.round(ms))} ms`;
+function formatMs(ms: number, t: OverviewTranslate): string {
+  return t("overviewTab.latencyMs", { ms: formatCount(Math.round(ms)) });
 }
 
 /**
@@ -128,24 +135,27 @@ const OTHER_MIN_MS = 10;
  * instrumented sub-steps gets an indented row per sub-step (execution
  * order) plus an "Other" remainder for wall clock no sub-step claimed.
  */
-function buildLatencyRows(latency: LatencyBreakdown): MetadataRow[] {
+function buildLatencyRows(
+  latency: LatencyBreakdown,
+  t: OverviewTranslate,
+): MetadataRow[] {
   const rows: MetadataRow[] = [];
   if (
     latency.totalToFirstTokenMs != null &&
     Number.isFinite(latency.totalToFirstTokenMs)
   ) {
     rows.push({
-      label: "Total to first token",
-      value: formatMs(latency.totalToFirstTokenMs),
+      label: t("overviewTab.totalToFirstTokenLabel"),
+      value: formatMs(latency.totalToFirstTokenMs, t),
     });
   }
   for (const phase of latency.phases) {
-    rows.push({ label: phase.label, value: formatMs(phase.ms) });
+    rows.push({ label: phase.label, value: formatMs(phase.ms, t) });
     const subPhases = phase.subPhases ?? [];
     for (const sub of subPhases) {
       rows.push({
         label: sub.label,
-        value: formatMs(sub.ms),
+        value: formatMs(sub.ms, t),
         indent: true,
         rowKey: `${phase.key}:${sub.key}`,
       });
@@ -155,8 +165,8 @@ function buildLatencyRows(latency: LatencyBreakdown): MetadataRow[] {
       const remainder = phase.ms - attributed;
       if (remainder >= OTHER_MIN_MS) {
         rows.push({
-          label: "Other",
-          value: formatMs(remainder),
+          label: t("overviewTab.otherLabel"),
+          value: formatMs(remainder, t),
           indent: true,
           rowKey: `${phase.key}:other`,
         });
@@ -164,13 +174,17 @@ function buildLatencyRows(latency: LatencyBreakdown): MetadataRow[] {
     }
   }
   if (latency.firstTokenKind) {
-    rows.push({ label: "First token kind", value: latency.firstTokenKind });
+    rows.push({
+      label: t("overviewTab.firstTokenKindLabel"),
+      value: latency.firstTokenKind,
+    });
   }
   return rows;
 }
 
 function renderConversationTotalsCard(
   conversationTotalEstimatedCostUsd: number | null | undefined,
+  t: OverviewTranslate,
 ): ReactNode {
   if (
     conversationTotalEstimatedCostUsd == null ||
@@ -180,11 +194,11 @@ function renderConversationTotalsCard(
   }
   return (
     <MetadataCard
-      title="Conversation"
-      subtitle="Running totals across every priced LLM call so far."
+      title={t("overviewTab.conversationTitle")}
+      subtitle={t("overviewTab.conversationSubtitle")}
       rows={[
         {
-          label: "Total cost so far",
+          label: t("overviewTab.totalCostSoFarLabel"),
           value: formatCost(conversationTotalEstimatedCostUsd),
         },
       ]}
@@ -197,19 +211,32 @@ function buildIdentityRows(
   createdAt: number | null | undefined,
   agentLoopExitReason: string | null | undefined,
   hasError: boolean,
+  t: OverviewTranslate,
 ): MetadataRow[] {
   const rows: MetadataRow[] = [
-    { label: "Provider", value: displayProvider(summary.provider ?? null) },
-    { label: "Model", value: displayText(summary.model ?? null) },
-    { label: "Created", value: formattedCreatedAt(createdAt) },
-    { label: "Stop reason", value: displayText(summary.stopReason ?? null) },
+    {
+      label: t("overviewTab.providerLabel"),
+      value: displayProvider(summary.provider ?? null),
+    },
+    {
+      label: t("overviewTab.modelLabel"),
+      value: displayText(summary.model ?? null),
+    },
+    {
+      label: t("overviewTab.createdLabel"),
+      value: formattedCreatedAt(createdAt),
+    },
+    {
+      label: t("overviewTab.stopReasonLabel"),
+      value: displayText(summary.stopReason ?? null),
+    },
   ];
   if (hasError) {
-    rows.push({ label: "Status", value: "Failed" });
+    rows.push({ label: t("overviewTab.statusLabel"), value: t("overviewTab.failedStatus") });
   }
   if (agentLoopExitReason != null && agentLoopExitReason.trim().length > 0) {
     rows.push({
-      label: "Loop exit reason",
+      label: t("overviewTab.loopExitReasonLabel"),
       value: displayText(agentLoopExitReason),
     });
   }
@@ -219,12 +246,19 @@ function buildIdentityRows(
 function buildUsageRows(
   summary: LLMCallSummary,
   hasError: boolean,
+  t: OverviewTranslate,
 ): MetadataRow[] {
   const rows: MetadataRow[] = [
-    { label: "Input tokens", value: formatCount(summary.inputTokens) },
-    { label: "Output tokens", value: formatCount(summary.outputTokens) },
     {
-      label: "Cache tokens",
+      label: t("overviewTab.inputTokensLabel"),
+      value: formatCount(summary.inputTokens),
+    },
+    {
+      label: t("overviewTab.outputTokensLabel"),
+      value: formatCount(summary.outputTokens),
+    },
+    {
+      label: t("overviewTab.cacheTokensLabel"),
       value: formatCacheTokens(
         summary.cacheCreationInputTokens,
         summary.cacheReadInputTokens,
@@ -233,23 +267,28 @@ function buildUsageRows(
     // A rejected call billed nothing, so show an explicit $0.00 rather than
     // the "Unavailable" placeholder a missing cost would otherwise render.
     {
-      label: "Estimated cost",
+      label: t("overviewTab.estimatedCostLabel"),
       value: hasError ? formatCost(0) : formatCost(summary.estimatedCostUsd),
     },
     {
-      label: "Request messages",
+      label: t("overviewTab.requestMessagesLabel"),
       value: formatCount(summary.requestMessageCount),
     },
-    { label: "Tools available", value: formatCount(summary.requestToolCount) },
     {
-      label: "Tool calls",
+      label: t("overviewTab.toolsAvailableLabel"),
+      value: formatCount(summary.requestToolCount),
+    },
+    {
+      label: t("overviewTab.toolCallsLabel"),
       value: formatCount(summary.responseToolCallCount ?? 0),
     },
   ];
   if (summary.durationMs != null && Number.isFinite(summary.durationMs)) {
     rows.splice(4, 0, {
-      label: "Duration",
-      value: `${formatCount(Math.round(summary.durationMs))} ms`,
+      label: t("overviewTab.durationLabel"),
+      value: t("overviewTab.latencyMs", {
+        ms: formatCount(Math.round(summary.durationMs)),
+      }),
     });
   }
   return rows;
@@ -305,13 +344,19 @@ function MetadataCard({
   );
 }
 
-function FallbackCard({ message }: { message: string }): ReactNode {
+function FallbackCard({
+  message,
+  t,
+}: {
+  message: string;
+  t: OverviewTranslate;
+}): ReactNode {
   return (
     <Card padding="md">
       <div className="flex flex-col gap-2">
         <CardHeader
-          title="Normalized summary unavailable"
-          subtitle="This call still has raw request and response payloads."
+          title={t("overviewTab.normalizedSummaryUnavailableTitle")}
+          subtitle={t("overviewTab.normalizedSummaryUnavailableSubtitle")}
         />
         <p
           className="select-text whitespace-pre-wrap break-words text-body-medium-lighter"

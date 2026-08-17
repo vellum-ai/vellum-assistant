@@ -17,10 +17,17 @@ import {
   type ChatAttachment,
   useComposerStore,
 } from "@/domains/chat/composer-store";
+import { selectFiles } from "@/domains/chat/components/chat-attachments/attachment-test-helpers";
+import {
+  MOBILE_CONTROL_CLASS,
+  MOBILE_GLYPH_CLASS,
+} from "@/domains/chat/components/chat-composer/composer-mobile-chrome";
 import type { VoiceInputButtonHandle } from "@/domains/chat/components/voice-input-button";
 import type { LiveVoicePreflightVerdict } from "@/domains/chat/voice/live-voice/live-voice-preflight-api";
 import { INITIAL_TURN_STATE, useTurnStore } from "@/domains/chat/turn-store";
 import * as assistantAvatarMod from "@/hooks/use-assistant-avatar";
+import * as emojiCatalogMod from "@/domains/chat/components/chat-composer/emoji-catalog";
+import * as nativeAuthMod from "@/runtime/native-auth";
 import { useVoicePrefsStore } from "@/stores/voice-prefs-store";
 import { viewportAxesStub } from "@/hooks/viewport-axes.test-helper";
 
@@ -30,6 +37,7 @@ import { viewportAxesStub } from "@/hooks/viewport-axes.test-helper";
 // resolve against the mocked modules.
 import {
   computeGhostSuffix,
+  isDraftPastOneLine,
   shouldSubmitOnEnter,
 } from "@/domains/chat/components/chat-composer/chat-composer-utils";
 import { useQuoteReplyStore } from "@/domains/chat/quote-reply-store";
@@ -53,6 +61,15 @@ mock.module("@/runtime/is-electron", () => ({
 let mockIsNativeIOS = false;
 mock.module("@/runtime/platform-detection", () => ({
   isNativeIOS: () => mockIsNativeIOS,
+}));
+
+// The native shell, which is the only place dictation's inline preview takes
+// the textarea's place in the row. Defaults to the browser; the row-layout
+// cases below flip it.
+let mockIsNativePlatform = false;
+mock.module("@/runtime/native-auth", () => ({
+  ...nativeAuthMod,
+  useIsNativePlatform: () => mockIsNativePlatform,
 }));
 
 // Live-voice integration. The session controller (`useLiveVoice`) lives in
@@ -176,6 +193,18 @@ mock.module("@/lib/backwards-compat/use-supports-live-voice", () => ({
   useSupportsLiveVoice: () => mockSupportsLiveVoice,
 }));
 
+// Emoji autocomplete. The real hook `import()`s ~150 kB of catalog data on
+// first mount and sets state when it lands, a tick after most of these test
+// bodies have returned, which React reports as an update outside `act`. Serve
+// an already-loaded (empty) catalog so no composer takes a late state update.
+// The catalog's own search behavior is covered by its consumers' tests. The
+// real module is spread back in so the trigger regex and threshold the composer
+// reads survive the mock.
+mock.module("@/domains/chat/components/chat-composer/emoji-catalog", () => ({
+  ...emojiCatalogMod,
+  useEmojiSearch: () => () => [],
+}));
+
 // Composer-card width measurement. happy-dom has no layout engine (every box
 // measures 0), so drive the compact signal directly instead of resizing.
 let mockCompactComposer = false;
@@ -213,6 +242,34 @@ mock.module("react-router", () => ({
   useLocation: () => ({ search: "" }),
 }));
 
+// "Add to chat" sheet. Stubbed to a probe that surfaces its open state plus a
+// button standing in for a completed pick, so these cases assert the
+// composer's wiring: the plus opens the sheet, and files chosen inside it
+// reach the same attach callback the paperclip feeds. A second button stands
+// in for the real sheet closing itself before it launches the OS picker. The
+// real sheet, its three hidden file inputs included, is covered by
+// `add-to-chat-sheet.test.tsx`.
+const SHEET_PICK = [new File(["x"], "picked.png", { type: "image/png" })];
+mock.module(
+  "@/domains/chat/components/chat-composer/add-to-chat-sheet",
+  () => ({
+    AddToChatSheet: (props: {
+      open: boolean;
+      onOpenChange: (open: boolean) => void;
+      onAttachFiles: (files: File[]) => void;
+    }) => (
+      <div data-testid="add-to-chat-sheet" data-open={String(props.open)}>
+        <button type="button" onClick={() => props.onAttachFiles(SHEET_PICK)}>
+          sheet-pick
+        </button>
+        <button type="button" onClick={() => props.onOpenChange(false)}>
+          sheet-close
+        </button>
+      </div>
+    ),
+  }),
+);
+
 // Flush the microtask/timer queue so the composer's awaited preflight
 // resolves and the follow-on `starter` call / notice render settle. Wrapped in
 // `act` to absorb the post-await state updates.
@@ -226,6 +283,7 @@ function resetLiveVoiceMocks() {
   mockSupportsLiveVoice = true;
   mockIsElectron = false;
   mockIsNativeIOS = false;
+  mockIsNativePlatform = false;
   mockVoicePhase = "idle";
   mockPreflightVerdict = { status: "ready" };
   preflightSpy.mockClear();
@@ -547,6 +605,70 @@ describe("computeGhostSuffix", () => {
   });
 });
 
+describe("isDraftPastOneLine", () => {
+  test("a draft wider than its inline line has outgrown it", () => {
+    expect(
+      isDraftPastOneLine({
+        naturalWidthPx: 260,
+        inlineWidthPx: 220,
+        hasHardBreak: false,
+      }),
+    ).toBe(true);
+  });
+
+  test("a draft that fits stays on the one line", () => {
+    expect(
+      isDraftPastOneLine({
+        naturalWidthPx: 180,
+        inlineWidthPx: 220,
+        hasHardBreak: false,
+      }),
+    ).toBe(false);
+  });
+
+  test("a draft filling its line to the pixel still fits", () => {
+    // Whole-pixel natural widths against a fractional line: without the slack
+    // a draft that fits would read as one pixel too wide and stack itself.
+    expect(
+      isDraftPastOneLine({
+        naturalWidthPx: 221,
+        inlineWidthPx: 220.4,
+        hasHardBreak: false,
+      }),
+    ).toBe(false);
+  });
+
+  test("a draft with a line break of its own is past one line at any width", () => {
+    expect(
+      isDraftPastOneLine({
+        naturalWidthPx: 40,
+        inlineWidthPx: 220,
+        hasHardBreak: true,
+      }),
+    ).toBe(true);
+  });
+
+  test("an unmeasured row leaves the draft on one line", () => {
+    // Before first layout (and in a test DOM that has none) every measurement
+    // reads zero, which the inset turns negative. Nothing to outgrow.
+    expect(
+      isDraftPastOneLine({
+        naturalWidthPx: 0,
+        inlineWidthPx: -16,
+        hasHardBreak: false,
+      }),
+    ).toBe(false);
+  });
+
+  test("the verdict does not move with the width the draft currently has", () => {
+    // The stacked layout hands the draft the whole card. Judged there, a draft
+    // that wrapped would fit again, flip the row back, wrap again, and never
+    // settle, so the answer is anchored to the inline width in both layouts.
+    const draft = { naturalWidthPx: 300, hasHardBreak: false };
+    expect(isDraftPastOneLine({ ...draft, inlineWidthPx: 220 })).toBe(true);
+  });
+});
+
 // ---------------------------------------------------------------------------
 // HTML rendering — placeholder and send/stop button surface
 // ---------------------------------------------------------------------------
@@ -607,14 +729,39 @@ function seedAttachments(
   return list;
 }
 
-function renderComposer(
-  props: Partial<Parameters<typeof ChatComposer>[0]> & {
-    input?: string;
-    chatAttachments?: ChatAttachment[];
-    attachmentsUploadingCount?: number;
-    canSendAttachments?: boolean;
-  } = {},
+type RenderComposerProps = Partial<Parameters<typeof ChatComposer>[0]> & {
+  input?: string;
+  chatAttachments?: ChatAttachment[];
+  attachmentsUploadingCount?: number;
+  canSendAttachments?: boolean;
+};
+
+/** The composer under its default props, for `render` and `rerender` alike. */
+function composerElement(
+  props: Partial<Parameters<typeof ChatComposer>[0]> = {},
 ) {
+  return (
+    <ChatComposer
+      placeholder="Custom placeholder"
+      onSubmit={() => {}}
+      inputRef={createRef<HTMLTextAreaElement>()}
+      typingDisabled={false}
+      sendDisabled={false}
+      onAddAttachmentFiles={() => {}}
+      onStopGenerating={() => {}}
+      isAssistantBusy={false}
+      assistantId="asst_test"
+      {...props}
+    />
+  );
+}
+
+/**
+ * Mount the composer and hand back the testing-library result, for cases that
+ * drive events at the mounted DOM. Cases that only read the rendered surface
+ * use `renderComposer` below, which returns the markup directly.
+ */
+function renderComposerView(props: RenderComposerProps = {}) {
   // The composer self-sources its draft + attachments from the store, so seed
   // them there rather than passing them as props.
   const {
@@ -630,21 +777,166 @@ function renderComposer(
       chatAttachments ??
       seedAttachments(attachmentsUploadingCount, canSendAttachments),
   });
-  const { container } = render(
-    <ChatComposer
-      placeholder="Custom placeholder"
-      onSubmit={() => {}}
-      inputRef={createRef<HTMLTextAreaElement>()}
-      typingDisabled={false}
-      sendDisabled={false}
-      onAddAttachmentFiles={() => {}}
-      onStopGenerating={() => {}}
-      isAssistantBusy={false}
-      assistantId="asst_test"
-      {...rest}
-    />,
+  return render(composerElement(rest));
+}
+
+function renderComposer(props: RenderComposerProps = {}) {
+  return renderComposerView(props).container.innerHTML;
+}
+
+/** The access + profile pickers, the pair the mobile pills row floats. */
+const SETTINGS_SLOTS = {
+  thresholdPickerSlot: <span>THR</span>,
+  modelPickerSlot: <span>PROFILE</span>,
+};
+
+const PLUS_LABEL = "Add to chat";
+
+/**
+ * The device shapes the composer adapts to, one helper each. They are separate
+ * rather than parameterised on a single flag because the crossed shapes are the
+ * point: a phone is narrow AND coarse, a window dragged under the breakpoint is
+ * narrow with a mouse still driving it, and a tablet is coarse with room to
+ * spare. See `docs/PLATFORM_ADAPTATION.md`.
+ */
+function renderPhoneComposer(props: RenderComposerProps = {}) {
+  viewport.set({ narrow: true, coarsePointer: true });
+  return renderComposerView(props);
+}
+
+/** A window dragged narrow that a mouse still drives: web, or Electron. */
+function renderNarrowMouseComposer(props: RenderComposerProps = {}) {
+  viewport.set({ narrow: true, coarsePointer: false });
+  return renderComposerView(props);
+}
+
+/** A roomy touch device: a tablet, or a phone turned into landscape. */
+function renderTouchTabletComposer(props: RenderComposerProps = {}) {
+  viewport.set({ narrow: false, coarsePointer: true });
+  return renderComposerView(props);
+}
+
+function pillsRow(container: HTMLElement) {
+  return container.querySelector('[data-slot="composer-settings-pills"]');
+}
+
+function disclaimer(container: HTMLElement) {
+  return container.querySelector('[data-slot="composer-disclaimer"]');
+}
+
+function addSheet(container: HTMLElement) {
+  return container.querySelector('[data-testid="add-to-chat-sheet"]');
+}
+
+function control(container: HTMLElement, label: string) {
+  return container.querySelector(`[aria-label="${label}"]`);
+}
+
+function fileInput(container: HTMLElement) {
+  return container.querySelector<HTMLInputElement>('input[type="file"]');
+}
+
+function textareaOf(container: HTMLElement) {
+  const textarea = container.querySelector("textarea");
+  if (!textarea) {
+    throw new Error("composer rendered without a textarea");
+  }
+  return textarea;
+}
+
+/**
+ * The class list on an icon-only button's glyph wrapper, which is where the
+ * `Button` primitive puts the glyph sizing.
+ */
+function glyphClassOf(button: Element | null): string {
+  return button?.querySelector("span")?.className ?? "";
+}
+
+function inlineActionsStart(container: HTMLElement) {
+  const el = container.querySelector<HTMLElement>(
+    '[data-slot="composer-inline-actions-start"]',
   );
-  return container.innerHTML;
+  if (!el) {
+    throw new Error("composer rendered without its leading control cluster");
+  }
+  return el;
+}
+
+function inlineActionsEnd(container: HTMLElement) {
+  const el = container.querySelector<HTMLElement>(
+    '[data-slot="composer-inline-actions-end"]',
+  );
+  if (!el) {
+    throw new Error("composer rendered without its trailing control cluster");
+  }
+  return el;
+}
+
+/** The flex container both control clusters and the text field sit in. */
+function composerRow(container: HTMLElement) {
+  const row = inlineActionsStart(container).parentElement;
+  if (!row) {
+    throw new Error("the leading control cluster has no row");
+  }
+  return row;
+}
+
+/** The grid the textarea, its mirror and the draft probe share. */
+function textFieldBlock(container: HTMLElement) {
+  const block = textareaOf(container).parentElement;
+  if (!block) {
+    throw new Error("the textarea has no block");
+  }
+  return block;
+}
+
+/** The horizontal padding the composer takes off its measured inline span. */
+const TEXT_FIELD_INSET_X_PX = 16;
+
+function stubEdge(el: Element, edge: "left" | "right", valuePx: number) {
+  const rect: DOMRect = {
+    x: 0,
+    y: 0,
+    top: 0,
+    bottom: 0,
+    width: 0,
+    height: 0,
+    left: edge === "left" ? valuePx : 0,
+    right: edge === "right" ? valuePx : 0,
+    toJSON: () => ({}),
+  };
+  el.getBoundingClientRect = () => rect;
+}
+
+/**
+ * happy-dom lays nothing out, so every measurement the composer takes comes
+ * back zero. Stand in for a laid-out row: the span the inline layout leaves
+ * between the two control clusters, and the width the draft would take in it
+ * with nothing to wrap it.
+ */
+function stubDraftGeometry(
+  container: HTMLElement,
+  widths: { inlineWidthPx: number; naturalWidthPx: number },
+) {
+  stubEdge(inlineActionsStart(container), "right", 0);
+  stubEdge(
+    inlineActionsEnd(container),
+    "left",
+    widths.inlineWidthPx + TEXT_FIELD_INSET_X_PX,
+  );
+  const probe = container.querySelector('[data-slot="composer-draft-probe"]');
+  if (!probe) {
+    throw new Error("composer rendered without its draft probe");
+  }
+  Object.defineProperty(probe, "scrollWidth", {
+    configurable: true,
+    value: widths.naturalWidthPx,
+  });
+}
+
+/** Type into the draft, which is what re-runs the composer's measurements. */
+function typeDraft(container: HTMLElement, value: string) {
+  fireEvent.change(textareaOf(container), { target: { value } });
 }
 
 describe("ChatComposer — placeholder", () => {
@@ -944,6 +1236,753 @@ describe("ChatComposer — optional slots", () => {
     // VoiceInputButton renders aria-label="Start voice input" / "Stop voice input".
     expect(html).not.toContain("Start voice input");
     expect(html).not.toContain("Stop voice input");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Mobile settings pills: the focus-gated row above the card
+// ---------------------------------------------------------------------------
+
+describe("ChatComposer: mobile settings pills row", () => {
+  test("an unfocused phone composer keeps the row mounted but hidden", () => {
+    // GIVEN a phone composer nobody has tapped into
+    const { container } = renderPhoneComposer(SETTINGS_SLOTS);
+
+    // THEN the row is mounted, so each menu loads the state its pill gates on
+    // before the first focus of the session
+    const row = pillsRow(container);
+    expect(row?.textContent).toBe("THRPROFILE");
+
+    // AND it is hidden: `hidden` is display:none, which takes the resting row
+    // out of the layout, the tab order and the accessibility tree
+    expect(row?.hasAttribute("hidden")).toBe(true);
+    expect(row?.className).toBe("");
+
+    // AND the action row does not carry the pickers either: mobile moves them
+    // out of the card entirely
+    expect(container.querySelector("form")?.innerHTML).not.toContain(">THR<");
+  });
+
+  test("focusing the composer raises the row above the card, access first", () => {
+    // GIVEN a phone composer
+    const { container } = renderPhoneComposer(SETTINGS_SLOTS);
+
+    // WHEN it takes focus
+    fireEvent.focusIn(textareaOf(container));
+
+    // THEN both pills sit in one row outside the card, access before profile
+    const row = pillsRow(container);
+    expect(row?.textContent).toBe("THRPROFILE");
+    expect(row?.closest("form")).toBeNull();
+    const html = container.innerHTML;
+    expect(html.indexOf(">THR<")).toBeLessThan(html.indexOf("<form"));
+
+    // AND it is shown, rising into place as the keyboard arrives
+    expect(row?.hasAttribute("hidden")).toBe(false);
+    expect(row?.className).toContain("animate-[fadeInUp");
+    expect(row?.className).toContain("motion-reduce:animate-none");
+  });
+
+  test("blurring to the body puts the row away without unmounting its menus", () => {
+    // GIVEN a focused phone composer
+    const { container } = renderPhoneComposer(SETTINGS_SLOTS);
+    const textarea = textareaOf(container);
+    fireEvent.focusIn(textarea);
+
+    // WHEN focus leaves with nowhere to land, as the iOS keyboard dismiss does
+    fireEvent.focusOut(textarea, { relatedTarget: null });
+
+    // THEN the row is hidden again, with its menus still mounted underneath
+    const row = pillsRow(container);
+    expect(row?.hasAttribute("hidden")).toBe(true);
+    expect(row?.textContent).toBe("THRPROFILE");
+  });
+
+  test("an open settings sheet holds the row up after focus leaves", () => {
+    // GIVEN a phone composer whose access sheet is open
+    const { container } = renderPhoneComposer({
+      ...SETTINGS_SLOTS,
+      settingsSheetOpen: true,
+    });
+    const textarea = textareaOf(container);
+    fireEvent.focusIn(textarea);
+
+    // WHEN the sheet takes focus out of the composer
+    fireEvent.focusOut(textarea, { relatedTarget: null });
+
+    // THEN the row the sheet was opened from stays put
+    expect(pillsRow(container)?.hasAttribute("hidden")).toBe(false);
+  });
+
+  test("the composer's own add-to-chat sheet holds the row up too", () => {
+    // GIVEN a focused phone composer
+    const { container } = renderPhoneComposer(SETTINGS_SLOTS);
+    const textarea = textareaOf(container);
+    fireEvent.focusIn(textarea);
+
+    // WHEN the plus opens the add-to-chat sheet, which takes focus into a
+    // portal of its own
+    fireEvent.click(control(container, PLUS_LABEL)!);
+    fireEvent.focusOut(textarea, { relatedTarget: null });
+
+    // THEN the row stays up, rather than dropping away and shifting the card
+    // down under the sheet's scrim
+    expect(pillsRow(container)?.hasAttribute("hidden")).toBe(false);
+  });
+
+  test("a sheet flag that goes false with focus gone puts the row away", () => {
+    // GIVEN a phone composer holding the row up for an open sheet, focus gone
+    const { container, rerender } = renderPhoneComposer({
+      ...SETTINGS_SLOTS,
+      settingsSheetOpen: true,
+    });
+    const textarea = textareaOf(container);
+    fireEvent.focusIn(textarea);
+    fireEvent.focusOut(textarea, { relatedTarget: null });
+
+    // WHEN the flag clears, as the settings menu clears it on its way out when
+    // the breakpoint swap unmounts the menu that owned the sheet
+    rerender(composerElement({ ...SETTINGS_SLOTS, settingsSheetOpen: false }));
+
+    // THEN nothing holds the row up any more
+    expect(pillsRow(container)?.hasAttribute("hidden")).toBe(true);
+  });
+
+  test("desktop keeps both pickers inside the action row, focused or not", () => {
+    // GIVEN a desktop composer
+    viewport.set({ narrow: false, coarsePointer: false });
+    const { container } = renderComposerView(SETTINGS_SLOTS);
+
+    // WHEN it takes focus
+    fireEvent.focusIn(textareaOf(container));
+
+    // THEN the pickers stay in the card and no floating row is added
+    expect(pillsRow(container)).toBeNull();
+    const form = container.querySelector("form");
+    expect(form?.innerHTML).toContain(">THR<");
+    expect(form?.innerHTML).toContain(">PROFILE<");
+  });
+
+  test("a variant with no settings slots renders no row (app-editing panel)", () => {
+    // GIVEN a phone composer that was passed neither settings slot
+    viewport.set({ narrow: true, coarsePointer: true });
+    const { container } = renderComposerView();
+
+    // WHEN it takes focus
+    fireEvent.focusIn(textareaOf(container));
+
+    // THEN there is nothing to float, so no row is rendered
+    expect(pillsRow(container)).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The resting caption below the card, the pills row's opposite number
+// ---------------------------------------------------------------------------
+
+describe("ChatComposer: the mobile external-models caption", () => {
+  const DISCLAIMER = "Vellum uses external AI models and can make mistakes";
+
+  test("an unfocused phone composer stands the caption under the card", () => {
+    // GIVEN a phone composer nobody has tapped into
+    const { container } = renderPhoneComposer(SETTINGS_SLOTS);
+
+    // THEN the caption is shown, below the card and outside it
+    const caption = disclaimer(container);
+    expect(caption?.textContent).toBe(DISCLAIMER);
+    expect(caption?.hasAttribute("hidden")).toBe(false);
+    expect(caption?.closest("form")).toBeNull();
+    const html = container.innerHTML;
+    expect(html.indexOf("<form")).toBeLessThan(
+      html.indexOf('data-slot="composer-disclaimer"'),
+    );
+  });
+
+  test("focusing the composer takes the caption away, as the keyboard covers it", () => {
+    // GIVEN a phone composer
+    const { container } = renderPhoneComposer(SETTINGS_SLOTS);
+
+    // WHEN it takes focus
+    fireEvent.focusIn(textareaOf(container));
+
+    // THEN the caption is hidden, still mounted, exactly as the pills row it
+    // trades places with
+    const caption = disclaimer(container);
+    expect(caption?.hasAttribute("hidden")).toBe(true);
+    expect(pillsRow(container)?.hasAttribute("hidden")).toBe(false);
+  });
+
+  test("an open settings sheet keeps the caption away with focus gone", () => {
+    // GIVEN a phone composer whose access sheet is open
+    const { container } = renderPhoneComposer({
+      ...SETTINGS_SLOTS,
+      settingsSheetOpen: true,
+    });
+    const textarea = textareaOf(container);
+    fireEvent.focusIn(textarea);
+
+    // WHEN the sheet takes focus out of the composer
+    fireEvent.focusOut(textarea, { relatedTarget: null });
+
+    // THEN the caption stays away rather than surfacing under the scrim
+    expect(disclaimer(container)?.hasAttribute("hidden")).toBe(true);
+  });
+
+  test("the composer's own add-to-chat sheet keeps it away too", () => {
+    // GIVEN a focused phone composer
+    const { container } = renderPhoneComposer(SETTINGS_SLOTS);
+    const textarea = textareaOf(container);
+    fireEvent.focusIn(textarea);
+
+    // WHEN the plus opens the add-to-chat sheet, which takes focus into a
+    // portal of its own
+    fireEvent.click(control(container, PLUS_LABEL)!);
+    fireEvent.focusOut(textarea, { relatedTarget: null });
+
+    // THEN the caption stays away for as long as the sheet is up
+    expect(disclaimer(container)?.hasAttribute("hidden")).toBe(true);
+  });
+
+  test("blurring back to the body brings the caption back", () => {
+    // GIVEN a focused phone composer
+    const { container } = renderPhoneComposer(SETTINGS_SLOTS);
+    const textarea = textareaOf(container);
+    fireEvent.focusIn(textarea);
+
+    // WHEN focus leaves with nowhere to land, as the iOS keyboard dismiss does
+    fireEvent.focusOut(textarea, { relatedTarget: null });
+
+    // THEN the composer is at rest again and the caption is back
+    expect(disclaimer(container)?.hasAttribute("hidden")).toBe(false);
+  });
+
+  test("desktop renders no caption, focused or not", () => {
+    // GIVEN a desktop composer
+    viewport.set({ narrow: false, coarsePointer: false });
+    const { container } = renderComposerView(SETTINGS_SLOTS);
+
+    // THEN nothing hangs under the card, and focus does not add it
+    expect(disclaimer(container)).toBeNull();
+    fireEvent.focusIn(textareaOf(container));
+    expect(disclaimer(container)).toBeNull();
+  });
+
+  test("a variant with no settings slots renders no caption (app-editing panel)", () => {
+    // GIVEN a phone composer that was passed neither settings slot
+    viewport.set({ narrow: true, coarsePointer: true });
+    const { container } = renderComposerView();
+
+    // THEN the panel's composer carries no caption of its own
+    expect(disclaimer(container)).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The single-row mobile composer: plus, divider, input, mic, circular action
+// ---------------------------------------------------------------------------
+
+describe("ChatComposer: single-row mobile composer", () => {
+  test("a phone composer swaps the paperclip for the plus", () => {
+    // GIVEN a phone composer
+    const { container } = renderPhoneComposer();
+
+    // THEN the attach control is the plus that opens the sheet, and the
+    // paperclip's own picker is gone from the card
+    expect(control(container, PLUS_LABEL)).not.toBeNull();
+    expect(control(container, "Attach file")).toBeNull();
+  });
+
+  test("plus, input and the send slot share one row", () => {
+    // GIVEN a phone composer
+    const { container } = renderPhoneComposer();
+
+    // THEN the textarea sits in the same row as the controls, rather than
+    // above an action row of its own
+    const textarea = container.querySelector("textarea");
+    const row = textarea?.parentElement?.parentElement;
+    expect(row?.contains(control(container, PLUS_LABEL)!)).toBe(true);
+    expect(row?.contains(control(container, "Send message")!)).toBe(true);
+
+    // AND the plus leads the row, with the input after it
+    const html = container.innerHTML;
+    expect(html.indexOf(`aria-label="${PLUS_LABEL}"`)).toBeLessThan(
+      html.indexOf("<textarea"),
+    );
+  });
+
+  test("tapping the plus opens the add-to-chat sheet", () => {
+    // GIVEN a phone composer whose sheet is closed
+    const { container } = renderPhoneComposer();
+    expect(addSheet(container)?.getAttribute("data-open")).toBe("false");
+
+    // WHEN the plus is tapped
+    fireEvent.click(control(container, PLUS_LABEL)!);
+
+    // THEN the sheet comes up
+    expect(addSheet(container)?.getAttribute("data-open")).toBe("true");
+  });
+
+  test("files picked in the sheet reach the composer's attach callback", () => {
+    // GIVEN a phone composer
+    const onAddAttachmentFiles = mock((_files: FileList | File[]) => {});
+    const { getByText } = renderPhoneComposer({ onAddAttachmentFiles });
+
+    // WHEN a sheet row delivers its files
+    fireEvent.click(getByText("sheet-pick"));
+
+    // THEN they land on the same callback the paperclip feeds, which is what
+    // runs the vision gate and queues the upload
+    expect(onAddAttachmentFiles).toHaveBeenCalledTimes(1);
+    expect(onAddAttachmentFiles.mock.calls[0]?.[0]).toBe(SHEET_PICK);
+  });
+
+  test("the hidden picker input outlives a swap of what the plus opens", () => {
+    // GIVEN a phone composer, whose plus opens the sheet
+    const { container, rerender } = renderPhoneComposer();
+    const before = fileInput(container);
+    expect(before).not.toBeNull();
+
+    // WHEN a keyboard is attached mid-session, handing the plus the picker
+    // instead, while an OS file dialog opened from it is still up
+    viewport.set({ narrow: true, coarsePointer: false });
+    rerender(composerElement());
+
+    // THEN the very same input is still mounted to receive the selection,
+    // rather than a fresh one that never opened the dialog
+    expect(fileInput(container)).toBe(before);
+  });
+
+  test("a narrow window a mouse drives keeps the plus and mounts no sheet", () => {
+    // GIVEN a web or Electron window dragged under the mobile breakpoint,
+    // still driven by a mouse
+    const { container } = renderNarrowMouseComposer();
+
+    // THEN the compact row keeps its plus, while the touch sheet, whose camera
+    // and gallery rows have nothing to offer a mouse, never mounts
+    expect(control(container, PLUS_LABEL)).not.toBeNull();
+    expect(addSheet(container)).toBeNull();
+  });
+
+  test("the plus wears the row's chrome on either narrow window", () => {
+    // GIVEN each of the two narrow shapes: a phone, and a window a mouse drags
+    // under the breakpoint
+    for (const mount of [renderPhoneComposer, renderNarrowMouseComposer]) {
+      cleanup();
+      const { container } = mount();
+
+      // THEN the plus is the row's 40x40 circle carrying a 20px glyph in both,
+      // rather than a desktop control sitting inside a mobile row
+      const plus = control(container, PLUS_LABEL);
+      expect(plus?.className).toContain(MOBILE_CONTROL_CLASS);
+      expect(glyphClassOf(plus)).toContain(MOBILE_GLYPH_CLASS);
+    }
+  });
+
+  test("native dictation leaves the row's right controls anchored right", () => {
+    // GIVEN a phone in the native shell mid-dictation, where the inline
+    // waveform takes the textarea's place in the row
+    mockIsNativePlatform = true;
+    mockVoicePhase = "recording";
+    viewport.set({ narrow: true, coarsePointer: true });
+    const { container, queryByLabelText } = renderVoiceComposer();
+
+    // THEN the text field is out of the layout, and its `flex-1` with it
+    expect(container.querySelector("textarea")?.parentElement?.className).toBe(
+      "hidden",
+    );
+
+    // WHILE the right-hand group anchors itself rather than packing against
+    // the plus on the row's left edge
+    const rightGroup = queryByLabelText("Start voice input")?.parentElement;
+    expect(rightGroup?.className).toContain("ml-auto");
+  });
+
+  test("the context-window indicator centres against the row's controls", () => {
+    // GIVEN a phone composer with the device preference on
+    const { getByText } = renderPhoneComposer({
+      contextWindowIndicatorSlot: <span>CTX</span>,
+    });
+
+    // THEN it sits in a control-height box that centres it, rather than flush
+    // on the card's bottom edge as a bare child of the `items-end` row
+    const box = getByText("CTX").parentElement;
+    expect(box?.className).toContain("items-center");
+    expect(box?.className).toContain("h-10");
+  });
+
+  test("a touch device at desktop width keeps the sheet mounted", () => {
+    // GIVEN a tablet, or a phone turned into landscape
+    const { container } = renderTouchTabletComposer();
+
+    // THEN the room it has takes the desktop row back, while the sheet stays
+    // mounted so its hidden inputs outlive the swap
+    expect(control(container, "Attach file")).not.toBeNull();
+    expect(addSheet(container)?.getAttribute("data-open")).toBe("false");
+  });
+
+  test("rotating mid-pick leaves the open sheet and its inputs mounted", () => {
+    // GIVEN a phone whose add-to-chat sheet is up
+    const { container, rerender } = renderPhoneComposer();
+    fireEvent.click(control(container, PLUS_LABEL)!);
+    expect(addSheet(container)?.getAttribute("data-open")).toBe("true");
+
+    // WHEN the phone turns into landscape, crossing the width breakpoint while
+    // the camera or gallery pick is still resolving
+    viewport.set({ narrow: false, coarsePointer: true });
+    rerender(composerElement());
+
+    // THEN the sheet is still there to receive it, since what mounts it is the
+    // pointer, which rotating does not change
+    expect(addSheet(container)?.getAttribute("data-open")).toBe("true");
+  });
+
+  test("attaching a keyboard leaves an open sheet up", () => {
+    // GIVEN a convertible on a touch screen with its sheet up
+    const { container, rerender } = renderPhoneComposer();
+    fireEvent.click(control(container, PLUS_LABEL)!);
+    expect(addSheet(container)?.getAttribute("data-open")).toBe("true");
+
+    // WHEN its keyboard is reattached, which flips the live pointer signal the
+    // sheet is mounted on
+    viewport.set({ narrow: true, coarsePointer: false });
+    rerender(composerElement());
+
+    // THEN the sheet the user is looking at stays up, rather than vanishing
+    // with its open state still set and reappearing on the next flip
+    expect(addSheet(container)?.getAttribute("data-open")).toBe("true");
+  });
+
+  test("a sheet closed into an OS picker outlives a keyboard reattach", () => {
+    // GIVEN a phone whose sheet has been up and then closed itself, which is
+    // what its rows do before handing off to the OS picker
+    const { container, getByText, rerender } = renderPhoneComposer();
+    fireEvent.click(control(container, PLUS_LABEL)!);
+    fireEvent.click(getByText("sheet-close"));
+    expect(addSheet(container)?.getAttribute("data-open")).toBe("false");
+
+    // WHEN a keyboard is attached while that picker is still up, flipping the
+    // live pointer with the sheet's own open flag already back to false
+    viewport.set({ narrow: true, coarsePointer: false });
+    rerender(composerElement());
+
+    // THEN the latch keeps the sheet's hidden inputs mounted to receive the
+    // selection, rather than both live mount terms going false together
+    expect(addSheet(container)).not.toBeNull();
+  });
+
+  test("the plus opens the picker directly when a mouse drives the window", () => {
+    // GIVEN a narrow mouse-driven window
+    const { container } = renderNarrowMouseComposer();
+    const input = fileInput(container);
+
+    // AND a picker that takes several files of any type, as the desktop
+    // paperclip's does
+    expect(input?.multiple).toBe(true);
+    expect(input?.getAttribute("accept")).toBeNull();
+
+    // WHEN the plus is pressed
+    let opened = 0;
+    input?.addEventListener("click", () => {
+      opened += 1;
+    });
+    fireEvent.click(control(container, PLUS_LABEL)!);
+
+    // THEN the native picker comes up with no sheet in between
+    expect(opened).toBe(1);
+    expect(addSheet(container)).toBeNull();
+  });
+
+  test("files picked from that plus reach the composer's attach callback", () => {
+    // GIVEN a narrow mouse-driven window
+    const onAddAttachmentFiles = mock((_files: FileList | File[]) => {});
+    const { container } = renderNarrowMouseComposer({ onAddAttachmentFiles });
+    const input = fileInput(container)!;
+
+    // WHEN the picker returns a file
+    const picked = new File(["x"], "picked.png", { type: "image/png" });
+    selectFiles(input, [picked]);
+
+    // THEN it lands on the same callback the paperclip and the sheet feed
+    expect(onAddAttachmentFiles).toHaveBeenCalledTimes(1);
+    expect(onAddAttachmentFiles.mock.calls[0]?.[0]?.[0]).toBe(picked);
+  });
+
+  test("a busy assistant takes the plus away, as it does the paperclip", () => {
+    // GIVEN a phone composer while the assistant is working
+    const { container } = renderPhoneComposer({ isAssistantBusy: true });
+
+    // THEN nothing offers to attach
+    expect(control(container, PLUS_LABEL)).toBeNull();
+    expect(control(container, "Attach file")).toBeNull();
+  });
+
+  test("the card is a pill on a phone and keeps its desktop corner elsewhere", () => {
+    // GIVEN a phone composer
+    const { container } = renderPhoneComposer();
+
+    // THEN the radius is half the collapsed height
+    expect(container.querySelector("form")?.className).toContain(
+      "rounded-[26px]",
+    );
+
+    // WHILE the desktop card keeps the radius it shares with the voice bar
+    cleanup();
+    viewport.set({ narrow: false, coarsePointer: false });
+    const desktop = renderComposerView();
+    expect(desktop.container.querySelector("form")?.className).toContain(
+      "rounded-[10px]",
+    );
+  });
+
+  test("desktop keeps the paperclip, its own row, and mounts no sheet", () => {
+    // GIVEN a desktop composer
+    viewport.set({ narrow: false, coarsePointer: false });
+    const { container } = renderComposerView();
+
+    // THEN the attach control is the paperclip and the sheet never mounts
+    expect(control(container, "Attach file")).not.toBeNull();
+    expect(control(container, PLUS_LABEL)).toBeNull();
+    expect(addSheet(container)).toBeNull();
+
+    // AND the textarea stays above the action row rather than inside it
+    const html = container.innerHTML;
+    expect(html.indexOf("<textarea")).toBeLessThan(
+      html.indexOf('aria-label="Attach file"'),
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Past one line the mobile row wraps: full-width draft, controls beneath it
+// ---------------------------------------------------------------------------
+
+describe("ChatComposer: a mobile draft past one line", () => {
+  test("a draft that still fits keeps every control on the one row", () => {
+    // GIVEN a phone composer whose draft is narrower than the row's own span
+    const { container } = renderPhoneComposer();
+    stubDraftGeometry(container, { inlineWidthPx: 220, naturalWidthPx: 90 });
+
+    // WHEN it is typed
+    typeDraft(container, "short");
+
+    // THEN the row stays a single line, with the text field taking whatever
+    // the controls beside it leave
+    expect(composerRow(container).className).not.toContain("flex-wrap");
+    expect(textFieldBlock(container).className).toContain("flex-1");
+    expect(textFieldBlock(container).className).not.toContain("basis-full");
+  });
+
+  test("a draft past the line takes the full width and drops the controls below", () => {
+    // GIVEN a phone composer whose draft has outgrown the row's span
+    const { container } = renderPhoneComposer();
+    stubDraftGeometry(container, { inlineWidthPx: 220, naturalWidthPx: 640 });
+
+    // WHEN it is typed
+    typeDraft(container, "a draft long enough to run past the row's one line");
+
+    // THEN the row wraps, and the text field takes the whole of the first
+    // line, ahead of the controls
+    expect(composerRow(container).className).toContain("flex-wrap");
+    expect(textFieldBlock(container).className).toContain("basis-full");
+    expect(textFieldBlock(container).className).toContain("order-first");
+    expect(textFieldBlock(container).className).not.toContain("flex-1");
+
+    // AND the controls keep their sides of the row that wrapped beneath it:
+    // the plus and its divider lead, the send slot anchors the far end
+    const start = inlineActionsStart(container);
+    expect(start.contains(control(container, PLUS_LABEL)!)).toBe(true);
+    expect(start.innerHTML).toContain("var(--border-hover)");
+    expect(
+      inlineActionsEnd(container).contains(control(container, "Send message")!),
+    ).toBe(true);
+    expect(inlineActionsEnd(container).className).toContain("ml-auto");
+  });
+
+  test("the layout change never rebuilds the textarea under the caret", () => {
+    // GIVEN a phone composer on its inline row
+    const { container } = renderPhoneComposer();
+    stubDraftGeometry(container, { inlineWidthPx: 220, naturalWidthPx: 90 });
+    typeDraft(container, "short");
+    const before = textareaOf(container);
+
+    // WHEN the draft grows past the line mid-typing
+    stubDraftGeometry(container, { inlineWidthPx: 220, naturalWidthPx: 640 });
+    typeDraft(container, "short but then rather a lot longer than that");
+    expect(composerRow(container).className).toContain("flex-wrap");
+
+    // THEN it is the very same node, so focus and selection ride the change
+    expect(textareaOf(container)).toBe(before);
+
+    // AND again on the way back, which is what deleting past the boundary does
+    stubDraftGeometry(container, { inlineWidthPx: 220, naturalWidthPx: 90 });
+    typeDraft(container, "short");
+    expect(composerRow(container).className).not.toContain("flex-wrap");
+    expect(textareaOf(container)).toBe(before);
+  });
+
+  test("the draft keeps its place in the DOM through the change", () => {
+    // GIVEN a phone composer whose draft has gone past the line
+    const { container } = renderPhoneComposer();
+    stubDraftGeometry(container, { inlineWidthPx: 220, naturalWidthPx: 640 });
+    typeDraft(container, "a draft long enough to run past the row's one line");
+
+    // THEN the visual reordering is the layout's alone: the plus still comes
+    // before the textarea in the markup, which is what keeps React from
+    // reparenting the field it is typed into
+    const html = container.innerHTML;
+    expect(html.indexOf(`aria-label="${PLUS_LABEL}"`)).toBeLessThan(
+      html.indexOf("<textarea"),
+    );
+  });
+
+  test("desktop keeps its stacked card and measures no draft", () => {
+    // GIVEN a desktop composer, whose card already stacks the text above its
+    // own action row
+    viewport.set({ narrow: false, coarsePointer: false });
+    const { container } = renderComposerView();
+
+    // WHEN a long draft is typed
+    typeDraft(container, "a draft long enough to run past any single line");
+
+    // THEN it neither carries the mobile row's probe nor takes its wrapping
+    expect(
+      container.querySelector('[data-slot="composer-draft-probe"]'),
+    ).toBeNull();
+    expect(textFieldBlock(container).className).toBe("grid");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The mobile send slot: filled voice circle until there is something to send
+// ---------------------------------------------------------------------------
+
+describe("ChatComposer: the mobile send slot", () => {
+  // The row's own chrome (`MOBILE_CONTROL_CLASS`) carries plain, unprefixed
+  // classes: it answers to the same width signal that produces the row, so it
+  // lands on every narrow window rather than only on the coarse-pointer ones
+  // the `touch-mobile:` variant reaches.
+  const SEND_FILL_CLASS = "bg-[var(--system-positive-strong)]";
+
+  test("an empty draft leaves the circular live-voice button in the slot", () => {
+    // GIVEN a phone composer with nothing to send
+    viewport.set({ narrow: true, coarsePointer: true });
+    const { queryByLabelText } = renderVoiceComposer({ input: "" });
+
+    // THEN voice mode holds the slot as a filled circle
+    const voice = queryByLabelText("Start voice mode");
+    expect(voice?.className).toContain(MOBILE_CONTROL_CLASS);
+    expect(queryByLabelText("Send message")).toBeNull();
+  });
+
+  test("a draft swaps in the circular send and the mic stays", () => {
+    // GIVEN a phone composer with something to send
+    viewport.set({ narrow: true, coarsePointer: true });
+    const { queryByLabelText } = renderVoiceComposer({ input: "hello" });
+
+    // THEN send takes the circle over, in the filled tone of the design
+    const send = queryByLabelText("Send message");
+    expect(send?.className).toContain(MOBILE_CONTROL_CLASS);
+    expect(send?.className).toContain(SEND_FILL_CLASS);
+    expect(queryByLabelText("Start voice mode")).toBeNull();
+
+    // AND dictation is untouched beside it
+    expect(queryByLabelText("Start voice input")).not.toBeNull();
+  });
+
+  test("a send nobody can press keeps the primitive's disabled fill", () => {
+    // GIVEN a draft the composer refuses to send
+    viewport.set({ narrow: true, coarsePointer: true });
+    const { queryByLabelText } = renderVoiceComposer({
+      input: "hello",
+      sendDisabled: true,
+    });
+
+    // THEN the circle stays but the filled tone does not, so a blocked send
+    // never reads as one waiting to be pressed
+    const send = queryByLabelText("Send message");
+    expect(send?.className).toContain(MOBILE_CONTROL_CLASS);
+    expect(send?.className).not.toContain(SEND_FILL_CLASS);
+  });
+
+  test("a busy turn keeps the phone row's stop/send swap", () => {
+    // GIVEN a busy turn with nothing drafted
+    viewport.set({ narrow: true, coarsePointer: true });
+    const empty = renderVoiceComposer({ input: "", isAssistantBusy: true });
+
+    // THEN stop is the row's only control
+    expect(empty.queryByLabelText("Stop generating")).not.toBeNull();
+    expect(empty.queryByLabelText("Send message")).toBeNull();
+
+    // WHILE a draft hands the slot to send, since Enter cannot submit here
+    cleanup();
+    const drafted = renderVoiceComposer({
+      input: "hello",
+      isAssistantBusy: true,
+    });
+    expect(drafted.queryByLabelText("Send message")).not.toBeNull();
+    expect(drafted.queryByLabelText("Stop generating")).toBeNull();
+  });
+
+  test("the busy row's control wears the same circle the resting slot does", () => {
+    // GIVEN a busy turn on a phone with nothing drafted
+    viewport.set({ narrow: true, coarsePointer: true });
+    const empty = renderVoiceComposer({ input: "", isAssistantBusy: true });
+
+    // THEN a turn starting does not shrink the row's right end back to a
+    // desktop control
+    const stop = empty.queryByLabelText("Stop generating");
+    expect(stop?.className).toContain(MOBILE_CONTROL_CLASS);
+    expect(glyphClassOf(stop)).toContain(MOBILE_GLYPH_CLASS);
+
+    // AND the send it gives the slot to, once there is a draft, is the same
+    // filled circle the resting composer offers
+    cleanup();
+    const drafted = renderVoiceComposer({
+      input: "hello",
+      isAssistantBusy: true,
+    });
+    const send = drafted.queryByLabelText("Send message");
+    expect(send?.className).toContain(MOBILE_CONTROL_CLASS);
+    expect(send?.className).toContain(SEND_FILL_CLASS);
+  });
+
+  test("a narrow mouse-driven window gets the circle a phone gets", () => {
+    // GIVEN a window dragged under the breakpoint that a mouse still drives
+    viewport.set({ narrow: true, coarsePointer: false });
+    const { queryByLabelText } = renderVoiceComposer({ input: "hello" });
+
+    // THEN the row it takes carries the row's chrome throughout, rather than
+    // pairing a mobile layout with desktop controls
+    const send = queryByLabelText("Send message");
+    expect(send?.className).toContain(MOBILE_CONTROL_CLASS);
+    expect(send?.className).toContain(SEND_FILL_CLASS);
+    expect(glyphClassOf(send)).toContain(MOBILE_GLYPH_CLASS);
+  });
+
+  test("the voice circle follows the same signal as the send it shares with", () => {
+    // GIVEN each narrow shape with nothing to send
+    for (const coarsePointer of [true, false]) {
+      cleanup();
+      viewport.set({ narrow: true, coarsePointer });
+      const { queryByLabelText } = renderVoiceComposer({ input: "" });
+
+      // THEN voice mode holds the slot as the same filled circle either way
+      const voice = queryByLabelText("Start voice mode");
+      expect(voice?.className).toContain(MOBILE_CONTROL_CLASS);
+      expect(glyphClassOf(voice)).toContain(MOBILE_GLYPH_CLASS);
+    }
+  });
+
+  test("desktop keeps the primitive's own send chrome", () => {
+    // GIVEN a roomy window
+    viewport.set({ narrow: false, coarsePointer: false });
+    const { queryByLabelText } = renderVoiceComposer({ input: "hello" });
+
+    // THEN none of the row's chrome reaches it
+    const send = queryByLabelText("Send message");
+    expect(send?.className).not.toContain("rounded-full");
+    expect(send?.className).not.toContain(SEND_FILL_CLASS);
+    expect(glyphClassOf(send)).not.toContain(MOBILE_GLYPH_CLASS);
   });
 });
 

@@ -35,8 +35,8 @@ export interface ChannelAdapterListProps {
  *
  * The card carries no "Channels" heading of its own: every surface that
  * mounts it already names it (`IntelligenceLayout`'s section `<h1>` on
- * desktop, the `MobileSidebarDrawer` title on mobile), so one here would
- * put the word on screen twice.
+ * desktop, the `SideListDrawer` title in a pane too narrow to seat this
+ * beside the detail), so one here would put the word on screen twice.
  *
  * Channels a plugin brings sit in the same list as the rest. They are
  * channels, they are selected the same way, and their panel is the thing

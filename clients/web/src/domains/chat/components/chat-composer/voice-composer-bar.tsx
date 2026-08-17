@@ -14,7 +14,8 @@
  * read as "not from here", a visitor from another thread. On the session's own
  * conversation there is nothing foreign to announce — the bar belongs to the
  * composer it is stacked on, so it takes that card's corners and the two read
- * as one control area.
+ * as one control area. That is per width, not once: the card is a deep pill at
+ * mobile widths, and the bar wears the pill's radius there.
  *
  * It paints itself (the session assistant's avatar color, or
  * {@link VOICE_SURFACE_DARK} for an assistant with no character color), with the
@@ -80,6 +81,7 @@ import {
   voiceSurfaceTheme,
   type VoiceSurfacePaint,
 } from "@/domains/chat/voice/voice-room/voice-surface-paint";
+import { useIsMobile } from "@/hooks/use-is-mobile";
 
 // Between turns (mic muted, assistant silent) the band reads a steady zero,
 // which is the room's empty floor: no ink at all until a voice is present.
@@ -100,6 +102,15 @@ const BAR_HEIGHT_CLASS = "h-10 touch-mobile:h-11";
  * one control area.
  */
 export const COMPOSER_RADIUS_CLASS = "rounded-[10px]";
+
+/**
+ * The same corner at mobile widths, where the composer card is a 26px pill
+ * (half its 52px collapsed height) rather than the desktop panel. The bar
+ * tracks whichever card it is stacked on, so the two still read as one control
+ * area; a 10px bar over a pill would not. Exported for the same reason as its
+ * desktop sibling: the card and the bar cannot be allowed to drift.
+ */
+export const COMPOSER_MOBILE_RADIUS_CLASS = "rounded-[26px]";
 
 export interface VoiceComposerBarProps {
   state: LiveVoiceSessionState;
@@ -153,6 +164,8 @@ export function VoiceComposerBar({
   onExpand,
   paint = null,
 }: VoiceComposerBarProps) {
+  // The card below is a pill at mobile widths, so the bar follows it there.
+  const isMobile = useIsMobile();
   // Which voice the band is drawing, in the room's own terms: the user lifts a
   // pale sheet off the floor, the assistant answers in a darker one, and in
   // silence the floor is empty. Ink cannot come from the avatar accent here:
@@ -184,7 +197,7 @@ export function VoiceComposerBar({
       className={cn(
         "relative flex w-full items-center gap-1 overflow-hidden px-2 transition-colors duration-300",
         BAR_HEIGHT_CLASS,
-        COMPOSER_RADIUS_CLASS,
+        isMobile ? COMPOSER_MOBILE_RADIUS_CLASS : COMPOSER_RADIUS_CLASS,
         // Until the avatar resolves there is no room color to paint, so the
         // bar holds the app's own raised surface.
         !paint && "bg-[var(--surface-lift)]",

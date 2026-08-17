@@ -8,6 +8,7 @@ import { ChevronRight, Loader2 } from "lucide-react";
 
 import type { ConnectionProvider } from "@/generated/daemon/types.gen";
 import type { CredentialEntry } from "@/domains/settings/ai/use-provider-credentials-list";
+import { useTranslation } from "@/i18n";
 
 // ---------------------------------------------------------------------------
 // Props
@@ -50,6 +51,7 @@ export function ProviderEditorApiKeySection({
   showAdvancedSection,
   onError,
 }: ProviderEditorApiKeySectionProps) {
+  const { t } = useTranslation("settings");
   const [isAdvancedExpanded, setIsAdvancedExpanded] = useState(false);
   const [isCreatingNewCredential, setIsCreatingNewCredential] = useState(false);
   const [newCredentialName, setNewCredentialName] = useState("");
@@ -59,7 +61,7 @@ export function ProviderEditorApiKeySection({
       {/* Primary: saved-state API Key field */}
       <div className="space-y-1">
         <label className="block text-body-small-default text-[var(--content-tertiary)]">
-          API Key
+          {t("providerEditorApiKeySection.apiKeyLabel")}
         </label>
         {isLoadingCredential ? (
           <div className="flex items-center gap-2 h-8">
@@ -68,7 +70,7 @@ export function ProviderEditorApiKeySection({
               variant="body-small-default"
               className="text-[var(--content-tertiary)]"
             >
-              Loading…
+              {t("providerEditorApiKeySection.loading")}
             </Typography>
           </div>
         ) : (
@@ -98,9 +100,9 @@ export function ProviderEditorApiKeySection({
             <ChevronRight
               className={`h-4 w-4 transition-transform ${isAdvancedExpanded ? "rotate-90" : ""}`}
             />
-            <span>Advanced</span>
+            <span>{t("providerEditorApiKeySection.advanced")}</span>
             <span className="text-[var(--content-tertiary)] ml-1">
-              · Credential reference
+              {t("providerEditorApiKeySection.credentialReferenceSuffix")}
             </span>
           </button>
 
@@ -125,10 +127,12 @@ export function ProviderEditorApiKeySection({
                 return (
                   <div className="space-y-1">
                     <label className="block text-body-small-default text-[var(--content-tertiary)]">
-                      Credential Reference
+                      {t("providerEditorApiKeySection.credentialReferenceLabel")}
                     </label>
                     <Select
-                      aria-label="Credential reference"
+                      aria-label={t(
+                        "providerEditorApiKeySection.credentialReferenceAriaLabel",
+                      )}
                       value={credential}
                       onChange={(v) => {
                         onCredentialChange(v);
@@ -143,13 +147,15 @@ export function ProviderEditorApiKeySection({
               {isCreatingNewCredential && (
                 <div className="space-y-1">
                   <label className="block text-body-small-default text-[var(--content-tertiary)]">
-                    New Credential Name
+                    {t("providerEditorApiKeySection.newCredentialNameLabel")}
                   </label>
                   <div className="flex gap-2">
                     <Input
                       value={newCredentialName}
                       onChange={(e) => setNewCredentialName(e.target.value)}
-                      placeholder="e.g. team-key"
+                      placeholder={t(
+                        "providerEditorApiKeySection.newCredentialPlaceholder",
+                      )}
                       fullWidth
                     />
                     <Button
@@ -167,7 +173,7 @@ export function ProviderEditorApiKeySection({
                         setNewCredentialName("");
                       }}
                     >
-                      Use
+                      {t("providerEditorApiKeySection.use")}
                     </Button>
                   </div>
                 </div>
@@ -185,7 +191,9 @@ export function ProviderEditorApiKeySection({
                     }
                   }}
                 >
-                  {isCreatingNewCredential ? "Cancel" : "+ New Credential"}
+                  {isCreatingNewCredential
+                    ? t("providerEditorApiKeySection.cancel")
+                    : t("providerEditorApiKeySection.newCredential")}
                 </Button>
               </div>
             </div>

@@ -6,6 +6,7 @@ import {
   aggregateSkillLoads,
   type SkillLoad,
 } from "@/domains/chat/inspector/skill-load-aggregator";
+import { Trans, useTranslation } from "@/i18n";
 import type { LLMRequestLogEntry } from "@vellumai/assistant-api";
 
 interface SkillsTabProps {
@@ -26,6 +27,7 @@ interface SkillsTabProps {
  * unit-tested without pulling in React / design-library.
  */
 export function SkillsTab({ logs, buildCallHref }: SkillsTabProps): ReactNode {
+  const { t } = useTranslation("chat");
   const grouped = aggregateSkillLoads(logs);
   const totalLoads = grouped.reduce((sum, g) => sum + g.loads.length, 0);
   const uniqueCount = grouped.length;
@@ -38,14 +40,17 @@ export function SkillsTab({ logs, buildCallHref }: SkillsTabProps): ReactNode {
             className="text-body-medium-default"
             style={{ color: "var(--content-default)" }}
           >
-            No skills were loaded in this conversation
+            {t("skillsTab.emptyTitle")}
           </p>
           <p
             className="mt-1 text-body-medium-lighter"
             style={{ color: "var(--content-secondary)" }}
           >
-            This tab lists every <code>skill_load</code> tool call across the
-            conversation. None were detected in the captured LLM calls.
+            <Trans
+              ns="chat"
+              i18nKey="skillsTab.emptyBody"
+              components={{ code: <code /> }}
+            />
           </p>
         </Card>
       </div>
@@ -59,17 +64,13 @@ export function SkillsTab({ logs, buildCallHref }: SkillsTabProps): ReactNode {
           className="text-body-medium-default"
           style={{ color: "var(--content-default)" }}
         >
-          Skills loaded in this conversation
+          {t("skillsTab.summaryTitle")}
         </p>
         <p
           className="mt-1 text-body-medium-lighter"
           style={{ color: "var(--content-secondary)" }}
         >
-          {uniqueCount === 1
-            ? "1 unique skill"
-            : `${uniqueCount} unique skills`}
-          {" · "}
-          {totalLoads === 1 ? "1 load call" : `${totalLoads} load calls`}
+          {t("skillsTab.summaryStats", { uniqueCount, totalLoads })}
         </p>
       </Card>
 
@@ -92,6 +93,8 @@ interface SkillCardProps {
 }
 
 function SkillCard({ skill, loads, buildCallHref }: SkillCardProps): ReactNode {
+  const { t } = useTranslation("chat");
+
   return (
     <Card>
       <div className="flex items-baseline justify-between gap-3">
@@ -105,7 +108,7 @@ function SkillCard({ skill, loads, buildCallHref }: SkillCardProps): ReactNode {
           className="text-label-default"
           style={{ color: "var(--content-secondary)" }}
         >
-          {loads.length === 1 ? "1 load" : `${loads.length} loads`}
+          {t("skillsTab.loadCount", { count: loads.length })}
         </span>
       </div>
       <ul className="mt-3 flex flex-col gap-1">
@@ -117,7 +120,7 @@ function SkillCard({ skill, loads, buildCallHref }: SkillCardProps): ReactNode {
               style={{ color: "var(--content-default)" }}
             >
               <span style={{ color: "var(--content-secondary)" }}>
-                Call {load.callNumber}
+                {t("skillsTab.callLink", { number: load.callNumber })}
               </span>
               <span style={{ color: "var(--content-tertiary)" }}>·</span>
               <span style={{ color: "var(--content-tertiary)" }}>

@@ -1,0 +1,421 @@
+{
+  "applyPersonalityUpdate": {
+    "conversationTitle": "Actualizando la personalidad"
+  },
+  "applyRename": {
+    "conversationTitle": "Actualizando el nombre"
+  },
+  "assistantNameEditor": {
+    "greeting": "Hola, soy {name}",
+    "renamingInProgressAriaLabel": "Cambio de nombre en curso"
+  },
+  "categorySidebar": {
+    "all": "Todas",
+    "skillCategoriesAriaLabel": "Categorías de habilidades"
+  },
+  "conceptDetailPanel": {
+    "askAboutThis": "Preguntar sobre esto",
+    "askPrompt": "Cuéntame qué recuerdas sobre \"{title}\" y cómo se conecta con el resto de lo que sabes.",
+    "backAriaLabel": "Atrás",
+    "closeAriaLabel": "Cerrar",
+    "connectionCount": "{count, plural, one {# conexión} other {# conexiones}}",
+    "emptyContent": "Este concepto todavía no tiene contenido escrito. Existe como un enlace en el grafo, pero su página está vacía.",
+    "loadError": "No se pudo cargar este concepto. Vuelve a intentarlo en un momento.",
+    "readFullNote": "Leer la nota completa",
+    "refine": "Refinar",
+    "refinePrompt": "Quiero refinar lo que recuerdas sobre \"{title}\". Pregúntame qué no es correcto y lo corregiremos juntos.",
+    "showLess": "Mostrar menos",
+    "trailAriaLabel": "Ruta de conceptos",
+    "updated": "Actualizado el {date}",
+    "wiredTo": "Conectado con"
+  },
+  "conceptGraphConstants": {
+    "nodeKind": {
+      "capability": "Capacidad",
+      "concept": "Concepto",
+      "other": "Otro",
+      "pending": "Pendiente",
+      "skill": "Habilidad"
+    }
+  },
+  "conceptGraphIntroBanner": {
+    "description": "Cada idea que aprende, y los vínculos que traza entre ellas, aparece aquí. El mapa crece y se reorganiza mientras hablas, así que cuanto más compartas, más rico se vuelve.",
+    "dismissAriaLabel": "Descartar",
+    "title": "Esta es la mente de tu asistente"
+  },
+  "conceptGraphLegend": {
+    "coloredByTheme": "Coloreado por tema",
+    "learned": "Aprendido",
+    "link": "Enlace",
+    "moreThemes": "{count, plural, one {+# más} other {+# más}}"
+  },
+  "conceptGraphView": {
+    "clearSearchAriaLabel": "Borrar búsqueda",
+    "dragToRotateHint": "arrastra para rotar · desplaza para hacer zoom",
+    "emptyDetail": "A medida que tu asistente aprende y conecta ideas, aparecerán aquí como un mapa vivo de su memoria.",
+    "emptyTitle": "Todavía no hay conceptos",
+    "enterFullscreenAriaLabel": "Entrar en pantalla completa",
+    "exitFullscreenAriaLabel": "Salir de pantalla completa",
+    "loadErrorDetail": "Algo salió mal al obtener la memoria de tu asistente. Vuelve a intentarlo en un momento.",
+    "loadErrorTitle": "No se pudo cargar el grafo de memoria",
+    "resetViewAriaLabel": "Restablecer la vista",
+    "searchConceptsAriaLabel": "Buscar conceptos",
+    "searchConceptsPlaceholder": "Buscar conceptos…",
+    "truncatedNotice": "{count, plural, one {Mostrando el # concepto más conectado} other {Mostrando los # conceptos más conectados}}",
+    "zoomInAriaLabel": "Acercar",
+    "zoomOutAriaLabel": "Alejar"
+  },
+  "createMemoryModal": {
+    "cancel": "Cancelar",
+    "contentLabel": "¿Qué debería recordar?",
+    "contentPlaceholder": "p. ej. Prefiero resúmenes concisos con viñetas.",
+    "create": "Crear recuerdo",
+    "createError": "No se pudo crear el recuerdo.",
+    "creating": "Creando…",
+    "helperText": "Aparece en el mapa de inmediato y luego se asienta en un concepto a medida que se archiva.",
+    "savedFoundToast": "Entendido. Te llevo hasta él.",
+    "savedPendingToast": "Entendido. Está en tu mapa mientras lo archivo.",
+    "saveError": "No se pudo guardar ese recuerdo.",
+    "title": "Nuevo recuerdo"
+  },
+  "getMemoryGraph": {
+    "failureMessage": "No se pudo cargar el grafo de memoria."
+  },
+  "getMemoryGraphNode": {
+    "failureMessage": "No se pudo cargar este concepto."
+  },
+  "identityOverview": {
+    "cardHoverLine": {
+      "channels": "Todos los lugares donde puedes contactarme",
+      "contacts": "Las personas que conozco y en quienes confío",
+      "library": "Las apps y documentos que he creado para ti",
+      "memory": "Todo lo que recuerdo",
+      "personality": "Adelante, ajusta mi alma",
+      "schedules": "Lo que hago en bucle",
+      "superpowers": "Todo lo que sé hacer",
+      "workspace": "Todos los archivos que me hacen funcionar"
+    },
+    "defaultAssistantName": "Asistente",
+    "memoryCountLabel": "{count, plural, one {# recuerdo} other {# recuerdos}}",
+    "renameErrorToast": "El cambio de nombre no se completó. Vuelve a intentarlo.",
+    "renameSuccessToast": "¡Saluda a {newName}!",
+    "scheduleCadence": "{cadence} · próxima {nextRun}",
+    "updateAvatarAndName": "Actualizar avatar y nombre",
+    "viewMoreSchedules": "{count, plural, one {Ver # más…} other {Ver # más…}}"
+  },
+  "identitySections": {
+    "channels": {
+      "description": "Donde escucho",
+      "label": "Canales"
+    },
+    "contacts": {
+      "description": "Personas que conozco",
+      "label": "Contactos"
+    },
+    "library": {
+      "description": "Mis apps y documentos",
+      "label": "Biblioteca"
+    },
+    "memory": {
+      "description": "Lo que recuerdo",
+      "label": "Memoria"
+    },
+    "personality": {
+      "description": "Ajusta cómo hablo",
+      "label": "Personalidad"
+    },
+    "schedules": {
+      "description": "Mis rutinas",
+      "label": "Programaciones"
+    },
+    "superpowers": {
+      "description": "Lo que puedo hacer",
+      "label": "Mis superpoderes"
+    },
+    "workspace": {
+      "description": "Mis archivos",
+      "label": "Espacio de trabajo"
+    }
+  },
+  "installSkill": {
+    "failureMessage": "No se pudo instalar la habilidad."
+  },
+  "intelligenceLayout": {
+    "backToAriaLabel": "Volver a {name}",
+    "backToTitle": "Volver a {name}"
+  },
+  "listConceptPages": {
+    "failureMessage": "No se pudieron cargar las páginas de conceptos."
+  },
+  "memoryFormat": {
+    "justNow": "justo ahora"
+  },
+  "memoryPage": {
+    "createMemory": "Crear recuerdo"
+  },
+  "memoryTypes": {
+    "sourceType": {
+      "direct": "Dicho directamente",
+      "inferred": "Inferido",
+      "observed": "Observado",
+      "toldByOther": "Dicho por otra persona"
+    }
+  },
+  "memoryUpgradePrompt": {
+    "memorySettings": "Ajustes de memoria",
+    "tryAgain": "Intentar de nuevo",
+    "turnMemoryOn": "Activar la memoria",
+    "upgradeMemory": "Actualizar memoria"
+  },
+  "personalityAxes": {
+    "companionCoworker": {
+      "left": "Compañero",
+      "right": "Colega"
+    },
+    "executeCollaborate": {
+      "left": "Independiente",
+      "right": "Colaborativo"
+    },
+    "genzBoomer": {
+      "left": "Gen Z",
+      "right": "Baby Boomer"
+    },
+    "playfulSerious": {
+      "left": "Juguetón",
+      "right": "Serio"
+    },
+    "politeUnfiltered": {
+      "left": "Educado",
+      "right": "Sin filtro"
+    }
+  },
+  "personalityPage": {
+    "back": "Atrás",
+    "subtitle": "Mueve los diales y luego pulsa actualizar: me reescribiré para encajar.",
+    "title": "Da forma a mi personalidad",
+    "updateErrorToast": "La actualización de personalidad no se completó. Vuelve a intentarlo.",
+    "updatePersonality": "Actualizar personalidad",
+    "updateSuccessToast": "Personalidad actualizada. ¡Ve a saludar!",
+    "updatingPersonality": "Actualizando la personalidad de {name}…"
+  },
+  "personalitySignature": {
+    "ariaLabel": "Personalidad: {summary}",
+    "axisBalanced": "{left} y {right} equilibrados",
+    "axisLean": "{percent}% {label}"
+  },
+  "personalitySliderRow": {
+    "rangeAriaLabel": "De {left} a {right}"
+  },
+  "pluginConstants": {
+    "installError": "No se pudo instalar el plugin. Vuelve a intentarlo.",
+    "removeConfirmMessage": "¿Quitar \"{name}\" de este asistente?",
+    "removeError": "No se pudo quitar el plugin. Vuelve a intentarlo.",
+    "riskyUpgradeConfirmLabel": "Actualizar de todos modos",
+    "riskyUpgradeConfirmMessage": "\"{name}\" tiene cambios locales que se sobrescribirán con la actualización. ¿Continuar?",
+    "toggleError": "No se pudo actualizar el plugin. Vuelve a intentarlo.",
+    "upgradeError": "No se pudo actualizar el plugin. Vuelve a intentarlo."
+  },
+  "pluginDetail": {
+    "backToPluginsAriaLabel": "Volver a los plugins",
+    "noReadme": "Este plugin no incluye un README.",
+    "version": "v{version}"
+  },
+  "pluginDetailShared": {
+    "autoIncludeInChat": "Incluir automáticamente en el chat",
+    "download": "Descargar",
+    "homepageLabel": "Sitio web",
+    "hooksLabel": "Hooks",
+    "install": "Instalar",
+    "licenseLabel": "Licencia",
+    "loadErrorDetail": "Puede que no exista, o que tu asistente tenga una versión anterior.",
+    "loadErrorTitle": "No pudimos cargar este plugin.",
+    "localSource": "Local",
+    "remove": "Quitar",
+    "removePluginTitle": "Quitar plugin",
+    "skillsLabel": "Habilidades",
+    "sourceLabel": "Fuente",
+    "toolsLabel": "Herramientas",
+    "upgrade": "Actualizar",
+    "upgradePluginTitle": "Actualizar plugin",
+    "upgradeTitle": "Actualizar {fromSha} → {toSha}"
+  },
+  "pluginListRow": {
+    "disabled": "Desactivado",
+    "enabled": "Activado",
+    "installingAriaLabel": "Instalando",
+    "installPluginAriaLabel": "Instalar plugin",
+    "moreIssues": "{count, plural, one { (+# más)} other { (+# más)}}",
+    "noDescription": "No se proporcionó descripción.",
+    "pluginTag": "Plugin",
+    "removePluginAriaLabel": "Quitar plugin",
+    "version": "v{version}"
+  },
+  "pluginOriginBadge": {
+    "external": "Externo",
+    "local": "Local"
+  },
+  "pluginToast": {
+    "alreadyUpToDate": "{name} ya está actualizado",
+    "installed": "Se instaló {name}",
+    "pluginFallback": "el plugin",
+    "pluginFallbackCapitalized": "El plugin",
+    "removed": "Se quitó {name}",
+    "upgraded": "Se actualizó {name} a {sha}"
+  },
+  "recencyLens": {
+    "all": "Todo",
+    "ariaLabel": "Ventana de antigüedad",
+    "month": "Mes",
+    "week": "Semana"
+  },
+  "sections": {
+    "channels": "Canales",
+    "contacts": "Contactos",
+    "library": "Biblioteca",
+    "memory": "Memoria",
+    "schedules": "Programaciones",
+    "superpowers": "Mis superpoderes",
+    "workspace": "Espacio de trabajo"
+  },
+  "skillDetail": {
+    "backToSkillsAriaLabel": "Volver a las habilidades",
+    "filesTab": "Archivos",
+    "fileViewModeAriaLabel": "Modo de vista de archivo",
+    "historyTab": "Historial",
+    "install": "Instalar",
+    "noFilesAvailable": "No hay archivos disponibles.",
+    "openInWorkspaceAriaLabel": "Abrir en el espacio de trabajo",
+    "pendingAriaLabel": "Pendiente",
+    "preview": "Vista previa",
+    "remove": "Quitar",
+    "saveFailed": "Error al guardar",
+    "selectAFile": "Selecciona un archivo",
+    "selectFilePrompt": "Selecciona un archivo para ver su contenido.",
+    "source": "Código"
+  },
+  "skillDetailPage": {
+    "backToSuperpowers": "Volver a Mis superpoderes",
+    "notFoundSubtitle": "Es posible que esta habilidad se haya eliminado, o que el enlace esté obsoleto.",
+    "notFoundTitle": "Habilidad no encontrada"
+  },
+  "skillFileContent": {
+    "binaryFile": "Archivo binario. No hay vista previa disponible.",
+    "noPreviewAvailable": "No hay vista previa disponible para {fileName}."
+  },
+  "skillOriginBadge": {
+    "assistantMemory": "Memoria del asistente",
+    "custom": "Personalizada"
+  },
+  "skillRevisionHistory": {
+    "loadError": "No se pudo cargar el historial de revisiones.",
+    "noChanges": "Todavía no se registraron cambios.",
+    "noPreviewForChange": "No hay vista previa disponible para este cambio.",
+    "truncatedNotice": "Se muestran los cambios recientes. El historial antiguo se compacta periódicamente, así que puede que no llegue hasta la creación de la habilidad."
+  },
+  "skillRow": {
+    "bundledSkillCannotBeRemovedAriaLabel": "No se puede quitar una habilidad incluida",
+    "bundledSkillsCannotBeRemoved": "Las habilidades incluidas no se pueden quitar",
+    "installingAriaLabel": "Instalando",
+    "installSkillAriaLabel": "Instalar habilidad",
+    "removeSkillAriaLabel": "Quitar habilidad"
+  },
+  "skillsErrorState": {
+    "subtitle": "Algo salió mal. Intenta actualizar la página.",
+    "title": "No se pudieron cargar las habilidades"
+  },
+  "superpowersFilters": {
+    "categoriesLabel": "Categorías",
+    "done": "Listo",
+    "filterAriaLabel": "Filtrar superpoderes",
+    "filterLabel": {
+      "all": "Todos",
+      "assistantMemory": "Memoria del asistente",
+      "available": "Disponibles",
+      "custom": "Personalizadas",
+      "installed": "Instalados",
+      "plugins": "Plugins",
+      "skills": "Habilidades"
+    },
+    "filtersTitle": "Filtros",
+    "searchAriaLabel": "Buscar superpoderes",
+    "searchPlaceholder": "Buscar superpoderes",
+    "sourceLabel": "Origen",
+    "statusLabel": "Estado",
+    "typeLabel": "Tipo"
+  },
+  "superpowersTab": {
+    "catalogBrowsingUnavailableNotice": "La navegación por el catálogo de plugins no está disponible temporalmente. Los plugins instalados siguen apareciendo abajo.",
+    "categoriesAriaLabel": "Categorías de superpoderes",
+    "dismissTipAriaLabel": "Descartar sugerencia",
+    "emptyState": {
+      "assistantMemorySubtitle": "Aquí aparecerán las habilidades que tu asistente crea a partir de conversaciones pasadas.",
+      "assistantMemoryTitle": "Ninguna habilidad de la memoria",
+      "availableSubtitle": "Todas las habilidades y plugins disponibles están instalados.",
+      "availableTitle": "No queda nada por instalar",
+      "categorySubtitle": "Intenta seleccionar otra categoría o borrar el filtro.",
+      "categoryTitle": "Nada en esta categoría",
+      "clawhubSubtitle": "No se encontraron habilidades de Clawhub. Intenta buscar en el catálogo.",
+      "clawhubTitle": "Ninguna habilidad de Clawhub",
+      "customSubtitle": "Crea una habilidad personalizada describiendo lo que quieres en el chat.",
+      "customTitle": "Ninguna habilidad personalizada",
+      "defaultSubtitle": "Comprueba tu conexión con el catálogo de Vellum.",
+      "defaultTitle": "No hay superpoderes disponibles",
+      "installedSubtitle": "Pídele a tu asistente en el chat que busque e instale nuevas habilidades y plugins.",
+      "installedTitle": "No hay superpoderes instalados",
+      "pluginsSubtitle": "Explora el catálogo para instalar plugins que amplíen tu asistente.",
+      "pluginsTitle": "No se encontraron plugins",
+      "skillsshSubtitle": "No se encontraron habilidades de skills.sh. Intenta buscar en el catálogo.",
+      "skillsshTitle": "Ninguna habilidad de skills.sh",
+      "skillsSubtitle": "Pídele a tu asistente en el chat que busque e instale nuevas habilidades.",
+      "skillsTitle": "No se encontraron habilidades",
+      "vellumSubtitle": "No se encontraron habilidades de Vellum incluidas.",
+      "vellumTitle": "Ninguna habilidad de Vellum"
+    },
+    "errorStateSubtitle": "Algo salió mal. Intenta actualizar la página.",
+    "errorStateTitle": "No se pudieron cargar los superpoderes",
+    "pluginsUnavailableNotice": "Los plugins no están disponibles temporalmente. Las habilidades siguen apareciendo abajo.",
+    "skillsUnavailableNotice": "Las habilidades no están disponibles temporalmente. Los plugins siguen apareciendo abajo.",
+    "tipBannerText": "Crea una habilidad personalizada describiendo lo que quieres en el chat, o instala plugins para ampliar tu asistente."
+  },
+  "updateAvailableBadge": {
+    "updateAvailable": "Actualización disponible",
+    "upgradePluginAriaLabel": "Actualizar plugin"
+  },
+  "useIdentitySectionStats": {
+    "activeLabel": "{count, plural, one {activa} other {activas}}",
+    "appCount": "{count, plural, one {# app} other {# apps}}",
+    "connectedLabel": "{count, plural, one {conectado} other {conectados}}",
+    "docCount": "{count, plural, one {# documento} other {# documentos}}",
+    "itemLabel": "{count, plural, one {elemento} other {elementos}}",
+    "noSchedulesText": "Todavía no hay nada programado",
+    "personLabel": "{count, plural, one {persona} other {personas}}",
+    "pluginCount": "{count, plural, one {# plugin} other {# plugins}}",
+    "skillCount": "{count, plural, one {# habilidad} other {# habilidades}}"
+  },
+  "usePluginsList": {
+    "failureMessage": "No se pudieron cargar los plugins"
+  },
+  "memoryUnavailable": {
+    "statusError": {
+      "title": "No se pudieron comprobar tus ajustes de memoria",
+      "detail": "Algo falló al leer el estado de memoria de este asistente, así que aún no hay nada fiable que contarte."
+    },
+    "off": {
+      "title": "La memoria está desactivada",
+      "detail": "Tu asistente no está guardando nada de vuestras conversaciones, así que no hay mapa que dibujar. Vuelve a activar la memoria para que empiece a recordar otra vez."
+    },
+    "legacy": {
+      "title": "Actualiza a memoria v3",
+      "detail": "Tu asistente usa un motor de memoria antiguo. La memoria v3 reorganiza lo que sabe en una wiki enlazada de conceptos, y esa wiki es lo que dibuja este mapa."
+    },
+    "unknown": {
+      "title": "El grafo de memoria no está disponible",
+      "detail": "El backend de memoria de este asistente no informa lo suficiente para decir por qué. Actualiza tu asistente y esta página te dirá qué necesita."
+    },
+    "prompts": {
+      "v2": "Migra mi memoria de v2 a v3. Lo más probable es que sea tu skill «Memory v3 Migration», pero averigua qué necesita realmente mi corpus y sigue exactamente la skill que uses.\n\nEjecútalo en segundo plano y avísame cuando termine, o si algo lo bloquea.",
+      "v1": "Migra mi memoria de v1 a v3. Lo más probable es que sean dos saltos, tu skill «Memory v2 Migration» y luego tu skill «Memory v3 Migration», pero averigua qué necesita realmente mi asistente y sigue exactamente las skills que uses.\n\nEjecútalo en segundo plano y avísame cuando termine, o si algo lo bloquea.",
+      "enable": "Vuelve a activar mi memoria. Me gustaría que empieces a recordar cosas de nuestras conversaciones otra vez."
+    }
+  }
+}

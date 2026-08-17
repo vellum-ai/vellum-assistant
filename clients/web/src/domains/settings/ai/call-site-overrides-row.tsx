@@ -1,6 +1,8 @@
 import { Select } from "@vellumai/design-library/components/select";
 import { Toggle } from "@vellumai/design-library/components/toggle";
 
+import { useTranslation } from "@/i18n";
+
 import {
   getDefaultModelForProvider,
   getModelsForProvider,
@@ -74,6 +76,7 @@ export function CallSiteOverrideRow({
   onDraftChange,
   onToggle,
 }: CallSiteOverrideRowProps) {
+  const { t } = useTranslation("settings");
   const overrideOn = isDraftActive(draft);
 
   const profileVal = (() => {
@@ -154,7 +157,7 @@ export function CallSiteOverrideRow({
         ?.displayName ?? storedModel;
     modelOptions.push({
       value: storedModel,
-      label: `${displayName} (unavailable)`,
+      label: t("callSiteOverridesRow.unavailableOption", { name: displayName }),
     });
   }
   const hasModelError = !!draft?.provider && !draft?.model;
@@ -170,9 +173,10 @@ export function CallSiteOverrideRow({
       ? [
           {
             value: storedProvider,
-            label: `${
-              PROVIDER_DISPLAY_NAMES[storedProvider] ?? storedProvider
-            } (unavailable)`,
+            label: t("callSiteOverridesRow.unavailableOption", {
+              name:
+                PROVIDER_DISPLAY_NAMES[storedProvider] ?? storedProvider,
+            }),
           },
         ]
       : []),
@@ -220,7 +224,9 @@ export function CallSiteOverrideRow({
               {description}
               {defaultProfileLabel && (
                 <span className="ml-1.5 text-body-small-default text-[var(--content-tertiary)] opacity-60">
-                  &middot; Default: {defaultProfileLabel}
+                  {t("callSiteOverridesRow.defaultProfileSuffix", {
+                    label: defaultProfileLabel,
+                  })}
                 </span>
               )}
             </p>
@@ -229,7 +235,9 @@ export function CallSiteOverrideRow({
         <Toggle
           checked={overrideOn}
           onChange={(on) => onToggle(id, on)}
-          aria-label={`Override ${displayName}`}
+          aria-label={t("callSiteOverridesRow.overrideAriaLabel", {
+            displayName,
+          })}
           className="shrink-0"
         />
       </div>
@@ -253,7 +261,7 @@ export function CallSiteOverrideRow({
           <div className="flex gap-2">
             <div className="flex-1">
               <label className="mb-1 block text-body-small-default text-[var(--content-tertiary)]">
-                Provider
+                {t("callSiteOverridesRow.providerLabel")}
               </label>
               <Select
                 value={currentProvider ?? ""}
@@ -263,7 +271,7 @@ export function CallSiteOverrideRow({
             </div>
             <div className="flex-1">
               <label className="mb-1 block text-body-small-default text-[var(--content-tertiary)]">
-                Model
+                {t("callSiteOverridesRow.modelLabel")}
               </label>
               <Select
                 value={draft?.model ?? ""}
@@ -274,7 +282,7 @@ export function CallSiteOverrideRow({
           </div>
           {hasModelError && (
             <p className="text-body-small-default text-[var(--system-negative-strong)]">
-              Pick a model
+              {t("callSiteOverridesRow.pickModelError")}
             </p>
           )}
         </div>

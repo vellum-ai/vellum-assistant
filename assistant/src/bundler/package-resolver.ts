@@ -6,7 +6,7 @@
  */
 
 import { existsSync } from "node:fs";
-import { mkdir, stat } from "node:fs/promises";
+import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
 
 import { ensureBun } from "../util/bun-runtime.js";
@@ -24,8 +24,8 @@ export const ALLOWED_PACKAGES: readonly string[] = [
   "clsx",
 ] as const;
 
+/** Bounds a runaway install; the allowlist above bounds what may be installed. */
 const INSTALL_TIMEOUT_MS = 10_000;
-const MAX_PACKAGE_SIZE_BYTES = 5 * 1024 * 1024; // 5 MB
 
 /** In-flight install promises keyed by package name, to deduplicate concurrent requests. */
 const inflight = new Map<string, Promise<string | null>>();
@@ -148,37 +148,9 @@ async function installPackage(
       return null;
     }
 
-    // Enforce max size
-    if (existsSync(pkgDir)) {
-      const size = await dirSize(pkgDir);
-      if (size > MAX_PACKAGE_SIZE_BYTES) {
-        log.warn({ pkg, size }, "Package exceeds size limit, removing");
-        const { rm } = await import("node:fs/promises");
-        await rm(pkgDir, { recursive: true, force: true });
-        return null;
-      }
-    }
-
     return existsSync(pkgDir) ? nodeModulesDir : null;
   } catch (err) {
     log.warn({ pkg, err }, "Package resolution failed");
     return null;
   }
-}
-
-/** Recursively sum file sizes under a directory. */
-async function dirSize(dir: string): Promise<number> {
-  const { readdir } = await import("node:fs/promises");
-  const entries = await readdir(dir, { withFileTypes: true });
-  let total = 0;
-  for (const entry of entries) {
-    const full = join(dir, entry.name);
-    if (entry.isDirectory()) {
-      total += await dirSize(full);
-    } else {
-      const s = await stat(full);
-      total += s.size;
-    }
-  }
-  return total;
 }

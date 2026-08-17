@@ -14,6 +14,7 @@ import type {
 import { Card } from "@vellumai/design-library";
 
 import { copyToClipboard } from "@/lib/copy-to-clipboard";
+import { useTranslation } from "@/i18n";
 
 import { conceptPageQueryOptions } from "../../concept-page-api";
 
@@ -26,6 +27,8 @@ import { conceptPageQueryOptions } from "../../concept-page-api";
  */
 type MemoryView = "recall" | "v2" | "v3";
 
+type MemoryTranslate = ReturnType<typeof useTranslation<"chat">>["t"];
+
 export function MemoryTab({
   context,
   assistantId,
@@ -33,6 +36,7 @@ export function MemoryTab({
   context: LlmContextResponse | undefined;
   assistantId: string | undefined;
 }): ReactNode {
+  const { t } = useTranslation("chat");
   const recall = context?.memoryRecall ?? null;
   const v2 = context?.memoryV2Activation ?? null;
   const v3 = context?.memoryV3Selection ?? null;
@@ -41,9 +45,9 @@ export function MemoryTab({
   const hasV3 = v3 != null;
 
   const pills: { id: MemoryView; label: string; show: boolean }[] = [
-    { id: "v3", label: "Memory V3", show: hasV3 },
-    { id: "v2", label: "Memory V2", show: hasV2 },
-    { id: "recall", label: "Recall (v1)", show: hasRecall },
+    { id: "v3", label: t("memoryTab.pillMemoryV3"), show: hasV3 },
+    { id: "v2", label: t("memoryTab.pillMemoryV2"), show: hasV2 },
+    { id: "recall", label: t("memoryTab.pillRecallV1"), show: hasRecall },
   ];
   const available = pills.filter((p) => p.show);
 
@@ -55,7 +59,7 @@ export function MemoryTab({
   }, [hasV2, hasV3, hasRecall]);
 
   if (available.length === 0) {
-    return <NoDataState />;
+    return <NoDataState t={t} />;
   }
 
   const activeView = available.some((p) => p.id === view)
@@ -81,11 +85,11 @@ export function MemoryTab({
       )}
       <div className="min-h-0 flex-1 overflow-y-auto">
         {activeView === "v3" && v3 != null ? (
-          <MemoryV3Section selection={v3} />
+          <MemoryV3Section selection={v3} t={t} />
         ) : activeView === "v2" && v2 != null ? (
-          <MemoryV2Section activation={v2} assistantId={assistantId} />
+          <MemoryV2Section activation={v2} assistantId={assistantId} t={t} />
         ) : recall != null ? (
-          <MemoryRecallSection recall={recall} />
+          <MemoryRecallSection recall={recall} t={t} />
         ) : null}
       </div>
     </div>
@@ -119,16 +123,20 @@ function ViewPill({
 
 function MemoryRecallSection({
   recall,
+  t,
 }: {
   recall: MemoryRecallLog;
+  t: MemoryTranslate;
 }): ReactNode {
+  const missing = t("memoryTab.missingValue");
+
   if (!recall.enabled) {
     return (
       <div className="p-4">
         <SectionCard
-          title="Memory disabled"
+          title={t("memoryTab.memoryDisabledTitle")}
           subtitle={
-            recall.reason ?? "Memory recall was disabled for this turn."
+            recall.reason ?? t("memoryTab.memoryDisabledDefaultReason")
           }
         />
       </div>
@@ -138,84 +146,98 @@ function MemoryRecallSection({
   return (
     <div className="flex flex-col gap-4 p-4">
       <ScopeBanner
-        title="Turn-level recall"
-        body="Memory recall runs once per turn. This data applies to all LLM calls for this message."
+        title={t("memoryTab.turnLevelRecallTitle")}
+        body={t("memoryTab.turnLevelRecallBody")}
       />
 
       <SectionCard
-        title="Status"
-        subtitle="Provider, model, and latency for this recall."
+        title={t("memoryTab.statusTitle")}
+        subtitle={t("memoryTab.statusSubtitle")}
       >
         <MetaGrid
           rows={[
-            { label: "Status", value: recall.degraded ? "Degraded" : "Active" },
-            { label: "Provider", value: recall.provider ?? "Unavailable" },
-            { label: "Model", value: recall.model ?? "Unavailable" },
             {
-              label: "Total latency",
-              value: recall.latencyMs != null ? `${recall.latencyMs} ms` : "—",
+              label: t("memoryTab.statusLabel"),
+              value: recall.degraded
+                ? t("memoryTab.statusDegraded")
+                : t("memoryTab.statusActive"),
+            },
+            {
+              label: t("memoryTab.providerLabel"),
+              value: recall.provider ?? t("memoryTab.unavailable"),
+            },
+            {
+              label: t("memoryTab.modelLabel"),
+              value: recall.model ?? t("memoryTab.unavailable"),
+            },
+            {
+              label: t("memoryTab.totalLatencyLabel"),
+              value:
+                recall.latencyMs != null
+                  ? t("memoryTab.latencyMs", { ms: recall.latencyMs })
+                  : missing,
             },
           ]}
         />
       </SectionCard>
 
       <SectionCard
-        title="Retrieval funnel"
-        subtitle="How memories were filtered from semantic search to injection."
+        title={t("memoryTab.retrievalFunnelTitle")}
+        subtitle={t("memoryTab.retrievalFunnelSubtitle")}
       >
         <MetaGrid
           rows={[
             {
-              label: "Semantic hits",
+              label: t("memoryTab.semanticHitsLabel"),
               value:
-                recall.semanticHits != null ? fmt(recall.semanticHits) : "—",
+                recall.semanticHits != null ? fmt(recall.semanticHits) : missing,
             },
             {
-              label: "After merge",
-              value: recall.mergedCount != null ? fmt(recall.mergedCount) : "—",
+              label: t("memoryTab.afterMergeLabel"),
+              value: recall.mergedCount != null ? fmt(recall.mergedCount) : missing,
             },
             {
-              label: "Tier 1",
-              value: recall.tier1Count != null ? fmt(recall.tier1Count) : "—",
+              label: t("memoryTab.tier1Label"),
+              value: recall.tier1Count != null ? fmt(recall.tier1Count) : missing,
             },
             {
-              label: "Tier 2",
-              value: recall.tier2Count != null ? fmt(recall.tier2Count) : "—",
+              label: t("memoryTab.tier2Label"),
+              value: recall.tier2Count != null ? fmt(recall.tier2Count) : missing,
             },
             {
-              label: "Selected",
+              label: t("memoryTab.selectedLabel"),
               value:
-                recall.selectedCount != null ? fmt(recall.selectedCount) : "—",
+                recall.selectedCount != null ? fmt(recall.selectedCount) : missing,
             },
             {
-              label: "Injected tokens",
+              label: t("memoryTab.injectedTokensLabel"),
               value:
                 recall.injectedTokens != null
                   ? fmt(recall.injectedTokens)
-                  : "—",
+                  : missing,
             },
           ]}
         />
       </SectionCard>
 
-      <SectionCard title="Search details">
+      <SectionCard title={t("memoryTab.searchDetailsTitle")}>
         <MetaGrid
           rows={[
             {
-              label: "Hybrid search",
+              label: t("memoryTab.hybridSearchLabel"),
               value:
                 recall.hybridSearchLatencyMs != null
-                  ? `${recall.hybridSearchLatencyMs} ms`
-                  : "—",
+                  ? t("memoryTab.latencyMs", { ms: recall.hybridSearchLatencyMs })
+                  : missing,
             },
             {
-              label: "Sparse vectors",
+              label: t("memoryTab.sparseVectorsLabel"),
               value:
                 recall.sparseVectorUsed != null
                   ? recall.sparseVectorUsed
-                    ? "Used"
-                    : "Dense only"
-                  : "—",
+                    ? t("memoryTab.sparseUsed")
+                    : t("memoryTab.sparseDenseOnly")
+                  : missing,
             },
           ]}
         />
@@ -223,9 +245,10 @@ function MemoryRecallSection({
 
       {recall.queryContext != null && (
         <SectionCard
-          title="Query context"
-          subtitle="The text embedded as the search vector for semantic retrieval."
+          title={t("memoryTab.queryContextTitle")}
+          subtitle={t("memoryTab.queryContextSubtitle")}
           copyText={recall.queryContext}
+          t={t}
         >
           <CodeBlock text={recall.queryContext} />
         </SectionCard>
@@ -233,14 +256,16 @@ function MemoryRecallSection({
 
       {recall.topCandidates.length > 0 && (
         <SectionCard
-          title="Top candidates"
-          subtitle={`${recall.topCandidates.length} candidate(s) ranked by final score.`}
+          title={t("memoryTab.topCandidatesTitle")}
+          subtitle={t("memoryTab.topCandidatesSubtitle", {
+            count: recall.topCandidates.length,
+          })}
         >
           <div className="flex flex-col gap-2">
             {[...recall.topCandidates]
               .sort((a, b) => b.score - a.score)
               .map((c, i) => (
-                <CandidateRow key={`${i}-${c.nodeId}`} candidate={c} />
+                <CandidateRow key={`${i}-${c.nodeId}`} candidate={c} t={t} />
               ))}
           </div>
         </SectionCard>
@@ -248,29 +273,32 @@ function MemoryRecallSection({
 
       {recall.injectedText != null && (
         <SectionCard
-          title="Injected memory context"
+          title={t("memoryTab.injectedMemoryContextTitle")}
           copyText={recall.injectedText}
+          t={t}
         >
           <CodeBlock text={recall.injectedText} />
         </SectionCard>
       )}
 
       {recall.degraded && recall.degradation != null && (
-        <SectionCard title="Degradation">
+        <SectionCard title={t("memoryTab.degradationTitle")}>
           <MetaGrid
             rows={[
               {
-                label: "Reason",
-                value: recall.degradation.reason ?? "Unknown",
+                label: t("memoryTab.reasonLabel"),
+                value: recall.degradation.reason ?? t("memoryTab.unknown"),
               },
               {
-                label: "Semantic unavailable",
-                value: recall.degradation.semanticUnavailable ? "Yes" : "No",
+                label: t("memoryTab.semanticUnavailableLabel"),
+                value: recall.degradation.semanticUnavailable
+                  ? t("memoryTab.yes")
+                  : t("memoryTab.no"),
               },
               ...(recall.degradation.fallbackSources?.length
                 ? [
                     {
-                      label: "Fallback sources",
+                      label: t("memoryTab.fallbackSourcesLabel"),
                       value: recall.degradation.fallbackSources.join(", "),
                     },
                   ]
@@ -285,8 +313,10 @@ function MemoryRecallSection({
 
 function CandidateRow({
   candidate,
+  t,
 }: {
   candidate: MemoryCandidate;
+  t: MemoryTranslate;
 }): ReactNode {
   return (
     <div
@@ -313,8 +343,10 @@ function CandidateRow({
           className="text-label-small"
           style={{ color: "var(--content-tertiary)" }}
         >
-          sem {fmtScore(candidate.semanticSimilarity)} · rec{" "}
-          {fmtScore(candidate.recencyBoost)}
+          {t("memoryTab.candidateScores", {
+            semantic: fmtScore(candidate.semanticSimilarity),
+            recency: fmtScore(candidate.recencyBoost),
+          })}
         </span>
       </div>
     </div>
@@ -324,9 +356,11 @@ function CandidateRow({
 function MemoryV2Section({
   activation,
   assistantId,
+  t,
 }: {
   activation: MemoryV2ActivationLog;
   assistantId: string | undefined;
+  t: MemoryTranslate;
 }): ReactNode {
   const sorted = useMemo(
     () =>
@@ -347,30 +381,35 @@ function MemoryV2Section({
   return (
     <div className="flex flex-col gap-4 p-4">
       <ScopeBanner
-        title={`Memory — turn ${activation.turn} (${activation.mode})`}
-        body="Spreading-activation memory pass that ranks concepts and skills for this turn."
+        title={t("memoryTab.v2TurnTitle", {
+          turn: activation.turn,
+          mode: activation.mode,
+        })}
+        body={t("memoryTab.v2TurnBody")}
       />
 
       <div className="flex flex-wrap gap-2">
         <CountPill
-          label={`In context: ${fmt(inContextCount)}`}
+          label={t("memoryTab.inContextPill", { count: fmt(inContextCount) })}
           dotColor={v2StatusColor("in_context")}
         />
         <CountPill
-          label={`Injected: ${fmt(injectedCount)}`}
+          label={t("memoryTab.injectedPill", { count: fmt(injectedCount) })}
           dotColor={v2StatusColor("injected")}
         />
         <CountPill
-          label={`Not injected: ${fmt(notInjectedCount)}`}
+          label={t("memoryTab.notInjectedPill", { count: fmt(notInjectedCount) })}
           dotColor={v2StatusColor("not_injected")}
         />
       </div>
 
-      <V2ConfigCard config={cfg} />
+      <V2ConfigCard config={cfg} t={t} />
 
       <SectionCard
-        title={`Concept activations (${fmt(sorted.length)})`}
-        subtitle="Sorted by final activation. Skill entries appear with the `skills/` slug prefix; expand a row for the activation breakdown."
+        title={t("memoryTab.conceptActivationsTitle", {
+          count: fmt(sorted.length),
+        })}
+        subtitle={t("memoryTab.conceptActivationsSubtitle")}
       >
         {sorted.length > 0 ? (
           <div className="flex flex-col gap-1">
@@ -380,6 +419,7 @@ function MemoryV2Section({
                 concept={concept}
                 config={cfg}
                 assistantId={assistantId}
+                t={t}
               />
             ))}
           </div>
@@ -388,7 +428,7 @@ function MemoryV2Section({
             className="text-body-medium-lighter"
             style={{ color: "var(--content-secondary)" }}
           >
-            No entries ranked.
+            {t("memoryTab.noEntriesRanked")}
           </span>
         )}
       </SectionCard>
@@ -399,8 +439,10 @@ function MemoryV2Section({
 /** Collapsible config card mirroring the macOS V2 tab's disclosure group. */
 function V2ConfigCard({
   config,
+  t,
 }: {
   config: MemoryV2ActivationLog["config"];
+  t: MemoryTranslate;
 }): ReactNode {
   const [expanded, setExpanded] = useState(false);
 
@@ -423,13 +465,13 @@ function V2ConfigCard({
               className="text-body-medium-default"
               style={{ color: "var(--content-default)" }}
             >
-              Config
+              {t("memoryTab.configTitle")}
             </span>
             <span
               className="text-label-default"
               style={{ color: "var(--content-tertiary)" }}
             >
-              Activation weights and selection thresholds.
+              {t("memoryTab.configSubtitle")}
             </span>
           </span>
           <span
@@ -446,14 +488,17 @@ function V2ConfigCard({
         {expanded && (
           <MetaGrid
             rows={[
-              { label: "d (decay)", value: fmtAct(config.d) },
-              { label: "c_user", value: fmtAct(config.c_user) },
-              { label: "c_assistant", value: fmtAct(config.c_assistant) },
-              { label: "c_now", value: fmtAct(config.c_now) },
-              { label: "k (sharpening)", value: fmtAct(config.k) },
-              { label: "hops", value: String(config.hops) },
-              { label: "top_k", value: String(config.top_k) },
-              { label: "epsilon", value: fmtAct(config.epsilon) },
+              { label: t("memoryTab.configDDecay"), value: fmtAct(config.d) },
+              { label: t("memoryTab.configCUser"), value: fmtAct(config.c_user) },
+              {
+                label: t("memoryTab.configCAssistant"),
+                value: fmtAct(config.c_assistant),
+              },
+              { label: t("memoryTab.configCNow"), value: fmtAct(config.c_now) },
+              { label: t("memoryTab.configKSharpening"), value: fmtAct(config.k) },
+              { label: t("memoryTab.configHops"), value: String(config.hops) },
+              { label: t("memoryTab.configTopK"), value: String(config.top_k) },
+              { label: t("memoryTab.configEpsilon"), value: fmtAct(config.epsilon) },
             ]}
           />
         )}
@@ -492,8 +537,10 @@ function CountPill({
 
 function MemoryV3Section({
   selection,
+  t,
 }: {
   selection: MemoryV3SelectionLog;
+  t: MemoryTranslate;
 }): ReactNode {
   const coreCount = selection.selections.filter((s) =>
     s.source.startsWith("core"),
@@ -514,32 +561,42 @@ function MemoryV3Section({
       <ScopeBanner
         title={
           live
-            ? "Memory V3 — live injection"
-            : "Memory V3 — logged selection (not injected)"
+            ? t("memoryTab.v3LiveInjectionTitle")
+            : t("memoryTab.v3LoggedSelectionTitle")
         }
         body={
           live
-            ? "v3 is the live memory source this turn — the block below was injected into context (v2 suppressed)."
-            : "v3 is not the live memory source for this assistant — these selections were logged but not injected this turn; the turn's memory came from v2."
+            ? t("memoryTab.v3LiveInjectionBody")
+            : t("memoryTab.v3LoggedSelectionBody")
         }
       />
 
       <div className="flex flex-wrap gap-2">
-        <CountPill label={`Turn ${selection.turn}`} />
-        <CountPill label={`Selected: ${fmt(selection.selections.length)}`} />
-        <CountPill label={`Core: ${fmt(coreCount)}`} />
-        <CountPill label={`Carried: ${fmt(carryCount)}`} />
-        <CountPill label={`Pinned: ${fmt(pinnedCount)}`} />
+        <CountPill label={t("memoryTab.turnPill", { turn: selection.turn })} />
+        <CountPill
+          label={t("memoryTab.selectedPill", {
+            count: fmt(selection.selections.length),
+          })}
+        />
+        <CountPill label={t("memoryTab.corePill", { count: fmt(coreCount) })} />
+        <CountPill
+          label={t("memoryTab.carriedPill", { count: fmt(carryCount) })}
+        />
+        <CountPill
+          label={t("memoryTab.pinnedPill", { count: fmt(pinnedCount) })}
+        />
       </div>
 
       <SectionCard
-        title={`Selected pages (${fmt(selection.selections.length)})`}
-        subtitle="Pages v3 selected, tagged by the lane that surfaced them and the matched section (when a finder lane surfaced one)."
+        title={t("memoryTab.selectedPagesTitle", {
+          count: fmt(selection.selections.length),
+        })}
+        subtitle={t("memoryTab.selectedPagesSubtitle")}
       >
         {selection.selections.length > 0 ? (
           <div className="flex flex-col gap-1">
             {selection.selections.map((row) => (
-              <V3SelectionRow key={row.slug} row={row} />
+              <V3SelectionRow key={row.slug} row={row} t={t} />
             ))}
           </div>
         ) : (
@@ -547,20 +604,23 @@ function MemoryV3Section({
             className="text-body-medium-lighter"
             style={{ color: "var(--content-secondary)" }}
           >
-            No pages selected.
+            {t("memoryTab.noPagesSelected")}
           </span>
         )}
       </SectionCard>
 
       {selection.injectedText !== "" && (
         <SectionCard
-          title={live ? "Injected memory context" : "Logged memory selection"}
-          subtitle={
+          title={
             live
-              ? undefined
-              : "Rendered from the v3 selection — not injected this turn."
+              ? t("memoryTab.injectedMemoryContextTitle")
+              : t("memoryTab.loggedMemorySelectionTitle")
+          }
+          subtitle={
+            live ? undefined : t("memoryTab.loggedMemorySelectionSubtitle")
           }
           copyText={selection.injectedText}
+          t={t}
         >
           <CodeBlock text={selection.injectedText} />
         </SectionCard>
@@ -581,7 +641,13 @@ type V3SelectionRowData = MemoryV3SelectionRow & {
   sectionHeading?: string | null;
 };
 
-function V3SelectionRow({ row }: { row: V3SelectionRowData }): ReactNode {
+function V3SelectionRow({
+  row,
+  t,
+}: {
+  row: V3SelectionRowData;
+  t: MemoryTranslate;
+}): ReactNode {
   return (
     <div
       className="flex items-center justify-between gap-3 rounded-md px-3 py-2"
@@ -599,24 +665,24 @@ function V3SelectionRow({ row }: { row: V3SelectionRowData }): ReactNode {
         ) : null}
       </code>
       <div className="flex shrink-0 items-center gap-1.5">
-        {row.pinned && <TypeChip label="pinned" />}
-        <TypeChip label={formatV3Source(row.source)} />
+        {row.pinned && <TypeChip label={t("memoryTab.pinnedChip")} />}
+        <TypeChip label={formatV3Source(row.source, t)} />
       </div>
     </div>
   );
 }
 
 /** Display label for a v3 selection lane (`source`). */
-function formatV3Source(source: string): string {
+function formatV3Source(source: string, t: MemoryTranslate): string {
   switch (source) {
     case "l1+l2":
-      return "L1+L2";
+      return t("memoryTab.v3SourceL1L2");
     case "core+l2":
-      return "core";
+      return t("memoryTab.v3SourceCore");
     case "carry-forward":
-      return "carried";
+      return t("memoryTab.v3SourceCarried");
     case "needle":
-      return "needle";
+      return t("memoryTab.v3SourceNeedle");
     default:
       return source;
   }
@@ -626,35 +692,55 @@ function ConceptRow({
   concept,
   config,
   assistantId,
+  t,
 }: {
   concept: MemoryV2ConceptRow;
   config: MemoryV2ActivationLog["config"];
   assistantId: string | undefined;
+  t: MemoryTranslate;
 }): ReactNode {
   const [expanded, setExpanded] = useState(false);
 
   const isCustomSource = concept.source !== "ann_top50";
   const statusColor = v2StatusColor(concept.status);
-  const statusText = v2StatusLabel(concept.status);
+  const statusText = v2StatusLabel(concept.status, t);
 
   // Render the scaled contribution to A_o (coefficient × raw) with the raw
   // similarity in parens, matching the macOS tab — the scaled values are
   // what actually sum into the own-activation term.
   const breakdownRows: { label: string; value: string }[] = [
-    { label: "A_o (own)", value: fmtAct(concept.ownActivation) },
-    { label: "spread Δ", value: fmtAct(concept.spreadContribution) },
-    { label: "prior · d", value: fmtAct(concept.priorActivation) },
     {
-      label: "c_user · sim_u",
-      value: `${fmtAct(concept.simUser * config.c_user)}  (raw ${fmtAct(concept.simUser)})`,
+      label: t("memoryTab.breakdownOwnActivation"),
+      value: fmtAct(concept.ownActivation),
     },
     {
-      label: "c_assistant · sim_a",
-      value: `${fmtAct(concept.simAssistant * config.c_assistant)}  (raw ${fmtAct(concept.simAssistant)})`,
+      label: t("memoryTab.breakdownSpreadDelta"),
+      value: fmtAct(concept.spreadContribution),
     },
     {
-      label: "c_now · sim_n",
-      value: `${fmtAct(concept.simNow * config.c_now)}  (raw ${fmtAct(concept.simNow)})`,
+      label: t("memoryTab.breakdownPriorActivation"),
+      value: fmtAct(concept.priorActivation),
+    },
+    {
+      label: t("memoryTab.breakdownCUserSim"),
+      value: t("memoryTab.breakdownScaledRaw", {
+        scaled: fmtAct(concept.simUser * config.c_user),
+        raw: fmtAct(concept.simUser),
+      }),
+    },
+    {
+      label: t("memoryTab.breakdownCAssistantSim"),
+      value: t("memoryTab.breakdownScaledRaw", {
+        scaled: fmtAct(concept.simAssistant * config.c_assistant),
+        raw: fmtAct(concept.simAssistant),
+      }),
+    },
+    {
+      label: t("memoryTab.breakdownCNowSim"),
+      value: t("memoryTab.breakdownScaledRaw", {
+        scaled: fmtAct(concept.simNow * config.c_now),
+        raw: fmtAct(concept.simNow),
+      }),
     },
   ];
 
@@ -666,18 +752,30 @@ function ConceptRow({
   const rerankAsst = concept.simAssistantRerankBoost ?? 0;
   if ((concept.inRerankPool ?? false) || rerankUser > 0 || rerankAsst > 0) {
     breakdownRows.push({
-      label: "c_user · rerank Δ_u",
-      value: `+${fmtAct(rerankUser * config.c_user)}  (raw ${fmtAct(rerankUser)})`,
+      label: t("memoryTab.breakdownCUserRerank"),
+      value: t("memoryTab.breakdownRerankScaledRaw", {
+        scaled: fmtAct(rerankUser * config.c_user),
+        raw: fmtAct(rerankUser),
+      }),
     });
     breakdownRows.push({
-      label: "c_assistant · rerank Δ_a",
-      value: `+${fmtAct(rerankAsst * config.c_assistant)}  (raw ${fmtAct(rerankAsst)})`,
+      label: t("memoryTab.breakdownCAssistantRerank"),
+      value: t("memoryTab.breakdownRerankScaledRaw", {
+        scaled: fmtAct(rerankAsst * config.c_assistant),
+        raw: fmtAct(rerankAsst),
+      }),
     });
   }
   if (isCustomSource) {
-    breakdownRows.push({ label: "source", value: concept.source });
+    breakdownRows.push({
+      label: t("memoryTab.breakdownSource"),
+      value: concept.source,
+    });
   }
-  breakdownRows.push({ label: "status", value: statusText });
+  breakdownRows.push({
+    label: t("memoryTab.breakdownStatus"),
+    value: statusText,
+  });
 
   const barWidth = Math.max(0, Math.min(concept.finalActivation, 1));
 
@@ -750,7 +848,11 @@ function ConceptRow({
           {breakdownRows.map(({ label, value }) => (
             <BreakdownRow key={label} label={label} value={value} />
           ))}
-          <ConceptPageContent assistantId={assistantId} slug={concept.slug} />
+          <ConceptPageContent
+            assistantId={assistantId}
+            slug={concept.slug}
+            t={t}
+          />
         </div>
       )}
     </div>
@@ -765,9 +867,11 @@ function ConceptRow({
 function ConceptPageContent({
   assistantId,
   slug,
+  t,
 }: {
   assistantId: string | undefined;
   slug: string;
+  t: MemoryTranslate;
 }): ReactNode {
   const query = useQuery({
     ...conceptPageQueryOptions(assistantId ?? "", slug),
@@ -781,7 +885,7 @@ function ConceptPageContent({
         className="text-label-small"
         style={{ color: "var(--content-tertiary)" }}
       >
-        Page not found on disk — slug may reference a stale Qdrant entry.
+        {t("memoryTab.pageNotFound")}
       </span>
     );
   } else if (query.data?.kind === "loaded") {
@@ -792,7 +896,7 @@ function ConceptPageContent({
         className="text-label-small"
         style={{ color: "var(--content-tertiary)" }}
       >
-        Loading…
+        {t("memoryTab.loading")}
       </span>
     );
   }
@@ -803,7 +907,7 @@ function ConceptPageContent({
         className="text-label-small"
         style={{ color: "var(--content-secondary)" }}
       >
-        page content
+        {t("memoryTab.pageContentLabel")}
       </span>
       {body}
     </div>
@@ -843,11 +947,13 @@ function SectionCard({
   subtitle,
   copyText,
   children,
+  t,
 }: {
   title: string;
   subtitle?: string;
   copyText?: string;
   children?: ReactNode;
+  t?: MemoryTranslate;
 }): ReactNode {
   return (
     <Card>
@@ -869,7 +975,7 @@ function SectionCard({
               </span>
             )}
           </div>
-          {copyText != null && <CopyButton text={copyText} />}
+          {copyText != null && t != null && <CopyButton text={copyText} t={t} />}
         </div>
         {children}
       </div>
@@ -959,7 +1065,13 @@ function TypeChip({ label }: { label: string }): ReactNode {
   );
 }
 
-function CopyButton({ text }: { text: string }): ReactNode {
+function CopyButton({
+  text,
+  t,
+}: {
+  text: string;
+  t: MemoryTranslate;
+}): ReactNode {
   const [copied, setCopied] = useState(false);
   const timerRef = useRef<ReturnType<typeof setTimeout>>(null);
 
@@ -972,7 +1084,7 @@ function CopyButton({ text }: { text: string }): ReactNode {
 
   const handleCopy = () => {
     copyToClipboard(text, {
-      errorMessage: "Couldn't copy to clipboard.",
+      errorMessage: t("memoryTab.copyErrorMessage"),
       onCopied: () => {
         setCopied(true);
         clearTimeout(timerRef.current!);
@@ -984,8 +1096,10 @@ function CopyButton({ text }: { text: string }): ReactNode {
   return (
     <button
       onClick={handleCopy}
-      title={copied ? "Copied!" : "Copy"}
-      aria-label={copied ? "Copied" : "Copy to clipboard"}
+      title={copied ? t("memoryTab.copyTitleCopied") : t("memoryTab.copyTitle")}
+      aria-label={
+        copied ? t("memoryTab.copyAriaLabelCopied") : t("memoryTab.copyAriaLabel")
+      }
       className="flex shrink-0 items-center gap-1 rounded px-2 py-1 text-label-default transition-colors"
       style={{
         background: "var(--surface-overlay)",
@@ -997,25 +1111,25 @@ function CopyButton({ text }: { text: string }): ReactNode {
       }}
     >
       <Copy size={12} aria-hidden />
-      {copied ? "Copied" : "Copy"}
+      {copied ? t("memoryTab.copyButtonCopied") : t("memoryTab.copyButtonCopy")}
     </button>
   );
 }
 
-function NoDataState(): ReactNode {
+function NoDataState({ t }: { t: MemoryTranslate }): ReactNode {
   return (
     <div className="flex h-full flex-col items-center justify-center gap-2 p-8 text-center">
       <p
         className="text-body-medium-default"
         style={{ color: "var(--content-default)" }}
       >
-        No memory data
+        {t("memoryTab.noDataTitle")}
       </p>
       <p
         className="max-w-sm text-label-default"
         style={{ color: "var(--content-secondary)" }}
       >
-        Memory recall information is not available for this message.
+        {t("memoryTab.noDataBody")}
       </p>
     </div>
   );
@@ -1048,16 +1162,16 @@ function v2StatusColor(status: string): string {
   }
 }
 
-function v2StatusLabel(status: string): string {
+function v2StatusLabel(status: string, t: MemoryTranslate): string {
   switch (status) {
     case "in_context":
-      return "In context";
+      return t("memoryTab.v2StatusInContext");
     case "injected":
-      return "Injected";
+      return t("memoryTab.v2StatusInjected");
     case "not_injected":
-      return "Not injected";
+      return t("memoryTab.v2StatusNotInjected");
     case "page_missing":
-      return "Page missing";
+      return t("memoryTab.v2StatusPageMissing");
     default:
       return status;
   }
