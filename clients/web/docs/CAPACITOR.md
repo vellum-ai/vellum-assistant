@@ -280,7 +280,7 @@ The bridge contract:
 | `add({url, name?})` | `{ ok }` | Deduped by canonical url. A nameless re-add keeps the stored label |
 | `remove({url})` | `{ ok }` | Forgetting the active url also clears the active slot, so the shell returns to the baked origin |
 | `switchTo({url?})` | `{ ok }` | Swaps the active slot and reloads the shell onto it (see the per-surface list below). An absent or empty `url` returns to the baked origin |
-| `switchToPath({url?, path})` | `{ ok }` | `switchTo` plus an initial in-app route loaded relative to the destination's app entry URL. A malformed `path` (empty, absolute, scheme-ful, or carrying a fragment) rejects up front; a path that passes those checks but fails route building (e.g. `..` segments) still switches and falls back to the app entry URL |
+| `switchToPath({url?, path})` | `{ ok }` | `switchTo` plus an initial in-app route loaded relative to the destination's app entry URL. A malformed `path` (empty, absolute, containing `://`, or carrying a fragment) rejects up front; a path that passes those checks but fails route building still switches and falls back to the app entry URL |
 
 Only genuinely invalid caller input rejects (an `add`/`switchTo`/`switchToPath`
 url that fails `SelfHostedServer.validate`, or a malformed `switchToPath`
@@ -291,7 +291,10 @@ Urls cross the bridge in one canonical form: `SelfHostedServer.canonicalize` and
 the store's `normalizeOriginUrl` implement the same rules (lowercase scheme and
 host, userinfo dropped, trailing slashes stripped, query and fragment dropped,
 path and port preserved), so both sides agree on which strings mean the same
-server. Changing one means changing the others.
+HTTPS server. Changing one means changing the others. The one divergence is
+deliberate: the Android shell also accepts cleartext development hosts
+(`http://localhost` and friends) that `normalizeOriginUrl` rejects, so those
+entries live in the native list but never surface as chooser cards.
 
 **Switching is per surface, and every surface has a working answer.**
 
