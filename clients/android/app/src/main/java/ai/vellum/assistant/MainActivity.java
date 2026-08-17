@@ -332,6 +332,7 @@ public class MainActivity extends BridgeActivity {
             return;
         }
         SelfHostedServer.store(this, pendingConnect.server());
+        SelfHostedServer.append(this, pendingConnect.server(), pendingConnect.name());
         pendingConnect = null;
     }
 
