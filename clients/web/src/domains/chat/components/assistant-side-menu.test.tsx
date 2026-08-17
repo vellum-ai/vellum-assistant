@@ -128,6 +128,7 @@ import type {
   ConversationGroup,
 } from "@/types/conversation-types";
 import { AssistantSideMenu } from "@/domains/chat/components/assistant-side-menu";
+import { CONVERSATION_LIST_VIRTUALIZE_THRESHOLD } from "@/domains/chat/components/conversation-nav-section";
 import { useSidebarLayoutStore } from "@/domains/chat/sidebar-layout-store";
 import { usePinnedAppsStore } from "@/stores/pinned-apps-store";
 import type { PinnedAppEntry } from "@/utils/app-pin-storage";
@@ -1580,6 +1581,60 @@ describe("AssistantSideMenu · equal section treatment", () => {
     } finally {
       cleanup();
     }
+  });
+
+  /*
+   * Past CONVERSATION_LIST_VIRTUALIZE_THRESHOLD the bottom-most section
+   * windows its rows through virtuoso, and a windowed list renders only what
+   * fits its viewport: unlike mounted rows, it has no natural height of its
+   * own. Its box therefore needs two things, and losing either blanks the
+   * whole list while the caches stay fully populated: the accordion root must
+   * forward the sidebar body's height down to the card's flex-fill, and the
+   * box itself must floor at the section cap so a squeezed (or broken) chain
+   * still yields a scrollable section rather than a zero-height one.
+   */
+  test("past the virtualize threshold, Chats windows into a bounded, filling box", () => {
+    localStorage.setItem("vellum:sidebar-view-mode:asst-1", "all");
+    const container = parse(
+      renderMenu({
+        conversations: Array.from(
+          { length: CONVERSATION_LIST_VIRTUALIZE_THRESHOLD + 1 },
+          (_, index) =>
+            makeConversation({
+              conversationId: `r${index}`,
+              title: `Recent ${index}`,
+            }),
+        ),
+      }),
+    );
+
+    const sections = sectionElements(container);
+    const labels = sectionLabels(container);
+    const chats = sections[labels.indexOf("Chats")];
+    if (!chats) {
+      throw new Error("expected the Chats section");
+    }
+
+    // The windowed path: virtuoso owns the rows, no mounted scroller.
+    expect(chats.querySelector(".overflow-y-auto")).toBeNull();
+    const windowed = chats.querySelector<HTMLElement>(
+      '[data-slot="virtual-list"]',
+    );
+    if (!windowed?.parentElement) {
+      throw new Error("expected the windowed row list and its sizing box");
+    }
+
+    const box = windowed.parentElement;
+    expect(box.classList.contains("flex-1")).toBe(true);
+    expect(box.style.minHeight).toBe(`${SIDEBAR_SECTION_MAX_HEIGHT}px`);
+
+    // The fill above the floor only resolves if the accordion root passes
+    // the body's height to the card's flex-fill.
+    const root = container.querySelector<HTMLElement>(
+      '[data-slot="collapsible"]',
+    );
+    expect(root?.classList.contains("flex-1")).toBe(true);
+    expect(root?.classList.contains("min-h-0")).toBe(true);
   });
 
   test("every section renders through the same component with the same affordances", () => {

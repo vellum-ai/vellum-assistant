@@ -25,7 +25,7 @@ import {
   configGetOptions,
   ttsProvidersGetOptions,
 } from "@/generated/daemon/@tanstack/react-query.gen";
-import { useIsOrgReady } from "@/hooks/use-is-org-ready";
+import { useOrgHeaderReadiness } from "@/hooks/use-is-org-ready";
 import {
   useManagedVoices,
   type ManagedVoiceOption,
@@ -50,6 +50,14 @@ export interface UseManagedVoiceSelection {
    * a "set it in Settings" state without flashing it during the fetch.
    */
   isByok: boolean;
+  /**
+   * Every fetch that decides `available` has concluded (or was never going to
+   * run: no assistant, or an organization that resolved to nothing). Until then
+   * `available` and `isByok` are both false and say nothing about each other,
+   * so a surface with no picker to show can hold its chrome back rather than
+   * draw an empty box that never fills.
+   */
+  settled: boolean;
   voices: readonly ManagedVoiceOption[];
   /**
    * The currently-selected model: the pick a write is still carrying, else the
@@ -70,16 +78,16 @@ export interface UseManagedVoiceSelection {
 export function useManagedVoiceSelection(
   assistantId: string | null,
 ): UseManagedVoiceSelection {
-  const isOrgReady = useIsOrgReady();
-  const enabled = isOrgReady && !!assistantId;
+  const orgReadiness = useOrgHeaderReadiness();
+  const enabled = orgReadiness === "ready" && !!assistantId;
 
-  const { data: providerCatalog } = useQuery({
+  const { data: providerCatalog, isLoading: catalogLoading } = useQuery({
     ...ttsProvidersGetOptions({ path: { assistant_id: assistantId ?? "" } }),
     enabled,
     staleTime: Infinity,
     retry: false,
   });
-  const { data: daemonConfig } = useQuery({
+  const { data: daemonConfig, isLoading: configLoading } = useQuery({
     ...configGetOptions({ path: { assistant_id: assistantId ?? "" } }),
     enabled,
     staleTime: 30_000,
@@ -104,7 +112,11 @@ export function useManagedVoiceSelection(
     providerCatalog?.providers?.find((p) => p.id === "vellum")
       ?.supportsVoiceSelection === true;
 
-  const { voices, defaultModel } = useManagedVoices(assistantId, {
+  const {
+    voices,
+    defaultModel,
+    loading: voicesLoading,
+  } = useManagedVoices(assistantId, {
     enabled: enabled && isManaged,
   });
 
@@ -113,6 +125,17 @@ export function useManagedVoiceSelection(
   // Gated on config having actually arrived — an unfetched config reads as
   // "not managed", which would flash the BYO state on every mount.
   const isByok = enabled && !!daemonConfig && !isManaged;
+  // "Nothing is in flight, and nothing is waiting to start." Each `isLoading`
+  // is false for a query that is disabled or has failed, so the states that
+  // never produce a picker (no assistant, an org that resolved to nothing, an
+  // old daemon, a catalog that failed or came back empty) settle rather than
+  // read as perpetually loading. `"resolving"` is the one wait not expressed as
+  // a query: it disables all three, and they'd otherwise look settled.
+  const settled =
+    orgReadiness !== "resolving" &&
+    !catalogLoading &&
+    !configLoading &&
+    !voicesLoading;
 
   const configuredModel =
     daemonTts?.providers?.vellum?.model ??
@@ -134,6 +157,7 @@ export function useManagedVoiceSelection(
   return {
     available,
     isByok,
+    settled,
     voices,
     currentModel,
     defaultModel: defaultModel ?? "",

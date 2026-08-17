@@ -35,6 +35,7 @@ const ASSISTANT_ID = "asst_1";
 let orgReady = true;
 mock.module("@/hooks/use-is-org-ready", () => ({
   useIsOrgReady: () => orgReady,
+  useOrgHeaderReadiness: () => (orgReady ? "ready" : "resolving"),
 }));
 mock.module("@vellumai/design-library/components/toast", () => ({
   toast: { success: () => {}, error: () => {} },

@@ -1,6 +1,7 @@
 import { ChevronDown } from "lucide-react";
 import { useState, type ReactNode } from "react";
 
+import { useTranslation } from "@/i18n";
 import type { LLMRequestLogEntry } from "@vellumai/assistant-api";
 import { BottomSheet } from "@vellumai/design-library";
 
@@ -39,6 +40,7 @@ export function MobileCallSelector({
   callNumbers,
   conversationCallCount,
 }: MobileCallSelectorProps): ReactNode {
+  const { t } = useTranslation("chat");
   const [open, setOpen] = useState(false);
 
   // Identify the selected call's chronological position so the trigger
@@ -62,17 +64,15 @@ export function MobileCallSelector({
 
   const triggerLabel =
     callNumber != null
-      ? `Call ${callNumber} of ${total}`
-      : total === 1
-        ? "1 LLM call"
-        : `${total} LLM calls`;
+      ? t("mobileCallSelector.callOfTotal", { number: callNumber, total })
+      : t("mobileCallSelector.llmCallCount", { count: total });
 
   return (
     <BottomSheet.Root open={open} onOpenChange={setOpen}>
       <BottomSheet.Trigger asChild>
         <button
           type="button"
-          aria-label="Select an LLM call to inspect"
+          aria-label={t("mobileCallSelector.selectCallAria")}
           className="flex w-full shrink-0 items-center justify-between gap-2 px-4 py-2.5 text-left"
           style={{
             background: "var(--surface-base)",
@@ -90,7 +90,9 @@ export function MobileCallSelector({
       </BottomSheet.Trigger>
       <BottomSheet.Content className="max-h-[80dvh]">
         <BottomSheet.Header>
-          <BottomSheet.Title>Select a call</BottomSheet.Title>
+          <BottomSheet.Title>
+            {t("mobileCallSelector.sheetTitle")}
+          </BottomSheet.Title>
         </BottomSheet.Header>
         {/* Reset the sheet body's horizontal padding so the rail's own
             row padding (`p-3` on each `CallRow`) matches the desktop

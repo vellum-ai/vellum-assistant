@@ -83,7 +83,6 @@ export interface SubagentEntry {
   error?: string;
   inputTokens: number;
   outputTokens: number;
-  totalCost: number;
   spawnedAt: number;
   events: SubagentTimelineEvent[];
   /** The subagent's own conversation ID, used to fetch detail data. */
@@ -214,7 +213,6 @@ export interface SubagentActions {
      */
     inputTokens?: number;
     outputTokens?: number;
-    totalCost?: number;
   }) => void;
 
   changeStatus: (params: {
@@ -223,7 +221,6 @@ export interface SubagentActions {
     error?: string;
     inputTokens?: number;
     outputTokens?: number;
-    totalCost?: number;
   }) => void;
 
   /**
@@ -260,7 +257,6 @@ export interface SubagentActions {
     parentToolUseId?: string;
     inputTokens?: number;
     outputTokens?: number;
-    totalCost?: number;
   }) => void;
 
   receiveEvent: (params: {
@@ -275,7 +271,6 @@ export interface SubagentActions {
     objective?: string;
     inputTokens?: number;
     outputTokens?: number;
-    totalCost?: number;
     events: SubagentTimelineEvent[];
     /** Backfills a stub entry's placeholder label (0.11.0+ daemons). */
     label?: string;
@@ -347,7 +342,6 @@ export interface SubagentActions {
     subagentId: string;
     inputTokens: number;
     outputTokens: number;
-    estimatedCost: number;
   }) => void;
 
   /**
@@ -682,7 +676,6 @@ function applyReconciledSubagent(
         error: info.error,
         inputTokens: info.usage?.inputTokens,
         outputTokens: info.usage?.outputTokens,
-        totalCost: info.usage?.estimatedCost,
       });
     }
     store.backfillIdentity({
@@ -713,7 +706,6 @@ function applyReconciledSubagent(
     parentToolUseId: info.parentToolUseId,
     inputTokens: info.usage?.inputTokens,
     outputTokens: info.usage?.outputTokens,
-    totalCost: info.usage?.estimatedCost,
   });
 }
 
@@ -820,7 +812,6 @@ const useSubagentStoreBase = create<SubagentStore>()((set, get) => ({
       error: params.error,
       inputTokens: params.inputTokens ?? 0,
       outputTokens: params.outputTokens ?? 0,
-      totalCost: params.totalCost ?? 0,
       spawnedAt: params.timestamp,
       events: [],
       conversationId: params.conversationId,
@@ -850,9 +841,7 @@ const useSubagentStoreBase = create<SubagentStore>()((set, get) => ({
     // final, so a straggling `usage_progress` must not add to them.
     if (
       !isActiveStatus(entry.status) &&
-      (params.inputTokens != null ||
-        params.outputTokens != null ||
-        params.totalCost != null)
+      (params.inputTokens != null || params.outputTokens != null)
     ) {
       get().terminalUsageIds.add(params.subagentId);
     }
@@ -887,7 +876,6 @@ const useSubagentStoreBase = create<SubagentStore>()((set, get) => ({
       parentToolUseId: params.parentToolUseId,
       inputTokens: params.inputTokens,
       outputTokens: params.outputTokens,
-      totalCost: params.totalCost,
     });
 
     // Only a live row can have its backfill overtaken by streamed events, and
@@ -949,7 +937,6 @@ const useSubagentStoreBase = create<SubagentStore>()((set, get) => ({
           // tally — only the zero-on-abort case falls back to `existing`.
           inputTokens: params.inputTokens || existing.inputTokens,
           outputTokens: params.outputTokens || existing.outputTokens,
-          totalCost: params.totalCost || existing.totalCost,
         },
       },
     });
@@ -959,9 +946,7 @@ const useSubagentStoreBase = create<SubagentStore>()((set, get) => ({
     // alongside the terminal status event.
     if (
       !isActiveStatus(params.status) &&
-      (params.inputTokens != null ||
-        params.outputTokens != null ||
-        params.totalCost != null)
+      (params.inputTokens != null || params.outputTokens != null)
     ) {
       get().terminalUsageIds.add(params.subagentId);
     }
@@ -1111,7 +1096,6 @@ const useSubagentStoreBase = create<SubagentStore>()((set, get) => ({
           objective: params.objective ?? existing.objective,
           inputTokens: params.inputTokens ?? existing.inputTokens,
           outputTokens: params.outputTokens ?? existing.outputTokens,
-          totalCost: params.totalCost ?? existing.totalCost,
           events:
             params.events.length > 0 && existing.events.length === 0
               ? params.events
@@ -1262,7 +1246,6 @@ const useSubagentStoreBase = create<SubagentStore>()((set, get) => ({
           ...existing,
           inputTokens: existing.inputTokens + params.inputTokens,
           outputTokens: existing.outputTokens + params.outputTokens,
-          totalCost: existing.totalCost + params.estimatedCost,
         },
       },
     });
@@ -1348,7 +1331,6 @@ const useSubagentStoreBase = create<SubagentStore>()((set, get) => ({
       objective: detail.objective,
       inputTokens: detail.usage?.inputTokens,
       outputTokens: detail.usage?.outputTokens,
-      totalCost: detail.usage?.estimatedCost,
       events,
       label: detail.label,
       parentToolUseId: detail.parentToolUseId,

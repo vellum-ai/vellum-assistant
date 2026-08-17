@@ -2,7 +2,7 @@ import { ChevronRight, Loader2 } from "lucide-react";
 import { useState } from "react";
 import { useNavigate } from "react-router";
 
-import { DetailCard } from "@/components/detail-card";
+import { InsetDetailCard } from "@/components/inset-detail-card";
 import { StatusDot } from "@/domains/settings/components/schedule-shared-ui";
 import {
   formatDuration,
@@ -63,7 +63,7 @@ export function RecentRunsCard({
     ) : null;
 
   return (
-    <DetailCard title="Recent runs">
+    <InsetDetailCard title="Recent runs">
       {isLoading ? (
         <div className="flex items-center justify-center py-8">
           <Loader2 className="h-5 w-5 animate-spin text-stone-400" />
@@ -184,6 +184,6 @@ export function RecentRunsCard({
           {loadMoreControl}
         </div>
       )}
-    </DetailCard>
+    </InsetDetailCard>
   );
 }

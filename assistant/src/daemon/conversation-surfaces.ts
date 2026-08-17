@@ -140,13 +140,27 @@ const MAX_UNDO_DEPTH = 10;
 
 /**
  * Pending surface types that do not hold the one-interactive-surface-at-a-time
- * lock. Both render content the user reads rather than a question they must
- * answer, so a live one must not block the next surface.
+ * lock. Each renders content the user reads (or settles on its own) rather
+ * than a question they must answer, so a live one must not block the next
+ * surface.
  */
 const NON_BLOCKING_PENDING_SURFACE_TYPES = new Set<SurfaceType>([
   "dynamic_page",
   "visual",
+  "voice_picker",
 ]);
+
+/**
+ * Surface types that carry no terminal action: the card settles when the user
+ * interacts with it, so no click could ever satisfy an attached `actions`
+ * entry or an explicit `await_action`. Both are generic ui_show params though,
+ * so nothing stops the model attaching them here, and doing so wedges the
+ * turn: the client latches `awaiting_user_input` on the presence of actions
+ * alone and no action ever arrives to clear it, leaving the composer disabled
+ * and Stop hidden while the daemon is still streaming. Stripping them makes
+ * the "never blocks a turn" contract structural rather than advisory.
+ */
+const ACTIONLESS_SURFACE_TYPES = new Set<SurfaceType>(["voice_picker"]);
 
 /**
  * Debounce window for persisting `ui_surface_update` data back to the
@@ -3279,8 +3293,12 @@ export async function surfaceProxyResolver(
       }
       inputActions = valid.length > 0 ? valid : undefined;
     }
-    const actions =
-      choiceData !== undefined ? buildChoiceActions(choiceData) : inputActions;
+    const isActionless = ACTIONLESS_SURFACE_TYPES.has(surfaceType);
+    const actions = isActionless
+      ? undefined
+      : choiceData !== undefined
+        ? buildChoiceActions(choiceData)
+        : inputActions;
     const hasActions = Array.isArray(actions) && actions.length > 0;
     if (surfaceType === "choice" && !hasActions) {
       return {
@@ -3332,7 +3350,11 @@ export async function surfaceProxyResolver(
           : surfaceType === "table"
             ? hasActions
             : INTERACTIVE_SURFACE_TYPES.includes(surfaceType);
-    const awaitAction = (input.await_action as boolean) ?? isInteractive;
+    // An explicit `await_action: true` is honored for every other type; an
+    // actionless surface has nothing to await, so it is forced false.
+    const awaitAction = isActionless
+      ? false
+      : ((input.await_action as boolean) ?? isInteractive);
 
     // Only one non-persistent interactive surface at a time. If another
     // surface is already awaiting user input, reject this one so the LLM

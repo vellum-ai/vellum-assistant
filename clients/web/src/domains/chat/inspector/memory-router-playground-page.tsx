@@ -1,9 +1,11 @@
+import type { TFunction } from "i18next";
 import type { ReactNode } from "react";
 import { useEffect, useMemo, useState } from "react";
 
 import { Card } from "@vellumai/design-library";
 
 import { useActiveAssistantId } from "@/assistant/use-active-assistant-id";
+import { Trans, t, useTranslation } from "@/i18n";
 import { useCanUseLlmInspector } from "@/domains/chat/inspector/access";
 import type {
   MemoryRouterSimulateRequest,
@@ -36,17 +38,20 @@ import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
  *      inspector (/assistant/conversations/:conversationId/inspect).
  */
 export function MemoryRouterPlaygroundPage(): ReactNode {
+  const { t } = useTranslation("chat");
   const canInspect = useCanUseLlmInspector();
   const authLoading = useIsSessionInitializing();
   const flagEnabled = useClientFeatureFlagStore.use.memoryRouterPlayground();
 
   if (authLoading) {
-    return <CenteredMessage>Loading…</CenteredMessage>;
+    return (
+      <CenteredMessage>{t("memoryRouterPlaygroundPage.loading")}</CenteredMessage>
+    );
   }
   if (!canInspect || !flagEnabled) {
     return (
       <CenteredMessage>
-        Memory router playground is not available.
+        {t("memoryRouterPlaygroundPage.notAvailable")}
       </CenteredMessage>
     );
   }
@@ -75,6 +80,7 @@ const EMPTY_OVERRIDES: PaneOverrides = {
 };
 
 function PlaygroundView(): ReactNode {
+  const { t } = useTranslation("chat");
   const assistantId = useActiveAssistantId();
   const mutationA = useSimulateMemoryRouter(assistantId);
   const mutationB = useSimulateMemoryRouter(assistantId);
@@ -123,7 +129,9 @@ function PlaygroundView(): ReactNode {
       configOverrides = buildOverrides(overrides);
     } catch (err) {
       setValidation(
-        err instanceof Error ? err.message : "Invalid override input",
+        err instanceof Error
+          ? err.message
+          : t("memoryRouterPlaygroundPage.invalidOverrideInput"),
       );
       return;
     }
@@ -183,6 +191,7 @@ function PlaygroundView(): ReactNode {
         />
         <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
           <PaneConfigForm
+            // eslint-disable-next-line local/no-untranslated-strings -- pane identifier, not copy
             paneId="A"
             overrides={overridesA}
             onChange={setOverridesA}
@@ -194,6 +203,7 @@ function PlaygroundView(): ReactNode {
             defaultPromptTemplate={promptTemplateQuery.data?.template ?? ""}
           />
           <PaneConfigForm
+            // eslint-disable-next-line local/no-untranslated-strings -- pane identifier, not copy
             paneId="B"
             overrides={overridesB}
             onChange={setOverridesB}
@@ -217,6 +227,7 @@ function PlaygroundView(): ReactNode {
         />
         <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
           <PaneOutputColumn
+            // eslint-disable-next-line local/no-untranslated-strings -- pane identifier, not copy
             paneId="A"
             userMessage={lastUserMessage}
             mutation={mutationA}
@@ -224,6 +235,7 @@ function PlaygroundView(): ReactNode {
             validation={validationA}
           />
           <PaneOutputColumn
+            // eslint-disable-next-line local/no-untranslated-strings -- pane identifier, not copy
             paneId="B"
             userMessage={lastUserMessage}
             mutation={mutationB}
@@ -263,7 +275,10 @@ function maybeOverride(
   const parsed = Number(trimmed);
   if (!Number.isInteger(parsed) || parsed < 1) {
     throw new Error(
-      `${fieldName} must be a positive integer or 'null' (got "${trimmed}")`,
+      t("chat:memoryRouterPlaygroundPage.overrideMustBePositiveInteger", {
+        fieldName,
+        value: trimmed,
+      }),
     );
   }
   return { [fieldName]: parsed };
@@ -272,23 +287,25 @@ function maybeOverride(
 // ── Layout components ──────────────────────────────────────────────────────
 
 function PageHeader(): ReactNode {
+  const { t } = useTranslation("chat");
+
   return (
     <div className="flex flex-col gap-1">
       <h1
         className="text-body-large-default"
         style={{ color: "var(--content-default)" }}
       >
-        Memory Router Playground
+        {t("memoryRouterPlaygroundPage.title")}
       </h1>
       <p
         className="text-body-medium-lighter"
         style={{ color: "var(--content-secondary)" }}
       >
-        Dry-run the v4 router with custom tier/batch overrides. Read-only — no
-        rows are written to <code>memory_v2_injection_events</code> or{" "}
-        <code>memory_v2_activation_logs</code>, and no activation state is
-        mutated. Leave an override blank to inherit the live config value; enter{" "}
-        <code>null</code> to explicitly disable a tier.
+        <Trans
+          ns="chat"
+          i18nKey="memoryRouterPlaygroundPage.description"
+          components={{ code: <code /> }}
+        />
       </p>
     </div>
   );
@@ -309,6 +326,7 @@ function ConversationContextSection({
   pairs: RecentTurnPair[];
   onPairsChange: (next: RecentTurnPair[]) => void;
 }): ReactNode {
+  const { t } = useTranslation("chat");
   const updatePair = (index: number, patch: Partial<RecentTurnPair>) => {
     onPairsChange(pairs.map((p, i) => (i === index ? { ...p, ...patch } : p)));
   };
@@ -330,19 +348,19 @@ function ConversationContextSection({
           className="text-body-medium-default"
           style={{ color: "var(--content-default)" }}
         >
-          Conversational context (shared by both panes)
+          {t("memoryRouterPlaygroundPage.conversationalContextTitle")}
         </span>
         <ContextField
           id="memory-router-playground-now"
-          label="<now> block"
+          label={t("memoryRouterPlaygroundPage.nowBlockLabel")}
           value={nowText}
           onChange={onNowTextChange}
           rows={6}
           monospace
           placeholder={
             nowTextLoading
-              ? "Loading current NOW.md…"
-              : "Pre-filled with the live NOW.md. Edit to test alternate states."
+              ? t("memoryRouterPlaygroundPage.nowLoadingPlaceholder")
+              : t("memoryRouterPlaygroundPage.nowDefaultPlaceholder")
           }
           trailing={
             <button
@@ -357,7 +375,7 @@ function ConversationContextSection({
                 cursor: nowTextLoading ? "not-allowed" : "pointer",
               }}
             >
-              Reload live NOW.md
+              {t("memoryRouterPlaygroundPage.reloadNowButton")}
             </button>
           }
         />
@@ -366,7 +384,7 @@ function ConversationContextSection({
             className="text-label-default"
             style={{ color: "var(--content-secondary)" }}
           >
-            Recent (assistant, user) pairs · oldest first
+            {t("memoryRouterPlaygroundPage.recentPairsLabel")}
           </span>
           <button
             type="button"
@@ -379,7 +397,7 @@ function ConversationContextSection({
               cursor: "pointer",
             }}
           >
-            + Add older pair
+            {t("memoryRouterPlaygroundPage.addOlderPairButton")}
           </button>
         </div>
         {pairs.map((pair, index) => {
@@ -398,8 +416,13 @@ function ConversationContextSection({
                   className="text-label-default"
                   style={{ color: "var(--content-secondary)" }}
                 >
-                  Pair {index + 1} of {pairs.length}
-                  {isLast ? " · most recent" : ""}
+                  {t("memoryRouterPlaygroundPage.pairLabel", {
+                    index: index + 1,
+                    total: pairs.length,
+                  })}
+                  {isLast
+                    ? t("memoryRouterPlaygroundPage.pairMostRecentSuffix")
+                    : ""}
                 </span>
                 {!isLast && (
                   <button
@@ -413,32 +436,36 @@ function ConversationContextSection({
                       cursor: "pointer",
                     }}
                   >
-                    Remove
+                    {t("memoryRouterPlaygroundPage.removeButton")}
                   </button>
                 )}
               </div>
               <ContextField
                 id={`memory-router-playground-pair-${index}-assistant`}
-                label="[assistant]: reply"
+                label={t("memoryRouterPlaygroundPage.assistantReplyLabel")}
                 value={pair.assistantMessage}
                 onChange={(v) => updatePair(index, { assistantMessage: v })}
                 rows={3}
                 placeholder={
                   index === 0 && pairs.length === 1
-                    ? "Leave blank for a first-turn scenario."
-                    : "Assistant's reply that came before the user message below."
+                    ? t("memoryRouterPlaygroundPage.firstTurnAssistantPlaceholder")
+                    : t("memoryRouterPlaygroundPage.assistantReplyPlaceholder")
                 }
               />
               <ContextField
                 id={`memory-router-playground-pair-${index}-user`}
                 label={
-                  isLast ? "Just-arrived [user]: message" : "[user]: message"
+                  isLast
+                    ? t("memoryRouterPlaygroundPage.justArrivedUserLabel")
+                    : t("memoryRouterPlaygroundPage.userMessageLabel")
                 }
                 value={pair.userMessage}
                 onChange={(v) => updatePair(index, { userMessage: v })}
                 rows={3}
                 placeholder={
-                  isLast ? "e.g. what should we ship next" : "User's message."
+                  isLast
+                    ? t("memoryRouterPlaygroundPage.lastUserPlaceholder")
+                    : t("memoryRouterPlaygroundPage.userMessagePlaceholder")
                 }
                 required={isLast}
               />
@@ -529,6 +556,8 @@ function PaneConfigForm({
   activeProfile: string | null;
   defaultPromptTemplate: string;
 }): ReactNode {
+  const { t } = useTranslation("chat");
+
   return (
     <Card>
       <div className="flex flex-col gap-4 p-4">
@@ -536,7 +565,7 @@ function PaneConfigForm({
           className="text-body-medium-default"
           style={{ color: paneAccentColor(paneId) }}
         >
-          Config {paneId}
+          {t("memoryRouterPlaygroundPage.configTitle", { paneId })}
         </div>
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
           <OverrideInput
@@ -588,7 +617,9 @@ function PaneConfigForm({
               cursor: canRun ? "pointer" : "not-allowed",
             }}
           >
-            {isRunning ? "Running…" : `Run ${paneId}`}
+            {isRunning
+              ? t("memoryRouterPlaygroundPage.running")
+              : t("memoryRouterPlaygroundPage.runPane", { paneId })}
           </button>
         </div>
       </div>
@@ -607,6 +638,7 @@ function PromptEditor({
   onChange: (value: string) => void;
   defaultTemplate: string;
 }): ReactNode {
+  const { t } = useTranslation("chat");
   const [open, setOpen] = useState(false);
   const inputId = `memory-router-playground-${paneId}-prompt`;
   const usingCustom = value.trim().length > 0;
@@ -626,9 +658,13 @@ function PromptEditor({
             textAlign: "left",
           }}
         >
-          {open ? "▾" : "▸"} System prompt{" "}
+          {open ? "▾" : "▸"} {t("memoryRouterPlaygroundPage.systemPrompt")}{" "}
           <span style={{ color: "var(--content-tertiary)" }}>
-            ({usingCustom ? "custom" : "bundled"})
+            (
+            {usingCustom
+              ? t("memoryRouterPlaygroundPage.promptModeCustom")
+              : t("memoryRouterPlaygroundPage.promptModeBundled")}
+            )
           </span>
         </button>
         {open && (
@@ -646,7 +682,7 @@ function PromptEditor({
                   defaultTemplate.length === 0 ? "not-allowed" : "pointer",
               }}
             >
-              Load default
+              {t("memoryRouterPlaygroundPage.loadDefault")}
             </button>
             <button
               type="button"
@@ -660,7 +696,7 @@ function PromptEditor({
                 cursor: usingCustom ? "pointer" : "not-allowed",
               }}
             >
-              Reset
+              {t("memoryRouterPlaygroundPage.reset")}
             </button>
           </div>
         )}
@@ -671,9 +707,7 @@ function PromptEditor({
           value={value}
           onChange={(e) => onChange(e.target.value)}
           rows={12}
-          placeholder={
-            'Custom router system prompt. Available placeholders:\n  {{ASSISTANT_NAME}}, {{USER_NAME}}, {{PAGE_INDEX}}\nLeave blank to use the bundled template. "Load default" seeds the textarea with the bundled body for editing.'
-          }
+          placeholder={t("memoryRouterPlaygroundPage.customPromptPlaceholder")}
           className="rounded-md border px-3 py-2 text-body-small-default"
           style={{
             borderColor: "var(--border-base)",
@@ -703,11 +737,14 @@ function ProfileSelect({
   profiles: string[];
   activeProfile: string | null;
 }): ReactNode {
+  const { t } = useTranslation("chat");
   const inputId = `memory-router-playground-${paneId}-profile`;
   const inheritLabel =
     activeProfile !== null && activeProfile.length > 0
-      ? `inherit active (${activeProfile})`
-      : "inherit active";
+      ? t("memoryRouterPlaygroundPage.inheritActiveWithProfile", {
+          profile: activeProfile,
+        })
+      : t("memoryRouterPlaygroundPage.inheritActive");
   return (
     <div className="flex flex-col gap-1">
       <label
@@ -715,7 +752,7 @@ function ProfileSelect({
         className="text-label-default"
         style={{ color: "var(--content-secondary)" }}
       >
-        llm.profiles override
+        {t("memoryRouterPlaygroundPage.llmProfilesOverride")}
       </label>
       <select
         id={inputId}
@@ -750,6 +787,7 @@ function OverrideInput({
   value: string;
   onChange: (value: string) => void;
 }): ReactNode {
+  const { t } = useTranslation("chat");
   const inputId = `memory-router-playground-${paneId}-${label}`;
   return (
     <div className="flex flex-col gap-1">
@@ -764,7 +802,7 @@ function OverrideInput({
         id={inputId}
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        placeholder="inherit"
+        placeholder={t("memoryRouterPlaygroundPage.inheritPlaceholder")}
         className="rounded-md border px-3 py-2 text-body-medium-default"
         style={{
           borderColor: "var(--border-base)",
@@ -785,6 +823,8 @@ function RunBothButton({
   disabled: boolean;
   isRunning: boolean;
 }): ReactNode {
+  const { t } = useTranslation("chat");
+
   return (
     <button
       type="button"
@@ -800,12 +840,16 @@ function RunBothButton({
         cursor: disabled ? "not-allowed" : "pointer",
       }}
     >
-      {isRunning ? "Running…" : "Run both"}
+      {isRunning
+        ? t("memoryRouterPlaygroundPage.running")
+        : t("memoryRouterPlaygroundPage.runBoth")}
     </button>
   );
 }
 
 function DiffLegend({ visible }: { visible: boolean }): ReactNode {
+  const { t } = useTranslation("chat");
+
   if (!visible) {
     return null;
   }
@@ -820,17 +864,17 @@ function DiffLegend({ visible }: { visible: boolean }): ReactNode {
       <LegendItem
         marker="●"
         markerColor="var(--content-default)"
-        label="in both"
+        label={t("memoryRouterPlaygroundPage.legendInBoth")}
       />
       <LegendItem
         marker="◆"
         markerColor={paneAccentColor("A")}
-        label="A only"
+        label={t("memoryRouterPlaygroundPage.legendAOnly")}
       />
       <LegendItem
         marker="◇"
         markerColor={paneAccentColor("B")}
-        label="B only"
+        label={t("memoryRouterPlaygroundPage.legendBOnly")}
       />
     </div>
   );
@@ -870,6 +914,7 @@ function PaneOutputColumn({
   otherResult: MemoryRouterSimulateResponse | undefined;
   validation: string | null;
 }): ReactNode {
+  const { t } = useTranslation("chat");
   const data = mutation.data;
   return (
     <div className="flex flex-col gap-3">
@@ -880,7 +925,7 @@ function PaneOutputColumn({
           message={
             mutation.error instanceof Error
               ? mutation.error.message
-              : "Failed to run simulation"
+              : t("memoryRouterPlaygroundPage.failedToRunSimulation")
           }
         />
       )}
@@ -912,6 +957,7 @@ function RawExchangePanel({
   rawRequest: string;
   rawResponse: string;
 }): ReactNode {
+  const { t } = useTranslation("chat");
   const [open, setOpen] = useState(false);
   return (
     <Card>
@@ -929,16 +975,16 @@ function RawExchangePanel({
             textAlign: "left",
           }}
         >
-          {open ? "▾" : "▸"} Raw API exchange
+          {open ? "▾" : "▸"} {t("memoryRouterPlaygroundPage.rawApiExchange")}
         </button>
         {open && (
           <div className="flex flex-col gap-3">
             <RawExchangeBlock
-              label={`Request (Pane ${paneId})`}
+              label={t("memoryRouterPlaygroundPage.requestLabel", { paneId })}
               body={rawRequest}
             />
             <RawExchangeBlock
-              label={`Response (Pane ${paneId})`}
+              label={t("memoryRouterPlaygroundPage.responseLabel", { paneId })}
               body={rawResponse}
             />
           </div>
@@ -955,6 +1001,8 @@ function RawExchangeBlock({
   label: string;
   body: string;
 }): ReactNode {
+  const { t } = useTranslation("chat");
+
   return (
     <div className="flex flex-col gap-1">
       <span
@@ -975,19 +1023,21 @@ function RawExchangeBlock({
           whiteSpace: "pre",
         }}
       >
-        {body.length === 0 ? "(empty)" : body}
+        {body.length === 0 ? t("memoryRouterPlaygroundPage.empty") : body}
       </pre>
     </div>
   );
 }
 
 function PaneHeader({ paneId }: { paneId: PaneId }): ReactNode {
+  const { t } = useTranslation("chat");
+
   return (
     <div
       className="text-body-medium-default"
       style={{ color: paneAccentColor(paneId) }}
     >
-      Pane {paneId}
+      {t("memoryRouterPlaygroundPage.paneTitle", { paneId })}
     </div>
   );
 }
@@ -1003,6 +1053,7 @@ function ResultPanel({
   result: MemoryRouterSimulateResponse;
   otherResult: MemoryRouterSimulateResponse | undefined;
 }): ReactNode {
+  const { t } = useTranslation("chat");
   const diff = useMemo(
     () => classifySlugs(result, otherResult),
     [result, otherResult],
@@ -1019,7 +1070,11 @@ function ResultPanel({
       />
       <ConfigCard result={result} />
       {result.failureReason !== null && (
-        <ErrorBanner message={`Router failure: ${result.failureReason}`} />
+        <ErrorBanner
+          message={t("memoryRouterPlaygroundPage.routerFailure", {
+            reason: result.failureReason,
+          })}
+        />
       )}
       {groups.length === 0 ? (
         <EmptyResultCard />
@@ -1087,21 +1142,31 @@ function SummaryCard({
   otherResult: MemoryRouterSimulateResponse | undefined;
   counts: DiffCounts;
 }): ReactNode {
+  const { t } = useTranslation("chat");
   const rows: Array<{ label: string; value: string }> = [
-    { label: "User message", value: userMessage },
     {
-      label: "Total candidate pages",
+      label: t("memoryRouterPlaygroundPage.summaryUserMessageLabel"),
+      value: userMessage,
+    },
+    {
+      label: t("memoryRouterPlaygroundPage.totalCandidatePagesLabel"),
       value: result.totalCandidatePages.toLocaleString(),
     },
     {
-      label: "Selected",
-      value: `${result.selectedSlugs.length}  (live max_page_ids: ${result.effectiveConfig.max_page_ids})`,
+      label: t("memoryRouterPlaygroundPage.selectedLabel"),
+      value: t("memoryRouterPlaygroundPage.selectedValue", {
+        count: result.selectedSlugs.length,
+        maxPageIds: result.effectiveConfig.max_page_ids,
+      }),
     },
   ];
   if (otherResult !== undefined) {
     rows.push({
-      label: "Diff",
-      value: `${counts.shared} shared · ${counts.unique} unique to this pane`,
+      label: t("memoryRouterPlaygroundPage.diffLabel"),
+      value: t("memoryRouterPlaygroundPage.diffValue", {
+        shared: counts.shared,
+        unique: counts.unique,
+      }),
     });
   }
   return (
@@ -1111,7 +1176,7 @@ function SummaryCard({
           className="text-body-medium-default"
           style={{ color: "var(--content-default)" }}
         >
-          Summary
+          {t("memoryRouterPlaygroundPage.summary")}
         </span>
         <MetaGrid rows={rows} />
       </div>
@@ -1124,6 +1189,7 @@ function ConfigCard({
 }: {
   result: MemoryRouterSimulateResponse;
 }): ReactNode {
+  const { t } = useTranslation("chat");
   const knobs: Array<keyof MemoryRouterSimulateResponse["effectiveConfig"]> = [
     "tier1_size",
     "tier2_size",
@@ -1135,20 +1201,28 @@ function ConfigCard({
     const overrideValue = (
       result.overrides as Record<string, number | null | undefined>
     )[key];
-    const effStr = eff === null ? "null" : String(eff);
-    const suffix = overrideValue !== undefined ? "  (override)" : "";
+    const effStr =
+      eff === null
+        ? t("memoryRouterPlaygroundPage.nullValue")
+        : String(eff);
+    const suffix =
+      overrideValue !== undefined
+        ? t("memoryRouterPlaygroundPage.overrideSuffix")
+        : "";
     return { label: key, value: `${effStr}${suffix}` };
   });
   rows.push({
-    label: "llm.profiles override",
+    label: t("memoryRouterPlaygroundPage.llmProfilesOverride"),
     value:
       result.profileOverride !== null
-        ? `${result.profileOverride}  (override)`
-        : "inherit active",
+        ? `${result.profileOverride}${t("memoryRouterPlaygroundPage.overrideSuffix")}`
+        : t("memoryRouterPlaygroundPage.inheritActive"),
   });
   rows.push({
-    label: "system prompt",
-    value: result.routerPromptOverridden ? "custom" : "bundled",
+    label: t("memoryRouterPlaygroundPage.systemPromptConfigLabel"),
+    value: result.routerPromptOverridden
+      ? t("memoryRouterPlaygroundPage.promptModeCustom")
+      : t("memoryRouterPlaygroundPage.promptModeBundled"),
   });
   return (
     <Card>
@@ -1157,7 +1231,7 @@ function ConfigCard({
           className="text-body-medium-default"
           style={{ color: "var(--content-default)" }}
         >
-          Effective config
+          {t("memoryRouterPlaygroundPage.effectiveConfig")}
         </span>
         <MetaGrid rows={rows} />
       </div>
@@ -1205,15 +1279,17 @@ function sourceOrder(source: string): number {
   return Number.MAX_SAFE_INTEGER;
 }
 
-function formatSourceLabel(source: string): string {
+function formatSourceLabel(source: string, t: TFunction<"chat">): string {
   if (source === "tier1") {
-    return "tier 1";
+    return t("memoryRouterPlaygroundPage.tier1Label");
   }
   if (source === "tier2") {
-    return "tier 2";
+    return t("memoryRouterPlaygroundPage.tier2Label");
   }
   if (source.startsWith("tier3:")) {
-    return `tier 3 · b${source.slice("tier3:".length)}`;
+    return t("memoryRouterPlaygroundPage.tier3Label", {
+      batch: source.slice("tier3:".length),
+    });
   }
   return source;
 }
@@ -1248,6 +1324,8 @@ function TierSectionCard({
   scores: Record<string, number>;
   diff: Map<string, SlugDiff>;
 }): ReactNode {
+  const { t } = useTranslation("chat");
+
   return (
     <Card>
       <div className="flex flex-col gap-3 p-4">
@@ -1256,13 +1334,13 @@ function TierSectionCard({
             className="text-body-medium-default"
             style={{ color: "var(--content-default)" }}
           >
-            {formatSourceLabel(source)}
+            {formatSourceLabel(source, t)}
           </span>
           <span
             className="text-label-default"
             style={{ color: "var(--content-secondary)" }}
           >
-            {slugs.length} {slugs.length === 1 ? "page" : "pages"}
+            {t("memoryRouterPlaygroundPage.pageCount", { count: slugs.length })}
           </span>
         </div>
         <ul className="flex flex-col gap-1">
@@ -1285,7 +1363,9 @@ function TierSectionCard({
                     className="tabular-nums text-label-default"
                     style={{ color: "var(--content-secondary)" }}
                   >
-                    EMA {(scores[slug] ?? 0).toFixed(3)}
+                    {t("memoryRouterPlaygroundPage.emaScore", {
+                      score: (scores[slug] ?? 0).toFixed(3),
+                    })}
                   </span>
                 )}
               </li>
@@ -1298,6 +1378,8 @@ function TierSectionCard({
 }
 
 function EmptyResultCard(): ReactNode {
+  const { t } = useTranslation("chat");
+
   return (
     <Card>
       <div className="flex flex-col gap-2 p-4">
@@ -1305,14 +1387,13 @@ function EmptyResultCard(): ReactNode {
           className="text-body-medium-default"
           style={{ color: "var(--content-default)" }}
         >
-          No pages selected
+          {t("memoryRouterPlaygroundPage.noPagesSelected")}
         </span>
         <span
           className="text-label-default"
           style={{ color: "var(--content-secondary)" }}
         >
-          The router returned an empty selection. Try a more specific query, or
-          relax the override values.
+          {t("memoryRouterPlaygroundPage.emptySelectionHint")}
         </span>
       </div>
     </Card>

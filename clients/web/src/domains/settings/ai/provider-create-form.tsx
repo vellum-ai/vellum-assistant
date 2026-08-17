@@ -1,4 +1,5 @@
 import { useMemo, useRef, useState, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 
 import { useQueryClient } from "@tanstack/react-query";
 import { Button } from "@vellumai/design-library/components/button";
@@ -75,6 +76,14 @@ export interface ProviderCreateFormProps {
   onCancel: () => void;
   /** "modal" wraps the form in Modal chrome; "inline" drops it for embedding. */
   variant?: "modal" | "inline";
+  /**
+   * Where the Cancel/Add row renders, for `variant="inline"` hosts that pin
+   * their actions outside the scrollable body (see `DetailShell`'s `footer`).
+   * Omit to keep the row inline at the end of the fields; pass the element to
+   * portal into it. `null` means the host's slot has not mounted yet, so the
+   * row is withheld for that one commit rather than rendered in both places.
+   */
+  actionsSlot?: HTMLElement | null;
 }
 
 export function ProviderCreateForm({
@@ -86,6 +95,7 @@ export function ProviderCreateForm({
   onCreated,
   onCancel,
   variant = "modal",
+  actionsSlot,
 }: ProviderCreateFormProps) {
   const { t } = useTranslation("settings");
   const selectableConnectionProviders = useSelectableConnectionProviders();
@@ -578,7 +588,11 @@ export function ProviderCreateForm({
     return (
       <div className="space-y-4">
         {body}
-        <div className="flex justify-end gap-2">{footer}</div>
+        {actionsSlot === undefined ? (
+          <div className="flex justify-end gap-2">{footer}</div>
+        ) : (
+          actionsSlot && createPortal(footer, actionsSlot)
+        )}
       </div>
     );
   }

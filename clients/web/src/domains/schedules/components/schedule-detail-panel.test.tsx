@@ -270,24 +270,25 @@ describe("ScheduleDetailPanel model profile", () => {
 });
 
 describe("ScheduleDetailPanel plugin-sourced treatment", () => {
+  // The header Delete is icon-only, so it is addressed by accessible name.
   test("user-created schedules keep the Delete button", async () => {
-    const { getByText, queryByText } = renderPanel(makeSchedule());
+    const { getByLabelText, queryByText } = renderPanel(makeSchedule());
 
     await waitFor(() => {
-      expect(getByText("Delete")).toBeTruthy();
+      expect(getByLabelText("Delete")).toBeTruthy();
     });
     expect(queryByText(/Managed by plugin/)).toBeNull();
   });
 
   test("plugin-sourced schedules hide Delete and show plugin attribution", async () => {
-    const { getByText, queryByText } = renderPanel(
+    const { getByText, queryByLabelText } = renderPanel(
       makeSchedule({ sourceKey: "plugin:gmail/poll-inbox" }),
     );
 
     await waitFor(() => {
       expect(getByText("Managed by plugin gmail")).toBeTruthy();
     });
-    expect(queryByText("Delete")).toBeNull();
+    expect(queryByLabelText("Delete")).toBeNull();
   });
 });
 

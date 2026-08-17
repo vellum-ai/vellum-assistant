@@ -12,7 +12,7 @@
 
 import { afterEach, describe, expect, mock, test } from "bun:test";
 import { act, useEffect } from "react";
-import { cleanup, render } from "@testing-library/react";
+import { cleanup, fireEvent, render } from "@testing-library/react";
 
 // `ChatMarkdownMessage` pulls in `react-markdown` + `remark-gfm`. They render
 // fine under `renderToStaticMarkup`, but to keep these tests hermetic we
@@ -73,6 +73,7 @@ import type { TranscriptItem } from "@/domains/chat/transcript/types";
 
 import { Transcript } from "@/domains/chat/transcript/transcript";
 import { INITIAL_TURN_STATE, useTurnStore } from "@/domains/chat/turn-store";
+import { viewportAxesStub } from "@/hooks/viewport-axes.test-helper";
 
 import { textBody } from "@/domains/chat/utils/message-test-helpers";
 function userMessage(id: string, content: string): TranscriptItem {
@@ -625,5 +626,132 @@ describe("Transcript changed-document reopen links", () => {
     ]);
 
     expect(reopenSurfaceIds(container)).toEqual(["surf-notes", "surf-plan"]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// A phone gives the transcript the whole screen, its header sitting directly on
+// the viewport's top edge. Everything the keyboard and the composer push past
+// that edge is cut mid line, so the edge fades on mobile while there is
+// anything behind it to fade.
+// ---------------------------------------------------------------------------
+describe("Transcript top fade", () => {
+  const viewport = viewportAxesStub();
+
+  afterEach(() => {
+    cleanup();
+    viewport.restore();
+  });
+
+  const items: TranscriptItem[] = [
+    assistantMessage("a1", "an older reply"),
+    userMessage("u1", "the latest question"),
+  ];
+
+  function renderTranscript() {
+    return render(
+      <Transcript
+        items={items}
+        conversationId="conv-fade"
+        onSurfaceAction={noop}
+      />,
+    );
+  }
+
+  function fadeOf(container: HTMLElement): Element | null {
+    return container.querySelector('[data-slot="transcript-top-fade"]');
+  }
+
+  /** Scroll the transcript down, as a finger or the keyboard opening does. */
+  function scrollTranscriptTo(container: HTMLElement, scrollTopPx: number) {
+    const viewportEl = container.querySelector(
+      '[data-testid="transcript-scroll-container"]',
+    );
+    if (!viewportEl) {
+      throw new Error("transcript rendered without its scroll container");
+    }
+    Object.defineProperty(viewportEl, "scrollTop", {
+      configurable: true,
+      value: scrollTopPx,
+    });
+    fireEvent.scroll(viewportEl);
+  }
+
+  test("a transcript sitting at its top has nothing to fade", () => {
+    // GIVEN a phone transcript with its first line whole on screen
+    viewport.set({ narrow: true, coarsePointer: true });
+
+    // WHEN it is rendered
+    const { container } = renderTranscript();
+
+    // THEN no fade stands over an edge that hides nothing
+    expect(fadeOf(container)).toBeNull();
+  });
+
+  test("content pushed above the top edge gets a fade over it", () => {
+    // GIVEN a phone transcript
+    viewport.set({ narrow: true, coarsePointer: true });
+    const { container } = renderTranscript();
+
+    // WHEN the composer or the keyboard pushes its earlier lines past the top
+    scrollTranscriptTo(container, 240);
+
+    // THEN a fade stands over the edge they leave through, painted from the
+    // canvas the transcript sits on
+    const fade = fadeOf(container);
+    expect(fade).not.toBeNull();
+    expect(fade?.className).toContain("from-[var(--surface-base)]");
+    expect(fade?.className).toContain("to-transparent");
+  });
+
+  test("the fade takes neither taps nor a place in the accessibility tree", () => {
+    // GIVEN a phone transcript scrolled off its first line
+    viewport.set({ narrow: true, coarsePointer: true });
+    const { container } = renderTranscript();
+    scrollTranscriptTo(container, 240);
+
+    // THEN the message underneath it stays reachable, and nothing is announced
+    const fade = fadeOf(container);
+    expect(fade?.className).toContain("pointer-events-none");
+    expect(fade?.getAttribute("aria-hidden")).toBe("true");
+  });
+
+  test("scrolling back to the top takes the fade away again", () => {
+    // GIVEN a phone transcript whose top edge is already faded
+    viewport.set({ narrow: true, coarsePointer: true });
+    const { container } = renderTranscript();
+    scrollTranscriptTo(container, 240);
+    expect(fadeOf(container)).not.toBeNull();
+
+    // WHEN the user scrolls back up to the first line
+    scrollTranscriptTo(container, 0);
+
+    // THEN the fade goes with the lines it stood over
+    expect(fadeOf(container)).toBeNull();
+  });
+
+  test("a sub-pixel scroll offset hides no line worth fading", () => {
+    // GIVEN a phone transcript parked at the top of a zoomed viewport, where
+    // the offset lands just off zero
+    viewport.set({ narrow: true, coarsePointer: true });
+    const { container } = renderTranscript();
+
+    // WHEN it settles there
+    scrollTranscriptTo(container, 0.5);
+
+    // THEN the edge is left alone
+    expect(fadeOf(container)).toBeNull();
+  });
+
+  test("desktop frames the panel in its own padding and gets no fade", () => {
+    // GIVEN a desktop transcript, scrolled well off its first message
+    viewport.set({ narrow: false, coarsePointer: false });
+    const { container } = renderTranscript();
+
+    // WHEN it is scrolled down
+    scrollTranscriptTo(container, 240);
+
+    // THEN the edge is left alone: the panel's own gutter already ends it
+    expect(fadeOf(container)).toBeNull();
   });
 });

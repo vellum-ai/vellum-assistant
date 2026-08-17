@@ -40,6 +40,7 @@ import {
 
 import { useChatLayoutSlotsStore } from "@/components/layout/chat-layout-slots-store";
 import { useElectronDockSync } from "@/domains/chat/hooks/use-electron-dock-sync";
+import { useNativeRecentChatsSync } from "@/domains/chat/hooks/use-native-recent-chats-sync";
 import { useOpenAppFromChat } from "@/domains/chat/hooks/use-open-app-from-chat";
 import {
   EDGE_SWIPE_EASING,
@@ -214,6 +215,7 @@ export function ChatLayout({
   const {
     conversations,
     isLoading: isLoadingConversations,
+    isPending: isConversationListPending,
     isError: conversationsFailed,
     refetch: retryConversations,
   } = useConversationListQuery(assistantId, isAssistantActive);
@@ -247,6 +249,18 @@ export function ChatLayout({
   // conversation list this layout already subscribes to; see
   // `./hooks/use-electron-dock-sync.ts`.
   useElectronDockSync(assistantId, conversations, isAssistantActive);
+
+  // Mirror the same list into the iOS shell's recent-chats cache, which backs
+  // the Shortcuts app's chat picker ("Send Message to Chat"). No-op off
+  // Capacitor iOS. Resolved means the query has actually SUCCEEDED: pending
+  // (loading, or gated on the assistant/pod) and error both serve the `[]`
+  // fallback, and either would wipe the last-known-good native cache. The
+  // error case is live, not theoretical: a pod that is waking 503s the list
+  // through its whole retry budget into a terminal error (#40621).
+  useNativeRecentChatsSync(
+    conversations,
+    !isConversationListPending && !conversationsFailed,
+  );
 
   // Header slots come from a module-level store so gated routes
   // (which see `ActiveAssistantGate`'s `<Outlet />` as their
