@@ -16,6 +16,7 @@ import {
   Sparkles,
   X,
 } from "lucide-react";
+import type { TFunction } from "i18next";
 import type { LucideIcon } from "lucide-react";
 import { useState, type ReactNode } from "react";
 
@@ -178,6 +179,7 @@ export interface ConversationMenuItemsProps {
  */
 export function renderConversationMenuItems({
   Primitive,
+  t,
   isPinned = false,
   isArchived = false,
   onPinToggle,
@@ -203,6 +205,9 @@ export function renderConversationMenuItems({
   variant = "sidebar",
 }: ConversationMenuItemsProps & {
   Primitive: ConversationMenuPrimitive;
+  /** Threaded in: these builders are plain functions, so they cannot hold
+   *  the hook themselves and their callers own the reactive binding. */
+  t: TFunction<"chat">;
 }): ReactNode {
   // The submenu shows whenever move + create are wired, even with zero
   // existing groups — "New group…" is always a valid action and is the only
@@ -214,13 +219,13 @@ export function renderConversationMenuItems({
       leftIcon={isPinned ? <PinOff size={14} /> : <Pin size={14} />}
       onSelect={onPinToggle}
     >
-      {isPinned ? "Unpin" : "Pin"}
+      {isPinned ? t("conversationActions.unpin") : t("conversationActions.pin")}
     </Primitive.Item>
   ) : null;
 
   const renameItem = onRename ? (
     <Primitive.Item leftIcon={<Pencil size={14} />} onSelect={onRename}>
-      Rename
+      {t("conversationActions.rename")}
     </Primitive.Item>
   ) : null;
 
@@ -230,11 +235,11 @@ export function renderConversationMenuItems({
         leftIcon={<ArchiveRestore size={14} />}
         onSelect={onUnarchive}
       >
-        Unarchive
+        {t("conversationActions.unarchive")}
       </Primitive.Item>
     ) : onArchive ? (
       <Primitive.Item leftIcon={<Archive size={14} />} onSelect={onArchive}>
-        Archive
+        {t("conversationActions.archive")}
       </Primitive.Item>
     ) : null;
 
@@ -244,7 +249,7 @@ export function renderConversationMenuItems({
         leftIcon={<CircleCheck size={14} />}
         onSelect={onMarkRead}
       >
-        Mark as read
+        {t("conversationActions.markRead")}
       </Primitive.Item>
     ) : !isReadonly && onMarkUnread ? (
       <Primitive.Item
@@ -252,14 +257,14 @@ export function renderConversationMenuItems({
         onSelect={onMarkUnread}
         disabled={isMarkUnreadDisabled}
       >
-        Mark as unread
+        {t("conversationActions.markUnread")}
       </Primitive.Item>
     ) : null;
 
   const moveToGroupItem = showMoveToGroup ? (
     <Primitive.Sub>
       <Primitive.SubTrigger leftIcon={<FolderInput size={14} />}>
-        Move to group
+        {t("conversationActions.moveToGroup")}
       </Primitive.SubTrigger>
       <Primitive.SubContent>
         {(moveToGroups ?? []).map((group) => (
@@ -273,12 +278,14 @@ export function renderConversationMenuItems({
         {moveToGroups && moveToGroups.length > 0 ? (
           <Primitive.Separator />
         ) : null}
-        <Primitive.Item onSelect={onCreateGroupInto}>New group…</Primitive.Item>
+        <Primitive.Item onSelect={onCreateGroupInto}>
+          {t("conversationActions.newGroup")}
+        </Primitive.Item>
         {onRemoveFromGroup ? (
           <>
             <Primitive.Separator />
             <Primitive.Item onSelect={onRemoveFromGroup}>
-              Remove from group
+              {t("conversationActions.removeFromGroup")}
             </Primitive.Item>
           </>
         ) : null}
@@ -291,7 +298,7 @@ export function renderConversationMenuItems({
       leftIcon={<ExternalLink size={14} />}
       onSelect={onOpenInNewWindow}
     >
-      Open in New Window
+      {t("conversationActions.openInNewWindow")}
     </Primitive.Item>
   ) : null;
 
@@ -306,7 +313,7 @@ export function renderConversationMenuItems({
 
   const inspectItem = onInspect ? (
     <Primitive.Item leftIcon={<Sparkles size={14} />} onSelect={onInspect}>
-      Analyze Conversation
+      {t("conversationActions.inspect")}
     </Primitive.Item>
   ) : null;
 
@@ -315,7 +322,7 @@ export function renderConversationMenuItems({
       leftIcon={<Copy size={14} />}
       onSelect={onCopyConversationId}
     >
-      Copy conversation ID
+      {t("conversationActions.copyConversationId")}
     </Primitive.Item>
   ) : null;
 
@@ -327,7 +334,7 @@ export function renderConversationMenuItems({
             leftIcon={<Copy size={14} />}
             onSelect={onCopyConversation}
           >
-            Copy Full Conversation
+            {t("conversationActions.copyConversation")}
           </Primitive.Item>
         ) : null}
 
@@ -336,7 +343,7 @@ export function renderConversationMenuItems({
             leftIcon={<GitBranch size={14} />}
             onSelect={onForkConversation}
           >
-            Fork Conversation
+            {t("conversationActions.forkConversation")}
           </Primitive.Item>
         ) : null}
 
@@ -349,7 +356,7 @@ export function renderConversationMenuItems({
             leftIcon={<RefreshCw size={14} />}
             onSelect={onRefresh}
           >
-            Refresh
+            {t("conversationActions.refresh")}
           </Primitive.Item>
         ) : null}
 
@@ -380,7 +387,7 @@ export function renderConversationMenuItems({
             leftIcon={<MessageCircle size={14} />}
             onSelect={onShareFeedback}
           >
-            Share Feedback
+            {t("conversationActions.shareFeedback")}
           </Primitive.Item>
         </>
       ) : null}
@@ -467,6 +474,7 @@ function buildSheetMenuItem({
  * `PanelItem` rows.
  */
 export function renderConversationMenuItemsAsPanelItems({
+  t,
   isPinned = false,
   isArchived = false,
   onPinToggle,
@@ -495,6 +503,7 @@ export function renderConversationMenuItemsAsPanelItems({
 }: ConversationMenuItemsProps & {
   onClose: () => void;
   isNativePlatform?: boolean;
+  t: TFunction<"chat">;
 }): ReactNode {
   // BottomSheet is a single-level surface, so the "Move to group" submenu is
   // flattened into an inline labeled block (mirrors the desktop submenu).
@@ -503,7 +512,9 @@ export function renderConversationMenuItemsAsPanelItems({
     ? buildSheetMenuItem({
         key: "pin",
         icon: isPinned ? PinOff : Pin,
-        label: isPinned ? "Unpin" : "Pin",
+        label: isPinned
+          ? t("conversationActions.unpin")
+          : t("conversationActions.pin"),
         run: onPinToggle,
         onClose,
       })
@@ -513,7 +524,7 @@ export function renderConversationMenuItemsAsPanelItems({
     ? buildSheetMenuItem({
         key: "rename",
         icon: Pencil,
-        label: "Rename",
+        label: t("conversationActions.rename"),
         run: onRename,
         onClose,
       })
@@ -524,7 +535,7 @@ export function renderConversationMenuItemsAsPanelItems({
       ? buildSheetMenuItem({
           key: "unarchive",
           icon: ArchiveRestore,
-          label: "Unarchive",
+          label: t("conversationActions.unarchive"),
           run: onUnarchive,
           onClose,
         })
@@ -532,7 +543,7 @@ export function renderConversationMenuItemsAsPanelItems({
         ? buildSheetMenuItem({
             key: "archive",
             icon: Archive,
-            label: "Archive",
+            label: t("conversationActions.archive"),
             run: onArchive,
             onClose,
           })
@@ -543,7 +554,7 @@ export function renderConversationMenuItemsAsPanelItems({
       ? buildSheetMenuItem({
           key: "mark-read",
           icon: CircleCheck,
-          label: "Mark as read",
+          label: t("conversationActions.markRead"),
           run: onMarkRead,
           onClose,
         })
@@ -551,7 +562,7 @@ export function renderConversationMenuItemsAsPanelItems({
         ? buildSheetMenuItem({
             key: "mark-unread",
             icon: Circle,
-            label: "Mark as unread",
+            label: t("conversationActions.markUnread"),
             disabled: isMarkUnreadDisabled,
             run: onMarkUnread,
             onClose,
@@ -563,7 +574,7 @@ export function renderConversationMenuItemsAsPanelItems({
       <PanelMenuDivider />
       <div className="flex items-center gap-2 px-2 pt-2 pb-1 text-body-small-default uppercase tracking-wide text-[var(--content-tertiary)]">
         <FolderInput size={14} aria-hidden />
-        Move to group
+        {t("conversationActions.moveToGroup")}
       </div>
       {(moveToGroups ?? []).map((group) =>
         buildSheetMenuItem({
@@ -576,7 +587,7 @@ export function renderConversationMenuItemsAsPanelItems({
       )}
       {buildSheetMenuItem({
         key: "move-to-new-group",
-        label: "New group…",
+        label: t("conversationActions.newGroup"),
         className: SHEET_SUBROW_CLASSES,
         run: () => onCreateGroupInto?.(),
         onClose,
@@ -584,7 +595,7 @@ export function renderConversationMenuItemsAsPanelItems({
       {onRemoveFromGroup
         ? buildSheetMenuItem({
             key: "remove-from-group",
-            label: "Remove from group",
+            label: t("conversationActions.removeFromGroup"),
             className: SHEET_SUBROW_CLASSES,
             run: onRemoveFromGroup,
             onClose,
@@ -598,7 +609,7 @@ export function renderConversationMenuItemsAsPanelItems({
       ? buildSheetMenuItem({
           key: "open-in-new-window",
           icon: ExternalLink,
-          label: "Open in New Window",
+          label: t("conversationActions.openInNewWindow"),
           run: onOpenInNewWindow,
           onClose,
         })
@@ -618,7 +629,7 @@ export function renderConversationMenuItemsAsPanelItems({
     ? buildSheetMenuItem({
         key: "inspect",
         icon: Sparkles,
-        label: "Analyze Conversation",
+        label: t("conversationActions.inspect"),
         run: onInspect,
         onClose,
       })
@@ -628,7 +639,7 @@ export function renderConversationMenuItemsAsPanelItems({
     ? buildSheetMenuItem({
         key: "copy-conversation-id",
         icon: Copy,
-        label: "Copy conversation ID",
+        label: t("conversationActions.copyConversationId"),
         run: onCopyConversationId,
         onClose,
       })
@@ -641,7 +652,7 @@ export function renderConversationMenuItemsAsPanelItems({
           ? buildSheetMenuItem({
               key: "copy",
               icon: Copy,
-              label: "Copy Full Conversation",
+              label: t("conversationActions.copyConversation"),
               run: onCopyConversation,
               onClose,
             })
@@ -651,7 +662,7 @@ export function renderConversationMenuItemsAsPanelItems({
           ? buildSheetMenuItem({
               key: "fork",
               icon: GitBranch,
-              label: "Fork Conversation",
+              label: t("conversationActions.forkConversation"),
               run: onForkConversation,
               onClose,
             })
@@ -665,7 +676,7 @@ export function renderConversationMenuItemsAsPanelItems({
           ? buildSheetMenuItem({
               key: "refresh",
               icon: RefreshCw,
-              label: "Refresh",
+              label: t("conversationActions.refresh"),
               run: onRefresh,
               onClose,
             })
@@ -696,7 +707,7 @@ export function renderConversationMenuItemsAsPanelItems({
           {buildSheetMenuItem({
             key: "share-feedback",
             icon: MessageCircle,
-            label: "Share Feedback",
+            label: t("conversationActions.shareFeedback"),
             run: onShareFeedback,
             onClose,
           })}
@@ -736,11 +747,6 @@ export function ConversationActionsSheet({
   trigger?: ReactNode;
 }) {
   const isNativePlatform = useIsNativePlatform();
-  // The sheet's own chrome reads from the catalog. The action labels below
-  // still do not: they are built by `renderConversationMenuItemsAsPanelItems`,
-  // a plain function rather than a component, so translating them means
-  // threading a `t` through both builders and every call site. That is the
-  // file's conversion into `i18nEnforcedPaths`, not this sheet's header.
   const { t } = useTranslation("chat");
   return (
     <BottomSheet.Root open={open} onOpenChange={onOpenChange}>
@@ -768,9 +774,11 @@ export function ConversationActionsSheet({
           <BottomSheet.Title className="text-body-large-default text-[var(--content-tertiary)]">
             {t("conversationActionsSheet.title")}
           </BottomSheet.Title>
+          {/* `-m-2 p-2` grows the tap target to 32px without moving the
+              glyph or changing the header's height. */}
           <BottomSheet.Close
             aria-label={t("conversationActionsSheet.closeAriaLabel")}
-            className="flex size-4 shrink-0 items-center justify-center text-[var(--content-tertiary)] outline-none keyboard-focus:ring-2 keyboard-focus:ring-[var(--ring)]"
+            className="-m-2 flex shrink-0 items-center justify-center p-2 text-[var(--content-tertiary)] outline-none keyboard-focus:ring-2 keyboard-focus:ring-[var(--ring)]"
           >
             <X size={16} aria-hidden />
           </BottomSheet.Close>
@@ -782,6 +790,7 @@ export function ConversationActionsSheet({
         <BottomSheet.Body className="px-4 pt-3 [--panel-item-gap:12px] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
           {renderConversationMenuItemsAsPanelItems({
             ...itemProps,
+            t,
             onClose: () => onOpenChange(false),
             isNativePlatform,
           })}
@@ -813,12 +822,13 @@ export function ConversationActionsMenu({
   ...itemProps
 }: ConversationActionsMenuProps) {
   const isTouchMobile = useTouchMobile();
+  const { t } = useTranslation("chat");
   const [open, setOpen] = useState(false);
 
   const defaultTrigger = (
     <button
       type="button"
-      aria-label="Conversation actions"
+      aria-label={t("conversationActions.triggerAriaLabel")}
       onClick={(event) => event.stopPropagation()}
       onContextMenu={(event) => {
         event.stopPropagation();
@@ -856,7 +866,7 @@ export function ConversationActionsMenu({
         sideOffset={sideOffset}
         onClick={(event) => event.stopPropagation()}
       >
-        {renderConversationMenuItems({ Primitive: Menu, ...itemProps })}
+        {renderConversationMenuItems({ Primitive: Menu, t, ...itemProps })}
       </Menu.Content>
     </Menu.Root>
   );

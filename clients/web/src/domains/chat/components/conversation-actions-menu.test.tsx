@@ -15,6 +15,12 @@
  */
 
 import { beforeEach, describe, expect, mock, test } from "bun:test";
+import i18next from "i18next";
+
+// The builders take a namespace-bound `t`, the same thing
+// `useTranslation("chat")` hands their component callers. The bare export
+// resolves against `common` and would return the key instead of the copy.
+const t = i18next.getFixedT(null, "chat");
 import { createElement, type ReactNode } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 
@@ -150,6 +156,7 @@ describe("renderConversationMenuItems", () => {
       <>
         {renderConversationMenuItems({
           Primitive: Menu as unknown as ConversationMenuPrimitive,
+          t,
           onPinToggle: () => {},
           onRename: () => {},
         })}
@@ -164,6 +171,7 @@ describe("renderConversationMenuItems", () => {
       <>
         {renderConversationMenuItems({
           Primitive: Menu as unknown as ConversationMenuPrimitive,
+          t,
           isPinned: true,
           onPinToggle: () => {},
         })}
@@ -178,6 +186,7 @@ describe("renderConversationMenuItems", () => {
       <>
         {renderConversationMenuItems({
           Primitive: Menu as unknown as ConversationMenuPrimitive,
+          t,
           onArchive: () => {},
         })}
       </>,
@@ -190,6 +199,7 @@ describe("renderConversationMenuItems", () => {
       <>
         {renderConversationMenuItems({
           Primitive: Menu as unknown as ConversationMenuPrimitive,
+          t,
           isArchived: true,
           onUnarchive: () => {},
         })}
@@ -203,6 +213,7 @@ describe("renderConversationMenuItems", () => {
       <>
         {renderConversationMenuItems({
           Primitive: Menu as unknown as ConversationMenuPrimitive,
+          t,
           isReadonly: true,
           onArchive: () => {},
           onMarkUnread: () => {},
@@ -218,6 +229,7 @@ describe("renderConversationMenuItems", () => {
       <>
         {renderConversationMenuItems({
           Primitive: Menu as unknown as ConversationMenuPrimitive,
+          t,
           variant: "header",
           channelSourceLink: {
             href: "https://slack.com/archives/C01ABC/p1700000000000100",
@@ -235,6 +247,7 @@ describe("renderConversationMenuItems", () => {
       <>
         {renderConversationMenuItems({
           Primitive: Menu as unknown as ConversationMenuPrimitive,
+          t,
           variant: "header",
           onPinToggle: () => {},
         })}
@@ -248,6 +261,7 @@ describe("renderConversationMenuItems", () => {
       <>
         {renderConversationMenuItems({
           Primitive: Menu as unknown as ConversationMenuPrimitive,
+          t,
           variant: "header",
           onCopyConversation: () => {},
           onForkConversation: () => {},
@@ -281,6 +295,7 @@ describe("renderConversationMenuItems", () => {
       const html = renderToStaticMarkup(
         <>{renderConversationMenuItems({
           Primitive: Menu as unknown as ConversationMenuPrimitive,
+          t,
           variant,
           onCopyConversationId: () => {},
         })}</>,
@@ -293,6 +308,7 @@ describe("renderConversationMenuItems", () => {
     const html = renderToStaticMarkup(
       <>{renderConversationMenuItems({
         Primitive: Menu as unknown as ConversationMenuPrimitive,
+          t,
         onRename: () => {},
       })}</>,
     );
@@ -310,6 +326,7 @@ describe("renderConversationMenuItems — Move to group submenu", () => {
       <>
         {renderConversationMenuItems({
           Primitive: Menu as unknown as ConversationMenuPrimitive,
+          t,
           onPinToggle: () => {},
         })}
       </>,
@@ -322,6 +339,7 @@ describe("renderConversationMenuItems — Move to group submenu", () => {
       <>
         {renderConversationMenuItems({
           Primitive: Menu as unknown as ConversationMenuPrimitive,
+          t,
           moveToGroups: [],
           onMoveToGroup: () => {},
           onCreateGroupInto: () => {},
@@ -337,6 +355,7 @@ describe("renderConversationMenuItems — Move to group submenu", () => {
       <>
         {renderConversationMenuItems({
           Primitive: Menu as unknown as ConversationMenuPrimitive,
+          t,
           moveToGroups: [
             { id: "g_research", name: "Research" },
             { id: "g_ideas", name: "Ideas" },
@@ -356,6 +375,7 @@ describe("renderConversationMenuItems — Move to group submenu", () => {
       <>
         {renderConversationMenuItems({
           Primitive: Menu as unknown as ConversationMenuPrimitive,
+          t,
           moveToGroups: [{ id: "g_research", name: "Research" }],
           onMoveToGroup: () => {},
           onCreateGroupInto: () => {},
@@ -369,6 +389,7 @@ describe("renderConversationMenuItems — Move to group submenu", () => {
       <>
         {renderConversationMenuItems({
           Primitive: Menu as unknown as ConversationMenuPrimitive,
+          t,
           moveToGroups: [{ id: "g_research", name: "Research" }],
           onMoveToGroup: () => {},
           onCreateGroupInto: () => {},
@@ -382,6 +403,7 @@ describe("renderConversationMenuItems — Move to group submenu", () => {
     const html = renderToStaticMarkup(
       <>
         {renderConversationMenuItemsAsPanelItems({
+          t,
           moveToGroups: [{ id: "g_research", name: "Research" }],
           onMoveToGroup: () => {},
           onCreateGroupInto: () => {},
@@ -445,6 +467,7 @@ describe("renderConversationMenuItems — mark read/unread exclusivity", () => {
       <>
         {renderConversationMenuItems({
           Primitive: Menu as unknown as ConversationMenuPrimitive,
+          t,
           onMarkRead: () => {},
           onMarkUnread: () => {},
         })}
@@ -638,6 +661,7 @@ describe("renderConversationMenuItemsAsPanelItems", () => {
     const html = renderToStaticMarkup(
       <>
         {renderConversationMenuItemsAsPanelItems({
+          t,
           onPinToggle: () => {},
           onRename: () => {},
           onArchive: () => {},
@@ -654,6 +678,7 @@ describe("renderConversationMenuItemsAsPanelItems", () => {
     const html = renderToStaticMarkup(
       <>
         {renderConversationMenuItemsAsPanelItems({
+          t,
           variant: "header",
           channelSourceLink: {
             href: "https://slack.com/archives/C01ABC/p1700000000000100",

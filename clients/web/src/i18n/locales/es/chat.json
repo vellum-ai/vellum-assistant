@@ -138,6 +138,26 @@
     "tokenRangeWithReduction": "{before} → {after}  ({reduction})",
     "trigger": "Disparador"
   },
+  "conversationActions": {
+    "archive": "Archivar",
+    "copyConversation": "Copiar conversación completa",
+    "copyConversationId": "Copiar ID de conversación",
+    "forkConversation": "Bifurcar conversación",
+    "inspect": "Analizar conversación",
+    "markRead": "Marcar como leída",
+    "markUnread": "Marcar como no leída",
+    "moveToGroup": "Mover al grupo",
+    "newGroup": "Nuevo grupo…",
+    "openInNewWindow": "Abrir en una ventana nueva",
+    "pin": "Fijar",
+    "refresh": "Actualizar",
+    "removeFromGroup": "Quitar del grupo",
+    "rename": "Cambiar nombre",
+    "shareFeedback": "Enviar comentarios",
+    "triggerAriaLabel": "Acciones de conversación",
+    "unarchive": "Desarchivar",
+    "unpin": "Dejar de fijar"
+  },
   "conversationActionsSheet": {
     "closeAriaLabel": "Cerrar",
     "title": "Acciones de conversación"

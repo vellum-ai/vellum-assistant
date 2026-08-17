@@ -120,7 +120,7 @@ export const WithGrabber: Story = {
     description: "",
     showIcon: false,
   },
-  render: ({ triggerLabel, title }) => (
+  render: ({ triggerLabel, title, description, showIcon }) => (
     <BottomSheet.Root>
       <BottomSheet.Trigger asChild>
         <Button>{triggerLabel}</Button>
@@ -131,8 +131,11 @@ export const WithGrabber: Story = {
         aria-describedby={undefined}
       >
         <BottomSheet.Grabber />
-        <BottomSheet.Header className="flex-row items-center justify-between px-4 pt-3 pb-2">
-          <BottomSheet.Title className="text-body-large-default text-[var(--content-tertiary)]">
+        <BottomSheet.Header className="flex-row items-center justify-between gap-2 px-4 pt-3 pb-2">
+          <BottomSheet.Title
+            icon={showIcon ? Share : undefined}
+            className="text-body-large-default text-[var(--content-tertiary)]"
+          >
             {title}
           </BottomSheet.Title>
           {/* `outline-none` matters here rather than being boilerplate: Radix
@@ -148,6 +151,11 @@ export const WithGrabber: Story = {
           </BottomSheet.Close>
         </BottomSheet.Header>
         <BottomSheet.Body className="px-4 pt-3">
+          {description ? (
+            <BottomSheet.Description className="mt-0 mb-3">
+              {description}
+            </BottomSheet.Description>
+          ) : null}
           <div className="flex flex-col gap-2">
             <Button variant="ghost" className="justify-start">
               Rename

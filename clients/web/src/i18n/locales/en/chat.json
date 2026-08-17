@@ -138,6 +138,26 @@
     "tokenRangeWithReduction": "{before} → {after}  ({reduction})",
     "trigger": "Trigger"
   },
+  "conversationActions": {
+    "archive": "Archive",
+    "copyConversation": "Copy Full Conversation",
+    "copyConversationId": "Copy conversation ID",
+    "forkConversation": "Fork Conversation",
+    "inspect": "Analyze Conversation",
+    "markRead": "Mark as read",
+    "markUnread": "Mark as unread",
+    "moveToGroup": "Move to group",
+    "newGroup": "New group…",
+    "openInNewWindow": "Open in New Window",
+    "pin": "Pin",
+    "refresh": "Refresh",
+    "removeFromGroup": "Remove from group",
+    "rename": "Rename",
+    "shareFeedback": "Share Feedback",
+    "triggerAriaLabel": "Conversation actions",
+    "unarchive": "Unarchive",
+    "unpin": "Unpin"
+  },
   "conversationActionsSheet": {
     "closeAriaLabel": "Close",
     "title": "Conversation Actions"
