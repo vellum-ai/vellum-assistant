@@ -929,4 +929,87 @@ describe("LiveVoiceSession Flux end-of-turn during the STT dial", () => {
 
     await session.close("client_end");
   });
+
+  test("keeps one stream across turns when the provider owns the boundary", async () => {
+    const { session, transcribers, turnCalls } = createHarness({
+      fluxConfig: FLUX_ON,
+      // Long enough that only the provider can be closing these turns.
+      silenceThresholdMs: 10_000,
+      startVoiceTurn: autoCompletingTurn(),
+    });
+
+    await session.start();
+    await session.handleBinaryAudio(LOUD_CHUNK);
+    await waitFor(() => transcribers.length > 0);
+    transcribers[0]?.startOfTurn(0);
+    transcribers[0]?.endOfTurn("what is the weather", 0);
+    await waitFor(() => turnCalls.length === 1);
+    await flushAsyncCallbacks();
+
+    // Second utterance on the same session. A stream torn down per utterance
+    // would lose the audio arriving while its replacement dials — which is
+    // what eats the opening words of every turn after the first.
+    await session.handleBinaryAudio(LOUD_CHUNK);
+    transcribers[0]?.startOfTurn(1);
+    transcribers[0]?.endOfTurn("and tomorrow", 1);
+    await waitFor(() => turnCalls.length === 2);
+
+    expect(transcribers).toHaveLength(1);
+    expect(transcribers[0]?.stopped).toBe(false);
+    expect(turnCalls[1]?.content).toBe("and tomorrow");
+
+    await session.close("client_end");
+  });
+
+  test("closes the stream when a caller-side boundary releases the turn", async () => {
+    const { session, transcribers, turnCalls } = createHarness({
+      fluxConfig: FLUX_ON,
+      startVoiceTurn: autoCompletingTurn(),
+    });
+
+    await session.start();
+    await session.handleBinaryAudio(LOUD_CHUNK);
+    await waitFor(() => transcribers.length > 0);
+    // Flux transcribes but never closes the turn, so the fail-open deadline
+    // releases it. Nothing sealed this cycle provider-side, so the only way
+    // to make Flux answer for the turn still open is to close the stream.
+    transcribers[0]?.emit({ type: "partial", text: "are you still there" });
+
+    await waitFor(
+      () => turnCalls.length === 1,
+      "Flux fallback never replayed the silence boundary",
+    );
+    expect(transcribers[0]?.stopped).toBe(true);
+
+    // The retired stream is not re-armed onto: the next cycle dials a fresh one.
+    await session.handleBinaryAudio(LOUD_CHUNK);
+    await waitFor(
+      () => transcribers.length === 2,
+      "The next utterance never dialed a replacement stream",
+    );
+
+    await session.close("client_end");
+  }, 10_000);
+
+  test("tears the stream down per utterance while the flag is off", async () => {
+    const { session, transcribers, turnCalls } = createHarness({
+      fluxConfig: { turnEnd: { enabled: false } },
+      startVoiceTurn: autoCompletingTurn(),
+    });
+
+    await session.start();
+    await session.handleBinaryAudio(LOUD_CHUNK);
+    await waitFor(() => transcribers.length > 0);
+    transcribers[0]?.emit({ type: "final", text: "hello there" });
+
+    // The local silence boundary owns this turn, exactly as before: a stream
+    // the caller can neither flush nor rely on to seal itself must close.
+    await waitFor(
+      () => turnCalls.length === 1,
+      "The silence boundary never committed the turn",
+    );
+    expect(transcribers[0]?.stopped).toBe(true);
+
+    await session.close("client_end");
+  }, 10_000);
 });
