@@ -553,9 +553,9 @@ so it's obvious at a glance exactly what the branch runs. They also close
 a common footgun — a second line added under a braceless condition reads
 as if it sits inside the branch, but executes unconditionally.
 
-The `curly` ESLint rule flags braceless bodies (currently at `warn`). It
-is fully auto-fixable — `eslint --fix` adds the braces with no behavior
-change — so add braces to any control statement you touch.
+The `curly` ESLint rule flags braceless bodies at `error`, so a braceless
+body fails lint and blocks CI. It is fully auto-fixable: `eslint --fix`
+adds the braces with no behavior change.
 
 Reference: [ESLint — `curly`](https://eslint.org/docs/latest/rules/curly)
 

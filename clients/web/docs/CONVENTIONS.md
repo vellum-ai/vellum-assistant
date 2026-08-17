@@ -851,9 +851,15 @@ Reference: [Vite — SSR guidance](https://vite.dev/guide/ssr.html)
 ### `packages/design-library/`
 
 Domain-agnostic UI primitives (Button, Card, Modal, Typography, etc.)
-live in `packages/design-library/` outside `clients/web/`. The package is
-consumed as a `file:` dependency and resolved via its `exports` field
-in `package.json` — no Vite alias or tsconfig `paths` needed.
+live in `packages/design-library/` outside `clients/web/`. The package is a
+`workspace:*` dependency resolved via its `exports` field in `package.json`,
+so Vite serves it as source and edits hot-update live. No Vite alias or
+tsconfig `paths` needed.
+
+**Do not convert it to a `file:` dependency.** A `file:` dep (especially
+paired with `preserveSymlinks` or a per-package React install) resolves a
+second copy of React and white-screens the app. See
+[`clients/web/AGENTS.md`](../AGENTS.md) for the full constraint.
 
 ```ts
 import { Button, Typography } from "@vellumai/design-library";
@@ -897,8 +903,8 @@ export function ChatMarkdownMessage(props: ChatMarkdownMessageProps) {
 ```
 
 For component authoring conventions (React 19 ref-as-prop, `data-slot`,
-variant patterns, file organization), see
-[`packages/design-library/README.md`](../../../packages/design-library/README.md).
+variant patterns, file organization, story rules), see
+[`packages/design-library/AGENTS.md`](../../../packages/design-library/AGENTS.md).
 
 References:
 - [Node.js — Package exports](https://nodejs.org/api/packages.html#exports)
