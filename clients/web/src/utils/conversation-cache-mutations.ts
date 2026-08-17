@@ -657,8 +657,10 @@ export function deleteGroupAndResetConversations(
  * stays visible (and re-firing) until rows arrive, and without the guard a
  * scroll wiggle issues the same offset fetch several times over.
  *
- * Module-level like the send-path guard in `use-send-message.ts`, because
- * the callers are imperative and share no React context.
+ * Module-level because the callers are imperative and share no React
+ * context; the alternative, TanStack's own dedupe through `fetchQuery`,
+ * would need a per-offset query key for a page that is appended into
+ * another key's cache rather than owned by its own.
  */
 const sectionLoadsInFlight = new Set<string>();
 

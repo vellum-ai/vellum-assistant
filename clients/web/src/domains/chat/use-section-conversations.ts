@@ -28,7 +28,7 @@ import { useSectionConversationListQuery } from "@/hooks/conversation-queries";
 import { useSupportsGroupFilter } from "@/lib/backwards-compat/use-supports-group-filter";
 import { useSupportsNativeOriginFilter } from "@/lib/backwards-compat/use-supports-native-origin-filter";
 import type { Conversation } from "@/types/conversation-types";
-import { recordDiagnostic } from "@/lib/diagnostics";
+import { captureError } from "@/lib/sentry/capture-error";
 import { loadMoreSectionConversations } from "@/utils/conversation-cache-mutations";
 import {
   NATIVE_ORIGIN_CHANNEL,
@@ -128,6 +128,32 @@ function isOriginChannel(
   return (ORIGIN_CHANNELS as readonly string[]).includes(channelId);
 }
 
+/** What a section renders and how it pages; see {@link useSectionConversations}. */
+export interface SectionConversationsResult {
+  conversations: Conversation[];
+  /**
+   * Whether the server holds rows past the loaded window (LUM-2444).
+   * `false` whenever the section is on its derived fallback rows, which
+   * come from the drained foreground list and have no pages to load.
+   */
+  hasMore: boolean;
+  /**
+   * Extend the window by one page. Safe to call redundantly: the fetch is
+   * guarded per section, and a call against a complete or unfetched cache
+   * is a no-op. Failures are recorded, not thrown - the sentinel that
+   * drives this retries on the next scroll intersection.
+   */
+  loadMore: () => void;
+  /**
+   * Every member of this section, drained at call time, for the bulk
+   * actions ("archive all", "mark all read") whose completeness must not
+   * shrink to the loaded window: both send explicit id lists, so what this
+   * returns is exactly what they cover. Resolves to the rendered rows
+   * whenever they are already complete.
+   */
+  getAllRows: () => Promise<Conversation[]>;
+}
+
 /**
  * The conversations to render for `section`.
  *
@@ -160,31 +186,6 @@ function isOriginChannel(
  * The server's order is rendered as-is. Every section is recency-ordered now
  * that nothing writes `display_order` (LUM-3108).
  */
-export interface SectionConversationsResult {
-  conversations: Conversation[];
-  /**
-   * Whether the server holds rows past the loaded window (LUM-2444).
-   * `false` whenever the section is on its derived fallback rows, which
-   * come from the drained foreground list and have no pages to load.
-   */
-  hasMore: boolean;
-  /**
-   * Extend the window by one page. Safe to call redundantly: the fetch is
-   * guarded per section, and a call against a complete or unfetched cache
-   * is a no-op. Failures are recorded, not thrown - the sentinel that
-   * drives this retries on the next scroll intersection.
-   */
-  loadMore: () => void;
-  /**
-   * Every member of this section, drained at call time, for the bulk
-   * actions ("archive all", "mark all read") whose completeness must not
-   * shrink to the loaded window: both send explicit id lists, so what this
-   * returns is exactly what they cover. Resolves to the rendered rows
-   * whenever they are already complete.
-   */
-  getAllRows: () => Promise<Conversation[]>;
-}
-
 export function useSectionConversations(
   assistantId: string | null,
   section: SidebarSection,
@@ -220,9 +221,12 @@ export function useSectionConversations(
     }
     loadMoreSectionConversations(queryClient, assistantId, filter).catch(
       (error: unknown) => {
-        recordDiagnostic("conversation_section_load_more_error", {
-          assistantId,
-          message: error instanceof Error ? error.message : String(error),
+        /* Best-effort: the sentinel re-fires on the next intersection, so
+           daemon transients filter out and only unexpected failures reach
+           Sentry. */
+        captureError(error, {
+          context: "useSectionConversations.loadMore",
+          bestEffort: true,
         });
       },
     );
@@ -260,10 +264,10 @@ export function useSectionConversations(
      "Has something to show" is the question, and it is false in exactly the
      three cases that need the fallback: never fetched, still pending, or
      failed before ever succeeding. */
-  return {
-    conversations: live ? conversations : sectionAll,
-    hasMore: live ? hasMore : false,
-    loadMore,
-    getAllRows,
-  };
+  const rows = live ? conversations : sectionAll;
+  const windowed = live ? hasMore : false;
+  return useMemo(
+    () => ({ conversations: rows, hasMore: windowed, loadMore, getAllRows }),
+    [rows, windowed, loadMore, getAllRows],
+  );
 }

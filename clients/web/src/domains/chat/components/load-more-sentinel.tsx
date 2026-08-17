@@ -18,14 +18,19 @@
  * next window when the user keeps scrolling.
  */
 
-import { useEffect, useRef } from "react";
+import { useEffect, useLayoutEffect, useRef } from "react";
 
-export function LoadMoreSentinel({ onVisible }: { onVisible: () => void }) {
+interface LoadMoreSentinelProps {
+  onVisible: () => void;
+}
+
+export function LoadMoreSentinel({ onVisible }: LoadMoreSentinelProps) {
   const ref = useRef<HTMLDivElement | null>(null);
-  // Latest-callback ref, written in an effect (not render), so the observer
-  // below never has to re-subscribe when the callback identity changes.
+  // Latest-callback ref, synced in a layout effect (before paint, before the
+  // observer effect can read it), so the observer never re-subscribes when
+  // the callback identity changes.
   const onVisibleRef = useRef(onVisible);
-  useEffect(() => {
+  useLayoutEffect(() => {
     onVisibleRef.current = onVisible;
   }, [onVisible]);
 

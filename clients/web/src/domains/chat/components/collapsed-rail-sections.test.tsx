@@ -31,9 +31,7 @@ const SECTION_ROWS: Conversation[] = [
 ];
 
 /* Typed against the real module so a stub that stops matching the hook's
-   return shape fails the build rather than the suite: this stub once
-   returned a bare array and every test passed for the wrong reason until
-   the hook grew its window fields. */
+   return shape fails the build rather than the suite. */
 mock.module(
   "@/domains/chat/use-section-conversations",
   (): typeof SectionConversations => ({

@@ -15,6 +15,7 @@
 
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 import { act, cleanup, render, waitFor } from "@testing-library/react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 
@@ -133,8 +134,6 @@ import type {
   Conversation,
   ConversationGroup,
 } from "@/types/conversation-types";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-
 import { AssistantSideMenu } from "@/domains/chat/components/assistant-side-menu";
 import { CONVERSATION_LIST_VIRTUALIZE_THRESHOLD } from "@/domains/chat/components/conversation-nav-section";
 import { useSidebarLayoutStore } from "@/domains/chat/sidebar-layout-store";

@@ -46,7 +46,7 @@ let loadMorePages: (
 let foregroundCalls = 0;
 let foregroundPage: Page = NOOP_PAGE;
 
-mock.module("@/utils/conversation-list-fetchers", () => ({
+mock.module("@/utils/conversation-list-fetchers", (): typeof fetchers => ({
   ...fetchers,
   listConversationsFirstPage: async (): Promise<Page> => {
     foregroundCalls += 1;

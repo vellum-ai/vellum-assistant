@@ -1,8 +1,9 @@
 import { describe, expect, test } from "bun:test";
 
 import type { Conversation } from "@/types/conversation-types";
-import { insertByRecency, insertIntoWindow } from "./conversation-order";
 import { listPage } from "@/utils/conversation-list.test-helper";
+
+import { insertByRecency, insertIntoWindow } from "./conversation-order";
 
 function row(conversationId: string, lastMessageAt: number): Conversation {
   return { conversationId, title: conversationId, createdAt: 1, lastMessageAt };

@@ -35,10 +35,11 @@ import {
   type UseSidebarStateParams,
 } from "@/domains/chat/use-sidebar-state";
 import { copyIdToClipboard } from "@/domains/chat/utils/copy-id-to-clipboard";
+import { useTranslation } from "@/i18n";
 import { captureError } from "@/lib/sentry/capture-error";
 import { NATIVE_MOBILE_BARE_ICON_BUTTON } from "@/domains/chat/utils/native-mobile-button-constants";
 import type { Conversation } from "@/types/conversation-types";
-import { Button, cn, SideMenu } from "@vellumai/design-library";
+import { Button, cn, SideMenu, toast } from "@vellumai/design-library";
 
 export interface AssistantSideMenuProps extends UseSidebarStateParams {
   assistantName?: string | null;
@@ -264,6 +265,8 @@ export function AssistantSideMenu({
   // variant is up, so a stale value from a dismissed overlay is inert.
   const [overlayBottomColumnHeight, setOverlayBottomColumnHeight] = useState(0);
 
+  const { t } = useTranslation("chat");
+
   // Whole-section reordering. Rows themselves do not reorder: every section
   // is recency-sorted (LUM-3108).
   const sectionDragFor = useSectionDragReorder({
@@ -308,14 +311,12 @@ export function AssistantSideMenu({
     onMarkAllRead: onMarkAllReadInGroup
       ? () => {
           getAllRows().then(onMarkAllReadInGroup, (error: unknown) => {
-            /* Same failure posture as the bulk ops themselves
-               (executeBulkWithFallback): captured, never unhandled. The
-               action performs nothing rather than acting on a partial
-               member list. */
-            captureError(error, {
-              context: "markAllReadInGroup:getAllRows",
-              bestEffort: true,
-            });
+            /* A user-clicked action, so the failure is reported to the
+               user and, unfiltered, to Sentry: nothing about a click has
+               a natural retry surface. The action performs nothing rather
+               than acting on a partial member list. */
+            toast.error(t("assistantSideMenu.bulkActionMembersFailed"));
+            captureError(error, { context: "markAllReadInGroup:getAllRows" });
           });
         }
       : undefined,
@@ -329,10 +330,8 @@ export function AssistantSideMenu({
           getAllRows().then(
             (rows) => onArchiveAllInGroup(groupName, rows),
             (error: unknown) => {
-              captureError(error, {
-                context: "archiveAllInGroup:getAllRows",
-                bestEffort: true,
-              });
+              toast.error(t("assistantSideMenu.bulkActionMembersFailed"));
+              captureError(error, { context: "archiveAllInGroup:getAllRows" });
             },
           );
         }
