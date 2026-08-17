@@ -7,7 +7,7 @@ import { useCommandPaletteStore } from "@/stores/command-palette-store";
  * Returns `true` when the keyboard event matches Ctrl/Cmd + one of the given
  * keys and the active element is not an input surface.
  */
-function shouldHandleShortcut(
+export function shouldHandleShortcut(
   event: Pick<KeyboardEvent, "metaKey" | "ctrlKey" | "key">,
   activeElement: Element | null,
   key: string | string[],
@@ -17,7 +17,7 @@ function shouldHandleShortcut(
     return false;
   }
   const keys = Array.isArray(key) ? key : [key];
-  if (!keys.includes(event.key)) {
+  if (!keys.some((candidate) => candidate.toLowerCase() === event.key.toLowerCase())) {
     return false;
   }
   if (!activeElement) {
@@ -46,11 +46,13 @@ export function useChatLayoutShortcuts({
   onGoBack,
   onGoForward,
   onNewConversation,
+  onToggleVoiceMode,
 }: {
   toggleSidebar: () => void;
   onGoBack: () => void;
   onGoForward: () => void;
   onNewConversation: () => void;
+  onToggleVoiceMode: () => void;
 }): void {
   useEffect(() => {
     const toggle = useCommandPaletteStore.getState().toggle;
@@ -80,6 +82,17 @@ export function useChatLayoutShortcuts({
         return;
       }
 
+      // Cmd/Ctrl+Shift+V toggles Voice Mode, but deliberately yields to the
+      // platform's paste-as-plain-text command while editing text.
+      if (
+        event.shiftKey &&
+        shouldHandleShortcut(event, document.activeElement, "v")
+      ) {
+        event.preventDefault();
+        onToggleVoiceMode();
+        return;
+      }
+
       if (shouldHandleShortcut(event, document.activeElement, "\\")) {
         event.preventDefault();
         toggleSidebar();
@@ -104,5 +117,11 @@ export function useChatLayoutShortcuts({
     return () => {
       window.removeEventListener("keydown", onKeyDown);
     };
-  }, [toggleSidebar, onGoBack, onGoForward, onNewConversation]);
+  }, [
+    toggleSidebar,
+    onGoBack,
+    onGoForward,
+    onNewConversation,
+    onToggleVoiceMode,
+  ]);
 }

@@ -550,6 +550,22 @@ export function ChatComposer({
     startLiveVoiceSession();
   }, [startLiveVoiceSession]);
 
+  // ChatLayout owns the global shortcut, but this composer owns the guarded
+  // entry flow, so register the same handler the button uses. Cleanup is
+  // identity-safe so an unmounting composer cannot clear a newer handler.
+  useEffect(() => {
+    if (!showVoiceInput) {
+      return;
+    }
+    useLiveVoiceStore.getState().setEntryHandler(handleLiveVoiceStart);
+    return () => {
+      const store = useLiveVoiceStore.getState();
+      if (store.entryHandler === handleLiveVoiceStart) {
+        store.setEntryHandler(null);
+      }
+    };
+  }, [handleLiveVoiceStart, showVoiceInput]);
+
   const pointerCoarse = useMemo(() => isPointerCoarse(), []);
   // `shouldSubmitOnEnter` ignores Enter under a coarse primary pointer, since a
   // soft keyboard's Enter inserts a newline. Anything that stands in for

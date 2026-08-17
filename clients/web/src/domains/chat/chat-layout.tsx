@@ -93,6 +93,11 @@ import { ResearchResultsOverlay } from "@/domains/chat/onboarding-research/resea
 import { OnboardingCheckinOverlay } from "@/components/onboarding-checkin-overlay";
 import { OnboardingAvatarApplier } from "@/components/onboarding-avatar-applier";
 import { VoiceSessionPillHost } from "@/domains/chat/components/voice-session-pill-host";
+import {
+  endLiveVoiceSession,
+  isLiveVoiceSessionActive,
+  useLiveVoiceStore,
+} from "@/domains/chat/voice/live-voice/live-voice-store";
 import { useLiveVoiceSessionController } from "@/domains/chat/voice/live-voice/use-live-voice-session-controller";
 import { useSeedLiveVoiceSnapshot } from "@/domains/chat/voice/live-voice/use-seed-live-voice-snapshot";
 import { VoiceRoom } from "@/domains/chat/voice/voice-room/voice-room";
@@ -547,11 +552,21 @@ export function ChatLayout({
     [navigate],
   );
 
+  const toggleLiveVoiceMode = useCallback(() => {
+    const liveVoice = useLiveVoiceStore.getState();
+    if (isLiveVoiceSessionActive(liveVoice.state)) {
+      endLiveVoiceSession();
+      return;
+    }
+    liveVoice.entryHandler?.();
+  }, []);
+
   useChatLayoutShortcuts({
     toggleSidebar,
     onGoBack: handleGoBack,
     onGoForward: handleGoForward,
     onNewConversation: startNewConversation,
+    onToggleVoiceMode: toggleLiveVoiceMode,
   });
 
   const drawerRef = useChatLayoutDrawer({
