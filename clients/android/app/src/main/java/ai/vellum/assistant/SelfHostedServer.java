@@ -138,6 +138,10 @@ final class SelfHostedServer {
                     }
                     String canonical = canonicalString(url);
                     if (indexOfUrl(entries, canonical) < 0) {
+                        // isNull guards platform org.json, whose optString
+                        // stringifies JSON null to "null"; the JVM test
+                        // artifact returns the default, so tests cannot
+                        // regression-protect this. Keep the guard.
                         String name = item.isNull("name") ? null : item.optString("name", null);
                         entries.add(new Entry(normalizedName(name), canonical));
                     }
@@ -274,6 +278,11 @@ final class SelfHostedServer {
             if ("..".equals(segment)) {
                 return null;
             }
+        }
+        // iOS splits the percent-decoded path, so %2e%2e reads as ".." there;
+        // reject the encoded spelling too or the route could climb the prefix.
+        if (containsEncodedDotSegment(pathPart)) {
+            return null;
         }
         String base = entryUrl;
         while (base.endsWith("/")) {

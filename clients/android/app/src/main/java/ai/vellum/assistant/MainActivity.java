@@ -384,6 +384,12 @@ public class MainActivity extends BridgeActivity {
      * so no field needs resetting beyond the pending launch state.
      */
     void recreateForServerChange(String routePath) {
+        // A connect deep link may have planted a recreation while this call's
+        // runnable sat queued (recreate() flips neither isFinishing nor
+        // isDestroyed); the pairing navigation wins, so never discard it.
+        if (hasRecreationConnect()) {
+            return;
+        }
         // A live voice session does not survive an origin swap.
         VoiceLiveActivityPlugin.clearStatus(this);
         pendingConnect = null;
@@ -466,6 +472,10 @@ public class MainActivity extends BridgeActivity {
 
     private static synchronized void setRecreationConnect(ConnectDeepLink connect) {
         recreationConnect = connect;
+    }
+
+    private static synchronized boolean hasRecreationConnect() {
+        return recreationConnect != null;
     }
 
     private static final class SelfHostedWebViewClient extends BridgeWebViewClient {
