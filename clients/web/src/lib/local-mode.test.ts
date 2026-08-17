@@ -1042,7 +1042,169 @@ describe("primeLocalGatewayConnection", () => {
   });
 });
 
-describe("primeLocalGatewayConnectionWithStartupRetry (paired target)", () => {
+describe("primeLocalGatewayConnectionWithStartupRetry", () => {
+  test("hands a platform selection back to platform auth", async () => {
+    enableLocalMode();
+    setLockfile({ assistants: [platform], activeAssistant: "platform-a" });
+    const fetchMock = mock(async () => Response.json({ status: "ok" }));
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+    await expect(
+      primeLocalGatewayConnectionWithStartupRetry(platform),
+    ).resolves.toBe(false);
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(fetchGuardianTokenHost).not.toHaveBeenCalled();
+  });
+
+  test("replaces a cached gateway token before authenticating at boot", async () => {
+    enableLocalMode();
+    setLockfile({ assistants: [localA], activeAssistant: "local-a" });
+    seedGatewayToken({
+      token: "stale-actor-token",
+      expiresAtEpochSeconds: Math.floor(Date.now() / 1000) + 3600,
+      source: "/assistant/__gateway/7830/auth/token",
+    });
+    const fetchMock = mock(
+      async (_input: RequestInfo | URL, _init?: RequestInit) =>
+        Response.json({
+          token: "fresh-actor-token",
+          expiresAt: Math.floor(Date.now() / 1000) + 3600,
+        }),
+    );
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+    await primeLocalGatewayConnectionWithStartupRetry(localA);
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock.mock.calls[0]?.[0]).toBe(
+      "/assistant/__gateway/7830/auth/token",
+    );
+    expect(fetchMock.mock.calls[0]?.[1]).toEqual(
+      expect.objectContaining({
+        method: "POST",
+        headers: { Authorization: "Bearer guardian-tok" },
+      }),
+    );
+    expect(getGatewayToken()).toBe("fresh-actor-token");
+    expect(getSelfHostedActorToken()).toBe("fresh-actor-token");
+  });
+
+  test("rejects a local retry after selection changes to platform", async () => {
+    enableLocalMode();
+    setLockfile({
+      assistants: [localA, platform],
+      activeAssistant: "local-a",
+    });
+    setSelected("local-a");
+    const fetchMock = mock(async () => {
+      setSelected("platform-a");
+      return new Response("starting", { status: 503 });
+    });
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+    const previousIntervalMs = LOCAL_GATEWAY_STARTUP_RETRY.intervalMs;
+    LOCAL_GATEWAY_STARTUP_RETRY.intervalMs = 0;
+
+    try {
+      await expect(
+        primeLocalGatewayConnectionWithStartupRetry(),
+      ).resolves.toBe(false);
+    } finally {
+      LOCAL_GATEWAY_STARTUP_RETRY.intervalMs = previousIntervalMs;
+    }
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(getGatewayToken()).toBeNull();
+    expect(getSelfHostedIngressUrl()).toBeNull();
+  });
+
+  test("hands a rejected boot mint back after selection changes", async () => {
+    enableLocalMode();
+    setLockfile({
+      assistants: [localA, platform],
+      activeAssistant: "local-a",
+    });
+    setSelected("local-a");
+    globalThis.fetch = mock(async () => {
+      setSelected("platform-a");
+      return new Response("Forbidden", { status: 403 });
+    }) as unknown as typeof fetch;
+
+    await expect(
+      primeLocalGatewayConnectionWithStartupRetry(),
+    ).resolves.toBe(false);
+  });
+
+  test("force-validates again when another prime supersedes the boot mint", async () => {
+    enableLocalMode();
+    setLockfile({ assistants: [localA], activeAssistant: "local-a" });
+    seedGatewayToken({
+      token: "stale-actor-token",
+      expiresAtEpochSeconds: Math.floor(Date.now() / 1000) + 3600,
+      source: "/assistant/__gateway/7830/auth/token",
+    });
+    let releaseBootMint: (() => void) | undefined;
+    let fetchCalls = 0;
+    globalThis.fetch = mock(async () => {
+      fetchCalls++;
+      if (fetchCalls === 1) {
+        await new Promise<void>((resolve) => {
+          releaseBootMint = resolve;
+        });
+        return Response.json({
+          token: "superseded-token",
+          expiresAt: Math.floor(Date.now() / 1000) + 3600,
+        });
+      }
+      return Response.json({
+        token: "fresh-actor-token",
+        expiresAt: Math.floor(Date.now() / 1000) + 3600,
+      });
+    }) as unknown as typeof fetch;
+
+    const bootPrime = primeLocalGatewayConnectionWithStartupRetry(localA);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    await primeLocalGatewayConnection(localA);
+    expect(getGatewayToken()).toBe("stale-actor-token");
+    releaseBootMint?.();
+    await bootPrime;
+
+    expect(fetchCalls).toBe(2);
+    expect(getGatewayToken()).toBe("fresh-actor-token");
+    expect(getSelfHostedActorToken()).toBe("fresh-actor-token");
+  });
+
+  test("invalidates the cached gateway session when boot validation fails", async () => {
+    enableLocalMode();
+    setLockfile({ assistants: [localA], activeAssistant: "local-a" });
+    seedGatewayToken({
+      token: "stale-actor-token",
+      expiresAtEpochSeconds: Math.floor(Date.now() / 1000) + 3600,
+      source: "/assistant/__gateway/7830/auth/token",
+    });
+    setSelfHostedConnection({
+      url: `${window.location.origin}/assistant/__gateway/7830`,
+      token: "stale-actor-token",
+    });
+    globalThis.fetch = mock(
+      async () => new Response("Unauthorized", { status: 401 }),
+    ) as unknown as typeof fetch;
+    const previousAttempts = LOCAL_GATEWAY_STARTUP_RETRY.attempts;
+    LOCAL_GATEWAY_STARTUP_RETRY.attempts = 1;
+
+    try {
+      await expect(
+        primeLocalGatewayConnectionWithStartupRetry(localA),
+      ).rejects.toThrow("Gateway token request failed: 401");
+    } finally {
+      LOCAL_GATEWAY_STARTUP_RETRY.attempts = previousAttempts;
+    }
+
+    expect(getGatewayToken()).toBeNull();
+    expect(getSelfHostedIngressUrl()).toBeNull();
+    expect(getSelfHostedActorToken()).toBeNull();
+  });
+
   // The startup ride-out exists for the LOCAL gateway's reboot window and only
   // retries GatewayTokenErrors, which the paired proxy prime never throws. A
   // paired failure (failed host credential read, remote transport error) falls through

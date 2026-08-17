@@ -22,6 +22,8 @@
  */
 
 interface SelfHostedConnection {
+  /** Assistant that owns this connection slot. */
+  assistantId?: string | null;
   /**
    * The user's gateway hostname for this assistant (from
    * `AssistantSerializer.ingress_url`). May be null briefly between
@@ -41,15 +43,27 @@ interface SelfHostedConnection {
   token: string | null;
 }
 
-let current: SelfHostedConnection = { url: null, token: null };
+let current: SelfHostedConnection = {
+  assistantId: null,
+  url: null,
+  token: null,
+};
 
 export function setSelfHostedConnection(
   connection: SelfHostedConnection | null,
 ): void {
   current =
     connection === null
-      ? { url: null, token: null }
-      : { url: connection.url, token: connection.token };
+      ? { assistantId: null, url: null, token: null }
+      : {
+          assistantId: connection.assistantId ?? null,
+          url: connection.url,
+          token: connection.token,
+        };
+}
+
+export function getSelfHostedAssistantId(): string | null {
+  return current.assistantId ?? null;
 }
 
 export function getSelfHostedIngressUrl(): string | null {

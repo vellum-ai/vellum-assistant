@@ -33,8 +33,16 @@ const isPlatformDisabledMock = mock(() => false);
 const isRemoteGatewayModeMock = mock(
   () => window.__VELLUM_CONFIG__?.mode === "remote-gateway",
 );
-let primeGatewayWithRepairImpl: () => Promise<void> = async () => {};
-const primeGatewayWithRepairMock = mock(() => primeGatewayWithRepairImpl());
+let primeGatewayWithRepairImpl: (
+  target?: LockfileAssistant,
+  options?: LocalMode.PrimeLocalGatewayConnectionOptions,
+) => Promise<boolean | void> = async () => {};
+const primeGatewayWithRepairMock = mock(
+  async (
+    target?: LockfileAssistant,
+    options?: LocalMode.PrimeLocalGatewayConnectionOptions,
+  ) => (await primeGatewayWithRepairImpl(target, options)) ?? true,
+);
 // The lockfile selection the recovery snapshots; a test moves it to model an
 // assistant switch or logout landing while the re-prime is in flight.
 let selectedAssistantImpl: () => LockfileAssistant | undefined = () =>
@@ -164,6 +172,7 @@ import {
   rewriteForSelfHostedIngress,
 } from "@/lib/api-interceptors";
 import { ApiError } from "@/utils/api-errors";
+import { beginLocalGatewayRestart } from "@/lib/auth/local-gateway-restart";
 import {
   getSelfHostedActorToken,
   getSelfHostedIngressUrl,
@@ -1136,8 +1145,8 @@ describe("api-interceptors / recovery interceptor registration", () => {
 
 describe("api-interceptors / localGatewayAuthRecoveryInterceptor", () => {
   const GATEWAY_URL = "http://localhost:9090";
-  const GW_401_RECOVERY_AT_KEY = "vellum:gw:401-reload-at";
-  const GW_401_ATTEMPTS_KEY = "vellum:gw:401-reload-attempts";
+  const GW_401_RECOVERY_AT_KEY = "vellum:gw:401-reload-at:asst-a";
+  const GW_401_ATTEMPTS_KEY = "vellum:gw:401-reload-attempts:asst-a";
   const GW_401_MAX_ATTEMPTS = 3;
 
   function makeResponse(status: number, url: string): Response {
@@ -1151,6 +1160,17 @@ describe("api-interceptors / localGatewayAuthRecoveryInterceptor", () => {
       status,
       GATEWAY_URL + "/v1/assistants/123/conversations",
     );
+  }
+
+  async function duringLocalGatewayRestart(
+    operation: () => Promise<unknown> | unknown,
+  ): Promise<void> {
+    const finish = beginLocalGatewayRestart();
+    try {
+      await operation();
+    } finally {
+      finish();
+    }
   }
 
   /** A gateway-bound GET whose (empty) body is always replayable. */
@@ -1206,7 +1226,11 @@ describe("api-interceptors / localGatewayAuthRecoveryInterceptor", () => {
       }),
     });
     isLocalClientMock.mockImplementation(() => true);
-    setSelfHostedConnection({ url: GATEWAY_URL, token: "tok" });
+    setSelfHostedConnection({
+      assistantId: "asst-a",
+      url: GATEWAY_URL,
+      token: "tok",
+    });
     sessionStorage.removeItem(GW_401_RECOVERY_AT_KEY);
     sessionStorage.removeItem(GW_401_ATTEMPTS_KEY);
     clearGatewayTokenStorage();
@@ -1215,9 +1239,17 @@ describe("api-interceptors / localGatewayAuthRecoveryInterceptor", () => {
     refreshRemoteGatewaySessionMock.mockClear();
     refreshRemoteGatewaySessionImpl = async () => true;
     captureErrorMock.mockClear();
+    selectedAssistantImpl = () => ({
+      assistantId: "asst-a",
+      cloud: "local",
+    });
     // Model the real prime: a fresh token lands in the connection slot.
     primeGatewayWithRepairImpl = async () => {
-      setSelfHostedConnection({ url: GATEWAY_URL, token: "fresh-tok" });
+      setSelfHostedConnection({
+        assistantId: "asst-a",
+        url: GATEWAY_URL,
+        token: "fresh-tok",
+      });
     };
     replayedRequests = [];
     originalFetch = globalThis.fetch;
@@ -1266,9 +1298,14 @@ describe("api-interceptors / localGatewayAuthRecoveryInterceptor", () => {
 
     // THEN the session is re-primed with a forced mint
     expect(primeGatewayWithRepairMock).toHaveBeenCalledTimes(1);
-    expect(primeGatewayWithRepairMock).toHaveBeenCalledWith(undefined, {
-      forceMint: true,
-    });
+    expect(primeGatewayWithRepairMock).toHaveBeenCalledWith(
+      expect.objectContaining({ assistantId: "asst-a" }),
+      expect.objectContaining({
+        commitIf: expect.any(Function),
+        forceMint: true,
+        guardGeneration: true,
+      }),
+    );
 
     // AND the page never reloads; without a replayable request the 401
     // flows back to the caller's error path
@@ -1345,6 +1382,18 @@ describe("api-interceptors / localGatewayAuthRecoveryInterceptor", () => {
       "Bearer fresh-tok",
     );
     expect(primeGatewayWithRepairMock).toHaveBeenCalledTimes(1);
+  });
+
+  test("a consumed request with a superseded bearer does not recover again", async () => {
+    const request = await consumedPost();
+    setSelfHostedConnection({ url: GATEWAY_URL, token: "fresh-tok" });
+    const response = gatewayResponse(401);
+
+    const result = await localGatewayAuthRecoveryInterceptor(response, request);
+
+    expect(result).toBe(response);
+    expect(primeGatewayWithRepairMock).not.toHaveBeenCalled();
+    expect(sessionStorage.getItem(GW_401_ATTEMPTS_KEY)).toBeNull();
   });
 
   test("remote-gateway mode refreshes the paired session in place", async () => {
@@ -1534,6 +1583,127 @@ describe("api-interceptors / localGatewayAuthRecoveryInterceptor", () => {
     expect(getSelfHostedActorToken()).toBeNull();
   });
 
+  test("a recovery cannot overwrite a newly selected assistant", async () => {
+    let releaseRecovery: (() => void) | undefined;
+    primeGatewayWithRepairImpl = async (_target, options) => {
+      await new Promise<void>((resolve) => {
+        releaseRecovery = resolve;
+      });
+      if (options?.commitIf?.()) {
+        setSelfHostedConnection({
+          assistantId: "asst-a",
+          url: GATEWAY_URL,
+          token: "assistant-a-token",
+        });
+      }
+    };
+    const recovery = localGatewayAuthRecoveryInterceptor(
+      gatewayResponse(401),
+      gatewayGet(),
+    );
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    selectedAssistantImpl = () => ({ assistantId: "asst-b", cloud: "local" });
+    setSelfHostedConnection({
+      assistantId: "asst-b",
+      url: "http://localhost:9091",
+      token: "assistant-b-token",
+    });
+    releaseRecovery?.();
+
+    const response = await recovery;
+    expect(response.status).toBe(401);
+    expect(getSelfHostedIngressUrl()).toBe("http://localhost:9091");
+    expect(getSelfHostedActorToken()).toBe("assistant-b-token");
+    expect(replayedRequests).toHaveLength(0);
+  });
+
+  test("a new assistant starts its own recovery", async () => {
+    let releaseAssistantA: (() => void) | undefined;
+    primeGatewayWithRepairImpl = async (target, options) => {
+      if (target?.assistantId === "asst-a") {
+        await new Promise<void>((resolve) => {
+          releaseAssistantA = resolve;
+        });
+      }
+      const committed = options?.commitIf?.() ?? true;
+      if (committed) {
+        setSelfHostedConnection({
+          assistantId: target?.assistantId ?? null,
+          url:
+            target?.assistantId === "asst-b"
+              ? "http://localhost:9091"
+              : GATEWAY_URL,
+          token: `${target?.assistantId}-fresh-token`,
+        });
+      }
+      return committed;
+    };
+    const requestA = await daemonRequestInterceptor(
+      new Request("https://platform.test/v1/assistants/asst-a/conversations"),
+    );
+    const recoveryA = localGatewayAuthRecoveryInterceptor(
+      gatewayResponse(401),
+      requestA,
+    );
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    selectedAssistantImpl = () => ({ assistantId: "asst-b", cloud: "local" });
+    setSelfHostedConnection({
+      assistantId: "asst-b",
+      url: "http://localhost:9091",
+      token: "assistant-b-token",
+    });
+    const requestB = await daemonRequestInterceptor(
+      new Request("https://platform.test/v1/assistants/asst-b/conversations"),
+    );
+    const responseB = await localGatewayAuthRecoveryInterceptor(
+      makeResponse(
+        401,
+        "http://localhost:9091/v1/assistants/asst-b/conversations",
+      ),
+      requestB,
+    );
+    releaseAssistantA?.();
+    const responseA = await recoveryA;
+
+    expect(responseB.status).toBe(200);
+    expect(responseA.status).toBe(401);
+    expect(primeGatewayWithRepairMock).toHaveBeenCalledTimes(2);
+    expect(getSelfHostedIngressUrl()).toBe("http://localhost:9091");
+    expect(getSelfHostedActorToken()).toBe("asst-b-fresh-token");
+  });
+
+  test("does not replay with a pre-selected assistant's session", async () => {
+    const request = await daemonRequestInterceptor(
+      new Request("https://platform.test/v1/assistants/asst-a/conversations"),
+    );
+    setSelfHostedConnection({
+      assistantId: "asst-b",
+      url: "http://localhost:9091",
+      token: "assistant-b-token",
+    });
+    const response = gatewayResponse(401);
+
+    const result = await localGatewayAuthRecoveryInterceptor(
+      response,
+      request,
+    );
+
+    expect(result).toBe(response);
+    expect(replayedRequests).toHaveLength(0);
+    expect(primeGatewayWithRepairMock).not.toHaveBeenCalled();
+  });
+
+  test("refunds recovery when a superseding prime does not commit", async () => {
+    primeGatewayWithRepairImpl = async () => false;
+
+    await localGatewayAuthRecoveryInterceptor(gatewayResponse(401));
+
+    expect(sessionStorage.getItem(GW_401_ATTEMPTS_KEY)).toBeNull();
+    expect(sessionStorage.getItem(GW_401_RECOVERY_AT_KEY)).toBeNull();
+  });
+
   test("remote-gateway mode reloads only when the refresh cookie is rejected too", async () => {
     /**
      * A paired session whose refresh is refused cannot be revived from the
@@ -1561,6 +1731,148 @@ describe("api-interceptors / localGatewayAuthRecoveryInterceptor", () => {
     for (const key of GW_TOKEN_KEYS) {
       expect(localStorage.getItem(key)).toBeNull();
     }
+  });
+
+  test("does not reload for a 401 during an explicit local restart", async () => {
+    seedGatewayTokens();
+
+    await duringLocalGatewayRestart(() =>
+      localGatewayAuthRecoveryInterceptor(gatewayResponse(401)),
+    );
+
+    for (const key of GW_TOKEN_KEYS) {
+      expect(localStorage.getItem(key)).not.toBeNull();
+    }
+    expect(reloadCalls).toBe(0);
+    expect(sessionStorage.getItem(GW_401_ATTEMPTS_KEY)).toBeNull();
+  });
+
+  test("does not reload when a restart request returns 401 after restart", async () => {
+    seedGatewayTokens();
+    let request: Request | undefined;
+
+    await duringLocalGatewayRestart(async () => {
+      request = await daemonRequestInterceptor(
+        new Request(GATEWAY_URL + "/v1/assistants/123/conversations"),
+      );
+    });
+
+    await localGatewayAuthRecoveryInterceptor(gatewayResponse(401), request);
+
+    for (const key of GW_TOKEN_KEYS) {
+      expect(localStorage.getItem(key)).not.toBeNull();
+    }
+    expect(reloadCalls).toBe(0);
+    expect(sessionStorage.getItem(GW_401_ATTEMPTS_KEY)).toBeNull();
+  });
+
+  test("replays a stale restart request after reconnection", async () => {
+    seedGatewayTokens();
+    selectedAssistantImpl = () => ({ assistantId: "asst-a", cloud: "local" });
+    let request: Request | undefined;
+
+    await duringLocalGatewayRestart(async () => {
+      request = await daemonRequestInterceptor(
+        new Request(GATEWAY_URL + "/v1/assistants/123/conversations"),
+      );
+    });
+    setSelfHostedConnection({ url: GATEWAY_URL, token: "fresh-tok" });
+
+    const result = await localGatewayAuthRecoveryInterceptor(
+      gatewayResponse(401),
+      request,
+    );
+
+    expect(result.status).toBe(200);
+    expect(replayedRequests[0].headers.get("Authorization")).toBe(
+      "Bearer fresh-tok",
+    );
+    expect(primeGatewayWithRepairMock).not.toHaveBeenCalled();
+  });
+
+  test("retargets a stale restart request when the gateway port changes", async () => {
+    seedGatewayTokens();
+    selectedAssistantImpl = () => ({ assistantId: "asst-a", cloud: "local" });
+    let request: Request | undefined;
+
+    await duringLocalGatewayRestart(async () => {
+      request = await daemonRequestInterceptor(
+        new Request("https://platform.test/v1/assistants/123/conversations"),
+      );
+    });
+    const newGatewayUrl = "http://localhost:909";
+    setSelfHostedConnection({ url: newGatewayUrl, token: "fresh-tok" });
+
+    const result = await localGatewayAuthRecoveryInterceptor(
+      gatewayResponse(401),
+      request,
+    );
+
+    expect(result.status).toBe(200);
+    expect(replayedRequests[0].url).toBe(
+      newGatewayUrl + "/v1/assistants/123/conversations",
+    );
+    expect(replayedRequests[0].headers.get("Authorization")).toBe(
+      "Bearer fresh-tok",
+    );
+  });
+
+  test("does not replay an old assistant request after selection changes", async () => {
+    selectedAssistantImpl = () => ({ assistantId: "asst-a", cloud: "local" });
+    const request = await daemonRequestInterceptor(
+      new Request("https://platform.test/v1/assistants/123/conversations"),
+    );
+    selectedAssistantImpl = () => ({ assistantId: "asst-b", cloud: "local" });
+    setSelfHostedConnection({
+      url: "http://localhost:9091",
+      token: "assistant-b-token",
+    });
+    const response = gatewayResponse(401);
+
+    const result = await localGatewayAuthRecoveryInterceptor(
+      response,
+      request,
+    );
+
+    expect(result).toBe(response);
+    expect(replayedRequests).toHaveLength(0);
+    expect(primeGatewayWithRepairMock).not.toHaveBeenCalled();
+  });
+
+  test("preserves restart membership across asynchronous request routing", async () => {
+    seedGatewayTokens();
+    const originalBlob = Request.prototype.blob;
+    let releaseBody: (() => void) | undefined;
+    Request.prototype.blob = () =>
+      new Promise<Blob>((resolve) => {
+        releaseBody = () => resolve(new Blob(["request body"]));
+      });
+
+    const finishRestart = beginLocalGatewayRestart();
+    try {
+      const outgoingPromise = daemonRequestInterceptor(
+        new Request("https://platform.example/v1/assistants/123/conversations", {
+          method: "POST",
+          body: "request body",
+        }),
+      );
+      finishRestart();
+      releaseBody?.();
+      const outgoing = await outgoingPromise;
+
+      await localGatewayAuthRecoveryInterceptor(
+        gatewayResponse(401),
+        outgoing,
+      );
+    } finally {
+      Request.prototype.blob = originalBlob;
+    }
+
+    for (const key of GW_TOKEN_KEYS) {
+      expect(localStorage.getItem(key)).not.toBeNull();
+    }
+    expect(reloadCalls).toBe(0);
+    expect(sessionStorage.getItem(GW_401_ATTEMPTS_KEY)).toBeNull();
   });
 
   test("does not recover on non-401 status codes", async () => {

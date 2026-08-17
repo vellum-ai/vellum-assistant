@@ -14,9 +14,10 @@ import {
   ensureGatewayToken,
   type EnsureGatewayTokenOptions,
   GatewayTokenError,
-  getGatewayToken,
   getLocalTokenUrl,
+  seedGatewayToken,
 } from "@/lib/auth/gateway-session";
+import { beginLocalGatewayRestart } from "@/lib/auth/local-gateway-restart";
 import { getPlatformRuntimeUrl } from "@/lib/platform-runtime-url";
 import {
   getSelfHostedIngressUrl,
@@ -30,8 +31,10 @@ import {
   loadLockfileHost,
   parseLockfile,
   replacePlatformAssistantsHost,
+  requiresGuardianReprovision,
   retireLocalAssistantHost,
   saveLockfileAssistantHost,
+  sleepLocalAssistantHost,
   unpairAssistantHost,
   wakeLocalAssistantHost,
 } from "@/runtime/local-mode-host";
@@ -828,15 +831,77 @@ export class UnresolvedPairedGatewayError extends Error {
  * rejecting that token. Paired assistants mint no renderer token, so the
  * option is a no-op for them.
  */
-export type PrimeLocalGatewayConnectionOptions = Pick<
-  EnsureGatewayTokenOptions,
-  "forceMint"
->;
+export interface PrimeLocalGatewayConnectionOptions
+  extends Pick<EnsureGatewayTokenOptions, "forceMint"> {
+  commitIf?: () => boolean;
+  guardGeneration?: boolean;
+}
 
-export async function primeLocalGatewayConnection(
-  target?: LockfileAssistant,
-  options: PrimeLocalGatewayConnectionOptions = {},
-): Promise<void> {
+let gatewayPrimeGeneration = 0;
+
+interface GatewayPrimeReservation {
+  assistantId: string | null;
+  completion: Promise<boolean>;
+  generation: number;
+  resolve: (committed: boolean) => void;
+  settled: boolean;
+}
+
+let latestGatewayPrimeReservation: GatewayPrimeReservation | null = null;
+
+function reserveGatewayPrime(
+  assistantId: string | null,
+): GatewayPrimeReservation {
+  let resolve!: (committed: boolean) => void;
+  const reservation: GatewayPrimeReservation = {
+    assistantId,
+    completion: new Promise<boolean>((settle) => {
+      resolve = settle;
+    }),
+    generation: ++gatewayPrimeGeneration,
+    resolve: (committed) => resolve(committed),
+    settled: false,
+  };
+  latestGatewayPrimeReservation = reservation;
+  return reservation;
+}
+
+function settleGatewayPrime(
+  reservation: GatewayPrimeReservation,
+  committed: boolean,
+): void {
+  if (reservation.settled) {
+    return;
+  }
+  reservation.settled = true;
+  reservation.resolve(committed);
+}
+
+async function newerCommittedGatewayPrimeAssistant(
+  generation: number,
+): Promise<string | null> {
+  let newer = latestGatewayPrimeReservation;
+  while (newer && newer.generation > generation) {
+    if (await newer.completion) {
+      return newer.assistantId;
+    }
+    if (latestGatewayPrimeReservation === newer) {
+      return null;
+    }
+    newer = latestGatewayPrimeReservation;
+  }
+  return null;
+}
+
+async function primeReservedLocalGatewayConnection(
+  target: LockfileAssistant | undefined,
+  options: PrimeLocalGatewayConnectionOptions,
+  generation: number,
+  guardGeneration: boolean,
+): Promise<boolean> {
+  const canCommit = (): boolean =>
+    (!guardGeneration || generation === gatewayPrimeGeneration) &&
+    (options.commitIf === undefined || options.commitIf());
   const assistant = target ?? getSelectedAssistant();
   if (assistant && expectsPairedGateway(assistant)) {
     const pairedUrl = getPairedGatewayUrl(assistant);
@@ -868,17 +933,21 @@ export async function primeLocalGatewayConnection(
         throw new Error("Paired assistant is not ready");
       }
     } catch (error) {
-      if (getSelfHostedIngressUrl() === ingressUrl) {
+      if (canCommit() && getSelfHostedIngressUrl() === ingressUrl) {
         setSelfHostedConnection(null);
       }
       throw error;
     }
+    if (!canCommit()) {
+      return false;
+    }
     clearGatewayToken();
     setSelfHostedConnection({
+      assistantId: assistant.assistantId,
       url: ingressUrl,
       token: null,
     });
-    return;
+    return true;
   }
   const tokenUrl = getLocalTokenUrl(assistant);
   if (!tokenUrl) {
@@ -888,22 +957,78 @@ export async function primeLocalGatewayConnection(
     if (expectsLocalGateway(assistant)) {
       throw new UnresolvedLocalGatewayError(assistant.assistantId);
     }
-    return;
+    return true;
   }
   const guardianToken = assistant
     ? await fetchGuardianTokenHost(assistant.assistantId)
     : undefined;
-  await ensureGatewayToken(tokenUrl, guardianToken, {
-    forceMint: options.forceMint,
-  });
   const ingressUrl = getAuthGatewayIngressUrl(assistant);
   if (!ingressUrl) {
-    return;
+    return true;
   }
-  setSelfHostedConnection({
-    url: ingressUrl,
-    token: getGatewayToken(),
+  if (!canCommit()) {
+    return false;
+  }
+  let committed = false;
+  await ensureGatewayToken(tokenUrl, guardianToken, {
+    commit: (gatewayToken) => {
+      if (!canCommit()) {
+        return;
+      }
+      seedGatewayToken(gatewayToken);
+      setSelfHostedConnection({
+        assistantId: assistant?.assistantId ?? null,
+        url: ingressUrl,
+        token: gatewayToken.token,
+      });
+      committed = true;
+    },
+    forceMint: options.forceMint,
   });
+  return committed;
+}
+
+async function primeLatestLocalGatewayConnection(
+  target?: LockfileAssistant,
+  options: PrimeLocalGatewayConnectionOptions = {},
+): Promise<boolean> {
+  const reservation = reserveGatewayPrime(
+    target?.assistantId ?? getSelectedAssistant()?.assistantId ?? null,
+  );
+  try {
+    const committed = await primeReservedLocalGatewayConnection(
+      target,
+      options,
+      reservation.generation,
+      true,
+    );
+    settleGatewayPrime(reservation, committed);
+    return committed;
+  } catch (error) {
+    settleGatewayPrime(reservation, false);
+    throw error;
+  }
+}
+
+export async function primeLocalGatewayConnection(
+  target?: LockfileAssistant,
+  options: PrimeLocalGatewayConnectionOptions = {},
+): Promise<void> {
+  const reservation = reserveGatewayPrime(
+    target?.assistantId ?? getSelectedAssistant()?.assistantId ?? null,
+  );
+  try {
+    const committed = await primeReservedLocalGatewayConnection(
+      target,
+      options,
+      reservation.generation,
+      false,
+    );
+    settleGatewayPrime(reservation, committed);
+  } catch (error) {
+    settleGatewayPrime(reservation, false);
+    throw error;
+  }
 }
 
 /**
@@ -990,19 +1115,29 @@ async function primeLocalGatewayWithStartupRideout(
   target: LockfileAssistant | undefined,
   shouldRideOut: (error: unknown) => boolean,
   options: PrimeLocalGatewayConnectionOptions = {},
-): Promise<void> {
+  generation: number = ++gatewayPrimeGeneration,
+  guardGeneration: boolean = true,
+): Promise<boolean> {
   const { attempts, intervalMs } = LOCAL_GATEWAY_STARTUP_RETRY;
   for (let attempt = 1; attempt <= attempts; attempt++) {
     try {
-      await primeLocalGatewayConnection(target, options);
-      return;
+      return await primeReservedLocalGatewayConnection(
+        target,
+        options,
+        generation,
+        guardGeneration,
+      );
     } catch (error) {
+      if (guardGeneration && generation !== gatewayPrimeGeneration) {
+        return false;
+      }
       if (attempt >= attempts || !shouldRideOut(error)) {
         throw error;
       }
       await new Promise((resolve) => setTimeout(resolve, intervalMs));
     }
   }
+  return false;
 }
 
 /**
@@ -1016,8 +1151,244 @@ async function primeLocalGatewayWithStartupRideout(
  */
 export async function primeLocalGatewayConnectionWithStartupRetry(
   target?: LockfileAssistant,
+): Promise<boolean> {
+  const targetAssistant = target ?? getSelectedAssistant();
+  if (
+    !targetAssistant ||
+    (!expectsLocalGateway(targetAssistant) &&
+      !expectsPairedGateway(targetAssistant))
+  ) {
+    return false;
+  }
+  const targetIngressUrl = getAuthGatewayIngressUrl(targetAssistant);
+  const reservation = reserveGatewayPrime(
+    targetAssistant?.assistantId ?? null,
+  );
+  try {
+    const committed = await primeLocalGatewayWithStartupRideout(
+      targetAssistant,
+      isGatewayStillStarting,
+      {
+        commitIf: () =>
+          getSelectedAssistant()?.assistantId === targetAssistant.assistantId,
+        forceMint: true,
+      },
+      reservation.generation,
+    );
+    if (!committed) {
+      settleGatewayPrime(reservation, false);
+      await newerCommittedGatewayPrimeAssistant(reservation.generation);
+      await Promise.resolve();
+      return primeLocalGatewayConnectionWithStartupRetry();
+    }
+    settleGatewayPrime(reservation, committed);
+    return true;
+  } catch (error) {
+    settleGatewayPrime(reservation, false);
+    const stillSelected =
+      reservation.assistantId !== null &&
+      getSelectedAssistant()?.assistantId === reservation.assistantId;
+    if (stillSelected) {
+      clearGatewayToken();
+      if (getSelfHostedIngressUrl() === targetIngressUrl) {
+        setSelfHostedConnection(null);
+      }
+    }
+    if (target === undefined && !stillSelected) {
+      return false;
+    }
+    throw error;
+  }
+}
+
+/**
+ * Reacquire the selected local assistant's gateway session after an explicit
+ * restart. Reloads the lockfile for any port changes and rides out both
+ * transport failures and transient gateway responses without waking again.
+ */
+async function primeReservedLocalGatewayConnectionAfterRestart(
+  assistantId: string,
+  generation: number,
 ): Promise<void> {
-  await primeLocalGatewayWithStartupRideout(target, isGatewayStillStarting);
+  const lockfile = await loadLockfile();
+  const assistant = lockfile.assistants.find(
+    (entry) => entry.assistantId === assistantId,
+  );
+  if (!assistant) {
+    throw new Error("Restarted assistant is missing from local configuration");
+  }
+  const restartedCommitted = await primeLocalGatewayWithStartupRideout(
+    assistant,
+    isGatewayRestartTransient,
+    {
+      commitIf: () =>
+        getSelectedAssistant()?.assistantId === assistant.assistantId,
+      forceMint: true,
+    },
+    generation,
+  );
+  if (
+    !restartedCommitted &&
+    getSelectedAssistant()?.assistantId === assistantId
+  ) {
+    const newerAssistantId =
+      await newerCommittedGatewayPrimeAssistant(generation);
+    if (newerAssistantId !== null && newerAssistantId !== assistantId) {
+      return;
+    }
+    await primeLocalGatewayConnectionAfterRestart(assistantId);
+    return;
+  }
+  let connectedAssistantId = restartedCommitted ? assistantId : undefined;
+  for (;;) {
+    // Selection can change while a prime waits. Follow it until it is stable.
+    const selected = getSelectedAssistant();
+    if (selected?.assistantId === connectedAssistantId) {
+      return;
+    }
+    if (
+      !selected ||
+      (!expectsLocalGateway(selected) && !expectsPairedGateway(selected))
+    ) {
+      clearGatewayToken();
+      setSelfHostedConnection(null);
+      return;
+    }
+    try {
+      const selectedCommitted = await primeLatestLocalGatewayConnection(
+        selected,
+        {
+          commitIf: () =>
+            getSelectedAssistant()?.assistantId === selected.assistantId,
+        },
+      );
+      if (!selectedCommitted) {
+        const latest = getSelectedAssistant();
+        if (latest?.assistantId === selected.assistantId) {
+          return;
+        }
+        continue;
+      }
+    } catch (error) {
+      const latest = getSelectedAssistant();
+      if (latest?.assistantId !== selected.assistantId) {
+        continue;
+      }
+      const selectedIngressUrl = getAuthGatewayIngressUrl(selected);
+      if (getSelfHostedIngressUrl() !== selectedIngressUrl) {
+        clearGatewayToken();
+        setSelfHostedConnection(null);
+      }
+      throw error;
+    }
+    connectedAssistantId = selected.assistantId;
+  }
+}
+
+export async function primeLocalGatewayConnectionAfterRestart(
+  assistantId: string,
+): Promise<void> {
+  const reservation = reserveGatewayPrime(assistantId);
+  try {
+    await primeReservedLocalGatewayConnectionAfterRestart(
+      assistantId,
+      reservation.generation,
+    );
+    settleGatewayPrime(reservation, true);
+  } catch (error) {
+    settleGatewayPrime(reservation, false);
+    throw error;
+  }
+}
+
+type RestartLocalAssistantResult = {
+  ok: boolean;
+  error?: string;
+  reason?:
+    | "reconnect_failed"
+    | "guardian_repair_required"
+    | "repair_failed";
+};
+
+/**
+ * Restart a local assistant and restore its renderer gateway session before
+ * allowing ordinary gateway 401 recovery to resume.
+ */
+export async function restartLocalAssistant(
+  assistantId: string,
+): Promise<RestartLocalAssistantResult> {
+  const reservation = reserveGatewayPrime(assistantId);
+  const finishRestart = beginLocalGatewayRestart();
+  try {
+    const sleepResult = await sleepLocalAssistantHost(assistantId);
+    if (!sleepResult.ok) {
+      return {
+        ok: false,
+        error: sleepResult.error ?? "Failed to stop assistant.",
+      };
+    }
+    const wakeResult = await wakeLocalAssistantHost(assistantId);
+    if (!wakeResult.ok) {
+      return {
+        ok: false,
+        error: wakeResult.error ?? "Failed to start assistant.",
+      };
+    }
+    try {
+      await primeReservedLocalGatewayConnectionAfterRestart(
+        assistantId,
+        reservation.generation,
+      );
+      settleGatewayPrime(reservation, true);
+      return { ok: true };
+    } catch (error) {
+      settleGatewayPrime(reservation, false);
+      return {
+        ok: false,
+        reason:
+          (error instanceof GatewayTokenError && error.status === 401) ||
+          requiresGuardianReprovision(error)
+            ? "guardian_repair_required"
+            : "reconnect_failed",
+      };
+    }
+  } finally {
+    settleGatewayPrime(reservation, false);
+    finishRestart();
+  }
+}
+
+export async function repairLocalAssistantAfterRestart(
+  assistantId: string,
+): Promise<RestartLocalAssistantResult> {
+  const reservation = reserveGatewayPrime(assistantId);
+  const finishRestart = beginLocalGatewayRestart();
+  try {
+    const repair = await wakeLocalAssistantHost(assistantId, {
+      repairGuardian: true,
+    });
+    if (!repair.ok) {
+      return {
+        ok: false,
+        reason: "repair_failed",
+        error: repair.error ?? "Failed to repair assistant connection.",
+      };
+    }
+    try {
+      await primeReservedLocalGatewayConnectionAfterRestart(
+        assistantId,
+        reservation.generation,
+      );
+      settleGatewayPrime(reservation, true);
+      return { ok: true };
+    } catch {
+      settleGatewayPrime(reservation, false);
+      return { ok: false, reason: "reconnect_failed" };
+    }
+  } finally {
+    settleGatewayPrime(reservation, false);
+    finishRestart();
+  }
 }
 
 /**
@@ -1035,11 +1406,19 @@ export async function primeLocalGatewayConnectionWithStartupRetry(
 export async function primeLocalGatewayConnectionWithRepair(
   target?: LockfileAssistant,
   options: PrimeLocalGatewayConnectionOptions = {},
-): Promise<void> {
+): Promise<boolean> {
   const assistant = target ?? getSelectedAssistant();
+  const reservation = reserveGatewayPrime(assistant?.assistantId ?? null);
+  const guardGeneration = options.guardGeneration ?? false;
+  let committed = false;
   try {
-    await primeLocalGatewayConnection(assistant, options);
-    return;
+    committed = await primeReservedLocalGatewayConnection(
+      assistant,
+      options,
+      reservation.generation,
+      guardGeneration,
+    );
+    return committed;
   } catch (error) {
     // Wake operates only on plain local assistants (see
     // `isCliWakeableAssistant`): spawning it for a paired or otherwise
@@ -1066,10 +1445,15 @@ export async function primeLocalGatewayConnectionWithRepair(
     // back up — a single prime here fails while it is still starting and the
     // connect dead-ends to the recovery controls. Ride out that restart window
     // instead, so a persisted local assistant reconnects on its own.
-    await primeLocalGatewayWithStartupRideout(
+    committed = await primeLocalGatewayWithStartupRideout(
       refreshed ?? assistant,
       isGatewayRestartTransient,
       options,
+      reservation.generation,
+      guardGeneration,
     );
+    return committed;
+  } finally {
+    settleGatewayPrime(reservation, committed);
   }
 }

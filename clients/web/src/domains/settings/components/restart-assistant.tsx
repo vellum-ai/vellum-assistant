@@ -1,36 +1,18 @@
 import { Loader2, RotateCcw } from "lucide-react";
 import { useState } from "react";
-
-import { restartAssistant } from "@/assistant/api";
-import { isCliWakeableAssistant } from "@/lib/local-mode";
-import {
-  isLocalModeHostAvailable,
-  sleepLocalAssistantHost,
-  wakeLocalAssistantHost,
-} from "@/runtime/local-mode-host";
 import { Button } from "@vellumai/design-library/components/button";
 import { ConfirmDialog } from "@vellumai/design-library/components/confirm-dialog";
 import { toast } from "@vellumai/design-library/components/toast";
 
-async function restartLocalAssistant(
-  assistantId: string,
-): Promise<{ ok: boolean; error?: string }> {
-  const sleepResult = await sleepLocalAssistantHost(assistantId);
-  if (!sleepResult.ok) {
-    return {
-      ok: false,
-      error: sleepResult.error ?? "Failed to stop assistant.",
-    };
-  }
-  const wakeResult = await wakeLocalAssistantHost(assistantId);
-  if (!wakeResult.ok) {
-    return {
-      ok: false,
-      error: wakeResult.error ?? "Failed to start assistant.",
-    };
-  }
-  return { ok: true };
-}
+import { restartAssistant } from "@/assistant/api";
+import { t } from "@/i18n";
+import {
+  isCliWakeableAssistant,
+  repairLocalAssistantAfterRestart,
+  restartLocalAssistant,
+} from "@/lib/local-mode";
+import { captureError } from "@/lib/sentry/capture-error";
+import { isLocalModeHostAvailable } from "@/runtime/local-mode-host";
 
 export function RestartAssistant({
   assistantId,
@@ -41,6 +23,7 @@ export function RestartAssistant({
 }) {
   const [restarting, setRestarting] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
+  const [repairConfirmOpen, setRepairConfirmOpen] = useState(false);
 
   const handleRestart = async () => {
     setConfirmOpen(false);
@@ -60,8 +43,14 @@ export function RestartAssistant({
         const result = await restartLocalAssistant(assistantId);
         if (result.ok) {
           toast.success("Assistant is restarting.");
+        } else if (result.reason === "guardian_repair_required") {
+          setRepairConfirmOpen(true);
         } else {
-          toast.error(result.error ?? "Failed to restart assistant.");
+          toast.error(
+            result.reason === "reconnect_failed"
+              ? t("settings:restartAssistant.reconnectFailed")
+              : (result.error ?? "Failed to restart assistant."),
+          );
         }
       } else {
         const result = await restartAssistant(assistantId);
@@ -75,8 +64,36 @@ export function RestartAssistant({
           toast.error(detail);
         }
       }
-    } catch {
+    } catch (error) {
+      captureError(error, { context: "restart_assistant" });
       toast.error("Failed to restart assistant.");
+    } finally {
+      setRestarting(false);
+    }
+  };
+
+  const handleGuardianRepair = async () => {
+    setRepairConfirmOpen(false);
+    setRestarting(true);
+    try {
+      const result = await repairLocalAssistantAfterRestart(assistantId);
+      if (result.ok) {
+        toast.success(t("settings:restartAssistant.repairSucceeded"));
+      } else {
+        if (result.reason === "repair_failed" && result.error) {
+          captureError(new Error(result.error), {
+            context: "restart_assistant_guardian_repair",
+          });
+        }
+        toast.error(
+          result.reason === "reconnect_failed"
+            ? t("settings:restartAssistant.reconnectFailed")
+            : t("settings:restartAssistant.repairFailed"),
+        );
+      }
+    } catch (error) {
+      captureError(error, { context: "restart_assistant_guardian_repair" });
+      toast.error(t("settings:restartAssistant.repairFailed"));
     } finally {
       setRestarting(false);
     }
@@ -102,6 +119,14 @@ export function RestartAssistant({
         confirmLabel="Restart"
         onConfirm={handleRestart}
         onCancel={() => setConfirmOpen(false)}
+      />
+      <ConfirmDialog
+        open={repairConfirmOpen}
+        title={t("settings:restartAssistant.repairTitle")}
+        message={t("settings:restartAssistant.repairMessage")}
+        confirmLabel={t("settings:restartAssistant.repairConfirmLabel")}
+        onConfirm={handleGuardianRepair}
+        onCancel={() => setRepairConfirmOpen(false)}
       />
     </>
   );

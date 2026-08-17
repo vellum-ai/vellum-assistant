@@ -2,6 +2,9 @@ import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
 import { useLockfileStore } from "@/stores/lockfile-store";
 import type { Lockfile, LockfileAssistant } from "@/runtime/local-mode-host";
+import { isLocalGatewayRestartInProgress } from "@/lib/auth/local-gateway-restart";
+import { writeSelectedAssistantId } from "@/assistant/selected-assistant-storage";
+import type { EnsureGatewayTokenOptions } from "@/lib/auth/gateway-session";
 
 // The wrapper under test orchestrates the real connect primitive, so we drive
 // its external seams rather than the primitive itself: the local guardian-token
@@ -12,12 +15,27 @@ const host = await import("@/runtime/local-mode-host");
 
 let primeShouldSucceed: () => boolean;
 let fetchGuardianTokenHost = mock(async (_id: string) => "tok");
-let wakeLocalAssistantHost = mock(async (_id: string) => ({ ok: true }));
+let sleepLocalAssistantHost = mock(async (_id: string) => ({ ok: true }));
+let wakeLocalAssistantHost = mock(
+  async (_id: string, _options?: { repairGuardian?: boolean }) => ({
+    ok: true,
+  }),
+);
+let clearGatewayTokenMock = mock(() => {});
+let seedGatewayTokenMock = mock((_token: unknown) => {});
+let setSelfHostedConnectionMock = mock((_connection: unknown) => {});
 
 mock.module("@/runtime/local-mode-host", () => ({
   ...host,
   fetchGuardianTokenHost: (id: string) => fetchGuardianTokenHost(id),
-  wakeLocalAssistantHost: (id: string) => wakeLocalAssistantHost(id),
+  sleepLocalAssistantHost: (id: string) => sleepLocalAssistantHost(id),
+  wakeLocalAssistantHost: (
+    id: string,
+    options?: { repairGuardian?: boolean },
+  ) =>
+    options === undefined
+      ? wakeLocalAssistantHost(id)
+      : wakeLocalAssistantHost(id, options),
   // The post-wake reload reads back the lockfile; serve the in-store copy so the
   // retry resolves the selected assistant rather than hitting the real host.
   loadLockfileHost: async () =>
@@ -33,12 +51,28 @@ mock.module("@/runtime/local-mode-host", () => ({
 // mutable impl so a test can inject a transient gateway-startup failure.
 const realGatewaySession = await import("@/lib/auth/gateway-session");
 const { GatewayTokenError } = realGatewaySession;
-let ensureGatewayTokenImpl: () => Promise<void> = async () => {};
+let ensureGatewayTokenImpl: (
+  tokenUrl?: string,
+  options?: EnsureGatewayTokenOptions,
+) => Promise<string | void> = async () => {};
 
 mock.module("@/lib/auth/gateway-session", () => ({
   ...realGatewaySession,
-  clearGatewayToken: () => {},
-  ensureGatewayToken: () => ensureGatewayTokenImpl(),
+  clearGatewayToken: () => clearGatewayTokenMock(),
+  ensureGatewayToken: async (
+    tokenUrl?: string,
+    _guardianToken?: string,
+    options?: EnsureGatewayTokenOptions,
+  ) => {
+    const token =
+      (await ensureGatewayTokenImpl(tokenUrl, options)) ?? "gateway-tok";
+    options?.commit?.({
+      token,
+      expiresAtEpochSeconds: 9_999_999_999,
+      source: tokenUrl ?? "/auth/token",
+    });
+    return token;
+  },
   getGatewayToken: () => "gateway-tok",
   // Mirror the real chain (token URL derives from the assistant's gateway port)
   // so a portless entry yields no URL until wake records one.
@@ -46,16 +80,23 @@ mock.module("@/lib/auth/gateway-session", () => ({
     const port = a?.resources?.gatewayPort;
     return port == null ? undefined : `http://127.0.0.1:${port}/token`;
   },
+  seedGatewayToken: (token: unknown) => seedGatewayTokenMock(token),
 }));
 
 mock.module("@/lib/self-hosted/connection", () => ({
-  setSelfHostedConnection: () => {},
+  getSelfHostedIngressUrl: () => null,
+  setSelfHostedConnection: (connection: unknown) =>
+    setSelfHostedConnectionMock(connection),
 }));
 
 const { GuardianTokenError } = host;
 const {
+  primeLocalGatewayConnection,
+  primeLocalGatewayConnectionAfterRestart,
   primeLocalGatewayConnectionWithRepair,
   primeLocalGatewayConnectionWithStartupRetry,
+  repairLocalAssistantAfterRestart,
+  restartLocalAssistant,
   LOCAL_GATEWAY_STARTUP_RETRY,
 } = await import("@/lib/local-mode");
 
@@ -68,16 +109,24 @@ const localAssistant: LockfileAssistant = {
   resources: { gatewayPort: 7830 },
 } as LockfileAssistant;
 
+const localAssistantB: LockfileAssistant = {
+  assistantId: "local-b",
+  cloud: "local",
+  resources: { gatewayPort: 7832 },
+} as LockfileAssistant;
+
 function selectLocalAssistant(): void {
   const lockfile: Lockfile = {
     assistants: [localAssistant],
     activeAssistant: "local-a",
   };
   useLockfileStore.setState({ lockfile });
-  localStorage.setItem("vellum:local:selected-assistant", "local-a");
+  writeSelectedAssistantId("local-a");
 }
 
 beforeEach(() => {
+  process.env.VITE_PLATFORM_MODE = "";
+  LOCAL_GATEWAY_STARTUP_RETRY.attempts = 8;
   primeShouldSucceed = () => true;
   ensureGatewayTokenImpl = async () => {};
   fetchGuardianTokenHost = mock(async (_id: string) => {
@@ -86,7 +135,15 @@ beforeEach(() => {
     }
     return "tok";
   });
-  wakeLocalAssistantHost = mock(async (_id: string) => ({ ok: true }));
+  sleepLocalAssistantHost = mock(async (_id: string) => ({ ok: true }));
+  wakeLocalAssistantHost = mock(
+    async (_id: string, _options?: { repairGuardian?: boolean }) => ({
+      ok: true,
+    }),
+  );
+  clearGatewayTokenMock = mock(() => {});
+  seedGatewayTokenMock = mock((_token: unknown) => {});
+  setSelfHostedConnectionMock = mock((_connection: unknown) => {});
   selectLocalAssistant();
 });
 
@@ -96,7 +153,429 @@ afterEach(() => {
   process.env.VITE_PLATFORM_MODE = "true";
 });
 
+describe("primeLocalGatewayConnectionAfterRestart", () => {
+  test("atomically refreshes the token and rides out transport failures without waking", async () => {
+    let mintAttempts = 0;
+    ensureGatewayTokenImpl = async () => {
+      if (mintAttempts++ < 2) {
+        throw new TypeError("Failed to fetch");
+      }
+    };
+
+    await primeLocalGatewayConnectionAfterRestart("local-a");
+
+    expect(clearGatewayTokenMock).not.toHaveBeenCalled();
+    expect(mintAttempts).toBe(3);
+    expect(wakeLocalAssistantHost).not.toHaveBeenCalled();
+  });
+
+  test("follows assistant selection changes until the connection is stable", async () => {
+    const tokenUrls: (string | undefined)[] = [];
+    let releaseRestartedMint: (() => void) | undefined;
+    let releaseSecondMint: (() => void) | undefined;
+    ensureGatewayTokenImpl = async (tokenUrl) => {
+      tokenUrls.push(tokenUrl);
+      if (tokenUrls.length === 1) {
+        await new Promise<void>((resolve) => {
+          releaseRestartedMint = resolve;
+        });
+      } else if (tokenUrls.length === 2) {
+        await new Promise<void>((resolve) => {
+          releaseSecondMint = resolve;
+        });
+      }
+    };
+
+    const reconnect = primeLocalGatewayConnectionAfterRestart("local-a");
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    const otherAssistant = {
+      ...localAssistant,
+      assistantId: "local-b",
+      resources: { gatewayPort: 7831, daemonPort: 7832 },
+    };
+    useLockfileStore.setState({
+      lockfile: {
+        assistants: [localAssistant, otherAssistant],
+        activeAssistant: "local-b",
+      },
+    });
+    writeSelectedAssistantId("local-b");
+    releaseRestartedMint?.();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(seedGatewayTokenMock).not.toHaveBeenCalled();
+    expect(setSelfHostedConnectionMock).not.toHaveBeenCalled();
+
+    const latestAssistant = {
+      ...localAssistant,
+      assistantId: "local-c",
+      resources: { gatewayPort: 7833, daemonPort: 7834 },
+    };
+    useLockfileStore.setState({
+      lockfile: {
+        assistants: [localAssistant, otherAssistant, latestAssistant],
+        activeAssistant: "local-c",
+      },
+    });
+    writeSelectedAssistantId("local-c");
+    releaseSecondMint?.();
+
+    await reconnect;
+
+    expect(tokenUrls).toEqual([
+      "http://127.0.0.1:7830/token",
+      "http://127.0.0.1:7831/token",
+      "http://127.0.0.1:7833/token",
+    ]);
+    expect(seedGatewayTokenMock).toHaveBeenCalledTimes(1);
+    expect(setSelfHostedConnectionMock).toHaveBeenCalledTimes(1);
+  });
+
+  test("a newer pre-selection prime owns the session commit", async () => {
+    let releaseRestartedMint: (() => void) | undefined;
+    ensureGatewayTokenImpl = async (tokenUrl) => {
+      if (tokenUrl === "http://127.0.0.1:7830/token") {
+        await new Promise<void>((resolve) => {
+          releaseRestartedMint = resolve;
+        });
+        return "restarted-token";
+      }
+      return "connecting-token";
+    };
+
+    const reconnect = primeLocalGatewayConnectionAfterRestart("local-a");
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    const connectingAssistant = {
+      ...localAssistant,
+      assistantId: "local-b",
+      resources: { gatewayPort: 7831, daemonPort: 7832 },
+    };
+
+    await primeLocalGatewayConnection(connectingAssistant);
+    releaseRestartedMint?.();
+    await reconnect;
+
+    expect(seedGatewayTokenMock).toHaveBeenCalledTimes(1);
+    expect(seedGatewayTokenMock).toHaveBeenLastCalledWith(
+      expect.objectContaining({ token: "connecting-token" }),
+    );
+    expect(setSelfHostedConnectionMock).toHaveBeenCalledTimes(1);
+    expect(setSelfHostedConnectionMock).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        token: "connecting-token",
+        url: `${window.location.origin}/assistant/__gateway/7831`,
+      }),
+    );
+  });
+
+  test("reconnects the selected assistant when a newer prime fails", async () => {
+    let releaseRestartedMint: (() => void) | undefined;
+    let failConnectingMint: (() => void) | undefined;
+    let aMintAttempts = 0;
+    ensureGatewayTokenImpl = async (tokenUrl) => {
+      if (tokenUrl === "http://127.0.0.1:7830/token") {
+        aMintAttempts++;
+        if (aMintAttempts === 1) {
+          await new Promise<void>((resolve) => {
+            releaseRestartedMint = resolve;
+          });
+          return "superseded-token";
+        }
+        return "reconnected-token";
+      }
+      await new Promise<void>((resolve) => {
+        failConnectingMint = resolve;
+      });
+      throw new GatewayTokenError(403, "connecting assistant failed");
+    };
+
+    const reconnect = primeLocalGatewayConnectionAfterRestart("local-a");
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    const connectingAssistant = {
+      ...localAssistant,
+      assistantId: "local-b",
+      resources: { gatewayPort: 7831, daemonPort: 7832 },
+    };
+    const connecting = primeLocalGatewayConnection(connectingAssistant).catch(
+      () => undefined,
+    );
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    releaseRestartedMint?.();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(seedGatewayTokenMock).not.toHaveBeenCalled();
+    failConnectingMint?.();
+    await connecting;
+    await reconnect;
+
+    expect(aMintAttempts).toBe(2);
+    expect(seedGatewayTokenMock).toHaveBeenCalledTimes(1);
+    expect(seedGatewayTokenMock).toHaveBeenLastCalledWith(
+      expect.objectContaining({ token: "reconnected-token" }),
+    );
+    expect(setSelfHostedConnectionMock).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        token: "reconnected-token",
+        url: `${window.location.origin}/assistant/__gateway/7830`,
+      }),
+    );
+  });
+
+  test("force-mints after a same-assistant prime reuses the cached token", async () => {
+    let releaseRestartedMint: (() => void) | undefined;
+    let aMintAttempts = 0;
+    ensureGatewayTokenImpl = async (_tokenUrl, options) => {
+      aMintAttempts++;
+      if (aMintAttempts === 1) {
+        expect(options?.forceMint).toBe(true);
+        await new Promise<void>((resolve) => {
+          releaseRestartedMint = resolve;
+        });
+        return "superseded-token";
+      }
+      if (aMintAttempts === 2) {
+        expect(options?.forceMint).toBeUndefined();
+        return "cached-token";
+      }
+      expect(options?.forceMint).toBe(true);
+      return "fresh-token";
+    };
+
+    const reconnect = primeLocalGatewayConnectionAfterRestart("local-a");
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    await primeLocalGatewayConnection(localAssistant);
+    releaseRestartedMint?.();
+    await reconnect;
+
+    expect(aMintAttempts).toBe(3);
+    expect(seedGatewayTokenMock).toHaveBeenLastCalledWith(
+      expect.objectContaining({ token: "fresh-token" }),
+    );
+    expect(setSelfHostedConnectionMock).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        token: "fresh-token",
+        url: `${window.location.origin}/assistant/__gateway/7830`,
+      }),
+    );
+  });
+
+  test("clears the restarted session when restoring the selection fails", async () => {
+    let releaseRestartedMint: (() => void) | undefined;
+    let mintAttempts = 0;
+    ensureGatewayTokenImpl = async () => {
+      mintAttempts++;
+      if (mintAttempts === 1) {
+        await new Promise<void>((resolve) => {
+          releaseRestartedMint = resolve;
+        });
+        return;
+      }
+      throw new GatewayTokenError(401, "selected assistant rejected");
+    };
+
+    const reconnect = primeLocalGatewayConnectionAfterRestart("local-a");
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    const otherAssistant = {
+      ...localAssistant,
+      assistantId: "local-b",
+      resources: { gatewayPort: 7831, daemonPort: 7832 },
+    };
+    useLockfileStore.setState({
+      lockfile: {
+        assistants: [localAssistant, otherAssistant],
+        activeAssistant: "local-b",
+      },
+    });
+    writeSelectedAssistantId("local-b");
+    releaseRestartedMint?.();
+
+    await expect(reconnect).rejects.toBeInstanceOf(GatewayTokenError);
+
+    expect(clearGatewayTokenMock).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("restartLocalAssistant", () => {
+  test("waits for a reconnected gateway before reporting success", async () => {
+    let finishReconnect: (() => void) | undefined;
+    const ensureGatewayTokenMock = mock(
+      () =>
+        new Promise<void>((resolve) => {
+          finishReconnect = resolve;
+        }),
+    );
+    ensureGatewayTokenImpl = ensureGatewayTokenMock;
+    sleepLocalAssistantHost = mock(async () => {
+      expect(isLocalGatewayRestartInProgress()).toBe(true);
+      return { ok: true };
+    });
+
+    const restart = restartLocalAssistant("local-a");
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(sleepLocalAssistantHost).toHaveBeenCalledWith("local-a");
+    expect(wakeLocalAssistantHost).toHaveBeenCalledWith("local-a");
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(ensureGatewayTokenMock).toHaveBeenCalledTimes(1);
+    expect(isLocalGatewayRestartInProgress()).toBe(true);
+
+    finishReconnect?.();
+    await expect(restart).resolves.toEqual({ ok: true });
+
+    expect(isLocalGatewayRestartInProgress()).toBe(false);
+  });
+
+  test("reports reconnect failure without throwing", async () => {
+    ensureGatewayTokenImpl = async () => {
+      throw new TypeError("Failed to fetch");
+    };
+    LOCAL_GATEWAY_STARTUP_RETRY.attempts = 1;
+
+    await expect(restartLocalAssistant("local-a")).resolves.toEqual({
+      ok: false,
+      reason: "reconnect_failed",
+    });
+    expect(wakeLocalAssistantHost).toHaveBeenCalledTimes(1);
+    expect(isLocalGatewayRestartInProgress()).toBe(false);
+  });
+
+  test("requires confirmation before repairing a rejected guardian lease", async () => {
+    let mintAttempts = 0;
+    ensureGatewayTokenImpl = async () => {
+      mintAttempts++;
+      throw new GatewayTokenError(401, "guardian rejected");
+    };
+    LOCAL_GATEWAY_STARTUP_RETRY.attempts = 1;
+
+    await expect(restartLocalAssistant("local-a")).resolves.toEqual({
+      ok: false,
+      reason: "guardian_repair_required",
+    });
+
+    expect(wakeLocalAssistantHost).toHaveBeenCalledTimes(1);
+    expect(wakeLocalAssistantHost).toHaveBeenCalledWith("local-a");
+    expect(mintAttempts).toBe(1);
+  });
+
+  test("requires confirmation when the guardian token is missing", async () => {
+    fetchGuardianTokenHost = mock(async () => {
+      throw new GuardianTokenError(404, "guardian missing");
+    });
+    LOCAL_GATEWAY_STARTUP_RETRY.attempts = 1;
+
+    await expect(restartLocalAssistant("local-a")).resolves.toEqual({
+      ok: false,
+      reason: "guardian_repair_required",
+    });
+
+    expect(wakeLocalAssistantHost).toHaveBeenCalledTimes(1);
+  });
+
+  test("does not repair a post-restart 403", async () => {
+    ensureGatewayTokenImpl = async () => {
+      throw new GatewayTokenError(403, "boundary refused");
+    };
+    LOCAL_GATEWAY_STARTUP_RETRY.attempts = 1;
+
+    await expect(restartLocalAssistant("local-a")).resolves.toEqual({
+      ok: false,
+      reason: "reconnect_failed",
+    });
+
+    expect(wakeLocalAssistantHost).toHaveBeenCalledTimes(1);
+  });
+
+  test("releases restart scope when wake fails", async () => {
+    wakeLocalAssistantHost = mock(async () => ({
+      ok: false,
+      error: "wake failed",
+    }));
+
+    const result = await restartLocalAssistant("local-a");
+
+    expect(result).toEqual({ ok: false, error: "wake failed" });
+    expect(clearGatewayTokenMock).not.toHaveBeenCalled();
+    expect(isLocalGatewayRestartInProgress()).toBe(false);
+  });
+});
+
+describe("repairLocalAssistantAfterRestart", () => {
+  test("repairs the guardian lease after confirmation", async () => {
+    await expect(repairLocalAssistantAfterRestart("local-a")).resolves.toEqual({
+      ok: true,
+    });
+
+    expect(wakeLocalAssistantHost).toHaveBeenCalledTimes(1);
+    expect(wakeLocalAssistantHost).toHaveBeenCalledWith("local-a", {
+      repairGuardian: true,
+    });
+    expect(isLocalGatewayRestartInProgress()).toBe(false);
+  });
+
+  test("attempts guardian repair only once", async () => {
+    let mintAttempts = 0;
+    ensureGatewayTokenImpl = async () => {
+      mintAttempts++;
+      throw new GatewayTokenError(401, "guardian rejected");
+    };
+    LOCAL_GATEWAY_STARTUP_RETRY.attempts = 1;
+
+    await expect(repairLocalAssistantAfterRestart("local-a")).resolves.toEqual({
+      ok: false,
+      reason: "reconnect_failed",
+    });
+
+    expect(wakeLocalAssistantHost).toHaveBeenCalledTimes(1);
+    expect(wakeLocalAssistantHost).toHaveBeenCalledWith("local-a", {
+      repairGuardian: true,
+    });
+    expect(mintAttempts).toBe(1);
+  });
+
+  test("reports a failed guardian repair", async () => {
+    wakeLocalAssistantHost = mock(async () => ({
+      ok: false,
+      error: "repair failed",
+    }));
+
+    const result = await repairLocalAssistantAfterRestart("local-a");
+
+    expect(result).toEqual({
+      ok: false,
+      reason: "repair_failed",
+      error: "repair failed",
+    });
+    expect(isLocalGatewayRestartInProgress()).toBe(false);
+  });
+});
+
 describe("primeLocalGatewayConnectionWithRepair", () => {
+  test("a newer pre-selection prime invalidates the recovery commit", async () => {
+    let releaseAssistantA: (() => void) | undefined;
+    ensureGatewayTokenImpl = async (tokenUrl) => {
+      if (tokenUrl?.includes(":7830/")) {
+        await new Promise<void>((resolve) => {
+          releaseAssistantA = resolve;
+        });
+        return "assistant-a-token";
+      }
+      return "assistant-b-token";
+    };
+
+    const recovery = primeLocalGatewayConnectionWithRepair(localAssistant, {
+      forceMint: true,
+      guardGeneration: true,
+    });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    await primeLocalGatewayConnection(localAssistantB, { forceMint: true });
+    releaseAssistantA?.();
+
+    await expect(recovery).resolves.toBe(false);
+    expect(seedGatewayTokenMock).toHaveBeenCalledTimes(1);
+    expect(seedGatewayTokenMock).toHaveBeenCalledWith(
+      expect.objectContaining({ token: "assistant-b-token" }),
+    );
+  });
+
   test("a clean first attempt never wakes the assistant", async () => {
     await primeLocalGatewayConnectionWithRepair();
     expect(wakeLocalAssistantHost).not.toHaveBeenCalled();

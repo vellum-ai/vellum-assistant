@@ -42,6 +42,8 @@ let mockSelectedAssistant: { assistantId: string; cloud: string } | undefined;
 let mockLockfileAssistants: Array<{ assistantId: string; cloud: string }> = [];
 let mockPlatformAssistants: unknown[] = [];
 let mockPrimeError: Error | null = null;
+let mockStartupPrimeValidated = true;
+let mockStartupPrimeEffect: (() => void) | null = null;
 let mockGatewayToken: string | null = null;
 const setSelectedAssistantMock = mock(async (_id: string | null) => {});
 const primeLocalGatewayConnectionMock = mock(
@@ -55,6 +57,8 @@ const primeLocalGatewayConnectionWithStartupRetryMock = mock(async () => {
   if (mockPrimeError) {
     throw mockPrimeError;
   }
+  mockStartupPrimeEffect?.();
+  return mockStartupPrimeValidated;
 });
 const primeLocalGatewayConnectionWithRepairMock = mock(async () => {
   if (mockPrimeError) {
@@ -429,6 +433,8 @@ beforeEach(() => {
   mockGatewayToken = null;
   setSelfHostedConnection(null);
   mockPrimeError = null;
+  mockStartupPrimeValidated = true;
+  mockStartupPrimeEffect = null;
   setSelectedAssistantMock.mockClear();
   primeLocalGatewayConnectionMock.mockClear();
   primeLocalGatewayConnectionWithStartupRetryMock.mockClear();
@@ -716,6 +722,35 @@ describe("auth store onboarding flag reconciliation", () => {
     ).toHaveBeenCalledTimes(1);
     expect(useAuthStore.getState().sessionStatus).toBe("unauthenticated");
     expect(useAuthStore.getState().user).toBeNull();
+  });
+
+  test("initSession re-enters platform auth when gateway validation changes mode", async () => {
+    mockIsLocalClient = true;
+    mockIsGatewayAuth = true;
+    mockSelectedAssistant = { assistantId: "local-a", cloud: "local" };
+    mockPlatformAssistants = [
+      { assistantId: "platform-a", cloud: "vellum" },
+    ];
+    mockStartupPrimeValidated = false;
+    mockStartupPrimeEffect = () => {
+      mockIsGatewayAuth = false;
+      mockSelectedAssistant = {
+        assistantId: "platform-a",
+        cloud: "vellum",
+      };
+    };
+    sessionUser = { id: "user-1", email: "user@example.com" };
+
+    await useAuthStore.getState().initSession();
+
+    expect(
+      primeLocalGatewayConnectionWithStartupRetryMock,
+    ).toHaveBeenCalledTimes(1);
+    expect(useAuthStore.getState().sessionStatus).toBe("authenticated");
+    expect(useAuthStore.getState().user).toEqual(
+      expect.objectContaining({ kind: "platform", id: "user-1" }),
+    );
+    expect(useAuthStore.getState().platformSession).toBe("present");
   });
 
   test("initSession uses server consent when server has a consent record", async () => {

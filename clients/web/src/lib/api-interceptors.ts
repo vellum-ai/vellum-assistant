@@ -37,6 +37,11 @@ import { client as daemonClient } from "@/generated/daemon/client.gen";
 import { client as gatewayClient } from "@/generated/gateway/client.gen";
 import { ensureCsrfCookie, getCsrfToken } from "@/lib/auth/csrf";
 import { clearGatewayToken } from "@/lib/auth/gateway-session";
+import {
+  isLocalGatewayRestartInProgress,
+  markLocalGatewayRestartRequest,
+  wasLocalGatewayRestartRequest,
+} from "@/lib/auth/local-gateway-restart";
 import { refreshRemoteGatewaySession } from "@/lib/auth/remote-gateway-session";
 import { ApiError, toApiError } from "@/utils/api-errors";
 import {
@@ -49,6 +54,7 @@ import {
 import { recordLifecycleDiagnostic } from "@/lib/diagnostics";
 import { captureError } from "@/lib/sentry/capture-error";
 import {
+  getSelfHostedAssistantId,
   getSelfHostedActorToken,
   getSelfHostedIngressUrl,
   setSelfHostedConnection,
@@ -75,6 +81,37 @@ import { routes } from "@/utils/routes";
 const MUTATING_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
 const ELECTRON_RENDERER_ORIGIN_HEADER = "X-Vellum-Electron-Renderer-Origin";
 const NGROK_SKIP_BROWSER_WARNING_HEADER = "ngrok-skip-browser-warning";
+const selfHostedGatewayRequests = new WeakMap<Request, string | null>();
+
+function selfHostedRequestMatchesCurrentAssistant(request: Request): boolean {
+  if (!selfHostedGatewayRequests.has(request)) {
+    return true;
+  }
+  const routedAssistantId = selfHostedGatewayRequests.get(request);
+  const selectedAssistantId = getSelectedAssistant()?.assistantId;
+  const connectionAssistantId = getSelfHostedAssistantId();
+  return (
+    routedAssistantId !== undefined &&
+    routedAssistantId !== null &&
+    routedAssistantId === selectedAssistantId &&
+    (connectionAssistantId === null ||
+      routedAssistantId === connectionAssistantId)
+  );
+}
+
+function usesSelfHostedIngress(urlValue: string, ingressValue: string): boolean {
+  try {
+    const url = new URL(urlValue);
+    const ingress = new URL(ingressValue);
+    const prefix = ingress.pathname.replace(/\/$/, "");
+    return (
+      url.origin === ingress.origin &&
+      (url.pathname === prefix || url.pathname.startsWith(`${prefix}/`))
+    );
+  } catch {
+    return false;
+  }
+}
 
 function getRendererTupleOrigin(): string {
   return `${window.location.protocol}//${window.location.host}`;
@@ -222,6 +259,14 @@ export async function rewriteForSelfHostedIngress(
   if (!ingressUrl) {
     return null;
   }
+  const routedAssistantId = getSelectedAssistant()?.assistantId ?? null;
+  const connectionAssistantId = getSelfHostedAssistantId();
+  if (
+    connectionAssistantId !== null &&
+    connectionAssistantId !== routedAssistantId
+  ) {
+    return null;
+  }
 
   const url = new URL(request.url);
 
@@ -294,7 +339,9 @@ export async function rewriteForSelfHostedIngress(
   if (!isLocalClient() && request.body) {
     (init as RequestInit & { duplex: "half" }).duplex = "half";
   }
-  return new Request(rewrittenUrl.toString(), init);
+  const rewritten = new Request(rewrittenUrl.toString(), init);
+  selfHostedGatewayRequests.set(rewritten, routedAssistantId);
+  return rewritten;
 }
 
 /**
@@ -449,6 +496,11 @@ function createInterceptor({
   };
 
   return async (request: Request): Promise<Request> => {
+    // `route` can await while buffering a local request body. Capture restart
+    // membership before that work so a stale request cannot recover after the
+    // replacement gateway session is ready and trigger a page reload.
+    const startedDuringRestart =
+      isDaemonClient && isLocalGatewayRestartInProgress();
     const outgoing = await route(request);
     try {
       if (shouldCount(request.url, outgoing)) {
@@ -457,7 +509,9 @@ function createInterceptor({
     } catch {
       // Telemetry must never fail a request.
     }
-    return outgoing;
+    return isDaemonClient
+      ? markLocalGatewayRestartRequest(outgoing, startedDuringRestart)
+      : outgoing;
   };
 }
 
@@ -533,8 +587,8 @@ export function daemonUnreachableInterceptor(response: Response): Response {
  * on the replay or on its next request, so a transient rejection is not
  * charged for recovering.
  *
- * Both keys live in sessionStorage, so quitting and reopening the app also
- * grants a fresh budget.
+ * Each assistant gets its own key pair in sessionStorage, so switching does
+ * not inherit another assistant's cooldown. Reopening grants a fresh budget.
  *
  * Installed on `daemonClient` and `gatewayClient`, the two clients whose
  * requests are rewritten to the local gateway; see the registrations at
@@ -543,6 +597,7 @@ export function daemonUnreachableInterceptor(response: Response): Response {
  */
 const GW_401_RECOVERY_AT_KEY = "vellum:gw:401-reload-at";
 const GW_401_ATTEMPTS_KEY = "vellum:gw:401-reload-attempts";
+const REMOTE_GATEWAY_RECOVERY_SCOPE = "remote";
 const GW_401_COOLDOWN_MS = 600_000;
 const GW_401_MAX_ATTEMPTS = 3;
 
@@ -551,23 +606,26 @@ const GW_401_MAX_ATTEMPTS = 3;
 // naturally on reload.
 let gw401ReloadFired = false;
 
-// Single-flight slot: a burst of concurrent 401s (a resume refetch, say)
-// funds one in-place recovery; every caller awaits the same attempt and
-// then makes its own replay decision. Nulled when the attempt settles so
-// a later, unrelated staleness event can recover again.
-let gw401RecoveryInFlight: Promise<boolean> | null = null;
+// Per-assistant single-flight slots let a burst share one recovery without
+// making a newly selected assistant inherit the previous assistant's result.
+interface GatewayRecoveryResult {
+  recovered: boolean;
+  refundBudget: boolean;
+}
+
+const gw401RecoveryInFlight = new Map<string, Promise<GatewayRecoveryResult>>();
 
 /** @internal Exposed for test teardown only. */
 export function resetGw401RecoveryState(): void {
   gw401ReloadFired = false;
-  gw401RecoveryInFlight = null;
+  gw401RecoveryInFlight.clear();
 }
 
-async function recoverRemoteGatewaySessionInPlace(): Promise<boolean> {
+async function recoverRemoteGatewaySessionInPlace(): Promise<GatewayRecoveryResult> {
   const refreshed = await refreshRemoteGatewaySession({ force: true });
   if (refreshed) {
     recordLifecycleDiagnostic("gw_401_recovery", { outcome: "recovered" });
-    return true;
+    return { recovered: true, refundBudget: false };
   }
   // The refresh cookie is rejected too: nothing in the renderer can revive
   // this session, so boot into the pairing flow.
@@ -575,10 +633,10 @@ async function recoverRemoteGatewaySessionInPlace(): Promise<boolean> {
   gw401ReloadFired = true;
   clearGatewayToken();
   window.location.reload();
-  return false;
+  return { recovered: false, refundBudget: false };
 }
 
-async function recoverLocalGatewaySessionInPlace(): Promise<boolean> {
+async function recoverLocalGatewaySessionInPlace(): Promise<GatewayRecoveryResult> {
   // The paired branch of primeLocalGatewayConnection clears the
   // connection slot when its readyz probe fails, so a failed recovery would
   // otherwise leave the renderer with no ingress route and this
@@ -590,16 +648,34 @@ async function recoverLocalGatewaySessionInPlace(): Promise<boolean> {
   // requests to the old local gateway. A concurrent re-prime to another
   // local assistant leaves the slot non-null and is likewise left alone.
   const previous = {
+    assistantId: getSelfHostedAssistantId(),
     url: getSelfHostedIngressUrl(),
     token: getSelfHostedActorToken(),
   };
-  const recoveringFor = getSelectedAssistant()?.assistantId ?? null;
+  const recoveringAssistant = getSelectedAssistant();
+  const recoveringFor = recoveringAssistant?.assistantId ?? null;
+  if (!recoveringAssistant) {
+    return { recovered: false, refundBudget: false };
+  }
   try {
-    await primeLocalGatewayConnectionWithRepair(undefined, {
-      forceMint: true,
-    });
+    const committed = await primeLocalGatewayConnectionWithRepair(
+      recoveringAssistant,
+      {
+        commitIf: () =>
+          getSelectedAssistant()?.assistantId === recoveringFor,
+        forceMint: true,
+        guardGeneration: true,
+      },
+    );
+    if (!committed || getSelectedAssistant()?.assistantId !== recoveringFor) {
+      return {
+        recovered: false,
+        refundBudget:
+          !committed && getSelectedAssistant()?.assistantId === recoveringFor,
+      };
+    }
     recordLifecycleDiagnostic("gw_401_recovery", { outcome: "recovered" });
-    return true;
+    return { recovered: true, refundBudget: false };
   } catch (err) {
     if (
       getSelfHostedIngressUrl() === null &&
@@ -610,25 +686,52 @@ async function recoverLocalGatewaySessionInPlace(): Promise<boolean> {
     }
     recordLifecycleDiagnostic("gw_401_recovery", { outcome: "failed" });
     captureError(err, { context: "gw_401_recovery" });
-    return false;
+    return { recovered: false, refundBudget: false };
   }
 }
 
-function recoverGatewaySessionInPlace(): Promise<boolean> {
-  gw401RecoveryInFlight ??= (
+function recoverGatewaySessionInPlace(
+  scope: string,
+): Promise<GatewayRecoveryResult> {
+  const existing = gw401RecoveryInFlight.get(scope);
+  if (existing) {
+    return existing;
+  }
+  const recovery = (
     isRemoteGatewayMode()
       ? recoverRemoteGatewaySessionInPlace()
       : recoverLocalGatewaySessionInPlace()
   ).finally(() => {
-    gw401RecoveryInFlight = null;
+    if (gw401RecoveryInFlight.get(scope) === recovery) {
+      gw401RecoveryInFlight.delete(scope);
+    }
   });
-  return gw401RecoveryInFlight;
+  gw401RecoveryInFlight.set(scope, recovery);
+  return recovery;
 }
 
-function clearGw401Budget(): void {
+function gatewayRecoveryScope(request?: Request): string | null {
+  if (isRemoteGatewayMode()) {
+    return REMOTE_GATEWAY_RECOVERY_SCOPE;
+  }
+  if (request && selfHostedGatewayRequests.has(request)) {
+    return selfHostedGatewayRequests.get(request) ?? null;
+  }
+  return getSelectedAssistant()?.assistantId ?? null;
+}
+
+function gatewayRecoveryBudgetKey(key: string, scope: string): string {
+  return `${key}:${encodeURIComponent(scope)}`;
+}
+
+function clearGw401Budget(scope: string): void {
   try {
-    sessionStorage.removeItem(GW_401_ATTEMPTS_KEY);
-    sessionStorage.removeItem(GW_401_RECOVERY_AT_KEY);
+    sessionStorage.removeItem(
+      gatewayRecoveryBudgetKey(GW_401_ATTEMPTS_KEY, scope),
+    );
+    sessionStorage.removeItem(
+      gatewayRecoveryBudgetKey(GW_401_RECOVERY_AT_KEY, scope),
+    );
   } catch {
     // sessionStorage unavailable; the budget check fails closed anyway.
   }
@@ -652,13 +755,42 @@ function clearGw401Budget(): void {
  */
 async function replayWithRecoveredSession(
   request: Request,
+  recoveryScope: string,
 ): Promise<Response | null> {
+  if (!selfHostedRequestMatchesCurrentAssistant(request)) {
+    return null;
+  }
   const headers = new Headers(request.headers);
   applySelfHostedBearer(headers);
   try {
-    const replayed = await fetch(new Request(request, { headers }));
+    let replayRequest = new Request(request, { headers });
+    const ingressUrl = getSelfHostedIngressUrl();
+    if (
+      ingressUrl &&
+      selfHostedGatewayRequests.has(request) &&
+      !usesSelfHostedIngress(request.url, ingressUrl)
+    ) {
+      const oldUrl = new URL(request.url);
+      const routeIndex = oldUrl.pathname.indexOf("/v1/");
+      if (routeIndex !== -1) {
+        const replayUrl = new URL(ingressUrl);
+        const prefix = replayUrl.pathname.replace(/\/$/, "");
+        replayUrl.pathname = prefix + oldUrl.pathname.slice(routeIndex);
+        replayUrl.search = oldUrl.search;
+        const body = request.body ? await request.clone().blob() : null;
+        replayRequest = new Request(replayUrl, {
+          method: request.method,
+          headers,
+          body,
+          credentials: "omit",
+          redirect: request.redirect,
+          signal: request.signal,
+        });
+      }
+    }
+    const replayed = await fetch(replayRequest);
     if (replayed.ok) {
-      clearGw401Budget();
+      clearGw401Budget(recoveryScope);
     }
     return replayed;
   } catch {
@@ -681,7 +813,23 @@ export async function localGatewayAuthRecoveryInterceptor(
   // Only act on responses that originated from the local gateway. Daemon
   // requests that don't match ASSISTANT_PATH_RE are not rewritten and hit
   // the platform instead; their 401s are handled elsewhere.
-  if (!response.url.startsWith(ingressUrl)) {
+  const fromCurrentIngress = usesSelfHostedIngress(response.url, ingressUrl);
+  const fromRetiredIngress =
+    response.status === 401 &&
+    request !== undefined &&
+    selfHostedGatewayRequests.has(request);
+  if (!fromCurrentIngress && !fromRetiredIngress) {
+    return response;
+  }
+  if (
+    response.status === 401 &&
+    request !== undefined &&
+    !selfHostedRequestMatchesCurrentAssistant(request)
+  ) {
+    return response;
+  }
+  const recoveryScope = gatewayRecoveryScope(request);
+  if (!recoveryScope) {
     return response;
   }
 
@@ -691,14 +839,14 @@ export async function localGatewayAuthRecoveryInterceptor(
   // rather than this client, so an unauthenticated liveness check cannot
   // stand in for a real one.
   if (response.ok) {
-    clearGw401Budget();
+    clearGw401Budget(recoveryScope);
     return response;
   }
 
   if (response.status !== 401) {
     return response;
   }
-  if (gw401ReloadFired) {
+  if (isLocalGatewayRestartInProgress()) {
     return response;
   }
 
@@ -706,19 +854,35 @@ export async function localGatewayAuthRecoveryInterceptor(
 
   // A bearer that no longer matches the slot means the request was built
   // before a recovery (or any other re-prime) that has since completed.
-  // The session is already healthy, so replay straight away: no recovery,
-  // no budget spent.
-  if (replayable && !carriesCurrentBearer(request)) {
-    return (await replayWithRecoveredSession(request)) ?? response;
+  // The session is already healthy, so replay when possible and otherwise
+  // return the original response without spending another recovery attempt.
+  if (request !== undefined && !carriesCurrentBearer(request)) {
+    return replayable
+      ? ((await replayWithRecoveredSession(request, recoveryScope)) ?? response)
+      : response;
+  }
+  if (wasLocalGatewayRestartRequest(request)) {
+    return response;
+  }
+  if (gw401ReloadFired) {
+    return response;
   }
 
   // A recovery already in flight is ridden rather than charged to the
   // budget, so every request in the burst that can replay does. Only a
   // fresh attempt spends an attempt.
-  let recovery = gw401RecoveryInFlight;
+  let recovery = gw401RecoveryInFlight.get(recoveryScope);
   if (!recovery) {
     try {
-      const stored = Number(sessionStorage.getItem(GW_401_ATTEMPTS_KEY) ?? "0");
+      const attemptsKey = gatewayRecoveryBudgetKey(
+        GW_401_ATTEMPTS_KEY,
+        recoveryScope,
+      );
+      const recoveryAtKey = gatewayRecoveryBudgetKey(
+        GW_401_RECOVERY_AT_KEY,
+        recoveryScope,
+      );
+      const stored = Number(sessionStorage.getItem(attemptsKey) ?? "0");
       const attempts = Number.isFinite(stored) ? stored : 0;
 
       // A spent budget means recovering has not made this gateway work, and
@@ -727,27 +891,32 @@ export async function localGatewayAuthRecoveryInterceptor(
       if (attempts >= GW_401_MAX_ATTEMPTS) {
         return response;
       }
-      const lastAttempt = sessionStorage.getItem(GW_401_RECOVERY_AT_KEY);
+      const lastAttempt = sessionStorage.getItem(recoveryAtKey);
       if (
         lastAttempt &&
         Date.now() - Number(lastAttempt) < GW_401_COOLDOWN_MS
       ) {
         return response;
       }
-      sessionStorage.setItem(GW_401_RECOVERY_AT_KEY, String(Date.now()));
-      sessionStorage.setItem(GW_401_ATTEMPTS_KEY, String(attempts + 1));
+      sessionStorage.setItem(recoveryAtKey, String(Date.now()));
+      sessionStorage.setItem(attemptsKey, String(attempts + 1));
     } catch {
       // sessionStorage unavailable: cannot enforce cooldown or budget, skip
       // recovery to avoid infinite recovery loops.
       return response;
     }
 
-    recovery = recoverGatewaySessionInPlace();
+    recovery = recoverGatewaySessionInPlace(recoveryScope);
   }
 
-  const recovered = await recovery;
-  if (recovered && replayable) {
-    return (await replayWithRecoveredSession(request)) ?? response;
+  const recoveryResult = await recovery;
+  if (recoveryResult.refundBudget) {
+    clearGw401Budget(recoveryScope);
+  }
+  if (recoveryResult.recovered && replayable) {
+    return (
+      (await replayWithRecoveredSession(request, recoveryScope)) ?? response
+    );
   }
   return response;
 }
@@ -962,7 +1131,7 @@ async function recoverFromPlatformSessionRejection(): Promise<void> {
 export function platformAuthRecoveryInterceptor(response: Response): Response {
   const ingressUrl = getSelfHostedIngressUrl();
   const fromSelfHostedGateway =
-    !!ingressUrl && response.url.startsWith(ingressUrl);
+    !!ingressUrl && usesSelfHostedIngress(response.url, ingressUrl);
 
   if (response.ok) {
     // A working self-hosted gateway says nothing about the platform session.

@@ -336,6 +336,7 @@ describe("lifecycleService — server state projection", () => {
     await lifecycleService.checkAssistant();
 
     expect(setSelfHostedConnectionMock).toHaveBeenCalledWith({
+      assistantId: "asst-local-1",
       url: "https://gateway.example/path",
       token: "tok",
     });
@@ -500,6 +501,7 @@ describe("lifecycleService — bootstrap branches", () => {
 
     expect(getAssistantMock).not.toHaveBeenCalled();
     expect(setSelfHostedConnectionMock).toHaveBeenCalledWith({
+      assistantId: "asst-paired",
       url: `${window.location.origin}/assistant/__gateway-paired/asst-paired`,
       token: null,
     });
@@ -600,6 +602,7 @@ describe("lifecycleService — bootstrap branches", () => {
     await lifecycleService.respondToInputs();
 
     expect(setSelfHostedConnectionMock).toHaveBeenCalledWith({
+      assistantId: "self",
       url: `${window.location.origin}/assistant-123`,
       token: "token",
     });
