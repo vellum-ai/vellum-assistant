@@ -12,7 +12,7 @@ metadata:
       - "Delegate a self-contained research or implementation task off the main thread"
       - "Multiple agents at once, or a context-inheriting fork"
     avoid-when:
-      - "Task is small enough to do inline (single tool call, quick lookup)"
+      - "Task is small enough to do inline (a handful of tool calls, quick lookups or reads)"
       - "User wants Claude Code or Codex — use the acp skill instead"
 ---
 
@@ -157,7 +157,6 @@ Rule of thumb: "Does this task need to know what we've been talking about?" If y
 - Use `notify_parent` for interim findings instead of waiting for completion. This lets the parent act on partial results early.
 - Use `subagent_message` to send follow-up instructions to a running subagent.
 - Use `subagent_abort` to cancel a subagent that is no longer needed.
-- Default to spawning subagents for any task that involves web research, multi-file exploration, or independent coding work. Serial execution should be the exception, not the rule.
-- Delegate root-cause investigations ("why is X happening?", debugging, log forensics) to a `researcher` instead of grepping inline. A long investigation done inline floods your own context with file slices and grep output, crowding out the conversation; the researcher does the digging in its own context and returns a compact root-cause report.
-- When a user request has both an information-gathering component and an action component, spawn a researcher immediately rather than doing the research inline yourself.
-- Prefer spawning 2-3 focused subagents over one broad one. Smaller scopes finish faster and fail more gracefully.
+- Spawn a subagent when the work is extensive: a sweep across a large codebase, deep research across many sources, or an investigation whose raw output (file slices, grep output, logs) would flood your context. Do quick work inline -- a few file reads or searches, an ordinary web lookup -- since a spawn pays for a whole fresh context and is slower than just doing the work.
+- Delegate long root-cause investigations (log forensics, multi-file "why is X happening?" digs) to a `researcher`: it does the digging in its own context and returns a compact root-cause report, instead of crowding your conversation with intermediate output.
+- Scale the fan-out to the task. Most tasks need zero or one subagent. Split work across multiple subagents only when the parts are genuinely independent and each is substantial on its own.

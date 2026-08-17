@@ -216,8 +216,10 @@ export function SkillsReferenceSubagentContent() {
             <li>
               <strong>Advisor.</strong> A one-shot, read-only second opinion,
               and the one kind your assistant reaches for on its own judgment:
-              to pressure-test a plan, when it&apos;s stuck, or as a final check
-              before calling a task done. It reasons from your context and can
+              to pressure-test a plan on a consequential or ambiguous task, or
+              when it&apos;s stuck. Routine work skips the consult, so
+              you&apos;re not paying for sign-off on the obvious. It reasons
+              from your context and can
               read and search the files in your workspace to check a fact, then
               replies with focused guidance. It never changes anything, and it
               cannot see your other conversations.
@@ -410,9 +412,10 @@ export function SkillsReferenceSubagentContent() {
               task needs to know what you&apos;ve been discussing.
             </li>
             <li>
-              <strong>Smaller is better.</strong> A few focused subagents finish
-              faster and fail more gracefully than one large general-purpose
-              one.
+              <strong>Delegation scales with the task.</strong> Quick lookups
+              happen inline in your conversation; a subagent is for extensive
+              work, like a deep research sweep or an investigation that would
+              otherwise flood the chat. Most tasks need zero or one.
             </li>
             <li>
               <strong>No need to poll.</strong> Your assistant is notified
