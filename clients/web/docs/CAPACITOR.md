@@ -178,7 +178,7 @@ The shell registers **seven app-local** Capacitor plugins in [`MyViewController.
 | `VoiceAudioSession` | [`src/runtime/native-audio-session.ts`](../src/runtime/native-audio-session.ts) | iOS interruption events and Android audio-focus and microphone-service lifecycle. See the background-audio contract below |
 | `VoiceLiveActivity` | [`src/runtime/native-live-activity.ts`](../src/runtime/native-live-activity.ts) | One ActivityKit activity on iOS or ongoing notification on Android |
 | `ApnsEnvironment` | [`src/runtime/apns-environment.ts`](../src/runtime/apns-environment.ts) | The build's real APNs entitlement environment (`development` / `production` / `unknown`), read from the embedded provisioning profile |
-| `SelfHostedServers` | [`src/runtime/self-hosted-servers.ts`](../src/runtime/self-hosted-servers.ts) | List, add, remove, and switch between self-hosted server origins; `switchTo` swaps the shell's configured origin and reloads in place. See the section below |
+| `SelfHostedServers` | [`src/runtime/self-hosted-servers.ts`](../src/runtime/self-hosted-servers.ts) | List, add, remove, and switch between self-hosted server origins; `switchTo` swaps the shell's configured origin and reloads without leaving the app. See the section below |
 | `RecentChats` | [`src/runtime/recent-chats.ts`](../src/runtime/recent-chats.ts) | Mirrors the sidebar conversation list (ids + titles) into a UserDefaults cache that backs the Shortcuts app's chat picker (`ChatEntityQuery`); synced from `ChatLayout` once the list query has resolved |
 
 The two voice plugins are consumed only through `use-live-voice-session-controller.ts` (audio session) and `use-live-activity-mirror.ts` (Live Activity), both mounted at `ChatLayout` scope so their lifetime is exactly the session's.
@@ -259,13 +259,18 @@ References:
 
 The assistant chooser offers every origin this device knows about. On a native
 mobile shell those origins live natively, not in web storage, because the shell
-is the only thing that can point its `WKWebView` somewhere else without leaving
-the app, and because the same list is written by the native Settings pane and
-the `<scheme>://connect` deep link. The web side is
+is the only thing that can point its web view somewhere else without leaving
+the app, and because the same list is written by the `<scheme>://connect` deep
+link (and, on iOS, the native Settings pane). The web side is
 [`src/runtime/self-hosted-servers.ts`](../src/runtime/self-hosted-servers.ts);
 the native side is
 [`SelfHostedServersPlugin.swift`](../../../clients/ios/App/App/SelfHostedServersPlugin.swift)
-over [`SelfHostedServer.swift`](../../../clients/ios/App/App/SelfHostedServer.swift).
+over [`SelfHostedServer.swift`](../../../clients/ios/App/App/SelfHostedServer.swift)
+on iOS, and
+[`SelfHostedServersPlugin.java`](../../../clients/android/app/src/main/java/ai/vellum/assistant/SelfHostedServersPlugin.java)
+over
+[`SelfHostedServer.java`](../../../clients/android/app/src/main/java/ai/vellum/assistant/SelfHostedServer.java)
+on Android.
 
 The bridge contract:
 
@@ -274,17 +279,22 @@ The bridge contract:
 | `list()` | `{ servers: [{name?, url}], activeUrl, bakedUrl }` | `activeUrl` is the configured self-hosted slot (`null` means the shell serves its baked origin); `bakedUrl` is the Vellum Cloud origin the build ships with |
 | `add({url, name?})` | `{ ok }` | Deduped by canonical url. A nameless re-add keeps the stored label |
 | `remove({url})` | `{ ok }` | Forgetting the active url also clears the active slot, so the shell returns to the baked origin |
-| `switchTo({url?})` | `{ ok }` | Swaps the active slot and reloads in place. An absent or empty `url` returns to the baked origin |
+| `switchTo({url?})` | `{ ok }` | Swaps the active slot and reloads the shell onto it (see the per-surface list below). An absent or empty `url` returns to the baked origin |
+| `switchToPath({url?, path})` | `{ ok }` | `switchTo` plus an initial in-app route loaded relative to the destination's app entry URL. A malformed `path` (empty, absolute, containing `://`, or carrying a fragment) rejects up front; a path that passes those checks but fails route building still switches and falls back to the app entry URL |
 
-Only genuinely invalid caller input rejects (an `add` or `switchTo` url that
-fails `SelfHostedServer.validate`). Empty state resolves with an empty list and
-nulls, so there is no "not configured" error branch to write.
+Only genuinely invalid caller input rejects (an `add`/`switchTo`/`switchToPath`
+url that fails `SelfHostedServer.validate`, or a malformed `switchToPath`
+path). Empty state resolves with an empty list and nulls, so there is no "not
+configured" error branch to write.
 
 Urls cross the bridge in one canonical form: `SelfHostedServer.canonicalize` and
 the store's `normalizeOriginUrl` implement the same rules (lowercase scheme and
 host, userinfo dropped, trailing slashes stripped, query and fragment dropped,
 path and port preserved), so both sides agree on which strings mean the same
-server. Changing one means changing the other.
+HTTPS server. Changing one means changing the others. The one divergence is
+deliberate: the Android shell also accepts cleartext development hosts
+(`http://localhost` and friends) that `normalizeOriginUrl` rejects, so those
+entries live in the native list but never surface as chooser cards.
 
 **Switching is per surface, and every surface has a working answer.**
 
@@ -296,8 +306,10 @@ server. Changing one means changing the other.
   ([`main-window.ts`](../../macos/src/main/main-window.ts)) sends any
   cross-origin https target to the system browser, so the origin opens there.
 - Native mobile with the plugin: `nativeSwitchToOrigin` hands the url to the
-  shell, which reloads the web view in place. The user never leaves the app,
-  and a "Vellum Cloud" card sourced from `list().bakedUrl` is the way back.
+  shell. iOS reloads the `WKWebView` in place; Android recreates the activity
+  onto a rebuilt Capacitor config, so a brief relaunch flash is expected.
+  Either way the user never leaves the app, and a "Vellum Cloud" card sourced
+  from `list().bakedUrl` is the way back.
 - Native mobile without the plugin: the same navigation the browser takes. That
   leaves the app for the system browser, which is degraded but is exactly what
   the pair-page path already does there.
