@@ -80,7 +80,19 @@ import { routes } from "@/utils/routes";
 const MUTATING_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
 const ELECTRON_RENDERER_ORIGIN_HEADER = "X-Vellum-Electron-Renderer-Origin";
 const NGROK_SKIP_BROWSER_WARNING_HEADER = "ngrok-skip-browser-warning";
-const selfHostedGatewayRequests = new WeakSet<Request>();
+const selfHostedGatewayRequests = new WeakMap<Request, string | null>();
+
+function selfHostedRequestMatchesCurrentAssistant(request: Request): boolean {
+  if (!selfHostedGatewayRequests.has(request)) {
+    return true;
+  }
+  const routedAssistantId = selfHostedGatewayRequests.get(request);
+  return (
+    routedAssistantId !== undefined &&
+    routedAssistantId !== null &&
+    routedAssistantId === getSelectedAssistant()?.assistantId
+  );
+}
 
 function usesSelfHostedIngress(urlValue: string, ingressValue: string): boolean {
   try {
@@ -242,6 +254,7 @@ export async function rewriteForSelfHostedIngress(
   if (!ingressUrl) {
     return null;
   }
+  const routedAssistantId = getSelectedAssistant()?.assistantId ?? null;
 
   const url = new URL(request.url);
 
@@ -315,7 +328,7 @@ export async function rewriteForSelfHostedIngress(
     (init as RequestInit & { duplex: "half" }).duplex = "half";
   }
   const rewritten = new Request(rewrittenUrl.toString(), init);
-  selfHostedGatewayRequests.add(rewritten);
+  selfHostedGatewayRequests.set(rewritten, routedAssistantId);
   return rewritten;
 }
 
@@ -682,6 +695,9 @@ function clearGw401Budget(): void {
 async function replayWithRecoveredSession(
   request: Request,
 ): Promise<Response | null> {
+  if (!selfHostedRequestMatchesCurrentAssistant(request)) {
+    return null;
+  }
   const headers = new Headers(request.headers);
   applySelfHostedBearer(headers);
   try {
@@ -741,6 +757,13 @@ export async function localGatewayAuthRecoveryInterceptor(
     request !== undefined &&
     selfHostedGatewayRequests.has(request);
   if (!fromCurrentIngress && !fromRetiredIngress) {
+    return response;
+  }
+  if (
+    response.status === 401 &&
+    request !== undefined &&
+    !selfHostedRequestMatchesCurrentAssistant(request)
+  ) {
     return response;
   }
 

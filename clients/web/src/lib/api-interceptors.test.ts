@@ -1622,6 +1622,7 @@ describe("api-interceptors / localGatewayAuthRecoveryInterceptor", () => {
 
   test("replays a stale restart request after reconnection", async () => {
     seedGatewayTokens();
+    selectedAssistantImpl = () => ({ assistantId: "asst-a", cloud: "local" });
     let request: Request | undefined;
 
     await duringLocalGatewayRestart(async () => {
@@ -1645,6 +1646,7 @@ describe("api-interceptors / localGatewayAuthRecoveryInterceptor", () => {
 
   test("retargets a stale restart request when the gateway port changes", async () => {
     seedGatewayTokens();
+    selectedAssistantImpl = () => ({ assistantId: "asst-a", cloud: "local" });
     let request: Request | undefined;
 
     await duringLocalGatewayRestart(async () => {
@@ -1667,6 +1669,28 @@ describe("api-interceptors / localGatewayAuthRecoveryInterceptor", () => {
     expect(replayedRequests[0].headers.get("Authorization")).toBe(
       "Bearer fresh-tok",
     );
+  });
+
+  test("does not replay an old assistant request after selection changes", async () => {
+    selectedAssistantImpl = () => ({ assistantId: "asst-a", cloud: "local" });
+    const request = await daemonRequestInterceptor(
+      new Request("https://platform.test/v1/assistants/123/conversations"),
+    );
+    selectedAssistantImpl = () => ({ assistantId: "asst-b", cloud: "local" });
+    setSelfHostedConnection({
+      url: "http://localhost:9091",
+      token: "assistant-b-token",
+    });
+    const response = gatewayResponse(401);
+
+    const result = await localGatewayAuthRecoveryInterceptor(
+      response,
+      request,
+    );
+
+    expect(result).toBe(response);
+    expect(replayedRequests).toHaveLength(0);
+    expect(primeGatewayWithRepairMock).not.toHaveBeenCalled();
   });
 
   test("preserves restart membership across asynchronous request routing", async () => {
