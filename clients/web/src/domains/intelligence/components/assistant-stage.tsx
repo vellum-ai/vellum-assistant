@@ -20,15 +20,13 @@ import {
 } from "react";
 import { cn } from "@vellumai/design-library";
 
+import { EYES_VISIBLE_FRACTION } from "@/components/avatar/peeking-eyes";
 import { useElementSize, type StageSize } from "@/hooks/use-element-size";
 import { usePageSurfaceStore } from "@/stores/page-surface-store";
 import type { CharacterComponents, CharacterTraits } from "@/types/avatar";
 import { toneForBg, type AvatarTone } from "@/utils/avatar-tone";
 
-import {
-  AssistantPeekingEyes,
-  EYES_VISIBLE_FRACTION,
-} from "./assistant-peeking-eyes";
+import { AssistantPeekingEyes } from "./assistant-peeking-eyes";
 
 /**
  * Backdrop when there is no avatar color to paint — a custom-image or
