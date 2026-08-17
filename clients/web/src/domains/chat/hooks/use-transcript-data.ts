@@ -88,11 +88,17 @@ export function useTranscriptData({
   // asked to approve something with no visible prompt. Attachment is only
   // "shown" when the carrying call is one the transcript actually draws.
   //
-  // The other half of that filter, card-backing, is deliberately not mirrored
-  // here: a call is card-backed only once a run is registered or a result has
-  // landed, and a prompt gates execution, so a pending confirmation cannot sit
-  // on a card-backed call. Mirroring it would also mean threading three store
-  // subscriptions into this hook to answer a question that cannot arise.
+  // The other half of that filter, card-backing, is deliberately not mirrored.
+  // Every route into it turns true only once the call has run: a workflow or
+  // ACP id arrives on the launch event or in the result, a background-task id
+  // is parsed out of the result, and an answered question is answered. A
+  // pending prompt gates execution, so the call carrying one has not run and
+  // cannot be card-backed by any of the four. Mirroring it would also mean
+  // threading three store subscriptions into this hook to answer that.
+  //
+  // If that ever stops holding, the failure mode is this trailer going quiet
+  // again for the affected call, so a card-backing route that can precede
+  // execution needs mirroring here as well.
   const pendingConfirmationAttachedToToolCall = useMemo(
     () =>
       pendingConfirmation != null &&
