@@ -22,6 +22,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
 import type { Conversation } from "@/types/conversation-types";
+import type * as SectionConversations from "@/domains/chat/use-section-conversations";
 import type { SidebarSection } from "@/domains/chat/use-sidebar-state";
 
 /** Every section resolves to the same single row; identity is not what's under test. */
@@ -29,9 +30,21 @@ const SECTION_ROWS: Conversation[] = [
   { conversationId: "c1", title: "A conversation" } as Conversation,
 ];
 
-mock.module("@/domains/chat/use-section-conversations", () => ({
-  useSectionConversations: () => SECTION_ROWS,
-}));
+/* Typed against the real module so a stub that stops matching the hook's
+   return shape fails the build rather than the suite: this stub once
+   returned a bare array and every test passed for the wrong reason until
+   the hook grew its window fields. */
+mock.module(
+  "@/domains/chat/use-section-conversations",
+  (): typeof SectionConversations => ({
+    useSectionConversations: () => ({
+      conversations: SECTION_ROWS,
+      hasMore: false,
+      loadMore: () => {},
+      getAllRows: () => Promise.resolve(SECTION_ROWS),
+    }),
+  }),
+);
 
 mock.module("@/domains/chat/components/conversation-rail-flyout", () => ({
   CollapsedGroupFlyout: () => null,

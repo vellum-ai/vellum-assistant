@@ -985,8 +985,15 @@ describe("AssistantSideMenu · section header menus", () => {
       ).find((el) => el.textContent?.includes("Archive All"));
       expect(item).toBeDefined();
     });
+    const before = received.length;
     act(() => {
       item!.click();
+    });
+    /* The handler fires after getAllRows() resolves (the section's full
+       membership, LUM-2444), one microtask after the click; wait for it
+       rather than reading synchronously. */
+    await waitFor(() => {
+      expect(received.length).toBeGreaterThan(before);
     });
     const last = received.at(-1);
     if (!last) {
