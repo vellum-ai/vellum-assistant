@@ -224,6 +224,33 @@ describe("upsertLockfileAssistant", () => {
     });
   });
 
+  test("a name-only payload preserves resources and on-disk secrets byte-for-byte", () => {
+    const entry = {
+      assistantId: "asst_1",
+      cloud: "local",
+      runtimeUrl: "http://a",
+      name: "Old Name",
+      resources: { gatewayPort: 7830, daemonPort: 7831, dataDir: "/tmp/x" },
+      signingKey: "sk-on-disk-secret",
+      bearerToken: "bt-on-disk-secret",
+      guardianBootstrapSecret: "gb-on-disk-secret",
+    };
+    writeOnDisk({ activeAssistant: "asst_1", assistants: [entry] });
+
+    const result = upsertLockfileAssistant(
+      [lockfilePath],
+      { assistantId: "asst_1", name: "Renamed" },
+      undefined,
+    );
+
+    expect(result.ok).toBe(true);
+    const assistants = readOnDisk().assistants as Array<
+      Record<string, unknown>
+    >;
+    expect(assistants).toHaveLength(1);
+    expect(assistants[0]).toEqual({ ...entry, name: "Renamed" });
+  });
+
   test("preserves activeAssistant when no active id is provided", () => {
     writeOnDisk({
       activeAssistant: "asst_active",
