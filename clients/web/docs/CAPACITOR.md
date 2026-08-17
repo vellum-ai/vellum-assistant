@@ -355,7 +355,7 @@ References:
 
 `WKWebView` on Capacitor iOS can hold a streaming `fetch` open at the network layer with no bytes flowing and no error surfaced to JavaScript, so the for-await loop blocks indefinitely and any reconnect/reconcile path gated on a fetch error never runs. Server heartbeats alone are not a liveness signal unless the client checks them.
 
-**Pair every long-lived stream (SSE, chunked fetch, WebSocket-equivalents) with a timer that resets on every received byte (including SSE comment frames, which most SDKs expose through `onSseEvent` even when they don't yield through the iterator) and force-reconnects after a bounded window of silence.** See the stream watchdog in [`src/assistant/sse-service.ts`](../src/assistant/sse-service.ts) for the canonical pattern.
+**Pair every long-lived stream (SSE, chunked fetch, WebSocket-equivalents) with a timer that resets on every received byte (including SSE comment frames, which most SDKs expose through `onSseEvent` even when they don't yield through the iterator) and force-reconnects after a bounded window of silence.** The canonical pattern is [`src/lib/streaming/stream-watchdog.ts`](../src/lib/streaming/stream-watchdog.ts), armed per frame (comment frames included) by [`src/lib/streaming/stream-transport.ts`](../src/lib/streaming/stream-transport.ts).
 
 References:
 - MDN — [Using server-sent events](https://developer.mozilla.org/en-US/docs/Web/API/Server-sent_events/Using_server-sent_events)
