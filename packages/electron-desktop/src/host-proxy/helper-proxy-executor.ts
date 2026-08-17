@@ -25,8 +25,7 @@ const CANCEL_TTL_MS = 30_000;
 
 /** Result of building helper params: the params, or a reason to reject up front. */
 export type BuildParamsResult =
-  | { params: Record<string, unknown> }
-  | { error: string };
+  { params: Record<string, unknown> } | { error: string };
 
 export interface HostHelperProxyConfig<T> {
   /** Short label for logs, e.g. "host-cu". */
@@ -41,11 +40,18 @@ export interface HostHelperProxyConfig<T> {
    * Build the JSON-RPC params from the request, or return `{ error }` to reject
    * the request up front (posted via `postError`) without calling the helper.
    */
-  buildParams: (message: HostProxySseMessage, requestId: string) => BuildParamsResult;
+  buildParams: (
+    message: HostProxySseMessage,
+    requestId: string,
+  ) => BuildParamsResult;
   /** Post a successful, validated result. */
   postSuccess: (poster: HostProxyPoster, requestId: string, result: T) => void;
   /** Post an error result (bad request, helper failure, invalid result). */
-  postError: (poster: HostProxyPoster, requestId: string, message: string) => void;
+  postError: (
+    poster: HostProxyPoster,
+    requestId: string,
+    message: string,
+  ) => void;
 }
 
 export class HostHelperProxyExecutor<T> implements HostProxyExecutor {
@@ -58,7 +64,9 @@ export class HostHelperProxyExecutor<T> implements HostProxyExecutor {
   handleRequest(message: HostProxySseMessage, poster: HostProxyPoster): void {
     const requestId = message.requestId as string | undefined;
     if (!requestId) {
-      this.config.logger.warn(`[${this.config.label}] message missing requestId`);
+      this.config.logger.warn(
+        `[${this.config.label}] message missing requestId`,
+      );
       return;
     }
 
@@ -88,7 +96,9 @@ export class HostHelperProxyExecutor<T> implements HostProxyExecutor {
     poster: HostProxyPoster,
   ): Promise<void> {
     try {
-      const raw = await this.config.resolveHelper().call(this.config.method, params);
+      const raw = await this.config
+        .resolveHelper()
+        .call(this.config.method, params);
       if (this.consumeCancelled(requestId)) {
         return;
       }

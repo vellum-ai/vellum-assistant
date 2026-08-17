@@ -9,10 +9,7 @@ import type { ComputerUseActionExecutors } from "./features/computer-use-actions
 
 export type WindowsHostProxySources = Omit<
   HostProxyRuntime,
-  | "executors"
-  | "teardownExecutors"
-  | "posterClientHeaders"
-  | "sseClientHeaders"
+  "executors" | "teardownExecutors" | "posterClientHeaders" | "sseClientHeaders"
 > & {
   getClientId: () => string;
   /**
