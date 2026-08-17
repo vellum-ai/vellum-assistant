@@ -1,0 +1,167 @@
+import { spawn } from "node:child_process";
+
+import type { CliInvocation } from "./util";
+
+// Fast loopback HTTP calls; well under the lifecycle-op timeouts.
+const DEVICES_TIMEOUT_MS = 30_000;
+
+/**
+ * Mirrors one row of the gateway's `GET /v1/devices` response. The gateway
+ * stores only the HASHED device id, so `hashedDeviceId` is both the display
+ * identifier and the revocation key.
+ */
+export interface DeviceRecord {
+  hashedDeviceId: string;
+  platform: string;
+  issuedAt: number | null;
+  expiresAt: number | null;
+  lastUsedAt: number | null;
+}
+
+export type DevicesListResult =
+  | { ok: true; devices: DeviceRecord[] }
+  | { ok: false; status: number; error: string };
+
+export type DevicesRevokeResult =
+  { ok: true } | { ok: false; status: number; error: string };
+
+type CliRunResult =
+  | { ok: true; stdout: string }
+  | { ok: false; status: number; error: string };
+
+function runDevicesCli(
+  invocation: CliInvocation,
+  args: string[],
+): Promise<CliRunResult> {
+  return new Promise((resolve) => {
+    const child = spawn(
+      invocation.command,
+      [...invocation.baseArgs, ...args],
+      { stdio: ["ignore", "pipe", "pipe"] },
+    );
+
+    let stdout = "";
+    let stderr = "";
+    let done = false;
+
+    const finish = (result: CliRunResult) => {
+      if (done) return;
+      done = true;
+      clearTimeout(timeout);
+      resolve(result);
+    };
+
+    const timeout = setTimeout(() => {
+      child.kill("SIGTERM");
+      finish({
+        ok: false,
+        status: 500,
+        error: "Devices command timed out after 30 seconds",
+      });
+    }, DEVICES_TIMEOUT_MS);
+
+    child.stdout.on("data", (data: Buffer) => {
+      stdout += data.toString();
+    });
+
+    child.stderr.on("data", (data: Buffer) => {
+      stderr += data.toString();
+    });
+
+    child.on("close", (code) => {
+      if (code === 0) {
+        finish({ ok: true, stdout });
+      } else {
+        finish({ ok: false, status: 500, error: stderr || stdout });
+      }
+    });
+
+    child.on("error", (err) => {
+      finish({
+        ok: false,
+        status: 500,
+        error: `Failed to spawn CLI: ${err.message}`,
+      });
+    });
+  });
+}
+
+function toTimestamp(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function parseDeviceRecords(stdout: string): DeviceRecord[] | null {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(stdout);
+  } catch {
+    return null;
+  }
+  if (typeof parsed !== "object" || parsed === null) {
+    return null;
+  }
+  const devices = (parsed as { devices?: unknown }).devices;
+  if (!Array.isArray(devices)) {
+    return null;
+  }
+
+  const records: DeviceRecord[] = [];
+  for (const entry of devices) {
+    if (typeof entry !== "object" || entry === null) {
+      return null;
+    }
+    const { hashedDeviceId, platform, issuedAt, expiresAt, lastUsedAt } =
+      entry as Record<string, unknown>;
+    if (typeof hashedDeviceId !== "string" || typeof platform !== "string") {
+      return null;
+    }
+    records.push({
+      hashedDeviceId,
+      platform,
+      issuedAt: toTimestamp(issuedAt),
+      expiresAt: toTimestamp(expiresAt),
+      lastUsedAt: toTimestamp(lastUsedAt),
+    });
+  }
+  return records;
+}
+
+export async function runDevicesList(
+  invocation: CliInvocation,
+  assistantId: string,
+): Promise<DevicesListResult> {
+  const result = await runDevicesCli(invocation, [
+    "devices",
+    assistantId,
+    "--json",
+  ]);
+  if (!result.ok) {
+    return result;
+  }
+  const devices = parseDeviceRecords(result.stdout);
+  if (!devices) {
+    const snippet = result.stdout.trim().slice(0, 200);
+    return {
+      ok: false,
+      status: 500,
+      error: `CLI returned unparseable devices output: ${snippet}`,
+    };
+  }
+  return { ok: true, devices };
+}
+
+export async function runDevicesRevoke(
+  invocation: CliInvocation,
+  assistantId: string,
+  hashedDeviceId: string,
+): Promise<DevicesRevokeResult> {
+  const result = await runDevicesCli(invocation, [
+    "devices",
+    "revoke",
+    hashedDeviceId,
+    assistantId,
+    "--yes",
+    "--json",
+  ]);
+  return result.ok ? { ok: true } : result;
+}
