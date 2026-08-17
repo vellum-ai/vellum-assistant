@@ -53,21 +53,6 @@ const AUTH_ERROR_KEYS: Record<string, AuthErrorKey> = {
   desktop_update_required: "authErrors.desktopUpdateRequired",
 };
 
-/**
- * Rejection for an Electron shell whose preload bridge predates in-app OAuth
- * (`window.vellum.auth.startOAuth`). Shaped like a native shell rejection so
- * {@link nativeAuthErrorKey} resolves it to actionable copy: the desktop app
- * has no working browser fallback, so the only remedy is updating the shell.
- */
-export function desktopUpdateRequiredAuthError(): Error {
-  const err = new Error(
-    "The desktop bridge does not expose auth.startOAuth; the shell must be updated to sign in.",
-  ) as Error & { code: string; data: { authError: string } };
-  err.code = "AUTH_ERROR";
-  err.data = { authError: "desktop_update_required" };
-  return err;
-}
-
 function errorProperty(err: unknown, key: string): unknown {
   if (typeof err !== "object" || err === null || !(key in err)) {
     return undefined;

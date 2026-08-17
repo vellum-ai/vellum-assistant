@@ -1,7 +1,6 @@
 import { Capacitor, registerPlugin } from "@capacitor/core";
 import { useSyncExternalStore } from "react";
 
-import { desktopUpdateRequiredAuthError } from "@/domains/account/native-auth-error";
 import {
   type ProviderRedirectOptions,
   startProviderRedirect,
@@ -55,6 +54,15 @@ const NativeAuth = registerPlugin<NativeAuthPlugin>("NativeAuth");
 
 /** Fallback destination after a successful native login. */
 const DEFAULT_POST_AUTH_DESTINATION = routes.assistant;
+
+const desktopUpdateRequiredAuthError = (): Error => {
+  const error = new Error(
+    "The desktop auth bridge is unavailable. Update the app to sign in.",
+  ) as Error & { code: string; data: { authError: string } };
+  error.code = "AUTH_ERROR";
+  error.data = { authError: "desktop_update_required" };
+  return error;
+};
 
 // True while the Electron OAuth flow awaits its deep-link callback. The
 // redirect refocuses the window before the code exchange finishes, so the
@@ -368,15 +376,8 @@ export async function startAuthFlow(
     return;
   }
 
-  // Desktop (Electron): open the system browser for OAuth so the user can
-  // leverage existing Google/Apple sessions. The main process handles the
-  // full flow (nonce, browser, deep-link callback, code exchange, cookie
-  // install) and returns the session token. There is no fallback inside the
-  // desktop shell: the loopback flow below hands the platform's web login a
-  // CLI callback (`/accounts/cli/callback?port=...`) that no desktop shell
-  // services, and the form-POST path would POST against the shell's custom
-  // app origin. Both strand the user in the system browser, so a bridge
-  // without `auth.startOAuth` (older preload) fails loudly instead.
+  // Electron requires the native OAuth bridge. The web and CLI callback
+  // fallbacks have no receiver inside the desktop shell.
   if (isElectron()) {
     if (!window.vellum?.auth?.startOAuth) {
       throw desktopUpdateRequiredAuthError();
