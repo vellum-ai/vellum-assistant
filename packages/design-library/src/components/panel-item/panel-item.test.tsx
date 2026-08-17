@@ -186,14 +186,15 @@ describe("PanelItem shape", () => {
      the row's height absent, since the pill's has to *replace* it: emitting
      both leaves the winner to stylesheet order.
 
-     Restated under `max-md` so it holds on a touch viewport too, where the
-     row's own `max-md:h-auto` would otherwise take the pill back to its
-     padding and leave a panel that stands its rows taller unable to say so. */
+     On touch the same value applies as a floor, so the panel still sets the
+     height a pill rests at while `max-md:h-auto` keeps its promise that a
+     pill grows to content rather than clipping it. Both survive: they are
+     different properties, so neither merges the other away. */
   test("pill takes its height from the panel, replacing the row's", () => {
     const html = renderShaped("pill");
     expect(html).toContain("h-[var(--side-menu-tile-size,36px)]");
-    expect(html).toContain("max-md:h-[var(--side-menu-tile-size,36px)]");
-    expect(html).not.toContain("max-md:h-auto");
+    expect(html).toContain("max-md:min-h-[var(--side-menu-tile-size,36px)]");
+    expect(html).toContain("max-md:h-auto");
     expect(html).not.toContain("h-8");
   });
 

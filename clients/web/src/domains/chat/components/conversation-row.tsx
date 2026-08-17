@@ -271,7 +271,7 @@ export function ConversationRow({
           // tinted pill that publishes `--panel-item-bg` and no active value
           // of its own would lose its colour to it.
           ctx.overlayCards
-            ? "h-[var(--side-menu-tile-size)] max-md:h-[var(--side-menu-tile-size)] [--panel-item-active:var(--surface-hover)]"
+            ? "min-h-[var(--side-menu-tile-size)] [--panel-item-active:var(--surface-hover)]"
             : "h-[30px]",
         )}
       />
