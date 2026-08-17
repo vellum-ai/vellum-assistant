@@ -23,6 +23,9 @@ import {
   spyOn,
   test,
 } from "bun:test";
+import type * as LocalMode from "@/lib/local-mode";
+import type { LockfileAssistant } from "@/runtime/local-mode-host";
+import type * as CaptureError from "@/lib/sentry/capture-error";
 
 const isLocalClientMock = mock(() => !process.env.VITE_PLATFORM_MODE);
 const isPlatformDisabledMock = mock(() => false);
@@ -33,31 +36,34 @@ let primeGatewayWithRepairImpl: () => Promise<void> = async () => {};
 const primeGatewayWithRepairMock = mock(() => primeGatewayWithRepairImpl());
 // The lockfile selection the recovery snapshots; a test moves it to model an
 // assistant switch or logout landing while the re-prime is in flight.
-let selectedAssistantImpl: () => { assistantId: string } | undefined = () =>
+let selectedAssistantImpl: () => LockfileAssistant | undefined = () =>
   undefined;
-mock.module("@/lib/local-mode", () => ({
-  getActiveAssistant: () => undefined,
-  getLocalAssistants: () => [],
-  getLocalGatewayUrl: () => undefined,
-  getLockfile: () => ({ assistants: [], activeAssistant: null }),
-  getPlatformAssistants: () => [],
-  getPlatformRuntimeUrl: () => window.location.origin,
-  getSelectedAssistant: () => selectedAssistantImpl(),
-  hasAssistants: () => false,
-  isLocalAssistant: () => false,
-  isLocalClient: isLocalClientMock,
-  isPlatformDisabled: isPlatformDisabledMock,
-  isPlatformAssistant: () => false,
-  isRemoteGatewayMode: isRemoteGatewayModeMock,
-  loadLockfile: async () => ({ assistants: [], activeAssistant: null }),
-  primeLocalGatewayConnection: async () => {},
-  primeLocalGatewayConnectionWithRepair: primeGatewayWithRepairMock,
-  reconcileSelectedAssistant: () => {},
-  retireLocalAssistant: async () => ({ ok: false }),
-  saveLockfileAssistant: async () => {},
-  setActiveLockfileAssistant: async () => {},
-  syncPlatformAssistantsToLockfile: async () => {},
-}));
+mock.module(
+  "@/lib/local-mode",
+  (): Partial<typeof LocalMode> => ({
+    getActiveAssistant: () => undefined,
+    getLocalAssistants: () => [],
+    getLocalGatewayUrl: () => undefined,
+    getLockfile: () => ({ assistants: [], activeAssistant: null }),
+    getPlatformAssistants: () => [],
+    getPlatformRuntimeUrl: () => window.location.origin,
+    getSelectedAssistant: () => selectedAssistantImpl(),
+    hasAssistants: () => false,
+    isLocalAssistant: () => false,
+    isLocalClient: isLocalClientMock,
+    isPlatformDisabled: isPlatformDisabledMock,
+    isPlatformAssistant: () => false,
+    isRemoteGatewayMode: isRemoteGatewayModeMock,
+    loadLockfile: async () => ({ assistants: [], activeAssistant: null }),
+    primeLocalGatewayConnection: async () => {},
+    primeLocalGatewayConnectionWithRepair: primeGatewayWithRepairMock,
+    reconcileSelectedAssistant: () => {},
+    retireLocalAssistant: async () => ({ ok: false }),
+    saveLockfileAssistant: async () => {},
+    setActiveLockfileAssistant: async () => {},
+    syncPlatformAssistantsToLockfile: async () => {},
+  }),
+);
 
 // Auth store — mocked so the interceptor's `useAuthStore.getState()` reads a
 // controllable `sessionStatus` + `refreshSession` without pulling in the real
@@ -100,9 +106,12 @@ mock.module("@/lib/auth/hard-navigate", () => ({
 // Sentry capture, stubbed so a failed in-place recovery doesn't touch the
 // real client and the capture can be asserted.
 const captureErrorMock = mock((_err: unknown, _ctx?: unknown) => {});
-mock.module("@/lib/sentry/capture-error", () => ({
-  captureError: captureErrorMock,
-}));
+mock.module(
+  "@/lib/sentry/capture-error",
+  (): Partial<typeof CaptureError> => ({
+    captureError: captureErrorMock,
+  }),
+);
 
 // Post-resume request counter, stubbed so a test can make it throw and prove
 // the interceptor still returns its request. `isResumeWindowOpen` defaults to
@@ -1178,6 +1187,9 @@ describe("api-interceptors / localGatewayAuthRecoveryInterceptor", () => {
     };
     replayedRequests = [];
     originalFetch = globalThis.fetch;
+    // The replay is a bare fetch by design (no client under it), so fetch
+    // is the boundary here; the built Request is captured so its headers
+    // can still be asserted.
     globalThis.fetch = mock(async (input: RequestInfo | URL) => {
       replayedRequests.push(input as Request);
       return new Response("{}", { status: 200 });
@@ -1207,8 +1219,8 @@ describe("api-interceptors / localGatewayAuthRecoveryInterceptor", () => {
     /**
      * Validates the core auth recovery: a stale gateway token triggers a
      * token clear and an in-place re-prime. Reloading here would eat the
-     * in-flight mutation and the composer state with no error shown
-     * (LUM-3231), so the page must never reload.
+     * in-flight mutation and the composer state with no error shown, so
+     * the page must never reload.
      */
 
     // GIVEN gateway tokens are stored in localStorage
@@ -1365,12 +1377,15 @@ describe("api-interceptors / localGatewayAuthRecoveryInterceptor", () => {
      */
 
     // GIVEN the recovery started for assistant A
-    selectedAssistantImpl = () => ({ assistantId: "asst-a" });
+    selectedAssistantImpl = () => ({ assistantId: "asst-a", cloud: "local" });
 
     // AND, mid-prime, the selection moves to a platform assistant and the
     // lifecycle clears the slot, then the prime fails
     primeGatewayWithRepairImpl = async () => {
-      selectedAssistantImpl = () => ({ assistantId: "asst-platform" });
+      selectedAssistantImpl = () => ({
+        assistantId: "asst-platform",
+        cloud: "vellum",
+      });
       setSelfHostedConnection(null);
       throw new Error("readyz failed");
     };

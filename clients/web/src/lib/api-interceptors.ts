@@ -597,6 +597,13 @@ function clearGw401Budget(): void {
  * that flowed through the interceptor chain. Returns `null` when the
  * replay itself fails to complete (network drop, caller aborted), so the
  * caller hands back the original 401 instead of a new failure shape.
+ *
+ * Issued with bare `fetch` rather than through the generated client on
+ * purpose: the request is already rewritten to the ingress and carries
+ * its bearer, and re-entering the chain would run the platform-path
+ * rewrite over an ingress URL. The silent catch is deliberate for the
+ * same reason: a failed replay is not a new error to report, it is the
+ * original 401 flowing on to the caller, whose error path reports it.
  */
 async function replayWithRecoveredSession(
   request: Request,
