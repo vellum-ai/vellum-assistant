@@ -182,6 +182,23 @@ const RAIL_GEOMETRY_VARS: CustomPropertyStyle = {
   "--side-menu-collapsed-inset": `${SIDE_MENU_COLLAPSED_INSET}px`,
 };
 
+/**
+ * A touch surface stands its tiles taller than a pointer one, so the overlay
+ * publishes its own tile size and every pill mounted in it follows without
+ * each caller restating a height.
+ */
+export const SIDE_MENU_OVERLAY_TILE_SIZE = 44;
+
+const OVERLAY_VARS: CustomPropertyStyle = {
+  ...RAIL_GEOMETRY_VARS,
+  "--side-menu-tile-size": `${SIDE_MENU_OVERLAY_TILE_SIZE}px`,
+  /* The overlay marks the open conversation with the lighter of the two
+     selection washes: its rows sit on a card that already stands off the
+     panel, so the rail's heavier fill reads as a second surface on top of a
+     surface. */
+  "--panel-item-active": "var(--surface-hover)",
+};
+
 export interface SideMenuProps extends ComponentProps<"nav"> {
   /** Ignored when `variant="overlay"`. */
   collapsed?: boolean;
@@ -246,7 +263,17 @@ const ROOT_RAIL_RESIZABLE_CLASSES = [
   ROOT_RAIL_PADDING,
 ].join(" ");
 
-const ROOT_OVERLAY_CLASSES = ["w-full", "rounded-none", "p-4"].join(" ");
+/**
+ * The overlay paints no surface of its own. Its host owns one, and that
+ * surface is translucent on the chat side, so a second fill here would
+ * compose with it and close the gap the design opens onto the page beneath.
+ */
+const ROOT_OVERLAY_CLASSES = [
+  "w-full",
+  "rounded-none",
+  "p-4",
+  "bg-transparent",
+].join(" ");
 
 const RAIL_TRANSITION_MS = 150;
 const ROOT_RAIL_TRANSITION =
@@ -309,10 +336,11 @@ function SideMenuRoot({
     onSizeCommit: onWidthChange,
   });
 
+  const geometryVars = variant === "overlay" ? OVERLAY_VARS : RAIL_GEOMETRY_VARS;
   const widthStyle =
     resizable && !effectiveCollapsed && width != null
-      ? { ...RAIL_GEOMETRY_VARS, ...style, width }
-      : { ...RAIL_GEOMETRY_VARS, ...style };
+      ? { ...geometryVars, ...style, width }
+      : { ...geometryVars, ...style };
 
   return (
     <SideMenuContext

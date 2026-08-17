@@ -75,6 +75,13 @@ export interface AssistantSideMenuProps extends UseSidebarStateParams {
   onStartNewConversation?: () => void;
   footerAction?: ReactNode;
   /**
+   * Trailing control in the overlay's glyph row, opposite dismiss and search.
+   * A slot rather than a direct render: the control belongs to another
+   * domain, so the page composes it and this menu stays free of the
+   * dependency (and of the router context it needs).
+   */
+  notificationsAction?: ReactNode;
+  /**
    * Rendered above `footerAction` in the rail footer (hidden when collapsed)
    * and above the floating action pills on the overlay.
    */
@@ -203,6 +210,7 @@ export function AssistantSideMenu({
   activeAppId,
   onStartNewConversation,
   footerAction,
+  notificationsAction,
   tipCard,
   onPinConversation,
   onRenameConversation,
@@ -370,6 +378,7 @@ export function AssistantSideMenu({
   };
 
   const listContext: ConversationListContextValue = {
+    overlayCards: variant === "overlay",
     activeConversationId,
     activeConversationProcessing,
     processingConversationIds,
@@ -504,21 +513,29 @@ export function AssistantSideMenu({
       >
         <SideMenu.Header>
           {variant === "overlay" ? (
-            /* Close on the left, Search pinned to the right so it stays put
-               and always reads as the persistent search affordance
-               (Figma 6788:6749). In Capacitor mobile shells the row floats
-               over the scrollport so list content travels beneath the bare
-               glyphs; `pointer-events-none` keeps the empty span between the
-               two buttons scrollable. */
-            <div className="flex items-center justify-between gap-2 native-mobile:pointer-events-none native-mobile:absolute native-mobile:inset-x-4 native-mobile:top-4 native-mobile:z-10">
-              <Button
-                variant="ghost"
-                iconOnly={<X />}
-                aria-label="Close navigation"
-                className={`pointer-events-auto ${NATIVE_MOBILE_BARE_ICON_BUTTON}`}
-                onClick={() => onClose?.()}
-              />
-              <SearchButton />
+            /* Dismiss and search lead together on the left, notifications
+               sits alone on the right (Figma 7842-83305). In Capacitor
+               mobile shells the row floats over the scrollport so list
+               content travels beneath the bare glyphs;
+               `pointer-events-none` keeps the gap between the clusters
+               scrollable. */
+            <div
+              data-slot="side-menu-glyph-row"
+              className="flex items-center justify-between gap-2 native-mobile:pointer-events-none native-mobile:absolute native-mobile:inset-x-4 native-mobile:top-4 native-mobile:z-10"
+            >
+              <div className="flex items-center gap-1">
+                <Button
+                  variant="ghost"
+                  iconOnly={<X />}
+                  aria-label="Close navigation"
+                  className={`pointer-events-auto ${NATIVE_MOBILE_BARE_ICON_BUTTON}`}
+                  onClick={() => onClose?.()}
+                />
+                <SearchButton />
+              </div>
+              {notificationsAction ? (
+                <div className="pointer-events-auto">{notificationsAction}</div>
+              ) : null}
             </div>
           ) : (
             builtInNav

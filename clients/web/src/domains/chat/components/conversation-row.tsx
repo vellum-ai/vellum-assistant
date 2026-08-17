@@ -260,7 +260,13 @@ export function ConversationRow({
           // `!` forces this over PanelItem's own max-md:py-3: cross-package
           // Tailwind generation order doesn't reliably favor a plain
           // (unmarked) override here.
-          "h-[30px] p-[6px] max-md:p-2! text-[var(--content-default)]",
+          "p-[6px] max-md:p-2! text-[var(--content-default)]",
+          // A row in the drawer stands at the same height as the pills above
+          // it, which is taller than a row in the rail. Restated under
+          // `max-md` for the same reason the padding above is: PanelItem's own
+          // `max-md:h-auto` is a variant, so an unprefixed height never
+          // reaches it at a touch viewport.
+          ctx.overlayCards ? "h-11 max-md:h-11" : "h-[30px]",
         )}
       />
     </SwipeActionReveal>

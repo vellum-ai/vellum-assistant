@@ -15,6 +15,7 @@ import {
   SIDE_MENU_COLLAPSED_INSET,
   SIDE_MENU_COLLAPSED_WIDTH,
   SIDE_MENU_TILE_SIZE,
+  SIDE_MENU_OVERLAY_TILE_SIZE,
   SideMenu,
   useSideMenuCollapsed,
 } from "./side-menu";
@@ -85,9 +86,14 @@ describe("SideMenu root", () => {
   /* Every top-level row resolves its height from this property rather than
      naming the pixels again, which is what keeps a pill and the tile it
      collapses into from disagreeing - a disagreement that stays invisible
-     until the rail collapses. Both variants publish it, since an overlay
-     holds the same rows. */
-  test("both variants publish the tile property rows size from", () => {
+     until the rail collapses. Both variants publish it; they differ in the
+     value, because a touch surface stands its rows taller than a pointer
+     one. */
+  test("each variant publishes the tile property rows size from", () => {
+    const expected = {
+      rail: SIDE_MENU_TILE_SIZE,
+      overlay: SIDE_MENU_OVERLAY_TILE_SIZE,
+    } as const;
     for (const variant of ["rail", "overlay"] as const) {
       const html = renderToStaticMarkup(
         createElement(
@@ -96,8 +102,21 @@ describe("SideMenu root", () => {
           createElement(SideMenu.Body, { key: "body" }, null),
         ),
       );
-      expect(html).toContain(`--side-menu-tile-size:${SIDE_MENU_TILE_SIZE}px`);
+      expect(html).toContain(`--side-menu-tile-size:${expected[variant]}px`);
     }
+  });
+
+  /* The open row's wash is published beside the geometry so a row never has
+     to know which surface it is mounted on. */
+  test("the overlay publishes the lighter selection wash", () => {
+    const html = renderToStaticMarkup(
+      createElement(
+        SideMenu,
+        { ariaLabel: "Primary", variant: "overlay" },
+        createElement(SideMenu.Body, { key: "body" }, null),
+      ),
+    );
+    expect(html).toContain("--panel-item-active:var(--surface-hover)");
   });
 
   test("overlay variant is full-bleed with no radius", () => {

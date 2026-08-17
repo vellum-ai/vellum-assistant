@@ -959,6 +959,12 @@ export function ChatLayout({
       onMoveToGroup={handleMoveToGroup}
       onCreateGroupInto={handleRequestCreateGroup}
       onRemoveFromGroup={handleRemoveFromGroup}
+      /* The same injected control the header carries, restated in the
+         drawer's glyph row where the mock puts it. Sourced from the prop
+         rather than imported, because it lives in another domain. */
+      notificationsAction={
+        args.variant === "overlay" ? topBarAccessory : undefined
+      }
       footerAction={
         <PreferencesMenu
           assistantId={assistantId}
@@ -1106,12 +1112,16 @@ export function ChatLayout({
               aria-label="Navigation"
               data-state={drawerOpen ? "open" : "closed"}
             >
-              {/* The aside must paint the same token as the SideMenu it
-                  hosts (`--surface-overlay`): its safe-area padding ring is
-                  the only part of it that shows around the full-bleed menu,
-                  and a mismatched background renders as tinted strips along
-                  the notch / home-indicator edges on iOS. No border — the
-                  sheet covers the full screen, so there is no edge to draw.
+              {/* The aside is the drawer's only painted surface: the menu it
+                  hosts is transparent, so this one fill covers both the menu
+                  and the safe-area padding ring around it, which is what
+                  keeps tinted strips off the notch / home-indicator edges on
+                  iOS. It thins toward the chat side (Figma 7842-83305), so
+                  the page stays legible behind the drawer while the column of
+                  navigation itself rests on solid ground. Painting it here
+                  rather than on the menu also keeps it one layer: two
+                  translucent fills would compose back to opaque. No border:
+                  the sheet covers the full screen, so there is no edge to draw.
                   No bottom padding either: the SideMenu root clips its
                   children (`overflow-hidden`), so a bottom inset places the
                   clip boundary at the home-indicator line and guillotines
@@ -1123,7 +1133,8 @@ export function ChatLayout({
                 id="chat-side-menu"
                 className="relative flex h-full w-full flex-col shadow-xl"
                 style={{
-                  background: "var(--surface-overlay)",
+                  background:
+                    "linear-gradient(to right, var(--surface-base), color-mix(in srgb, var(--surface-base) 90%, transparent))",
                   zIndex: 50,
                   paddingTop:
                     "var(--safe-area-inset-top, env(safe-area-inset-top, 0px))",
