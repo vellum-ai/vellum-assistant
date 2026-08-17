@@ -1118,6 +1118,23 @@ describe("primeLocalGatewayConnectionWithStartupRetry", () => {
     expect(getSelfHostedIngressUrl()).toBeNull();
   });
 
+  test("hands a rejected boot mint back after selection changes", async () => {
+    enableLocalMode();
+    setLockfile({
+      assistants: [localA, platform],
+      activeAssistant: "local-a",
+    });
+    setSelected("local-a");
+    globalThis.fetch = mock(async () => {
+      setSelected("platform-a");
+      return new Response("Forbidden", { status: 403 });
+    }) as unknown as typeof fetch;
+
+    await expect(
+      primeLocalGatewayConnectionWithStartupRetry(),
+    ).resolves.toBe(false);
+  });
+
   test("force-validates again when another prime supersedes the boot mint", async () => {
     enableLocalMode();
     setLockfile({ assistants: [localA], activeAssistant: "local-a" });

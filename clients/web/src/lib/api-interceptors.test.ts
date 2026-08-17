@@ -33,8 +33,16 @@ const isPlatformDisabledMock = mock(() => false);
 const isRemoteGatewayModeMock = mock(
   () => window.__VELLUM_CONFIG__?.mode === "remote-gateway",
 );
-let primeGatewayWithRepairImpl: () => Promise<void> = async () => {};
-const primeGatewayWithRepairMock = mock(() => primeGatewayWithRepairImpl());
+let primeGatewayWithRepairImpl: (
+  target?: LockfileAssistant,
+  options?: LocalMode.PrimeLocalGatewayConnectionOptions,
+) => Promise<void> = async () => {};
+const primeGatewayWithRepairMock = mock(
+  (
+    target?: LockfileAssistant,
+    options?: LocalMode.PrimeLocalGatewayConnectionOptions,
+  ) => primeGatewayWithRepairImpl(target, options),
+);
 // The lockfile selection the recovery snapshots; a test moves it to model an
 // assistant switch or logout landing while the re-prime is in flight.
 let selectedAssistantImpl: () => LockfileAssistant | undefined = () =>
@@ -1227,6 +1235,10 @@ describe("api-interceptors / localGatewayAuthRecoveryInterceptor", () => {
     refreshRemoteGatewaySessionMock.mockClear();
     refreshRemoteGatewaySessionImpl = async () => true;
     captureErrorMock.mockClear();
+    selectedAssistantImpl = () => ({
+      assistantId: "asst-a",
+      cloud: "local",
+    });
     // Model the real prime: a fresh token lands in the connection slot.
     primeGatewayWithRepairImpl = async () => {
       setSelfHostedConnection({ url: GATEWAY_URL, token: "fresh-tok" });
@@ -1278,9 +1290,13 @@ describe("api-interceptors / localGatewayAuthRecoveryInterceptor", () => {
 
     // THEN the session is re-primed with a forced mint
     expect(primeGatewayWithRepairMock).toHaveBeenCalledTimes(1);
-    expect(primeGatewayWithRepairMock).toHaveBeenCalledWith(undefined, {
-      forceMint: true,
-    });
+    expect(primeGatewayWithRepairMock).toHaveBeenCalledWith(
+      expect.objectContaining({ assistantId: "asst-a" }),
+      expect.objectContaining({
+        commitIf: expect.any(Function),
+        forceMint: true,
+      }),
+    );
 
     // AND the page never reloads; without a replayable request the 401
     // flows back to the caller's error path
@@ -1556,6 +1572,39 @@ describe("api-interceptors / localGatewayAuthRecoveryInterceptor", () => {
     // THEN the old assistant's ingress is NOT put back
     expect(getSelfHostedIngressUrl()).toBeNull();
     expect(getSelfHostedActorToken()).toBeNull();
+  });
+
+  test("a recovery cannot overwrite a newly selected assistant", async () => {
+    let releaseRecovery: (() => void) | undefined;
+    primeGatewayWithRepairImpl = async (_target, options) => {
+      await new Promise<void>((resolve) => {
+        releaseRecovery = resolve;
+      });
+      if (options?.commitIf?.()) {
+        setSelfHostedConnection({
+          url: GATEWAY_URL,
+          token: "assistant-a-token",
+        });
+      }
+    };
+    const recovery = localGatewayAuthRecoveryInterceptor(
+      gatewayResponse(401),
+      gatewayGet(),
+    );
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    selectedAssistantImpl = () => ({ assistantId: "asst-b", cloud: "local" });
+    setSelfHostedConnection({
+      url: "http://localhost:9091",
+      token: "assistant-b-token",
+    });
+    releaseRecovery?.();
+
+    const response = await recovery;
+    expect(response.status).toBe(401);
+    expect(getSelfHostedIngressUrl()).toBe("http://localhost:9091");
+    expect(getSelfHostedActorToken()).toBe("assistant-b-token");
+    expect(replayedRequests).toHaveLength(0);
   });
 
   test("remote-gateway mode reloads only when the refresh cookie is rejected too", async () => {

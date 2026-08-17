@@ -635,11 +635,20 @@ async function recoverLocalGatewaySessionInPlace(): Promise<boolean> {
     url: getSelfHostedIngressUrl(),
     token: getSelfHostedActorToken(),
   };
-  const recoveringFor = getSelectedAssistant()?.assistantId ?? null;
+  const recoveringAssistant = getSelectedAssistant();
+  const recoveringFor = recoveringAssistant?.assistantId ?? null;
+  if (!recoveringAssistant) {
+    return false;
+  }
   try {
-    await primeLocalGatewayConnectionWithRepair(undefined, {
+    await primeLocalGatewayConnectionWithRepair(recoveringAssistant, {
+      commitIf: () =>
+        getSelectedAssistant()?.assistantId === recoveringFor,
       forceMint: true,
     });
+    if (getSelectedAssistant()?.assistantId !== recoveringFor) {
+      return false;
+    }
     recordLifecycleDiagnostic("gw_401_recovery", { outcome: "recovered" });
     return true;
   } catch (err) {

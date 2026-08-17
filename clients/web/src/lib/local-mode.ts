@@ -1182,14 +1182,17 @@ export async function primeLocalGatewayConnectionWithStartupRetry(
     return true;
   } catch (error) {
     settleGatewayPrime(reservation, false);
-    if (
+    const stillSelected =
       reservation.assistantId !== null &&
-      getSelectedAssistant()?.assistantId === reservation.assistantId
-    ) {
+      getSelectedAssistant()?.assistantId === reservation.assistantId;
+    if (stillSelected) {
       clearGatewayToken();
       if (getSelfHostedIngressUrl() === targetIngressUrl) {
         setSelfHostedConnection(null);
       }
+    }
+    if (target === undefined && !stillSelected) {
+      return false;
     }
     throw error;
   }
