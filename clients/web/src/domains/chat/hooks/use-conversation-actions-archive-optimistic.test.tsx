@@ -32,10 +32,12 @@ import { createElement, type ReactNode } from "react";
 
 import * as sdkGen from "@/generated/daemon/sdk.gen";
 import type { Conversation } from "@/types/conversation-types";
+import type { ConversationListPage } from "@/utils/conversation-list-fetchers";
 import {
   archivedConversationsQueryKey,
   conversationsQueryKey,
 } from "@/utils/conversation-list-fetchers";
+import { listPage } from "@/utils/conversation-list.test-helper";
 
 // ---------------------------------------------------------------------------
 // Module mocks. Archive/unarchive impls are pulled from module-level holders
@@ -101,7 +103,10 @@ function seedClient(conversations: Conversation[]): QueryClient {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
-  client.setQueryData(conversationsQueryKey(ASSISTANT_ID), conversations);
+  client.setQueryData(
+    conversationsQueryKey(ASSISTANT_ID),
+    listPage(conversations),
+  );
   return client;
 }
 
@@ -145,9 +150,9 @@ function readArchived(
   client: QueryClient,
   conversationId: string,
 ): number | undefined {
-  const list = client.getQueryData<Conversation[]>(
+  const list = client.getQueryData<ConversationListPage>(
     conversationsQueryKey(ASSISTANT_ID),
-  );
+  )?.conversations;
   return list?.find((c) => c.conversationId === conversationId)?.archivedAt;
 }
 
@@ -243,7 +248,10 @@ describe("handleArchiveConversation — optimistic update", () => {
     const { result, client } = setupHook({ conversations: [conv] });
 
     // Seed the archived cache — onSettled should invalidate it.
-    client.setQueryData(archivedConversationsQueryKey(ASSISTANT_ID), []);
+    client.setQueryData(
+      archivedConversationsQueryKey(ASSISTANT_ID),
+      listPage([]),
+    );
     const beforeState = client.getQueryState(
       archivedConversationsQueryKey(ASSISTANT_ID),
     );
@@ -265,7 +273,10 @@ describe("handleArchiveConversation — optimistic update", () => {
     const conv = makeConversation({ conversationId: "conv-1" });
     const { result, client } = setupHook({ conversations: [conv] });
 
-    client.setQueryData(archivedConversationsQueryKey(ASSISTANT_ID), []);
+    client.setQueryData(
+      archivedConversationsQueryKey(ASSISTANT_ID),
+      listPage([]),
+    );
 
     archiveImpl = async () => {
       throw new Error("network failure");
@@ -344,7 +355,10 @@ describe("handleUnarchiveConversation — optimistic update", () => {
     });
     const { result, client } = setupHook({ conversations: [conv] });
 
-    client.setQueryData(archivedConversationsQueryKey(ASSISTANT_ID), [conv]);
+    client.setQueryData(
+      archivedConversationsQueryKey(ASSISTANT_ID),
+      listPage([conv]),
+    );
     const beforeState = client.getQueryState(
       archivedConversationsQueryKey(ASSISTANT_ID),
     );
@@ -369,7 +383,10 @@ describe("handleUnarchiveConversation — optimistic update", () => {
     });
     const { result, client } = setupHook({ conversations: [conv] });
 
-    client.setQueryData(archivedConversationsQueryKey(ASSISTANT_ID), [conv]);
+    client.setQueryData(
+      archivedConversationsQueryKey(ASSISTANT_ID),
+      listPage([conv]),
+    );
 
     unarchiveImpl = async () => {
       throw new Error("network failure");

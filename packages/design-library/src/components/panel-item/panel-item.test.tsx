@@ -21,36 +21,35 @@ function renderRow(trailingAction = createElement("button", {}, "⋯")): string 
   );
 }
 
+/**
+ * The reveal conditions themselves (hover, focus, `aria-expanded`, and the
+ * hoverless case where the action is simply shown) live in one rule in
+ * `tokens.css`. What a row owes that rule is the pair of markers below: the row
+ * declares itself the hover scope, and the trailing action declares itself the
+ * affordance. A row that ships one without the other reveals nothing, or
+ * reveals it always.
+ */
 describe("PanelItem trailing action", () => {
-  test("is hidden by default and revealed on hover", () => {
+  test("is marked as the row's revealed affordance", () => {
     const html = renderRow();
-    expect(html).toContain("opacity-0");
-    expect(html).toContain("[@media(hover:hover)]:group-hover:opacity-100");
+    expect(html).toContain("data-reveal-row");
+    expect(html).toContain("data-reveal=");
   });
 
-  test("is revealed on focus-within so keyboard users can reach it", () => {
-    const html = renderRow();
-    expect(html).toContain("group-focus-within:opacity-100");
+  test("is held visible on the active row, the row the user is already in", () => {
+    const html = renderToStaticMarkup(
+      createElement(PanelItem, {
+        label: "Row",
+        onSelect: () => {},
+        active: true,
+        trailingAction: createElement("button", {}, "⋯"),
+      }),
+    );
+    expect(html).toContain("data-reveal-hold");
   });
 
-  test("stays visible while its menu is open (aria-expanded trigger)", () => {
-    const html = renderRow();
-    expect(html).toContain("has-[[aria-expanded=true]]:opacity-100");
-  });
-
-  test("stays visible where the device cannot hover", () => {
-    // The reveal is keyed on the hover capability it depends on, not on the
-    // pointer beside it: the two are independent media features, and it is
-    // the missing hover that makes a hover-revealed action unreachable.
-    // Callers that already have their own touch affordance (long-press,
-    // swipe) simply don't pass `trailingAction` on touch, rather than
-    // asking PanelItem to hide one it was given, see conversation-row.tsx.
-    expect(renderRow()).toContain("[@media(hover:none)]:opacity-100");
-  });
-
-  test("stays visible on the active row", () => {
-    const html = renderRow();
-    expect(html).toContain("group-aria-[current=page]:opacity-100");
+  test("an inactive row does not hold it open", () => {
+    expect(renderRow()).not.toContain("data-reveal-hold");
   });
 });
 
@@ -94,13 +93,18 @@ describe("PanelItem badge", () => {
     expect(html).not.toContain("mr-2");
   });
 
-  test("yields the slot where there is no hover, since the action is shown there", () => {
-    // The badge and the trailing action crossfade in one cell, so the badge
-    // has to leave under exactly the conditions that bring the action in.
-    // Where the device cannot hover the action is permanently shown, so a
-    // badge that only left on hover would sit underneath it.
+  test("yields the shared slot to the trailing action", () => {
+    // The badge and the trailing action crossfade in one cell, so the badge has
+    // to leave under exactly the conditions that bring the action in. Marking
+    // it as the yielding occupant is what ties the two to one set of
+    // conditions: a badge that only left on hover would sit underneath the
+    // action wherever the device cannot hover and the action is always shown.
     const html = renderWithBadge(false, createElement("button", {}, "⋯"));
-    expect(html).toContain("[@media(hover:none)]:opacity-0");
+    expect(html).toContain("data-reveal-yield");
+  });
+
+  test("keeps the slot when there is no trailing action to yield it to", () => {
+    expect(renderWithBadge()).not.toContain("data-reveal-yield");
   });
 });
 

@@ -163,9 +163,10 @@ function foldPersonalEntryName(provider: string): string {
  * 2026-05-05, #29755), and the profile-model migrations (100, 103, 109, 113,
  * 123) deliberately rewrite only the managed default entries (`custom-*` is
  * the user's to manage), so an untouched copy still carries whichever value
- * its hatch-era intent resolved to. Migration 136 is the one exception: it
- * rewrote kimi-k2p5 pins (`custom-*` included) to deepseek-v4-flash in
- * place. A model listed here counts as unedited only when every non-model
+ * its hatch-era intent resolved to. Migrations 136 and 146 are the
+ * exceptions: they rewrite stale Fireworks pins (`custom-*` included) in
+ * place, so their targets are machinery-authored values too. A model listed
+ * here counts as unedited only when every non-model
  * field still matches the template.
  */
 const HISTORICAL_INTENT_MODELS: Record<
@@ -184,6 +185,8 @@ const HISTORICAL_INTENT_MODELS: Record<
       "accounts/fireworks/models/kimi-k2p6",
       // migration 136's in-place rewrite of a kimi-k2p5 pin.
       "accounts/fireworks/models/deepseek-v4-flash",
+      // the ID migration 146 writes over stale deepseek-v4-flash pins.
+      "accounts/fireworks/models/deepseek-v4-flash-0731",
     ],
   },
   "quality-optimized": {
@@ -208,6 +211,8 @@ const HISTORICAL_INTENT_MODELS: Record<
       "accounts/fireworks/models/kimi-k2p5",
       // migration 136's in-place rewrite of a kimi-k2p5 pin.
       "accounts/fireworks/models/deepseek-v4-flash",
+      // the ID migration 146 writes over stale deepseek-v4-flash pins.
+      "accounts/fireworks/models/deepseek-v4-flash-0731",
     ],
   },
   "cost-optimized": {
@@ -221,10 +226,14 @@ const HISTORICAL_INTENT_MODELS: Record<
     ],
     fireworks: [
       // latency intent 2026-05-05 (#29755) to 2026-07-28 (#39446). On live
-      // configs migration 136 rewrote it to deepseek-v4-flash (the current
-      // intent), so this survives only in configs restored from pre-136
-      // backups.
+      // configs migration 136 rewrites it to deepseek-v4-flash, so this
+      // survives only in configs restored from pre-136 backups.
       "accounts/fireworks/models/kimi-k2p5",
+      // latency intent 2026-07-28 (#39446) to the 2026-08-17 dated-ID
+      // repoint; also the ID migration 136 writes. On live configs migration
+      // 146 rewrites it to the dated ID, so this survives only in pre-146
+      // backups.
+      "accounts/fireworks/models/deepseek-v4-flash",
     ],
   },
 };

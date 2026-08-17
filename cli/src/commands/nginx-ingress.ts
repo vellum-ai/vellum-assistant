@@ -9,7 +9,6 @@ import {
 import type { AssistantEntry } from "../lib/assistant-config.js";
 import { parseAssistantTargetArg } from "../lib/assistant-target-args.js";
 import { GATEWAY_PORT } from "../lib/constants.js";
-import { WEB_REMOTE_INGRESS_FLAG } from "../lib/feature-flags.js";
 import {
   DEFAULT_NGINX_INGRESS_PORT,
   ensureTunnelEdge,
@@ -61,15 +60,6 @@ function printHelp(): void {
   console.log("  $ vellum nginx-ingress status");
   console.log("  $ vellum nginx-ingress up");
   console.log("  $ vellum nginx-ingress down my-assistant");
-  console.log("");
-  console.log("Feature flags:");
-  console.log(
-    `  ${WEB_REMOTE_INGRESS_FLAG} selects the edge mode: enabled serves the`,
-  );
-  console.log(
-    "  remote web app alongside webhooks; disabled starts a webhooks-only",
-  );
-  console.log("  proxy.");
 }
 
 interface NginxIngressTarget {
@@ -177,11 +167,6 @@ export async function up(target: NginxIngressTarget): Promise<void> {
 
   console.log("");
   console.log(`nginx ingress running: http://127.0.0.1:${edge.port} (${mode})`);
-  if (!edge.includesWebApp) {
-    console.log(
-      `Enable the ${WEB_REMOTE_INGRESS_FLAG} feature flag to also serve the web app remotely.`,
-    );
-  }
   console.log("");
   console.log("Next steps:");
   console.log(

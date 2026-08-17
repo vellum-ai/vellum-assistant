@@ -37,9 +37,16 @@ export interface SchedulePreview {
 export interface IdentitySectionStat {
   /** Hero numeral, rendered display-size on the card. */
   value?: number;
-  /** Small unit label under the hero numeral ("installed", "people"). */
+  /**
+   * Small unit label under the hero numeral ("installed", "people"). Names
+   * the unit only; the card supplies the number.
+   */
   label?: string;
-  /** Plain one-liner for sections without a countable stat. */
+  /**
+   * The stat as one complete line ("34 memories", "Nothing scheduled yet").
+   * The mini tile renders this alone, so a countable stat carries it too,
+   * as a whole ICU message rather than the numeral and unit joined by hand.
+   */
   text?: string;
   /** Persisted personality slider values, drawn as the signature mark. */
   signature?: Record<string, number>;
@@ -196,6 +203,9 @@ export function useIdentitySectionStats(
             label: t("useIdentitySectionStats.itemLabel", {
               count: workspace.data,
             }),
+            text: t("useIdentitySectionStats.itemCount", {
+              count: workspace.data,
+            }),
           }
         : undefined,
     contacts:
@@ -203,6 +213,9 @@ export function useIdentitySectionStats(
         ? {
             value: contacts.data,
             label: t("useIdentitySectionStats.personLabel", {
+              count: contacts.data,
+            }),
+            text: t("useIdentitySectionStats.personCount", {
               count: contacts.data,
             }),
           }
@@ -214,6 +227,9 @@ export function useIdentitySectionStats(
             label: t("useIdentitySectionStats.connectedLabel", {
               count: channels.data,
             }),
+            text: t("useIdentitySectionStats.connectedCount", {
+              count: channels.data,
+            }),
           }
         : undefined,
     schedules:
@@ -223,6 +239,9 @@ export function useIdentitySectionStats(
           : {
               value: schedules.data.count,
               label: t("useIdentitySectionStats.activeLabel", {
+                count: schedules.data.count,
+              }),
+              text: t("useIdentitySectionStats.activeCount", {
                 count: schedules.data.count,
               }),
               schedules: {

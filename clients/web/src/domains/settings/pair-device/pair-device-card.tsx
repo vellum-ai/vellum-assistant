@@ -5,7 +5,7 @@ import { Notice } from "@vellumai/design-library/components/notice";
 import { DetailCard } from "@/components/detail-card";
 import { useCopyToClipboard } from "@/hooks/use-copy-to-clipboard";
 import { useSupportsRemoteWebPairing } from "@/lib/backwards-compat/remote-web-pairing-gate";
-import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
+import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
 
 import { resolvePairDeviceTarget } from "./pair-device-client";
 import { PairDeviceReady } from "./pair-device-ready";
@@ -20,28 +20,20 @@ import { usePairDevice } from "./use-pair-device";
  *
  * Rendered only in desktop/local mode against an on-machine gateway (the gate
  * lives in {@link resolvePairDeviceTarget}) whose assistant version serves the
- * pairing routes ({@link useSupportsRemoteWebPairing}) and whose
- * `web-remote-ingress` flag is on, so a code minted here can always connect.
- * The flag is read only once the store has hydrated, since before that it
- * reports the registry default rather than this assistant's value: the card
- * appears a beat late rather than appearing and then vanishing.
+ * pairing routes ({@link useSupportsRemoteWebPairing}). The client-scoped
+ * `web-remote-ingress` flag decides only whether this card renders; it gates
+ * no pairing functionality.
  */
 export function PairDeviceCard() {
   const target = resolvePairDeviceTarget();
   const supported = useSupportsRemoteWebPairing();
-  const flagsHydrated = useAssistantFeatureFlagStore.use.hasHydrated();
-  const webRemoteIngressOn =
-    useAssistantFeatureFlagStore.use.webRemoteIngress();
-  const pair = usePairDevice(
-    target?.base ?? null,
-    webRemoteIngressOn,
-    target?.ingressUrl ?? null,
-  );
+  const webRemoteIngressOn = useClientFeatureFlagStore.use.webRemoteIngress();
+  const pair = usePairDevice(target?.base ?? null, target?.ingressUrl ?? null);
   const { copy, copied } = useCopyToClipboard({
     errorMessage: "Could not copy the pairing address.",
   });
 
-  if (!target || !supported || !flagsHydrated || !webRemoteIngressOn) {
+  if (!target || !supported || !webRemoteIngressOn) {
     return null;
   }
 

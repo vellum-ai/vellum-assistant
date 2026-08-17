@@ -1,6 +1,7 @@
 import { ChevronDown, ChevronRight, Loader2, Shield } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useState } from "react";
 
+import { AllowOptionsMenu } from "@/domains/chat/components/allow-options-menu";
 import { getRiskBadgeStyle } from "@/domains/chat/utils/risk";
 import type { ConfirmationDecision } from "@/types/event-types";
 import type {
@@ -38,25 +39,6 @@ export function ConfirmationPromptCard({
   onAllowAndCreateRule,
 }: ConfirmationPromptCardProps) {
   const [showDetails, setShowDetails] = useState(false);
-  const [showSplitMenu, setShowSplitMenu] = useState(false);
-  const splitMenuRef = useRef<HTMLDivElement>(null);
-
-  // Close split menu when clicking outside
-  useEffect(() => {
-    if (!showSplitMenu) {
-      return;
-    }
-    const handleClickOutside = (e: MouseEvent) => {
-      if (
-        splitMenuRef.current &&
-        !splitMenuRef.current.contains(e.target as Node)
-      ) {
-        setShowSplitMenu(false);
-      }
-    };
-    document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, [showSplitMenu]);
 
   const hasDetails =
     !!confirmation.toolName ||
@@ -96,7 +78,7 @@ export function ConfirmationPromptCard({
         <div className="flex shrink-0 gap-2">
           {/* Allow button — split when allowlistOptions present */}
           {hasAllowlistOptions && onAllowAndCreateRule ? (
-            <div ref={splitMenuRef} className="relative flex">
+            <div className="flex">
               {/* Primary: plain Allow */}
               <button
                 type="button"
@@ -109,33 +91,19 @@ export function ConfirmationPromptCard({
                 ) : null}
                 {confirmation.confirmLabel || "Allow"}
               </button>
-              {/* Chevron toggle */}
-              <button
-                type="button"
-                disabled={isSubmitting}
-                onClick={() => setShowSplitMenu((v) => !v)}
-                className="flex items-center rounded-r-md border-l border-[var(--content-inset)]/30 bg-[var(--primary-base)] px-1.5 py-1.5 text-[var(--content-inset)] transition-colors hover:opacity-90 disabled:opacity-50"
-                aria-label="More allow options"
-                aria-haspopup="menu"
-                aria-expanded={showSplitMenu}
-              >
-                <ChevronDown className="h-3.5 w-3.5" />
-              </button>
-              {/* Dropdown */}
-              {showSplitMenu && (
-                <div className="absolute right-0 top-full z-10 mt-1 min-w-[180px] rounded-md border border-[var(--border-base)] bg-[var(--surface-lift)] py-1 shadow-lg">
+              <AllowOptionsMenu
+                align="end"
+                onAllowAndCreateRule={onAllowAndCreateRule}
+                trigger={
                   <button
                     type="button"
-                    onClick={() => {
-                      setShowSplitMenu(false);
-                      onAllowAndCreateRule();
-                    }}
-                    className="flex w-full items-center px-3 py-2 text-body-small-default text-[var(--content-default)] transition-colors hover:bg-[var(--ghost-hover)]"
+                    disabled={isSubmitting}
+                    className="flex items-center rounded-r-md border-l border-[var(--content-inset)]/30 bg-[var(--primary-base)] px-1.5 py-1.5 text-[var(--content-inset)] transition-colors hover:opacity-90 disabled:opacity-50"
                   >
-                    Allow &amp; Create Rule
+                    <ChevronDown className="h-3.5 w-3.5" />
                   </button>
-                </div>
-              )}
+                }
+              />
             </div>
           ) : (
             <button

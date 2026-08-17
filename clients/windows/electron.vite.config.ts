@@ -1,5 +1,7 @@
 import { defineConfig, externalizeDepsPlugin } from "electron-vite";
 
+import { SHARED_DESKTOP_INLINE_DEPS } from "../../packages/electron-desktop/src/inline-deps";
+
 import { resolveShortBuildCommitSha } from "./scripts/build-metadata";
 
 // Reference: https://electron-vite.org/config/
@@ -8,20 +10,12 @@ import { resolveShortBuildCommitSha } from "./scripts/build-metadata";
 // dev via http://localhost:5173 and in prod via a custom `app://` protocol.
 //
 // Dependencies that must be bundled inline rather than externalized as
-// runtime `require(...)` calls.
-//
-// Workspace dependencies such as `@vellumai/local-mode` and
-// `@vellumai/electron-utils` export TypeScript source with no build step.
-// Inlining lets Rollup compile their source into the bundle.
+// runtime `require(...)` calls. The cross-client rules (and the sandboxed
+// preload rationale) live in the shared list; only Windows-specific deps are
+// added here. Guarded by scripts/preload-externals.test.ts.
 const DEPS_TO_INLINE = [
-  "electron-log",
-  "electron-store",
-  "conf",
-  "@vellumai/electron-utils",
-  "@vellumai/electron-desktop",
-  "@vellumai/ipc-contract",
-  "@vellumai/local-mode",
-  "@vellumai/environments",
+  ...SHARED_DESKTOP_INLINE_DEPS,
+  "@vellumai/native-sidecar",
 ];
 
 const BUILD_DEFINES = {

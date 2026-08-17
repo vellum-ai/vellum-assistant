@@ -42,11 +42,6 @@ import {
 } from "../lib/client-identity.js";
 import { GATEWAY_PORT } from "../lib/constants.js";
 import { getCurrentEnvironment } from "../lib/environments/resolve.js";
-import {
-  formatFeatureFlagGateMessage,
-  isAssistantFeatureFlagEnabled,
-  WEB_REMOTE_INGRESS_FLAG,
-} from "../lib/feature-flags.js";
 import { getLocalLanIPv4 } from "../lib/local.js";
 import { isLoopbackUrl, loopbackSafeFetch } from "../lib/loopback-fetch.js";
 import { formatWebApproveFailure, parseGatewayErrorCode } from "../lib/pair.js";
@@ -265,34 +260,6 @@ async function approveRemoteWebPairing(
   return (await response.json()) as RemoteWebPairingVerificationResponse;
 }
 
-async function assertWebRemoteIngressEnabled(
-  assistantId: string,
-  runtimeUrl: string,
-): Promise<void> {
-  let enabled: boolean;
-  try {
-    enabled = await isAssistantFeatureFlagEnabled(
-      assistantId,
-      WEB_REMOTE_INGRESS_FLAG,
-      { runtimeUrl },
-    );
-  } catch (err) {
-    console.error(
-      `Error: could not verify the \`${WEB_REMOTE_INGRESS_FLAG}\` feature flag. Is the assistant running? Try \`vellum wake\` and retry. ${
-        err instanceof Error ? err.message : String(err)
-      }`,
-    );
-    process.exit(1);
-  }
-
-  if (!enabled) {
-    console.error(
-      `Error: ${formatFeatureFlagGateMessage(WEB_REMOTE_INGRESS_FLAG)}`,
-    );
-    process.exit(1);
-  }
-}
-
 export async function pair(): Promise<void> {
   const rawArgs = process.argv.slice(3);
 
@@ -440,8 +407,6 @@ export async function pair(): Promise<void> {
   }
 
   if (webApproveCode) {
-    await assertWebRemoteIngressEnabled(entry.assistantId, mintUrl);
-
     // Rejections are diagnosed here rather than by exitOnHttpError: a
     // rejected code must name the gateway that was asked, or an
     // assistant/environment mismatch is indistinguishable from a typo.
@@ -472,8 +437,6 @@ export async function pair(): Promise<void> {
   }
 
   if (webPairing) {
-    await assertWebRemoteIngressEnabled(entry.assistantId, mintUrl);
-
     let publicBaseUrl: string;
     try {
       publicBaseUrl = normalizePairingBaseUrl(advertisedUrl);
@@ -550,8 +513,6 @@ export async function pair(): Promise<void> {
       process.exit(1);
     }
     const qrBaseUrl = qrResult.url;
-
-    await assertWebRemoteIngressEnabled(entry.assistantId, mintUrl);
 
     // Mint a challenge and immediately approve it: running this CLI on the host
     // IS the local-presence proof, so the scanning device completes pairing in

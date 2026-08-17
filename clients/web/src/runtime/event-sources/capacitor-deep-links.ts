@@ -53,6 +53,19 @@ export function publishCapacitorDeepLinksSource(): () => void {
   });
 }
 
+/**
+ * Whether the running shell can vouch for a command URL's provenance marker.
+ * Only the iOS `AppDelegate` strips the marker at its external entry points
+ * (`CommandURLProvenance.swift`), so only there does its presence mean "an
+ * App Intent produced this". Android registers the same scheme (for the auth
+ * callback host today) and strips nothing, so it must never be trusted here,
+ * even if a future intent-filter widens which URLs it accepts. Read once per
+ * URL rather than at module load so tests can swap the platform.
+ */
+function shellVouchesForProvenance(): boolean {
+  return Capacitor.getPlatform() === "ios";
+}
+
 function handleUrl(url: string): void {
   const payload = parseOAuthCompleteDeepLink(url);
   if (payload !== null) {
@@ -72,7 +85,8 @@ function handleUrl(url: string): void {
   }
   // Also before the `unknown` fallback: the stripped query would take `mode`
   // with it.
-  const startVoice = parseStartVoiceDeepLink(url);
+  const parseOptions = { acceptProvenance: shellVouchesForProvenance() };
+  const startVoice = parseStartVoiceDeepLink(url, parseOptions);
   if (startVoice !== null) {
     publish("deeplink.startVoice", startVoice);
     return;
@@ -82,12 +96,13 @@ function handleUrl(url: string): void {
   // message failed sanitization degrades to the same `deeplink.openThread` a
   // notification tap publishes: opening the chat the user picked beats
   // dropping the whole command.
-  const openThread = parseOpenThreadDeepLink(url);
+  const openThread = parseOpenThreadDeepLink(url, parseOptions);
   if (openThread !== null) {
     if (openThread.message !== null) {
       publish("deeplink.sendToThread", {
         threadId: openThread.threadId,
         message: openThread.message,
+        provenance: openThread.provenance,
       });
     } else {
       publish("deeplink.openThread", { threadId: openThread.threadId });

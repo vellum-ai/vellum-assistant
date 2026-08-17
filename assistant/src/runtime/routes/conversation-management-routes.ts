@@ -308,9 +308,8 @@ async function handleSummarizeConversation({ body = {} }: RouteHandlerArgs) {
         statusText: "Summarizing conversation",
       });
       // The context-window usage push goes out on the same broadcast path as
-      // the result card below: this route resolves its conversation outside
-      // the send path, so the instance may still hold the store's no-op
-      // sender and a `sendToClient` emit would reach nobody.
+      // the result card below, so the two can never be delivered to different
+      // places.
       const result = await conversation.summarizeUpToMessage(
         beforeMessageId,
         broadcastMessage,

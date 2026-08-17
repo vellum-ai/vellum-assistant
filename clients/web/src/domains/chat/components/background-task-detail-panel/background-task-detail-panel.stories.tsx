@@ -2,19 +2,21 @@ import type { Meta, StoryObj } from "@storybook/react-vite";
 
 import type { BackgroundTaskEntry } from "@/domains/chat/background-task-store";
 
+import { DetailPanelStoryFrame } from "@/domains/chat/components/detail-panel-story-frame";
+
 import { BackgroundTaskDetailPanel } from "./background-task-detail-panel";
 
 const meta: Meta<typeof BackgroundTaskDetailPanel> = {
   title: "Chat/BackgroundTaskDetailPanel",
   component: BackgroundTaskDetailPanel,
   parameters: {
-    layout: "centered",
+    layout: "fullscreen",
   },
   decorators: [
     (Story) => (
-      <div className="h-[600px] w-[440px]">
+      <DetailPanelStoryFrame>
         <Story />
-      </div>
+      </DetailPanelStoryFrame>
     ),
   ],
 };

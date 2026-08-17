@@ -24,7 +24,7 @@ import {
   retrospectiveRunsGetInfiniteOptions,
 } from "@/generated/daemon/@tanstack/react-query.gen";
 import { routes } from "@/utils/routes";
-import { Button, cn } from "@vellumai/design-library";
+import { Button } from "@vellumai/design-library";
 import { Notice } from "@vellumai/design-library/components/notice";
 import { Toggle } from "@vellumai/design-library/components/toggle";
 
@@ -69,7 +69,6 @@ export interface SystemTaskDetailPanelProps {
   assistantId: string;
   systemTasks: SystemTasksData;
   canOpenMemorySettings: boolean;
-  isMobile?: boolean;
   onClose: () => void;
 }
 
@@ -84,7 +83,6 @@ export function SystemTaskDetailPanel({
   assistantId,
   systemTasks,
   canOpenMemorySettings,
-  isMobile,
   onClose,
 }: SystemTaskDetailPanelProps) {
   const { t } = useTranslation("schedules");
@@ -200,13 +198,9 @@ export function SystemTaskDetailPanel({
     null;
 
   return (
-    <div
-      className={cn(
-        "flex h-full flex-col bg-[var(--surface-overlay)]",
-        !isMobile &&
-          "rounded-[var(--radius-xl)] border border-[var(--border-base)]",
-      )}
-    >
+    // Card chrome is the docked pane's, not the full-screen takeover's, so it
+    // keys off the same `md:` breakpoint the page docks the pane at.
+    <div className="flex h-full flex-col bg-[var(--surface-overlay)] md:rounded-[var(--radius-xl)] md:border md:border-[var(--border-base)]">
       <DetailShellHeader
         title={name}
         closeLabel={t("scheduleDetail.closeAria")}

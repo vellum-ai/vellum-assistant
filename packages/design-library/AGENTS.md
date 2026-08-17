@@ -37,10 +37,17 @@ Applies to all code under `packages/design-library/`. Subordinate to root [`AGEN
    to the component's rendering logic — splitting them across files adds
    indirection without benefit. This matches the shadcn/ui convention where
    even multi-part components (Card with CardHeader, CardBody, etc.) live in a
-   single file. Only break into a directory when the file exceeds 300 lines
-   with multiple independently useful subcomponents.
+   single file. Break into a directory only when the component has 300+ lines
+   **and** multiple independently useful subcomponents, or when it carries
+   colocated tests or component-specific utilities.
 
-7. **Customization via props, not wrappers.** When a component needs
+7. **Props interfaces are named `{Component}Props`.** Naming only: a component
+   that wraps one element extends that element's props (rule 1 says which
+   type), and one that composes several or takes an abstract API declares its
+   own. `SelectProps`, `FieldProps`, and `SliderProps` forward no element's
+   props and are correct as they are.
+
+8. **Customization via props, not wrappers.** When a component needs
    domain-specific behavior (e.g. custom link rendering), expose a callback
    or component prop with a sensible default. Consumers inject behavior at
    the call site. This follows the patterns used by

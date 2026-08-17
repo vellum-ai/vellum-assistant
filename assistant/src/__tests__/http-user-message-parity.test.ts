@@ -189,7 +189,7 @@ const _testAuthContext: AuthContext = {
 function makeConversation(overrides: Record<string, unknown> = {}) {
   return {
     setTrustContext: () => {},
-    updateClient: () => {},
+    replayActivityState: () => {},
     setHostBrowserProxy: () => {},
     setHostCuProxy: () => {},
     setHostAppControlProxy: () => {},
