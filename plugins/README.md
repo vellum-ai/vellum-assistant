@@ -167,7 +167,7 @@ import type { InitContext } from "@vellumai/plugin-api";
 export default async function init(ctx: InitContext): Promise<void> {
   // ctx.config            — your validated config (typed `unknown` for now)
   // ctx.logger            — pino child, bound to { plugin: <name> }
-  // ctx.pluginStorageDir  — writable dir at <plugin dir>/data/
+  // ctx.pluginStorageDir  - writable dir at <plugin dir>/data/
   // ctx.assistantVersion  — host semver string
 
   ctx.logger.info({ version: ctx.assistantVersion }, "init");
