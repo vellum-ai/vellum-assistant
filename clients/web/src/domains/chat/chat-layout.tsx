@@ -252,10 +252,15 @@ export function ChatLayout({
 
   // Mirror the same list into the iOS shell's recent-chats cache, which backs
   // the Shortcuts app's chat picker ("Send Message to Chat"). No-op off
-  // Capacitor iOS. `isPending` is false only once the query has resolved, so
-  // the pre-load `[]` fallback never wipes the last-known-good native cache;
-  // see the hook for the full contract.
-  useNativeRecentChatsSync(conversations, !isConversationListPending);
+  // Capacitor iOS. Resolved means the query has actually SUCCEEDED: pending
+  // (loading, or gated on the assistant/pod) and error both serve the `[]`
+  // fallback, and either would wipe the last-known-good native cache. The
+  // error case is live, not theoretical: a pod that is waking 503s the list
+  // through its whole retry budget into a terminal error (#40621).
+  useNativeRecentChatsSync(
+    conversations,
+    !isConversationListPending && !conversationsFailed,
+  );
 
   // Header slots come from a module-level store so gated routes
   // (which see `ActiveAssistantGate`'s `<Outlet />` as their

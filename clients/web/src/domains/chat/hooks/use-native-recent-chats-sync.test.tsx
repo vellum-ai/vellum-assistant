@@ -3,8 +3,14 @@
  * `listResolved` guard: the conversation-list query serves an `[]` fallback
  * while loading/gated/errored, and syncing that would wipe the iOS shell's
  * last-known-good Shortcuts picker cache on every launch (permanently, on a
- * launch that never loads). An empty list from a *resolved* query must still
- * sync: genuinely having no conversations should clear the picker.
+ * launch that never loads). An empty list from a *successful* query must
+ * still sync: genuinely having no conversations should clear the picker.
+ *
+ * The hook takes a single boolean, so the pending-vs-error distinction lives
+ * at the `ChatLayout` call site (`!isPending && !isError`); the test below
+ * that drives `listResolved` through a "resolved then unresolved" cycle
+ * pins the contract that a later un-resolution (a refetch erroring into the
+ * `[]` fallback) must not sync either.
  */
 
 import { afterEach, beforeEach, describe, expect, it, mock } from "bun:test";
@@ -54,6 +60,28 @@ describe("useNativeRecentChatsSync", () => {
       conversations: [conversation("c1", "Groceries")],
       listResolved: true,
     });
+    expect(syncRecentChatsMock).toHaveBeenCalledTimes(1);
+    expect(syncRecentChatsMock).toHaveBeenLastCalledWith([
+      { id: "c1", title: "Groceries" },
+    ]);
+  });
+
+  it("a list that un-resolves after syncing (refetch errored into []) does not wipe the cache", () => {
+    const { rerender } = renderHook(
+      ({ conversations, listResolved }) =>
+        useNativeRecentChatsSync(conversations, listResolved),
+      {
+        initialProps: {
+          conversations: [conversation("c1", "Groceries")],
+          listResolved: true,
+        },
+      },
+    );
+    expect(syncRecentChatsMock).toHaveBeenCalledTimes(1);
+
+    // The query fell into a terminal error: `data` is gone, the hook's
+    // caller now reports unresolved, and the list is the `[]` fallback.
+    rerender({ conversations: [], listResolved: false });
     expect(syncRecentChatsMock).toHaveBeenCalledTimes(1);
     expect(syncRecentChatsMock).toHaveBeenLastCalledWith([
       { id: "c1", title: "Groceries" },

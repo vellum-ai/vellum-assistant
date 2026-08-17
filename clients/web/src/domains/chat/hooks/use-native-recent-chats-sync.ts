@@ -30,12 +30,15 @@ const MAX_SYNCED_CHATS = 50;
  * sidebar's own "Untitled" fallback so every picker row has a label.
  *
  * `listResolved` must be false until the conversation-list query has actually
- * resolved (it serves an `[]` fallback while loading, gated, or errored).
- * Without the guard, every launch would wipe the native cache before the
- * first load, and a launch that never loads (offline, assistant never ready)
- * would wipe it permanently, leaving the Shortcuts picker empty despite a
- * last-known-good cache. An empty list from a *resolved* query does sync:
- * genuinely having no conversations should clear the picker.
+ * SUCCEEDED. The query serves an `[]` fallback while pending (loading, or
+ * gated on the assistant/pod) AND while in a terminal error state, and the
+ * caller must exclude both (`!isPending && !isError`): a bare `!isPending`
+ * lets the error case through. Without the guard, every launch would wipe
+ * the native cache before the first load, and a launch that never loads
+ * (offline, assistant never ready, pod waking into a 503 error) would wipe it
+ * permanently, leaving the Shortcuts picker empty despite a last-known-good
+ * cache. An empty list from a *successful* query does sync: genuinely having
+ * no conversations should clear the picker.
  */
 export function useNativeRecentChatsSync(
   conversations: Conversation[],
