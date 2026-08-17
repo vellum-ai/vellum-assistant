@@ -1280,9 +1280,9 @@ describe("api-interceptors / localGatewayAuthRecoveryInterceptor", () => {
   test("hands the 401 back for a request whose body is consumed", async () => {
     /**
      * The chat send POST cannot be replayed here (fetch consumed its body),
-     * so its 401 must flow back to the send path, whose rollback restores
-     * the composer text and surfaces the error. Recovery still runs so the
-     * user's immediate retry rides the fresh token.
+     * so its 401 must flow back to the send path, whose failure handling
+     * surfaces the error and keeps the message retryable. Recovery still
+     * runs so that retry rides the fresh token.
      */
 
     // WHEN a consumed POST's 401 reaches the interceptor

@@ -484,11 +484,10 @@ export function daemonUnreachableInterceptor(response: Response): Response {
  * the recovered session: a 401 means the gateway never executed the
  * request, so the replay cannot double an effect. Bodied requests (the
  * chat send POST, uploads) cannot be replayed, because fetch consumed
- * their body, so their 401 flows back to the caller, whose own rollback
- * path surfaces the error (the send path restores the composer text; the
- * immediate retry then rides the fresh token). Never reload the page
- * here: a reload eats the in-flight mutation and the composer state with
- * no error shown.
+ * their body, so their 401 flows back to the caller, whose own failure
+ * path surfaces the error and keeps the message retryable; that retry
+ * rides the fresh token. Never reload the page here: a reload eats the
+ * in-flight mutation and the composer state with no error shown.
  *
  * Remote-gateway mode is the exception: its pairing token is minted by
  * the loopback login flow, which is navigation-backed, so there is no
