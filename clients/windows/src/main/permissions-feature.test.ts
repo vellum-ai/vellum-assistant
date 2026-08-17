@@ -13,7 +13,7 @@ const helperCall = mock(async (method: string) => {
       notifications: "granted",
     };
   }
-  return { status: "inserted" };
+  return { status: "inserted", reason: null };
 });
 
 mock.module("electron", () => ({

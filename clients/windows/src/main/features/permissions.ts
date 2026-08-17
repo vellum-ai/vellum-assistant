@@ -55,7 +55,7 @@ const nativeStatusSchema = z.object({
 
 const nativeInsertionSchema = z.object({
   status: z.string(),
-  reason: z.string().optional(),
+  reason: z.string().nullable().optional(),
 });
 
 const createNativeProvider = (): WindowsPermissionsNativeProvider => ({
@@ -65,9 +65,12 @@ const createNativeProvider = (): WindowsPermissionsNativeProvider => ({
     );
   },
   async insertText(text) {
-    return nativeInsertionSchema.parse(
+    const result = nativeInsertionSchema.parse(
       await getWindowsHelperClient().call("text.insert", { text }),
     );
+    return result.reason === null || result.reason === undefined
+      ? { status: result.status }
+      : { status: result.status, reason: result.reason };
   },
 });
 
