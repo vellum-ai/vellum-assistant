@@ -1577,6 +1577,36 @@ describe("AssistantSideMenu · equal section treatment", () => {
     };
   }
 
+  /* Asserted at the DOM through the sentinel's data-slot, not through the
+     hook: what the user gets is a section that keeps loading as they
+     scroll, and a section that does not is a section that must not carry
+     a load-more trigger. Slack is opened by name because a section that
+     defaults closed has no row list to hold a sentinel; its fixture rows
+     sit under the virtualize threshold, so this exercises the direct-render
+     path, where the sentinel is the trigger. */
+  test("a windowed section carries a load-more sentinel; a complete one does not", () => {
+    sectionHasMore = true;
+    try {
+      const scroller = renderRail(["Slack"]);
+      expect(
+        scroller("Slack").querySelectorAll('[data-slot="load-more-sentinel"]')
+          .length,
+      ).toBeGreaterThan(0);
+    } finally {
+      cleanup();
+    }
+
+    sectionHasMore = false;
+    try {
+      const scroller = renderRail(["Slack"]);
+      expect(
+        scroller("Slack").querySelectorAll('[data-slot="load-more-sentinel"]'),
+      ).toHaveLength(0);
+    } finally {
+      cleanup();
+    }
+  });
+
   /*
    * The test above asks only whether a section scrolls, and every sized
    * section does - so it passes whether the bottom-most one fills the rail or
@@ -2001,31 +2031,5 @@ describe("AssistantSideMenu · conversation list failure state", () => {
 
     expect(html).toContain(ERROR);
     expect(html).not.toContain(SKELETON);
-  });
-});
-
-describe("AssistantSideMenu · windowed sections (LUM-2444)", () => {
-  /* Asserted at the DOM through the sentinel's data-slot, not through the
-     hook: what the user gets is a section that keeps loading as they
-     scroll, and a section that does not is a section that must not carry
-     a load-more trigger. Sizing under the virtualize threshold keeps this
-     on the direct-render path, where the sentinel is the trigger. */
-  test("a windowed section carries a load-more sentinel; a complete one does not", () => {
-    const conversations = [
-      makeConversation({ conversationId: "p1", isPinned: true }),
-      makeConversation({ conversationId: "c1" }),
-    ];
-
-    sectionHasMore = true;
-    const windowed = parse(renderMenu({ conversations }));
-    expect(
-      windowed.querySelectorAll('[data-slot="load-more-sentinel"]').length,
-    ).toBeGreaterThan(0);
-
-    sectionHasMore = false;
-    const complete = parse(renderMenu({ conversations }));
-    expect(
-      complete.querySelectorAll('[data-slot="load-more-sentinel"]'),
-    ).toHaveLength(0);
   });
 });
