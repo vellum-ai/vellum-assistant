@@ -2,32 +2,27 @@
  * Story frame for the side-drawer detail panels.
  *
  * Every detail panel reaches the screen as `AnimatedRightDrawer`'s `right`
- * slot, so its width is the drawer's. The frame reproduces that width and
- * nothing else about the drawer: the split, the open animation and the drag
- * handle are the drawer's own contract, reviewed in its own story.
+ * slot, so the story mounts the real drawer around it and states no geometry
+ * of its own. The width, the cap a too-narrow container applies to it, and the
+ * drag handle all come from the drawer, so narrowing the Storybook viewport
+ * walks a panel through the same widths the app puts it through, including the
+ * capped regime below the drawer's own minimum.
  *
- * The width is the drawer's minimum, which is also its default, so a panel
- * framed here sits at the width it opens at in any container wide enough to
- * hold it. A container narrower than that caps the drawer below this width, a
- * regime the frame does not reach, so it understates how narrow a panel can
- * get rather than overstating it.
- *
- * Height is the viewport, a little taller than the app's `<main>`; the panels
- * scroll their bodies, so width is the contract under review here and height
- * is not.
+ * `left` is empty. In the app it holds the chat column, which the drawer needs
+ * only as the flex sibling it takes its width from; an empty box plays that
+ * part exactly, and drawing a stand-in chat would be scenery the app does not
+ * ship. No `storageKey` either, so a story opens at the drawer's default width
+ * rather than wherever the last reviewer dragged it.
  */
 
 import type { ReactNode } from "react";
 
-import { RIGHT_DRAWER_MIN_WIDTH_PX } from "@/domains/chat/components/animated-right-drawer";
+import { AnimatedRightDrawer } from "@/domains/chat/components/animated-right-drawer";
 
 export function DetailPanelStoryFrame({ children }: { children: ReactNode }) {
   return (
-    <div
-      className="h-screen shrink-0 overflow-hidden"
-      style={{ width: RIGHT_DRAWER_MIN_WIDTH_PX }}
-    >
-      {children}
+    <div className="h-screen w-full bg-[var(--surface-base)]">
+      <AnimatedRightDrawer open left={null} right={children} />
     </div>
   );
 }
