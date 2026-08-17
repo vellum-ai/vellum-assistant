@@ -22,12 +22,13 @@
  * out of funds, so there is nothing for Vellum to sell) keep their copy and CTA
  * on every platform.
  */
-import type { ReactNode } from "react";
+import { useLayoutEffect, useState, type ReactNode } from "react";
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { CalendarClock } from "lucide-react";
 
+import { useAssistantLifecycleStore } from "@/assistant/lifecycle-store";
 import { BillingErrorBanner } from "@/domains/chat/components/billing-error-banner";
 import { DailyLimitBanner } from "@/domains/chat/components/daily-limit-banner";
 import { LowBalanceBanner } from "@/domains/chat/components/low-balance-banner";
@@ -37,6 +38,8 @@ import {
   organizationsBillingSummaryRetrieveQueryKey,
 } from "@/generated/api/@tanstack/react-query.gen";
 import { ANDROID_BILLING_MESSAGE } from "@/lib/billing/android-consumption-only";
+import { useAuthStore } from "@/stores/auth-store";
+import { useOrganizationStore } from "@/stores/organization-store";
 
 /**
  * `DailyLimitBanner` reads the billing summary (for the limit and today's
@@ -51,20 +54,58 @@ function BillingQueryFixture({
   children: ReactNode;
   autoTopUpEnabled?: boolean;
 }) {
-  const client = new QueryClient({
-    defaultOptions: { queries: { retry: false, staleTime: Infinity } },
-  });
-  client.setQueryData(organizationsBillingSummaryRetrieveQueryKey(), {
-    daily_credit_limit_usd: "25.00",
-    daily_spend_usd: "25.13",
-    daily_limit_reached: true,
-    daily_limit_snoozed: false,
-    effective_balance: "20.00",
-    low_balance_warning: false,
-  });
-  client.setQueryData(organizationsBillingAutoTopUpRetrieveQueryKey(), {
-    enabled: autoTopUpEnabled,
-  });
+  const [client] = useState(
+    () =>
+      new QueryClient({
+        defaultOptions: { queries: { retry: false, staleTime: Infinity } },
+      }),
+  );
+
+  // `useBillingBalanceStatus` refuses to read the summary unless the org is
+  // resolved and the active assistant is platform hosted, so seeding the cache
+  // alone leaves the hook inert and the confirm copy drops its amounts. Seed
+  // the same read seams a real client sets, and hand them back on unmount so a
+  // story cannot leak billing state into the next one.
+  useLayoutEffect(() => {
+    const previousAuth = useAuthStore.getState().platformSession;
+    const previousLifecycle =
+      useAssistantLifecycleStore.getState().assistantState;
+    const previousOrgId =
+      useOrganizationStore.getState().persistedOrganizationId;
+
+    useAuthStore.setState({ platformSession: "present" });
+    useAssistantLifecycleStore.setState({
+      assistantState: { kind: "active", isLocal: false, health: "healthy" },
+    });
+    // The org-header gate reports "resolving" — never "ready" — while a
+    // platform session exists with no organization id to scope requests to.
+    useOrganizationStore.setState({
+      persistedOrganizationId: "org_storybook",
+    });
+
+    client.setQueryData(organizationsBillingSummaryRetrieveQueryKey(), {
+      daily_credit_limit_usd: "25.00",
+      daily_spend_usd: "25.13",
+      daily_limit_reached: true,
+      daily_limit_snoozed: false,
+      effective_balance: "20.00",
+      low_balance_warning: false,
+    });
+    client.setQueryData(organizationsBillingAutoTopUpRetrieveQueryKey(), {
+      enabled: autoTopUpEnabled,
+    });
+
+    return () => {
+      useAuthStore.setState({ platformSession: previousAuth });
+      useAssistantLifecycleStore.setState({
+        assistantState: previousLifecycle,
+      });
+      useOrganizationStore.setState({
+        persistedOrganizationId: previousOrgId,
+      });
+    };
+  }, [autoTopUpEnabled, client]);
+
   return <QueryClientProvider client={client}>{children}</QueryClientProvider>;
 }
 
