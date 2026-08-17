@@ -38,7 +38,7 @@ import {
 } from "@/hooks/use-platform-gate";
 import { remoteGatewayPublicBaseUrl } from "@/lib/auth/remote-gateway-session";
 import {
-  getRemoteGatewayAssistantName,
+  getRemoteAssistantDisplayName,
   getRemoteGatewayHubUrl,
   getSelectedAssistant,
   isLocalAssistant,
@@ -156,7 +156,7 @@ export function GeneralPage() {
       const params = new URLSearchParams({
         register: remoteGatewayPublicBaseUrl(),
       });
-      const assistantName = getRemoteGatewayAssistantName();
+      const assistantName = getRemoteAssistantDisplayName();
       if (assistantName) {
         params.set("name", assistantName);
       }

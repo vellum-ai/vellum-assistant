@@ -22,6 +22,7 @@ import {
   getSelfHostedIngressUrl,
   setSelfHostedConnection,
 } from "@/lib/self-hosted/connection";
+import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
 import { useLockfileStore } from "@/stores/lockfile-store";
 import {
   connectImportHost,
@@ -111,6 +112,12 @@ function nonEmptyString(value: string | undefined): string | undefined {
  */
 export function getRemoteGatewayAssistantName(): string | undefined {
   return nonEmptyString(getInjectedConfig().assistantName);
+}
+
+/** Live persona name when hydrated, else the (possibly stale) name the edge injected at tunnel start. */
+export function getRemoteAssistantDisplayName(): string | undefined {
+  const live = useAssistantIdentityStore.getState().name?.trim();
+  return live || getRemoteGatewayAssistantName();
 }
 
 /**

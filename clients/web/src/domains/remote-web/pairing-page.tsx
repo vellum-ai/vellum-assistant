@@ -19,7 +19,7 @@ import {
   RemoteWebPairingError,
 } from "@/lib/auth/remote-gateway-session";
 import {
-  getRemoteGatewayAssistantName,
+  getRemoteAssistantDisplayName,
   getRemoteGatewayHubUrl,
   isRemoteGatewayMode,
 } from "@/lib/local-mode";
@@ -155,8 +155,9 @@ type AppHandoffPlatform = "ios" | "android";
  * link the mobile app consumes to persist this server and finish pairing inside
  * the app. `url` is the page's own public base (origin + served path prefix)
  * so the app reconnects to the same self-hosted assistant this browser is
- * already on. When the served config carries the assistant's display name, a
- * `name` param rides along so the app can label the server.
+ * already on. When a display name is known (the live persona name, else the
+ * name the served config injected), a `name` param rides along so the app can
+ * label the server.
  */
 function buildAppHandoffUrl(
   deviceCode: string,
@@ -166,7 +167,7 @@ function buildAppHandoffUrl(
     url: remoteGatewayPublicBaseUrl(),
     code: deviceCode,
   });
-  const assistantName = getRemoteGatewayAssistantName();
+  const assistantName = getRemoteAssistantDisplayName();
   if (assistantName) {
     params.set("name", assistantName);
   }

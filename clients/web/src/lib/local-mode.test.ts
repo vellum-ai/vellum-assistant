@@ -64,6 +64,7 @@ import {
   getPairedGatewayUrl,
   getPlatformAssistants,
   getPlatformRuntimeUrl,
+  getRemoteAssistantDisplayName,
   getSelectedAssistant,
   importPairedAssistantBundle,
   isCliWakeableAssistant,
@@ -97,6 +98,7 @@ import {
 } from "@/lib/self-hosted/connection";
 import { SELECTED_ASSISTANT_STORAGE_KEY } from "@/assistant/selected-assistant-storage";
 import type { Lockfile, LockfileAssistant } from "@/runtime/local-mode-host";
+import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
 import { useLockfileStore } from "@/stores/lockfile-store";
 
 const LOCKFILE_STORAGE_KEY = "vellum:local:lockfile";
@@ -154,6 +156,7 @@ afterEach(() => {
   connectImportHost.mockClear();
   clearGatewayToken();
   setSelfHostedConnection(null);
+  useAssistantIdentityStore.getState().clearIdentity();
 });
 
 describe("remote gateway mode", () => {
@@ -176,6 +179,34 @@ describe("remote gateway mode", () => {
     expect(getLocalAssistants().map((a) => a.assistantId)).toEqual(["self"]);
     expect(getLocalGatewayUrl()).toBeUndefined();
     expect(useLockfileStore.getState().committed).toBe(true);
+  });
+});
+
+describe("getRemoteAssistantDisplayName", () => {
+  test("prefers the live identity-store name over the injected config", () => {
+    window.__VELLUM_CONFIG__ = {
+      mode: "remote-gateway",
+      assistantName: "vellum-deep-hare-ww1iw1",
+    };
+    useAssistantIdentityStore.getState().setIdentity("Credence", "1.0.0");
+
+    expect(getRemoteAssistantDisplayName()).toBe("Credence");
+  });
+
+  test("falls back to the injected config for a whitespace-only live name", () => {
+    window.__VELLUM_CONFIG__ = {
+      mode: "remote-gateway",
+      assistantName: "vellum-deep-hare-ww1iw1",
+    };
+    useAssistantIdentityStore.getState().setIdentity("   ", "1.0.0");
+
+    expect(getRemoteAssistantDisplayName()).toBe("vellum-deep-hare-ww1iw1");
+  });
+
+  test("is undefined when neither source carries a name", () => {
+    window.__VELLUM_CONFIG__ = { mode: "remote-gateway" };
+
+    expect(getRemoteAssistantDisplayName()).toBeUndefined();
   });
 });
 

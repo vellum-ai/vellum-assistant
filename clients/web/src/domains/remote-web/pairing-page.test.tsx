@@ -11,6 +11,7 @@ import { MemoryRouter } from "react-router";
 import type { RemoteWebPairingTokenResult } from "@/lib/auth/remote-gateway-session";
 
 let remoteGatewayMode = false;
+let liveAssistantName: string | undefined;
 let injectedAssistantName: string | undefined;
 let injectedHubUrl: string | undefined;
 let nativePlatform = false;
@@ -21,7 +22,9 @@ const nativeSwitchToOriginPathMock = mock(
 
 mock.module("@/lib/local-mode", () => ({
   isRemoteGatewayMode: () => remoteGatewayMode,
-  getRemoteGatewayAssistantName: () => injectedAssistantName,
+  // Live-name-over-injected precedence itself is covered by local-mode.test.ts.
+  getRemoteAssistantDisplayName: () =>
+    liveAssistantName ?? injectedAssistantName,
   getRemoteGatewayHubUrl: () => injectedHubUrl,
 }));
 
@@ -136,6 +139,7 @@ const { RemoteWebPairingPage } =
 afterEach(() => {
   cleanup();
   remoteGatewayMode = false;
+  liveAssistantName = undefined;
   injectedAssistantName = undefined;
   injectedHubUrl = undefined;
   nativePlatform = false;
@@ -501,7 +505,8 @@ describe("RemoteWebPairingPage", () => {
     const query = new URLSearchParams(href.slice(href.indexOf("?") + 1));
     expect(query.get("url")).toBe(window.location.origin);
     expect(query.get("code")).toBe("device-1");
-    // The served config carries no assistant name, so the link omits it.
+    // No display name is known (no live identity, no served config name), so
+    // the link omits it.
     expect(query.has("name")).toBe(false);
 
     // The single-use code stays unspent while the choice is pending.
@@ -565,6 +570,28 @@ describe("RemoteWebPairingPage", () => {
     // Spaces are percent-encoded, not form-encoded: iOS URLComponents keeps
     // a raw `+` as a literal plus.
     expect(href).toContain("name=My%20Homelab");
+  });
+
+  test("the app handoff url prefers the live identity name over the served config", async () => {
+    remoteGatewayMode = true;
+    injectedAssistantName = "vellum-deep-hare-ww1iw1";
+    liveAssistantName = "Credence";
+    setUserAgent(IPHONE_USER_AGENT);
+
+    render(
+      <MemoryRouter
+        initialEntries={["/assistant/pair?deviceCode=device-1&userCode=ABCD"]}
+      >
+        <RemoteWebPairingPage />
+      </MemoryRouter>,
+    );
+
+    const link = await screen.findByRole("link", {
+      name: "Open in the Vellum app",
+    });
+    const href = link.getAttribute("href") ?? "";
+    const query = new URLSearchParams(href.slice(href.indexOf("?") + 1));
+    expect(query.get("name")).toBe("Credence");
   });
 
   test("the Android app handoff url carries the assistant name too", async () => {
