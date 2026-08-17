@@ -102,6 +102,25 @@ References:
 
 ---
 
+## Cancelling `pointerdown` also cancels the tap's `click` on iOS
+
+A tap on iOS Safari/WKWebView produces `pointerdown`, `touchstart`, `pointerup`, `touchend`, then the compatibility `mousedown`, `mouseup`, and `click`. Calling `preventDefault()` on `pointerdown` suppresses **the entire remainder of that sequence, `click` included**. The Pointer Events spec says `click` should still be dispatched, and Chromium does dispatch it, so this is a WebKit-only divergence that a desktop or Android check will not catch.
+
+The practical case is holding focus on an input while a button is pressed, which needs the focus transfer suppressed without losing the activation. The focus transfer rides on the compatibility `mousedown`, so cancel that one:
+
+```tsx
+// Keeps the textarea focused; the button's click still fires.
+<button onMouseDown={(event) => event.preventDefault()} />
+```
+
+Cancelling `touchstart` has the same fatal effect as cancelling `pointerdown`. Reach for `pointerdown` only when you actually want to swallow the whole gesture, and remember that Radix menus (`DropdownMenu`, `Select`, `ContextMenu`) open **on `pointerdown`**, so cancelling it there makes the trigger inert; Radix `Dialog` and `BottomSheet` triggers open on `click` and are the ones this section is about.
+
+References:
+- W3C: [Pointer Events, compatibility mouse events](https://www.w3.org/TR/pointerevents/#compatibility-mapping-with-mouse-events)
+- MDN: [`preventDefault()` on pointer events](https://developer.mozilla.org/en-US/docs/Web/API/Pointer_events)
+
+---
+
 ## Programmatic text selection requires frame deferral on iOS
 
 iOS Safari/WKWebView ignores `HTMLInputElement.select()` and `setSelectionRange()` when called synchronously during `focus()` — the editing context (keyboard, selection system) isn't initialized until the next animation frame. This affects any code that programmatically focuses an input and immediately tries to select its content.
