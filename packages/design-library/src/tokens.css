@@ -883,8 +883,10 @@
  * elsewhere. `aria-expanded` holds the affordance up while a menu it owns is
  * open, where focus alone sits in portalled content the row does not contain.
  *
- * Opacity and `pointer-events` move together: an unpainted control that still
- * answers a click is a trap. `pointer-events` does not gate keyboard
+ * Opacity and `pointer-events` move together, on the affordance and on the
+ * element yielding to it alike: an unpainted control that still answers a click
+ * is a trap, and a faded occupant left in the hit path swallows the clicks meant
+ * for the affordance painted over it. `pointer-events` does not gate keyboard
  * activation, so the tab path is unaffected.
  *
  * The exceptions are separate rules from the rule they qualify, so an engine
@@ -907,9 +909,12 @@
   pointer-events: auto;
 }
 
-/* Hidden wherever the affordance it shares a slot with is shown. */
+/* Hidden wherever the affordance it shares a slot with is shown, and out of the
+ * hit path while hidden: the two occupy one cell, so a faded occupant left
+ * clickable takes the affordance's clicks. */
 [data-reveal-yield] {
   opacity: 0;
+  pointer-events: none;
 }
 
 @media (hover: hover) {
@@ -939,11 +944,13 @@
 
   [data-reveal-row]:not(:hover):not([data-reveal-hold]) [data-reveal-yield] {
     opacity: 1;
+    pointer-events: auto;
   }
 
   [data-reveal-row]:not(:hover):not([data-reveal-hold]):focus-visible
     [data-reveal-yield] {
     opacity: 0;
+    pointer-events: none;
   }
 
   [data-reveal-row]:not(:hover):not([data-reveal-hold]):has(:focus-visible)
@@ -957,6 +964,7 @@
     )
     [data-reveal-yield] {
     opacity: 0;
+    pointer-events: none;
   }
 }
 

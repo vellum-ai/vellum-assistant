@@ -279,7 +279,8 @@ Callers declare parts, the rule owns the conditions:
 - `data-reveal` is the affordance. Its opacity and its `pointer-events` are set by the same
   declaration, since an unpainted control that still answers a click is a trap.
 - `data-reveal-yield` is an element sharing the affordance's slot and giving it up, so the two
-  crossfade in one cell instead of stacking.
+  crossfade in one cell instead of stacking. It leaves the hit path while faded, since the cell it
+  shares would otherwise put it over the affordance painted under it.
 - `data-reveal-hold` keeps the affordance up regardless of hover, for a row whose state makes it the
   live control (the nav's current page, a voice mid-preview, a fact already removed).
 
