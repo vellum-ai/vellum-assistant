@@ -49,9 +49,8 @@ export const CALL_SITE_DEFAULTS: Record<LLMCallSite, CallSiteDefaultConfig> = {
   // it does not reason its way to an answer. `effort` has to be named here
   // because a call-site tweak only overrides the fields it lists, so leaving it
   // off inherits `balanced`'s `effort: "high"` (see default-profile-catalog).
-  // Voice starts this selector speculatively beside the front-door leg, so low
-  // effort keeps that background work cheap and shortens an escalated handoff.
-  // It also matches `recall`, the sibling site doing the same kind of judgment.
+  // Low effort matches `recall`, the sibling site doing the same kind of
+  // bounded judgment, and keeps retrieval latency low on escalated voice turns.
   memoryV3SelectL2: {
     profile: "balanced",
     temperature: 0,

@@ -70,13 +70,6 @@ mock.module("../../persistence/conversation-crud.js", () => ({
   recordConversationPersistedSeq: () => {},
 }));
 
-const notifyVoiceFrontDoorSettledMock = mock(
-  (_conversationId: string, _outcome: string) => {},
-);
-mock.module("../voice-plugin-hooks.js", () => ({
-  notifyVoiceFrontDoorSettled: notifyVoiceFrontDoorSettledMock,
-}));
-
 import { setConfig } from "../../__tests__/helpers/set-config.js";
 import { ABORT_WATCHDOG_MS } from "../../daemon/abort-watchdog.js";
 import { assistantEventHub } from "../../runtime/assistant-event-hub.js";
@@ -1720,10 +1713,7 @@ describe("cutFrontDoorContentAtVerdict", () => {
  * silent or truncated, which is worse than the leak it fixes.
  */
 describe("front-door hub stream gate", () => {
-  beforeEach(() => {
-    resetCrudLog();
-    notifyVoiceFrontDoorSettledMock.mockClear();
-  });
+  beforeEach(resetCrudLog);
 
   /**
    * Conversation whose scripted agent loop announces a reserved row, streams
@@ -1802,11 +1792,6 @@ describe("front-door hub stream gate", () => {
 
     expect(texts).toEqual(["Let me check your calendar."]);
     expect(texts.join("")).not.toContain(ESCALATE_VERDICT_TOKEN);
-    expect(notifyVoiceFrontDoorSettledMock).toHaveBeenCalledWith(
-      "conv-voice-bridge-test",
-      "escalate",
-    );
-    expect(notifyVoiceFrontDoorSettledMock).toHaveBeenCalledTimes(1);
   });
 
   test("a front-door answer reaches the hub in full", async () => {
@@ -1817,11 +1802,6 @@ describe("front-door hub stream gate", () => {
     );
 
     expect(texts.join("")).toBe("It is Tuesday, and it is sunny.");
-    expect(notifyVoiceFrontDoorSettledMock).toHaveBeenCalledWith(
-      "conv-voice-bridge-test",
-      "answer",
-    );
-    expect(notifyVoiceFrontDoorSettledMock).toHaveBeenCalledTimes(1);
   });
 
   test("an answer that merely opens with a bracket is released in full", async () => {
@@ -1848,10 +1828,6 @@ describe("front-door hub stream gate", () => {
     );
 
     expect(texts).toEqual([]);
-    expect(notifyVoiceFrontDoorSettledMock).toHaveBeenCalledWith(
-      "conv-voice-bridge-test",
-      "hold",
-    );
   });
 
   test("a leg that completes mid-bridge broadcasts what it handed off with", async () => {
@@ -1872,10 +1848,6 @@ describe("front-door hub stream gate", () => {
     );
 
     expect(texts).toEqual([]);
-    expect(notifyVoiceFrontDoorSettledMock).toHaveBeenCalledWith(
-      "conv-voice-bridge-test",
-      "cancelled",
-    );
   });
 
   test("the escalated continuation streams to the hub untouched", async () => {

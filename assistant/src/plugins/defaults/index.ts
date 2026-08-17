@@ -68,7 +68,6 @@ import memoryInit from "./memory/hooks/init.js";
 import memoryPostCompact from "./memory/hooks/post-compact.js";
 import memoryShutdown from "./memory/hooks/shutdown.js";
 import memoryUserPromptSubmit from "./memory/hooks/user-prompt-submit.js";
-import memoryVoiceFrontDoorSettled from "./memory/hooks/voice-front-door-settled.js";
 import { memoryInjectors } from "./memory/injectors.js";
 import memoryPkg from "./memory/package.json" with { type: "json" };
 import platformHostedPkg from "./platform-hosted/package.json" with { type: "json" };
@@ -176,10 +175,8 @@ export const defaultEmptyResponsePlugin: Plugin = {
  * transcript, NOW.md / PKB / memory-v2 / workspace blocks) and houses the
  * memory-v3 orchestration engine (`memory/v3/`) and its injectors. Two hooks
  * drive its turn work: `user-prompt-submit` runs memory-graph retrieval and
- * the initial injection, `post-compact` re-applies the injections onto the
- * compacted history after a mid-turn compaction, and
- * `voice-front-door-settled` releases unused speculative retrieval. A
- * `conversation-deleted`
+ * the initial injection, and `post-compact` re-applies the injections onto
+ * the compacted history after a mid-turn compaction; a `conversation-deleted`
  * hook fails the plugin's pending background jobs when a conversation is
  * deleted. Its runtime injectors (PKB context/reminder, the memory-v2 static
  * block, and the two memory-v3 injectors) reach the global injector registry
@@ -199,7 +196,6 @@ export const defaultMemoryPlugin: Plugin = {
     init: memoryInit,
     shutdown: memoryShutdown,
     "user-prompt-submit": memoryUserPromptSubmit,
-    "voice-front-door-settled": memoryVoiceFrontDoorSettled,
     "post-compact": memoryPostCompact,
     "conversation-deleted": memoryConversationDeleted,
     "conversations-cleared": memoryConversationsCleared,

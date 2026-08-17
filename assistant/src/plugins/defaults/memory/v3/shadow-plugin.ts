@@ -28,6 +28,7 @@ import { existsSync, readFileSync } from "node:fs";
 import {
   getMessages,
   listInstalledSkills,
+  parseMessageMetadata,
   stringifyMessageContent,
 } from "@vellumai/plugin-api";
 
@@ -490,9 +491,10 @@ function buildSituationalContext(): string {
 
 /**
  * Build a v3 {@link MemoryRoutingTurn} from the conversation's persisted messages.
- * `currentMessage` is the latest user message; `previousAssistantMessage` is
- * the tail of the last assistant reply BEFORE that message (the reply-query
- * pass's input — absent on a conversation's first turn); `recentContext` is
+ * `currentMessage` is the latest visible user message;
+ * `previousAssistantMessage` is the tail of the last assistant reply BEFORE
+ * that message (the reply-query pass's input, absent on a conversation's
+ * first turn); `recentContext` is
  * the tail of the recent transcript; `situationalContext` carries the current
  * date and the live NOW.md scratchpad. Returns `null` when there is no user
  * message to route on (nothing to shadow this turn).
@@ -509,12 +511,17 @@ async function buildShadowTurn(
   let currentMessage = "";
   let currentIndex = -1;
   for (let i = rows.length - 1; i >= 0; i--) {
-    if (rows[i]!.role === "user") {
-      currentMessage = stringifyMessageContent(rows[i]!.content);
-      if (currentMessage.length > 0) {
-        currentIndex = i;
-        break;
-      }
+    const row = rows[i]!;
+    if (
+      row.role !== "user" ||
+      (await parseMessageMetadata(row.metadata))?.hidden === true
+    ) {
+      continue;
+    }
+    currentMessage = stringifyMessageContent(row.content);
+    if (currentMessage.length > 0) {
+      currentIndex = i;
+      break;
     }
   }
   if (currentMessage.length === 0) {
@@ -681,18 +688,16 @@ export function backfillMemoryV3SelectionMessageId(
 }
 
 /**
- * Prepare v3 orchestration for one turn without committing selection rows.
- * Voice starts this work beside the front-door model and commits it only when
- * the escalated leg consumes the result. Ordinary turns call it through
- * {@link observeTurn}, which commits immediately.
+ * Run v3 orchestration for one turn and log the selection set, returning the
+ * orchestrate result so a live caller can render it. Never throws — all
+ * failures are logged and swallowed (returning `null`) so the live turn is
+ * unaffected. Returns `null` when there is no user message to route on.
  */
-export async function prepareMemoryV3Turn(
+export async function observeTurn(
   conversationId: string,
   turnIndex: number,
-  signal?: AbortSignal,
 ): Promise<OrchestrateResult | null> {
   try {
-    signal?.throwIfAborted();
     const turn = await buildShadowTurn(conversationId, turnIndex);
     if (!turn) {
       return null;
@@ -710,7 +715,6 @@ export async function prepareMemoryV3Turn(
       "Memory lane init",
       () => getLanes(cfg),
     );
-    signal?.throwIfAborted();
     const v3 = cfg.memory.v3;
     // Re-resolve the corpus-adaptive tuning each turn from the CURRENT config
     // (with the lane-build corpus-size signal) so a live config.json edit to a
@@ -747,7 +751,6 @@ export async function prepareMemoryV3Turn(
       learnedPerSeed: v3.learnedEdges.perSeed,
       learnedCap: tuning.learnedEdgesCap,
       selectorEnabled: tuning.selectorEnabled,
-      signal,
       selectorPrompt: resolveSelectorPrompt(
         v3.selectorPromptPath,
         getWorkspaceDir(),
@@ -773,11 +776,17 @@ export async function prepareMemoryV3Turn(
         "memory-v3: selector returned zero selections",
       );
     }
+
+    const persistStartedAt = Date.now();
+    const rows = attributeSelections(result);
+    writeSelections(conversationId, turnIndex, rows);
+    recordLatencySubSpan(
+      "v3_persist",
+      "Selection persistence",
+      Date.now() - persistStartedAt,
+    );
     return result;
   } catch (err) {
-    if (signal?.aborted) {
-      return null;
-    }
     // Infrastructure failures are surfaced to callers that want distinct
     // logging from ordinary orchestration misses. Observation callers swallow
     // them so memory-v3 never fails the turn.
@@ -790,37 +799,4 @@ export async function prepareMemoryV3Turn(
     );
     return null;
   }
-}
-
-/** Commit a prepared result as the selection set for the consuming turn. */
-export function commitPreparedMemoryV3Turn(
-  conversationId: string,
-  turnIndex: number,
-  result: OrchestrateResult,
-): void {
-  const persistStartedAt = Date.now();
-  const rows = attributeSelections(result);
-  writeSelections(conversationId, turnIndex, rows);
-  recordLatencySubSpan(
-    "v3_persist",
-    "Selection persistence",
-    Date.now() - persistStartedAt,
-  );
-}
-
-/**
- * Run v3 orchestration for one turn and log the selection set, returning the
- * orchestrate result so a live caller can render it. Never throws except for
- * an unavailable selector provider; other failures degrade to `null`.
- */
-export async function observeTurn(
-  conversationId: string,
-  turnIndex: number,
-  signal?: AbortSignal,
-): Promise<OrchestrateResult | null> {
-  const result = await prepareMemoryV3Turn(conversationId, turnIndex, signal);
-  if (result) {
-    commitPreparedMemoryV3Turn(conversationId, turnIndex, result);
-  }
-  return result;
 }

@@ -66,7 +66,6 @@ export async function denseLaneScored(
   config: AssistantConfig,
   query: string,
   k: number,
-  signal?: AbortSignal,
 ): Promise<DenseHitScored[]> {
   if (k <= 0) {
     return [];
@@ -74,7 +73,6 @@ export async function denseLaneScored(
 
   let points: Array<{ payload?: unknown; score?: number }>;
   try {
-    signal?.throwIfAborted();
     // Inside the try so a rejecting probe (e.g. a transient credential-store
     // error surfacing through getProviderKeyAsync) degrades to `[]` instead of
     // throwing — the orchestrator calls this lane in an unguarded Promise.all
@@ -84,8 +82,7 @@ export async function denseLaneScored(
       return [];
     }
 
-    const { vectors } = await embedWithBackend(config, [query], { signal });
-    signal?.throwIfAborted();
+    const { vectors } = await embedWithBackend(config, [query]);
     const vector = vectors[0];
     if (!vector || vector.length === 0) {
       return [];
@@ -96,12 +93,8 @@ export async function denseLaneScored(
       limit: k * OVERSAMPLE,
       with_payload: true,
     });
-    signal?.throwIfAborted();
     points = result.points;
   } catch (err) {
-    if (signal?.aborted) {
-      throw err;
-    }
     log.warn({ err }, "memory v3 dense lane failed; degrading to no hits");
     return [];
   }
@@ -153,9 +146,8 @@ export async function denseLane(
   config: AssistantConfig,
   query: string,
   k: number,
-  signal?: AbortSignal,
 ): Promise<DenseHit[]> {
-  return (await denseLaneScored(config, query, k, signal)).map(
+  return (await denseLaneScored(config, query, k)).map(
     ({ article, section }) => ({ article, section }),
   );
 }

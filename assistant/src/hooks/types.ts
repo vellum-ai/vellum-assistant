@@ -193,33 +193,6 @@ export interface UserPromptSubmitInputContext {
 export interface UserPromptSubmitContext
   extends UserPromptSubmitInputContext, BaseHookContext {}
 
-// Voice-front-door-settled hook context
-
-/** Terminal routing outcome of a live-voice front-door model leg. */
-export type VoiceFrontDoorOutcome =
-  | "answer"
-  | "escalate"
-  | "hold"
-  | "cancelled"
-  | "failed"
-  | "discarded";
-
-/**
- * Context published by voice orchestration after the front-door leg settles.
- * Plugins use this signal to release speculative work without introducing a
- * host dependency on a specific plugin implementation.
- */
-export interface VoiceFrontDoorSettledInputContext {
-  /** Conversation whose front-door leg settled. */
-  readonly conversationId: string;
-  /** The final routing or termination outcome. */
-  readonly outcome: VoiceFrontDoorOutcome;
-}
-
-/** Full voice-front-door-settled context received by plugin hooks. */
-export interface VoiceFrontDoorSettledContext
-  extends VoiceFrontDoorSettledInputContext, BaseHookContext {}
-
 // ─── Post-compact hook context ───────────────────────────────────────────────
 
 /**

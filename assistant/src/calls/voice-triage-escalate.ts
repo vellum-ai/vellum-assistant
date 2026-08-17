@@ -237,7 +237,6 @@ export function classifyFrontDoorLeading(
 export interface FrontDoorStreamGate {
   push(deltaText: string): string;
   finish(): string;
-  verdict(): FrontDoorLeadingVerdict;
 }
 
 /**
@@ -266,7 +265,6 @@ export function createFrontDoorStreamGate(
 ): FrontDoorStreamGate {
   let raw = "";
   let stage: "deciding" | "answer" | "bridging" | "done" = "deciding";
-  let leadingVerdict: FrontDoorLeadingVerdict = "pending";
   let bridgeRaw = "";
   let releasedChars = 0;
 
@@ -298,7 +296,6 @@ export function createFrontDoorStreamGate(
         if (verdict === "pending") {
           return "";
         }
-        leadingVerdict = verdict;
         if (verdict === "hold") {
           stage = "done";
           return "";
@@ -322,9 +319,6 @@ export function createFrontDoorStreamGate(
       }
       stage = "done";
       return "";
-    },
-    verdict(): FrontDoorLeadingVerdict {
-      return leadingVerdict;
     },
   };
 }

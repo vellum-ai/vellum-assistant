@@ -18,21 +18,14 @@
 export async function retryForResult<T>(
   attempt: () => Promise<T | null>,
   maxAttempts = 3,
-  signal?: AbortSignal,
 ): Promise<T | null> {
   for (let i = 0; i < maxAttempts; i++) {
-    if (signal?.aborted) {
-      return null;
-    }
     try {
       const result = await attempt();
       if (result !== null) {
         return result;
       }
     } catch {
-      if (signal?.aborted) {
-        return null;
-      }
       // Treat a throw like an unusable result and retry. The provider layer has
       // already backed off transient errors, so there is nothing to wait for.
     }

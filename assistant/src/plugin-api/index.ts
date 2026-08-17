@@ -119,8 +119,6 @@ export type {
   ToolDefinition,
   ToolExecutionResult,
   UserPromptSubmitContext,
-  VoiceFrontDoorOutcome,
-  VoiceFrontDoorSettledContext,
 } from "./types.js";
 export { RiskLevel } from "./types.js";
 

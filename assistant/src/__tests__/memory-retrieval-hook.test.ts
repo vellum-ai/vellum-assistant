@@ -64,13 +64,6 @@ mock.module("../runtime/assistant-event-hub.js", () => ({
   broadcastMessage: broadcastMessageMock,
 }));
 
-const startVoiceMemoryV3PrefetchMock = mock(
-  (_conversationId: string, _turnIndex: number) => {},
-);
-mock.module("../plugins/defaults/memory/v3/voice-prefetch.js", () => ({
-  startVoiceMemoryV3Prefetch: startVoiceMemoryV3PrefetchMock,
-}));
-
 import type { UserPromptSubmitContext } from "@vellumai/plugin-api";
 
 import type { AssistantEvent } from "../api/index.js";
@@ -199,27 +192,20 @@ beforeEach(() => {
   applyRuntimeInjectionsMock.mockClear();
   findConversationOrSubagentMock.mockClear();
   broadcastMessageMock.mockReset();
-  startVoiceMemoryV3PrefetchMock.mockClear();
   currentConversation = undefined;
   currentTrustClass = "guardian";
   setConfig("memory", { enabled: true, v3: { live: false } });
 });
 
 describe("user-prompt-submit hook (memory retrieval)", () => {
-  test("voice front door starts v3 preparation and skips serial legacy retrieval", async () => {
-    setConfig("memory", { enabled: true, v3: { live: true } });
+  test("voice front door skips serial legacy retrieval", async () => {
     const { memory, prepareMemoryMock } = makeFakeGraphMemory();
     const conversation = installConversation(memory, { trusted: true });
     conversation.currentCallSite = "voiceFrontDoor";
-    conversation.turnCount = 6;
     const ctx = makeHookCtx({ conversationId: "conv-voice" });
 
     await userPromptSubmitMemoryRetrieval(ctx);
 
-    expect(startVoiceMemoryV3PrefetchMock).toHaveBeenCalledWith(
-      "conv-voice",
-      6,
-    );
     expect(prepareMemoryMock).not.toHaveBeenCalled();
     expect(applyRuntimeInjectionsMock).toHaveBeenCalledTimes(1);
   });

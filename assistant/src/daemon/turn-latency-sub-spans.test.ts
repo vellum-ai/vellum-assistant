@@ -4,7 +4,6 @@ import {
   MIN_SUB_SPAN_MS,
   recordLatencySubSpan,
   runWithLatencySubSpans,
-  runWithoutLatencySubSpans,
   timeLatencySubSpan,
 } from "./turn-latency-sub-spans.js";
 import {
@@ -107,28 +106,5 @@ describe("turn-latency-sub-spans", () => {
     ]);
     expect(subPhasesOf(a)?.map((s) => s.key)).toEqual(["a-span"]);
     expect(subPhasesOf(b)?.map((s) => s.key)).toEqual(["b-span"]);
-  });
-
-  test("background work can leave the current scope", async () => {
-    const tracker = new TurnLatencyTracker();
-    await runWithLatencySubSpans(
-      tracker,
-      MEMORY_CONTEXT_PHASE_KEY,
-      async () => {
-        await runWithoutLatencySubSpans(() =>
-          timeLatencySubSpan("background", "Background", async () => {
-            await Promise.resolve();
-            clock += 30;
-          }),
-        );
-        await timeLatencySubSpan("foreground", "Foreground", async () => {
-          clock += 20;
-        });
-      },
-    );
-
-    expect(subPhasesOf(tracker)).toEqual([
-      { key: "foreground", label: "Foreground", ms: 20 },
-    ]);
   });
 });

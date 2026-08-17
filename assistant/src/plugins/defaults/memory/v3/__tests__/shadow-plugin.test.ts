@@ -105,7 +105,11 @@ let selectorEnabledCfg = false;
 // Mutable `memory.v3.gate.enabled` config kill-switch carried by the mocked
 // config (default on, mirroring the schema default).
 let gateEnabledCfg = true;
-let messages: Array<{ role: string; content: string }> = [];
+let messages: Array<{
+  role: string;
+  content: string;
+  metadata?: string | null;
+}> = [];
 
 // Schema defaults for `memory.v3.gate` (the tuning the mocked config carries
 // and the gate-config threading test asserts against). Includes the default-on
@@ -712,6 +716,37 @@ describe("memory-v3 engine", () => {
     expect(turn.conversationId).toBe("conv-1");
     expect(turn.turnNumber).toBe(0);
     expect(turn.currentMessage).toBe("hello world");
+  });
+
+  test("the turn routes on the latest visible user message", async () => {
+    messages = [
+      {
+        role: "user",
+        content: JSON.stringify([
+          { type: "text", text: "what did I say my favorite color was?" },
+        ]),
+      },
+      {
+        role: "assistant",
+        content: JSON.stringify([
+          { type: "text", text: "Let me think about that for a second." },
+        ]),
+      },
+      {
+        role: "user",
+        content: JSON.stringify([
+          { type: "text", text: "continue the escalated answer" },
+        ]),
+        metadata: JSON.stringify({ hidden: true }),
+      },
+    ];
+
+    await observeTurn("conv-1", 1);
+
+    const turn = (
+      orchestrateSpy.mock.calls as unknown as unknown[][]
+    )[0]![0] as MemoryRoutingTurn;
+    expect(turn.currentMessage).toBe("what did I say my favorite color was?");
   });
 
   test("orchestrate receives the lane deps", async () => {

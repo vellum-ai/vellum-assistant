@@ -172,24 +172,20 @@ Ingested pages carry provenance frontmatter with distinct consumers:
   machinery (graph extraction, summarization, PKB indexing/filing, PKB
   injection) is suppressed while the substrate is active.
 
-#### Live voice front-door preparation
+#### Live voice front-door memory
 
-The live voice front door does not await current-turn v3 retrieval. The prompt
-hook starts `prepareMemoryV3Turn()` under a conversation-scoped prefetch entry,
-then assembles the front prompt without running either v3 injector. Frozen cards
-from prior turns and the static substrate context remain in history, and the
-front-door rule escalates when a reply depends on a saved personal fact that is
-not already present.
+The live voice front door does not await current-turn memory retrieval. Its
+prompt hook skips legacy graph retrieval, and both v3 injectors skip
+orchestration for `voiceFrontDoor`. Frozen cards from prior turns and the static
+substrate context remain available. When the answer depends on a saved personal
+fact that is absent from that context, the front-door rule escalates instead of
+guessing.
 
-The memory preparation and `voiceFrontDoor` provider call therefore overlap.
-The voice bridge publishes the plugin-agnostic `voice-front-door-settled` hook
-when routing finishes. The memory plugin cancels the unused preparation for a
-direct answer, hold, failure, cancellation, or discard. An escalation keeps it
-alive; the immediately following escalated turn takes the result, awaits any
-unfinished work, commits the selection rows under its own turn index, and
-renders the normal card and spotlight layers. A preparation cannot be consumed
-by a later unrelated turn, and abandoned entries expire after a bounded
-interval.
+The escalated leg runs the ordinary memory pipeline before the quality model.
+V3 retrieval routes on the latest visible caller message, ignoring the hidden
+continuation message used to start that leg. The selector uses low effort to
+keep retrieval latency bounded. This keeps current-turn memory work off the
+front-door TTFT path without maintaining speculative cross-leg state.
 
 ### Boot-time maintenance
 

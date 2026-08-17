@@ -391,24 +391,6 @@ describe("selectPool — infrastructure failures throw", () => {
     ]);
   });
 
-  test("an abort reaches the provider and stops selector retries", async () => {
-    const controller = new AbortController();
-    providerStub = {
-      name: "aborting",
-      sendMessage: async (messages, options) => {
-        providerCalls.push({ messages, options });
-        controller.abort(new Error("turn cancelled"));
-        throw new Error("provider cancelled");
-      },
-    };
-
-    await expect(
-      selectPool(makePool(), makeTurn("x"), undefined, controller.signal),
-    ).rejects.toThrow("turn cancelled");
-    expect(providerCalls).toHaveLength(1);
-    expect(providerCalls[0]?.options?.signal).toBe(controller.signal);
-  });
-
   test("managed provider 402 attaches a non-terminal credits notice", async () => {
     providerStub = {
       name: "managed",

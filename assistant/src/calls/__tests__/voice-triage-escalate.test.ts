@@ -526,21 +526,6 @@ describe("createFrontDoorStreamGate", () => {
     expect(release([HOLD_VERDICT_TOKEN], { holdEnabled: true })).toEqual([]);
   });
 
-  test("exposes the verdict already classified by the stream gate", () => {
-    const answer = createFrontDoorStreamGate(false);
-    expect(answer.verdict()).toBe("pending");
-    answer.push("It is Tuesday.");
-    expect(answer.verdict()).toBe("answer");
-
-    const escalation = createFrontDoorStreamGate(false);
-    escalation.push(ESCALATE_VERDICT_TOKEN);
-    expect(escalation.verdict()).toBe("escalate");
-
-    const hold = createFrontDoorStreamGate(true);
-    hold.push(HOLD_VERDICT_TOKEN);
-    expect(hold.verdict()).toBe("hold");
-  });
-
   test("the hold token is ordinary text on a leg that was never taught it", () => {
     // A non-speculative leg's prompt has no hold branch, so its output must
     // not be swallowed by a token it could only have parroted.

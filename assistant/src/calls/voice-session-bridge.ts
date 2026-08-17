@@ -28,7 +28,6 @@ import { CONVERSATION_BUSY_MESSAGE } from "../daemon/conversation-messaging.js";
 import { resolveChannelCapabilities } from "../daemon/conversation-runtime-assembly.js";
 import { getOrCreateConversation } from "../daemon/conversation-store.js";
 import type { TrustContext } from "../daemon/trust-context-types.js";
-import type { VoiceFrontDoorOutcome } from "../hooks/types.js";
 import {
   deleteMessageById,
   getMessageById,
@@ -55,7 +54,6 @@ import {
   MINIMIZE_ROOM_MARKER,
   stripInternalSpeechMarkers,
 } from "./voice-control-protocol.js";
-import { notifyVoiceFrontDoorSettled } from "./voice-plugin-hooks.js";
 import {
   createFrontDoorStreamGate,
   escalatedContinuationRule,
@@ -1463,25 +1461,6 @@ export async function startVoiceTurn(
       ? createFrontDoorStreamGate(opts.unifiedVerdict === true)
       : null;
 
-  let frontDoorSettled = false;
-  const settleFrontDoor = (outcome: VoiceFrontDoorOutcome): void => {
-    if (frontDoorStreamGate === null || frontDoorSettled) {
-      return;
-    }
-    frontDoorSettled = true;
-    notifyVoiceFrontDoorSettled(opts.conversationId, outcome);
-  };
-  const settleCompletedFrontDoor = (): void => {
-    const verdict = frontDoorStreamGate?.verdict();
-    settleFrontDoor(
-      verdict === "escalate"
-        ? "escalate"
-        : verdict === "hold"
-          ? "hold"
-          : "answer",
-    );
-  };
-
   /**
    * Broadcast one agent-loop event to hub subscribers, holding a front-door
    * leg's control-plane text back at the boundary rather than emitting it and
@@ -1495,10 +1474,6 @@ export async function startVoiceTurn(
       return;
     }
     const released = frontDoorStreamGate.push(msg.text);
-    const verdict = frontDoorStreamGate.verdict();
-    if (verdict === "answer" || verdict === "hold") {
-      settleFrontDoor(verdict);
-    }
     if (released.length > 0) {
       broadcastMessage({ ...msg, text: released });
     }
@@ -1673,22 +1648,6 @@ export async function startVoiceTurn(
       }
       await conversation.runAgentLoop(persistedContent, messageId, {
         onEvent: (msg: AssistantEvent) => {
-          if (
-            opts.routingLeg === "front-door" &&
-            msg.type === "message_complete"
-          ) {
-            settleCompletedFrontDoor();
-          } else if (
-            opts.routingLeg === "front-door" &&
-            msg.type === "generation_cancelled"
-          ) {
-            settleFrontDoor("cancelled");
-          } else if (
-            opts.routingLeg === "front-door" &&
-            (msg.type === "error" || msg.type === "conversation_error")
-          ) {
-            settleFrontDoor("failed");
-          }
           if (msg.type === "assistant_turn_start") {
             reservedAssistantRowId = msg.messageId;
           } else if (msg.type === "error") {
@@ -1773,7 +1732,6 @@ export async function startVoiceTurn(
         );
       }
     } catch (err) {
-      settleFrontDoor("failed");
       const message = err instanceof Error ? err.message : String(err);
       log.error({ err, turnId }, "Voice turn failed");
       eventSink.onError(message);
@@ -1803,17 +1761,9 @@ export async function startVoiceTurn(
   // controller's AbortController), wire it to the turn's abort.
   if (opts.signal) {
     if (opts.signal.aborted) {
-      settleFrontDoor("cancelled");
       abortFn();
     } else {
-      opts.signal.addEventListener(
-        "abort",
-        () => {
-          settleFrontDoor("cancelled");
-          abortFn();
-        },
-        { once: true },
-      );
+      opts.signal.addEventListener("abort", () => abortFn(), { once: true });
     }
   }
 
@@ -1822,7 +1772,6 @@ export async function startVoiceTurn(
       return;
     }
     discarded = true;
-    settleFrontDoor("discarded");
     abortFn();
     try {
       // Same rollback pattern as the pointer-turn runner: delete the row,
