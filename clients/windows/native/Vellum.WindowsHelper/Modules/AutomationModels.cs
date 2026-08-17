@@ -46,7 +46,8 @@ public sealed record AutomationSnapshot(
 
 /// <summary>
 /// Observation returned over RPC. Tree, diff, and window lists are JSON
-/// strings to match the committed host_cu observation contract.
+/// strings so the executor wiring can embed them in the string-typed
+/// observation fields of the committed host_cu contract.
 /// </summary>
 public sealed record ObservationResult(
     string Kind, string? Tree, string? Diff, ForegroundApp? ForegroundApp,

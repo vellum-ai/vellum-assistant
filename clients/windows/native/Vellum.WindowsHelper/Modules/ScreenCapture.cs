@@ -53,9 +53,17 @@ public sealed class ScreenCaptureModule : IRpcModule
             var reason = new Unavailable(Unavailable.NotFound, "The requested display was not found");
             return new CaptureResult(null, null, null, null, null, reason);
         }
-        var image = _backend.CapturePixels(display.Bounds);
-        return new CaptureResult(
-            image.PngBase64, image.WidthPx, image.HeightPx, display.Bounds, display.ScalePercent, null);
+        try
+        {
+            var image = _backend.CapturePixels(display.Bounds);
+            return new CaptureResult(
+                image.PngBase64, image.WidthPx, image.HeightPx, display.Bounds, display.ScalePercent, null);
+        }
+        catch (Exception ex) when (ex is ExternalException or InvalidOperationException)
+        {
+            // GDI capture denial and PNG encoding failures stay structured.
+            return Failed(Unavailable.CaptureDenied, "The display could not be captured");
+        }
     }
 
     private sealed record CaptureParams(int? DisplayId);

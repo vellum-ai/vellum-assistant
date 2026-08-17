@@ -118,12 +118,18 @@ public sealed class UiaSnapshotSource : IAutomationSnapshotSource
         {
             var root = AutomationElement.FromHandle(foreground);
             var nodeCount = 0;
-            var tree = BuildNode(root, 0, ref nodeCount, cancellationToken);
+            var tree = BuildNode(root, 0, "0", ref nodeCount, cancellationToken);
             var app = ReadForegroundApp(foreground, tree.Name);
             var windows = ListAppWindows(app?.ProcessId ?? 0, foreground, cancellationToken);
             return new AutomationSnapshot(tree, app, windows, null);
         }
-        catch (Exception ex) when (ex is ElementNotAvailableException or UnauthorizedAccessException or COMException)
+        catch (ElementNotAvailableException)
+        {
+            // The UI mutated mid-walk; a transient miss is not an access denial.
+            return new AutomationSnapshot(null, null, [], new Unavailable(
+                Unavailable.NotFound, "The foreground window changed during observation"));
+        }
+        catch (Exception ex) when (ex is UnauthorizedAccessException or COMException)
         {
             return new AutomationSnapshot(null, null, [], new Unavailable(
                 Unavailable.ElevatedOrProtected, "The foreground target cannot be observed without elevation"));
@@ -131,7 +137,7 @@ public sealed class UiaSnapshotSource : IAutomationSnapshotSource
     }
 
     private static AutomationNode BuildNode(
-        AutomationElement element, int depth, ref int nodeCount, CancellationToken cancellationToken)
+        AutomationElement element, int depth, string path, ref int nodeCount, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
         nodeCount++;
@@ -141,15 +147,17 @@ public sealed class UiaSnapshotSource : IAutomationSnapshotSource
         if (depth < MaxDepth)
         {
             var walker = TreeWalker.ControlViewWalker;
+            var childIndex = 0;
             for (var child = walker.GetFirstChild(element);
                 child is not null && nodeCount < MaxNodes;
                 child = walker.GetNextSibling(child))
             {
-                children.Add(BuildNode(child, depth + 1, ref nodeCount, cancellationToken));
+                children.Add(BuildNode(child, depth + 1, $"{path}.{childIndex++}", ref nodeCount, cancellationToken));
             }
         }
         return new AutomationNode(
-            AutomationIds.FromRuntimeId(element.GetRuntimeId(), $"p{depth}n{nodeCount}"),
+            // Sibling-index path fallback stays stable when other subtrees change.
+            AutomationIds.FromRuntimeId(element.GetRuntimeId(), "p" + path),
             info.ControlType?.ProgrammaticName ?? "ControlType.Custom",
             NullIfEmpty(info.Name),
             value,

@@ -1,3 +1,4 @@
+using System.Runtime.InteropServices;
 using System.Text.Json;
 using Vellum.WindowsHelper.Modules;
 
@@ -31,6 +32,10 @@ public static class ScreenCaptureTests
             "unknown displays report not_found");
         Check(!missing.TryGetProperty("pngBase64", out _), "failed captures return no image");
 
+        var thrown = await InvokeAsync(new ScreenCaptureModule(new ThrowingBackend()), new { });
+        Check(thrown.GetProperty("unavailable").GetProperty("code").GetString() == Unavailable.CaptureDenied,
+            "capture failures return structured capture_denied");
+
         Console.WriteLine("Screen capture tests passed");
     }
 
@@ -62,5 +67,12 @@ public static class ScreenCaptureTests
             LastCaptured = bounds;
             return new CapturedImage(Png, bounds.Width, bounds.Height);
         }
+    }
+
+    private sealed class ThrowingBackend : IScreenCaptureBackend
+    {
+        public IReadOnlyList<DisplayInfo> GetDisplays() => [Primary];
+
+        public CapturedImage CapturePixels(PixelRect bounds) => throw new ExternalException("denied");
     }
 }
