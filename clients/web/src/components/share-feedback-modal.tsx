@@ -648,6 +648,8 @@ export interface ShareFeedbackModalProps {
   onClose: () => void;
   initialReason?: FeedbackReason;
   initialMessage?: string;
+  /** Treat `initialMessage` as a scaffold: block Send until the user edits it. */
+  requireMessageEdit?: boolean;
   onSubmitted?: () => void;
   assistantId?: string | null;
   assistantVersion?: string | null;
@@ -662,6 +664,7 @@ export function ShareFeedbackModal({
   onClose,
   initialReason,
   initialMessage,
+  requireMessageEdit,
   onSubmitted,
   assistantId,
   assistantVersion,
@@ -704,8 +707,11 @@ export function ShareFeedbackModal({
 
   const shouldShowEmail = !authEmail;
   const canSend = useMemo(
-    () => message.trim().length > 0 && email.trim().length > 0,
-    [message, email],
+    () =>
+      message.trim().length > 0 &&
+      email.trim().length > 0 &&
+      (!requireMessageEdit || message.trim() !== (initialMessage ?? "").trim()),
+    [message, email, requireMessageEdit, initialMessage],
   );
 
   useEffect(() => {

@@ -104,6 +104,42 @@ describe("ShareFeedbackModal", () => {
     ).toBe("The app colors are ugly.");
   });
 
+  test("requireMessageEdit blocks Submit until the prefill is edited", async () => {
+    const client = new QueryClient({
+      defaultOptions: { mutations: { retry: false } },
+    });
+
+    render(
+      <QueryClientProvider client={client}>
+        <ShareFeedbackModal
+          open
+          onClose={() => {}}
+          initialReason="bug_report"
+          initialMessage="The Doctor wasn't able to solve my problem:"
+          requireMessageEdit
+        />
+      </QueryClientProvider>,
+    );
+
+    const user = userEvent.setup();
+    await user.type(screen.getByLabelText("Email"), "user@example.com");
+    const submit = screen.getByRole("button", { name: "Submit" });
+    expect((submit as HTMLButtonElement).disabled).toBe(true);
+
+    await user.type(
+      screen.getByLabelText("What went wrong?"),
+      " it keeps crashing",
+    );
+    expect((submit as HTMLButtonElement).disabled).toBe(false);
+
+    await user.click(submit);
+    await waitFor(() => expect(feedbackRequests).toHaveLength(1));
+    const request = feedbackRequests[0] as { body: { message?: string } };
+    expect(request.body.message).toBe(
+      "The Doctor wasn't able to solve my problem: it keeps crashing",
+    );
+  });
+
   test("reports Android shell feedback as android", async () => {
     capacitorPlatform = "android";
     const client = new QueryClient({
