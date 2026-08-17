@@ -412,4 +412,30 @@ describe("SkillDetailPage tab deep link", () => {
     });
     expect(screen.getByText("Detail search: [?other=1]")).toBeTruthy();
   });
+
+  test("a tab change keeps the list search that Back restores", async () => {
+    // A tab change replaces the history entry; the router state carrying the
+    // list's query string has to ride along or Back lands on the plain list.
+    renderDetail({
+      skillId: "skill-1",
+      listSearch: "?filter=installed&category=email",
+    });
+    await waitFor(() => {
+      expect(screen.getByText("Tab: files")).toBeTruthy();
+    });
+
+    fireEvent.click(screen.getByText("Open history"));
+    await waitFor(() => {
+      expect(screen.getByText("Tab: history")).toBeTruthy();
+    });
+
+    fireEvent.click(screen.getByText("Back to skills"));
+    await waitFor(() => {
+      expect(
+        screen.getByText(
+          "Superpowers list at: [?filter=installed&category=email]",
+        ),
+      ).toBeTruthy();
+    });
+  });
 });

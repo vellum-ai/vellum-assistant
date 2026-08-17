@@ -62,7 +62,8 @@ export function SkillDetailPage() {
   // can link straight to a skill's history
   // (`/assistant/skills/:skillId?tab=history`). Files is the default and
   // keeps the URL clean; a tab change replaces rather than pushes so Back
-  // still leaves the page.
+  // still leaves the page, and carries the entry's router state forward so
+  // the list search above survives the switch.
   const [searchParams, setSearchParams] = useSearchParams();
   const tab = parseSkillDetailTab(searchParams.get("tab"));
   const handleTabChange = useCallback(
@@ -73,9 +74,9 @@ export function SkillDetailPage() {
       } else {
         params.delete("tab");
       }
-      setSearchParams(params, { replace: true });
+      setSearchParams(params, { replace: true, state: location.state });
     },
-    [searchParams, setSearchParams],
+    [searchParams, setSearchParams, location.state],
   );
 
   const skillsQuery = useQuery({

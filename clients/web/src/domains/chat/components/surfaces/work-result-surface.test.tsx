@@ -153,6 +153,13 @@ describe("WorkResultSurface item links", () => {
   test.each([
     ["javascript:alert(1)"],
     ["//evil.example/x"],
+    // The URL parser reads a backslash as a slash after a special scheme, and
+    // strips tabs and newlines before looking for an authority, so these
+    // resolve to another host for middle-click / copy-link.
+    ["/\\evil.example/x"],
+    ["/\t/evil.example/x"],
+    ["/\n\\evil.example/x"],
+    ["//["],
     ["assistant/skills/linear"],
     ["#"],
     [""],
@@ -179,7 +186,9 @@ describe("parseItemLink", () => {
       href: "mailto:someone@example.com",
       kind: "external",
     });
+    expect(parseItemLink("/")).toEqual({ href: "/", kind: "app" });
     expect(parseItemLink("//example.com")).toBeUndefined();
+    expect(parseItemLink("/\\example.com")).toBeUndefined();
     expect(parseItemLink("javascript:alert(1)")).toBeUndefined();
     expect(parseItemLink(undefined)).toBeUndefined();
   });
