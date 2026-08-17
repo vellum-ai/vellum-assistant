@@ -1,5 +1,6 @@
 import { existsSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { Database } from "bun:sqlite";
 
 import type { WorkspaceMigration } from "./types.js";
 
@@ -19,11 +20,14 @@ import type { WorkspaceMigration } from "./types.js";
  *
  * Provider guard: the stale ID belongs to the `fireworks` provider and also
  * appears in managed profiles stamped `provider: "vellum"` (which route
- * Fireworks-account model IDs through the managed proxy). A fragment is
- * repaired when its `provider` is `"fireworks"`, `"vellum"`, or absent. An
- * explicit other provider, including a connection entry name, is left
- * untouched: an `openai-compatible` endpoint may legitimately serve a model
- * by the stale name, and an entry-bound profile is the user's to manage.
+ * Fireworks-account model IDs through the managed proxy). Under the entries
+ * model (migration 145) `provider` can also hold a `provider_connections`
+ * entry name whose row kind drives dispatch. A fragment is repaired when
+ * its `provider` is `"fireworks"`, `"vellum"`, absent, or an entry name
+ * whose row kind is one of those: every fireworks-kind route serves the
+ * dated ID and only the dated ID. Any other provider is left untouched: an
+ * `openai-compatible` endpoint may legitimately serve a model by the stale
+ * name.
  */
 export const repairRetiredFireworksDeepseekFlashModelIdMigration: WorkspaceMigration =
   {
@@ -57,21 +61,54 @@ export const repairRetiredFireworksDeepseekFlashModelIdMigration: WorkspaceMigra
         return;
       }
 
+      // Entry rows load lazily: only a stale fragment whose provider is
+      // neither a repairable vendor nor absent needs them. An unreadable DB
+      // then fails the run (retried next boot) rather than checkpointing a
+      // pass that skips entry-bound profiles.
+      let rows: Map<string, string> | null | undefined;
+      const isRepairableProvider = (provider: unknown): boolean => {
+        if (provider === undefined) {
+          return true;
+        }
+        if (typeof provider !== "string") {
+          return false;
+        }
+        if (REPAIRABLE_PROVIDERS.has(provider)) {
+          return true;
+        }
+        if (rows === undefined) {
+          rows = readConnectionRows(workspaceDir);
+        }
+        if (rows === null) {
+          throw new Error(
+            "provider_connections is not readable; retrying the model-ID repair on the next run",
+          );
+        }
+        const kind = rows.get(provider);
+        return kind !== undefined && REPAIRABLE_PROVIDERS.has(kind);
+      };
+
       let changed = false;
 
-      changed = repairFragment(readObject(llm.default)) || changed;
+      changed =
+        repairFragment(readObject(llm.default), isRepairableProvider) ||
+        changed;
 
       const callSites = readObject(llm.callSites);
       if (callSites !== null) {
         for (const rawConfig of Object.values(callSites)) {
-          changed = repairFragment(readObject(rawConfig)) || changed;
+          changed =
+            repairFragment(readObject(rawConfig), isRepairableProvider) ||
+            changed;
         }
       }
 
       const profiles = readObject(llm.profiles);
       if (profiles !== null) {
         for (const rawProfile of Object.values(profiles)) {
-          changed = repairFragment(readObject(rawProfile)) || changed;
+          changed =
+            repairFragment(readObject(rawProfile), isRepairableProvider) ||
+            changed;
         }
       }
 
@@ -104,21 +141,50 @@ const STALE_MODEL_ID = "accounts/fireworks/models/deepseek-v4-flash";
 const REPLACEMENT_MODEL_ID = "accounts/fireworks/models/deepseek-v4-flash-0731";
 const REPAIRABLE_PROVIDERS = new Set(["fireworks", "vellum"]);
 
-function repairFragment(fragment: Record<string, unknown> | null): boolean {
+function repairFragment(
+  fragment: Record<string, unknown> | null,
+  isRepairableProvider: (provider: unknown) => boolean,
+): boolean {
   if (fragment === null) {
     return false;
   }
   if (fragment.model !== STALE_MODEL_ID) {
     return false;
   }
-  if (
-    fragment.provider !== undefined &&
-    !REPAIRABLE_PROVIDERS.has(fragment.provider as string)
-  ) {
+  if (!isRepairableProvider(fragment.provider)) {
     return false;
   }
   fragment.model = REPLACEMENT_MODEL_ID;
   return true;
+}
+
+/**
+ * Connection name -> provider kind, or null when the DB or table is not
+ * readable. The caller fails the run on null: entry-name providers must be
+ * judged against real rows, never guessed. An absent DB file is a real
+ * state (no rows, so every entry name is dangling and stays untouched).
+ */
+function readConnectionRows(workspaceDir: string): Map<string, string> | null {
+  const dbPath = join(workspaceDir, "data", "db", "assistant.db");
+  if (!existsSync(dbPath)) {
+    return new Map();
+  }
+  let db: Database;
+  try {
+    db = new Database(dbPath);
+  } catch {
+    return null;
+  }
+  try {
+    const rows = db
+      .query(`SELECT name, provider FROM provider_connections`)
+      .all() as Array<{ name: string; provider: string }>;
+    return new Map(rows.map((r) => [r.name, r.provider]));
+  } catch {
+    return null;
+  } finally {
+    db.close();
+  }
 }
 
 function readObject(value: unknown): Record<string, unknown> | null {
