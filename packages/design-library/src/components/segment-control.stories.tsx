@@ -1,4 +1,5 @@
 import { Monitor, Moon, Sun } from "lucide-react";
+import { useState } from "react";
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { useArgs } from "storybook/preview-api";
 import { expect, screen, userEvent, waitFor } from "storybook/test";
@@ -114,12 +115,35 @@ export const Default: Story = {};
 /**
  * Icon-only mode: each segment renders its `icon` alone and promotes `label`
  * to the button's `aria-label`, with a tooltip carrying the label for sighted
- * pointer users.
+ * pointer users. {@link IconOnlyTooltipBehaviour} is the interactive sibling
+ * that exercises when that tooltip appears.
+ */
+export const IconOnly: Story = {
+  args: {
+    items: THEME_ITEMS,
+    value: "system",
+    ariaLabel: "Theme",
+    iconOnly: true,
+  },
+  argTypes: {
+    value: {
+      control: "select",
+      options: [...THEME_ITEMS.map((item) => item.value), null],
+    },
+  },
+};
+
+/**
+ * The interactive sibling of {@link IconOnly}, owning `value` in local state
+ * rather than through `useArgs`. Arg writes reach the canvas over the preview
+ * channel, which the test runner does not turn, so a tap in an args-backed
+ * story would leave the selection unchanged there and identical assertions
+ * would mean different things in Storybook and in CI.
  *
- * The play function pins the pointer-dependence of that tooltip. A tap leaves
- * no tooltip behind, and a hover opens one. Both halves are needed: the hover
- * is what stops the tap assertions passing vacuously, since a harness that
- * dispatched nothing at all would satisfy them and fail the hover.
+ * It pins the pointer-dependence of the tooltip. A tap leaves none behind, and
+ * a hover opens one. Both halves are needed: the hover is what stops the tap
+ * assertions passing vacuously, since a harness that dispatched nothing at all
+ * would satisfy them and fail the hover.
  *
  * Two tap orderings are checked, because browsers disagree about when focus
  * lands. Chromium delivers it inside the pointer sequence, where Radix's
@@ -134,18 +158,13 @@ export const Default: Story = {};
  * and a long press takes the callout path, and neither delivers `focus`
  * either, so neither opens anything to begin with.
  */
-export const IconOnly: Story = {
-  args: {
-    items: THEME_ITEMS,
-    value: "system",
-    ariaLabel: "Theme",
-    iconOnly: true,
-  },
-  argTypes: {
-    value: {
-      control: "select",
-      options: [...THEME_ITEMS.map((item) => item.value), null],
-    },
+export const IconOnlyTooltipBehaviour: Story = {
+  args: { ...IconOnly.args },
+  // The story owns `value`, so the Controls entry for it would be dead.
+  parameters: { controls: { disable: true } },
+  render: function Render(args) {
+    const [value, setValue] = useState<DemoValue | null>("system");
+    return <SegmentControl {...args} value={value} onChange={setValue} />;
   },
   play: async () => {
     const segment = await screen.findByRole("radio", { name: "Light" });
