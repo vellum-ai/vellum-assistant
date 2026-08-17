@@ -92,8 +92,10 @@ export const createHelperToastFactory = (
         const listeners = listenersByToken.get(event.token);
         if (event.kind === "click") {
           listeners?.["click"]?.();
-        } else {
-          listeners?.["action"]?.(undefined, event.actionIndex ?? 0);
+        } else if (event.actionIndex !== undefined) {
+          // An action without a readable index is dropped: defaulting could
+          // route an ambiguous press as e.g. a tool-call "Allow".
+          listeners?.["action"]?.(undefined, event.actionIndex);
         }
       },
     );
@@ -115,13 +117,18 @@ export const createHelperToastFactory = (
       listeners[event] = listener;
     }) as NotificationLike["on"];
     const show = (): void => {
-      ensureClient()
-        .call("notifications/show", {
-          token,
-          title: options.title,
-          body: options.body,
-          actions: options.actions.map((action) => ({ text: action.text })),
-        })
+      // Promise.resolve() defers ensureClient/call so a synchronous throw
+      // (helper unavailable, circuit open) still acks as a failed delivery
+      // instead of rejecting the renderer's invoke.
+      Promise.resolve()
+        .then(() =>
+          ensureClient().call("notifications/show", {
+            token,
+            title: options.title,
+            body: options.body,
+            actions: options.actions.map((action) => ({ text: action.text })),
+          }),
+        )
         .then((result) => {
           const parsed = SHOW_RESULT_SCHEMA.safeParse(result);
           if (parsed.success && parsed.data.success) {

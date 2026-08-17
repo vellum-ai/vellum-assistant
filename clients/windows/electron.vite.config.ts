@@ -22,6 +22,7 @@ const DEPS_TO_INLINE = [
   "@vellumai/ipc-contract",
   "@vellumai/local-mode",
   "@vellumai/environments",
+  "@vellumai/native-sidecar",
 ];
 
 const BUILD_DEFINES = {

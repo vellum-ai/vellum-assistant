@@ -53,6 +53,7 @@ mock.module("@vellumai/electron-desktop/notifications", () => ({
 
 class FakeSidecarClient {
   static instances: FakeSidecarClient[] = [];
+  static throwOnCall: string | null = null;
   readonly calls: Array<{ method: string; params: unknown }> = [];
   readonly listeners = new Map<string, (params: unknown) => void>();
 
@@ -70,6 +71,11 @@ class FakeSidecarClient {
   }
 
   call(method: string, params?: unknown): Promise<unknown> {
+    if (FakeSidecarClient.throwOnCall !== null) {
+      // Mirrors NativeSidecarClient.call, which throws synchronously when
+      // the helper cannot be spawned.
+      throw new Error(FakeSidecarClient.throwOnCall);
+    }
     this.calls.push({ method, params });
     return Promise.resolve({ success: true });
   }
@@ -130,11 +136,34 @@ describe("helper toast factory", () => {
     emit({ token, kind: "action", actionIndex: 1 });
     emit({ token, kind: "click" });
     emit({ token: "unknown-token", kind: "click" }); // dropped
+    emit({ token, kind: "action" }); // no index: dropped, never "Allow"
     expect(seen).toEqual([
       { event: "show" },
       { event: "action", index: 1 },
       { event: "click" },
     ]);
+  });
+
+  test("a synchronous client throw acks as a failed delivery", async () => {
+    FakeSidecarClient.throwOnCall = "windows-helper is not available";
+    try {
+      const create = createHelperToastFactory("/helper.exe");
+      const failures: unknown[] = [];
+      const toast = create({
+        title: "T",
+        body: "B",
+        silent: false,
+        actions: [],
+      });
+      toast.on("failed", (_event: unknown, message: string) => {
+        failures.push(message);
+      });
+      expect(() => toast.show()).not.toThrow();
+      await Bun.sleep(0);
+      expect(failures).toEqual(["windows-helper is not available"]);
+    } finally {
+      FakeSidecarClient.throwOnCall = null;
+    }
   });
 });
 
