@@ -1,6 +1,7 @@
 import {
   ArrowLeftRight,
   ArrowRight,
+  ChevronRight,
   CircleAlert,
   CircleCheck,
   Clock3,
@@ -9,6 +10,8 @@ import {
   ListChecks,
   OctagonX,
 } from "lucide-react";
+import type { ReactNode } from "react";
+import { Link } from "react-router";
 
 import type { Surface } from "@/domains/chat/types/types";
 
@@ -19,11 +22,17 @@ import {
   strOrNum,
 } from "@/domains/chat/components/surfaces/surface-parse-helpers";
 import { cn } from "@/utils/misc";
+import { handleNativeAnchorClick } from "@/utils/native-anchor";
+import { isRelayableExternalHref } from "@/utils/sandbox-bridge";
 
 type WorkResultStatus = "completed" | "partial" | "failed" | "in_progress";
 type WorkResultTone = "neutral" | "positive" | "warning" | "negative";
 type WorkResultSectionType =
-  "items" | "timeline" | "diff" | "artifacts" | "warnings";
+  | "items"
+  | "timeline"
+  | "diff"
+  | "artifacts"
+  | "warnings";
 
 interface WorkResultMetric {
   label: string;
@@ -37,6 +46,16 @@ interface WorkResultMetadata {
   value: string | number;
 }
 
+/**
+ * Where an item's `href` points. An `app` link is a path inside this client
+ * (`/assistant/skills/linear?tab=history`) and navigates in place; an
+ * `external` link (http(s), mailto, tel) opens outside the conversation.
+ */
+interface WorkResultItemLink {
+  href: string;
+  kind: "app" | "external";
+}
+
 interface WorkResultItem {
   id?: string;
   title: string;
@@ -44,7 +63,7 @@ interface WorkResultItem {
   status?: string;
   tone?: WorkResultTone;
   metadata?: WorkResultMetadata[];
-  href?: string;
+  link?: WorkResultItemLink;
 }
 
 interface WorkResultDiff {
@@ -122,6 +141,27 @@ function asSectionType(value: unknown): WorkResultSectionType | undefined {
     : undefined;
 }
 
+/**
+ * Narrow an item's `href` to a link the card will follow. Only in-app paths
+ * and the external schemes the host opens for sandboxed frames qualify: the
+ * model authors this field, so anything else (`javascript:`, protocol-relative
+ * `//host`, bare words) renders as plain text rather than becoming a
+ * clickable target.
+ */
+export function parseItemLink(value: unknown): WorkResultItemLink | undefined {
+  const href = asString(value)?.trim();
+  if (!href) {
+    return undefined;
+  }
+  if (href.startsWith("/") && !href.startsWith("//")) {
+    return { href, kind: "app" };
+  }
+  if (isRelayableExternalHref(href)) {
+    return { href, kind: "external" };
+  }
+  return undefined;
+}
+
 function parseMetadata(value: unknown): WorkResultMetadata[] {
   return filterRecords(value).flatMap((item) => {
     const label = asString(item.label);
@@ -146,7 +186,7 @@ function parseItems(value: unknown): WorkResultItem[] {
         status: asString(item.status),
         tone: asTone(item.tone),
         metadata: parseMetadata(item.metadata),
-        href: asString(item.href),
+        link: parseItemLink(item.href),
       },
     ];
   });
@@ -332,6 +372,62 @@ function MetadataRow({ metadata }: { metadata: WorkResultMetadata[] }) {
   );
 }
 
+const ITEM_ROW_CLASS = "flex gap-3 py-2.5 first:pt-0 last:pb-0";
+const LINKED_ITEM_ROW_CLASS = cn(
+  ITEM_ROW_CLASS,
+  "-mx-2 rounded-md px-2 transition-colors hover:bg-[var(--surface-hover)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)]",
+);
+
+/**
+ * The row element for one item. A linked item is the whole row as one anchor
+ * (matching the clickable-row pattern in skill-created-card.tsx): an in-app
+ * path is a router `Link` so it navigates in place; an external URL opens
+ * outside the conversation, routed through the native opener on iOS where a
+ * `target="_blank"` anchor silently no-ops. An unlinked item is a plain row.
+ */
+function ItemRow({
+  link,
+  children,
+}: {
+  link: WorkResultItemLink | undefined;
+  children: ReactNode;
+}) {
+  if (!link) {
+    return <div className={ITEM_ROW_CLASS}>{children}</div>;
+  }
+  if (link.kind === "app") {
+    return (
+      <Link to={link.href} className={LINKED_ITEM_ROW_CLASS}>
+        {children}
+      </Link>
+    );
+  }
+  return (
+    <a
+      href={link.href}
+      target="_blank"
+      rel="noopener noreferrer"
+      onClick={(event) => handleNativeAnchorClick(event, link.href)}
+      className={LINKED_ITEM_ROW_CLASS}
+    >
+      {children}
+    </a>
+  );
+}
+
+function ItemLinkIcon({ link }: { link: WorkResultItemLink | undefined }) {
+  if (!link) {
+    return null;
+  }
+  const Icon = link.kind === "external" ? ExternalLink : ChevronRight;
+  return (
+    <Icon
+      aria-hidden
+      className="mt-0.5 h-3.5 w-3.5 shrink-0 text-[var(--content-tertiary)]"
+    />
+  );
+}
+
 function ItemList({ items }: { items: WorkResultItem[] }) {
   if (items.length === 0) {
     return null;
@@ -341,10 +437,7 @@ function ItemList({ items }: { items: WorkResultItem[] }) {
       {items.map((item) => {
         const tone = toneClasses(item.tone);
         return (
-          <div
-            key={item.id ?? item.title}
-            className="flex gap-3 py-2.5 first:pt-0 last:pb-0"
-          >
+          <ItemRow key={item.id ?? item.title} link={item.link}>
             <span
               aria-hidden
               className={cn(
@@ -362,9 +455,7 @@ function ItemList({ items }: { items: WorkResultItem[] }) {
                     {item.status}
                   </span>
                 )}
-                {item.href && (
-                  <ExternalLink className="mt-0.5 h-3.5 w-3.5 shrink-0 text-[var(--content-tertiary)]" />
-                )}
+                <ItemLinkIcon link={item.link} />
               </div>
               {item.description && (
                 <p className="mt-0.5 text-body-small-default text-[var(--content-quiet)]">
@@ -373,7 +464,7 @@ function ItemList({ items }: { items: WorkResultItem[] }) {
               )}
               <MetadataRow metadata={item.metadata ?? []} />
             </div>
-          </div>
+          </ItemRow>
         );
       })}
     </div>
