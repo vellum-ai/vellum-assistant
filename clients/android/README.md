@@ -118,7 +118,7 @@ absent. Scanning a connect link switches the native shell to the validated
 server, opens `<server>/assistant/pair`, and keeps an existing server path
 prefix intact. Cold and warm app launches use the same route.
 
-Only the validated server base is saved after the pairing page loads — the
+Only the validated server base is saved after the pairing page loads; the
 same deferred write appends the server, with its label, to the remembered
 list. The one-time device code is kept out of app preferences and the
 generated Capacitor configuration. HTTPS is required except for `localhost`,
@@ -129,10 +129,13 @@ when a physical development device needs to reach a service through
 Paired servers accumulate in a remembered list, stored as JSON `{name?, url}`
 entries in the same `self_hosted_server` SharedPreferences file as the active
 server. Entries are keyed by the canonical URL the web chooser's
-`normalizeOriginUrl` also computes — scheme-default ports collapse, trailing
+`normalizeOriginUrl` also computes (scheme-default ports collapse, trailing
 slashes are stripped, and percent-escape casing and interior duplicate
-separators are preserved — so both sides agree on which strings mean the same
-server.
+separators are preserved), so both sides agree on which strings mean the same
+HTTPS server. The cleartext development hosts are the exception: the web
+normalizer rejects every non-HTTPS URL, so an `http://localhost`-style server
+stays in the native list and remains switchable through a connect link, but
+never surfaces as a chooser card.
 
 The web assistant chooser is the management surface. The `SelfHostedServers`
 Capacitor plugin exposes the list to it and handles switch and forget

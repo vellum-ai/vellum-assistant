@@ -280,7 +280,7 @@ The bridge contract:
 | `add({url, name?})` | `{ ok }` | Deduped by canonical url. A nameless re-add keeps the stored label |
 | `remove({url})` | `{ ok }` | Forgetting the active url also clears the active slot, so the shell returns to the baked origin |
 | `switchTo({url?})` | `{ ok }` | Swaps the active slot and reloads the shell onto it (see the per-surface list below). An absent or empty `url` returns to the baked origin |
-| `switchToPath({url?, path})` | `{ ok }` | `switchTo` plus an initial in-app route loaded relative to the destination's app entry URL. An invalid `path` rejects before any state changes |
+| `switchToPath({url?, path})` | `{ ok }` | `switchTo` plus an initial in-app route loaded relative to the destination's app entry URL. A malformed `path` (empty, absolute, scheme-ful, or carrying a fragment) rejects up front; a path that passes those checks but fails route building (e.g. `..` segments) still switches and falls back to the app entry URL |
 
 Only genuinely invalid caller input rejects (an `add`/`switchTo`/`switchToPath`
 url that fails `SelfHostedServer.validate`, or a malformed `switchToPath`
