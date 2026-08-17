@@ -3,6 +3,7 @@ import { Loader2, Play, Settings } from "lucide-react";
 import { useNavigate } from "react-router";
 
 import { DetailShellHeader } from "@/components/detail-shell";
+import { InsetDetailCard } from "@/components/inset-detail-card";
 import { useTranslation } from "@/i18n";
 import { SCHEDULE_RUNS_PAGE_SIZE } from "@/domains/settings/api/schedules";
 import { ModelProfileRow } from "@/domains/settings/components/model-profile-row";
@@ -23,9 +24,11 @@ import {
   retrospectiveRunsGetInfiniteOptions,
 } from "@/generated/daemon/@tanstack/react-query.gen";
 import { routes } from "@/utils/routes";
-import { Button, Typography, cn } from "@vellumai/design-library";
+import { Button, cn } from "@vellumai/design-library";
 import { Notice } from "@vellumai/design-library/components/notice";
 import { Toggle } from "@vellumai/design-library/components/toggle";
+
+import type { ReactNode } from "react";
 
 import type { SystemTaskKind } from "@/domains/settings/types/schedules";
 import type { ResolvableCallSite } from "@/hooks/use-call-site-default-profile";
@@ -40,21 +43,26 @@ const SYSTEM_TASK_PROFILE_CALL_SITES: Record<
   retrospective: "memoryRetrospective",
 };
 
+/**
+ * One label/value line in the Details card. `min-h-6` pins every row to 24px
+ * whatever sits in the value slot, so the 16px toggle on Status and the plain
+ * text on the other rows keep one rhythm. The value slot is itself a flex row
+ * so a control can sit beside its text.
+ */
+function InfoRow({ label, value }: { label: string; value: ReactNode }) {
+  return (
+    <div className="flex min-h-6 items-center justify-between gap-4">
+      <span className="shrink-0 text-[var(--content-secondary)]">{label}</span>
+      <span className="flex min-w-0 items-center justify-end gap-2 text-right text-[var(--content-default)]">
+        {value}
+      </span>
+    </div>
+  );
+}
+
 type SystemTasksData = ReturnType<
   typeof import("@/domains/settings/hooks/use-system-tasks").useSystemTasks
 >;
-
-function SectionLabel({ children }: { children: string }) {
-  return (
-    <Typography
-      variant="label-small-default"
-      as="div"
-      className="mb-2 uppercase tracking-wider text-[var(--content-tertiary)]"
-    >
-      {children}
-    </Typography>
-  );
-}
 
 export interface SystemTaskDetailPanelProps {
   kind: SystemTaskKind;
@@ -200,26 +208,7 @@ export function SystemTaskDetailPanel({
       )}
     >
       <DetailShellHeader
-        titleNode={
-          <div className="min-w-0 flex-1">
-            <Typography
-              variant="title-medium"
-              title={name}
-              className="truncate py-0.5 leading-snug text-[var(--content-default)]"
-            >
-              {name}
-            </Typography>
-            {subtitle ? (
-              <Typography
-                variant="body-small-default"
-                as="p"
-                className="truncate text-[var(--content-tertiary)]"
-              >
-                {subtitle}
-              </Typography>
-            ) : null}
-          </div>
-        }
+        title={name}
         closeLabel={t("scheduleDetail.closeAria")}
         closeTooltip={t("scheduleDetail.close")}
         onClose={onClose}
@@ -227,49 +216,59 @@ export function SystemTaskDetailPanel({
 
       {/* Scrollable body */}
       <div className="flex-1 space-y-6 overflow-y-auto px-[var(--app-spacing-lg)] py-[var(--app-spacing-lg)]">
-        <section>
-          <SectionLabel>{t("scheduleDetail.details")}</SectionLabel>
-          <div className="space-y-2 rounded-lg border border-[var(--border-base)] bg-[var(--surface-lift)] px-4 py-3 text-body-medium-lighter">
-            <ModelProfileRow
-              assistantId={assistantId}
-              defaultCallSite={SYSTEM_TASK_PROFILE_CALL_SITES[kind]}
-              fallbackLabel={t("systemTaskDetail.fallbackModelProfile")}
-              respectCallSiteOverride
-            />
-            <div className="flex items-center justify-between gap-4">
-              <span className="text-[var(--content-secondary)]">
-                {t("scheduleDetail.status")}
-              </span>
-              <span className="flex items-center gap-2 text-[var(--content-default)]">
-                <span>{statusValue}</span>
-                {!isMemoryManaged ? (
-                  <Toggle
-                    checked={enabled}
-                    onChange={systemTasks.toggleHeartbeat}
-                    aria-label={t("scheduleDetail.toggleAria", { name })}
-                  />
-                ) : null}
-              </span>
+        <div>
+          <InsetDetailCard title={t("scheduleDetail.details")}>
+            <div className="space-y-2 text-body-medium-lighter">
+              <InfoRow
+                label={t("scheduleDetail.status")}
+                value={
+                  <>
+                    <span className="truncate">{statusValue}</span>
+                    {!isMemoryManaged ? (
+                      <Toggle
+                        size="sm"
+                        checked={enabled}
+                        onChange={systemTasks.toggleHeartbeat}
+                        aria-label={t("scheduleDetail.toggleAria", { name })}
+                      />
+                    ) : null}
+                  </>
+                }
+              />
+              <ModelProfileRow
+                assistantId={assistantId}
+                defaultCallSite={SYSTEM_TASK_PROFILE_CALL_SITES[kind]}
+                fallbackLabel={t("systemTaskDetail.fallbackModelProfile")}
+                respectCallSiteOverride
+              />
+              {/* The task's cadence, e.g. "Every 1 hr". Omitted until the config
+                query resolves, rather than rendering a labelled blank. */}
+              {subtitle ? (
+                <InfoRow
+                  label={t("systemTaskDetail.repeats")}
+                  value={<span className="truncate">{subtitle}</span>}
+                />
+              ) : null}
+              {!isRetrospective ? (
+                <InfoRow
+                  label={t("scheduleDetail.nextRun")}
+                  value={
+                    <span className="truncate">
+                      {formatTimestamp(nextRunAt)}
+                    </span>
+                  }
+                />
+              ) : null}
+              <InfoRow
+                label={t("scheduleDetail.lastRun")}
+                value={
+                  <span className="truncate">
+                    {formatTimestamp(lastRunAtDisplay)}
+                  </span>
+                }
+              />
             </div>
-            {!isRetrospective ? (
-              <div className="flex items-center justify-between gap-4">
-                <span className="text-[var(--content-secondary)]">
-                  {t("scheduleDetail.nextRun")}
-                </span>
-                <span className="text-[var(--content-default)]">
-                  {formatTimestamp(nextRunAt)}
-                </span>
-              </div>
-            ) : null}
-            <div className="flex items-center justify-between gap-4">
-              <span className="text-[var(--content-secondary)]">
-                {t("scheduleDetail.lastRun")}
-              </span>
-              <span className="text-[var(--content-default)]">
-                {formatTimestamp(lastRunAtDisplay)}
-              </span>
-            </div>
-          </div>
+          </InsetDetailCard>
           {isMemoryPaused ? (
             <Notice
               tone="warning"
@@ -293,7 +292,7 @@ export function SystemTaskDetailPanel({
               {pausedNotice}
             </Notice>
           ) : null}
-        </section>
+        </div>
 
         <RecentRunsCard
           runs={runs}

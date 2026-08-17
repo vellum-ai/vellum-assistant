@@ -18,8 +18,10 @@ import {
   isProviderOnlySummary,
   MISSING_VALUE,
 } from "@/domains/chat/inspector/inspector-formatters";
+import { useTranslation } from "@/i18n";
 import type { LLMCallSummary } from "@vellumai/assistant-api";
 import { Card, Notice, type NoticeTone } from "@vellumai/design-library";
+type ChatTranslate = ReturnType<typeof useTranslation<"chat">>["t"];
 
 export interface CacheHealthCardProps {
   summary: LLMCallSummary | null | undefined;
@@ -114,29 +116,40 @@ interface CacheStatus {
   body: string;
 }
 
-function buildStatus(breakdown: CacheBreakdown): CacheStatus {
+function buildStatus(
+  breakdown: CacheBreakdown,
+  t: ChatTranslate,
+): CacheStatus {
   if (breakdown.readTokens === 0) {
     const reCreated =
       breakdown.hasCreationSignal && breakdown.createdTokens > 0
-        ? ` ${formatCount(breakdown.createdTokens)} tokens were written to the cache this turn but none were reused — this usually means the cached prefix changed since the previous turn.`
+        ? t("cacheHealthCard.statusFullMissReCreatedSuffix", {
+            count: formatCount(breakdown.createdTokens),
+          })
         : "";
     return {
       tone: "warning",
-      title: "Full cache miss",
-      body: `None of this call's prompt was read from cache.${reCreated}`,
+      title: t("cacheHealthCard.statusFullMissTitle"),
+      body: `${t("cacheHealthCard.statusFullMissBody")}${reCreated}`,
     };
   }
   if (breakdown.hitRate >= 0.9) {
     return {
       tone: "success",
-      title: "Healthy cache reuse",
-      body: `${formatPercent(breakdown.hitRate)} of this call's prompt (${formatCount(breakdown.readTokens)} tokens) was served from cache.`,
+      title: t("cacheHealthCard.statusHealthyTitle"),
+      body: t("cacheHealthCard.statusHealthyBody", {
+        percent: formatPercent(breakdown.hitRate),
+        count: formatCount(breakdown.readTokens),
+      }),
     };
   }
   return {
     tone: "info",
-    title: "Partial cache reuse",
-    body: `${formatPercent(breakdown.hitRate)} of this call's prompt (${formatCount(breakdown.readTokens)} tokens) was served from cache; the rest was re-processed this turn.`,
+    title: t("cacheHealthCard.statusPartialTitle"),
+    body: t("cacheHealthCard.statusPartialBody", {
+      percent: formatPercent(breakdown.hitRate),
+      count: formatCount(breakdown.readTokens),
+    }),
   };
 }
 
@@ -174,21 +187,24 @@ function LegendItem({ color, label, value }: LegendItemProps): ReactNode {
 }
 
 function UnavailableNote({ summary }: { summary: LLMCallSummary }): ReactNode {
+  const { t } = useTranslation("chat");
   const provider = displayProvider(summary.provider);
-  const suffix = provider === MISSING_VALUE ? "" : ` for ${provider}`;
+
   return (
     <Card>
       <p
         className="text-body-medium-default"
         style={{ color: "var(--content-default)" }}
       >
-        Cache health
+        {t("cacheHealthCard.title")}
       </p>
       <p
         className="mt-1 text-body-medium-lighter"
         style={{ color: "var(--content-secondary)" }}
       >
-        This call didn't report prompt-cache usage{suffix}.
+        {provider === MISSING_VALUE
+          ? t("cacheHealthCard.unavailableNote")
+          : t("cacheHealthCard.unavailableNoteForProvider", { provider })}
       </p>
     </Card>
   );
@@ -199,6 +215,8 @@ function UnavailableNote({ summary }: { summary: LLMCallSummary }): ReactNode {
  * normalized summary (so callers can drop it in unconditionally).
  */
 export function CacheHealthCard({ summary }: CacheHealthCardProps): ReactNode {
+  const { t } = useTranslation("chat");
+
   if (!summary || isProviderOnlySummary(summary)) {
     return null;
   }
@@ -211,7 +229,7 @@ export function CacheHealthCard({ summary }: CacheHealthCardProps): ReactNode {
   const segments: CacheSegment[] = [
     {
       key: "read",
-      label: "Read from cache",
+      label: t("cacheHealthCard.segmentRead"),
       tokens: breakdown.readTokens,
       color: READ_COLOR,
     },
@@ -219,7 +237,7 @@ export function CacheHealthCard({ summary }: CacheHealthCardProps): ReactNode {
       ? [
           {
             key: "created",
-            label: "Re-created",
+            label: t("cacheHealthCard.segmentCreated"),
             tokens: breakdown.createdTokens,
             color: CREATED_COLOR,
           },
@@ -227,16 +245,24 @@ export function CacheHealthCard({ summary }: CacheHealthCardProps): ReactNode {
       : []),
     {
       key: "fresh",
-      label: "Fresh input",
+      label: t("cacheHealthCard.segmentFresh"),
       tokens: breakdown.freshTokens,
       color: FRESH_COLOR,
     },
   ];
 
-  const status = buildStatus(breakdown);
-  const barLabel = `Prompt cache breakdown of ${formatCount(breakdown.totalTokens)} tokens: ${segments
-    .map((seg) => `${formatCount(seg.tokens)} ${seg.label.toLowerCase()}`)
-    .join(", ")} (${formatPercent(breakdown.hitRate)} cached).`;
+  const status = buildStatus(breakdown, t);
+  const segmentParts = segments.map((seg) =>
+    t("cacheHealthCard.barSegment", {
+      count: formatCount(seg.tokens),
+      label: seg.label,
+    }),
+  );
+  const barLabel = t("cacheHealthCard.barAriaLabel", {
+    total: formatCount(breakdown.totalTokens),
+    segments: segmentParts.join(", "),
+    percent: formatPercent(breakdown.hitRate),
+  });
 
   return (
     <Card>
@@ -246,13 +272,13 @@ export function CacheHealthCard({ summary }: CacheHealthCardProps): ReactNode {
             className="text-body-medium-default"
             style={{ color: "var(--content-default)" }}
           >
-            Cache health
+            {t("cacheHealthCard.title")}
           </p>
           <p
             className="mt-1 text-body-medium-lighter"
             style={{ color: "var(--content-secondary)" }}
           >
-            How much of this call's prompt was served from the prompt cache.
+            {t("cacheHealthCard.description")}
           </p>
         </div>
         <div className="flex shrink-0 items-baseline gap-1">
@@ -266,7 +292,7 @@ export function CacheHealthCard({ summary }: CacheHealthCardProps): ReactNode {
             className="text-label-default"
             style={{ color: "var(--content-tertiary)" }}
           >
-            cached
+            {t("cacheHealthCard.cached")}
           </span>
         </div>
       </div>

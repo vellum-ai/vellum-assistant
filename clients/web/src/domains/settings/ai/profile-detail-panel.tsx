@@ -1,4 +1,4 @@
-import { Trash2 } from "lucide-react";
+import { Loader2, Trash2 } from "lucide-react";
 import { useEffect, useMemo } from "react";
 
 import { useQuery } from "@tanstack/react-query";
@@ -117,7 +117,9 @@ export function ProfileDetailPanel({
   const title =
     editor.effectiveMode === "create"
       ? t("profileDetailPanel.newProfileTitle")
-      : (initialValues?.label ?? profileName ?? t("profileDetailPanel.defaultTitle"));
+      : (initialValues?.label ??
+        profileName ??
+        t("profileDetailPanel.defaultTitle"));
 
   return (
     <>
@@ -134,18 +136,28 @@ export function ProfileDetailPanel({
           editor.effectiveMode !== "create" && !editor.isReadOnly ? (
             <Button
               variant="dangerOutline"
-              leftIcon={<Trash2 />}
+              // Icon-only, so the in-flight state rides the glyph and the
+              // accessible name rather than a visible "Deleting…" label.
+              iconOnly={
+                deletePending ? (
+                  <Loader2 className="animate-spin" />
+                ) : (
+                  <Trash2 />
+                )
+              }
+              aria-label={
+                deletePending
+                  ? t("profileDetailPanel.deleting")
+                  : t("profileDetailPanel.delete")
+              }
+              tooltip={t("profileDetailPanel.delete")}
               onClick={() => {
                 if (profileName != null) {
                   deleteFlow.requestDelete(profileName);
                 }
               }}
               disabled={editor.saving || deletePending}
-            >
-              {deletePending
-                ? t("profileDetailPanel.deleting")
-                : t("profileDetailPanel.delete")}
-            </Button>
+            />
           ) : null
         }
         footer={

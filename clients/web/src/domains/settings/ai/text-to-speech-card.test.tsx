@@ -32,6 +32,7 @@ mock.module("@vellumai/design-library/components/toast", () => ({
 let orgReady = false;
 mock.module("@/hooks/use-is-org-ready", () => ({
   useIsOrgReady: () => orgReady,
+  useOrgHeaderReadiness: () => (orgReady ? "ready" : "resolving"),
 }));
 // Controllable daemon config the config-get query resolves to. `initialData`
 // makes it available even though the query is `enabled: isOrgReady` (false),

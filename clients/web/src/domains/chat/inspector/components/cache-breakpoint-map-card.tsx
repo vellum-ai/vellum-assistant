@@ -22,8 +22,10 @@ import {
 } from "@/domains/chat/inspector/cache-breakpoints";
 import { useLlmLogPayload } from "@/domains/chat/inspector/inspector-payload-api";
 import { formatCount } from "@/domains/chat/inspector/inspector-formatters";
+import { useTranslation } from "@/i18n";
 import type { LLMRequestLogEntry } from "@vellumai/assistant-api";
 import { Card, Notice, Tag } from "@vellumai/design-library";
+type ChatTranslate = ReturnType<typeof useTranslation<"chat">>["t"];
 
 export interface CacheBreakpointMapCardProps {
   entry: LLMRequestLogEntry;
@@ -36,11 +38,19 @@ const STATUS_COLOR: Record<CacheSegmentStatus, string> = {
   unknown: "var(--content-faint)",
 };
 
-const STATUS_LABEL: Record<CacheSegmentStatus, string> = {
-  read: "Read from cache",
-  created: "Re-created",
-  unknown: "Cached",
-};
+function statusLabel(
+  status: CacheSegmentStatus,
+  t: ChatTranslate,
+): string {
+  switch (status) {
+    case "read":
+      return t("cacheBreakpointMapCard.statusRead");
+    case "created":
+      return t("cacheBreakpointMapCard.statusCreated");
+    case "unknown":
+      return t("cacheBreakpointMapCard.statusUnknown");
+  }
+}
 
 interface StateNoteProps {
   children: ReactNode;
@@ -48,13 +58,15 @@ interface StateNoteProps {
 
 /** Titled card used for the loading / error / disabled states. */
 function StateNote({ children }: StateNoteProps): ReactNode {
+  const { t } = useTranslation("chat");
+
   return (
     <Card>
       <p
         className="text-body-medium-default"
         style={{ color: "var(--content-default)" }}
       >
-        Cache breakpoints
+        {t("cacheBreakpointMapCard.title")}
       </p>
       <p
         className="mt-1 text-body-medium-lighter"
@@ -71,6 +83,8 @@ interface LegendItemProps {
 }
 
 function LegendItem({ status }: LegendItemProps): ReactNode {
+  const { t } = useTranslation("chat");
+
   return (
     <span
       className="inline-flex items-center gap-1.5 text-label-default"
@@ -81,7 +95,7 @@ function LegendItem({ status }: LegendItemProps): ReactNode {
         className="h-2 w-2 shrink-0 rounded-full"
         style={{ background: STATUS_COLOR[status] }}
       />
-      <span>{STATUS_LABEL[status]}</span>
+      <span>{statusLabel(status, t)}</span>
     </span>
   );
 }
@@ -92,6 +106,8 @@ interface SegmentRowProps {
 }
 
 function SegmentRow({ segment, widthPercent }: SegmentRowProps): ReactNode {
+  const { t } = useTranslation("chat");
+
   return (
     <li className="flex flex-col gap-1">
       <div className="flex items-baseline justify-between gap-3">
@@ -113,7 +129,9 @@ function SegmentRow({ segment, widthPercent }: SegmentRowProps): ReactNode {
           className="shrink-0 text-label-default tabular-nums"
           style={{ color: "var(--content-secondary)" }}
         >
-          ≈ {formatCount(segment.estimatedTokens)} tokens
+          {t("cacheBreakpointMapCard.estimatedTokens", {
+            count: formatCount(segment.estimatedTokens),
+          })}
         </span>
       </div>
       <div
@@ -147,6 +165,7 @@ export function CacheBreakpointMapCard({
   entry,
   assistantId,
 }: CacheBreakpointMapCardProps): ReactNode {
+  const { t } = useTranslation("chat");
   const provider = (entry.summary?.provider ?? entry.provider)?.toLowerCase();
   const model = entry.summary?.model;
   const isAnthropic =
@@ -167,16 +186,12 @@ export function CacheBreakpointMapCard({
 
   if (isLoading) {
     return (
-      <StateNote>
-        Loading the request payload to map cache breakpoints…
-      </StateNote>
+      <StateNote>{t("cacheBreakpointMapCard.loading")}</StateNote>
     );
   }
   if (isError) {
     return (
-      <StateNote>
-        Couldn&apos;t load the request payload to map cache breakpoints.
-      </StateNote>
+      <StateNote>{t("cacheBreakpointMapCard.loadError")}</StateNote>
     );
   }
 
@@ -187,10 +202,7 @@ export function CacheBreakpointMapCard({
 
   if (map.segments.length === 0) {
     return (
-      <StateNote>
-        This request carried no cache breakpoints — prompt caching was disabled
-        for the call.
-      </StateNote>
+      <StateNote>{t("cacheBreakpointMapCard.noBreakpoints")}</StateNote>
     );
   }
 
@@ -209,15 +221,15 @@ export function CacheBreakpointMapCard({
           className="text-body-medium-default"
           style={{ color: "var(--content-default)" }}
         >
-          Cache breakpoints
+          {t("cacheBreakpointMapCard.title")}
         </p>
         <p
           className="mt-1 text-body-medium-lighter"
           style={{ color: "var(--content-secondary)" }}
         >
-          Where the {map.segments.length} cache breakpoint
-          {map.segments.length === 1 ? "" : "s"} fell across this request&apos;s
-          prefix, and which segments were read versus re-created.
+          {t("cacheBreakpointMapCard.description", {
+            count: map.segments.length,
+          })}
         </p>
       </div>
 
@@ -243,9 +255,11 @@ export function CacheBreakpointMapCard({
 
       {fullMiss ? (
         <div className="mt-3">
-          <Notice tone="warning" title="Full cache miss">
-            Every segment was re-created this turn. Compare with the previous
-            turn in the cache diff above to find the block that changed.
+          <Notice
+            tone="warning"
+            title={t("cacheBreakpointMapCard.fullMissTitle")}
+          >
+            {t("cacheBreakpointMapCard.fullMissBody")}
           </Notice>
         </div>
       ) : null}
@@ -254,9 +268,9 @@ export function CacheBreakpointMapCard({
         className="mt-3 text-label-default"
         style={{ color: "var(--content-tertiary)" }}
       >
-        Token counts are estimated from text length.
+        {t("cacheBreakpointMapCard.tokenEstimateNote")}
         {map.splitEstimated
-          ? " The read/created split is attributed by segment size; the provider reports only the totals."
+          ? t("cacheBreakpointMapCard.splitEstimatedNote")
           : ""}
       </p>
     </Card>

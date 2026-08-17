@@ -10,6 +10,7 @@ import { Card } from "@vellumai/design-library";
 
 import { CopyButton } from "@/domains/chat/inspector/components/copy-button";
 import { LlmCallErrorCard } from "@/domains/chat/inspector/components/llm-call-error-card";
+import { t, useTranslation } from "@/i18n";
 
 interface ResponseTabProps {
   entry: LLMRequestLogEntry;
@@ -22,6 +23,7 @@ interface ResponseTabProps {
  * unavailable" fallback so the rejected response reads as an error.
  */
 export function ResponseTab({ entry }: ResponseTabProps): ReactNode {
+  const { t } = useTranslation("chat");
   const error = entry.error ?? null;
   const sections = buildSectionModels(entry.responseSections ?? []);
   const stopReason = deriveStopReason(entry.summary);
@@ -49,11 +51,13 @@ export function ResponseTab({ entry }: ResponseTabProps): ReactNode {
             className="text-body-medium-default"
             style={{ color: "var(--content-default)" }}
           >
-            Response metadata
+            {t("responseTab.responseMetadata")}
           </p>
           <div className="mt-2 flex flex-wrap gap-2">
             {stopReason && (
-              <MetadataChip label={`Stop reason: ${stopReason}`} />
+              <MetadataChip
+                label={t("responseTab.stopReasonChip", { reason: stopReason })}
+              />
             )}
             {modeLabel && <MetadataChip label={modeLabel} />}
           </div>
@@ -81,6 +85,8 @@ function ResponseSectionCard({ section }: ResponseSectionCardProps): ReactNode {
 }
 
 function TextCard({ section }: ResponseSectionCardProps): ReactNode {
+  const { t } = useTranslation("chat");
+
   return (
     <Card>
       <SectionHeader section={section} />
@@ -96,7 +102,7 @@ function TextCard({ section }: ResponseSectionCardProps): ReactNode {
           className="mt-3 text-body-medium-lighter"
           style={{ color: "var(--content-secondary)" }}
         >
-          No assistant text was captured for this section.
+          {t("responseTab.noAssistantText")}
         </p>
       )}
     </Card>
@@ -104,12 +110,16 @@ function TextCard({ section }: ResponseSectionCardProps): ReactNode {
 }
 
 function ToolCallCard({ section }: ResponseSectionCardProps): ReactNode {
+  const { t } = useTranslation("chat");
+
   return (
     <Card>
       <SectionHeader section={section} />
       {section.toolName && (
         <div className="mt-2">
-          <MetadataChip label={`Tool: ${section.toolName}`} />
+          <MetadataChip
+            label={t("responseTab.toolChip", { name: section.toolName })}
+          />
         </div>
       )}
       {section.bodyText ? (
@@ -118,7 +128,7 @@ function ToolCallCard({ section }: ResponseSectionCardProps): ReactNode {
             className="mb-1 text-label-default"
             style={{ color: "var(--content-secondary)" }}
           >
-            Arguments preview
+            {t("responseTab.argumentsPreview")}
           </p>
           <p
             className="select-text whitespace-pre-wrap text-body-small-default"
@@ -132,7 +142,7 @@ function ToolCallCard({ section }: ResponseSectionCardProps): ReactNode {
           className="mt-3 text-body-medium-lighter"
           style={{ color: "var(--content-secondary)" }}
         >
-          No structured arguments preview is available for this tool call.
+          {t("responseTab.noArgumentsPreview")}
         </p>
       )}
       <div
@@ -142,14 +152,15 @@ function ToolCallCard({ section }: ResponseSectionCardProps): ReactNode {
           color: "var(--content-secondary)",
         }}
       >
-        Need the full provider payload? Open the Raw tab for request and
-        response JSON.
+        {t("responseTab.rawTabHint")}
       </div>
     </Card>
   );
 }
 
 function FallbackCard({ message }: { message: string | null }): ReactNode {
+  const { t } = useTranslation("chat");
+
   return (
     <Card>
       <div className="flex items-center gap-2">
@@ -162,15 +173,14 @@ function FallbackCard({ message }: { message: string | null }): ReactNode {
           className="text-body-medium-default"
           style={{ color: "var(--content-default)" }}
         >
-          Section rendering unavailable
+          {t("responseTab.sectionUnavailable")}
         </span>
       </div>
       <p
         className="mt-2 text-body-medium-lighter"
         style={{ color: "var(--content-secondary)" }}
       >
-        {message ??
-          "This response has no rendered sections. Raw payloads remain available in the Raw tab, and any normalized response metadata will still be shown when present."}
+        {message ?? t("responseTab.noSectionsFallback")}
       </p>
     </Card>
   );
@@ -181,6 +191,8 @@ function SectionHeader({
 }: {
   section: ResponseSectionModel;
 }): ReactNode {
+  const { t } = useTranslation("chat");
+
   return (
     <div className="flex items-start gap-4">
       <div className="min-w-0 flex-1">
@@ -194,7 +206,10 @@ function SectionHeader({
           <MetadataChip label={section.kindLabel} />
         </div>
       </div>
-      <CopyButton text={section.copyText} ariaLabel="Copy section content" />
+      <CopyButton
+        text={section.copyText}
+        ariaLabel={t("responseTab.copySectionAria")}
+      />
     </div>
   );
 }
@@ -214,7 +229,11 @@ function MetadataChip({ label }: { label: string }): ReactNode {
 }
 
 type PresentationKind =
-  "assistantText" | "reasoning" | "toolCall" | "result" | "other";
+  | "assistantText"
+  | "reasoning"
+  | "toolCall"
+  | "result"
+  | "other";
 
 interface ResponseSectionModel {
   id: number;
@@ -264,15 +283,15 @@ function kindDisplayLabel(
 ): string {
   switch (presentationKind) {
     case "toolCall":
-      return "Tool call";
+      return t("chat:responseTab.kindToolCall");
     case "result":
       return kind.toLowerCase() === "function_response"
-        ? "Function response"
-        : "Tool result";
+        ? t("chat:responseTab.kindFunctionResponse")
+        : t("chat:responseTab.kindToolResult");
     case "reasoning":
-      return "Reasoning";
+      return t("chat:responseTab.kindReasoning");
     case "assistantText":
-      return "Assistant text";
+      return t("chat:responseTab.kindAssistantText");
     default:
       return kind;
   }
@@ -298,7 +317,9 @@ function buildSectionModels(
   return sections.map((section, index) => {
     const pKind = toPresentationKind(section.kind);
     const rawTitle = section.label?.trim() ?? "";
-    const title = rawTitle || `Section ${index + 1}`;
+    const title =
+      rawTitle ||
+      t("chat:responseTab.sectionTitle", { number: index + 1 });
     const body = sectionBodyText(section);
     return {
       id: index,
@@ -331,24 +352,24 @@ function deriveModeLabel(
   sections: ResponseSectionModel[],
 ): string | null {
   if (summary?.responseToolCallCount && summary.responseToolCallCount > 0) {
-    return "Tool-calling response";
+    return t("chat:responseTab.modeToolCalling");
   }
   if (isToolCallingStop(summary?.stopReason ?? null)) {
-    return "Tool-calling response";
+    return t("chat:responseTab.modeToolCalling");
   }
   if (!sections.length) {
     return null;
   }
   if (sections.some((s) => s.kind === "toolCall")) {
-    return "Tool-calling response";
+    return t("chat:responseTab.modeToolCalling");
   }
   const hasText = sections.some((s) => s.kind === "assistantText");
   const hasResult = sections.some((s) => s.kind === "result");
   if (hasText && !hasResult) {
-    return "Text-only response";
+    return t("chat:responseTab.modeTextOnly");
   }
   if (hasResult && !hasText) {
-    return "Result-only response";
+    return t("chat:responseTab.modeResultOnly");
   }
   return null;
 }

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { createPortal } from "react-dom";
 
 import { useQueryClient } from "@tanstack/react-query";
 import { Button } from "@vellumai/design-library/components/button";
@@ -57,6 +58,14 @@ export interface ProviderEditorContentProps {
    * the settings sidepanel (DetailShell body).
    */
   variant?: "modal" | "panel";
+  /**
+   * Where the Cancel/Save row renders, for `variant="panel"` hosts that pin
+   * their actions outside the scrollable body (see `DetailShell`'s `footer`).
+   * Omit to keep the row inline at the end of the fields; pass the element to
+   * portal into it. `null` means the host's slot has not mounted yet, so the
+   * row is withheld for that one commit rather than rendered in both places.
+   */
+  actionsSlot?: HTMLElement | null;
   onSave: (connection: ProviderConnection) => void;
   onCancel: () => void;
 }
@@ -68,6 +77,7 @@ export function ProviderEditorContent({
   existingNames,
   connections,
   variant = "modal",
+  actionsSlot,
   onSave,
   onCancel,
 }: ProviderEditorContentProps) {
@@ -313,6 +323,7 @@ export function ProviderEditorContent({
     return (
       <ProviderCreateForm
         variant={variant === "panel" ? "inline" : "modal"}
+        actionsSlot={actionsSlot}
         assistantId={assistantId}
         existingNames={existingNames}
         connections={connections}
@@ -444,7 +455,11 @@ export function ProviderEditorContent({
     return (
       <div className="space-y-4">
         {body}
-        <div className="flex justify-end gap-2">{footer}</div>
+        {actionsSlot === undefined ? (
+          <div className="flex justify-end gap-2">{footer}</div>
+        ) : (
+          actionsSlot && createPortal(footer, actionsSlot)
+        )}
       </div>
     );
   }

@@ -259,7 +259,7 @@ Use `type` for unions, intersections, mapped types, and utility types.
 
 ```ts
 // Good
-interface ChatRouteContentProps {
+interface ChatMainPanelProps {
   messages: DisplayMessage[];
   turnState: TurnState;
 }
