@@ -65,9 +65,11 @@ const main = async (): Promise<void> => {
       nativeRoot,
     );
   }
+  // `pack` publishes only the architecture electron-builder targets; every
+  // other caller builds both.
   for (const architecture of resolveArchitectures(
     argValue("--arch"),
-    "all",
+    process.env.ELECTRON_TARGET_ARCH ?? "all",
   )) {
     await runNativeCommand(
       [

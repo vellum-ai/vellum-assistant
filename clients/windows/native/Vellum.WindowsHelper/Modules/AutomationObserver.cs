@@ -107,7 +107,7 @@ public sealed class UiaSnapshotSource : IAutomationSnapshotSource
 
     public AutomationSnapshot TakeSnapshot(CancellationToken cancellationToken)
     {
-        ObserverNativeMethods.EnsureDpiAwareness();
+        ProcessDpi.EnsureAwareness();
         var foreground = ObserverNativeMethods.GetForegroundWindow();
         if (foreground == IntPtr.Zero)
         {
@@ -196,8 +196,9 @@ public sealed class UiaSnapshotSource : IAutomationSnapshotSource
             using var process = System.Diagnostics.Process.GetProcessById((int)processId);
             return new ForegroundApp(process.ProcessName, (int)processId, windowTitle);
         }
-        catch (ArgumentException)
+        catch (Exception ex) when (ex is ArgumentException or InvalidOperationException)
         {
+            // The process exited between lookup and name read, or was never there.
             return new ForegroundApp("unknown", (int)processId, windowTitle);
         }
     }
@@ -238,25 +239,9 @@ public sealed class UiaSnapshotSource : IAutomationSnapshotSource
 
 file static class ObserverNativeMethods
 {
-    private static bool _dpiApplied;
-
-    // Per-monitor-v2 keeps UIA bounds in physical pixels. Fails harmlessly
-    // when another module already set the process context.
-    internal static void EnsureDpiAwareness()
-    {
-        if (!_dpiApplied)
-        {
-            _dpiApplied = true;
-            _ = SetProcessDpiAwarenessContext(new IntPtr(-4));
-        }
-    }
-
     [DllImport("user32.dll")]
     internal static extern IntPtr GetForegroundWindow();
 
     [DllImport("user32.dll")]
     internal static extern uint GetWindowThreadProcessId(IntPtr hwnd, out uint processId);
-
-    [DllImport("user32.dll")]
-    private static extern int SetProcessDpiAwarenessContext(IntPtr context);
 }

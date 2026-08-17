@@ -80,7 +80,7 @@ public sealed class GdiScreenCapture : IScreenCaptureBackend
 {
     public IReadOnlyList<DisplayInfo> GetDisplays()
     {
-        CaptureNativeMethods.EnsureDpiAwareness();
+        ProcessDpi.EnsureAwareness();
         var screens = System.Windows.Forms.Screen.AllScreens;
         var displays = new List<DisplayInfo>(screens.Length);
         for (var i = 0; i < screens.Length; i++)
@@ -94,7 +94,7 @@ public sealed class GdiScreenCapture : IScreenCaptureBackend
 
     public CapturedImage CapturePixels(PixelRect bounds)
     {
-        CaptureNativeMethods.EnsureDpiAwareness();
+        ProcessDpi.EnsureAwareness();
         using var bitmap = new Bitmap(bounds.Width, bounds.Height);
         using (var graphics = Graphics.FromImage(bitmap))
         {
@@ -127,22 +127,6 @@ file struct NativePoint(int x, int y)
 
 file static class CaptureNativeMethods
 {
-    private static bool _dpiApplied;
-
-    // Physical-pixel captures require the same per-monitor-v2 awareness the
-    // observer uses; the duplicate call is harmless and order-independent.
-    internal static void EnsureDpiAwareness()
-    {
-        if (!_dpiApplied)
-        {
-            _dpiApplied = true;
-            _ = SetProcessDpiAwarenessContext(new IntPtr(-4));
-        }
-    }
-
-    [DllImport("user32.dll")]
-    private static extern int SetProcessDpiAwarenessContext(IntPtr context);
-
     [DllImport("user32.dll")]
     internal static extern IntPtr MonitorFromPoint(NativePoint point, uint flags);
 
