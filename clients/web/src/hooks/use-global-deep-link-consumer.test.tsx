@@ -267,6 +267,68 @@ describe("deeplink.openThread", () => {
   });
 });
 
+describe("deeplink.sendToThread", () => {
+  test("navigates to the target thread, parks the message, and requests composer focus", () => {
+    renderConsumer();
+
+    act(() => {
+      publish("deeplink.sendToThread", {
+        threadId: "abc-123",
+        message: "gym done",
+      });
+    });
+
+    expect(navigateMock).toHaveBeenCalledWith(
+      "/assistant/conversations/abc-123",
+    );
+    // Parked, never auto-sent: a custom-scheme link carries no caller
+    // identity, so the send stays with the user (one tap, message staged).
+    expect(
+      usePendingDeepLinkStore.getState().pendingComposerMessage,
+    ).toBe("gym done");
+    expect(ensureMainWindowVisibleMock).toHaveBeenCalledTimes(1);
+  });
+
+  test("runs the conversation-switch path when targeting another thread", () => {
+    useSubagentStore.setState({ orderedIds: ["sub-1"] });
+    useConversationStore.setState({ activeConversationId: "old-conversation" });
+    renderConsumer();
+
+    act(() => {
+      publish("deeplink.sendToThread", {
+        threadId: "abc-123",
+        message: "gym done",
+      });
+    });
+
+    expect(useSubagentStore.getState().orderedIds).toEqual([]);
+    expect(useConversationStore.getState().activeConversationId).toBe(
+      "abc-123",
+    );
+  });
+
+  test("same-thread delivery keeps live state and still parks the message", () => {
+    useSubagentStore.setState({ orderedIds: ["sub-1"] });
+    useConversationStore.setState({ activeConversationId: "abc-123" });
+    renderConsumer();
+
+    act(() => {
+      publish("deeplink.sendToThread", {
+        threadId: "abc-123",
+        message: "gym done",
+      });
+    });
+
+    expect(useSubagentStore.getState().orderedIds).toEqual(["sub-1"]);
+    expect(navigateMock).toHaveBeenCalledWith(
+      "/assistant/conversations/abc-123",
+    );
+    expect(
+      usePendingDeepLinkStore.getState().pendingComposerMessage,
+    ).toBe("gym done");
+  });
+});
+
 describe("deeplink.billingCheckoutComplete", () => {
   test("subscription success navigates to billing carrying the session id so the wizard opens", () => {
     renderConsumer();

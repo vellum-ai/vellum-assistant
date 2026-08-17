@@ -804,10 +804,16 @@ describe("mobile pill triggers", () => {
     renderMenu({ props: { onOpenChange } });
 
     const accessTrigger = await screen.findByLabelText(ACCESS_TRIGGER_LABEL);
-    // iOS blurs the textarea before the click if pointerdown is allowed to
+    // WebKit blurs the textarea before the click if the press is allowed to
     // move focus. The pill must cancel that transfer so the focus-gated row
     // remains mounted long enough for the sheet trigger to receive the click.
-    expect(fireEvent.pointerDown(accessTrigger)).toBe(false);
+    //
+    // Both halves of the press matter. `mousedown` is the one that carries the
+    // focus transfer, so it has to be cancelled; `pointerdown` must be left
+    // alone, because WebKit drops the rest of the sequence when it is
+    // cancelled and the sheet would never get its click.
+    expect(fireEvent.pointerDown(accessTrigger)).toBe(true);
+    expect(fireEvent.mouseDown(accessTrigger)).toBe(false);
     fireEvent.click(accessTrigger);
     await waitFor(() => {
       expect(onOpenChange).toHaveBeenLastCalledWith(true);
@@ -829,6 +835,10 @@ describe("mobile pill triggers", () => {
     renderMenu({ props: { onOpenChange } });
 
     const profileTrigger = await screen.findByLabelText(/^Model profile/);
+    // Same press contract as the access pill: hold the focus on mousedown,
+    // leave pointerdown alone so the click still lands.
+    expect(fireEvent.pointerDown(profileTrigger)).toBe(true);
+    expect(fireEvent.mouseDown(profileTrigger)).toBe(false);
     fireEvent.click(profileTrigger);
     await waitFor(() => {
       expect(onOpenChange).toHaveBeenLastCalledWith(true);

@@ -153,6 +153,21 @@ export interface BusEventMap {
   "deeplink.send": { message: string };
   "deeplink.openThread": { threadId: string };
   /**
+   * Open a conversation with a message staged in its composer:
+   * `<scheme>://thread/<id>?message=…`, produced by the iOS
+   * `SendMessageToChatIntent` (the "Send Message to Chat" Shortcuts
+   * action). Split from `deeplink.openThread` because the consumer does
+   * more than navigate: it parks `message` in `usePendingDeepLinkStore`
+   * and requests composer focus, so the user lands one tap from sent.
+   * Never auto-sent: a custom-scheme link carries no caller identity
+   * (see `useGlobalDeepLinkConsumer`'s caller-identity note; JARVIS-1522
+   * tracks the provenance seam that could change this). `message` is
+   * bounded and sanitized by `parseOpenThreadDeepLink`; a thread link
+   * whose message fails sanitization publishes plain `deeplink.openThread`
+   * instead.
+   */
+  "deeplink.sendToThread": { threadId: string; message: string };
+  /**
    * Stripe Checkout finished for a checkout a native shell started
    * (the Electron shell's system browser or Capacitor iOS's in-app
    * SFSafariViewController). The platform bounces the browser to

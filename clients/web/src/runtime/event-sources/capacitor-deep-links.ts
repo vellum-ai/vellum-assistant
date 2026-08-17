@@ -6,6 +6,7 @@ import {
   OAUTH_COMPLETE_DEEP_LINK_EVENT,
   parseBillingCheckoutCompleteDeepLink,
   parseOAuthCompleteDeepLink,
+  parseOpenThreadDeepLink,
   parseStartVoiceDeepLink,
 } from "@/runtime/native-deep-link";
 
@@ -18,9 +19,11 @@ import {
  * `vellum-assistant://billing/checkout-complete?…` publishes
  * `deeplink.billingCheckoutComplete` (the same event the Electron shell
  * emits, consumed by `useGlobalDeepLinkConsumer`);
- * `vellum-assistant://voice?mode=…` publishes `deeplink.startVoice`; any
- * other URL publishes `deeplink.unknown { url }` on the bus
- * (query/fragment stripped).
+ * `vellum-assistant://voice?mode=…` publishes `deeplink.startVoice`;
+ * `vellum-assistant://thread/<id>?message=…` publishes
+ * `deeplink.sendToThread` (or `deeplink.openThread` when it carries no
+ * usable message); any other URL publishes `deeplink.unknown { url }`
+ * on the bus (query/fragment stripped).
  *
  * Off Capacitor the function is a no-op; Electron deep links flow
  * through `publishElectronDeepLinksSource` instead.
@@ -72,6 +75,23 @@ function handleUrl(url: string): void {
   const startVoice = parseStartVoiceDeepLink(url);
   if (startVoice !== null) {
     publish("deeplink.startVoice", startVoice);
+    return;
+  }
+
+  // Same placement reason (`message` rides the query). A thread link whose
+  // message failed sanitization degrades to the same `deeplink.openThread` a
+  // notification tap publishes: opening the chat the user picked beats
+  // dropping the whole command.
+  const openThread = parseOpenThreadDeepLink(url);
+  if (openThread !== null) {
+    if (openThread.message !== null) {
+      publish("deeplink.sendToThread", {
+        threadId: openThread.threadId,
+        message: openThread.message,
+      });
+    } else {
+      publish("deeplink.openThread", { threadId: openThread.threadId });
+    }
     return;
   }
 

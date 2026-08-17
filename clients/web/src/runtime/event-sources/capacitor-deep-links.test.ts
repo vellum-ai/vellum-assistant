@@ -337,6 +337,66 @@ describe("publishCapacitorDeepLinksSource", () => {
     }
   });
 
+  test("publishes deeplink.sendToThread for a thread link carrying a message", async () => {
+    const sends: unknown[] = [];
+    const opens: unknown[] = [];
+    const unknowns: unknown[] = [];
+    const unsubSend = subscribe("deeplink.sendToThread", (p) => {
+      sends.push(p);
+    });
+    const unsubOpen = subscribe("deeplink.openThread", (p) => {
+      opens.push(p);
+    });
+    const unsubUnknown = subscribe("deeplink.unknown", (p) => {
+      unknowns.push(p);
+    });
+
+    try {
+      publishCapacitorDeepLinksSource();
+      await flushAsyncWork();
+
+      urlOpenHandler!({
+        url: "vellum-assistant://thread/abc-123?message=gym%20done",
+      });
+
+      expect(sends).toEqual([{ threadId: "abc-123", message: "gym done" }]);
+      expect(opens).toEqual([]);
+      expect(unknowns).toEqual([]);
+    } finally {
+      unsubSend();
+      unsubOpen();
+      unsubUnknown();
+    }
+  });
+
+  test("degrades a thread link without a usable message to deeplink.openThread", async () => {
+    const sends: unknown[] = [];
+    const opens: unknown[] = [];
+    const unsubSend = subscribe("deeplink.sendToThread", (p) => {
+      sends.push(p);
+    });
+    const unsubOpen = subscribe("deeplink.openThread", (p) => {
+      opens.push(p);
+    });
+
+    try {
+      publishCapacitorDeepLinksSource();
+      await flushAsyncWork();
+
+      urlOpenHandler!({ url: "vellum-assistant://thread/abc-123" });
+      // Whitespace-only fails sanitization; opening the chat still wins.
+      urlOpenHandler!({
+        url: "vellum-assistant://thread/abc-123?message=%20%20",
+      });
+
+      expect(sends).toEqual([]);
+      expect(opens).toEqual([{ threadId: "abc-123" }, { threadId: "abc-123" }]);
+    } finally {
+      unsubSend();
+      unsubOpen();
+    }
+  });
+
   test("publishes deeplink.unknown on the bus for a non-OAuth URL", async () => {
     const received: { url: string }[] = [];
     const unsubscribeBus = subscribe("deeplink.unknown", (payload) => {
