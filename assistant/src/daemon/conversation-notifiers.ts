@@ -3,8 +3,10 @@
  * the Conversation constructor and dispose/abort methods.
  *
  * Notifier callbacks read from the provided context object at invocation
- * time (not registration time), so they always see the latest sendToClient
- * and messages references even after updateClient().
+ * time (not registration time), so they always see the latest messages
+ * reference. They emit through the conversation, whose sink is fixed for its
+ * life, so an out-of-turn notification reaches every subscribed client
+ * without any per-turn wiring.
  */
 
 import { createAssistantMessage } from "../agent/message-types.js";
@@ -32,7 +34,7 @@ import { restingTrust } from "./trust-context-types.js";
  * invocation time. Properties are read lazily from this reference.
  */
 export interface NotifierConversationContext {
-  sendToClient: (msg: AssistantEvent) => void;
+  emit: (msg: AssistantEvent) => void;
   messages: Message[];
   trustContext?: TrustContext;
 }
@@ -77,12 +79,12 @@ export function registerConversationNotifiers(
 
       ctx.messages.push(createAssistantMessage(questionText));
 
-      ctx.sendToClient({
+      ctx.emit({
         type: "assistant_text_delta",
         text: questionText,
         conversationId: conversationId,
       });
-      ctx.sendToClient({
+      ctx.emit({
         type: "message_complete",
         conversationId: conversationId,
         messageId: msg.id,
@@ -97,12 +99,12 @@ export function registerConversationNotifiers(
       const speakerLabel = speaker === "caller" ? "Caller" : "Assistant";
       const transcriptText = `**Live call transcript**\n${speakerLabel}: ${text}`;
 
-      ctx.sendToClient({
+      ctx.emit({
         type: "assistant_text_delta",
         text: transcriptText,
         conversationId: conversationId,
       });
-      ctx.sendToClient({
+      ctx.emit({
         type: "message_complete",
         conversationId: conversationId,
         source: "aux",
@@ -113,12 +115,12 @@ export function registerConversationNotifiers(
   registerCallCompletionNotifier(conversationId, (callSessionId: string) => {
     const summaryText = buildCallCompletionMessage(callSessionId);
 
-    ctx.sendToClient({
+    ctx.emit({
       type: "assistant_text_delta",
       text: summaryText,
       conversationId: conversationId,
     });
-    ctx.sendToClient({
+    ctx.emit({
       type: "message_complete",
       conversationId: conversationId,
       source: "aux",

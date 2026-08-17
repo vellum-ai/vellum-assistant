@@ -41,6 +41,7 @@ Centralizing through a bus also gives us:
 | `clients/web/src/hooks/use-bus-subscription.ts` | React hook wrapping `useEffect` + `subscribe` with a stable handler ref so inline arrows don't re-register on every render. |
 | `clients/web/src/hooks/use-event-bus-init.ts` | Thin React adapter. Wires the signal sources at mount and calls `sseService.attach` whenever the active assistant changes. Mounted exactly once by `RootLayout` so the bus is alive on every authenticated route. |
 | `clients/web/src/runtime/event-sources/*` | One file per host-environment signal (DOM visibility, network online/offline, Capacitor app state, Electron `powerMonitor`, Electron deep links). Each calls `publish` directly and returns an unsubscribe. |
+| `clients/web/src/runtime/event-sources/lifecycle-edge.ts` | Not a source: the shared seam the DOM-visibility and Capacitor app-state sources publish through. Collapses their two reports of one physical foreground / background edge into a single `app.resume` / `app.hidden`. |
 | `clients/web/src/lib/lifecycle-diagnostics.ts` | Bus consumer that records `app.*` / `power.*` signals into the durable lifecycle diagnostics ring so support bundles show whether any resume / visibility / network signal fired. Attached once alongside the signal sources in `use-event-bus-init.ts`. |
 | `clients/web/src/assistant/sse-service.ts` | Non-React owner of the assistant-scoped SSE connection. Opens the stream, republishes envelopes as `sse.event`, drives the bounce policy from `app.*` / `power.*` / `reachability.*` signals. |
 
@@ -64,8 +65,8 @@ Every event name in `BusEventMap` has a typed payload. Producers:
 | `sse.event` | `AssistantEventEnvelope` | Every event the bus-owned SSE connection sees. The envelope carries transport metadata (`seq`, `conversationId`, `emittedAt`); subscribers narrow on `envelope.message.type` and filter on `envelope.conversationId` themselves. |
 | `sse.opened` | `{ assistantId; cause: "fresh" \| "error" \| "watchdog" \| "resume" \| "debug" \| "anchor" }` | After each successful (re)open. `cause` lets consumers distinguish a fresh connection from a reconnect. `"debug"` is a manual `_vellumDebug.events.reconnectClient()` trigger; `"anchor"` is a cold-start anchored-replay reopen. |
 | `sse.closed` | `{ reason }` | Transport error on the SSE connection. Not published for intentional teardowns (hidden tab, reachability bounce). |
-| `app.resume` | `{ signal: "visibility" \| "app_state" \| "online" }` | Page visible, app foregrounded, or network came back online. |
-| `app.hidden` | `{ signal: "visibility" \| "app_state" }` | Page hidden or app backgrounded. |
+| `app.resume` | `{ signal: "visibility" \| "app_state" \| "online" }` | Page visible, app foregrounded, or network came back online. At most one per physical foreground edge: iOS reports the same edge twice (`visibilitychange` and Capacitor `appStateChange`, milliseconds apart) and `runtime/event-sources/lifecycle-edge.ts` collapses the pair, keeping the label of whichever source arrived first. `signal: "online"` is outside that dedup and always fires. |
+| `app.hidden` | `{ signal: "visibility" \| "app_state" }` | Page hidden or app backgrounded. Deduped per physical edge exactly like `app.resume`. Only repeats of the same edge collapse, so a hide landing between two foregrounds is always delivered. |
 | `app.online` | `{}` | `window.online` fired. Always accompanies a paired `app.resume{signal:"online"}`. |
 | `app.offline` | `{}` | `window.offline` fired. |
 | `reachability.retry-requested` | `{}` | Burst-limited reachability retry succeeded on recovery into `"ready"` from a degraded phase (`"connecting"`, `"checking"`, or `"failed"`); the bus bounces its SSE. A `"ready"` entered from `"idle"` or `"ready"` confirms an already-healthy stream (boot, remount) and does not publish. |
@@ -76,6 +77,7 @@ Every event name in `BusEventMap` has a typed payload. Producers:
 | `power.active` | `{}` | Electron host: `user-did-become-active` after idle. No bus-owned action today; future ticket may nudge stale state. Off Electron never fires. |
 | `deeplink.send` | `{ message }` | Electron host only: inbound `vellum://send?message=…` URL routed by Launch Services. Chat domain consumes to pre-fill the composer. |
 | `deeplink.openThread` | `{ threadId }` | Electron host: inbound `vellum://thread/<id>` URL. Also published by the notification-tap handler (`hooks/use-notification-tap-navigation.ts`) on every platform — Capacitor local notifications, Electron notification actions, browser `Notification.onclick` — and by APNs remote-push taps on Capacitor iOS (`runtime/push-registration.ts`). Chat domain consumes to navigate. |
+| `deeplink.sendToThread` | `{ threadId, message }` | Capacitor iOS: inbound `vellum-assistant://thread/<id>?message=…` URL (`runtime/event-sources/capacitor-deep-links.ts`), produced by the "Send Message to Chat" App Intent (LUM-3230). `parseOpenThreadDeepLink` validates the id's shape and bounds/sanitizes the message (2000 chars, typed-text control-character rules, CRLF normalized); a thread link whose message fails sanitization publishes plain `deeplink.openThread` instead, so this event always carries usable text. `useGlobalDeepLinkConsumer` navigates to the conversation, parks the message in `usePendingDeepLinkStore`, and requests composer focus: pre-filled, one tap from sent, never auto-sent, because a custom-scheme link carries no caller identity (the same interim contract as the start-voice `prompt`; JARVIS-1522 tracks the provenance seam). |
 | `deeplink.billingCheckoutComplete` | `{ status, sessionId, flow: "subscription" \| "top_up" }` | Electron host (`runtime/event-sources/electron-deep-links.ts`) and Capacitor iOS (`runtime/event-sources/capacitor-deep-links.ts`): inbound `<scheme>://billing/checkout-complete?status=…&session_id=…&flow=…` URL. The platform bounces a native-initiated Stripe Checkout here once the user finishes in the system browser (Electron) or the in-app `SFSafariViewController` (iOS). Parsers default an absent `flow` param to `subscription` (all released clients and current Pro links). `useGlobalDeepLinkConsumer` branches on `flow`: a `subscription` checkout navigates to billing with the `session_id` (opening the Pro onboarding wizard) or to the upgrade-cancel page on `status: "cancel"`; a `top_up` checkout toasts + refetches the billing summary on success with no forced navigation, and on cancel lands on billing with `billing_status=cancel`, funneling into the billing page's server-verified checkout-bonus offer flow. `AddCreditsModal` also subscribes and dismisses itself on any `top_up` return, close-only: the summary refetch on success is owned by `useGlobalDeepLinkConsumer` via `notifyCheckoutSuccess`, and the modal's Capacitor `browserFinished` listener (also close-only) cannot fire on Electron, so this event is the desktop shell's only close signal. |
 | `deeplink.startVoice` | `{ mode: "new" \| "resume", prompt: string \| null }` | Capacitor iOS: inbound `vellum-assistant://voice?mode=…&prompt=…` URL (`runtime/event-sources/capacitor-deep-links.ts`). The single native→SPA voice command channel: Siri and the Action Button (App Intents), the Dynamic Island Live Activity's tap-to-return `widgetURL`, and manual test links all arrive here. `useGlobalDeepLinkConsumer` navigates and hands the request to the live-voice starter, parking it while the layout-scoped session controller is unmounted (cold launch). `mode: "resume"` only navigates back to a running session. `prompt` is what Siri's "Ask …" intent collected before the app was up: `parseStartVoiceDeepLink` bounds it (2000 chars) and rejects control characters, but the scheme proves nothing about the sender, so it stays untrusted. The consumer parks it in the composer inbox (`deeplink.send`'s one-shot store) and never auto-sends it; with no call running it also skips the voice session (which has no text-turn frame and whose full-screen room would hide the pre-fill) and requests composer focus instead; see the hook's docstring. |
 | `deeplink.connect` | `{ url: string \| null, bundle: string \| null }` | Electron host only: inbound `<scheme>://connect` URL from the SPA pair page's "Open in the Vellum app" button or a `vellum pair --qr --app` QR code. `bundle` is a pairing bundle that prefills the Connect a Remote Assistant dialog; it is secret material, never logged or breadcrumbed (the device `code` a url+code link carries is dropped at the bridge for the same reason). `useGlobalDeepLinkConsumer` parks the request in the connect-dialog store and navigates to the assistant chooser; bundle-less links get guidance copy naming `url`'s host. |
@@ -167,6 +169,9 @@ Rules:
 2. **No `bus` parameter.** Sources call `publish` directly from
    `@/lib/event-bus`. Tests spy on `eventBus.publish` via
    `spyOn(eventBus, "publish")` after `import * as eventBus from "@/lib/event-bus"`.
+   The lifecycle pair is the one exception: the DOM-visibility and
+   Capacitor app-state sources call `publishLifecycleEdge` instead, so
+   the edge they both observe reaches the bus once.
 3. **No-op off-platform.** If the source is platform-conditioned
    (Capacitor-only, Electron-only), early-return a no-op
    unsubscribe. `useEventBusInit` calls every source unconditionally.
@@ -211,6 +216,13 @@ Rules:
   visibility, app foregrounding, AND network online. A handler that
   only cares about real foregrounding can early-return when
   `signal === "online"` (see `use-home-feed-query.ts`).
+- **One resume per foreground, plus a separate `"online"`.** A handler
+  does not have to collapse the iOS `"visibility"` + `"app_state"`
+  double-fire itself: `lifecycle-edge.ts` publishes that pair once, and
+  which of the two labels survives depends on which source the OS
+  reached first, so treat them as interchangeable. The `"online"`
+  caveat above still stands, because a reachability flip is published
+  independently and can land right next to a foreground.
 
 ## Common patterns
 

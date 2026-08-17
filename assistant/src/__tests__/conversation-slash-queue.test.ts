@@ -62,6 +62,9 @@ mock.module("../persistence/conversation-crud.js", () => ({
   getLastUserTimestampBefore: () => 0,
   reserveMessage: mock(async () => ({ id: "msg-reserve" })),
   updateMessageContent: mock(() => {}),
+  // The drain records the snapshot-stream anchor after each echo. Mocked so a
+  // sink that stamps seqs (the hub) cannot send the real recorder to SQLite.
+  recordConversationPersistedSeq: () => {},
 }));
 
 mock.module("../persistence/conversation-queries.js", () => ({

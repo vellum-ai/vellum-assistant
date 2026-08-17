@@ -314,6 +314,9 @@ mock.module("@/stores/resolved-assistants-store", () => ({
       setActiveAssistantId: setActiveAssistantIdMock,
     }),
   },
+  // Mirrors the real predicate; the module is fully replaced by this mock.
+  isConnectableFromThisDevice: (a: ResolvedAssistant) =>
+    !a.isLocal || a.cloud != null || a.ingressUrl != null,
 }));
 
 mock.module("@/utils/routes", () => ({
@@ -1543,5 +1546,120 @@ describe("SelectAssistantScreen platform-mode gate", () => {
       expect(screen.getByText("Choose an Assistant")).toBeTruthy(),
     );
     expect(screen.queryByText("Create a new assistant")).toBeNull();
+  });
+});
+
+describe("SelectAssistantScreen local registrations on the platform hub", () => {
+  // API-sourced self-hosted entries as the hub sees them: no lockfile behind
+  // them, so `cloud` is unset and reachability hinges on `ingressUrl`.
+  const makeLocalRegistration = (
+    overrides: Partial<ResolvedAssistant> = {},
+  ): ResolvedAssistant => ({
+    id: "local-reg-1",
+    name: "Mac Mini",
+    isLocal: true,
+    isPlatformHosted: false,
+    isPaired: false,
+    ...overrides,
+  });
+
+  beforeEach(() => {
+    isLocalClientValue = false;
+    hasPlatformSessionValue = true;
+    assistantSwitcherValue = true;
+  });
+
+  test("hides a local registration with no ingress", async () => {
+    assistantsValue = [
+      makePlatformAssistant(),
+      makeLocalRegistration({ ingressUrl: null }),
+    ];
+
+    render(<SelectAssistantScreen />);
+
+    await waitFor(() =>
+      expect(screen.getByText("Choose an Assistant")).toBeTruthy(),
+    );
+    const radios = screen.getAllByRole("radio");
+    expect(radios).toHaveLength(1);
+    expect(radios[0].textContent).toContain("Cloud Helper");
+    expect(screen.queryByText("Mac Mini")).toBeNull();
+  });
+
+  test("a local registration with an ingress renders and connects through the platform path", async () => {
+    assistantsValue = [
+      makePlatformAssistant(),
+      makeLocalRegistration({ ingressUrl: "https://mac.example.com" }),
+    ];
+
+    render(<SelectAssistantScreen />);
+
+    await waitFor(() =>
+      expect(screen.getByText("Choose an Assistant")).toBeTruthy(),
+    );
+    const card = screen
+      .getAllByRole("radio")
+      .find((r) => r.textContent?.includes("Mac Mini"));
+    expect(card).toBeTruthy();
+    fireEvent.click(card!);
+    fireEvent.click(screen.getByText("Continue"));
+
+    await waitFor(() =>
+      expect(connectPlatformAssistantMock).toHaveBeenCalledWith("local-reg-1"),
+    );
+    expect(connectLocalAssistantMock).not.toHaveBeenCalled();
+  });
+
+  test("labels a hub-listed self-hosted entry with its ingress host", async () => {
+    assistantsValue = [
+      makeLocalRegistration({ ingressUrl: "https://mac.example.com" }),
+    ];
+
+    render(<SelectAssistantScreen />);
+
+    await waitFor(() =>
+      expect(screen.getByText("Self-hosted · mac.example.com")).toBeTruthy(),
+    );
+    expect(screen.queryByText("On this computer")).toBeNull();
+  });
+
+  test("locks an ingress-backed local entry behind login when the platform session is gone", async () => {
+    hasPlatformSessionValue = false;
+    assistantsValue = [
+      makeLocalRegistration({ ingressUrl: "https://mac.example.com" }),
+    ];
+
+    render(<SelectAssistantScreen />);
+
+    await waitFor(() =>
+      expect(screen.getByText("Choose an Assistant")).toBeTruthy(),
+    );
+    // Locked: no selectable radio, and the card offers the login affordance.
+    expect(screen.queryAllByRole("radio")).toHaveLength(0);
+    expect(screen.getByText("Log in to use")).toBeTruthy();
+  });
+
+  test("a local entry on a local client still connects through the local path", async () => {
+    isLocalClientValue = true;
+    hasPlatformSessionValue = false;
+    assistantSwitcherValue = false;
+    assistantsValue = [
+      makeLocalRegistration({ id: "asst-local", cloud: "local" }),
+      makePlatformAssistant(),
+    ];
+
+    render(<SelectAssistantScreen />);
+
+    const card = screen
+      .getAllByRole("radio")
+      .find((r) => r.textContent?.includes("Mac Mini"));
+    expect(card).toBeTruthy();
+    fireEvent.click(card!);
+    fireEvent.click(screen.getByText("Continue"));
+
+    await waitFor(() =>
+      expect(connectLocalAssistantMock).toHaveBeenCalledWith("asst-local"),
+    );
+    expect(connectPlatformAssistantMock).not.toHaveBeenCalled();
   });
 });

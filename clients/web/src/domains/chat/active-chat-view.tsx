@@ -199,9 +199,6 @@ export function ActiveChatView() {
   // Keyboard focus: Electron host focus relay + typing auto-focus.
   useComposerKeyboard(inputRef);
 
-  // Inbound deep links: pre-fill composer with `deeplink.send` text.
-  useDeepLinkConsumer();
-
   // -------------------------------------------------------------------------
   // Derived state
   // -------------------------------------------------------------------------
@@ -238,6 +235,15 @@ export function ActiveChatView() {
     reachabilityReadyEpoch,
     onboardingDraftConversationIdRef,
   });
+
+  // Inbound deep links: pre-fill the composer with parked `deeplink.send` /
+  // `deeplink.sendToThread` / start-voice-prompt text. Registered AFTER
+  // useConversationLoader on purpose: its consume effect and the loader's
+  // switchToConversation effect can fire in the same commit (park + navigate
+  // happen in one bus callback), and effects run in registration order — were
+  // this hook first, handleConversationSwitch would read the just-set input
+  // and misfile the parked message as the *outgoing* conversation's draft.
+  useDeepLinkConsumer();
 
   // Persist the composer draft across reloads (debounced autosave + unload
   // flush) and restore it on cold load. Mounted after useConversationLoader

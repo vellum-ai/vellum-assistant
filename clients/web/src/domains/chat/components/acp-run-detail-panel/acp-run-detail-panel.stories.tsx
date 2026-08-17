@@ -2,19 +2,21 @@ import type { Meta, StoryObj } from "@storybook/react-vite";
 
 import type { AcpRunEntry } from "@/domains/chat/acp-run-store";
 
+import { DetailPanelStoryFrame } from "@/domains/chat/components/detail-panel-story-frame";
+
 import { AcpRunDetailPanel } from "./acp-run-detail-panel";
 
 const meta: Meta<typeof AcpRunDetailPanel> = {
   title: "Chat/AcpRunDetailPanel",
   component: AcpRunDetailPanel,
   parameters: {
-    layout: "centered",
+    layout: "fullscreen",
   },
   decorators: [
     (Story) => (
-      <div className="h-[600px] w-[440px]">
+      <DetailPanelStoryFrame>
         <Story />
-      </div>
+      </DetailPanelStoryFrame>
     ),
   ],
 };

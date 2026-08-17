@@ -284,7 +284,22 @@ describe("ensureByokDefaultProfiles", () => {
     ["fireworks", "balanced", "accounts/fireworks/models/kimi-k2p6"],
     [
       "fireworks",
+      "balanced",
+      "accounts/fireworks/models/deepseek-v4-flash-0731",
+    ],
+    [
+      "fireworks",
       "quality-optimized",
+      "accounts/fireworks/models/deepseek-v4-flash",
+    ],
+    [
+      "fireworks",
+      "quality-optimized",
+      "accounts/fireworks/models/deepseek-v4-flash-0731",
+    ],
+    [
+      "fireworks",
+      "cost-optimized",
       "accounts/fireworks/models/deepseek-v4-flash",
     ],
   ] as const)(

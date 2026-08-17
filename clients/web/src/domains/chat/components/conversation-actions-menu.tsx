@@ -8,24 +8,29 @@ import {
   FolderInput,
   GitBranch,
   MessageCircle,
-  Microscope,
   MoreHorizontal,
   Pencil,
   Pin,
   PinOff,
   RefreshCw,
+  Sparkles,
+  X,
 } from "lucide-react";
+import type { LucideIcon } from "lucide-react";
 import { useState, type ReactNode } from "react";
 
 import {
   buildPanelMenuItem,
   PanelMenuDivider,
+  type PanelMenuItemOptions,
 } from "@/domains/chat/components/panel-menu-item";
 import type { MoveToGroupTarget } from "@/domains/chat/utils/group-conversations";
 import { useTouchMobile } from "@/hooks/use-touch-mobile";
+import { useTranslation, type TFunction } from "@/i18n";
 import { openExternalUrl } from "@/runtime/browser";
 import { useIsNativePlatform } from "@/runtime/native-auth";
 import { BottomSheet, ContextMenu, Menu } from "@vellumai/design-library";
+import { cn } from "@vellumai/design-library/utils/cn";
 
 /**
  * Hover-revealed "more" menu for a conversation row. Renders an ellipsis
@@ -173,6 +178,7 @@ export interface ConversationMenuItemsProps {
  */
 export function renderConversationMenuItems({
   Primitive,
+  t,
   isPinned = false,
   isArchived = false,
   onPinToggle,
@@ -198,6 +204,9 @@ export function renderConversationMenuItems({
   variant = "sidebar",
 }: ConversationMenuItemsProps & {
   Primitive: ConversationMenuPrimitive;
+  /** Threaded in: these builders are plain functions, so they cannot hold
+   *  the hook themselves and their callers own the reactive binding. */
+  t: TFunction<"chat">;
 }): ReactNode {
   // The submenu shows whenever move + create are wired, even with zero
   // existing groups — "New group…" is always a valid action and is the only
@@ -209,13 +218,13 @@ export function renderConversationMenuItems({
       leftIcon={isPinned ? <PinOff size={14} /> : <Pin size={14} />}
       onSelect={onPinToggle}
     >
-      {isPinned ? "Unpin" : "Pin"}
+      {isPinned ? t("conversationActions.unpin") : t("conversationActions.pin")}
     </Primitive.Item>
   ) : null;
 
   const renameItem = onRename ? (
     <Primitive.Item leftIcon={<Pencil size={14} />} onSelect={onRename}>
-      Rename
+      {t("conversationActions.rename")}
     </Primitive.Item>
   ) : null;
 
@@ -225,11 +234,11 @@ export function renderConversationMenuItems({
         leftIcon={<ArchiveRestore size={14} />}
         onSelect={onUnarchive}
       >
-        Unarchive
+        {t("conversationActions.unarchive")}
       </Primitive.Item>
     ) : onArchive ? (
       <Primitive.Item leftIcon={<Archive size={14} />} onSelect={onArchive}>
-        Archive
+        {t("conversationActions.archive")}
       </Primitive.Item>
     ) : null;
 
@@ -239,7 +248,7 @@ export function renderConversationMenuItems({
         leftIcon={<CircleCheck size={14} />}
         onSelect={onMarkRead}
       >
-        Mark as read
+        {t("conversationActions.markRead")}
       </Primitive.Item>
     ) : !isReadonly && onMarkUnread ? (
       <Primitive.Item
@@ -247,14 +256,14 @@ export function renderConversationMenuItems({
         onSelect={onMarkUnread}
         disabled={isMarkUnreadDisabled}
       >
-        Mark as unread
+        {t("conversationActions.markUnread")}
       </Primitive.Item>
     ) : null;
 
   const moveToGroupItem = showMoveToGroup ? (
     <Primitive.Sub>
       <Primitive.SubTrigger leftIcon={<FolderInput size={14} />}>
-        Move to group
+        {t("conversationActions.moveToGroup")}
       </Primitive.SubTrigger>
       <Primitive.SubContent>
         {(moveToGroups ?? []).map((group) => (
@@ -268,12 +277,14 @@ export function renderConversationMenuItems({
         {moveToGroups && moveToGroups.length > 0 ? (
           <Primitive.Separator />
         ) : null}
-        <Primitive.Item onSelect={onCreateGroupInto}>New group…</Primitive.Item>
+        <Primitive.Item onSelect={onCreateGroupInto}>
+          {t("conversationActions.newGroup")}
+        </Primitive.Item>
         {onRemoveFromGroup ? (
           <>
             <Primitive.Separator />
             <Primitive.Item onSelect={onRemoveFromGroup}>
-              Remove from group
+              {t("conversationActions.removeFromGroup")}
             </Primitive.Item>
           </>
         ) : null}
@@ -286,7 +297,7 @@ export function renderConversationMenuItems({
       leftIcon={<ExternalLink size={14} />}
       onSelect={onOpenInNewWindow}
     >
-      {variant === "header" ? "Open in new window" : "Open in New Window"}
+      {t("conversationActions.openInNewWindow")}
     </Primitive.Item>
   ) : null;
 
@@ -300,8 +311,8 @@ export function renderConversationMenuItems({
   ) : null;
 
   const inspectItem = onInspect ? (
-    <Primitive.Item leftIcon={<Microscope size={14} />} onSelect={onInspect}>
-      Inspect
+    <Primitive.Item leftIcon={<Sparkles size={14} />} onSelect={onInspect}>
+      {t("conversationActions.inspect")}
     </Primitive.Item>
   ) : null;
 
@@ -310,7 +321,7 @@ export function renderConversationMenuItems({
       leftIcon={<Copy size={14} />}
       onSelect={onCopyConversationId}
     >
-      Copy conversation ID
+      {t("conversationActions.copyConversationId")}
     </Primitive.Item>
   ) : null;
 
@@ -322,7 +333,7 @@ export function renderConversationMenuItems({
             leftIcon={<Copy size={14} />}
             onSelect={onCopyConversation}
           >
-            Copy full conversation
+            {t("conversationActions.copyConversation")}
           </Primitive.Item>
         ) : null}
 
@@ -331,10 +342,11 @@ export function renderConversationMenuItems({
             leftIcon={<GitBranch size={14} />}
             onSelect={onForkConversation}
           >
-            Fork conversation
+            {t("conversationActions.forkConversation")}
           </Primitive.Item>
         ) : null}
 
+        {inspectItem}
         {channelSourceLinkItem}
         {openInNewWindowItem}
 
@@ -343,7 +355,7 @@ export function renderConversationMenuItems({
             leftIcon={<RefreshCw size={14} />}
             onSelect={onRefresh}
           >
-            Refresh
+            {t("conversationActions.refresh")}
           </Primitive.Item>
         ) : null}
 
@@ -352,7 +364,6 @@ export function renderConversationMenuItems({
         {moveToGroupItem}
         {archiveItem}
         {copyConversationIdItem}
-        {inspectItem}
       </>
     );
   }
@@ -375,7 +386,7 @@ export function renderConversationMenuItems({
             leftIcon={<MessageCircle size={14} />}
             onSelect={onShareFeedback}
           >
-            Share Feedback
+            {t("conversationActions.shareFeedback")}
           </Primitive.Item>
         </>
       ) : null}
@@ -392,11 +403,77 @@ export function renderConversationMenuItems({
 }
 
 /**
+ * The sheet's leading affordance: a 40px circle carrying the action's glyph,
+ * which is what separates a touch action list from the dense 14px rows the
+ * dropdown uses.
+ *
+ * The glyph reads `--panel-item-icon-fg`, the property `PanelItem` colours a
+ * bare icon with, so a chip picks up any tint the surrounding surface sets
+ * instead of pinning a colour the rest of the row would not follow.
+ */
+function actionChip(Icon: LucideIcon): ReactNode {
+  return (
+    <span
+      aria-hidden
+      className="flex size-10 shrink-0 items-center justify-center rounded-full bg-[var(--border-hover)]"
+    >
+      <Icon
+        size={16}
+        className="text-[color:var(--panel-item-icon-fg,var(--content-secondary))]"
+      />
+    </span>
+  );
+}
+
+/**
+ * Row geometry for the sheet. The chip is the row's height, so the row's own
+ * vertical padding becomes the gap between rows: 8px here reproduces the
+ * mock's 16px rhythm while leaving a 56px target to tap, which the 40px chip
+ * alone would not. Horizontal padding goes to zero because the sheet body
+ * already insets the column.
+ */
+const SHEET_ROW_CLASSES = "px-0 py-2 max-md:py-2";
+
+/** Indent for the rows under "Move to group", aligning them past the chip column. */
+const SHEET_SUBROW_CLASSES = "pl-[52px]";
+
+/**
+ * A sheet row: {@link buildPanelMenuItem} with the chip and row geometry
+ * applied. Every row in this surface goes through it, so no call site can
+ * forget the chip and render a bare glyph next to eight chipped neighbours.
+ */
+function buildSheetMenuItem({
+  icon,
+  className,
+  disabled,
+  ...options
+}: PanelMenuItemOptions): ReactNode {
+  return buildPanelMenuItem({
+    ...options,
+    disabled,
+    leadingSlot: icon ? actionChip(icon) : undefined,
+    className: cn(
+      SHEET_ROW_CLASSES,
+      // Both of these are conditional because `buildPanelMenuItem` expresses
+      // "disabled" as a text colour: an unconditional brighter label here
+      // would merge straight over the dim treatment and leave a disabled row
+      // looking live. The chip follows the label through the property it
+      // already reads for its glyph.
+      disabled
+        ? "[--panel-item-icon-fg:var(--content-disabled)]"
+        : "text-[var(--content-default)]",
+      className,
+    ),
+  });
+}
+
+/**
  * Mobile-only renderer for the bottom-sheet surface. Returns the same
  * conceptual item set as `renderConversationMenuItems` but flattened into
  * `PanelItem` rows.
  */
 export function renderConversationMenuItemsAsPanelItems({
+  t,
   isPinned = false,
   isArchived = false,
   onPinToggle,
@@ -425,25 +502,28 @@ export function renderConversationMenuItemsAsPanelItems({
 }: ConversationMenuItemsProps & {
   onClose: () => void;
   isNativePlatform?: boolean;
+  t: TFunction<"chat">;
 }): ReactNode {
   // BottomSheet is a single-level surface, so the "Move to group" submenu is
   // flattened into an inline labeled block (mirrors the desktop submenu).
   const showMoveToGroup = Boolean(onMoveToGroup && onCreateGroupInto);
   const pinItem = onPinToggle
-    ? buildPanelMenuItem({
+    ? buildSheetMenuItem({
         key: "pin",
         icon: isPinned ? PinOff : Pin,
-        label: isPinned ? "Unpin" : "Pin",
+        label: isPinned
+          ? t("conversationActions.unpin")
+          : t("conversationActions.pin"),
         run: onPinToggle,
         onClose,
       })
     : null;
 
   const renameItem = onRename
-    ? buildPanelMenuItem({
+    ? buildSheetMenuItem({
         key: "rename",
         icon: Pencil,
-        label: "Rename",
+        label: t("conversationActions.rename"),
         run: onRename,
         onClose,
       })
@@ -451,18 +531,18 @@ export function renderConversationMenuItemsAsPanelItems({
 
   const archiveItem =
     isArchived && onUnarchive
-      ? buildPanelMenuItem({
+      ? buildSheetMenuItem({
           key: "unarchive",
           icon: ArchiveRestore,
-          label: "Unarchive",
+          label: t("conversationActions.unarchive"),
           run: onUnarchive,
           onClose,
         })
       : onArchive
-        ? buildPanelMenuItem({
+        ? buildSheetMenuItem({
             key: "archive",
             icon: Archive,
-            label: "Archive",
+            label: t("conversationActions.archive"),
             run: onArchive,
             onClose,
           })
@@ -470,18 +550,18 @@ export function renderConversationMenuItemsAsPanelItems({
 
   const markReadUnreadItem =
     !isReadonly && onMarkRead
-      ? buildPanelMenuItem({
+      ? buildSheetMenuItem({
           key: "mark-read",
           icon: CircleCheck,
-          label: "Mark as read",
+          label: t("conversationActions.markRead"),
           run: onMarkRead,
           onClose,
         })
       : !isReadonly && onMarkUnread
-        ? buildPanelMenuItem({
+        ? buildSheetMenuItem({
             key: "mark-unread",
             icon: Circle,
-            label: "Mark as unread",
+            label: t("conversationActions.markUnread"),
             disabled: isMarkUnreadDisabled,
             run: onMarkUnread,
             onClose,
@@ -493,29 +573,29 @@ export function renderConversationMenuItemsAsPanelItems({
       <PanelMenuDivider />
       <div className="flex items-center gap-2 px-2 pt-2 pb-1 text-body-small-default uppercase tracking-wide text-[var(--content-tertiary)]">
         <FolderInput size={14} aria-hidden />
-        Move to group
+        {t("conversationActions.moveToGroup")}
       </div>
       {(moveToGroups ?? []).map((group) =>
-        buildPanelMenuItem({
+        buildSheetMenuItem({
           key: `move-to-${group.id}`,
           label: group.name,
-          className: "pl-7",
+          className: SHEET_SUBROW_CLASSES,
           run: () => onMoveToGroup?.(group.id),
           onClose,
         }),
       )}
-      {buildPanelMenuItem({
+      {buildSheetMenuItem({
         key: "move-to-new-group",
-        label: "New group…",
-        className: "pl-7",
+        label: t("conversationActions.newGroup"),
+        className: SHEET_SUBROW_CLASSES,
         run: () => onCreateGroupInto?.(),
         onClose,
       })}
       {onRemoveFromGroup
-        ? buildPanelMenuItem({
+        ? buildSheetMenuItem({
             key: "remove-from-group",
-            label: "Remove from group",
-            className: "pl-7",
+            label: t("conversationActions.removeFromGroup"),
+            className: SHEET_SUBROW_CLASSES,
             run: onRemoveFromGroup,
             onClose,
           })
@@ -525,18 +605,17 @@ export function renderConversationMenuItemsAsPanelItems({
 
   const openInNewWindowItem =
     onOpenInNewWindow && !isNativePlatform
-      ? buildPanelMenuItem({
+      ? buildSheetMenuItem({
           key: "open-in-new-window",
           icon: ExternalLink,
-          label:
-            variant === "header" ? "Open in new window" : "Open in New Window",
+          label: t("conversationActions.openInNewWindow"),
           run: onOpenInNewWindow,
           onClose,
         })
       : null;
 
   const channelSourceLinkItem = channelSourceLink
-    ? buildPanelMenuItem({
+    ? buildSheetMenuItem({
         key: "channel-source-link",
         icon: ExternalLink,
         label: channelSourceLink.label,
@@ -546,20 +625,20 @@ export function renderConversationMenuItemsAsPanelItems({
     : null;
 
   const inspectItem = onInspect
-    ? buildPanelMenuItem({
+    ? buildSheetMenuItem({
         key: "inspect",
-        icon: Microscope,
-        label: "Inspect",
+        icon: Sparkles,
+        label: t("conversationActions.inspect"),
         run: onInspect,
         onClose,
       })
     : null;
 
   const copyConversationIdItem = onCopyConversationId
-    ? buildPanelMenuItem({
+    ? buildSheetMenuItem({
         key: "copy-conversation-id",
         icon: Copy,
-        label: "Copy conversation ID",
+        label: t("conversationActions.copyConversationId"),
         run: onCopyConversationId,
         onClose,
       })
@@ -569,33 +648,34 @@ export function renderConversationMenuItemsAsPanelItems({
     return (
       <>
         {onCopyConversation
-          ? buildPanelMenuItem({
+          ? buildSheetMenuItem({
               key: "copy",
               icon: Copy,
-              label: "Copy full conversation",
+              label: t("conversationActions.copyConversation"),
               run: onCopyConversation,
               onClose,
             })
           : null}
 
         {onForkConversation
-          ? buildPanelMenuItem({
+          ? buildSheetMenuItem({
               key: "fork",
               icon: GitBranch,
-              label: "Fork conversation",
+              label: t("conversationActions.forkConversation"),
               run: onForkConversation,
               onClose,
             })
           : null}
 
+        {inspectItem}
         {channelSourceLinkItem}
         {openInNewWindowItem}
 
         {onRefresh
-          ? buildPanelMenuItem({
+          ? buildSheetMenuItem({
               key: "refresh",
               icon: RefreshCw,
-              label: "Refresh",
+              label: t("conversationActions.refresh"),
               run: onRefresh,
               onClose,
             })
@@ -606,7 +686,6 @@ export function renderConversationMenuItemsAsPanelItems({
         {archiveItem}
         {moveToGroupBlock}
         {copyConversationIdItem}
-        {inspectItem}
       </>
     );
   }
@@ -624,10 +703,10 @@ export function renderConversationMenuItemsAsPanelItems({
       {onShareFeedback ? (
         <>
           <PanelMenuDivider />
-          {buildPanelMenuItem({
+          {buildSheetMenuItem({
             key: "share-feedback",
             icon: MessageCircle,
-            label: "Share Feedback",
+            label: t("conversationActions.shareFeedback"),
             run: onShareFeedback,
             onClose,
           })}
@@ -667,6 +746,7 @@ export function ConversationActionsSheet({
   trigger?: ReactNode;
 }) {
   const isNativePlatform = useIsNativePlatform();
+  const { t } = useTranslation("chat");
   return (
     <BottomSheet.Root open={open} onOpenChange={onOpenChange}>
       {trigger ? (
@@ -679,20 +759,37 @@ export function ConversationActionsSheet({
           reliably favor a plain (unmarked) override here. Once content
           would come within 120px of the top of the screen, the sheet stops
           growing and its body scrolls instead. */}
+      {/* `padded={false}`: the bands below carry different insets, the header
+          sitting tighter to the grabber than the rows sit to each other, which
+          the shared uniform padding cannot express. An unpadded sheet owns its
+          safe-area allowance, hence the bottom padding here. */}
       <BottomSheet.Content
         aria-describedby={undefined}
-        className="max-h-[calc(100dvh-120px)]!"
+        padded={false}
+        className="max-h-[calc(100dvh-120px)]! pt-2 pb-[calc(24px+var(--safe-area-inset-bottom,env(safe-area-inset-bottom,0px)))]"
       >
-        <BottomSheet.Header className="sr-only">
-          <BottomSheet.Title>Conversation actions</BottomSheet.Title>
+        <BottomSheet.Grabber />
+        <BottomSheet.Header className="flex-row items-center justify-between px-4 pt-3 pb-2">
+          <BottomSheet.Title className="text-body-large-default text-[var(--content-tertiary)]">
+            {t("conversationActionsSheet.title")}
+          </BottomSheet.Title>
+          {/* `-m-2 p-2` grows the tap target to 32px without moving the
+              glyph or changing the header's height. */}
+          <BottomSheet.Close
+            aria-label={t("conversationActionsSheet.closeAriaLabel")}
+            className="-m-2 flex shrink-0 items-center justify-center p-2 text-[var(--content-tertiary)] outline-none keyboard-focus:ring-2 keyboard-focus:ring-[var(--ring)]"
+          >
+            <X size={16} aria-hidden />
+          </BottomSheet.Close>
         </BottomSheet.Header>
         {/* Scrollbar hidden, not just at rest: this sheet has no fixed
             track-width budget to spare, so a hover-revealed thumb would
             shift the row content instead. Scroll itself (wheel/trackpad/
             touch) is unaffected. */}
-        <BottomSheet.Body className="pt-0 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+        <BottomSheet.Body className="px-4 pt-3 [--panel-item-gap:12px] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
           {renderConversationMenuItemsAsPanelItems({
             ...itemProps,
+            t,
             onClose: () => onOpenChange(false),
             isNativePlatform,
           })}
@@ -724,12 +821,13 @@ export function ConversationActionsMenu({
   ...itemProps
 }: ConversationActionsMenuProps) {
   const isTouchMobile = useTouchMobile();
+  const { t } = useTranslation("chat");
   const [open, setOpen] = useState(false);
 
   const defaultTrigger = (
     <button
       type="button"
-      aria-label="Conversation actions"
+      aria-label={t("conversationActions.triggerAriaLabel")}
       onClick={(event) => event.stopPropagation()}
       onContextMenu={(event) => {
         event.stopPropagation();
@@ -767,7 +865,7 @@ export function ConversationActionsMenu({
         sideOffset={sideOffset}
         onClick={(event) => event.stopPropagation()}
       >
-        {renderConversationMenuItems({ Primitive: Menu, ...itemProps })}
+        {renderConversationMenuItems({ Primitive: Menu, t, ...itemProps })}
       </Menu.Content>
     </Menu.Root>
   );

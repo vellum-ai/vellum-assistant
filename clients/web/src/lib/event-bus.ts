@@ -32,10 +32,10 @@ import type { AssistantEventEnvelope } from "@vellumai/assistant-api";
  * `"visibility"`: `document.visibilitychange` fired with
  * `visibilityState === "visible"` on a web client.
  * `"app_state"`: Capacitor `App.appStateChange` fired with `isActive`
- * in the iOS native shell. Web + Capacitor consumers must dedup
- * `"visibility"` and `"app_state"` themselves when both arrive in
- * close succession (the bus does not — its purpose is to deliver
- * every signal it sees).
+ * in the iOS native shell. Both describe the same physical edge on iOS,
+ * where they fire milliseconds apart, so
+ * `runtime/event-sources/lifecycle-edge.ts` publishes the pair once and
+ * consumers see either label depending on which source arrived first.
  * `"online"`: `window.online` fired after `navigator.onLine` flipped
  * back to true; surfaced as a resume so consumers that just want
  * "we're probably stale, refresh" can subscribe to a single channel.
@@ -152,6 +152,21 @@ export interface BusEventMap {
    */
   "deeplink.send": { message: string };
   "deeplink.openThread": { threadId: string };
+  /**
+   * Open a conversation with a message staged in its composer:
+   * `<scheme>://thread/<id>?message=…`, produced by the iOS
+   * `SendMessageToChatIntent` (the "Send Message to Chat" Shortcuts
+   * action). Split from `deeplink.openThread` because the consumer does
+   * more than navigate: it parks `message` in `usePendingDeepLinkStore`
+   * and requests composer focus, so the user lands one tap from sent.
+   * Never auto-sent: a custom-scheme link carries no caller identity
+   * (see `useGlobalDeepLinkConsumer`'s caller-identity note; JARVIS-1522
+   * tracks the provenance seam that could change this). `message` is
+   * bounded and sanitized by `parseOpenThreadDeepLink`; a thread link
+   * whose message fails sanitization publishes plain `deeplink.openThread`
+   * instead.
+   */
+  "deeplink.sendToThread": { threadId: string; message: string };
   /**
    * Stripe Checkout finished for a checkout a native shell started
    * (the Electron shell's system browser or Capacitor iOS's in-app

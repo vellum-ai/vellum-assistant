@@ -4,6 +4,8 @@ import type { Meta, StoryObj } from "@storybook/react-vite";
 import { channelsReadinessGetQueryKey } from "@/generated/daemon/@tanstack/react-query.gen";
 import type { ChannelSetupPayload } from "@/stores/viewer-store";
 
+import { DetailPanelStoryFrame } from "@/domains/chat/components/detail-panel-story-frame";
+
 import { ChannelSetupPanel } from "./channel-setup-panel";
 
 const ASSISTANT_ID = "asst_story";
@@ -23,9 +25,9 @@ function withClient(client: QueryClient) {
   return function Decorator(Story: () => React.ReactElement) {
     return (
       <QueryClientProvider client={client}>
-        <div className="h-[600px] w-[440px]">
+        <DetailPanelStoryFrame>
           <Story />
-        </div>
+        </DetailPanelStoryFrame>
       </QueryClientProvider>
     );
   };
@@ -35,7 +37,7 @@ const meta: Meta<typeof ChannelSetupPanel> = {
   title: "Chat/ChannelSetupPanel",
   component: ChannelSetupPanel,
   parameters: {
-    layout: "centered",
+    layout: "fullscreen",
   },
   args: {
     onClose: () => {},
@@ -63,14 +65,22 @@ export const SlackConnected: Story = {
 
 export const TelegramSetup: Story = {
   args: {
-    payload: { channel: "telegram", assistantId: ASSISTANT_ID, assistantName: "Vellum" },
+    payload: {
+      channel: "telegram",
+      assistantId: ASSISTANT_ID,
+      assistantName: "Vellum",
+    },
   },
   decorators: [withClient(seededClient("telegram", false))],
 };
 
 export const PhoneSetup: Story = {
   args: {
-    payload: { channel: "phone", assistantId: ASSISTANT_ID, assistantName: "Vellum" },
+    payload: {
+      channel: "phone",
+      assistantId: ASSISTANT_ID,
+      assistantName: "Vellum",
+    },
   },
   decorators: [withClient(seededClient("phone", false))],
 };

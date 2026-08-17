@@ -404,6 +404,17 @@ export async function runAgentLoopImpl(
   // LUM-3148 removes the ambiguity by making trust ride the turn.
   ctx.currentTurnTrustContext = options?.turnTrustContext ?? ctx.trustContext;
   ctx.currentTurnChannelCapabilities = ctx.channelCapabilities;
+  // Presence is the third per-turn snapshot: whether a human is present to see
+  // UI and answer prompts. Callers declare it via `isInteractive`; a caller
+  // that omits it gets a non-interactive turn. Set before the prompt build
+  // below, which reads it (through `hasNoClient`).
+  const isInteractiveResolved = options?.isInteractive ?? false;
+  // Resolved once and threaded into every re-injection (including the
+  // post-compaction hook) rather than re-read per assembly call, and exposed
+  // to tool execution so tools (e.g. ask_question) see whether a human is
+  // present rather than re-deriving it from live state.
+  const isNonInteractive = !isInteractiveResolved;
+  ctx.currentTurnIsNonInteractive = isNonInteractive;
 
   // Re-resolve the system prompt under the snapshots just set and push it into
   // the loop when the persona changed. The loop reuses the prompt frozen at
@@ -678,19 +689,6 @@ export async function runAgentLoopImpl(
     };
   })();
 
-  const isInteractiveResolved =
-    options?.isInteractive ?? (!ctx.hasNoClient && !ctx.headlessLock);
-  // Whether the in-flight turn has no human present to answer clarification
-  // questions. Derived from the loop's `isInteractive` option (which can fall
-  // back to mutable client/headless state that flips mid-turn), so it is
-  // resolved once here and threaded into every re-injection — including the
-  // post-compaction hook — rather than re-read per assembly call.
-  const isNonInteractive = !isInteractiveResolved;
-  // Expose the resolved turn-level interactivity to tool execution so tools
-  // (e.g. ask_question) see whether a human is present to answer, rather than
-  // re-deriving it from live client state that misclassifies a scheduled turn
-  // running on a client-attached conversation.
-  ctx.currentTurnIsNonInteractive = isNonInteractive;
   const diskPressureDecision = classifyDiskPressureTurnPolicy(
     getDiskPressureStatus(),
     {

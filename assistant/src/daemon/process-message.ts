@@ -34,7 +34,6 @@ import { updateMetaFile } from "../persistence/conversation-disk-view.js";
 import { broadcastMessage } from "../runtime/assistant-event-hub.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
 import { publishConversationMessagesChanged } from "../runtime/sync/resource-sync-events.js";
-import { getSubagentManager } from "../subagent/index.js";
 import {
   readTurnFailure,
   type TurnFailure,
@@ -709,11 +708,6 @@ export async function processMessage(
     };
   }
 
-  if (options?.isInteractive === true) {
-    conversation.updateClient(broadcastMessage, false);
-    getSubagentManager().updateParentSender(conversationId, broadcastMessage);
-  }
-
   const restoreToolScope = applyTurnToolAllowlist(conversation, options);
   try {
     await conversation.runAgentLoop(resolvedContent, messageId, {
@@ -731,12 +725,6 @@ export async function processMessage(
     });
   } finally {
     restoreToolScope();
-    if (
-      options?.isInteractive === true &&
-      conversation.getCurrentSender() === broadcastMessage
-    ) {
-      conversation.updateClient(() => {}, true);
-    }
   }
 
   // Read the just-finished turn's outcome from the stamp `runAgentLoop`'s
@@ -795,11 +783,6 @@ export async function processMessageInBackground(
     return { messageId };
   }
 
-  if (options?.isInteractive === true) {
-    conversation.updateClient(broadcastMessage, false);
-    getSubagentManager().updateParentSender(conversationId, broadcastMessage);
-  }
-
   const restoreToolScope = applyTurnToolAllowlist(conversation, options);
   conversation
     .runAgentLoop(content, messageId, {
@@ -814,12 +797,6 @@ export async function processMessageInBackground(
     })
     .finally(() => {
       restoreToolScope();
-      if (
-        options?.isInteractive === true &&
-        conversation.getCurrentSender() === broadcastMessage
-      ) {
-        conversation.updateClient(() => {}, true);
-      }
     })
     .catch((err) => {
       log.error({ err, conversationId }, "Background agent loop failed");

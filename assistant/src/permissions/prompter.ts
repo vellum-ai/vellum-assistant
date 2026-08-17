@@ -36,7 +36,7 @@ export class PermissionPrompter {
    * pendingInteractions, matching the host proxy pattern.
    */
   private ownedIds = new Set<string>();
-  private sendToClient: (msg: AssistantEvent) => void;
+  private readonly sendToClient: (msg: AssistantEvent) => void;
   private onStateChanged?: ConfirmationStateCallback;
 
   constructor(sendToClient: (msg: AssistantEvent) => void) {
@@ -45,10 +45,6 @@ export class PermissionPrompter {
 
   setOnStateChanged(cb: ConfirmationStateCallback): void {
     this.onStateChanged = cb;
-  }
-
-  updateSender(sendToClient: (msg: AssistantEvent) => void): void {
-    this.sendToClient = sendToClient;
   }
 
   async prompt(

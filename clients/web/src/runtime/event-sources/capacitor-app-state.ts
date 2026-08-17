@@ -1,5 +1,5 @@
-import { publish } from "@/lib/event-bus";
 import { subscribeCapacitorListener } from "@/runtime/capacitor-listener";
+import { publishLifecycleEdge } from "@/runtime/event-sources/lifecycle-edge";
 
 /**
  * Capacitor iOS shell's `App.appStateChange` →
@@ -9,6 +9,10 @@ import { subscribeCapacitorListener } from "@/runtime/capacitor-listener";
  * `publishVisibilitySource` / `publishWindowOnlineSource`
  * / `publishElectronPowerSource` instead.
  *
+ * On iOS `visibilitychange` fires for the same physical edge, so both this
+ * source and `publishVisibilitySource` go through
+ * `runtime/event-sources/lifecycle-edge.ts` and the bus sees the edge once.
+ *
  * Lazy inline `@capacitor/app` import per CAPACITOR.md's "lazy-import rule".
  */
 export function publishCapacitorAppStateSource(): () => void {
@@ -16,9 +20,9 @@ export function publishCapacitorAppStateSource(): () => void {
     const { App } = await import("@capacitor/app");
     return App.addListener("appStateChange", ({ isActive }) => {
       if (isActive) {
-        publish("app.resume", { signal: "app_state" });
+        publishLifecycleEdge("resume", "app_state");
       } else {
-        publish("app.hidden", { signal: "app_state" });
+        publishLifecycleEdge("hidden", "app_state");
       }
     });
   });

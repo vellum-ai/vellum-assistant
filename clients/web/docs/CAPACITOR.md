@@ -82,7 +82,9 @@ Apple's [HIG — Requesting permission](https://developer.apple.com/design/human
 
 Which signal to reach for (viewport size vs pointer capability vs native platform) and where the branch belongs is covered in [`PLATFORM_ADAPTATION.md`](./PLATFORM_ADAPTATION.md).
 
-When the *only* way to act on a UI element is a hardware-keyboard gesture (e.g. `Tab` to accept an inline suggestion, `Cmd+Enter` to submit), gate its rendering on `!isPointerCoarse()` from [`@/utils/pointer`](../src/utils/pointer.ts). Touch soft keyboards on iOS and Android do not expose `Tab` or most modifier-key combinations, so the affordance is non-actionable on coarse-pointer devices and may also overflow narrow viewports if its layout depends on a paired keypress. To support touch as well, add a tap-equivalent (button, gesture) instead of suppressing.
+When the *only* way to act on a UI element is a hardware-keyboard gesture (e.g. `Tab` to accept an inline suggestion, `Cmd+Enter` to submit), gate its rendering on the coarse-pointer signal from [`@/utils/pointer`](../src/utils/pointer.ts). Touch soft keyboards on iOS and Android do not expose `Tab` or most modifier-key combinations, so the affordance is non-actionable on coarse-pointer devices and may also overflow narrow viewports if its layout depends on a paired keypress. To support touch as well, add a tap-equivalent (button, gesture) instead of suppressing.
+
+Which of the two forms depends on whether the answer has to survive the pointer changing. **A gate on rendering wants `!usePointerCoarse()`**, the subscribed hook: the affordance is on screen while a convertible's keyboard comes off or a tablet is docked into one, and a one-shot read would leave it advertising a chord the device can no longer press (or hiding one it now can). Reserve the imperative `isPointerCoarse()` for a decision taken at a moment rather than held on screen: inside an event handler, or seeding state that deliberately should not move mid-session.
 
 Reference: [MDN: `(pointer)` media feature](https://developer.mozilla.org/en-US/docs/Web/CSS/@media/pointer).
 
@@ -99,6 +101,25 @@ This matters for any library that defers touch-initiated logic to a `click` even
 References:
 - Apple — [Handling Events in Safari on iOS](https://developer.apple.com/library/archive/documentation/AppleApplications/Reference/SafariWebContent/HandlingEvents/HandlingEvents.html)
 - Radix — [`DismissableLayer` source (`usePointerDownOutside`)](https://github.com/radix-ui/primitives/blob/main/packages/react/dismissable-layer/src/dismissable-layer.tsx)
+
+---
+
+## Cancelling `pointerdown` also cancels the tap's `click` on iOS
+
+A tap on iOS Safari/WKWebView produces `pointerdown`, `touchstart`, `pointerup`, `touchend`, then the compatibility `mousedown`, `mouseup`, and `click`. Calling `preventDefault()` on `pointerdown` suppresses **the entire remainder of that sequence, `click` included**. The Pointer Events spec says `click` should still be dispatched, and Chromium does dispatch it, so this is a WebKit-only divergence that a desktop or Android check will not catch.
+
+The practical case is holding focus on an input while a button is pressed, which needs the focus transfer suppressed without losing the activation. The focus transfer rides on the compatibility `mousedown`, so cancel that one:
+
+```tsx
+// Keeps the textarea focused; the button's click still fires.
+<button onMouseDown={(event) => event.preventDefault()} />
+```
+
+Cancelling `touchstart` has the same fatal effect as cancelling `pointerdown`. Reach for `pointerdown` only when you actually want to swallow the whole gesture, and remember that Radix menus (`DropdownMenu`, `Select`, `ContextMenu`) open **on `pointerdown`**, so cancelling it there makes the trigger inert; Radix `Dialog` and `BottomSheet` triggers open on `click` and are the ones this section is about.
+
+References:
+- W3C: [Pointer Events, compatibility mouse events](https://www.w3.org/TR/pointerevents/#compatibility-mapping-with-mouse-events)
+- MDN: [`preventDefault()` on pointer events](https://developer.mozilla.org/en-US/docs/Web/API/Pointer_events)
 
 ---
 
@@ -148,7 +169,7 @@ References:
 
 Live voice is a web feature with native accessories. The session, including mic capture, the velay socket, TTS playback, and every user-facing string, lives under `src/domains/chat/voice/live-voice/`. iOS adds interruption reporting, a Dynamic Island and Lock Screen presence, and App Intents. Android adds foreground audio focus, a microphone foreground service, and an ongoing status notification. The voice-room camera is the capture exception: native mobile shells use `@capacitor-community/camera-preview`, while browsers and older shells use a web `MediaStream` fallback.
 
-The shell registers **six app-local** Capacitor plugins in [`MyViewController.capacitorDidLoad()`](../../../clients/ios/App/App/MyViewController.swift) (count them there, not from prose). `CameraPreview` is an external SPM/Gradle dependency that Capacitor discovers automatically, so it is not registered in that method.
+The shell registers **seven app-local** Capacitor plugins in [`MyViewController.capacitorDidLoad()`](../../../clients/ios/App/App/MyViewController.swift) (count them there, not from prose). `CameraPreview` is an external SPM/Gradle dependency that Capacitor discovers automatically, so it is not registered in that method.
 
 | Plugin | Web module | What it does |
 | --- | --- | --- |
@@ -158,6 +179,7 @@ The shell registers **six app-local** Capacitor plugins in [`MyViewController.ca
 | `VoiceLiveActivity` | [`src/runtime/native-live-activity.ts`](../src/runtime/native-live-activity.ts) | One ActivityKit activity on iOS or ongoing notification on Android |
 | `ApnsEnvironment` | [`src/runtime/apns-environment.ts`](../src/runtime/apns-environment.ts) | The build's real APNs entitlement environment (`development` / `production` / `unknown`), read from the embedded provisioning profile |
 | `SelfHostedServers` | [`src/runtime/self-hosted-servers.ts`](../src/runtime/self-hosted-servers.ts) | List, add, remove, and switch between self-hosted server origins; `switchTo` swaps the shell's configured origin and reloads in place. See the section below |
+| `RecentChats` | [`src/runtime/recent-chats.ts`](../src/runtime/recent-chats.ts) | Mirrors the sidebar conversation list (ids + titles) into a UserDefaults cache that backs the Shortcuts app's chat picker (`ChatEntityQuery`); synced from `ChatLayout` once the list query has resolved |
 
 The two voice plugins are consumed only through `use-live-voice-session-controller.ts` (audio session) and `use-live-activity-mirror.ts` (Live Activity), both mounted at `ChatLayout` scope so their lifetime is exactly the session's.
 

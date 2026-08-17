@@ -13,7 +13,7 @@ import {
   useMemo,
   useRef,
   useState,
-  type PointerEvent as ReactPointerEvent,
+  type MouseEvent as ReactMouseEvent,
   type ReactNode,
 } from "react";
 
@@ -61,15 +61,21 @@ import {
 import { toast } from "@vellumai/design-library/components/toast";
 
 /**
- * Keeps a press from moving focus off the composer's textarea. iOS blurs the
+ * Keeps a press from moving focus off the composer's textarea. WebKit blurs the
  * textarea on a press without focusing the pressed button, and the pills row is
  * focus-gated, so it goes away before the tap's click reaches the trigger.
  *
- * Only ever wired on the touch presentation: its bottom sheet opens on the
- * click that follows, while the mouse presentation's menu opens on the
- * pointerdown itself and cancelling that would leave the pill inert.
+ * `mousedown` is the press to cancel, not `pointerdown`. WebKit drops the whole
+ * compatibility sequence when `pointerdown` is cancelled, `click` included, and
+ * the bottom sheet opens on that click. Cancelling the compatibility `mousedown`
+ * suppresses the focus transfer and nothing else. See
+ * `clients/web/docs/CAPACITOR.md` for the event ordering this relies on.
+ *
+ * Only ever wired on the touch presentation, whose sheet opens on click. The
+ * mouse presentation's menu opens on the pointerdown before it, which this
+ * leaves alone.
  */
-function preventPointerFocusTransfer(event: ReactPointerEvent<HTMLElement>) {
+function preventPressFocusTransfer(event: ReactMouseEvent<HTMLElement>) {
   event.preventDefault();
 }
 
@@ -673,10 +679,8 @@ export function ComposerSettingsMenu({
       title={accessLabel}
       className={pillClass}
       // Touch only: the bottom sheet opens on the click that follows, so the
-      // press has to leave the composer's focus alone until then. The mouse
-      // presentation below wraps this same pill in a menu that opens on
-      // pointerdown, which this would cancel outright.
-      onPointerDown={isTouchMobile ? preventPointerFocusTransfer : undefined}
+      // press has to leave the composer's focus alone until then.
+      onMouseDown={isTouchMobile ? preventPressFocusTransfer : undefined}
     >
       <span aria-hidden="true" className={pillIconClass}>
         <AccessIcon />
@@ -724,7 +728,7 @@ export function ComposerSettingsMenu({
         className={pillClass}
         // Match the access pill: hold the composer's focus for the sheet's
         // click, and only on the touch presentation that opens that way.
-        onPointerDown={isTouchMobile ? preventPointerFocusTransfer : undefined}
+        onMouseDown={isTouchMobile ? preventPressFocusTransfer : undefined}
       >
         <span aria-hidden="true" className={pillIconClass}>
           <Sparkles />
@@ -737,7 +741,7 @@ export function ComposerSettingsMenu({
         aria-label={profileLabel}
         title={profileLabel}
         className={pillIconOnlyClass}
-        onPointerDown={isTouchMobile ? preventPointerFocusTransfer : undefined}
+        onMouseDown={isTouchMobile ? preventPressFocusTransfer : undefined}
       >
         <span aria-hidden="true" className={pillIconClass}>
           <SlidersHorizontal />
