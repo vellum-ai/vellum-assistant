@@ -209,28 +209,41 @@ function resolveOrThrow(rawId: string): string {
 // Handlers
 // ---------------------------------------------------------------------------
 
+/**
+ * Read a query parameter that admits a closed set of values. Absent or empty
+ * reads as `undefined`; anything outside `accepted` is a 400. The strictness
+ * is the point: silently coercing a typo or a newer client's value to "no
+ * filter" would hand back the full list where a subset was asked for, and
+ * that skew is invisible to the client (it masks version skew too).
+ */
+function parseEnumQueryParam<const T extends readonly string[]>(
+  queryParams: Record<string, string | undefined>,
+  name: string,
+  accepted: T,
+): T[number] | undefined {
+  const raw = queryParams[name];
+  if (raw === undefined || raw === "") {
+    return undefined;
+  }
+  if ((accepted as readonly string[]).includes(raw)) {
+    return raw as T[number];
+  }
+  throw new BadRequestError(
+    `Unknown ${name} "${raw}"; expected ${accepted.map((v) => `"${v}"`).join(" or ")}.`,
+  );
+}
+
 function handleListConversations({ queryParams = {} }: RouteHandlerArgs) {
   const limit = Number(queryParams.limit ?? 50);
   const offset = Number(queryParams.offset ?? 0);
   // "background" is the back-compat umbrella (background + scheduled); newer
   // clients can pass "scheduled" to load only the Scheduled section. Absent
-  // defaults to the standard foreground list. Any other value is rejected so
-  // an unrecognized type surfaces as a 400 rather than being silently coerced
-  // to the foreground list (which would mask client/daemon version skew).
-  const rawConversationType = queryParams.conversationType;
-  let conversationType: ConversationType = "standard";
-  if (rawConversationType !== undefined && rawConversationType !== "") {
-    if (
-      rawConversationType === "background" ||
-      rawConversationType === "scheduled"
-    ) {
-      conversationType = rawConversationType;
-    } else {
-      throw new BadRequestError(
-        `Unknown conversationType "${rawConversationType}"; expected "background" or "scheduled".`,
-      );
-    }
-  }
+  // defaults to the standard foreground list.
+  const conversationType: ConversationType =
+    parseEnumQueryParam(queryParams, "conversationType", [
+      "background",
+      "scheduled",
+    ]) ?? "standard";
   // Defaults to `active` so sidebar restores no longer pull archived rows.
   // The Archive page opts into `archived` to render only archived rows
   // without dragging the entire live history through pagination first.
@@ -251,21 +264,10 @@ function handleListConversations({ queryParams = {} }: RouteHandlerArgs) {
       ? queryParams.groupId
       : undefined;
 
-  // Only the literal "true" narrows. Anything else is a 400 for the same
-  // reason an unknown conversationType is: silently reading a typo or a
-  // newer client's value as "no filter" would return the full list where the
-  // client asked for a subset, and that skew is invisible.
-  const rawNeedsAttention = queryParams.needsAttention;
-  let needsAttention: true | undefined;
-  if (rawNeedsAttention !== undefined && rawNeedsAttention !== "") {
-    if (rawNeedsAttention === "true") {
-      needsAttention = true;
-    } else {
-      throw new BadRequestError(
-        `Unknown needsAttention "${rawNeedsAttention}"; expected "true" or omit.`,
-      );
-    }
-  }
+  const needsAttention =
+    parseEnumQueryParam(queryParams, "needsAttention", ["true"]) === "true"
+      ? true
+      : undefined;
 
   const filter: ConversationListFilter = {
     conversationType,

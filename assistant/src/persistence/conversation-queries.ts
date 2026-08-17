@@ -346,6 +346,17 @@ function originChannelClause(originChannel: string) {
   return eq(conversations.originChannel, originChannel);
 }
 
+/**
+ * The join between a conversation and its attention projection, one row per
+ * conversation in `conversation_assistant_attention_state`. Every reader of
+ * "unseen" joins on this: the list and count filters, the unread count, and
+ * the section index.
+ */
+const attentionJoin = eq(
+  conversationAssistantAttentionState.conversationId,
+  conversations.id,
+);
+
 function conversationListWhere(filter: ConversationListFilter) {
   const {
     conversationType = "standard",
@@ -365,9 +376,9 @@ function conversationListWhere(filter: ConversationListFilter) {
 
 /**
  * The joins {@link conversationListWhere}'s predicates need, applied to a
- * list or count query over `conversations`. Today that is one: the attention
- * predicate lives on `conversation_assistant_attention_state`, so
- * `needsAttention` joins it. Inner, not left: a conversation with no
+ * list or count query over `conversations`. The attention predicate lives on
+ * `conversation_assistant_attention_state`, so `needsAttention` joins it.
+ * Inner, not left: a conversation with no
  * attention row has no unseen message by definition. Joined only when the
  * filter asks, so a query without the filter runs without the join and
  * lists every conversation the predicates admit. One place for both
@@ -381,10 +392,7 @@ function withListFilterJoins<T extends SQLiteSelect>(
   if (!filter.needsAttention) {
     return query;
   }
-  return query.innerJoin(
-    conversationAssistantAttentionState,
-    eq(conversationAssistantAttentionState.conversationId, conversations.id),
-  );
+  return query.innerJoin(conversationAssistantAttentionState, attentionJoin);
 }
 
 export function listConversations(
@@ -632,10 +640,7 @@ export function countUnreadConversations(): number {
   const [{ total }] = db
     .select({ total: count() })
     .from(conversations)
-    .innerJoin(
-      conversationAssistantAttentionState,
-      eq(conversationAssistantAttentionState.conversationId, conversations.id),
-    )
+    .innerJoin(conversationAssistantAttentionState, attentionJoin)
     .where(
       and(
         conversationTypeClause("standard"),
@@ -696,11 +701,6 @@ export function countConversationSections(): ConversationSectionCounts {
     sql.raw(notBackgroundVisibilitySql()),
     ...unseenAttentionStateConditions(),
   )} THEN 1 ELSE 0 END)`;
-
-  const attentionJoin = eq(
-    conversationAssistantAttentionState.conversationId,
-    conversations.id,
-  );
 
   const groups = db
     .select({
