@@ -72,6 +72,7 @@ mock.module("@vellumai/design-library", () => {
 });
 
 import { PinnedAppNavItem } from "@/domains/chat/components/pinned-app-nav-item";
+import { viewportAxesStub } from "@/hooks/viewport-axes.test-helper";
 import { getPinColorHex } from "@/domains/chat/utils/pin-color-registry";
 import { usePinnedAppsStore } from "@/stores/pinned-apps-store";
 import type { PinnableApp, PinnedAppEntry } from "@/utils/app-pin-storage";
@@ -116,13 +117,17 @@ function seedPin(entry: PinnedAppEntry): void {
   usePinnedAppsStore.getState().togglePin(app);
 }
 
+const viewport = viewportAxesStub();
+
 beforeEach(() => {
   localStorage.clear();
   usePinnedAppsStore.setState({ pinnedApps: [], pinnedAppIds: new Set() });
+  viewport.set({ narrow: false, coarsePointer: false });
 });
 
 afterEach(() => {
   cleanup();
+  viewport.restore();
 });
 
 describe("PinnedAppNavItem", () => {
@@ -170,14 +175,23 @@ describe("PinnedAppNavItem", () => {
     expect(usePinnedAppsStore.getState().isPinned("app-1")).toBe(false);
   });
 
-  // Regression: the hover-revealed button has no hover to reveal it on
-  // touch, so it must not sit clickable-but-invisible over the row's
-  // right edge, or a tap there unpins instead of opening the app.
-  test("expanded: the hover-revealed unpin button disables its hit target on coarse pointers", () => {
-    render(<PinnedAppNavItem app={APP} active={false} collapsed={false} />);
+  /* A device with no hover has nothing to reveal the trailing button, so
+     leaving it in the row would put an invisible unpin over the row's right
+     edge and a tap there would unpin instead of opening the app. The swipe and
+     the long-press menu are that device's paths to the same command. */
+  test("expanded: no trailing unpin button where the device cannot hover", () => {
+    viewport.set({ narrow: true, coarsePointer: true });
 
-    const button = screen.getByRole("button", { name: "Unpin My App" });
-    expect(button.className).toContain("pointer-coarse:pointer-events-none");
+    const { container } = render(
+      <PinnedAppNavItem app={APP} active={false} collapsed={false} />,
+    );
+
+    expect(screen.queryByRole("button", { name: "Unpin My App" })).toBeNull();
+    // Behind the row until a swipe slides it away, hence found by attribute:
+    // it is `aria-hidden` and out of the tab path while it is back there.
+    expect(
+      container.querySelector('button[aria-label="Unpin"][aria-hidden="true"]'),
+    ).not.toBeNull();
   });
 
   /* The tile is the shape with the most riding on the menu: no hover button,

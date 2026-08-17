@@ -869,11 +869,19 @@
  * mid-operation) marks itself `data-reveal-hold`. Callers declare the part an
  * element plays, the conditions live here.
  *
- * Everything sits inside `@media (hover: hover)`, so a device that cannot hover
+ * Hiding sits inside `@media (hover: hover)`, so a device that cannot hover
  * shows the affordance outright. `hover` and `pointer` are independent media
  * features and neither follows from viewport width: an iPad in landscape
  * reports `hover: none` at 1024px, so a control behind hover there is
  * unreachable rather than tucked away.
+ *
+ * One cell holding both an affordance and the element that yields to it
+ * (`data-reveal-slot`, which `CrossfadeStack` sets) has no hover to trade them
+ * with, so there it seats them side by side: choosing between them would cost
+ * either information the row exists to carry (a count, a timestamp, a status
+ * dot) or the only way to reach a command. A row that would rather keep the
+ * space narrow omits the affordance itself where the device cannot hover, and
+ * gives the command a path of its own (swipe, long press).
  *
  * Hover is read off the row. Keyboard focus anywhere in the row reveals what
  * the row offers, whether the row itself takes focus or one of its children
@@ -965,6 +973,25 @@
     [data-reveal-yield] {
     opacity: 0;
     pointer-events: none;
+  }
+}
+
+@media (hover: none) {
+  /* Nothing trades the two occupants here, so the cell seats them side by side
+     rather than picking one: the count stays readable and the command stays
+     tappable, at the cost of the width the row would otherwise save. */
+  [data-reveal-slot]:has([data-reveal-yield]) {
+    grid-auto-flow: column;
+    gap: var(--app-spacing-xs);
+  }
+
+  [data-reveal-slot]:has([data-reveal-yield]) > * {
+    grid-area: auto;
+  }
+
+  [data-reveal-slot] [data-reveal-yield] {
+    opacity: 1;
+    pointer-events: auto;
   }
 }
 

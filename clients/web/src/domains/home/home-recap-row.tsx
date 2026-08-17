@@ -1,52 +1,42 @@
-import { Mail, MailOpen, MessageSquare, RotateCcw, Trash2 } from "lucide-react";
-import { useMemo, type ReactNode } from "react";
+import { useMemo } from "react";
 
+import { SwipeActionReveal } from "@/components/swipe-action-reveal";
+import { useShowsHoverAffordance } from "@/hooks/use-hover-affordance";
+import { useLongPressSheet } from "@/hooks/use-long-press-sheet";
 import { useTranslation } from "@/i18n";
 import { formatRelativeDate } from "@/utils/format-date";
 import type { FeedItem, FeedItemStatus } from "@vellumai/assistant-api";
 import {
   cn,
-  Tooltip,
+  CrossfadeStack,
   Typography,
   type TypographyVariant,
 } from "@vellumai/design-library";
 
 import { FeedCategoryChip } from "./feed-category-chip";
 import { resolvePreview } from "./feed-preview";
+import {
+  buildRecapActions,
+  RecapActionButtons,
+  RecapActionSheet,
+  swipeActionsFor,
+  type HomeRecapRowTrailingAction,
+} from "./home-recap-actions";
 import { resolveFeedItemTitle } from "./utils";
 
-function HoverIconButton({
-  label,
-  onClick,
-  className,
-  children,
-}: {
-  label: string;
-  onClick: () => void;
-  className?: string;
-  children: ReactNode;
-}) {
-  return (
-    <Tooltip content={label}>
-      <button
-        type="button"
-        aria-label={label}
-        onClick={(e) => {
-          e.stopPropagation();
-          onClick();
-        }}
-        className={cn(
-          "flex h-8 w-8 shrink-0 cursor-pointer items-center justify-center rounded-md",
-          "text-[var(--content-secondary)] transition-colors",
-          "hover:bg-[var(--surface-hover)] hover:text-[var(--content-default)]",
-          className,
-        )}
-      >
-        {children}
-      </button>
-    </Tooltip>
-  );
-}
+/**
+ * Marks the card's own click target, the one control a long press may arm on:
+ * it covers the whole card, so requiring a press to miss it would leave no
+ * gesture at all. Every other control (an inline action, a button a swipe has
+ * revealed) owns its own press.
+ */
+const CARD_LINK_ATTRIBUTE = "data-recap-card-link";
+const cardLinkProps = { [CARD_LINK_ATTRIBUTE]: "" };
+
+const skipRowControls = (target: Element | null) => {
+  const control = target?.closest("button, a");
+  return control != null && !control.hasAttribute(CARD_LINK_ATTRIBUTE);
+};
 
 /** Source labels that carry nothing the category chip does not already say. */
 const GENERIC_SOURCE_LABELS = new Set(["Conversation", "Other"]);
@@ -85,8 +75,6 @@ const DENSITY_STYLES: Record<HomeRecapRowDensity, DensityStyle> = {
   },
 };
 
-export type HomeRecapRowTrailingAction = "dismiss" | "restore";
-
 export interface HomeRecapRowProps {
   item: FeedItem;
   isActive?: boolean;
@@ -99,6 +87,18 @@ export interface HomeRecapRowProps {
   density?: HomeRecapRowDensity;
 }
 
+/**
+ * One item of the home recap, as a card: the item's category and source, its
+ * title, a preview of its summary, when it arrived, and the commands that act
+ * on it.
+ *
+ * Every command has a path for each input. A pointer reveals the row's inline
+ * buttons; a thumb swipes the row for the state changes and long-presses it for
+ * the full list as a sheet. The buttons are absent rather than hidden under a
+ * thumb, which is what lets the timestamp keep the cell they share: the card
+ * would otherwise trade the one piece of information it always carries for
+ * commands that are already reachable two other ways.
+ */
 export function HomeRecapRow({
   item,
   isActive = false,
@@ -112,8 +112,21 @@ export function HomeRecapRow({
 }: HomeRecapRowProps) {
   const { t } = useTranslation("home");
   const isUnread = item.status === "new";
-  const isRestore = trailingAction === "restore";
   const densityStyle = DENSITY_STYLES[density];
+
+  const actions = buildRecapActions({
+    item,
+    isUnread,
+    validConversationIds,
+    onDismiss,
+    onToggleRead,
+    onGoToThread,
+    trailingAction,
+    t,
+  });
+
+  const showsActionButtons = useShowsHoverAffordance(true);
+  const longPress = useLongPressSheet({ shouldSkip: skipRowControls });
 
   const sourceLabel =
     item.sourceLabel && !GENERIC_SOURCE_LABELS.has(item.sourceLabel)
@@ -151,8 +164,9 @@ export function HomeRecapRow({
     </Typography>
   );
 
-  return (
+  const card = (
     <div
+      data-reveal-row=""
       className={cn(
         "group relative flex w-full items-start gap-[var(--app-spacing-sm)]",
         "rounded-[var(--radius-lg)] border border-[var(--border-base)]",
@@ -171,12 +185,13 @@ export function HomeRecapRow({
         type="button"
         aria-label={title}
         onClick={() => onSelect(item)}
+        {...cardLinkProps}
         className="absolute inset-0 w-full cursor-pointer rounded-[var(--radius-lg)]"
       />
 
       {/* The gutter is reserved whether or not the item is unread, so a card
           keeps the same text alignment once it is marked read. h-8 is the
-          height of the first line, which the h-8 hover actions set, so the dot
+          height of the first line, which the h-8 action buttons set, so the dot
           sits against the meta row or the title depending on density. */}
       <div
         data-testid="home-recap-row-dot-gutter"
@@ -215,85 +230,26 @@ export function HomeRecapRow({
             titleLine
           )}
 
-          {/* Timestamp and actions share one grid cell so the card keeps a
-              stable width as they cross-fade. */}
-          <span className="ml-auto grid shrink-0 items-center justify-items-end">
+          {/* Timestamp and buttons share one cell so the card keeps a stable
+              width as they cross-fade. */}
+          <CrossfadeStack className="ml-auto justify-items-end">
             <Typography
               variant="body-small-default"
-              className={cn(
-                "col-start-1 row-start-1 text-[var(--content-tertiary)]",
-                "transition-opacity duration-150",
-                "group-hover:opacity-0 group-focus-within:opacity-0",
-              )}
+              className="text-[var(--content-tertiary)]"
+              data-reveal-yield={showsActionButtons ? "" : undefined}
             >
               {formatRelativeDate(item.timestamp)}
             </Typography>
 
-            <span
-              className={cn(
-                "col-start-1 row-start-1 flex items-center gap-[var(--app-spacing-sm)]",
-                "pointer-events-none opacity-0 transition-opacity duration-150",
-                "group-hover:pointer-events-auto group-hover:opacity-100",
-                "group-focus-within:pointer-events-auto group-focus-within:opacity-100",
-              )}
-            >
-              {isRestore ? (
-                <HoverIconButton
-                  label={t("actions.restore")}
-                  onClick={() => onDismiss(item.id)}
-                  className="w-auto gap-[var(--app-spacing-xs)] px-2"
-                >
-                  <RotateCcw width={16} height={16} aria-hidden="true" />
-                  <span className="text-body-small-default">
-                    {t("actions.restore")}
-                  </span>
-                </HoverIconButton>
-              ) : (
-                <>
-                  {onToggleRead && (
-                    <HoverIconButton
-                      label={
-                        isUnread
-                          ? t("actions.markAsRead")
-                          : t("actions.markAsUnread")
-                      }
-                      onClick={() =>
-                        onToggleRead(item.id, isUnread ? "seen" : "new")
-                      }
-                    >
-                      {isUnread ? (
-                        <MailOpen width={16} height={16} />
-                      ) : (
-                        <Mail width={16} height={16} />
-                      )}
-                    </HoverIconButton>
-                  )}
-                  {onGoToThread &&
-                    item.conversationId &&
-                    (!validConversationIds ||
-                      validConversationIds.has(item.conversationId)) && (
-                      <HoverIconButton
-                        label={t("actions.goToThread")}
-                        onClick={() => {
-                          if (isUnread && onToggleRead) {
-                            onToggleRead(item.id, "seen");
-                          }
-                          onGoToThread(item.conversationId!);
-                        }}
-                      >
-                        <MessageSquare width={16} height={16} />
-                      </HoverIconButton>
-                    )}
-                  <HoverIconButton
-                    label={t("actions.dismiss")}
-                    onClick={() => onDismiss(item.id)}
-                  >
-                    <Trash2 width={16} height={16} />
-                  </HoverIconButton>
-                </>
-              )}
-            </span>
-          </span>
+            {showsActionButtons ? (
+              <span
+                data-reveal=""
+                className="flex items-center gap-[var(--app-spacing-sm)]"
+              >
+                <RecapActionButtons actions={actions} />
+              </span>
+            ) : null}
+          </CrossfadeStack>
         </div>
 
         {densityStyle.showsMetaRow && titleLine}
@@ -311,5 +267,28 @@ export function HomeRecapRow({
         )}
       </div>
     </div>
+  );
+
+  /* The sheet is a sibling of the wrapper, not a child: React propagates events
+     through the React tree even for portalled content, so a sheet inside the
+     wrapper would have its own first tap swallowed by the long-press guard. */
+  return (
+    <>
+      <div {...longPress.wrapperProps}>
+        <SwipeActionReveal
+          leadingActions={swipeActionsFor(actions, "leading")}
+          trailingActions={swipeActionsFor(actions, "trailing")}
+          className="rounded-[var(--radius-lg)]"
+        >
+          {card}
+        </SwipeActionReveal>
+      </div>
+      <RecapActionSheet
+        actions={actions}
+        title={t("homeRecapRow.actionsTitle")}
+        open={longPress.open}
+        onOpenChange={longPress.onOpenChange}
+      />
+    </>
   );
 }
