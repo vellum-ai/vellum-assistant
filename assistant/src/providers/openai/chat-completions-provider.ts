@@ -5,6 +5,7 @@ import { isAbortReason } from "../../util/abort-reasons.js";
 import { ProviderError, type ProviderErrorReason } from "../../util/errors.js";
 import { getLogger } from "../../util/logger.js";
 import { extractRetryAfterMs } from "../../util/retry.js";
+import { partialTagSuffix as sharedPartialTagSuffix } from "../../util/think-tag-stream.js";
 import { escapeXmlAttr } from "../../util/xml.js";
 import {
   base64Source,
@@ -293,13 +294,11 @@ const OPENAI_SUPPORTED_IMAGE_TYPES = new Set([
   "image/webp",
 ]);
 
+// Think-tag scanning primitives are shared with the TTS reasoning filter
+// (util/think-tag-stream.ts) so the two stream parsers cannot drift. This
+// provider keeps its exact historical behavior: case-sensitive, <think> only.
 function partialTagSuffix(text: string, tag: string): number {
-  for (let len = Math.min(text.length, tag.length - 1); len > 0; len--) {
-    if (text.endsWith(tag.substring(0, len))) {
-      return len;
-    }
-  }
-  return 0;
+  return sharedPartialTagSuffix(text, [tag], false);
 }
 
 /**

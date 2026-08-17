@@ -18,38 +18,17 @@
  * Display paths are deliberately untouched: `assistant_text_delta` frames
  * keep the raw text, exactly like the markdown handling in
  * `calls/tts-text-sanitizer.ts`.
+ *
+ * Tag scanning lives in `util/think-tag-stream.ts`, shared with the
+ * chat-completions provider's think-tag router, and is positionally exact
+ * on the original string (no full-string lowercasing, which shifts indexes
+ * for characters like the dotted capital I).
  */
+
+import { indexOfTag, partialTagSuffix } from "../util/think-tag-stream.js";
 
 const OPEN_TAGS = ["<think>", "<thinking>"] as const;
 const CLOSE_TAGS = ["</think>", "</thinking>"] as const;
-
-/** Longest suffix of `text` that is a proper prefix of any listed tag. */
-function partialTagSuffix(text: string, tags: readonly string[]): number {
-  const max = Math.max(...tags.map((tag) => tag.length)) - 1;
-  const window = Math.min(max, text.length);
-  for (let len = window; len > 0; len -= 1) {
-    const suffix = text.slice(text.length - len).toLowerCase();
-    if (tags.some((tag) => tag.startsWith(suffix))) {
-      return len;
-    }
-  }
-  return 0;
-}
-
-function indexOfAny(
-  haystack: string,
-  tags: readonly string[],
-): { index: number; tag: string } | null {
-  const lower = haystack.toLowerCase();
-  let best: { index: number; tag: string } | null = null;
-  for (const tag of tags) {
-    const index = lower.indexOf(tag);
-    if (index >= 0 && (best === null || index < best.index)) {
-      best = { index, tag };
-    }
-  }
-  return best;
-}
 
 export class ReasoningTagFilter {
   private insideReasoning = false;
@@ -65,7 +44,7 @@ export class ReasoningTagFilter {
     let out = "";
     for (;;) {
       if (this.insideReasoning) {
-        const close = indexOfAny(this.pending, CLOSE_TAGS);
+        const close = indexOfTag(this.pending, CLOSE_TAGS, true);
         if (close) {
           this.pending = this.pending.slice(close.index + close.tag.length);
           this.insideReasoning = false;
@@ -73,18 +52,18 @@ export class ReasoningTagFilter {
         }
         // Everything buffered is reasoning except a possible partial close
         // tag at the end; drop the reasoning, keep the partial.
-        const partial = partialTagSuffix(this.pending, CLOSE_TAGS);
+        const partial = partialTagSuffix(this.pending, CLOSE_TAGS, true);
         this.pending = partial > 0 ? this.pending.slice(-partial) : "";
         return out;
       }
-      const open = indexOfAny(this.pending, OPEN_TAGS);
+      const open = indexOfTag(this.pending, OPEN_TAGS, true);
       if (open) {
         out += this.pending.slice(0, open.index);
         this.pending = this.pending.slice(open.index + open.tag.length);
         this.insideReasoning = true;
         continue;
       }
-      const partial = partialTagSuffix(this.pending, OPEN_TAGS);
+      const partial = partialTagSuffix(this.pending, OPEN_TAGS, true);
       const safeLength = this.pending.length - partial;
       out += this.pending.slice(0, safeLength);
       this.pending = partial > 0 ? this.pending.slice(safeLength) : "";

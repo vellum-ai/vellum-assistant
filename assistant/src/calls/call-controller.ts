@@ -935,8 +935,14 @@ export class CallController {
         if (!this.isCurrentRun(runVersion)) {
           return;
         }
-        fullResponseText += text;
-        ttsBuffer += reasoningFilter.push(text);
+        // One filter feeds BOTH consumers: the spoken stream and the text
+        // used for transcripts, assistant_spoke, and END_CALL/ASK_GUARDIAN
+        // marker detection. A control marker the model writes inside a
+        // reasoning span must not trigger a real action the caller never
+        // heard (review: Codex P1 on #40673).
+        const speakable = reasoningFilter.push(text);
+        fullResponseText += speakable;
+        ttsBuffer += speakable;
         ttsBuffer = stripInternalSpeechMarkers(ttsBuffer);
         flushSafeText();
       };
@@ -1015,9 +1021,11 @@ export class CallController {
       return fullResponseText;
     }
 
-    // Final sweep: release any held-back partial tag, then strip any
-    // remaining control markers from the buffer.
-    ttsBuffer += reasoningFilter.flush();
+    // Final sweep: release any held-back partial tag to both consumers,
+    // then strip any remaining control markers from the buffer.
+    const filterTail = reasoningFilter.flush();
+    fullResponseText += filterTail;
+    ttsBuffer += filterTail;
     ttsBuffer = stripInternalSpeechMarkers(ttsBuffer);
     if (ttsBuffer.length > 0) {
       emitSafeChunk(ttsBuffer);
