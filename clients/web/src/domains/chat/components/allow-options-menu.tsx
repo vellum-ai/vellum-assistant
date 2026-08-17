@@ -28,16 +28,19 @@ import { useTranslation } from "@/i18n";
  * name rides on `ActionMenu.Trigger` and Radix's `Slot` merges it onto the
  * caller's element (a prop the child does not set passes through).
  */
+export interface AllowOptionsMenuProps {
+  /** Which end of the split pill the anchored menu lines up with. */
+  align: "start" | "end";
+  /** The chevron half of the split pill, styled by the caller. */
+  trigger: ReactElement;
+  onAllowAndCreateRule: () => void;
+}
+
 export function AllowOptionsMenu({
   align,
   trigger,
   onAllowAndCreateRule,
-}: {
-  /** Which end of the split pill the anchored menu lines up with. */
-  align: "start" | "end";
-  trigger: ReactElement;
-  onAllowAndCreateRule: () => void;
-}) {
+}: AllowOptionsMenuProps) {
   const { t } = useTranslation("chat");
   const label = t("allowOptionsMenu.trigger");
 
