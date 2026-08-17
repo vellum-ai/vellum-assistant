@@ -83,13 +83,17 @@ ScopedCdpClient.send(method, params)
 
 ## Backend Precedence (macOS)
 
-| Priority | Backend                      | When selected                                                                                                                                                           | Transport            | Failover trigger                                                                         |
-| -------- | ---------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------- | ---------------------------------------------------------------------------------------- |
-| 1        | Extension / macOS host proxy | `hostBrowserProxy` present and `isAvailable()` is `true`: an SSE client with the `host_browser` capability (the extension, or on macOS the desktop bridge) is connected | SSE (hub)            | Transport error (client disconnected, no eligible client, publish failed)                |
-| 2        | cdp-inspect                  | Config `enabled: true`, OR macOS + `desktopAuto.enabled` (default) + cooldown not active                                                                                | Direct CDP WebSocket | Transport error (endpoint unreachable, WS connect failure). Records cooldown on failure. |
-| 3        | Local (Playwright)           | Always present as final fallback                                                                                                                                        | In-process CDP       | Errors propagate to the tool                                                             |
+| Priority | Backend                      | When selected                                                                                                                                                                                                                        | Transport            | Failover trigger                                                                                                                   |
+| -------- | ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | -------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
+| 1        | Extension / macOS host proxy | `extension` candidate when `hasExtensionClient(actor)` finds a chrome-extension client; otherwise `host-bridge` candidate when `isAvailable(actor)` finds a `host_browser` client and the actor's host-bridge cooldown is not active | SSE (hub)            | Transport error (client disconnected, no eligible client, publish failed). A `host-bridge` failure records the per-actor cooldown. |
+| 2        | cdp-inspect                  | Config `enabled: true`, OR macOS + `desktopAuto.enabled` (default) + cooldown not active                                                                                                                                             | Direct CDP WebSocket | Transport error (endpoint unreachable, WS connect failure). Records cooldown on failure.                                           |
+| 3        | Local (Playwright)           | Always present as final fallback                                                                                                                                                                                                     | In-process CDP       | Errors propagate to the tool                                                                                                       |
 
 After the first successful CDP command on any backend, that backend becomes **sticky** for the remainder of the tool invocation.
+
+## Host-bridge Cooldown
+
+When the `host-bridge` candidate fails with a transport error, the factory records a per-actor cooldown (`recordHostBridgeCooldown`, keyed by `sourceActorPrincipalId`, `__default__` when unresolved) for the same `desktopAuto.cooldownMs` window. While it is active, `buildCandidateList` skips the bridge (log `CDP factory: host-bridge skipped (cooldown active)`) and the turn goes straight to cdp-inspect/local. Per-actor rather than process-global because on a multi-actor cloud daemon the bridge reaches a different desktop per actor. The `extension` candidate is never cooled down.
 
 ## Desktop-auto cdp-inspect Cooldown
 
@@ -136,11 +140,11 @@ When cdp-inspect fails with a transport error during a desktop-auto attempt:
 
 **Expected telemetry/log signals:**
 
-- `cdp-factory` log: `CDP factory: built candidate list` with `candidates: [{kind: "extension", ...}, {kind: "cdp-inspect", ...}, {kind: "local", ...}]`
-- `cdp-factory` log: `CDP factory: candidate succeeded, backend is now sticky` with `candidateKind: "extension"`
+- `cdp-factory` log: `CDP factory: built candidate list` with `candidates: [{kind: "host-bridge", ...}, {kind: "cdp-inspect", ...}, {kind: "local", ...}]`
+- `cdp-factory` log: `CDP factory: candidate succeeded, backend is now sticky` with `candidateKind: "host-bridge"`
 - No `browserManager` launch log (Playwright not started).
 - The macOS client's SSE stream delivers the `host_browser_request` frames.
-- `cdp-factory` failover logs, if any, name the bridge as `candidateKind: "host-bridge"`.
+- No failover: the bridge is the first candidate and succeeds.
 
 **Difference from Scenario 1:** Same transport, different target: with no chrome-extension client on the hub roster, `resolveTargetClient` selects the macOS desktop client, which registers every host-proxy capability including `host_browser`.
 
@@ -192,7 +196,7 @@ In all scenarios, the definitive signal is the `cdp-factory` structured log:
 
 ```
 CDP factory: candidate succeeded, backend is now sticky
-  candidateKind: "extension" | "cdp-inspect" | "local"
+  candidateKind: "extension" | "host-bridge" | "cdp-inspect" | "local"
   conversationId: "<id>"
   method: "<first CDP method called>"
 ```
