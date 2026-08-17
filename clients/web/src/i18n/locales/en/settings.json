@@ -395,6 +395,7 @@
     "repairConfirmLabel": "Repair connection",
     "repairFailed": "Failed to repair the assistant connection.",
     "repairMessage": "Repairing the connection signs out other browsers and devices connected to this assistant. Continue?",
+    "repairSucceeded": "Assistant connection repaired.",
     "repairTitle": "Repair assistant connection?"
   },
   "sharedUi": {

@@ -21,6 +21,7 @@ let wakeLocalAssistantHost = mock(
   }),
 );
 let clearGatewayTokenMock = mock(() => {});
+let setSelfHostedConnectionMock = mock((_connection: unknown) => {});
 
 mock.module("@/runtime/local-mode-host", () => ({
   ...host,
@@ -65,7 +66,8 @@ mock.module("@/lib/auth/gateway-session", () => ({
 
 mock.module("@/lib/self-hosted/connection", () => ({
   getSelfHostedIngressUrl: () => null,
-  setSelfHostedConnection: () => {},
+  setSelfHostedConnection: (connection: unknown) =>
+    setSelfHostedConnectionMock(connection),
 }));
 
 const { GuardianTokenError } = host;
@@ -114,6 +116,7 @@ beforeEach(() => {
     }),
   );
   clearGatewayTokenMock = mock(() => {});
+  setSelfHostedConnectionMock = mock((_connection: unknown) => {});
   selectLocalAssistant();
 });
 
@@ -172,6 +175,7 @@ describe("primeLocalGatewayConnectionAfterRestart", () => {
     writeSelectedAssistantId("local-b");
     releaseRestartedMint?.();
     await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(setSelfHostedConnectionMock).not.toHaveBeenCalled();
 
     const latestAssistant = {
       ...localAssistant,
@@ -194,6 +198,7 @@ describe("primeLocalGatewayConnectionAfterRestart", () => {
       "http://127.0.0.1:7831/token",
       "http://127.0.0.1:7833/token",
     ]);
+    expect(setSelfHostedConnectionMock).toHaveBeenCalledTimes(1);
   });
 
   test("clears the restarted session when restoring the selection fails", async () => {

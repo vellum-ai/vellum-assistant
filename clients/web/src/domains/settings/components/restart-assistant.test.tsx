@@ -37,6 +37,7 @@ mock.module("@/i18n", () => ({
       "settings:restartAssistant.repairFailed": "Repair failed",
       "settings:restartAssistant.repairMessage":
         "Repairing signs out other browsers and devices.",
+      "settings:restartAssistant.repairSucceeded": "Connection repaired",
       "settings:restartAssistant.repairTitle": "Repair connection?",
       "settings:restartAssistant.reconnectFailed": "Reconnect failed",
     })[key] ?? key,

@@ -395,6 +395,7 @@
     "repairConfirmLabel": "Reparar conexión",
     "repairFailed": "No se pudo reparar la conexión del asistente.",
     "repairMessage": "Reparar la conexión cierra la sesión en otros navegadores y dispositivos conectados a este asistente. ¿Quieres continuar?",
+    "repairSucceeded": "Se reparó la conexión del asistente.",
     "repairTitle": "¿Reparar la conexión del asistente?"
   },
   "sharedUi": {

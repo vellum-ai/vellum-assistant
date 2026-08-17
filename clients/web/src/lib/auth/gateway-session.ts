@@ -169,6 +169,7 @@ export function seedGatewayToken(params: {
 async function acquireGatewayToken(
   tokenUrl?: string,
   guardianToken?: string,
+  commitIf: () => boolean = () => true,
 ): Promise<string> {
   const url = tokenUrl ?? "/auth/token";
   const headers: Record<string, string> = {};
@@ -186,7 +187,9 @@ async function acquireGatewayToken(
     token: string;
     expiresAt: number;
   };
-  seedGatewayToken({ token, expiresAtEpochSeconds: expiresAt, source: url });
+  if (commitIf()) {
+    seedGatewayToken({ token, expiresAtEpochSeconds: expiresAt, source: url });
+  }
   return token;
 }
 
@@ -202,12 +205,13 @@ async function acquireGatewayToken(
  */
 export interface EnsureGatewayTokenOptions {
   forceMint?: boolean;
+  commitIf?: () => boolean;
 }
 
 export async function ensureGatewayToken(
   tokenUrl?: string,
   guardianToken?: string,
-  { forceMint = false }: EnsureGatewayTokenOptions = {},
+  { forceMint = false, commitIf = () => true }: EnsureGatewayTokenOptions = {},
 ): Promise<string> {
   const source = tokenUrl ?? "/auth/token";
   const storedSource =
@@ -223,7 +227,7 @@ export async function ensureGatewayToken(
       return existing;
     }
   }
-  return acquireGatewayToken(tokenUrl, guardianToken);
+  return acquireGatewayToken(tokenUrl, guardianToken, commitIf);
 }
 
 export function getLocalTokenUrl(

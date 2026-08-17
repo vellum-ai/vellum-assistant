@@ -14,7 +14,6 @@ import {
   ensureGatewayToken,
   type EnsureGatewayTokenOptions,
   GatewayTokenError,
-  getGatewayToken,
   getLocalTokenUrl,
 } from "@/lib/auth/gateway-session";
 import { beginLocalGatewayRestart } from "@/lib/auth/local-gateway-restart";
@@ -833,7 +832,7 @@ export class UnresolvedPairedGatewayError extends Error {
  */
 export type PrimeLocalGatewayConnectionOptions = Pick<
   EnsureGatewayTokenOptions,
-  "forceMint"
+  "commitIf" | "forceMint"
 >;
 
 export async function primeLocalGatewayConnection(
@@ -876,6 +875,9 @@ export async function primeLocalGatewayConnection(
       }
       throw error;
     }
+    if (options.commitIf && !options.commitIf()) {
+      return;
+    }
     clearGatewayToken();
     setSelfHostedConnection({
       url: ingressUrl,
@@ -896,16 +898,20 @@ export async function primeLocalGatewayConnection(
   const guardianToken = assistant
     ? await fetchGuardianTokenHost(assistant.assistantId)
     : undefined;
-  await ensureGatewayToken(tokenUrl, guardianToken, {
+  const gatewayToken = await ensureGatewayToken(tokenUrl, guardianToken, {
+    commitIf: options.commitIf,
     forceMint: options.forceMint,
   });
+  if (options.commitIf && !options.commitIf()) {
+    return;
+  }
   const ingressUrl = getAuthGatewayIngressUrl(assistant);
   if (!ingressUrl) {
     return;
   }
   setSelfHostedConnection({
     url: ingressUrl,
-    token: getGatewayToken(),
+    token: gatewayToken,
   });
 }
 
@@ -1041,7 +1047,11 @@ export async function primeLocalGatewayConnectionAfterRestart(
   await primeLocalGatewayWithStartupRideout(
     assistant,
     isGatewayRestartTransient,
-    { forceMint: true },
+    {
+      commitIf: () =>
+        getSelectedAssistant()?.assistantId === assistant.assistantId,
+      forceMint: true,
+    },
   );
   let connectedAssistantId = assistantId;
   for (;;) {
@@ -1059,7 +1069,10 @@ export async function primeLocalGatewayConnectionAfterRestart(
       return;
     }
     try {
-      await primeLocalGatewayConnection(selected);
+      await primeLocalGatewayConnection(selected, {
+        commitIf: () =>
+          getSelectedAssistant()?.assistantId === selected.assistantId,
+      });
     } catch (error) {
       const latest = getSelectedAssistant();
       if (latest?.assistantId !== selected.assistantId) {

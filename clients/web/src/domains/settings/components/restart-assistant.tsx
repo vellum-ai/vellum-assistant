@@ -78,7 +78,7 @@ export function RestartAssistant({
     try {
       const result = await repairLocalAssistantAfterRestart(assistantId);
       if (result.ok) {
-        toast.success("Assistant is restarting.");
+        toast.success(t("settings:restartAssistant.repairSucceeded"));
       } else {
         if (result.reason === "repair_failed" && result.error) {
           captureError(new Error(result.error), {

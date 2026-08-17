@@ -4,6 +4,7 @@ import {
   GatewayTokenError,
   clearGatewayToken,
   ensureGatewayToken,
+  getGatewayToken,
   isGatewayAuthEnabled,
   isGatewayAuthMode,
   isRepairableGatewayTokenError,
@@ -217,6 +218,26 @@ describe("ensureGatewayToken forced mint", () => {
     ).rejects.toBeInstanceOf(GatewayTokenError);
 
     expect(isGatewayAuthMode()).toBe(true);
+  });
+
+  test("does not install a replacement when its commit guard expires", async () => {
+    selectLocalWithToken();
+    globalThis.fetch = mock(async () =>
+      Response.json({
+        token: "replacement-token",
+        expiresAt: 9_999_999_999,
+      }),
+    ) as unknown as typeof fetch;
+
+    await expect(
+      ensureGatewayToken(
+        "/assistant/__gateway/20101/auth/token",
+        "guardian-token",
+        { forceMint: true, commitIf: () => false },
+      ),
+    ).resolves.toBe("replacement-token");
+
+    expect(getGatewayToken()).toBe("current-token");
   });
 });
 
