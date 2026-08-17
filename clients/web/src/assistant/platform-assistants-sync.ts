@@ -35,6 +35,11 @@ let latestReload = 0;
 const STALE_TIME_MS = 10_000;
 let lastLoadedAt = 0;
 
+// The reload currently in flight, if any. Stale-gated refreshes coalesce onto
+// it rather than starting a duplicate whose failure would supersede (and so
+// discard) the first reload's successful write.
+let inflightReload: Promise<void> | null = null;
+
 /**
  * Load the platform assistants list into the resolved-assistants store.
  *
@@ -49,10 +54,21 @@ let lastLoadedAt = 0;
  * signed-out session's route guard doesn't wait on `assistantsHydrated`, so
  * skipping the write there is correct.
  */
-export async function reloadPlatformAssistants(): Promise<void> {
+export function reloadPlatformAssistants(): Promise<void> {
   if (isLocalClient() || isRemoteGatewayMode() || isGatewayAuthEnabled()) {
-    return;
+    return Promise.resolve();
   }
+  const run = runReload();
+  inflightReload = run;
+  void run.finally(() => {
+    if (inflightReload === run) {
+      inflightReload = null;
+    }
+  });
+  return run;
+}
+
+async function runReload(): Promise<void> {
   const gen = ++latestReload;
   const startUserId = useAuthStore.getState().user?.id ?? null;
   const isStale = (): boolean =>
@@ -94,10 +110,16 @@ export async function reloadPlatformAssistants(): Promise<void> {
  * absent until a reload or re-auth. Called on app resume and on chooser mount,
  * the moments a user would look for the new assistant. Session and mode guards
  * live here and in `reloadPlatformAssistants`, so this is a no-op for
- * logged-out hubs and non-platform modes.
+ * logged-out hubs and non-platform modes. A reload already in flight is
+ * awaited instead of duplicated; direct `reloadPlatformAssistants` callers
+ * (auth transitions, account switches) keep their latest-wins start.
  */
 export async function refreshPlatformAssistantsIfStale(): Promise<void> {
   if (!hasLivePlatformSession(useAuthStore.getState().platformSession)) {
+    return;
+  }
+  if (inflightReload) {
+    await inflightReload;
     return;
   }
   if (Date.now() - lastLoadedAt <= STALE_TIME_MS) {

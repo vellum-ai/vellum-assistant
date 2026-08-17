@@ -274,6 +274,34 @@ describe("refreshPlatformAssistantsIfStale", () => {
 
     expect(listAssistantsMock).not.toHaveBeenCalled();
   });
+
+  test("coalesces onto an in-flight reload instead of starting a duplicate", async () => {
+    const gates: Array<(result: unknown) => void> = [];
+    listAssistantsGates = gates;
+    authState = { platformSession: "present", user: { id: "u1" } };
+
+    const reload = reloadPlatformAssistants();
+    await tick();
+    expect(gates.length).toBe(1);
+
+    const refresh = refreshPlatformAssistantsIfStale();
+    await tick();
+    expect(listAssistantsMock).toHaveBeenCalledTimes(1);
+
+    const data = [{ id: "a1" }];
+    gates[0]!({ ok: true, status: 200, data });
+    await Promise.all([reload, refresh]);
+
+    // The lone reload's write lands; nothing superseded it.
+    expect(setFromApiMock).toHaveBeenCalledTimes(1);
+    expect(setFromApiMock).toHaveBeenCalledWith(data);
+
+    // The refresh path fetches again once the settled load goes stale.
+    advance(STALE_TIME_MS + 1);
+    listAssistantsGates = null;
+    await refreshPlatformAssistantsIfStale();
+    expect(listAssistantsMock).toHaveBeenCalledTimes(2);
+  });
 });
 
 describe("reloadPlatformAssistants", () => {
