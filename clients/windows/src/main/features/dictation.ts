@@ -1,4 +1,4 @@
-import { BrowserWindow, app, ipcMain, type WebContents } from "electron";
+import { BrowserWindow, app, type WebContents } from "electron";
 import path from "node:path";
 import { z } from "zod";
 
@@ -188,8 +188,7 @@ export const installDictation = (): void => {
     ([enable, deviceName, pushAudio], event) =>
       setDictationPartials(event.sender, enable, deviceName, pushAudio),
   );
-  // High-frequency fire-and-forget PCM from the partials owner, on the
-  // origin-validated registrar (no invoke round-trip per ~100ms chunk).
+  // Fire-and-forget PCM from the partials owner (no per-chunk round-trip).
   on(
     "vellum:helper:dictation:audio",
     z.tuple([z.unknown()]),
@@ -228,7 +227,6 @@ export const __resetForTesting = (
   factory?: () => NativeSidecarClient,
 ): void => {
   installed = false;
-  ipcMain.removeAllListeners("vellum:helper:dictation:audio");
   partialsOwner = null;
   finalOwner = null;
   client = null;
