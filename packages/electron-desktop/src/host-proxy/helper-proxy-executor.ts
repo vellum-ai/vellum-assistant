@@ -1,6 +1,6 @@
 /**
- * Shared base for host-proxy executors that forward a single request to the
- * native mac-helper via one JSON-RPC method and post the parsed result back.
+ * Shared base for host-proxy executors that forward a single request to a
+ * native helper via one JSON-RPC method and post the parsed result back.
  *
  * Both the computer-use (`cu.perform`) and app-control (`appControl.perform`)
  * executors are the same shape — validate the request, call the helper, parse
@@ -12,14 +12,14 @@
 
 import type { z } from "zod";
 
-import type { HostProxyExecutor } from "@vellumai/electron-desktop/host-proxy/router";
-import type { HostProxySseMessage } from "@vellumai/electron-desktop/host-proxy/sse";
-import type { HostProxyPoster } from "@vellumai/electron-desktop/host-proxy/poster";
-import type { MacHelperClient } from "../sidecar/mac-helper.client";
-import log from "../logger";
+import type { HostProxyExecutor, HostProxyLogger } from "./router";
+import type { HostProxySseMessage } from "./sse";
+import type { HostProxyPoster } from "./poster";
 
-/** Subset of the mac-helper client the executors depend on (injectable for tests). */
-export type CuHelperClient = Pick<MacHelperClient, "call">;
+/** JSON-RPC subset of the native helper client the executors depend on (injectable for tests). */
+export interface CuHelperClient {
+  call(method: string, params?: unknown): Promise<unknown>;
+}
 
 const CANCEL_TTL_MS = 30_000;
 
@@ -31,6 +31,7 @@ export type BuildParamsResult =
 export interface HostHelperProxyConfig<T> {
   /** Short label for logs, e.g. "host-cu". */
   label: string;
+  logger: HostProxyLogger;
   /** JSON-RPC method on the helper, e.g. "cu.perform". */
   method: string;
   resolveHelper: () => CuHelperClient;
@@ -57,7 +58,7 @@ export class HostHelperProxyExecutor<T> implements HostProxyExecutor {
   handleRequest(message: HostProxySseMessage, poster: HostProxyPoster): void {
     const requestId = message.requestId as string | undefined;
     if (!requestId) {
-      log.warn(`[${this.config.label}] message missing requestId`);
+      this.config.logger.warn(`[${this.config.label}] message missing requestId`);
       return;
     }
 
@@ -91,7 +92,7 @@ export class HostHelperProxyExecutor<T> implements HostProxyExecutor {
         this.config.postError(
           poster,
           requestId,
-          `mac helper returned invalid ${this.config.method} result`,
+          `native helper returned invalid ${this.config.method} result`,
         );
         return;
       }
