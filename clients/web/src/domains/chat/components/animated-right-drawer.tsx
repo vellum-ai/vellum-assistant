@@ -37,9 +37,9 @@ const HANDLE_WIDTH_PX = 8;
  *
  * The minimum is exported because it sizes more than the drawer: every detail
  * panel is as wide as this, so a story framing one derives its box from here.
- * Default and minimum are deliberately equal, so the drawer opens at its
- * narrowest and only ever gets wider by dragging: one value that is both "the
- * width a panel opens at" and "the narrowest a panel must survive".
+ * Default and minimum are equal, so the drawer opens at the same width it
+ * floors at under a drag. That floor is not absolute: a container too narrow
+ * to hold it caps the drawn width below it, see `renderWidth` below.
  */
 export const RIGHT_DRAWER_MIN_WIDTH_PX = 400;
 const RIGHT_DRAWER_DEFAULT_WIDTH_PX = RIGHT_DRAWER_MIN_WIDTH_PX;
