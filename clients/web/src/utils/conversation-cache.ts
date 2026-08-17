@@ -167,6 +167,23 @@ export async function invalidateConversationQueries(
 
 type ConversationUpdater = (conversations: Conversation[]) => Conversation[];
 
+/**
+ * `page` with `updater` applied to its rows, or `page` itself (same
+ * reference) when the updater returned the rows unchanged. The one place
+ * the row-level updater contract meets the page shape: `hasMore` rides
+ * along untouched, and reference identity carries "nothing changed" so
+ * callers can skip the write.
+ */
+function updatePage(
+  page: ConversationListPage,
+  updater: ConversationUpdater,
+): ConversationListPage {
+  const next = updater(page.conversations);
+  return next === page.conversations
+    ? page
+    : { conversations: next, hasMore: page.hasMore };
+}
+
 function updateCache(
   queryClient: QueryClient,
   queryKey: readonly unknown[],
@@ -174,11 +191,8 @@ function updateCache(
 ): void {
   queryClient.setQueryData<ConversationListPage>(queryKey, (prev) => {
     const page = prev ?? EMPTY_PAGE;
-    const next = updater(page.conversations);
-    if (next === page.conversations) {
-      return prev;
-    }
-    return { conversations: next, hasMore: page.hasMore };
+    const next = updatePage(page, updater);
+    return next === page ? prev : next;
   });
 }
 
@@ -262,12 +276,9 @@ export function updateAllConversationCaches(
     if (!data) {
       continue;
     }
-    const next = updater(data.conversations);
-    if (next !== data.conversations) {
-      queryClient.setQueryData<ConversationListPage>(queryKey, {
-        conversations: next,
-        hasMore: data.hasMore,
-      });
+    const next = updatePage(data, updater);
+    if (next !== data) {
+      queryClient.setQueryData<ConversationListPage>(queryKey, next);
     }
   }
 }
