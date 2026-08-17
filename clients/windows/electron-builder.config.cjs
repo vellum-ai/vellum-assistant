@@ -31,13 +31,6 @@ module.exports = {
     { from: "resources/tray.ico", to: "tray.ico" },
     { from: "resources/cli-runtime", to: "cli-runtime" },
   ],
-  fileAssociations: [
-    {
-      ext: "vellum",
-      name: "Vellum Bundle",
-      description: "Vellum App Bundle",
-    },
-  ],
   win: {
     target: [
       {

@@ -15,6 +15,7 @@ import type {
   CapabilityModule,
   DesktopCapabilityRegistry,
 } from "@vellumai/electron-desktop/capability-registry";
+import { onFileOpen } from "@vellumai/electron-desktop/file-open";
 
 import { RENDERER_BASE_PROD, getDevRendererBase } from "../app-config";
 import { handle, on } from "../ipc.client";
@@ -36,6 +37,10 @@ const bundles: CapabilityModule<DesktopCapabilityRegistry> = {
     });
     installBundleFlow();
     registry.provide(bundleFileHandlerToken, handleBundleFile);
+    const stopFileOpen = onFileOpen((filePath) => {
+      void handleBundleFile(filePath);
+    });
+    app.once("before-quit", stopFileOpen);
   },
 };
 
