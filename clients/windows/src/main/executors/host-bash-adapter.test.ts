@@ -107,10 +107,9 @@ describe("windows host-bash adapter", () => {
   test.skipIf(!hasPowerShell)(
     "round-trips Unicode output",
     async () => {
-      const result = await runToResult(
-        "[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; Write-Output 'héllo wörld'",
-        "w3",
-      );
+      // The command sets no encoding itself; the adapter's UTF-8 preamble
+      // must keep non-ASCII output intact.
+      const result = await runToResult("Write-Output 'héllo wörld'", "w3");
       expect((result.stdout as string).trim()).toBe("héllo wörld");
     },
     TEST_TIMEOUT_MS,

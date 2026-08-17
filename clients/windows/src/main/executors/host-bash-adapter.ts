@@ -18,6 +18,18 @@ import {
 const POWERSHELL_EXECUTABLE = "powershell.exe";
 
 /**
+ * Windows PowerShell writes redirected stdout/stderr using
+ * [Console]::OutputEncoding (the OEM code page by default), while the shared
+ * executor decodes the pipes as UTF-8, so output encoding is forced to UTF-8
+ * before the user command runs. The try/catch guards hosts where the console
+ * handle rejects the setter; $OutputEncoding covers text piped into native
+ * commands.
+ */
+const UTF8_OUTPUT_PREAMBLE =
+  "try { [Console]::OutputEncoding = [System.Text.Encoding]::UTF8 } catch {}; " +
+  "$OutputEncoding = [System.Text.Encoding]::UTF8; ";
+
+/**
  * -NoProfile and -NonInteractive keep execution deterministic and prompt
  * free; -EncodedCommand carries the command as base64 UTF-16LE so quoting
  * and Unicode survive Windows command-line re-parsing untouched.
@@ -33,7 +45,7 @@ const createPowerShellSpec = (
       "-ExecutionPolicy",
       "Bypass",
       "-EncodedCommand",
-      Buffer.from(command, "utf16le").toString("base64"),
+      Buffer.from(UTF8_OUTPUT_PREAMBLE + command, "utf16le").toString("base64"),
     ],
   }),
 });

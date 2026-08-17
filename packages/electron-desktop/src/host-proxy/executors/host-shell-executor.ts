@@ -75,6 +75,9 @@ function handleRequest(
     cwd: workingDir,
     env,
     stdio: ["ignore", "pipe", "pipe"],
+    // No-op off Windows; on Windows it stops every command from flashing a
+    // visible console window over the desktop.
+    windowsHide: true,
   });
 
   const entry: RunningProcess = {
