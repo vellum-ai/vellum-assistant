@@ -6,10 +6,17 @@ import { Toggle } from "./toggle";
 const meta: Meta<typeof Toggle> = {
   title: "Components/Toggle",
   component: Toggle,
+  argTypes: {
+    size: { control: "inline-radio", options: ["md", "sm"] },
+    onChange: { control: false },
+  },
   args: {
     checked: false,
     label: "Airplane mode",
     disabled: false,
+    // Mirrors the component's own default, so Controls opens on the real
+    // starting value instead of a blank size.
+    size: "md",
   },
   // Controlled: drive `checked` from the arg and write it back on change so
   // the Controls panel and canvas stay in sync.

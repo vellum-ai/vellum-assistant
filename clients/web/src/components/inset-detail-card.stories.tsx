@@ -13,6 +13,12 @@ import { InsetDetailCard } from "./inset-detail-card";
 const meta: Meta<typeof InsetDetailCard> = {
   title: "Components/InsetDetailCard",
   component: InsetDetailCard,
+  // No union props here; the slots are marked uneditable so Controls offers
+  // only the text props it can actually drive.
+  argTypes: {
+    accessory: { control: false },
+    children: { control: false },
+  },
   parameters: { layout: "centered" },
   decorators: [
     (Story) => (

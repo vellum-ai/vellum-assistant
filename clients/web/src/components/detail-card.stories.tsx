@@ -13,6 +13,11 @@ import { DetailCard } from "./detail-card";
 const meta: Meta<typeof DetailCard> = {
   title: "Components/DetailCard",
   component: DetailCard,
+  argTypes: {
+    variant: { control: "inline-radio", options: ["default", "danger"] },
+    accessory: { control: false },
+    children: { control: false },
+  },
   parameters: { layout: "centered" },
   decorators: [
     (Story) => (
