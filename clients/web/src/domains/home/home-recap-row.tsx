@@ -1,7 +1,7 @@
 import { useMemo } from "react";
 
 import { SwipeActionReveal } from "@/components/swipe-action-reveal";
-import { useShowsHoverAffordance } from "@/hooks/use-hover-affordance";
+import { useHoverCapable } from "@/hooks/use-hover-affordance";
 import { useLongPressSheet } from "@/hooks/use-long-press-sheet";
 import { useTranslation } from "@/i18n";
 import { formatRelativeDate } from "@/utils/format-date";
@@ -19,6 +19,7 @@ import {
   buildRecapActions,
   RecapActionButtons,
   RecapActionSheet,
+  RecapActionsTrigger,
   swipeActionsFor,
   type HomeRecapRowTrailingAction,
 } from "./home-recap-actions";
@@ -93,11 +94,12 @@ export interface HomeRecapRowProps {
  * on it.
  *
  * Every command has a path for each input. A pointer reveals the row's inline
- * buttons; a thumb swipes the row for the state changes and long-presses it for
- * the full list as a sheet. The buttons are absent rather than hidden under a
- * thumb, which is what lets the timestamp keep the cell they share: the card
- * would otherwise trade the one piece of information it always carries for
- * commands that are already reachable two other ways.
+ * buttons, which share a cell with the timestamp and cross-fade with it. Where
+ * the device cannot hover there is nothing to trade that cell with, so the
+ * timestamp keeps it and the commands move behind one button beside it that
+ * opens them as a sheet. A swipe reaches the state changes directly and a long
+ * press opens the same sheet: accelerators for a thumb, on top of a control that
+ * is always there to be found, named, and focused.
  */
 export function HomeRecapRow({
   item,
@@ -125,8 +127,11 @@ export function HomeRecapRow({
     t,
   });
 
-  const showsActionButtons = useShowsHoverAffordance(true);
+  /* Which shape the commands take, not whether they are reachable: the row
+     offers all of them either way. */
+  const showsActionButtons = useHoverCapable();
   const longPress = useLongPressSheet({ shouldSkip: skipRowControls });
+  const actionsLabel = t("homeRecapRow.actionsTitle");
 
   const sourceLabel =
     item.sourceLabel && !GENERIC_SOURCE_LABELS.has(item.sourceLabel)
@@ -250,6 +255,14 @@ export function HomeRecapRow({
               </span>
             ) : null}
           </CrossfadeStack>
+
+          {showsActionButtons ? null : (
+            <RecapActionsTrigger
+              label={actionsLabel}
+              expanded={longPress.open}
+              onOpen={() => longPress.onOpenChange(true)}
+            />
+          )}
         </div>
 
         {densityStyle.showsMetaRow && titleLine}
@@ -285,7 +298,7 @@ export function HomeRecapRow({
       </div>
       <RecapActionSheet
         actions={actions}
-        title={t("homeRecapRow.actionsTitle")}
+        title={actionsLabel}
         open={longPress.open}
         onOpenChange={longPress.onOpenChange}
       />

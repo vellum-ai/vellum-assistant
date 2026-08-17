@@ -175,18 +175,21 @@ describe("PinnedAppNavItem", () => {
     expect(usePinnedAppsStore.getState().isPinned("app-1")).toBe(false);
   });
 
-  /* A device with no hover has nothing to reveal the trailing button, so
-     leaving it in the row would put an invisible unpin over the row's right
-     edge and a tap there would unpin instead of opening the app. The swipe and
-     the long-press menu are that device's paths to the same command. */
-  test("expanded: no trailing unpin button where the device cannot hover", () => {
+  /* The row's one command stays a named, focusable control where the device
+     cannot hover: the swipe button behind the row is out of the accessibility
+     tree until a swipe reveals it, and a long press is not something a screen
+     reader or switch control can announce. */
+  test("expanded: keeps the trailing unpin button where the device cannot hover", () => {
     viewport.set({ narrow: true, coarsePointer: true });
+    seedPin(APP);
 
     const { container } = render(
       <PinnedAppNavItem app={APP} active={false} collapsed={false} />,
     );
 
-    expect(screen.queryByRole("button", { name: "Unpin My App" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Unpin My App" }));
+    expect(usePinnedAppsStore.getState().isPinned("app-1")).toBe(false);
+
     // Behind the row until a swipe slides it away, hence found by attribute:
     // it is `aria-hidden` and out of the tab path while it is back there.
     expect(

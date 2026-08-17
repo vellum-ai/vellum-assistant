@@ -27,7 +27,7 @@ import { feedItem } from "./feed-test-fixtures";
 
 /** A mouse: the row's inline controls are the path to its commands. */
 const MOUSE: ViewportAxes = { narrow: false, coarsePointer: false };
-/** A phone: no hover to reveal anything, so gestures are that path instead. */
+/** A phone: no hover to reveal anything, so the commands move behind a button. */
 const TOUCH: ViewportAxes = { narrow: true, coarsePointer: true };
 
 const viewport = viewportAxesStub();
@@ -227,6 +227,34 @@ describe("HomeRecapRow on a device that cannot hover", () => {
     );
     expect(screen.queryByRole("button", { name: "Dismiss" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Mark as read" })).toBeNull();
+  });
+
+  /* The gestures are accelerators, so the row still needs one control that can
+     be found by name and reached by a keyboard, a screen reader, or switch
+     control. */
+  test("names a visible control that opens every command as a sheet", async () => {
+    const { dismissed } = renderRow();
+
+    const trigger = screen.getByRole("button", { name: "Update Actions" });
+    expect(trigger.getAttribute("aria-expanded")).toBe("false");
+
+    fireEvent.click(trigger);
+
+    const sheet = screen.getByRole("dialog");
+    for (const label of ["Mark as read", "Go to thread", "Dismiss"]) {
+      expect(sheet.textContent?.includes(label)).toBe(true);
+    }
+
+    fireEvent.click(screen.getByRole("button", { name: "Dismiss" }));
+    expect(dismissed).toEqual(["feed-1"]);
+  });
+
+  test("opening the commands does not also open the item", () => {
+    const { selected } = renderRow();
+
+    fireEvent.click(screen.getByRole("button", { name: "Update Actions" }));
+
+    expect(selected).toEqual([]);
   });
 
   test("a swipe reaches the commands that change the item's state", () => {

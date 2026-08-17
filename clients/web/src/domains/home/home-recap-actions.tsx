@@ -1,4 +1,5 @@
 import {
+  Ellipsis,
   Mail,
   MailOpen,
   MessageSquare,
@@ -178,11 +179,54 @@ export function RecapActionButtons({ actions }: { actions: RecapAction[] }) {
 }
 
 /**
- * The same commands as a sheet, for the long press that opens it.
+ * The one control that reaches the commands where the device cannot hover,
+ * opening the same sheet a long press does.
  *
- * The presentation is pinned rather than resolved from input capability: a
- * gesture on the row has no trigger to anchor a menu to, and the pointer surface
- * reaches these commands through the row's own buttons.
+ * A gesture is an accelerator and cannot be the only route: a swipe's buttons
+ * are outside the accessibility tree until the swipe reveals them, and a long
+ * press is not something a screen reader or switch control announces. This
+ * button is, which is what keeps every command reachable by name.
+ */
+export function RecapActionsTrigger({
+  label,
+  expanded,
+  onOpen,
+}: {
+  label: string;
+  expanded: boolean;
+  onOpen: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      aria-label={label}
+      aria-haspopup="dialog"
+      aria-expanded={expanded}
+      onClick={(event) => {
+        event.stopPropagation();
+        onOpen();
+      }}
+      /* `pointer-events-auto`: the card's content stack takes no pointer events
+         so the stretched link behind it answers a tap anywhere, which every
+         control standing above it has to opt back out of. */
+      className={cn(
+        "pointer-events-auto flex h-8 w-8 shrink-0 cursor-pointer items-center justify-center rounded-md",
+        "text-[var(--content-secondary)] transition-colors",
+        "hover:bg-[var(--surface-hover)] hover:text-[var(--content-default)]",
+      )}
+    >
+      <Ellipsis width={16} height={16} aria-hidden="true" />
+    </button>
+  );
+}
+
+/**
+ * The same commands as a sheet, opened by the trigger above or by a long press
+ * on the row.
+ *
+ * The presentation is pinned rather than resolved from input capability: the
+ * sheet stands in for the row's inline buttons wherever those are absent, which
+ * is the hoverless case the sheet is already the right surface for.
  */
 export function RecapActionSheet({
   actions,

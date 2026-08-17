@@ -3,7 +3,6 @@ import { PinOff, Rocket } from "lucide-react";
 import { SwipeActionReveal } from "@/components/swipe-action-reveal";
 import { PinnedAppColorSwatches } from "@/domains/chat/components/pinned-app-color-swatches";
 import { pinTintStyle } from "@/domains/chat/utils/pin-color-registry";
-import { useShowsHoverAffordance } from "@/hooks/use-hover-affordance";
 import { usePinnedAppsStore } from "@/stores/pinned-apps-store";
 import type { PinnedAppEntry } from "@/utils/app-pin-storage";
 import type { SwipeAction } from "@/hooks/use-swipe-to-reveal";
@@ -44,9 +43,12 @@ export interface PinnedAppNavItemProps {
  * swipe. The tile omits that: it has nowhere to swipe to, and the actions a
  * swipe reveals are sized for a full-width row.
  *
- * Where the device can hover, a third path: an unpin button on the row's
- * trailing edge, revealed with the row. It is absent rather than hidden under a
- * thumb, so a tap at the row's right edge opens the app instead of unpinning it.
+ * A third path on the expanded row: an unpin button on its trailing edge,
+ * revealed with the row where the device can hover and standing there where it
+ * cannot. The row has one command, so hiding it would leave a screen reader and
+ * a switch control nothing to announce: a swipe's buttons are outside the
+ * accessibility tree until the swipe reveals them, and neither a swipe nor a
+ * long press is a control anything can name.
  */
 export function PinnedAppNavItem({
   app,
@@ -56,9 +58,6 @@ export function PinnedAppNavItem({
 }: PinnedAppNavItemProps) {
   const unpin = usePinnedAppsStore.use.unpin();
   const setColor = usePinnedAppsStore.use.setColor();
-  /* Swipe and long-press both reach the unpin under a thumb, so the row's
-     trailing button is a pointer convenience rather than the only route. */
-  const showsUnpinButton = useShowsHoverAffordance(true);
 
   /* The pin's colour, as the three custom properties both shapes read, and
      `undefined` on an uncoloured pin so neither shape sees a declaration and
@@ -148,19 +147,17 @@ export function PinnedAppNavItem({
       active={active}
       onSelect={onOpen ? () => onOpen(app.appId) : undefined}
       trailingAction={
-        showsUnpinButton ? (
-          <button
-            type="button"
-            aria-label={`Unpin ${app.name}`}
-            onClick={(event) => {
-              event.stopPropagation();
-              unpin(app.appId);
-            }}
-            className="flex h-5 w-5 items-center justify-center rounded-[4px] text-[var(--content-tertiary)] hover:bg-[var(--surface-hover)] hover:text-[var(--content-secondary)]"
-          >
-            <PinOff size={12} aria-hidden />
-          </button>
-        ) : undefined
+        <button
+          type="button"
+          aria-label={`Unpin ${app.name}`}
+          onClick={(event) => {
+            event.stopPropagation();
+            unpin(app.appId);
+          }}
+          className="flex h-5 w-5 items-center justify-center rounded-[4px] text-[var(--content-tertiary)] hover:bg-[var(--surface-hover)] hover:text-[var(--content-secondary)]"
+        >
+          <PinOff size={12} aria-hidden />
+        </button>
       }
     />
   );
