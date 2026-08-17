@@ -217,10 +217,12 @@ background service with no further user interaction required:
    auto-bootstraps credentials (local pair token or cloud JWT) as part
    of the single-click flow.
 3. **Forget it**: The extension keeps its SSE subscription up indefinitely.
-   Keepalive frames prevent MV3 idle suspension. Exponential-backoff
-   reconnect handles transient drops. Silent token refresh re-bootstraps
-   credentials when they expire. The `autoConnect` flag persists across
-   browser sessions so reopening Chrome automatically reconnects.
+   A `chrome.alarms` alarm (`vellum-relay-keepalive`, every 30 s) wakes the
+   MV3 service worker and reconnects the stream if it is closed; transient
+   drops reconnect with exponential backoff (`sse-connection.ts`). The
+   `autoConnect` flag persists across browser sessions so reopening Chrome
+   automatically reconnects. An authentication failure is not retried
+   silently: it surfaces as the `auth_required` health state below.
 
 Users should only interact with the extension again when:
 
@@ -229,12 +231,17 @@ Users should only interact with the extension again when:
 - The popup shows **Action required** (`auth_required` or `error` health
   state), meaning automatic recovery has been exhausted.
 
-The `cdp-inspect` backend is **not** a fallback for transient extension
-interruptions. The CDP client factory intentionally skips cdp-inspect
-when the extension proxy exists but is temporarily unavailable, giving
-the extension's automatic recovery time to restore the connection.
-`cdp-inspect` is an advanced, opt-in backend for users who cannot install
-the extension or who need broad session-level CDP access; see
+A transient extension disconnect does change backend selection. In auto
+mode `buildCandidateList` reads the hub roster at the start of each
+browser operation: with no chrome-extension client connected it skips the
+`extension` candidate and the chain proceeds to `host-bridge` (macOS),
+cdp-inspect (opt-in, or desktop-auto on macOS), then local; and an
+extension that drops mid-command surfaces a `transport_error`, which
+advances the chained client to the next candidate. Only a dispatch pinned
+with `browser_mode: "extension"` waits through the proxy's reconnect grace
+(`EXTENSION_RECONNECT_GRACE_MS`, 3 s) before failing. `cdp-inspect` is an
+advanced backend for users who cannot install the extension or who need
+broad session-level CDP access; see
 [the `cdp-inspect` backend doc](../../docs/browser-use-cdp-inspect-backend.md).
 
 ## Known UX considerations
@@ -276,7 +283,7 @@ Alternatives considered:
   and avoids the per-tab debugger infobar entirely. It is implemented
   and opt-in via `hostBrowser.cdpInspect.enabled`; see
   [the `cdp-inspect` backend doc](../../docs/browser-use-cdp-inspect-backend.md)
-  for setup, security trade-offs, and troubleshooting. Note: the
-  `cdp-inspect` backend does **not** activate as a fallback during
-  transient extension disconnects; the extension-first routing logic
-  in the CDP client factory prevents silent backend drift.
+  for setup, security trade-offs, and troubleshooting. Note that in auto
+  mode it is also the next candidate after `host-bridge` when the
+  extension is disconnected at the start of an operation (see the
+  steady-state contract above).
