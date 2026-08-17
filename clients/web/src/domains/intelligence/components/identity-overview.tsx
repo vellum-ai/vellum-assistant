@@ -943,18 +943,16 @@ function OverviewBento({
       ? schedulesStat.items.length + schedulesStat.more
       : undefined;
     const signature = stats["personality"]?.signature;
-    // Glass, on both backdrops. The blur is what makes a 30% wash read as a
-    // card rather than a dimmed patch of whatever it happens to sit over, so
-    // it belongs to the card's own treatment and not to the photo case that
-    // first needed it. The border goes with it: on a translucent face a
-    // drawn edge competes with the one the blur already implies.
+    // A translucent face needs the blur to read as a card rather than a dimmed
+    // patch of whatever sits behind it, and needs no drawn edge, which would
+    // compete with the one the blur implies.
     const featureCardClass =
       "w-full rounded-[12px] border border-transparent bg-[var(--card-feature-bg,var(--card-bg))] backdrop-blur-[32px]";
 
     return (
       <div
         ref={setContainerRef}
-        className="identity-bento relative flex min-h-0 flex-1 flex-col items-center gap-6 overflow-y-auto px-3 py-4"
+        className="identity-bento relative flex min-h-0 flex-1 flex-col items-center gap-6 overflow-y-auto px-2 py-4"
         style={
           photoBackdrop
             ? // The photo backdrop's palette is fixed light-on-dark in every
