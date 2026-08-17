@@ -14,6 +14,10 @@
     "allowAndCreateRule": "Allow & Create Rule",
     "trigger": "More allow options"
   },
+  "appAssetActions": {
+    "appExported": "App exported",
+    "shareFailed": "Failed to share app"
+  },
   "assistantSideMenu": {
     "bulkActionMembersFailed": "Couldn't load every conversation in this section. Try again."
   },
@@ -172,11 +176,6 @@
     "closeAriaLabel": "Close",
     "title": "Conversation Actions"
   },
-  "conversationAssetActions": {
-    "appExported": "App exported",
-    "pdfDownloadFailed": "Failed to download PDF",
-    "shareFailed": "Failed to share app"
-  },
   "conversationAssets": {
     "ariaLabel": "Conversation assets, {count, plural, one {# item} other {# items}}",
     "ariaLabelUnseen": "Conversation assets, {count, plural, one {# item} other {# items}} (unseen changes)",
@@ -195,6 +194,9 @@
   },
   "detailPanelStopButton": {
     "tooltip": "Stop"
+  },
+  "documentAssetActions": {
+    "pdfDownloadFailed": "Failed to download PDF"
   },
   "exportProgressModal": {
     "cancel": "Cancel",

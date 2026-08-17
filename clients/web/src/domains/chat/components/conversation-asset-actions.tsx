@@ -93,11 +93,11 @@ export const AppAssetActions: FC<AppAssetActionsProps> = ({
     setIsSharing(true);
     try {
       await shareApp(assistantId, app.id, app.name);
-      toast.success(t("chat:conversationAssetActions.appExported"), {
+      toast.success(t("chat:appAssetActions.appExported"), {
         description: `${app.name}.vellum`,
       });
     } catch (err) {
-      toast.error(t("chat:conversationAssetActions.shareFailed"), {
+      toast.error(t("chat:appAssetActions.shareFailed"), {
         description: err instanceof Error ? err.message : undefined,
       });
     } finally {
@@ -150,7 +150,7 @@ export const DocumentAssetActions: FC<DocumentAssetActionsProps> = ({
       parseAs: "blob",
     });
     if (!response?.ok || !blob) {
-      toast.error(t("chat:conversationAssetActions.pdfDownloadFailed"));
+      toast.error(t("chat:documentAssetActions.pdfDownloadFailed"));
       return;
     }
     const url = URL.createObjectURL(blob);
