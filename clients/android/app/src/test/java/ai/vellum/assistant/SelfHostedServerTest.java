@@ -6,6 +6,7 @@ import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
 import java.net.URI;
+import java.util.List;
 import org.junit.Test;
 
 public class SelfHostedServerTest {
@@ -18,9 +19,11 @@ public class SelfHostedServerTest {
 
     @Test
     public void preservesEscapedReservedCharacters() {
-        URI server = SelfHostedServer.validate("https://example.com/tenant%2fabc/");
+        URI lower = SelfHostedServer.validate("https://example.com/tenant%2fabc/");
+        URI upper = SelfHostedServer.validate("https://example.com/tenant%2Fabc/");
 
-        assertEquals("https://example.com/tenant%2Fabc", server.toASCIIString());
+        assertEquals("https://example.com/tenant%2fabc", lower.toASCIIString());
+        assertEquals("https://example.com/tenant%2Fabc", upper.toASCIIString());
     }
 
     @Test
@@ -85,7 +88,7 @@ public class SelfHostedServerTest {
     public void keepsEscapedSeparatorsDistinctWhenMatchingPrefixes() {
         URI server = SelfHostedServer.validate("https://example.com/tenant%2Fabc");
 
-        assertTrue(SelfHostedServer.contains(server, "https://example.com/tenant%2fabc/assistant/pair"));
+        assertTrue(SelfHostedServer.contains(server, "https://example.com/tenant%2Fabc/assistant/pair"));
         assertFalse(SelfHostedServer.contains(server, "https://example.com/tenant/abc/assistant/pair"));
     }
 
@@ -102,8 +105,148 @@ public class SelfHostedServerTest {
         assertFalse(SelfHostedServer.samePage(pairPage, "https://example.com/other/assistant/pair"));
     }
 
+    @Test
+    public void canonicalizationCollapsesSchemeDefaultPortsOnly() {
+        assertEquals(
+            "https://example.com/assistant-123",
+            SelfHostedServer.canonicalString(SelfHostedServer.validate("https://example.com:443/assistant-123/"))
+        );
+        assertEquals(
+            "https://example.com:8443/assistant-123",
+            SelfHostedServer.canonicalString(SelfHostedServer.validate("https://example.com:8443/assistant-123"))
+        );
+        assertEquals(
+            "http://localhost:8787",
+            SelfHostedServer.canonicalString(SelfHostedServer.validate("http://localhost:8787"))
+        );
+        assertEquals(
+            "http://localhost",
+            SelfHostedServer.canonicalString(SelfHostedServer.validate("http://localhost:80"))
+        );
+    }
+
+    @Test
+    public void preservesInteriorDuplicateSeparators() {
+        assertEquals(
+            "https://example.com/tenant//assistant",
+            SelfHostedServer.validate("https://example.com/tenant//assistant").toASCIIString()
+        );
+        assertEquals(
+            "https://example.com/tenant//assistant",
+            SelfHostedServer.canonicalString(SelfHostedServer.validate("https://example.com/tenant//assistant"))
+        );
+    }
+
+    @Test
+    public void navigationChecksMatchPercentEscapesCaseInsensitively() {
+        assertTrue(
+            SelfHostedServer.samePage(
+                "https://example.com/tenant%2fabc/assistant/pair",
+                "https://example.com/tenant%2Fabc/assistant/pair"
+            )
+        );
+        assertTrue(
+            SelfHostedServer.contains(
+                SelfHostedServer.validate("https://example.com/tenant%2fabc"),
+                "https://example.com/tenant%2Fabc/conversations"
+            )
+        );
+        assertFalse(
+            SelfHostedServer.contains(
+                SelfHostedServer.validate("https://example.com/tenant%2fabc"),
+                "https://example.com/tenant/abc/conversations"
+            )
+        );
+    }
+
+    @Test
+    public void stripsEveryTrailingSlashLikeIosAndWebCanonicalizers() {
+        assertEquals("https://example.com", SelfHostedServer.validate("https://example.com//").toASCIIString());
+        assertEquals(
+            "https://example.com",
+            SelfHostedServer.canonicalString(SelfHostedServer.validate("https://example.com:443///"))
+        );
+        assertEquals(
+            "https://example.com/assistant-123",
+            SelfHostedServer.canonicalString(SelfHostedServer.validate("https://example.com/assistant-123//"))
+        );
+    }
+
+    @Test
+    public void appendDedupesByCanonicalUrlAndKeepsLabelsAcrossNamelessReappends() {
+        FakeStore store = new FakeStore();
+        URI server = SelfHostedServer.validate("https://example.com:443/assistant-123/");
+
+        SelfHostedServer.append(store, server, "  Living Room  ");
+        SelfHostedServer.append(store, SelfHostedServer.validate("https://example.com/assistant-123"), null);
+
+        List<SelfHostedServer.Entry> servers = SelfHostedServer.servers(store);
+        assertEquals(1, servers.size());
+        assertEquals(new SelfHostedServer.Entry("Living Room", "https://example.com/assistant-123"), servers.get(0));
+
+        SelfHostedServer.append(store, server, "Kitchen");
+        assertEquals("Kitchen", SelfHostedServer.servers(store).get(0).name);
+    }
+
+    @Test
+    public void readingDropsInvalidEntriesAndDedupesPreCanonicalDuplicates() {
+        FakeStore store = new FakeStore();
+        store.servers =
+            "[{\"url\":\"http://example.com\"},"
+                + "{\"name\":\"First\",\"url\":\"https://example.com:443/assistant-123\"},"
+                + "{\"name\":\"Second\",\"url\":\"https://example.com/assistant-123/\"},"
+                + "{\"name\":\"\",\"url\":\"https://other.example.com/assistant-456\"}]";
+
+        List<SelfHostedServer.Entry> servers = SelfHostedServer.servers(store);
+
+        assertEquals(2, servers.size());
+        assertEquals(new SelfHostedServer.Entry("First", "https://example.com/assistant-123"), servers.get(0));
+        assertEquals(new SelfHostedServer.Entry(null, "https://other.example.com/assistant-456"), servers.get(1));
+    }
+
+    @Test
+    public void foldsInLegacyActiveUrlWithoutWritingBack() {
+        FakeStore store = new FakeStore();
+        SelfHostedServer.store(store, SelfHostedServer.validate("https://example.com:443/assistant-123"));
+
+        List<SelfHostedServer.Entry> servers = SelfHostedServer.servers(store);
+
+        assertEquals(1, servers.size());
+        assertEquals(new SelfHostedServer.Entry(null, "https://example.com/assistant-123"), servers.get(0));
+        assertNull(store.servers);
+    }
+
+    @Test
+    public void removingTheActiveEntryClearsTheActiveSlot() {
+        FakeStore store = new FakeStore();
+        URI active = SelfHostedServer.validate("https://example.com/assistant-123");
+        URI other = SelfHostedServer.validate("https://other.example.com/assistant-456");
+        SelfHostedServer.append(store, active, "Active");
+        SelfHostedServer.append(store, other, "Other");
+        SelfHostedServer.store(store, active);
+
+        assertFalse(SelfHostedServer.removeEntry(store, other));
+        assertTrue(SelfHostedServer.isActive(store, active));
+
+        assertTrue(SelfHostedServer.removeEntry(store, SelfHostedServer.validate("https://example.com:443/assistant-123")));
+        assertNull(SelfHostedServer.configured(store));
+        assertTrue(SelfHostedServer.servers(store).isEmpty());
+    }
+
+    @Test
+    public void parsesBakedServerUrlFromCapacitorConfig() {
+        assertEquals(
+            "https://www.vellum.ai/assistant",
+            SelfHostedServer.parseBakedServerUrl("{\"server\":{\"url\":\"https://www.vellum.ai/assistant\"}}")
+        );
+        assertNull(SelfHostedServer.parseBakedServerUrl("not json"));
+        assertNull(SelfHostedServer.parseBakedServerUrl("{\"server\":{}}"));
+        assertNull(SelfHostedServer.parseBakedServerUrl(null));
+    }
+
     private static final class FakeStore implements SelfHostedServer.Store {
         private String value;
+        private String servers;
 
         @Override
         public String read() {
@@ -119,6 +262,16 @@ public class SelfHostedServerTest {
         @Override
         public void clear() {
             value = null;
+        }
+
+        @Override
+        public String readServers() {
+            return servers;
+        }
+
+        @Override
+        public void writeServers(String json) {
+            servers = json;
         }
     }
 }
