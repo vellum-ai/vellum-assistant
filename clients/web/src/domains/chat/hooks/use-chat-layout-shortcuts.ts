@@ -4,20 +4,27 @@ import { openCommandPaletteWindow } from "@/runtime/command-palette-window";
 import { useCommandPaletteStore } from "@/stores/command-palette-store";
 
 /**
- * Returns `true` when the keyboard event matches Ctrl/Cmd + one of the given
- * keys and the active element is not an input surface.
+ * Returns `true` when the keyboard event matches the requested modifier plus
+ * one of the given keys and the active element is not an input surface.
  */
 export function shouldHandleShortcut(
-  event: Pick<KeyboardEvent, "metaKey" | "ctrlKey" | "key">,
+  event: Pick<KeyboardEvent, "metaKey" | "ctrlKey" | "altKey" | "key" | "code">,
   activeElement: Element | null,
   key: string | string[],
+  modifier: "command" | "alt" = "command",
 ): boolean {
-  const modifierPressed = event.metaKey || event.ctrlKey;
+  const modifierPressed =
+    modifier === "alt" ? event.altKey : event.metaKey || event.ctrlKey;
   if (!modifierPressed) {
     return false;
   }
   const keys = Array.isArray(key) ? key : [key];
-  if (!keys.some((candidate) => candidate.toLowerCase() === event.key.toLowerCase())) {
+  const keyMatches = keys.some(
+    (candidate) =>
+      candidate.toLowerCase() === event.key.toLowerCase() ||
+      `Key${candidate.toUpperCase()}` === event.code,
+  );
+  if (!keyMatches) {
     return false;
   }
   if (!activeElement) {
@@ -36,6 +43,7 @@ export function shouldHandleShortcut(
 /**
  * Registers global keyboard shortcuts for the chat layout:
  * - Ctrl/Cmd+Shift+O → new conversation (ChatGPT / Claude convention)
+ * - Option/Alt+Z → toggle Voice Mode
  * - Ctrl/Cmd+\ → toggle sidebar
  * - Ctrl/Cmd+K → toggle command palette
  * - Ctrl/Cmd+[ → navigate back
@@ -82,12 +90,9 @@ export function useChatLayoutShortcuts({
         return;
       }
 
-      // Cmd/Ctrl+Shift+V toggles Voice Mode, but deliberately yields to the
-      // platform's paste-as-plain-text command while editing text.
-      if (
-        event.shiftKey &&
-        shouldHandleShortcut(event, document.activeElement, "v")
-      ) {
+      // Option/Alt+Z toggles Voice Mode. Match the physical Z key because
+      // macOS reports Option+Z as Ω on a US keyboard, and yield to text entry.
+      if (shouldHandleShortcut(event, document.activeElement, "z", "alt")) {
         event.preventDefault();
         onToggleVoiceMode();
         return;

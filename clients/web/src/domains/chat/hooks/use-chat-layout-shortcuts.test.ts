@@ -25,12 +25,13 @@ afterEach(() => {
 });
 
 describe("shouldHandleShortcut", () => {
-  test("accepts shifted uppercase keys", () => {
+  test("accepts the physical Z key with Option/Alt", () => {
     expect(
       shouldHandleShortcut(
-        { metaKey: true, ctrlKey: false, key: "V" },
+        { metaKey: false, ctrlKey: false, altKey: true, key: "Ω", code: "KeyZ" },
         document.body,
-        "v",
+        "z",
+        "alt",
       ),
     ).toBe(true);
   });
@@ -40,9 +41,10 @@ describe("shouldHandleShortcut", () => {
     document.body.append(textarea);
     expect(
       shouldHandleShortcut(
-        { metaKey: true, ctrlKey: false, key: "V" },
+        { metaKey: false, ctrlKey: false, altKey: true, key: "Ω", code: "KeyZ" },
         textarea,
-        "v",
+        "z",
+        "alt",
       ),
     ).toBe(false);
     textarea.remove();
@@ -54,9 +56,10 @@ describe("shouldHandleShortcut", () => {
     document.body.append(editor);
     expect(
       shouldHandleShortcut(
-        { metaKey: true, ctrlKey: false, key: "V" },
+        { metaKey: false, ctrlKey: false, altKey: true, key: "Ω", code: "KeyZ" },
         editor,
-        "v",
+        "z",
+        "alt",
       ),
     ).toBe(false);
     editor.remove();
@@ -64,12 +67,12 @@ describe("shouldHandleShortcut", () => {
 });
 
 describe("useChatLayoutShortcuts", () => {
-  test("toggles Voice Mode for Cmd/Ctrl+Shift+V and prevents the browser action", () => {
+  test("toggles Voice Mode for Option+Z and prevents the browser action", () => {
     renderHook(() => useChatLayoutShortcuts(callbacks));
     const event = new KeyboardEvent("keydown", {
-      key: "V",
-      metaKey: true,
-      shiftKey: true,
+      key: "Ω",
+      code: "KeyZ",
+      altKey: true,
       cancelable: true,
     });
 
@@ -79,15 +82,15 @@ describe("useChatLayoutShortcuts", () => {
     expect(callbacks.onToggleVoiceMode).toHaveBeenCalledTimes(1);
   });
 
-  test("does not intercept Cmd/Ctrl+Shift+V from a textarea", () => {
+  test("does not intercept Option+Z from a textarea", () => {
     const textarea = document.createElement("textarea");
     document.body.append(textarea);
     textarea.focus();
     renderHook(() => useChatLayoutShortcuts(callbacks));
     const event = new KeyboardEvent("keydown", {
-      key: "V",
-      metaKey: true,
-      shiftKey: true,
+      key: "Ω",
+      code: "KeyZ",
+      altKey: true,
       cancelable: true,
     });
 
