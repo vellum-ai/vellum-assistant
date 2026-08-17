@@ -211,6 +211,17 @@ export const SURFACE_SHAPE_DOCS: Record<string, SurfaceShapeDoc> = {
         ? null
         : '`data.channel` must be one of "slack", "telegram", "phone"',
   },
+  voice_picker: {
+    // The steering lives in `purpose` because that is the only part of a cold
+    // type the model ever sees: `shape` ships solely inside a teaching error,
+    // and an empty payload has no missing-content state to raise one. The
+    // surface exists to replace prose voice tours, so losing the directive
+    // would leave nothing but a renderer nobody invokes.
+    purpose:
+      "inline picker for the voice the assistant speaks in; show it when the user asks to change, hear, or pick a voice rather than describing voices in prose or sending them to Settings; attach no actions and never set await_action; during a live voice call answer in speech instead, the room already carries its own picker",
+    shape:
+      "{}: no payload, the card reads the current voice and the catalog itself. Selecting a voice applies on the assistant's next spoken turn",
+  },
 };
 
 /** Model-facing surface_type enum, derived so docs and schema cannot drift. */

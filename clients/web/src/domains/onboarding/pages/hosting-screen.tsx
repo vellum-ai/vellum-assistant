@@ -289,7 +289,7 @@ function HostingCard({
       <div
         className={[
           "flex shrink-0 items-center justify-center transition-colors duration-200",
-          electron ? "h-8 w-8 rounded-lg" : "h-10 w-10 rounded-xl",
+          electron ? "h-8 w-8 rounded-md" : "h-10 w-10 rounded-md",
           selected && !locked
             ? "bg-[var(--primary-base)] text-[var(--surface-base)]"
             : "bg-[var(--surface-active)]/40 text-[var(--content-secondary)]",
@@ -311,7 +311,7 @@ function HostingCard({
           )}
         </div>
         <span
-          className={`mt-0.5 line-clamp-2 text-[var(--content-tertiary)] ${electron ? "text-label-medium-default leading-[14px]" : "text-body-small-default"}`}
+          className={`mt-1 line-clamp-2 text-[var(--content-tertiary)] ${electron ? "text-label-medium-default leading-[14px]" : "text-body-small-default"}`}
         >
           {option.subtitle}
         </span>

@@ -45,7 +45,7 @@ export function SettingRow({
 
   if (variant === "toggle-trailing") {
     return (
-      <div className="flex items-start justify-between gap-4">
+      <div className="flex items-center justify-between gap-4">
         {text}
         {toggle}
       </div>
@@ -53,7 +53,7 @@ export function SettingRow({
   }
 
   return (
-    <div className="flex items-start gap-4">
+    <div className="flex items-center gap-4">
       {toggle}
       {text}
     </div>

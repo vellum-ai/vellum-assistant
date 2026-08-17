@@ -16,6 +16,7 @@ import { writeFileSync } from "node:fs";
 import { getConfig } from "../config/loader.js";
 import { rehydratePlatformCredentials } from "../config/platform-rehydration.js";
 import { resetDb } from "../persistence/db-connection.js";
+import { registerWorkerPluginSurface } from "../plugins/worker-plugin-surface.js";
 import { disableStreamSeqStamping } from "../runtime/assistant-stream-state.js";
 import { initializeTools } from "../tools/registry.js";
 import { getLogger } from "../util/logger.js";
@@ -50,6 +51,11 @@ async function main(): Promise<void> {
   // default — otherwise valid credentials are sent to the wrong platform and
   // rejected for both inference and background-wake requests.
   await rehydratePlatformCredentials();
+
+  // This process is the sole runner of schedule execution and hosts real agent
+  // conversations (wake, execute, and workflow modes), so it needs the default
+  // plugins' hooks and injectors just like the daemon.
+  registerWorkerPluginSurface();
 
   // Populate the tool registry (core built-ins + workspace tools). The daemon
   // does this at startup; this standalone process has to do it itself so

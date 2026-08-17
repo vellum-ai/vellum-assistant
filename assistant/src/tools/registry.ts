@@ -431,7 +431,8 @@ export function unregisterPluginTools(pluginName: string): void {
  * {@link import("../plugins/mtime-cache.js").getActiveUserPluginTools} and diffs
  * the result into the registry: plugins that vanished are unregistered, new
  * plugins register, and a plugin whose per-tool source mtimes moved is
- * re-registered. Mirrors how hooks resolve through `getUserHookEntriesFor`.
+ * re-registered. Mirrors how hooks resolve through `getUserHookEntriesFor`
+ * in `hooks/registry.ts`.
  *
  * This is a pure read of the plugin cache — it does NOT reconcile the cache
  * against the source-versions sentinel, so it never activates a plugin or runs

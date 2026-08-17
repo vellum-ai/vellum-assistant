@@ -527,7 +527,18 @@ function TimelineNodeIcon({
       />
     );
   }
-  return <ThreeDotIndicator data-testid={testId} className="shrink-0" />;
+  // 3px dots with a 2px gap measure 13px, matching the 14px `CheckCircle2`
+  // this swaps with almost exactly. The 8px default is ~30px wide and made the
+  // node jump in size the moment a step started running. Same sizing the
+  // subagent avatar badge uses.
+  return (
+    <ThreeDotIndicator
+      data-testid={testId}
+      className="shrink-0"
+      dotSize={3}
+      gap={2}
+    />
+  );
 }
 
 /**

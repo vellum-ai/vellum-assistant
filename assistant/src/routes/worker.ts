@@ -25,6 +25,11 @@ import type { IpcEnvelope } from "@vellumai/ipc-server-utils";
 import { IpcFrameReader, writeMessage } from "@vellumai/ipc-server-utils";
 
 import { disableStreamSeqStamping } from "../runtime/assistant-stream-state.js";
+import {
+  evictRouteSourceTree,
+  importRouteModule,
+  sourceRootForHandler,
+} from "../runtime/routes/user-route-import.js";
 import { getLogger } from "../util/logger.js";
 import {
   ensureProcDir,
@@ -42,6 +47,9 @@ import {
 } from "./route-host-protocol.js";
 
 const log = getLogger("route-host");
+
+/** Last entry-file mtime imported in this process, keyed by handler path. */
+const lastHandlerMtime = new Map<string, number>();
 
 const socketPath = getProcSocketPath(ROUTE_HOST_PROC_NAME);
 const pidPath = getProcPidPath(ROUTE_HOST_PROC_NAME);
@@ -110,11 +118,15 @@ async function handleInvoke(
   params: RouteInvokeParams,
   body: Uint8Array | undefined,
 ): Promise<void> {
-  // Each worker has its own module cache; cache-bust per mtime so an edited
-  // handler is re-imported.
-  const mod = (await import(
-    `${params.filePath}?t=${params.mtimeMs}`
-  )) as Record<string, unknown>;
+  // Each worker has its own module cache. When the entry file's mtime
+  // moves, evict the whole source tree so a new handler cannot bind to a
+  // stale helper, then re-import.
+  const lastMtime = lastHandlerMtime.get(params.filePath);
+  if (lastMtime !== params.mtimeMs) {
+    evictRouteSourceTree(sourceRootForHandler(params.filePath));
+    lastHandlerMtime.set(params.filePath, params.mtimeMs);
+  }
+  const mod = await importRouteModule(params.filePath);
 
   const handler = mod[params.method];
   if (typeof handler !== "function") {

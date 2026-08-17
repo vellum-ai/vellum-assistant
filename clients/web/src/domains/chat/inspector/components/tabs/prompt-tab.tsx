@@ -7,6 +7,7 @@ import { CacheHealthCard } from "@/domains/chat/inspector/components/cache-healt
 import { CopyButton } from "@/domains/chat/inspector/components/copy-button";
 import { ToolDefinitionsContent } from "@/domains/chat/inspector/components/tool-definitions-content";
 import { parseToolDefinitions } from "@/domains/chat/inspector/tool-definitions";
+import { useTranslation } from "@/i18n";
 import type {
   LLMContextSection,
   LLMRequestLogEntry,
@@ -18,6 +19,8 @@ interface PromptTabProps {
   previous: LLMRequestLogEntry | null;
   assistantId: string | undefined;
 }
+
+type PromptTranslate = ReturnType<typeof useTranslation<"chat">>["t"];
 
 /**
  * Prompt tab: each normalized request section renders as a collapsible
@@ -39,6 +42,7 @@ export function PromptTab({
   previous,
   assistantId,
 }: PromptTabProps): ReactNode {
+  const { t } = useTranslation("chat");
   const sections = entry.requestSections ?? [];
   const sectionIds = sections.map((_, i) => `section-${i}`);
 
@@ -56,8 +60,8 @@ export function PromptTab({
 
   const bannerText =
     sections.length === 0
-      ? "This call has no normalized prompt sections yet."
-      : `${sections.length} normalized request section${sections.length === 1 ? "" : "s"} shown in the order returned by the assistant route.`;
+      ? t("promptTab.bannerNoSections")
+      : t("promptTab.bannerSectionsCount", { count: sections.length });
 
   return (
     <div className="flex flex-col gap-4 p-4">
@@ -68,7 +72,7 @@ export function PromptTab({
               className="text-body-medium-default"
               style={{ color: "var(--content-default)" }}
             >
-              Prompt sections
+              {t("promptTab.promptSectionsTitle")}
             </p>
             <p
               className="mt-1 text-body-medium-lighter"
@@ -86,14 +90,16 @@ export function PromptTab({
                 setOpenSections(allExpanded ? [] : [...sectionIds])
               }
             >
-              {allExpanded ? "Collapse all" : "Expand all"}
+              {allExpanded
+                ? t("promptTab.collapseAll")
+                : t("promptTab.expandAll")}
             </Button>
           )}
         </div>
       </Card>
 
       {sections.length === 0 ? (
-        <EmptyState />
+        <EmptyState t={t} />
       ) : (
         <Collapsible.Root
           type="multiple"
@@ -107,6 +113,7 @@ export function PromptTab({
               value={sectionIds[i]}
               section={section}
               index={i}
+              t={t}
             />
           ))}
         </Collapsible.Root>
@@ -125,21 +132,20 @@ export function PromptTab({
   );
 }
 
-function EmptyState(): ReactNode {
+function EmptyState({ t }: { t: PromptTranslate }): ReactNode {
   return (
     <Card>
       <p
         className="text-body-medium-default"
         style={{ color: "var(--content-default)" }}
       >
-        No normalized prompt sections
+        {t("promptTab.emptyTitle")}
       </p>
       <p
         className="mt-1 text-body-medium-lighter"
         style={{ color: "var(--content-secondary)" }}
       >
-        This call has no normalized prompt sections. Use the Raw tab to inspect
-        the full request payload.
+        {t("promptTab.emptyBody")}
       </p>
     </Card>
   );
@@ -149,12 +155,14 @@ interface PromptSectionItemProps {
   section: LLMContextSection;
   index: number;
   value: string;
+  t: PromptTranslate;
 }
 
 function PromptSectionItem({
   section,
   index,
   value,
+  t,
 }: PromptSectionItemProps): ReactNode {
   const toolDefs =
     section.kind === "tool_definitions"
@@ -162,13 +170,13 @@ function PromptSectionItem({
       : null;
 
   const title = toolDefs
-    ? section.label?.trim() || "Available tools"
+    ? section.label?.trim() || t("promptTab.availableTools")
     : sectionTitle(section, index);
   const kind = humanKindLabel(section.kind);
   const formatLabel = toolDefs
     ? null
-    : languageFormatLabel(section.language ?? null);
-  const text = renderContent(section);
+    : languageFormatLabel(section.language ?? null, t);
+  const text = renderContent(section, t);
   // Sections backed by structured `data` (tool-call arguments, JSON payloads)
   // and tool results are program output, not prose, and can be huge — render
   // them as code-style text in a capped scroll box. Prose sections (system
@@ -217,7 +225,7 @@ function PromptSectionItem({
       {!toolDefs && (
         <CopyButton
           text={text}
-          ariaLabel={`Copy ${title}`}
+          ariaLabel={t("promptTab.copyAriaLabel", { title })}
           className="absolute right-2 top-3"
         />
       )}
@@ -271,32 +279,35 @@ function humanKindLabel(kind: string): string {
     .join(" ");
 }
 
-function languageFormatLabel(language: string | null): string | null {
+function languageFormatLabel(
+  language: string | null,
+  t: PromptTranslate,
+): string | null {
   if (!language) {
     return null;
   }
   switch (language.toLowerCase()) {
     case "json":
     case "application/json":
-      return "JSON";
+      return t("promptTab.formatJson");
     case "markdown":
     case "md":
     case "text/markdown":
-      return "Markdown";
+      return t("promptTab.formatMarkdown");
     case "javascript":
     case "application/javascript":
     case "text/javascript":
-      return "JavaScript";
+      return t("promptTab.formatJavaScript");
     case "typescript":
     case "application/typescript":
     case "text/typescript":
-      return "TypeScript";
+      return t("promptTab.formatTypeScript");
     default:
       return null;
   }
 }
 
-function renderContent(section: LLMContextSection): string {
+function renderContent(section: LLMContextSection, t: PromptTranslate): string {
   if (section.text != null) {
     return section.text;
   }
@@ -307,5 +318,5 @@ function renderContent(section: LLMContextSection): string {
       return String(section.data);
     }
   }
-  return "No content available.";
+  return t("promptTab.noContentAvailable");
 }

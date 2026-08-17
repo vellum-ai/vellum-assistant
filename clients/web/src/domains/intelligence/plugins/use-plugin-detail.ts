@@ -14,6 +14,7 @@ import {
   usePluginsInstallPostMutation,
 } from "@/generated/daemon/@tanstack/react-query.gen";
 import type { PluginsByNameGetResponse } from "@/generated/daemon/types.gen";
+import { useTranslation } from "@/i18n";
 import { toast } from "@vellumai/design-library";
 
 import { shortSha } from "./utils";
@@ -67,6 +68,7 @@ export function usePluginDetail(
   name: string,
   options?: UsePluginDetailOptions,
 ): UsePluginDetailResult {
+  const { t } = useTranslation("intelligence");
   const queryClient = useQueryClient();
   const onRemoved = options?.onRemoved;
 
@@ -93,7 +95,11 @@ export function usePluginDetail(
   const installMutation = usePluginsInstallPostMutation({
     onSuccess: () => {
       invalidate();
-      toast.success(`Installed ${name || "plugin"}`);
+      toast.success(
+        t("pluginToast.installed", {
+          name: name || t("pluginToast.pluginFallback"),
+        }),
+      );
     },
   });
 
@@ -109,8 +115,13 @@ export function usePluginDetail(
       invalidate();
       toast.success(
         result.outcome === "already-up-to-date"
-          ? `${name || "Plugin"} is already up to date`
-          : `Upgraded ${name || "plugin"} to ${shortSha(result.toCommit)}`,
+          ? t("pluginToast.alreadyUpToDate", {
+              name: name || t("pluginToast.pluginFallbackCapitalized"),
+            })
+          : t("pluginToast.upgraded", {
+              name: name || t("pluginToast.pluginFallback"),
+              sha: shortSha(result.toCommit),
+            }),
       );
     },
   });

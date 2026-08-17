@@ -254,11 +254,8 @@ describe("ProfileDetailPanel - managed profiles", () => {
         (b) => b.textContent?.trim() === "Save As New",
       ),
     ).toBe(true);
-    expect(
-      Array.from(document.querySelectorAll("button")).some(
-        (b) => b.textContent?.trim() === "Delete",
-      ),
-    ).toBe(false);
+    // The header Delete is icon-only, so it is addressed by accessible name.
+    expect(document.querySelector('button[aria-label="Delete"]')).toBeNull();
   });
 });
 
@@ -290,6 +287,8 @@ describe("ProfileDetailPanel - edit flow", () => {
     // Editable, with the panel footer's Save Changes and a header Delete.
     expect(getInputByPlaceholder("e.g. Fast & Cheap").disabled).toBe(false);
     expect(getButton("Save Changes")).toBeDefined();
-    expect(getButton("Delete")).toBeDefined();
+    expect(
+      document.querySelector('button[aria-label="Delete"]'),
+    ).not.toBeNull();
   });
 });

@@ -13,6 +13,8 @@
 import { useEffect, useState } from "react";
 import { useReducedMotion } from "motion/react";
 
+import { useTranslation } from "@/i18n";
+
 const TYPEWRITER_INTERVAL_MS = 65;
 /** Override lines are longer and transient — type them snappier. */
 const OVERRIDE_TYPEWRITER_INTERVAL_MS = 26;
@@ -61,7 +63,8 @@ export function AssistantNameEditor({
   isRenaming,
   overrideText = null,
 }: AssistantNameEditorProps) {
-  const greeting = overrideText ?? `Hi, I’m ${name}`;
+  const { t } = useTranslation("intelligence");
+  const greeting = overrideText ?? t("assistantNameEditor.greeting", { name });
   const { typed, typing } = useTypewriter(
     greeting,
     overrideText ? OVERRIDE_TYPEWRITER_INTERVAL_MS : TYPEWRITER_INTERVAL_MS,
@@ -89,7 +92,7 @@ export function AssistantNameEditor({
       </h1>
       {!overrideText && isRenaming && (
         <div
-          aria-label="Renaming in progress"
+          aria-label={t("assistantNameEditor.renamingInProgressAriaLabel")}
           className="h-5 w-5 shrink-0 animate-spin rounded-full border-2 border-[var(--border-base)]"
           style={{ borderTopColor: "var(--content-default)" }}
         />

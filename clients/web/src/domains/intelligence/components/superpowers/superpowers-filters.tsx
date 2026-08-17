@@ -26,6 +26,7 @@ import { resolveCategoryIcon } from "@/domains/intelligence/skills/category-icon
 import type { CategoryInfo } from "@/domains/intelligence/skills/use-skill-categories";
 import type { SuperpowerFilter } from "@/domains/intelligence/superpowers/types";
 import { useTouchMobile } from "@/hooks/use-touch-mobile";
+import { useTranslation } from "@/i18n";
 import {
   BottomSheet,
   Button,
@@ -40,30 +41,80 @@ interface FilterOption {
   icon: typeof LayoutGrid;
 }
 
-const ALL_FILTER: FilterOption = {
-  value: "all",
-  label: "All",
-  icon: LayoutGrid,
-};
+type TranslateFilterLabel = (
+  key:
+    | "superpowersFilters.filterLabel.all"
+    | "superpowersFilters.filterLabel.installed"
+    | "superpowersFilters.filterLabel.available"
+    | "superpowersFilters.filterLabel.skills"
+    | "superpowersFilters.filterLabel.plugins"
+    | "superpowersFilters.filterLabel.custom"
+    | "superpowersFilters.filterLabel.assistantMemory",
+) => string;
 
-const STATUS_FILTERS: FilterOption[] = [
-  ALL_FILTER,
-  { value: "installed", label: "Installed", icon: CheckCircle },
-  { value: "available", label: "Available", icon: ArrowDownToLine },
-];
+/** `vellum`, `clawhub`, and `skills.sh` are brand/product names, never translated. */
+function filterLabel(value: SuperpowerFilter, t: TranslateFilterLabel): string {
+  switch (value) {
+    case "vellum":
+      return "Vellum";
+    case "clawhub":
+      return "Clawhub";
+    case "skillssh":
+      return "skills.sh";
+    case "all":
+      return t("superpowersFilters.filterLabel.all");
+    case "installed":
+      return t("superpowersFilters.filterLabel.installed");
+    case "available":
+      return t("superpowersFilters.filterLabel.available");
+    case "skills":
+      return t("superpowersFilters.filterLabel.skills");
+    case "plugins":
+      return t("superpowersFilters.filterLabel.plugins");
+    case "custom":
+      return t("superpowersFilters.filterLabel.custom");
+    case "assistant-memory":
+      return t("superpowersFilters.filterLabel.assistantMemory");
+  }
+}
 
-const TYPE_FILTERS: FilterOption[] = [
-  { value: "skills", label: "Skills", icon: Zap },
-  { value: "plugins", label: "Plugins", icon: Puzzle },
-];
-
-const ORIGIN_FILTERS: FilterOption[] = [
-  { value: "vellum", label: "Vellum", icon: Box },
-  { value: "clawhub", label: "Clawhub", icon: Globe },
-  { value: "skillssh", label: "skills.sh", icon: Terminal },
-  { value: "custom", label: "Custom", icon: User },
-  { value: "assistant-memory", label: "Assistant's Memory", icon: Brain },
-];
+function useFilterOptions(): {
+  statusFilters: FilterOption[];
+  typeFilters: FilterOption[];
+  originFilters: FilterOption[];
+} {
+  const { t } = useTranslation("intelligence");
+  return {
+    statusFilters: [
+      { value: "all", label: filterLabel("all", t), icon: LayoutGrid },
+      {
+        value: "installed",
+        label: filterLabel("installed", t),
+        icon: CheckCircle,
+      },
+      {
+        value: "available",
+        label: filterLabel("available", t),
+        icon: ArrowDownToLine,
+      },
+    ],
+    typeFilters: [
+      { value: "skills", label: filterLabel("skills", t), icon: Zap },
+      { value: "plugins", label: filterLabel("plugins", t), icon: Puzzle },
+    ],
+    originFilters: [
+      { value: "vellum", label: filterLabel("vellum", t), icon: Box },
+      { value: "clawhub", label: filterLabel("clawhub", t), icon: Globe },
+      { value: "skillssh", label: filterLabel("skillssh", t), icon: Terminal },
+      { value: "custom", label: filterLabel("custom", t), icon: User },
+      {
+        value: "assistant-memory",
+        label: filterLabel("assistant-memory", t),
+        icon: Brain,
+      },
+    ],
+  };
+}
 
 interface FilterBarProps {
   search: string;
@@ -109,6 +160,7 @@ export function FilterBar({
   pluginsSupported,
   showCategories,
 }: FilterBarProps) {
+  const { t } = useTranslation("intelligence");
   const handleChange = (e: ChangeEvent<HTMLInputElement>) => {
     onSearchChange(e.target.value);
   };
@@ -119,8 +171,8 @@ export function FilterBar({
         type="search"
         value={search}
         onChange={handleChange}
-        placeholder="Search superpowers"
-        aria-label="Search superpowers"
+        placeholder={t("superpowersFilters.searchPlaceholder")}
+        aria-label={t("superpowersFilters.searchAriaLabel")}
         leftIcon={<Search className="h-4 w-4" aria-hidden />}
         rightIcon={
           isSearching ? (
@@ -168,15 +220,17 @@ interface FilterControlProps {
  * on exactly one surface at any viewport.
  */
 function FilterControl(props: FilterControlProps) {
+  const { t } = useTranslation("intelligence");
   const isTouchMobile = useTouchMobile();
   const [open, setOpen] = useState(false);
+  const { statusFilters, typeFilters, originFilters } = useFilterOptions();
 
   const trigger = (
     <Button
       type="button"
       variant="outlined"
       iconOnly={<Filter aria-hidden />}
-      aria-label="Filter superpowers"
+      aria-label={t("superpowersFilters.filterAriaLabel")}
       aria-haspopup={isTouchMobile ? "dialog" : "listbox"}
       aria-expanded={open}
       tintColor="var(--primary-base)"
@@ -209,8 +263,8 @@ function FilterControl(props: FilterControlProps) {
       >
         <ul role="listbox">
           <FilterGroup
-            label="Status"
-            options={STATUS_FILTERS}
+            label={t("superpowersFilters.statusLabel")}
+            options={statusFilters}
             selected={props.filter}
             onSelect={selectAndClose}
           />
@@ -221,8 +275,8 @@ function FilterControl(props: FilterControlProps) {
                 style={{ borderColor: "var(--border-base)" }}
               />
               <FilterGroup
-                label="Type"
-                options={TYPE_FILTERS}
+                label={t("superpowersFilters.typeLabel")}
+                options={typeFilters}
                 selected={props.filter}
                 onSelect={selectAndClose}
               />
@@ -233,8 +287,8 @@ function FilterControl(props: FilterControlProps) {
             style={{ borderColor: "var(--border-base)" }}
           />
           <FilterGroup
-            label="Source"
-            options={ORIGIN_FILTERS}
+            label={t("superpowersFilters.sourceLabel")}
+            options={originFilters}
             selected={props.filter}
             onSelect={selectAndClose}
           />
@@ -250,6 +304,8 @@ function FilterControl(props: FilterControlProps) {
                 counts={props.counts}
                 totalCount={props.totalCount}
                 showCounts={props.showCounts}
+                allLabel={t("superpowersFilters.filterLabel.all")}
+                categoriesLabel={t("superpowersFilters.categoriesLabel")}
                 onSelect={(next) => {
                   props.onCategoryChange(next);
                   setOpen(false);
@@ -290,6 +346,8 @@ function FilterSheet({
   onOpenChange,
   trigger,
 }: FilterSheetProps) {
+  const { t } = useTranslation("intelligence");
+  const { statusFilters, typeFilters, originFilters } = useFilterOptions();
   return (
     <BottomSheet.Root open={open} onOpenChange={onOpenChange}>
       <BottomSheet.Trigger asChild>{trigger}</BottomSheet.Trigger>
@@ -302,11 +360,13 @@ function FilterSheet({
           className="mx-auto mb-3 h-1 w-9 shrink-0 rounded-full bg-[var(--border-element)]"
         />
         <BottomSheet.Header>
-          <BottomSheet.Title>Filters</BottomSheet.Title>
+          <BottomSheet.Title>
+            {t("superpowersFilters.filtersTitle")}
+          </BottomSheet.Title>
         </BottomSheet.Header>
         <BottomSheet.Body className="flex flex-col gap-3 pt-2">
-          <SheetSection label="Status">
-            {STATUS_FILTERS.map((option) => (
+          <SheetSection label={t("superpowersFilters.statusLabel")}>
+            {statusFilters.map((option) => (
               <FilterRow
                 key={option.value}
                 icon={option.icon}
@@ -318,8 +378,8 @@ function FilterSheet({
           </SheetSection>
 
           {pluginsSupported && (
-            <SheetSection label="Type">
-              {TYPE_FILTERS.map((option) => (
+            <SheetSection label={t("superpowersFilters.typeLabel")}>
+              {typeFilters.map((option) => (
                 <FilterRow
                   key={option.value}
                   icon={option.icon}
@@ -331,8 +391,8 @@ function FilterSheet({
             </SheetSection>
           )}
 
-          <SheetSection label="Source">
-            {ORIGIN_FILTERS.map((option) => (
+          <SheetSection label={t("superpowersFilters.sourceLabel")}>
+            {originFilters.map((option) => (
               <FilterRow
                 key={option.value}
                 icon={option.icon}
@@ -344,10 +404,10 @@ function FilterSheet({
           </SheetSection>
 
           {showCategories && (
-            <SheetSection label="Categories">
+            <SheetSection label={t("superpowersFilters.categoriesLabel")}>
               <FilterRow
                 icon={LayoutGrid}
-                label="All"
+                label={t("superpowersFilters.filterLabel.all")}
                 active={category === null}
                 badge={showCounts ? totalCount : undefined}
                 onSelect={() => onCategoryChange(null)}
@@ -372,7 +432,7 @@ function FilterSheet({
             fullWidth
             onClick={() => onOpenChange(false)}
           >
-            Done
+            {t("superpowersFilters.done")}
           </Button>
         </BottomSheet.Footer>
       </BottomSheet.Content>
@@ -452,6 +512,8 @@ function CategoryGroup({
   counts,
   totalCount,
   showCounts,
+  allLabel,
+  categoriesLabel,
   onSelect,
 }: {
   categories: CategoryInfo[];
@@ -459,10 +521,12 @@ function CategoryGroup({
   counts: Record<string, number>;
   totalCount: number;
   showCounts: boolean;
+  allLabel: string;
+  categoriesLabel: string;
   onSelect: (category: string | null) => void;
 }) {
   const rows: { slug: string | null; label: string; count: number }[] = [
-    { slug: null, label: "All", count: totalCount },
+    { slug: null, label: allLabel, count: totalCount },
     ...sortCategories(categories).map((cat) => ({
       slug: cat.slug,
       label: cat.label,
@@ -471,7 +535,7 @@ function CategoryGroup({
   ];
 
   return (
-    <OptionGroup label="Categories">
+    <OptionGroup label={categoriesLabel}>
       <ul className="max-h-48 overflow-y-auto">
         {rows.map((row) => {
           const isSelected = category === row.slug;

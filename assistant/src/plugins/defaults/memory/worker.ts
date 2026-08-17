@@ -27,6 +27,7 @@ import {
   cleanupWorkerPidFile,
   startWorkerPidFileGuard,
 } from "../../../util/worker-process.js";
+import { registerWorkerPluginSurface } from "../../worker-plugin-surface.js";
 import { registerMemoryPluginJobHandlers } from "./job-handler-registration.js";
 import { startMemoryJobsWorkerLoop } from "./jobs-worker.js";
 import { getLogger } from "./logging.js";
@@ -59,9 +60,11 @@ async function main(): Promise<void> {
   // and are rejected.
   await rehydratePlatformCredentials();
 
-  // This process does not run plugin bootstrap, so self-register the job
-  // handlers the worker dispatches from before starting it — the memory
-  // plugin's own plus the host's non-plugin domain handlers.
+  // Jobs in this process wake real agent conversations, so it registers the
+  // default plugin hook surface (hooks and injectors, no init hooks) the same
+  // way the daemon does, and the job handlers the worker dispatches from: the
+  // memory plugin's own plus the host's non-plugin domain handlers.
+  registerWorkerPluginSurface();
   registerMemoryPluginJobHandlers();
 
   // Populate the tool registry (core built-ins + workspace tools), exactly as

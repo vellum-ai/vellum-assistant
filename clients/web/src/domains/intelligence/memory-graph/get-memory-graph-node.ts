@@ -6,6 +6,7 @@
 import { queryOptions } from "@tanstack/react-query";
 
 import { memorygraphnodeGet } from "@/generated/daemon/sdk.gen";
+import { t } from "@/i18n";
 import {
   ApiError,
   assertHasResponse,
@@ -13,7 +14,9 @@ import {
 } from "@/utils/api-errors";
 import type { MemoryGraphNodeDetail } from "./types";
 
-const FAILURE_MESSAGE = "Failed to load this concept.";
+function failureMessage(): string {
+  return t("getMemoryGraphNode.failureMessage", { ns: "intelligence" });
+}
 
 export function memoryGraphNodeOptions(assistantId: string, id: string | null) {
   return queryOptions<MemoryGraphNodeDetail>({
@@ -26,12 +29,12 @@ export function memoryGraphNodeOptions(assistantId: string, id: string | null) {
         throwOnError: false,
       });
 
-      assertHasResponse(response, error, FAILURE_MESSAGE);
+      assertHasResponse(response, error, failureMessage());
 
       if (!response.ok) {
         throw new ApiError(
           response.status,
-          extractErrorMessage(error, response, FAILURE_MESSAGE),
+          extractErrorMessage(error, response, failureMessage()),
         );
       }
 

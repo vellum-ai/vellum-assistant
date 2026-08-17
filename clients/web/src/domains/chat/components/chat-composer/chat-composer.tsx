@@ -1,4 +1,4 @@
-import { ArrowUp, Square } from "lucide-react";
+import { ArrowUp, Plus, Square } from "lucide-react";
 import {
   type FormEvent,
   type ReactNode,
@@ -17,6 +17,7 @@ import {
   AttachFileButton,
   ChatAttachmentsStrip,
 } from "@/domains/chat/components/chat-attachments/chat-attachments";
+import { useAttachmentFilePicker } from "@/domains/chat/components/chat-attachments/use-attachment-file-picker";
 import {
   selectPathReferencePaths,
   selectUploadedIds,
@@ -24,13 +25,21 @@ import {
   useComposerStore,
 } from "@/domains/chat/composer-store";
 import { useQuoteReplyStore } from "@/domains/chat/quote-reply-store";
+import { useComposerFocusWithin } from "@/domains/chat/hooks/use-composer-focus-within";
 import { ComposerDraftNotices } from "@/domains/chat/components/composer-draft-notices";
+import { AddToChatSheet } from "@/domains/chat/components/chat-composer/add-to-chat-sheet";
 import { StreamingWaveform } from "@/domains/chat/components/chat-composer/streaming-waveform";
 import {
   ComposerCompactProvider,
   useIsCompactComposerWidth,
 } from "@/domains/chat/components/chat-composer/composer-compact";
 import {
+  MOBILE_CONTROL_CLASS,
+  MOBILE_GHOST_WASH_CLASS,
+  MOBILE_GLYPH_CLASS,
+} from "@/domains/chat/components/chat-composer/composer-mobile-chrome";
+import {
+  COMPOSER_MOBILE_RADIUS_CLASS,
   COMPOSER_RADIUS_CLASS,
   VoiceComposerBar,
 } from "@/domains/chat/components/chat-composer/voice-composer-bar";
@@ -65,13 +74,15 @@ import { isElectron } from "@/runtime/is-electron";
 import { isPopoutWindowLifetime } from "@/runtime/popout-window";
 import { useIsNativePlatform } from "@/runtime/native-auth";
 import { isNativeIOS } from "@/runtime/platform-detection";
-import { isPointerCoarse } from "@/utils/pointer";
+import { isPointerCoarse, usePointerCoarse } from "@/utils/pointer";
 import { routes } from "@/utils/routes";
 import { usePlatformGate } from "@/hooks/use-platform-gate";
-import { Button, Notice, Popover } from "@vellumai/design-library";
+import { useTranslation } from "@/i18n";
+import { Button, cn, Notice, Popover } from "@vellumai/design-library";
 
 import {
   computeGhostSuffix,
+  isDraftPastOneLine,
   shouldSubmitOnEnter,
 } from "@/domains/chat/components/chat-composer/chat-composer-utils";
 import {
@@ -152,7 +163,8 @@ export interface ChatComposerProps {
   // one. The app-editing variant, which has no voice, leaves this undefined.
   conversationId?: string | null;
 
-  // chrome surfacing existing buttons (rendered in the form's bottom-left row)
+  // chrome surfacing existing buttons (rendered in the form's bottom-left row
+  // on desktop; on mobile both settings slots move to the row above the card)
   thresholdPickerSlot?: ReactNode;
   contextWindowIndicatorSlot?: ReactNode;
   // Model-profile picker rendered on the row's right end, beside the mic
@@ -161,6 +173,11 @@ export interface ChatComposerProps {
   // below the compact card width, where `thresholdPickerSlot`'s menu absorbs
   // the profile section rather than the two triggers colliding.
   modelPickerSlot?: ReactNode;
+
+  // Whether a surface opened from one of the two settings slots is up. Opening
+  // one moves focus into a portal outside the composer, so the focus-gated
+  // mobile row needs it to stay put while the user is inside the sheet.
+  settingsSheetOpen?: boolean;
 
   // Slot rendered above the form (between the max-width wrapper and the form).
   // The main variant uses this for attachment-error / voice-error / disk-pressure
@@ -223,6 +240,53 @@ function measureVoiceOriginAvatar(): { x: number; y: number } | null {
   return { x: best.left + best.width / 2, y: best.top + best.height / 2 };
 }
 
+/**
+ * The mobile send button's filled circle. Applied only while the button can
+ * actually send, so a blocked draft keeps the `Button` primitive's disabled
+ * fill rather than a green control nobody can press. Hover holds the fill
+ * alongside active, since a mouse reaches this row too.
+ */
+const MOBILE_SEND_FILL_CLASS =
+  "bg-[var(--system-positive-strong)] hover:bg-[var(--system-positive-strong)] active:bg-[var(--system-positive-strong)] [--vbtn-fg:var(--aux-white)]";
+
+/**
+ * The padding the mobile text field carries on each side (`px-2`). Taken off
+ * the span measured between the row's two control clusters, which is a border
+ * box, to leave the width the draft itself gets on the inline row.
+ */
+const MOBILE_TEXT_FIELD_INSET_X_PX = 16;
+
+interface AddToChatButtonProps {
+  disabled: boolean;
+  label: string;
+  onClick: () => void;
+}
+
+/** The narrow row's plus. What a press opens is the caller's decision. */
+function AddToChatButton({ disabled, label, onClick }: AddToChatButtonProps) {
+  return (
+    <Button
+      variant="ghost"
+      iconOnly={<Plus strokeWidth={2} />}
+      iconOnlyGlyphClassName={MOBILE_GLYPH_CLASS}
+      // The row sizes its own controls, so the primitive's mobile growth is
+      // off here and every narrow window gets the same plus.
+      expandOnMobile={false}
+      onClick={onClick}
+      disabled={disabled}
+      aria-label={label}
+      title={label}
+      // Tertiary resting tone, matching the row's other glyphs. `shrink-0`
+      // holds the circle at 40px however tight the row runs.
+      className={cn(
+        MOBILE_CONTROL_CLASS,
+        MOBILE_GHOST_WASH_CLASS,
+        "shrink-0 [--vbtn-fg:var(--content-tertiary)]",
+      )}
+    />
+  );
+}
+
 export function ChatComposer({
   placeholder = "What would you like to do?",
   onSubmit,
@@ -242,6 +306,7 @@ export function ChatComposer({
   conversationId,
   thresholdPickerSlot,
   modelPickerSlot,
+  settingsSheetOpen = false,
   contextWindowIndicatorSlot,
   noticesAboveFormSlot,
   hasBillingBanner = false,
@@ -251,6 +316,7 @@ export function ChatComposer({
   onRecallLastMessage,
   onCancelEdit,
 }: ChatComposerProps) {
+  const { t } = useTranslation("chat");
   // Draft text is owned by the composer store; subscribing here (rather than
   // receiving it as a prop) means a keystroke re-renders only this component,
   // not the orchestrator or the transcript above it.
@@ -271,7 +337,6 @@ export function ChatComposer({
     voicePhase === "recording" || voicePhase === "processing";
   // Holds the MediaStream opened by VoiceInputButton so we can reuse it for
   // amplitude analysis rather than opening a second getUserMedia request.
-  const voiceStreamRef = useRef<MediaStream | null>(null);
   const [voiceStream, setVoiceStream] = useState<MediaStream | null>(null);
   const { amplitude } = useAudioAmplitude({
     active: voicePhase === "recording" && voiceStream !== null,
@@ -486,6 +551,16 @@ export function ChatComposer({
   }, [startLiveVoiceSession]);
 
   const pointerCoarse = useMemo(() => isPointerCoarse(), []);
+  // `shouldSubmitOnEnter` ignores Enter under a coarse primary pointer, since a
+  // soft keyboard's Enter inserts a newline. Anything that stands in for
+  // keyboard submit reads this, never the viewport width: the two disagree on a
+  // roomy tablet and on a narrowed desktop window, and the substitute belongs to
+  // the absence of the thing it replaces. See `docs/PLATFORM_ADAPTATION.md`.
+  const keyboardCanSubmit = !pointerCoarse;
+  // The compact row and everything in it follow the window's width; what the
+  // plus opens follows the input. A narrowed desktop or Electron window keeps
+  // the row, and still wants the picker a mouse can drive. See
+  // `docs/PLATFORM_ADAPTATION.md`.
   const isMobile = useIsMobile();
   const isNative = useIsNativePlatform();
   const isElectronHost = isElectron();
@@ -493,11 +568,18 @@ export function ChatComposer({
   // Narrow-card collapse: below the compact width the labelled access and
   // model-profile triggers collide, so the pair folds into one hamburger menu
   // (mounted in the access slot, keeping the row's attach | settings | mic |
-  // voice order). Mobile is excluded: its triggers are already icon-only and
-  // open bottom sheets, which fit.
+  // voice order). Mobile is excluded: its settings triggers live in the pills
+  // row above the card, so they never compete for the action row's width.
   const composerCardRef = useRef<HTMLFormElement>(null);
   const compactSettings =
     useIsCompactComposerWidth(composerCardRef) && !isMobile;
+
+  // The shell wraps the pills row and the card together, so moving focus from
+  // the textarea to a pill is not a leave. `data-slot="chat-composer"` stays on
+  // the form: that is the box `composer-peek`, the onboarding tour, and the
+  // quote bubble measure.
+  const composerShellRef = useRef<HTMLDivElement>(null);
+  const composerFocusWithin = useComposerFocusWithin(composerShellRef);
 
   // Stable ref so handleSlashCommandSelect's autoSend path always calls the
   // latest onSubmit even after flushSync triggers a synchronous re-render.
@@ -587,14 +669,27 @@ export function ChatComposer({
     phase === "queued" || phase === "thinking" || phase === "streaming";
   const showInlineVoicePreview =
     isVoiceActive && !isLocallyGenerating && !isElectronHost;
+  // Dictation's inline preview takes the textarea's place on native. A
+  // live-voice session does not: its bar sits above the card and the composer
+  // stays a working composer underneath, so the user can type and send
+  // mid-session.
   const hideTextareaForVoice = isNative && showInlineVoicePreview;
-  // A live-voice session no longer touches the textarea row: the bar sits
-  // above the card and the composer stays a working composer underneath, so
-  // the user can type and send mid-session.
-  const hideTextareaRow = hideTextareaForVoice;
   const hasStagedQuotes = useQuoteReplyStore.use.stagedQuotes().length > 0;
   const canSendMessageContent =
     Boolean(input.trim()) || canSendAttachments || hasStagedQuotes;
+  // The busy row holds exactly one control, and stop is the default: it is the
+  // only escape from a turn already running. Send takes the slot only where it
+  // is strictly better, which is where the keyboard cannot submit AND pressing
+  // it would actually queue the draft. Those are the same three conditions
+  // `shouldSubmitOnEnter` requires before it answers "submit", so the two paths
+  // to sending open and close together, and a draft that cannot go anywhere yet
+  // (an attachment still uploading, a prompt holding the send) leaves stop in
+  // place rather than a send nobody can press.
+  const sendReplacesStop =
+    !keyboardCanSubmit &&
+    canSendMessageContent &&
+    !sendDisabled &&
+    attachmentsUploadingCount === 0;
   // Voice mode occupies the send slot while there is nothing to send: the
   // send arrow only earns that spot once the message has content. Eligibility
   // is a voice-enabled composer + a bound assistant new enough to serve live
@@ -619,6 +714,13 @@ export function ChatComposer({
     !canSendMessageContent &&
     !isLiveVoiceActive;
 
+  // Mobile lifts the access and profile triggers out of the action row into a
+  // row that floats above the card while the composer is in use, and hangs a
+  // caption under the card while it rests. A variant that passes neither
+  // settings slot is the app-editing panel, which gets neither.
+  const isMobileMainComposer =
+    isMobile && Boolean(thresholdPickerSlot || modelPickerSlot);
+
   // No longer suppressed during a live-voice session: it was suppressed
   // because the streaming speech rendered in the ghost-suffix mirror's own
   // grid cell, and nothing renders there now. The textarea is an ordinary
@@ -632,6 +734,501 @@ export function ChatComposer({
         hasAttachments: attachments.length > 0,
       }),
     [pointerCoarse, suggestion, input, attachments],
+  );
+
+  const [addSheetOpen, setAddSheetOpen] = useState(false);
+  // Latched on the first open and never reset. The sheet closes itself before
+  // it hands off to the OS picker, so on a convertible that regained its
+  // keyboard while that picker was up both live terms below would go false in
+  // the same commit and take the sheet's hidden inputs with them.
+  const [addSheetEverPresented, setAddSheetEverPresented] = useState(false);
+  const handleAddSheetOpenChange = useCallback((open: boolean) => {
+    if (open) {
+      setAddSheetEverPresented(true);
+    }
+    setAddSheetOpen(open);
+  }, []);
+  // Subscribed rather than read once: a convertible whose keyboard comes off
+  // mid-session changes what the plus should open, and the sheet has to be
+  // mounted by then to receive the press.
+  const pointerCoarseNow = usePointerCoarse();
+  const usesAddSheet = isMobile && pointerCoarseNow;
+
+  // The picker the plus opens where the sheet has nothing to offer: the same
+  // picker behind the desktop paperclip, through the same hook so the iOS
+  // refocus dance is identical. Owned by the composer rather than by the plus,
+  // because both signals that decide what the plus opens can change while the
+  // OS picker is up (a keyboard reattached, a phone rotated), and an input that
+  // unmounted under an open picker would drop the selection.
+  const { openPicker: openAttachPicker, inputNode: attachPickerInput } =
+    useAttachmentFilePicker({
+      onFiles: onAddAttachmentFiles,
+      multiple: true,
+    });
+
+  // Every surface opened from the composer moves focus into a portal, the
+  // composer's own add-to-chat sheet included, so each one has to hold the row
+  // up on its way out. Without the sheet's flag the row would drop away as the
+  // sheet rises and the card would shift down under the scrim.
+  const composerInUse =
+    composerFocusWithin || settingsSheetOpen || addSheetOpen;
+  const settingsPillsVisible = isMobileMainComposer && composerInUse;
+  // The caption is the row's opposite number: it stands under the card at rest
+  // and steps aside the moment anything takes the bottom of the screen, which
+  // is where the keyboard and every sheet cover it anyway.
+  const disclaimerVisible = isMobileMainComposer && !composerInUse;
+
+  // A pill at mobile widths (half the card's 52px collapsed height), the 10px
+  // panel elsewhere, both from the live-voice bar's module: the bar stacks on
+  // this card and has to wear whichever corner it is showing. The banner
+  // variants stay literal, since a bottom-only corner is not the same class.
+  const cardShapeClass = isMobile
+    ? hasBillingBanner
+      ? "rounded-b-[26px]"
+      : COMPOSER_MOBILE_RADIUS_CLASS
+    : hasBillingBanner
+      ? "rounded-b-[10px]"
+      : COMPOSER_RADIUS_CLASS;
+
+  // One 24px line inside 8px of padding is the 40px the mobile row's buttons
+  // stand at, which centres the placeholder on them and holds the collapsed
+  // card at 52px.
+  const textFieldPaddingClass = isMobile ? "px-2 py-2" : "px-4 pt-3 pb-2";
+
+  // ---- Mobile draft geometry --------------------------------------------
+  // One question the draft's own text cannot answer: whether it still fits the
+  // one line the inline row gives it. Measured after commit, from the boxes
+  // below.
+  const mobileRowRef = useRef<HTMLDivElement>(null);
+  const inlineActionsStartRef = useRef<HTMLDivElement>(null);
+  const inlineActionsEndRef = useRef<HTMLDivElement>(null);
+  const draftProbeRef = useRef<HTMLDivElement>(null);
+  const [isMultilineDraft, setIsMultilineDraft] = useState(false);
+  const measureDraftGeometry = useCallback(() => {
+    const start = inlineActionsStartRef.current;
+    const end = inlineActionsEndRef.current;
+    const probe = draftProbeRef.current;
+    if (!isMobile || hideTextareaForVoice || !start || !end || !probe) {
+      setIsMultilineDraft(false);
+      return;
+    }
+    // The span between the two control clusters. They keep their widths and
+    // their line through the change, so this is the width the draft has on the
+    // inline row whichever layout is currently up: the fixed reference the
+    // stacked layout has to be judged against to settle (see
+    // `isDraftPastOneLine`).
+    const inlineWidthPx =
+      end.getBoundingClientRect().left -
+      start.getBoundingClientRect().right -
+      MOBILE_TEXT_FIELD_INSET_X_PX;
+    setIsMultilineDraft(
+      isDraftPastOneLine({
+        naturalWidthPx: probe.scrollWidth,
+        inlineWidthPx,
+        hasHardBreak: input.includes("\n"),
+      }),
+    );
+  }, [hideTextareaForVoice, input, isMobile]);
+  useLayoutEffect(() => {
+    measureDraftGeometry();
+  }, [measureDraftGeometry]);
+  // Latest measurement behind a stable identity, so the observer below is set
+  // up once per row rather than torn down and rebuilt on every keystroke.
+  const measureDraftGeometryRef = useRef(measureDraftGeometry);
+  useLayoutEffect(() => {
+    measureDraftGeometryRef.current = measureDraftGeometry;
+  });
+  useEffect(() => {
+    const row = mobileRowRef.current;
+    const start = inlineActionsStartRef.current;
+    const end = inlineActionsEndRef.current;
+    if (!row || !start || !end || typeof ResizeObserver === "undefined") {
+      return;
+    }
+    const observer = new ResizeObserver(() =>
+      measureDraftGeometryRef.current(),
+    );
+    // The card's own width, and the two clusters it reserves room for: a turn
+    // starting takes the plus away, which is 41px the draft gets back.
+    observer.observe(row);
+    observer.observe(start);
+    observer.observe(end);
+    return () => observer.disconnect();
+  }, [isMobile]);
+
+  // Mobile hands the attach flow to a plus, which opens the sheet on a touch
+  // surface and the file picker anywhere else. Every attach control answers to
+  // the same gating, so a busy assistant hides whichever one is mounted.
+  const attachDisabled = typingDisabled || !assistantId;
+  const attachControl = !isMobile ? (
+    <AttachFileButton
+      disabled={attachDisabled}
+      onFilesSelected={onAddAttachmentFiles}
+    />
+  ) : (
+    <AddToChatButton
+      disabled={attachDisabled}
+      label={t("chatComposer.addToChat")}
+      onClick={
+        usesAddSheet ? () => handleAddSheetOpenChange(true) : openAttachPicker
+      }
+    />
+  );
+
+  const dictationButton = showDictationButton ? (
+    <VoiceInputButton
+      ref={voiceInputRef}
+      assistantId={assistantId}
+      // Mutual exclusion: a live-voice session in another thread must block
+      // dictation, or two mic capture flows could run at once. (This
+      // composer's own session takes the button away entirely, see
+      // `showDictationButton`.)
+      disabled={typingDisabled || isLiveVoiceSessionLive}
+      onTranscript={onVoiceTranscript}
+      onInterimTranscript={onVoiceInterimTranscript}
+      onError={onVoiceError}
+      onBeforeStart={onVoiceBeforeStart}
+      onStreamReady={setVoiceStream}
+      mobileRow={isMobile}
+    />
+  ) : null;
+
+  const sendBlocked =
+    sendDisabled || attachmentsUploadingCount > 0 || !canSendMessageContent;
+
+  // macOS parity: the send button is hidden during recording and while
+  // transcription is being processed. Only the voice button (mic / stop /
+  // spinner) is shown. Otherwise the send slot holds voice mode until there is
+  // something to send, at which point the send arrow takes over.
+  const sendSlot = isVoiceActive ? null : showVoiceModeInSendSlot ? (
+    // Session entry point: once a session starts here the slot gives way to
+    // the send arrow and the bar above the card owns stopping. Disabled while
+    // dictation is active or a live-voice session already runs elsewhere, so a
+    // second mic/voice capture can't open alongside it.
+    <LiveVoiceButton
+      onStart={handleLiveVoiceStart}
+      disabled={typingDisabled || isVoiceActive || isLiveVoiceSessionLive}
+      mobileRow={isMobile}
+    />
+  ) : (
+    <Button
+      variant="primary"
+      iconOnly={<ArrowUp className="h-4 w-4" strokeWidth={2.5} />}
+      iconOnlyGlyphClassName={isMobile ? MOBILE_GLYPH_CLASS : undefined}
+      expandOnMobile={!isMobile}
+      type="submit"
+      disabled={sendBlocked}
+      title={
+        sendDisabled || !canSendMessageContent
+          ? "Type a message to send"
+          : attachmentsUploadingCount > 0
+            ? "Uploading attachments…"
+            : "Send message"
+      }
+      aria-label="Send message"
+      className={cn(
+        isMobile && MOBILE_CONTROL_CLASS,
+        isMobile && !sendBlocked && MOBILE_SEND_FILL_CLASS,
+      )}
+    />
+  );
+
+  // The busy row's single control wears the same chrome as the resting slot it
+  // stands in for, so a turn starting does not shrink the row's right end back
+  // to a desktop control.
+  const busyRowControl = sendReplacesStop ? (
+    <Button
+      variant="primary"
+      iconOnly={<ArrowUp className="h-4 w-4" strokeWidth={2.5} />}
+      iconOnlyGlyphClassName={isMobile ? MOBILE_GLYPH_CLASS : undefined}
+      expandOnMobile={!isMobile}
+      type="submit"
+      title="Send message"
+      aria-label="Send message"
+      className={cn(
+        // Reachable only when the draft can actually go, so the filled tone
+        // never lands on a send nobody can press.
+        isMobile && MOBILE_CONTROL_CLASS,
+        isMobile && MOBILE_SEND_FILL_CLASS,
+      )}
+    />
+  ) : (
+    <Button
+      variant="primary"
+      iconOnly={<Square className="h-3 w-3" />}
+      iconOnlyGlyphClassName={isMobile ? MOBILE_GLYPH_CLASS : undefined}
+      expandOnMobile={!isMobile}
+      onClick={onStopGenerating}
+      aria-label="Stop generating"
+      className={isMobile ? MOBILE_CONTROL_CLASS : undefined}
+    />
+  );
+
+  const inlineVoicePreview = showInlineVoicePreview ? (
+    // Non-Electron fallback: Electron uses the shared top-center dictation
+    // overlay for both focused and global recording. Browser/iOS hosts keep
+    // this inline waveform because the overlay bridge no-ops there.
+    <div
+      className={hideTextareaForVoice ? "px-2 pt-3" : "px-2"}
+      aria-label={voicePhase === "processing" ? "Transcribing" : "Recording"}
+      aria-live="polite"
+    >
+      <StreamingWaveform
+        amplitude={amplitude}
+        paused={voicePhase === "processing"}
+      />
+      {voicePhase === "processing" ? (
+        <p className="mt-1 truncate text-[11px] italic text-[var(--content-tertiary)]">
+          Transcribing…
+        </p>
+      ) : (
+        voiceInterim && (
+          // Partial transcript ghost text, mirroring macOS composerTextField
+          // showing interim results in the input binding while speaking.
+          <p className="mt-1 truncate text-[11px] italic text-[var(--content-tertiary)]">
+            {voiceInterim}
+          </p>
+        )
+      )}
+    </div>
+  ) : null;
+
+  // CSS Grid hidden-mirror technique for an auto-growing textarea. A hidden
+  // div mirrors the textarea content in the same grid cell, so the grid
+  // auto-sizes to max(mirror_height, textarea_intrinsic_height) and the
+  // textarea stretches to fit with no JS height measurement. That avoids the
+  // iOS WKWebView re-dispatch bug entirely: no DOM geometry mutation means no
+  // re-fired input events.
+  // https://css-tricks.com/the-cleanest-trick-for-autogrowing-textareas/
+  //
+  // One element serves both layouts (the mobile row wraps it, the desktop card
+  // stacks it above the action row), so a breakpoint swap can't strand the
+  // draft or the caret in a second textarea.
+  const textFieldBlock = (
+    <div
+      className={
+        hideTextareaForVoice
+          ? "hidden"
+          : isMobile
+            ? cn(
+                "grid min-w-0",
+                isMultilineDraft
+                  ? // Past one line the block takes the row's whole width and
+                    // steps ahead of the controls, which wrap into a row of
+                    // their own beneath it. The 2px lands the text on the
+                    // card's 12px inset, where the plus below it already sits.
+                    "order-first basis-full pl-0.5"
+                  : "flex-1",
+              )
+            : "grid"
+      }
+    >
+      {isMobile && (
+        // What the row asks whether the draft still fits its one line: the
+        // same text with nothing to wrap it, in a box with no width of its
+        // own, so `scrollWidth` reports what the draft would take unbroken.
+        // The autogrow mirror below cannot answer that, since it wraps, and
+        // its width is the very thing the answer decides.
+        //
+        // The suggestion is deliberately left out. It is somebody else's text
+        // arriving on its own schedule, and restructuring the composer around
+        // it would move the card under the user mid-sentence.
+        <div
+          ref={draftProbeRef}
+          aria-hidden
+          data-slot="composer-draft-probe"
+          className="pointer-events-none invisible col-start-1 row-start-1 h-0 w-0 overflow-hidden whitespace-pre text-chat"
+          style={{ fontFamily: "inherit", letterSpacing: "inherit" }}
+        >
+          {input}
+        </div>
+      )}
+      <div
+        aria-hidden
+        className={`pointer-events-none col-start-1 row-start-1 overflow-hidden whitespace-pre-wrap break-words text-chat ${textFieldPaddingClass}`}
+        style={{
+          fontFamily: "inherit",
+          letterSpacing: "inherit",
+          maxHeight: `${textareaMaxHeightPx}px`,
+        }}
+      >
+        <span className="invisible">{input}</span>
+        {ghostSuffix && (
+          <span className="text-[var(--content-disabled)]">{ghostSuffix}</span>
+        )}
+        <span className="invisible"> </span>
+      </div>
+      <textarea
+        ref={inputRef}
+        value={input}
+        autoComplete="off"
+        data-1p-ignore
+        data-lpignore="true"
+        onChange={(e) => {
+          const value = e.target.value;
+          cursorRef.current = e.target.selectionStart ?? value.length;
+          setInput(value);
+          // The user has edited the text, so it's no longer a pristine
+          // restored draft, so retire the "draft restored" marker (and its
+          // notice). Keeps `restoredDraftConversationId` an accurate
+          // signal for "unedited restored draft" (see use-deep-link-consumer).
+          if (
+            useComposerStore.getState().restoredDraftConversationId !== null
+          ) {
+            useComposerStore.getState().clearRestoredDraftNotice();
+          }
+        }}
+        onPaste={(e) => {
+          const items = e.clipboardData?.items;
+          if (!items) {
+            return;
+          }
+          const files: File[] = [];
+          for (let i = 0; i < items.length; i++) {
+            const item = items[i];
+            if (item?.kind === "file") {
+              const file = item.getAsFile();
+              if (file) {
+                files.push(file);
+              }
+            }
+          }
+          if (files.length > 0) {
+            e.preventDefault();
+            onAddAttachmentFiles(files);
+          }
+        }}
+        onKeyDown={(e) => {
+          if (slash.show) {
+            if (e.key === "ArrowUp") {
+              e.preventDefault();
+              slash.moveUp();
+              return;
+            }
+            if (e.key === "ArrowDown") {
+              e.preventDefault();
+              slash.moveDown();
+              return;
+            }
+            if (e.key === "Tab" || e.key === "Enter") {
+              e.preventDefault();
+              const cmd = slash.items[slash.selectedIndex];
+              if (cmd) {
+                handleSlashCommandSelect(cmd);
+              }
+              return;
+            }
+            if (e.key === "Escape") {
+              e.preventDefault();
+              slash.dismiss();
+              setInput("");
+              return;
+            }
+          }
+
+          if (emoji.show) {
+            if (e.key === "ArrowUp") {
+              e.preventDefault();
+              emoji.moveUp();
+              return;
+            }
+            if (e.key === "ArrowDown") {
+              e.preventDefault();
+              emoji.moveDown();
+              return;
+            }
+            if (e.key === "Tab" || e.key === "Enter") {
+              e.preventDefault();
+              const selected = emoji.items[emoji.selectedIndex];
+              if (selected) {
+                insertEmoji(selected);
+              }
+              return;
+            }
+            if (e.key === "Escape") {
+              e.preventDefault();
+              emoji.dismiss();
+              return;
+            }
+          }
+
+          if (e.key === "ArrowUp" && !input.trim() && onRecallLastMessage) {
+            e.preventDefault();
+            onRecallLastMessage();
+            return;
+          }
+
+          if (e.key === "Escape" && onCancelEdit) {
+            e.preventDefault();
+            onCancelEdit();
+            return;
+          }
+
+          const marker = matchFormattingShortcut(e);
+          if (marker) {
+            e.preventDefault();
+            const el = inputRef.current;
+            const start = el?.selectionStart ?? input.length;
+            const end = el?.selectionEnd ?? start;
+            const result = applyMarkdownFormatting(input, start, end, marker);
+            cursorRef.current = result.selectionStart;
+            setInput(result.text);
+            requestAnimationFrame(() => {
+              if (el) {
+                el.setSelectionRange(
+                  result.selectionStart,
+                  result.selectionEnd,
+                );
+                el.focus();
+              }
+            });
+            return;
+          }
+
+          if (e.key === "Tab" && ghostSuffix) {
+            e.preventDefault();
+            const accepted = input + ghostSuffix;
+            cursorRef.current = accepted.length;
+            setInput(accepted);
+            return;
+          }
+          const decision = shouldSubmitOnEnter(
+            {
+              key: e.key,
+              shiftKey: e.shiftKey,
+              metaKey: e.metaKey,
+              ctrlKey: e.ctrlKey,
+              isComposing: e.nativeEvent.isComposing,
+              keyCode: e.keyCode,
+            },
+            pointerCoarse,
+            {
+              input,
+              canSendAttachments,
+              sendDisabled,
+              attachmentsUploadingCount,
+              cmdEnterMode,
+              hasStagedQuotes,
+            },
+          );
+          if (decision === "ignore") {
+            return;
+          }
+          e.preventDefault();
+          if (decision === "submit") {
+            onSubmit(e as unknown as FormEvent);
+          }
+        }}
+        placeholder={ghostSuffix ? "" : placeholder}
+        // A live-voice session leaves this alone: the bar above owns
+        // the session, and typing alongside it is the point of moving
+        // the bar out of the card.
+        disabled={typingDisabled}
+        rows={1}
+        className={`col-start-1 row-start-1 w-full resize-none overflow-y-auto border-none bg-transparent text-chat text-[var(--content-default)] placeholder:text-[var(--content-disabled)] focus:outline-none disabled:opacity-50 ${textFieldPaddingClass}`}
+        style={{ maxHeight: `${textareaMaxHeightPx}px` }}
+      />
+    </div>
   );
 
   return (
@@ -718,440 +1315,244 @@ export function ChatComposer({
           />
         </div>
       )}
-      <Popover.Root open={emoji.show || slash.show}>
-        <Popover.Anchor asChild>
-          <form
-            ref={composerCardRef}
-            data-slot="chat-composer"
-            onSubmit={onSubmit}
-            className={`overflow-hidden bg-[var(--surface-lift)] shadow-[0px_2px_2px_rgba(0,0,0,0.05)] ${
-              hasBillingBanner ? "rounded-b-[10px]" : COMPOSER_RADIUS_CLASS
-            }`}
-          >
-            {/* overflow-hidden lives here, not on the form itself: the form
+      <div ref={composerShellRef} data-slot="chat-composer-shell">
+        {/* Above every slot placement, the pills row included: what a control
+            does when the card runs narrow is the control's own business, and
+            must not depend on which row it happens to be sitting in. */}
+        <ComposerCompactProvider compact={compactSettings}>
+          {isMobileMainComposer && (
+            // Mounted for as long as the composer is, because each pill gates
+            // itself on server state its own menu loads (access waits on the
+            // global-threshold fetch), and a row that mounted on first focus
+            // would rise with that pill still missing. Only its visibility
+            // follows focus: `hidden` is `display: none`, which keeps the resting
+            // row out of the layout, the tab order and the accessibility tree,
+            // and lets the entrance animation run again on every reveal.
+            //
+            // The row rises into place rather than appearing, since it arrives
+            // with the keyboard; reduced motion keeps the placement and drops the
+            // movement.
+            <div
+              data-slot="composer-settings-pills"
+              hidden={!settingsPillsVisible}
+              // The right inset lands the last pill's edge over the send
+              // circle's, so the row reads as hung off the card rather than
+              // floated past it.
+              className={
+                settingsPillsVisible
+                  ? "mb-3 flex animate-[fadeInUp_var(--anim-fast)_var(--anim-ease-out)_backwards] justify-end gap-1.5 pr-1.5 motion-reduce:animate-none"
+                  : undefined
+              }
+            >
+              {thresholdPickerSlot}
+              {modelPickerSlot}
+            </div>
+          )}
+          <Popover.Root open={emoji.show || slash.show}>
+            <Popover.Anchor asChild>
+              <form
+                ref={composerCardRef}
+                data-slot="chat-composer"
+                onSubmit={onSubmit}
+                className={`overflow-hidden bg-[var(--surface-lift)] shadow-[0px_2px_2px_rgba(0,0,0,0.05)] ${cardShapeClass}`}
+              >
+                {/* overflow-hidden lives here, not on the form itself: the form
                 casts the shadow above, and overflow-hidden on the same box
                 would clip that shadow along with the rounded corners. */}
-            <div
-              className={`overflow-hidden ${
-                hasBillingBanner ? "rounded-b-[10px]" : COMPOSER_RADIUS_CLASS
-              }`}
-            >
-              <ChatAttachmentsStrip
-                attachments={attachments}
-                onRemove={removeAttachment}
-              />
-              {/* CSS Grid hidden-mirror technique for auto-growing textarea.
-            A hidden div mirrors the textarea content in the same grid cell.
-            The grid auto-sizes to max(mirror_height, textarea_intrinsic_height),
-            so the textarea stretches to fit — no JS height measurement needed.
-            This avoids the iOS WKWebView re-dispatch bug entirely: no DOM
-            geometry mutation means no re-fired input events.
-            Reference: https://css-tricks.com/the-cleanest-trick-for-autogrowing-textareas/ */}
-              <div className={hideTextareaRow ? "hidden" : "grid"}>
-                <div
-                  aria-hidden
-                  className="pointer-events-none col-start-1 row-start-1 overflow-hidden whitespace-pre-wrap break-words px-4 pt-3 pb-2 text-chat"
-                  style={{
-                    fontFamily: "inherit",
-                    letterSpacing: "inherit",
-                    maxHeight: `${textareaMaxHeightPx}px`,
-                  }}
-                >
-                  <span className="invisible">{input}</span>
-                  {ghostSuffix && (
-                    <span className="text-[var(--content-disabled)]">
-                      {ghostSuffix}
-                    </span>
-                  )}
-                  <span className="invisible"> </span>
-                </div>
-                <textarea
-                  ref={inputRef}
-                  value={input}
-                  autoComplete="off"
-                  data-1p-ignore
-                  data-lpignore="true"
-                  onChange={(e) => {
-                    const value = e.target.value;
-                    cursorRef.current = e.target.selectionStart ?? value.length;
-                    setInput(value);
-                    // The user has edited the text, so it's no longer a pristine
-                    // restored draft — retire the "draft restored" marker (and its
-                    // notice). Keeps `restoredDraftConversationId` an accurate
-                    // signal for "unedited restored draft" (see use-deep-link-consumer).
-                    if (
-                      useComposerStore.getState()
-                        .restoredDraftConversationId !== null
-                    ) {
-                      useComposerStore.getState().clearRestoredDraftNotice();
-                    }
-                  }}
-                  onPaste={(e) => {
-                    const items = e.clipboardData?.items;
-                    if (!items) {
-                      return;
-                    }
-                    const files: File[] = [];
-                    for (let i = 0; i < items.length; i++) {
-                      const item = items[i];
-                      if (item?.kind === "file") {
-                        const file = item.getAsFile();
-                        if (file) {
-                          files.push(file);
-                        }
-                      }
-                    }
-                    if (files.length > 0) {
-                      e.preventDefault();
-                      onAddAttachmentFiles(files);
-                    }
-                  }}
-                  onKeyDown={(e) => {
-                    if (slash.show) {
-                      if (e.key === "ArrowUp") {
-                        e.preventDefault();
-                        slash.moveUp();
-                        return;
-                      }
-                      if (e.key === "ArrowDown") {
-                        e.preventDefault();
-                        slash.moveDown();
-                        return;
-                      }
-                      if (e.key === "Tab" || e.key === "Enter") {
-                        e.preventDefault();
-                        const cmd = slash.items[slash.selectedIndex];
-                        if (cmd) {
-                          handleSlashCommandSelect(cmd);
-                        }
-                        return;
-                      }
-                      if (e.key === "Escape") {
-                        e.preventDefault();
-                        slash.dismiss();
-                        setInput("");
-                        return;
-                      }
-                    }
-
-                    if (emoji.show) {
-                      if (e.key === "ArrowUp") {
-                        e.preventDefault();
-                        emoji.moveUp();
-                        return;
-                      }
-                      if (e.key === "ArrowDown") {
-                        e.preventDefault();
-                        emoji.moveDown();
-                        return;
-                      }
-                      if (e.key === "Tab" || e.key === "Enter") {
-                        e.preventDefault();
-                        const selected = emoji.items[emoji.selectedIndex];
-                        if (selected) {
-                          insertEmoji(selected);
-                        }
-                        return;
-                      }
-                      if (e.key === "Escape") {
-                        e.preventDefault();
-                        emoji.dismiss();
-                        return;
-                      }
-                    }
-
-                    if (
-                      e.key === "ArrowUp" &&
-                      !input.trim() &&
-                      onRecallLastMessage
-                    ) {
-                      e.preventDefault();
-                      onRecallLastMessage();
-                      return;
-                    }
-
-                    if (e.key === "Escape" && onCancelEdit) {
-                      e.preventDefault();
-                      onCancelEdit();
-                      return;
-                    }
-
-                    const marker = matchFormattingShortcut(e);
-                    if (marker) {
-                      e.preventDefault();
-                      const el = inputRef.current;
-                      const start = el?.selectionStart ?? input.length;
-                      const end = el?.selectionEnd ?? start;
-                      const result = applyMarkdownFormatting(
-                        input,
-                        start,
-                        end,
-                        marker,
-                      );
-                      cursorRef.current = result.selectionStart;
-                      setInput(result.text);
-                      requestAnimationFrame(() => {
-                        if (el) {
-                          el.setSelectionRange(
-                            result.selectionStart,
-                            result.selectionEnd,
-                          );
-                          el.focus();
-                        }
-                      });
-                      return;
-                    }
-
-                    if (e.key === "Tab" && ghostSuffix) {
-                      e.preventDefault();
-                      const accepted = input + ghostSuffix;
-                      cursorRef.current = accepted.length;
-                      setInput(accepted);
-                      return;
-                    }
-                    const decision = shouldSubmitOnEnter(
-                      {
-                        key: e.key,
-                        shiftKey: e.shiftKey,
-                        metaKey: e.metaKey,
-                        ctrlKey: e.ctrlKey,
-                        isComposing: e.nativeEvent.isComposing,
-                        keyCode: e.keyCode,
-                      },
-                      pointerCoarse,
-                      {
-                        input,
-                        canSendAttachments,
-                        sendDisabled,
-                        attachmentsUploadingCount,
-                        cmdEnterMode,
-                        hasStagedQuotes,
-                      },
-                    );
-                    if (decision === "ignore") {
-                      return;
-                    }
-                    e.preventDefault();
-                    if (decision === "submit") {
-                      onSubmit(e as unknown as FormEvent);
-                    }
-                  }}
-                  placeholder={ghostSuffix ? "" : placeholder}
-                  // A live-voice session leaves this alone: the bar above owns
-                  // the session, and typing alongside it is the point of moving
-                  // the bar out of the card.
-                  disabled={typingDisabled}
-                  rows={1}
-                  className="col-start-1 row-start-1 w-full resize-none overflow-y-auto border-none bg-transparent px-4 pt-3 pb-2 text-chat text-[var(--content-default)] placeholder:text-[var(--content-disabled)] focus:outline-none disabled:opacity-50"
-                  style={{ maxHeight: `${textareaMaxHeightPx}px` }}
-                />
-              </div>
-              {showInlineVoicePreview && (
-                // Non-Electron fallback: Electron uses the shared top-center
-                // dictation overlay for both focused and global recording.
-                // Browser/iOS hosts keep this inline waveform because the
-                // overlay bridge no-ops there.
-                <div
-                  className={hideTextareaForVoice ? "px-2 pt-3" : "px-2"}
-                  aria-label={
-                    voicePhase === "processing" ? "Transcribing" : "Recording"
-                  }
-                  aria-live="polite"
-                >
-                  <StreamingWaveform
-                    amplitude={amplitude}
-                    paused={voicePhase === "processing"}
+                <div className={`overflow-hidden ${cardShapeClass}`}>
+                  <ChatAttachmentsStrip
+                    attachments={attachments}
+                    onRemove={removeAttachment}
                   />
-                  {voicePhase === "processing" ? (
-                    <p className="mt-1 truncate text-[11px] italic text-[var(--content-tertiary)]">
-                      Transcribing…
-                    </p>
+                  {isMobile ? (
+                    <>
+                      {inlineVoicePreview}
+                      {/* One row: add, divider, input, mic, voice-or-send.
+                        `items-end` holds the fixed-height controls on the
+                        card's bottom edge while the textarea grows upward.
+                        Once the draft outgrows that line the same row wraps:
+                        the text takes the full width and the two control
+                        clusters drop beneath it. Every control keeps its place
+                        in this one flex container across the change, so the
+                        textarea is never rebuilt under a caret mid-word. */}
+                      <div
+                        ref={mobileRowRef}
+                        className={cn(
+                          "flex items-end py-1.5 pl-0.5 pr-1.5",
+                          // 4px against the field's own 8px of bottom padding
+                          // is the 12px the design leaves between the draft
+                          // and the controls.
+                          isMultilineDraft && "flex-wrap gap-y-1",
+                        )}
+                      >
+                        <div
+                          ref={inlineActionsStartRef}
+                          data-slot="composer-inline-actions-start"
+                          className="flex shrink-0 items-end"
+                        >
+                          {contextWindowIndicatorSlot ? (
+                            // A bare slot in an `items-end` row sits flush on
+                            // the card's bottom edge; a control-height box
+                            // centres it against the glyphs beside it instead.
+                            <div className="mr-1 flex h-10 shrink-0 items-center">
+                              {contextWindowIndicatorSlot}
+                            </div>
+                          ) : null}
+                          {!isAssistantBusy && attachControl}
+                          {!isAssistantBusy && (
+                            <div
+                              aria-hidden="true"
+                              className="-ml-0.5 mb-2 h-6 w-px shrink-0 bg-[var(--border-hover)]"
+                            />
+                          )}
+                        </div>
+                        {textFieldBlock}
+                        {/* The mic's 40x40 box carries 10px of slack around its
+                          20px glyph, so 6px of gap lands that glyph the
+                          design's 16px from the voice circle. `ml-auto` anchors
+                          the group to the right end of whichever line it is
+                          on: the wrapped control row, and the inline row once
+                          native dictation has taken the textarea's `flex-1`
+                          out of it. */}
+                        <div
+                          ref={inlineActionsEndRef}
+                          data-slot="composer-inline-actions-end"
+                          className="ml-auto flex shrink-0 items-end gap-1.5"
+                        >
+                          {isAssistantBusy ? (
+                            busyRowControl
+                          ) : (
+                            <>
+                              {dictationButton}
+                              {sendSlot}
+                            </>
+                          )}
+                        </div>
+                      </div>
+                    </>
                   ) : (
-                    voiceInterim && (
-                      // Partial transcript ghost text — mirrors macOS composerTextField
-                      // showing interim results in the input binding while speaking.
-                      <p className="mt-1 truncate text-[11px] italic text-[var(--content-tertiary)]">
-                        {voiceInterim}
-                      </p>
-                    )
+                    <>
+                      {textFieldBlock}
+                      {inlineVoicePreview}
+                      {/* Action row: attach, divider, access on the left; model
+                        profile, divider, mic, send on the right. It stays
+                        mounted through a live-voice session, whose own
+                        controls live in the bar above the card. */}
+                      <div className="flex items-center justify-between gap-1 px-2 pb-2">
+                        <div className="flex min-w-0 items-center gap-2">
+                          {contextWindowIndicatorSlot}
+                          {!isAssistantBusy && attachControl}
+                          {!isAssistantBusy && thresholdPickerSlot ? (
+                            <div
+                              aria-hidden="true"
+                              className="h-4 w-px shrink-0 bg-[var(--border-hover)] touch-mobile:-mx-1"
+                            />
+                          ) : null}
+                          {thresholdPickerSlot}
+                        </div>
+                        <div className="flex shrink-0 items-center gap-2">
+                          {isAssistantBusy ? (
+                            busyRowControl
+                          ) : (
+                            <>
+                              {/* Compact: the model profile moves into the
+                              left slot's hamburger alongside access, so
+                              nothing is mounted here. */}
+                              {!compactSettings && modelPickerSlot}
+                              {!compactSettings &&
+                              modelPickerSlot &&
+                              showDictationButton ? (
+                                <div
+                                  aria-hidden="true"
+                                  className="h-4 w-px shrink-0 bg-[var(--border-hover)] touch-mobile:-mx-1"
+                                />
+                              ) : null}
+                              {dictationButton}
+                              {sendSlot}
+                            </>
+                          )}
+                        </div>
+                      </div>
+                    </>
                   )}
                 </div>
+              </form>
+            </Popover.Anchor>
+            <Popover.Content
+              side="top"
+              align="start"
+              sideOffset={4}
+              className="w-[var(--radix-popover-trigger-width)] rounded-none bg-transparent p-0 shadow-none"
+              onOpenAutoFocus={(e: Event) => e.preventDefault()}
+              onCloseAutoFocus={(e: Event) => e.preventDefault()}
+              onInteractOutside={(e: Event) => e.preventDefault()}
+              onEscapeKeyDown={(e: Event) => e.preventDefault()}
+              onPointerDownOutside={(e: Event) => e.preventDefault()}
+            >
+              {emoji.show && (
+                <EmojiPickerPopup
+                  entries={emoji.items}
+                  selectedIndex={emoji.selectedIndex}
+                  onSelect={insertEmoji}
+                />
               )}
-              {/* Action row per Figma 7471-25234: attach | divider | access
-                on the left; model profile | divider | mic, send on the
-                right. It stays mounted through a live-voice session — the
-                session's own controls live in the bar above the card, and
-                everything here (attach, model picker, send) keeps working
-                alongside it. */}
-              <ComposerCompactProvider compact={compactSettings}>
-                <div className="flex items-center justify-between gap-1 px-2 pb-2">
-                  <div className="flex min-w-0 items-center gap-2">
-                    {contextWindowIndicatorSlot}
-                    {!isAssistantBusy && (
-                      <AttachFileButton
-                        disabled={typingDisabled || !assistantId}
-                        onFilesSelected={onAddAttachmentFiles}
-                      />
-                    )}
-                    {!isAssistantBusy && thresholdPickerSlot ? (
-                      <div
-                        aria-hidden="true"
-                        className="h-4 w-px shrink-0 bg-[var(--border-hover)] touch-mobile:-mx-1"
-                      />
-                    ) : null}
-                    {thresholdPickerSlot}
-                  </div>
-                  <div className="flex shrink-0 items-center gap-2">
-                    {isAssistantBusy ? (
-                      <>
-                        {/* Desktop: always show stop. Mobile: show stop only when there is no sendable content. */}
-                        {(!isMobile || !canSendMessageContent) && (
-                          <Button
-                            variant="primary"
-                            iconOnly={
-                              <Square className="h-3 w-3" fill="currentColor" />
-                            }
-                            onClick={onStopGenerating}
-                            aria-label="Stop generating"
-                          />
-                        )}
-                        {/* Mobile: show send instead of stop when content can be queued. */}
-                        {isMobile && canSendMessageContent && (
-                          <Button
-                            variant="primary"
-                            iconOnly={
-                              <ArrowUp className="h-4 w-4" strokeWidth={2.5} />
-                            }
-                            type="submit"
-                            disabled={
-                              sendDisabled || attachmentsUploadingCount > 0
-                            }
-                            title={
-                              sendDisabled
-                                ? "Type a message to send"
-                                : attachmentsUploadingCount > 0
-                                  ? "Uploading attachments…"
-                                  : "Send message"
-                            }
-                            aria-label="Send message"
-                          />
-                        )}
-                      </>
-                    ) : (
-                      <>
-                        {/* Compact: the model profile moves into the left
-                          slot's hamburger alongside access, so nothing is
-                          mounted here. */}
-                        {!compactSettings && modelPickerSlot}
-                        {!compactSettings &&
-                        modelPickerSlot &&
-                        showDictationButton ? (
-                          <div
-                            aria-hidden="true"
-                            className="h-4 w-px shrink-0 bg-[var(--border-hover)] touch-mobile:-mx-1"
-                          />
-                        ) : null}
-                        {showDictationButton && (
-                          <VoiceInputButton
-                            ref={voiceInputRef}
-                            assistantId={assistantId}
-                            // Mutual exclusion: a live-voice session in another
-                            // thread must block dictation, or two mic capture
-                            // flows could run at once. (This composer's own
-                            // session takes the button away entirely — see
-                            // `showDictationButton`.)
-                            disabled={typingDisabled || isLiveVoiceSessionLive}
-                            onTranscript={onVoiceTranscript}
-                            onInterimTranscript={onVoiceInterimTranscript}
-                            onError={onVoiceError}
-                            onBeforeStart={onVoiceBeforeStart}
-                            onStreamReady={(stream: MediaStream | null) => {
-                              voiceStreamRef.current = stream;
-                              setVoiceStream(stream);
-                            }}
-                          />
-                        )}
-                        {/* macOS parity: the send button is hidden during recording
-                      and while transcription is being processed. Only the voice
-                      button (mic / stop / spinner) is shown. Otherwise the send
-                      slot holds voice mode until there is something to send, at
-                      which point the send arrow takes over. */}
-                        {!isVoiceActive &&
-                          (showVoiceModeInSendSlot ? (
-                            // Session entry point: once a session starts here the
-                            // slot gives way to the send arrow and the bar above
-                            // the card owns stopping. Disabled while dictation is
-                            // active or a live-voice session already runs
-                            // elsewhere, so a second mic/voice capture can't open
-                            // alongside it.
-                            <LiveVoiceButton
-                              onStart={handleLiveVoiceStart}
-                              disabled={
-                                typingDisabled ||
-                                isVoiceActive ||
-                                isLiveVoiceSessionLive
-                              }
-                            />
-                          ) : (
-                            <Button
-                              variant="primary"
-                              iconOnly={
-                                <ArrowUp
-                                  className="h-4 w-4"
-                                  strokeWidth={2.5}
-                                />
-                              }
-                              type="submit"
-                              disabled={
-                                sendDisabled ||
-                                attachmentsUploadingCount > 0 ||
-                                !canSendMessageContent
-                              }
-                              title={
-                                sendDisabled || !canSendMessageContent
-                                  ? "Type a message to send"
-                                  : attachmentsUploadingCount > 0
-                                    ? "Uploading attachments…"
-                                    : "Send message"
-                              }
-                              aria-label="Send message"
-                            />
-                          ))}
-                      </>
-                    )}
-                  </div>
-                </div>
-              </ComposerCompactProvider>
-            </div>
-          </form>
-        </Popover.Anchor>
-        <Popover.Content
-          side="top"
-          align="start"
-          sideOffset={4}
-          className="w-[var(--radix-popover-trigger-width)] rounded-none bg-transparent p-0 shadow-none"
-          onOpenAutoFocus={(e: Event) => e.preventDefault()}
-          onCloseAutoFocus={(e: Event) => e.preventDefault()}
-          onInteractOutside={(e: Event) => e.preventDefault()}
-          onEscapeKeyDown={(e: Event) => e.preventDefault()}
-          onPointerDownOutside={(e: Event) => e.preventDefault()}
-        >
-          {emoji.show && (
-            <EmojiPickerPopup
-              entries={emoji.items}
-              selectedIndex={emoji.selectedIndex}
-              onSelect={insertEmoji}
+              {slash.show && (
+                <SlashCommandPopup
+                  commands={slash.items}
+                  selectedIndex={slash.selectedIndex}
+                  onSelect={handleSlashCommandSelect}
+                />
+              )}
+            </Popover.Content>
+          </Popover.Root>
+          {isMobileMainComposer && (
+            // Mounted for as long as the composer is and toggled with `hidden`,
+            // the same treatment the pills row above the card gets: one caption
+            // that comes and goes rather than a node that mounts and unmounts
+            // under the card the composer is anchored to. Inside the shell, so
+            // focus judged against the shell is unaffected, and below the form,
+            // which is the box `composer-peek` measures.
+            <p
+              data-slot="composer-disclaimer"
+              hidden={!disclaimerVisible}
+              className="mt-2 px-4 text-center text-[10px] leading-3 text-[var(--content-tertiary)]"
+            >
+              {t("chatComposer.disclaimer")}
+            </p>
+          )}
+          {/* Beside the form, not inside it: a hidden file input stays mounted
+              while a native picker is up, and has no business in the form the
+              composer submits. Mounted whatever the row is showing, so neither
+              signal behind the plus can pull it out from under an open picker.
+              The hook lays the input out as `absolute inset-0`, so it needs a
+              positioned box of its own. */}
+          <div className="relative">{attachPickerInput}</div>
+          {(pointerCoarseNow || addSheetOpen || addSheetEverPresented) && (
+            // The sheet's own three inputs, beside the form for the same reason.
+            //
+            // Mounted on the pointer rather than on the compound that decides
+            // whether the plus opens it. Rotating a phone into landscape crosses
+            // the width breakpoint, and unmounting the sheet's inputs there would
+            // drop a camera or gallery pick still being made. A touch device at
+            // desktop width just keeps a closed sheet mounted.
+            //
+            // The pointer is a live signal, so a convertible that regains its
+            // keyboard flips it mid-session: an already-open sheet holds itself
+            // up through that, rather than vanishing with its `open` still set.
+            //
+            // Both of those are live, though, and a sheet row closes the sheet
+            // before it launches the OS picker, so the keyboard case could take
+            // them false together while a pick is in flight. The latch keeps a
+            // sheet that has ever been presented mounted for the rest of the
+            // session, which costs one hidden row and cannot drop a selection.
+            <AddToChatSheet
+              open={addSheetOpen}
+              onOpenChange={handleAddSheetOpenChange}
+              onAttachFiles={onAddAttachmentFiles}
             />
           )}
-          {slash.show && (
-            <SlashCommandPopup
-              commands={slash.items}
-              selectedIndex={slash.selectedIndex}
-              onSelect={handleSlashCommandSelect}
-            />
-          )}
-        </Popover.Content>
-      </Popover.Root>
+        </ComposerCompactProvider>
+      </div>
     </>
   );
 }

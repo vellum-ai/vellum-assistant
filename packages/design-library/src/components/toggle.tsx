@@ -3,6 +3,8 @@ import { type ReactNode, useId } from "react";
 import { Typography } from "./typography";
 import { cn } from "../utils/cn";
 
+export type ToggleSize = "md" | "sm";
+
 export interface ToggleProps {
   checked: boolean;
   onChange: (next: boolean) => void;
@@ -12,7 +14,25 @@ export interface ToggleProps {
   id?: string;
   "aria-label"?: string;
   className?: string;
+  /**
+   * Track height. `md` (24px) is the page-level default; `sm` (16px) suits
+   * dense contexts such as a row inside a sidepanel's details card.
+   */
+  size?: ToggleSize;
 }
+
+/**
+ * Per-size geometry. The knob insets 2px on every edge, so the checked
+ * offset is always `track width − knob − 2×inset`: 36−20−4=12 at `md`,
+ * 24−12−4=8 at `sm`.
+ */
+const SIZES: Record<
+  ToggleSize,
+  { track: string; knob: string; translate: string }
+> = {
+  md: { track: "h-6 w-9", knob: "h-5 w-5", translate: "translate-x-3" },
+  sm: { track: "h-4 w-6", knob: "h-3 w-3", translate: "translate-x-2" },
+};
 
 /**
  * Pure click-handler contract used by the `<button>` and verifiable in tests
@@ -28,8 +48,9 @@ export function handleToggleClick(
 }
 
 /**
- * On/off toggle switch. Track is 36×24 px with a 20×20 px knob offset 2 px
- * from the edges. Uses CSS variable tokens for light/dark theming.
+ * On/off toggle switch. Two sizes, both with the knob inset 2 px from the
+ * track edges: `md` is a 36×24 px track with a 20 px knob, `sm` a 24×16 px
+ * track with a 12 px knob. Uses CSS variable tokens for light/dark theming.
  */
 export function Toggle({
   checked,
@@ -40,6 +61,7 @@ export function Toggle({
   id,
   "aria-label": ariaLabel,
   className,
+  size = "md",
 }: ToggleProps) {
   const reactId = useId();
   const buttonId = id ?? reactId;
@@ -48,8 +70,11 @@ export function Toggle({
 
   const toggle = () => handleToggleClick(checked, disabled, onChange);
 
+  const geometry = SIZES[size];
+
   const trackClasses = cn(
-    "relative inline-flex h-6 w-9 shrink-0 items-center rounded-full transition-colors",
+    "relative inline-flex shrink-0 items-center rounded-full transition-colors",
+    geometry.track,
     "keyboard-focus:outline-none keyboard-focus:ring-2 keyboard-focus:ring-[var(--ring)] keyboard-focus:ring-offset-2",
     disabled
       ? "cursor-not-allowed bg-[var(--primary-disabled)]"
@@ -59,9 +84,10 @@ export function Toggle({
   );
 
   const knobClasses = cn(
-    "absolute top-0.5 inline-block h-5 w-5 rounded-full shadow transition-transform",
+    "absolute top-0.5 left-0.5 inline-block rounded-full shadow transition-transform",
+    geometry.knob,
     disabled ? "bg-[var(--content-disabled)]" : "bg-[var(--aux-white)]",
-    checked ? "left-0.5 translate-x-3" : "left-0.5 translate-x-0",
+    checked ? geometry.translate : "translate-x-0",
   );
 
   const toggleButton = (
@@ -83,7 +109,11 @@ export function Toggle({
   );
 
   if (!label && !helperText) {
-    return <span data-slot="toggle" className={className}>{toggleButton}</span>;
+    return (
+      <span data-slot="toggle" className={className}>
+        {toggleButton}
+      </span>
+    );
   }
 
   return (
