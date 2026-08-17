@@ -161,7 +161,7 @@ describe("doesSupportVision", () => {
 
 describe("doesSupportVision with a BYO default provider", () => {
   test("judges a default profile against the default provider's column model", () => {
-    // Managed/vellum column: cost-optimized → deepseek-v4-flash (text-only,
+    // Managed/vellum column: cost-optimized → deepseek-v4-pro (text-only,
     // supportsVision: false). Anthropic column: cost-optimized carries
     // intent "latency-optimized" → claude-haiku-4-5 (supportsVision: true).
     // The judged model must be the one the BYO install actually runs.
@@ -171,7 +171,7 @@ describe("doesSupportVision with a BYO default provider", () => {
 
   test("without a default provider, a default profile judges the managed column", () => {
     // Null-reduction: no defaultProvider resolves cost-optimized through the
-    // vellum column (deepseek-v4-flash, text-only).
+    // vellum column (deepseek-v4-pro, text-only).
     setMockConfig({});
     expect(doesSupportVision(profile("cost-optimized"))).toBe(false);
   });
