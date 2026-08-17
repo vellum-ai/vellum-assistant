@@ -20,7 +20,6 @@ import type { RuleEditorContext } from "@/domains/chat/rule-editor-store";
 import { clearConfirmationByRequestId } from "@/domains/chat/utils/send-message-utils";
 import { deriveCommandText } from "@/domains/chat/utils/chat";
 import { toRiskLevel } from "@/domains/chat/utils/risk";
-import { isToolCallRunning } from "@/domains/chat/utils/tool-call-status";
 import { mapMessageToolCalls } from "@/domains/chat/utils/map-message-tool-calls";
 import { submitConfirmation } from "@/domains/chat/api/interactions";
 import { fireSuggestion } from "@/domains/chat/rule-editor-actions";
@@ -67,27 +66,17 @@ function cleanupAfterConfirmationDecision(
   let nudgeTcId: string | null = null;
 
   patchTranscriptMessages((prev: DisplayMessage[]) => {
-    // Resolve stamp target: explicit mapping or heuristic fallback
-    let stampTargetId = mappedToolCallId;
-    if (!stampTargetId) {
-      for (let i = prev.length - 1; i >= 0; i--) {
-        const msg = prev[i];
-        if (msg?.role !== "assistant" || !msg.toolCalls?.length) {
-          continue;
-        }
-        const tc = msg.toolCalls.findLast(
-          (tc) => !isToolCallRunning(tc) && !tc.riskLevel,
-        );
-        if (tc) {
-          stampTargetId = tc.id;
-          break;
-        }
-      }
-    }
+    // The risk metadata describes a tool call, so it goes on the tool call the
+    // prompt named and nowhere else. A prompt that named none (an ACP route
+    // approval has no tool call of its own) has nothing to describe: stamping
+    // whichever call happens to be last would label an unrelated, already
+    // finished step with this decision's risk level, and point the
+    // unknown-risk nudge at it too.
+    const stampTargetId = mappedToolCallId;
 
-    // Compute nudge target from pre-stamp state (riskLevel not yet applied)
-    if (snapshot.riskLevel?.toLowerCase() === "unknown") {
-      nudgeTcId = stampTargetId ?? null;
+    // Computed from pre-stamp state, before `riskLevel` is applied.
+    if (stampTargetId && snapshot.riskLevel?.toLowerCase() === "unknown") {
+      nudgeTcId = stampTargetId;
     }
 
     let anyChanged = false;
