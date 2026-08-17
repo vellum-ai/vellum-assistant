@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
+import { mkdir, rm } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -21,6 +23,28 @@ const testProject = join(
   "Vellum.WindowsHelper.Tests.csproj",
 );
 const dotnetSdkVersion = "10.0.302";
+const dotnetDownloads = {
+  arm64: {
+    hash: "241abb2b345cff1b32d87a9e29da5e9d52f899f691e7b34661274477564c4717054c489814a9fd7a5526fc9e0d8174a0d951a4a845556eee53add526f71917e7",
+    url: "https://builds.dotnet.microsoft.com/dotnet/Sdk/10.0.302/dotnet-sdk-10.0.302-win-arm64.zip",
+  },
+  x64: {
+    hash: "7d170ed75fa9af34c00646621d92011dbd71943952e2787cd15df9be78e6452b55dadef34d7eff77b802e6af4959e071a55855ac649afeac70901c3a2a258716",
+    url: "https://builds.dotnet.microsoft.com/dotnet/Sdk/10.0.302/dotnet-sdk-10.0.302-win-x64.zip",
+  },
+} as const;
+
+const dotnetArchitecture = (): keyof typeof dotnetDownloads =>
+  process.arch === "arm64" ? "arm64" : "x64";
+
+const projectDotnetPath = (): string =>
+  join(
+    windowsRoot,
+    "resources",
+    "dotnet-sdk",
+    dotnetArchitecture(),
+    "dotnet.exe",
+  );
 
 const bundledDotnetPath = (): string | null => {
   if (process.platform !== "win32") {
@@ -34,8 +58,10 @@ const bundledDotnetPath = (): string | null => {
   return existsSync(candidate) ? candidate : null;
 };
 
-const resolveDotnet = (): string | null =>
-  Bun.which("dotnet") ?? bundledDotnetPath();
+const dotnetCandidates = (): string[] =>
+  [Bun.which("dotnet"), bundledDotnetPath(), projectDotnetPath()].filter(
+    (candidate): candidate is string => candidate !== null,
+  );
 
 const hasPinnedDotnetSdk = async (dotnet: string): Promise<boolean> => {
   const child = Bun.spawn([dotnet, "--list-sdks"], {
@@ -46,9 +72,69 @@ const hasPinnedDotnetSdk = async (dotnet: string): Promise<boolean> => {
   return (await child.exited) === 0 && output.includes(`${dotnetSdkVersion} [`);
 };
 
+const findPinnedDotnet = async (): Promise<string | null> => {
+  for (const dotnet of dotnetCandidates()) {
+    if (await hasPinnedDotnetSdk(dotnet)) {
+      return dotnet;
+    }
+  }
+  return null;
+};
+
+const installLocalDotnet = async (): Promise<string> => {
+  const { hash, url } = dotnetDownloads[dotnetArchitecture()];
+  const targetDir = join(
+    windowsRoot,
+    "resources",
+    "dotnet-sdk",
+    dotnetArchitecture(),
+  );
+  const archivePath = `${targetDir}.zip`;
+  console.log(`[native-helper] Downloading .NET SDK ${dotnetSdkVersion}`);
+  const response = await fetch(url);
+  if (!response.ok) {
+    throw new Error(
+      `Unable to download .NET SDK ${dotnetSdkVersion}: ${response.status}`,
+    );
+  }
+  const archive = new Uint8Array(await response.arrayBuffer());
+  const actualHash = createHash("sha512").update(archive).digest("hex");
+  if (actualHash !== hash) {
+    throw new Error("Downloaded .NET SDK failed checksum verification");
+  }
+  await mkdir(join(windowsRoot, "resources", "dotnet-sdk"), {
+    recursive: true,
+  });
+  await Bun.write(archivePath, archive);
+  try {
+    await mkdir(targetDir, { recursive: true });
+    const powershell = Bun.which("powershell.exe") ?? "powershell.exe";
+    const quote = (value: string): string => `'${value.replaceAll("'", "''")}'`;
+    await runNativeCommand(
+      [
+        powershell,
+        "-NoProfile",
+        "-NonInteractive",
+        "-Command",
+        `Expand-Archive -LiteralPath ${quote(archivePath)} -DestinationPath ${quote(targetDir)} -Force`,
+      ],
+      nativeRoot,
+    );
+  } finally {
+    await rm(archivePath, { force: true });
+  }
+  const dotnet = await findPinnedDotnet();
+  if (!dotnet) {
+    throw new Error(
+      `The .NET SDK ${dotnetSdkVersion} installation did not complete`,
+    );
+  }
+  return dotnet;
+};
+
 const ensureDotnet = async (): Promise<string> => {
-  const installed = resolveDotnet();
-  if (installed && (await hasPinnedDotnetSdk(installed))) {
+  const installed = await findPinnedDotnet();
+  if (installed) {
     return installed;
   }
   if (process.platform !== "win32") {
@@ -57,36 +143,37 @@ const ensureDotnet = async (): Promise<string> => {
     );
   }
   const winget = Bun.which("winget");
-  if (!winget) {
-    throw new Error(
-      `Install .NET SDK ${dotnetSdkVersion}: Windows Package Manager is unavailable`,
-    );
+  if (winget) {
+    console.log(`[native-helper] Installing .NET SDK ${dotnetSdkVersion}`);
+    try {
+      await runNativeCommand(
+        [
+          winget,
+          "install",
+          "--id",
+          "Microsoft.dotnet.SDK.10",
+          "--exact",
+          "--version",
+          dotnetSdkVersion,
+          "--source",
+          "winget",
+          "--silent",
+          "--accept-package-agreements",
+          "--accept-source-agreements",
+        ],
+        nativeRoot,
+      );
+      const dotnet = await findPinnedDotnet();
+      if (dotnet) {
+        return dotnet;
+      }
+    } catch {
+      console.warn(
+        "[native-helper] Windows Package Manager install failed; downloading locally",
+      );
+    }
   }
-  console.log(`[native-helper] Installing .NET SDK ${dotnetSdkVersion}`);
-  await runNativeCommand(
-    [
-      winget,
-      "install",
-      "--id",
-      "Microsoft.dotnet.SDK.10",
-      "--exact",
-      "--version",
-      dotnetSdkVersion,
-      "--source",
-      "winget",
-      "--silent",
-      "--accept-package-agreements",
-      "--accept-source-agreements",
-    ],
-    nativeRoot,
-  );
-  const dotnet = resolveDotnet();
-  if (!dotnet || !(await hasPinnedDotnetSdk(dotnet))) {
-    throw new Error(
-      `The .NET SDK ${dotnetSdkVersion} installation did not complete`,
-    );
-  }
-  return dotnet;
+  return installLocalDotnet();
 };
 
 const argValue = (flag: string): string | undefined => {
