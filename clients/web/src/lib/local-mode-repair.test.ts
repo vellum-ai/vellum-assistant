@@ -89,6 +89,7 @@ mock.module("@/lib/self-hosted/connection", () => ({
 
 const { GuardianTokenError } = host;
 const {
+  primeLocalGatewayConnection,
   primeLocalGatewayConnectionAfterRestart,
   primeLocalGatewayConnectionWithRepair,
   primeLocalGatewayConnectionWithStartupRetry,
@@ -219,6 +220,43 @@ describe("primeLocalGatewayConnectionAfterRestart", () => {
     ]);
     expect(seedGatewayTokenMock).toHaveBeenCalledTimes(1);
     expect(setSelfHostedConnectionMock).toHaveBeenCalledTimes(1);
+  });
+
+  test("a newer pre-selection prime owns the session commit", async () => {
+    let releaseRestartedMint: (() => void) | undefined;
+    ensureGatewayTokenImpl = async (tokenUrl) => {
+      if (tokenUrl === "http://127.0.0.1:7830/token") {
+        await new Promise<void>((resolve) => {
+          releaseRestartedMint = resolve;
+        });
+        return "restarted-token";
+      }
+      return "connecting-token";
+    };
+
+    const reconnect = primeLocalGatewayConnectionAfterRestart("local-a");
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    const connectingAssistant = {
+      ...localAssistant,
+      assistantId: "local-b",
+      resources: { gatewayPort: 7831, daemonPort: 7832 },
+    };
+
+    await primeLocalGatewayConnection(connectingAssistant);
+    releaseRestartedMint?.();
+    await reconnect;
+
+    expect(seedGatewayTokenMock).toHaveBeenCalledTimes(1);
+    expect(seedGatewayTokenMock).toHaveBeenLastCalledWith(
+      expect.objectContaining({ token: "connecting-token" }),
+    );
+    expect(setSelfHostedConnectionMock).toHaveBeenCalledTimes(1);
+    expect(setSelfHostedConnectionMock).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        token: "connecting-token",
+        url: `${window.location.origin}/assistant/__gateway/7831`,
+      }),
+    );
   });
 
   test("clears the restarted session when restoring the selection fails", async () => {
