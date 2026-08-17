@@ -247,10 +247,10 @@
     },
     {
       "id": "web-remote-ingress",
-      "scope": "assistant",
+      "scope": "client",
       "key": "web-remote-ingress",
       "label": "Web Remote Ingress",
-      "description": "Serve the web client over a public tunnel and enable browser pairing for self-hosted assistants.",
+      "description": "Show the pair-a-device card in web settings. Visibility only; pairing itself is always available.",
       "defaultEnabled": false
     },
     {

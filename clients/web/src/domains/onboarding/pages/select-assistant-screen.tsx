@@ -163,6 +163,7 @@ export function SelectAssistantScreen() {
   const currentOrganizationId =
     useOrganizationStore.use.currentOrganizationId();
   const assistantSwitcher = useClientFeatureFlagStore.use.assistantSwitcher();
+  const webRemoteIngress = useClientFeatureFlagStore.use.webRemoteIngress();
   const flagsHydrated = useClientFeatureFlagStore.use.hydrated();
   const origins = useRememberedOriginsStore.use.origins();
   const originsHydrated = useRememberedOriginsStore.use.hydrated();
@@ -847,8 +848,9 @@ export function SelectAssistantScreen() {
           )}
           {/* Hostless surfaces (hub browser, remote-gateway mode, native
               mobile) add origins by URL; local desktop clients keep the
-              bundle-paste connect flow above instead. */}
-          {assistantSwitcher && !localModeHostAvailable && (
+              bundle-paste connect flow above instead. The web-remote-ingress
+              client flag decides whether the affordance shows at all. */}
+          {assistantSwitcher && webRemoteIngress && !localModeHostAvailable && (
             <DashedActionButton
               icon={<Globe className="h-4 w-4" />}
               label={t("selectAssistantScreen.addRemote")}

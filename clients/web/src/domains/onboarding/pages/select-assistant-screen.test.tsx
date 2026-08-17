@@ -38,6 +38,7 @@ let assistantsValue: ResolvedAssistant[] = [];
 let localModeHostAvailableValue = false;
 let isLocalClientValue = true;
 let assistantSwitcherValue = false;
+let webRemoteIngressValue = true;
 let flagsHydratedValue = true;
 let originsValue: RememberedOrigin[] = [];
 let originsHydratedValue = true;
@@ -145,6 +146,7 @@ mock.module("@/stores/client-feature-flag-store", () => ({
   useClientFeatureFlagStore: {
     use: {
       assistantSwitcher: () => assistantSwitcherValue,
+      webRemoteIngress: () => webRemoteIngressValue,
       hydrated: () => flagsHydratedValue,
     },
   },
@@ -458,6 +460,7 @@ beforeEach(() => {
   isElectronValue = false;
   isLocalClientValue = true;
   assistantSwitcherValue = false;
+  webRemoteIngressValue = true;
   flagsHydratedValue = true;
   originsValue = [];
   originsHydratedValue = true;
@@ -1342,6 +1345,16 @@ describe("SelectAssistantScreen add-remote-assistant affordance", () => {
   });
 
   test("is hidden with the flag off", () => {
+    assistantsValue = [makePairedAssistant(), makePlatformAssistant()];
+
+    render(<SelectAssistantScreen />);
+
+    expect(screen.queryByText("Add a remote assistant")).toBeNull();
+  });
+
+  test("is hidden when web-remote-ingress is off", () => {
+    assistantSwitcherValue = true;
+    webRemoteIngressValue = false;
     assistantsValue = [makePairedAssistant(), makePlatformAssistant()];
 
     render(<SelectAssistantScreen />);
