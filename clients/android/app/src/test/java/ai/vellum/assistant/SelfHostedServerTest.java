@@ -126,6 +126,40 @@ public class SelfHostedServerTest {
     }
 
     @Test
+    public void preservesInteriorDuplicateSeparators() {
+        assertEquals(
+            "https://example.com/tenant//assistant",
+            SelfHostedServer.validate("https://example.com/tenant//assistant").toASCIIString()
+        );
+        assertEquals(
+            "https://example.com/tenant//assistant",
+            SelfHostedServer.canonicalString(SelfHostedServer.validate("https://example.com/tenant//assistant"))
+        );
+    }
+
+    @Test
+    public void navigationChecksMatchPercentEscapesCaseInsensitively() {
+        assertTrue(
+            SelfHostedServer.samePage(
+                "https://example.com/tenant%2fabc/assistant/pair",
+                "https://example.com/tenant%2Fabc/assistant/pair"
+            )
+        );
+        assertTrue(
+            SelfHostedServer.contains(
+                SelfHostedServer.validate("https://example.com/tenant%2fabc"),
+                "https://example.com/tenant%2Fabc/conversations"
+            )
+        );
+        assertFalse(
+            SelfHostedServer.contains(
+                SelfHostedServer.validate("https://example.com/tenant%2fabc"),
+                "https://example.com/tenant/abc/conversations"
+            )
+        );
+    }
+
+    @Test
     public void stripsEveryTrailingSlashLikeIosAndWebCanonicalizers() {
         assertEquals("https://example.com", SelfHostedServer.validate("https://example.com//").toASCIIString());
         assertEquals(

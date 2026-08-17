@@ -324,8 +324,8 @@ final class SelfHostedServer {
             return false;
         }
 
-        String basePath = normalizePath(server.getRawPath());
-        String candidatePath = normalizePath(candidate.getRawPath());
+        String basePath = foldEscapeCase(normalizePath(server.getRawPath()));
+        String candidatePath = foldEscapeCase(normalizePath(candidate.getRawPath()));
         if (basePath.isEmpty()) {
             return true;
         }
@@ -340,7 +340,8 @@ final class SelfHostedServer {
             && expected.getScheme().equalsIgnoreCase(actual.getScheme())
             && expected.getHost().equalsIgnoreCase(actual.getHost())
             && effectivePort(expected) == effectivePort(actual)
-            && normalizePath(expected.getRawPath()).equals(normalizePath(actual.getRawPath()));
+            && foldEscapeCase(normalizePath(expected.getRawPath()))
+                .equals(foldEscapeCase(normalizePath(actual.getRawPath())));
     }
 
     static CapConfig overrideCapacitorConfig(Context context, URI server) throws IOException, JSONException {
@@ -401,6 +402,24 @@ final class SelfHostedServer {
             normalized = normalized.substring(0, normalized.length() - 1);
         }
         return normalized;
+    }
+
+    /**
+     * Uppercase percent-escape hex for comparison only: escape hex digits are
+     * case-insensitive per RFC 3986, so navigation checks must match `%2f`
+     * against `%2F`, while canonical list identity keeps the original casing.
+     */
+    private static String foldEscapeCase(String path) {
+        StringBuilder folded = new StringBuilder(path.length());
+        for (int index = 0; index < path.length(); index++) {
+            char item = path.charAt(index);
+            folded.append(item);
+            if (item == '%' && index + 2 < path.length()) {
+                folded.append(Character.toUpperCase(path.charAt(++index)));
+                folded.append(Character.toUpperCase(path.charAt(++index)));
+            }
+        }
+        return folded.toString();
     }
 
     private static boolean containsEncodedDotSegment(String rawPath) {
