@@ -1,3 +1,5 @@
+import { join } from "path";
+
 import {
   resolveImageGenCredentials,
   resolveImageGenRouting,
@@ -18,6 +20,58 @@ import type {
   ToolExecutionResult,
 } from "../../../../tools/types.js";
 import { getConfig } from "../../../loader.js";
+
+/** Workspace-relative directory where generated images are saved. */
+const GENERATED_MEDIA_DIR = "media/generated";
+
+/**
+ * Derive a filesystem-safe base name for a generated image from its title
+ * (when the provider returns one) or the generation prompt.
+ */
+function imageFileSlug(title: string | undefined, prompt: string): string {
+  const base = (title?.trim() || prompt)
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+/, "")
+    .slice(0, 48)
+    .replace(/-+$/, "");
+  return base || "image";
+}
+
+/**
+ * Save generated images under `media/generated/` in the workspace so the
+ * model can reference them by path (inline embeds, edit-mode iteration).
+ * Returns workspace-relative paths for the images written before any
+ * failure; a failure stops the loop and is reported, not thrown, so the
+ * inline content blocks still reach the model.
+ */
+async function saveGeneratedImages(
+  images: Array<{ mimeType: string; dataBase64: string; title?: string }>,
+  prompt: string,
+  workingDir: string,
+): Promise<{ savedPaths: string[]; saveError?: string }> {
+  const savedPaths: string[] = [];
+  try {
+    for (const img of images) {
+      const ext = img.mimeType.split("/")[1] ?? "png";
+      const slug = imageFileSlug(img.title, prompt);
+      let relPath = `${GENERATED_MEDIA_DIR}/${slug}.${ext}`;
+      let suffix = 2;
+      while (await Bun.file(join(workingDir, relPath)).exists()) {
+        relPath = `${GENERATED_MEDIA_DIR}/${slug}-${suffix}.${ext}`;
+        suffix++;
+      }
+      await Bun.write(
+        join(workingDir, relPath),
+        Buffer.from(img.dataBase64, "base64"),
+      );
+      savedPaths.push(relPath);
+    }
+  } catch (error) {
+    return { savedPaths, saveError: (error as Error).message };
+  }
+  return { savedPaths };
+}
 
 export async function run(
   input: Record<string, unknown>,
@@ -127,7 +181,24 @@ export async function run(
     });
 
     const imageCount = result.images.length;
+    const { savedPaths, saveError } = await saveGeneratedImages(
+      result.images,
+      prompt,
+      context.workingDir,
+    );
+
     let content = `Generated ${imageCount} image${imageCount !== 1 ? "s" : ""} using ${result.resolvedModel}.`;
+    if (savedPaths.length === 1) {
+      content += ` Saved to ${savedPaths[0]}.`;
+    } else if (savedPaths.length > 1) {
+      content += ` Saved to:\n${savedPaths.map((p) => `- ${p}`).join("\n")}`;
+    }
+    if (savedPaths.length > 0) {
+      content += `\n\nShow the user an image by embedding it in your reply: ![description](vellum://workspace/${savedPaths[0]}). To iterate on a result, pass its saved path via source_paths with mode "edit".`;
+    }
+    if (saveError) {
+      content += `\n\nCould not save to the workspace (${saveError}); the image${imageCount !== 1 ? "s" : ""} will be attached to your reply automatically instead.`;
+    }
     if (result.text) {
       content += `\n\n${result.text}`;
     }
