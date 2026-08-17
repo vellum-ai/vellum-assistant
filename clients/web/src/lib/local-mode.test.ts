@@ -1076,6 +1076,37 @@ describe("primeLocalGatewayConnectionWithStartupRetry", () => {
     expect(getSelfHostedActorToken()).toBe("fresh-actor-token");
   });
 
+  test("invalidates the cached gateway session when boot validation fails", async () => {
+    enableLocalMode();
+    setLockfile({ assistants: [localA], activeAssistant: "local-a" });
+    seedGatewayToken({
+      token: "stale-actor-token",
+      expiresAtEpochSeconds: Math.floor(Date.now() / 1000) + 3600,
+      source: "/assistant/__gateway/7830/auth/token",
+    });
+    setSelfHostedConnection({
+      url: `${window.location.origin}/assistant/__gateway/7830`,
+      token: "stale-actor-token",
+    });
+    globalThis.fetch = mock(
+      async () => new Response("Unauthorized", { status: 401 }),
+    ) as unknown as typeof fetch;
+    const previousAttempts = LOCAL_GATEWAY_STARTUP_RETRY.attempts;
+    LOCAL_GATEWAY_STARTUP_RETRY.attempts = 1;
+
+    try {
+      await expect(
+        primeLocalGatewayConnectionWithStartupRetry(localA),
+      ).rejects.toThrow("Gateway token request failed: 401");
+    } finally {
+      LOCAL_GATEWAY_STARTUP_RETRY.attempts = previousAttempts;
+    }
+
+    expect(getGatewayToken()).toBeNull();
+    expect(getSelfHostedIngressUrl()).toBeNull();
+    expect(getSelfHostedActorToken()).toBeNull();
+  });
+
   // The startup ride-out exists for the LOCAL gateway's reboot window and only
   // retries GatewayTokenErrors, which the paired proxy prime never throws. A
   // paired failure (failed host credential read, remote transport error) falls through

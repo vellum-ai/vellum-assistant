@@ -1149,8 +1149,10 @@ async function primeLocalGatewayWithStartupRideout(
 export async function primeLocalGatewayConnectionWithStartupRetry(
   target?: LockfileAssistant,
 ): Promise<void> {
+  const targetAssistant = target ?? getSelectedAssistant();
+  const targetIngressUrl = getAuthGatewayIngressUrl(targetAssistant);
   const reservation = reserveGatewayPrime(
-    target?.assistantId ?? getSelectedAssistant()?.assistantId ?? null,
+    targetAssistant?.assistantId ?? null,
   );
   try {
     const committed = await primeLocalGatewayWithStartupRideout(
@@ -1162,6 +1164,15 @@ export async function primeLocalGatewayConnectionWithStartupRetry(
     settleGatewayPrime(reservation, committed);
   } catch (error) {
     settleGatewayPrime(reservation, false);
+    if (
+      reservation.assistantId !== null &&
+      getSelectedAssistant()?.assistantId === reservation.assistantId
+    ) {
+      clearGatewayToken();
+      if (getSelfHostedIngressUrl() === targetIngressUrl) {
+        setSelfHostedConnection(null);
+      }
+    }
     throw error;
   }
 }
