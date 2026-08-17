@@ -99,6 +99,10 @@ export function WorkspaceBrowser({ assistantId }: { assistantId: string }) {
 
   const { paneRef, hasRoomForList, drawerOpen, openDrawer, closeDrawer } =
     useSideListRoom();
+  // Above the inline/drawer branch below, which remounts whichever tree
+  // surface it swaps to. Sits with the expansion and selection state already
+  // lifted here for the same reason.
+  const [treeSearch, setTreeSearch] = useState("");
 
   const handleSelectPath = useCallback(
     (path: string) => {
@@ -161,6 +165,8 @@ export function WorkspaceBrowser({ assistantId }: { assistantId: string }) {
     onChangeSortMode: setSortMode,
     onPathDeleted: handlePathDeleted,
     onPathRenamed: handlePathRenamed,
+    search: treeSearch,
+    onSearchChange: setTreeSearch,
   };
 
   return (

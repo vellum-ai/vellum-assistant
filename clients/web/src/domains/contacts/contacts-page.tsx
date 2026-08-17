@@ -130,6 +130,11 @@ export function ContactsPage({
   const inviteDialog = useInviteLinkDialog(assistantId);
   const { paneRef, hasRoomForList, drawerOpen, openDrawer, closeDrawer } =
     useSideListRoom();
+  // Above the inline/drawer branch below, which remounts whichever list
+  // surface it swaps to: held inside `ContactsList` the filter would be
+  // dropped whenever the pane crosses the threshold, and dragging the chat
+  // sidebar is enough to cross it.
+  const [contactSearch, setContactSearch] = useState("");
   const [mergeDialogOpen, setMergeDialogOpen] = useState(false);
 
   const assistantName = assistantDisplayName(identityName);
@@ -509,6 +514,8 @@ export function ContactsPage({
     selection,
     onAddContact: handleAddContact,
     addingContact: createMutation.isPending,
+    search: contactSearch,
+    onSearchChange: setContactSearch,
   };
 
   return (
