@@ -259,6 +259,59 @@ describe("primeLocalGatewayConnectionAfterRestart", () => {
     );
   });
 
+  test("reconnects the selected assistant when a newer prime fails", async () => {
+    let releaseRestartedMint: (() => void) | undefined;
+    let failConnectingMint: (() => void) | undefined;
+    let aMintAttempts = 0;
+    ensureGatewayTokenImpl = async (tokenUrl) => {
+      if (tokenUrl === "http://127.0.0.1:7830/token") {
+        aMintAttempts++;
+        if (aMintAttempts === 1) {
+          await new Promise<void>((resolve) => {
+            releaseRestartedMint = resolve;
+          });
+          return "superseded-token";
+        }
+        return "reconnected-token";
+      }
+      await new Promise<void>((resolve) => {
+        failConnectingMint = resolve;
+      });
+      throw new GatewayTokenError(403, "connecting assistant failed");
+    };
+
+    const reconnect = primeLocalGatewayConnectionAfterRestart("local-a");
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    const connectingAssistant = {
+      ...localAssistant,
+      assistantId: "local-b",
+      resources: { gatewayPort: 7831, daemonPort: 7832 },
+    };
+    const connecting = primeLocalGatewayConnection(connectingAssistant).catch(
+      () => undefined,
+    );
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    releaseRestartedMint?.();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(seedGatewayTokenMock).not.toHaveBeenCalled();
+    failConnectingMint?.();
+    await connecting;
+    await reconnect;
+
+    expect(aMintAttempts).toBe(2);
+    expect(seedGatewayTokenMock).toHaveBeenCalledTimes(1);
+    expect(seedGatewayTokenMock).toHaveBeenLastCalledWith(
+      expect.objectContaining({ token: "reconnected-token" }),
+    );
+    expect(setSelfHostedConnectionMock).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        token: "reconnected-token",
+        url: `${window.location.origin}/assistant/__gateway/7830`,
+      }),
+    );
+  });
+
   test("clears the restarted session when restoring the selection fails", async () => {
     let releaseRestartedMint: (() => void) | undefined;
     let mintAttempts = 0;
