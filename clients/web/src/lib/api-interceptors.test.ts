@@ -121,6 +121,7 @@ mock.module("@/lib/telemetry/resume-request-counter", () => ({
   noteDaemonApiRequest: noteDaemonApiRequestMock,
 }));
 
+import { client as platformClient } from "@/generated/api/client.gen";
 import { client as daemonClient } from "@/generated/daemon/client.gen";
 import { client as gatewayClient } from "@/generated/gateway/client.gen";
 import {
@@ -1088,12 +1089,19 @@ describe("api-interceptors / recovery interceptor registration", () => {
     );
   });
 
-  test("gatewayClient deliberately does not carry it", () => {
-    // A 401 raised through the generated gateway SDK surfaces to the caller
-    // unrecovered. The exclusion is a scope boundary, not a safety one:
-    // now that recovery is in place (no reload) and budgeted, extending it
-    // to this client is a separate, deliberate registration change.
-    expect(responseFns(gatewayClient)).not.toContain(
+  test("gatewayClient carries it too", () => {
+    // Both clients are rewritten to the same ingress, so a stale renderer
+    // token 401s them identically and both must heal in place.
+    expect(responseFns(gatewayClient)).toContain(
+      localGatewayAuthRecoveryInterceptor,
+    );
+  });
+
+  test("the platform client does not carry it", () => {
+    // Platform 401s are session rejections owned by the platform recovery,
+    // and gateway-origin responses reaching that client are its own guard's
+    // job to leave alone.
+    expect(responseFns(platformClient)).not.toContain(
       localGatewayAuthRecoveryInterceptor,
     );
   });

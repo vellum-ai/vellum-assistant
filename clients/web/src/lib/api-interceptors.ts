@@ -511,9 +511,10 @@ export function daemonUnreachableInterceptor(response: Response): Response {
  * Both keys live in sessionStorage, so quitting and reopening the app also
  * grants a fresh budget.
  *
- * Installed on `daemonClient` only. `gatewayClient` does not carry this
- * interceptor, so 401s raised through the generated gateway SDK are not
- * recovered here; see the registrations at the bottom of this file.
+ * Installed on `daemonClient` and `gatewayClient`, the two clients whose
+ * requests are rewritten to the local gateway; see the registrations at
+ * the bottom of this file. Platform-client 401s belong to
+ * {@link platformAuthRecoveryInterceptor}.
  */
 const GW_401_RECOVERY_AT_KEY = "vellum:gw:401-reload-at";
 const GW_401_ATTEMPTS_KEY = "vellum:gw:401-reload-attempts";
@@ -1001,16 +1002,13 @@ daemonClient.interceptors.response.use(localGatewayAuthRecoveryInterceptor);
 daemonClient.interceptors.response.use(platformAuthRecoveryInterceptor);
 daemonClient.interceptors.error.use(daemonErrorInterceptor);
 
-// Gateway client uses the same routing as daemon — all gateway endpoints
-// are proxied through the same self-hosted ingress / platform gateway path.
-//
-// It deliberately does NOT carry `localGatewayAuthRecoveryInterceptor`: a
-// 401 raised through the generated gateway SDK is surfaced to the caller
-// rather than triggering a reload. Adding it here would widen the set of
-// responses that can restart the app, which is the opposite of what the
-// recovery budget is for, so it is tracked separately.
+// Gateway client uses the same routing as daemon: all gateway endpoints
+// are proxied through the same self-hosted ingress / platform gateway path,
+// so a stale renderer token 401s both clients identically and the same
+// in-place recovery applies. The two chains are kept in the same order.
 gatewayClient.interceptors.request.use(daemonRequestInterceptor);
 gatewayClient.interceptors.response.use(daemonUnreachableInterceptor);
+gatewayClient.interceptors.response.use(localGatewayAuthRecoveryInterceptor);
 gatewayClient.interceptors.response.use(platformAuthRecoveryInterceptor);
 gatewayClient.interceptors.error.use(daemonErrorInterceptor);
 
