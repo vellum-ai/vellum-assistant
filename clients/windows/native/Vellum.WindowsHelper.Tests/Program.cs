@@ -46,6 +46,8 @@ catch (InvalidOperationException)
 
 Console.WriteLine("Native helper registry tests passed");
 
+await NotificationServiceTests.RunAsync();
+
 static void Assert(bool condition)
 {
     if (!condition)

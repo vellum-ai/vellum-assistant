@@ -46,6 +46,7 @@
     "./lockfile-watcher": "./src/lockfile-watcher.ts",
     "./module-configuration": "./src/module-configuration.ts",
     "./native-auth": "./src/native-auth.ts",
+    "./notifications": "./src/notifications.ts",
     "./permissions": "./src/permissions.ts",
     "./platform-forward": "./src/platform-forward.ts",
     "./popout-window": "./src/popout-window.ts",
