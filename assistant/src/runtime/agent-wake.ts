@@ -124,6 +124,7 @@ import {
   wrapUntrustedContent,
 } from "../security/untrusted-content.js";
 import type { CompletedBackgroundTool } from "../tools/background-tool-registry.js";
+import { buildTurnUsageOriginSnapshot } from "../usage/usage-origin-snapshot.js";
 import { getLogger } from "../util/logger.js";
 import { createKeyedSingleFlight } from "../util/single-flight.js";
 
@@ -1473,6 +1474,16 @@ export async function wakeAgentForOpportunity(
         conversation.currentTurnTrustContext = opts.trustContext;
       }
 
+      // Immutable record-time usage attribution for every LLM call this wake
+      // emits. Built from the same helper `runAgentLoopImpl` uses, so a
+      // scheduled, retrospective, or background wake carries the same
+      // work-origin classification, turn indexes, and spawn-parent linkage as a
+      // normal turn.
+      const usageOriginSnapshot = buildTurnUsageOriginSnapshot(
+        conversation,
+        callSite,
+      );
+
       let updatedHistory: Message[];
       try {
         ({ history: updatedHistory } = await conversation.agentLoop.run({
@@ -1480,6 +1491,7 @@ export async function wakeAgentForOpportunity(
           onEvent,
           requestId: `wake:${source}`,
           onCheckpoint,
+          usageOriginSnapshot,
           // Route through the caller-supplied call site (defaults to
           // `mainAgent` so a normal user-turn wake shares the user's chat
           // selection). Without an explicit callSite, the resolver in

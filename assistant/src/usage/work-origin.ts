@@ -338,3 +338,114 @@ export function classifyWorkOrigin(input: WorkOriginInput): WorkOrigin {
   }
   return "unknown";
 }
+
+/**
+ * Resolve the id of the conversation that spawned this one.
+ *
+ * Precedence, highest first:
+ *   1. `conversations.parent_conversation_id`, the live subagent-spawn parent,
+ *   2. `conversations.fork_parent_conversation_id`, but only when the
+ *      conversation's type is `background` (retrospective forks), so a fork's
+ *      spend is attributed to the delegating turn,
+ *   3. null, meaning the conversation was not spawned by another.
+ *
+ * The `background` gate on rule 2 matters: user-initiated forks also stamp
+ * `fork_parent_conversation_id`, but they are first-class `standard`
+ * conversations whose spend belongs to themselves.
+ *
+ * **Agreement contract.** This is the same precedence the `llm_usage`
+ * telemetry read path encodes as `parentIdSql` in `queryUnreportedUsageEvents`
+ * (`persistence/llm-usage-store.ts`). The live billing-origin snapshot and the
+ * telemetry row must resolve the same spawn parent for the same conversation,
+ * or the two attribution surfaces disagree about who owns the cost. Change one
+ * and change the other.
+ */
+export function resolveSpawnParentConversationId(input: {
+  parentConversationId: string | null;
+  conversationType: string | null;
+  forkParentConversationId: string | null;
+}): string | null {
+  if (input.parentConversationId !== null) {
+    return input.parentConversationId;
+  }
+  if (input.conversationType === "background") {
+    return input.forkParentConversationId;
+  }
+  return null;
+}
+
+/**
+ * An immutable, record-time attribution of an in-flight LLM call, carried on
+ * the provider send config so the managed-proxy transport can forward it to
+ * the billing backend as `X-Vellum-*` headers. Every field is explicitly
+ * nullable so a non-conversation auxiliary call stays distinguishable from a
+ * conversation-scoped one (null is not an "unattributed default").
+ * {@link workOrigin} is the same bucket the `llm_usage` telemetry derives via
+ * {@link classifyWorkOrigin}, so managed billing rows and usage telemetry share
+ * one classifier and one vocabulary.
+ *
+ * `turnIndex` is the position of the user turn the call belongs to, counting
+ * real user turns, matching the `llm_usage` read-path convention.
+ * `parentConversationId` is the resolved spawn parent
+ * ({@link resolveSpawnParentConversationId}): the subagent-spawn parent, or a
+ * background fork's source conversation. `parentTurnIndex` counts that
+ * conversation's real user turns. Both are null when the conversation was not
+ * spawned by another.
+ *
+ * Every field is best-effort. Attribution never fails or blocks a provider
+ * call: an unresolvable field degrades to null (or, for a failed turn count, to
+ * 0) and the call proceeds without that header.
+ */
+export interface UsageOriginSnapshot {
+  conversationType: string | null;
+  conversationSource: string | null;
+  workOrigin: WorkOrigin | null;
+  conversationId: string | null;
+  turnIndex: number | null;
+  parentConversationId: string | null;
+  parentTurnIndex: number | null;
+}
+
+/**
+ * Build a {@link UsageOriginSnapshot}, deriving
+ * {@link UsageOriginSnapshot.workOrigin} from the same {@link classifyWorkOrigin}
+ * the usage telemetry uses. Callers pass the record-time conversation metadata
+ * and call site; nulls are preserved verbatim so auxiliary (no-conversation)
+ * calls stay distinguishable.
+ *
+ * The spawn parent is resolved via {@link resolveSpawnParentConversationId} and
+ * is what the classifier sees as `parentConversationId`, so a background fork
+ * classifies as `delegated_child` here exactly as it does on the telemetry read
+ * path. Callers pass the raw fork lineage rather than a pre-resolved parent, so
+ * the precedence stays in one place.
+ */
+export function buildUsageOriginSnapshot(input: {
+  conversationType: string | null;
+  conversationSource: string | null;
+  callSite: string | null;
+  conversationId: string | null;
+  turnIndex: number | null;
+  parentConversationId: string | null;
+  forkParentConversationId: string | null;
+  parentTurnIndex: number | null;
+}): UsageOriginSnapshot {
+  const spawnParentConversationId = resolveSpawnParentConversationId({
+    parentConversationId: input.parentConversationId,
+    conversationType: input.conversationType,
+    forkParentConversationId: input.forkParentConversationId,
+  });
+  return {
+    conversationType: input.conversationType,
+    conversationSource: input.conversationSource,
+    workOrigin: classifyWorkOrigin({
+      conversationType: input.conversationType,
+      conversationSource: input.conversationSource,
+      callSite: input.callSite,
+      parentConversationId: spawnParentConversationId,
+    }),
+    conversationId: input.conversationId,
+    turnIndex: input.turnIndex,
+    parentConversationId: spawnParentConversationId,
+    parentTurnIndex: input.parentTurnIndex,
+  };
+}

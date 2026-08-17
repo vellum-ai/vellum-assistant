@@ -21,7 +21,7 @@ import {
   type ScheduleAttributionFilter,
   type ScheduleAttributionSqlParam,
 } from "./schedule-attribution-sql.js";
-import { conversations, llmUsageEvents } from "./schema/index.js";
+import { conversations, llmUsageEvents, messages } from "./schema/index.js";
 import {
   bucketEventsByDay,
   bucketEventsByHour,
@@ -133,6 +133,44 @@ export function recordUsageEvent(
     })
     .run();
   return event;
+}
+
+/**
+ * Count a conversation's real user turns: `role='user'` rows that survive
+ * {@link realUserTurnContentFilter}, so tool-result continuations persisted
+ * under the user role are excluded.
+ *
+ * This is the same population the `turn_index` and `parent_turn_index`
+ * correlated subqueries in {@link queryUnreportedUsageEvents} count, shared
+ * through that one filter. The live billing-origin snapshot stamps its
+ * `turnIndex` from here at agent-loop start, so it agrees with the `turn_index`
+ * the telemetry read path later derives for the same call: a coalesced batch of
+ * N user messages persists all N rows before the single agent-loop run, and the
+ * processing lock keeps a further real user turn from landing until that run
+ * finishes.
+ *
+ * Best-effort, like {@link lookupConversationAttribution}: a query failure
+ * degrades to 0 rather than throwing, so a billing-attribution detail can never
+ * abort the user's turn. Returns 0 for a conversation with no real user turn
+ * yet.
+ */
+export function countRealUserTurns(conversationId: string): number {
+  try {
+    const row = getDb()
+      .select({ count: sql<number>`COUNT(*)` })
+      .from(messages)
+      .where(
+        and(
+          eq(messages.conversationId, conversationId),
+          eq(messages.role, "user"),
+          realUserTurnContentFilter("messages"),
+        ),
+      )
+      .get();
+    return row?.count ? Number(row.count) : 0;
+  } catch {
+    return 0;
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -312,6 +350,12 @@ export function queryUnreportedUsageEvents(
   // conversations whose usage belongs to themselves, not the source turn.
   // Null when the LEFT JOIN below misses or the conversation has no
   // parent.
+  //
+  // Agreement contract: `resolveSpawnParentConversationId`
+  // (`usage/work-origin.ts`) implements this exact precedence for the live
+  // billing-origin snapshot, so the managed billing headers and this telemetry
+  // row name the same spawn parent for the same conversation. Change one and
+  // change the other.
   const parentIdSql = sql<string | null>`COALESCE(
     ${conversations.parentConversationId},
     CASE WHEN ${conversations.conversationType} = 'background'
