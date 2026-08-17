@@ -7,10 +7,10 @@
  * (`InsetByASafeArea` below), and nothing in the running app shows both cases
  * side by side.
  *
- * The same component also reads `window.innerWidth` / `innerHeight` directly for
- * its cursor parallax, ten lines from where it reads the stage box. That mixture
- * is the subject of LUM-3198; these stories are what make the difference between
- * the two boxes visible rather than argued about.
+ * The shared `PeekingEyes` it renders takes that stage box as a prop, yet reads
+ * `window.innerWidth` / `innerHeight` directly for its cursor parallax. That
+ * mixture is the subject of LUM-3198; these stories are what make the
+ * difference between the two boxes visible rather than argued about.
  */
 
 import type { Meta, StoryObj } from "@storybook/react-vite";
@@ -24,10 +24,9 @@ const meta: Meta<typeof OnboardingPeekingEyes> = {
   parameters: { layout: "fullscreen" },
   argTypes: {
     entrance: { control: "boolean" },
-    settleBlink: { control: "boolean" },
     entranceDelay: { control: { type: "number", step: 0.1 } },
   },
-  args: { entrance: false, settleBlink: false },
+  args: { entrance: false },
   render: (args) => (
     <StageHost>
       <OnboardingStage className="bg-[var(--surface-base)]">
@@ -47,7 +46,7 @@ export const Resting: Story = {};
 
 /** The Introduction step's grow-in, delayed behind the body cover. */
 export const Entrance: Story = {
-  args: { entrance: true, entranceDelay: 0.3, settleBlink: true },
+  args: { entrance: true, entranceDelay: 0.3 },
 };
 
 /** Phone width, where the eyes are sized from the smaller stage dimension. */
