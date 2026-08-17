@@ -190,7 +190,7 @@ public sealed class NotificationService : IRpcModule, INotificationAdapter
             toast.Failed += (_, args) =>
             {
                 Untrack(request.Token);
-                _ = failure.TrySetResult(args.ErrorCode?.Message ?? "Toast delivery failed");
+                failure.TrySetResult(args.ErrorCode?.Message ?? "Toast delivery failed");
             };
             Track(request.Token, toast);
             notifier.Show(toast);
