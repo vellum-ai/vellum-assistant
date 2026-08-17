@@ -41,6 +41,7 @@ Centralizing through a bus also gives us:
 | `clients/web/src/hooks/use-bus-subscription.ts` | React hook wrapping `useEffect` + `subscribe` with a stable handler ref so inline arrows don't re-register on every render. |
 | `clients/web/src/hooks/use-event-bus-init.ts` | Thin React adapter. Wires the signal sources at mount and calls `sseService.attach` whenever the active assistant changes. Mounted exactly once by `RootLayout` so the bus is alive on every authenticated route. |
 | `clients/web/src/runtime/event-sources/*` | One file per host-environment signal (DOM visibility, network online/offline, Capacitor app state, Electron `powerMonitor`, Electron deep links). Each calls `publish` directly and returns an unsubscribe. |
+| `clients/web/src/runtime/event-sources/lifecycle-edge.ts` | Not a source: the shared seam the DOM-visibility and Capacitor app-state sources publish through. Collapses their two reports of one physical foreground / background edge into a single `app.resume` / `app.hidden`. |
 | `clients/web/src/lib/lifecycle-diagnostics.ts` | Bus consumer that records `app.*` / `power.*` signals into the durable lifecycle diagnostics ring so support bundles show whether any resume / visibility / network signal fired. Attached once alongside the signal sources in `use-event-bus-init.ts`. |
 | `clients/web/src/assistant/sse-service.ts` | Non-React owner of the assistant-scoped SSE connection. Opens the stream, republishes envelopes as `sse.event`, drives the bounce policy from `app.*` / `power.*` / `reachability.*` signals. |
 
@@ -64,8 +65,8 @@ Every event name in `BusEventMap` has a typed payload. Producers:
 | `sse.event` | `AssistantEventEnvelope` | Every event the bus-owned SSE connection sees. The envelope carries transport metadata (`seq`, `conversationId`, `emittedAt`); subscribers narrow on `envelope.message.type` and filter on `envelope.conversationId` themselves. |
 | `sse.opened` | `{ assistantId; cause: "fresh" \| "error" \| "watchdog" \| "resume" \| "debug" \| "anchor" }` | After each successful (re)open. `cause` lets consumers distinguish a fresh connection from a reconnect. `"debug"` is a manual `_vellumDebug.events.reconnectClient()` trigger; `"anchor"` is a cold-start anchored-replay reopen. |
 | `sse.closed` | `{ reason }` | Transport error on the SSE connection. Not published for intentional teardowns (hidden tab, reachability bounce). |
-| `app.resume` | `{ signal: "visibility" \| "app_state" \| "online" }` | Page visible, app foregrounded, or network came back online. |
-| `app.hidden` | `{ signal: "visibility" \| "app_state" }` | Page hidden or app backgrounded. |
+| `app.resume` | `{ signal: "visibility" \| "app_state" \| "online" }` | Page visible, app foregrounded, or network came back online. At most one per physical foreground edge: iOS reports the same edge twice (`visibilitychange` and Capacitor `appStateChange`, milliseconds apart) and `runtime/event-sources/lifecycle-edge.ts` collapses the pair, keeping the label of whichever source arrived first. `signal: "online"` is outside that dedup and always fires. |
+| `app.hidden` | `{ signal: "visibility" \| "app_state" }` | Page hidden or app backgrounded. Deduped per physical edge exactly like `app.resume`. Only repeats of the same edge collapse, so a hide landing between two foregrounds is always delivered. |
 | `app.online` | `{}` | `window.online` fired. Always accompanies a paired `app.resume{signal:"online"}`. |
 | `app.offline` | `{}` | `window.offline` fired. |
 | `reachability.retry-requested` | `{}` | Burst-limited reachability retry succeeded on recovery into `"ready"` from a degraded phase (`"connecting"`, `"checking"`, or `"failed"`); the bus bounces its SSE. A `"ready"` entered from `"idle"` or `"ready"` confirms an already-healthy stream (boot, remount) and does not publish. |
@@ -168,6 +169,9 @@ Rules:
 2. **No `bus` parameter.** Sources call `publish` directly from
    `@/lib/event-bus`. Tests spy on `eventBus.publish` via
    `spyOn(eventBus, "publish")` after `import * as eventBus from "@/lib/event-bus"`.
+   The lifecycle pair is the one exception: the DOM-visibility and
+   Capacitor app-state sources call `publishLifecycleEdge` instead, so
+   the edge they both observe reaches the bus once.
 3. **No-op off-platform.** If the source is platform-conditioned
    (Capacitor-only, Electron-only), early-return a no-op
    unsubscribe. `useEventBusInit` calls every source unconditionally.
@@ -212,6 +216,13 @@ Rules:
   visibility, app foregrounding, AND network online. A handler that
   only cares about real foregrounding can early-return when
   `signal === "online"` (see `use-home-feed-query.ts`).
+- **One resume per foreground, plus a separate `"online"`.** A handler
+  does not have to collapse the iOS `"visibility"` + `"app_state"`
+  double-fire itself: `lifecycle-edge.ts` publishes that pair once, and
+  which of the two labels survives depends on which source the OS
+  reached first, so treat them as interchangeable. The `"online"`
+  caveat above still stands, because a reachability flip is published
+  independently and can land right next to a foreground.
 
 ## Common patterns
 

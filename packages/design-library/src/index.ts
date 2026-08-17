@@ -254,6 +254,13 @@ export {
   type CollapsibleContentProps,
 } from "./components/collapsible";
 export {
+  Combobox,
+  type ComboboxRootProps,
+  type ComboboxListProps,
+  type ComboboxGroupProps,
+  type ComboboxOptionProps,
+} from "./components/combobox";
+export {
   StatSquare,
   type StatSquareProps,
   type StatSquareTone,

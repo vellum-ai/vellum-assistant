@@ -141,6 +141,12 @@
     "title": "Generación de imágenes",
     "vellumNote": "La generación de imágenes se ejecuta a través de tu cuenta de Vellum."
   },
+  "integrationsPage": {
+    "filterAriaLabel": "Filtrar integraciones",
+    "filterAll": "Todas",
+    "filterEnabled": "Habilitadas",
+    "filterNotEnabled": "No habilitadas"
+  },
   "languageModelCard": {
     "defaultProviderUnavailable": "Tu proveedor predeterminado no está disponible.",
     "manage": "Administrar",
