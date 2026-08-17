@@ -62,7 +62,8 @@ public sealed class ScreenCaptureModule : IRpcModule
         catch (Exception ex) when (ex is ExternalException or InvalidOperationException)
         {
             // GDI capture denial and PNG encoding failures stay structured.
-            return Failed(Unavailable.CaptureDenied, "The display could not be captured");
+            return new CaptureResult(null, null, null, null, null,
+                new Unavailable(Unavailable.CaptureDenied, "The display could not be captured"));
         }
     }
 
