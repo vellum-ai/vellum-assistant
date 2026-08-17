@@ -1,4 +1,8 @@
 {
+  "activityStepsPanel": {
+    "backAria": "Back to all steps",
+    "backTooltip": "All steps"
+  },
   "addToChatSheet": {
     "title": "Add to chat",
     "closeAriaLabel": "Close",
@@ -143,6 +147,9 @@
   "copyButton": {
     "copied": "Copied",
     "copyFailed": "Could not copy to the clipboard."
+  },
+  "detailPanelStopButton": {
+    "tooltip": "Stop"
   },
   "exportProgressModal": {
     "cancel": "Cancel",
@@ -491,6 +498,10 @@
   "sidebarConversationError": {
     "message": "Your conversations failed to load.",
     "retry": "Try again"
+  },
+  "skillDetailPanel": {
+    "actionsAria": "Skill actions",
+    "moreTooltip": "More"
   },
   "skillsTab": {
     "callLink": "Call {number}",

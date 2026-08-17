@@ -26,6 +26,7 @@ import { Button, Typography } from "@vellumai/design-library";
 
 import { ChatMarkdownMessage } from "@/domains/chat/components/chat-markdown-message";
 import { DetailShell } from "@/components/detail-shell";
+import { useTranslation } from "@/i18n";
 import { StreamingShimmerText } from "@/domains/chat/components/streaming-shimmer-text";
 import {
   activityRunSummaryLabel,
@@ -79,6 +80,7 @@ export function ActivityStepsPanel({
    */
   assistantId?: string | null;
 }) {
+  const { t } = useTranslation("chat");
   // Level-2 drill-in: the step detail currently open, or null for the
   // timeline. Local state — the drawer level is navigation within the panel,
   // not shared app state.
@@ -125,8 +127,8 @@ export function ActivityStepsPanel({
           <Button
             variant="outlined"
             iconOnly={<ChevronLeft />}
-            aria-label="Back to all steps"
-            tooltip="All steps"
+            aria-label={t("activityStepsPanel.backAria")}
+            tooltip={t("activityStepsPanel.backTooltip")}
             onClick={() => setStepDetail(null)}
             className="shrink-0"
           />

@@ -21,6 +21,7 @@ import { useNavigate } from "react-router";
 
 import { Button, Menu, Typography } from "@vellumai/design-library";
 
+import { useTranslation } from "@/i18n";
 import { FileMarkdown } from "@/components/file-markdown";
 import { SkillLineageLink } from "@/components/skill-lineage-link";
 import { SkillRemovalDialog } from "@/components/skill-removal-dialog";
@@ -41,6 +42,7 @@ interface SkillDetailPanelProps {
 }
 
 export function SkillDetailPanel({ skillId, onClose }: SkillDetailPanelProps) {
+  const { t } = useTranslation("chat");
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const assistantId = useResolvedAssistantsStore.use.activeAssistantId();
@@ -119,8 +121,8 @@ export function SkillDetailPanel({ skillId, onClose }: SkillDetailPanelProps) {
                   // and a short tooltip beside the descriptive aria-label.
                   variant="outlined"
                   iconOnly={<MoreHorizontal />}
-                  aria-label="Skill actions"
-                  tooltip="More"
+                  aria-label={t("skillDetailPanel.actionsAria")}
+                  tooltip={t("skillDetailPanel.moreTooltip")}
                   className="shrink-0"
                 />
               </Menu.Trigger>

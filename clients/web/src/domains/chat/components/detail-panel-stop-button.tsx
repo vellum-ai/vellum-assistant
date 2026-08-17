@@ -20,6 +20,7 @@
 
 import { Square } from "lucide-react";
 
+import { useTranslation } from "@/i18n";
 import { Button } from "@vellumai/design-library";
 
 export interface DetailPanelStopButtonProps {
@@ -35,12 +36,13 @@ export function DetailPanelStopButton({
   ariaLabel,
   disabled,
 }: DetailPanelStopButtonProps) {
+  const { t } = useTranslation("chat");
   return (
     <Button
       variant="dangerOutline"
       iconOnly={<Square />}
       aria-label={ariaLabel}
-      tooltip="Stop"
+      tooltip={t("detailPanelStopButton.tooltip")}
       onClick={onStop}
       disabled={disabled}
       className="shrink-0 hover:border-[var(--system-negative-strong)] hover:bg-[var(--system-negative-weak)] hover:[--vbtn-fg:var(--system-negative-strong)]"

@@ -1,4 +1,8 @@
 {
+  "activityStepsPanel": {
+    "backAria": "Volver a todos los pasos",
+    "backTooltip": "Todos los pasos"
+  },
   "addToChatSheet": {
     "title": "Añadir al chat",
     "closeAriaLabel": "Cerrar",
@@ -143,6 +147,9 @@
   "copyButton": {
     "copied": "Copiado",
     "copyFailed": "No se pudo copiar al portapapeles."
+  },
+  "detailPanelStopButton": {
+    "tooltip": "Detener"
   },
   "exportProgressModal": {
     "cancel": "Cancelar",
@@ -491,6 +498,10 @@
   "sidebarConversationError": {
     "message": "No se pudieron cargar tus conversaciones.",
     "retry": "Reintentar"
+  },
+  "skillDetailPanel": {
+    "actionsAria": "Acciones de habilidad",
+    "moreTooltip": "Más"
   },
   "skillsTab": {
     "callLink": "Llamada {number}",
