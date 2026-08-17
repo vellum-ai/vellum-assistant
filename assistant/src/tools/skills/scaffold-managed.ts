@@ -371,15 +371,10 @@ export async function executeScaffoldManagedSkill(
     }
   }
 
-  // Activation hints are the skill's intent-phrased retrieval signal: routing
-  // scores each skill on description + "Use when: <hints>", so a skill without
-  // them competes on its description alone. Both authoring prompts (the
-  // skill-management SKILL.md and the retrospective instruction) already
-  // mandate hints; this is where the mandate holds. Checked after the
-  // ownership backstop so a caller that may not touch the skill at all hears
-  // that first. Because scaffolding rewrites the whole SKILL.md, an overwrite
-  // that omits hints would strip the ones the skill has, so the error names
-  // the current hints for the caller to carry forward.
+  // Hints are the skill's "Use when:" retrieval text, and scaffolding rewrites
+  // the whole SKILL.md, so an overwrite without them would strip the ones the
+  // skill has. Checked after the ownership backstop so a caller that may not
+  // touch the skill at all hears that first.
   if (!activationHints) {
     const currentHints = managedSkillExistedBefore
       ? loadCatalog().find((s) => s.id === id && s.source === "managed")

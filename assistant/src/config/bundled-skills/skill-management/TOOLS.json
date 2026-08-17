@@ -45,7 +45,7 @@
           "activation_hints": {
             "type": "array",
             "items": { "type": "string" },
-            "description": "Required. 1-4 short trigger phrases describing the situations where this skill should activate, phrased as the observed intent (e.g. \"user asks to deploy staging\"). Surfaced in memory as a \"Use when: …\" clause so the skill is retrievable by intent, not just by name. Scaffolding rewrites the whole SKILL.md, so on an overwrite pass the hints the skill should keep (revised if the procedure changed)."
+            "description": "Required. 1-4 short trigger phrases describing the situations where this skill should activate, phrased as the observed intent (e.g. \"user asks to deploy staging\"). Surfaced in memory as a \"Use when: …\" clause so the skill is retrievable by intent, not just by name. Scaffolding rewrites the whole SKILL.md, so an overwrite must pass the hints the skill should keep, revised if the procedure changed."
           },
           "avoid_when": {
             "type": "array",
