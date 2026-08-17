@@ -110,7 +110,7 @@ describe("notifyChannelSetupClosed", () => {
     );
     // Hidden: persisted and LLM-visible, but suppressed from the transcript.
     expect(postCalls[0]?.body.hidden).toBe(true);
-    // Scripted: machine-authored marker — an unmarked send is stamped
+    // Scripted: machine-authored marker. An unmarked send is stamped
     // scripted:false by the daemon and pollutes activation metrics.
     expect(postCalls[0]?.body.scripted).toBe(true);
     // The wire field is version-gated (conversationId vs conversationKey);
