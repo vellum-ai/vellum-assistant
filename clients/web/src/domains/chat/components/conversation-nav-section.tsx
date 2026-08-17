@@ -141,9 +141,22 @@ export function ConversationRowList({
      virtuoso's scroller sizes to 100%: the last section fills whatever
      height its own flex-fill sizing (see `CollapsibleNavSection.Section`)
      gives it, every other section gets a fixed height so a busy non-last
-     section still can't push its neighbours off screen. */
+     section still can't push its neighbours off screen.
+
+     The last section's fill only resolves while every ancestor between the
+     sidebar body and this box forwards the body's height (flex column with
+     flex-1/min-h-0 at each layer). A windowed list renders only what fits
+     its viewport, so unlike the mounted-rows path a broken chain here does
+     not degrade to a tall list, it degrades to an empty one. The min-height
+     floor caps that failure at "a section-sized scrollable box": rows stay
+     reachable even if a layout change above drops the chain. */
   return isLast ? (
-    <div className="min-h-0 h-full flex-1">{windowed}</div>
+    <div
+      className="h-full flex-1"
+      style={{ minHeight: SIDEBAR_SECTION_MAX_HEIGHT }}
+    >
+      {windowed}
+    </div>
   ) : (
     <div style={{ height: SIDEBAR_SECTION_MAX_HEIGHT }}>{windowed}</div>
   );

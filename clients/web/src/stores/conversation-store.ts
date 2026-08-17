@@ -12,7 +12,8 @@
  * This store owns only state that has no server counterpart:
  *
  * - `activeConversationId` — URL/navigation-local selection
- * - `editingConversationId` — UI mode (app-edit-chat target)
+ * - `editingConversationId` — conversation bound to the app side-by-side
+ *   layout (`mainView === "app-editing"`)
  * - `processingConversationIds` — in-flight assistant responses
  * - `processingSnapshots` — `latestAssistantMessageAt` snapshot taken when
  *   each conversation id was added to `processingConversationIds`; the

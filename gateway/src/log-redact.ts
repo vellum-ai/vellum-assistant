@@ -2,11 +2,12 @@
  * Pino log serializers that scrub sensitive data (bearer tokens, API keys,
  * authorization headers) from logged values.
  *
- * This is a standalone copy for the gateway package — kept in sync with
- * assistant/src/util/log-redact.ts.  The gateway has no dependency on the
- * assistant package, so we duplicate the lightweight serializer rather than
- * adding a cross-package import.
+ * API-key patterns are sourced from @vellumai/service-contracts/secret-detection,
+ * the shared source of truth across all packages. Adding a new integration's
+ * key pattern there automatically reaches gateway logs - no copy to maintain.
  */
+
+import { REDACTION_PREFIX_PATTERNS } from "@vellumai/service-contracts/secret-detection";
 
 // ---------------------------------------------------------------------------
 // Sensitive-value patterns
@@ -14,24 +15,10 @@
 
 const BEARER_RE = /Bearer [A-Za-z0-9._\-]+/g;
 
-const API_KEY_PATTERNS: RegExp[] = [
-  /AKIA[0-9A-Z]{16}/g,
-  /gh[pousr]_[A-Za-z0-9_]{36,255}/g,
-  /github_pat_[A-Za-z0-9_]{22,255}/g,
-  /glpat-[A-Za-z0-9\-_]{20,}/g,
-  /sk_live_[A-Za-z0-9]{24,}/g,
-  /rk_live_[A-Za-z0-9]{24,}/g,
-  /xoxb-[0-9]{10,}-[0-9]{10,}-[A-Za-z0-9]{24,}/g,
-  /xoxp-[0-9]{10,}-[0-9]{10,}-[0-9]{10,}-[a-f0-9]{32}/g,
-  /sk-ant-[A-Za-z0-9\-_]{80,}/g,
-  /sk-[A-Za-z0-9]{20}T3BlbkFJ[A-Za-z0-9]{20}/g,
-  /sk-proj-[A-Za-z0-9\-_]{40,}/g,
-  /AIza[A-Za-z0-9\-_]{35}/g,
-  /GOCSPX-[A-Za-z0-9\-_]{28}/g,
-  /SG\.[A-Za-z0-9\-_]{22}\.[A-Za-z0-9\-_]{43}/g,
-  /[0-9]{8,10}:[A-Za-z0-9_-]{35}/g,
-  /npm_[A-Za-z0-9]{36}/g,
-];
+// Compiled with the `g` flag so replace() scans the full string.
+const API_KEY_PATTERNS: RegExp[] = REDACTION_PREFIX_PATTERNS.map(
+  (p) => new RegExp(p.regex.source, "g"),
+);
 
 const SENSITIVE_HEADERS = new Set([
   "authorization",
@@ -88,7 +75,7 @@ function redactValue(value: unknown, depth: number): unknown {
 }
 
 // ---------------------------------------------------------------------------
-// Error serialization — extracts non-enumerable Error fields and cause chain
+// Error serialization - extracts non-enumerable Error fields and cause chain
 // ---------------------------------------------------------------------------
 
 function serializeError(err: unknown, depth: number): unknown {

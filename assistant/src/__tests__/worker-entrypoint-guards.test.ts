@@ -18,10 +18,18 @@ import { Glob } from "bun";
  * - start the PID-file identity guard — the PID file is a worker's sole
  *   tracking handle, so a worker the file stops naming can never be
  *   stopped externally and must evict itself.
+ *
+ * The subset that hosts real agent conversations
+ * ({@link CONVERSATION_RUNNING_ENTRYPOINTS}) must additionally register the
+ * default plugins' hooks and injectors, since hook dispatch is process-global
+ * and a worker that skips it runs conversations with no plugin behavior at all
+ * (no image captioning or vision-rejection recovery, no tool-result
+ * truncation, no runtime injections).
  */
 
 const DISABLE_CALL = "disableStreamSeqStamping()";
 const PID_GUARD_CALL = "startWorkerPidFileGuard(";
+const PLUGIN_SURFACE_CALL = "registerWorkerPluginSurface(";
 
 /** Shape of a shutdown that schedules `process.exit` instead of calling it. */
 const DEFERRED_EXIT = ".finally(() => process.exit";
@@ -43,6 +51,16 @@ const WORK_START_MARKERS: Record<string, string> = {
   // The route host begins serving when it attaches the connection handler.
   "routes/worker.ts": 'server.on("connection"',
 };
+
+/**
+ * The entrypoints whose work wakes real agent conversations. `monitoring` (a
+ * resource sampler) and `routes` (an HTTP route host) run no conversations, so
+ * they carry no plugin surface.
+ */
+const CONVERSATION_RUNNING_ENTRYPOINTS: ReadonlySet<string> = new Set([
+  "schedule/worker.ts",
+  "plugins/defaults/memory/worker.ts",
+]);
 
 function findWorkerEntrypoints(): string[] {
   const srcRoot = join(process.cwd(), "src");
@@ -135,6 +153,42 @@ describe("worker entrypoint guards", () => {
       "Each worker must arm the PID guard before its work-start call " +
         `(see WORK_START_MARKERS) so the guard's on-arm check evicts a ` +
         "worker superseded at startup before it runs orphaned work.",
+    ).toEqual([]);
+  });
+
+  test("the conversation-running entrypoints are all discovered workers", () => {
+    const discovered = new Set(findWorkerEntrypoints());
+    const unknown = [...CONVERSATION_RUNNING_ENTRYPOINTS].filter(
+      (file) => !discovered.has(file),
+    );
+    expect(
+      unknown,
+      "CONVERSATION_RUNNING_ENTRYPOINTS names an entrypoint the glob does " +
+        "not find — the worker moved or was renamed.",
+    ).toEqual([]);
+  });
+
+  test("every conversation-running entrypoint registers the default plugin surface before starting work", () => {
+    const offenders = [...CONVERSATION_RUNNING_ENTRYPOINTS]
+      .sort()
+      .filter((file) => {
+        const source = readFileSync(join(process.cwd(), "src", file), "utf8");
+        const marker = WORK_START_MARKERS[file];
+        if (marker == null) {
+          return true;
+        }
+        const registerAt = source.indexOf(PLUGIN_SURFACE_CALL);
+        const workAt = source.indexOf(marker);
+        return registerAt < 0 || workAt < 0 || registerAt > workAt;
+      });
+    expect(
+      offenders,
+      `A worker that wakes agent conversations must call ` +
+        `${PLUGIN_SURFACE_CALL}) before its work-start call (see ` +
+        "WORK_START_MARKERS). Hook dispatch is process-global, so without it " +
+        "the conversations this process runs get no default plugin behavior: " +
+        "no vision-rejection recovery, no tool-result truncation, no runtime " +
+        "injections.",
     ).toEqual([]);
   });
 });

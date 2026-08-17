@@ -261,14 +261,13 @@ export function TrustRulesModal({
                           <Pencil className="h-4 w-4" />
                         </button>
                         {(!isDefault || rule.userModified) && (
-                          <button
-                            type="button"
+                          <Button
+                            variant="dangerGhost"
+                            size="compact"
+                            iconOnly={<Trash2 className="h-4 w-4" />}
                             aria-label={`Delete ${rule.tool} rule`}
                             onClick={() => setRuleToDelete(rule)}
-                            className="rounded-lg p-1.5 text-[var(--system-negative-strong)] transition-colors hover:bg-[var(--system-negative-weak)]"
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </button>
+                          />
                         )}
                       </div>
                     </li>

@@ -6,20 +6,22 @@
  * hook-chain ordering.
  *
  * User-land hooks (from the filesystem) are owned by
- * {@link ./hook-loader.ts} and surfaced through `getUserHooksFor` in
- * `plugins/mtime-cache.ts`. This module owns only the in-process hooks that
- * default plugins register at boot.
+ * {@link ./hook-loader.ts} and surfaced through {@link getUserHooksFor}.
+ * This module owns the in-process hooks that default plugins register at
+ * boot, plus the user-land lookup that walks discovered plugin names from
+ * the plugin cache.
  *
  * {@link getHooksFor} combines both sources: in-process hooks from this
  * registry (filtered by `isPluginDisabled` at read time) and user-land hooks
  * from the plugin cache. The read-time filtering is what makes `assistant
- * plugins disable default-*` take effect immediately in a running assistant
- * — the hooks stay registered but are filtered out on the next turn.
+ * plugins disable default-*` take effect immediately in a running assistant:
+ * the hooks stay registered but are filtered out on the next turn.
  */
 
 import { isPluginDisabled } from "../plugins/disabled-state.js";
-import { getUserHookEntriesFor } from "../plugins/mtime-cache.js";
+import { getDiscoveredUserPluginNames } from "../plugins/mtime-cache.js";
 import type { HookEntry, HookFunction } from "../plugins/types.js";
+import { collectUserHookEntries } from "./hook-loader.js";
 
 // ─── Internal state ──────────────────────────────────────────────────────────
 
@@ -74,6 +76,48 @@ export function unregisterPluginHooks(pluginName: string): void {
 }
 
 // ─── Queries ─────────────────────────────────────────────────────────────────
+
+/**
+ * Get all hooks for a given event name from user plugins and standalone
+ * workspace hooks, from the hook loader's in-memory cache. Plugin hooks run
+ * in install-date order, the workspace hook runs last.
+ *
+ * This is a pure cache read: it never scans disk, activates a plugin, or
+ * runs `init`. Activation happens only at boot (`populateCacheAtBoot`)
+ * and through the imperative install/uninstall poke
+ * (`reconcilePluginSourcesNow`), both main-daemon paths, so a
+ * sidecar process that dispatches hooks (a worker running conversation
+ * turns) can never bring a plugin up in its own process.
+ *
+ * `effectiveEnabledPlugins` carries the per-chat plugin scope: when non-null,
+ * user plugins outside the set are skipped (standalone workspace hooks always
+ * run). `null`/omitted means no per-chat restriction.
+ */
+export async function getUserHookEntriesFor<TCtx = unknown>(
+  hookName: string,
+  effectiveEnabledPlugins?: Set<string> | null,
+): Promise<HookEntry<TCtx>[]> {
+  return collectUserHookEntries<TCtx>(
+    hookName,
+    getDiscoveredUserPluginNames(),
+    effectiveEnabledPlugins,
+  );
+}
+
+/**
+ * {@link getUserHookEntriesFor} without owner attribution. Returns just the
+ * hook functions in the same order.
+ */
+export async function getUserHooksFor<TCtx = unknown>(
+  hookName: string,
+  effectiveEnabledPlugins?: Set<string> | null,
+): Promise<HookFunction<TCtx>[]> {
+  const entries = await getUserHookEntriesFor<TCtx>(
+    hookName,
+    effectiveEnabledPlugins,
+  );
+  return entries.map((e) => e.fn);
+}
 
 /**
  * Collect every registered hook for the given name, in registration order.

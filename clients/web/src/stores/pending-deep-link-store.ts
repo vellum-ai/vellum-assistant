@@ -26,7 +26,12 @@ import { create } from "zustand";
 import { createSelectors } from "@/utils/create-selectors";
 
 export interface PendingDeepLinkState {
-  /** Latest pending `deeplink.send` message text, or `null` if none. */
+  /**
+   * Latest pending composer pre-fill text, or `null` if none. Written for a
+   * `deeplink.send` message and for a `deeplink.startVoice` prompt (Siri's
+   * "Ask …" intent). Pre-fill only, by design: deep-link text is untrusted,
+   * so the user is the one who sends it.
+   */
   pendingComposerMessage: string | null;
   /**
    * When a `deeplink.startVoice` was parked waiting for a live-voice session

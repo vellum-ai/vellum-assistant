@@ -26,6 +26,7 @@ import {
 } from "@/assistant/personality-sliders";
 import { useActiveAssistantId } from "@/assistant/use-active-assistant-id";
 import { useAssistantAvatar } from "@/hooks/use-assistant-avatar";
+import { useTranslation } from "@/i18n";
 import { routes } from "@/utils/routes";
 
 import {
@@ -44,6 +45,7 @@ import {
 } from "./use-assistant-identity-details";
 
 export function PersonalityPage() {
+  const { t } = useTranslation("intelligence");
   const assistantId = useActiveAssistantId();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
@@ -62,7 +64,9 @@ export function PersonalityPage() {
   const [applying, setApplying] = useState(false);
   const values = edits ?? slidersQuery.data ?? {};
 
-  const assistantName = identityQuery.data?.identity?.name || "Assistant";
+  const assistantName =
+    identityQuery.data?.identity?.name ||
+    t("identityOverview.defaultAssistantName");
 
   const handleUpdate = () => {
     setApplying(true);
@@ -81,12 +85,10 @@ export function PersonalityPage() {
         void queryClient.invalidateQueries({
           queryKey: assistantIdentityDetailsQueryKey(assistantId),
         });
-        toast.success("Personality updated. Go say hi!");
+        toast.success(t("personalityPage.updateSuccessToast"));
         void navigate(routes.identity);
       } else {
-        toast.error(
-          "The personality update didn't go through. Please try again.",
-        );
+        toast.error(t("personalityPage.updateErrorToast"));
       }
     });
   };
@@ -132,6 +134,7 @@ function PersonalityBody({
   onUpdate: () => void;
   onBack: () => void;
 }) {
+  const { t } = useTranslation("intelligence");
   const { tone, bottomReserve } = useAssistantStage();
   const washClasses = tone.isLight
     ? "bg-black/10 hover:bg-black/20"
@@ -146,7 +149,7 @@ function PersonalityBody({
         style={{ color: tone.fg }}
       >
         <ArrowLeft className="h-4 w-4" aria-hidden />
-        Back
+        {t("personalityPage.back")}
       </button>
 
       <div
@@ -163,11 +166,10 @@ function PersonalityBody({
             className="text-[2.6rem] leading-none max-sm:text-[2rem]"
             style={{ fontFamily: "var(--font-serif)" }}
           >
-            Shape my personality
+            {t("personalityPage.title")}
           </h1>
           <p className="max-w-md text-[15px]" style={{ color: tone.fgMuted }}>
-            Slide the dials, then hit update — I&rsquo;ll rewrite myself to
-            match.
+            {t("personalityPage.subtitle")}
           </p>
         </div>
 
@@ -212,13 +214,15 @@ function PersonalityBody({
                 }}
               />
               <span className="min-w-0 text-center">
-                Updating {assistantName}&apos;s personality…
+                {t("personalityPage.updatingPersonality", {
+                  name: assistantName,
+                })}
               </span>
             </>
           ) : (
             <>
               <Sparkles className="h-4 w-4" aria-hidden />
-              Update personality
+              {t("personalityPage.updatePersonality")}
             </>
           )}
         </button>

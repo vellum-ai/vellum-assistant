@@ -234,6 +234,11 @@ const BASELINE: Record<string, readonly string[]> = {
     "../../../util/worker-memory.js",
     "../../../util/worker-process.js",
     "../../types.js",
+    // The memory jobs worker runs as its own OS process and hosts real agent
+    // conversations, so it registers the host's default-plugin hook and
+    // injector surface at startup (hooks only, no init hooks). Host-owned
+    // composition with no plugin-api equivalent.
+    "../../worker-plugin-surface.js",
     "../injection-presence.js",
     "../injector-order.js",
     "@qdrant/js-client-rest",

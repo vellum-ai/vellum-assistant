@@ -135,37 +135,55 @@ interface StartVoiceDeepLinkPayload {
 export const MAX_START_VOICE_PROMPT_LENGTH = 2000;
 
 /**
- * Control characters rejected outright in a `prompt`: C0 (`U+0000`-`U+001F`),
- * DEL and C1 (`U+007F`-`U+009F`), and the Unicode line separators
- * (`U+2028`/`U+2029`). None of them can appear in something a person said out
- * loud, so their presence means the link was hand-built rather than produced
- * by `AskVellumIntent` — reason enough to drop the text.
+ * Control characters rejected outright in deep-link free text: C0
+ * (`U+0000`-`U+001F`), DEL and C1 (`U+007F`-`U+009F`), and the Unicode line
+ * separators (`U+2028`/`U+2029`). None of them can appear in something a
+ * person said out loud, so their presence means the link was hand-built
+ * rather than produced by an App Intent, reason enough to drop the text.
  */
-const START_VOICE_PROMPT_CONTROL_CHARS_RE =
+const DEEP_LINK_TEXT_CONTROL_CHARS_RE =
   /[\u0000-\u001f\u007f-\u009f\u2028\u2029]/;
 
 /**
- * Validate the `prompt` query parameter, returning `null` for anything the app
- * should not act on.
+ * The multiline variant: same classes minus tab, LF, and CR, which are
+ * legitimate in *typed* text (a Shortcuts action's message field accepts
+ * line breaks, unlike anything Siri transcribes).
+ */
+const DEEP_LINK_MULTILINE_TEXT_CONTROL_CHARS_RE =
+  /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f\u2028\u2029]/;
+
+/**
+ * Validate a free-text deep-link parameter (a start-voice `prompt`, an
+ * open-thread `message`), returning `null` for anything the app should not
+ * act on. `multiline` selects the typed-text character rules and normalizes
+ * CRLF / lone CR to LF so consumers see one line-break convention.
  *
  * Rejection is total, not a truncation: half of a question is a *different*
- * question, and silently asking the assistant a mangled version of what the
- * user said is worse than asking nothing and letting them retype. The link
- * still parses — the user did ask for voice — so an oversized prompt degrades
- * to a plain `mode=new` start rather than dropping the whole command.
+ * question, and silently sending the assistant a mangled version of what the
+ * user said is worse than sending nothing and letting them retype. Callers
+ * still parse the rest of the link, so oversized text degrades to the plain
+ * form of the command (a `mode=new` voice start, an open-without-message)
+ * rather than dropping the whole command.
  */
-function sanitizeStartVoicePrompt(raw: string | null): string | null {
+function sanitizeDeepLinkText(
+  raw: string | null,
+  maxLength: number,
+  options?: { multiline?: boolean },
+): string | null {
   if (raw === null) {
     return null;
   }
-  if (START_VOICE_PROMPT_CONTROL_CHARS_RE.test(raw)) {
+  const controlChars = options?.multiline
+    ? DEEP_LINK_MULTILINE_TEXT_CONTROL_CHARS_RE
+    : DEEP_LINK_TEXT_CONTROL_CHARS_RE;
+  if (controlChars.test(raw)) {
     return null;
   }
-  const prompt = raw.trim();
-  if (prompt.length === 0 || prompt.length > MAX_START_VOICE_PROMPT_LENGTH) {
+  const text = (options?.multiline ? raw.replace(/\r\n?/g, "\n") : raw).trim();
+  if (text.length === 0 || text.length > maxLength) {
     return null;
   }
-  return prompt;
+  return text;
 }
 
 /**
@@ -187,7 +205,7 @@ function sanitizeStartVoicePrompt(raw: string | null): string | null {
  * is the only free-form text on the surface, and a custom URL scheme is
  * openable by any other app or any web page. Bounds and character rules live
  * here rather than at the consumer so there is exactly one place where an
- * untrusted prompt becomes a trusted one — see {@link sanitizeStartVoicePrompt}.
+ * untrusted prompt becomes a trusted one; see {@link sanitizeDeepLinkText}.
  */
 export function parseStartVoiceDeepLink(
   rawUrl: string,
@@ -208,7 +226,92 @@ export function parseStartVoiceDeepLink(
 
   return {
     mode: url.searchParams.get("mode") === "resume" ? "resume" : "new",
-    prompt: sanitizeStartVoicePrompt(url.searchParams.get("prompt")),
+    prompt: sanitizeDeepLinkText(
+      url.searchParams.get("prompt"),
+      MAX_START_VOICE_PROMPT_LENGTH,
+    ),
+  };
+}
+
+/** Host segment shared with `ThreadDeepLink.swift` on the native side. */
+const OPEN_THREAD_DEEP_LINK_HOST = "thread";
+
+/**
+ * What a `<scheme>://thread/<id>?message=...` deep link asks the app to do:
+ * open the given conversation and, when `message` survives sanitization,
+ * stage it in that conversation's composer.
+ *
+ * - `threadId` is the daemon conversation id from the path. The parser only
+ *   checks its *shape*; whether it names a live conversation is the
+ *   consumer's problem, resolved against live data.
+ * - `message` is `null` whenever the link carries no usable text, which
+ *   includes every message this parser rejects. The link still parses in
+ *   that case: opening the chat the user picked beats dropping the whole
+ *   command.
+ */
+interface OpenThreadDeepLinkPayload {
+  threadId: string;
+  message: string | null;
+}
+
+/**
+ * Longest `message` an open-thread deep link may carry. Same ceiling as the
+ * start-voice `prompt` and for the same reason: far above anything a person
+ * writes into a Shortcuts action, far below a wall of text.
+ */
+export const MAX_OPEN_THREAD_MESSAGE_LENGTH = 2000;
+
+/**
+ * Conversation-id shape accepted in the path. Server ids are UUIDs; the
+ * charset stays a little wider so an id-format change does not silently kill
+ * the feature, while still rejecting separators, quotes, and anything that
+ * could smuggle structure into a route.
+ */
+const OPEN_THREAD_ID_RE = /^[A-Za-z0-9._-]{1,128}$/;
+
+/**
+ * Parse a `vellum-assistant://thread/<id>?message=...` deep link, produced by
+ * the iOS `SendMessageToChatIntent` (LUM-3230) and shaped after the macOS
+ * shell's `vellum://thread/<id>` link so the two schemes stay mirror images.
+ *
+ * Strict like the sibling parsers: exact scheme allowlist, exact host, and a
+ * single well-formed path segment for the id. `message` gets the same
+ * treatment as the start-voice `prompt` and for the same reason: it is
+ * free-form text on a surface any app or web page can open, and the consumer
+ * stages it in a conversation's composer, so this parser is the one place
+ * where the untrusted text is bounded (see {@link sanitizeDeepLinkText};
+ * the send itself stays with the user, per the consumer's caller-identity
+ * note).
+ */
+export function parseOpenThreadDeepLink(
+  rawUrl: string,
+): OpenThreadDeepLinkPayload | null {
+  let url: URL;
+  try {
+    url = new URL(rawUrl);
+  } catch {
+    return null;
+  }
+
+  if (!ALLOWED_NATIVE_URL_PROTOCOLS.has(url.protocol)) {
+    return null;
+  }
+  if (url.host !== OPEN_THREAD_DEEP_LINK_HOST) {
+    return null;
+  }
+
+  const threadId = url.pathname.replace(/^\//, "");
+  if (!OPEN_THREAD_ID_RE.test(threadId)) {
+    return null;
+  }
+
+  return {
+    threadId,
+    message: sanitizeDeepLinkText(
+      url.searchParams.get("message"),
+      MAX_OPEN_THREAD_MESSAGE_LENGTH,
+      { multiline: true },
+    ),
   };
 }
 

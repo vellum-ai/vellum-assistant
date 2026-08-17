@@ -19,6 +19,8 @@
 import { animate, useReducedMotion } from "motion/react";
 import { Fragment, useEffect, useState } from "react";
 
+import { useTranslation } from "@/i18n";
+
 import {
   PERSONALITY_AXES,
   PERSONALITY_AXIS_DEFAULT,
@@ -126,13 +128,22 @@ export function PersonalitySignature({
   values,
   className,
 }: PersonalitySignatureProps) {
+  const { t } = useTranslation("intelligence");
   const reduce = useReducedMotion();
 
   const axes = PERSONALITY_AXES.map((axis) => {
     const value = axisValue(values, axis.id);
     const lean = value - 50;
     const neutral = Math.abs(lean) <= DEAD_ZONE;
-    return { axis, value, lean, neutral, magnitude: Math.abs(lean) / 50 };
+    return {
+      axis,
+      left: t(axis.leftKey),
+      right: t(axis.rightKey),
+      value,
+      lean,
+      neutral,
+      magnitude: Math.abs(lean) / 50,
+    };
   });
 
   // The mark grows out of the neutral line on mount. A spring drives the
@@ -156,11 +167,14 @@ export function PersonalitySignature({
   const ys = axes.map((a) => yFor(50 + (a.value - 50) * grown));
 
   const ariaLabel = axes
-    .map(({ axis, lean, neutral, magnitude }) => {
+    .map(({ left, right, lean, neutral, magnitude }) => {
       if (neutral) {
-        return `${axis.left} and ${axis.right} balanced`;
+        return t("personalitySignature.axisBalanced", { left, right });
       }
-      return `${Math.round(magnitude * 100)}% ${lean > 0 ? axis.right : axis.left}`;
+      return t("personalitySignature.axisLean", {
+        percent: Math.round(magnitude * 100),
+        label: lean > 0 ? right : left,
+      });
     })
     .join(", ");
 
@@ -168,7 +182,7 @@ export function PersonalitySignature({
     <svg
       viewBox={`0 0 ${W} ${H}`}
       role="img"
-      aria-label={`Personality: ${ariaLabel}`}
+      aria-label={t("personalitySignature.ariaLabel", { summary: ariaLabel })}
       className={className}
     >
       <line
@@ -199,11 +213,11 @@ export function PersonalitySignature({
         />
       ))}
 
-      {axes.map(({ axis, lean, neutral, magnitude }, i) => (
+      {axes.map(({ axis, left, right, lean, neutral, magnitude }, i) => (
         <Fragment key={axis.id}>
           <PoleLabel
             x={XS[i]!}
-            label={axis.right}
+            label={right}
             above
             leaning={lean > 0}
             neutral={neutral}
@@ -211,7 +225,7 @@ export function PersonalitySignature({
           />
           <PoleLabel
             x={XS[i]!}
-            label={axis.left}
+            label={left}
             above={false}
             leaning={lean < 0}
             neutral={neutral}

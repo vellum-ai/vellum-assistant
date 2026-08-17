@@ -3,6 +3,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "@vellumai/design-library/components/toast";
 
 import { isDefaultProviderId } from "@/domains/settings/ai/provider-row-meta";
+import { t } from "@/i18n";
 import {
   configGetQueryKey,
   configLlmDefaultproviderGetQueryKey,
@@ -50,7 +51,7 @@ export function useProviderActions(
     },
     onError: (error) => {
       captureError(error, { context: "settings-ai-set-default-provider" });
-      toast.error("Failed to set the default provider. Please try again.");
+      toast.error(t("settings:useProviderActions.setDefaultFailedToast"));
     },
   });
 
@@ -83,15 +84,13 @@ export function useProviderActions(
         });
         options?.onDeleted?.(name);
       } else if (response?.status === 409) {
-        toast.error(
-          "This provider is in use by a profile or as the default provider. Update those settings before deleting it.",
-        );
+        toast.error(t("settings:useProviderActions.deleteInUseToast"));
       } else {
-        toast.error("Failed to delete the provider. Please try again.");
+        toast.error(t("settings:useProviderActions.deleteFailedToast"));
       }
     } catch (error) {
       captureError(error, { context: "settings-ai-provider-delete" });
-      toast.error("Failed to delete the provider. Please try again.");
+      toast.error(t("settings:useProviderActions.deleteFailedToast"));
     }
   }
 

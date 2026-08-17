@@ -13,6 +13,7 @@ import type {
   ConfigGetResponse,
   ProviderConnection,
 } from "@/generated/daemon/types.gen";
+import { useTranslation } from "@/i18n";
 
 interface ProfilesSectionProps {
   assistantId: string;
@@ -52,6 +53,7 @@ export function ProfilesSection({
   onCreateProfile,
   onProfileDeleted,
 }: ProfilesSectionProps) {
+  const { t } = useTranslation("settings");
   const { entries } = useInferenceProfileList(assistantId, config);
   const actions = useProfileActions(assistantId);
   const deleteFlow = useProfileDeleteFlow(assistantId, config, {
@@ -63,7 +65,7 @@ export function ProfilesSection({
   return (
     <>
       <LanguageModelSection
-        title="Profiles"
+        title={t("profilesSection.title")}
         action={
           <Button
             variant="primary"
@@ -73,7 +75,7 @@ export function ProfilesSection({
             // and the profileOrder append - hold the door until it exists.
             disabled={config == null}
           >
-            Create Profile
+            {t("profilesSection.createProfile")}
           </Button>
         }
       >
@@ -88,7 +90,7 @@ export function ProfilesSection({
             as="p"
             className="py-4 text-center text-(--content-tertiary)"
           >
-            Loading profiles…
+            {t("profilesSection.loading")}
           </Typography>
         ) : entries.length === 0 ? (
           <Typography
@@ -96,7 +98,7 @@ export function ProfilesSection({
             as="p"
             className="py-4 text-center text-(--content-tertiary)"
           >
-            No profiles yet. Create one to get started.
+            {t("profilesSection.emptyState")}
           </Typography>
         ) : (
           entries.map((profile) => (

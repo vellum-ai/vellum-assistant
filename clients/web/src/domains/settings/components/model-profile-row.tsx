@@ -85,9 +85,18 @@ export function ModelProfileRow({
           : fallbackLabel;
 
   return (
-    <div className="flex items-center justify-between gap-4">
-      <span className="text-[var(--content-secondary)]">Model profile</span>
-      <span className="min-w-0 text-right">{profileLabel}</span>
+    // `min-h-6` matches the sibling rows in the schedules detail cards. The
+    // value truncates rather than wrapping: the label resolves from a query,
+    // so a wrap would grow the row after mount, and the long forms ("Default
+    // (assistant's main model)") wrap in a sidepanel-width card. `title`
+    // keeps the full text reachable on hover.
+    <div className="flex min-h-6 items-center justify-between gap-4">
+      <span className="shrink-0 text-[var(--content-secondary)]">
+        Model profile
+      </span>
+      <span className="min-w-0 truncate text-right" title={profileLabel}>
+        {profileLabel}
+      </span>
     </div>
   );
 }

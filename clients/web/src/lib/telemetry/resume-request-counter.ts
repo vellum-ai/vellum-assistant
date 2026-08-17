@@ -208,11 +208,14 @@ export function installResumeRequestCounter(): void {
 
   subscribe("app.resume", ({ signal }) => {
     if (resumeWindow) {
-      // iOS publishes both a visibility and an app_state resume for a single
-      // foreground; the first edge wins so the burst is counted once. A window
-      // older than its own span is one whose timer was frozen while the app was
-      // suspended: its counts belong to an earlier foreground, so drop it and
-      // start a fresh window for this resume.
+      // The bus collapses the visibility + app_state pair for one physical
+      // edge at the source (`runtime/event-sources/lifecycle-edge.ts`).
+      // First-edge-wins here keeps the burst counted once for the redundant
+      // resumes that still reach subscribers: an `online` edge landing next to
+      // a foreground one, or a pair spread further apart than that window.
+      // A window older than its own span is one whose timer was frozen while
+      // the app was suspended: its counts belong to an earlier foreground, so
+      // drop it and start a fresh window for this resume.
       if (performance.now() - resumeWindow.openedAt < WINDOW_MS) {
         return;
       }

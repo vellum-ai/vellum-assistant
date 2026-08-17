@@ -67,6 +67,7 @@ export function AnimatedRightDrawer({
   // to come through React state for `animate` to see it.
   const {
     size: width,
+    containerSize,
     containerRef,
     paneId,
     handleProps,
@@ -79,6 +80,19 @@ export function AnimatedRightDrawer({
     storageKey,
     label: "Resize side panel",
   });
+
+  // `useResizablePane` never clamps below `minWidth`, so a container narrower
+  // than `minWidth + handle` (small window, wide sidebar) would let the drawer
+  // overflow its overflow-hidden host and clip the panel's right edge, where
+  // the close button lives. Cap the drawn width to what the container can
+  // actually show and let the chat column collapse; the content layer below
+  // renders at this capped width so the panel reflows instead of clipping.
+  // `containerSize` is 0 until the first measure, so fall back to `width`.
+  const renderWidth =
+    containerSize > 0
+      ? Math.min(width, Math.max(0, containerSize - HANDLE_WIDTH_PX))
+      : width;
+  const isCapped = renderWidth < width;
 
   // Keep the drawer pane (content + drag handle) mounted while open and through
   // the close animation. `mounted` flips on synchronously when opening, and off
@@ -150,10 +164,17 @@ export function AnimatedRightDrawer({
       <motion.div
         id={paneId}
         className="relative h-full shrink-0 overflow-hidden"
+        // Hard ceiling for the frames between a container resize and the
+        // re-measure landing in state: flex honors max-width over the
+        // motion-driven inline width, so the drawer can never paint past its
+        // host even before `renderWidth` catches up.
+        style={{ maxWidth: `calc(100% - ${HANDLE_WIDTH_PX}px)` }}
         initial={reduce ? false : { width: 0 }}
-        animate={{ width: open ? width : 0 }}
+        animate={{ width: open ? renderWidth : 0 }}
+        // While capped, width changes track a live container resize, so ease
+        // would lag the window edge; snap instead, like a handle drag.
         transition={
-          isResizing || reduce
+          isResizing || isCapped || reduce
             ? { duration: 0 }
             : { duration: 0.34, ease: [0.16, 1, 0.3, 1] }
         }
@@ -164,7 +185,10 @@ export function AnimatedRightDrawer({
         }}
       >
         {mounted && (
-          <div className="absolute right-0 top-0 h-full" style={{ width }}>
+          <div
+            className="absolute right-0 top-0 h-full"
+            style={{ width: renderWidth }}
+          >
             {/* Render live `right` while present so a streaming panel isn't a
                 frame behind; fall back to the retained copy during the close
                 wipe once `right` has gone null. */}
