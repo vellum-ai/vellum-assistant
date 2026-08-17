@@ -10,7 +10,10 @@ import type {
 import { APP_VERSION } from "../version.js";
 import { getDb } from "./db-connection.js";
 import { rawAll } from "./raw-query.js";
-import { realUserTurnContentFilter } from "./real-user-turn-filter.js";
+import {
+  realUserTurnContentFilter,
+  realUserTurnContentFilterSql,
+} from "./real-user-turn-filter.js";
 import {
   buildScheduleAttributionSubquery,
   buildScheduleRunWindowExists,
@@ -300,6 +303,9 @@ export function queryUnreportedUsageEvents(
   // branch from a turn far earlier than the fork's creation time, so
   // they anchor on the fork boundary message instead; child creation is
   // the fallback when the boundary message is absent.
+  // The turn-index subqueries below count user-role rows only. User rows are
+  // always written finalized (only assistant turns stream), so no completeness
+  // predicate is needed; do not copy this shape for assistant-row counts.
   const parentTurnCutoffSql = sql<number>`CASE
     WHEN ${conversations.parentConversationId} IS NOT NULL THEN ${conversations.createdAt}
     ELSE COALESCE(
@@ -879,8 +885,7 @@ export function getUsageGroupBreakdown(
                SELECT COUNT(*) FROM messages AS m2
                WHERE m2.conversation_id = e.conversation_id
                  AND m2.role = 'user'
-                 AND m2.content NOT LIKE '%"type":"tool\\_result"%' ESCAPE '\\'
-                 AND m2.content NOT LIKE '%"type":"web\\_search\\_tool\\_result"%' ESCAPE '\\'
+                 AND ${realUserTurnContentFilterSql("m2")}
              )
         END                                              AS turn_count
       FROM llm_usage_events e

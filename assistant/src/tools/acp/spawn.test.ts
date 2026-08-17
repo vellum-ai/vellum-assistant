@@ -147,6 +147,11 @@ const { _resetAdapterInstallCacheForTests } =
   await import("../../acp/auto-install.js");
 const { ACP_CLAUDE_OAUTH_MISSING_CODE } =
   await import("../../acp/prepare-agent-env.js");
+const { ACP_CLAUDE_AUTH_REQUIRED_CODE, AcpAuthRequiredError } =
+  await import("../../acp/auth-required.js");
+const { hasAcpConnectCardRaised } =
+  await import("../../acp/acp-connect-card-state.js");
+const { AcpAgentProcess } = await import("../../acp/agent-process.js");
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -545,5 +550,97 @@ describe("executeAcpSpawn — CLAUDE_CODE_OAUTH_TOKEN injection", () => {
     // the inline Connect flow without parsing the human message.
     expect(result.isError).toBe(true);
     expect(result.errorCode).toBe(ACP_CLAUDE_OAUTH_MISSING_CODE);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Pre-spawn Claude auth rejection
+// ---------------------------------------------------------------------------
+
+describe("pre-spawn Claude auth rejection", () => {
+  test("raises the recovery surface: errorCode, card guidance, registry mark", async () => {
+    // The adapter can reject session creation with auth_required (a stored
+    // credential the server refuses). The error thrown here is produced by
+    // the REAL conversion seam, not hand-built: a wire-shaped JSON-RPC
+    // auth_required rejection driven through AcpAgentProcess.createSession's
+    // actual retry path, so this test fails if that seam stops yielding the
+    // typed error the tool boundary maps to the recovery surface.
+    const proc = new AcpAgentProcess(
+      "claude",
+      { command: "claude-agent-acp", args: [] },
+      (() => ({})) as never,
+    );
+    (proc as unknown as { connection: unknown }).connection = {
+      newSession: () =>
+        Promise.reject({ code: -32000, message: "Authentication required" }),
+    };
+    (proc as unknown as { initializeResponse: unknown }).initializeResponse = {
+      authMethods: [
+        {
+          id: "claude-ai-login",
+          name: "Claude Subscription",
+          type: "terminal",
+        },
+      ],
+    };
+    (proc as unknown as { spawnedEnv: unknown }).spawnedEnv = {};
+    const realSeamError: unknown = await proc.createSession("/tmp").then(
+      () => null,
+      (e: unknown) => e,
+    );
+    expect(realSeamError).toBeInstanceOf(AcpAuthRequiredError);
+
+    spawnMock.mockImplementationOnce(async () => {
+      throw realSeamError;
+    });
+
+    const context = { ...makeContext(), conversationId: "conv-prespawn-auth" };
+    const result = await executeAcpSpawn(
+      { agent: "claude", task: "do something" },
+      context,
+    );
+
+    expect(result.isError).toBe(true);
+    expect(result.errorCode).toBe(ACP_CLAUDE_AUTH_REQUIRED_CODE);
+    expect(result.content).toContain("Connect Claude Code");
+    expect(hasAcpConnectCardRaised("conv-prespawn-auth")).toBe(true);
+  });
+
+  test("a raw wire auth_required object (unwrapped initialize path) gets the same surface", async () => {
+    // initialize() cannot ride withAuthRetry (its response advertises the
+    // methods the retry selects from), so its rejection arrives as the plain
+    // JSON-RPC object rather than the typed error. The gate must recognize
+    // both shapes or this path silently flattens to a generic failure.
+    spawnMock.mockImplementationOnce(async () => {
+      throw { code: -32000, message: "Authentication required" };
+    });
+
+    const context = { ...makeContext(), conversationId: "conv-prespawn-raw" };
+    const result = await executeAcpSpawn(
+      { agent: "claude", task: "do something" },
+      context,
+    );
+
+    expect(result.isError).toBe(true);
+    expect(result.errorCode).toBe(ACP_CLAUDE_AUTH_REQUIRED_CODE);
+    expect(result.content).toContain("Connect Claude Code");
+    expect(hasAcpConnectCardRaised("conv-prespawn-raw")).toBe(true);
+  });
+
+  test("a non-auth spawn failure keeps the plain flattened result", async () => {
+    spawnMock.mockImplementationOnce(async () => {
+      throw new Error("adapter exploded");
+    });
+
+    const context = { ...makeContext(), conversationId: "conv-prespawn-boom" };
+    const result = await executeAcpSpawn(
+      { agent: "claude", task: "do something" },
+      context,
+    );
+
+    expect(result.isError).toBe(true);
+    expect(result.errorCode).toBeUndefined();
+    expect(result.content).toContain("adapter exploded");
+    expect(hasAcpConnectCardRaised("conv-prespawn-boom")).toBe(false);
   });
 });

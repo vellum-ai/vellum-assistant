@@ -60,9 +60,11 @@ import {
 } from "./conversation-slash.js";
 import { getModelInfo } from "./handlers/config-model.js";
 import { preactivateHostProxySkills } from "./host-proxy-preactivation.js";
+import { bindInteractiveTurnSender } from "./interactive-turn-sender.js";
 import type { UserMessageAttachment } from "./message-protocol.js";
 import { buildTransportHints } from "./transport-hints.js";
 import { sameTrustIdentity, type TrustContext } from "./trust-context-types.js";
+import { turnOrRestingTrust } from "./trust-context-types.js";
 import { resolveVerificationSessionIntent } from "./verification-session-intent.js";
 
 const log = getLogger("conversation-process");
@@ -823,7 +825,7 @@ async function drainSingleMessage(
   if (slashResult.kind === "unknown") {
     try {
       const drainProvenance = provenanceFromTrustContext(
-        conversation.trustContext,
+        turnOrRestingTrust(conversation),
       );
       const drainImageSourcePaths: Record<string, string> = {};
       for (let i = 0; i < next.attachments.length; i++) {
@@ -938,7 +940,7 @@ async function drainSingleMessage(
     let persistedCompactMessage = false;
     try {
       const drainProvenance = provenanceFromTrustContext(
-        conversation.trustContext,
+        turnOrRestingTrust(conversation),
       );
       const drainChannelMeta = {
         ...drainProvenance,
@@ -1031,7 +1033,7 @@ async function drainSingleMessage(
     let persistedCleanMessage = false;
     try {
       const drainProvenance = provenanceFromTrustContext(
-        conversation.trustContext,
+        turnOrRestingTrust(conversation),
       );
       const drainChannelMeta = {
         ...drainProvenance,
@@ -1291,10 +1293,25 @@ async function drainSingleMessage(
     drainLoopOptions.isHiddenPrompt = true;
   }
 
+  // By the time the drain runs, the conversation-level sender is usually the
+  // no-op the just-finished interactive turn's restore (or conversation
+  // birth) left behind, and the drain bypasses `processMessage`, so without
+  // a fresh bind the PermissionPrompter's confirmation_request (which reads
+  // the conversation-level sender, not the turn's `onEvent`) would be
+  // emitted into nothing and hang until the permission timeout. Same
+  // bind/restore contract as `processMessage`.
+  const restoreSender =
+    next.isInteractive === true
+      ? bindInteractiveTurnSender(conversation)
+      : undefined;
+
   conversation
     .runAgentLoop(agentLoopContent, userMessageId, {
       ...drainLoopOptions,
       onEvent: next.onEvent,
+    })
+    .finally(() => {
+      restoreSender?.();
     })
     .catch((err) => {
       const message = err instanceof Error ? err.message : String(err);
@@ -1778,12 +1795,23 @@ async function drainBatch(
     drainLoopOptions.isHiddenPrompt = true;
   }
 
+  // Same sender contract as drainSingleMessage: an interactive drained batch
+  // must rebind the conversation-level sender or prompter confirmations
+  // raised during this turn reach no client.
+  const restoreSender =
+    drainLoopOptions.isInteractive === true
+      ? bindInteractiveTurnSender(conversation)
+      : undefined;
+
   // Fire-and-forget: runAgentLoop's finally block recursively calls drainQueue
   // when this run completes. Mirrors drainSingleMessage.
   conversation
     .runAgentLoop(lastSuccessfulContent, lastUserMessageId, {
       ...drainLoopOptions,
       onEvent: fanOutOnEvent,
+    })
+    .finally(() => {
+      restoreSender?.();
     })
     .catch((err) => {
       const message = err instanceof Error ? err.message : String(err);
@@ -2024,7 +2052,9 @@ export async function processMessage(
   if (slashResult.kind === "unknown") {
     const pmTurnCtx = conversation.getTurnChannelContext();
     const pmInterfaceCtx = conversation.getTurnInterfaceContext();
-    const pmProvenance = provenanceFromTrustContext(conversation.trustContext);
+    const pmProvenance = provenanceFromTrustContext(
+      turnOrRestingTrust(conversation),
+    );
     const pmImageSourcePaths: Record<string, string> = {};
     for (let i = 0; i < attachments.length; i++) {
       const a = attachments[i];
@@ -2116,7 +2146,7 @@ export async function processMessage(
       const pmTurnCtx = conversation.getTurnChannelContext();
       const pmInterfaceCtx = conversation.getTurnInterfaceContext();
       const pmProvenance = provenanceFromTrustContext(
-        conversation.trustContext,
+        turnOrRestingTrust(conversation),
       );
       const pmChannelMeta = {
         ...pmProvenance,
@@ -2197,7 +2227,7 @@ export async function processMessage(
       const pmTurnCtx = conversation.getTurnChannelContext();
       const pmInterfaceCtx = conversation.getTurnInterfaceContext();
       const pmProvenance = provenanceFromTrustContext(
-        conversation.trustContext,
+        turnOrRestingTrust(conversation),
       );
       const pmChannelMeta = {
         ...pmProvenance,

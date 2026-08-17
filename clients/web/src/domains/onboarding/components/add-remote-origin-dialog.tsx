@@ -10,6 +10,7 @@ import {
   useRememberedOriginsStore,
   type RememberedOrigin,
 } from "@/stores/remembered-origins-store";
+import { useTranslation } from "@/i18n";
 
 const ADD_FAILED_COPY = "Failed to add the assistant. Please try again.";
 
@@ -52,6 +53,7 @@ function AddRemoteOriginDialog({
   onClose,
   onAdded,
 }: AddRemoteOriginDialogProps) {
+  const { t } = useTranslation("onboarding");
   const [url, setUrl] = useState("");
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -114,10 +116,10 @@ function AddRemoteOriginDialog({
       }}
     >
       <Modal.Content size="md">
-        <Modal.Header>
-          <Modal.Title icon={Globe}>Add a Remote Assistant</Modal.Title>
+        <Modal.Header icon={Globe}>
+          <Modal.Title>{t("addRemoteOriginDialog.title")}</Modal.Title>
           <Modal.Description>
-            Paste the https link your assistant&rsquo;s pairing page gave you.
+            {t("addRemoteOriginDialog.body")}
           </Modal.Description>
         </Modal.Header>
 
@@ -128,7 +130,7 @@ function AddRemoteOriginDialog({
                 className="text-body-small-default text-[var(--content-secondary)]"
                 htmlFor="add-remote-origin-url"
               >
-                Assistant address
+                {t("addRemoteOriginDialog.addressLabel")}
               </label>
               <Input
                 id="add-remote-origin-url"
@@ -151,14 +153,14 @@ function AddRemoteOriginDialog({
 
         <Modal.Footer>
           <Button variant="ghost" onClick={handleClose} disabled={pending}>
-            Cancel
+            {t("actions.cancel")}
           </Button>
           <Button
             variant="primary"
             onClick={() => void handleSubmit()}
             disabled={!url.trim() || pending}
           >
-            {pending ? "Adding…" : "Add"}
+            {pending ? t("actions.adding") : t("actions.add")}
           </Button>
         </Modal.Footer>
       </Modal.Content>

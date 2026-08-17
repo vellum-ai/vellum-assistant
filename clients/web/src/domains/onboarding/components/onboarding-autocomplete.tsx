@@ -32,6 +32,7 @@ import { Tag } from "@vellumai/design-library/components/tag";
 import { cn } from "@vellumai/design-library/utils/cn";
 
 import { MOBILE_INPUT_NO_ZOOM } from "@/domains/onboarding/onboarding-step-layout";
+import { useTranslation } from "@/i18n";
 
 /** Field shell shared by both fields — label + token-matched container. */
 const FIELD_BOX = cn(
@@ -105,6 +106,7 @@ function SuggestionList({
   onPick: (value: string) => void;
   onHover: (index: number) => void;
 }) {
+  const { t } = useTranslation("onboarding");
   return (
     <ul
       id={id}
@@ -139,9 +141,11 @@ function SuggestionList({
                 size={15}
                 className="shrink-0 text-[var(--content-tertiary)]"
               />
-              <span className="min-w-0 truncate">Add “{opt.value}”</span>
+              <span className="min-w-0 truncate">
+                {t("onboardingAutocomplete.addOption", { value: opt.value })}
+              </span>
               <span className="ml-auto shrink-0 text-body-small-default text-[var(--content-tertiary)]">
-                ↵ Enter
+                {t("onboardingAutocomplete.enterHint")}
               </span>
             </>
           ) : (
@@ -154,7 +158,7 @@ function SuggestionList({
           role="presentation"
           className="mt-0.5 border-t border-[var(--border-base)] px-2.5 pb-0.5 pt-1.5 text-body-small-default text-[var(--content-tertiary)]"
         >
-          Type anything and press ↵ to add your own
+          {t("onboardingAutocomplete.freeTextHint")}
         </li>
       )}
     </ul>
@@ -221,6 +225,7 @@ export function TagAutocompleteInput({
   onChange,
   suggestions,
 }: TagAutocompleteInputProps) {
+  const { t } = useTranslation("onboarding");
   const reactId = useId();
   const inputId = `tac-${reactId}`;
   const listId = `tac-list-${reactId}`;
@@ -334,7 +339,7 @@ export function TagAutocompleteInput({
           <Tag
             key={v}
             onRemove={() => removeChip(v)}
-            removeLabel={`Remove ${v}`}
+            removeLabel={t("actions.remove", { value: v })}
             // Default tag bg (--tag-bg-neutral) collides with --field-bg in dark
             // mode; --surface-base contrasts against the field in both themes.
             className="border border-[var(--border-base)] bg-[var(--surface-base)]"

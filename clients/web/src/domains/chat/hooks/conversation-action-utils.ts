@@ -57,3 +57,46 @@ export function resolveUnpinGroupId(
   }
   return "system:all";
 }
+
+/**
+ * The `surfacedAt` a placement into `groupId` leaves on this conversation.
+ *
+ * Filing a background or scheduled run somewhere the user reads is a
+ * promotion, and the daemon stamps `surfaced_at` in the same write that sets
+ * the group (`batchSetConversationPlacement`). The stamp is what carries the
+ * visibility: `system:pinned` fails the custom-group arm of
+ * `standardListingVisibilitySql` on its `system:` prefix, so a pinned
+ * background row reaches the sidebar only because it is surfaced. Moving into
+ * `system:background` / `system:scheduled` is the demotion and clears it.
+ *
+ * The client twin of that write, so an optimistic placement leaves the row in
+ * the state the server is about to put it in. Without it, a section filter
+ * reading `surfacedAt` gets a different answer from the one the next refetch
+ * brings back, and the row visibly moves twice.
+ *
+ * Only background and scheduled rows are stamped: everything else is already
+ * visible, and the existing timestamp is kept so a re-filed row does not have
+ * its original promotion time overwritten.
+ */
+export function resolvePlacementSurfacedAt(
+  conversation: Conversation,
+  groupId: string,
+  now: number,
+): number | undefined {
+  if (groupId === "system:background" || groupId === "system:scheduled") {
+    return undefined;
+  }
+  const promotes =
+    groupId !== "system:all" &&
+    (groupId === "system:pinned" || !groupId.startsWith("system:"));
+  if (!promotes) {
+    return conversation.surfacedAt;
+  }
+  const isBackgroundOrScheduled =
+    conversation.conversationType === "background" ||
+    conversation.conversationType === "scheduled";
+  if (!isBackgroundOrScheduled) {
+    return conversation.surfacedAt;
+  }
+  return conversation.surfacedAt ?? now;
+}

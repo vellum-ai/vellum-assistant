@@ -1,4 +1,4 @@
-import { and, count, desc, eq, inArray, isNull, lt, sql } from "drizzle-orm";
+import { and, count, desc, eq, isNull, lt, sql } from "drizzle-orm";
 
 import {
   parseExternalContentEnvelope,
@@ -26,11 +26,14 @@ import {
   parseContentRef,
   resolveMessageContentBlocks,
 } from "./message-content-file.js";
+import {
+  countMessagesByRoleForConversations,
+  latestUserMessageRawContent,
+} from "./message-reads.js";
 import { rawAll } from "./raw-query.js";
 import {
   conversationAssistantAttentionState,
   conversations,
-  messages,
 } from "./schema/index.js";
 
 const log = getLogger("conversation-store");
@@ -438,31 +441,7 @@ export function getMessageRoleStatsByConversation(
   conversationIds: string[],
   role: string = "assistant",
 ): Map<string, { count: number; lastAt: number }> {
-  if (conversationIds.length === 0) {
-    return new Map();
-  }
-  const db = getDb();
-  const rows = db
-    .select({
-      conversationId: messages.conversationId,
-      count: sql<number>`COUNT(*)`.as("count"),
-      lastAt: sql<number>`MAX(${messages.createdAt})`.as("last_at"),
-    })
-    .from(messages)
-    .where(
-      and(
-        inArray(messages.conversationId, conversationIds),
-        eq(messages.role, role),
-      ),
-    )
-    .groupBy(messages.conversationId)
-    .all();
-  return new Map(
-    rows.map((r) => [
-      r.conversationId,
-      { count: Number(r.count), lastAt: Number(r.lastAt) },
-    ]),
-  );
+  return countMessagesByRoleForConversations(conversationIds, role);
 }
 
 export function listPinnedConversations(
@@ -535,6 +514,8 @@ export function listConversationsByTitlePrefix(
   const rows = rawAll<Row>(
     "conversation:listByTitlePrefix",
     `SELECT c.id, c.title,
+            -- Any-state count (streaming rows included): a list-surface size
+            -- hint where a transient +1 during a live turn is immaterial.
             (SELECT COUNT(*) FROM messages WHERE conversation_id = c.id) AS message_count,
             c.created_at
      FROM conversations c
@@ -617,32 +598,114 @@ export function countUnreadConversations(): number {
   return total;
 }
 
+/** Totals for one sidebar section: every member, and the unread among them. */
+export interface ConversationSectionCount {
+  total: number;
+  unread: number;
+}
+
+/**
+ * Row counts for every non-empty sidebar section, with no rows fetched.
+ *
+ * Two axes, disjoint by construction because `group_id` is single-valued:
+ *
+ * - `groups`: rows filed somewhere, bucketed by `group_id`. Contains
+ *   `'system:pinned'` and custom-group ids; the background/scheduled system
+ *   buckets are excluded because no section renders them.
+ * - `channels`: rows filed nowhere, bucketed by effective origin channel,
+ *   where NULL reads as {@link NATIVE_ORIGIN_CHANNEL} exactly as
+ *   {@link originChannelClause} reads it. The native bucket is the Chats
+ *   section; each other bucket is that channel's section.
+ *
+ * Only buckets with at least one row appear: GROUP BY cannot emit an empty
+ * bucket, and an empty section renders no card.
+ *
+ * `total` follows the standard-listing visibility
+ * ({@link conversationTypeClause}), active rows only, so it counts exactly
+ * the rows `GET /v1/conversations` would return for that section's filter.
+ * `unread` applies the same rules as {@link countUnreadConversations} on top
+ * (not an unsurfaced background/scheduled row, unseen per the attention
+ * projection), composed from the same predicates rather than restated, so
+ * the per-section numbers always sum against the global count.
+ */
+export interface ConversationSectionCounts {
+  groups: Array<{ groupId: string } & ConversationSectionCount>;
+  channels: Array<{ channel: string } & ConversationSectionCount>;
+}
+
+export function countConversationSections(): ConversationSectionCounts {
+  ensureGroupMigration();
+  const db = getDb();
+
+  /* `countUnreadConversations` gets the same effect with an INNER JOIN and
+     the unseen conditions in its WHERE; here every row must be counted and
+     only unread rows summed, so the join is LEFT and the conditions move
+     into the CASE. A row with no attention projection has NULL columns,
+     fails the conditions, and sums 0: identical membership. */
+  const unread = sql<number>`SUM(CASE WHEN ${and(
+    sql.raw(notBackgroundVisibilitySql()),
+    ...unseenAttentionStateConditions(),
+  )} THEN 1 ELSE 0 END)`;
+
+  const attentionJoin = eq(
+    conversationAssistantAttentionState.conversationId,
+    conversations.id,
+  );
+
+  const groups = db
+    .select({
+      groupId: sql<string>`group_id`,
+      total: count(),
+      unread,
+    })
+    .from(conversations)
+    .leftJoin(conversationAssistantAttentionState, attentionJoin)
+    .where(
+      and(
+        conversationTypeClause("standard"),
+        isNull(conversations.archivedAt),
+        sql`(group_id = ${PINNED_GROUP_ID} OR (group_id IS NOT NULL AND group_id NOT LIKE 'system:%'))`,
+      ),
+    )
+    .groupBy(sql`group_id`)
+    .all();
+
+  const effectiveChannel = sql<string>`COALESCE(${conversations.originChannel}, ${NATIVE_ORIGIN_CHANNEL})`;
+  const channels = db
+    .select({
+      channel: effectiveChannel,
+      total: count(),
+      unread,
+    })
+    .from(conversations)
+    .leftJoin(conversationAssistantAttentionState, attentionJoin)
+    .where(
+      and(
+        conversationTypeClause("standard"),
+        isNull(conversations.archivedAt),
+        groupIdClause(UNGROUPED_GROUP_ID),
+      ),
+    )
+    .groupBy(effectiveChannel)
+    .all();
+
+  return { groups, channels };
+}
+
 /**
  * Check whether the last user message in a conversation is a tool_result-only
  * message (i.e., not a real user-typed message). This is used by undo() to
  * determine if additional exchanges need to be deleted from the DB.
  */
 export function isLastUserMessageToolResult(conversationId: string): boolean {
-  const db = getDb();
-  const lastUserMsg = db
-    .select({ content: messages.content })
-    .from(messages)
-    .where(
-      and(
-        eq(messages.conversationId, conversationId),
-        eq(messages.role, "user"),
-      ),
-    )
-    .orderBy(sql`rowid DESC`)
-    .limit(1)
-    .get();
+  const lastUserContent = latestUserMessageRawContent(conversationId);
 
-  if (!lastUserMsg) {
+  if (lastUserContent === null) {
     return false;
   }
 
   try {
-    const parsed = JSON.parse(lastUserMsg.content);
+    const parsed = JSON.parse(lastUserContent);
     if (
       Array.isArray(parsed) &&
       parsed.length > 0 &&
@@ -816,6 +879,10 @@ export async function searchConversations(
       if (!opts?.includeArchived) {
         whereClauses.push(`c.archived_at IS NULL`);
       }
+      // No completeness predicate: candidate ids come from the lexical
+      // index, which filters finalized = 1 at index time, so an unfinalized
+      // row cannot be a candidate. Do not copy this shape for id sets with
+      // different provenance.
       const visibleRows = rawAll<CandidateRow>(
         "conversation:searchConversations:visibleCandidates",
         `

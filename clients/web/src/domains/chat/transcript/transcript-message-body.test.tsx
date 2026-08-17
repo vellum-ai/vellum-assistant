@@ -330,10 +330,6 @@ function clickModalAction(name: string) {
   fireEvent.click(screen.getByRole("button", { name }));
 }
 
-function expandEarlierActivity() {
-  fireEvent.click(screen.getByRole("button", { name: "Earlier activity" }));
-}
-
 // `TranscriptMessageBody` renders a row's body by walking its unified
 // `contentBlocks` projection — the sole source of truth. Each block embeds its
 // own referent (text, reasoning, tool call, surface ref), so these fixtures
@@ -680,8 +676,6 @@ describe("TranscriptMessageBody", () => {
         onSurfaceAction={noop}
       />,
     );
-
-    expandEarlierActivity();
 
     const card = container.querySelector("[data-testid='tool-progress-card']");
     expect(card).not.toBeNull();
@@ -1050,6 +1044,108 @@ describe("TranscriptMessageBody", () => {
     expect(queryByRole("button", { name: "Earlier activity" })).toBeNull();
   });
 
+  test("does not wrap a lone thinking run in earlier activity", () => {
+    // One settled reasoning run ahead of the answer. The "Thinking" link is a
+    // single one-line row, so a disclosure over it would trade one row for
+    // another and hide nothing.
+    const { container, queryByRole, queryByText } = render(
+      <TranscriptMessageBody
+        message={{
+          id: "lone-thinking-response",
+          role: "assistant",
+          contentBlocks: [
+            thinkingBlock("weighing the options"),
+            textBlock("Here is the final answer."),
+          ],
+        }}
+        onSurfaceAction={noop}
+      />,
+    );
+
+    expect(queryByRole("button", { name: "Earlier activity" })).toBeNull();
+    // Rendered in place, not merely mounted inside a closed disclosure.
+    expect(
+      container.querySelectorAll("[data-testid='thought-process-link']").length,
+    ).toBe(1);
+    expect(
+      container.querySelector("[data-testid='assistant-earlier-activity']"),
+    ).toBeNull();
+    expect(queryByText("Here is the final answer.")).not.toBeNull();
+  });
+
+  test("does not wrap a lone multi-step activity run in earlier activity", () => {
+    // Step count does not change the calculus: a merged run renders as ONE
+    // header row whose timeline lives in the steps panel, so collapsing it
+    // removes no text from the transcript.
+    const { container, queryByRole } = render(
+      <TranscriptMessageBody
+        message={{
+          id: "lone-multi-step-response",
+          role: "assistant",
+          contentBlocks: [
+            thinkingBlock("planning the work"),
+            toolUseBlock({
+              id: "tc-step-a",
+              name: "bash",
+              input: {},
+              completedAt: 1,
+            }),
+            toolUseBlock({
+              id: "tc-step-b",
+              name: "bash",
+              input: {},
+              completedAt: 2,
+            }),
+            textBlock("Here is the final answer."),
+          ],
+        }}
+        onSurfaceAction={noop}
+      />,
+    );
+
+    expect(queryByRole("button", { name: "Earlier activity" })).toBeNull();
+    const cards = container.querySelectorAll(
+      "[data-testid='tool-progress-card']",
+    );
+    expect(cards.length).toBe(1);
+    // The whole run occupies that one header, so there is no second block
+    // beside it to make the pair a disclosure would need.
+    expect(cards[0]!.getAttribute("data-item-kinds")).toBe(
+      "thinking,toolCall,toolCall",
+    );
+  });
+
+  test("still collapses a run that pairs earlier prose with activity", () => {
+    // Two collapsible runs split by a surface: the leading [prose, thinking]
+    // pair earns a disclosure; the trailing lone thinking run does not.
+    const { container, getAllByRole, queryByText } = render(
+      <TranscriptMessageBody
+        message={{
+          id: "mixed-runs-response",
+          role: "assistant",
+          contentBlocks: [
+            textBlock("Let me look that up."),
+            thinkingBlock("weighing the options"),
+            surfaceBlock("mixed-runs-surface"),
+            thinkingBlock("second thoughts"),
+            textBlock("Here is the final answer."),
+          ],
+        }}
+        onSurfaceAction={noop}
+      />,
+    );
+
+    // Exactly one disclosure, not one per run.
+    expect(getAllByRole("button", { name: "Earlier activity" }).length).toBe(1);
+    expect(queryByText("Let me look that up.")).toBeNull();
+    // Only the un-wrapped trailing run's link is mounted; the collapsed run's
+    // link is not.
+    expect(
+      container.querySelectorAll("[data-testid='thought-process-link']").length,
+    ).toBe(1);
+    expect(queryByText("Here is the final answer.")).not.toBeNull();
+  });
+
   test("merges contiguous thinking + tool runs into one card per run", () => {
     // [thinking, tool, thinking, text, tool, thinking] → two activity runs
     // (split by the text), each one merged card, plus the text between them.
@@ -1070,8 +1166,6 @@ describe("TranscriptMessageBody", () => {
     const { container } = render(
       <TranscriptMessageBody message={message} onSurfaceAction={noop} />,
     );
-
-    expandEarlierActivity();
 
     // Exactly two merged tool cards (one per run).
     const cards = container.querySelectorAll(
@@ -1323,8 +1417,6 @@ describe("TranscriptMessageBody", () => {
       />,
     );
 
-    expandEarlierActivity();
-
     expect(
       container.querySelector("[data-testid='tool-progress-card']"),
     ).not.toBeNull();
@@ -1379,8 +1471,6 @@ describe("TranscriptMessageBody", () => {
       />,
     );
 
-    expandEarlierActivity();
-
     expect(
       container.querySelector("[data-testid='thought-process-link']"),
     ).not.toBeNull();
@@ -1411,8 +1501,6 @@ describe("TranscriptMessageBody", () => {
         onSurfaceAction={noop}
       />,
     );
-    expandEarlierActivity();
-
     // THEN the reasoning renders as a completed SingleActivity, not a
     // perpetually-streaming "Thinking" link
     expect(container.textContent).toContain("Thought process");
@@ -1489,8 +1577,6 @@ describe("TranscriptMessageBody", () => {
     const { container } = render(
       <TranscriptMessageBody message={message} onSurfaceAction={noop} />,
     );
-
-    expandEarlierActivity();
 
     // No legacy summary card.
     expect(

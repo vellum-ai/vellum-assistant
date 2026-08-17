@@ -13,9 +13,10 @@ export const CODEX_SUBSCRIPTION_MODEL_IDS: ReadonlySet<string> = new Set([
   "gpt-5.6-terra",
   "gpt-5.6-luna",
   "gpt-5.5",
+  // OpenAI retires these two from ChatGPT sign-in on 2026-08-31; API-key
+  // auth is unaffected.
   "gpt-5.4",
   "gpt-5.4-mini",
-  "gpt-5.3-codex",
 ]);
 
 /** True when `model` is allowlisted for Codex subscription routing. */

@@ -17,6 +17,10 @@
 
 import { AudioLines } from "lucide-react";
 
+import {
+  MOBILE_CONTROL_CLASS,
+  MOBILE_GLYPH_CLASS,
+} from "@/domains/chat/components/chat-composer/composer-mobile-chrome";
 import { Button } from "@vellumai/design-library";
 
 interface LiveVoiceButtonProps {
@@ -28,11 +32,20 @@ interface LiveVoiceButtonProps {
   onStart: (origin?: { x: number; y: number }) => void;
   /** Disable the control (e.g. while dictation is recording). */
   disabled?: boolean;
+  /**
+   * Render as the mobile composer row's send-slot control: a 40x40 filled
+   * circle holding a 20px glyph. The composer drives this from the same
+   * window-width signal that produces that row, so a phone and a window
+   * dragged narrow get the same circle. Off by default, which leaves the
+   * `Button` primitive's own sizing in charge.
+   */
+  mobileRow?: boolean;
 }
 
 export function LiveVoiceButton({
   onStart,
   disabled = false,
+  mobileRow = false,
 }: LiveVoiceButtonProps) {
   return (
     <Button
@@ -42,6 +55,12 @@ export function LiveVoiceButton({
       // fill) — rather than a low-emphasis ghost that reads as secondary.
       variant="primary"
       iconOnly={<AudioLines strokeWidth={2} />}
+      // The row's own signal sizes the circle, so the primitive's mobile growth
+      // steps aside; the fill is the `primary` token the design's light circle
+      // resolves to.
+      iconOnlyGlyphClassName={mobileRow ? MOBILE_GLYPH_CLASS : undefined}
+      expandOnMobile={!mobileRow}
+      className={mobileRow ? MOBILE_CONTROL_CLASS : undefined}
       // Anchor for the in-chat tour's closing beat, which lands the assistant's
       // avatar on this control.
       data-tour-id="voice-mode"

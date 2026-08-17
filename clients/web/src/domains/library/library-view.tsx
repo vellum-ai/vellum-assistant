@@ -28,6 +28,8 @@ import { importBundle } from "@/utils/import-bundle";
 import { isPointerCoarse } from "@/utils/pointer";
 import { Button, Input, toast } from "@vellumai/design-library";
 
+import { useTranslation } from "@/i18n";
+
 export interface LibraryViewProps {
   assistantId: string;
   assistantName?: string;
@@ -43,6 +45,7 @@ export function LibraryView({
   onOpenDocument,
   onOpenApp,
 }: LibraryViewProps) {
+  const { t } = useTranslation("library");
   const queryClient = useQueryClient();
   const togglePin = usePinnedAppsStore.use.togglePin();
   const pinnedAppIds = usePinnedAppsStore.use.pinnedAppIds();
@@ -99,7 +102,7 @@ export function LibraryView({
         onOpenApp(result.appId);
       } catch (err) {
         toast.error(
-          err instanceof Error ? err.message : "Failed to import app",
+          err instanceof Error ? err.message : t("libraryView.importFailed"),
         );
       } finally {
         setIsImporting(false);
@@ -108,7 +111,7 @@ export function LibraryView({
         }
       }
     },
-    [assistantId, isImporting, queryClient, onOpenApp],
+    [assistantId, isImporting, queryClient, onOpenApp, t],
   );
 
   // --- Deploy ---
@@ -145,7 +148,7 @@ export function LibraryView({
         <div
           className="h-6 w-6 animate-spin rounded-full border-2 border-[var(--border-base)] border-t-[var(--primary-base)]"
           role="status"
-          aria-label="Loading apps"
+          aria-label={t("libraryView.loadingAria")}
         />
       </div>
     );
@@ -163,7 +166,7 @@ export function LibraryView({
           className="rounded-lg bg-[var(--primary-base)] px-4 py-2 text-body-medium-default text-[var(--content-inset)] transition-colors hover:bg-[var(--primary-hover)]"
           onClick={() => window.location.reload()}
         >
-          Retry
+          {t("libraryView.retry")}
         </button>
       </div>
     );
@@ -207,7 +210,7 @@ export function LibraryView({
             ) : (
               <Download size={14} />
             )}
-            <span className="ml-1.5">Import</span>
+            <span className="ml-1.5">{t("libraryView.import")}</span>
           </Button>
         </div>
       </div>
@@ -216,7 +219,7 @@ export function LibraryView({
         <Input
           fullWidth
           type="text"
-          placeholder="Search your library"
+          placeholder={t("libraryView.searchPlaceholder")}
           value={searchText}
           onChange={(e: ChangeEvent<HTMLInputElement>) =>
             setSearchText(e.target.value)
@@ -230,13 +233,13 @@ export function LibraryView({
           <div className="flex flex-col items-center justify-center py-16">
             <Search size={32} className="mb-4 text-[var(--content-tertiary)]" />
             <p className="text-body-medium-lighter text-[var(--content-tertiary)]">
-              No apps or documents matched &ldquo;{searchText}&rdquo;
+              {t("libraryView.noMatches", { query: searchText })}
             </p>
           </div>
         ) : (
           <div className="flex flex-col gap-8">
             <LibraryGridSection
-              title="Pinned"
+              title={t("libraryView.pinned")}
               apps={pinnedApps}
               assistantId={assistantId}
               pinnedAppIds={pinnedAppIds}
@@ -246,7 +249,7 @@ export function LibraryView({
               onDeploy={handleDeploy}
             />
             <LibraryGridSection
-              title="Recents"
+              title={t("libraryView.recents")}
               apps={recentApps}
               assistantId={assistantId}
               pinnedAppIds={pinnedAppIds}
@@ -258,7 +261,7 @@ export function LibraryView({
             {filteredDocuments.length > 0 ? (
               <section>
                 <h2 className="mb-4 text-body-small-emphasised text-[color:var(--content-secondary)]">
-                  Documents
+                  {t("libraryView.documents")}
                 </h2>
                 <div className="grid grid-cols-[repeat(auto-fill,minmax(max(220px,calc((100%-6rem)/5)),1fr))] gap-6">
                   {filteredDocuments.map((doc) => (

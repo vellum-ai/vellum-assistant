@@ -6,7 +6,11 @@ import { describe, expect, test } from "bun:test";
 
 import type { FeedItem } from "@vellumai/assistant-api";
 
-import { getFeedItemScheduleId, resolveFeedItemTitle } from "./utils";
+import {
+  getFeedItemScheduleId,
+  getFeedItemSkillId,
+  resolveFeedItemTitle,
+} from "./utils";
 
 function feedItem(overrides: Partial<FeedItem> = {}): FeedItem {
   const timestamp = new Date("2024-01-01T00:00:00.000Z").toISOString();
@@ -49,6 +53,44 @@ describe("getFeedItemScheduleId", () => {
 
   test("returns null when there is no item", () => {
     expect(getFeedItemScheduleId(null)).toBeNull();
+  });
+});
+
+describe("getFeedItemSkillId", () => {
+  test("returns the skill id a background skill update carries", () => {
+    const item = feedItem({ metadata: { skillId: "weekly-export" } });
+    expect(getFeedItemSkillId(item)).toBe("weekly-export");
+  });
+
+  test("returns null when the item has no metadata", () => {
+    expect(getFeedItemSkillId(feedItem())).toBeNull();
+  });
+
+  test("returns null when the metadata carries no skill id", () => {
+    const item = feedItem({ metadata: { scheduleId: "schedule-1" } });
+    expect(getFeedItemSkillId(item)).toBeNull();
+  });
+
+  test("returns null for an empty skill id", () => {
+    const item = feedItem({ metadata: { skillId: "" } });
+    expect(getFeedItemSkillId(item)).toBeNull();
+  });
+
+  test("returns null when the skill id is not a string", () => {
+    const item = feedItem({ metadata: { skillId: 42 } });
+    expect(getFeedItemSkillId(item)).toBeNull();
+  });
+
+  test("returns null when there is no item", () => {
+    expect(getFeedItemSkillId(null)).toBeNull();
+  });
+
+  test("reads the two entity ids independently on one item", () => {
+    const item = feedItem({
+      metadata: { scheduleId: "schedule-1", skillId: "weekly-export" },
+    });
+    expect(getFeedItemScheduleId(item)).toBe("schedule-1");
+    expect(getFeedItemSkillId(item)).toBe("weekly-export");
   });
 });
 

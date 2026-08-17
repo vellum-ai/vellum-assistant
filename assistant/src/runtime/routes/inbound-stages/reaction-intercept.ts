@@ -35,7 +35,6 @@ import {
 import { markProcessed } from "../../../persistence/delivery-status.js";
 import { upsertBinding } from "../../../persistence/external-conversation-store.js";
 import { getLogger } from "../../../util/logger.js";
-import { DAEMON_INTERNAL_ASSISTANT_ID } from "../../assistant-scope.js";
 import type { ApprovalConversationGenerator } from "../../http-types.js";
 import {
   actorTrustContextFromVerdict,
@@ -100,7 +99,6 @@ export interface ReactionInterceptParams {
   sourceInterface: InterfaceId | undefined;
   conversationExternalId: string;
   externalMessageId: string;
-  canonicalAssistantId: string;
   rawSenderId: string | undefined;
   canonicalSenderId: string | null;
   actorDisplayName: string | undefined;
@@ -126,7 +124,6 @@ export async function handleSlackReactionIntercept(
     sourceInterface,
     conversationExternalId,
     externalMessageId,
-    canonicalAssistantId,
     rawSenderId,
     canonicalSenderId,
     actorDisplayName,
@@ -182,7 +179,6 @@ export async function handleSlackReactionIntercept(
     externalMessageId,
     {
       sourceMessageId: reactedMessageTs,
-      assistantId: canonicalAssistantId,
       sourceThreadId: threadTs,
     },
   );
@@ -216,21 +212,17 @@ export async function handleSlackReactionIntercept(
     };
   }
 
-  // Maintain the conversation binding, matching the message pipeline. Scoped to
-  // the daemon's own assistant so assistant-scoped legacy routes don't clobber
-  // each other's binding metadata.
-  if (canonicalAssistantId === DAEMON_INTERNAL_ASSISTANT_ID) {
-    upsertBinding({
-      conversationId: result.conversationId,
-      sourceChannel,
-      externalChatId: conversationExternalId,
-      externalChatName: slackChannelName,
-      externalThreadId: threadTs ?? null,
-      externalUserId: canonicalSenderId ?? rawSenderId ?? null,
-      displayName: actorDisplayName ?? null,
-      username: actorUsername ?? null,
-    });
-  }
+  // Maintain the conversation binding, matching the message pipeline.
+  upsertBinding({
+    conversationId: result.conversationId,
+    sourceChannel,
+    externalChatId: conversationExternalId,
+    externalChatName: slackChannelName,
+    externalThreadId: threadTs ?? null,
+    externalUserId: canonicalSenderId ?? rawSenderId ?? null,
+    displayName: actorDisplayName ?? null,
+    username: actorUsername ?? null,
+  });
 
   // Guardian approval-by-reaction → guardian decision pipeline, exactly like
   // buttons and text replies. Only `reaction:` (added) expresses intent;
@@ -247,7 +239,6 @@ export async function handleSlackReactionIntercept(
       reactedMessageTs,
       rawSenderId,
       canonicalSenderId,
-      canonicalAssistantId,
       sourceChannel,
       conversationExternalId,
       conversationId: result.conversationId,

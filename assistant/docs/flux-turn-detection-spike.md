@@ -22,10 +22,10 @@ It is also the only endpoint number that the Flux socket teardown stays out of: 
 
 | Path                                   | What `endpointDecisionMaxLatencyMs` actually spans                                                                                                                                                                                     |
 | -------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `endpointDecisionSource: "flux"`       | Local VAD speech-stop mark to the `turn-end` event. This is the **whole** end-of-turn latency.                                                                                                                                         |
+| `endpointDecisionSource: "provider"`   | Local VAD speech-stop mark to the `turn-end` event. This is the **whole** end-of-turn latency.                                                                                                                                         |
 | `endpointDecisionSource: "front-door"` | Speculative dispatch to the hold verdict, i.e. the endpoint-decider LLM roundtrip **only**. The trailing-silence wait that had to elapse before that dispatch is not in the number, and neither is the hold extension that follows it. |
 
-Source: `handleFluxTurnEnd` passes `this.msSinceLocalSpeechStop()` (`live-voice-session.ts`), while `holdSpeculativeTurn` passes `Date.now() - turn.speculativeDispatchedAtMs`, and the dispatch happens at the silence boundary.
+Source: `handleProviderTurnEnd` passes `this.msSinceLocalSpeechStop()` (`live-voice-session.ts`), while `holdSpeculativeTurn` passes `Date.now() - turn.speculativeDispatchedAtMs`, and the dispatch happens at the silence boundary.
 
 **It samples different populations.** `markEndpointDecision` is called from exactly two places: the Flux commit, and the hold verdict. A front-door turn that committed straight through the boundary emits **no** `endpoint_decision` at all, and its metrics frame carries none of the three endpoint fields. So the front-door sample is "turns the model judged mid-thought", the slow tail by construction, while the Flux sample is every turn. Two denominators that cannot be reconciled after the fact is exactly why `endpointCommitLatencyMs` exists.
 
@@ -129,7 +129,7 @@ The daemon sends a `metrics` frame over the live-voice WebSocket on `turn_comple
 | Field                          | Meaning                                                                                                                                |
 | ------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------- |
 | `endpointCommitLatencyMs`      | **The headline.** Local VAD speech-stop mark to the commit. Present on every committed turn on both arms. Compare medians across arms. |
-| `endpointDecisionSource`       | `"flux"` or `"front-door"`. Present only when an endpoint decision was recorded.                                                       |
+| `endpointDecisionSource`       | `"provider"` or `"front-door"`. Present only when an endpoint decision was recorded.                                                   |
 | `endpointDecisionMaxLatencyMs` | Worst single decision latency in the turn. A breakdown of the headline, never a cross-arm comparison. See the first section.           |
 | `endpointHoldCount`            | Hold verdicts in the turn. Always 0 on a Flux-committed turn.                                                                          |
 
@@ -141,21 +141,21 @@ The last three are **absent** unless a decision was recorded, which is deliberat
 
 | What you see                           | What happened                                                                                                                                 |
 | -------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
-| `endpointDecisionSource: "flux"`       | Flux committed the turn. This is the measurement you came for.                                                                                |
+| `endpointDecisionSource: "provider"`   | Flux committed the turn. This is the measurement you came for.                                                                                |
 | No endpoint fields at all              | The fail-open deadline fired, the utterance fell back to the silence path, and the front door released it without holding. Not a Flux sample. |
 | `endpointDecisionSource: "front-door"` | Same fallback, but the front door then held. Not a Flux sample either.                                                                        |
 
 Fallbacks are logged at `warn`, so they are visible at the default log level:
 
 ```
-No Flux end-of-turn is coming; falling back to the silence boundary for this utterance
+No provider end-of-turn is coming; falling back to the silence boundary for this utterance
 ```
 
-The deadline is `liveVoice.flux.eotTimeoutMs` plus a 1000ms margin (`FLUX_TURN_END_FALLBACK_MARGIN_MS`), measured from the local speech-stop mark. If you see these routinely, you are measuring the fallback path, not Flux.
+The deadline is `liveVoice.flux.eotTimeoutMs` plus a 1000ms margin (`PROVIDER_TURN_END_FALLBACK_MARGIN_MS`), measured from the local speech-stop mark. If you see these routinely, you are measuring the fallback path, not Flux.
 
 #### Lower `eotTimeoutMs` for the run
 
-With the shipped defaults the fail-open budget is `eotTimeoutMs` (**5000**) plus `FLUX_TURN_END_FALLBACK_MARGIN_MS` (**1000**), so **6000ms from the local speech-stop mark**. The local silence boundary fires at ~1200ms and then hands the turn to Flux, so a stalled turn is roughly **4.8 seconds of dead air** before the utterance replays onto the hold path and anyone answers.
+With the shipped defaults the fail-open budget is `eotTimeoutMs` (**5000**) plus `PROVIDER_TURN_END_FALLBACK_MARGIN_MS` (**1000**), so **6000ms from the local speech-stop mark**. The local silence boundary fires at ~1200ms and then hands the turn to Flux, so a stalled turn is roughly **4.8 seconds of dead air** before the utterance replays onto the hold path and anyone answers.
 
 That is the worst case by design (the budget has to clear Flux's own force-end), but it is a bad property to carry through a measurement run. It makes a stall expensive to sit through, which biases you toward not reproducing one, and it means arm B's slow turns are dominated by a timeout rather than by turn detection.
 
@@ -163,14 +163,14 @@ Set `liveVoice.flux.eotTimeoutMs` to **1500 to 2000** for the duration of the ru
 
 ### Prefer medians, and do not chase a single bad sample
 
-`isStaleFluxTurnEnd` decides on Flux's own `turn_index`, which `parseFluxFrame` carries onto `turn-start` and `turn-end`. The cycle records the newest turn Flux opened, so a delayed end-of-turn for an older index is recognized as stale and dropped, even though the caller has resumed speaking since. An end-of-turn for the turn still in progress is never stale: the mid-thought pause is what Flux's turn model exists to judge, its verdict covers the resumed speech, and the newest speech-stop mark is the right anchor for it.
+`isStaleProviderTurnEnd` decides on Flux's own `turn_index`, which `parseFluxFrame` carries onto `turn-start` and `turn-end`. The cycle records the newest turn Flux opened, so a delayed end-of-turn for an older index is recognized as stale and dropped, even though the caller has resumed speaking since. An end-of-turn for the turn still in progress is never stale: the mid-thought pause is what Flux's turn model exists to judge, its verdict covers the resumed speech, and the newest speech-stop mark is the right anchor for it.
 
-The local VAD generation counter is only the fallback, for an event that carries no turn number. There the outlier mode survives: if the caller resumes and stops again before a delayed `turn-end` lands, the second boundary re-stamps `fluxBoundaryGeneration` to the current generation, the event stops looking stale, and it is accepted against the newer speech-stop mark. The **commit is still correct**, but the recorded latency is understated for that turn, in `endpointCommitLatencyMs` and `endpointDecisionMaxLatencyMs` alike, since they share the anchor.
+The local VAD generation counter is only the fallback, for an event that carries no turn number. There the outlier mode survives: if the caller resumes and stops again before a delayed `turn-end` lands, the second boundary re-stamps `turnBoundaryGeneration` to the current generation, the event stops looking stale, and it is accepted against the newer speech-stop mark. The **commit is still correct**, but the recorded latency is understated for that turn, in `endpointCommitLatencyMs` and `endpointDecisionMaxLatencyMs` alike, since they share the anchor.
 
 Drops log at `info` and so are visible at the default log level, carrying `turnIndex`, `openTurnIndex`, `boundaryGeneration`, and `speechGeneration`:
 
 ```
-Dropping a stale Flux end-of-turn: the caller resumed speaking past the boundary it closed
+Dropping a stale provider end-of-turn: the caller resumed speaking past the boundary it closed
 ```
 
 A drop is not itself an error: the cycle stays open and still commits, on the end-of-turn for the resumed speech or on the fail-open deadline. Read the line's fields. A drop with both `turnIndex` and `openTurnIndex` present is the turn-index path working, and it also drops the silent variant of the same race. A drop with `turnIndex` absent means Deepgram is sending unnumbered events and the run is on the generation fallback, where individual samples can be skewed and legitimate fast end-of-turns are dropped conservatively. Either way, report medians over a run of turns and ignore individual extremes.

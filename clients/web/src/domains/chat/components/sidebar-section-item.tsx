@@ -13,9 +13,10 @@
  * a custom group adds rename/delete/copy-id, Chats and the channel sections add
  * the channel-grouping toggle.
  *
- * The row list is the one real exception: every section caps and scrolls within
- * itself except Pinned, which grows to fit its own rows instead (see
- * `unbounded` on `ConversationRowList`).
+ * The row list is the one real exception: every section caps and scrolls
+ * within itself, except Pinned (grows to fit its own rows instead, see
+ * `unbounded` on `ConversationRowList`) and the bottom-most section (claims
+ * whatever space the sidebar has left instead of a fixed cap, see `isLast`).
  */
 
 import type { ReactNode } from "react";
@@ -45,7 +46,19 @@ export interface SidebarSectionItemProps {
   /** Section drag-reorder wiring; omit to pin the section in place. */
   drag?: CollapsibleNavSectionDrag;
   /** Activity dot shown in the header only while the section is collapsed. */
-  collapsedIndicator?: (conversations: Conversation[]) => ReactNode;
+  collapsedIndicator?: (
+    conversations: Conversation[],
+    section: SidebarSection,
+  ) => ReactNode;
+  /**
+   * Whether this is the bottom-most section in the list. Only it claims the
+   * sidebar's leftover space when open; every section above it always sizes
+   * to its own content (capped and scrolling internally past a point), since
+   * flex-grow has no notion of "this one actually needs the room" - handing
+   * every open section a share stretched a two-row group into a mostly-empty
+   * box the same size as a busy one beside it.
+   */
+  isLast?: boolean;
 }
 
 export function SidebarSectionItem({
@@ -54,6 +67,7 @@ export function SidebarSectionItem({
   groupMenu: buildGroupMenu,
   drag,
   collapsedIndicator,
+  isLast,
 }: SidebarSectionItemProps) {
   const conversations = useSectionConversations(assistantId, section);
 
@@ -77,13 +91,14 @@ export function SidebarSectionItem({
          (the channel-grouping toggle) on top of the bulk ones. */
       trailing={<GroupActionsMenu label={section.label} {...groupMenu} />}
       groupMenu={groupMenu}
-      collapsedIndicator={collapsedIndicator?.(conversations)}
+      collapsedIndicator={collapsedIndicator?.(conversations, section)}
       drag={drag}
       // Pinned collapses like every other section (one component, one
       // behavior; its open state defaults open and persists like the
       // rest). It is the one section that never caps/scrolls internally:
       // it grows to fit its own rows instead.
       unbounded={section.type === "pinned"}
+      isLast={isLast}
       items={conversations}
     />
   );

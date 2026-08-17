@@ -70,6 +70,26 @@ export type ConversationStreamingMode =
   | "incremental-batch"
   | "none";
 
+/**
+ * Turn-detection support mode.
+ *
+ * Describes whether a provider decides end-of-turn itself, in-band with the
+ * audio it is already transcribing, rather than leaving the boundary to the
+ * session's local silence timer and front-door hold verdict.
+ *
+ * - `"provider"`: the provider emits turn lifecycle events (`turn-start`,
+ *   `turn-end`) on its transcript stream, and a live-voice session may let
+ *   those events commit the turn.
+ * - `"none"`: the provider transcribes only; the local silence boundary owns
+ *   end-of-turn.
+ *
+ * A provider declaring `"provider"` should number its turns: the staleness
+ * check prefers the turn index carried on the event, and degrades to the
+ * session's local VAD generation counter when one is absent, which understates
+ * the recorded latency for a turn the caller resumed and stopped again.
+ */
+export type SttTurnDetectionMode = "provider" | "none";
+
 // ---------------------------------------------------------------------------
 // Boundary identifier
 // ---------------------------------------------------------------------------
@@ -272,6 +292,14 @@ export interface SttStreamServerPartialEvent {
    * provider does not surface confidence on interim chunks.
    */
   readonly confidence?: number;
+  /**
+   * All detected languages of this chunk in dominance order (first entry
+   * dominant), already normalized to lowercase base subtags (e.g. "en",
+   * "hi") by the emitting adapter; consumers must not re-normalize. Only
+   * providers with code-switching metadata (currently Deepgram nova-3
+   * `multi`) populate this. Absence means "unknown", never English.
+   */
+  readonly languages?: readonly string[];
 }
 
 /**
@@ -288,6 +316,14 @@ export interface SttStreamServerFinalEvent {
    * provider does not surface confidence on this chunk.
    */
   readonly confidence?: number;
+  /**
+   * All detected languages of this chunk in dominance order (first entry
+   * dominant), already normalized to lowercase base subtags (e.g. "en",
+   * "hi") by the emitting adapter; consumers must not re-normalize. Only
+   * providers with code-switching metadata (currently Deepgram nova-3
+   * `multi`) populate this. Absence means "unknown", never English.
+   */
+  readonly languages?: readonly string[];
   /**
    * True when this final is the flush response to
    * {@link StreamingTranscriber.finalizeUtterance} — i.e. it commits audio

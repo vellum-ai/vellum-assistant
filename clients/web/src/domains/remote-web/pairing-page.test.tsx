@@ -673,9 +673,7 @@ describe("RemoteWebPairingPage", () => {
     try {
       render(
         <MemoryRouter
-          initialEntries={[
-            "/assistant/pair?deviceCode=device-1&userCode=ABCD",
-          ]}
+          initialEntries={["/assistant/pair?deviceCode=device-1&userCode=ABCD"]}
         >
           <RemoteWebPairingPage />
         </MemoryRouter>,

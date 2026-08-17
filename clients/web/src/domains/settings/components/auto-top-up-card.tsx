@@ -21,6 +21,7 @@ import { Notice } from "@vellumai/design-library/components/notice";
 import { Toggle } from "@vellumai/design-library/components/toggle";
 import { Typography } from "@vellumai/design-library/components/typography";
 
+import { formatUsdShort } from "@/domains/settings/billing/format-usd";
 import { AutoTopUpDisableConfirm } from "@/domains/settings/components/auto-top-up-disable-confirm";
 import {
   AutoTopUpForm,
@@ -39,30 +40,6 @@ function apiToIntStr(v: string | null | undefined): string {
   }
   const n = parseFloat(v);
   return Number.isFinite(n) ? String(Math.trunc(n)) : "";
-}
-
-/**
- * Format a USD decimal string like "25.00" as "$25" (or "$25.50" if non-zero
- * cents). Used for the inline summary in the enabled-not-configuring view
- * ("Add $200 when the balance falls under $50").
- */
-function formatUsdShort(value: string | null | undefined): string {
-  if (!value) {
-    return "$0";
-  }
-  const n = parseFloat(value);
-  if (!Number.isFinite(n)) {
-    return "$0";
-  }
-  const abs = Math.abs(n);
-  const formatted = abs.toLocaleString("en-US", {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  });
-  const stripped = formatted.endsWith(".00")
-    ? formatted.slice(0, -3)
-    : formatted;
-  return n < 0 ? `-$${stripped}` : `$${stripped}`;
 }
 
 /**

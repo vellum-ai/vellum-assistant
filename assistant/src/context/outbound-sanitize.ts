@@ -103,6 +103,96 @@ export function compactAxTreeHistory(messages: Message[]): Message[] {
 }
 
 /**
+ * Full-wrapper matcher for the `<channel_capabilities>` block. Both ends are
+ * required so a user message that merely opens with the tag (someone pasting
+ * prompt markup into chat) is never mistaken for an injected block, the same
+ * discipline `stripUserTextBlocksByPrefix` uses in `strip-injections.ts`.
+ */
+const CHANNEL_CAPABILITIES_OPEN = "<channel_capabilities>\n";
+const CHANNEL_CAPABILITIES_CLOSE = "\n</channel_capabilities>";
+
+/** Whether a text block is a complete `<channel_capabilities>…` block. */
+function isChannelCapabilitiesBlock(text: string): boolean {
+  return (
+    text.startsWith(CHANNEL_CAPABILITIES_OPEN) &&
+    text.endsWith(CHANNEL_CAPABILITIES_CLOSE)
+  );
+}
+
+/**
+ * Drop `<channel_capabilities>` blocks that repeat the last one still standing,
+ * so a conversation carries one copy per distinct set of capabilities instead
+ * of one per turn.
+ *
+ * Runtime injection prepends this block to the turn-starting user message and
+ * then freezes it into history: live, because injection splices into the
+ * conversation's own message array, and across restarts, because `loadFromDb`
+ * rehydrates it from message metadata. Nothing ever removes it, so an N-turn
+ * channel conversation ships N copies. Unlike `<turn_context>`, which at least
+ * carries a fresh timestamp, this block is a pure function of the channel
+ * (`buildChannelCapabilityBlock`): every copy after the first is byte-identical
+ * to the one above it and tells the model nothing it has not already read.
+ *
+ * ## Why "same as the last retained copy" and not "not the current turn"
+ *
+ * Prompt caching only pays off when the bytes a provider marked in turn N are
+ * still at the same position in turn N+1, an invariant this repo enforces end
+ * to end in `prompt-cache-cross-turn-stability.test.ts`. Any rule of the form
+ * "keep it on the current turn, collapse it above" necessarily re-renders one
+ * message every turn (the turn that just ended), which is a full cache miss on
+ * the whole message prefix, every turn, for every conversation.
+ *
+ * Comparing against the last RETAINED copy avoids that entirely: whether a
+ * given occurrence survives depends only on the messages above it, never on
+ * how many turns come later. A message's rendering is therefore fixed the
+ * moment it is written, and the prefix stays byte-stable as the conversation
+ * grows. Capabilities that genuinely change mid-conversation (the same
+ * conversation resumed from a different client) still differ from the retained
+ * copy, so the new block is kept and the model sees the change.
+ *
+ * The cost is placement: the surviving copy sits at the top of the conversation
+ * rather than next to the newest message. It is the same bytes either way.
+ *
+ * Idempotent, like every other transform in this module: re-running it over an
+ * already-deduplicated history retains exactly the same occurrences.
+ */
+export function dedupeChannelCapabilityBlocks(history: Message[]): Message[] {
+  let lastRetained: string | null = null;
+  let changed = false;
+
+  const next = history.map((message) => {
+    if (message.role !== "user") {
+      return message;
+    }
+
+    let messageChanged = false;
+    const content = message.content.filter((block) => {
+      if (block.type !== "text" || !isChannelCapabilitiesBlock(block.text)) {
+        return true;
+      }
+      if (block.text === lastRetained) {
+        messageChanged = true;
+        return false;
+      }
+      lastRetained = block.text;
+      return true;
+    });
+
+    // A user row is never only injections in practice, but guard anyway: an
+    // empty content array is not a message any provider will accept, and
+    // dropping the row would break tool_use/tool_result pairing and the
+    // row-to-history index mapping `summarizeUpToMessage` relies on.
+    if (!messageChanged || content.length === 0) {
+      return message;
+    }
+    changed = true;
+    return { ...message, content };
+  });
+
+  return changed ? next : history;
+}
+
+/**
  * Index of the last user message carrying `tool_result` blocks — the
  * "current turn" boundary {@link stripOldMediaBlocks} keeps intact while
  * stripping media from older tool results. Returns -1 when no user message
@@ -194,6 +284,9 @@ function stripOldMediaBlocks(history: Message[]): Message[] {
  *   `web_search_tool_result` blocks to text summaries; Anthropic's opaque
  *   `encrypted_content` tokens expire / are route-scoped, and replaying a stale
  *   one is rejected with `Invalid encrypted_content in search_result block`.
+ * - {@link dedupeChannelCapabilityBlocks} keeps one `<channel_capabilities>`
+ *   block per distinct set of capabilities instead of the one-per-turn history
+ *   accumulates; every repeat is byte-identical to the copy above it.
  *
  * Transforms the outbound copy only — the durable history keeps the rich
  * originals and each send re-derives the sanitized projection (every transform
@@ -206,5 +299,7 @@ function stripOldMediaBlocks(history: Message[]): Message[] {
 export function preModelCallSanitize(history: Message[]): Message[] {
   const mediaStripped = stripOldMediaBlocks(history);
   const axCompacted = compactAxTreeHistory(mediaStripped);
-  return stripHistoricalWebSearchResults(axCompacted).messages;
+  const webSearchStripped =
+    stripHistoricalWebSearchResults(axCompacted).messages;
+  return dedupeChannelCapabilityBlocks(webSearchStripped);
 }

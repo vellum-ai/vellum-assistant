@@ -389,8 +389,7 @@ export function createToolExecutor(
     // Per-turn trust snapshot: prefer the snapshot captured at turn start so
     // a concurrent owner meta command (/status, /clean) that mutates the live
     // trustContext cannot elevate the in-flight turn to guardian.
-    const turnTrust =
-      ctx.currentTurnTrustContext ?? ctx.trustContext ?? FALLBACK_TURN_TRUST;
+    const turnTrust = ctx.getTurnOrRestingTrust() ?? FALLBACK_TURN_TRUST;
 
     const toolContext: ToolContext = {
       workingDir: ctx.workingDir,

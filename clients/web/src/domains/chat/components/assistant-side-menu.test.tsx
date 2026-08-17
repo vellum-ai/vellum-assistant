@@ -18,7 +18,10 @@ import { act, cleanup, render, waitFor } from "@testing-library/react";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 
-import { SIDEBAR_STACK_GAP } from "@/components/sidebar-nav-geometry";
+import {
+  SIDEBAR_SECTION_MAX_HEIGHT,
+  SIDEBAR_STACK_GAP,
+} from "@/components/sidebar-nav-geometry";
 
 mock.module("@/hooks/use-is-mobile", () => ({
   useIsMobile: () => false,
@@ -76,20 +79,8 @@ function rowsMatching(filter: {
 mock.module(
   "@/hooks/conversation-queries",
   (): Partial<typeof ConversationQueries> => ({
-    useBackgroundConversationListQuery: () => ({
-      conversations: [],
-      isLoading: false,
-      isPending: false,
-      isError: false,
-      refetch: () => {},
-    }),
-    useScheduledConversationListQuery: () => ({
-      conversations: [],
-      isLoading: false,
-      isPending: false,
-      isError: false,
-      refetch: () => {},
-    }),
+    /* Feature-off: these tests exercise the derived-discovery path. */
+    useSidebarSectionsQuery: () => null,
     useSectionConversationListQuery: (
       _assistantId: string | null,
       filter: { groupId?: string; originChannel?: string },
@@ -106,6 +97,18 @@ mock.module(
   }),
 );
 
+// Each section gates its fetch on the pod being reachable, which polls
+// operational status through React Query; stub it so static SSR rendering
+// resolves without a QueryClient. Open, because these tests are about what the
+// sidebar draws from the rows it is handed, not about the gate. The gate's own
+// behavior is covered in `assistant/operational-status.test.tsx`.
+mock.module(
+  "@/assistant/operational-status",
+  (): Partial<typeof OperationalStatus> => ({
+    useAssistantIsServing: () => true,
+  }),
+);
+
 // The assistant nav item reads the avatar through React Query; stub it so
 // static SSR rendering resolves without a QueryClient.
 mock.module("@/hooks/use-assistant-avatar", () => ({
@@ -119,11 +122,13 @@ mock.module("@/hooks/use-assistant-avatar", () => ({
 }));
 
 import type * as ConversationQueries from "@/hooks/conversation-queries";
+import type * as OperationalStatus from "@/assistant/operational-status";
 import type {
   Conversation,
   ConversationGroup,
 } from "@/types/conversation-types";
 import { AssistantSideMenu } from "@/domains/chat/components/assistant-side-menu";
+import { CONVERSATION_LIST_VIRTUALIZE_THRESHOLD } from "@/domains/chat/components/conversation-nav-section";
 import { useSidebarLayoutStore } from "@/domains/chat/sidebar-layout-store";
 import { usePinnedAppsStore } from "@/stores/pinned-apps-store";
 import type { PinnedAppEntry } from "@/utils/app-pin-storage";
@@ -162,6 +167,8 @@ function renderMenu(props: {
   includeFooterAction?: boolean;
   includeTipCard?: boolean;
   isLoadingConversations?: boolean;
+  conversationsFailed?: boolean;
+  onRetryConversations?: () => void;
   onWidthChange?: (width: number) => void;
 }): string {
   setSectionRows(props.conversations);
@@ -173,6 +180,8 @@ function renderMenu(props: {
       variant: props.variant ?? "rail",
       conversations: props.conversations,
       isLoadingConversations: props.isLoadingConversations,
+      conversationsFailed: props.conversationsFailed,
+      onRetryConversations: props.onRetryConversations,
       conversationGroups: props.conversationGroups,
       activeConversationId: props.activeConversationId,
       width: props.onWidthChange ? 280 : undefined,
@@ -1443,8 +1452,8 @@ describe("AssistantSideMenu · equal section treatment", () => {
 
   // Pinned is the one section that doesn't cap: it grows to fit its own
   // rows (user-curated, expected to stay short). Every derived section -
-  // Chats and each channel section - caps at SIDEBAR_SECTION_MAX_HEIGHT
-  // and scrolls within itself, so a busy section can never push its
+  // Chats and each channel section - claims whatever space is left and
+  // scrolls within itself, so a busy section can never push its
   // neighbours out of reach. Regression guard: a polish pass once unbound
   // Chats onto the sidebar body, which parked the channel sections below
   // hundreds of rows.
@@ -1489,6 +1498,143 @@ describe("AssistantSideMenu · equal section treatment", () => {
     } finally {
       cleanup();
     }
+  });
+
+  /**
+   * Renders the rail for real (not `parse`): the sizing is decided by
+   * `isLast`, and a section that defaults closed has no row list to size
+   * until its header mounts one. `openSections` clicks the named headers
+   * first - only Pinned and Chats default open.
+   */
+  function renderRail(openSections: string[] = []) {
+    const { container } = render(
+      createElement(AssistantSideMenu, {
+        assistantId: "asst-1",
+        collapsed: false,
+        variant: "rail",
+        conversations: LAYOUT_CONVERSATIONS,
+        conversationGroups: LAYOUT_GROUPS,
+        onSelectConversation: () => {},
+      }),
+    );
+    for (const label of openSections) {
+      const trigger = Array.from(
+        container.querySelectorAll<HTMLElement>(
+          '[data-slot="collapsible-nav-section-title"]',
+        ),
+      ).find((el) => el.textContent?.includes(label));
+      act(() => {
+        trigger?.click();
+      });
+    }
+    const sections = sectionElements(container);
+    const labels = sectionLabels(container);
+    return (label: string): HTMLElement => {
+      const scroller =
+        sections[labels.indexOf(label)]?.querySelector<HTMLElement>(
+          ".overflow-y-auto",
+        );
+      if (!scroller) {
+        throw new Error(`expected a scrolling row list in "${label}"`);
+      }
+      return scroller;
+    };
+  }
+
+  /*
+   * The test above asks only whether a section scrolls, and every sized
+   * section does - so it passes whether the bottom-most one fills the rail or
+   * caps at 300px like the rest. That is the difference users see: capping the
+   * bottom-most section is what left the rail's lower half empty in 0.11.3,
+   * since Chats sits there and holds everything whenever channel grouping is
+   * off. These two pin the difference itself.
+   */
+  test("the bottom-most section fills the rail; the ones above it cap", () => {
+    // Grouped: Pinned, Alpha, Chats, Slack. Slack is bottom-most.
+    const scroller = renderRail(["Slack"]);
+    try {
+      expect(scroller("Chats").style.maxHeight).toBe(
+        `${SIDEBAR_SECTION_MAX_HEIGHT}px`,
+      );
+      // Fills what the flex column has left rather than committing to a
+      // height of its own, so it reaches the footer on a tall rail.
+      expect(scroller("Slack").classList.contains("flex-1")).toBe(true);
+      expect(scroller("Slack").style.maxHeight).toBe("");
+    } finally {
+      cleanup();
+    }
+  });
+
+  test("ungrouped, Chats is bottom-most and fills instead of capping", () => {
+    // The reported 0.11.3 case: no channel sections, so Chats sits last and
+    // holds every conversation the curated sections didn't claim.
+    localStorage.setItem("vellum:sidebar-view-mode:asst-1", "all");
+    const scroller = renderRail(["Alpha"]);
+    try {
+      expect(scroller("Chats").classList.contains("flex-1")).toBe(true);
+      expect(scroller("Chats").style.maxHeight).toBe("");
+      // Still capped, since Chats sits under it - the fill is positional, not
+      // "every section grows now".
+      expect(scroller("Alpha").style.maxHeight).toBe(
+        `${SIDEBAR_SECTION_MAX_HEIGHT}px`,
+      );
+    } finally {
+      cleanup();
+    }
+  });
+
+  /*
+   * Past CONVERSATION_LIST_VIRTUALIZE_THRESHOLD the bottom-most section
+   * windows its rows through virtuoso, and a windowed list renders only what
+   * fits its viewport: unlike mounted rows, it has no natural height of its
+   * own. Its box therefore needs two things, and losing either blanks the
+   * whole list while the caches stay fully populated: the accordion root must
+   * forward the sidebar body's height down to the card's flex-fill, and the
+   * box itself must floor at the section cap so a squeezed (or broken) chain
+   * still yields a scrollable section rather than a zero-height one.
+   */
+  test("past the virtualize threshold, Chats windows into a bounded, filling box", () => {
+    localStorage.setItem("vellum:sidebar-view-mode:asst-1", "all");
+    const container = parse(
+      renderMenu({
+        conversations: Array.from(
+          { length: CONVERSATION_LIST_VIRTUALIZE_THRESHOLD + 1 },
+          (_, index) =>
+            makeConversation({
+              conversationId: `r${index}`,
+              title: `Recent ${index}`,
+            }),
+        ),
+      }),
+    );
+
+    const sections = sectionElements(container);
+    const labels = sectionLabels(container);
+    const chats = sections[labels.indexOf("Chats")];
+    if (!chats) {
+      throw new Error("expected the Chats section");
+    }
+
+    // The windowed path: virtuoso owns the rows, no mounted scroller.
+    expect(chats.querySelector(".overflow-y-auto")).toBeNull();
+    const windowed = chats.querySelector<HTMLElement>(
+      '[data-slot="virtual-list"]',
+    );
+    if (!windowed?.parentElement) {
+      throw new Error("expected the windowed row list and its sizing box");
+    }
+
+    const box = windowed.parentElement;
+    expect(box.classList.contains("flex-1")).toBe(true);
+    expect(box.style.minHeight).toBe(`${SIDEBAR_SECTION_MAX_HEIGHT}px`);
+
+    // The fill above the floor only resolves if the accordion root passes
+    // the body's height to the card's flex-fill.
+    const root = container.querySelector<HTMLElement>(
+      '[data-slot="collapsible"]',
+    );
+    expect(root?.classList.contains("flex-1")).toBe(true);
+    expect(root?.classList.contains("min-h-0")).toBe(true);
   });
 
   test("every section renders through the same component with the same affordances", () => {
@@ -1748,5 +1894,76 @@ describe("AssistantSideMenu · conversation list loading state", () => {
 
     expect(html).not.toContain(SKELETON);
     expect(html).toContain(">Recent thread<");
+  });
+});
+
+/**
+ * A conversation list that failed before it ever loaded renders the same empty
+ * scrollport as an assistant with no conversations: every section derives from
+ * this list, and an empty section is dropped from the sidebar. These assert
+ * the failure stays visible as a failure, and that it never displaces rows the
+ * sidebar already holds.
+ */
+describe("AssistantSideMenu · conversation list failure state", () => {
+  const ERROR = 'data-slot="sidebar-conversation-error"';
+  const SKELETON = 'data-slot="sidebar-conversation-skeleton"';
+
+  test("draws the failure instead of an empty section tree", () => {
+    const html = renderMenu({
+      conversations: [],
+      conversationsFailed: true,
+    });
+
+    expect(html).toContain(ERROR);
+    // The empty tree is what this stands in for, so it must not render too.
+    expect(html).not.toContain(">Chats<");
+  });
+
+  test("offers a retry when one is wired", () => {
+    const html = renderMenu({
+      conversations: [],
+      conversationsFailed: true,
+      onRetryConversations: () => {},
+    });
+
+    expect(html).toContain("Try again");
+  });
+
+  test("draws no failure once an empty list has loaded", () => {
+    // The sensitivity check: an assistant with genuinely no conversations must
+    // not be told its list failed.
+    const html = renderMenu({
+      conversations: [],
+      conversationsFailed: false,
+    });
+
+    expect(html).not.toContain(ERROR);
+  });
+
+  test("keeps live rows when a refetch fails", () => {
+    // React Query holds the last successful data through a failed refetch, so
+    // those rows are still the real list and must beat the failure state.
+    const html = renderMenu({
+      conversations: [
+        makeConversation({ conversationId: "r1", title: "Recent thread" }),
+      ],
+      conversationsFailed: true,
+    });
+
+    expect(html).not.toContain(ERROR);
+    expect(html).toContain(">Recent thread<");
+  });
+
+  test("prefers the failure over placeholders when both are set", () => {
+    // A retry puts the query back in flight while it still holds the previous
+    // failure. Reverting to placeholders would re-hide that the list failed.
+    const html = renderMenu({
+      conversations: [],
+      conversationsFailed: true,
+      isLoadingConversations: true,
+    });
+
+    expect(html).toContain(ERROR);
+    expect(html).not.toContain(SKELETON);
   });
 });

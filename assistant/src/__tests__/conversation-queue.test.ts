@@ -11,6 +11,7 @@ import type {
 } from "../agent/loop.js";
 import type { AssistantEvent } from "../api/index.js";
 import type { Message, ProviderResponse } from "../providers/types.js";
+import { broadcastMessage } from "../runtime/assistant-event-hub.js";
 import { stampAndBuffer } from "../runtime/assistant-stream-state.js";
 import { createAbortReason } from "../util/abort-reasons.js";
 import { setConfig } from "./helpers/set-config.js";
@@ -79,10 +80,12 @@ mock.module("../persistence/conversation-crud.js", () => ({
   setConversationOriginInterfaceIfUnset: () => {},
   updateConversationContextWindow: () => {},
   deleteMessageById: () => {},
-  provenanceFromTrustContext: () => ({
-    source: "user",
-    trustContext: undefined,
-  }),
+  // Mirrors the real mapping so provenance assertions observe what production
+  // would stamp, rather than a placeholder.
+  provenanceFromTrustContext: (ctx?: { trustClass?: string }) =>
+    ctx
+      ? { provenanceTrustClass: ctx.trustClass }
+      : { provenanceTrustClass: "unknown" },
   getConversationOriginInterface: () => null,
   getConversationOriginChannel: () => null,
   getMessages: () => [],
@@ -595,6 +598,55 @@ describe("Conversation message queue", () => {
     await resolveRun(0);
     await p1;
     await new Promise((r) => setTimeout(r, 10));
+  });
+
+  test("a drained slash exchange is stamped with its sender's provenance, not the slot's", async () => {
+    // Provenance gates memory extraction and untrusted-content wrapping, so
+    // the stamped class must be the actor whose message this is. The unknown-
+    // slash drain branch persists an exchange for the queued sender; if the
+    // guardian wrote the conversation slot while that message waited, the
+    // rows must still carry the sender's class.
+    const conversation = makeConversation();
+    await conversation.loadFromDb();
+
+    conversation.setTrustContext({
+      trustClass: "trusted_contact",
+      sourceChannel: "slack",
+      requesterExternalUserId: "U-contact",
+    });
+
+    const p1 = conversation.processMessage({
+      content: "msg-1",
+      attachments: [],
+      onEvent: () => {},
+      requestId: "req-1",
+    });
+    await waitForPendingRun(1);
+
+    conversation.enqueueMessage({
+      content: "/definitely-not-a-command",
+      requestId: "req-slash",
+    });
+
+    // The guardian moves the slot while the contact's message waits.
+    conversation.setTrustContext({
+      trustClass: "guardian",
+      sourceChannel: "vellum",
+      requesterExternalUserId: "guardian-principal",
+    });
+
+    capturedAddMessages.length = 0;
+    await resolveRun(0);
+    await p1;
+    await new Promise((r) => setTimeout(r, 20));
+
+    const exchange = capturedAddMessages.filter((m) =>
+      m.content.includes("definitely-not-a-command"),
+    );
+    expect(exchange.length).toBeGreaterThan(0);
+    for (const row of exchange) {
+      expect(row.metadata?.provenanceTrustClass).toBe("trusted_contact");
+    }
   });
 
   test("a drained turn keeps its sender's trust once the agent loop is running", async () => {
@@ -3867,6 +3919,127 @@ describe("subagent notification user_message_echo suppression", () => {
     expect(pendingRuns.length).toBe(2);
     // ...but no user_message_echo, so the client never renders a live bubble.
     expect(eventsNotif.some((e) => e.type === "user_message_echo")).toBe(false);
+
+    await resolveRun(1);
+    await new Promise((r) => setTimeout(r, 10));
+  });
+});
+
+describe("interactive drain sender rebind", () => {
+  beforeEach(() => {
+    pendingRuns = [];
+  });
+
+  test("a drained interactive message rebinds the hub sender for its turn, then restores the pre-drain state", async () => {
+    const conversation = makeConversation();
+    await conversation.loadFromDb();
+
+    const p1 = conversation.processMessage({
+      content: "msg-1",
+      attachments: [],
+      onEvent: () => {},
+      requestId: "req-1",
+    });
+    await waitForPendingRun(1);
+
+    // Queue an interactive item the way the /v1/messages route does when the
+    // conversation is busy.
+    const result = conversation.enqueueMessage({
+      content: "msg-2",
+      requestId: "req-2",
+      onEvent: () => {},
+      isInteractive: true,
+    });
+    expect(result.queued).toBe(true);
+
+    // The interactive turn that finishes ahead of the drain resets the
+    // conversation-level sender to a no-op (process-message.ts contract).
+    // The drained turn must not inherit that dead sender: the
+    // PermissionPrompter reads the conversation-level sender, so a
+    // confirmation_request raised during the drained turn would otherwise
+    // reach no client and hang until the permission timeout.
+    conversation.updateClient(() => {}, true);
+
+    await resolveRun(0);
+    await p1;
+    await waitForPendingRun(2);
+
+    expect(conversation.getCurrentSender()).toBe(broadcastMessage);
+    expect(conversation.hasNoClient).toBe(false);
+
+    await resolveRun(1);
+    await waitForCondition(
+      () => conversation.getCurrentSender() !== broadcastMessage,
+    );
+    expect(conversation.hasNoClient).toBe(true);
+  });
+
+  test("a drained interactive message restores a live pre-drain binding instead of clearing it", async () => {
+    const conversation = makeConversation();
+    await conversation.loadFromDb();
+
+    const p1 = conversation.processMessage({
+      content: "msg-1",
+      attachments: [],
+      onEvent: () => {},
+      requestId: "req-1",
+    });
+    await waitForPendingRun(1);
+
+    conversation.enqueueMessage({
+      content: "msg-2",
+      requestId: "req-2",
+      onEvent: () => {},
+      isInteractive: true,
+    });
+
+    // A live binding predates the drained turn (the send route installs one
+    // when a message is queued behind a non-interactive turn, which performs
+    // no restore). The drain's restore must preserve it for out-of-turn
+    // producers (call transcript and completion notifiers), not clear it.
+    conversation.updateClient(broadcastMessage, false);
+
+    await resolveRun(0);
+    await p1;
+    await waitForPendingRun(2);
+
+    expect(conversation.getCurrentSender()).toBe(broadcastMessage);
+    expect(conversation.hasNoClient).toBe(false);
+
+    await resolveRun(1);
+    // The drained turn has ended; the pre-drain live binding must survive.
+    await waitForCondition(() => !conversation.isProcessing());
+    expect(conversation.getCurrentSender()).toBe(broadcastMessage);
+    expect(conversation.hasNoClient).toBe(false);
+  });
+
+  test("a drained non-interactive message leaves the no-op sender in place", async () => {
+    const conversation = makeConversation();
+    await conversation.loadFromDb();
+
+    const p1 = conversation.processMessage({
+      content: "msg-1",
+      attachments: [],
+      onEvent: () => {},
+      requestId: "req-1",
+    });
+    await waitForPendingRun(1);
+
+    conversation.enqueueMessage({
+      content: "msg-2",
+      requestId: "req-2",
+      onEvent: () => {},
+      isInteractive: false,
+    });
+
+    conversation.updateClient(() => {}, true);
+
+    await resolveRun(0);
+    await p1;
+    await waitForPendingRun(2);
+
+    expect(conversation.getCurrentSender()).not.toBe(broadcastMessage);
+    expect(conversation.hasNoClient).toBe(true);
 
     await resolveRun(1);
     await new Promise((r) => setTimeout(r, 10));

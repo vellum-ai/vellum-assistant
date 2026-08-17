@@ -36,20 +36,22 @@ describe("loadOpenCategories", () => {
   test("returns the stored categories when present", () => {
     memoryStorage.setItem(
       STORAGE_KEY,
-      JSON.stringify(["scheduled", "background"]),
+      JSON.stringify([channelSectionKey("slack"), channelSectionKey("email")]),
     );
     expect(loadOpenCategories(ASSISTANT_ID)).toEqual([
-      "scheduled",
-      "background",
+      channelSectionKey("slack"),
+      channelSectionKey("email"),
     ]);
   });
 
   test("filters stale flattened category values", () => {
     memoryStorage.setItem(
       STORAGE_KEY,
-      JSON.stringify(["pinned", "recents", "background"]),
+      JSON.stringify(["pinned", "recents", channelSectionKey("slack")]),
     );
-    expect(loadOpenCategories(ASSISTANT_ID)).toEqual(["background"]);
+    expect(loadOpenCategories(ASSISTANT_ID)).toEqual([
+      channelSectionKey("slack"),
+    ]);
   });
 
   test("returns empty array when stored value is an empty array", () => {
@@ -68,24 +70,29 @@ describe("loadOpenCategories", () => {
   });
 
   test("scopes lookups by assistant id", () => {
-    memoryStorage.setItem(STORAGE_KEY, JSON.stringify(["scheduled"]));
+    memoryStorage.setItem(
+      STORAGE_KEY,
+      JSON.stringify([channelSectionKey("slack")]),
+    );
     expect(loadOpenCategories("other_assistant")).toEqual([]);
   });
 
-  test("keeps per-channel section keys", () => {
+  test("keeps per-channel section keys and drops everything else", () => {
+    // "background"/"scheduled" are keys of sections that no longer exist;
+    // stored copies from older builds must not survive a load.
     memoryStorage.setItem(
       STORAGE_KEY,
       JSON.stringify([
         channelSectionKey("slack"),
         channelSectionKey("telegram"),
         "background",
+        "scheduled",
         "bogus",
       ]),
     );
     expect(loadOpenCategories(ASSISTANT_ID)).toEqual([
       "channel:slack",
       "channel:telegram",
-      "background",
     ]);
   });
 });
@@ -99,16 +106,21 @@ describe("channelSectionKey", () => {
 
 describe("saveOpenCategories", () => {
   test("writes the categories under the assistant-scoped storage key", () => {
-    saveOpenCategories(ASSISTANT_ID, ["scheduled", "background"]);
+    saveOpenCategories(ASSISTANT_ID, [channelSectionKey("slack")]);
     expect(memoryStorage.getItem(STORAGE_KEY)).toBe(
-      JSON.stringify(["scheduled", "background"]),
+      JSON.stringify([channelSectionKey("slack")]),
     );
   });
 
   test("overwrites any previously stored value", () => {
-    saveOpenCategories(ASSISTANT_ID, ["scheduled", "background"]);
-    saveOpenCategories(ASSISTANT_ID, ["background"]);
-    expect(loadOpenCategories(ASSISTANT_ID)).toEqual(["background"]);
+    saveOpenCategories(ASSISTANT_ID, [
+      channelSectionKey("slack"),
+      channelSectionKey("email"),
+    ]);
+    saveOpenCategories(ASSISTANT_ID, [channelSectionKey("email")]);
+    expect(loadOpenCategories(ASSISTANT_ID)).toEqual([
+      channelSectionKey("email"),
+    ]);
   });
 
   test("persists an empty array when all categories are collapsed", () => {
@@ -117,10 +129,14 @@ describe("saveOpenCategories", () => {
   });
 
   test("keeps values for different assistants isolated", () => {
-    saveOpenCategories(ASSISTANT_ID, ["background"]);
-    saveOpenCategories("other_assistant", ["scheduled"]);
-    expect(loadOpenCategories(ASSISTANT_ID)).toEqual(["background"]);
-    expect(loadOpenCategories("other_assistant")).toEqual(["scheduled"]);
+    saveOpenCategories(ASSISTANT_ID, [channelSectionKey("slack")]);
+    saveOpenCategories("other_assistant", [channelSectionKey("email")]);
+    expect(loadOpenCategories(ASSISTANT_ID)).toEqual([
+      channelSectionKey("slack"),
+    ]);
+    expect(loadOpenCategories("other_assistant")).toEqual([
+      channelSectionKey("email"),
+    ]);
   });
 });
 

@@ -14,6 +14,7 @@
  */
 
 import type { AssistantEvent } from "../api/index.js";
+import type { ChannelId } from "../channels/types.js";
 import type { LLMCallSite } from "../config/schemas/llm.js";
 import type { UserMessageAttachment } from "../daemon/message-types/shared.js";
 import type { ContentBlock, MediaSource } from "../providers/types.js";
@@ -22,12 +23,62 @@ import type { ContentBlock, MediaSource } from "../providers/types.js";
 // Public types
 // ---------------------------------------------------------------------------
 
+/**
+ * The chat a turn belongs to, in the channel's own terms.
+ *
+ * Supplied instead of a `conversationId` when the caller knows where the
+ * message came from but not which conversation that is. The pair resolves to
+ * the same conversation an inbound message on those coordinates would land
+ * in, because it resolves through the same binding.
+ *
+ * That sameness is the reason this exists at all. A caller could keep its own
+ * `externalChatId -> conversationId` map and pass the id, and turns would run
+ * in the right place. What it could not do is make the rest of the assistant
+ * agree: conversation reset is addressed by channel coordinates
+ * (`handleDeleteConversation`), the deny lanes attach an access-request card
+ * by them (`findInboundConversationId`), and the conversation and session
+ * APIs read the channel, chat name and sender off the external binding. A
+ * private map is a second name for the same conversation, and everything
+ * keyed on the public one quietly misses.
+ */
+export interface ConversationChannelAddress {
+  /** Channel the message arrived on. */
+  sourceChannel: ChannelId;
+  /** The chat, in the channel's own id space. */
+  externalChatId: string;
+  /**
+   * Thread within the chat, where the channel has threads. Only Slack and
+   * Telegram scope a conversation by thread; elsewhere this is carried as
+   * binding metadata and does not split the conversation.
+   */
+  externalThreadId?: string | null;
+  /** Human-readable chat name, for the conversation list. */
+  externalChatName?: string | null;
+  /** Who sent it, in the channel's id space. */
+  externalUserId?: string | null;
+  displayName?: string | null;
+  username?: string | null;
+}
+
 export interface RunConversationTurnOptions {
   /**
    * Conversation to run the turn in. If omitted, a new conversation is
-   * created (its ID is generated with `uuidv7` and returned in the result).
+   * created (its ID is generated with `uuidv7` and returned in the result),
+   * unless {@link RunConversationTurnOptions.channel} says which chat this
+   * belongs to, in which case that chat's conversation is used.
    */
   conversationId?: string;
+  /**
+   * The chat this turn belongs to, resolved to a conversation and bound to
+   * the channel. See {@link ConversationChannelAddress}.
+   *
+   * Ignored when `conversationId` is given: an explicit conversation is the
+   * caller saying which one, and re-resolving would overrule it. A caller
+   * that wants both the binding and a conversation of its own choosing is
+   * describing two different conversations, which is a bug worth surfacing
+   * as one rather than silently picking a winner.
+   */
+  channel?: ConversationChannelAddress;
   /**
    * User message content blocks for this turn. Text blocks become the
    * user message body; image/file blocks are resolved to inline
@@ -121,6 +172,77 @@ function extractContentAndAttachments(
   return { text: textParts.join("\n"), attachments };
 }
 
+/**
+ * Resolve a chat to its conversation, binding the two if they are not already.
+ *
+ * Two writes, the same two `handleChannelInbound` makes for an arriving
+ * message, and for the same reasons. The conversation key is what makes the
+ * chat resolve to this conversation next time and what conversation reset
+ * addresses; the external binding is what the conversation and session APIs
+ * read to show which channel a conversation came from and who is on the other
+ * end. One without the other is a conversation that is half-registered, and
+ * which half is missing decides which feature quietly stops working.
+ *
+ * Deliberately not `recordInbound`, which is the same resolution plus an
+ * inbound event row. That row exists to dedup a vendor's redelivery and to
+ * correlate later edits, and a caller driving a turn on its own schedule has
+ * neither a vendor nor a message id to correlate. Plugin deliveries are
+ * deduped upstream in the gateway before the message ever gets here.
+ */
+async function resolveChannelConversation(
+  channel: ConversationChannelAddress,
+  conversationType?: "standard" | "background",
+): Promise<{ conversationId: string; created: boolean }> {
+  const { findInboundConversationId, resolveInboundConversation } =
+    await import("../persistence/delivery-crud.js");
+  const { upsertBinding } =
+    await import("../persistence/external-conversation-store.js");
+
+  // Asked before resolving, because resolving is what creates it: once the id
+  // is in hand a new conversation is indistinguishable from an existing one,
+  // and the caller announces only the new. `findInboundConversationId` is the
+  // read-only mirror of the resolution below, so the two agree on what
+  // "already bound" means, including the Slack flat-key alias.
+  const created =
+    findInboundConversationId(
+      channel.sourceChannel,
+      channel.externalChatId,
+      channel.externalThreadId,
+    ) === null;
+
+  const { conversationId } = resolveInboundConversation(
+    channel.sourceChannel,
+    channel.externalChatId,
+    channel.externalThreadId,
+    // Both apply only if this call is what mints the conversation. `origin` is
+    // first-message attribution, which a chat's first turn is the only chance
+    // to record.
+    {
+      origin: channel.sourceChannel,
+      ...(conversationType ? { conversationType } : {}),
+    },
+  );
+
+  // Refreshed on every turn rather than only on creation, because the sender's
+  // display name and the chat's name are the vendor's to change and the
+  // conversation list shows whichever we last heard. The optional fields pass
+  // through as given: a caller that omits one on a later turn knows only the
+  // chat coordinates this time, which `upsertBinding` reads as silence rather
+  // than as the sender having no name.
+  upsertBinding({
+    conversationId,
+    sourceChannel: channel.sourceChannel,
+    externalChatId: channel.externalChatId,
+    externalChatName: channel.externalChatName,
+    externalThreadId: channel.externalThreadId ?? null,
+    externalUserId: channel.externalUserId,
+    displayName: channel.displayName,
+    username: channel.username,
+  });
+
+  return { conversationId, created };
+}
+
 // ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
@@ -166,8 +288,25 @@ export async function runConversationTurn(
   // below) without requiring a client to approve prompts.
   const { INTERNAL_GUARDIAN_TRUST_CONTEXT } =
     await import("../daemon/trust-context.js");
-  const conversationId = options.conversationId ?? uuidv7();
-  const rowExisted = getConversation(conversationId) != null;
+
+  // A channel address resolves through the same binding an inbound message
+  // uses, so a turn addressed by chat lands in that chat's conversation
+  // rather than a private one only this caller can find.
+  const channelConversation =
+    !options.conversationId && options.channel
+      ? await resolveChannelConversation(
+          options.channel,
+          options.conversationType,
+        )
+      : undefined;
+  const conversationId =
+    options.conversationId ?? channelConversation?.conversationId ?? uuidv7();
+  // A channel address reports its own novelty, since resolving it creates the
+  // row: asking the DB here answers yes for a conversation minted a line ago
+  // and swallows the announcement it is owed.
+  const rowExisted = channelConversation
+    ? !channelConversation.created
+    : getConversation(conversationId) != null;
   const conversation = await getOrCreateConversation(conversationId, {
     trustContext: INTERNAL_GUARDIAN_TRUST_CONTEXT,
     ...(options.conversationType
@@ -199,6 +338,28 @@ export async function runConversationTurn(
     resolveMediaSourceData,
   );
 
+  // The channel this turn speaks on. Runtime assembly reads the per-turn
+  // context first and falls back to the conversation's `originChannel`, then
+  // to `vellum`, so a turn into a conversation carrying no origin runs as
+  // `vellum` without this: the wrong channel for the message row and for the
+  // channel-permission cascade the tools are approved against. Null when the
+  // caller names no channel, which both restores that fallback and clears any
+  // context left by a previous turn.
+  const turnChannelContext = options.channel
+    ? {
+        userMessageChannel: options.channel.sourceChannel,
+        assistantMessageChannel: options.channel.sourceChannel,
+      }
+    : null;
+  // Carried on the metadata as well, because a queued turn is drained after
+  // this call returns and reads its channel from there. Without it the drain
+  // inherits whichever turn was in flight, which on a shared conversation is
+  // some other channel entirely.
+  const metadata = {
+    ...PLUGIN_TURN_MESSAGE_METADATA,
+    ...(turnChannelContext ?? {}),
+  };
+
   // Build the event emitter: fan out to SSE/event-hub subscribers via
   // broadcastMessage, then invoke the collector callback. This mirrors the
   // buildEventEmitter pattern from process-message.ts so plugin-driven
@@ -221,7 +382,7 @@ export async function runConversationTurn(
       onEvent,
       requestId,
       isInteractive: false,
-      metadata: { ...PLUGIN_TURN_MESSAGE_METADATA },
+      metadata,
     });
     if (enqueueResult.rejected) {
       throw new Error(
@@ -236,12 +397,14 @@ export async function runConversationTurn(
     };
   }
 
+  conversation.setTurnChannelContext(turnChannelContext);
+
   const userMessageId = await conversation.processMessage({
     content: text,
     attachments,
     onEvent,
     isInteractive: false,
-    metadata: { ...PLUGIN_TURN_MESSAGE_METADATA },
+    metadata,
     ...(options.callSite ? { callSite: options.callSite } : {}),
   });
 

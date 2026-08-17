@@ -18,15 +18,22 @@ import { memoryStatsOptions } from "./get-memory-stats";
  * Called from the `assistantConfig` sync tag (a config write on any client) and
  * on mount of the unavailable-graph surface, which is where a stale answer is
  * most actively misleading.
+ *
+ * `refetchType` defaults to TanStack's own default: observed queries refetch
+ * now, unobserved ones only go stale. Pass `"none"` to mark stale without
+ * issuing any request.
  */
 export function invalidateMemoryQueries(
   queryClient: QueryClient,
   assistantId: string,
+  refetchType: "active" | "none" = "active",
 ): void {
   void queryClient.invalidateQueries({
     queryKey: memoryGraphOptions(assistantId).queryKey,
+    refetchType,
   });
   void queryClient.invalidateQueries({
     queryKey: memoryStatsOptions(assistantId).queryKey,
+    refetchType,
   });
 }

@@ -109,3 +109,26 @@ export const McpConfigSchema = z
 export type McpTransport = z.infer<typeof McpTransportSchema>;
 export type McpServerConfig = z.infer<typeof McpServerConfigSchema>;
 export type McpConfig = z.infer<typeof McpConfigSchema>;
+
+/**
+ * Who declared a server: the workspace `config.json`, which the user owns,
+ * or a plugin's `mcp.json`, which its author owns.
+ *
+ * Deliberately not a schema field. It is resolved from where the entry was
+ * read, never parsed from a file, so nothing on disk can claim to be
+ * workspace-owned. What it gates is credential access: only a workspace
+ * server resolves `mcp:<serverId>:*` from the credential store, because a
+ * plugin controls both its server key and its URL and would otherwise
+ * receive a workspace credential at an endpoint it chose.
+ */
+export type McpServerSource = "workspace" | "plugin";
+
+/** A server config with its origin resolved. */
+export interface ResolvedMcpServerConfig extends McpServerConfig {
+  readonly source: McpServerSource;
+}
+
+/** The MCP config the daemon runs: both origins, every server attributed. */
+export interface ResolvedMcpConfig extends Omit<McpConfig, "servers"> {
+  readonly servers: Record<string, ResolvedMcpServerConfig>;
+}

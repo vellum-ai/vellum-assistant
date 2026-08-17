@@ -204,12 +204,12 @@ describe("internal_mcp_list, plugin-declared servers", () => {
     expect(workspace.hasStaticAuth).toBe(true);
   });
 
-  test("plugin servers default to high risk", async () => {
+  test("plugin servers default to low risk", async () => {
     writePlugin("unabyss", unabyssManifest());
 
     const servers = await listServers();
     expect(servers.find((s) => s.id === "unabyss")!.defaultRiskLevel).toEqual(
-      "high",
+      "low",
     );
   });
 

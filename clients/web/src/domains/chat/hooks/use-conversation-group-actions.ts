@@ -26,6 +26,7 @@ import {
   invalidateConversationQueries,
 } from "@/utils/conversation-cache";
 import { groupsGetQueryKey } from "@/generated/daemon/@tanstack/react-query.gen";
+import { sidebarSectionsQueryKey } from "@/utils/conversation-list-fetchers";
 
 import { haptic } from "@/utils/haptics";
 import type { ConversationGroup } from "@/types/conversation-types";
@@ -162,6 +163,13 @@ export function useConversationGroupActions({
         });
       } finally {
         void queryClient.invalidateQueries({ queryKey: groupsKey });
+        /* The section index carries the group's name and icon, and the
+           daemon suppresses sync echo to this client, so the rename settle
+           is the index's only local refresh. Create needs no counterpart: a
+           new group is empty and an empty group has no index row. */
+        void queryClient.invalidateQueries({
+          queryKey: sidebarSectionsQueryKey(assistantId),
+        });
       }
     },
     [assistantId, conversationGroups, queryClient, patchGroupAsync],

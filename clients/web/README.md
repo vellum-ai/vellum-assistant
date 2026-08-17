@@ -207,14 +207,6 @@ day-to-day code (`<Link>`, `<Outlet>`, `useParams`, `useNavigate`) is
 the same in both modes, so switching later is a restructure rather
 than a rewrite.
 
-## Runtime/auth adapter seam
-
-[`src/runtime/auth-adapter.ts`](src/runtime/auth-adapter.ts) defines a
-typed `RuntimeAuthAdapter` interface (`ensureSession` +
-`getAuthHeader`) so the shell does not hard-code hosted Vellum login.
-Hosted, local, self-hosted, and Electron runtimes plug in via the same
-interface from their respective hosts.
-
 ## SSR/build-safe rendering
 
 Even though this is an SPA, route and layout components must not

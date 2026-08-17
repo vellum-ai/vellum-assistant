@@ -8,7 +8,7 @@ import {
   useAssistantsOauthDisconnectByConnectionCreateMutation,
 } from "@/generated/api/@tanstack/react-query.gen";
 import type { OAuthConnection } from "@/generated/api/types.gen";
-import { useIsMobile } from "@/hooks/use-is-mobile";
+import { useTouchMobile } from "@/hooks/use-touch-mobile";
 import { BottomSheet } from "@vellumai/design-library/components/bottom-sheet";
 import { Button } from "@vellumai/design-library/components/button";
 import { Card } from "@vellumai/design-library/components/card";
@@ -57,7 +57,6 @@ export function IntegrationRow({
 
   const [menuOpen, setMenuOpen] = useState(false);
   const [confirmDisableOpen, setConfirmDisableOpen] = useState(false);
-  const isMobile = useIsMobile();
 
   const connectionsQueryKey = assistantsOauthConnectionsListQueryKey({
     path: { assistant_id: platformAssistantId },
@@ -139,7 +138,6 @@ export function IntegrationRow({
                   handleDisable();
                 }}
                 disablePending={disconnectOAuth.isPending}
-                isMobile={isMobile}
               />
             </div>
           ) : (
@@ -167,7 +165,7 @@ export function IntegrationRow({
 }
 
 // ---------------------------------------------------------------------------
-// IntegrationConfigureMenu — desktop popover / mobile bottom-sheet wrapper
+// IntegrationConfigureMenu: anchored popover / touch bottom-sheet wrapper
 // for the connected-integration "Configure" action menu. Extracted so the
 // branch can be unit-tested without standing up the parent's mutations.
 // ---------------------------------------------------------------------------
@@ -179,8 +177,6 @@ export interface IntegrationConfigureMenuProps {
   onEditConnections: () => void;
   onDisable: () => void;
   disablePending: boolean;
-  /** Branch hint — production callers pass `useIsMobile()`. */
-  isMobile: boolean;
 }
 
 export function IntegrationConfigureMenu({
@@ -190,9 +186,10 @@ export function IntegrationConfigureMenu({
   onEditConnections,
   onDisable,
   disablePending,
-  isMobile,
 }: IntegrationConfigureMenuProps) {
-  if (isMobile) {
+  const isTouchMobile = useTouchMobile();
+
+  if (isTouchMobile) {
     return (
       <BottomSheet.Root open={open} onOpenChange={onOpenChange}>
         <BottomSheet.Trigger asChild>

@@ -13,6 +13,7 @@
 import { ArrowLeft, ArrowRight } from "lucide-react";
 
 import { useOnboardingTone } from "@/domains/onboarding/onboarding-tone";
+import { useTranslation } from "@/i18n";
 
 export function OnboardingTopBar({
   onBack,
@@ -29,6 +30,7 @@ export function OnboardingTopBar({
    */
   tone?: "dark" | "light";
 }) {
+  const { t } = useTranslation("onboarding");
   const auto = useOnboardingTone();
   const fg = tone ? (tone === "dark" ? "#1A1A1A" : "#FFFFFF") : auto.fg;
   // Matches the avatar-picker's cycle arrows: a circular button tinted by its
@@ -41,7 +43,7 @@ export function OnboardingTopBar({
       <button
         type="button"
         onClick={onBack}
-        aria-label="Back"
+        aria-label={t("actions.back")}
         className="flex cursor-pointer h-10 w-10 items-center justify-center rounded-full transition-colors duration-150"
         style={{ color: fg, backgroundColor: restBg }}
         onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = hoverBg)}
@@ -54,7 +56,7 @@ export function OnboardingTopBar({
         <button
           type="button"
           onClick={onNext}
-          aria-label="Forward"
+          aria-label={t("actions.forward")}
           className="flex cursor-pointer h-10 w-10 items-center justify-center rounded-full transition-colors duration-150"
           style={{ color: fg, backgroundColor: restBg }}
           onMouseEnter={(e) =>

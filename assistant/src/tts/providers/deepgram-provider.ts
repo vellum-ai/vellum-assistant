@@ -165,7 +165,9 @@ async function performTtsRequest(
 
   const config = getConfig().services.tts.providers.deepgram;
   const outputParams = resolveOutputParams(request, config);
-  const model = config.model;
+  // A request-level voiceId is the per-request Aura model override and wins
+  // over the configured model.
+  const model = request.voiceId?.trim() || config.model;
 
   const params = new URLSearchParams({
     model,

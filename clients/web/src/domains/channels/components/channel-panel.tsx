@@ -200,7 +200,11 @@ export function ChannelPanel({
                 t("channelPanel.incompleteDescription", {
                   channel: getChannelLabel(channel.key),
                 }))
-              : meta.disconnectedPitch?.(assistantDisplayName)
+              : meta.disconnectedPitchKey
+                ? t(meta.disconnectedPitchKey, {
+                    assistant: assistantDisplayName,
+                  })
+                : undefined
           }
           action={
             <div className="flex flex-col items-center gap-1">

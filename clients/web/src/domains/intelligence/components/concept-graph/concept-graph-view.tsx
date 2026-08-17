@@ -20,6 +20,7 @@ import {
 import { VIRTUAL_CENTER } from "@/domains/intelligence/components/constellation-view/constants";
 import { memoryGraphOptions } from "@/domains/intelligence/memory-graph/get-memory-graph";
 import { emitMemoryEvent } from "@/domains/intelligence/memory-telemetry";
+import { useTranslation } from "@/i18n";
 import { Button } from "@vellumai/design-library";
 
 import { buildForceLayout } from "./build-force-layout";
@@ -201,6 +202,7 @@ export function ConceptGraphView({
   headerAction,
   handleRef,
 }: ConceptGraphViewProps) {
+  const { t } = useTranslation("intelligence");
   const containerRef = useRef<HTMLDivElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
 
@@ -1386,8 +1388,8 @@ export function ConceptGraphView({
   } else if (query.isError) {
     body = (
       <CenteredMessage
-        title="Couldn't load the memory graph"
-        detail="Something went wrong fetching your assistant's memory. Try again in a moment."
+        title={t("conceptGraphView.loadErrorTitle")}
+        detail={t("conceptGraphView.loadErrorDetail")}
       />
     );
   } else if (query.data?.kind === "unsupported") {
@@ -1402,8 +1404,8 @@ export function ConceptGraphView({
   } else if (!ready) {
     body = (
       <CenteredMessage
-        title="No concepts yet"
-        detail="As your assistant learns and links ideas, they'll appear here as a living map of its memory."
+        title={t("conceptGraphView.emptyTitle")}
+        detail={t("conceptGraphView.emptyDetail")}
       />
     );
   } else {
@@ -1445,7 +1447,7 @@ export function ConceptGraphView({
           className="pointer-events-none absolute bottom-4 right-4 text-[11px]"
           style={{ color: "var(--content-tertiary)" }}
         >
-          drag to rotate · scroll to zoom
+          {t("conceptGraphView.dragToRotateHint")}
         </div>
 
         {graph?.truncated ? (
@@ -1458,7 +1460,9 @@ export function ConceptGraphView({
               color: "var(--content-tertiary)",
             }}
           >
-            Showing the {layout.nodes.length} most-connected concepts
+            {t("conceptGraphView.truncatedNotice", {
+              count: layout.nodes.length,
+            })}
           </div>
         ) : null}
 
@@ -1470,22 +1474,22 @@ export function ConceptGraphView({
             variant="ghost"
             iconOnly={<ZoomIn />}
             onClick={() => zoomBy(1.25)}
-            aria-label="Zoom in"
-            tooltip="Zoom in"
+            aria-label={t("conceptGraphView.zoomInAriaLabel")}
+            tooltip={t("conceptGraphView.zoomInAriaLabel")}
           />
           <Button
             variant="ghost"
             iconOnly={<ZoomOut />}
             onClick={() => zoomBy(0.8)}
-            aria-label="Zoom out"
-            tooltip="Zoom out"
+            aria-label={t("conceptGraphView.zoomOutAriaLabel")}
+            tooltip={t("conceptGraphView.zoomOutAriaLabel")}
           />
           <Button
             variant="ghost"
             iconOnly={<RotateCcw />}
             onClick={resetView}
-            aria-label="Reset view"
-            tooltip="Reset view"
+            aria-label={t("conceptGraphView.resetViewAriaLabel")}
+            tooltip={t("conceptGraphView.resetViewAriaLabel")}
           />
         </div>
       </>
@@ -1514,8 +1518,16 @@ export function ConceptGraphView({
               variant="ghost"
               iconOnly={isFullscreen ? <Minimize2 /> : <Maximize2 />}
               onClick={onToggleFullscreen}
-              aria-label={isFullscreen ? "Exit fullscreen" : "Enter fullscreen"}
-              tooltip={isFullscreen ? "Exit fullscreen" : "Enter fullscreen"}
+              aria-label={
+                isFullscreen
+                  ? t("conceptGraphView.exitFullscreenAriaLabel")
+                  : t("conceptGraphView.enterFullscreenAriaLabel")
+              }
+              tooltip={
+                isFullscreen
+                  ? t("conceptGraphView.exitFullscreenAriaLabel")
+                  : t("conceptGraphView.enterFullscreenAriaLabel")
+              }
             />
           ) : null}
 
@@ -1525,8 +1537,8 @@ export function ConceptGraphView({
                 variant="ghost"
                 iconOnly={<Search />}
                 onClick={() => setSearchOpen(true)}
-                aria-label="Search concepts"
-                tooltip="Search concepts"
+                aria-label={t("conceptGraphView.searchConceptsAriaLabel")}
+                tooltip={t("conceptGraphView.searchConceptsAriaLabel")}
                 className={searchOpen ? "hidden" : "@2xl:hidden"}
               />
               <div
@@ -1582,8 +1594,8 @@ export function ConceptGraphView({
                         focusOn(searchResults[0].id);
                       }
                     }}
-                    placeholder="Search concepts…"
-                    aria-label="Search concepts"
+                    placeholder={t("conceptGraphView.searchConceptsPlaceholder")}
+                    aria-label={t("conceptGraphView.searchConceptsAriaLabel")}
                     className="w-36 bg-transparent text-[12px] outline-none placeholder:text-[var(--content-tertiary)]"
                     style={{ color: "var(--content-default)" }}
                   />
@@ -1602,7 +1614,7 @@ export function ConceptGraphView({
                         setSearch("");
                         setSearchOpen(false);
                       }}
-                      aria-label="Clear search"
+                      aria-label={t("conceptGraphView.clearSearchAriaLabel")}
                       className="flex items-center"
                       style={{ color: "var(--content-tertiary)" }}
                     >

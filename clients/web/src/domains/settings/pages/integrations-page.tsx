@@ -2,9 +2,12 @@ import { useQuery } from "@tanstack/react-query";
 import { Tabs } from "@vellumai/design-library/components/tabs";
 import { Input } from "@vellumai/design-library/components/input";
 import { Notice } from "@vellumai/design-library/components/notice";
-import { Popover } from "@vellumai/design-library/components/popover";
+import {
+  Select,
+  type SelectOption,
+} from "@vellumai/design-library/components/select";
 import { toast } from "@vellumai/design-library/components/toast";
-import { ChevronDown, Loader2, Search, Sparkles } from "lucide-react";
+import { Loader2, Search, Sparkles } from "lucide-react";
 import { Suspense, useEffect, useMemo, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router";
 
@@ -18,6 +21,7 @@ import { oauthProvidersGetOptions } from "@/generated/daemon/@tanstack/react-que
 import { usePlatformAssistantId } from "@/hooks/use-platform-assistant-id";
 import { usePlatformGate } from "@/hooks/use-platform-gate";
 import { captureError } from "@/lib/sentry/capture-error";
+import { useTranslation } from "@/i18n";
 import { getLocalSetting, setLocalSetting } from "@/utils/local-settings";
 import { routes } from "@/utils/routes";
 
@@ -26,11 +30,15 @@ const BANNER_STORAGE_KEY = "vellum:integrations:bannerDismissed";
 type IntegrationFilter = "all" | "enabled" | "not-enabled";
 type IntegrationsTab = "oauth" | "mcp";
 
-const FILTER_OPTIONS: Array<{ value: IntegrationFilter; label: string }> = [
-  { value: "all", label: "All" },
-  { value: "enabled", label: "Enabled" },
-  { value: "not-enabled", label: "Not Enabled" },
-];
+/** Filter values in display order, each with the catalog key for its label. */
+const FILTER_OPTION_KEYS = [
+  { value: "all", labelKey: "integrationsPage.filterAll" },
+  { value: "enabled", labelKey: "integrationsPage.filterEnabled" },
+  { value: "not-enabled", labelKey: "integrationsPage.filterNotEnabled" },
+] as const satisfies ReadonlyArray<{
+  value: IntegrationFilter;
+  labelKey: string;
+}>;
 
 function connectionForProvider(
   connections: OAuthConnection[] | undefined,
@@ -44,6 +52,7 @@ function parseIntegrationsTab(value: string | null): IntegrationsTab {
 }
 
 function IntegrationsPanelInner() {
+  const { t } = useTranslation("settings");
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
   const platformGate = usePlatformGate();
@@ -54,7 +63,6 @@ function IntegrationsPanelInner() {
   const [searchText, setSearchText] = useState("");
   const [selectedFilter, setSelectedFilter] =
     useState<IntegrationFilter>("all");
-  const [filterMenuOpen, setFilterMenuOpen] = useState(false);
 
   const [bannerDismissed, setBannerDismissed] = useState(true);
   const [selectedProviderKey, setSelectedProviderKey] = useState<string | null>(
@@ -203,8 +211,6 @@ function IntegrationsPanelInner() {
     providersLoading ||
     connectionsLoading ||
     platformAssistantIdLoading;
-  const selectedFilterLabel =
-    FILTER_OPTIONS.find((o) => o.value === selectedFilter)?.label ?? "All";
 
   const emptyStateTitle = (() => {
     if (searchText.trim()) {
@@ -243,6 +249,13 @@ function IntegrationsPanelInner() {
         : null,
     [managedProviders, selectedProviderKey],
   );
+
+  const filterOptions: ReadonlyArray<SelectOption<IntegrationFilter>> =
+    FILTER_OPTION_KEYS.map(({ value, labelKey }) => ({
+      value,
+      label: t(labelKey),
+    }));
+
   return (
     <div className="space-y-4">
       {!bannerDismissed && (
@@ -267,49 +280,14 @@ function IntegrationsPanelInner() {
           fullWidth
           wrapperClassName="flex-1"
         />
-        <Popover.Root open={filterMenuOpen} onOpenChange={setFilterMenuOpen}>
-          <Popover.Trigger asChild>
-            <button
-              type="button"
-              aria-haspopup="listbox"
-              aria-expanded={filterMenuOpen}
-              className="flex w-36 cursor-pointer items-center justify-between gap-2 rounded-md border border-[var(--border-element)] bg-[var(--surface-lift)] px-3 py-1.5 text-body-medium-lighter text-[var(--content-default)] transition-colors hover:bg-[var(--ghost-hover)]"
-            >
-              <span>{selectedFilterLabel}</span>
-              <ChevronDown className="h-3.5 w-3.5" />
-            </button>
-          </Popover.Trigger>
-          <Popover.Content
-            align="end"
-            sideOffset={4}
-            className="w-36 overflow-hidden p-0"
-          >
-            <div role="listbox">
-              {FILTER_OPTIONS.map((option) => {
-                const active = option.value === selectedFilter;
-                return (
-                  <button
-                    key={option.value}
-                    type="button"
-                    role="option"
-                    aria-selected={active}
-                    onClick={() => {
-                      setSelectedFilter(option.value);
-                      setFilterMenuOpen(false);
-                    }}
-                    className={`flex w-full cursor-pointer items-center px-3 py-1.5 text-left hover:bg-[var(--ghost-hover)] ${
-                      active
-                        ? "text-body-medium-default text-[var(--content-default)]"
-                        : "text-body-medium-lighter text-[var(--content-default)]"
-                    }`}
-                  >
-                    {option.label}
-                  </button>
-                );
-              })}
-            </div>
-          </Popover.Content>
-        </Popover.Root>
+        <Select<IntegrationFilter>
+          options={filterOptions}
+          value={selectedFilter}
+          onChange={setSelectedFilter}
+          aria-label={t("integrationsPage.filterAriaLabel")}
+          menuAlign="end"
+          className="w-36 shrink-0"
+        />
       </div>
 
       <div>

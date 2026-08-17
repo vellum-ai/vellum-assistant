@@ -481,6 +481,72 @@ describe("reconcileTelegramWebhook", () => {
     ]);
   });
 
+  test("prefers the managed callback route over the Velay ingress URL on platform pods", async () => {
+    const calls: string[] = [];
+    let registeredUrl: string | undefined;
+    process.env.IS_PLATFORM = "true";
+    // A platform pod always has an `ingress.publicBaseUrl`: the Velay tunnel
+    // client publishes one at boot. It must not win over the managed callback
+    // route — the Velay address dies with the tunnel, and the daemon's
+    // `hasWebhookRoutingConfigured` reports this pod as managed-callback mode.
+    const caches = makeCaches({
+      ingressUrl:
+        "https://velay.vellum.ai/11111111-2222-4333-8444-555555555555",
+      platformBaseUrl: "https://platform.example.com",
+      assistantApiKey: "ast-managed-key",
+      platformAssistantId: "11111111-2222-4333-8444-555555555555",
+    });
+
+    fetchMock = mock(
+      async (input: string | URL | Request, init?: RequestInit) => {
+        const url =
+          typeof input === "string"
+            ? input
+            : input instanceof URL
+              ? input.toString()
+              : input.url;
+        if (url.includes("/callback-routes/register/")) {
+          calls.push("registerCallbackRoute");
+          return new Response(
+            JSON.stringify({
+              callback_url:
+                "https://platform.example.com/v1/gateway/callbacks/11111111-2222-4333-8444-555555555555/webhooks/telegram/",
+            }),
+            { status: 201, headers: { "content-type": "application/json" } },
+          );
+        }
+        if (url.includes("/getWebhookInfo")) {
+          calls.push("getWebhookInfo");
+          return makeTelegramResponse({
+            url: "",
+            has_custom_certificate: false,
+            pending_update_count: 0,
+          });
+        }
+        if (url.includes("/setWebhook")) {
+          calls.push("setWebhook");
+          const body = init?.body
+            ? (JSON.parse(init.body as string) as { url?: string })
+            : undefined;
+          registeredUrl = body?.url;
+          return makeTelegramResponse(true);
+        }
+        return new Response("Not found", { status: 404 });
+      },
+    );
+
+    await reconcileTelegramWebhook(caches);
+
+    expect(calls).toEqual([
+      "registerCallbackRoute",
+      "getWebhookInfo",
+      "setWebhook",
+    ]);
+    expect(registeredUrl).toBe(
+      "https://platform.example.com/v1/gateway/callbacks/11111111-2222-4333-8444-555555555555/webhooks/telegram/",
+    );
+  });
+
   test("does not call Telegram when ingress is disabled but credentials are absent", async () => {
     fetchMock = mock(async () => new Response("", { status: 200 }));
 

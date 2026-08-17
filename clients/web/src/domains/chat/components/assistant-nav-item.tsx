@@ -2,9 +2,9 @@
  * The sidebar's assistant cluster: the "Your Assistant" nav row, dressed up
  * as the assistant (a standard-height row painted solid in the avatar's color
  * with the avatar's eyes sitting in the leading icon slot), and a "New Chat"
- * row directly beneath it: a plus glyph with a label beside it, on the same
- * avatar-tinted wash the identity page's feature cards wear. The plus centers
- * on the same axis as the eyes, so the two rows' labels align. On the
+ * row directly beneath it: a plus glyph with a label beside it, on a wash of
+ * the same color, the recipe the identity page's feature cards wear. The plus
+ * centers on the same axis as the eyes, so the two rows' labels align. On the
  * collapsed rail both rows survive as icon-only tiles (Figma 7257:135811).
  *
  * The eyes hold their place in the leading slot and blink there periodically.
@@ -33,9 +33,13 @@ import { Brain, Plus } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { motion, useAnimationControls, useReducedMotion } from "motion/react";
 
-import type { CSSProperties } from "react";
-
-import { cn, PanelItem } from "@vellumai/design-library";
+import {
+  cn,
+  PanelItem,
+  panelItemWashStyle,
+  SIDE_MENU_TILE_SIZE,
+  type CustomPropertyStyle,
+} from "@vellumai/design-library";
 
 import {
   SIDEBAR_CHIP_GAP,
@@ -47,22 +51,6 @@ import { eyeStyleBaseWidth } from "@/utils/assistant-eyes";
 import { contrastForeground } from "@/utils/avatar-tone";
 import { pathBBox, unionBBox } from "@/utils/eye-bbox";
 
-/**
- * Taller than the pills below it: this row is the assistant, not an entry in a
- * list, and at their shared height it reads as the first of several chips
- * rather than the thing they hang off. Height only, so the label stays on the
- * axis it shares with New Chat.
- *
- * One constant for both branches below, because an assistant with no character
- * avatar is still the assistant: colour is the only thing that differs.
- */
-const IDENTITY_PILL_CLASSES = "h-10";
-
-/** Collapsed-rail assistant tile height (Figma 7257:135820). */
-/* Matches the circle `SideMenu.Item` and the section triggers render on the
-   rail: every tile there is the same 30px circle, so one step runs the whole
-   column. Diverging from it drifts this cluster against the sections. */
-const COLLAPSED_ASSISTANT_TILE = 30;
 /** How far the collapsed rail's tile grows the eyes on a pulse. */
 const PULSE_SCALE = 1.35;
 
@@ -208,16 +196,28 @@ export function AssistantNavItem({
       components.colors.find((c) => c.id === traits.color)?.hex) ||
     null;
 
-  /* An untinted pill. It sat on a 14% wash of the avatar colour, which put
-     two tinted surfaces next to each other with only the identity pill
-     needing to carry the assistant's colour. Plain reads better beside it,
-     and it drops the one place a leading icon and its label wanted different
-     colours.
+  /* A wash of the assistant's colour under the identity pill's solid fill, at
+     the same depth the pinned apps below it wear, so the column's tinted rows
+     agree. Without a character avatar there is no hue to mix and nothing is
+     declared, leaving the plain surface both the pill and the tile fall back
+     to; while the tour owns the nav the wash drains with the identity pill's
+     fill.
 
-     Collapsed, it becomes the same square glyph tile the identity above it
-     uses rather than a pill with its label dropped: a pill is sized by its
-     content, so on a 48px rail one keeping its label overflows the rail
+     Collapsed, the row becomes the same square glyph tile the identity above
+     it uses rather than a pill with its label dropped: a pill is sized by its
+     content, so one keeping its label overflows the collapsed rail
      entirely. */
+  const newConversationTint: CustomPropertyStyle | undefined =
+    !navTourActive && hex
+      ? {
+          ...panelItemWashStyle(hex),
+          // The plus glyph reads as the assistant's own accent, not the
+          // row's usual tertiary-gray icon: the row's other icons are
+          // decorative wayfinding, but this one's action is "start a chat
+          // with this assistant", so it wears the assistant's colour.
+          "--panel-item-icon-fg": hex,
+        }
+      : undefined;
   const newConversationRow = !showNewConversation ? null : collapsed ? (
     <button
       type="button"
@@ -233,17 +233,22 @@ export function AssistantNavItem({
         "[@media(hover:hover)]:hover:bg-[var(--panel-item-hover,var(--surface-hover))]",
       )}
       style={{
-        width: COLLAPSED_ASSISTANT_TILE,
-        height: COLLAPSED_ASSISTANT_TILE,
+        ...newConversationTint,
+        width: SIDE_MENU_TILE_SIZE,
+        height: SIDE_MENU_TILE_SIZE,
       }}
     >
       {/* 14px, not the section headers' 12px - the plus glyph carries less
           ink than the pin/chat icons, so it needs the extra 2px to read at
-          the same weight beside them. */}
+          the same weight beside them. Color matches the expanded pill's
+          plus: the assistant's own accent via `--panel-item-icon-fg`
+          (spread into this button's style from `newConversationTint`
+          above), falling back to the usual tertiary gray with no
+          character avatar to draw a hue from. */}
       <Plus
         aria-hidden="true"
         className="h-3.5 w-3.5"
-        style={{ color: "var(--content-tertiary)" }}
+        style={{ color: "var(--panel-item-icon-fg, var(--content-tertiary))" }}
       />
     </button>
   ) : (
@@ -252,6 +257,7 @@ export function AssistantNavItem({
       icon={Plus}
       label="New Chat"
       onSelect={onNewConversation}
+      style={newConversationTint}
       data-tour-id="new-chat"
     />
   );
@@ -316,8 +322,8 @@ export function AssistantNavItem({
                 : "[@media(hover:hover)]:hover:bg-[var(--panel-item-hover,var(--surface-hover))]",
             )}
             style={{
-              width: COLLAPSED_ASSISTANT_TILE,
-              height: COLLAPSED_ASSISTANT_TILE,
+              width: SIDE_MENU_TILE_SIZE,
+              height: SIDE_MENU_TILE_SIZE,
             }}
           >
             {/* The uploaded image fills the tile, as an avatar rather than a
@@ -328,8 +334,8 @@ export function AssistantNavItem({
                 src={uploadedAvatarUrl}
                 alt=""
                 aria-hidden="true"
-                width={COLLAPSED_ASSISTANT_TILE}
-                height={COLLAPSED_ASSISTANT_TILE}
+                width={SIDE_MENU_TILE_SIZE}
+                height={SIDE_MENU_TILE_SIZE}
                 className="h-full w-full object-cover"
               />
             ) : (
@@ -350,7 +356,6 @@ export function AssistantNavItem({
              difference between them. */
           <PanelItem
             shape="pill"
-            className={IDENTITY_PILL_CLASSES}
             icon={Brain}
             leadingSlot={avatarImage ?? undefined}
             label={label}
@@ -396,13 +401,13 @@ export function AssistantNavItem({
      `brightness-105`. While the tour owns the nav the colour drains away
      entirely: nothing is declared, so the pill falls back to its plain
      surface and the tour's flood is the only colour on screen. */
-  const tintStyle =
+  const tintStyle: CustomPropertyStyle | undefined =
     !navTourActive && hex
-      ? ({
+      ? {
           "--panel-item-bg": hex,
           "--panel-item-fg": fg,
           "--panel-item-hover": `color-mix(in srgb, #fff 8%, ${hex})`,
-        } as CSSProperties)
+        }
       : undefined;
 
   /* The eyes, holding still in the pill's leading slot: centred in the same
@@ -462,8 +467,8 @@ export function AssistantNavItem({
           : "hover:brightness-105",
       )}
       style={{
-        width: COLLAPSED_ASSISTANT_TILE,
-        height: COLLAPSED_ASSISTANT_TILE,
+        width: SIDE_MENU_TILE_SIZE,
+        height: SIDE_MENU_TILE_SIZE,
         gap: SIDEBAR_CHIP_GAP,
         backgroundColor: navTourActive ? "transparent" : hex,
         color: navTourActive ? "var(--content-default)" : fg,
@@ -488,7 +493,6 @@ export function AssistantNavItem({
     <span style={tintStyle}>
       <PanelItem
         shape="pill"
-        className={IDENTITY_PILL_CLASSES}
         leadingSlot={eyesSlot}
         label={label}
         active={active}

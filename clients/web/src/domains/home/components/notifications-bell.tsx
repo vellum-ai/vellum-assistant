@@ -1,20 +1,18 @@
-import { useQuery } from "@tanstack/react-query";
 import { Bell } from "lucide-react";
 import { useCallback, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router";
 
-import { schedulesListQueryOptions } from "@/domains/settings/api/schedules";
 import {
   useBackgroundConversationListQuery,
   useConversationListQuery,
   useScheduledConversationListQuery,
 } from "@/hooks/conversation-queries";
-import { useIsMobile } from "@/hooks/use-is-mobile";
+import { useTouchMobile } from "@/hooks/use-touch-mobile";
+import { useTranslation } from "@/i18n";
 import { useSupportsBulkFeedStatus } from "@/lib/backwards-compat/bulk-feed-status";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { mergeConversationLists } from "@/utils/conversation-cache";
 import { navigateToConversation } from "@/utils/conversation-navigation";
-import { routes } from "@/utils/routes";
 import type { FeedItem, FeedItemStatus } from "@vellumai/assistant-api";
 import {
   BottomSheet,
@@ -26,6 +24,7 @@ import {
 import { toast } from "@vellumai/design-library/components/toast";
 
 import { HomeRecapRow } from "../home-recap-row";
+import { useFeedItemEntityLinks } from "../hooks/use-feed-item-entity-links";
 import { useHomeFeedQuery } from "../hooks/use-home-feed-query";
 import {
   clearAllArgs,
@@ -100,7 +99,8 @@ const MOBILE_PANEL_CONTENT_HEIGHT = "60dvh";
 export function NotificationsBell() {
   const [isOpen, setIsOpen] = useState(false);
   const [selectedItemId, setSelectedItemId] = useState<string | null>(null);
-  const isMobile = useIsMobile();
+  const isTouchMobile = useTouchMobile();
+  const { t } = useTranslation("home");
   const navigate = useNavigate();
   const assistantId = useResolvedAssistantsStore.use.activeAssistantId();
   const feedQuery = useHomeFeedQuery(assistantId);
@@ -162,18 +162,13 @@ export function NotificationsBell() {
   const areConversationListsPending =
     isForegroundPending || isBackgroundPending || isScheduledPending;
 
-  // A scheduled-run notification links back to the schedule that produced it,
-  // which may since have been deleted, so the link is checked against the same
-  // list the Schedules page renders (shared options, shared cache entry). Same
-  // gate as the conversation lists: the list view has no use for schedule ids.
-  const { data: schedules, isPending: isScheduleListPending } = useQuery({
-    ...schedulesListQueryOptions(assistantId ?? undefined),
-    enabled: isDetailOpen,
-  });
-  const validScheduleIds = useMemo(
-    () => new Set((schedules ?? []).map((schedule) => schedule.id)),
-    [schedules],
-  );
+  // A notification also links back to what it is about: the schedule that
+  // produced a scheduled run, the skill a background pass rewrote. Either may
+  // since have been deleted, so the resolver checks each against the list that
+  // owns it (shared options, shared cache entries). Same gate as the
+  // conversation lists: the list view has no use for those ids.
+  const { links: entityLinks, isPending: areEntityLinksPending } =
+    useFeedItemEntityLinks(selectedItem, assistantId, isDetailOpen);
 
   // The list unmounts while the detail is open, so its scroll offset is parked
   // here and written back when the list mounts again.
@@ -230,9 +225,9 @@ export function NotificationsBell() {
     navigateToConversation(navigate, conversationId);
   };
 
-  const handleViewSchedule = (scheduleId: string) => {
+  const handleNavigate = (to: string) => {
     closePanel();
-    navigate(routes.schedules.detail(scheduleId));
+    navigate(to);
   };
 
   const handleUpdateStatus = (itemId: string, status: FeedItemStatus) => {
@@ -266,7 +261,7 @@ export function NotificationsBell() {
           navigateToConversation(navigate, data.conversationId);
         },
         onError: () => {
-          toast.error("Couldn't start that conversation. Try again.");
+          toast.error(t("notificationsBell.actionFailed"));
         },
         onSettled: () => {
           isTriggeringActionRef.current = false;
@@ -309,15 +304,21 @@ export function NotificationsBell() {
           ) : null}
         </span>
       }
-      aria-label={hasUnread ? "Notifications (unread)" : "Notifications"}
+      aria-label={
+        hasUnread
+          ? t("notificationsBell.ariaLabelUnread")
+          : t("notificationsBell.ariaLabel")
+      }
     />
   );
 
-  const contentHeight = isMobile
+  const contentHeight = isTouchMobile
     ? MOBILE_PANEL_CONTENT_HEIGHT
     : PANEL_CONTENT_HEIGHT;
-  const contentMaxHeight = isMobile ? undefined : PANEL_VIEWPORT_MAX_HEIGHT;
-  const listMaxHeight = isMobile
+  const contentMaxHeight = isTouchMobile
+    ? undefined
+    : PANEL_VIEWPORT_MAX_HEIGHT;
+  const listMaxHeight = isTouchMobile
     ? MOBILE_PANEL_CONTENT_HEIGHT
     : PANEL_LIST_MAX_HEIGHT;
 
@@ -328,8 +329,8 @@ export function NotificationsBell() {
         className="px-[var(--app-spacing-lg)] py-[var(--app-spacing-xl)] text-center text-[var(--content-tertiary)]"
       >
         {feedQuery.isError
-          ? "Couldn't load notifications."
-          : "No notifications yet."}
+          ? t("notificationsBell.loadFailed")
+          : t("notificationsBell.empty")}
       </Typography>
     ) : (
       <div
@@ -374,12 +375,12 @@ export function NotificationsBell() {
           contentMaxHeight={contentMaxHeight}
           validConversationIds={validConversationIds}
           areConversationListsPending={areConversationListsPending}
-          validScheduleIds={validScheduleIds}
-          isScheduleListPending={isScheduleListPending}
+          entityLinks={entityLinks}
+          areEntityLinksPending={areEntityLinksPending}
           isActionPending={feedQuery.triggerAction.isPending}
           onBack={() => setSelectedItemId(null)}
           onGoToConversation={handleGoToConversation}
-          onViewSchedule={handleViewSchedule}
+          onNavigate={handleNavigate}
           onUpdateStatus={handleUpdateStatus}
           onDismiss={handleDismiss}
           onTriggerAction={handleTriggerAction}
@@ -394,7 +395,7 @@ export function NotificationsBell() {
               as="h2"
               className="text-[var(--content-default)]"
             >
-              Notifications
+              {t("notificationsBell.heading")}
             </Typography>
           </div>
 
@@ -409,7 +410,7 @@ export function NotificationsBell() {
                   onClick={handleMarkAllRead}
                   disabled={feedQuery.markAll.isPending}
                 >
-                  Mark all as read
+                  {t("actions.markAllAsRead")}
                 </Button>
               ) : null}
               <Button
@@ -418,7 +419,7 @@ export function NotificationsBell() {
                 onClick={handleClearAll}
                 disabled={feedQuery.markAll.isPending}
               >
-                Clear all
+                {t("actions.clearAll")}
               </Button>
             </div>
           ) : null}
@@ -427,7 +428,7 @@ export function NotificationsBell() {
     </div>
   );
 
-  if (isMobile) {
+  if (isTouchMobile) {
     return (
       <BottomSheet.Root open={isOpen} onOpenChange={handleOpenChange}>
         <BottomSheet.Trigger asChild>{trigger}</BottomSheet.Trigger>
@@ -436,7 +437,7 @@ export function NotificationsBell() {
             <BottomSheet.Title>
               {selectedItem
                 ? resolveFeedItemTitle(selectedItem)
-                : "Notifications"}
+                : t("notificationsBell.heading")}
             </BottomSheet.Title>
           </BottomSheet.Header>
           <BottomSheet.Body className="pt-0">{panel}</BottomSheet.Body>
@@ -447,7 +448,7 @@ export function NotificationsBell() {
 
   return (
     <Popover.Root open={isOpen} onOpenChange={handleOpenChange}>
-      <Tooltip content="Notifications">
+      <Tooltip content={t("notificationsBell.ariaLabel")}>
         <Popover.Trigger asChild>{trigger}</Popover.Trigger>
       </Tooltip>
       <Popover.Content

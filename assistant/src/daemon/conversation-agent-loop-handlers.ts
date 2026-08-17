@@ -143,6 +143,7 @@ import type {
   WebSearchResultItem,
 } from "./message-types/web-activity.js";
 import { referenceMediaBlocksForPersist } from "./persist-media-references.js";
+import { turnOrRestingTrust } from "./trust-context-types.js";
 import type { TurnLatencyTracker } from "./turn-latency-tracker.js";
 
 const log = getLogger("agent-loop-handlers");
@@ -1330,7 +1331,7 @@ function buildAssistantChannelMetadata(
   deps: EventHandlerDeps,
 ): Record<string, unknown> {
   const metadata: Record<string, unknown> = {
-    ...provenanceFromTrustContext(deps.ctx.trustContext),
+    ...provenanceFromTrustContext(turnOrRestingTrust(deps.ctx)),
     userMessageChannel: deps.turnChannelContext.userMessageChannel,
     assistantMessageChannel: deps.turnChannelContext.assistantMessageChannel,
     userMessageInterface: deps.turnInterfaceContext.userMessageInterface,
@@ -1340,15 +1341,19 @@ function buildAssistantChannelMetadata(
   };
 
   if (deps.turnChannelContext.assistantMessageChannel === "slack") {
-    const channelId = deps.ctx.trustContext?.requesterChatId;
+    // The whole envelope resolves from one turn-local snapshot: the actor the
+    // provenance above names is the actor whose channel and thread the row
+    // routes to. Reading the live slot here instead would let a concurrent
+    // inbound repoint the reply mid-turn, and could stamp one actor's class
+    // beside another actor's routing identity.
+    const rowTrust = turnOrRestingTrust(deps.ctx);
+    const channelId = rowTrust?.requesterChatId;
     if (channelId) {
-      // Resolve the reply thread from this turn's own inbound thread id,
-      // captured turn-locally on the trust context at ingress (the same field
-      // guardian-approval cards read). This is deliberately not the shared
-      // conversation binding: on a legacy flat→thread aliased Slack
-      // conversation a concurrent inbound can rewrite the binding's
-      // externalThreadId mid-turn, whereas the trust context is per-turn.
-      const turnThreadTs = deps.ctx.trustContext?.sourceThreadId;
+      // This turn's own inbound thread id (the same field guardian-approval
+      // cards read). Deliberately not the shared conversation binding: on a
+      // legacy flat→thread aliased Slack conversation a concurrent inbound
+      // can rewrite the binding's externalThreadId mid-turn.
+      const turnThreadTs = rowTrust?.sourceThreadId;
       const threadTs = isSlackTs(turnThreadTs) ? turnThreadTs : undefined;
       const timestampTimezone = resolveAssistantReplyTimestampTimezone(
         deps.ctx,
@@ -1896,7 +1901,7 @@ function buildToolResultMetadata(
   deps: EventHandlerDeps,
 ): Record<string, unknown> {
   return {
-    ...provenanceFromTrustContext(deps.ctx.trustContext),
+    ...provenanceFromTrustContext(turnOrRestingTrust(deps.ctx)),
     userMessageChannel: deps.turnChannelContext.userMessageChannel,
     assistantMessageChannel: deps.turnChannelContext.assistantMessageChannel,
     userMessageInterface: deps.turnInterfaceContext.userMessageInterface,

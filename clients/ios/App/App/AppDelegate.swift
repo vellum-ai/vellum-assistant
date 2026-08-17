@@ -12,12 +12,12 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
         // now, synchronously, so the bridge boots straight to it — by the time
         // the `open:` call lands, `instanceDescriptor()` may already have run.
         if let url = launchOptions?[.url] as? URL, !handleConnectDeepLink(url) {
-            // Every *other* custom-scheme launch URL — a `voice` link from an
-            // App Intent, the Live Activity, or Safari — is stashed as a
-            // *backstop*, not as the delivery. See `launchURL` for why it is
-            // both kept and deduped.
+            // Every *other* custom-scheme launch URL (a `voice` or `thread`
+            // link from an App Intent, the Live Activity, or Safari) is
+            // stashed as a *backstop*, not as the delivery. See `launchURL`
+            // for why it is both kept and deduped.
             launchURL = url
-            pendingVoiceCommandURL = url
+            pendingCommandURL = url
         }
         return true
     }
@@ -184,13 +184,13 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
         return components.url
     }
 
-    // MARK: - Voice command deep links
+    // MARK: - Command deep links
 
-    /// A `<scheme>://voice?mode=…` command (or any other non-`connect` launch
-    /// URL) waiting for the bridge web view to come up, mirroring
-    /// `pendingConnectPairURL` above. Only the most recent one is kept — a
-    /// superseded command is stale by definition.
-    private var pendingVoiceCommandURL: URL?
+    /// A `<scheme>://voice?mode=…` or `<scheme>://thread/…` command (or any
+    /// other non-`connect` launch URL) waiting for the bridge web view to
+    /// come up, mirroring `pendingConnectPairURL` above. Only the most recent
+    /// one is kept: a superseded command is stale by definition.
+    private var pendingCommandURL: URL?
 
     /// The URL this process was launched with (`launchOptions[.url]`), while it
     /// is still eligible to arrive a second time through
@@ -253,23 +253,24 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
             return false
         }
         launchURL = nil
-        pendingVoiceCommandURL = nil
+        pendingCommandURL = nil
         return false
     }
 
-    /// Hand a voice command to the web layer, deferring until the bridge web
+    /// Hand a command URL to the web layer, deferring until the bridge web
     /// view exists.
     ///
-    /// Called by the App Intents (`StartVoiceModeIntent` /
-    /// `StartNewVoiceConversationIntent`), which run in-process and therefore
-    /// never pass through `application(_:open:)`, and by the terminated-launch
+    /// Called by the App Intents (the voice intents via
+    /// `VoiceModeDeepLink.route()`, `SendMessageToChatIntent` via
+    /// `ThreadDeepLink.route()`), which run in-process and therefore never
+    /// pass through `application(_:open:)`, and by the terminated-launch
     /// path in `didFinishLaunchingWithOptions`.
-    func deliverVoiceCommand(_ url: URL) {
-        pendingVoiceCommandURL = url
-        deliverPendingVoiceCommand()
+    func deliverCommandURL(_ url: URL) {
+        pendingCommandURL = url
+        deliverPendingCommandURL()
     }
 
-    /// Replay a stashed voice command once the bridge web view is live. Safe to
+    /// Replay a stashed command once the bridge web view is live. Safe to
     /// call before the view controller exists (a cold launch defers to the first
     /// `viewDidAppear`) and idempotent once delivered.
     ///
@@ -282,13 +283,13 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
     ///
     /// Exactly one delivery of a launch URL, whichever route wins the race —
     /// see ``launchURL``.
-    func deliverPendingVoiceCommand() {
-        guard let url = pendingVoiceCommandURL,
+    func deliverPendingCommandURL() {
+        guard let url = pendingCommandURL,
               currentBridgeViewController()?.webView != nil
         else {
             return
         }
-        pendingVoiceCommandURL = nil
+        pendingCommandURL = nil
         if url == launchURL {
             launchURLWasReplayed = true
         }

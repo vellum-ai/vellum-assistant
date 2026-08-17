@@ -22,7 +22,7 @@ import {
   PanelMenuDivider,
 } from "@/domains/chat/components/panel-menu-item";
 import type { MoveToGroupTarget } from "@/domains/chat/utils/group-conversations";
-import { useIsMobile } from "@/hooks/use-is-mobile";
+import { useTouchMobile } from "@/hooks/use-touch-mobile";
 import { openExternalUrl } from "@/runtime/browser";
 import { useIsNativePlatform } from "@/runtime/native-auth";
 import { BottomSheet, ContextMenu, Menu } from "@vellumai/design-library";
@@ -37,14 +37,15 @@ import { BottomSheet, ContextMenu, Menu } from "@vellumai/design-library";
  * exported from this module — both surfaces stay byte-identical because
  * they consume one source of truth.
  *
- * On mobile (`useIsMobile() === true`), the dropdown is replaced with a
- * `BottomSheet` that slides up from the viewport bottom — see
- * `renderConversationMenuItemsAsPanelItems` for the parallel item builder.
+ * On a touch-first surface (`useTouchMobile()`: narrow viewport and coarse
+ * pointer), the dropdown is replaced with a `BottomSheet` that slides up from
+ * the viewport bottom. See `renderConversationMenuItemsAsPanelItems` for the
+ * parallel item builder.
  *
- * The ellipsis button is hidden by default and revealed via `group-hover`
- * on the parent `PanelItem`'s row. When the menu is open the button stays
- * visible so the menu doesn't snap closed as the mouse leaves the row
- * on its way to a menu item.
+ * The ellipsis button sits in the parent `PanelItem`'s row, which tucks it
+ * away only where the device can hover and keeps it present everywhere else.
+ * While the menu is open the button stays visible, so the menu does not snap
+ * closed as the pointer leaves the row on its way to an item.
  */
 
 type MenuSide = "top" | "right" | "bottom" | "left";
@@ -722,7 +723,7 @@ export function ConversationActionsMenu({
   sideOffset = 4,
   ...itemProps
 }: ConversationActionsMenuProps) {
-  const isMobile = useIsMobile();
+  const isTouchMobile = useTouchMobile();
   const [open, setOpen] = useState(false);
 
   const defaultTrigger = (
@@ -742,7 +743,7 @@ export function ConversationActionsMenu({
 
   const resolvedTrigger = trigger ?? defaultTrigger;
 
-  if (isMobile) {
+  if (isTouchMobile) {
     // The sheet body is the shared controlled surface (ConversationActionsSheet
     // uses the same builder), so the trailing-ellipsis menu and the row
     // long-press never drift. The trigger stays wired through BottomSheet so a

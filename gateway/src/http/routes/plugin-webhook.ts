@@ -14,7 +14,20 @@
  * The declaration picks whose secret that is — see `IngressRouteSchema.signer`
  * — and, for a route a third party calls, how the signature is formed at all
  * (`IngressRouteSchema.verification`).
+ *
+ * A route may also declare that its deliveries carry messages
+ * (`IngressRouteSchema.inbound`), which is how a plugin channel receives
+ * anything at all. The declaration says where the sender and the chat sit in
+ * the vendor's payload, which is the whole reason it exists: with those the
+ * gateway can run the same `handleInbound` every built-in channel runs
+ * *before* the plugin sees anything. The plugin is then free to act on a
+ * delivery the moment it arrives, because everything that could refuse it
+ * already has. See `plugin-inbound.ts` for what the gateway reads,
+ * `db/inbound-dedup-store.ts` for the redelivery claim, and
+ * `deliverGatedInbound` below for the ordering.
  */
+
+import { meetsAdmissionFloor } from "@vellumai/gateway-client";
 
 import {
   findDeclaredRoute,
@@ -24,11 +37,22 @@ import {
   verifyDeclaredSignature,
   type VerificationRejection,
 } from "../../channels/ingress-verification.js";
+import { readPluginInbound } from "../../channels/plugin-inbound.js";
+import type { IngressInbound } from "../../channels/ingress-inbound.js";
 import type { IngressSigner } from "../../channels/plugin-ingress.js";
+import {
+  admitInbound,
+  type InboundAdmission,
+} from "../../handlers/handle-inbound.js";
 import { mintServiceToken } from "../../auth/token-exchange.js";
 import type { GatewayConfig } from "../../config.js";
 import type { CredentialCache } from "../../credential-cache.js";
 import { credentialKey } from "../../credential-key.js";
+import {
+  commitInboundEvent,
+  releaseInboundEvent,
+  reserveInboundEvent,
+} from "../../db/inbound-dedup-store.js";
 import {
   resolveCredentialWithRefresh,
   verifySecretWithRefresh,
@@ -94,6 +118,67 @@ function notFound(): Response {
  */
 function pluginRouteUpstreamPath(plugin: string, path: string): string {
   return `/v1/x/plugins/${plugin}/${path}`;
+}
+
+/**
+ * What a forward to the plugin needs, gathered once at the route.
+ */
+interface PluginForward {
+  config: GatewayConfig;
+  plugin: string;
+  /** The declared path, not the requested spelling. */
+  routePath: string;
+  req: Request;
+  /** The vendor's payload, as accepted. */
+  body: Uint8Array<ArrayBuffer>;
+  search: string;
+  fetchImpl?: (
+    input: string | URL | Request,
+    init?: RequestInit,
+  ) => Promise<Response>;
+}
+
+/**
+ * Hand the vendor's delivery to the plugin, verbatim.
+ *
+ * The plugin gets what the vendor sent rather than the gateway's reading of
+ * it: only the plugin knows which of its vendor's events this is, and the
+ * declaration covers just the few fields the gate needs. Re-parsing on the far
+ * side is the plugin doing the job it exists for.
+ */
+async function forwardToPlugin(forward: PluginForward): Promise<Response> {
+  const { config, plugin, routePath, req, body, search, fetchImpl } = forward;
+  const start = performance.now();
+  // The body is already drained, so hand the proxy a request carrying the
+  // bytes we accepted rather than the consumed original.
+  const forwardable = new Request(req.url, {
+    method: req.method,
+    headers: req.headers,
+    body: METHODS_WITHOUT_BODY.has(req.method) ? undefined : body,
+  });
+  const forwarded = await proxyForwardToResponse(forwardable, {
+    baseUrl: config.assistantRuntimeBaseUrl,
+    // Forward under the declared path, not the requested spelling: matching
+    // ignores a trailing slash, and the plugin serves the path it declared.
+    path: pluginRouteUpstreamPath(plugin, routePath),
+    search: search || undefined,
+    serviceToken: mintServiceToken(),
+    timeoutMs: config.runtimeTimeoutMs,
+    fetchImpl,
+  });
+  const duration = Math.round(performance.now() - start);
+  if (forwarded.status >= 500) {
+    log.error(
+      { plugin, path: routePath, status: forwarded.status, duration },
+      "Plugin webhook upstream error",
+    );
+  } else if (forwarded.status >= 400) {
+    log.warn(
+      { plugin, path: routePath, status: forwarded.status, duration },
+      "Plugin webhook upstream error",
+    );
+  }
+  return forwarded;
 }
 
 export interface PluginWebhookHandlerDeps {
@@ -248,40 +333,218 @@ export function createPluginWebhookHandler(deps: PluginWebhookHandlerDeps) {
       );
     }
 
-    // Forward under the declared path, not the requested spelling: matching
-    // ignores a trailing slash, and the plugin serves the path it declared.
-    const upstreamPath = pluginRouteUpstreamPath(plugin, route.path);
     const search = new URL(req.url).search;
-    const start = performance.now();
-    // The body is already drained, so hand the proxy a request carrying the
-    // bytes we accepted rather than the consumed original.
-    const forwardable = new Request(req.url, {
-      method: req.method,
-      headers: req.headers,
-      body: METHODS_WITHOUT_BODY.has(req.method) ? undefined : body.bytes,
-    });
-    const response = await proxyForwardToResponse(forwardable, {
-      baseUrl: config.assistantRuntimeBaseUrl,
-      path: upstreamPath,
-      search: search || undefined,
-      serviceToken: mintServiceToken(),
-      timeoutMs: config.runtimeTimeoutMs,
-      fetchImpl,
-    });
-    const duration = Math.round(performance.now() - start);
 
-    if (response.status >= 500) {
-      log.error(
-        { plugin, path, status: response.status, duration },
-        "Plugin webhook upstream error",
-      );
-    } else if (response.status >= 400) {
-      log.warn(
-        { plugin, path, status: response.status, duration },
-        "Plugin webhook upstream error",
-      );
+    const forward = {
+      config,
+      plugin,
+      routePath: route.path,
+      req,
+      body: body.bytes,
+      search,
+      fetchImpl,
+    };
+
+    const inbound = route.inbound;
+    if (!inbound) {
+      // A route that receives no messages is a plain proxy: nothing to read,
+      // nothing to gate.
+      return forwardToPlugin(forward);
     }
 
-    return response;
+    return deliverGatedInbound({ inbound, forward });
   };
+}
+
+/**
+ * Gate a delivery, then hand it to the plugin once.
+ *
+ * The ordering is the point. The gateway reads the sender and the chat out of
+ * the vendor's payload with the route's declaration, runs the same
+ * `handleInbound` every built-in channel runs, and only then forwards. A
+ * plugin that receives a delivery may therefore act on it immediately, up to
+ * and including running an agent turn, because by the time it sees anything
+ * the kill switch, the trust verdict and the intercepts have already had their
+ * say. Gating after the forward would make all of that advisory.
+ *
+ * One crossing, not two. The plugin is the only thing downstream, so the
+ * runtime hop `handleInbound` would otherwise make is replaced by the forward
+ * to the plugin's own route (see `HandleInboundOptions.deliver`), and the
+ * plugin owns what happens next: which of its vendor's events this is, whether
+ * it becomes a turn, and how a reply goes back out over its own transport.
+ *
+ * A delivery carrying no sender is not a message the gateway can gate. A
+ * vendor's delivery probe is the usual case, and it reaches the plugin
+ * ungated, because there is nobody to admit and nothing to admit them to.
+ */
+async function deliverGatedInbound(opts: {
+  inbound: IngressInbound;
+  forward: PluginForward;
+}): Promise<Response> {
+  const { inbound, forward } = opts;
+  const { config, plugin, routePath, body } = forward;
+
+  let parsed: unknown;
+  try {
+    const text = new TextDecoder().decode(body);
+    parsed = text.trim() === "" ? undefined : JSON.parse(text);
+  } catch {
+    // Authentic but unreadable. The signature checked out, so this is the
+    // vendor sending something we cannot parse rather than an attacker; the
+    // plugin may still recognise it.
+    log.warn(
+      { plugin, path: routePath },
+      "Plugin webhook payload is not JSON, forwarding ungated",
+    );
+    return forwardToPlugin(forward);
+  }
+
+  const reading = readPluginInbound({
+    plugin,
+    inbound,
+    body: parsed,
+    receivedAt: new Date().toISOString(),
+  });
+
+  if (reading.status === "none") {
+    // The ordinary case for a probe or a receipt: no sender, so no admission
+    // decision to make. Debug rather than info, since every such delivery
+    // would log otherwise.
+    log.debug(
+      { plugin, path: routePath },
+      "Delivery carries no sender, forwarding ungated",
+    );
+    return forwardToPlugin(forward);
+  }
+  if (reading.status === "invalid") {
+    // Some of a message but not enough of one. Declining to gate a delivery
+    // the declaration half-matched would hand the plugin a sender the gateway
+    // never checked, so this is refused outright.
+    log.warn(
+      { plugin, path: routePath, reason: reading.reason },
+      "Delivery matched the inbound declaration only partly, refusing",
+    );
+    return Response.json({ error: "Bad Request" }, { status: 400 });
+  }
+
+  const dedupKey = {
+    sourceChannel: reading.event.sourceChannel,
+    externalChatId: reading.event.message.conversationExternalId,
+    externalMessageId: reading.event.message.externalMessageId,
+  };
+  if (!reserveInboundEvent(dedupKey)) {
+    // Acknowledged, because the delivery did land: the first copy is already
+    // through. Anything else asks the vendor to keep sending it.
+    log.info(
+      {
+        plugin,
+        path: routePath,
+        externalMessageId: dedupKey.externalMessageId,
+      },
+      "Duplicate plugin inbound delivery, acknowledged without forwarding",
+    );
+    return Response.json({ ok: true }, { status: 200 });
+  }
+
+  let admission: InboundAdmission;
+  try {
+    admission = await admitInbound(config, reading.event, {
+      // Which plugin, for the runtime and for anyone reading a transcript. The
+      // route too: a plugin can declare several, and knowing which one a turn
+      // arrived on is the difference between a provider misconfiguration and a
+      // plugin bug.
+      sourceMetadata: { plugin, ingressRoute: routePath },
+    });
+  } catch (err) {
+    // `CircuitBreakerOpenError` reaches here by design: the gate lets it
+    // through precisely so a caller can answer retryably instead of 500ing.
+    log.error(
+      { err, plugin, path: routePath },
+      "Plugin inbound message could not be gated",
+    );
+    // Answering 503 asks for the delivery again, so the claim has to go with
+    // it. Keeping it would have the retry we just asked for answered as a
+    // duplicate, which is how a message disappears while both sides report
+    // having done the right thing.
+    releaseInboundEvent(dedupKey);
+    return retryLater();
+  }
+
+  if (!admission.admitted) {
+    // A decision, not a failure: the message reached the gate and the gate
+    // said no, or consumed it. Sending it again changes nothing, so the
+    // vendor is acknowledged and the claim stands.
+    log.info(
+      {
+        plugin,
+        path: routePath,
+        rejected: admission.result.rejected,
+        rejectionReason: admission.result.rejectionReason,
+      },
+      "Plugin inbound message was not admitted",
+    );
+    commitInboundEvent(dedupKey);
+    return Response.json({ ok: true }, { status: 200 });
+  }
+
+  // The ranked admission floor, which the gate deliberately leaves to whoever
+  // receives the message. For a built-in channel that is the runtime's own
+  // admission stage; here there is nothing downstream but the plugin, so a
+  // floor unenforced here is a floor unenforced at all, and an unknown sender
+  // would reach a plugin free to answer them.
+  const { admissionPolicy, trustVerdict } = admission;
+  if (
+    admissionPolicy &&
+    !meetsAdmissionFloor(admissionPolicy, trustVerdict?.trustClass ?? "unknown")
+  ) {
+    log.info(
+      {
+        plugin,
+        path: routePath,
+        admissionPolicy,
+        trustClass: trustVerdict?.trustClass ?? "unknown",
+      },
+      "Plugin inbound message denied by the admission floor",
+    );
+    commitInboundEvent(dedupKey);
+    return Response.json({ ok: true }, { status: 200 });
+  }
+
+  const pluginResponse = await forwardToPlugin(forward);
+  if (pluginResponse.status >= 400) {
+    // The gate said yes and the plugin could not take it. Acknowledging would
+    // lose a message the sender was entitled to have delivered.
+    log.error(
+      { plugin, path: routePath, status: pluginResponse.status },
+      "Plugin refused an admitted delivery",
+    );
+    releaseInboundEvent(dedupKey);
+    return retryLater();
+  }
+
+  // The delivery landed, so the claim stops being a lease and becomes the
+  // dedup window proper. Until this runs the claim is short-lived on purpose:
+  // a gateway that died mid-handoff must not leave a row that answers every
+  // retry as already-delivered.
+  commitInboundEvent(dedupKey);
+
+  // The vendor gets a bare acknowledgement, never the plugin's body: that was
+  // addressed to us, and a plugin handling a delivery should not thereby echo
+  // the sender's own message back to the vendor that sent it.
+  return Response.json({ ok: true }, { status: pluginResponse?.status ?? 200 });
+}
+
+/**
+ * Ask the vendor to send this delivery again.
+ *
+ * 503 with `Retry-After` rather than 500, matching what the built-in webhook
+ * handlers answer when the runtime is unreachable: a vendor reading a 500
+ * often disables the endpoint, while 503 is the one status every retry policy
+ * treats as "later, not never".
+ */
+function retryLater(): Response {
+  return Response.json(
+    { error: "Service Unavailable" },
+    { status: 503, headers: { "Retry-After": "30" } },
+  );
 }

@@ -1,5 +1,4 @@
 import { useEffect, useRef } from "react";
-import { useQueryClient } from "@tanstack/react-query";
 
 import { useConversationStore } from "@/stores/conversation-store";
 import { useConversationListQuery } from "@/hooks/conversation-queries";
@@ -12,6 +11,7 @@ import { reconcileAttentionKeys } from "@/domains/chat/utils/reconcile-attention
 
 import { useActiveConversation } from "./use-active-conversation";
 import { useMarkSeenOnOpen } from "./use-mark-seen-on-open";
+import { useSurfaceOnOpen } from "./use-surface-on-open";
 
 interface UseAttentionTrackingParams {
   /** From `useAssistantLifecycle` in `ChatLayout`. */
@@ -50,7 +50,6 @@ export function useAttentionTracking({
   assistantId,
   assistantStateKind,
 }: UseAttentionTrackingParams) {
-  const queryClient = useQueryClient();
   const { conversations } = useConversationListQuery(
     assistantId,
     assistantStateKind === "active",
@@ -74,6 +73,16 @@ export function useAttentionTracking({
   // Mark conversation as seen when opened
   // -------------------------------------------------------------------------
   useMarkSeenOnOpen({
+    assistantId,
+    assistantStateKind,
+    activeConversationId,
+    activeConversation,
+  });
+
+  // -------------------------------------------------------------------------
+  // Surface a background/scheduled run when opened
+  // -------------------------------------------------------------------------
+  useSurfaceOnOpen({
     assistantId,
     assistantStateKind,
     activeConversationId,
@@ -220,7 +229,7 @@ export function useAttentionTracking({
     if (!assistantId || cause === "fresh") {
       return;
     }
-    void reconcileAttentionKeys(assistantId, queryClient, {
+    void reconcileAttentionKeys(assistantId, {
       pruneStale: true,
     });
   });
@@ -241,6 +250,6 @@ export function useAttentionTracking({
     }
     initialAttentionSweepDoneRef.current = true;
 
-    void reconcileAttentionKeys(assistantId, queryClient);
-  }, [assistantId, conversations, queryClient]);
+    void reconcileAttentionKeys(assistantId);
+  }, [assistantId, conversations]);
 }

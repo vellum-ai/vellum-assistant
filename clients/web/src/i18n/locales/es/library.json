@@ -1,0 +1,37 @@
+{
+  "libraryEmptyState": {
+    "heading": "Tu biblioteca está vacía",
+    "body": "Pide a tu asistente que construya algo, o importa una aplicación compartida",
+    "newConversation": "Nueva conversación",
+    "separator": "o",
+    "importFile": "Importar un archivo .vellum"
+  },
+  "libraryView": {
+    "importFailed": "No se pudo importar la aplicación",
+    "loadingAria": "Cargando las aplicaciones",
+    "retry": "Reintentar",
+    "import": "Importar",
+    "searchPlaceholder": "Buscar en tu biblioteca",
+    "noMatches": "Ninguna aplicación ni documento coincide con “{query}”",
+    "pinned": "Fijados",
+    "recents": "Recientes",
+    "documents": "Documentos"
+  },
+  "libraryAppCard": {
+    "exported": "Aplicación exportada",
+    "shareFailed": "No se pudo compartir la aplicación",
+    "actionsTitle": "Opciones de {appName}",
+    "unpin": "Dejar de fijar",
+    "pin": "Fijar",
+    "share": "Compartir",
+    "shareSub": "Exportar como archivo .vellum",
+    "deployed": "Desplegada en Vercel",
+    "copyLink": "Copiar el enlace",
+    "redeploy": "Volver a desplegar",
+    "redeploySub": "Publicar la versión actual",
+    "deploy": "Desplegar en Vercel",
+    "deploySub": "Publicar como página estática",
+    "delete": "Eliminar"
+  },
+  "libraryDetailPage": { "backToLibrary": "Volver a la biblioteca" }
+}

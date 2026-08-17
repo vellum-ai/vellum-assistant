@@ -25,7 +25,7 @@ import { createConversation } from "../../../persistence/conversation-crud.js";
 import { getDb } from "../../../persistence/db-connection.js";
 import { initializeDb } from "../../../persistence/db-init.js";
 import { createGroup } from "../../../persistence/group-crud.js";
-import { rawRun } from "../../../persistence/raw-query.js";
+import { rawExec, rawRun } from "../../../persistence/raw-query.js";
 import {
   conversationAssistantAttentionState,
   conversationAttentionEvents,
@@ -780,5 +780,223 @@ describe("GET /v1/conversations/unread-count", () => {
     );
 
     expect(invokeUnreadCount()).toEqual({ count: 1 });
+  });
+});
+
+describe("GET /v1/conversations/sections", () => {
+  const sectionsHandler = findHandler(
+    CONVERSATION_LIST_ROUTES,
+    "getConversationSections",
+  );
+
+  interface SectionRow {
+    kind: "pinned" | "group" | "channel" | "chats";
+    groupId?: string;
+    name?: string;
+    icon?: string | null;
+    sortPosition?: number;
+    channelId?: string;
+    total: number;
+    unread: number;
+  }
+
+  function invokeSections(): SectionRow[] {
+    return (sectionsHandler({}) as { sections: SectionRow[] }).sections;
+  }
+
+  function fileIntoGroup(conversationId: string, groupId: string): void {
+    rawRun(
+      "test:fileIntoGroup",
+      "UPDATE conversations SET group_id = ? WHERE id = ?",
+      groupId,
+      conversationId,
+    );
+  }
+
+  function stampChannel(conversationId: string, channel: string): void {
+    rawRun(
+      "test:stampChannel",
+      "UPDATE conversations SET origin_channel = ? WHERE id = ?",
+      channel,
+      conversationId,
+    );
+  }
+
+  function pin(conversationId: string): void {
+    rawRun(
+      "test:pinConversation",
+      "UPDATE conversations SET is_pinned = 1, group_id = 'system:pinned' WHERE id = ?",
+      conversationId,
+    );
+  }
+
+  function seedUnseen(conversationId: string): void {
+    projectAssistantMessage({
+      conversationId,
+      messageId: `msg-${conversationId}`,
+      messageAt: Date.now(),
+    });
+  }
+
+  beforeEach(() => {
+    clearConversations();
+  });
+
+  test("an empty conversation table yields Chats alone, at zero", () => {
+    // Chats is the leftover bucket and renders regardless, so its counts
+    // are part of the contract even when nothing exists.
+    expect(invokeSections()).toEqual([{ kind: "chats", total: 0, unread: 0 }]);
+  });
+
+  test("every section kind appears with its own totals", () => {
+    const pinned = createConversation({ title: "pinned-1" });
+    pin(pinned.id);
+    const group = createGroup("Sections Spread Group");
+    fileIntoGroup(createConversation({ title: "g-1" }).id, group.id);
+    fileIntoGroup(createConversation({ title: "g-2" }).id, group.id);
+    stampChannel(createConversation({ title: "slack-1" }).id, "slack");
+    createConversation({ title: "native-unstamped" });
+    stampChannel(createConversation({ title: "native-stamped" }).id, "vellum");
+
+    const sections = invokeSections();
+
+    expect(sections).toContainEqual({ kind: "pinned", total: 1, unread: 0 });
+    expect(sections).toContainEqual({
+      kind: "group",
+      groupId: group.id,
+      name: "Sections Spread Group",
+      icon: null,
+      sortPosition: group.sortPosition,
+      total: 2,
+      unread: 0,
+    });
+    expect(sections).toContainEqual({
+      kind: "channel",
+      channelId: "slack",
+      total: 1,
+      unread: 0,
+    });
+    // NULL origin_channel reads as native, exactly as the list filter reads
+    // it, so the stamped and unstamped native rows share the Chats bucket.
+    expect(sections).toContainEqual({ kind: "chats", total: 2, unread: 0 });
+  });
+
+  test("unread counts follow the seen state per section", () => {
+    const pinned = createConversation({ title: "pinned-seen" });
+    pin(pinned.id);
+    seedUnseen(pinned.id);
+    recordConversationSeenSignal({
+      conversationId: pinned.id,
+      sourceChannel: "vellum",
+      signalType: "macos_conversation_opened",
+      confidence: "explicit",
+      source: "test",
+    });
+
+    const group = createGroup("Sections Unread Group");
+    const unreadInGroup = createConversation({ title: "g-unread" });
+    fileIntoGroup(unreadInGroup.id, group.id);
+    seedUnseen(unreadInGroup.id);
+    // A member with no attention projection at all reads as seen.
+    fileIntoGroup(createConversation({ title: "g-quiet" }).id, group.id);
+
+    const chatsUnread = createConversation({ title: "chat-unread" });
+    seedUnseen(chatsUnread.id);
+
+    const sections = invokeSections();
+
+    expect(sections).toContainEqual({ kind: "pinned", total: 1, unread: 0 });
+    expect(sections).toContainEqual({
+      kind: "group",
+      groupId: group.id,
+      name: "Sections Unread Group",
+      icon: null,
+      sortPosition: group.sortPosition,
+      total: 2,
+      unread: 1,
+    });
+    expect(sections).toContainEqual({ kind: "chats", total: 1, unread: 1 });
+  });
+
+  test("a background row filed into a group counts toward total but never unread", () => {
+    // Mirrors the unread-count contract: the custom-group visibility arm
+    // admits the row into the section, and the not-background unread rule
+    // keeps it out of the badge.
+    const group = createGroup("Sections Background Group");
+    const bg = createConversation({
+      title: "bg-in-group",
+      conversationType: "background",
+    });
+    fileIntoGroup(bg.id, group.id);
+    seedUnseen(bg.id);
+
+    const sections = invokeSections();
+
+    expect(sections).toContainEqual({
+      kind: "group",
+      groupId: group.id,
+      name: "Sections Background Group",
+      icon: null,
+      sortPosition: group.sortPosition,
+      total: 1,
+      unread: 0,
+    });
+  });
+
+  test("an empty custom group gets no section", () => {
+    const group = createGroup("Sections Empty Group");
+
+    const sections = invokeSections();
+
+    expect(sections.some((s) => s.groupId === group.id)).toBe(false);
+  });
+
+  test("archived rows count toward no section", () => {
+    const group = createGroup("Sections Archived Group");
+    fileIntoGroup(seedArchived("archived-in-group"), group.id);
+
+    const sections = invokeSections();
+
+    expect(sections.some((s) => s.groupId === group.id)).toBe(false);
+  });
+
+  test("a dangling group id is skipped, not surfaced", () => {
+    /* Live write paths cannot create this state: group_id carries a foreign
+       key, and the placement write sanitizes unknown groups precisely to
+       avoid violating it. A restored snapshot can, though: in-place restore
+       swaps the SQLite file without running migrations in-process (the same
+       window that lets legacy private rows exist transiently), so the
+       fixture creates the state the way reality does, with enforcement off. */
+    rawExec("PRAGMA foreign_keys = OFF");
+    try {
+      fileIntoGroup(
+        createConversation({ title: "dangling" }).id,
+        "00000000-0000-4000-8000-00000000dead",
+      );
+    } finally {
+      rawExec("PRAGMA foreign_keys = ON");
+    }
+
+    const sections = invokeSections();
+
+    expect(sections.some((s) => s.kind === "group")).toBe(false);
+    // Grouped, so it does not leak into the ungrouped Chats bucket either.
+    expect(sections).toContainEqual({ kind: "chats", total: 0, unread: 0 });
+  });
+
+  test("an unsurfaced background row pinned by raw column writes stays invisible", () => {
+    // Standard-listing visibility admits a pinned background row only when
+    // it is surfaced (the pinned group fails the custom-group arm on its
+    // system: prefix), so it appears in neither the Pinned list nor the
+    // Pinned count.
+    const bg = createConversation({
+      title: "bg-pinned",
+      conversationType: "background",
+    });
+    pin(bg.id);
+
+    const sections = invokeSections();
+
+    expect(sections.some((s) => s.kind === "pinned")).toBe(false);
   });
 });

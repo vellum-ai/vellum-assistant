@@ -62,7 +62,6 @@ function makeParams(
       sourceChannel: "slack" as const,
     } as any,
     replyCallbackUrl: undefined,
-    canonicalAssistantId: "self",
     ...overrides,
   };
 }

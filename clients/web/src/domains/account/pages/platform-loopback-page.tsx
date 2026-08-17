@@ -44,17 +44,17 @@ export function PlatformLoopbackPage() {
     sessionStorage.removeItem(LOOPBACK_RETURN_TO_KEY);
 
     if (!state || state !== expectedState) {
-      setError("Login failed: state mismatch. Please try again.");
+      setError(t("authErrors.loopbackStateMismatch"));
       return;
     }
 
     if (!sessionToken) {
-      setError("Login failed: no session token received. Please try again.");
+      setError(t("authErrors.loopbackNoToken"));
       return;
     }
 
     if (!/^[a-zA-Z0-9]+$/.test(sessionToken)) {
-      setError("Login failed: invalid session token.");
+      setError(t("authErrors.loopbackInvalidToken"));
       return;
     }
 
@@ -92,7 +92,7 @@ export function PlatformLoopbackPage() {
       }
       void navigate(returnTo, { replace: true });
     })();
-  }, [searchParams, navigate]);
+  }, [searchParams, navigate, t]);
 
   if (error) {
     return (

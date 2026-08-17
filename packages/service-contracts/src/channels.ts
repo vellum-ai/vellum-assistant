@@ -6,6 +6,16 @@
  * assistant through (Slack, Telegram, WhatsApp, phone, …) plus a couple of
  * internal ids (`vellum` for native app conversations, `platform` for the
  * internal control plane). This is the single source of truth for that set:
+ *
+ * One id, `plugin`, does not name a surface: it names *every* surface a plugin
+ * brings. A plugin channel's real identity is the plugin, which is workspace
+ * state and cannot be a compile-time union member, so the plugin name travels
+ * in `sourceMetadata.plugin` and is prefixed onto every external id the gateway
+ * forwards (`imessage:+15551234567`). Two plugins therefore share a channel
+ * row — one admission floor, one set of channel-wide defaults — while their
+ * conversations, contacts, and trust records stay disjoint. See
+ * `gateway/src/channels/plugin-inbound.ts` for what that concedes.
+ *
  * the assistant adopts it wholesale as its `ChannelId`, and the gateway
  * asserts its own (narrower) inbound list is a subset of it so the two sides
  * cannot silently drift.
@@ -30,6 +40,7 @@ export const CHANNEL_IDS = [
   "platform",
   "a2a",
   "discord",
+  "plugin",
 ] as const;
 
 export type ChannelId = (typeof CHANNEL_IDS)[number];

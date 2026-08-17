@@ -385,6 +385,7 @@ export { openTranscriptionSession } from "./transcription-session.js";
 // (e.g. meeting-bot flushing a transcript excerpt) should prefer this over the
 // stateless `provider.sendMessage()` call.
 export type {
+  ConversationChannelAddress,
   RunConversationTurnOptions,
   RunConversationTurnResult,
 } from "./conversation-turn.js";

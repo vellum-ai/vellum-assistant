@@ -10,7 +10,14 @@ import { Globe } from "lucide-react";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 
-import { SideMenu, useSideMenuCollapsed } from "./side-menu";
+import {
+  SIDE_MENU_BORDER_WIDTH,
+  SIDE_MENU_COLLAPSED_INSET,
+  SIDE_MENU_COLLAPSED_WIDTH,
+  SIDE_MENU_TILE_SIZE,
+  SideMenu,
+  useSideMenuCollapsed,
+} from "./side-menu";
 
 describe("SideMenu root", () => {
   test("renders a <nav> with the provided aria-label and data-slot", () => {
@@ -39,7 +46,7 @@ describe("SideMenu root", () => {
     expect(html).toContain("bg-[var(--surface-overlay)]");
   });
 
-  test("collapsed rail shrinks the width", () => {
+  test("collapsed rail is one tile of content plus its own chrome", () => {
     const html = renderToStaticMarkup(
       createElement(
         SideMenu,
@@ -47,8 +54,50 @@ describe("SideMenu root", () => {
         createElement(SideMenu.Body, { key: "body" }, null),
       ),
     );
-    expect(html).toContain("w-[48px]");
+    /* `box-content` is the whole point of the pairing: it makes the padding
+       and border the rail actually renders decide the outer width, so a
+       caller that turns that chrome off gets a rail exactly one tile wide
+       rather than one carrying room for padding it never draws. Room the
+       tile does not fill is room it centres in, and every glyph then steps
+       inward when the rail collapses. */
+    expect(html).toContain("box-content");
+    expect(html).toContain("w-[var(--side-menu-tile-size)]");
+    expect(html).toContain(`--side-menu-tile-size:${SIDE_MENU_TILE_SIZE}px`);
     expect(html).not.toContain("w-[230px]");
+  });
+
+  /* The JS constant is for callers that need the collapsed width as a number
+     and keep the rail's default chrome. It has to agree with what that chrome
+     renders, border included: the rail is a `border-box` element, so a number
+     counting only the tile and its padding spends 2px of itself on the edge
+     and comes up short of the tile it is supposed to hold. */
+  test("collapsed width holds one tile, its padding, and the rail's border", () => {
+    expect(SIDE_MENU_TILE_SIZE).toBe(36);
+    expect(SIDE_MENU_COLLAPSED_INSET).toBe(8);
+    expect(SIDE_MENU_BORDER_WIDTH).toBe(1);
+    expect(SIDE_MENU_COLLAPSED_WIDTH).toBe(
+      SIDE_MENU_TILE_SIZE +
+        SIDE_MENU_COLLAPSED_INSET * 2 +
+        SIDE_MENU_BORDER_WIDTH * 2,
+    );
+  });
+
+  /* Every top-level row resolves its height from this property rather than
+     naming the pixels again, which is what keeps a pill and the tile it
+     collapses into from disagreeing - a disagreement that stays invisible
+     until the rail collapses. Both variants publish it, since an overlay
+     holds the same rows. */
+  test("both variants publish the tile property rows size from", () => {
+    for (const variant of ["rail", "overlay"] as const) {
+      const html = renderToStaticMarkup(
+        createElement(
+          SideMenu,
+          { ariaLabel: "Primary", variant },
+          createElement(SideMenu.Body, { key: "body" }, null),
+        ),
+      );
+      expect(html).toContain(`--side-menu-tile-size:${SIDE_MENU_TILE_SIZE}px`);
+    }
   });
 
   test("overlay variant is full-bleed with no radius", () => {
@@ -61,6 +110,37 @@ describe("SideMenu root", () => {
     );
     expect(html).toContain("w-full");
     expect(html).toContain("rounded-none");
+  });
+});
+
+describe("SideMenu.SectionHeader", () => {
+  /* A section header is a top-level rail row, so it stands at the height the
+     pills and tiles around it do, and it reads that from the rail rather than
+     from a caller's class - a caller free to name the height is a caller free
+     to name a different one. */
+  test("stands at the rail's row height, growing to its padding when touch-sized", () => {
+    const html = renderToStaticMarkup(
+      createElement(SideMenu.SectionHeader, null, "Pinned"),
+    );
+    expect(html).toContain("h-[var(--side-menu-tile-size)]");
+    expect(html).toContain("max-md:h-auto");
+    expect(html).toContain('data-slot="side-menu-section-header"');
+  });
+
+  /* The collapsible variant of the same row is a disclosure trigger, and it
+     has to be the same row: taking the geometry through the slot is what
+     keeps a section that opens from standing at a different height than one
+     that does not. */
+  test("hands its geometry to the caller's own element", () => {
+    const html = renderToStaticMarkup(
+      createElement(
+        SideMenu.SectionHeader,
+        { asChild: true },
+        createElement("button", { type: "button" }, "Pinned"),
+      ),
+    );
+    expect(html).toContain("<button");
+    expect(html).toContain("h-[var(--side-menu-tile-size)]");
   });
 });
 
@@ -497,7 +577,7 @@ describe("SideMenu.Item collapsed shape", () => {
        it one: a height plus `aspect-square` derives the width instead, and a
        derived width is `auto`, which `align-items: stretch` then overrides
        back to the container's. */
-    expect(html).toContain("size-[30px]");
+    expect(html).toContain("size-[var(--side-menu-tile-size)]");
     expect(html).not.toContain("aspect-square");
   });
 
@@ -525,7 +605,7 @@ describe("SideMenu.Item collapsed shape", () => {
     expect(html).toContain("w-full");
     expect(html).toContain("max-md:h-auto");
     expect(html).toContain("max-md:py-3");
-    expect(html).not.toContain("size-[30px]");
+    expect(html).not.toContain("size-[var(--side-menu-tile-size)]");
   });
 
   test("default shape keeps the 6px row radius", () => {

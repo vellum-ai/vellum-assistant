@@ -8,7 +8,7 @@
  *
  * Each hook spreads a `queryOptions` factory from
  * `utils/conversation-list-fetchers.ts` and adds runtime concerns
- * (`enabled` gating via `useIsOrgReady()`, `select` transforms). This
+ * (`enabled` gating via `useCanQueryDaemon()`, `select` transforms). This
  * co-locates `queryKey` + `queryFn` + `staleTime` in one place so they
  * can be reused across hooks, prefetches, and imperative cache reads.
  *
@@ -26,6 +26,7 @@ import { useQuery } from "@tanstack/react-query";
 import { groupsGetOptions } from "@/generated/daemon/@tanstack/react-query.gen";
 import type { Options } from "@/generated/daemon/sdk.gen";
 import type { GroupsGetData } from "@/generated/daemon/types.gen";
+import { useAssistantIsServing } from "@/assistant/operational-status";
 import { useIsOrgReady } from "@/hooks/use-is-org-ready";
 import type {
   Conversation,
@@ -38,9 +39,13 @@ import {
   conversationListOptions,
   sectionConversationListOptions,
   scheduledConversationListOptions,
+  sidebarSectionsOptions,
   unreadConversationCountOptions,
 } from "@/utils/conversation-list-fetchers";
-import type { SectionConversationFilter } from "@/utils/conversation-list-fetchers";
+import type {
+  SectionConversationFilter,
+  SidebarIndexSection,
+} from "@/utils/conversation-list-fetchers";
 
 // ---------------------------------------------------------------------------
 // Queries
@@ -49,6 +54,28 @@ import type { SectionConversationFilter } from "@/utils/conversation-list-fetche
 // Stable empty references so consumers don't churn on `??` fallback.
 const EMPTY_CONVERSATIONS: Conversation[] = [];
 const EMPTY_GROUPS: ConversationGroup[] = [];
+
+/**
+ * The preconditions every daemon-backed query in this module shares: the org
+ * header the interceptor needs is available, and the assistant's pod is not
+ * known to be down.
+ *
+ * Applied inside each hook rather than asked of callers, because these queries
+ * share their query keys across many call sites and TanStack Query fetches
+ * when *any* observer is enabled. A precondition enforced at one call site is
+ * a precondition some other mount defeats, so the only place it holds is here.
+ *
+ * The pod half matters most while an assistant is waking: the daemon 503s
+ * every request through that window, and a list query that spends its retry
+ * budget there gives up for good. Gating instead of retrying also supplies the
+ * recovery edge, since TanStack Query refetches when `enabled` flips back to
+ * true. See {@link useAssistantIsServing}.
+ */
+function useCanQueryDaemon(assistantId: string | null): boolean {
+  const isOrgReady = useIsOrgReady();
+  const isServing = useAssistantIsServing(assistantId);
+  return isOrgReady && isServing;
+}
 
 /**
  * Subscribe to the foreground conversation list for the given assistant.
@@ -80,10 +107,10 @@ export function useConversationListQuery(
   error: Error | null;
   refetch: () => void;
 } {
-  const isOrgReady = useIsOrgReady();
+  const canQuery = useCanQueryDaemon(assistantId);
   const query = useQuery({
     ...conversationListOptions(assistantId!),
-    enabled: enabled && Boolean(assistantId) && isOrgReady,
+    enabled: enabled && Boolean(assistantId) && canQuery,
   });
   return {
     conversations: query.data ?? EMPTY_CONVERSATIONS,
@@ -118,10 +145,10 @@ export function useBackgroundConversationListQuery(
   isError: boolean;
   refetch: () => void;
 } {
-  const isOrgReady = useIsOrgReady();
+  const canQuery = useCanQueryDaemon(assistantId);
   const query = useQuery({
     ...backgroundConversationListOptions(assistantId!),
-    enabled: enabled && Boolean(assistantId) && isOrgReady,
+    enabled: enabled && Boolean(assistantId) && canQuery,
   });
   return {
     conversations: query.data ?? EMPTY_CONVERSATIONS,
@@ -156,10 +183,10 @@ export function useScheduledConversationListQuery(
   isError: boolean;
   refetch: () => void;
 } {
-  const isOrgReady = useIsOrgReady();
+  const canQuery = useCanQueryDaemon(assistantId);
   const query = useQuery({
     ...scheduledConversationListOptions(assistantId!),
-    enabled: enabled && Boolean(assistantId) && isOrgReady,
+    enabled: enabled && Boolean(assistantId) && canQuery,
   });
   return {
     conversations: query.data ?? EMPTY_CONVERSATIONS,
@@ -203,10 +230,10 @@ export function useSectionConversationListQuery(
   /** Whether the query has ever resolved; survives a failed refetch. */
   hasData: boolean;
 } {
-  const isOrgReady = useIsOrgReady();
+  const canQuery = useCanQueryDaemon(assistantId);
   const query = useQuery({
     ...sectionConversationListOptions(assistantId!, filter),
-    enabled: enabled && Boolean(assistantId) && isOrgReady,
+    enabled: enabled && Boolean(assistantId) && canQuery,
   });
   return {
     conversations: query.data ?? EMPTY_CONVERSATIONS,
@@ -215,6 +242,32 @@ export function useSectionConversationListQuery(
     isError: query.isError,
     hasData: query.data !== undefined,
   };
+}
+
+/**
+ * Subscribe to the sidebar section index
+ * (`GET /v1/conversations/sections`).
+ *
+ * Returns the daemon's per-section rows, or `null` while unresolved and when
+ * the connected assistant does not serve the endpoint (pre-index daemons 404
+ * the read, which the fetcher maps to `null`). `null` is the signal to keep
+ * deriving section existence from the loaded conversation list; the two
+ * sources must never be mixed within one render.
+ *
+ * Freshness comes from the same channels as the unread count:
+ * `sync_changed`-driven invalidation and mutation settles, never focus
+ * refetches.
+ */
+export function useSidebarSectionsQuery(
+  assistantId: string | null,
+  enabled: boolean = true,
+): SidebarIndexSection[] | null {
+  const isOrgReady = useIsOrgReady();
+  const query = useQuery({
+    ...sidebarSectionsOptions(assistantId!),
+    enabled: enabled && Boolean(assistantId) && isOrgReady,
+  });
+  return query.data ?? null;
 }
 
 /**
@@ -239,10 +292,10 @@ export function useUnreadConversationCountQuery(
   assistantId: string | null,
   enabled: boolean = true,
 ): number | null {
-  const isOrgReady = useIsOrgReady();
+  const canQuery = useCanQueryDaemon(assistantId);
   const query = useQuery({
     ...unreadConversationCountOptions(assistantId!),
-    enabled: enabled && Boolean(assistantId) && isOrgReady,
+    enabled: enabled && Boolean(assistantId) && canQuery,
   });
   return query.data ?? null;
 }
@@ -297,10 +350,10 @@ export function useArchivedConversationListQuery(
   error: Error | null;
   refetch: () => void;
 } {
-  const isOrgReady = useIsOrgReady();
+  const canQuery = useCanQueryDaemon(assistantId);
   const query = useQuery({
     ...archivedConversationListOptions(assistantId!),
-    enabled: enabled && Boolean(assistantId) && isOrgReady,
+    enabled: enabled && Boolean(assistantId) && canQuery,
   });
   return {
     conversations: query.data ?? EMPTY_CONVERSATIONS,
@@ -321,13 +374,13 @@ export function useConversationGroupsQuery(
   assistantId: string | null,
   enabled: boolean = true,
 ): { conversationGroups: ConversationGroup[]; isLoading: boolean } {
-  const isOrgReady = useIsOrgReady();
+  const canQuery = useCanQueryDaemon(assistantId);
   const query = useQuery({
     ...groupsGetOptions({
       path: { assistant_id: assistantId ?? "" },
     } as Options<GroupsGetData>),
     select: (data) => data.groups,
-    enabled: enabled && Boolean(assistantId) && isOrgReady,
+    enabled: enabled && Boolean(assistantId) && canQuery,
     staleTime: 30_000,
   });
   return {

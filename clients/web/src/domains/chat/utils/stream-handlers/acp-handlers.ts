@@ -1,4 +1,5 @@
 import type {
+  AcpAuthRequiredEvent,
   AcpSessionSpawnedEvent,
   AcpSessionUpdateEvent,
   AcpSessionUsageEvent,
@@ -7,6 +8,8 @@ import type {
 } from "@vellumai/assistant-api";
 
 import { useAcpRunStore } from "@/domains/chat/acp-run-store";
+import { useInteractionStore } from "@/domains/chat/interaction-store";
+import { ACP_CLAUDE_AUTH_REQUIRED_CODE } from "@/domains/chat/utils/acp-connect";
 
 export function handleAcpSessionSpawned(event: AcpSessionSpawnedEvent): void {
   useAcpRunStore.getState().spawnRun({
@@ -91,5 +94,34 @@ export function handleAcpSessionError(event: AcpSessionErrorEvent): void {
     status: "failed",
     error: event.error,
     completedAt: Date.now(),
+  });
+}
+
+/**
+ * Raise the inline Connect affordance for a run whose Claude credential was
+ * rejected, anchored to the tool call that spawned the run. Arrives as its
+ * own event right after the `acp_session_error` that marked the run failed.
+ * Held in the interaction store (not on the run entry) so it survives the
+ * routine post-turn `/messages` reseed.
+ */
+export function handleAcpAuthRequired(event: AcpAuthRequiredEvent): void {
+  if (event.authCode !== ACP_CLAUDE_AUTH_REQUIRED_CODE) {
+    return;
+  }
+  const entry = useAcpRunStore.getState().byId[event.acpSessionId];
+  // A run the user already stopped is not a failure to recover from.
+  if (entry?.status === "cancelled") {
+    return;
+  }
+  // The daemon always sends the anchor when it emits this event; the
+  // run-store lookup is defensive. With neither, there is nowhere to render
+  // the card and the run keeps its plain failed rendering.
+  const toolUseId = event.parentToolUseId ?? entry?.parentToolUseId;
+  if (!toolUseId) {
+    return;
+  }
+  useInteractionStore.getState().showAcpConnect({
+    toolUseId,
+    reason: "auth_required",
   });
 }

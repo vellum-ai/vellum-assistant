@@ -87,6 +87,13 @@ tests all work off the same source of truth. Concretely:
    }
    ```
 
+   An arg update reaches the canvas over the
+   [preview channel](https://storybook.js.org/docs/addons/addons-api), which the
+   test runner does not turn, so a `useArgs` story cannot assert its own state
+   transitions in a `play` function. Keep the args-backed story for Controls and
+   put the interaction in a sibling story that owns the state locally, saying so
+   in its docstring.
+
 4. **`argTypes` for union props.** Give enum/union props (`tone`, `variant`,
    `side`, `orientation`) a `control: "select" | "inline-radio"` with explicit
    `options`, and set `control: false` for slot/handler props that aren't

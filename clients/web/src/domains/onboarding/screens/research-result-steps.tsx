@@ -28,6 +28,8 @@ import {
   useOnboardingTone,
   type OnboardingTone,
 } from "@/domains/onboarding/onboarding-tone";
+import { useLayoutViewportSize } from "@/hooks/use-element-size";
+import { Trans, useTranslation } from "@/i18n";
 import { useBundledAvatarComponents } from "@/utils/use-bundled-avatar-components";
 import {
   pluginDisplayName,
@@ -41,20 +43,6 @@ import {
 // yellow would otherwise render dark text, invisible on black). The avatar color
 // is still used where it's intentional (e.g. the plugin pills).
 const DARK_TONE = toneForBg("#17191C");
-
-function useViewportSize() {
-  const [size, setSize] = useState(() => ({
-    w: typeof window === "undefined" ? 1280 : window.innerWidth,
-    h: typeof window === "undefined" ? 800 : window.innerHeight,
-  }));
-  useEffect(() => {
-    const onResize = () =>
-      setSize({ w: window.innerWidth, h: window.innerHeight });
-    window.addEventListener("resize", onResize);
-    return () => window.removeEventListener("resize", onResize);
-  }, []);
-  return size;
-}
 
 /** The chosen avatar's components + traits. */
 function useChosenAvatar() {
@@ -132,13 +120,14 @@ export function MeetingCreatedStep({
   /** True while the check-in booking is still in flight; holds the step (capped) so a slow-but-successful booking can still reveal the time. */
   awaitingTime?: boolean;
 }) {
+  const { t } = useTranslation("onboarding");
   const { components, chosen } = useChosenAvatar();
   const reduce = useReducedMotion();
-  const { w, h } = useViewportSize();
+  const { w, h } = useLayoutViewportSize();
 
   const title = scheduledTime
-    ? `Check-in scheduled for tomorrow at ${scheduledTime}!`
-    : "Check-in scheduled!";
+    ? t("meetingCreatedStep.titleWithTime", { time: scheduledTime })
+    : t("meetingCreatedStep.title");
 
   // Hold the step long enough to reveal the booked time. While a booking is
   // still in flight and we don't yet have the time, wait up to the cap; once
@@ -238,36 +227,6 @@ export function MeetingCreatedStep({
 // Looking you up (loading carousel)
 // ---------------------------------------------------------------------------
 
-// Rotating status lines shown while the web-research turn settles in the
-// background. They loop until `ready`, so the copy is pure flavor — it never
-// gates progress. The personality rewrite is NOT narrated here: it runs
-// decoupled and is finished off in the dedicated FinishingUpStep, so this quick
-// loader isn't held hostage to the persona turn.
-const WEB_SEARCH_MESSAGES = [
-  "Searching the web to get to know you…",
-  "Reading public profiles…",
-  "Skimming the highlights…",
-  "Connecting the dots…",
-  "Piecing it together…",
-];
-
-// Persona-rewrite lines, shown by FinishingUpStep while the personality turn
-// wraps up right before the chat handoff.
-const PERSONALITY_MESSAGES = [
-  "Updating my personality…",
-  "Finding my voice…",
-  "Getting into character…",
-];
-
-// Shared closing line both carousels settle on.
-const LOOKING_CLOSING_MESSAGE = "Almost there…";
-
-/** The web-search carousel: search lines, then the shared closer. */
-const LOOKING_MESSAGES = [...WEB_SEARCH_MESSAGES, LOOKING_CLOSING_MESSAGE];
-
-/** The finishing carousel: persona lines, then the shared closer. */
-const FINISHING_MESSAGES = [...PERSONALITY_MESSAGES, LOOKING_CLOSING_MESSAGE];
-
 /** How long each rotating message lingers before advancing to the next. */
 const LOOKING_MESSAGE_INTERVAL_MS = 2800;
 
@@ -291,12 +250,21 @@ export function LookingYouUpStep({
    */
   ready: boolean;
 }) {
+  const { t } = useTranslation("onboarding");
+  const lookingMessages = [
+    t("lookingYouUpStep.searching"),
+    t("lookingYouUpStep.readingProfiles"),
+    t("lookingYouUpStep.skimming"),
+    t("lookingYouUpStep.connectingDots"),
+    t("lookingYouUpStep.piecing"),
+    t("lookingYouUpStep.almostThere"),
+  ];
   const tone = DARK_TONE;
   const [index, setIndex] = useState(0);
 
   useEffect(() => {
     onAdvance?.(index);
-    const isLast = index >= LOOKING_MESSAGES.length - 1;
+    const isLast = index >= lookingMessages.length - 1;
     // Finish on the last message once research is ready; otherwise keep cycling
     // (looping back to the start) until it lands.
     if (ready && isLast) {
@@ -304,11 +272,11 @@ export function LookingYouUpStep({
       return () => clearTimeout(done);
     }
     const next = setTimeout(
-      () => setIndex((i) => (i + 1) % LOOKING_MESSAGES.length),
+      () => setIndex((i) => (i + 1) % lookingMessages.length),
       LOOKING_MESSAGE_INTERVAL_MS,
     );
     return () => clearTimeout(next);
-  }, [index, ready, onDone, onAdvance]);
+  }, [index, ready, onDone, onAdvance, lookingMessages.length]);
 
   return (
     <div className="absolute inset-0 z-10" style={{ color: tone.fg }}>
@@ -331,7 +299,7 @@ export function LookingYouUpStep({
             exit={{ y: -12, opacity: 0 }}
             transition={{ duration: 0.35 }}
           >
-            {LOOKING_MESSAGES[index]}
+            {lookingMessages[index]}
           </motion.p>
         </AnimatePresence>
       </div>
@@ -361,11 +329,18 @@ export function FinishingUpStep({
   /** The personality rewrite has settled; hand off after the closing line. */
   ready: boolean;
 }) {
+  const { t } = useTranslation("onboarding");
+  const finishingMessages = [
+    t("finishingUpStep.updatingPersonality"),
+    t("finishingUpStep.findingVoice"),
+    t("finishingUpStep.gettingIntoCharacter"),
+    t("finishingUpStep.almostThere"),
+  ];
   const tone = DARK_TONE;
   const [index, setIndex] = useState(0);
 
   useEffect(() => {
-    const lastIndex = FINISHING_MESSAGES.length - 1;
+    const lastIndex = finishingMessages.length - 1;
     if (ready) {
       // Snap to the closing line first (so we don't hand off mid-list), hold a
       // beat, then enter chat.
@@ -377,11 +352,11 @@ export function FinishingUpStep({
       return () => clearTimeout(done);
     }
     const next = setTimeout(
-      () => setIndex((i) => (i + 1) % FINISHING_MESSAGES.length),
+      () => setIndex((i) => (i + 1) % finishingMessages.length),
       LOOKING_MESSAGE_INTERVAL_MS,
     );
     return () => clearTimeout(next);
-  }, [index, ready, onDone]);
+  }, [index, ready, onDone, finishingMessages.length]);
 
   return (
     <div className="absolute inset-0 z-10" style={{ color: tone.fg }}>
@@ -397,7 +372,7 @@ export function FinishingUpStep({
             exit={{ y: -12, opacity: 0 }}
             transition={{ duration: 0.35 }}
           >
-            {FINISHING_MESSAGES[index]}
+            {finishingMessages[index]}
           </motion.p>
         </AnimatePresence>
       </div>
@@ -437,6 +412,7 @@ export function ResearchResultsStep({
   /** Redo into the next step — only set when the user has stepped back. */
   onForward?: () => void;
 }) {
+  const { t } = useTranslation("onboarding");
   const tone = DARK_TONE;
   const reduce = useReducedMotion();
   // Locally track removed claims by their text so a user can prune what's wrong
@@ -463,17 +439,17 @@ export function ResearchResultsStep({
               className="text-[2.2rem] leading-none"
               style={{ fontFamily: "var(--font-serif)" }}
             >
-              This is what I found about you
+              {t("researchResultsStep.title")}
             </h1>
           </div>
           <p className="mb-7 mt-2 text-[15px]" style={{ color: tone.fgMuted }}>
             {hasClaims
               ? loading
-                ? "Still checking the rest. You can review these as they come in."
-                : "I searched the web. Feel free to remove anything that isn’t true."
+                ? t("researchResultsStep.bodyLoadingWithClaims")
+                : t("researchResultsStep.bodyReadyWithClaims")
               : loading
-                ? "Still putting this together…"
-                : "I didn’t turn up much — we can fill it in as we chat."}
+                ? t("researchResultsStep.bodyLoadingEmpty")
+                : t("researchResultsStep.bodyReadyEmpty")}
           </p>
 
           <div className="flex flex-col gap-3">
@@ -495,7 +471,9 @@ export function ResearchResultsStep({
                   <span>{fact.claim}</span>
                   <button
                     type="button"
-                    aria-label={`Remove "${fact.claim}"`}
+                    aria-label={t("researchResultsStep.removeClaim", {
+                      claim: fact.claim,
+                    })}
                     onClick={() =>
                       setRemoved((prev) => new Set(prev).add(fact.claim))
                     }
@@ -520,7 +498,7 @@ export function ResearchResultsStep({
               className="mt-5 self-start shrink-0 cursor-pointer text-[14px] underline underline-offset-2 transition-opacity hover:opacity-80"
               style={{ color: tone.fgMuted }}
             >
-              This is not me
+              {t("researchResultsStep.notMe")}
             </button>
           )}
         </div>
@@ -535,7 +513,7 @@ export function ResearchResultsStep({
             color: tone.isLight ? "#FFFFFF" : "#1A1A1A",
           }}
         >
-          {canContinue ? "Continue" : "Still searching…"}
+          {canContinue ? t("actions.continue") : t("researchResultsStep.stillSearching")}
           {canContinue && <ArrowRight className="h-4 w-4" />}
         </button>
       </div>
@@ -546,31 +524,6 @@ export function ResearchResultsStep({
 // ---------------------------------------------------------------------------
 // Suggestions
 // ---------------------------------------------------------------------------
-
-/**
- * Generic fallbacks shown only if the research turn produced no suggestions
- * (failure / sparse subject) so the step is never empty once it's done loading.
- * Each pairs the assistant-voiced card text with the user-voiced prompt sent on
- * click.
- */
-const FALLBACK_SUGGESTIONS: ResearchSuggestion[] = [
-  {
-    suggestion: "I'll pull together a quick brief on what's new in your field",
-    prompt: "Give me a quick brief on what's new in my field right now.",
-  },
-  {
-    suggestion: "I'll send a weekly briefing on news in your space",
-    prompt: "Set up a weekly briefing on news in my space.",
-  },
-  {
-    suggestion: "I'll help you get on top of your week",
-    prompt: "Help me get on top of my week.",
-  },
-  {
-    suggestion: "I'll draft something from a few rough notes",
-    prompt: "Draft something from a few rough notes I'll give you.",
-  },
-];
 
 /** A plugin name rendered as a pill tinted with the chosen avatar's color. */
 function PluginPill({ label, tone }: { label: string; tone: OnboardingTone }) {
@@ -585,12 +538,20 @@ function PluginPill({ label, tone }: { label: string; tone: OnboardingTone }) {
 }
 
 /** Interleave plugin pills with readable connectors: "A", "A and B", "A, B, and C". */
-function joinPills(labels: string[], tone: OnboardingTone) {
+function joinPills(
+  labels: string[],
+  tone: OnboardingTone,
+  connectors: { listAnd: string; listCommaAnd: string; listComma: string },
+) {
   return labels.map((label, i) => {
     let connector = "";
     if (i > 0) {
       const isLast = i === labels.length - 1;
-      connector = isLast ? (labels.length === 2 ? " and " : ", and ") : ", ";
+      connector = isLast
+        ? labels.length === 2
+          ? connectors.listAnd
+          : connectors.listCommaAnd
+        : connectors.listComma;
     }
     return (
       <Fragment key={label}>
@@ -631,7 +592,12 @@ function PluginSetupNote({
   /** True once the avatar has landed — the text only appears then. */
   revealed: boolean;
 }) {
-  const plural = pluginLabels.length > 1;
+  const { t } = useTranslation("onboarding");
+  const listConnectors = {
+    listAnd: t("suggestionsStep.listAnd"),
+    listCommaAnd: t("suggestionsStep.listCommaAnd"),
+    listComma: t("suggestionsStep.listComma"),
+  };
   return (
     <div className="mt-12 flex items-center gap-3">
       <div
@@ -646,8 +612,16 @@ function PluginSetupNote({
         animate={{ opacity: revealed ? 1 : 0, x: revealed ? 0 : -6 }}
         transition={reduce ? { duration: 0 } : { duration: 0.35 }}
       >
-        Already set up the {joinPills(pluginLabels, pillTone)} plugin
-        {plural ? "s" : ""} to help with your work
+        <Trans
+          i18nKey="suggestionsStep.alreadySetUp"
+          ns="onboarding"
+          count={pluginLabels.length}
+          components={{
+            plugins: (
+              <>{joinPills(pluginLabels, pillTone, listConnectors)}</>
+            ),
+          }}
+        />
       </motion.p>
     </div>
   );
@@ -747,14 +721,37 @@ export function SuggestionsStep({
   /** Redo into the next step — only set when the user has stepped back. */
   onForward?: () => void;
 }) {
+  const { t } = useTranslation("onboarding");
   // Constant dark surface for the UI; the avatar tone is only for the pills.
   const tone = DARK_TONE;
   const avatarTone = useOnboardingTone();
   const reduce = useReducedMotion();
+  const fallbackSuggestions: ResearchSuggestion[] = [
+    {
+      suggestion: t("suggestionsStep.fallbacks.brief.suggestion"),
+      prompt: t("suggestionsStep.fallbacks.brief.prompt"),
+    },
+    {
+      suggestion: t("suggestionsStep.fallbacks.weekly.suggestion"),
+      prompt: t("suggestionsStep.fallbacks.weekly.prompt"),
+    },
+    {
+      suggestion: t("suggestionsStep.fallbacks.week.suggestion"),
+      prompt: t("suggestionsStep.fallbacks.week.prompt"),
+    },
+    {
+      suggestion: t("suggestionsStep.fallbacks.draft.suggestion"),
+      prompt: t("suggestionsStep.fallbacks.draft.prompt"),
+    },
+  ];
   // Show real suggestions as they arrive; only fall back once the turn settles
   // with nothing, so we never flash generic prompts over an in-flight result.
   const items =
-    suggestions.length > 0 ? suggestions : loading ? [] : FALLBACK_SUGGESTIONS;
+    suggestions.length > 0
+      ? suggestions
+      : loading
+        ? []
+        : fallbackSuggestions;
 
   const pluginLabels = installedPlugins
     .map(pluginDisplayName)
@@ -840,24 +837,27 @@ export function SuggestionsStep({
             className="text-[2.2rem] leading-none"
             style={{ fontFamily: "var(--font-serif)" }}
           >
-            Here&rsquo;s what we could do first
+            {t("suggestionsStep.title")}
           </h1>
         </div>
         <p className="mb-7 mt-2 text-[15px]" style={{ color: tone.fgMuted }}>
           {items.length > 0 ? (
-            <>
-              Pick one to jump in — or start your own thing.{" "}
-              <button
-                type="button"
-                onClick={onSkip}
-                className="cursor-pointer underline underline-offset-2 transition-opacity hover:opacity-80"
-                style={{ color: tone.fg }}
-              >
-                Skip to Chat
-              </button>
-            </>
+            <Trans
+              i18nKey="suggestionsStep.pickOne"
+              ns="onboarding"
+              components={{
+                skip: (
+                  <button
+                    type="button"
+                    onClick={onSkip}
+                    className="cursor-pointer underline underline-offset-2 transition-opacity hover:opacity-80"
+                    style={{ color: tone.fg }}
+                  />
+                ),
+              }}
+            />
           ) : (
-            "Putting together a few ideas…"
+            t("suggestionsStep.loading")
           )}
         </p>
 
@@ -960,12 +960,13 @@ export function LetsChatReadyStep({
    */
   disabled?: boolean;
 }) {
+  const { t } = useTranslation("onboarding");
   // Constant dark surface for the UI (the plugin cards match the facts cards).
   const tone = DARK_TONE;
   const reduce = useReducedMotion();
   const [starting, setStarting] = useState(false);
   const { components, chosen } = useChosenAvatar();
-  const { h: vh } = useViewportSize();
+  const { h: vh } = useLayoutViewportSize();
 
   // Each installed plugin as a card: its display name + (when known) the
   // catalog description. Names without a display label are dropped.
@@ -1090,7 +1091,7 @@ export function LetsChatReadyStep({
             className="text-[2.2rem] leading-none"
             style={{ fontFamily: "var(--font-serif)" }}
           >
-            You&rsquo;re all set
+            {t("letsChatReadyStep.title")}
           </h1>
         </div>
 
@@ -1125,7 +1126,7 @@ export function LetsChatReadyStep({
             animate={{ opacity: landed ? 1 : 0, x: landed ? 0 : -6 }}
             transition={reduce ? { duration: 0 } : { duration: 0.35 }}
           >
-            I&rsquo;ve set myself up with plugins around who you are.
+            {t("letsChatReadyStep.setupNote")}
           </motion.p>
         </div>
 
@@ -1177,7 +1178,7 @@ export function LetsChatReadyStep({
             color: tone.isLight ? "#FFFFFF" : "#1A1A1A",
           }}
         >
-          {starting ? "Starting…" : "Let's chat"}
+          {starting ? t("actions.starting") : t("letsChatReadyStep.letsChat")}
           {!starting && <ArrowRight className="h-4 w-4" />}
         </button>
 

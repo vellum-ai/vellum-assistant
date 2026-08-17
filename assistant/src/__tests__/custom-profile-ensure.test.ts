@@ -53,6 +53,10 @@ describe("ensureCompleteCustomProfiles", () => {
     ensureCompleteCustomProfiles(workspaceDir);
     const saved = readProfiles().partial;
     expect(saved.model).toBe("claude-haiku-4-5-20251001");
+    // This workspace has no connection rows, so the binding is unverifiable
+    // and passes through in the legacy field for the collapse migration to
+    // judge; with a verified row it would fold into the provider value (see
+    // profile-materialization.test.ts).
     expect(saved.provider).toBe("anthropic");
     expect(saved.provider_connection).toBe("anthropic-personal");
     expect(saved.maxTokens).toBe(12345);
@@ -91,7 +95,7 @@ describe("ensureCompleteCustomProfiles", () => {
       },
     });
     ensureCompleteCustomProfiles(workspaceDir);
-    expect(readProfiles().gpt.provider_connection).toBe("vellum");
+    expect(readProfiles().gpt.provider_connection).toBeUndefined();
     expect(readProfiles().router.provider_connection).toBeUndefined();
   });
 

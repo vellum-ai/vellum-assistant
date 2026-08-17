@@ -56,6 +56,13 @@ export interface IngressPath {
    * a guardian that public ingress is closed when it is open.
    */
   approvalGoverned: boolean;
+  /**
+   * True when what arrives here becomes a message to the assistant, rather
+   * than a callback the plugin merely receives. Opening an address and letting
+   * something start a conversation are different decisions, and only the
+   * gateway knows which one a route is asking for.
+   */
+  deliversInbound: boolean;
 }
 
 export interface ChannelIngress {
@@ -176,6 +183,7 @@ export function useChannelIngress(
       entry?.routes?.map((route) => ({
         path: route.publicPath,
         approvalGoverned: route.signer !== "vellum",
+        deliversInbound: route.deliversInbound === true,
       })) ?? [],
     deciding: approval.isPending || revocation.isPending,
     approve: () => {

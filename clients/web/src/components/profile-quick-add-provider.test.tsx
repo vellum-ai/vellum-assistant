@@ -42,24 +42,36 @@ mock.module("@/domains/settings/ai/profile-editor-modal", () => ({
   ProfileEditorModal: ({
     isOpen,
     onSave,
+    onCancel,
   }: {
     isOpen: boolean;
     onSave: (n: string, e: unknown) => Promise<void>;
+    onCancel: () => void;
   }) =>
     isOpen
       ? createElement(
-          "button",
-          {
-            "data-testid": "modal-save-btn",
-            // Mirror the real modal: it awaits onSave inside try/catch and stays
-            // open (showing saveError) on rejection. Swallow here so a failing
-            // save surfaces via assertions, not an unhandled rejection.
-            onClick: () =>
-              void onSave(NEW_PROFILE_NAME, { label: "Fast & Cheap" }).catch(
-                () => {},
-              ),
-          },
-          "Save",
+          "div",
+          null,
+          createElement(
+            "button",
+            {
+              "data-testid": "modal-save-btn",
+              // Mirror the real modal: it awaits onSave inside try/catch and
+              // stays open (showing saveError) on rejection. Swallow here so a
+              // failing save surfaces via assertions, not an unhandled
+              // rejection.
+              onClick: () =>
+                void onSave(NEW_PROFILE_NAME, { label: "Fast & Cheap" }).catch(
+                  () => {},
+                ),
+            },
+            "Save",
+          ),
+          createElement(
+            "button",
+            { "data-testid": "modal-cancel-btn", onClick: onCancel },
+            "Cancel",
+          ),
         )
       : null,
 }));
@@ -98,12 +110,13 @@ import {
   useProfileQuickAdd,
 } from "@/components/profile-quick-add-provider";
 
-// Test consumer: opens the quick-add on mount and records the onCreated args.
+// Test consumer: opens the quick-add on mount and records the callback args.
 const onCreated = mock((_name: string, _label: string | null) => {});
+const onClosed = mock(() => {});
 function Opener({ existingNames }: { existingNames: string[] }) {
   const { openProfileQuickAdd } = useProfileQuickAdd();
   useEffect(() => {
-    openProfileQuickAdd({ existingNames, onCreated });
+    openProfileQuickAdd({ existingNames, onCreated, onClosed });
   }, [openProfileQuickAdd, existingNames]);
   return null;
 }
@@ -129,6 +142,7 @@ function renderProvider(existingNames: string[]) {
 beforeEach(() => {
   toastSuccess.mockClear();
   onCreated.mockClear();
+  onClosed.mockClear();
   configPatchMock.mockClear();
   configGetMock.mockClear();
   configGetSetQueryDataMock.mockClear();
@@ -246,6 +260,8 @@ describe("ProfileQuickAddProvider", () => {
     expect(configPatchMock).not.toHaveBeenCalled();
     expect(toastSuccess).not.toHaveBeenCalled();
     expect(onCreated).not.toHaveBeenCalled();
+    // The modal is still up, so the caller must not be told the flow is over.
+    expect(onClosed).not.toHaveBeenCalled();
     expect(screen.getByTestId("modal-save-btn")).toBeTruthy();
   });
 
@@ -284,6 +300,34 @@ describe("ProfileQuickAddProvider", () => {
     expect(configPatchMock).not.toHaveBeenCalled();
     expect(toastSuccess).not.toHaveBeenCalled();
     expect(onCreated).not.toHaveBeenCalled();
+    expect(onClosed).not.toHaveBeenCalled();
     expect(screen.getByTestId("modal-save-btn")).toBeTruthy();
+  });
+
+  test("reports the flow's close to the caller, whether it saved or cancelled", async () => {
+    // A caller that suppressed its own UI for the duration of the modal has no
+    // other signal that the modal is gone: it renders outside that caller's
+    // tree, and a cancel persists nothing to notice.
+    renderProvider(["smart"]);
+    await waitFor(() => screen.getByTestId("modal-save-btn"));
+    fireEvent.click(screen.getByTestId("modal-save-btn"));
+
+    await waitFor(() => {
+      expect(onClosed).toHaveBeenCalledTimes(1);
+    });
+    // Exactly one close per open, after the create landed.
+    expect(onCreated).toHaveBeenCalledTimes(1);
+  });
+
+  test("reports the close when the user cancels out of the modal", async () => {
+    renderProvider(["smart"]);
+    await waitFor(() => screen.getByTestId("modal-cancel-btn"));
+    fireEvent.click(screen.getByTestId("modal-cancel-btn"));
+
+    await waitFor(() => {
+      expect(onClosed).toHaveBeenCalledTimes(1);
+    });
+    expect(onCreated).not.toHaveBeenCalled();
+    expect(screen.queryByTestId("modal-save-btn")).toBeNull();
   });
 });

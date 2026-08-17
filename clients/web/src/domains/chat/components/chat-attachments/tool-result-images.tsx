@@ -1,10 +1,9 @@
 import { useQuery } from "@tanstack/react-query";
-import { Download, Loader2 } from "lucide-react";
-import type { FC } from "react";
+import { Loader2 } from "lucide-react";
+import type { FC, MouseEvent } from "react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
-import { Tooltip } from "@vellumai/design-library";
-
+import { AttachmentDownloadOverlay } from "@/domains/chat/components/chat-attachments/attachment-download-overlay";
 import {
   downloadAttachment,
   fetchAttachmentContentBlob,
@@ -339,25 +338,17 @@ export const ToolResultImages: FC<ToolResultImagesProps> = ({
                 openPreview(att);
               }
             }}
-            className="group/toolimg relative w-fit cursor-pointer"
+            className="group relative w-fit cursor-pointer"
           >
             <ToolResultImageThumb attachment={att} assistantId={assistantId} />
-            <div className="pointer-events-none absolute inset-0 rounded-md bg-black/50 opacity-0 transition-opacity group-hover/toolimg:pointer-events-auto group-hover/toolimg:opacity-100 group-focus-within/toolimg:pointer-events-auto group-focus-within/toolimg:opacity-100">
-              <Tooltip content="Download">
-                <button
-                  type="button"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    handleDownload(att);
-                  }}
-                  onKeyDown={(e) => e.stopPropagation()}
-                  aria-label={`Download ${att.filename}`}
-                  className="absolute bottom-1 right-1 flex h-6 w-6 items-center justify-center rounded-md text-white/80 transition-colors hover:bg-white/20 hover:text-white"
-                >
-                  <Download className="h-3.5 w-3.5" />
-                </button>
-              </Tooltip>
-            </div>
+            <AttachmentDownloadOverlay
+              filename={att.filename}
+              onDownload={(e: MouseEvent<HTMLButtonElement>) => {
+                e.stopPropagation();
+                handleDownload(att);
+              }}
+              className="rounded-md"
+            />
           </div>
         ))}
       </div>

@@ -62,7 +62,7 @@ describe("collapsing an expanded rail", () => {
        in which the two flags disagree. */
     const [circle] = rows();
     expect(circle!.className).toContain("rounded-full");
-    expect(circle!.className).toContain("size-[30px]");
+    expect(circle!.className).toContain("size-[var(--side-menu-tile-size)]");
     expect(circle!.className).not.toContain("w-full");
     expect(circle!.querySelector('[data-slot="dot"]')).not.toBeNull();
     // The label is the tell: a visible one means it is still an expanded row.

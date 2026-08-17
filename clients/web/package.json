@@ -1,6 +1,6 @@
 {
   "name": "@vellumai/web",
-  "version": "0.11.2",
+  "version": "0.11.3",
   "type": "module",
   "description": "Pre-built web SPA for the Vellum Assistant",
   "license": "MIT",
@@ -66,6 +66,7 @@
     "@tiptap/core": "3.23.5",
     "@tiptap/extension-bubble-menu": "3.23.5",
     "@tiptap/extension-link": "3.23.5",
+    "@tiptap/extension-table": "3.23.5",
     "@tiptap/pm": "3.23.5",
     "@tiptap/react": "3.23.5",
     "@tiptap/starter-kit": "3.23.5",

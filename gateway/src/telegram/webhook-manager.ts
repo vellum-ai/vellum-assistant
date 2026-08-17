@@ -146,17 +146,30 @@ async function resolveExpectedTelegramWebhookUrl(
   // resolver declines makes setup report success while setWebhook never runs
   // (LUM-2899).
   //
-  //   1. An explicit `ingress.enabled: false` is a decision not to accept
+  //   1. Platform pods (`IS_PLATFORM`) always use the managed callback route
+  //      and never consult ingress at all — a pod has no self-owned ingress to
+  //      advertise. Its `ingress.publicBaseUrl` is written by the Velay tunnel
+  //      client, not by a user, and that address is only live while the tunnel
+  //      is: `clearManagedPublicBaseUrl` wipes the key when the tunnel drops,
+  //      but Telegram keeps delivering to whatever was last registered, so a
+  //      pod that resolved through this tier would be pointed at a dead
+  //      address until something triggered another reconciliation. The
+  //      platform callback route is the pod's stable inbound address.
+  //   2. An explicit `ingress.enabled: false` is a decision not to accept
   //      inbound webhooks at all; it precedes both tiers below and actively
   //      deregisters, so `reconcileTelegramWebhook` handles it before calling
   //      this resolver. Platform pods are exempt (see the comment there).
-  //   2. A configured public ingress URL wins (a self-hosted tunnel, or the
+  //   3. A configured public ingress URL wins (a self-hosted tunnel, or the
   //      Velay-published URL while the tunnel is registered).
-  //   3. Platform-connected assistants (platform pods and local assistants
-  //      holding vellum credentials) fall back to a managed platform callback
-  //      route. `registerManagedTelegramCallbackRoute` self-gates on platform
+  //   4. Platform-connected local assistants holding vellum credentials fall
+  //      back to a managed platform callback route.
+  //      `registerManagedTelegramCallbackRoute` self-gates on platform
   //      features and credential presence, so a gateway with no platform
   //      context resolves to undefined and reconciliation skips.
+  if (isPlatformMode()) {
+    return registerManagedTelegramCallbackRoute(caches);
+  }
+
   let ingressUrl: string | undefined;
   if (caches?.configFile) {
     ingressUrl = caches.configFile.getString("ingress", "publicBaseUrl");

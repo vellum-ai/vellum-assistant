@@ -1,11 +1,11 @@
 import { describe, expect, test } from "bun:test";
 
 import {
-  GENERIC_AUTH_ERROR_MESSAGE,
+  GENERIC_AUTH_ERROR_KEY,
   isUserCancelledAuthError,
   nativeAuthErrorCode,
   nativeAuthErrorDetail,
-  nativeAuthErrorMessage,
+  nativeAuthErrorKey,
 } from "./native-auth-error";
 
 /**
@@ -15,7 +15,10 @@ import {
  * the Error). These helpers build that exact shape.
  */
 function nativeRejection(code: string, data?: Record<string, unknown>): Error {
-  return Object.assign(new Error("rejected"), { code, ...(data ? { data } : {}) });
+  return Object.assign(new Error("rejected"), {
+    code,
+    ...(data ? { data } : {}),
+  });
 }
 
 function authErrorRejection(authError: string): Error {
@@ -78,7 +81,9 @@ describe("nativeAuthErrorDetail", () => {
   });
 
   test("is undefined when AUTH_ERROR carries no usable cause", () => {
-    expect(nativeAuthErrorDetail(nativeRejection("AUTH_ERROR"))).toBeUndefined();
+    expect(
+      nativeAuthErrorDetail(nativeRejection("AUTH_ERROR")),
+    ).toBeUndefined();
     expect(
       nativeAuthErrorDetail(nativeRejection("AUTH_ERROR", {})),
     ).toBeUndefined();
@@ -91,37 +96,38 @@ describe("nativeAuthErrorDetail", () => {
   });
 });
 
-describe("nativeAuthErrorMessage", () => {
-  test("explains a closed signup instead of asking the user to retry", () => {
-    const message = nativeAuthErrorMessage(authErrorRejection("signup_closed"));
-
-    expect(message).not.toBe(GENERIC_AUTH_ERROR_MESSAGE);
-    expect(message).toContain("vellum.ai/community");
+describe("nativeAuthErrorKey", () => {
+  test("names the closed-signup message instead of the retry one", () => {
+    // The copy itself now lives in the account catalog, so what this module
+    // owns is the mapping: a known cause must not collapse to the generic key.
+    expect(nativeAuthErrorKey(authErrorRejection("signup_closed"))).toBe(
+      "authErrors.signupClosed",
+    );
   });
 
   test("explains a provider account that is not linked to an account yet", () => {
-    expect(nativeAuthErrorMessage(authErrorRejection("provider_signup"))).toBe(
-      "No Vellum account is linked to that login yet. Sign up first, then sign in.",
+    expect(nativeAuthErrorKey(authErrorRejection("provider_signup"))).toBe(
+      "authErrors.providerSignup",
     );
   });
 
   test("explains a sign-in that needs a step this shell cannot run", () => {
-    expect(nativeAuthErrorMessage(authErrorRejection("login_incomplete"))).toBe(
-      "Your account needs another step to finish signing in. Please sign in on the web, then try again.",
+    expect(nativeAuthErrorKey(authErrorRejection("login_incomplete"))).toBe(
+      "authErrors.loginIncomplete",
     );
   });
 
   test("falls back to the generic message for an unmapped cause", () => {
     // allauth names its own code in a 400, so unmapped values reach here.
-    expect(nativeAuthErrorMessage(authErrorRejection("some_new_code"))).toBe(
-      GENERIC_AUTH_ERROR_MESSAGE,
+    expect(nativeAuthErrorKey(authErrorRejection("some_new_code"))).toBe(
+      GENERIC_AUTH_ERROR_KEY,
     );
   });
 
   test("falls back to the generic message for an unclassified failure", () => {
-    expect(nativeAuthErrorMessage(new Error("Failed to fetch"))).toBe(
-      GENERIC_AUTH_ERROR_MESSAGE,
+    expect(nativeAuthErrorKey(new Error("Failed to fetch"))).toBe(
+      GENERIC_AUTH_ERROR_KEY,
     );
-    expect(nativeAuthErrorMessage(undefined)).toBe(GENERIC_AUTH_ERROR_MESSAGE);
+    expect(nativeAuthErrorKey(undefined)).toBe(GENERIC_AUTH_ERROR_KEY);
   });
 });

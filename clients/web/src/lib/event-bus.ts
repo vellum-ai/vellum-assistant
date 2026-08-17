@@ -32,10 +32,10 @@ import type { AssistantEventEnvelope } from "@vellumai/assistant-api";
  * `"visibility"`: `document.visibilitychange` fired with
  * `visibilityState === "visible"` on a web client.
  * `"app_state"`: Capacitor `App.appStateChange` fired with `isActive`
- * in the iOS native shell. Web + Capacitor consumers must dedup
- * `"visibility"` and `"app_state"` themselves when both arrive in
- * close succession (the bus does not — its purpose is to deliver
- * every signal it sees).
+ * in the iOS native shell. Both describe the same physical edge on iOS,
+ * where they fire milliseconds apart, so
+ * `runtime/event-sources/lifecycle-edge.ts` publishes the pair once and
+ * consumers see either label depending on which source arrived first.
  * `"online"`: `window.online` fired after `navigator.onLine` flipped
  * back to true; surfaced as a resume so consumers that just want
  * "we're probably stale, refresh" can subscribe to a single channel.
@@ -44,6 +44,14 @@ export type AppResumeSignal = "visibility" | "app_state" | "online";
 
 /** Source of a synthetic `"app.hidden"` event. */
 export type AppHiddenSignal = "visibility" | "app_state";
+
+/**
+ * Which checkout a completed Stripe session belongs to: a Pro
+ * subscription upgrade or a credit top-up. Carried on
+ * `deeplink.billingCheckoutComplete`; the deep-link parsers in
+ * `runtime/` share this alias.
+ */
+export type BillingCheckoutFlow = "subscription" | "top_up";
 
 /**
  * Map of bus event name → payload type. New event names are added
@@ -145,15 +153,36 @@ export interface BusEventMap {
   "deeplink.send": { message: string };
   "deeplink.openThread": { threadId: string };
   /**
-   * Stripe Checkout finished for a checkout the Electron shell started
-   * in the system browser. The platform bounces the browser to
+   * Open a conversation with a message staged in its composer:
+   * `<scheme>://thread/<id>?message=…`, produced by the iOS
+   * `SendMessageToChatIntent` (the "Send Message to Chat" Shortcuts
+   * action). Split from `deeplink.openThread` because the consumer does
+   * more than navigate: it parks `message` in `usePendingDeepLinkStore`
+   * and requests composer focus, so the user lands one tap from sent.
+   * Never auto-sent: a custom-scheme link carries no caller identity
+   * (see `useGlobalDeepLinkConsumer`'s caller-identity note; JARVIS-1522
+   * tracks the provenance seam that could change this). `message` is
+   * bounded and sanitized by `parseOpenThreadDeepLink`; a thread link
+   * whose message fails sanitization publishes plain `deeplink.openThread`
+   * instead.
+   */
+  "deeplink.sendToThread": { threadId: string; message: string };
+  /**
+   * Stripe Checkout finished for a checkout a native shell started
+   * (the Electron shell's system browser or Capacitor iOS's in-app
+   * SFSafariViewController). The platform bounces the browser to
    * `<scheme>://billing/checkout-complete`; the billing domain consumes
-   * this to land the user back on billing (and open the post-checkout
-   * Pro onboarding wizard on success).
+   * this to land the user back on billing. `flow` says which checkout
+   * it was: `subscription` opens the post-checkout Pro onboarding
+   * wizard on success (and the upgrade-cancel page on cancel), while
+   * `top_up` toasts on success and funnels a cancel into the billing
+   * page's server-verified checkout-bonus offer flow. Parsers default
+   * `flow` to `subscription` when the link omits it (all released
+   * clients and current Pro links).
    */
   "deeplink.billingCheckoutComplete":
-    | { status: "success"; sessionId: string }
-    | { status: "cancel"; sessionId: null };
+    | { status: "success"; sessionId: string; flow: BillingCheckoutFlow }
+    | { status: "cancel"; sessionId: null; flow: BillingCheckoutFlow };
   /**
    * The user asked to talk, from outside the SPA:
    * `<scheme>://voice?mode=new|resume&prompt=…`. The single native→SPA
@@ -167,8 +196,10 @@ export interface BusEventMap {
    *
    * `prompt` is what the user already said before the app was up (Siri's
    * "Ask …" intent). It is `null` unless the link carried usable text —
-   * `parseStartVoiceDeepLink` bounds and sanitizes it, so subscribers get
-   * either trustworthy text or nothing.
+   * `parseStartVoiceDeepLink` bounds and sanitizes its shape, but the
+   * scheme proves nothing about the sender, so consumers must treat it as
+   * untrusted: it pre-fills the composer and is never auto-sent, and no
+   * voice session starts for it (see `useGlobalDeepLinkConsumer`).
    */
   "deeplink.startVoice": { mode: "new" | "resume"; prompt: string | null };
   /**

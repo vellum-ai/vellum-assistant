@@ -37,7 +37,7 @@ export function AccountPage() {
       await startAuthFlow(PROVIDER_ID, PROVIDER_CALLBACK_URL);
     } catch (err) {
       console.error("[account] auth flow failed:", err);
-      setErrorMessage("Something went wrong. Please try again.");
+      setErrorMessage(t("authErrors.genericFailure"));
       setSigningIn(false);
     }
   };

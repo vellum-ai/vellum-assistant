@@ -8,7 +8,7 @@
  * - {@link renderGroupMenuItems} — Radix `ContextMenu` / `Menu` items, used
  *   for the desktop right-click menu on a section header.
  * - {@link renderGroupMenuItemsAsPanelItems} — the same item set flattened
- *   into `PanelItem` rows for the popover and the mobile bottom sheet.
+ *   into `PanelItem` rows for the popover and the touch bottom sheet.
  * - {@link GroupActionsMenu} — the trailing "…" button on a section header,
  *   which renders the PanelItem set in a Popover (desktop) or a BottomSheet
  *   (mobile). Every section carries one, so a section's actions never depend
@@ -30,7 +30,7 @@ import {
 } from "lucide-react";
 import { type ReactNode, useState } from "react";
 
-import { useIsMobile } from "@/hooks/use-is-mobile";
+import { useTouchMobile } from "@/hooks/use-touch-mobile";
 import { SectionActionsButton } from "@/components/section-actions-button";
 import {
   buildPanelMenuItem,
@@ -334,7 +334,7 @@ export function GroupActionsMenu({
   ...menuProps
 }: GroupActionsMenuProps) {
   const [open, setOpen] = useState(false);
-  const isMobile = useIsMobile();
+  const isTouchMobile = useTouchMobile();
   const closeMenu = () => setOpen(false);
   const hasItems = hasAnyGroupMenuAction(menuProps);
 
@@ -349,7 +349,7 @@ export function GroupActionsMenu({
 
   const trigger = <SectionActionsButton label={label} />;
 
-  if (isMobile) {
+  if (isTouchMobile) {
     return (
       <BottomSheet.Root open={open} onOpenChange={setOpen}>
         <BottomSheet.Trigger asChild>{trigger}</BottomSheet.Trigger>

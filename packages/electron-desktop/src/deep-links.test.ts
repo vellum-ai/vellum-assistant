@@ -180,6 +180,7 @@ describe("parseVellumUrl", () => {
       kind: "billingCheckoutComplete",
       status: "success",
       sessionId: "cs_test_a1B2",
+      flow: "subscription",
     });
   });
 
@@ -192,6 +193,7 @@ describe("parseVellumUrl", () => {
       kind: "billingCheckoutComplete",
       status: "success",
       sessionId: "cs_live_XYZ",
+      flow: "subscription",
     });
   });
 
@@ -202,6 +204,7 @@ describe("parseVellumUrl", () => {
       kind: "billingCheckoutComplete",
       status: "cancel",
       sessionId: null,
+      flow: "subscription",
     });
   });
 
@@ -214,6 +217,43 @@ describe("parseVellumUrl", () => {
       kind: "billingCheckoutComplete",
       status: "cancel",
       sessionId: null,
+      flow: "subscription",
+    });
+  });
+
+  test("flow=top_up is carried through on both statuses", () => {
+    expect(
+      parseVellumUrl(
+        "vellum://billing/checkout-complete?status=success&session_id=cs_test_a1B2&flow=top_up",
+      ),
+    ).toEqual({
+      kind: "billingCheckoutComplete",
+      status: "success",
+      sessionId: "cs_test_a1B2",
+      flow: "top_up",
+    });
+    expect(
+      parseVellumUrl(
+        "vellum://billing/checkout-complete?status=cancel&flow=top_up",
+      ),
+    ).toEqual({
+      kind: "billingCheckoutComplete",
+      status: "cancel",
+      sessionId: null,
+      flow: "top_up",
+    });
+  });
+
+  test("an unrecognized flow value degrades to the subscription flow", () => {
+    expect(
+      parseVellumUrl(
+        "vellum://billing/checkout-complete?status=cancel&flow=bogus",
+      ),
+    ).toEqual({
+      kind: "billingCheckoutComplete",
+      status: "cancel",
+      sessionId: null,
+      flow: "subscription",
     });
   });
 

@@ -30,10 +30,10 @@ import {
 } from "bun:test";
 
 import { _inspectHookCacheForTests } from "../hooks/hook-loader.js";
+import { getUserHooksFor } from "../hooks/registry.js";
 import {
   _inspectToolCacheForTests,
   getCachedUserTools,
-  getUserHooksFor,
   populateCacheAtBoot,
   reconcilePluginSourcesNow,
   resetPluginCacheForTests,

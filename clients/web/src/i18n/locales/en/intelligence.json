@@ -1,0 +1,421 @@
+{
+  "applyPersonalityUpdate": {
+    "conversationTitle": "Updating personality"
+  },
+  "applyRename": {
+    "conversationTitle": "Updating name"
+  },
+  "assistantNameEditor": {
+    "greeting": "Hi, I’m {name}",
+    "renamingInProgressAriaLabel": "Renaming in progress"
+  },
+  "categorySidebar": {
+    "all": "All",
+    "skillCategoriesAriaLabel": "Skill categories"
+  },
+  "conceptDetailPanel": {
+    "askAboutThis": "Ask about this",
+    "askPrompt": "Tell me what you remember about \"{title}\" and how it connects to the rest of what you know.",
+    "backAriaLabel": "Back",
+    "closeAriaLabel": "Close",
+    "connectionCount": "{count, plural, one {# connection} other {# connections}}",
+    "emptyContent": "This concept doesn't have written content yet. It exists as a link in the graph, but its page is empty.",
+    "loadError": "Couldn't load this concept. Try again in a moment.",
+    "readFullNote": "Read full note",
+    "refine": "Refine",
+    "refinePrompt": "I want to refine what you remember about \"{title}\". Ask me what's off and we'll correct it together.",
+    "showLess": "Show less",
+    "trailAriaLabel": "Concept trail",
+    "updated": "Updated {date}",
+    "wiredTo": "Wired to"
+  },
+  "conceptGraphConstants": {
+    "nodeKind": {
+      "capability": "Capability",
+      "concept": "Concept",
+      "other": "Other",
+      "pending": "Pending",
+      "skill": "Skill"
+    }
+  },
+  "conceptGraphIntroBanner": {
+    "description": "Every idea it learns, and the links it draws between them, shows up here. The map grows and rearranges itself as you talk, so the more you share, the richer it gets.",
+    "dismissAriaLabel": "Dismiss",
+    "title": "This is your assistant's mind"
+  },
+  "conceptGraphLegend": {
+    "coloredByTheme": "Colored by theme",
+    "learned": "Learned",
+    "link": "Link",
+    "moreThemes": "{count, plural, one {+# more} other {+# more}}"
+  },
+  "conceptGraphView": {
+    "clearSearchAriaLabel": "Clear search",
+    "dragToRotateHint": "drag to rotate · scroll to zoom",
+    "emptyDetail": "As your assistant learns and links ideas, they'll appear here as a living map of its memory.",
+    "emptyTitle": "No concepts yet",
+    "enterFullscreenAriaLabel": "Enter fullscreen",
+    "exitFullscreenAriaLabel": "Exit fullscreen",
+    "loadErrorDetail": "Something went wrong fetching your assistant's memory. Try again in a moment.",
+    "loadErrorTitle": "Couldn't load the memory graph",
+    "resetViewAriaLabel": "Reset view",
+    "searchConceptsAriaLabel": "Search concepts",
+    "searchConceptsPlaceholder": "Search concepts…",
+    "truncatedNotice": "{count, plural, one {Showing the # most-connected concept} other {Showing the # most-connected concepts}}",
+    "zoomInAriaLabel": "Zoom in",
+    "zoomOutAriaLabel": "Zoom out"
+  },
+  "createMemoryModal": {
+    "cancel": "Cancel",
+    "contentLabel": "What should I remember?",
+    "contentPlaceholder": "e.g. I prefer concise, bulleted summaries.",
+    "create": "Create memory",
+    "createError": "Failed to create memory.",
+    "creating": "Creating…",
+    "helperText": "It lands on the map right away, then settles into a concept as it's filed.",
+    "savedFoundToast": "Got it. Taking you to it.",
+    "savedPendingToast": "Got it. It's on your map while I file it away.",
+    "saveError": "Couldn't save that memory.",
+    "title": "New memory"
+  },
+  "getMemoryGraph": {
+    "failureMessage": "Failed to load the memory graph."
+  },
+  "getMemoryGraphNode": {
+    "failureMessage": "Failed to load this concept."
+  },
+  "identityOverview": {
+    "cardHoverLine": {
+      "channels": "All the places you can reach me",
+      "contacts": "The people I know and trust",
+      "library": "The apps and docs I've made for you",
+      "memory": "Everything I remember",
+      "personality": "Go ahead, tweak my soul",
+      "schedules": "What I do on repeat",
+      "superpowers": "Everything I know how to do",
+      "workspace": "All the files that power me"
+    },
+    "defaultAssistantName": "Assistant",
+    "memoryCountLabel": "{count, plural, one {# memory} other {# memories}}",
+    "renameErrorToast": "The rename didn't go through. Please try again.",
+    "renameSuccessToast": "Say hi to {newName}!",
+    "scheduleCadence": "{cadence} · next {nextRun}",
+    "updateAvatarAndName": "Update avatar and name",
+    "viewMoreSchedules": "{count, plural, one {View # more…} other {View # more…}}"
+  },
+  "identitySections": {
+    "channels": {
+      "description": "Where I listen",
+      "label": "Channels"
+    },
+    "contacts": {
+      "description": "People I know",
+      "label": "Contacts"
+    },
+    "library": {
+      "description": "My apps & docs",
+      "label": "Library"
+    },
+    "memory": {
+      "description": "What I remember",
+      "label": "Memory"
+    },
+    "personality": {
+      "description": "Tune how I talk",
+      "label": "Personality"
+    },
+    "schedules": {
+      "description": "My routines",
+      "label": "Schedules"
+    },
+    "superpowers": {
+      "description": "What I can do",
+      "label": "My Superpowers"
+    },
+    "workspace": {
+      "description": "My files",
+      "label": "Workspace"
+    }
+  },
+  "installSkill": {
+    "failureMessage": "Failed to install skill."
+  },
+  "intelligenceLayout": {
+    "backToAriaLabel": "Back to {name}",
+    "backToTitle": "Back to {name}"
+  },
+  "listConceptPages": {
+    "failureMessage": "Failed to load concept pages."
+  },
+  "memoryFormat": {
+    "justNow": "just now"
+  },
+  "memoryPage": {
+    "createMemory": "Create memory"
+  },
+  "memoryTypes": {
+    "sourceType": {
+      "direct": "Told directly",
+      "inferred": "Inferred",
+      "observed": "Observed",
+      "toldByOther": "Told by other"
+    }
+  },
+  "memoryUpgradePrompt": {
+    "memorySettings": "Memory settings",
+    "tryAgain": "Try again",
+    "turnMemoryOn": "Turn memory on",
+    "upgradeMemory": "Upgrade memory"
+  },
+  "personalityAxes": {
+    "companionCoworker": {
+      "left": "Companion",
+      "right": "Coworker"
+    },
+    "executeCollaborate": {
+      "left": "Independent",
+      "right": "Collaborative"
+    },
+    "genzBoomer": {
+      "left": "Gen Z",
+      "right": "Baby Boomer"
+    },
+    "playfulSerious": {
+      "left": "Playful",
+      "right": "Serious"
+    },
+    "politeUnfiltered": {
+      "left": "Polite",
+      "right": "Unfiltered"
+    }
+  },
+  "personalityPage": {
+    "back": "Back",
+    "subtitle": "Slide the dials, then hit update, I’ll rewrite myself to match.",
+    "title": "Shape my personality",
+    "updateErrorToast": "The personality update didn't go through. Please try again.",
+    "updatePersonality": "Update personality",
+    "updateSuccessToast": "Personality updated. Go say hi!",
+    "updatingPersonality": "Updating {name}'s personality…"
+  },
+  "personalitySignature": {
+    "ariaLabel": "Personality: {summary}",
+    "axisBalanced": "{left} and {right} balanced",
+    "axisLean": "{percent}% {label}"
+  },
+  "personalitySliderRow": {
+    "rangeAriaLabel": "{left} to {right}"
+  },
+  "pluginConstants": {
+    "installError": "Failed to install plugin. Please try again.",
+    "removeConfirmMessage": "Remove \"{name}\" from this assistant?",
+    "removeError": "Failed to remove plugin. Please try again.",
+    "riskyUpgradeConfirmLabel": "Upgrade anyway",
+    "riskyUpgradeConfirmMessage": "\"{name}\" has local edits that will be overwritten by the upgrade. Continue?",
+    "toggleError": "Failed to update plugin. Please try again.",
+    "upgradeError": "Failed to upgrade plugin. Please try again."
+  },
+  "pluginDetail": {
+    "backToPluginsAriaLabel": "Back to plugins",
+    "noReadme": "This plugin doesn't ship a README.",
+    "version": "v{version}"
+  },
+  "pluginDetailShared": {
+    "autoIncludeInChat": "Auto-include in chat",
+    "download": "Download",
+    "homepageLabel": "Homepage",
+    "hooksLabel": "Hooks",
+    "install": "Install",
+    "licenseLabel": "License",
+    "loadErrorDetail": "It may not exist, or your assistant may be on an older build.",
+    "loadErrorTitle": "We couldn't load this plugin.",
+    "localSource": "Local",
+    "remove": "Remove",
+    "removePluginTitle": "Remove plugin",
+    "skillsLabel": "Skills",
+    "sourceLabel": "Source",
+    "toolsLabel": "Tools",
+    "upgrade": "Upgrade",
+    "upgradePluginTitle": "Upgrade plugin",
+    "upgradeTitle": "Upgrade {fromSha} → {toSha}"
+  },
+  "pluginListRow": {
+    "disabled": "Disabled",
+    "enabled": "Enabled",
+    "installingAriaLabel": "Installing",
+    "installPluginAriaLabel": "Install plugin",
+    "moreIssues": "{count, plural, one { (+# more)} other { (+# more)}}",
+    "noDescription": "No description provided.",
+    "pluginTag": "Plugin",
+    "removePluginAriaLabel": "Remove plugin",
+    "version": "v{version}"
+  },
+  "pluginOriginBadge": {
+    "external": "External",
+    "local": "Local"
+  },
+  "pluginToast": {
+    "alreadyUpToDate": "{name} is already up to date",
+    "installed": "Installed {name}",
+    "pluginFallback": "plugin",
+    "pluginFallbackCapitalized": "Plugin",
+    "removed": "Removed {name}",
+    "upgraded": "Upgraded {name} to {sha}"
+  },
+  "recencyLens": {
+    "all": "All",
+    "ariaLabel": "Recency window",
+    "month": "Month",
+    "week": "Week"
+  },
+  "sections": {
+    "channels": "Channels",
+    "contacts": "Contacts",
+    "library": "Library",
+    "memory": "Memory",
+    "schedules": "Schedules",
+    "superpowers": "My Superpowers",
+    "workspace": "Workspace"
+  },
+  "skillDetail": {
+    "backToSkillsAriaLabel": "Back to skills",
+    "filesTab": "Files",
+    "fileViewModeAriaLabel": "File view mode",
+    "historyTab": "History",
+    "install": "Install",
+    "noFilesAvailable": "No files available.",
+    "openInWorkspaceAriaLabel": "Open in Workspace",
+    "pendingAriaLabel": "Pending",
+    "preview": "Preview",
+    "remove": "Remove",
+    "saveFailed": "Save failed",
+    "selectAFile": "Select a file",
+    "selectFilePrompt": "Select a file to view its contents.",
+    "source": "Source"
+  },
+  "skillDetailPage": {
+    "backToSuperpowers": "Back to My Superpowers",
+    "notFoundSubtitle": "This skill may have been removed, or the link is out of date.",
+    "notFoundTitle": "Skill not found"
+  },
+  "skillFileContent": {
+    "binaryFile": "Binary file. No preview available.",
+    "noPreviewAvailable": "No preview available for {fileName}."
+  },
+  "skillOriginBadge": {
+    "assistantMemory": "Assistant's Memory",
+    "custom": "Custom"
+  },
+  "skillRevisionHistory": {
+    "loadError": "Couldn't load revision history.",
+    "noChanges": "No changes recorded yet.",
+    "noPreviewForChange": "No preview available for this change.",
+    "truncatedNotice": "Showing recent changes. Older history is periodically compacted, so this may not reach back to when the skill was created."
+  },
+  "skillRow": {
+    "bundledSkillCannotBeRemovedAriaLabel": "Bundled skill cannot be removed",
+    "bundledSkillsCannotBeRemoved": "Bundled skills cannot be removed",
+    "installingAriaLabel": "Installing",
+    "installSkillAriaLabel": "Install skill",
+    "removeSkillAriaLabel": "Remove skill"
+  },
+  "skillsErrorState": {
+    "subtitle": "Something went wrong. Try refreshing the page.",
+    "title": "Failed to load skills"
+  },
+  "superpowersFilters": {
+    "categoriesLabel": "Categories",
+    "done": "Done",
+    "filterAriaLabel": "Filter superpowers",
+    "filterLabel": {
+      "all": "All",
+      "assistantMemory": "Assistant's Memory",
+      "available": "Available",
+      "custom": "Custom",
+      "installed": "Installed",
+      "plugins": "Plugins",
+      "skills": "Skills"
+    },
+    "filtersTitle": "Filters",
+    "searchAriaLabel": "Search superpowers",
+    "searchPlaceholder": "Search superpowers",
+    "sourceLabel": "Source",
+    "statusLabel": "Status",
+    "typeLabel": "Type"
+  },
+  "superpowersTab": {
+    "catalogBrowsingUnavailableNotice": "Plugin catalog browsing is temporarily unavailable. Installed plugins are still listed below.",
+    "categoriesAriaLabel": "Superpower categories",
+    "dismissTipAriaLabel": "Dismiss tip",
+    "emptyState": {
+      "assistantMemorySubtitle": "Skills your assistant authors from past conversations will appear here.",
+      "assistantMemoryTitle": "No Skills From Memory",
+      "availableSubtitle": "All available skills and plugins are installed.",
+      "availableTitle": "Nothing Left to Install",
+      "categorySubtitle": "Try selecting a different category or clearing the filter.",
+      "categoryTitle": "Nothing in this category",
+      "clawhubSubtitle": "No Clawhub skills found. Try searching the catalog.",
+      "clawhubTitle": "No Clawhub Skills",
+      "customSubtitle": "Create a custom skill by describing what you want in chat.",
+      "customTitle": "No Custom Skills",
+      "defaultSubtitle": "Check your connection to the Vellum catalog.",
+      "defaultTitle": "No Superpowers Available",
+      "installedSubtitle": "Ask your assistant in chat to search for and install new skills and plugins.",
+      "installedTitle": "No Superpowers Installed",
+      "pluginsSubtitle": "Browse the catalog to install plugins that extend your assistant.",
+      "pluginsTitle": "No Plugins Found",
+      "skillsshSubtitle": "No skills.sh skills found. Try searching the catalog.",
+      "skillsshTitle": "No skills.sh Skills",
+      "skillsSubtitle": "Ask your assistant in chat to search for and install new skills.",
+      "skillsTitle": "No Skills Found",
+      "vellumSubtitle": "No bundled Vellum skills found.",
+      "vellumTitle": "No Vellum Skills"
+    },
+    "errorStateSubtitle": "Something went wrong. Try refreshing the page.",
+    "errorStateTitle": "Failed to load superpowers",
+    "pluginsUnavailableNotice": "Plugins are temporarily unavailable. Skills are still listed below.",
+    "skillsUnavailableNotice": "Skills are temporarily unavailable. Plugins are still listed below.",
+    "tipBannerText": "Create a new custom skill by describing what you want in chat, or install plugins to extend your assistant."
+  },
+  "updateAvailableBadge": {
+    "updateAvailable": "Update available",
+    "upgradePluginAriaLabel": "Upgrade plugin"
+  },
+  "useIdentitySectionStats": {
+    "activeLabel": "{count, plural, one {active} other {active}}",
+    "appCount": "{count, plural, one {# app} other {# apps}}",
+    "connectedLabel": "{count, plural, one {connected} other {connected}}",
+    "docCount": "{count, plural, one {# doc} other {# docs}}",
+    "itemLabel": "{count, plural, one {item} other {items}}",
+    "noSchedulesText": "Nothing scheduled yet",
+    "personLabel": "{count, plural, one {person} other {people}}",
+    "pluginCount": "{count, plural, one {# plugin} other {# plugins}}",
+    "skillCount": "{count, plural, one {# skill} other {# skills}}"
+  },
+  "usePluginsList": {
+    "failureMessage": "Failed to load plugins"
+  },
+  "memoryUnavailable": {
+    "statusError": {
+      "title": "Couldn't check your memory settings",
+      "detail": "Something went wrong reading this assistant's memory status, so there's nothing reliable to tell you yet."
+    },
+    "off": {
+      "title": "Memory is turned off",
+      "detail": "Your assistant isn't keeping anything from your conversations, so there's no map to draw. Turn Memory back on to start remembering again."
+    },
+    "legacy": {
+      "title": "Upgrade to memory v3",
+      "detail": "Your assistant is on an older memory engine. Memory v3 reorganizes what it knows into a linked wiki of concepts, and that wiki is what this map draws."
+    },
+    "unknown": {
+      "title": "Memory graph isn't available",
+      "detail": "This assistant's memory backend doesn't report enough to say why. Update your assistant, and this page will tell you what it needs."
+    },
+    "prompts": {
+      "v2": "Migrate my memory from v2 to v3. That's most likely your \"Memory v3 Migration\" skill, but work out what my corpus actually needs and follow whichever skill you use exactly.\n\nRun it in the background and tell me when it's done, or if something blocks.",
+      "v1": "Migrate my memory from v1 to v3. That's most likely two hops, your \"Memory v2 Migration\" skill and then your \"Memory v3 Migration\" skill, but work out what my assistant actually needs and follow whichever skills you use exactly.\n\nRun it in the background and tell me when it's done, or if something blocks.",
+      "enable": "Turn my memory back on. I'd like you to start remembering things from our conversations again."
+    }
+  }
+}

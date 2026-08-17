@@ -8,6 +8,7 @@ import {
   WEB_SEARCH_PROVIDER_KEY_PLACEHOLDERS,
 } from "@/assistant/generated/web-search-provider-catalog.gen";
 import { secretPlaceholder } from "@/domains/settings/ai/secret-placeholder";
+import { useTranslation } from "@/i18n";
 import { captureError } from "@/lib/sentry/capture-error";
 import {
   getLocalSetting,
@@ -41,6 +42,7 @@ import { supportsWebSearchVellumProvider } from "@/lib/backwards-compat/use-supp
 import { whenAssistantVersionKnown } from "@/lib/backwards-compat/utils";
 
 export function WebSearchCard() {
+  const { t } = useTranslation("settings");
   const assistantId = useActiveAssistantId();
   const queryClient = useQueryClient();
   const isOrgReady = useIsOrgReady();
@@ -115,7 +117,7 @@ export function WebSearchCard() {
     saving || needsKeyBeforeSave || (!configChanged && !hasNewApiKey);
   const apiKeyPlaceholder = secretPlaceholder(
     WEB_SEARCH_PROVIDER_KEY_PLACEHOLDERS[webSearchProvider] ??
-      "Enter your API key",
+      t("webSearchCard.apiKeyPlaceholder"),
     webSearchHasStoredKey,
   );
 
@@ -154,9 +156,7 @@ export function WebSearchCard() {
           },
         })
         .catch((error) => {
-          toast.error(
-            "Failed to update assistant configuration. Please try again.",
-          );
+          toast.error(t("webSearchCard.configUpdateFailedToast"));
           captureError(error, { context: "patch_daemon_config" });
           throw error;
         });
@@ -182,10 +182,10 @@ export function WebSearchCard() {
         void queryClient.invalidateQueries({ queryKey: presenceKey });
         setWebSearchApiKey("");
       }
-      toast.success("Web search settings saved.");
+      toast.success(t("webSearchCard.savedToast"));
     } catch (err) {
       captureError(err, { context: "settings-ai-web-search-persist-local" });
-      toast.error("Saved, but local preferences could not be written.");
+      toast.error(t("webSearchCard.localPreferencesFailedToast"));
     }
   }, [
     requiresProviderCredential,
@@ -195,6 +195,7 @@ export function WebSearchCard() {
     assistantId,
     webSearchApiKey,
     webSearchProvider,
+    t,
   ]);
 
   const handleReset = useCallback(() => {
@@ -209,16 +210,16 @@ export function WebSearchCard() {
 
   return (
     <ByoServiceCard
-      title="Web Search"
-      subtitle="Configure how your assistant should search the web"
+      title={t("webSearchCard.title")}
+      subtitle={t("webSearchCard.subtitle")}
     >
       <div className="space-y-4">
         <div className="space-y-1">
           <label className="block text-body-small-default text-[var(--content-tertiary)]">
-            Provider
+            {t("webSearchCard.providerLabel")}
           </label>
           <Select
-            aria-label="Web search provider"
+            aria-label={t("webSearchCard.providerAriaLabel")}
             value={webSearchProvider}
             onChange={setDraftWebSearchProvider}
             options={WEB_SEARCH_PROVIDER_IDS.map((p) => ({
@@ -230,13 +231,13 @@ export function WebSearchCard() {
 
         {webSearchProvider === "vellum" && (
           <p className="text-body-medium-lighter text-[var(--content-tertiary)]">
-            Search runs through your Vellum account.
+            {t("webSearchCard.vellumNote")}
           </p>
         )}
 
         {requiresProviderCredential && (
           <Input
-            label="API Key"
+            label={t("webSearchCard.apiKeyLabel")}
             type="password"
             value={webSearchApiKey}
             onChange={(e) => setWebSearchApiKey(e.target.value)}

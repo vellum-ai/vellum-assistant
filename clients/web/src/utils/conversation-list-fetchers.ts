@@ -17,10 +17,17 @@
 import { queryOptions } from "@tanstack/react-query";
 import {
   conversationsGet,
+  conversationsSectionsGet,
   conversationsUnreadcountGet,
 } from "@/generated/daemon/sdk.gen";
-import { conversationsUnreadcountGetQueryKey } from "@/generated/daemon/@tanstack/react-query.gen";
-import type { ConversationsGetData } from "@/generated/daemon/types.gen";
+import {
+  conversationsSectionsGetQueryKey,
+  conversationsUnreadcountGetQueryKey,
+} from "@/generated/daemon/@tanstack/react-query.gen";
+import type {
+  ConversationsGetData,
+  ConversationsSectionsGetResponse,
+} from "@/generated/daemon/types.gen";
 import {
   ApiError,
   assertHasResponse,
@@ -31,6 +38,7 @@ import { recordDiagnostic } from "@/lib/diagnostics";
 import { emitClientPerfEvent } from "@/lib/telemetry/client-perf";
 import type { Conversation } from "@/types/conversation-types";
 import { readContentLength } from "@/utils/content-length";
+import { byTimestampDesc } from "@/utils/conversation-order";
 import { isScheduledConversation } from "@/utils/conversation-predicates";
 import { toConversation } from "@/utils/conversation-transforms";
 
@@ -95,6 +103,41 @@ export function sectionConversationsQueryKey(
 }
 
 /**
+ * Recover the filter a section cache was keyed by, or `null` when the key
+ * is not a section key.
+ *
+ * The decoder to {@link sectionConversationsQueryKey}'s encoder, and it lives
+ * beside it so the two cannot drift. It exists because a local write has to
+ * answer "does this row belong in *this* cache", and the only statement of
+ * what a cache holds is its own key: TanStack's `setQueriesData` hands its
+ * updater the data alone, never the key it came from, so a membership-aware
+ * write has to walk `getQueriesData` and decode each key itself.
+ *
+ * @see {@link https://tanstack.com/query/latest/docs/reference/QueryClient#queryclientsetqueriesdata}
+ */
+export function parseSectionConversationsQueryKey(
+  queryKey: readonly unknown[],
+): SectionConversationFilter | null {
+  const [prefix, , discriminator, groupId, originChannel] = queryKey;
+  if (
+    prefix !== CONVERSATION_LIST_PREFIX ||
+    discriminator !== "section" ||
+    typeof groupId !== "string" ||
+    typeof originChannel !== "string"
+  ) {
+    return null;
+  }
+  /* The encoder writes "" for an absent axis, so "" decodes back to absent
+     rather than to a filter on the empty string. */
+  return {
+    ...(groupId === "" ? {} : { groupId: groupId as ConversationGroupId }),
+    ...(originChannel === ""
+      ? {}
+      : { originChannel: originChannel as OriginChannel }),
+  };
+}
+
+/**
  * Key for the server-side unread conversation count
  * (`GET /v1/conversations/unread-count`). The cache holds `number | null`
  * (see {@link fetchUnreadConversationCount}).
@@ -108,17 +151,6 @@ export function unreadConversationCountQueryKey(assistantId: string | null) {
   return conversationsUnreadcountGetQueryKey({
     path: { assistant_id: assistantId ?? "" },
   });
-}
-
-// ---------------------------------------------------------------------------
-// Shared sort comparator
-// ---------------------------------------------------------------------------
-
-/** Sort conversations descending by a timestamp field (newest first). */
-function byTimestampDesc(
-  key: "lastMessageAt" | "archivedAt",
-): (a: Conversation, b: Conversation) => number {
-  return (a, b) => (b[key] ?? 0) - (a[key] ?? 0);
 }
 
 // ---------------------------------------------------------------------------
@@ -671,6 +703,56 @@ export async function fetchUnreadConversationCount(
   return data?.count ?? null;
 }
 
+/** One renderable sidebar section as the daemon indexes it. */
+export type SidebarIndexSection =
+  ConversationsSectionsGetResponse["sections"][number];
+
+/**
+ * Key for the sidebar section index (`GET /v1/conversations/sections`). The
+ * cache holds `SidebarIndexSection[] | null` (see
+ * {@link fetchSidebarSections}).
+ *
+ * The generated key, NOT a child of {@link conversationListPrefix}, for the
+ * same reason as the unread count: the prefix-wide helpers in
+ * `conversation-cache.ts` treat every entry under the prefix as a
+ * `Conversation[]`, and this cache holds section rows.
+ */
+export function sidebarSectionsQueryKey(assistantId: string | null) {
+  return conversationsSectionsGetQueryKey({
+    path: { assistant_id: assistantId ?? "" },
+  });
+}
+
+/**
+ * Read the sidebar section index, mapping a 404 to `null`.
+ *
+ * An assistant without `GET /v1/conversations/sections` 404s this read;
+ * resolving `null` lets the sidebar keep deriving section existence from the
+ * loaded list, and lets a refetch clear an index from a since-rolled-back
+ * assistant instead of stranding it (see "When a gate is unnecessary" in
+ * BACKWARDS_COMPAT.md). Every other HTTP failure throws a status-carrying
+ * {@link ApiError} so the app-level no-retry-4xx policy applies; a missing
+ * response (network error) rethrows raw and retries as transient.
+ */
+export async function fetchSidebarSections(
+  assistantId: string,
+  signal?: AbortSignal,
+): Promise<SidebarIndexSection[] | null> {
+  const { data, error, response } = await conversationsSectionsGet({
+    path: { assistant_id: assistantId },
+    throwOnError: false,
+    signal,
+  });
+  assertHasResponse(response, error, "Failed to fetch sidebar sections.");
+  if (!response.ok) {
+    if (response.status === 404) {
+      return null;
+    }
+    throw toApiError(error, response);
+  }
+  return data?.sections ?? null;
+}
+
 // ---------------------------------------------------------------------------
 // First-page fetchers
 //
@@ -738,6 +820,33 @@ export async function listScheduledConversationsFirstPage(
     ),
     hasMore: page.hasMore,
   };
+}
+
+/**
+ * First page of {@link listSectionConversations} (one sidebar section).
+ *
+ * Server order is preserved rather than re-sorted, exactly as the full
+ * section fetcher preserves it: a section renders the server's order as-is
+ * (recency, LUM-3108), and a client-side sort here could disagree with it
+ * on ties.
+ */
+export async function listSectionConversationsFirstPage(
+  assistantId: string,
+  filter: SectionConversationFilter,
+): Promise<ConversationListPage> {
+  const page = await fetchConversationListPage(
+    assistantId,
+    0,
+    "first_page_refresh",
+    filter,
+  );
+  recordFirstPageFetch(
+    assistantId,
+    page,
+    drainListKind(filter),
+    "first_page_refresh",
+  );
+  return { conversations: page.conversations, hasMore: page.hasMore };
 }
 
 // ---------------------------------------------------------------------------
@@ -830,6 +939,24 @@ export function unreadConversationCountOptions(assistantId: string) {
   return queryOptions({
     queryKey: unreadConversationCountQueryKey(assistantId),
     queryFn: ({ signal }) => fetchUnreadConversationCount(assistantId, signal),
+    staleTime: QUERY_STALE_TIME_MS,
+    refetchOnWindowFocus: false,
+  });
+}
+
+/**
+ * Query options for the sidebar section index. The cache holds
+ * `SidebarIndexSection[] | null`; `null` means the connected assistant does
+ * not serve the endpoint (see {@link fetchSidebarSections}).
+ *
+ * `refetchOnWindowFocus` is disabled for the same reason as the unread
+ * count: freshness arrives via `sync_changed`-driven invalidation, and a
+ * focus refetch would re-issue the 404 against assistants without the route.
+ */
+export function sidebarSectionsOptions(assistantId: string) {
+  return queryOptions({
+    queryKey: sidebarSectionsQueryKey(assistantId),
+    queryFn: ({ signal }) => fetchSidebarSections(assistantId, signal),
     staleTime: QUERY_STALE_TIME_MS,
     refetchOnWindowFocus: false,
   });

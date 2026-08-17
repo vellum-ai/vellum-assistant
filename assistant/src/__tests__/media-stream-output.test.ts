@@ -26,6 +26,7 @@ import {
 } from "../calls/media-stream-audio-transcode.js";
 import { MediaStreamOutput } from "../calls/media-stream-output.js";
 import { resolveCallTtsProvider } from "../calls/resolve-call-tts-provider.js";
+import { setConfig } from "./helpers/set-config.js";
 
 const mockResolveCallTtsProvider = resolveCallTtsProvider as ReturnType<
   typeof jest.fn
@@ -1210,6 +1211,180 @@ describe("MediaStreamOutput", () => {
         "Let me take a look at that,",
         "Here is the second answer,",
       ]);
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // Synthesis language hint
+  // ---------------------------------------------------------------------------
+
+  describe("synthesis language hint", () => {
+    /** Synthesize one turn and return the provider request it produced. */
+    async function synthesizeOneTurn(
+      output: MediaStreamOutput,
+    ): Promise<{ language?: string }> {
+      mockSynthesize.mockResolvedValue({
+        audio: makeWavBuffer([1000, 2000, 3000, 4000]),
+        contentType: "audio/wav",
+      });
+      output.sendTextToken("Hello caller.", true);
+      await drain(() => mockSynthesize.mock.calls.length > 0);
+      return mockSynthesize.mock.calls[0][0] as { language?: string };
+    }
+
+    test("the resolver's language rides the provider request", async () => {
+      const { ws } = createMockWs();
+      const output = makeOutput(ws, "stream-lang");
+      output.setSynthesisLanguageResolver(() => "es");
+
+      const request = await synthesizeOneTurn(output);
+
+      expect(request.language).toBe("es");
+    });
+
+    test("fixed system copy synthesizes without the caller-language hint while model text keeps it", async () => {
+      const { ws } = createMockWs();
+      const output = makeOutput(ws, "stream-lang");
+      output.setSynthesisLanguageResolver(() => "ja");
+      mockSynthesize.mockResolvedValue({
+        audio: makeWavBuffer([1000, 2000, 3000, 4000]),
+        contentType: "audio/wav",
+      });
+
+      output.sendTextToken("Model reply.", true);
+      output.sendTextToken("Are you still there?", true, { systemCopy: true });
+      await drain(() => mockSynthesize.mock.calls.length >= 2);
+
+      const requests = mockSynthesize.mock.calls.map(
+        (call) => call[0] as { text: string; language?: string },
+      );
+      expect(requests[0]?.text).toBe("Model reply.");
+      expect(requests[0]?.language).toBe("ja");
+      expect(requests[1]?.text).toBe("Are you still there?");
+      expect(requests[1]?.language).toBeUndefined();
+    });
+
+    test("no language when nothing resolves (default multilingual pin)", async () => {
+      const { ws } = createMockWs();
+      const output = makeOutput(ws, "stream-lang");
+
+      const request = await synthesizeOneTurn(output);
+
+      expect(request.language).toBeUndefined();
+    });
+
+    test("a monolingual pin on a manual-selection provider resolves as the hint", async () => {
+      setConfig("services", {
+        stt: { provider: "deepgram", language: "es-ES" },
+      });
+      try {
+        const { ws } = createMockWs();
+        const output = makeOutput(ws, "stream-lang");
+
+        const request = await synthesizeOneTurn(output);
+
+        expect(request.language).toBe("es");
+      } finally {
+        setConfig("services", {});
+      }
+    });
+
+    test("the pin is ignored for auto-detecting providers", async () => {
+      setConfig("services", {
+        stt: { provider: "openai-whisper", language: "es" },
+      });
+      try {
+        const { ws } = createMockWs();
+        const output = makeOutput(ws, "stream-lang");
+
+        const request = await synthesizeOneTurn(output);
+
+        expect(request.language).toBeUndefined();
+      } finally {
+        setConfig("services", {});
+      }
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // Per-language voice override (languageVoices)
+  // ---------------------------------------------------------------------------
+
+  describe("per-language voice override", () => {
+    afterEach(() => {
+      setConfig("services", {});
+    });
+
+    /** Seed a deepgram languageVoices entry and resolve deepgram as the provider. */
+    function useDeepgramWithHindiVoice(): void {
+      setConfig("services", {
+        tts: {
+          provider: "deepgram",
+          providers: {
+            deepgram: { languageVoices: { hi: "aura-2-hindi-voice" } },
+          },
+        },
+      });
+      useProvider({
+        id: "deepgram",
+        capabilities: { supportsStreaming: false, supportedFormats: ["wav"] },
+        synthesize: mockSynthesize,
+      });
+      mockSynthesize.mockResolvedValue({
+        audio: makeWavBuffer([1000, 2000, 3000, 4000]),
+        contentType: "audio/wav",
+      });
+    }
+
+    test("a configured languageVoices entry for the resolved language rides the request as voiceId", async () => {
+      useDeepgramWithHindiVoice();
+      const { ws } = createMockWs();
+      const output = makeOutput(ws, "stream-voice");
+      output.setSynthesisLanguageResolver(() => "hi");
+
+      output.sendTextToken("Namaste.", true);
+      await drain(() => mockSynthesize.mock.calls.length > 0);
+
+      const request = mockSynthesize.mock.calls[0][0] as {
+        voiceId?: string;
+        language?: string;
+      };
+      expect(request.language).toBe("hi");
+      expect(request.voiceId).toBe("aura-2-hindi-voice");
+    });
+
+    test("no voiceId when the map has no entry for the resolved language", async () => {
+      useDeepgramWithHindiVoice();
+      const { ws } = createMockWs();
+      const output = makeOutput(ws, "stream-voice");
+      output.setSynthesisLanguageResolver(() => "es");
+
+      output.sendTextToken("Hola.", true);
+      await drain(() => mockSynthesize.mock.calls.length > 0);
+
+      const request = mockSynthesize.mock.calls[0][0] as {
+        voiceId?: string;
+        language?: string;
+      };
+      expect(request.language).toBe("es");
+      expect(request.voiceId).toBeUndefined();
+    });
+
+    test("system copy gets neither the language hint nor the language voice", async () => {
+      useDeepgramWithHindiVoice();
+      const { ws } = createMockWs();
+      const output = makeOutput(ws, "stream-voice");
+      output.setSynthesisLanguageResolver(() => "hi");
+
+      output.sendTextToken("Are you still there?", true, { systemCopy: true });
+      await drain(() => mockSynthesize.mock.calls.length > 0);
+
+      const request = mockSynthesize.mock.calls[0][0] as {
+        voiceId?: string;
+        language?: string;
+      };
+      expect(request.language).toBeUndefined();
+      expect(request.voiceId).toBeUndefined();
     });
   });
 

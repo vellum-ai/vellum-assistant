@@ -19,6 +19,8 @@ import {
   ScrollShadow,
   Typography,
 } from "@vellumai/design-library";
+import { cn } from "@vellumai/design-library/utils/cn";
+import { hoverRevealClasses } from "@vellumai/design-library/utils/hover-reveal";
 import {
   quoteBlockquoteAccentClassName,
   quoteBlockquoteClassName,
@@ -54,11 +56,7 @@ function StagedQuoteChip({ quote }: { quote: StagedQuote }) {
   }, [quote.replyText]);
 
   return (
-    <Card.Root
-      padding="sm"
-      bordered
-      className="group/quote bg-[var(--surface-lift)]"
-    >
+    <Card.Root padding="sm" bordered className="group bg-[var(--surface-lift)]">
       <Card.Body padding="md" className="relative flex flex-col gap-2 pr-8">
         <Typography
           as="div"
@@ -85,7 +83,7 @@ function StagedQuoteChip({ quote }: { quote: StagedQuote }) {
           iconOnly={<X />}
           expandOnMobile={false}
           onClick={() => removeStagedQuote(quote.id)}
-          className="absolute right-1 top-1 shrink-0 opacity-0 transition-opacity group-hover/quote:opacity-100 focus-visible:opacity-100"
+          className={cn("absolute right-1 top-1 shrink-0", hoverRevealClasses)}
           aria-label="Remove quote"
         />
       </Card.Body>

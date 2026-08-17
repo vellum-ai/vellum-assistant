@@ -1,7 +1,6 @@
 import {
   Archive,
   Code2,
-  Download,
   FileAudio,
   File as FileIcon,
   FileImage,
@@ -13,7 +12,8 @@ import {
 import type { MouseEvent, ReactNode } from "react";
 import { useCallback } from "react";
 
-import { Tooltip, Typography } from "@vellumai/design-library";
+import { Typography } from "@vellumai/design-library";
+import { AttachmentDownloadOverlay } from "@/domains/chat/components/chat-attachments/attachment-download-overlay";
 
 import {
   classifyAttachment,
@@ -111,7 +111,7 @@ export function MessageAttachmentSquare({
             }
           : undefined
       }
-      className={`group/square flex flex-col gap-1${isClickable ? " cursor-pointer" : ""}`}
+      className={`group flex flex-col gap-1${isClickable ? " cursor-pointer" : ""}`}
     >
       <div className="relative w-fit">
         <div
@@ -139,19 +139,11 @@ export function MessageAttachmentSquare({
           )}
         </div>
         {onDownload && (
-          <div className="pointer-events-none absolute inset-0 rounded-lg bg-black/50 opacity-0 transition-opacity group-hover/square:pointer-events-auto group-hover/square:opacity-100 group-focus-within/square:pointer-events-auto group-focus-within/square:opacity-100">
-            <Tooltip content="Download">
-              <button
-                type="button"
-                onClick={handleDownloadClick}
-                onKeyDown={(e) => e.stopPropagation()}
-                aria-label={`Download ${filename}`}
-                className="absolute bottom-1 right-1 flex h-6 w-6 items-center justify-center rounded-md text-white/80 transition-colors hover:bg-white/20 hover:text-white"
-              >
-                <Download className="h-3.5 w-3.5" />
-              </button>
-            </Tooltip>
-          </div>
+          <AttachmentDownloadOverlay
+            filename={filename}
+            onDownload={handleDownloadClick}
+            className="rounded-lg"
+          />
         )}
       </div>
       <Typography

@@ -1,10 +1,10 @@
 /**
  * Tests for `WorkspaceTreeCreateMenu`.
  *
- * Verifies the mobile vs desktop branch — desktop renders a Radix dropdown
- * Menu with the New File / New Folder rows; mobile renders a BottomSheet
- * (Radix Dialog). Selecting either row forwards `onSelectKind(kind)` to the
- * parent.
+ * Verifies the touch vs pointer branch: a fine pointer renders a Radix
+ * dropdown Menu with the New File / New Folder rows, a touch-first viewport
+ * renders a BottomSheet (Radix Dialog). Selecting either row forwards
+ * `onSelectKind(kind)` to the parent.
  *
  * Uses `renderToStaticMarkup` + `mock.module` for design library compounds
  * (same pattern as conversation-actions-menu.test.tsx).
@@ -14,10 +14,10 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 import { createElement, type ReactNode } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 
-let mockIsMobile = false;
-mock.module("@/hooks/use-is-mobile", () => ({
-  useIsMobile: () => mockIsMobile,
-  MOBILE_MEDIA_QUERY: "(max-width: 767px)",
+let mockIsTouchMobile = false;
+mock.module("@/hooks/use-touch-mobile", () => ({
+  useTouchMobile: () => mockIsTouchMobile,
+  TOUCH_MOBILE_MEDIA_QUERY: "(width < 48rem) and (pointer: coarse)",
 }));
 
 const passthrough = ({ children, ...props }: Record<string, unknown>) =>
@@ -94,12 +94,11 @@ mock.module("@vellumai/design-library/components/panel-item", () => ({
 import { WorkspaceTreeCreateMenu } from "./workspace-tree";
 
 beforeEach(() => {
-  mockIsMobile = false;
+  mockIsTouchMobile = false;
 });
 
 describe("WorkspaceTreeCreateMenu", () => {
-  test("desktop branch renders Menu with New File / New Folder items", () => {
-    mockIsMobile = false;
+  test("pointer branch renders Menu with New File / New Folder items", () => {
     const html = renderToStaticMarkup(
       createElement(WorkspaceTreeCreateMenu, {
         open: true,
@@ -113,8 +112,8 @@ describe("WorkspaceTreeCreateMenu", () => {
     expect(html).toContain('role="menuitem"');
   });
 
-  test("mobile branch renders BottomSheet with PanelItem rows", () => {
-    mockIsMobile = true;
+  test("touch branch renders BottomSheet with PanelItem rows", () => {
+    mockIsTouchMobile = true;
     const html = renderToStaticMarkup(
       createElement(WorkspaceTreeCreateMenu, {
         open: true,
@@ -127,8 +126,7 @@ describe("WorkspaceTreeCreateMenu", () => {
     expect(html).toContain('data-testid="panel-item"');
   });
 
-  test("desktop branch includes menuitem roles for accessibility", () => {
-    mockIsMobile = false;
+  test("pointer branch includes menuitem roles for accessibility", () => {
     const html = renderToStaticMarkup(
       createElement(WorkspaceTreeCreateMenu, {
         open: true,

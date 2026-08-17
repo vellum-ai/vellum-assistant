@@ -11,6 +11,7 @@ import { useEffect, useState } from "react";
 
 import { FileMarkdown } from "@/components/file-markdown";
 import { memoryGraphNodeOptions } from "@/domains/intelligence/memory-graph/get-memory-graph-node";
+import { useTranslation } from "@/i18n";
 import { Button } from "@vellumai/design-library";
 
 import { EDGE_LEARNED_COLOR } from "./constants";
@@ -106,6 +107,7 @@ function buildNotePreview(content: string): string {
  */
 function ConceptNote({ content }: { content: string }) {
   const [expanded, setExpanded] = useState(false);
+  const { t } = useTranslation("intelligence");
 
   if (content.length <= LONG_NOTE_THRESHOLD) {
     return <FileMarkdown content={content} />;
@@ -127,7 +129,9 @@ function ConceptNote({ content }: { content: string }) {
           )
         }
       >
-        {expanded ? "Show less" : "Read full note"}
+        {expanded
+          ? t("conceptDetailPanel.showLess")
+          : t("conceptDetailPanel.readFullNote")}
       </Button>
     </>
   );
@@ -150,6 +154,7 @@ export function ConceptDetailPanel({
   onClose,
   onOpenThread,
 }: ConceptDetailPanelProps) {
+  const { t } = useTranslation("intelligence");
   const query = useQuery(memoryGraphNodeOptions(assistantId, node.id));
   const detail = query.data;
   const updated = formatUpdated(node.updatedAtMs);
@@ -199,7 +204,7 @@ export function ConceptDetailPanel({
             jump back + re-center via onCrumb; the ‹ back control mirrors it. */}
         {trail.length > 1 ? (
           <nav
-            aria-label="Concept trail"
+            aria-label={t("conceptDetailPanel.trailAriaLabel")}
             className="flex shrink-0 items-center gap-1 overflow-hidden border-b px-5 py-2 text-body-small-default"
             style={{
               borderColor: "var(--border-base)",
@@ -209,7 +214,7 @@ export function ConceptDetailPanel({
             <button
               type="button"
               onClick={() => onCrumb(trail.length - 2)}
-              aria-label="Back"
+              aria-label={t("conceptDetailPanel.backAriaLabel")}
               className="-ml-1 mr-0.5 flex shrink-0 items-center rounded p-0.5 hover:bg-[color-mix(in_srgb,var(--content-tertiary)_14%,transparent)]"
               style={{ color: "var(--content-tertiary)" }}
             >
@@ -265,7 +270,7 @@ export function ConceptDetailPanel({
                 className="mt-0.5 text-body-small-default"
                 style={{ color: "var(--content-tertiary)" }}
               >
-                Updated {updated}
+                {t("conceptDetailPanel.updated", { date: updated })}
               </p>
             ) : null}
           </div>
@@ -273,7 +278,7 @@ export function ConceptDetailPanel({
             variant="ghost"
             iconOnly={<X aria-hidden />}
             onClick={onClose}
-            aria-label="Close"
+            aria-label={t("conceptDetailPanel.closeAriaLabel")}
             tintColor="var(--content-tertiary)"
           />
         </header>
@@ -297,7 +302,7 @@ export function ConceptDetailPanel({
               className="text-body-medium-lighter"
               style={{ color: "var(--content-tertiary)" }}
             >
-              Couldn't load this concept. Try again in a moment.
+              {t("conceptDetailPanel.loadError")}
             </p>
           ) : detail?.found && detail.content?.trim() ? (
             // Keyed by node id so travelling to a new concept remounts the note
@@ -308,8 +313,7 @@ export function ConceptDetailPanel({
               className="text-body-medium-lighter"
               style={{ color: "var(--content-tertiary)" }}
             >
-              This concept doesn't have written content yet — it exists as a
-              link in the graph, but its page is empty.
+              {t("conceptDetailPanel.emptyContent")}
             </p>
           )}
 
@@ -326,14 +330,15 @@ export function ConceptDetailPanel({
                   className="text-body-small-default uppercase tracking-wide"
                   style={{ color: "var(--content-tertiary)" }}
                 >
-                  Wired to
+                  {t("conceptDetailPanel.wiredTo")}
                 </h3>
                 <span
                   className="text-body-small-default tabular-nums"
                   style={{ color: "var(--content-tertiary)" }}
                 >
-                  {neighbors.length} connection
-                  {neighbors.length === 1 ? "" : "s"}
+                  {t("conceptDetailPanel.connectionCount", {
+                    count: neighbors.length,
+                  })}
                 </span>
               </div>
               <ul className="flex list-none flex-col gap-0.5">
@@ -377,12 +382,10 @@ export function ConceptDetailPanel({
               className="flex-1"
               leftIcon={<MessageCircle size={16} aria-hidden />}
               onClick={() =>
-                onOpenThread(
-                  `Tell me what you remember about "${title}" and how it connects to the rest of what you know.`,
-                )
+                onOpenThread(t("conceptDetailPanel.askPrompt", { title }))
               }
             >
-              Ask about this
+              {t("conceptDetailPanel.askAboutThis")}
             </Button>
             <Button
               variant="primary"
@@ -390,12 +393,10 @@ export function ConceptDetailPanel({
               className="flex-1"
               leftIcon={<Sparkles size={16} aria-hidden />}
               onClick={() =>
-                onOpenThread(
-                  `I want to refine what you remember about "${title}". Ask me what's off and we'll correct it together.`,
-                )
+                onOpenThread(t("conceptDetailPanel.refinePrompt", { title }))
               }
             >
-              Refine
+              {t("conceptDetailPanel.refine")}
             </Button>
           </footer>
         ) : null}

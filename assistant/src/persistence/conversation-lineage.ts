@@ -184,6 +184,14 @@ export function isSingleSegmentLineage(segments: LineageSegment[]): boolean {
  * strictly-earlier `createdAt`, or an equal `createdAt` with an id that does
  * not sort after the bound. The fork message itself is included, because a
  * fork is taken THROUGH that message.
+ *
+ * Ancestor segments additionally exclude unfinalized rows. An ancestor's
+ * `finalized = 0` row is a message its own live turn is still writing; a
+ * descendant reading it would see partial content that the ancestor rewrites
+ * inline when the turn completes. The row enters the window on its own once
+ * it finalizes. A segment with no bound is the conversation's own tail and
+ * keeps its unfinalized rows: a conversation always sees its own in-flight
+ * message.
  */
 export function lineageMessageFilter(segments: LineageSegment[]): SQL {
   const clauses = segments.map((segment) => {
@@ -194,6 +202,7 @@ export function lineageMessageFilter(segments: LineageSegment[]): SQL {
     const { createdAt, id } = segment.through;
     return and(
       owner,
+      eq(messages.finalized, 1),
       or(
         lt(messages.createdAt, createdAt),
         and(

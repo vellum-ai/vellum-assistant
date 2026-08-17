@@ -1,0 +1,37 @@
+{
+  "libraryEmptyState": {
+    "heading": "Your library is empty",
+    "body": "Ask your assistant to build something, or import a shared app",
+    "newConversation": "New Conversation",
+    "separator": "or",
+    "importFile": "Import .vellum File"
+  },
+  "libraryView": {
+    "importFailed": "Failed to import app",
+    "loadingAria": "Loading apps",
+    "retry": "Retry",
+    "import": "Import",
+    "searchPlaceholder": "Search your library",
+    "noMatches": "No apps or documents matched “{query}”",
+    "pinned": "Pinned",
+    "recents": "Recents",
+    "documents": "Documents"
+  },
+  "libraryAppCard": {
+    "exported": "App exported",
+    "shareFailed": "Failed to share app",
+    "actionsTitle": "Options for {appName}",
+    "unpin": "Unpin",
+    "pin": "Pin",
+    "share": "Share",
+    "shareSub": "Export as .vellum file",
+    "deployed": "Deployed to Vercel",
+    "copyLink": "Copy link",
+    "redeploy": "Redeploy",
+    "redeploySub": "Publish the current version",
+    "deploy": "Deploy to Vercel",
+    "deploySub": "Publish as a static page",
+    "delete": "Delete"
+  },
+  "libraryDetailPage": { "backToLibrary": "Back to Library" }
+}

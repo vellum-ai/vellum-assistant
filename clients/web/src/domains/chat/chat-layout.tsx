@@ -13,6 +13,7 @@ import {
   useNavigate,
   useNavigationType,
 } from "react-router";
+import { SIDE_MENU_TILE_SIZE } from "@vellumai/design-library";
 
 import { useAssistantLifecycleStore } from "@/assistant/lifecycle-store";
 import {
@@ -39,6 +40,7 @@ import {
 
 import { useChatLayoutSlotsStore } from "@/components/layout/chat-layout-slots-store";
 import { useElectronDockSync } from "@/domains/chat/hooks/use-electron-dock-sync";
+import { useNativeRecentChatsSync } from "@/domains/chat/hooks/use-native-recent-chats-sync";
 import { useOpenAppFromChat } from "@/domains/chat/hooks/use-open-app-from-chat";
 import {
   EDGE_SWIPE_EASING,
@@ -205,8 +207,18 @@ export function ChatLayout({
   // is gated on `isAssistantActive`, and a gated query is pending without
   // fetching, which would leave the sidebar under placeholders for as long as
   // the assistant took to come up (or forever, if it never did).
-  const { conversations, isLoading: isLoadingConversations } =
-    useConversationListQuery(assistantId, isAssistantActive);
+  //
+  // `isAssistantActive` is the assistant record: does this assistant exist and
+  // is it provisioned. Whether its pod is reachable is a separate question,
+  // answered inside the query hook itself, since these keys are shared with
+  // call sites that pass no gate of their own.
+  const {
+    conversations,
+    isLoading: isLoadingConversations,
+    isPending: isConversationListPending,
+    isError: conversationsFailed,
+    refetch: retryConversations,
+  } = useConversationListQuery(assistantId, isAssistantActive);
   const { conversationGroups } = useConversationGroupsQuery(
     assistantId,
     isAssistantActive,
@@ -237,6 +249,18 @@ export function ChatLayout({
   // conversation list this layout already subscribes to; see
   // `./hooks/use-electron-dock-sync.ts`.
   useElectronDockSync(assistantId, conversations, isAssistantActive);
+
+  // Mirror the same list into the iOS shell's recent-chats cache, which backs
+  // the Shortcuts app's chat picker ("Send Message to Chat"). No-op off
+  // Capacitor iOS. Resolved means the query has actually SUCCEEDED: pending
+  // (loading, or gated on the assistant/pod) and error both serve the `[]`
+  // fallback, and either would wipe the last-known-good native cache. The
+  // error case is live, not theoretical: a pod that is waking 503s the list
+  // through its whole retry budget into a terminal error (#40621).
+  useNativeRecentChatsSync(
+    conversations,
+    !isConversationListPending && !conversationsFailed,
+  );
 
   // Header slots come from a module-level store so gated routes
   // (which see `ActiveAssistantGate`'s `<Outlet />` as their
@@ -309,7 +333,7 @@ export function ChatLayout({
   // --- Sidebar collapsed / drawer state ---
   const [collapsed, setCollapsed] = useState<boolean>(readPersistedCollapsed);
   const [sidebarWidth, setSidebarWidth] = useState<number>(readPersistedWidth);
-  // The tour walks the sidebar's rows, which a 48px collapsed rail doesn't
+  // The tour walks the sidebar's rows, which the collapsed rail doesn't
   // show — so the tour's whole run forces the rail expanded. Derived (not
   // written through setCollapsed) so the user's persisted preference is
   // untouched and the rail collapses back on its own when the tour ends.
@@ -397,9 +421,14 @@ export function ChatLayout({
       // landing width comes from state, not DOM measurement: skipping the
       // tour un-forces a collapsed rail in this same commit, so the nav's
       // measured width still reads expanded while it is already collapsing
-      // to 48px. No fill, so the wrapper returns to shrink-wrapping the nav
-      // the moment the animation ends.
-      const targetWidth = effectiveCollapsed ? 48 : sidebarWidth;
+      // to the rail width. No fill, so the wrapper returns to shrink-wrapping
+      // the nav the moment the animation ends.
+      //
+      // A collapsed rail is one tile wide here: this layout renders the nav
+      // without the design library's own padding and border (the page draws
+      // that chrome), and the collapsed rail sizes its tile as content, so
+      // nothing is added around it.
+      const targetWidth = effectiveCollapsed ? SIDE_MENU_TILE_SIZE : sidebarWidth;
       railFocusAnimationsRef.current = [
         aside.animate(
           [
@@ -902,6 +931,8 @@ export function ChatLayout({
       onWidthChange={args.onWidthChange}
       conversations={conversations}
       isLoadingConversations={isLoadingConversations}
+      conversationsFailed={conversationsFailed}
+      onRetryConversations={retryConversations}
       conversationGroups={conversationGroups}
       activeConversationId={sidebarActiveConversationId}
       processingConversationIds={processingConversationIds}

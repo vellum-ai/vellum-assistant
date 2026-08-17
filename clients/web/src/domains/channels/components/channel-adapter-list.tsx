@@ -35,8 +35,8 @@ export interface ChannelAdapterListProps {
  *
  * The card carries no "Channels" heading of its own: every surface that
  * mounts it already names it (`IntelligenceLayout`'s section `<h1>` on
- * desktop, the `MobileSidebarDrawer` title on mobile), so one here would
- * put the word on screen twice.
+ * desktop, the `SideListDrawer` title in a pane too narrow to seat this
+ * beside the detail), so one here would put the word on screen twice.
  *
  * Channels a plugin brings sit in the same list as the rest. They are
  * channels, they are selected the same way, and their panel is the thing
@@ -91,10 +91,14 @@ function AdapterRow({ channel, selected, onClick }: AdapterRowProps) {
   const statusLabel = connected ? "Connected" : "Not connected";
 
   return (
-    // `PanelItem` forwards `label` to the button's aria-label, so fold the
-    // status into it — otherwise screen readers announce only "Slack" and miss
-    // the connection state, which is the row's whole point.
-    <PanelItem asChild active={selected} label={`${label}, ${statusLabel}`}>
+    // The status is folded into the accessible name: otherwise screen readers
+    // announce only "Slack" and miss the connection state, which is the row's
+    // whole point.
+    <PanelItem
+      asChild
+      active={selected}
+      aria-label={`${label}, ${statusLabel}`}
+    >
       <button
         type="button"
         onClick={onClick}
@@ -139,7 +143,7 @@ function PluginRow({ channel, selected, onClick }: PluginRowProps) {
     <PanelItem
       asChild
       active={selected}
-      label={t("channelAdapterList.pluginChannelAria", {
+      aria-label={t("channelAdapterList.pluginChannelAria", {
         channel: channel.label,
       })}
     >

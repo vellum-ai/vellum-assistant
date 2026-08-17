@@ -21,6 +21,7 @@ import type { TrustContext } from "../daemon/trust-context-types.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
 import { computeToolApprovalDigest } from "../security/tool-approval-digest.js";
 import { getCatalogProvider } from "../tts/provider-catalog.js";
+import { createReasoningTagFilter } from "../tts/reasoning-tag-filter.js";
 import { extractSpeakableSegments } from "../tts/speakable-segments.js";
 import {
   type AudioStoreSink,
@@ -65,6 +66,10 @@ import {
   resolveSynthesisFormats,
 } from "./resolve-call-tts-provider.js";
 import type { PromptSpeakerContext } from "./speaker-identification.js";
+import {
+  resolveTelephonyLanguageVoice,
+  resolveTelephonySynthesisLanguage,
+} from "./telephony-synthesis-language.js";
 import { sanitizeForTts } from "./tts-text-sanitizer.js";
 import {
   ASK_GUARDIAN_CAPTURE_REGEX,
@@ -189,6 +194,13 @@ export class CallController {
   private guardianUnavailableForCall = false;
   /** Active synthesized-TTS session — tracked so interrupt handling can close it. */
   private activeSynthesisAbort: AbortController | null = null;
+  /**
+   * Resolves the language hint for synthesized speech. The media-stream
+   * server supplies a resolver backed by the STT session's detected
+   * dominant language; the default falls back to the pin-based
+   * resolution only.
+   */
+  private resolveSynthesisLanguage: () => string | undefined;
 
   constructor(
     callSessionId: string,
@@ -198,6 +210,7 @@ export class CallController {
       broadcast?: (msg: AssistantEvent) => void;
       assistantId?: string;
       trustContext?: TrustContext;
+      resolveSynthesisLanguage?: () => string | undefined;
     },
   ) {
     this.callSessionId = callSessionId;
@@ -207,6 +220,9 @@ export class CallController {
     this.broadcast = opts?.broadcast;
     this.assistantId = opts?.assistantId ?? DAEMON_INTERNAL_ASSISTANT_ID;
     this.trustContext = opts?.trustContext ?? null;
+    this.resolveSynthesisLanguage =
+      opts?.resolveSynthesisLanguage ??
+      (() => resolveTelephonySynthesisLanguage());
 
     // Resolve the conversation ID and skipDisclosure from the call session
     const session = getCallSession(callSessionId);
@@ -663,7 +679,9 @@ export class CallController {
         // lock-hold wait budget, so surface a brief natural re-prompt (never a
         // technical-error message) and re-arm listening. last=true doubles as
         // the end-of-turn marker.
-        this.transport.sendTextToken("Sorry, could you say that again?", true);
+        this.transport.sendTextToken("Sorry, could you say that again?", true, {
+          systemCopy: true,
+        });
         this.state = "idle";
         this.resetSilenceTimer();
         this.flushPendingInstructions();
@@ -673,6 +691,7 @@ export class CallController {
       this.transport.sendTextToken(
         "I'm sorry, I encountered a technical issue. Could you repeat that?",
         true,
+        { systemCopy: true },
       );
       this.state = "idle";
       this.resetSilenceTimer();
@@ -710,6 +729,12 @@ export class CallController {
     // could be the start of a control marker.
     let ttsBuffer = "";
     let fullResponseText = "";
+    // Reasoning models can inline <think> spans in the content stream when a
+    // profile has not opted into parseThinkTags. Neither the spoken path nor
+    // the post-turn consumers of fullResponseText (transcripts,
+    // assistant_spoke, END_CALL/ASK_GUARDIAN detection) may see them: both
+    // are fed only filtered text.
+    const reasoningFilter = createReasoningTagFilter();
 
     // Synthesized path: text is split at speakable boundaries as it streams
     // and each segment is synthesized while the LLM keeps generating. The
@@ -912,8 +937,13 @@ export class CallController {
         if (!this.isCurrentRun(runVersion)) {
           return;
         }
-        fullResponseText += text;
-        ttsBuffer += text;
+        // One filter feeds both consumers: the spoken stream and the text
+        // used for transcripts, assistant_spoke, and END_CALL/ASK_GUARDIAN
+        // marker detection. A control marker inside a reasoning span must
+        // never trigger a real action the caller did not hear.
+        const speakable = reasoningFilter.push(text);
+        fullResponseText += speakable;
+        ttsBuffer += speakable;
         ttsBuffer = stripInternalSpeechMarkers(ttsBuffer);
         flushSafeText();
       };
@@ -992,7 +1022,11 @@ export class CallController {
       return fullResponseText;
     }
 
-    // Final sweep: strip any remaining control markers from the buffer
+    // Final sweep: release any held-back partial tag to both consumers,
+    // then strip any remaining control markers from the buffer.
+    const filterTail = reasoningFilter.flush();
+    fullResponseText += filterTail;
+    ttsBuffer += filterTail;
     ttsBuffer = stripInternalSpeechMarkers(ttsBuffer);
     if (ttsBuffer.length > 0) {
       emitSafeChunk(ttsBuffer);
@@ -1080,11 +1114,17 @@ export class CallController {
 
       this.activeSynthesisAbort = abortController;
 
+      const language = this.resolveSynthesisLanguage();
+      // A language-known segment may select the synthesizing provider's
+      // configured per-language voice; no entry keeps the provider default.
+      const voiceId = resolveTelephonyLanguageVoice(provider.id, language);
       await synthesizeAndEmit({
         provider,
         text,
         useCase: "phone-call",
         outputFormat,
+        ...(voiceId !== undefined ? { voiceId } : {}),
+        ...(language !== undefined ? { language } : {}),
         signal: abortController.signal,
         isCurrent: () => this.isCurrentRun(runVersion),
         onChunk: sink.onChunk,
@@ -1804,6 +1844,7 @@ export class CallController {
         this.transport.sendTextToken(
           "Just to let you know, we're running low on time for this call.",
           true,
+          { systemCopy: true },
         );
       }, warningMs);
     }
@@ -1816,6 +1857,7 @@ export class CallController {
       this.transport.sendTextToken(
         "I'm sorry, but we've reached the maximum time for this call. Thank you for your time. Goodbye!",
         true,
+        { systemCopy: true },
       );
       // Give TTS a moment to play, then end
       this.durationEndTimer = setTimeout(() => {
@@ -1878,7 +1920,9 @@ export class CallController {
         { callSessionId: this.callSessionId },
         "Silence timeout triggered",
       );
-      this.transport.sendTextToken("Are you still there?", true);
+      this.transport.sendTextToken("Are you still there?", true, {
+        systemCopy: true,
+      });
     }, getSilenceTimeoutMs());
   }
 }

@@ -34,6 +34,7 @@ import {
 } from "@/domains/chat/unseen-document-changes-store";
 import { useAppDelete } from "@/hooks/use-app-delete";
 import { useIsMobile } from "@/hooks/use-is-mobile";
+import { useTouchMobile } from "@/hooks/use-touch-mobile";
 import { useTranslation } from "@/i18n";
 import type { AppSummary } from "@/types/app-types";
 import type { DocumentSummary } from "@/types/document-types";
@@ -147,7 +148,10 @@ export function ConversationAssetsPill({
     setOpen(false);
   }, [conversationId]);
 
+  // Two independent questions: the header cluster only has room for a labelled
+  // pill on a roomy window, and the disclosure is a sheet only under a thumb.
   const isMobile = useIsMobile();
+  const isTouchMobile = useTouchMobile();
   const { t } = useTranslation("chat");
   const reduceMotion = useReducedMotion();
   const hasUnseenChanges = useHasUnseenDocumentChanges(conversationId);
@@ -237,14 +241,12 @@ export function ConversationAssetsPill({
           <AppAssetActions
             assistantId={assistantId}
             app={asset.app}
-            isMobile={isMobile}
             onRequestDelete={appDelete.requestDelete}
           />
         ) : asset.type === "document" && asset.doc ? (
           <DocumentAssetActions
             assistantId={assistantId}
             doc={asset.doc}
-            isMobile={isMobile}
             onOpen={() => handleSelect(asset)}
           />
         ) : undefined
@@ -252,19 +254,32 @@ export function ConversationAssetsPill({
     />
   ));
 
-  if (isMobile) {
+  const trigger = isMobile ? (
+    <Button
+      variant="ghost"
+      active
+      iconOnly={layersIcon}
+      tintColor="var(--content-default)"
+      aria-label={ariaLabel}
+    />
+  ) : (
+    <Button
+      variant="ghost"
+      active
+      leftIcon={layersIcon}
+      className="rounded-full"
+      tintColor="var(--content-default)"
+      aria-label={ariaLabel}
+    >
+      {label}
+    </Button>
+  );
+
+  if (isTouchMobile) {
     return (
       <>
         <BottomSheet.Root open={open} onOpenChange={handleOpenChange}>
-          <BottomSheet.Trigger asChild>
-            <Button
-              variant="ghost"
-              active
-              iconOnly={layersIcon}
-              tintColor="var(--content-default)"
-              aria-label={ariaLabel}
-            />
-          </BottomSheet.Trigger>
+          <BottomSheet.Trigger asChild>{trigger}</BottomSheet.Trigger>
           <BottomSheet.Content>
             <BottomSheet.Header>
               <BottomSheet.Title>{t("conversationAssets.heading")}</BottomSheet.Title>
@@ -285,18 +300,7 @@ export function ConversationAssetsPill({
   return (
     <>
       <Popover.Root open={open} onOpenChange={handleOpenChange}>
-        <Popover.Trigger asChild>
-          <Button
-            variant="ghost"
-            active
-            leftIcon={layersIcon}
-            className="rounded-full"
-            tintColor="var(--content-default)"
-            aria-label={ariaLabel}
-          >
-            {label}
-          </Button>
-        </Popover.Trigger>
+        <Popover.Trigger asChild>{trigger}</Popover.Trigger>
         <Popover.Content
           side="bottom"
           align="center"

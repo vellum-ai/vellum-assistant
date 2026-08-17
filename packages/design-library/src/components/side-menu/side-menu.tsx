@@ -8,21 +8,27 @@ import {
   useState,
   type ComponentProps,
   type MouseEvent,
-  type PointerEvent,
+  type ReactElement,
   type ReactNode,
   type Ref,
 } from "react";
 
+import { Slot } from "@radix-ui/react-slot";
+
 import { Typography } from "../typography";
 import { Tooltip } from "../tooltip";
+import { PaneResizeHandle } from "../pane-resize-handle";
+import { useResizablePane } from "../../hooks/use-resizable-pane";
 import { cn } from "../../utils/cn";
+import { reportUnmergeableSlotChild } from "../../utils/slot-child";
+import type { CustomPropertyStyle } from "../../utils/custom-property-style";
 
 /**
  * SideMenu primitive — a docked application navigation rail.
  *
  * Two variants:
  * - `rail` (default) — desktop, docked left. Supports a `collapsed` state
- *   that shrinks the rail to an icon-only 48 px column. When collapsed,
+ *   that shrinks the rail to a column one icon tile wide. When collapsed,
  *   section titles, sublists, labels, badges, and trailing icons are
  *   suppressed via a shared context so consumers never conditionally render
  *   child content themselves.
@@ -37,6 +43,7 @@ import { cn } from "../../utils/cn";
  *     │   ├── SideMenu.Section   — labeled group with optional `actions`
  *     │   │   └── SideMenu.SubList
  *     │   │       └── SideMenu.Item
+ *     │   ├── SideMenu.SectionHeader: title row of a caller-drawn group
  *     │   └── SideMenu.Separator
  *     └── SideMenu.Footer        — bottom slot (sticks via margin-top: auto)
  *
@@ -110,9 +117,70 @@ function useSideMenuCollapsed(): boolean {
 // ---------------------------------------------------------------------------
 
 export const SIDE_MENU_DEFAULT_WIDTH = 230;
-export const SIDE_MENU_COLLAPSED_WIDTH = 48;
 export const SIDE_MENU_MIN_WIDTH = 220;
 export const SIDE_MENU_MAX_WIDTH = 400;
+
+/**
+ * The height of a top-level rail pill (an assistant identity row, New Chat, a
+ * pinned app, a section header, Preferences), and so also the diameter of the
+ * circle each of those becomes when the rail collapses: a tile is one of those
+ * pills with its label taken away, and holding the pill's height is what keeps
+ * its glyph on the axis the expanded pill puts it on.
+ *
+ * A list row keeps its own denser height: the rail collapses cards and pills
+ * into tiles, and a conversation row is neither.
+ *
+ * Exported so a caller drawing its own tile sizes it from here rather than
+ * from a matching literal, which is the only way the column stays one width.
+ * A `PanelItem` pill needs nothing: the rail publishes this as
+ * `--side-menu-tile-size` and the pill shape reads it, so its height is not a
+ * caller's decision.
+ */
+export const SIDE_MENU_TILE_SIZE = 36;
+
+/**
+ * The rail's default horizontal padding, which is also the inset `PanelItem`
+ * holds its leading icon at (`p-[8px]`), so an expanded pill's glyph and a
+ * collapsed tile's glyph land on the same axis.
+ */
+export const SIDE_MENU_COLLAPSED_INSET = 8;
+
+/** The rail's default card edge, on both sides. */
+export const SIDE_MENU_BORDER_WIDTH = 1;
+
+/**
+ * The collapsed rail's outer width with the rail's default chrome, for callers
+ * that need the number in JS (an animation target, a reserved gutter).
+ *
+ * It is the sum rather than a literal, and the border is part of the sum: the
+ * rail is a `border-box` element, so a number that counts only the tile and
+ * its padding spends 2px of itself on the edge and leaves the tile 2px less
+ * room than it needs.
+ *
+ * The rendered width is not this constant. The collapsed rail declares one
+ * tile of *content* ({@link SIDE_MENU_TILE_SIZE} with `box-content`) and lets
+ * its own padding and border add themselves, so a caller that overrides that
+ * chrome (`p-0`, `border-0`, as a caller drawing the card edge itself does)
+ * gets a rail exactly one tile wide instead of one that keeps padding it never
+ * renders. That is what makes collapsing read as a pill shrinking in place: a
+ * rail wider than its tile has spare room, the tile centres in it, and every
+ * glyph steps inward by half the surplus.
+ */
+export const SIDE_MENU_COLLAPSED_WIDTH =
+  SIDE_MENU_TILE_SIZE +
+  SIDE_MENU_COLLAPSED_INSET * 2 +
+  SIDE_MENU_BORDER_WIDTH * 2;
+
+/**
+ * The geometry above, published to CSS so the classes below can read it. The
+ * alternative is Tailwind arbitrary values holding the same pixels a second
+ * time, which cannot be checked against the constants and is what lets the
+ * rail and its tiles disagree.
+ */
+const RAIL_GEOMETRY_VARS: CustomPropertyStyle = {
+  "--side-menu-tile-size": `${SIDE_MENU_TILE_SIZE}px`,
+  "--side-menu-collapsed-inset": `${SIDE_MENU_COLLAPSED_INSET}px`,
+};
 
 export interface SideMenuProps extends ComponentProps<"nav"> {
   /** Ignored when `variant="overlay"`. */
@@ -160,11 +228,16 @@ const ROOT_RAIL_EXPANDED_CLASSES = [
   ROOT_RAIL_PADDING,
 ].join(" ");
 
+/* One tile wide, sized as content so the rail's padding and border add
+ * themselves: the tile then fills the column exactly, whatever chrome the
+ * caller leaves on. A width that assumes chrome the caller has turned off is
+ * surplus room the tile centres in, which moves every glyph inward on
+ * collapse. */
 const ROOT_RAIL_COLLAPSED_CLASSES = [
   ROOT_RAIL_BORDER_CLASSES,
-  "w-[48px]",
+  "box-content w-[var(--side-menu-tile-size)]",
   "rounded-[12px]",
-  ROOT_RAIL_PADDING,
+  "pt-4 px-[var(--side-menu-collapsed-inset)] pb-2",
 ].join(" ");
 
 const ROOT_RAIL_RESIZABLE_CLASSES = [
@@ -208,7 +281,7 @@ function SideMenuRoot({
 }: SideMenuProps) {
   const effectiveCollapsed = variant === "overlay" ? false : collapsed;
   const resizable = variant === "rail" && onWidthChange != null;
-  const showResizeHandle = resizable && !effectiveCollapsed;
+  const showResizeHandle = resizable && !effectiveCollapsed && width != null;
 
   const [contentCollapsed, setContentCollapsed] = useState(effectiveCollapsed);
   if (!effectiveCollapsed && contentCollapsed) {
@@ -220,87 +293,37 @@ function SideMenuRoot({
     return () => clearTimeout(id);
   }, [effectiveCollapsed]);
 
-  const dragRef = useRef<{
-    nav: HTMLElement;
-    startX: number;
-    startWidth: number;
-  } | null>(null);
-
-  const handleResizePointerDown = useCallback(
-    (e: PointerEvent<HTMLDivElement>) => {
-      if (!onWidthChange) return;
-      e.preventDefault();
-      e.currentTarget.setPointerCapture(e.pointerId);
-      const nav = e.currentTarget.closest(
-        '[data-slot="side-menu"]',
-      ) as HTMLElement | null;
-      if (!nav) return;
-      dragRef.current = {
-        nav,
-        startX: e.clientX,
-        startWidth: nav.getBoundingClientRect().width,
-      };
-      nav.style.transition = "none";
-      document.body.style.cursor = "col-resize";
-      document.body.style.userSelect = "none";
-    },
-    [onWidthChange],
-  );
-
-  const handleResizePointerMove = useCallback(
-    (e: PointerEvent<HTMLDivElement>) => {
-      const drag = dragRef.current;
-      if (!drag) return;
-      const delta = e.clientX - drag.startX;
-      const next = Math.min(
-        maxWidth,
-        Math.max(minWidth, drag.startWidth + delta),
-      );
-      drag.nav.style.width = `${next}px`;
-    },
-    [minWidth, maxWidth],
-  );
-
-  const handleResizeEnd = useCallback(
-    (e: PointerEvent<HTMLDivElement>) => {
-      const drag = dragRef.current;
-      if (!drag) return;
-      e.currentTarget.releasePointerCapture(e.pointerId);
-      dragRef.current = null;
-      drag.nav.style.transition = "";
-      document.body.style.cursor = "";
-      document.body.style.userSelect = "";
-      const delta = e.clientX - drag.startX;
-      const finalWidth = Math.min(
-        maxWidth,
-        Math.max(minWidth, drag.startWidth + delta),
-      );
-      onWidthChange?.(finalWidth);
-    },
-    [onWidthChange, minWidth, maxWidth],
-  );
-
-  useEffect(() => {
-    return () => {
-      if (dragRef.current) {
-        dragRef.current = null;
-        document.body.style.cursor = "";
-        document.body.style.userSelect = "";
-      }
-    };
-  }, []);
+  // `width` is required for the handle, not just for the inline style: the
+  // separator publishes it as `aria-valuenow`, and a handle that cannot say
+  // where it sits is the kind of half-kept ARIA promise the pattern exists to
+  // avoid. A rail sized purely by CSS gets no drag handle.
+  const navRef = useRef<HTMLElement>(null);
+  const { handleProps, isResizing, paneId } = useResizablePane({
+    side: "start",
+    defaultSize: width ?? minWidth,
+    minSize: minWidth,
+    maxSize: maxWidth,
+    label: "Resize sidebar",
+    paneId: rest.id,
+    paneRef: navRef,
+    onSizeCommit: onWidthChange,
+  });
 
   const widthStyle =
     resizable && !effectiveCollapsed && width != null
-      ? { ...style, width }
-      : style;
+      ? { ...RAIL_GEOMETRY_VARS, ...style, width }
+      : { ...RAIL_GEOMETRY_VARS, ...style };
 
   return (
     <SideMenuContext
       value={{ collapsed: effectiveCollapsed, contentCollapsed, variant }}
     >
       <nav
-        ref={ref}
+        ref={(node) => {
+          navRef.current = node;
+          if (typeof ref === "function") ref(node);
+          else if (ref) ref.current = node;
+        }}
         data-slot="side-menu"
         role="navigation"
         aria-label={ariaLabel}
@@ -308,24 +331,26 @@ function SideMenuRoot({
           ROOT_BASE_CLASSES,
           showResizeHandle && "relative",
           rootChromeClasses(variant, effectiveCollapsed, resizable),
+          // The rail animates its width when collapsing. During a drag that
+          // easing would make the edge lag the cursor, so it is suspended for
+          // the drag's duration. It must come after `rootChromeClasses`, whose
+          // `transition-[width,padding]` is in the same tailwind-merge group
+          // and wins when it is last.
+          isResizing && "transition-none",
           className,
         )}
         style={widthStyle}
         {...rest}
+        id={paneId}
       >
         {children}
         {showResizeHandle ? (
-          <div
-            role="separator"
-            aria-orientation="vertical"
-            className="absolute right-0 top-0 bottom-0 z-10 w-[6px] cursor-col-resize group/resize"
-            onPointerDown={handleResizePointerDown}
-            onPointerMove={handleResizePointerMove}
-            onPointerUp={handleResizeEnd}
-            onPointerCancel={handleResizeEnd}
+          <PaneResizeHandle
+            {...handleProps}
+            className="absolute right-0 top-0 bottom-0 z-10 w-[6px] group/resize"
           >
-            <div className="pointer-events-none absolute right-0 top-2 bottom-2 w-[2px] rounded-full bg-[var(--content-tertiary)] opacity-0 transition-opacity group-hover/resize:opacity-100" />
-          </div>
+            <div className="pointer-events-none absolute right-0 top-2 bottom-2 w-[2px] rounded-full bg-[var(--content-tertiary)] opacity-0 transition-opacity group-hover/resize:opacity-100 group-focus-visible/resize:opacity-100" />
+          </PaneResizeHandle>
         ) : null}
       </nav>
     </SideMenuContext>
@@ -399,6 +424,81 @@ function SideMenuSeparator({
         "my-1 h-px w-full border-0 bg-[var(--border-base)]",
         className,
       )}
+      {...rest}
+    />
+  );
+}
+
+// ---------------------------------------------------------------------------
+// SectionHeader: the title row of a group of rows
+// ---------------------------------------------------------------------------
+
+interface SideMenuSectionHeaderOwnProps extends ComponentProps<"div"> {
+  asChild?: false;
+  ref?: Ref<HTMLDivElement>;
+}
+
+/**
+ * Render the caller's own element instead, typically a disclosure trigger,
+ * with this row's geometry merged onto it. The child is the rendered element,
+ * so a ref lands on whatever the caller chose rather than on a `div`.
+ */
+interface SideMenuSectionHeaderSlotProps extends Omit<
+  ComponentProps<"div">,
+  "children" | "ref"
+> {
+  asChild: true;
+  children: ReactElement;
+  ref?: Ref<HTMLElement>;
+}
+
+export type SideMenuSectionHeaderProps =
+  SideMenuSectionHeaderOwnProps | SideMenuSectionHeaderSlotProps;
+
+/**
+ * The title row of a group in the rail. It is a top-level row like a pill or a
+ * tile, so it stands at the same height, taken from the property
+ * {@link SideMenuRoot} publishes ({@link SIDE_MENU_TILE_SIZE}); on a
+ * touch-sized viewport it grows to its own padding the way every other row
+ * does. It wears small caps and no resting surface, which is why it is this
+ * rather than a `PanelItem`.
+ *
+ * Owns the vertical geometry, the part that has to agree with the rows around
+ * it. Typography, horizontal insets, and whatever sits on the trailing edge
+ * stay with the caller, whose sidebar decides those.
+ */
+function SideMenuSectionHeader(props: SideMenuSectionHeaderProps) {
+  const className = cn(
+    "flex shrink-0 items-center rounded-[6px]",
+    "h-[var(--side-menu-tile-size)] max-md:h-auto",
+    props.className,
+  );
+  if (props.asChild === true) {
+    const {
+      asChild: _asChild,
+      className: _className,
+      children,
+      ref,
+      ...rest
+    } = props;
+    reportUnmergeableSlotChild("SideMenu.SectionHeader", children);
+    return (
+      <Slot
+        ref={ref}
+        data-slot="side-menu-section-header"
+        className={className}
+        {...rest}
+      >
+        {children}
+      </Slot>
+    );
+  }
+  const { asChild: _asChild, className: _className, ref, ...rest } = props;
+  return (
+    <div
+      ref={ref}
+      data-slot="side-menu-section-header"
+      className={className}
       {...rest}
     />
   );
@@ -514,11 +614,12 @@ export interface SideMenuItemProps {
   /**
    * `"tile"` renders the collapsed-rail affordance: the whole treatment a row
    * reduces to when the rail collapses, not a geometry switch. It squares to
-   * its own row height, centers in the rail column, rounds fully, and carries
-   * the resting surface the expanded card or pill wore - collapsing changes
-   * the shape of a thing, not whether it has a surface. The squaring is part
-   * of it, not an extra: a collapsed row is `w-full` of a column slightly
-   * wider than it is tall, so rounding it alone draws an ellipse.
+   * the pill height ({@link SIDE_MENU_TILE_SIZE}, which a row carrying this
+   * shape also sets itself to), centers in the rail column, rounds fully, and
+   * carries the resting surface the expanded card or pill wore: collapsing
+   * changes the shape of a thing, not whether it has a surface. The squaring
+   * is part of it, not an extra: a collapsed row is `w-full` of a column
+   * slightly wider than it is tall, so rounding it alone draws an ellipse.
    *
    * Named for what it is rather than for its outline, because it decides
    * colour as well as form. A caller reaching for a round row somewhere other
@@ -696,7 +797,7 @@ function SideMenuItem({
          does, through the same fallback: a caller that tints the expanded pill
          tints this with one declaration, and one that tints nothing reaches
          `--surface-lift`. */
-      "size-[30px] mx-auto rounded-full bg-[var(--panel-item-bg,var(--surface-lift))]"
+      "size-[var(--side-menu-tile-size)] mx-auto rounded-full bg-[var(--panel-item-bg,var(--surface-lift))]"
     : // `w-full` matters for the `<button>` render path: buttons keep
       // fit-content sizing even as flex containers, so without it a
       // button-backed item shrink-wraps while anchor-backed items fill the rail.
@@ -900,6 +1001,7 @@ type SideMenuComponent = typeof SideMenuRoot & {
   Body: typeof SideMenuBody;
   Footer: typeof SideMenuFooter;
   Section: typeof SideMenuSection;
+  SectionHeader: typeof SideMenuSectionHeader;
   SubList: typeof SideMenuSubList;
   Item: typeof SideMenuItem;
   Separator: typeof SideMenuSeparator;
@@ -910,6 +1012,7 @@ SideMenu.Header = SideMenuHeader;
 SideMenu.Body = SideMenuBody;
 SideMenu.Footer = SideMenuFooter;
 SideMenu.Section = SideMenuSection;
+SideMenu.SectionHeader = SideMenuSectionHeader;
 SideMenu.SubList = SideMenuSubList;
 SideMenu.Item = SideMenuItem;
 SideMenu.Separator = SideMenuSeparator;
@@ -921,6 +1024,7 @@ export {
   SideMenuHeader,
   SideMenuItem,
   SideMenuSection,
+  SideMenuSectionHeader,
   SideMenuSeparator,
   SideMenuSubList,
   useSideMenuCollapsed,

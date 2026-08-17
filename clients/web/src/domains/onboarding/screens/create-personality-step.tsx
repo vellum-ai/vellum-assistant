@@ -22,20 +22,23 @@
  * phones) so the Continue button always sits above the eyes.
  */
 
-import { Fragment, useEffect, useMemo, useState } from "react";
+import { Fragment, useMemo } from "react";
 import { ArrowRight } from "lucide-react";
 import * as SliderPrimitive from "@radix-ui/react-slider";
 
 import { AnimatedAvatar } from "@/components/avatar/animated-avatar";
+import { EYES_VISIBLE_FRACTION } from "@/components/avatar/peeking-eyes";
 import { OnboardingTopBar } from "@/domains/onboarding/components/onboarding-top-bar";
 import { useOnboardingStageSize } from "@/domains/onboarding/hooks/use-onboarding-stage-size";
 import { useOnboardingAvatarPoolStore } from "@/domains/onboarding/onboarding-avatar-pool-store";
 import { useOnboardingTone } from "@/domains/onboarding/onboarding-tone";
+import { useLayoutViewportSize } from "@/hooks/use-element-size";
 import {
   preloadBundledAvatarComponents,
   useBundledAvatarComponents,
 } from "@/utils/use-bundled-avatar-components";
 import type { CharacterComponents, CharacterTraits } from "@/types/avatar";
+import { useTranslation } from "@/i18n";
 
 // Warm the (~48 kB) bundled-avatar chunk the moment this lazy step's module
 // loads, so the peeking characters are ready by the time it paints.
@@ -68,11 +71,25 @@ interface CreatePersonalityStepProps {
  * character whose body/eyes/color evoke that end of the trait (e.g. a warm
  * gentle blob for "Companion", a sharp scowling star for "Execute"). The ten
  * trait-sets are all visually distinct.
+ *
+ * Left/right keys are written out per axis rather than composed from an id, so
+ * an axis added without its copy fails to compile and the keys stay greppable
+ * for the orphan check in `catalogs.test.ts`.
  */
 interface PersonalityAxis {
   id: string;
-  left: string;
-  right: string;
+  leftKey:
+    | "createPersonalityStep.axes.companionCoworker.left"
+    | "createPersonalityStep.axes.genzBoomer.left"
+    | "createPersonalityStep.axes.executeCollaborate.left"
+    | "createPersonalityStep.axes.playfulSerious.left"
+    | "createPersonalityStep.axes.politeUnfiltered.left";
+  rightKey:
+    | "createPersonalityStep.axes.companionCoworker.right"
+    | "createPersonalityStep.axes.genzBoomer.right"
+    | "createPersonalityStep.axes.executeCollaborate.right"
+    | "createPersonalityStep.axes.playfulSerious.right"
+    | "createPersonalityStep.axes.politeUnfiltered.right";
   leftAvatar: CharacterTraits;
   rightAvatar: CharacterTraits;
 }
@@ -80,36 +97,36 @@ interface PersonalityAxis {
 const PERSONALITY_AXES: PersonalityAxis[] = [
   {
     id: "companion-coworker",
-    left: "Companion",
-    right: "Coworker",
+    leftKey: "createPersonalityStep.axes.companionCoworker.left",
+    rightKey: "createPersonalityStep.axes.companionCoworker.right",
     leftAvatar: { bodyShape: "blob", eyeStyle: "gentle", color: "pink" },
     rightAvatar: { bodyShape: "ninja", eyeStyle: "curious", color: "purple" },
   },
   {
     id: "genz-boomer",
-    left: "Gen Z",
-    right: "Baby Boomer",
+    leftKey: "createPersonalityStep.axes.genzBoomer.left",
+    rightKey: "createPersonalityStep.axes.genzBoomer.right",
     leftAvatar: { bodyShape: "burst", eyeStyle: "quirky", color: "yellow" },
     rightAvatar: { bodyShape: "cloud", eyeStyle: "dazed", color: "green" },
   },
   {
     id: "execute-collaborate",
-    left: "Independent",
-    right: "Collaborative",
+    leftKey: "createPersonalityStep.axes.executeCollaborate.left",
+    rightKey: "createPersonalityStep.axes.executeCollaborate.right",
     leftAvatar: { bodyShape: "star", eyeStyle: "angry", color: "orange" },
     rightAvatar: { bodyShape: "flower", eyeStyle: "goofy", color: "teal" },
   },
   {
     id: "playful-serious",
-    left: "Playful",
-    right: "Serious",
+    leftKey: "createPersonalityStep.axes.playfulSerious.left",
+    rightKey: "createPersonalityStep.axes.playfulSerious.right",
     leftAvatar: { bodyShape: "star", eyeStyle: "goofy", color: "yellow" },
     rightAvatar: { bodyShape: "blob", eyeStyle: "grumpy", color: "purple" },
   },
   {
     id: "polite-unfiltered",
-    left: "Polite",
-    right: "Unfiltered",
+    leftKey: "createPersonalityStep.axes.politeUnfiltered.left",
+    rightKey: "createPersonalityStep.axes.politeUnfiltered.right",
     leftAvatar: { bodyShape: "sprout", eyeStyle: "bashful", color: "green" },
     rightAvatar: {
       bodyShape: "urchin",
@@ -129,14 +146,6 @@ const AVATAR_TOPS = ["9%", "27%", "45%", "62%", "79%"];
 
 /** Sliders start centered — no axis is nudged either way until the user acts. */
 const DEFAULT_VALUE = 50;
-
-/**
- * Fraction of the stage's smaller dimension covered by the backdrop eyes'
- * visible portion — mirrors `OnboardingPeekingEyes` (EYE_TARGET_HEIGHT 0.3 ×
- * (1 − EYE_REST_CUTOFF 0.25)). The content column reserves this much at the
- * bottom so the Continue button always clears the eyes.
- */
-const EYES_VISIBLE_FRACTION = 0.3 * (1 - 0.25);
 
 /**
  * Slider styling from Figma (node 6279-576): a thick, uniformly-tinted track
@@ -190,26 +199,17 @@ function resolveSideColors(
   return resolved;
 }
 
-/** Track a live viewport width so the peeking avatars scale with the screen. */
-function useViewportWidth(): number {
-  const [width, setWidth] = useState(() =>
-    typeof window === "undefined" ? 1280 : window.innerWidth,
-  );
-  useEffect(() => {
-    const onResize = () => setWidth(window.innerWidth);
-    window.addEventListener("resize", onResize);
-    return () => window.removeEventListener("resize", onResize);
-  }, []);
-  return width;
-}
-
 /**
- * One personality avatar peeking in from a screen edge. It's anchored to the
- * true viewport edge via `calc(50% - 50vw)` — the overlay is full-width, so 50%
- * is screen-center and pulling back 50vw lands on the edge — and to `top` for
- * its scattered vertical slot. `progress` (0 at center → 1 at the far end)
- * drives how far it slides in, plus a little grow + fade so the entrance feels
- * alive. Never intercepts pointer events.
+ * One personality avatar peeking in from a stage edge, and `top` for its
+ * scattered vertical slot. `progress` (0 at center to 1 at the far end) drives
+ * how far it slides in, plus a little grow + fade so the entrance feels alive.
+ * Never intercepts pointer events.
+ *
+ * The inset is `0`, resolving against the overlay (`inset-0` on the stage), so
+ * the avatar rests on the edge of the box it lives in. Anchoring to the layout
+ * viewport instead would put it `(stageWidth - viewportWidth) / 2` outside the
+ * stage, where `overflow-hidden` clips it: on a notched device in landscape
+ * that is 46.5px of a 160px avatar. See the `LandscapeWithSideInsets` story.
  */
 function EdgePeekAvatar({
   components,
@@ -236,7 +236,7 @@ function EdgePeekAvatar({
       aria-hidden="true"
       className="pointer-events-none absolute"
       style={{
-        [side]: "calc(50% - 50vw)",
+        [side]: 0,
         top,
         width: size,
         height: size,
@@ -260,13 +260,17 @@ function EdgePeekAvatar({
 
 /** One trait row: left label, the tinted track, right label. */
 function PersonalitySlider({
-  axis,
+  leftLabel,
+  rightLabel,
+  ariaLabel,
   value,
   onValueChange,
   fg,
   disabled,
 }: {
-  axis: PersonalityAxis;
+  leftLabel: string;
+  rightLabel: string;
+  ariaLabel: string;
   value: number;
   onValueChange: (next: number) => void;
   fg: string;
@@ -286,13 +290,13 @@ function PersonalitySlider({
         className="order-1 flex-1 text-left text-sm sm:w-32 sm:flex-none sm:text-right sm:text-[17px]"
         style={{ color: fg }}
       >
-        {axis.left}
+        {leftLabel}
       </span>
       <span
         className="order-2 flex-1 text-right text-sm sm:order-3 sm:w-32 sm:flex-none sm:text-left sm:text-[17px]"
         style={{ color: fg }}
       >
-        {axis.right}
+        {rightLabel}
       </span>
       <SliderPrimitive.Root
         className="relative order-3 flex h-6 w-full touch-none items-center select-none sm:order-2 sm:w-auto sm:flex-1"
@@ -302,7 +306,7 @@ function PersonalitySlider({
         min={0}
         max={100}
         step={1}
-        aria-label={`${axis.left} to ${axis.right}`}
+        aria-label={ariaLabel}
       >
         <SliderPrimitive.Track
           className="relative h-2 w-full grow rounded-full sm:h-3"
@@ -387,9 +391,10 @@ export function CreatePersonalityStep({
   onBack,
   onForward,
 }: CreatePersonalityStepProps) {
+  const { t } = useTranslation("onboarding");
   const tone = useOnboardingTone();
   const components = useBundledAvatarComponents();
-  const viewportWidth = useViewportWidth();
+  const { w: viewportWidth } = useLayoutViewportSize();
   const { w: stageW, h: stageH } = useOnboardingStageSize();
   // Keep the Continue button clear of the backdrop eyes: reserve their visible
   // height (plus a little breathing room) at the bottom of the content column.
@@ -471,15 +476,14 @@ export function CreatePersonalityStep({
             className="text-center text-[2.6rem] leading-none"
             style={{ fontFamily: "var(--font-serif)" }}
           >
-            Create my personality
+            {t("createPersonalityStep.title")}
           </h1>
           {locked ? (
             <p
               className="text-center text-[15px]"
               style={{ color: tone.fgMuted }}
             >
-              Personality locked — chat with your assistant to make any more
-              updates
+              {t("createPersonalityStep.lockedBody")}
             </p>
           ) : null}
         </div>
@@ -488,20 +492,29 @@ export function CreatePersonalityStep({
           style={{ flexBasis: Math.round(40 + stageH * 0.03) }}
         />
 
-        {PERSONALITY_AXES.map((axis, i) => (
-          <Fragment key={axis.id}>
-            {i > 0 && (
-              <div className="w-full min-h-2.5 shrink basis-8 sm:basis-11" />
-            )}
-            <PersonalitySlider
-              axis={axis}
-              value={values[axis.id] ?? DEFAULT_VALUE}
-              onValueChange={(next) => onValueChange(axis.id, next)}
-              fg={tone.fg}
-              disabled={locked}
-            />
-          </Fragment>
-        ))}
+        {PERSONALITY_AXES.map((axis, i) => {
+          const leftLabel = t(axis.leftKey);
+          const rightLabel = t(axis.rightKey);
+          return (
+            <Fragment key={axis.id}>
+              {i > 0 && (
+                <div className="w-full min-h-2.5 shrink basis-8 sm:basis-11" />
+              )}
+              <PersonalitySlider
+                leftLabel={leftLabel}
+                rightLabel={rightLabel}
+                ariaLabel={t("createPersonalityStep.axisAriaLabel", {
+                  left: leftLabel,
+                  right: rightLabel,
+                })}
+                value={values[axis.id] ?? DEFAULT_VALUE}
+                onValueChange={(next) => onValueChange(axis.id, next)}
+                fg={tone.fg}
+                disabled={locked}
+              />
+            </Fragment>
+          );
+        })}
 
         <div className="w-full min-h-3 shrink-[2] basis-14" />
         <button
@@ -513,7 +526,7 @@ export function CreatePersonalityStep({
             color: tone.isLight ? "#FFFFFF" : "#1A1A1A",
           }}
         >
-          Continue
+          {t("actions.continue")}
           <ArrowRight className="h-4 w-4" />
         </button>
       </div>

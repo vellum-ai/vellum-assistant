@@ -2,7 +2,12 @@ import type {
   Conversation,
   ConversationGroup,
 } from "@/types/conversation-types";
-import { isScheduledConversation } from "@/utils/conversation-predicates";
+import { compareByRecency } from "@/utils/conversation-order";
+import {
+  isConversationPinned,
+  isCustomGroupId,
+  isScheduledConversation,
+} from "@/utils/conversation-predicates";
 import { isChannelConversation } from "@/domains/chat/utils/conversation-channel";
 /**
  * Pure helper for splitting the sidebar's conversation list into system
@@ -69,17 +74,6 @@ export interface GroupedConversations {
   customGroups: CustomGroup[];
 }
 
-/**
- * True when a conversation is pinned, via either the modern `isPinned`
- * boolean or the legacy `groupId === "system:pinned"` marker. Some
- * conversations (especially older ones) only carry the legacy marker,
- * so checking `isPinned` alone misses them and shows the wrong
- * Pin/Unpin label in the actions menu.
- */
-export function isConversationPinned(c: Conversation): boolean {
-  return c.isPinned === true || c.groupId === "system:pinned";
-}
-
 function isBackground(c: Conversation): boolean {
   return (
     c.conversationType === "background" || c.groupId === "system:background"
@@ -100,35 +94,6 @@ function channelSectionBucketId(c: Conversation): string | null {
     return null;
   }
   return c.originChannel ?? null;
-}
-
-/**
- * Read the `lastMessageAt` epoch-ms timestamp for numeric comparison.
- * Missing values fall back to `0` so the caller's sort is stable.
- */
-function parseLastMessageAt(conversation: Conversation): number {
-  return conversation.lastMessageAt ?? 0;
-}
-
-/**
- * Recency order, newest first: the one order every section uses.
- *
- * No tiebreak. `Array.prototype.sort` is stable, so rows sharing a
- * `lastMessageAt` (or both missing one) keep the order they arrived in, which
- * is the server's. Adding an id tiebreak here would reorder them against it.
- */
-function compareByRecency(a: Conversation, b: Conversation): number {
-  return parseLastMessageAt(b) - parseLastMessageAt(a);
-}
-
-/**
- * True when a `groupId` refers to a non-system (custom) group.
- * System groups use a `"system:"` prefix (e.g. `"system:pinned"`).
- */
-export function isCustomGroupId(
-  groupId: string | undefined,
-): groupId is string {
-  return !!groupId && !groupId.startsWith("system:");
 }
 
 // ---------------------------------------------------------------------------

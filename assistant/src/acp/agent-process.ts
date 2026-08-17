@@ -20,15 +20,10 @@ import type {
 import * as acp from "@agentclientprotocol/sdk";
 
 import { getLogger } from "../util/logger.js";
+import { AcpAuthRequiredError, isAcpAuthRequired } from "./auth-required.js";
 import type { AcpAgentConfig } from "./types.js";
 
 const log = getLogger("acp");
-
-/**
- * JSON-RPC error code agents use to signal that authentication is required
- * (matches the SDK's RequestError.authRequired()).
- */
-const AUTH_REQUIRED_CODE = -32000;
 
 /**
  * Rough byte cap for retained stderr. Oldest lines are evicted once the sum of
@@ -36,19 +31,6 @@ const AUTH_REQUIRED_CODE = -32000;
  * stays bounded.
  */
 const STDERR_RETENTION_BYTES = 4096;
-
-/**
- * Detects the ACP auth-required error. Checks the `code` property rather than
- * `instanceof acp.RequestError` so plain JSON-RPC error objects are also
- * recognized.
- */
-function isAuthRequiredError(err: unknown): boolean {
-  return (
-    typeof err === "object" &&
-    err !== null &&
-    (err as { code?: unknown }).code === AUTH_REQUIRED_CODE
-  );
-}
 
 function isEnvVarMethod(
   method: AuthMethod,
@@ -296,7 +278,7 @@ export class AcpAgentProcess {
     try {
       return await op();
     } catch (err) {
-      if (!isAuthRequiredError(err)) {
+      if (!isAcpAuthRequired(err)) {
         throw err;
       }
 
@@ -306,12 +288,23 @@ export class AcpAgentProcess {
 
       const method = this.selectEnvVarAuthMethod();
       if (!method) {
-        throw new Error(
-          `ACP agent "${this.agentId}" requires authentication. ` +
-            `Advertised methods: ${this.describeAuthMethods()}. ` +
-            "Set the required env var under acp.agents.<id>.env in config.json, " +
-            "collect it securely via 'assistant credentials prompt --service acp --field <field> --label \"<label>\"', " +
-            "or complete the agent's own login flow in the workspace.",
+        // Typed so the session manager can tell an auth failure from a crash
+        // and surface a re-authentication path. The remediation text is split
+        // by what the agent advertises: env-var and `credentials prompt`
+        // advice only helps when an env_var method exists to satisfy, and for
+        // terminal-login-only adapters it sends the user chasing a CLI
+        // workaround for a credential the app repairs on its own.
+        throw new AcpAuthRequiredError(
+          this.agentId,
+          this.hasEnvVarAuthMethod()
+            ? `ACP agent "${this.agentId}" requires authentication. ` +
+                `Advertised methods: ${this.describeAuthMethods()}. ` +
+                "Set the required env var under acp.agents.<id>.env in config.json, " +
+                "or collect it securely via 'assistant credentials prompt --service acp --field <field> --label \"<label>\"'."
+            : `ACP agent "${this.agentId}" requires authentication and its ` +
+                "stored credential was not accepted. Advertised methods: " +
+                `${this.describeAuthMethods()}. None can be completed headlessly, ` +
+                "so the credential has to be reconnected.",
         );
       }
 
@@ -323,6 +316,16 @@ export class AcpAgentProcess {
       await connection.authenticate({ methodId: method.id });
       return await op();
     }
+  }
+
+  /**
+   * Whether the agent advertises any `env_var` auth method at all, satisfiable
+   * or not. Distinguishes "we could not satisfy the env var it wants" from
+   * "env vars are not how this agent authenticates", which are different
+   * problems with different fixes.
+   */
+  private hasEnvVarAuthMethod(): boolean {
+    return this.authMethods.some(isEnvVarMethod);
   }
 
   /**

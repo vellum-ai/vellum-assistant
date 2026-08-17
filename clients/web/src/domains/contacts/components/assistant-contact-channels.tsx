@@ -4,6 +4,7 @@ import { useState } from "react";
 import { Button } from "@vellumai/design-library/components/button";
 import { ConfirmDialog } from "@vellumai/design-library/components/confirm-dialog";
 
+import { useTranslation } from "@/i18n";
 import type {
   AssistantChannelState,
   SetupChannelId,
@@ -32,6 +33,7 @@ export function AssistantContactChannels({
   onConnect,
   onDisconnect,
 }: AssistantContactChannelsProps) {
+  const { t } = useTranslation("contacts");
   const [pendingDisconnect, setPendingDisconnect] =
     useState<SetupChannelId | null>(null);
 
@@ -62,9 +64,11 @@ export function AssistantContactChannels({
 
       <ConfirmDialog
         open={pendingDisconnect !== null}
-        title={`Disconnect ${pendingDisconnect ? getChannelLabel(pendingDisconnect) : ""}?`}
-        message="This clears the stored credentials for this channel. You can reconnect later."
-        confirmLabel="Disconnect"
+        title={t("assistantContactChannels.disconnectConfirmTitle", {
+          channel: pendingDisconnect ? getChannelLabel(pendingDisconnect) : "",
+        })}
+        message={t("assistantContactChannels.disconnectConfirmMessage")}
+        confirmLabel={t("actions.disconnect")}
         destructive
         onConfirm={() => {
           if (pendingDisconnect && onDisconnect) {
@@ -91,6 +95,7 @@ function ChannelRow({
   onConnect,
   onDisconnect,
 }: ChannelRowProps) {
+  const { t } = useTranslation("contacts");
   const connected = channel.status === "ready";
 
   return (
@@ -118,14 +123,14 @@ function ChannelRow({
           <>
             <span className="inline-flex items-center gap-1 h-8 px-2.5 rounded-md whitespace-nowrap select-none text-body-small-emphasised leading-none bg-[var(--content-default)] text-[var(--surface-base)]">
               <CheckCircle className="h-3 w-3" />
-              Connected
+              {t("channelStatus.connected")}
             </span>
             <Button
               variant="danger"
               onClick={onDisconnect}
               disabled={!onDisconnect || pending}
             >
-              {pending ? "Disconnecting…" : "Disconnect"}
+              {pending ? t("actions.disconnecting") : t("actions.disconnect")}
             </Button>
           </>
         ) : (
@@ -134,7 +139,7 @@ function ChannelRow({
             onClick={onConnect}
             disabled={!onConnect || pending}
           >
-            Connect
+            {t("actions.connect")}
           </Button>
         )}
       </div>

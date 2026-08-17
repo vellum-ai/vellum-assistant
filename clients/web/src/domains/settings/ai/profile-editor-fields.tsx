@@ -14,9 +14,9 @@ import {
   ProfileEditorProviderSection,
 } from "@/domains/settings/ai/profile-editor-provider-section";
 import {
-  endpointPickerValue,
+  entryPickerValue,
   expandEndpointEntries,
-  parseEndpointPickerValue,
+  parseEntryPickerValue,
   providersServedByConnections,
   unconnectedSelectableProviders,
 } from "@/domains/settings/ai/provider-availability";
@@ -28,22 +28,12 @@ import type {
   ProviderConnection,
 } from "@/generated/daemon/types.gen";
 import { useActiveAssistantIsSelfHosted } from "@/hooks/use-platform-gate";
+import { useTranslation, Trans } from "@/i18n";
 
 // Sentinel value for the "+ Create new provider" option in the create-mode
 // Provider dropdown. Picking it mounts the inline ProviderCreateForm instead
 // of selecting a provider.
 const CREATE_NEW_PROVIDER_SENTINEL = "__create_new_provider__";
-
-/**
- * Right-aligned annotation on a supported-but-unconnected provider row. It
- * names the one thing standing between the user and that provider, so picking
- * the row and landing on the create form reads as the same action.
- */
-function unconnectedProviderMeta(provider: ConnectionProvider): string {
-  return connectionAuthTypeForProvider(provider) === "api_key"
-    ? "Add API key"
-    : "Set up";
-}
 
 export interface ProfileEditorFieldsProps {
   editor: ProfileEditor;
@@ -75,6 +65,7 @@ export function ProfileEditorFields({
   connections,
   variant,
 }: ProfileEditorFieldsProps) {
+  const { t } = useTranslation("settings");
   const activeAssistantIsSelfHosted = useActiveAssistantIsSelfHosted();
   const isCreate = editor.effectiveMode === "create";
   const flat = variant === "panel";
@@ -88,13 +79,15 @@ export function ProfileEditorFields({
   const displayNameField = (
     <div className="space-y-1">
       <label className="block text-body-small-default text-[var(--content-tertiary)]">
-        {isCreate ? "Name" : "Display Name"}
+        {isCreate
+          ? t("profileEditorFields.nameLabel")
+          : t("profileEditorFields.displayNameLabel")}
       </label>
       <Input
         type="text"
         value={editor.label}
         onChange={(e) => editor.handleLabelChange(e.target.value)}
-        placeholder="e.g. Fast & Cheap"
+        placeholder={t("profileEditorFields.displayNamePlaceholder")}
         disabled={editor.isReadOnly}
         fullWidth
       />
@@ -104,14 +97,19 @@ export function ProfileEditorFields({
   const descriptionField = (
     <Textarea
       label={
-        <>
-          Description{" "}
-          <span className="text-[var(--content-disabled)]">(optional)</span>
-        </>
+        <Trans
+          i18nKey="profileEditorFields.descriptionLabel"
+          ns="settings"
+          components={{
+            optional: (
+              <span className="text-[var(--content-disabled)]" />
+            ),
+          }}
+        />
       }
       value={editor.description}
       onChange={(e) => editor.setDescription(e.target.value)}
-      placeholder="Describe when to use this profile"
+      placeholder={t("profileEditorFields.descriptionPlaceholder")}
       disabled={editor.isReadOnly}
       rows={2}
       fullWidth
@@ -121,11 +119,11 @@ export function ProfileEditorFields({
 
   const keyField = (
     <Input
-      label="Key"
+      label={t("profileEditorFields.keyLabel")}
       type="text"
       value={editor.key}
       onChange={(e) => editor.handleKeyChange(e.target.value)}
-      placeholder="e.g. fast-cheap"
+      placeholder={t("profileEditorFields.keyPlaceholder")}
       disabled={editor.isReadOnly || editor.effectiveMode === "edit"}
       errorText={editor.isReadOnly ? undefined : editor.keyError}
       fullWidth
@@ -140,7 +138,7 @@ export function ProfileEditorFields({
       <Toggle
         checked={editor.status === "active"}
         onChange={(v) => editor.setStatus(v ? "active" : "disabled")}
-        label="Active"
+        label={t("profileEditorFields.activeLabel")}
         className="touch-mobile:mt-2 touch-mobile:[&_button]:h-7 touch-mobile:[&_button]:w-10 touch-mobile:[&_button>span]:h-6 touch-mobile:[&_button>span]:w-6"
       />
     ) : null;
@@ -218,27 +216,33 @@ export function ProfileEditorFields({
         ),
         editor.effectiveConnections,
         (p) => PROVIDER_DISPLAY_NAMES[p] ?? p,
+        t("aiProviderPicker.defaultEntryMeta"),
       ).map(({ value, label, meta }) => ({
         value,
         label,
         suffix: meta ? <PickerMeta text={meta} /> : undefined,
       }));
     for (const unconnected of unconnectedProviders) {
+      const meta =
+        connectionAuthTypeForProvider(unconnected) === "api_key"
+          ? t("profileEditorFields.addApiKey")
+          : t("profileEditorFields.setUp");
       opts.push({
         value: unconnected,
         label: PROVIDER_DISPLAY_NAMES[unconnected] ?? unconnected,
-        suffix: <PickerMeta text={unconnectedProviderMeta(unconnected)} />,
+        suffix: <PickerMeta text={meta} />,
       });
     }
     opts.push({
       value: CREATE_NEW_PROVIDER_SENTINEL,
-      label: "+ Create new provider",
+      label: t("profileEditorFields.createNewProvider"),
     });
     return opts;
   }, [
     activeAssistantIsSelfHosted,
     editor.effectiveConnections,
     unconnectedProviders,
+    t,
   ]);
 
   const createProviderSection = (
@@ -248,15 +252,23 @@ export function ProfileEditorFields({
           id="profile-editor-provider-label"
           className="block text-body-small-default text-[var(--content-tertiary)]"
         >
-          Provider
+          {t("profileEditorFields.providerLabel")}
         </label>
         <Select
           value={
             editor.creatingProvider
               ? (editor.pendingCreateProvider ?? CREATE_NEW_PROVIDER_SENTINEL)
-              : editor.provider === OPENAI_COMPATIBLE_PROVIDER &&
-                  editor.providerConnection
-                ? endpointPickerValue(editor.providerConnection)
+              : editor.provider &&
+                  editor.providerConnection &&
+                  createModeProviderOptions.some(
+                    (option) =>
+                      option.value ===
+                      entryPickerValue(
+                        editor.provider,
+                        editor.providerConnection,
+                      ),
+                  )
+                ? entryPickerValue(editor.provider, editor.providerConnection)
                 : editor.provider
           }
           onChange={(next) => {
@@ -269,18 +281,20 @@ export function ProfileEditorFields({
             if (!next) {
               return;
             }
-            const endpoint = parseEndpointPickerValue(next);
-            if (endpoint) {
-              // Each endpoint entry implies the openai-compatible provider
-              // plus its binding; switching endpoints re-picks the model.
+            const entry = parseEntryPickerValue(next);
+            if (entry) {
+              // An entry row implies its kind plus the binding. Endpoint
+              // model lists differ per entry, so switching endpoints
+              // re-picks the model; same-kind catalog entries share one
+              // list, so the model survives.
               editor.setCreatingProvider(false);
               editor.setPendingCreateProvider(null);
-              if (editor.provider !== OPENAI_COMPATIBLE_PROVIDER) {
-                editor.handleProviderChange(OPENAI_COMPATIBLE_PROVIDER);
-              } else {
+              if (editor.provider !== entry.provider) {
+                editor.handleProviderChange(entry.provider);
+              } else if (entry.provider === OPENAI_COMPATIBLE_PROVIDER) {
                 editor.setModel("");
               }
-              editor.setProviderConnection(endpoint);
+              editor.setProviderConnection(entry.connectionName);
               return;
             }
             const picked = next as ConnectionProvider;
@@ -295,8 +309,14 @@ export function ProfileEditorFields({
             editor.setCreatingProvider(false);
             editor.setPendingCreateProvider(null);
             editor.handleProviderChange(picked);
+            // Re-picking the current kind's bare row means "the default
+            // entry": the explicit binding must clear, and the provider
+            // change above no-ops so it won't do it.
+            if (picked === editor.provider) {
+              editor.setProviderConnection("");
+            }
           }}
-          placeholder="Select a provider…"
+          placeholder={t("profileEditorFields.selectProviderPlaceholder")}
           aria-labelledby="profile-editor-provider-label"
           options={createModeProviderOptions}
         />
@@ -306,7 +326,7 @@ export function ProfileEditorFields({
             as="p"
             className="text-[var(--content-tertiary)]"
           >
-            New provider connection will show up in the Providers section.
+            {t("profileEditorFields.newProviderNote")}
           </Typography>
         ) : null}
       </div>
@@ -373,7 +393,7 @@ export function ProfileEditorFields({
               <ChevronRight
                 className={`h-4 w-4 transition-transform ${createAdvancedOpen ? "rotate-90" : ""}`}
               />
-              <span>Advanced</span>
+              <span>{t("profileEditorFields.advanced")}</span>
             </button>
             {createAdvancedOpen ? (
               <div className="mt-4 space-y-4">

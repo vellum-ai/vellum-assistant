@@ -17,6 +17,7 @@ export const CHANNEL_IDS = [
   "email",
   "a2a",
   "discord",
+  "plugin",
 ] as const satisfies readonly CanonicalChannelId[];
 
 export type ChannelId = (typeof CHANNEL_IDS)[number];
@@ -39,6 +40,7 @@ export const INTERFACE_IDS = [
   "slack",
   "email",
   "a2a",
+  "plugin",
 ] as const;
 
 export type InterfaceId = (typeof INTERFACE_IDS)[number];

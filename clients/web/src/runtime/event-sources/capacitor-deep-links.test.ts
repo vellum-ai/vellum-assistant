@@ -92,7 +92,7 @@ describe("publishCapacitorDeepLinksSource", () => {
       await flushAsyncWork(6);
 
       expect(received).toEqual([
-        { status: "success", sessionId: "cs_test_a1B2" },
+        { status: "success", sessionId: "cs_test_a1B2", flow: "subscription" },
       ]);
     } finally {
       unsubscribeBus();
@@ -170,8 +170,10 @@ describe("publishCapacitorDeepLinksSource", () => {
         url: "vellum-assistant://billing/checkout-complete?status=success&session_id=cs_test_a1B2",
       });
 
+      // No `flow` param: released clients and current Pro links omit it, so
+      // it must default to the subscription flow.
       expect(received).toEqual([
-        { status: "success", sessionId: "cs_test_a1B2" },
+        { status: "success", sessionId: "cs_test_a1B2", flow: "subscription" },
       ]);
     } finally {
       unsubscribeBus();
@@ -195,7 +197,63 @@ describe("publishCapacitorDeepLinksSource", () => {
         url: "vellum-assistant://billing/checkout-complete?status=cancel",
       });
 
-      expect(received).toEqual([{ status: "cancel", sessionId: null }]);
+      expect(received).toEqual([
+        { status: "cancel", sessionId: null, flow: "subscription" },
+      ]);
+    } finally {
+      unsubscribeBus();
+    }
+  });
+
+  test("carries flow=top_up through on both statuses", async () => {
+    const received: unknown[] = [];
+    const unsubscribeBus = subscribe(
+      "deeplink.billingCheckoutComplete",
+      (payload) => {
+        received.push(payload);
+      },
+    );
+
+    try {
+      publishCapacitorDeepLinksSource();
+      await flushAsyncWork();
+
+      urlOpenHandler!({
+        url: "vellum-assistant://billing/checkout-complete?status=success&session_id=cs_test_a1B2&flow=top_up",
+      });
+      urlOpenHandler!({
+        url: "vellum-assistant://billing/checkout-complete?status=cancel&flow=top_up",
+      });
+
+      expect(received).toEqual([
+        { status: "success", sessionId: "cs_test_a1B2", flow: "top_up" },
+        { status: "cancel", sessionId: null, flow: "top_up" },
+      ]);
+    } finally {
+      unsubscribeBus();
+    }
+  });
+
+  test("an unrecognized flow value degrades to the subscription flow", async () => {
+    const received: unknown[] = [];
+    const unsubscribeBus = subscribe(
+      "deeplink.billingCheckoutComplete",
+      (payload) => {
+        received.push(payload);
+      },
+    );
+
+    try {
+      publishCapacitorDeepLinksSource();
+      await flushAsyncWork();
+
+      urlOpenHandler!({
+        url: "vellum-assistant://billing/checkout-complete?status=cancel&flow=bogus",
+      });
+
+      expect(received).toEqual([
+        { status: "cancel", sessionId: null, flow: "subscription" },
+      ]);
     } finally {
       unsubscribeBus();
     }
@@ -276,6 +334,66 @@ describe("publishCapacitorDeepLinksSource", () => {
     } finally {
       unsubStart();
       unsubUnknown();
+    }
+  });
+
+  test("publishes deeplink.sendToThread for a thread link carrying a message", async () => {
+    const sends: unknown[] = [];
+    const opens: unknown[] = [];
+    const unknowns: unknown[] = [];
+    const unsubSend = subscribe("deeplink.sendToThread", (p) => {
+      sends.push(p);
+    });
+    const unsubOpen = subscribe("deeplink.openThread", (p) => {
+      opens.push(p);
+    });
+    const unsubUnknown = subscribe("deeplink.unknown", (p) => {
+      unknowns.push(p);
+    });
+
+    try {
+      publishCapacitorDeepLinksSource();
+      await flushAsyncWork();
+
+      urlOpenHandler!({
+        url: "vellum-assistant://thread/abc-123?message=gym%20done",
+      });
+
+      expect(sends).toEqual([{ threadId: "abc-123", message: "gym done" }]);
+      expect(opens).toEqual([]);
+      expect(unknowns).toEqual([]);
+    } finally {
+      unsubSend();
+      unsubOpen();
+      unsubUnknown();
+    }
+  });
+
+  test("degrades a thread link without a usable message to deeplink.openThread", async () => {
+    const sends: unknown[] = [];
+    const opens: unknown[] = [];
+    const unsubSend = subscribe("deeplink.sendToThread", (p) => {
+      sends.push(p);
+    });
+    const unsubOpen = subscribe("deeplink.openThread", (p) => {
+      opens.push(p);
+    });
+
+    try {
+      publishCapacitorDeepLinksSource();
+      await flushAsyncWork();
+
+      urlOpenHandler!({ url: "vellum-assistant://thread/abc-123" });
+      // Whitespace-only fails sanitization; opening the chat still wins.
+      urlOpenHandler!({
+        url: "vellum-assistant://thread/abc-123?message=%20%20",
+      });
+
+      expect(sends).toEqual([]);
+      expect(opens).toEqual([{ threadId: "abc-123" }, { threadId: "abc-123" }]);
+    } finally {
+      unsubSend();
+      unsubOpen();
     }
   });
 

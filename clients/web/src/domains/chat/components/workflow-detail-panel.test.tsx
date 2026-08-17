@@ -1,5 +1,5 @@
 /**
- * The detail panel renders the run header (icon tile + label + status badge),
+ * The detail panel renders the run header (glyph + label + status badge),
  * a metrics row, an Objective section, and a live "Subagents" list. Each
  * subagent row is keyed by `seq` and shows a lead indicator that resolves in
  * place — a three-dot pulse while running, a status glyph once terminal — the

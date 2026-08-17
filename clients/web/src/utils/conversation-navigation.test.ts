@@ -7,20 +7,23 @@
  * exactly one haptic tap, unless the caller opts out via `{ silent: true }`.
  * The fork action taps at action start and routes navigation through this
  * helper, so it relies on `silent` to avoid a double buzz.
+ *
+ * When an app is already on screen on a wide viewport, conversation
+ * navigation keeps that app in the side-by-side layout instead of
+ * dismissing it to chat.
  */
 
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import type { NavigateFunction } from "react-router";
 
+import { useSubagentStore } from "@/domains/chat/subagent-store";
+import { useWorkflowStore } from "@/domains/chat/workflow-store";
+import { stubViewportAxes } from "@/hooks/viewport-axes.test-helper";
+import { useConversationStore } from "@/stores/conversation-store";
+import { useViewerStore } from "@/stores/viewer-store";
 import { routes } from "@/utils/routes";
 
 const hapticLight = mock(() => {});
-const setMainView = mock((_view: string) => {});
-const clearTranscriptPanelPayloads = mock(() => {});
-const subagentReset = mock(() => {});
-const workflowReset = mock(() => {});
-const setActiveConversationId = mock((_id: string) => {});
-const registerDraftConversationId = mock((_id: string) => {});
 const playSound = mock((_name: string) => Promise.resolve());
 const composerFocus = mock(() => {});
 
@@ -32,49 +35,50 @@ mock.module("@/utils/haptics", () => ({
     error: () => {},
   },
 }));
-mock.module("@/stores/viewer-store", () => ({
-  useViewerStore: {
-    getState: () => ({ setMainView, clearTranscriptPanelPayloads }),
-  },
-}));
 mock.module("@/lib/sounds/sound-manager", () => ({
   getSoundManager: () => ({ play: playSound }),
 }));
 mock.module("@/domains/chat/composer-focus", () => ({
   requestComposerFocus: composerFocus,
 }));
-mock.module("@/domains/chat/subagent-store", () => ({
-  useSubagentStore: { getState: () => ({ reset: subagentReset }) },
-}));
-mock.module("@/domains/chat/workflow-store", () => ({
-  useWorkflowStore: { getState: () => ({ reset: workflowReset }) },
-}));
-let activeConversationId: string | null = null;
-mock.module("@/stores/conversation-store", () => ({
-  useConversationStore: {
-    getState: () => ({
-      activeConversationId,
-      setActiveConversationId,
-      registerDraftConversationId,
-    }),
-  },
-}));
 
-const { navigateToConversation, navigateToNewConversation } = await import(
-  "@/utils/conversation-navigation"
-);
+const {
+  navigateToConversation,
+  navigateToNewConversation,
+  keepOpenAppBesideConversation,
+  revealConversationView,
+} = await import("@/utils/conversation-navigation");
+
+const SAMPLE_APP = { appId: "app-1", name: "My App", html: "<h1>hi</h1>" };
+
+function openAppViewer(view: "app" | "app-editing" = "app"): void {
+  useViewerStore.setState({
+    mainView: view,
+    activeAppId: SAMPLE_APP.appId,
+    openedAppState: SAMPLE_APP,
+  });
+}
+
+let restoreViewport: (() => void) | undefined;
 
 beforeEach(() => {
   hapticLight.mockClear();
-  setMainView.mockClear();
-  clearTranscriptPanelPayloads.mockClear();
-  subagentReset.mockClear();
-  workflowReset.mockClear();
-  setActiveConversationId.mockClear();
-  registerDraftConversationId.mockClear();
   playSound.mockClear();
   composerFocus.mockClear();
-  activeConversationId = null;
+  useViewerStore.getState().reset();
+  useConversationStore.getState().reset();
+  useSubagentStore.getState().reset();
+  useWorkflowStore.getState().reset();
+  restoreViewport = stubViewportAxes({
+    narrow: false,
+    coarsePointer: false,
+  });
+});
+
+afterEach(() => {
+  restoreViewport?.();
+  useViewerStore.getState().reset();
+  useConversationStore.getState().reset();
 });
 
 describe("navigateToConversation", () => {
@@ -83,10 +87,8 @@ describe("navigateToConversation", () => {
     navigateToConversation(navigate as unknown as NavigateFunction, "conv-1");
 
     expect(hapticLight).toHaveBeenCalledTimes(1);
-    expect(setMainView).toHaveBeenCalledWith("chat");
-    expect(subagentReset).toHaveBeenCalledTimes(1);
-    expect(workflowReset).toHaveBeenCalledTimes(1);
-    expect(setActiveConversationId).toHaveBeenCalledWith("conv-1");
+    expect(useViewerStore.getState().mainView).toBe("chat");
+    expect(useConversationStore.getState().activeConversationId).toBe("conv-1");
     expect(navigate).toHaveBeenCalledWith(routes.conversation("conv-1"));
   });
 
@@ -97,10 +99,8 @@ describe("navigateToConversation", () => {
     });
 
     expect(hapticLight).not.toHaveBeenCalled();
-    expect(setMainView).toHaveBeenCalledWith("chat");
-    expect(subagentReset).toHaveBeenCalledTimes(1);
-    expect(workflowReset).toHaveBeenCalledTimes(1);
-    expect(setActiveConversationId).toHaveBeenCalledWith("conv-2");
+    expect(useViewerStore.getState().mainView).toBe("chat");
+    expect(useConversationStore.getState().activeConversationId).toBe("conv-2");
     expect(navigate).toHaveBeenCalledWith(routes.conversation("conv-2"));
   });
 
@@ -117,51 +117,96 @@ describe("navigateToConversation", () => {
   });
 
   test("same-conversation navigation keeps subagent/workflow state (LUM-2875)", () => {
-    activeConversationId = "conv-1";
+    useConversationStore.getState().setActiveConversationId("conv-1");
+    useSubagentStore.getState().spawnSubagent({
+      subagentId: "sub-1",
+      label: "auditor",
+      objective: "audit",
+      timestamp: Date.now(),
+    });
     const navigate = mock((_to: string) => {});
     navigateToConversation(navigate as unknown as NavigateFunction, "conv-1");
 
     // Still returns to the chat view and navigates, but must NOT wipe the
     // process stores — running subagents only repopulate from live SSE.
-    expect(setMainView).toHaveBeenCalledWith("chat");
-    expect(subagentReset).not.toHaveBeenCalled();
-    expect(workflowReset).not.toHaveBeenCalled();
-    expect(clearTranscriptPanelPayloads).not.toHaveBeenCalled();
+    expect(useViewerStore.getState().mainView).toBe("chat");
+    expect(useSubagentStore.getState().byId["sub-1"]).toBeDefined();
     expect(navigate).toHaveBeenCalledWith(routes.conversation("conv-1"));
   });
 
   test("genuine switch resets subagent/workflow state and panel payloads", () => {
-    activeConversationId = "conv-1";
+    useConversationStore.getState().setActiveConversationId("conv-1");
+    useSubagentStore.getState().spawnSubagent({
+      subagentId: "sub-1",
+      label: "auditor",
+      objective: "audit",
+      timestamp: Date.now(),
+    });
+    useViewerStore.setState({
+      activeMessageFiles: {
+        messageId: "msg-1",
+        attachments: [],
+      },
+    });
     const navigate = mock((_to: string) => {});
     navigateToConversation(navigate as unknown as NavigateFunction, "conv-2");
 
-    expect(subagentReset).toHaveBeenCalledTimes(1);
-    expect(workflowReset).toHaveBeenCalledTimes(1);
-    // A files or activity-steps panel opened from the previous transcript
-    // points at a message this conversation does not contain.
-    expect(clearTranscriptPanelPayloads).toHaveBeenCalledTimes(1);
+    expect(useSubagentStore.getState().byId["sub-1"]).toBeUndefined();
+    expect(useViewerStore.getState().activeMessageFiles).toBeNull();
+  });
+
+  test("keeps an open app in the side-by-side layout on a wide viewport", () => {
+    openAppViewer();
+    const navigate = mock((_to: string) => {});
+    navigateToConversation(navigate as unknown as NavigateFunction, "conv-9");
+
+    expect(useViewerStore.getState().mainView).toBe("app-editing");
+    expect(useConversationStore.getState().editingConversationId).toBe(
+      "conv-9",
+    );
+    expect(useConversationStore.getState().activeConversationId).toBe("conv-9");
+    expect(navigate).toHaveBeenCalledWith(routes.conversation("conv-9"));
+  });
+
+  test("dismisses an open app on a narrow viewport (no split layout)", () => {
+    restoreViewport?.();
+    restoreViewport = stubViewportAxes({
+      narrow: true,
+      coarsePointer: true,
+    });
+    openAppViewer();
+    const navigate = mock((_to: string) => {});
+    navigateToConversation(navigate as unknown as NavigateFunction, "conv-9");
+
+    expect(useViewerStore.getState().mainView).toBe("chat");
+    expect(useConversationStore.getState().editingConversationId).toBeNull();
   });
 });
 
 describe("navigateToNewConversation", () => {
   test("resets panel payloads and process stores, taps, focuses the composer", () => {
-    activeConversationId = "conv-1";
+    useConversationStore.getState().setActiveConversationId("conv-1");
     const navigate = mock((_to: string) => {});
     navigateToNewConversation(navigate as unknown as NavigateFunction);
 
     expect(hapticLight).toHaveBeenCalledTimes(1);
-    expect(setMainView).toHaveBeenCalledWith("chat");
-    expect(subagentReset).toHaveBeenCalledTimes(1);
-    expect(workflowReset).toHaveBeenCalledTimes(1);
-    expect(clearTranscriptPanelPayloads).toHaveBeenCalledTimes(1);
-    expect(setActiveConversationId).toHaveBeenCalledTimes(1);
-    // The minted key is registered as a draft, so the transcript skips its
-    // skeleton and lands the composer instead.
-    expect(registerDraftConversationId).toHaveBeenCalledTimes(1);
+    expect(useViewerStore.getState().mainView).toBe("chat");
+    const newId = useConversationStore.getState().activeConversationId;
+    expect(newId).toBeTruthy();
+    expect(newId).not.toBe("conv-1");
+    expect(
+      useConversationStore.getState().draftConversationIds.has(newId!),
+    ).toBe(true);
     expect(composerFocus).toHaveBeenCalledTimes(1);
   });
 
   test("silent suppresses the haptic and sound but still clears panel payloads", () => {
+    useViewerStore.setState({
+      activeMessageFiles: {
+        messageId: "msg-1",
+        attachments: [],
+      },
+    });
     const navigate = mock((_to: string) => {});
     navigateToNewConversation(navigate as unknown as NavigateFunction, {
       silent: true,
@@ -169,6 +214,61 @@ describe("navigateToNewConversation", () => {
 
     expect(hapticLight).not.toHaveBeenCalled();
     expect(playSound).not.toHaveBeenCalled();
-    expect(clearTranscriptPanelPayloads).toHaveBeenCalledTimes(1);
+    expect(useViewerStore.getState().activeMessageFiles).toBeNull();
+  });
+
+  test("keeps an open app in the side-by-side layout with the new draft", () => {
+    openAppViewer();
+    const navigate = mock((_to: string) => {});
+    navigateToNewConversation(navigate as unknown as NavigateFunction);
+
+    const newId = useConversationStore.getState().activeConversationId;
+    expect(useViewerStore.getState().mainView).toBe("app-editing");
+    expect(useConversationStore.getState().editingConversationId).toBe(newId);
+    expect(composerFocus).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("keepOpenAppBesideConversation", () => {
+  test("binds the conversation and enters the split when an app is on screen", () => {
+    openAppViewer();
+    expect(keepOpenAppBesideConversation("conv-4")).toBe(true);
+    expect(useConversationStore.getState().editingConversationId).toBe(
+      "conv-4",
+    );
+    expect(useViewerStore.getState().mainView).toBe("app-editing");
+  });
+
+  test("is a no-op when no app is loaded", () => {
+    useViewerStore.setState({ mainView: "app" });
+    expect(keepOpenAppBesideConversation("conv-4")).toBe(false);
+    expect(useViewerStore.getState().mainView).toBe("app");
+    expect(useConversationStore.getState().editingConversationId).toBeNull();
+  });
+
+  test("is a no-op for overlay views", () => {
+    useViewerStore.setState({
+      mainView: "document",
+      activeAppId: SAMPLE_APP.appId,
+      openedAppState: SAMPLE_APP,
+    });
+    expect(keepOpenAppBesideConversation("conv-4")).toBe(false);
+    expect(useViewerStore.getState().mainView).toBe("document");
+  });
+});
+
+describe("revealConversationView", () => {
+  test("returns to chat when nothing is keeping the app", () => {
+    revealConversationView("conv-4");
+    expect(useViewerStore.getState().mainView).toBe("chat");
+  });
+
+  test("keeps the app instead of returning to chat", () => {
+    openAppViewer("app-editing");
+    revealConversationView("conv-4");
+    expect(useViewerStore.getState().mainView).toBe("app-editing");
+    expect(useConversationStore.getState().editingConversationId).toBe(
+      "conv-4",
+    );
   });
 });

@@ -47,6 +47,7 @@ function CollapsedRailSectionIcon({
         conversations,
         processingConversationIds,
         attentionConversationIds,
+        section.unread,
       )}
     >
       {(close, scrollParent) => (

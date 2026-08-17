@@ -7,7 +7,9 @@ import { Modal } from "@vellumai/design-library/components/modal";
 import { PanelItem } from "@vellumai/design-library/components/panel-item";
 import { Typography } from "@vellumai/design-library/components/typography";
 
+import { channelTypeLabel } from "@/domains/contacts/channel-type-labels";
 import type { ContactPayload } from "@/domains/contacts/types";
+import { t as translate, Trans, useTranslation } from "@/i18n";
 
 export interface ContactMergeDialogProps {
   open: boolean;
@@ -37,6 +39,7 @@ function ContactMergeDialogInner({
   onMerge,
   onClose,
 }: ContactMergeDialogProps) {
+  const { t } = useTranslation("contacts");
   const [search, setSearch] = useState("");
   const [donorId, setDonorId] = useState<string | null>(null);
 
@@ -70,16 +73,21 @@ function ContactMergeDialogInner({
       }}
     >
       <Modal.Content size="md">
-        <Modal.Header>
-          <Modal.Title icon={GitMerge}>
+        <Modal.Header icon={GitMerge}>
+          <Modal.Title>
             {donor
-              ? `Merge "${donor.displayName}" into ${survivorLabel}?`
-              : `Merge another contact into ${survivorLabel}`}
+              ? t("contactMergeDialog.titlePicked", {
+                  donor: donor.displayName,
+                  survivor: survivorLabel,
+                })
+              : t("contactMergeDialog.titlePicking", {
+                  survivor: survivorLabel,
+                })}
           </Modal.Title>
           <Modal.Description>
             {donor
-              ? "Channels and notes from the merged contact will move over. The merged contact will be deleted."
-              : "The contact you pick will be deleted. Its channels and notes will be added to this one."}
+              ? t("contactMergeDialog.descriptionPicked")
+              : t("contactMergeDialog.descriptionPicking")}
           </Modal.Description>
         </Modal.Header>
         <Modal.Body className="flex flex-col gap-3">
@@ -115,19 +123,19 @@ function ContactMergeDialogInner({
                 disabled={pending}
                 leftIcon={<ArrowLeft aria-hidden />}
               >
-                Back
+                {t("actions.back")}
               </Button>
               <Button
                 variant="danger"
                 onClick={() => onMerge(donor.id)}
                 disabled={pending}
               >
-                {pending ? "Merging…" : "Merge"}
+                {pending ? t("actions.merging") : t("contactMergeDialog.confirm")}
               </Button>
             </>
           ) : (
             <Button variant="outlined" onClick={onClose} disabled={pending}>
-              Cancel
+              {t("actions.cancel")}
             </Button>
           )}
         </Modal.Footer>
@@ -149,20 +157,22 @@ function CandidateList({
   candidates,
   onPick,
 }: CandidateListProps) {
+  const { t } = useTranslation("contacts");
+
   return (
     <>
       <Input
         type="text"
         value={search}
         onChange={(e) => onSearch(e.target.value)}
-        placeholder="Search contacts"
+        placeholder={t("contactMergeDialog.searchPlaceholder")}
         leftIcon={<Search className="h-3.5 w-3.5" aria-hidden />}
         fullWidth
       />
       <div
         className="flex max-h-[320px] min-h-[120px] flex-col gap-1 overflow-y-auto"
         role="listbox"
-        aria-label="Select a contact to merge"
+        aria-label={t("contactMergeDialog.listAriaLabel")}
       >
         {candidates.length === 0 ? (
           <Typography
@@ -170,7 +180,7 @@ function CandidateList({
             variant="body-small-default"
             className="px-3 py-4 text-center text-(--content-tertiary)"
           >
-            No matching contacts
+            {t("contactsList.noMatches")}
           </Typography>
         ) : (
           candidates.map((contact) => (
@@ -196,7 +206,7 @@ function CandidateRow({
   const channelLabel =
     mergeDialogChannelTypeLabels(contact).join(" | ") || undefined;
   return (
-    <PanelItem asChild label="">
+    <PanelItem asChild>
       <button
         type="button"
         onClick={onPick}
@@ -226,72 +236,86 @@ function MergeSummary({
   survivor: ContactPayload;
   donor: ContactPayload;
 }) {
+  const { t } = useTranslation("contacts");
   const survivorLabel = formatSurvivorName(survivor);
   const { moved, duplicates } = classifyMergedChannels(survivor, donor);
 
+  // ICU `plural` picks the category through `Intl.PluralRules`, so both counts
+  // agree in languages with more than the two forms English has. The zero case
+  // is its own `=0` branch rather than a separate key, because it is the same
+  // sentence with nothing to list.
   return (
     <ul className="flex flex-col gap-2 text-body-medium-lighter text-(--content-secondary)">
       <li>
-        <span className="text-(--content-default)">
-          &ldquo;{donor.displayName}&rdquo;
-        </span>{" "}
-        will be deleted.
+        <Trans
+          i18nKey="contactMergeDialog.donorDeleted"
+          ns="contacts"
+          values={{ donor: donor.displayName }}
+          components={{ donor: <span className="text-(--content-default)" /> }}
+        />
       </li>
       <li>
-        {moved.length === 0
-          ? `No new channels will move to ${survivorLabel}.`
-          : `${moved.length} channel${moved.length === 1 ? "" : "s"} will move to ${survivorLabel}: ${moved.map((ch) => describeChannel(ch.type)).join(", ")}.`}
+        {t("contactMergeDialog.channelsMoved", {
+          count: moved.length,
+          survivor: survivorLabel,
+          channels: moved.map((ch) => channelTypeLabel(ch.type)).join(", "),
+        })}
       </li>
       {duplicates.length > 0 ? (
         <li className="text-(--content-tertiary)">
-          {duplicates.length} duplicate channel
-          {duplicates.length === 1 ? "" : "s"} already on {survivorLabel}{" "}
-          (skipped).
+          {t("contactMergeDialog.duplicatesSkipped", {
+            count: duplicates.length,
+            survivor: survivorLabel,
+          })}
         </li>
       ) : null}
-      {donor.notes ? (
-        <li>Notes from the merged contact will be appended.</li>
-      ) : null}
-      <li className="text-(--content-tertiary)">This cannot be undone.</li>
+      {donor.notes ? <li>{t("contactMergeDialog.notesAppended")}</li> : null}
+      <li className="text-(--content-tertiary)">
+        {t("contactMergeDialog.irreversible")}
+      </li>
     </ul>
   );
 }
 
 function MergeEmptyState() {
+  const { t } = useTranslation("contacts");
+
   return (
     <Typography
       as="p"
       variant="body-medium-lighter"
       className="px-3 py-6 text-center text-(--content-tertiary)"
     >
-      No other contacts available to merge.
+      {t("contactMergeDialog.empty")}
     </Typography>
   );
 }
 
+/**
+ * How the surviving contact is named inside the dialog's sentences.
+ *
+ * Reads the bound `t` rather than the hook: this is called from render and is
+ * also exported for the page, so it cannot take a hook of its own. Every
+ * caller renders inside a component that does subscribe, so a locale switch
+ * still repaints it.
+ */
 export function formatSurvivorName(contact: ContactPayload): string {
   if (contact.role === "guardian") {
     if (
       !contact.displayName ||
       contact.displayName.startsWith("vellum-principal-")
     ) {
-      return "you";
+      return translate("survivorName.you", { ns: "contacts" });
     }
-    return `${contact.displayName} (you)`;
+    return translate("survivorName.youNamed", {
+      ns: "contacts",
+      name: contact.displayName,
+    });
   }
-  return contact.displayName || "this contact";
-}
-
-const CHANNEL_TYPE_LABEL: Record<string, string> = {
-  slack: "Slack",
-  telegram: "Telegram",
-  phone: "Phone",
-  email: "Email",
-  whatsapp: "WhatsApp",
-};
-
-function describeChannel(type: string): string {
-  return CHANNEL_TYPE_LABEL[type.toLowerCase()] ?? type;
+  return (
+    contact.displayName ||
+    translate("survivorName.thisContact", { ns: "contacts" })
+  );
 }
 
 export function classifyMergedChannels(
@@ -333,7 +357,7 @@ function mergeDialogChannelTypeLabels(contact: ContactPayload): string[] {
       continue;
     }
     seen.add(key);
-    labels.push(CHANNEL_TYPE_LABEL[key] ?? ch.type);
+    labels.push(channelTypeLabel(key));
   }
   return labels;
 }

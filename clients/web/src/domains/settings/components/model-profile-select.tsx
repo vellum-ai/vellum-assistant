@@ -4,6 +4,11 @@ import { Select } from "@vellumai/design-library/components/select";
 
 import { useProfileOptions } from "@/domains/settings/hooks/use-profile-options";
 
+import type {
+  SelectMenuAlign,
+  SelectVariant,
+} from "@vellumai/design-library/components/select";
+
 export interface ModelProfileSelectProps {
   assistantId: string;
   value: string | null;
@@ -26,6 +31,14 @@ export interface ModelProfileSelectProps {
    * pin names a profile that has since been deleted.
    */
   placeholder?: string;
+  /** Trigger chrome. `"ghost"` suits a run of otherwise read-only rows. */
+  variant?: SelectVariant;
+  /**
+   * Which trigger edge the menu is anchored to. Pair `"end"` with a
+   * right-aligned trigger, whose menu is usually wider than it is and would
+   * otherwise grow rightwards into the surface edge.
+   */
+  menuAlign?: SelectMenuAlign;
 }
 
 export function ModelProfileSelect({
@@ -37,6 +50,8 @@ export function ModelProfileSelect({
   className,
   includeDefaultOption = true,
   placeholder,
+  variant,
+  menuAlign,
 }: ModelProfileSelectProps) {
   const options = useProfileOptions(assistantId, value)
     .filter((option) => includeDefaultOption || option.value != null)
@@ -62,6 +77,8 @@ export function ModelProfileSelect({
       disabled={disabled || isSaving}
       placeholder={placeholder}
       className={className}
+      variant={variant}
+      menuAlign={menuAlign}
       aria-label="Model profile"
     />
   );

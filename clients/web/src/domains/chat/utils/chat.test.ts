@@ -8,7 +8,10 @@ import {
   isConversationScopedStreamEvent,
   shouldClearFirstMessageGateOnConversationChange,
 } from "@/domains/chat/utils/chat";
-import { ACP_CLAUDE_OAUTH_MISSING_CODE } from "@/domains/chat/utils/acp-connect";
+import {
+  ACP_CLAUDE_AUTH_REQUIRED_CODE,
+  ACP_CLAUDE_OAUTH_MISSING_CODE,
+} from "@/domains/chat/utils/acp-connect";
 import type { AssistantEvent } from "@/types/event-types";
 import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
 import type { DisplayMessage } from "@/domains/chat/types/types";
@@ -256,6 +259,29 @@ describe("chat utilities", () => {
 
       // THEN it is anchored to the failed tool call so the card restores in place
       expect(restored?.toolUseId).toBe("tool-1");
+    });
+
+    test("restores a pre-spawn rejected-credential card with its reason", () => {
+      // The auth_required marker persists on the failed tool call exactly like
+      // the missing-token one, so this card survives reloads; the reason must
+      // survive with it or the restored card self-dismisses on a
+      // token-presence check.
+      const messages = [
+        assistantWithToolCalls("assistant-1", [
+          {
+            id: "tool-auth",
+            name: "acp_spawn",
+            input: { agent: "claude" },
+            isError: true,
+            errorCode: ACP_CLAUDE_AUTH_REQUIRED_CODE,
+          },
+        ]),
+      ];
+
+      expect(extractWirePendingAcpConnect(messages)).toEqual({
+        toolUseId: "tool-auth",
+        reason: "auth_required",
+      });
     });
 
     test("returns the most recent failure when several are present", () => {

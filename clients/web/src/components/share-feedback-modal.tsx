@@ -33,6 +33,7 @@ import { feedbackCreateMutation } from "@/generated/api/@tanstack/react-query.ge
 import type { ClassificationEnum, ClientEnum } from "@/generated/api/types.gen";
 import { logsExportPost } from "@/generated/daemon/sdk.gen";
 import type { LogsExportPostData } from "@/generated/daemon/types.gen";
+import { useBodyScrollLock } from "@/hooks/use-body-scroll-lock";
 import { buildDiagnosticsSnapshot } from "@/lib/diagnostics";
 import { buildDebugFlagSnapshot } from "@/lib/feature-flags/debug-flag-snapshot";
 import { isElectron } from "@/runtime/is-electron";
@@ -737,16 +738,7 @@ export function ShareFeedbackModal({
     return () => clearTimeout(t);
   }, [open]);
 
-  useEffect(() => {
-    if (!open) {
-      return;
-    }
-    const prev = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    return () => {
-      document.body.style.overflow = prev;
-    };
-  }, [open]);
+  useBodyScrollLock(open);
 
   const handleSelectReason = (reason: FeedbackReason) => {
     setSelectedReason(reason);

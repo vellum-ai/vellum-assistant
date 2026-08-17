@@ -88,7 +88,8 @@ function Content({
   );
 }
 
-export interface TooltipProps {
+export interface TooltipProps
+  extends Omit<TriggerProps, "content" | "children" | "asChild"> {
   content: ReactNode;
   children: ReactNode;
   side?: TooltipContentProps["side"];
@@ -105,6 +106,13 @@ export interface TooltipProps {
  * storybooks) without requiring a provider ancestor. When an app-level
  * `TooltipProvider` exists, the inner provider scopes its own subtree
  * with matching defaults so behaviour is consistent.
+ *
+ * Anything else passed in reaches the trigger, so an outer primitive that
+ * composes through `asChild` (a `ContextMenu.Trigger`, a `Popover.Trigger`)
+ * can still reach the element underneath. Without that, a tooltipped child
+ * silently swallows the handlers such a primitive clones onto it, and the
+ * element ends up with a tooltip and none of the behaviour that was wrapped
+ * around it.
  */
 function Tooltip({
   content,
@@ -112,11 +120,14 @@ function Tooltip({
   side,
   align,
   delayDuration,
+  ...triggerProps
 }: TooltipProps) {
   return (
     <RadixTooltip.Provider delayDuration={200} skipDelayDuration={300}>
       <Root delayDuration={delayDuration}>
-        <Trigger asChild>{children}</Trigger>
+        <Trigger asChild {...triggerProps}>
+          {children}
+        </Trigger>
         <Content side={side} align={align}>
           {content}
         </Content>

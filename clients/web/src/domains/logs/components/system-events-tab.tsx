@@ -18,6 +18,11 @@ import type {
   SystemEventTypeEnum,
 } from "@/generated/api/types.gen";
 
+import { useTranslation } from "@/i18n";
+
+/** The window the system-events feed covers, named once for copy and query. */
+const SYSTEM_EVENTS_WINDOW_DAYS = 30;
+
 type TagTone = "positive" | "negative" | "warning" | "neutral";
 
 function formatEventType(type: SystemEventTypeEnum): string {
@@ -142,6 +147,7 @@ function EventStatusBadge({ status }: { status: EventStatusEnum }) {
 }
 
 function EventRow({ event }: { event: AssistantSystemEvent }) {
+  const { t } = useTranslation("logs");
   const [detailsOpen, setDetailsOpen] = useState(false);
   const hasDetails =
     event.details !== null &&
@@ -172,7 +178,7 @@ function EventRow({ event }: { event: AssistantSystemEvent }) {
                 tone="warning"
                 leftIcon={<AlertTriangle className="h-3 w-3" />}
               >
-                Long sleep
+                {t("systemEventsTab.longSleep")}
               </Tag>
             )}
           </div>
@@ -197,7 +203,9 @@ function EventRow({ event }: { event: AssistantSystemEvent }) {
             <ChevronDown
               className={`h-3 w-3 transition-transform ${detailsOpen ? "rotate-180" : ""}`}
             />
-            {detailsOpen ? "Hide details" : "Show details"}
+            {detailsOpen
+              ? t("systemEventsTab.hideDetails")
+              : t("systemEventsTab.showDetails")}
           </button>
           {detailsOpen && (
             <pre
@@ -221,6 +229,7 @@ interface SystemEventsTabProps {
 }
 
 export function SystemEventsTab({ assistantId }: SystemEventsTabProps) {
+  const { t } = useTranslation("logs");
   const {
     data,
     isLoading,
@@ -253,7 +262,7 @@ export function SystemEventsTab({ assistantId }: SystemEventsTabProps) {
         className="text-body-medium-lighter"
         style={{ color: "var(--content-tertiary)" }}
       >
-        Lifecycle events for your assistant from the last 30 days, newest first.
+        {t("systemEventsTab.intro", { days: SYSTEM_EVENTS_WINDOW_DAYS })}
       </p>
 
       {isLoading ? (
@@ -262,7 +271,7 @@ export function SystemEventsTab({ assistantId }: SystemEventsTabProps) {
           style={{ color: "var(--content-tertiary)" }}
         >
           <Loader2 className="h-4 w-4 animate-spin" />
-          Loading system events...
+          {t("systemEventsTab.loading")}
         </div>
       ) : isError ? (
         <div
@@ -270,14 +279,14 @@ export function SystemEventsTab({ assistantId }: SystemEventsTabProps) {
           style={{ color: "var(--system-negative-strong)" }}
         >
           <AlertTriangle className="h-4 w-4 shrink-0" />
-          Failed to load system events. Please refresh and try again.
+          {t("systemEventsTab.loadFailed")}
         </div>
       ) : allEvents.length === 0 ? (
         <p
           className="text-body-medium-lighter"
           style={{ color: "var(--content-tertiary)" }}
         >
-          No system events recorded in the last 30 days.
+          {t("systemEventsTab.empty", { days: SYSTEM_EVENTS_WINDOW_DAYS })}
         </p>
       ) : (
         <div className="space-y-2">
@@ -300,10 +309,10 @@ export function SystemEventsTab({ assistantId }: SystemEventsTabProps) {
                 {isFetchingNextPage ? (
                   <>
                     <Loader2 className="h-4 w-4 animate-spin" />
-                    Loading older events...
+                    {t("systemEventsTab.loadingOlder")}
                   </>
                 ) : (
-                  "Load older events"
+                  t("systemEventsTab.loadOlder")
                 )}
               </button>
             </div>
