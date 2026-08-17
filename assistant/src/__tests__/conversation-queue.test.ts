@@ -3930,7 +3930,7 @@ describe("interactive drain sender rebind", () => {
     pendingRuns = [];
   });
 
-  test("a drained interactive message rebinds the hub sender for its turn, then resets it", async () => {
+  test("a drained interactive message rebinds the hub sender for its turn, then restores the pre-drain state", async () => {
     const conversation = makeConversation();
     await conversation.loadFromDb();
 
@@ -3972,6 +3972,45 @@ describe("interactive drain sender rebind", () => {
       () => conversation.getCurrentSender() !== broadcastMessage,
     );
     expect(conversation.hasNoClient).toBe(true);
+  });
+
+  test("a drained interactive message restores a live pre-drain binding instead of clearing it", async () => {
+    const conversation = makeConversation();
+    await conversation.loadFromDb();
+
+    const p1 = conversation.processMessage({
+      content: "msg-1",
+      attachments: [],
+      onEvent: () => {},
+      requestId: "req-1",
+    });
+    await waitForPendingRun(1);
+
+    conversation.enqueueMessage({
+      content: "msg-2",
+      requestId: "req-2",
+      onEvent: () => {},
+      isInteractive: true,
+    });
+
+    // A live binding predates the drained turn (the send route installs one
+    // when a message is queued behind a non-interactive turn, which performs
+    // no restore). The drain's restore must preserve it for out-of-turn
+    // producers (call transcript and completion notifiers), not clear it.
+    conversation.updateClient(broadcastMessage, false);
+
+    await resolveRun(0);
+    await p1;
+    await waitForPendingRun(2);
+
+    expect(conversation.getCurrentSender()).toBe(broadcastMessage);
+    expect(conversation.hasNoClient).toBe(false);
+
+    await resolveRun(1);
+    // The drained turn has ended; the pre-drain live binding must survive.
+    await waitForCondition(() => !conversation.isProcessing());
+    expect(conversation.getCurrentSender()).toBe(broadcastMessage);
+    expect(conversation.hasNoClient).toBe(false);
   });
 
   test("a drained non-interactive message leaves the no-op sender in place", async () => {
