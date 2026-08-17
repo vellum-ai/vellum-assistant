@@ -27,12 +27,19 @@ type IpcRegistrar = Pick<
   "handle" | "handleSync"
 >;
 
+export interface NativeAuthCallback {
+  redirectUri: string;
+  waitForCode: Promise<string>;
+  close: (reason?: string) => void;
+}
+
 export interface NativeAuthOptions {
   activateWindow: () => void | Promise<void>;
   getPlatformUrl: () => string;
   ipc: IpcRegistrar;
   openExternal: (url: string) => void | Promise<void>;
   removeCookie: (url: string, name: string) => Promise<void>;
+  startCallback?: (expectedState: string) => Promise<NativeAuthCallback>;
   sessionStore: {
     clear: typeof clearSessionToken;
     get: typeof getSessionToken;
@@ -82,7 +89,9 @@ async function startOAuth(options: {
   const clientId = await fetchWorkosClientId(platformUrl);
   const state = generateState();
   const { verifier, challenge } = generatePkcePair();
-  const listener = await startLoopbackListener(state);
+  const listener = await (
+    runtimeOptions.startCallback ?? startLoopbackListener
+  )(state);
 
   const timer = setTimeout(
     () => listener.close("Sign-in timed out. Please try again."),
