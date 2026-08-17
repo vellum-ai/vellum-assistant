@@ -75,14 +75,17 @@ export function detectOpenAICompatibleContextOverflow(
   const code = error.code;
   const codeMatches =
     typeof code === "string" &&
-    /context_length_exceeded|context_window_exceeded|input_too_long|prompt_too_long/i.test(
+    /context_length_exceeded|context_window_exceeded|input_too_long|prompt_too_long|string_above_max_length/i.test(
       code,
     );
   // Include the normalized upstream message: the SDK's `error.message` is often
   // generic ("400 Provider returned error") while the real signal is in the body.
   const message = `${error.message ?? ""} ${extraMessage ?? ""}`;
+  // "string too long" / string_above_max_length: OpenAI's per-content-part
+  // 10 MiB cap. Not a token overflow, but the overflow ladder's media
+  // stubbing is what shrinks the oversized part, so route it there.
   const messageMatches =
-    /context.?length.?exceeded|context.?window.?exceeded|prompt.?is.?too.?long|prompt_too_long|input.?too.?long|too.?many.?(?:input.?)?tokens|maximum.?context/i.test(
+    /context.?length.?exceeded|context.?window.?exceeded|prompt.?is.?too.?long|prompt_too_long|input.?too.?long|too.?many.?(?:input.?)?tokens|maximum.?context|string.?too.?long|string_above_max_length/i.test(
       message,
     );
   if (!codeMatches && !messageMatches) {
