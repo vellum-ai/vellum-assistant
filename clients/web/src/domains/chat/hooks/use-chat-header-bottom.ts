@@ -1,11 +1,19 @@
 /**
  * Viewport y of the chat layout's thread header's bottom edge, in CSS px.
  *
- * The mobile voice room is a bottom sheet that rests below the header rather
- * than covering it. The sheet is a Radix dialog, so it portals to the body and
- * positions itself `fixed`, outside the layout's flex column: it cannot inherit
- * "starts below the header" from the DOM the way the desktop panel does, and it
- * has to be told where that edge is.
+ * Every surface that needs this edge is portalled out of the layout that
+ * already knows it: the mobile voice room is a Radix dialog that portals to the
+ * body, and the onboarding tour's takeover portals there too. Both position
+ * themselves `fixed`, outside the layout's flex column, so neither can inherit
+ * "starts below the header" from the DOM the way the desktop panel does, and
+ * both have to be told where that edge is. One owner for the answer, so a
+ * second surface cannot disagree with the first about where the header ends.
+ *
+ * Being portalled out is the reason this measurement exists at all, and the
+ * eventual fix is upstream: `chat-layout.tsx` publishing the edge as a CSS
+ * custom property that a `fixed` surface reads with `top: var(…)` and no JS.
+ * That is not reachable today, because the header's viewport offset moves with
+ * the iOS keyboard through `visualViewport` scroll, which CSS cannot observe.
  *
  * The value is the header's `bottom` in viewport coordinates, NOT its height.
  * The two are equal only when the header starts at y=0, and it usually does

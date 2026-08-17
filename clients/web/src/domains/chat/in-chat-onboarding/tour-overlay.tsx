@@ -4,6 +4,7 @@ import { createPortal } from "react-dom";
 
 import { ChatComposer } from "@/domains/chat/components/chat-composer/chat-composer";
 import { type VoiceInputButtonHandle } from "@/domains/chat/components/voice-input-button";
+import { useChatHeaderBottom } from "@/domains/chat/hooks/use-chat-header-bottom";
 
 import { TourNarration } from "./tour-narration";
 import { TOUR_COMPOSER, TOUR_VOICE, type TourStep } from "./tour-steps";
@@ -39,9 +40,11 @@ export function TourOverlay({
 }: TourOverlayProps) {
   /** Backdrop's left edge — flush against the revealed sidebar. */
   const [clearLeft, setClearLeft] = useState(0);
-  /** Backdrop's top edge — flush under the header, whose controls stay
-   *  visible through the walk. */
-  const [clearTop, setClearTop] = useState(0);
+  /** Backdrop's top edge: flush under the header, whose controls stay
+   *  visible through the walk. The intro beat has no backdrop, so it clears
+   *  nothing and starts at the top of the screen. */
+  const headerBottom = useChatHeaderBottom();
+  const clearTop = onIntroBeat ? 0 : headerBottom;
   /** The narration column's top — the side menu's top edge, so the step
    *  title aligns with the top of the menu panel. */
   const [columnTop, setColumnTop] = useState(0);
@@ -58,19 +61,15 @@ export function TourOverlay({
   // callback never fires.
   const sceneryVoiceInputRef = useRef<VoiceInputButtonHandle | null>(null);
 
-  // The sidebar bounces in mid-tour, so these edges are re-measured on
+  // The sidebar bounces in mid-tour, so its edges are re-measured on
   // every beat (and window resizes), not once.
   useEffect(() => {
     if (onIntroBeat) {
       setClearLeft(0);
-      setClearTop(0);
       setColumnTop(0);
       return;
     }
     const update = () => {
-      const header = document.querySelector<HTMLElement>("header");
-      setClearTop(header ? header.getBoundingClientRect().bottom : 0);
-
       const menu = document.querySelector<HTMLElement>("#chat-side-menu");
       if (!menu) {
         setClearLeft(0);
