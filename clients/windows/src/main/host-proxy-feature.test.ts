@@ -42,7 +42,7 @@ mock.module("electron-log/main", () => {
 
 const { __testing } =
   await import("@vellumai/electron-desktop/host-proxy/router");
-const { default: hostProxyFeature } = await import("./host-proxy");
+const { default: hostProxyFeature } = await import("./features/host-proxy");
 const { DesktopCapabilityRegistry } =
   await import("@vellumai/electron-desktop/capability-registry");
 
