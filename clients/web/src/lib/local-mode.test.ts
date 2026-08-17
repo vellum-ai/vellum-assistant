@@ -1090,6 +1090,34 @@ describe("primeLocalGatewayConnectionWithStartupRetry", () => {
     expect(getSelfHostedActorToken()).toBe("fresh-actor-token");
   });
 
+  test("rejects a local retry after selection changes to platform", async () => {
+    enableLocalMode();
+    setLockfile({
+      assistants: [localA, platform],
+      activeAssistant: "local-a",
+    });
+    setSelected("local-a");
+    const fetchMock = mock(async () => {
+      setSelected("platform-a");
+      return new Response("starting", { status: 503 });
+    });
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+    const previousIntervalMs = LOCAL_GATEWAY_STARTUP_RETRY.intervalMs;
+    LOCAL_GATEWAY_STARTUP_RETRY.intervalMs = 0;
+
+    try {
+      await expect(
+        primeLocalGatewayConnectionWithStartupRetry(),
+      ).resolves.toBe(false);
+    } finally {
+      LOCAL_GATEWAY_STARTUP_RETRY.intervalMs = previousIntervalMs;
+    }
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(getGatewayToken()).toBeNull();
+    expect(getSelfHostedIngressUrl()).toBeNull();
+  });
+
   test("force-validates again when another prime supersedes the boot mint", async () => {
     enableLocalMode();
     setLockfile({ assistants: [localA], activeAssistant: "local-a" });

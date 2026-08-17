@@ -1163,9 +1163,13 @@ export async function primeLocalGatewayConnectionWithStartupRetry(
   );
   try {
     const committed = await primeLocalGatewayWithStartupRideout(
-      target,
+      targetAssistant,
       isGatewayStillStarting,
-      { forceMint: true },
+      {
+        commitIf: () =>
+          getSelectedAssistant()?.assistantId === targetAssistant.assistantId,
+        forceMint: true,
+      },
       reservation.generation,
     );
     if (!committed) {
