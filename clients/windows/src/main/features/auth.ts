@@ -4,7 +4,7 @@ import type {
   CapabilityModule,
   DesktopCapabilityRegistry,
 } from "@vellumai/electron-desktop/capability-registry";
-import { resolveRegisteredSchemes } from "@vellumai/electron-desktop/deep-links";
+import { resolveAuthCallbackScheme } from "@vellumai/electron-desktop/deep-links";
 import {
   configureNativeAuth,
   installNativeAuth,
@@ -49,14 +49,9 @@ const subscribeToAuthCallback = (
 const authFeature: CapabilityModule<DesktopCapabilityRegistry> = {
   id: "native-auth",
   install: () => {
-    const [authScheme] = resolveRegisteredSchemes(
+    const authScheme = resolveAuthCallbackScheme(
       resolveEnvironmentName(process.env),
     );
-    if (!authScheme) {
-      throw new Error(
-        "No Windows authentication callback scheme is registered",
-      );
-    }
     setSessionTokenLogger(log);
     configureNativeAuth({
       activateWindow: () => {
@@ -68,11 +63,15 @@ const authFeature: CapabilityModule<DesktopCapabilityRegistry> = {
       openExternal: (url) => shell.openExternal(url),
       removeCookie: (url, name) =>
         session.defaultSession.cookies.remove(url, name),
-      startCallback: (expectedState) =>
-        startWindowsAuthCallback(expectedState, {
-          scheme: authScheme,
-          subscribe: subscribeToAuthCallback,
-        }),
+      ...(app.isPackaged
+        ? {
+            startCallback: (expectedState: string) =>
+              startWindowsAuthCallback(expectedState, {
+                scheme: authScheme,
+                subscribe: subscribeToAuthCallback,
+              }),
+          }
+        : {}),
       sessionStore: {
         clear: clearSessionToken,
         get: getSessionToken,

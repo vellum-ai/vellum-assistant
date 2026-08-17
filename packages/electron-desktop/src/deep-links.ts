@@ -75,7 +75,7 @@ export const configureDeepLinks = (next: DeepLinkRuntime): void => {
 
 const PRODUCTION_SCHEME = "vellum-assistant";
 
-function schemeForEnv(env: string): string {
+export function resolveAuthCallbackScheme(env: string): string {
   return env === "production"
     ? PRODUCTION_SCHEME
     : `${PRODUCTION_SCHEME}-${env}`;
@@ -88,7 +88,7 @@ export function resolveRegisteredSchemes(env: string): string[] {
   if (env === "production") {
     return ["vellum", PRODUCTION_SCHEME];
   }
-  return [schemeForEnv(env)];
+  return [resolveAuthCallbackScheme(env)];
 }
 
 // Schemes to ACCEPT when parsing inbound URLs. Superset of registered
@@ -97,7 +97,7 @@ export function resolveRegisteredSchemes(env: string): string[] {
 export function resolveAcceptedSchemes(env: string): string[] {
   const accepted = new Set(["vellum:", `${PRODUCTION_SCHEME}:`]);
   if (env !== "production") {
-    accepted.add(`${schemeForEnv(env)}:`);
+    accepted.add(`${resolveAuthCallbackScheme(env)}:`);
   }
   return [...accepted];
 }

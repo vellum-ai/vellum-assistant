@@ -72,6 +72,7 @@ const {
   installDeepLinks,
   parseVellumUrl,
   resolveAcceptedSchemes,
+  resolveAuthCallbackScheme,
   resolveRegisteredSchemes,
 } = await import("./deep-links");
 const { resolveEnvironmentName } = await import("@vellumai/local-mode");
@@ -813,6 +814,16 @@ describe("resolveRegisteredSchemes", () => {
 
   test("unknown env derives scheme from env name", () => {
     expect(resolveRegisteredSchemes("test")).toEqual(["vellum-assistant-test"]);
+  });
+});
+
+describe("resolveAuthCallbackScheme", () => {
+  test("uses the app-specific production scheme", () => {
+    expect(resolveAuthCallbackScheme("production")).toBe("vellum-assistant");
+  });
+
+  test("uses the environment-specific non-production scheme", () => {
+    expect(resolveAuthCallbackScheme("dev")).toBe("vellum-assistant-dev");
   });
 });
 
