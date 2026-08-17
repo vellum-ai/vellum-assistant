@@ -1,8 +1,7 @@
 /**
- * Pins the delegation and the wording, which is all this helper owns. What
- * happens when a write is refused or the Clipboard API is missing belongs to
- * `copyToClipboard` and is covered in `lib/copy-to-clipboard.test.ts`; a
- * helper that writes for itself is a helper that skips both of those.
+ * Covers the delegation and the wording, which is all this helper owns. The
+ * outcome of the write itself belongs to `copyToClipboard` and is covered in
+ * `lib/copy-to-clipboard.test.ts`.
  */
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
