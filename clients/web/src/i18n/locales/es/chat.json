@@ -179,6 +179,12 @@
     "copied": "Copiado",
     "copyFailed": "No se pudo copiar al portapapeles."
   },
+  "copyIdToClipboard": {
+    "conversationCopied": "ID de conversación copiado al portapapeles.",
+    "conversationFailed": "No se pudo copiar el ID de conversación.",
+    "groupCopied": "ID de grupo copiado al portapapeles.",
+    "groupFailed": "No se pudo copiar el ID de grupo."
+  },
   "detailPanelStopButton": {
     "tooltip": "Detener"
   },

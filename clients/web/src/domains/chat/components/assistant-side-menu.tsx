@@ -434,7 +434,7 @@ export function AssistantSideMenu({
       onDelete: onDeleteGroup
         ? () => onDeleteGroup(section.group.id)
         : undefined,
-      onCopyGroupId: () => copyIdToClipboard(section.group.id, "Group ID"),
+      onCopyGroupId: () => copyIdToClipboard(section.group.id, "group"),
     });
   };
 

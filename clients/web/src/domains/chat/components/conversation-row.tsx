@@ -108,7 +108,7 @@ export function buildMenuProps(
     onInspect:
       ctx.onInspect && hasId ? () => ctx.onInspect?.(conversation) : undefined,
     onCopyConversationId: hasId
-      ? () => copyIdToClipboard(conversation.conversationId!, "Conversation ID")
+      ? () => copyIdToClipboard(conversation.conversationId!, "conversation")
       : undefined,
   };
 }
