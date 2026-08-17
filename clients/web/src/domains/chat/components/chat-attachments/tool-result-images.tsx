@@ -338,6 +338,7 @@ export const ToolResultImages: FC<ToolResultImagesProps> = ({
                 openPreview(att);
               }
             }}
+            data-reveal-row=""
             className="group relative w-fit cursor-pointer"
           >
             <ToolResultImageThumb attachment={att} assistantId={assistantId} />

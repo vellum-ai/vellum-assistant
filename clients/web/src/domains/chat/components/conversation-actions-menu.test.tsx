@@ -15,6 +15,12 @@
  */
 
 import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { fixedT } from "@/i18n";
+
+// The builders take a namespace-bound `t`, the same thing
+// `useTranslation("chat")` hands their component callers. The unbound `t`
+// resolves against `common` and returns the key instead of the copy.
+const t = fixedT("chat");
 import { createElement, type ReactNode } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 
@@ -85,16 +91,28 @@ mock.module("@vellumai/design-library", () => {
     Header: passthrough,
     Title: passthrough,
     Body: passthrough,
+    Grabber: () => createElement("div", { "data-testid": "sheet-grabber" }),
+    Close: ({ children, ...rest }: Record<string, unknown>) =>
+      createElement(
+        "button",
+        { "data-testid": "sheet-close", ...rest },
+        children as ReactNode,
+      ),
   };
 
+  // `leadingSlot` is rendered rather than spread: the sheet passes its icon
+  // chip through it, and spreading a ReactNode onto a DOM node would both warn
+  // and hide whether the chip was built at all.
   const PanelItemMock = ({
     label,
     icon: _icon,
+    leadingSlot,
     ...rest
   }: Record<string, unknown>) =>
     createElement(
       "div",
       { "data-testid": "panel-item", ...rest },
+      leadingSlot as ReactNode,
       label as string,
     );
 
@@ -138,6 +156,7 @@ describe("renderConversationMenuItems", () => {
       <>
         {renderConversationMenuItems({
           Primitive: Menu as unknown as ConversationMenuPrimitive,
+          t,
           onPinToggle: () => {},
           onRename: () => {},
         })}
@@ -152,6 +171,7 @@ describe("renderConversationMenuItems", () => {
       <>
         {renderConversationMenuItems({
           Primitive: Menu as unknown as ConversationMenuPrimitive,
+          t,
           isPinned: true,
           onPinToggle: () => {},
         })}
@@ -166,6 +186,7 @@ describe("renderConversationMenuItems", () => {
       <>
         {renderConversationMenuItems({
           Primitive: Menu as unknown as ConversationMenuPrimitive,
+          t,
           onArchive: () => {},
         })}
       </>,
@@ -178,6 +199,7 @@ describe("renderConversationMenuItems", () => {
       <>
         {renderConversationMenuItems({
           Primitive: Menu as unknown as ConversationMenuPrimitive,
+          t,
           isArchived: true,
           onUnarchive: () => {},
         })}
@@ -191,6 +213,7 @@ describe("renderConversationMenuItems", () => {
       <>
         {renderConversationMenuItems({
           Primitive: Menu as unknown as ConversationMenuPrimitive,
+          t,
           isReadonly: true,
           onArchive: () => {},
           onMarkUnread: () => {},
@@ -206,6 +229,7 @@ describe("renderConversationMenuItems", () => {
       <>
         {renderConversationMenuItems({
           Primitive: Menu as unknown as ConversationMenuPrimitive,
+          t,
           variant: "header",
           channelSourceLink: {
             href: "https://slack.com/archives/C01ABC/p1700000000000100",
@@ -223,6 +247,7 @@ describe("renderConversationMenuItems", () => {
       <>
         {renderConversationMenuItems({
           Primitive: Menu as unknown as ConversationMenuPrimitive,
+          t,
           variant: "header",
           onPinToggle: () => {},
         })}
@@ -236,18 +261,33 @@ describe("renderConversationMenuItems", () => {
       <>
         {renderConversationMenuItems({
           Primitive: Menu as unknown as ConversationMenuPrimitive,
+          t,
           variant: "header",
           onCopyConversation: () => {},
           onForkConversation: () => {},
+          onInspect: () => {},
+          onRefresh: () => {},
           onPinToggle: () => {},
           onRename: () => {},
+          onArchive: () => {},
         })}
       </>,
     );
-    expect(html).toContain("Copy full conversation");
-    expect(html).toContain("Fork conversation");
-    expect(html).toContain("Pin");
-    expect(html).toContain("Rename");
+    // Order, not just presence: the mobile sheet renders the same sequence
+    // from a parallel builder, so a reshuffle here that the sheet does not
+    // follow is exactly the drift both surfaces exist to avoid.
+    const order = [
+      "Copy Full Conversation",
+      "Fork Conversation",
+      "Analyze Conversation",
+      "Refresh",
+      "Pin",
+      "Rename",
+      "Archive",
+    ];
+    const positions = order.map((label) => html.indexOf(label));
+    expect(positions).not.toContain(-1);
+    expect(positions).toEqual([...positions].sort((a, b) => a - b));
   });
 
   test("renders Copy conversation ID in both variants when wired", () => {
@@ -255,6 +295,7 @@ describe("renderConversationMenuItems", () => {
       const html = renderToStaticMarkup(
         <>{renderConversationMenuItems({
           Primitive: Menu as unknown as ConversationMenuPrimitive,
+          t,
           variant,
           onCopyConversationId: () => {},
         })}</>,
@@ -267,6 +308,7 @@ describe("renderConversationMenuItems", () => {
     const html = renderToStaticMarkup(
       <>{renderConversationMenuItems({
         Primitive: Menu as unknown as ConversationMenuPrimitive,
+          t,
         onRename: () => {},
       })}</>,
     );
@@ -284,6 +326,7 @@ describe("renderConversationMenuItems — Move to group submenu", () => {
       <>
         {renderConversationMenuItems({
           Primitive: Menu as unknown as ConversationMenuPrimitive,
+          t,
           onPinToggle: () => {},
         })}
       </>,
@@ -296,6 +339,7 @@ describe("renderConversationMenuItems — Move to group submenu", () => {
       <>
         {renderConversationMenuItems({
           Primitive: Menu as unknown as ConversationMenuPrimitive,
+          t,
           moveToGroups: [],
           onMoveToGroup: () => {},
           onCreateGroupInto: () => {},
@@ -311,6 +355,7 @@ describe("renderConversationMenuItems — Move to group submenu", () => {
       <>
         {renderConversationMenuItems({
           Primitive: Menu as unknown as ConversationMenuPrimitive,
+          t,
           moveToGroups: [
             { id: "g_research", name: "Research" },
             { id: "g_ideas", name: "Ideas" },
@@ -330,6 +375,7 @@ describe("renderConversationMenuItems — Move to group submenu", () => {
       <>
         {renderConversationMenuItems({
           Primitive: Menu as unknown as ConversationMenuPrimitive,
+          t,
           moveToGroups: [{ id: "g_research", name: "Research" }],
           onMoveToGroup: () => {},
           onCreateGroupInto: () => {},
@@ -343,6 +389,7 @@ describe("renderConversationMenuItems — Move to group submenu", () => {
       <>
         {renderConversationMenuItems({
           Primitive: Menu as unknown as ConversationMenuPrimitive,
+          t,
           moveToGroups: [{ id: "g_research", name: "Research" }],
           onMoveToGroup: () => {},
           onCreateGroupInto: () => {},
@@ -356,6 +403,7 @@ describe("renderConversationMenuItems — Move to group submenu", () => {
     const html = renderToStaticMarkup(
       <>
         {renderConversationMenuItemsAsPanelItems({
+          t,
           moveToGroups: [{ id: "g_research", name: "Research" }],
           onMoveToGroup: () => {},
           onCreateGroupInto: () => {},
@@ -419,6 +467,7 @@ describe("renderConversationMenuItems — mark read/unread exclusivity", () => {
       <>
         {renderConversationMenuItems({
           Primitive: Menu as unknown as ConversationMenuPrimitive,
+          t,
           onMarkRead: () => {},
           onMarkUnread: () => {},
         })}
@@ -442,6 +491,11 @@ describe("ConversationActionsMenu — mobile panel details", () => {
     expect(html).toContain('disabled=""');
     expect(html).toContain("cursor-not-allowed");
     expect(html).toContain("text-[var(--content-disabled)]");
+    // The chip dims with the label. The sheet's own brighter label colour is
+    // conditional for this reason, so this guards against it being made
+    // unconditional again and merging over the dim treatment above.
+    expect(html).toContain("[--panel-item-icon-fg:var(--content-disabled)]");
+    expect(html).not.toContain("text-[var(--content-default)]");
   });
 
   test("hides Open in New Window on native iOS bottom sheet", () => {
@@ -473,7 +527,7 @@ describe("ConversationActionsMenu — mobile panel details", () => {
         onRename={() => {}}
       />,
     );
-    expect(html).toContain("Open in new window");
+    expect(html).toContain("Open in New Window");
   });
 
   test("variant header renders header-order items on mobile", () => {
@@ -483,14 +537,27 @@ describe("ConversationActionsMenu — mobile panel details", () => {
         variant="header"
         onCopyConversation={() => {}}
         onForkConversation={() => {}}
+        onInspect={() => {}}
+        onRefresh={() => {}}
         onPinToggle={() => {}}
         onRename={() => {}}
+        onArchive={() => {}}
       />,
     );
-    expect(html).toContain("Copy full conversation");
-    expect(html).toContain("Fork conversation");
-    expect(html).toContain("Pin");
-    expect(html).toContain("Rename");
+    // The sheet's sequence has to track the dropdown's; see the matching
+    // order assertion over `renderConversationMenuItems` above.
+    const order = [
+      "Copy Full Conversation",
+      "Fork Conversation",
+      "Analyze Conversation",
+      "Refresh",
+      "Pin",
+      "Rename",
+      "Archive",
+    ];
+    const positions = order.map((label) => html.indexOf(label));
+    expect(positions).not.toContain(-1);
+    expect(positions).toEqual([...positions].sort((a, b) => a - b));
   });
 });
 
@@ -508,9 +575,40 @@ describe("ConversationActionsSheet", () => {
         onRename={() => {}}
       />,
     );
-    expect(html).toContain("Conversation actions");
+    expect(html).toContain("Conversation Actions");
     expect(html).toContain("Pin");
     expect(html).toContain("Rename");
+  });
+
+  test("renders the sheet's grabber and an explicit close control", () => {
+    const html = renderToStaticMarkup(
+      <ConversationActionsSheet
+        open
+        onOpenChange={() => {}}
+        onRename={() => {}}
+      />,
+    );
+    expect(html).toContain('data-testid="sheet-grabber"');
+    // Both strings come from the `chat` catalog.
+    expect(html).toContain('data-testid="sheet-close"');
+    expect(html).toContain('aria-label="Close"');
+  });
+
+  test("gives every action row a leading chip", () => {
+    const html = renderToStaticMarkup(
+      <ConversationActionsSheet
+        open
+        onOpenChange={() => {}}
+        onPinToggle={() => {}}
+        onRename={() => {}}
+        onArchive={() => {}}
+      />,
+    );
+    // One chip per action row. Counting them, rather than asserting the class
+    // appears at all, is what catches a row added through the plain
+    // `buildPanelMenuItem` and left bare beside its chipped neighbours.
+    const chips = html.match(/rounded-full bg-\[var\(--border-hover\)\]/g);
+    expect(chips).toHaveLength(3);
   });
 
   test("renders a trigger when one is provided (ellipsis path)", () => {
@@ -534,8 +632,9 @@ describe("ConversationActionsSheet", () => {
         onArchive={() => {}}
       />,
     );
-    // No trigger button, but the sheet body still renders the item set.
-    expect(html).not.toContain("<button");
+    // The header always carries a close button, so absence of a trigger is
+    // asserted against the trigger's own marker rather than `<button`.
+    expect(html).not.toContain('data-testid="trigger"');
     expect(html).toContain("Archive");
   });
 
@@ -550,7 +649,7 @@ describe("ConversationActionsSheet", () => {
         onPinToggle={() => {}}
       />,
     );
-    expect(html).not.toContain("Open in new window");
+    expect(html).not.toContain("Open in New Window");
     expect(html).toContain("Pin");
   });
 });
@@ -560,6 +659,7 @@ describe("renderConversationMenuItemsAsPanelItems", () => {
     const html = renderToStaticMarkup(
       <>
         {renderConversationMenuItemsAsPanelItems({
+          t,
           onPinToggle: () => {},
           onRename: () => {},
           onArchive: () => {},
@@ -576,6 +676,7 @@ describe("renderConversationMenuItemsAsPanelItems", () => {
     const html = renderToStaticMarkup(
       <>
         {renderConversationMenuItemsAsPanelItems({
+          t,
           variant: "header",
           channelSourceLink: {
             href: "https://slack.com/archives/C01ABC/p1700000000000100",

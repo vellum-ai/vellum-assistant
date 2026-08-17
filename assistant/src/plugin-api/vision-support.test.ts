@@ -107,7 +107,7 @@ describe("doesSupportVision", () => {
       managed: { provider: "vellum", model: "claude-fable-5" },
       "managed-text": {
         provider: "vellum",
-        model: "accounts/fireworks/models/deepseek-v4-flash",
+        model: "accounts/fireworks/models/deepseek-v4-flash-0731",
       },
     });
     expect(doesSupportVision(profile("managed"))).toBe(true);

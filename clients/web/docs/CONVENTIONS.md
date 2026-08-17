@@ -50,7 +50,7 @@ to hide irrelevant sections.
 
 ```
 routes.tsx
-  <App />            ← shared shell (nav, layout, providers)
+  <RootLayout />     ← shared shell (nav, layout, providers)
     <Outlet />
       <ChatPage />           ← lifecycle guards → mounts ActiveChatView
       <LibraryPage />        ← library listing
@@ -59,7 +59,7 @@ routes.tsx
 
 Push hooks down to the route component that needs them. Lift shared
 state to the nearest common ancestor — typically a layout route or a
-context provider mounted in `<App />`.
+context provider mounted in `<RootLayout />`.
 
 ### Layout header slots
 
@@ -278,8 +278,8 @@ src/
     conversation-cache-mutations.ts #  domain-level cache mutation helpers
     conversation-list-fetchers.ts  #   pure async fetch functions for conversation lists
     conversation-transforms.ts     #   daemon → client field mapping
-    format.ts
-    browser.ts
+    format-date.ts
+    semver.ts
   types/                           # cross-domain shared types (no owning module)
     window.d.ts
     event-types.ts
@@ -290,7 +290,7 @@ src/
     feature-flags/                 #   feature flag provider
     sync/                          #   server state sync (query-tag keys, sync types)
     streaming/                     #   SSE transport, event parsing, debug tracking
-    api-client.ts                  #   HeyAPI configured client + interceptors
+    api-interceptors.ts            #   HeyAPI client interceptors (auth, routing)
     telemetry/                     #   client identity for daemon registration
   runtime/                         # framework adapters, platform bridges
     native-auth.ts
@@ -478,9 +478,9 @@ owns it.
 | `assistant/` | Core business-domain code for the assistant itself — the central concept every feature composes around. Every domain may depend on it; it depends on no domain. New top-level business-concept folders require explicit team approval. | `api.ts`, `lifecycle.ts`, `types.ts`, `llm-model-catalog.ts` |
 | `stores/` | App-level Zustand stores (cross-domain state) | `viewer-store.ts`, `sse-connected-store.ts`, `assistant-feature-flag-store.ts` |
 | `hooks/` | Cross-domain React hooks | `use-is-mobile.ts`, `use-visible-viewport.ts`, `use-feature-flag-bus-sync.ts` |
-| `utils/` | Pure utility functions (no side effects, no third-party SDKs) | `format.ts`, `browser.ts`, `network-status.ts`, `stable-id.ts` |
+| `utils/` | Pure utility functions (no side effects, no third-party SDKs) | `format-date.ts`, `semver.ts`, `to-error.ts`, `create-selectors.ts` |
 | `types/` | Cross-domain shared type definitions with no clear owning module. Types consumed by a single module live with that module. Types produced by a module live in the module that produces them — consumers use `import type`. | `window.d.ts`, `event-types.ts`, `conversation-types.ts` |
-| `lib/` | Third-party SDK wrappers and app-internal infrastructure (registries, transports, interceptors). Side effects, module-level state, or lifecycle ownership. See [`lib/` vs `utils/`](#lib-vs-utils--where-does-my-code-go) below. | `sentry/` (error reporting), `auth/` (allauth + CSRF), `feature-flags/` (catalog + registry), `sync/` (state sync), `streaming/` (SSE transport), `event-bus.ts` (pub/sub registry), `diagnostics.ts` (session ring buffer), `api-client.ts` (HeyAPI) |
+| `lib/` | Third-party SDK wrappers and app-internal infrastructure (registries, transports, interceptors). Side effects, module-level state, or lifecycle ownership. See [`lib/` vs `utils/`](#lib-vs-utils--where-does-my-code-go) below. | `sentry/` (error reporting), `auth/` (allauth + CSRF), `feature-flags/` (catalog + registry), `sync/` (state sync), `streaming/` (SSE transport), `event-bus.ts` (pub/sub registry), `diagnostics.ts` (session ring buffer), `api-interceptors.ts` (HeyAPI) |
 | `runtime/` | Framework adapters and native platform bridges | `route-adapter.ts`, `native-auth.ts`, `native-deep-link.ts`, `app-bridge.ts` |
 | `components/` | Cross-domain shared UI | `error-boundary.tsx`, `sign-in-gate.tsx`, `providers.tsx` |
 
@@ -494,7 +494,7 @@ owns it.
 | **Side effects?** | Yes — module-level state, listener registration, SDK init, interceptors, or pub/sub registries | No — pure input→output, no global state, no I/O |
 | **Third-party SDK dependency?** | Optional — third-party wrappers (`@sentry/react`, `@heyapi/client-fetch`) AND first-party infrastructure (`event-bus.ts`, `chunk-errors.ts`, `local-mode.ts`) both belong here | No — only standard library / language utilities |
 | **Subdirectories?** | When a single integration warrants multiple files (`lib/sentry/`, `lib/auth/`, `lib/sync/`); single-file infrastructure stays at the `lib/` top level (`lib/diagnostics.ts`, `lib/event-bus.ts`) | Flat — individual utility files at the top level |
-| **Examples** | `lib/sentry/sentry-init.ts`, `lib/auth/allauth-client.ts`, `lib/api-client.ts`, `lib/event-bus.ts`, `lib/diagnostics.ts`, `lib/chunk-errors.ts` | `utils/format.ts`, `utils/browser.ts`, `utils/cn.ts` |
+| **Examples** | `lib/sentry/sentry-init.ts`, `lib/auth/allauth-client.ts`, `lib/api-interceptors.ts`, `lib/event-bus.ts`, `lib/diagnostics.ts`, `lib/chunk-errors.ts` | `utils/format-date.ts`, `utils/semver.ts`, `utils/to-error.ts` |
 
 If the code holds state at module scope, registers global listeners,
 configures an SDK, manages a session, or runs at startup, it belongs
@@ -851,9 +851,15 @@ Reference: [Vite — SSR guidance](https://vite.dev/guide/ssr.html)
 ### `packages/design-library/`
 
 Domain-agnostic UI primitives (Button, Card, Modal, Typography, etc.)
-live in `packages/design-library/` outside `clients/web/`. The package is
-consumed as a `file:` dependency and resolved via its `exports` field
-in `package.json` — no Vite alias or tsconfig `paths` needed.
+live in `packages/design-library/` outside `clients/web/`. The package is a
+`workspace:*` dependency resolved via its `exports` field in `package.json`,
+so Vite serves it as source and edits hot-update live. No Vite alias or
+tsconfig `paths` needed.
+
+**Do not convert it to a `file:` dependency.** A `file:` dep (especially
+paired with `preserveSymlinks` or a per-package React install) resolves a
+second copy of React and white-screens the app. See
+[`clients/web/AGENTS.md`](../AGENTS.md) for the full constraint.
 
 ```ts
 import { Button, Typography } from "@vellumai/design-library";
@@ -897,8 +903,8 @@ export function ChatMarkdownMessage(props: ChatMarkdownMessageProps) {
 ```
 
 For component authoring conventions (React 19 ref-as-prop, `data-slot`,
-variant patterns, file organization), see
-[`packages/design-library/README.md`](../../../packages/design-library/README.md).
+variant patterns, file organization, story rules), see
+[`packages/design-library/AGENTS.md`](../../../packages/design-library/AGENTS.md).
 
 References:
 - [Node.js — Package exports](https://nodejs.org/api/packages.html#exports)

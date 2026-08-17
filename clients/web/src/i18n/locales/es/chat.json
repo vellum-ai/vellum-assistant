@@ -10,6 +10,10 @@
     "gallery": "Buscar en la galería",
     "files": "Archivos"
   },
+  "allowOptionsMenu": {
+    "allowAndCreateRule": "Permitir y crear regla",
+    "trigger": "Más opciones para permitir"
+  },
   "cacheBreakpointMapCard": {
     "description": "Dónde {count, plural, one {cayó # punto de corte de caché} other {cayeron # puntos de corte de caché}} en el prefijo de esta solicitud, y qué segmentos se leyeron frente a los que se volvieron a crear.",
     "estimatedTokens": "≈ {count} tokens",
@@ -137,6 +141,30 @@
     "tokenRange": "{before} → {after}",
     "tokenRangeWithReduction": "{before} → {after}  ({reduction})",
     "trigger": "Disparador"
+  },
+  "conversationActions": {
+    "archive": "Archivar",
+    "copyConversation": "Copiar conversación completa",
+    "copyConversationId": "Copiar ID de conversación",
+    "forkConversation": "Bifurcar conversación",
+    "inspect": "Analizar conversación",
+    "markRead": "Marcar como leída",
+    "markUnread": "Marcar como no leída",
+    "moveToGroup": "Mover al grupo",
+    "newGroup": "Nuevo grupo…",
+    "openInNewWindow": "Abrir en una ventana nueva",
+    "pin": "Fijar",
+    "refresh": "Actualizar",
+    "removeFromGroup": "Quitar del grupo",
+    "rename": "Cambiar nombre",
+    "shareFeedback": "Enviar comentarios",
+    "triggerAriaLabel": "Acciones de conversación",
+    "unarchive": "Desarchivar",
+    "unpin": "Dejar de fijar"
+  },
+  "conversationActionsSheet": {
+    "closeAriaLabel": "Cerrar",
+    "title": "Acciones de conversación"
   },
   "conversationAssets": {
     "ariaLabel": "Recursos de la conversación, {count, plural, one {# elemento} other {# elementos}}",

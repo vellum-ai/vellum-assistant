@@ -140,6 +140,7 @@ function buildContext(
       guardianPrincipalId: "user-1",
     },
     sendToClient: () => {},
+    emit: () => {},
     pendingSurfaceActions: new Map(),
     lastSurfaceAction: new Map(),
     surfaceState: new Map(),

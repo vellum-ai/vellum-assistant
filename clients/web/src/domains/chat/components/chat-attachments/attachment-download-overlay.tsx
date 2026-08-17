@@ -8,8 +8,11 @@
  * it: a control the device cannot reveal has to be present, and the thumbnail
  * still has to be readable.
  *
- * The thumbnail must carry Tailwind's `group` class for the hover and focus
- * conditions to resolve, and must be a positioning context.
+ * The thumbnail must carry `data-reveal-row` for the button's reveal conditions
+ * to resolve, Tailwind's `group` class for the scrim's, and must be a
+ * positioning context. The scrim is decoration rather than an affordance: it
+ * appears on hover and has no touch counterpart, so it is not part of the
+ * reveal contract the button uses.
  *
  * @see https://developer.mozilla.org/en-US/docs/Web/CSS/@media/hover
  * @see https://www.w3.org/WAI/WCAG22/Understanding/content-on-hover-or-focus
@@ -19,7 +22,6 @@ import { Download } from "lucide-react";
 import type { MouseEvent } from "react";
 import { Tooltip } from "@vellumai/design-library/components/tooltip";
 import { cn } from "@vellumai/design-library/utils/cn";
-import { hoverRevealClasses } from "@vellumai/design-library/utils/hover-reveal";
 
 interface AttachmentDownloadOverlayProps {
   /** Names the control, since the icon alone does not say what it downloads. */
@@ -57,8 +59,8 @@ export function AttachmentDownloadOverlay({
             // The chip carries the contrast the scrim gives on a hovering
             // device, so the icon stays legible over pale artwork.
             "[@media(hover:none)]:bg-black/50",
-            hoverRevealClasses,
           )}
+          data-reveal=""
         >
           <Download className="h-3.5 w-3.5" />
         </button>

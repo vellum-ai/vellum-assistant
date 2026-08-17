@@ -130,7 +130,7 @@ function pushStepsUpdate(
   };
   const updatedData = { ...card, templateData: updatedTemplateData };
   stored.data = updatedData;
-  ctx.sendToClient({
+  ctx.emit({
     type: "ui_surface_update",
     conversationId: ctx.conversationId,
     surfaceId: SURFACE_ID,
@@ -218,7 +218,7 @@ export function updateDoordashProgress(
       },
     } satisfies CardSurfaceData;
     ctx.surfaceState.set(SURFACE_ID, { surfaceType: "card", data });
-    ctx.sendToClient({
+    ctx.emit({
       type: "ui_surface_show",
       conversationId: ctx.conversationId,
       surfaceId: SURFACE_ID,

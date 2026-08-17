@@ -283,10 +283,6 @@ Runtime wiring:
   `hostBrowserSenderOverride` onto the `Conversation` so
   `host_browser_request` frames go to the extension WebSocket instead of
   the SSE hub.
-- `Conversation.restoreBrowserProxyAvailability()` is called on queue
-  drain to re-thread the override — without this, the drain path would
-  clobber the registry-routed sender with the default `sendToClient`
-  (which points at the SSE hub and nothing else).
 - `supportsHostProxy(id, capability)` — chrome-extension returns `true`
   only for `host_browser`; macOS returns `true` for all four (bash,
   file, cu, browser).
