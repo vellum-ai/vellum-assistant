@@ -72,6 +72,7 @@ const {
   primeLocalGatewayConnectionAfterRestart,
   primeLocalGatewayConnectionWithRepair,
   primeLocalGatewayConnectionWithStartupRetry,
+  repairLocalAssistantAfterRestart,
   restartLocalAssistant,
   LOCAL_GATEWAY_STARTUP_RETRY,
 } = await import("@/lib/local-mode");
@@ -218,25 +219,22 @@ describe("restartLocalAssistant", () => {
     expect(isLocalGatewayRestartInProgress()).toBe(false);
   });
 
-  test("repairs a guardian lease rejected after restart", async () => {
+  test("requires confirmation before repairing a rejected guardian lease", async () => {
     let mintAttempts = 0;
     ensureGatewayTokenImpl = async () => {
-      if (mintAttempts++ === 0) {
-        throw new GatewayTokenError(401, "guardian rejected");
-      }
+      mintAttempts++;
+      throw new GatewayTokenError(401, "guardian rejected");
     };
     LOCAL_GATEWAY_STARTUP_RETRY.attempts = 1;
 
     await expect(restartLocalAssistant("local-a")).resolves.toEqual({
-      ok: true,
+      ok: false,
+      reason: "guardian_repair_required",
     });
 
-    expect(wakeLocalAssistantHost).toHaveBeenCalledTimes(2);
-    expect(wakeLocalAssistantHost).toHaveBeenNthCalledWith(1, "local-a");
-    expect(wakeLocalAssistantHost).toHaveBeenNthCalledWith(2, "local-a", {
-      repairGuardian: true,
-    });
-    expect(mintAttempts).toBe(2);
+    expect(wakeLocalAssistantHost).toHaveBeenCalledTimes(1);
+    expect(wakeLocalAssistantHost).toHaveBeenCalledWith("local-a");
+    expect(mintAttempts).toBe(1);
   });
 
   test("does not repair a post-restart 403", async () => {
@@ -253,26 +251,6 @@ describe("restartLocalAssistant", () => {
     expect(wakeLocalAssistantHost).toHaveBeenCalledTimes(1);
   });
 
-  test("attempts guardian repair only once", async () => {
-    let mintAttempts = 0;
-    ensureGatewayTokenImpl = async () => {
-      mintAttempts++;
-      throw new GatewayTokenError(401, "guardian rejected");
-    };
-    LOCAL_GATEWAY_STARTUP_RETRY.attempts = 1;
-
-    await expect(restartLocalAssistant("local-a")).resolves.toEqual({
-      ok: false,
-      reason: "reconnect_failed",
-    });
-
-    expect(wakeLocalAssistantHost).toHaveBeenCalledTimes(2);
-    expect(wakeLocalAssistantHost).toHaveBeenLastCalledWith("local-a", {
-      repairGuardian: true,
-    });
-    expect(mintAttempts).toBe(2);
-  });
-
   test("releases restart scope when wake fails", async () => {
     wakeLocalAssistantHost = mock(async () => ({
       ok: false,
@@ -283,6 +261,52 @@ describe("restartLocalAssistant", () => {
 
     expect(result).toEqual({ ok: false, error: "wake failed" });
     expect(clearGatewayTokenMock).not.toHaveBeenCalled();
+    expect(isLocalGatewayRestartInProgress()).toBe(false);
+  });
+});
+
+describe("repairLocalAssistantAfterRestart", () => {
+  test("repairs the guardian lease after confirmation", async () => {
+    await expect(repairLocalAssistantAfterRestart("local-a")).resolves.toEqual({
+      ok: true,
+    });
+
+    expect(wakeLocalAssistantHost).toHaveBeenCalledTimes(1);
+    expect(wakeLocalAssistantHost).toHaveBeenCalledWith("local-a", {
+      repairGuardian: true,
+    });
+    expect(isLocalGatewayRestartInProgress()).toBe(false);
+  });
+
+  test("attempts guardian repair only once", async () => {
+    let mintAttempts = 0;
+    ensureGatewayTokenImpl = async () => {
+      mintAttempts++;
+      throw new GatewayTokenError(401, "guardian rejected");
+    };
+    LOCAL_GATEWAY_STARTUP_RETRY.attempts = 1;
+
+    await expect(repairLocalAssistantAfterRestart("local-a")).resolves.toEqual({
+      ok: false,
+      reason: "reconnect_failed",
+    });
+
+    expect(wakeLocalAssistantHost).toHaveBeenCalledTimes(1);
+    expect(wakeLocalAssistantHost).toHaveBeenCalledWith("local-a", {
+      repairGuardian: true,
+    });
+    expect(mintAttempts).toBe(1);
+  });
+
+  test("reports a failed guardian repair", async () => {
+    wakeLocalAssistantHost = mock(async () => ({
+      ok: false,
+      error: "repair failed",
+    }));
+
+    const result = await repairLocalAssistantAfterRestart("local-a");
+
+    expect(result).toEqual({ ok: false, error: "repair failed" });
     expect(isLocalGatewayRestartInProgress()).toBe(false);
   });
 });

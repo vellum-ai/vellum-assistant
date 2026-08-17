@@ -391,7 +391,11 @@
     "title": "Proveedores"
   },
   "restartAssistant": {
-    "reconnectFailed": "El asistente se reinició, pero no se pudo volver a conectar. Inténtalo de nuevo."
+    "reconnectFailed": "El asistente se reinició, pero no se pudo volver a conectar. Inténtalo de nuevo.",
+    "repairConfirmLabel": "Reparar conexión",
+    "repairFailed": "No se pudo reparar la conexión del asistente.",
+    "repairMessage": "Reparar la conexión cierra la sesión en otros navegadores y dispositivos conectados a este asistente. ¿Quieres continuar?",
+    "repairTitle": "¿Reparar la conexión del asistente?"
   },
   "sharedUi": {
     "checkingDomain": "Comprobando dominio…",

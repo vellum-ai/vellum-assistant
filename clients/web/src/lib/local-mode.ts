@@ -1058,24 +1058,11 @@ export async function primeLocalGatewayConnectionAfterRestart(
   await primeLocalGatewayConnection(selected);
 }
 
-async function reconnectLocalAssistantAfterRestart(
-  assistantId: string,
-): Promise<void> {
-  try {
-    await primeLocalGatewayConnectionAfterRestart(assistantId);
-  } catch (error) {
-    if (!(error instanceof GatewayTokenError) || error.status !== 401) {
-      throw error;
-    }
-    const repair = await wakeLocalAssistantHost(assistantId, {
-      repairGuardian: true,
-    });
-    if (!repair.ok) {
-      throw error;
-    }
-    await primeLocalGatewayConnectionAfterRestart(assistantId);
-  }
-}
+type RestartLocalAssistantResult = {
+  ok: boolean;
+  error?: string;
+  reason?: "reconnect_failed" | "guardian_repair_required";
+};
 
 /**
  * Restart a local assistant and restore its renderer gateway session before
@@ -1083,11 +1070,7 @@ async function reconnectLocalAssistantAfterRestart(
  */
 export async function restartLocalAssistant(
   assistantId: string,
-): Promise<{
-  ok: boolean;
-  error?: string;
-  reason?: "reconnect_failed";
-}> {
+): Promise<RestartLocalAssistantResult> {
   const finishRestart = beginLocalGatewayRestart();
   try {
     const sleepResult = await sleepLocalAssistantHost(assistantId);
@@ -1105,13 +1088,41 @@ export async function restartLocalAssistant(
       };
     }
     try {
-      await reconnectLocalAssistantAfterRestart(assistantId);
+      await primeLocalGatewayConnectionAfterRestart(assistantId);
       return { ok: true };
-    } catch {
+    } catch (error) {
       return {
         ok: false,
-        reason: "reconnect_failed",
+        reason:
+          error instanceof GatewayTokenError && error.status === 401
+            ? "guardian_repair_required"
+            : "reconnect_failed",
       };
+    }
+  } finally {
+    finishRestart();
+  }
+}
+
+export async function repairLocalAssistantAfterRestart(
+  assistantId: string,
+): Promise<RestartLocalAssistantResult> {
+  const finishRestart = beginLocalGatewayRestart();
+  try {
+    const repair = await wakeLocalAssistantHost(assistantId, {
+      repairGuardian: true,
+    });
+    if (!repair.ok) {
+      return {
+        ok: false,
+        error: repair.error ?? "Failed to repair assistant connection.",
+      };
+    }
+    try {
+      await primeLocalGatewayConnectionAfterRestart(assistantId);
+      return { ok: true };
+    } catch {
+      return { ok: false, reason: "reconnect_failed" };
     }
   } finally {
     finishRestart();

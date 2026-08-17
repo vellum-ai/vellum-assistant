@@ -8,6 +8,7 @@ import { restartAssistant } from "@/assistant/api";
 import { t } from "@/i18n";
 import {
   isCliWakeableAssistant,
+  repairLocalAssistantAfterRestart,
   restartLocalAssistant,
 } from "@/lib/local-mode";
 import { captureError } from "@/lib/sentry/capture-error";
@@ -22,6 +23,7 @@ export function RestartAssistant({
 }) {
   const [restarting, setRestarting] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
+  const [repairConfirmOpen, setRepairConfirmOpen] = useState(false);
 
   const handleRestart = async () => {
     setConfirmOpen(false);
@@ -41,6 +43,8 @@ export function RestartAssistant({
         const result = await restartLocalAssistant(assistantId);
         if (result.ok) {
           toast.success("Assistant is restarting.");
+        } else if (result.reason === "guardian_repair_required") {
+          setRepairConfirmOpen(true);
         } else {
           toast.error(
             result.reason === "reconnect_failed"
@@ -68,6 +72,28 @@ export function RestartAssistant({
     }
   };
 
+  const handleGuardianRepair = async () => {
+    setRepairConfirmOpen(false);
+    setRestarting(true);
+    try {
+      const result = await repairLocalAssistantAfterRestart(assistantId);
+      if (result.ok) {
+        toast.success("Assistant is restarting.");
+      } else {
+        toast.error(
+          result.reason === "reconnect_failed"
+            ? t("settings:restartAssistant.reconnectFailed")
+            : (result.error ?? t("settings:restartAssistant.repairFailed")),
+        );
+      }
+    } catch (error) {
+      captureError(error, { context: "restart_assistant_guardian_repair" });
+      toast.error(t("settings:restartAssistant.repairFailed"));
+    } finally {
+      setRestarting(false);
+    }
+  };
+
   return (
     <>
       <Button
@@ -88,6 +114,14 @@ export function RestartAssistant({
         confirmLabel="Restart"
         onConfirm={handleRestart}
         onCancel={() => setConfirmOpen(false)}
+      />
+      <ConfirmDialog
+        open={repairConfirmOpen}
+        title={t("settings:restartAssistant.repairTitle")}
+        message={t("settings:restartAssistant.repairMessage")}
+        confirmLabel={t("settings:restartAssistant.repairConfirmLabel")}
+        onConfirm={handleGuardianRepair}
+        onCancel={() => setRepairConfirmOpen(false)}
       />
     </>
   );
