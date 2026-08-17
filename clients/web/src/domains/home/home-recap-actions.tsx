@@ -8,6 +8,8 @@ import {
   type LucideIcon,
 } from "lucide-react";
 
+import type { ReactNode } from "react";
+
 import type { SwipeAction } from "@/hooks/use-swipe-to-reveal";
 import type { TFunction } from "@/i18n";
 import type { FeedItem, FeedItemStatus } from "@vellumai/assistant-api";
@@ -186,26 +188,17 @@ export function RecapActionButtons({ actions }: { actions: RecapAction[] }) {
  * are outside the accessibility tree until the swipe reveals them, and a long
  * press is not something a screen reader or switch control announces. This
  * button is, which is what keeps every command reachable by name.
+ *
+ * It is the sheet's own trigger rather than a button that sets the sheet's
+ * state, so the dialog's state is announced on it and closing the sheet returns
+ * focus to it: a keyboard or switch user running one command lands back beside
+ * the row instead of at the top of the page.
  */
-export function RecapActionsTrigger({
-  label,
-  expanded,
-  onOpen,
-}: {
-  label: string;
-  expanded: boolean;
-  onOpen: () => void;
-}) {
+export function RecapActionsTrigger({ label }: { label: string }) {
   return (
-    <button
-      type="button"
+    <ActionMenu.Trigger
+      asChild={false}
       aria-label={label}
-      aria-haspopup="dialog"
-      aria-expanded={expanded}
-      onClick={(event) => {
-        event.stopPropagation();
-        onOpen();
-      }}
       /* `pointer-events-auto`: the card's content stack takes no pointer events
          so the stretched link behind it answers a tap anywhere, which every
          control standing above it has to opt back out of. */
@@ -216,28 +209,35 @@ export function RecapActionsTrigger({
       )}
     >
       <Ellipsis width={16} height={16} aria-hidden="true" />
-    </button>
+    </ActionMenu.Trigger>
   );
 }
 
 /**
- * The same commands as a sheet, opened by the trigger above or by a long press
- * on the row.
+ * The row and the sheet its commands open, as one surface: whatever opens the
+ * sheet (the row's trigger, a long press) drives the same state and reaches the
+ * same commands.
  *
  * The presentation is pinned rather than resolved from input capability: the
  * sheet stands in for the row's inline buttons wherever those are absent, which
  * is the hoverless case the sheet is already the right surface for.
+ *
+ * The sheet's content is a sibling of `children` rather than nested inside it,
+ * because a long press guards the row against the click its own release emits
+ * and React would route the sheet's first tap through that guard.
  */
-export function RecapActionSheet({
+export function RecapActions({
   actions,
   title,
   open,
   onOpenChange,
+  children,
 }: {
   actions: RecapAction[];
   title: string;
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  children: ReactNode;
 }) {
   return (
     <ActionMenu.Root
@@ -245,6 +245,7 @@ export function RecapActionSheet({
       onOpenChange={onOpenChange}
       presentation="sheet"
     >
+      {children}
       <ActionMenu.Content title={title} showTitle>
         {actions.map(({ id, label, icon, onSelect, destructive }) => (
           <ActionMenu.Item

@@ -18,7 +18,7 @@ import { resolvePreview } from "./feed-preview";
 import {
   buildRecapActions,
   RecapActionButtons,
-  RecapActionSheet,
+  RecapActions,
   RecapActionsTrigger,
   swipeActionsFor,
   type HomeRecapRowTrailingAction,
@@ -257,11 +257,7 @@ export function HomeRecapRow({
           </CrossfadeStack>
 
           {showsActionButtons ? null : (
-            <RecapActionsTrigger
-              label={actionsLabel}
-              expanded={longPress.open}
-              onOpen={() => longPress.onOpenChange(true)}
-            />
+            <RecapActionsTrigger label={actionsLabel} />
           )}
         </div>
 
@@ -282,11 +278,13 @@ export function HomeRecapRow({
     </div>
   );
 
-  /* The sheet is a sibling of the wrapper, not a child: React propagates events
-     through the React tree even for portalled content, so a sheet inside the
-     wrapper would have its own first tap swallowed by the long-press guard. */
   return (
-    <>
+    <RecapActions
+      actions={actions}
+      title={actionsLabel}
+      open={longPress.open}
+      onOpenChange={longPress.onOpenChange}
+    >
       <div {...longPress.wrapperProps}>
         <SwipeActionReveal
           leadingActions={swipeActionsFor(actions, "leading")}
@@ -296,12 +294,6 @@ export function HomeRecapRow({
           {card}
         </SwipeActionReveal>
       </div>
-      <RecapActionSheet
-        actions={actions}
-        title={actionsLabel}
-        open={longPress.open}
-        onOpenChange={longPress.onOpenChange}
-      />
-    </>
+    </RecapActions>
   );
 }

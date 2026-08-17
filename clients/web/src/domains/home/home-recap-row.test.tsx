@@ -249,6 +249,26 @@ describe("HomeRecapRow on a device that cannot hover", () => {
     expect(dismissed).toEqual(["feed-1"]);
   });
 
+  /* The control is the sheet's own trigger rather than a button that sets the
+     sheet's state, which is what has the dialog announce its state on the
+     control and hand focus back to it on close. Asserted through the wiring the
+     dialog owns, because focus restoration itself is a browser behaviour this
+     environment does not model. */
+  test("the control is the sheet's trigger, not a button beside it", () => {
+    renderRow();
+    const trigger = screen.getByRole("button", { name: "Update Actions" });
+
+    expect(trigger.getAttribute("aria-haspopup")).toBe("dialog");
+    expect(trigger.getAttribute("aria-expanded")).toBe("false");
+
+    fireEvent.click(trigger);
+
+    expect(trigger.getAttribute("aria-expanded")).toBe("true");
+    expect(trigger.getAttribute("aria-controls")).toBe(
+      screen.getByRole("dialog").id,
+    );
+  });
+
   test("opening the commands does not also open the item", () => {
     const { selected } = renderRow();
 
@@ -290,6 +310,17 @@ describe("HomeRecapRow on a device that cannot hover", () => {
         true,
       );
     }
+  });
+
+  /* The release emits a click the sheet's dismissable layer would read as a
+     click outside itself, closing the sheet the press just opened. */
+  test("the sheet a long press opened survives the release", async () => {
+    renderRow();
+
+    await longPressCard();
+    fireEvent.click(document.body);
+
+    expect(screen.getByRole("dialog")).toBeTruthy();
   });
 
   test("the compatibility click after a long press does not open the item", async () => {
