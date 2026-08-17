@@ -316,11 +316,19 @@ public sealed class InputController : IRpcModule, IInputController
                 var presses = action.Type == "double_click" ? 2 : 1;
                 for (var i = 0; i < presses; i++)
                 {
+                    // The release is guaranteed so a failure never leaves the
+                    // physical button held down for the user.
                     NativeInput.Button(button, down: true);
-                    NativeInput.Button(button, down: false);
-                    if (i < presses - 1)
+                    try
                     {
-                        await Task.Delay(30, cancellationToken);
+                        if (i < presses - 1)
+                        {
+                            await Task.Delay(30, cancellationToken);
+                        }
+                    }
+                    finally
+                    {
+                        NativeInput.Button(button, down: false);
                     }
                 }
                 return $"{action.Type} at ({x}, {y})";
@@ -395,17 +403,26 @@ public sealed class InputController : IRpcModule, IInputController
         return result;
     }
 
-    private static CuAction MapAction(string toolName, JsonElement? input)
+    // Maps a daemon tool name plus its input onto a single verified action.
+    public static CuAction MapAction(string toolName, JsonElement? input)
     {
         var name = toolName.StartsWith("computer_use_", StringComparison.Ordinal)
             ? toolName["computer_use_".Length..]
             : toolName.StartsWith("cu_", StringComparison.Ordinal) ? toolName["cu_".Length..] : toolName;
+        // Screenshot requests are observation-only; unknown tools keep their own
+        // name so execution reports them as unsupported instead of silently
+        // ending the session the way a `done` mapping would.
         var type = name switch
         {
-            "click" or "double_click" or "right_click" or "type_text" or "key" or "scroll" or
-            "wait" or "drag" or "open_app" or "run_applescript" or "done" or "respond" or "observe" => name,
-            _ => "done",
+            "screenshot" => "observe",
+            "press_key" => "key",
+            _ => name,
         };
+        var clickType = JsonInput.GetString(input, "click_type");
+        if (type == "click" && clickType is "double" or "right")
+        {
+            type = clickType == "double" ? "double_click" : "right_click";
+        }
         return new CuAction(
             type,
             X: JsonInput.GetDouble(input, "x"),

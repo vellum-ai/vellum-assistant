@@ -8,18 +8,14 @@
 import { join } from "node:path";
 
 import { app } from "electron";
-import { z } from "zod";
 
 import {
   capabilityToken,
   type CapabilityModule,
   type DesktopCapabilityRegistry,
 } from "@vellumai/electron-desktop/capability-registry";
-import {
-  HostHelperProxyExecutor,
-  type CuHelperClient,
-  type HostHelperProxyConfig,
-} from "@vellumai/electron-desktop/host-proxy/helper-proxy-executor";
+import { createCuHelperProxyExecutor } from "@vellumai/electron-desktop/host-proxy/cu-executor";
+import type { CuHelperClient } from "@vellumai/electron-desktop/host-proxy/helper-proxy-executor";
 import type { HostProxyExecutor } from "@vellumai/electron-desktop/host-proxy/router";
 import { NativeSidecarClient } from "@vellumai/native-sidecar/supervisor";
 
@@ -66,66 +62,19 @@ export const shutdownSharedCuHelper = (): void => {
   sharedHelper = null;
 };
 
-// The helper returns only the observation fields; `requestId` is added when
-// posting. Unknown keys are tolerated so a newer helper can extend the shape.
-const CU_RESULT_SCHEMA = z
-  .object({
-    axTree: z.string().optional(),
-    axDiff: z.string().optional(),
-    screenshot: z.string().optional(),
-    screenshotWidthPx: z.number().optional(),
-    screenshotHeightPx: z.number().optional(),
-    screenWidthPt: z.number().optional(),
-    screenHeightPt: z.number().optional(),
-    executionResult: z.string().optional(),
-    executionError: z.string().optional(),
-    secondaryWindows: z.string().optional(),
-  })
-  .passthrough();
-
 export interface WindowsCuExecutorDeps {
   helper?: CuHelperClient;
 }
 
-function cuConfig(
-  deps: WindowsCuExecutorDeps,
-): HostHelperProxyConfig<z.infer<typeof CU_RESULT_SCHEMA>> {
-  return {
-    label: "host-cu-executor",
-    logger: log,
-    method: "cu.perform",
-    resolveHelper: deps.helper
-      ? () => deps.helper as CuHelperClient
-      : getSharedCuHelper,
-    schema: CU_RESULT_SCHEMA,
-    buildParams: (message, requestId) => {
-      const toolName = message.toolName as string | undefined;
-      if (!toolName) return { error: "Missing toolName" };
-      return {
-        params: {
-          requestId,
-          conversationId: (message.conversationId as string | undefined) ?? "",
-          toolName,
-          input: (message.input as Record<string, unknown> | undefined) ?? {},
-          stepNumber: (message.stepNumber as number | undefined) ?? 1,
-          ...(typeof message.reasoning === "string"
-            ? { reasoning: message.reasoning }
-            : {}),
-        },
-      };
-    },
-    postSuccess: (poster, requestId, result) => {
-      void poster.postCuResult({ requestId, ...result });
-    },
-    postError: (poster, requestId, message) => {
-      void poster.postCuResult({ requestId, executionError: message });
-    },
-  };
-}
-
 export const createWindowsHostCuExecutor = (
   deps: WindowsCuExecutorDeps = {},
-): HostProxyExecutor => new HostHelperProxyExecutor(cuConfig(deps));
+): HostProxyExecutor => {
+  const { helper } = deps;
+  return createCuHelperProxyExecutor({
+    logger: log,
+    resolveHelper: helper ? () => helper : getSharedCuHelper,
+  });
+};
 
 const computerUseActionsFeature: CapabilityModule<DesktopCapabilityRegistry> = {
   id: "computer-use-actions",

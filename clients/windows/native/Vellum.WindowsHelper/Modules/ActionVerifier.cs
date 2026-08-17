@@ -71,8 +71,9 @@ public sealed class ActionVerifier(int maxSteps = 50)
         {
             return new(CuVerdict.Blocked, "Agent appears stuck in a repeating action loop");
         }
-        if (action.Type == "key" && action.Key?.ToLowerInvariant() is { } key)
+        if (action.Type == "key" && action.Key is { } rawKey)
         {
+            var key = CanonicalizeChord(rawKey);
             if (DestructiveKeys.Contains(key))
             {
                 return new(CuVerdict.NeedsConfirmation, $"Key combo '{key}' could close a window or delete content");
@@ -85,6 +86,14 @@ public sealed class ActionVerifier(int maxSteps = 50)
         _history.Add(action);
         return new(CuVerdict.Allowed);
     }
+
+    // Chord components are trimmed and lowercased with the same split semantics
+    // KeyPlanner.ParseChord uses, so "ALT + F4" and "alt+f4" compare equal.
+    private static string CanonicalizeChord(string key) =>
+        string.Join(
+            '+',
+            key.Split('+', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                .Select(part => part.ToLowerInvariant()));
 
     // Repeating patterns in a sliding window: the same action three times in a
     // row, or a 2-4 action cycle repeated twice.

@@ -62,7 +62,9 @@ export class HostHelperProxyExecutor<T> implements HostProxyExecutor {
       return;
     }
 
-    if (this.consumeCancelled(requestId)) return;
+    if (this.consumeCancelled(requestId)) {
+      return;
+    }
 
     const built = this.config.buildParams(message, requestId);
     if ("error" in built) {
@@ -75,7 +77,9 @@ export class HostHelperProxyExecutor<T> implements HostProxyExecutor {
 
   handleCancel(message: HostProxySseMessage, _poster: HostProxyPoster): void {
     const requestId = message.requestId as string | undefined;
-    if (requestId) this.markCancelled(requestId);
+    if (requestId) {
+      this.markCancelled(requestId);
+    }
   }
 
   private async run(
@@ -85,7 +89,9 @@ export class HostHelperProxyExecutor<T> implements HostProxyExecutor {
   ): Promise<void> {
     try {
       const raw = await this.config.resolveHelper().call(this.config.method, params);
-      if (this.consumeCancelled(requestId)) return;
+      if (this.consumeCancelled(requestId)) {
+        return;
+      }
 
       const parsed = this.config.schema.safeParse(raw);
       if (!parsed.success) {
@@ -99,7 +105,9 @@ export class HostHelperProxyExecutor<T> implements HostProxyExecutor {
 
       this.config.postSuccess(poster, requestId, parsed.data);
     } catch (err) {
-      if (this.consumeCancelled(requestId)) return;
+      if (this.consumeCancelled(requestId)) {
+        return;
+      }
       this.config.postError(
         poster,
         requestId,
@@ -112,7 +120,9 @@ export class HostHelperProxyExecutor<T> implements HostProxyExecutor {
     const now = Date.now();
     this.cancelledIds.set(requestId, now);
     for (const [id, ts] of this.cancelledIds) {
-      if (now - ts >= CANCEL_TTL_MS) this.cancelledIds.delete(id);
+      if (now - ts >= CANCEL_TTL_MS) {
+        this.cancelledIds.delete(id);
+      }
     }
   }
 

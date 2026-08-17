@@ -44,7 +44,34 @@ public static class InputControllerTests
             confirm.Verify(new CuAction("key", Key: "enter")).Verdict == CuVerdict.NeedsConfirmation,
             "enter after typing");
 
+        // Verifier: destructive chords are canonicalized the way chords are parsed,
+        // so spacing and casing cannot bypass the confirmation gate.
+        Check(
+            new ActionVerifier().Verify(new CuAction("key", Key: "ALT + F4")).Verdict
+                == CuVerdict.NeedsConfirmation,
+            "destructive combo spacing");
+
+        // click_type selects the click flavor for the unified click tool, and
+        // screenshot requests are observation-only.
+        using var doubleClick = JsonDocument.Parse("{\"click_type\":\"double\"}");
+        using var rightClick = JsonDocument.Parse("{\"click_type\":\"right\"}");
+        Check(
+            InputController.MapAction("computer_use_click", doubleClick.RootElement).Type == "double_click",
+            "click_type double");
+        Check(
+            InputController.MapAction("computer_use_click", rightClick.RootElement).Type == "right_click",
+            "click_type right");
+        Check(InputController.MapAction("computer_use_click", null).Type == "click", "click default");
+        Check(InputController.MapAction("computer_use_screenshot", null).Type == "observe", "screenshot observes");
+        Check(InputController.MapAction("computer_use_press_key", null).Type == "key", "press_key");
+
         var module = new InputController();
+
+        // An unrecognized tool reports an unsupported action instead of ending
+        // the session as if the agent had completed its work.
+        CheckContains(
+            await InvokeAsync(module, "conv-unknown", "computer_use_teleport", "{}"),
+            "Unsupported action", "unknown tool unsupported");
 
         // The script action reports a structured unsupported result.
         CheckContains(
