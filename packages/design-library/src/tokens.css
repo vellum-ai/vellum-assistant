@@ -875,13 +875,13 @@
  * reports `hover: none` at 1024px, so a control behind hover there is
  * unreachable rather than tucked away.
  *
- * Hover is read off the row; focus is read off the affordance, plus the row's
- * own `:focus-visible` so tabbing to a row reveals what it offers. Ordinary
- * `:focus-within` on the row would not do: a row whose whole surface is a
- * button takes focus on click and would stay revealed with the pointer
- * elsewhere, which `:focus-visible` excludes for a pointer-focused control.
- * `aria-expanded` holds the affordance up while a menu it owns is open, where
- * focus alone sits in portalled content the row does not contain.
+ * Hover is read off the row. Keyboard focus anywhere in the row reveals what
+ * the row offers, whether the row itself takes focus or one of its children
+ * does, so a keyboard user meets the affordance the way a pointer user does.
+ * Focus is matched as `:focus-visible`: ordinary `:focus-within` would leave a
+ * row whose whole surface is a button revealed after a click, with the pointer
+ * elsewhere. `aria-expanded` holds the affordance up while a menu it owns is
+ * open, where focus alone sits in portalled content the row does not contain.
  *
  * Opacity and `pointer-events` move together: an unpainted control that still
  * answers a click is a trap. `pointer-events` does not gate keyboard
@@ -927,6 +927,10 @@
     pointer-events: auto;
   }
 
+  /* Focus on any child, not only the affordance: a card whose primary button
+     takes focus shows its remove control too. */
+  [data-reveal-row]:not(:hover):not([data-reveal-hold]):has(:focus-visible)
+    [data-reveal],
   [data-reveal-row]:not(:hover):not([data-reveal-hold])
     [data-reveal]:has([aria-expanded="true"]) {
     opacity: 1;
@@ -942,9 +946,7 @@
     opacity: 0;
   }
 
-  [data-reveal-row]:not(:hover):not([data-reveal-hold]):has(
-      [data-reveal]:focus-within
-    )
+  [data-reveal-row]:not(:hover):not([data-reveal-hold]):has(:focus-visible)
     [data-reveal-yield],
   [data-reveal-row]:not(:hover):not([data-reveal-hold]):has(
       [data-reveal][aria-expanded="true"]

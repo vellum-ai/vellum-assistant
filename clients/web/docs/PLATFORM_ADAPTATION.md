@@ -273,9 +273,9 @@ Callers declare parts, the rule owns the conditions:
 </div>
 ```
 
-- `data-reveal-row` scopes the reveal: the affordance appears while this element is hovered, while it
-  has keyboard focus (`:focus-visible`, so a click on the row does not count), while the affordance
-  itself holds focus, and while a menu it owns reports `aria-expanded`.
+- `data-reveal-row` scopes the reveal: the affordance appears while this element is hovered, while
+  keyboard focus is anywhere inside it (`:focus-visible`, so a click on the row does not count), and
+  while a menu the affordance owns reports `aria-expanded`.
 - `data-reveal` is the affordance. Its opacity and its `pointer-events` are set by the same
   declaration, since an unpainted control that still answers a click is a trap.
 - `data-reveal-yield` is an element sharing the affordance's slot and giving it up, so the two
