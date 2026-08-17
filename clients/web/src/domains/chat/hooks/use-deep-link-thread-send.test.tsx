@@ -5,7 +5,8 @@
  * may only turn into a send once the target is confirmed to exist. Otherwise
  * it waits, and when the target is definitively gone (or the park has aged
  * out) it demotes to the pre-fill contract rather than sending anywhere or
- * losing the text.
+ * losing the text; when the user has moved to another thread it becomes the
+ * target thread's persisted draft, never the current composer's text.
  */
 
 import { afterEach, beforeEach, describe, expect, it, mock } from "bun:test";
@@ -37,6 +38,7 @@ mock.module("@sentry/react", () => ({
 }));
 
 import { consumePendingComposerFocus } from "@/domains/chat/composer-focus";
+import { useComposerStore } from "@/domains/chat/composer-store";
 import {
   PENDING_THREAD_SEND_TTL_MS,
   useDeepLinkThreadSend,
@@ -77,6 +79,10 @@ beforeEach(() => {
   consumePendingComposerFocus();
   sentryBreadcrumbMock.mockClear();
   listState = { conversations: [], isPending: true, isError: false };
+  const composer = useComposerStore.getState();
+  composer.setInput("");
+  composer.clearDraft("abc-123");
+  composer.clearDraft("other");
 });
 afterEach(() => cleanup());
 
@@ -127,7 +133,7 @@ describe("useDeepLinkThreadSend", () => {
     expect(sendMessage).toHaveBeenCalledWith("gym done");
   });
 
-  it("waits while the user is on a different thread (navigation not landed)", () => {
+  it("saves the text as the TARGET thread's draft when the user has moved to a different thread", () => {
     usePendingDeepLinkStore
       .getState()
       .setPendingThreadSend("abc-123", "gym done");
@@ -140,12 +146,23 @@ describe("useDeepLinkThreadSend", () => {
       activeConversationId: "other",
       conversationExistsOnServer: true,
     });
-    // `other` exists, but it is not the target: never send into the wrong
-    // thread, and do not give up on the request either.
+
+    // Never send into the wrong thread, and never stage the text in the
+    // wrong thread's composer either (one tap from the wrong conversation).
     expect(sendMessage).not.toHaveBeenCalled();
-    expect(usePendingDeepLinkStore.getState().pendingThreadSend?.threadId).toBe(
-      "abc-123",
-    );
+    expect(usePendingDeepLinkStore.getState().pendingThreadSend).toBeNull();
+    expect(
+      usePendingDeepLinkStore.getState().pendingComposerMessage,
+    ).toBeNull();
+    // The text lives on as abc-123's persisted draft: restoring for the
+    // target key yields it, restoring for the current thread yields nothing.
+    const composer = useComposerStore.getState();
+    composer.setInput("");
+    composer.restoreDraftIfEmpty("other");
+    expect(useComposerStore.getState().input).toBe("");
+    composer.restoreDraftIfEmpty("abc-123");
+    expect(useComposerStore.getState().input).toBe("gym done");
+    expect(sentryBreadcrumbMock).toHaveBeenCalledTimes(1);
   });
 
   it("demotes to a pre-fill when the loaded foreground list does not contain the target", () => {
