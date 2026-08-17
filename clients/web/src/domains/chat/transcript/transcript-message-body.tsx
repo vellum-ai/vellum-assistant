@@ -49,6 +49,7 @@ import { useCoarsePointerReveal } from "@/domains/chat/transcript/use-coarse-poi
 import { AssistantContentDisclosure } from "@/domains/chat/transcript/assistant-content-disclosure";
 import { parseInlineSurfaces } from "@/domains/chat/utils/parse-inline-surfaces";
 import { useSmoothStreamText } from "@/domains/chat/hooks/use-smooth-stream-text";
+import { t } from "@/i18n";
 import { useSupportsRedactedCredentialChips } from "@/lib/backwards-compat/use-supports-redacted-credential-chips";
 import { stopAcpRun } from "@/domains/chat/utils/acp-run-actions";
 import { stopBackgroundTask } from "@/domains/chat/utils/background-task-actions";
@@ -499,7 +500,7 @@ export function TranscriptMessageBody({
           }
           await saveFile(data, filename);
         } catch {
-          toast.error("Failed to download file", { description: filename });
+          toast.error(t("chat:fileDownload.failed"), { description: filename });
         }
       })();
     } else {

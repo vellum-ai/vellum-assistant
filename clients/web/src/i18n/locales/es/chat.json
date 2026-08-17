@@ -145,6 +145,9 @@
     "tokenRangeWithReduction": "{before} → {after}  ({reduction})",
     "trigger": "Disparador"
   },
+  "composerSettingsMenu": {
+    "profileSwitchFailed": "Perfil creado, pero no se pudo cambiar a él"
+  },
   "conversationActions": {
     "archive": "Archivar",
     "copyConversation": "Copiar conversación completa",
@@ -168,6 +171,11 @@
   "conversationActionsSheet": {
     "closeAriaLabel": "Cerrar",
     "title": "Acciones de conversación"
+  },
+  "conversationAssetActions": {
+    "appExported": "Aplicación exportada",
+    "pdfDownloadFailed": "No se pudo descargar el PDF",
+    "shareFailed": "No se pudo compartir la aplicación"
   },
   "conversationAssets": {
     "ariaLabel": "Recursos de la conversación, {count, plural, one {# elemento} other {# elementos}}",
@@ -204,6 +212,9 @@
     "titleDone": "Exportación completa",
     "titleError": "Error al exportar",
     "titleRunning": "Exportando datos del inspector"
+  },
+  "fileDownload": {
+    "failed": "No se pudo descargar el archivo"
   },
   "inspectPage": {
     "accessDenied": "El inspector está disponible para el personal de Vellum o cuando la marca de desarrollador settings-developer-nav está habilitada.",
@@ -252,6 +263,12 @@
     "chipUpstreamType": "Tipo ascendente",
     "noResponse": "El proveedor rechazó esta llamada y no devolvió respuesta.",
     "title": "Llamada fallida"
+  },
+  "localFileEmbed": {
+    "pictureInPictureUnavailable": "Imagen sobre imagen no está disponible"
+  },
+  "localFileLink": {
+    "unavailable": "Este archivo no está disponible aquí"
   },
   "memoryRouterPlaygroundPage": {
     "addOlderPairButton": "+ Añadir par más antiguo",
@@ -555,5 +572,12 @@
     "noInputSchema": "Sin esquema de entrada: esta herramienta no acepta entrada estructurada.",
     "required": "obligatorio",
     "settings": "Configuración"
+  },
+  "useConversationLoader": {
+    "authFailed": "No se pudo autenticar al usuario."
+  },
+  "useSendMessage": {
+    "commandFailed": "No se pudo ejecutar ese comando. Inténtalo de nuevo.",
+    "doctorUnavailable": "El Doctor no está disponible en este asistente."
   }
 }
