@@ -4,15 +4,18 @@
  * Two surfaces render a confirmation: the inline card on a tool-call chip and
  * the transcript's trailer row. Which one a given prompt lands on depends on
  * whether its tool call is in the transcript, which is invisible to the user,
- * so the choices they are given must not depend on it. Each surface deriving
- * its own set from the raw payload is how they came to disagree: one honoured
- * `confirmLabel`/`denyLabel` and the other hardcoded the verbs, one gated the
- * rule option on `persistentDecisionsAllowed` and the other ignored it.
+ * so the choices offered must not depend on it. One derivation, both surfaces.
  *
- * This is deliberately the decision set and not a rendering: the two surfaces
- * still draw it differently (the chip follows the Figma card, the trailer row
- * keeps its own chrome), and converging that is a visual decision, not this
- * one.
+ * This is the decision set and not a rendering: the two surfaces draw it
+ * differently (the chip follows the Figma card, the trailer row keeps its own
+ * chrome), which is a visual decision and not this one's to make.
+ *
+ * `confirmLabel`/`denyLabel` are latent. Nothing in the daemon populates them
+ * for a tool approval: they are absent from the `confirmation_request` event
+ * and from `PendingToolConfirmationSchema`, so every prompt resolves to the
+ * defaults below. They stay here because the client type and its parser
+ * already carry the fields, and one defaulting site is better than two if a
+ * producer ever appears.
  */
 
 import type { AllowlistOption } from "@/types/interaction-ui-types";
