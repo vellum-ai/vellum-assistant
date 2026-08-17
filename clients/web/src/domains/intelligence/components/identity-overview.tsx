@@ -1008,10 +1008,6 @@ function OverviewBento({
                         className="h-[3px] w-[3px] shrink-0 rounded-full bg-[var(--content-tertiary)]"
                         aria-hidden
                       />
-                      {/* The mock colours this count with the *light* theme's
-                          tertiary on a dark card, which reads as a slip in a
-                          dark-only frame. Kept on the semantic token so it
-                          tracks the theme. */}
                       <span className="text-title-small leading-normal text-[var(--content-tertiary)]">
                         {scheduleCount}
                       </span>
