@@ -70,6 +70,30 @@ function hidingSelectors(body: string): string[] {
   return hiding;
 }
 
+/** Selectors of the rules `body` holds directly, ignoring anything nested. */
+function topLevelSelectors(body: string): string[] {
+  const selectors: string[] = [];
+  let depth = 0;
+  let text = "";
+
+  for (const character of body) {
+    if (character === "{") {
+      if (depth === 0) {
+        selectors.push(text.replace(/\s+/g, " ").trim());
+      }
+      depth += 1;
+      text = "";
+    } else if (character === "}") {
+      depth -= 1;
+      text = "";
+    } else if (depth === 0) {
+      text += character;
+    }
+  }
+
+  return selectors;
+}
+
 describe("hover reveal", () => {
   test("hides a reveal affordance only where the device can hover", () => {
     const offenders = mediaBlocks(css)
@@ -81,6 +105,20 @@ describe("hover reveal", () => {
       );
 
     expect(offenders).toEqual([]);
+  });
+
+  /* Two condition lists, one for the affordance and an inverse one for the
+     occupant sharing its slot, drift: a condition added to one side leaves both
+     painted in the same cell. One condition owning both states cannot. */
+  test("reveals the affordance and stands the occupant down on one condition", () => {
+    const hover = mediaBlocks(css).filter(({ condition }) =>
+      condition.includes("hover: hover"),
+    );
+
+    expect(hover).toHaveLength(1);
+    expect(topLevelSelectors(hover[0].body)).toHaveLength(1);
+    expect(hover[0].body).toContain("[data-reveal]");
+    expect(hover[0].body).toContain("[data-reveal-yield]");
   });
 
   /* The base rule outside any media query, which is what makes the affordance
