@@ -307,7 +307,7 @@ export async function renameLockfileAssistant(
 ): Promise<void> {
   const trimmed = name.trim();
   if (!trimmed) {
-    // Fresh assistants report "" — never write an empty name.
+    // Fresh assistants report "": never write an empty name.
     return;
   }
   if (isRemoteGatewayMode() || !isLocalModeHostAvailable()) {
