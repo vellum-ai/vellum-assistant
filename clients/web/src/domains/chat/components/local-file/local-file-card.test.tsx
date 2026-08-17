@@ -441,7 +441,11 @@ describe("LocalFileCard click hint", () => {
     expect(screen.getByText("Open in workspace")).toBeTruthy();
   });
 
-  test("the hint is revealed on hover and focus, never on layout", () => {
+  /* The reveal conditions live in one rule in the design library's stylesheet.
+     What the card owes it is the scope and the affordance: the hint keeps its
+     slot in the layout at all times and is only faded, so revealing it cannot
+     reflow the name or the size beside it. */
+  test("the card scopes the reveal of its click hint", () => {
     render(
       <LocalFileCard
         displayName="notes.md"
@@ -455,14 +459,10 @@ describe("LocalFileCard click hint", () => {
     );
 
     const hint = screen.getByText("Open in editor").parentElement;
-    expect(hint?.className).toContain("opacity-0");
-    expect(hint?.className).toContain(
-      "group-hover/local-file-card:opacity-100",
+    expect(hint?.hasAttribute("data-reveal")).toBe(true);
+    expect(hint?.closest("[data-reveal-row]")).toBe(
+      screen.getByRole("button", { name: "Open notes.md" }),
     );
-    expect(hint?.className).toContain(
-      "group-focus-visible/local-file-card:opacity-100",
-    );
-    expect(hint?.className).toContain("[@media(pointer:coarse)]:opacity-100");
   });
 
   test("cards that cannot be opened carry no hint", () => {

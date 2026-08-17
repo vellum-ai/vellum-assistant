@@ -28,13 +28,6 @@ import {
 const MEDIA_CLASSES =
   "max-h-[400px] max-w-full rounded-lg border border-[var(--border-element)] object-contain";
 
-const MENU_OVERLAY_CLASSES = [
-  "pointer-events-none absolute right-2 top-2 rounded-md bg-[var(--surface-lift)] opacity-0 transition-opacity",
-  "group-hover/local-media:pointer-events-auto group-hover/local-media:opacity-100",
-  "group-focus-within/local-media:pointer-events-auto group-focus-within/local-media:opacity-100",
-  "[@media(pointer:coarse)]:pointer-events-auto [@media(pointer:coarse)]:opacity-100",
-].join(" ");
-
 /** False where the API is missing or policy-disabled (Firefox, some embeds). */
 function supportsPictureInPicture(): boolean {
   return (
@@ -60,9 +53,17 @@ function MediaFrame({
   menu: ReactNode;
 }) {
   return (
-    <span className="group/local-media relative my-2 inline-block max-w-full align-top">
+    <span
+      data-reveal-row=""
+      className="relative my-2 inline-block max-w-full align-top"
+    >
       {children}
-      <span className={MENU_OVERLAY_CLASSES}>{menu}</span>
+      <span
+        data-reveal=""
+        className="absolute right-2 top-2 rounded-md bg-[var(--surface-lift)]"
+      >
+        {menu}
+      </span>
     </span>
   );
 }

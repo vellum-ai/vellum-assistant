@@ -27,7 +27,6 @@ import type { SwipeAction } from "@/hooks/use-swipe-to-reveal";
 import {
   ActionMenu,
   Button,
-  hoverRevealClasses,
   toast,
 } from "@vellumai/design-library";
 
@@ -135,8 +134,9 @@ export function LibraryAppCard({
   return (
     <SwipeActionReveal trailingActions={trailingActions} className="rounded-xl">
       <div
+        data-reveal-row=""
         className={cn(
-          "group relative flex flex-col gap-2",
+          "relative flex flex-col gap-2",
           justImported && "animate-[card-entrance_400ms_ease-out]",
         )}
         onAnimationEnd={justImported ? onAnimationEnd : undefined}
@@ -157,12 +157,7 @@ export function LibraryAppCard({
           />
         </button>
 
-        <div
-          className={cn(
-            "absolute right-2 top-2 z-20",
-            hoverRevealClasses,
-          )}
-        >
+        <div data-reveal="" className="absolute right-2 top-2 z-20">
           <LibraryAppCardActionsMenu
             appName={app.name}
             isPinned={isPinned}

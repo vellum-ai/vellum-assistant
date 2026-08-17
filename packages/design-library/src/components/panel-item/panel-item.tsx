@@ -12,10 +12,6 @@ import {
 } from "react";
 
 import { cn } from "../../utils/cn";
-import {
-  hoverRevealClasses,
-  hoverRevealYieldClasses,
-} from "../../utils/hover-reveal";
 import { reportUnmergeableSlotChild } from "../../utils/slot-child";
 import { CrossfadeStack } from "../crossfade-stack";
 
@@ -144,9 +140,9 @@ interface PanelItemContentProps
    * default; revealed on hover or focus-within, while a child menu is open
    * (`aria-expanded="true"` on the trigger), and always when `active`.
    *
-   * On touch (coarse-pointer) devices the trailing action stays visible by
-   * default, since there's no hover to reveal it. If the row already has
-   * its own touch affordance (long-press → bottom sheet, swipe-to-reveal,
+   * Where the device cannot hover the trailing action stays visible, since
+   * there is nothing to reveal it. If the row already has its own touch
+   * affordance (long-press to bottom sheet, swipe-to-reveal,
    * etc.), pass `undefined` here on touch rather than rendering a redundant
    * ellipsis: an always-visible-but-inert trailing element still reserves
    * layout space next to `badge`, which reads as broken.
@@ -361,26 +357,13 @@ const BADGE_BARE_CLASSES = "inline-flex items-center justify-center shrink-0";
  */
 const BADGE_BARE_ALONE_CLASSES = "mr-2";
 
-const TRAILING_ACTION_CLASSES = [
-  "flex items-center shrink-0",
-  hoverRevealClasses,
-  // The row a nav item marks as the current page keeps its action visible:
-  // it is the row the user is already in.
-  "group-aria-[current=page]:pointer-events-auto",
-  "group-aria-[current=page]:opacity-100",
-].join(" ");
-
 /**
- * When a row passes both `badge` and `trailingAction` (e.g. a conversation's
- * unread dot giving way to its "…" menu), the badge fades out under exactly
- * the conditions that reveal the trailing action - the mirror image of
- * {@link TRAILING_ACTION_CLASSES} - so the two crossfade in the same spot
- * instead of sitting side by side.
+ * The trailing action carries `data-reveal`, so the row keeps it out of the way
+ * until it is wanted; a row the nav marks as the current page carries
+ * `data-reveal-hold` and keeps it visible, being the row the user is in. The
+ * conditions live in the design library's stylesheet.
  */
-const BADGE_YIELDS_TO_TRAILING_CLASSES = [
-  hoverRevealYieldClasses,
-  "group-aria-[current=page]:opacity-0",
-].join(" ");
+const TRAILING_ACTION_CLASSES = "flex items-center shrink-0";
 
 // ---------------------------------------------------------------------------
 // Component
@@ -521,8 +504,10 @@ function PanelItemContentRow({
         className={cn(
           badgeBare ? BADGE_BARE_CLASSES : BADGE_BASE_CLASSES,
           badgeBare && !trailingAction && BADGE_BARE_ALONE_CLASSES,
-          crossfadeBadgeAndTrailing && BADGE_YIELDS_TO_TRAILING_CLASSES,
         )}
+        /* A row with both parts crossfades them in one slot, so the badge
+           yields wherever the trailing action is shown. */
+        data-reveal-yield={crossfadeBadgeAndTrailing ? "" : undefined}
       >
         {badge}
       </span>
@@ -531,6 +516,7 @@ function PanelItemContentRow({
   const trailingNode = trailingAction ? (
     <span
       className={TRAILING_ACTION_CLASSES}
+      data-reveal=""
       onClick={(event: MouseEvent<HTMLSpanElement>) => {
         event.stopPropagation();
         event.preventDefault();
@@ -621,6 +607,8 @@ function PanelItemContentRow({
         tabIndex={disabled ? -1 : 0}
         aria-disabled={disabled || undefined}
         className={classes}
+        data-reveal-row=""
+        data-reveal-hold={active ? "" : undefined}
         aria-current={ariaCurrent}
         aria-label={resolvedAriaLabel}
         onClick={composedOnClick}
@@ -636,6 +624,8 @@ function PanelItemContentRow({
       data-slot="panel-item"
       ref={ref}
       className={classes}
+      data-reveal-row=""
+      data-reveal-hold={active ? "" : undefined}
       aria-current={ariaCurrent}
       aria-label={resolvedAriaLabel}
       onClick={onClick}
