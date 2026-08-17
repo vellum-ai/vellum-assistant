@@ -54,6 +54,7 @@ import {
   type RememberedOrigin,
 } from "@/stores/remembered-origins-store";
 import {
+  isConnectableFromThisDevice,
   useResolvedAssistantsStore,
   type ResolvedAssistant,
 } from "@/stores/resolved-assistants-store";
@@ -169,7 +170,11 @@ export function SelectAssistantScreen() {
   const isAccessible = (a: ResolvedAssistant): boolean =>
     a.isLocal || a.isPaired || hasPlatformSession;
 
-  const accessibleAssistants = assistants.filter(isAccessible);
+  // `setFromApi` already drops unreachable local registrations, but a
+  // lifecycle upsert of a stale persisted selection can still land one in the
+  // store; keep dead entries off the chooser regardless of how they arrived.
+  const visibleAssistants = assistants.filter(isConnectableFromThisDevice);
+  const accessibleAssistants = visibleAssistants.filter(isAccessible);
   // Origin cards are always selectable, so any kind of entry gives Continue
   // something to act on.
   const hasSelectableEntries =
@@ -365,9 +370,11 @@ export function SelectAssistantScreen() {
     try {
       if (assistant.isPaired) {
         await useAuthStore.getState().connectPairedAssistant(assistant.id);
-      } else if (assistant.isLocal) {
+      } else if (assistant.isLocal && localClient) {
         await useAuthStore.getState().connectLocalAssistant(assistant.id);
       } else {
+        // A hub-listed local entry has no lockfile behind it; the platform
+        // path reaches it (lifecycle projects self-hosted via `ingress_url`).
         await useAuthStore.getState().connectPlatformAssistant(assistant.id);
       }
       void navigate(routes.assistant, { replace: true });
@@ -604,16 +611,16 @@ export function SelectAssistantScreen() {
     if (connecting || autoSkipping || connectDialogOpen) {
       return;
     }
-    if (assistants.length === 0) {
+    if (visibleAssistants.length === 0) {
       return;
     }
-    if (assistants.length === 1 && accessibleAssistants.length === 1) {
+    if (visibleAssistants.length === 1 && accessibleAssistants.length === 1) {
       setAutoSkipping(true);
       void handleConnect(accessibleAssistants[0]);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
-    assistants.length,
+    visibleAssistants.length,
     accessibleAssistants.length,
     deepLinkDrainSettled,
     localClient,
@@ -647,7 +654,7 @@ export function SelectAssistantScreen() {
       }
       return;
     }
-    const assistant = assistants.find((a) => a.id === selected);
+    const assistant = visibleAssistants.find((a) => a.id === selected);
     if (assistant) {
       void handleConnect(assistant);
     }
@@ -706,7 +713,7 @@ export function SelectAssistantScreen() {
           className={`flex w-full flex-col ${electron ? "mt-8 gap-2" : "mt-10 gap-3"}`}
           style={{ animation: "fadeInUp 0.5s ease-out 0.3s both" }}
         >
-          {assistants.map((assistant) => {
+          {visibleAssistants.map((assistant) => {
             const accessible = isAccessible(assistant);
             return (
               <AssistantCard
