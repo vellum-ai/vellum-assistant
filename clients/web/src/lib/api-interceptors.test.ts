@@ -1155,7 +1155,7 @@ describe("api-interceptors / localGatewayAuthRecoveryInterceptor", () => {
   }
 
   async function duringLocalGatewayRestart(
-    operation: () => Promise<void> | void,
+    operation: () => Promise<unknown> | unknown,
   ): Promise<void> {
     const finish = beginLocalGatewayRestart();
     try {

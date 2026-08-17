@@ -204,7 +204,9 @@ describe("ensureGatewayToken forced mint", () => {
 
   test("keeps the active session when replacement minting fails", async () => {
     selectLocalWithToken();
-    globalThis.fetch = mock(async () => new Response(null, { status: 503 }));
+    globalThis.fetch = mock(
+      async () => new Response(null, { status: 503 }),
+    ) as unknown as typeof fetch;
 
     await expect(
       ensureGatewayToken(
