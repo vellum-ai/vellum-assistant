@@ -16,6 +16,7 @@ import {
 } from "@/generated/daemon/@tanstack/react-query.gen";
 import { pluginsGet } from "@/generated/daemon/sdk.gen";
 import type { PluginsGetResponse } from "@/generated/daemon/types.gen";
+import { t } from "@/i18n";
 import { installedPluginsQueryOptions } from "@/lib/installed-plugins-query";
 
 // The catalog (the daemon's cached, rate-limited GitHub listing) changes
@@ -103,7 +104,7 @@ async function fetchInstalled(
     return { plugins: [] } as PluginsGetResponse;
   }
   if (!result.response?.ok) {
-    throw new Error("Failed to load plugins");
+    throw new Error(t("usePluginsList.failureMessage", { ns: "intelligence" }));
   }
   return result.data ?? ({ plugins: [] } as PluginsGetResponse);
 }

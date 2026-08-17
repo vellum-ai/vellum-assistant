@@ -1,7 +1,7 @@
 import {
   ArrowDownToLine,
-  ArrowLeft,
   ArrowUpFromLine,
+  ChevronLeft,
   ChevronRight,
   Users,
   Workflow,
@@ -137,7 +137,7 @@ export function WorkflowDetailPanel({
           {selectedLeaf && (
             <Button
               variant="outlined"
-              iconOnly={<ArrowLeft />}
+              iconOnly={<ChevronLeft />}
               onClick={handleBack}
               aria-label="Back to subagents"
               tooltip="Back"
@@ -157,12 +157,13 @@ export function WorkflowDetailPanel({
               <div style={{ width: 32, height: 32, flexShrink: 0 }} aria-hidden />
             )
           ) : (
-            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-[6px] bg-[var(--surface-overlay)]">
-              <Workflow
-                className="h-4 w-4"
-                style={{ color: "var(--content-secondary)" }}
-              />
-            </div>
+            // Bare 20px glyph, matching what `DetailShellHeader` renders for a
+            // `Glyph` prop, so this header's icon box lines up with the other
+            // panels'. The leaf branch above keeps its 32px avatar.
+            <Workflow
+              className="h-5 w-5 shrink-0 text-[var(--content-secondary)]"
+              aria-hidden
+            />
           )}
         </>
       }

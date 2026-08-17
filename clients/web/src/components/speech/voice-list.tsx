@@ -71,6 +71,13 @@ export interface VoiceListProps {
   /** Optional section heading (shown above the list, with a top divider). */
   heading?: string;
   className?: string;
+  /**
+   * Extra classes for the scrolling listbox, merged after its own `max-h-*` so
+   * a cap passed here wins. Where a height belongs: `className` lands on the
+   * outer wrapper, which also holds the provider dropdown, and capping that
+   * scrolls the dropdown out of view instead of the voices.
+   */
+  listClassName?: string;
   /** Called after a voice is chosen — e.g. to close the picker modal. */
   onSelect?: () => void;
   /**
@@ -96,17 +103,28 @@ export interface VoiceListProps {
    * height. The dropdown hides itself when the catalog has a single provider.
    */
   filterBySource?: boolean;
+  /**
+   * Bring the current voice into view on mount. Grouping means it may sit in a
+   * lower section rather than at the top, so hosts whose nearest scrollport is
+   * the list itself want this on: the picker modal, the first-run card, the
+   * Models & Services popover. Off by default because `scrollIntoView` scrolls
+   * *every* scrollable ancestor, so a list rendered inline in the chat
+   * transcript would drag the transcript to itself on each load.
+   */
+  autoScrollToSelected?: boolean;
 }
 
 export function VoiceList({
   assistantId,
   heading,
   className,
+  listClassName,
   onSelect,
   value,
   onChange,
   showSource = false,
   filterBySource = false,
+  autoScrollToSelected = false,
 }: VoiceListProps) {
   const {
     available,
@@ -168,13 +186,14 @@ export function VoiceList({
   );
   const { previewingModel, play, stop } = useVoiceSamplePreview();
 
-  // Bring the current voice into view on open — grouping means it may sit in a
-  // lower section rather than at the top.
   const selectedRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
+    if (!autoScrollToSelected) {
+      return;
+    }
     // `?.` on the method too — not every environment implements scrollIntoView.
     selectedRef.current?.scrollIntoView?.({ block: "nearest" });
-  }, []);
+  }, [autoScrollToSelected]);
 
   // Render nothing when there's no catalog, so the surrounding chrome collapses
   // with it. Uncontrolled surfaces also require the assistant to be managed
@@ -220,6 +239,7 @@ export function VoiceList({
           "flex flex-col overflow-y-auto",
           filterBySource ? "max-h-[60vh]" : "max-h-80",
           selecting && "pointer-events-none opacity-70",
+          listClassName,
         )}
       >
         {groups.map((group) => (

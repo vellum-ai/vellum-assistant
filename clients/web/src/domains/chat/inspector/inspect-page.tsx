@@ -31,6 +31,7 @@ import { isElectron } from "@/runtime/is-electron";
 import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
 import { useIsSessionInitializing } from "@/stores/auth-store";
 import { routes } from "@/utils/routes";
+import { t, useTranslation } from "@/i18n";
 import type {
   ConversationMessage,
   ConversationTextBlock,
@@ -80,6 +81,7 @@ import { SkillsTab } from "./components/tabs/skills-tab";
  * is absent or no longer points to a known log.
  */
 export function InspectPage(): ReactNode {
+  const { t: tChat } = useTranslation("chat");
   const canInspect = useCanUseLlmInspector();
   // The developer-nav flag reads as registry-default `false` until the
   // `/feature-flags` response lands, so flag-gated sessions (e.g. local
@@ -95,14 +97,15 @@ export function InspectPage(): ReactNode {
   const messageId = searchParams.get("messageId");
 
   if (authLoading || (!canInspect && !flagsHydrated)) {
-    return <CenteredMessage tone="muted">Loading…</CenteredMessage>;
+    return (
+      <CenteredMessage tone="muted">{tChat("inspectPage.loading")}</CenteredMessage>
+    );
   }
 
   if (!canInspect) {
     return (
       <CenteredMessage tone="muted">
-        Inspector is available to Vellum staff, or when the
-        settings-developer-nav developer flag is enabled.
+        {tChat("inspectPage.accessDenied")}
       </CenteredMessage>
     );
   }
@@ -110,7 +113,9 @@ export function InspectPage(): ReactNode {
   if (!conversationId) {
     // Defensive only — React Router would render NotFound before reaching
     // this branch, but we keep a graceful fallback rather than crashing.
-    return <CenteredMessage tone="muted">Loading…</CenteredMessage>;
+    return (
+      <CenteredMessage tone="muted">{tChat("inspectPage.loading")}</CenteredMessage>
+    );
   }
 
   return <Inspector conversationId={conversationId} messageId={messageId} />;
@@ -122,6 +127,7 @@ interface InspectorProps {
 }
 
 function Inspector({ conversationId, messageId }: InspectorProps): ReactNode {
+  const { t: tChat } = useTranslation("chat");
   const assistantId = useActiveAssistantId();
   const electron = isElectron();
   const {
@@ -231,7 +237,9 @@ function Inspector({ conversationId, messageId }: InspectorProps): ReactNode {
         style={{ borderTop: "1px solid var(--border-base)" }}
       >
         {isLoadingContext ? (
-          <CenteredMessage tone="muted">Loading…</CenteredMessage>
+          <CenteredMessage tone="muted">
+            {tChat("inspectPage.loading")}
+          </CenteredMessage>
         ) : isError ? (
           isLlmRequestLogsDisabledError(error) ? (
             <LoggingDisabledState
@@ -285,6 +293,7 @@ function Header({
   context,
   callCount,
 }: HeaderProps): ReactNode {
+  const { t: tChat } = useTranslation("chat");
   const queryClient = useQueryClient();
   const [exportRun, setExportRun] = useState<ExportRun | null>(null);
   const exportAbortRef = useRef<AbortController | null>(null);
@@ -356,7 +365,7 @@ function Header({
         error:
           err && typeof err === "object" && "message" in err
             ? String((err as { message: unknown }).message)
-            : "Failed to export inspector data",
+            : t("chat:inspectPage.exportFailed"),
       }));
     } finally {
       if (exportAbortRef.current === controller) {
@@ -389,9 +398,9 @@ function Header({
         >
           <Link
             to={routes.conversation(conversationId)}
-            aria-label="Back to conversation"
+            aria-label={tChat("inspectPage.backToConversationAria")}
           >
-            Back
+            {tChat("inspectPage.back")}
           </Link>
         </Button>
         <div className="order-3 flex w-full min-w-0 flex-col md:order-2 md:w-auto md:flex-1">
@@ -399,7 +408,7 @@ function Header({
             className="truncate text-body-large-bold md:text-title-medium"
             style={{ color: "var(--content-default)" }}
           >
-            LLM Context Inspector
+            {tChat("inspectPage.title")}
           </h1>
           <ScopeSubtitle
             conversationId={conversationId}
@@ -414,16 +423,18 @@ function Header({
             leftIcon={<Download size={16} aria-hidden />}
             disabled={!canExport || isExporting}
             onClick={() => void handleExport()}
-            aria-label="Export inspector data as ZIP"
+            aria-label={tChat("inspectPage.exportZipAria")}
           >
-            {isExporting ? "Exporting…" : "Export ZIP"}
+            {isExporting
+              ? tChat("inspectPage.exporting")
+              : tChat("inspectPage.exportZip")}
           </Button>
           {callCount != null ? (
             <span
               className="hidden text-label-default md:inline"
               style={{ color: "var(--content-secondary)" }}
             >
-              {callCount === 1 ? "1 LLM call" : `${callCount} LLM calls`}
+              {tChat("inspectPage.llmCallCount", { count: callCount })}
             </span>
           ) : null}
         </div>
@@ -460,6 +471,7 @@ function ScopeSubtitle({
   messageId,
   turnPosition,
 }: ScopeSubtitleProps): ReactNode {
+  const { t: tChat } = useTranslation("chat");
   void conversationId;
   if (messageId) {
     return (
@@ -473,8 +485,11 @@ function ScopeSubtitle({
         >
           <MessageSquare size={12} aria-hidden />
           {turnPosition
-            ? `Scoped to turn ${turnPosition.index} of ${turnPosition.count} · `
-            : "Scoped to one message · "}
+            ? tChat("inspectPage.scopedToTurn", {
+                index: turnPosition.index,
+                count: turnPosition.count,
+              })
+            : tChat("inspectPage.scopedToOneMessage")}
           <code>{messageId}</code>
         </span>
       </p>
@@ -485,7 +500,7 @@ function ScopeSubtitle({
       className="text-label-default"
       style={{ color: "var(--content-secondary)" }}
     >
-      Showing every LLM call recorded for this conversation.
+      {tChat("inspectPage.conversationScopeSubtitle")}
     </p>
   );
 }
@@ -501,6 +516,7 @@ function ScopeControls({
   conversationId,
   messageId,
 }: ScopeControlsProps): ReactNode {
+  const { t: tChat } = useTranslation("chat");
   const navigate = useNavigate();
   const { data: messages } = useConversationMessageList(
     assistantId,
@@ -514,7 +530,7 @@ function ScopeControls({
     if (messageId && !built.some((opt) => opt.value === messageId)) {
       built.push({
         value: messageId,
-        label: `Message ${messageId}`,
+        label: t("chat:inspectPage.messageOptionDeepLink", { messageId }),
       });
     }
     return built;
@@ -541,7 +557,7 @@ function ScopeControls({
         className="text-label-default"
         style={{ color: "var(--content-secondary)" }}
       >
-        Filter to message:
+        {tChat("inspectPage.filterToMessage")}
       </label>
       <select
         id="inspector-scope-select"
@@ -558,7 +574,7 @@ function ScopeControls({
         }}
         disabled={options.length === 0 && !messageId}
       >
-        <option value="">All messages</option>
+        <option value="">{tChat("inspectPage.allMessages")}</option>
         {options.map((opt) => (
           <option key={opt.value} value={opt.value}>
             {opt.label}
@@ -593,7 +609,9 @@ function buildMessageScopeOptions(
       (b): b is ConversationTextBlock => b.type === "text",
     );
     const preview = previewContent(firstTextBlock?.text);
-    const label = preview ? `${index}. ${preview}` : `${index}. (no text)`;
+    const label = preview
+      ? t("chat:inspectPage.messageOptionWithPreview", { index, preview })
+      : t("chat:inspectPage.messageOptionNoText", { index });
     options.push({ value: id, label });
     index += 1;
   }
@@ -673,6 +691,7 @@ function Loaded({
   callNumbers,
   conversationCallCount,
 }: LoadedProps): ReactNode {
+  const { t: tChat } = useTranslation("chat");
   const [tab, setTab] = useState<InspectorTab>("overview");
 
   // On assistants with summary-view support, the list omits per-log
@@ -781,7 +800,7 @@ function Loaded({
                 />
               ) : (
                 <CenteredMessage tone="muted">
-                  Choose a call from the rail to inspect its context.
+                  {tChat("inspectPage.chooseCall")}
                 </CenteredMessage>
               )}
             </Tabs.Panel>
@@ -862,14 +881,18 @@ function TabContent({
 }
 
 function DetailPlaceholder({ state }: { state: DetailState }): ReactNode {
+  const { t: tChat } = useTranslation("chat");
+
   if (state === "error") {
     return (
       <CenteredMessage>
-        Failed to load this call’s normalized context.
+        {tChat("inspectPage.detailLoadFailed")}
       </CenteredMessage>
     );
   }
-  return <CenteredMessage tone="muted">Loading…</CenteredMessage>;
+  return (
+    <CenteredMessage tone="muted">{tChat("inspectPage.loading")}</CenteredMessage>
+  );
 }
 
 interface CenteredMessageProps {
@@ -898,12 +921,13 @@ interface EmptyStateProps {
 }
 
 function EmptyState({ messageId }: EmptyStateProps): ReactNode {
+  const { t: tChat } = useTranslation("chat");
   const title = messageId
-    ? "No LLM calls recorded for this message."
-    : "No LLM calls recorded for this conversation.";
+    ? tChat("inspectPage.emptyTitleMessage")
+    : tChat("inspectPage.emptyTitleConversation");
   const body = messageId
-    ? "Either this message wasn’t produced by an LLM call or its request logs were trimmed by retention."
-    : "Either no message in the conversation was produced by an LLM call or the request logs were trimmed by retention.";
+    ? tChat("inspectPage.emptyBodyMessage")
+    : tChat("inspectPage.emptyBodyConversation");
   return (
     <div className="flex h-full w-full flex-col items-center justify-center gap-2 p-8 text-center">
       <h2
@@ -938,6 +962,7 @@ function LoggingDisabledState({
   assistantId,
   onEnabled,
 }: LoggingDisabledStateProps): ReactNode {
+  const { t: tChat } = useTranslation("chat");
   const queryClient = useQueryClient();
   const [enabling, setEnabling] = useState(false);
 
@@ -959,13 +984,15 @@ function LoggingDisabledState({
       void queryClient.invalidateQueries({
         queryKey: configGetQueryKey({ path: { assistant_id: assistantId } }),
       });
-      toast.success("LLM request logging enabled");
+      toast.success(tChat("inspectPage.loggingEnabledToast"));
       onEnabled();
     } catch (err) {
       toast.error(
         err instanceof Error
-          ? `Failed to enable logging (${err.message})`
-          : "Failed to enable logging",
+          ? tChat("inspectPage.enableLoggingFailedWithMessage", {
+              message: err.message,
+            })
+          : tChat("inspectPage.enableLoggingFailed"),
       );
     } finally {
       setEnabling(false);
@@ -983,20 +1010,23 @@ function LoggingDisabledState({
         className="text-body-medium-default"
         style={{ color: "var(--content-default)" }}
       >
-        LLM request logging is off
+        {tChat("inspectPage.loggingDisabledTitle")}
       </h2>
       <p
         className="max-w-md text-label-default"
         style={{ color: "var(--content-secondary)" }}
       >
-        Request and response payloads aren’t being recorded, so there’s nothing
-        to inspect. Enable logging to capture future LLM calls.
+        {tChat("inspectPage.loggingDisabledBody")}
       </p>
       <Toggle
         checked={false}
         disabled={enabling || !assistantId}
         onChange={(next) => void handleEnable(next)}
-        label={enabling ? "Enabling…" : "Enable logging"}
+        label={
+          enabling
+            ? tChat("inspectPage.enabling")
+            : tChat("inspectPage.enableLogging")
+        }
       />
     </div>
   );
@@ -1008,10 +1038,11 @@ interface ErrorStateProps {
 }
 
 function ErrorState({ error, onRetry }: ErrorStateProps): ReactNode {
+  const { t: tChat } = useTranslation("chat");
   const message =
     error && typeof error === "object" && "message" in error
       ? String((error as { message: unknown }).message)
-      : "Failed to load LLM context.";
+      : tChat("inspectPage.loadContextFailed");
   return (
     <div className="flex h-full w-full flex-col items-center justify-center gap-3 p-8 text-center">
       <AlertCircle
@@ -1023,7 +1054,7 @@ function ErrorState({ error, onRetry }: ErrorStateProps): ReactNode {
         className="text-body-medium-default"
         style={{ color: "var(--content-default)" }}
       >
-        Failed to load
+        {tChat("inspectPage.loadFailedTitle")}
       </h2>
       <p
         className="max-w-md text-label-default"
@@ -1032,7 +1063,7 @@ function ErrorState({ error, onRetry }: ErrorStateProps): ReactNode {
         {message}
       </p>
       <Button variant="outlined" size="compact" onClick={onRetry}>
-        Retry
+        {tChat("inspectPage.retry")}
       </Button>
     </div>
   );

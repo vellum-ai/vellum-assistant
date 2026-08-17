@@ -1,3 +1,5 @@
+import { t } from "@/i18n";
+
 export type MemoryKind =
   | "episodic"
   | "semantic"
@@ -59,13 +61,13 @@ export interface MemoryItemsListResponse {
 export function sourceTypeLabel(sourceType?: string | null): string | null {
   switch (sourceType) {
     case "direct":
-      return "Told directly";
+      return t("memoryTypes.sourceType.direct", { ns: "intelligence" });
     case "observed":
-      return "Observed";
+      return t("memoryTypes.sourceType.observed", { ns: "intelligence" });
     case "inferred":
-      return "Inferred";
+      return t("memoryTypes.sourceType.inferred", { ns: "intelligence" });
     case "told-by-other":
-      return "Told by other";
+      return t("memoryTypes.sourceType.toldByOther", { ns: "intelligence" });
     default:
       return null;
   }

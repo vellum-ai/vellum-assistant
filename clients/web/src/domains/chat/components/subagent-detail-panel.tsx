@@ -1,9 +1,9 @@
 import {
   ArrowDownToLine,
-  ArrowLeft,
   ArrowUpFromLine,
   Bolt,
   ChevronDown,
+  ChevronLeft,
   ChevronRight,
 } from "lucide-react";
 
@@ -316,7 +316,7 @@ export function SubagentDetailPanel({
           {activeDetail && (
             <Button
               variant="outlined"
-              iconOnly={<ArrowLeft />}
+              iconOnly={<ChevronLeft />}
               onClick={handleBack}
               aria-label="Back to timeline"
               tooltip="Back"

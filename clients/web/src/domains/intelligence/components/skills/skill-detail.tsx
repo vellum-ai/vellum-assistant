@@ -31,6 +31,7 @@ import {
   shouldShowHistoryTab,
   useSkillHistory,
 } from "@/hooks/use-skill-history";
+import { useTranslation } from "@/i18n";
 import { captureError } from "@/lib/sentry/capture-error";
 import { openWorkspaceFile } from "@/utils/open-workspace-file";
 import { invalidateSkillsList, isRemovableSkill } from "@/utils/skills";
@@ -61,6 +62,7 @@ export function SkillDetail({
   isRemoving = false,
   sourceConversationId,
 }: SkillDetailProps) {
+  const { t } = useTranslation("intelligence");
   const available = isAvailableSkill(skill);
   const removable = isRemovableSkill(skill);
 
@@ -99,7 +101,7 @@ export function SkillDetail({
         type="button"
         variant="ghost"
         iconOnly={<ArrowLeft aria-hidden />}
-        aria-label="Back to skills"
+        aria-label={t("skillDetail.backToSkillsAriaLabel")}
         onClick={onBack}
       />
       <div className="flex min-w-0 flex-1 flex-col gap-3 sm:flex-row sm:items-center">
@@ -142,7 +144,7 @@ export function SkillDetail({
               disabled={!onInstall}
               leftIcon={<ArrowDownToLine aria-hidden />}
             >
-              Install
+              {t("skillDetail.install")}
             </Button>
           )
         ) : (
@@ -159,7 +161,7 @@ export function SkillDetail({
               )
             }
           >
-            Remove
+            {t("skillDetail.remove")}
           </Button>
         )}
       </div>
@@ -190,7 +192,7 @@ export function SkillDetail({
               className="px-3 py-4 text-center text-body-medium-lighter"
               style={{ color: "var(--content-tertiary)" }}
             >
-              No files available.
+              {t("skillDetail.noFilesAvailable")}
             </p>
           ) : (
             fileEntries.map((entry) => {
@@ -253,7 +255,7 @@ export function SkillDetail({
               className="flex h-full items-center justify-center text-body-medium-lighter"
               style={{ color: "var(--content-tertiary)" }}
             >
-              Select a file to view its contents.
+              {t("skillDetail.selectFilePrompt")}
             </p>
           )}
         </div>
@@ -278,8 +280,10 @@ export function SkillDetail({
       >
         {showHistory && (
           <Tabs.List className="mb-3">
-            <Tabs.Trigger value="files">Files</Tabs.Trigger>
-            <Tabs.Trigger value="history">History</Tabs.Trigger>
+            <Tabs.Trigger value="files">{t("skillDetail.filesTab")}</Tabs.Trigger>
+            <Tabs.Trigger value="history">
+              {t("skillDetail.historyTab")}
+            </Tabs.Trigger>
           </Tabs.List>
         )}
         <Tabs.Panel
@@ -324,6 +328,7 @@ function SkillFileContent({
   isBinary: boolean;
   editable: boolean;
 }) {
+  const { t } = useTranslation("intelligence");
   const queryClient = useQueryClient();
 
   const [isEditing, setIsEditing] = useState(false);
@@ -389,7 +394,7 @@ function SkillFileContent({
         className="flex h-full items-center justify-center text-body-medium-lighter"
         style={{ color: "var(--content-tertiary)" }}
       >
-        Binary file — no preview available.
+        {t("skillFileContent.binaryFile")}
       </p>
     );
   }
@@ -400,7 +405,7 @@ function SkillFileContent({
         className="flex h-full items-center justify-center text-body-medium-lighter"
         style={{ color: "var(--content-tertiary)" }}
       >
-        No preview available for {fileName}.
+        {t("skillFileContent.noPreviewAvailable", { fileName })}
       </p>
     );
   }
@@ -411,7 +416,7 @@ function SkillFileContent({
       size="regular"
       iconOnly={<ExternalLink aria-hidden />}
       onClick={() => void openWorkspaceFile(workspacePath)}
-      aria-label="Open in Workspace"
+      aria-label={t("skillDetail.openInWorkspaceAriaLabel")}
       className="hover:bg-[var(--surface-base)]"
     />
   ) : undefined;
@@ -466,7 +471,7 @@ function SkillFileContent({
         <EditFooter
           isDirty={isDirty}
           isSaving={saveMutation.isPending}
-          error={saveMutation.isError ? "Save failed" : null}
+          error={saveMutation.isError ? t("skillDetail.saveFailed") : null}
           onSave={handleSave}
           onDiscard={stopEditing}
         />

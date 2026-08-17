@@ -9,12 +9,15 @@ import {
   formattedCreatedAt,
   MISSING_VALUE,
 } from "@/domains/chat/inspector/inspector-formatters";
+import { useTranslation } from "@/i18n";
 import {
   CALL_SITE_COMPACTION_AGENT,
   CALL_SITE_SYNTHETIC_AGENT_ERROR_MESSAGE,
   type LLMRequestLogEntry,
 } from "@vellumai/assistant-api";
 import { Tooltip } from "@vellumai/design-library";
+
+type ChatTranslate = ReturnType<typeof useTranslation<"chat">>["t"];
 
 interface CallRailProps {
   logs: LLMRequestLogEntry[];
@@ -54,13 +57,15 @@ export function CallRail({
   onSelect,
   callNumbers,
 }: CallRailProps): ReactNode {
+  const { t } = useTranslation("chat");
+
   if (!logs.length) {
     return (
       <div
         className="flex h-full items-center justify-center p-4 text-label-default"
         style={{ color: "var(--content-tertiary)" }}
       >
-        No LLM calls recorded.
+        {t("callRail.empty")}
       </div>
     );
   }
@@ -68,12 +73,15 @@ export function CallRail({
   const orderedLogs = [...logs].reverse();
 
   return (
-    <nav className="flex flex-col gap-2 p-3" aria-label="LLM calls">
+    <nav
+      className="flex flex-col gap-2 p-3"
+      aria-label={t("callRail.navAriaLabel")}
+    >
       <div
         className="px-1 text-label-default"
         style={{ color: "var(--content-tertiary)" }}
       >
-        {logs.length === 1 ? "1 LLM call" : `${logs.length} LLM calls`}
+        {t("callRail.callCount", { count: logs.length })}
       </div>
       {orderedLogs.map((entry, displayIndex) => (
         <CallRow
@@ -107,10 +115,12 @@ function CallRow({
   href,
   onSelect,
 }: CallRowProps): ReactNode {
+  const { t } = useTranslation("chat");
   const isSynthetic = isSyntheticAgentErrorMessage(entry);
   const isFailed = isFailedCall(entry);
   const isCompaction = isCompactionAgentCall(entry);
-  const subtitle = buildCallSubtitle(entry) ?? "Unrecognized call";
+  const subtitle =
+    buildCallSubtitle(entry, t) ?? t("callRail.unrecognizedCall");
   // A rejected call accrued no billable cost — show $0.00 rather than the
   // "Unavailable" placeholder a missing cost would otherwise render.
   const estimatedCost = isFailed
@@ -129,6 +139,8 @@ function CallRow({
     : isWarning
       ? "var(--system-negative-strong)"
       : "var(--border-base)";
+
+  const callLabel = t("callRail.callLabel", { number: callNumber });
 
   return (
     <Link
@@ -155,10 +167,10 @@ function CallRow({
                 style={{ color: "var(--system-negative-strong)" }}
                 aria-hidden
               />
-              <span>Call {callNumber}</span>
+              <span>{callLabel}</span>
             </span>
           ) : (
-            <>Call {callNumber}</>
+            <>{callLabel}</>
           )}
         </span>
         {isFailed ? (
@@ -169,7 +181,7 @@ function CallRow({
               color: "var(--system-negative-strong)",
             }}
           >
-            Failed
+            {t("callRail.failed")}
           </span>
         ) : null}
         {isCompaction ? (
@@ -180,7 +192,7 @@ function CallRow({
               color: "var(--system-info-strong)",
             }}
           >
-            Compaction
+            {t("callRail.compaction")}
           </span>
         ) : null}
         {isLatest ? (
@@ -191,7 +203,7 @@ function CallRow({
               color: "var(--primary-default, var(--content-default))",
             }}
           >
-            Latest
+            {t("callRail.latest")}
           </span>
         ) : null}
       </div>
@@ -218,7 +230,9 @@ function CallRow({
             color: "var(--content-default)",
           }}
         >
-          <span style={{ color: "var(--content-secondary)" }}>Cost</span>
+          <span style={{ color: "var(--content-secondary)" }}>
+            {t("callRail.cost")}
+          </span>
           <span className="font-medium">{estimatedCost}</span>
         </span>
         <span className="min-w-0 flex-1 text-right">
@@ -258,9 +272,12 @@ function isCompactionAgentCall(entry: LLMRequestLogEntry): boolean {
  * Returns `null` when the row has neither — caller renders a generic
  * "Unrecognized call" string.
  */
-function buildCallSubtitle(entry: LLMRequestLogEntry): string | null {
+function buildCallSubtitle(
+  entry: LLMRequestLogEntry,
+  t: ChatTranslate,
+): string | null {
   if (isSyntheticAgentErrorMessage(entry)) {
-    return syntheticErrorSubtitle(entry.agentLoopExitReason ?? null);
+    return syntheticErrorSubtitle(entry.agentLoopExitReason ?? null, t);
   }
   const provider = displayProvider(entry.summary?.provider ?? null);
   const model = entry.summary?.model ? displayText(entry.summary.model) : null;
@@ -276,14 +293,19 @@ function buildCallSubtitle(entry: LLMRequestLogEntry): string | null {
  * (out_of_funds, …) get their own branch here — the fallback keeps the
  * row rendering with the raw reason instead of a blank subtitle.
  */
-function syntheticErrorSubtitle(exitReason: string | null): string {
+function syntheticErrorSubtitle(
+  exitReason: string | null,
+  t: ChatTranslate,
+): string {
   switch (exitReason) {
     case "budget_yield_unrecovered":
-      return "Yield · compaction couldn't fit next step";
+      return t("callRail.syntheticYield");
     case null:
     case "":
-      return "Agent loop error";
+      return t("callRail.syntheticAgentLoopError");
     default:
-      return `Agent loop error · ${exitReason}`;
+      return t("callRail.syntheticAgentLoopErrorWithReason", {
+        reason: exitReason,
+      });
   }
 }

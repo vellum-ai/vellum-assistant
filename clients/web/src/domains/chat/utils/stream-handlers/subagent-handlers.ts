@@ -55,7 +55,6 @@ export function handleSubagentStatusChanged(
     error: event.error,
     inputTokens: event.usage?.inputTokens,
     outputTokens: event.usage?.outputTokens,
-    totalCost: event.usage?.estimatedCost,
   });
 }
 
@@ -110,7 +109,6 @@ export function handleSubagentEvent(
       subagentId: event.subagentId,
       inputTokens: parsed.success ? parsed.data.inputTokens : 0,
       outputTokens: parsed.success ? parsed.data.outputTokens : 0,
-      estimatedCost: parsed.success ? parsed.data.estimatedCost : 0,
     });
     return;
   }

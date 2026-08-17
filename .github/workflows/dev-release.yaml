@@ -92,7 +92,7 @@ jobs:
             fi
           done < <(gh api \
             "repos/${REPO}/actions/workflows/dev-release.yaml/runs?branch=main&status=completed&per_page=100&exclude_pull_requests=true" \
-            --jq ".workflow_runs[] | select(.id != ${RUN_ID}) | \"\(.id) \(.head_sha)\"")
+            --jq ".workflow_runs[] | select(.id != ${RUN_ID} and .conclusion != \"cancelled\") | \"\(.id) \(.head_sha)\"")
 
           echo "Last successful dev release SHA: ${PREV_SHA:-<none>}"
           echo "Current SHA: ${HEAD_SHA}"
@@ -1415,7 +1415,7 @@ jobs:
             fi
           done < <(gh api \
             "repos/${REPO}/actions/workflows/dev-release.yaml/runs?branch=main&status=completed&per_page=100&exclude_pull_requests=true" \
-            --jq ".workflow_runs[] | select(.id != ${RUN_ID}) | \"\(.id) \(.head_sha)\"")
+            --jq ".workflow_runs[] | select(.id != ${RUN_ID} and .conclusion != \"cancelled\") | \"\(.id) \(.head_sha)\"")
 
           echo "Previous dev release SHA: ${PREV_SHA:-<none>}"
           echo "Current SHA: ${HEAD_SHA}"

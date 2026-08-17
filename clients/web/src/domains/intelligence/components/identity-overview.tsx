@@ -35,6 +35,7 @@ import { ChatAvatar } from "@/components/avatar/chat-avatar";
 import { PageShell } from "@/components/page-shell";
 import { useAssistantAvatar } from "@/hooks/use-assistant-avatar";
 import { useElementSize } from "@/hooks/use-element-size";
+import { useTranslation } from "@/i18n";
 import { useSupportsPluginsSurface } from "@/lib/backwards-compat/plugins-surface";
 import { useIsNativeMobile } from "@/runtime/platform-detection";
 import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
@@ -112,15 +113,26 @@ const MINI_SECTION_KEYS = [
  * In-character center-text lines while the avatar is off hugging a card —
  * the greeting becomes his commentary on whatever you're pointing at.
  */
-const CARD_HOVER_LINES: Record<string, string> = {
-  personality: "Go ahead, tweak my soul",
-  superpowers: "Everything I know how to do",
-  memory: "Everything I remember",
-  library: "The apps and docs I've made for you",
-  schedules: "What I do on repeat",
-  workspace: "All the files that power me",
-  contacts: "The people I know and trust",
-  channels: "All the places you can reach me",
+const CARD_HOVER_LINE_KEY: Record<
+  string,
+  `identityOverview.cardHoverLine.${
+    | "personality"
+    | "superpowers"
+    | "memory"
+    | "library"
+    | "schedules"
+    | "workspace"
+    | "contacts"
+    | "channels"}`
+> = {
+  personality: "identityOverview.cardHoverLine.personality",
+  superpowers: "identityOverview.cardHoverLine.superpowers",
+  memory: "identityOverview.cardHoverLine.memory",
+  library: "identityOverview.cardHoverLine.library",
+  schedules: "identityOverview.cardHoverLine.schedules",
+  workspace: "identityOverview.cardHoverLine.workspace",
+  contacts: "identityOverview.cardHoverLine.contacts",
+  channels: "identityOverview.cardHoverLine.channels",
 };
 
 /** "14 Jul, 9:00 am" — compact next-fire time for the schedules preview. */
@@ -194,6 +206,7 @@ interface IdentityOverviewProps {
 }
 
 export function IdentityOverview({ assistantId }: IdentityOverviewProps) {
+  const { t } = useTranslation("intelligence");
   const queryClient = useQueryClient();
   const {
     components,
@@ -232,7 +245,12 @@ export function IdentityOverview({ assistantId }: IdentityOverviewProps) {
     memory:
       memories === undefined
         ? undefined
-        : { value: memories, label: memories === 1 ? "memory" : "memories" },
+        : {
+            value: memories,
+            label: t("identityOverview.memoryCountLabel", {
+              count: memories,
+            }),
+          },
   };
 
   const [modalOpen, setModalOpen] = useState(false);
@@ -255,13 +273,13 @@ export function IdentityOverview({ assistantId }: IdentityOverviewProps) {
           // Preserve the owner tag: a rename changes the name, not which
           // assistant the hydrated identity belongs to.
           setIdentity(newName, version, hydratedAssistantId);
-          toast.success(`Say hi to ${newName}!`);
+          toast.success(t("identityOverview.renameSuccessToast", { newName }));
         } else {
-          toast.error("The rename didn't go through. Please try again.");
+          toast.error(t("identityOverview.renameErrorToast"));
         }
       });
     },
-    [assistantId, queryClient],
+    [assistantId, queryClient, t],
   );
 
   const handleAvatarChange = useCallback(() => {
@@ -321,7 +339,10 @@ export function IdentityOverview({ assistantId }: IdentityOverviewProps) {
           components={components}
           traits={traits}
           customImageUrl={customImageUrl}
-          name={identityQuery.data?.identity?.name || "Assistant"}
+          name={
+            identityQuery.data?.identity?.name ||
+            t("identityOverview.defaultAssistantName")
+          }
           sections={sections}
           stats={sectionStats}
           avatarHex={avatarHex}
@@ -340,7 +361,10 @@ export function IdentityOverview({ assistantId }: IdentityOverviewProps) {
         customImageUrl={customImageUrl}
         onSaveCharacter={handleAvatarChange}
         onUploadImage={handleAvatarChange}
-        assistantName={identityQuery.data?.identity?.name || "Assistant"}
+        assistantName={
+          identityQuery.data?.identity?.name ||
+          t("identityOverview.defaultAssistantName")
+        }
         onRenameSubmit={handleRename}
         isRenaming={isRenaming}
       />
@@ -383,6 +407,7 @@ function SectionCard({
   linkRef?: (el: HTMLAnchorElement | null) => void;
   onHoverChange?: (hovering: boolean) => void;
 }) {
+  const { t } = useTranslation("intelligence");
   const Icon = SECTION_ICONS[section.key] ?? Sparkles;
 
   // Keep the last origin while draining so the water recedes back to
@@ -617,7 +642,10 @@ function SectionCard({
                 <span
                   className={`truncate text-[12px] transition-colors duration-300 ${fgMuted}`}
                 >
-                  {schedule.cadence} · next {formatNextRun(schedule.nextRunAt)}
+                  {t("identityOverview.scheduleCadence", {
+                    cadence: schedule.cadence,
+                    nextRun: formatNextRun(schedule.nextRunAt),
+                  })}
                 </span>
               </span>
             ))}
@@ -625,7 +653,9 @@ function SectionCard({
               <span
                 className={`text-[12px] font-medium transition-colors duration-300 ${fgMuted}`}
               >
-                View {stat.schedules.more} more…
+                {t("identityOverview.viewMoreSchedules", {
+                  count: stat.schedules.more,
+                })}
               </span>
             )}
           </span>
@@ -674,13 +704,14 @@ function CenterCell({
   isRenaming: boolean;
   onEdit: () => void;
 }) {
+  const { t } = useTranslation("intelligence");
   return (
     <div className="relative z-[1] flex flex-col items-center justify-center gap-5">
       <AssistantNameEditor name={name} isRenaming={isRenaming} />
       <button
         type="button"
-        aria-label="Update avatar and name"
-        title="Update avatar and name"
+        aria-label={t("identityOverview.updateAvatarAndName")}
+        title={t("identityOverview.updateAvatarAndName")}
         onClick={onEdit}
         className="avatar-edit-cursor outline-none keyboard-focus:ring-2 keyboard-focus:ring-[var(--ring)]"
       >
@@ -743,6 +774,7 @@ function OverviewBento({
   isRenaming: boolean;
   onOpenAvatarModal: () => void;
 }) {
+  const { t } = useTranslation("intelligence");
   const { ref, size } = useElementSize();
   const reduce = useReducedMotion();
   const useBento = size.w >= BENTO_MIN_W && size.h >= BENTO_MIN_H;
@@ -836,9 +868,10 @@ function OverviewBento({
 
   // While the avatar is off hugging a card, the center text becomes his
   // commentary on it.
-  const greetingOverride = activeHug
-    ? (CARD_HOVER_LINES[activeHug.key] ?? null)
-    : null;
+  const activeHoverLineKey = activeHug
+    ? CARD_HOVER_LINE_KEY[activeHug.key]
+    : undefined;
+  const greetingOverride = activeHoverLineKey ? t(activeHoverLineKey) : null;
 
   // Without a character color (custom image / not loaded) every surface
   // falls back to the regular theme tokens — no forced white/black card
@@ -1109,8 +1142,8 @@ function OverviewBento({
           <div
             role="button"
             tabIndex={0}
-            aria-label="Update avatar and name"
-            title="Update avatar and name"
+            aria-label={t("identityOverview.updateAvatarAndName")}
+            title={t("identityOverview.updateAvatarAndName")}
             onClick={onOpenAvatarModal}
             onKeyDown={(e) => {
               if (e.key === "Enter" || e.key === " ") {
@@ -1147,8 +1180,8 @@ function OverviewBento({
         >
           <button
             type="button"
-            aria-label="Update avatar and name"
-            title="Update avatar and name"
+            aria-label={t("identityOverview.updateAvatarAndName")}
+            title={t("identityOverview.updateAvatarAndName")}
             onClick={onOpenAvatarModal}
             className="avatar-edit-cursor rounded-full outline-none keyboard-focus:ring-2 keyboard-focus:ring-[var(--ring)]"
           >

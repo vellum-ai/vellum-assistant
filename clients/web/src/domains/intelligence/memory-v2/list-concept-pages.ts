@@ -18,6 +18,7 @@
 import { queryOptions } from "@tanstack/react-query";
 
 import { memoryV2ListconceptpagesPost } from "@/generated/daemon/sdk.gen";
+import { t } from "@/i18n";
 import {
   ApiError,
   assertHasResponse,
@@ -35,7 +36,10 @@ export function listConceptPagesOptions(assistantId: string) {
         throwOnError: false,
       });
 
-      assertHasResponse(response, error, "Failed to load concept pages.");
+      const failureMessage = t("listConceptPages.failureMessage", {
+        ns: "intelligence",
+      });
+      assertHasResponse(response, error, failureMessage);
 
       if (response.status === 409) {
         const errObj = error as Record<string, unknown> | undefined;
@@ -45,14 +49,14 @@ export function listConceptPagesOptions(assistantId: string) {
         }
         throw new ApiError(
           response.status,
-          extractErrorMessage(error, response, "Failed to load concept pages."),
+          extractErrorMessage(error, response, failureMessage),
         );
       }
 
       if (!response.ok) {
         throw new ApiError(
           response.status,
-          extractErrorMessage(error, response, "Failed to load concept pages."),
+          extractErrorMessage(error, response, failureMessage),
         );
       }
 

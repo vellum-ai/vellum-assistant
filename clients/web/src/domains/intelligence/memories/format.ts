@@ -1,3 +1,5 @@
+import { t } from "@/i18n";
+
 const RELATIVE_FORMATTER =
   typeof Intl !== "undefined" && "RelativeTimeFormat" in Intl
     ? new Intl.RelativeTimeFormat(undefined, { style: "long", numeric: "auto" })
@@ -17,7 +19,7 @@ export function formatRelativeTime(epochMs: number): string {
   const diff = epochMs - Date.now();
   const absDiff = Math.abs(diff);
   if (absDiff < 30_000) {
-    return "just now";
+    return t("memoryFormat.justNow", { ns: "intelligence" });
   }
   if (!RELATIVE_FORMATTER) {
     return new Date(epochMs).toLocaleString();

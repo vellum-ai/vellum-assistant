@@ -12,8 +12,8 @@
 import {
   ArrowDown,
   ArrowDownToLine,
-  ArrowLeft,
   ArrowUpFromLine,
+  ChevronLeft,
   ChevronRight,
   Send,
 } from "lucide-react";
@@ -393,7 +393,7 @@ function ChatViewHeader({
           {showBack && (
             <Button
               variant="outlined"
-              iconOnly={<ArrowLeft />}
+              iconOnly={<ChevronLeft />}
               onClick={onBack}
               aria-label="Back to conversation"
               tooltip="Back"

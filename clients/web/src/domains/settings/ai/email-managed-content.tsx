@@ -30,7 +30,12 @@ import { ConfirmDialog } from "@vellumai/design-library/components/confirm-dialo
 import { Notice } from "@vellumai/design-library/components/notice";
 import { toast } from "@vellumai/design-library/components/toast";
 
+import { Trans, useTranslation } from "@/i18n";
+
 import { DomainVerificationChip } from "@/domains/settings/ai/shared-ui";
+
+const CONFIRM_CODE_CLASS =
+  "rounded bg-[var(--surface-active)] px-1 py-0.5 font-mono text-[0.9em]";
 
 interface EmailManagedContentProps {
   assistantId: string;
@@ -43,6 +48,7 @@ export function EmailManagedContent({
   assistantHandle,
   emailRootDomain,
 }: EmailManagedContentProps) {
+  const { t } = useTranslation("settings");
   const queryClient = useQueryClient();
   const navigate = useNavigate();
   const isNativeAndroid = useIsNativeAndroid();
@@ -182,7 +188,7 @@ export function EmailManagedContent({
   const handleRegisterDomain = useCallback(async () => {
     const trimmed = subdomainDraft.trim().toLowerCase();
     if (!trimmed) {
-      setSubdomainError("Enter a subdomain.");
+      setSubdomainError(t("emailManagedContent.enterSubdomainError"));
       return;
     }
     setRegisterConfirmOpen(false);
@@ -194,10 +200,18 @@ export function EmailManagedContent({
       setSubdomainDraft("");
       setSubdomainError(null);
       invalidateEmailQueries();
-      toast.success(`Domain ${trimmed}.${emailRootDomain} registered.`);
+      toast.success(
+        t("emailManagedContent.domainRegisteredToast", {
+          domain: `${trimmed}.${emailRootDomain}`,
+        }),
+      );
     } catch (err) {
       setSubdomainError(
-        extractErrorMessage(err, undefined, "Failed to register domain."),
+        extractErrorMessage(
+          err,
+          undefined,
+          t("emailManagedContent.registerDomainFailedFallback"),
+        ),
       );
     }
   }, [
@@ -206,12 +220,13 @@ export function EmailManagedContent({
     invalidateEmailQueries,
     registerDomain,
     subdomainDraft,
+    t,
   ]);
 
   const handleRegisterAddress = useCallback(async () => {
     const trimmed = usernameDraft.trim().toLowerCase();
     if (!trimmed) {
-      setUsernameError("Enter an email username.");
+      setUsernameError(t("emailManagedContent.enterUsernameError"));
       return;
     }
     try {
@@ -222,13 +237,17 @@ export function EmailManagedContent({
       setUsernameDraft("");
       setUsernameError(null);
       invalidateEmailQueries();
-      toast.success("Email address created.");
+      toast.success(t("emailManagedContent.emailCreatedToast"));
     } catch (err) {
       setUsernameError(
-        extractErrorMessage(err, undefined, "Failed to create email address."),
+        extractErrorMessage(
+          err,
+          undefined,
+          t("emailManagedContent.createEmailFailedFallback"),
+        ),
       );
     }
-  }, [assistantId, invalidateEmailQueries, registerAddress, usernameDraft]);
+  }, [assistantId, invalidateEmailQueries, registerAddress, usernameDraft, t]);
 
   const handleDeleteAddress = useCallback(async () => {
     if (!address?.id) {
@@ -240,19 +259,19 @@ export function EmailManagedContent({
         path: { assistant_id: assistantId, id: address.id },
       });
       invalidateEmailQueries();
-      toast.success("Email address removed.");
+      toast.success(t("emailManagedContent.emailRemovedToast"));
     } catch (err) {
       captureError(err, { context: "email_address_delete" });
-      toast.error("Failed to remove email address.");
+      toast.error(t("emailManagedContent.emailRemoveFailedToast"));
     }
-  }, [address?.id, assistantId, deleteAddress, invalidateEmailQueries]);
+  }, [address?.id, assistantId, deleteAddress, invalidateEmailQueries, t]);
 
   const handleDeleteDomain = useCallback(async () => {
     if (!domain?.id) {
       return;
     }
     if (address) {
-      toast.error("Remove the email address first.");
+      toast.error(t("emailManagedContent.removeAddressFirstToast"));
       return;
     }
     setReleaseConfirmOpen(false);
@@ -263,10 +282,10 @@ export function EmailManagedContent({
       });
       setSubdomainDraft(releasedSubdomain);
       invalidateEmailQueries();
-      toast.success("Domain released.");
+      toast.success(t("emailManagedContent.domainReleasedToast"));
     } catch (err) {
       captureError(err, { context: "email_domain_release" });
-      toast.error("Failed to release domain.");
+      toast.error(t("emailManagedContent.domainReleaseFailedToast"));
     }
   }, [
     address,
@@ -275,6 +294,7 @@ export function EmailManagedContent({
     domain?.id,
     domain?.subdomain,
     invalidateEmailQueries,
+    t,
   ]);
 
   // -- Render ----------------------------------------------------------------
@@ -282,7 +302,7 @@ export function EmailManagedContent({
     return (
       <div className="flex items-center gap-2 text-body-small-default text-[var(--content-tertiary)]">
         <Loader2 className="h-4 w-4 animate-spin" />
-        Checking subscription…
+        {t("emailManagedContent.checkingSubscription")}
       </div>
     );
   }
@@ -292,11 +312,11 @@ export function EmailManagedContent({
       <Notice
         tone="info"
         icon={<Mail className="h-4 w-4" aria-hidden />}
-        title="Give your assistant its own email address"
+        title={t("emailManagedContent.upgradeNoticeTitle")}
         actions={
           isNativeAndroid ? undefined : (
             <Button size="compact" onClick={() => navigate(routes.plans)}>
-              Upgrade
+              {t("emailManagedContent.upgradeButton")}
             </Button>
           )
         }
@@ -304,10 +324,7 @@ export function EmailManagedContent({
         {isNativeAndroid ? (
           ANDROID_BILLING_MESSAGE
         ) : (
-          <>
-            Upgrade to a plan that includes an email address for your assistant.
-            No provider setup required.
-          </>
+          t("emailManagedContent.upgradeNoticeBody")
         )}
       </Notice>
     );
@@ -320,20 +337,18 @@ export function EmailManagedContent({
   const subscriptionWarning = subscriptionUnknown ? (
     <Notice
       tone="warning"
-      title="Couldn't verify subscription status"
+      title={t("emailManagedContent.subscriptionWarningTitle")}
       actions={
         <Button
           size="compact"
           variant="outlined"
           onClick={() => subscriptionQuery.refetch()}
         >
-          Retry
+          {t("emailManagedContent.retry")}
         </Button>
       }
     >
-      We couldn&apos;t reach the billing service. The form below assumes managed
-      email is enabled for your org — if it isn&apos;t, registering a domain
-      will fail.
+      {t("emailManagedContent.subscriptionWarningBody")}
     </Notice>
   ) : null;
 
@@ -342,7 +357,7 @@ export function EmailManagedContent({
       <div className="space-y-3">
         {subscriptionWarning}
         <label className="block text-body-small-default text-[var(--content-tertiary)]">
-          Subdomain
+          {t("emailManagedContent.subdomainLabel")}
         </label>
         <DomainField
           subdomain={subdomainDraft}
@@ -353,32 +368,38 @@ export function EmailManagedContent({
             }
           }}
           domainSuffix={emailRootDomain}
-          subdomainPlaceholder="my-assistant"
+          subdomainPlaceholder={t("emailManagedContent.subdomainExamplePlaceholder")}
           error={subdomainError}
         />
         <p className="text-body-small-default text-[var(--content-tertiary)]">
-          Each assistant gets its own subdomain. Lowercase letters, numbers, and
-          hyphens only.
+          {t("emailManagedContent.subdomainHint")}
         </p>
         <Button
           onClick={() => setRegisterConfirmOpen(true)}
           disabled={registerDomain.isPending || !subdomainDraft.trim()}
         >
-          {registerDomain.isPending ? "Registering…" : "Register"}
+          {registerDomain.isPending
+            ? t("emailManagedContent.registering")
+            : t("emailManagedContent.register")}
         </Button>
         <ConfirmDialog
           open={registerConfirmOpen}
-          title="Set Subdomain"
+          title={t("emailManagedContent.setSubdomainTitle")}
           message={
-            <>
-              <code className="rounded bg-[var(--surface-active)] px-1 py-0.5 font-mono text-[0.9em]">
-                {subdomainDraft.trim().toLowerCase() || "subdomain"}
-              </code>{" "}
-              will also become your assistant's public handle. You won't be able
-              to change it once set.
-            </>
+            <Trans
+              i18nKey="emailManagedContent.setSubdomainConfirmMessage"
+              ns="settings"
+              values={{
+                subdomain:
+                  subdomainDraft.trim().toLowerCase() ||
+                  t("emailManagedContent.subdomainFallback"),
+              }}
+              components={{
+                code: <code className={CONFIRM_CODE_CLASS} />,
+              }}
+            />
           }
-          confirmLabel="Confirm"
+          confirmLabel={t("emailManagedContent.confirm")}
           onConfirm={handleRegisterDomain}
           onCancel={() => setRegisterConfirmOpen(false)}
         />
@@ -392,7 +413,7 @@ export function EmailManagedContent({
         {subscriptionWarning}
         <div className="space-y-1.5">
           <label className="block text-body-small-default text-[var(--content-tertiary)]">
-            Domain
+            {t("emailManagedContent.domainLabel")}
           </label>
           <div className="flex items-center gap-2">
             <span className="font-mono text-body-small-default text-[var(--content-default)]">
@@ -409,22 +430,25 @@ export function EmailManagedContent({
               iconOnly={<Trash2 />}
               onClick={() => setReleaseConfirmOpen(true)}
               disabled={deleteDomain.isPending}
-              aria-label="Release domain"
+              aria-label={t("emailManagedContent.releaseDomainAriaLabel")}
             />
           </div>
           <ConfirmDialog
             open={releaseConfirmOpen}
-            title="Release Domain"
+            title={t("emailManagedContent.releaseDomainTitle")}
             message={
-              <>
-                Are you sure you want to release{" "}
-                <code className="rounded bg-[var(--surface-active)] px-1 py-0.5 font-mono text-[0.9em]">
-                  {domain.subdomain}.{emailRootDomain}
-                </code>
-                ? The subdomain will become available for others to claim.
-              </>
+              <Trans
+                i18nKey="emailManagedContent.releaseDomainConfirmMessage"
+                ns="settings"
+                values={{
+                  domain: `${domain.subdomain}.${emailRootDomain}`,
+                }}
+                components={{
+                  code: <code className={CONFIRM_CODE_CLASS} />,
+                }}
+              />
             }
-            confirmLabel="Release"
+            confirmLabel={t("emailManagedContent.releaseConfirm")}
             destructive
             onConfirm={handleDeleteDomain}
             onCancel={() => setReleaseConfirmOpen(false)}
@@ -433,7 +457,7 @@ export function EmailManagedContent({
 
         <div className="space-y-1.5">
           <label className="block text-body-small-default text-[var(--content-tertiary)]">
-            Email address
+            {t("emailManagedContent.emailAddressLabel")}
           </label>
           <div className="flex items-center gap-2">
             <div
@@ -447,8 +471,8 @@ export function EmailManagedContent({
                     setUsernameError(null);
                   }
                 }}
-                placeholder="hi"
-                aria-label="Email username"
+                placeholder={t("emailManagedContent.emailUsernamePlaceholder")}
+                aria-label={t("emailManagedContent.emailUsernameAriaLabel")}
                 aria-invalid={!!usernameError}
                 className="h-full min-w-0 flex-1 bg-transparent pl-3 pr-1 text-[var(--content-default)] placeholder:text-[var(--content-tertiary)] outline-none"
               />
@@ -460,7 +484,9 @@ export function EmailManagedContent({
               onClick={handleRegisterAddress}
               disabled={registerAddress.isPending || !usernameDraft.trim()}
             >
-              {registerAddress.isPending ? "Creating…" : "Create"}
+              {registerAddress.isPending
+                ? t("emailManagedContent.creating")
+                : t("emailManagedContent.create")}
             </Button>
           </div>
           {usernameError && (
@@ -478,7 +504,7 @@ export function EmailManagedContent({
       {subscriptionWarning}
       <div className="space-y-1.5">
         <label className="block text-body-small-default text-[var(--content-tertiary)]">
-          Address
+          {t("emailManagedContent.addressLabel")}
         </label>
         <div className="flex items-center gap-2">
           <span className="font-mono text-body-small-default text-[var(--content-default)]">
@@ -495,23 +521,23 @@ export function EmailManagedContent({
             iconOnly={<Trash2 />}
             onClick={() => setRemoveAddressConfirmOpen(true)}
             disabled={deleteAddress.isPending}
-            aria-label="Remove email address"
+            aria-label={t("emailManagedContent.removeEmailAriaLabel")}
           />
         </div>
         <ConfirmDialog
           open={removeAddressConfirmOpen}
-          title="Remove Email Address"
+          title={t("emailManagedContent.removeEmailTitle")}
           message={
-            <>
-              Are you sure you want to remove{" "}
-              <code className="rounded bg-[var(--surface-active)] px-1 py-0.5 font-mono text-[0.9em]">
-                {address.address}
-              </code>
-              ? Your assistant will no longer be able to send or receive email
-              at this address.
-            </>
+            <Trans
+              i18nKey="emailManagedContent.removeEmailConfirmMessage"
+              ns="settings"
+              values={{ address: address.address }}
+              components={{
+                code: <code className={CONFIRM_CODE_CLASS} />,
+              }}
+            />
           }
-          confirmLabel="Remove"
+          confirmLabel={t("emailManagedContent.removeConfirm")}
           destructive
           onConfirm={handleDeleteAddress}
           onCancel={() => setRemoveAddressConfirmOpen(false)}
@@ -520,9 +546,11 @@ export function EmailManagedContent({
 
       {statusQuery.data?.usage && (
         <p className="text-body-small-default text-[var(--content-tertiary)]">
-          {statusQuery.data.usage.sent_today} /{" "}
-          {statusQuery.data.usage.daily_limit} sent today ·{" "}
-          {statusQuery.data.usage.received_today} received
+          {t("emailManagedContent.usageSummary", {
+            sent: statusQuery.data.usage.sent_today,
+            limit: statusQuery.data.usage.daily_limit,
+            received: statusQuery.data.usage.received_today,
+          })}
         </p>
       )}
     </div>

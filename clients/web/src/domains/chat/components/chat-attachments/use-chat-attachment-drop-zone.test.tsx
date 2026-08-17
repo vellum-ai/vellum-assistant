@@ -10,6 +10,7 @@ import { afterEach, describe, expect, mock, test } from "bun:test";
 import { cleanup, fireEvent, render } from "@testing-library/react";
 import { createRef, useImperativeHandle, forwardRef, type Ref } from "react";
 
+import { makeFileList } from "@/domains/chat/components/chat-attachments/attachment-test-helpers";
 import {
   useChatAttachmentDropZone,
   type ChatAttachmentDropZoneHandlers,
@@ -52,10 +53,7 @@ function makeDataTransfer(items: DropItemSpec[]): DataTransfer {
   return {
     types: ["Files"],
     items: itemObjs as unknown as DataTransferItemList,
-    files: {
-      length: items.length,
-      item: (i: number) => items[i]?.file ?? null,
-    } as unknown as FileList,
+    files: makeFileList(items.map(({ file }) => file)),
     dropEffect: "none",
     effectAllowed: "all",
     clearData: () => {},

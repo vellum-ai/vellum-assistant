@@ -23,9 +23,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { beforeEach, describe, expect, test } from "bun:test";
 
+import { getUserHooksFor } from "../hooks/registry.js";
 import {
   getCachedUserTools,
-  getUserHooksFor,
   resetPluginCacheForTests,
 } from "../plugins/mtime-cache.js";
 import { loadUserPlugins } from "../plugins/user-loader.js";
