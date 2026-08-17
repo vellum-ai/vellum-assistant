@@ -410,9 +410,10 @@ export function SkillsReferenceSubagentContent() {
               task needs to know what you&apos;ve been discussing.
             </li>
             <li>
-              <strong>Smaller is better.</strong> A few focused subagents finish
-              faster and fail more gracefully than one large general-purpose
-              one.
+              <strong>Delegation scales with the task.</strong> Quick lookups
+              happen inline in your conversation; a subagent is for extensive
+              work, like a deep research sweep or an investigation that would
+              otherwise flood the chat. Most tasks need zero or one.
             </li>
             <li>
               <strong>No need to poll.</strong> Your assistant is notified
