@@ -313,6 +313,7 @@ const usageSource = simpleSource(
       conversationSource: e.conversationSource,
       callSite: e.callSite,
       parentConversationId: e.parentConversationId,
+      cronRunId: e.cronRunId,
     }),
     // Delegated-work decomposition. Every subagent variety shares
     // `llm_call_site = "subagentSpawn"`; these two orthogonal dimensions are

@@ -1838,6 +1838,36 @@ describe("UsageTelemetryReporter", () => {
     });
   });
 
+  test("llm_usage classifies a wake-schedule firing by its cron run id", async () => {
+    // A wake or defer schedule can fire inside a conversation whose persisted
+    // type and source stay standard/user; the cron run id on the row is the
+    // only schedule signal.
+    mockQueryUnreportedUsageEvents.mockReturnValue([
+      makeUsageEvent({
+        id: "evt-wake-cron",
+        conversationId: "conv-waked",
+        conversationType: "standard",
+        conversationSource: "user",
+        cronRunId: "cron-run-123",
+        turnIndex: 2,
+      }),
+    ]);
+    mockFetch.mockImplementation(() =>
+      Promise.resolve(new Response('{"accepted":1}', { status: 200 })),
+    );
+
+    const reporter = makeReporter();
+    await reporter.flush();
+
+    const body = JSON.parse(
+      (mockFetch.mock.calls[0] as [string, RequestInit])[1].body as string,
+    );
+    const event = (
+      body.events as Array<{ daemon_event_id: string; work_origin: string }>
+    ).find((e) => e.daemon_event_id === "evt-wake-cron");
+    expect(event?.work_origin).toBe("user_created_schedule");
+  });
+
   test("llm_usage bounds an out-of-contract conversation_source to null while classifying from the raw value", async () => {
     // The persisted source column is unconstrained (import: and
     // plugin-supplied sources are free-form) but the wire contract caps the
