@@ -106,18 +106,6 @@ describe("SideMenu root", () => {
     }
   });
 
-  /* The open row's wash is published beside the geometry so a row never has
-     to know which surface it is mounted on. */
-  test("the overlay publishes the lighter selection wash", () => {
-    const html = renderToStaticMarkup(
-      createElement(
-        SideMenu,
-        { ariaLabel: "Primary", variant: "overlay" },
-        createElement(SideMenu.Body, { key: "body" }, null),
-      ),
-    );
-    expect(html).toContain("--panel-item-active:var(--surface-hover)");
-  });
 
   test("overlay variant is full-bleed with no radius", () => {
     const html = renderToStaticMarkup(

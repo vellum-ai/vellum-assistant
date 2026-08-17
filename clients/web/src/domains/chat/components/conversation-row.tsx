@@ -266,7 +266,13 @@ export function ConversationRow({
           // `max-md` for the same reason the padding above is: PanelItem's own
           // `max-md:h-auto` is a variant, so an unprefixed height never
           // reaches it at a touch viewport.
-          ctx.overlayCards ? "h-11 max-md:h-11" : "h-[30px]",
+          // The wash belongs to the row rather than the panel: declared on the
+          // menu it would reach every active PanelItem in the drawer, and a
+          // tinted pill that publishes `--panel-item-bg` and no active value
+          // of its own would lose its colour to it.
+          ctx.overlayCards
+            ? "h-11 max-md:h-11 [--panel-item-active:var(--surface-hover)]"
+            : "h-[30px]",
         )}
       />
     </SwipeActionReveal>

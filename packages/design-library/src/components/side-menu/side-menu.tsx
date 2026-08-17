@@ -192,11 +192,6 @@ export const SIDE_MENU_OVERLAY_TILE_SIZE = 44;
 const OVERLAY_VARS: CustomPropertyStyle = {
   ...RAIL_GEOMETRY_VARS,
   "--side-menu-tile-size": `${SIDE_MENU_OVERLAY_TILE_SIZE}px`,
-  /* The overlay marks the open conversation with the lighter of the two
-     selection washes: its rows sit on a card that already stands off the
-     panel, so the rail's heavier fill reads as a second surface on top of a
-     surface. */
-  "--panel-item-active": "var(--surface-hover)",
 };
 
 export interface SideMenuProps extends ComponentProps<"nav"> {
