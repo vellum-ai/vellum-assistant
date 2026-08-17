@@ -63,7 +63,10 @@ import type { ContentBlock, Message } from "../providers/types.js";
 import type { AuthContext } from "../runtime/auth/types.js";
 import { getLogger } from "../util/logger.js";
 import { withSqliteRetry } from "../util/sqlite-retry.js";
-import type { MessageQueue } from "./conversation-queue-manager.js";
+import type {
+  MessageQueue,
+  QueuedChannelDelivery,
+} from "./conversation-queue-manager.js";
 import type { SlackInboundMessageMetadata } from "./handlers/shared.js";
 import type { UserMessageAttachment } from "./message-protocol.js";
 import type { ConversationTransportMetadata } from "./message-types/conversations.js";
@@ -572,6 +575,7 @@ export interface EnqueueMessageOptions {
    * set to this sender.
    */
   trustContext?: TrustContext;
+  channelDelivery?: QueuedChannelDelivery;
 }
 
 // ── enqueueMessage ───────────────────────────────────────────────────
@@ -593,6 +597,7 @@ export function enqueueMessage(
     transport,
     clientMessageId,
     authContext,
+    channelDelivery,
   } = options;
   const queuedAuthContext =
     authContext ?? ctx.currentTurnAuthContext ?? ctx.authContext;
@@ -634,6 +639,7 @@ export function enqueueMessage(
     displayContent,
     sentAt: Date.now(),
     clientMessageId,
+    channelDelivery,
   });
   if (!accepted) {
     onEvent?.({

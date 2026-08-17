@@ -19,7 +19,12 @@ import {
   guardianForChannel,
 } from "../../../contacts/guardian-delivery-reader.js";
 import { isConversationBusyError } from "../../../daemon/conversation-messaging.js";
+import { findConversation } from "../../../daemon/conversation-registry.js";
 import type { TrustContext } from "../../../daemon/trust-context-types.js";
+import {
+  getAttachmentsByIds,
+  getSourcePathsForAttachments,
+} from "../../../persistence/attachments-store.js";
 import {
   getSiblingStreamedReplyTs,
   linkMessage,
@@ -59,6 +64,10 @@ import { resolveRoutingState } from "../../trust-context-resolver.js";
 import { finalizeEventDelivery } from "../channel-delivery-routes.js";
 import { deliverGeneratedApprovalPrompt } from "../guardian-approval-prompt.js";
 import { withChannelTurnAdmission } from "./channel-turn-admission.js";
+import {
+  shouldEmitTelegramTyping,
+  startTelegramTypingHeartbeat,
+} from "./telegram-typing.js";
 
 const log = getLogger("runtime-http");
 
@@ -153,13 +162,17 @@ export function processChannelMessageInBackground(
     storeInboundSlackMetadata(eventId, slackInbound);
   }
 
+  if (tryEnqueueTelegramFollowUp(params)) {
+    return;
+  }
+
   // Defer the whole turn + delivery until the conversation's processing lock is
   // free, serialized per conversation so same-conversation replies stay ordered.
-  // A channel message routed to a busy conversation (e.g. a Slack
-  // thread-participant reply arriving mid-session) is thereby processed when the
-  // in-flight turn completes instead of being dropped. See
-  // `channel-turn-admission.ts` for why channel turns defer rather than route
-  // through the SSE-oriented conversation queue.
+  // A Slack message routed to a busy conversation (e.g. a thread-participant
+  // reply arriving mid-session) is thereby processed when the in-flight turn
+  // completes instead of being dropped. Telegram follow-ups while busy take
+  // the conversation queue instead (`tryEnqueueTelegramFollowUp`) so they
+  // show in the web drawer and drain as a batch with callback delivery.
   void withChannelTurnAdmission(conversationId, async () => {
     const typingCallbackUrl = shouldEmitTelegramTyping(
       sourceChannel,
@@ -382,78 +395,97 @@ export function processChannelMessageInBackground(
   });
 }
 
-// ---------------------------------------------------------------------------
-// Telegram typing heartbeat
-// ---------------------------------------------------------------------------
-
-/**
- * How often the typing status is re-sent while a turn runs.
- *
- * `sendChatAction` sets a status that expires on its own after a few seconds,
- * and the Bot API offers no stop/start pair to hold one open, so showing
- * typing across a multi-second turn means re-sending on a timer. The interval
- * has to stay under that expiry or the indicator blinks off between beats;
- * anyone changing it should check the current window first.
- *
- * No explicit stop is needed on the delivery path: Telegram clears the status
- * as soon as the bot sends a message.
- *
- * https://core.telegram.org/bots/api#sendchataction
- */
-const TELEGRAM_TYPING_INTERVAL_MS = 4_000;
-
-function shouldEmitTelegramTyping(
-  sourceChannel: ChannelId,
-  replyCallbackUrl?: string,
+function tryEnqueueTelegramFollowUp(
+  params: BackgroundProcessingParams,
 ): boolean {
-  if (sourceChannel !== "telegram" || !replyCallbackUrl) {
+  const {
+    conversationId,
+    eventId,
+    content,
+    displayContent,
+    attachmentIds,
+    sourceChannel,
+    sourceInterface,
+    externalChatId,
+    trustCtx,
+    metadataHints,
+    metadataUxBrief,
+    replyCallbackUrl,
+    assistantId,
+    chatType,
+    clientTimezone,
+  } = params;
+  if (sourceChannel !== "telegram") {
     return false;
   }
-  try {
-    return new URL(replyCallbackUrl).pathname.endsWith("/deliver/telegram");
-  } catch {
-    return replyCallbackUrl.endsWith("/deliver/telegram");
+  const conversation = findConversation(conversationId);
+  if (!conversation || !conversation.isProcessing()) {
+    return false;
   }
-}
 
-function startTelegramTypingHeartbeat(
-  callbackUrl: string,
-  chatId: string,
-  assistantId?: string,
-): () => void {
-  let active = true;
-  let inFlight = false;
+  const attachments =
+    attachmentIds && attachmentIds.length > 0
+      ? (() => {
+          const sourcePaths = getSourcePathsForAttachments(attachmentIds);
+          return getAttachmentsByIds(attachmentIds, {
+            hydrateFileData: true,
+          }).map((attachment) => ({
+            id: attachment.id,
+            filename: attachment.originalFilename,
+            mimeType: attachment.mimeType,
+            data: attachment.dataBase64,
+            ...(sourcePaths.has(attachment.id)
+              ? { filePath: sourcePaths.get(attachment.id) }
+              : {}),
+          }));
+        })()
+      : [];
 
-  const emitTyping = (): void => {
-    if (!active || inFlight) {
-      return;
-    }
-    inFlight = true;
-    void deliverChannelReply(callbackUrl, {
-      chatId,
-      chatAction: "typing",
-      assistantId,
-    })
-      .catch((err) => {
-        log.debug(
-          { err, chatId },
-          "Failed to deliver Telegram typing indicator",
-        );
-      })
-      .finally(() => {
-        inFlight = false;
-      });
-  };
+  const enqueueResult = conversation.enqueueMessage({
+    content,
+    attachments,
+    ...(displayContent !== undefined ? { displayContent } : {}),
+    trustContext: trustCtx,
+    isInteractive: resolveRoutingState(trustCtx).promptWaitingAllowed,
+    transport: {
+      channelId: sourceChannel,
+      interfaceId: sourceInterface,
+      ...(metadataHints.length > 0 ? { hints: metadataHints } : {}),
+      ...(metadataUxBrief ? { uxBrief: metadataUxBrief } : {}),
+      ...(chatType ? { chatType } : {}),
+      ...(clientTimezone ? { clientTimezone } : {}),
+    },
+    metadata: {
+      userMessageChannel: sourceChannel,
+      assistantMessageChannel: sourceChannel,
+      userMessageInterface: sourceInterface,
+      assistantMessageInterface: sourceInterface,
+    },
+    channelDelivery: {
+      eventId,
+      externalChatId,
+      sourceChannel,
+      ...(replyCallbackUrl ? { replyCallbackUrl } : {}),
+      ...(assistantId ? { assistantId } : {}),
+    },
+  });
 
-  emitTyping();
-
-  const interval = setInterval(emitTyping, TELEGRAM_TYPING_INTERVAL_MS);
-  (interval as { unref?: () => void }).unref?.();
-
-  return () => {
-    active = false;
-    clearInterval(interval);
-  };
+  if (enqueueResult.rejected) {
+    log.info(
+      { conversationId, eventId },
+      "Telegram follow-up rejected: conversation queue is full; deferring to the retry sweep",
+    );
+    deferRetryUntilIdle(eventId);
+    return true;
+  }
+  if (enqueueResult.queued) {
+    log.info(
+      { conversationId, eventId, requestId: enqueueResult.requestId },
+      "Telegram follow-up queued while the conversation is mid-turn",
+    );
+    return true;
+  }
+  return false;
 }
 
 // ---------------------------------------------------------------------------

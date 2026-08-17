@@ -7,6 +7,7 @@
 
 import type { AssistantEvent } from "../api/index.js";
 import type {
+  ChannelId,
   TurnChannelContext,
   TurnInterfaceContext,
 } from "../channels/types.js";
@@ -17,6 +18,19 @@ import type { ConversationTransportMetadata } from "./message-types/conversation
 import type { TrustContext } from "./trust-context-types.js";
 
 const log = getLogger("conversation-queue");
+
+/**
+ * How a queued channel follow-up should be delivered after drain.
+ * Telegram follow-ups that land while a turn is in flight carry this so the
+ * drain can `finalizeEventDelivery` instead of only publishing to SSE.
+ */
+export interface QueuedChannelDelivery {
+  eventId: string;
+  externalChatId: string;
+  sourceChannel: ChannelId;
+  replyCallbackUrl?: string;
+  assistantId?: string;
+}
 
 export interface QueuedMessage {
   content: string;
@@ -61,6 +75,7 @@ export interface QueuedMessage {
    * settles it.
    */
   dequeueAnnounced?: boolean;
+  channelDelivery?: QueuedChannelDelivery;
 }
 
 /**

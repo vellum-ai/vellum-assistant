@@ -6,6 +6,7 @@ import {
   isSuppressedQueuedMessage,
 } from "../../persistence/conversation-crud.js";
 import { resolveConversationId } from "../../persistence/conversation-key-store.js";
+import { markProcessed } from "../../persistence/delivery-status.js";
 import { broadcastMessage } from "../../runtime/assistant-event-hub.js";
 import { resolveCapabilities } from "../../runtime/capabilities.js";
 import * as pendingInteractions from "../../runtime/pending-interactions.js";
@@ -328,6 +329,9 @@ export function deleteQueuedMessage(
     return { removed: false, reason: "forbidden" };
   }
   conversation.removeQueuedMessage(requestId);
+  if (queued.channelDelivery) {
+    markProcessed(queued.channelDelivery.eventId);
+  }
   // Queue events come in pairs, so an entry that never produced a
   // `message_queued` ack (a suppressed daemon-injected send, or a hidden
   // machine send) must not produce a delete either: clients have no row to

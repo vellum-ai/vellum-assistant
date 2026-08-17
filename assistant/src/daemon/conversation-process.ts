@@ -39,6 +39,13 @@ import {
   type GuardianPendingScope,
   routeGuardianReply,
 } from "../runtime/guardian-reply-router.js";
+import {
+  captureReplyMessageId,
+  completeQueuedChannelFollowUps,
+  failQueuedChannelFollowUps,
+  linkQueuedChannelIngress,
+  startQueuedTelegramTyping,
+} from "../runtime/queued-channel-followup.js";
 import { publishConversationMessagesChanged } from "../runtime/sync/resource-sync-events.js";
 import { stampTurnOutcome } from "../telemetry/turn-outcome.js";
 import { getLogger } from "../util/logger.js";
@@ -1190,6 +1197,7 @@ async function drainSingleMessage(
   }
 
   const userMessageId = persistResult.id;
+  linkQueuedChannelIngress(next, userMessageId);
 
   if (persistResult.deduplicated) {
     log.info(
@@ -1197,6 +1205,11 @@ async function drainSingleMessage(
       "Skipping agent loop for deduplicated queued message",
     );
     conversation.preactivatedSkillIds = undefined;
+    void completeQueuedChannelFollowUps({
+      items: [next],
+      conversationId: conversation.conversationId,
+      lastUserMessageId: userMessageId,
+    });
     await drainQueue(conversation);
     return;
   }
@@ -1292,11 +1305,25 @@ async function drainSingleMessage(
     drainLoopOptions.isHiddenPrompt = true;
   }
 
+  const replyMessageIdRef: { current: string | undefined } = {
+    current: undefined,
+  };
+  const drainOnEvent = captureReplyMessageId(next.onEvent, replyMessageIdRef);
+  const stopQueuedTyping = startQueuedTelegramTyping([next]);
+
   conversation
     .runAgentLoop(agentLoopContent, userMessageId, {
       ...drainLoopOptions,
-      onEvent: next.onEvent,
+      onEvent: drainOnEvent,
     })
+    .then(() =>
+      completeQueuedChannelFollowUps({
+        items: [next],
+        conversationId: conversation.conversationId,
+        lastUserMessageId: userMessageId,
+        replyMessageId: replyMessageIdRef.current,
+      }),
+    )
     .catch((err) => {
       const message = err instanceof Error ? err.message : String(err);
       log.error(
@@ -1307,11 +1334,15 @@ async function drainSingleMessage(
         },
         "Error processing queued message",
       );
+      failQueuedChannelFollowUps([next], err);
       next.onEvent({
         type: "error",
         conversationId: conversation.conversationId,
         message: `Failed to process queued message: ${message}`,
       });
+    })
+    .finally(() => {
+      stopQueuedTyping?.();
     });
 }
 
@@ -1534,6 +1565,11 @@ async function drainBatch(
       }
       if (batchPersistResult.deduplicated) {
         if (i === 0) {
+          void completeQueuedChannelFollowUps({
+            items: [qm],
+            conversationId: conversation.conversationId,
+            lastUserMessageId: batchPersistResult.id,
+          });
           // Head was deduplicated — persistUserMessage cleared the
           // processing flag. Recursively drain remaining items so the
           // first non-duplicate becomes the new batch head and sets
@@ -1552,6 +1588,7 @@ async function drainBatch(
       }
       lastUserMessageId = batchPersistResult.id;
       persistedMessageIds.push(batchPersistResult.id);
+      linkQueuedChannelIngress(qm, batchPersistResult.id);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       if (i === 0 && message === CONVERSATION_BUSY_MESSAGE) {
@@ -1781,11 +1818,25 @@ async function drainBatch(
 
   // Fire-and-forget: runAgentLoop's finally block recursively calls drainQueue
   // when this run completes. Mirrors drainSingleMessage.
+  const replyMessageIdRef: { current: string | undefined } = {
+    current: undefined,
+  };
+  const drainOnEvent = captureReplyMessageId(fanOutOnEvent, replyMessageIdRef);
+  const stopQueuedTyping = startQueuedTelegramTyping(successfulBatch);
+
   conversation
     .runAgentLoop(lastSuccessfulContent, lastUserMessageId, {
       ...drainLoopOptions,
-      onEvent: fanOutOnEvent,
+      onEvent: drainOnEvent,
     })
+    .then(() =>
+      completeQueuedChannelFollowUps({
+        items: successfulBatch,
+        conversationId: conversation.conversationId,
+        lastUserMessageId,
+        replyMessageId: replyMessageIdRef.current,
+      }),
+    )
     .catch((err) => {
       const message = err instanceof Error ? err.message : String(err);
       log.error(
@@ -1797,11 +1848,15 @@ async function drainBatch(
         },
         "Error processing batched queued messages",
       );
+      failQueuedChannelFollowUps(successfulBatch, err);
       fanOutOnEvent({
         type: "error",
         conversationId: conversation.conversationId,
         message: `Failed to process queued messages: ${message}`,
       });
+    })
+    .finally(() => {
+      stopQueuedTyping?.();
     });
 }
 
