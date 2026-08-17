@@ -277,7 +277,22 @@ describe("classifyWorkOrigin", () => {
       }),
       expected: "other_system",
     },
-    // 9. Recognized call site, no conversation.
+    // 9. Workflow leaves: user-caused work with no persisted conversation.
+    {
+      name: "workflowLeaf call with no conversation maps to user_created_background",
+      input: input({ callSite: "workflowLeaf" }),
+      expected: "user_created_background",
+    },
+    {
+      name: "workflowLeaf inside a scheduled conversation maps to user_created_schedule (schedule wins)",
+      input: input({
+        conversationType: "scheduled",
+        conversationSource: "schedule",
+        callSite: "workflowLeaf",
+      }),
+      expected: "user_created_schedule",
+    },
+    // 10. Recognized call site, no conversation.
     {
       name: "recognized call site with no conversation maps to other_system",
       input: input({ callSite: "conversationTitle" }),

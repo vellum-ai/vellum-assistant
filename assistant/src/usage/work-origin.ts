@@ -19,9 +19,10 @@ import { MEMORY_V2_CONSOLIDATION_SOURCE } from "../persistence/conversation-type
  *   on its cron trigger (a `scheduled` conversation) or through a manual run
  *   (a conversation bootstrapped with source `schedule`).
  * - `user_created_background`: background work a user explicitly asked for.
- *   An allowlist ({@link USER_CREATED_BACKGROUND_SOURCES} plus a `background`
- *   conversation the user created), never a residual: a bucket that reads as
- *   user-driven must only hold work that is.
+ *   An allowlist ({@link USER_CREATED_BACKGROUND_SOURCES}, a `background`
+ *   conversation the user created, and conversationless workflow-leaf
+ *   calls), never a residual: a bucket that reads as user-driven must only
+ *   hold work that is.
  * - `heartbeat`: the periodic heartbeat agent.
  * - `memory_maintenance`: memory extraction / consolidation / retrieval /
  *   filing / recall upkeep, whether it runs inside a user conversation
@@ -167,10 +168,12 @@ export interface WorkOriginInput {
  *   6. a standard conversation the user is chatting in,
  *   7. background work the user explicitly created,
  *   8. a system-owned conversation source,
- *   9. a recognized call site with no conversation behind it,
- *  10. `unknown`.
+ *   9. a workflow-leaf call, user-caused work that runs without a
+ *      persisted conversation,
+ *  10. a recognized call site with no conversation behind it,
+ *  11. `unknown`.
  *
- * Rules 6 to 9 are allowlists. Nothing here may become a residual that
+ * Rules 6 to 10 are allowlists. Nothing here may become a residual that
  * absorbs unrecognized combinations: an unnamed kind of work belongs in
  * `unknown`, where it is visible, not in a bucket whose name asserts a cause
  * nobody verified.
@@ -230,6 +233,14 @@ export function classifyWorkOrigin(input: WorkOriginInput): WorkOrigin {
     OTHER_SYSTEM_SOURCES.has(conversationSource)
   ) {
     return "other_system";
+  }
+  if (callSite === "workflowLeaf") {
+    // Workflow leaves run without a persisted conversation, but every launch
+    // path is user-caused: a user-started workflow run or a user-created
+    // schedule. Leaf usage rows carry no schedule provenance, so scheduled
+    // workflow spend lands here too rather than in user_created_schedule; a
+    // finer split requires threading run provenance onto usage rows.
+    return "user_created_background";
   }
   if (
     conversationType === null &&
