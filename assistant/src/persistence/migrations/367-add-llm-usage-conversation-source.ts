@@ -15,8 +15,9 @@ const COLUMN_DEFINITION = "conversation_source TEXT";
  * memory-retrospective forks are GC'd once a newer run supersedes them (or
  * deleted immediately on wake failure), and users delete conversations. Any
  * row flushed after its parent conversation's deletion would report a null
- * `conversation_source` despite carrying a `conversation_id`. This mirrors the
- * record-time stamping migration 353 added for `conversation_type`.
+ * `conversation_source` despite carrying a `conversation_id`. The column
+ * follows the same record-time stamping pattern as `conversation_type`
+ * (migration 353).
  *
  * The backfill stamps every existing row whose parent conversation still
  * exists, so usage rows pending flush at upgrade time (delayed or offline
