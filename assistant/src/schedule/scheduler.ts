@@ -27,7 +27,7 @@ import {
 import { runWatchersOnce } from "../watcher/engine.js";
 import { normalizeCapabilityManifest } from "../workflows/capabilities.js";
 import { getWorkflowRunManager } from "../workflows/run-manager.js";
-import { pluginScheduleSourceAvailable } from "./plugin-schedule-availability.js";
+import { declarationExistsOnDisk } from "./plugin-schedule-declarations.js";
 import { isPluginSchedulesEnabled } from "./plugin-schedules-gate.js";
 import { hasSetConstructs } from "./recurrence-engine.js";
 import { applyRetryDecision, decideRetry } from "./retry-policy.js";
@@ -528,12 +528,16 @@ export async function runDueSchedulesOnce(
     }
 
     // Fire-time gate for plugin-sourced rows, covering every way the source
-    // can go away under an armed row. `pluginScheduleSourceAvailable` is the
-    // probe the run-now route and the enable path use, and it answers for all
-    // of them: a plugin the daemon never activated, a `.disabled` sentinel, a
-    // plugin directory a local uninstall removed, a manifest that no longer
-    // parses, and a declaration that is simply gone. Turning the feature flag
-    // off retires the whole surface.
+    // can go away under an armed row. `declarationExistsOnDisk` is the probe
+    // the enable path uses, and it answers for all of them: a `.disabled`
+    // sentinel, a plugin directory a local uninstall removed, a manifest that
+    // no longer parses, and a declaration that is simply gone. Turning the
+    // feature flag off retires the whole surface.
+    // The probe is deliberately disk-only. Schedule execution runs in the
+    // schedule worker process, which activates no plugins, so the daemon's
+    // in-memory activation ledger is empty here and reading it would skip
+    // every plugin schedule. Activation is gated where the daemon owns it: the
+    // reconciler decides what arms, and the run-now route refuses by hand.
     // The reconciler is what disarms the rows any of these own, and it runs
     // on its own schedule, so re-reading here is what makes the change take
     // effect immediately: a row still armed (or already claimed) at that
@@ -543,7 +547,7 @@ export async function runDueSchedulesOnce(
     if (
       sourceKey !== null &&
       (!isPluginSchedulesEnabled() ||
-        !(await pluginScheduleSourceAvailable(sourceKey)))
+        !(await declarationExistsOnDisk(sourceKey)))
     ) {
       const sourcePlugin = describeScheduleSource(sourceKey) ?? sourceKey;
       log.info(

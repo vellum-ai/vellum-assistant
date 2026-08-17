@@ -55,20 +55,9 @@ mock.module("../persistence/lifecycle-quiesce.js", () => ({
   isLifecycleQuiesced: () => quiesceAnswers.shift() ?? false,
 }));
 
-/**
- * Whether the daemon activated the fixture plugin. The gate answers only for
- * plugins this process brought up, and the worker tick runs no plugin loader,
- * so the double says "activated" unless a case turns it off.
- */
-let pluginActivated = true;
-const realMtimeCache = await import("../plugins/mtime-cache.js");
-mock.module("../plugins/mtime-cache.js", () => ({
-  ...realMtimeCache,
-  isPluginDirActivated: () => pluginActivated,
-}));
-
 import { getDb } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
+import { isPluginDirActivated } from "../plugins/mtime-cache.js";
 import {
   createSchedule,
   deferClaimedSchedule,
@@ -265,7 +254,6 @@ describe("fire-time source-availability gate", () => {
     );
     // The feature ships off, so the healthy-plugin cases below need it on.
     setOverridesForTesting({ "plugin-schedules": true });
-    pluginActivated = true;
   });
 
   function skipRunsFor(jobId: string): Array<{
@@ -355,26 +343,24 @@ describe("fire-time source-availability gate", () => {
     expect(skipRunsFor(job.id)).toHaveLength(1);
   });
 
-  test("does not execute a due sourced row whose plugin the daemon never activated", async () => {
+  test("executes an armed sourced row even though no plugin is activated in this process", async () => {
     const job = await seedDueSourcedScript();
-    // The plugin's files are all in place; nothing has run its `init`, so its
-    // hooks and tools are not live and its schedules must not fire either.
-    pluginActivated = false;
+    // The tick runs in the schedule worker, which activates no plugins, so the
+    // activation ledger is empty here. The gate must therefore read the disk
+    // alone: reading activation would skip every plugin schedule. Arming is
+    // the daemon-side reconciler's call.
+    expect(isPluginDirActivated(pluginDir)).toBe(false);
 
     const result = await runDueSchedulesOnce();
 
-    expect(result.claimed).toBe(1);
-    expect(result.skipped).toBe(1);
-    expect(result.completed).toBe(0);
-    expect(existsSync(marker)).toBe(false);
-    const runs = skipRunsFor(job.id);
+    expect(result.completed).toBe(1);
+    expect(result.skipped).toBe(0);
+    expect(existsSync(marker)).toBe(true);
+    const runs = rawDb()
+      .query("SELECT status FROM cron_runs WHERE job_id = ?")
+      .all(job.id) as Array<{ status: string }>;
     expect(runs).toHaveLength(1);
-    expect(runs[0].status).toBe("error");
-    // An administrative skip, so the retry budget is untouched.
-    const row = rawDb()
-      .query("SELECT retry_count FROM cron_jobs WHERE id = ?")
-      .get(job.id) as { retry_count: number };
-    expect(row.retry_count).toBe(0);
+    expect(runs[0].status).toBe("ok");
   });
 
   test("does not execute a due sourced row while the feature flag is off", async () => {

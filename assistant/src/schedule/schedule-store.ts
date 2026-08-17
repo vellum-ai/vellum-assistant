@@ -33,7 +33,7 @@ import {
   resolveDefaultScheduleInferenceProfile,
   resolveWakeScheduleInferenceProfile,
 } from "./inference-profile.js";
-import { pluginScheduleSourceAvailable } from "./plugin-schedule-availability.js";
+import { declarationExistsOnDisk } from "./plugin-schedule-declarations.js";
 import {
   computeNextRunAt as computeNextRunAtEngine,
   isValidScheduleExpression,
@@ -1045,17 +1045,20 @@ export async function setUserEnabled(
     updatedAt: Date.now(),
   };
   if (value !== existing.enabled && !isEngineLatched(existing)) {
-    // Enabling a row whose declaration is no longer available (plugin never
-    // activated, uninstalled or disabled, manifest broken, schedule file
-    // removed) would let it fire an orphaned run before the next reconcile
-    // pass disarms it again. The reconciler is the authority on the
-    // declaration set; this probe only closes that fire-before-next-sweep
-    // window. The override itself is still recorded, so it applies if the
-    // declaration returns.
-    if (value && !(await pluginScheduleSourceAvailable(existing.sourceKey))) {
+    // Enabling a row whose declaration is no longer sourceable (plugin
+    // uninstalled or disabled, manifest broken, schedule file removed) would
+    // let it fire an orphaned run before the next reconcile pass disarms it
+    // again. The reconciler is the authority on the declaration set; this
+    // probe only closes that fire-before-next-sweep window. The override
+    // itself is still recorded, so it applies if the declaration returns.
+    // The probe is deliberately disk-only. A schedule tool calls this from a
+    // conversation turn, which can run in a sidecar worker process where the
+    // daemon's activation ledger is empty, so consulting activation here would
+    // refuse to re-arm anything. Activation stays the reconciler's call.
+    if (value && !(await declarationExistsOnDisk(existing.sourceKey))) {
       logger.info(
         { scheduleId: id, sourceKey: existing.sourceKey },
-        "Enable override recorded without re-arming: schedule source unavailable",
+        "Enable override recorded without re-arming: declaration missing on disk",
       );
     } else {
       set.enabled = value;

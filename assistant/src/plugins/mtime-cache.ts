@@ -220,6 +220,10 @@ export function getDiscoveredUserPluginNames(): Iterable<string> {
  * hooks and tools stay live, so its schedules must too. What membership
  * excludes is a directory dropped in out-of-band that no boot scan and no
  * reconcile pass has activated yet.
+ *
+ * The backing map is per-process, so a process that runs no plugin loader (the
+ * schedule worker, sidecar turn workers) reads `false` for every directory.
+ * Only code that provably runs in the main daemon may treat this as an answer.
  */
 export function isPluginDirActivated(dir: string): boolean {
   return discoveredPluginDirs.has(dir);

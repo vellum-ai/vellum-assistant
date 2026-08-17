@@ -1,9 +1,23 @@
 /**
  * Availability probe for a plugin-declared schedule's source.
  *
- * Composes the daemon's activation state with the on-disk declaration probe,
- * so arming, firing, run-now, and re-enable all answer the same question: did
- * this process bring the plugin up, and is its declaration still sourceable.
+ * Composes the daemon's activation state with the on-disk declaration probe:
+ * did this process bring the plugin up, and is its declaration still
+ * sourceable.
+ *
+ * **This probe is only meaningful in the main daemon process.** Activation is
+ * tracked in an in-memory map that `bringUpPlugin` writes, so only the process
+ * that ran the plugin loader can answer for it. HTTP routes and the plugin
+ * schedule reconciler run there, so they may use this. Worker processes (the
+ * schedule worker in `schedule/worker.ts`, sidecar turn workers) activate no
+ * plugins, so their ledger is empty and every plugin would read as
+ * unactivated. Those paths call {@link declarationExistsOnDisk} directly.
+ *
+ * That split is safe because the reconciler owns arming and runs in the
+ * daemon: a plugin it has not activated never arms, and its sweep disarms the
+ * rows of a plugin that stops being activated within one pass. The window
+ * between those passes is the whole exposure of the worker-side disk-only
+ * probes.
  *
  * The composition lives here rather than in `./plugin-schedule-declarations.ts`
  * because that parser is reachable from the plugin loader's own static graph
