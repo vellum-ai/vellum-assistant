@@ -42,6 +42,7 @@ import { useChatLayoutSlotsStore } from "@/components/layout/chat-layout-slots-s
 import { useElectronDockSync } from "@/domains/chat/hooks/use-electron-dock-sync";
 import { useNativeRecentChatsSync } from "@/domains/chat/hooks/use-native-recent-chats-sync";
 import { useOpenAppFromChat } from "@/domains/chat/hooks/use-open-app-from-chat";
+import { DRAWER_SURFACE_BACKGROUND } from "@/domains/chat/utils/drawer-surface";
 import {
   EDGE_SWIPE_EASING,
   EDGE_SWIPE_SLIDE_MS,
@@ -1133,8 +1134,7 @@ export function ChatLayout({
                 id="chat-side-menu"
                 className="relative flex h-full w-full flex-col shadow-xl"
                 style={{
-                  background:
-                    "linear-gradient(to right, var(--surface-base), color-mix(in srgb, var(--surface-base) 90%, transparent))",
+                  background: DRAWER_SURFACE_BACKGROUND,
                   zIndex: 50,
                   paddingTop:
                     "var(--safe-area-inset-top, env(safe-area-inset-top, 0px))",

@@ -26,6 +26,7 @@ import type { AvatarData } from "@/hooks/use-assistant-avatar";
 import { BUNDLED_COMPONENTS } from "@/utils/avatar-bundled-components";
 import { PreferencesMenu } from "@/domains/chat/components/preferences-menu";
 import { useSidebarLayoutStore } from "@/domains/chat/sidebar-layout-store";
+import { DRAWER_SURFACE_BACKGROUND } from "@/domains/chat/utils/drawer-surface";
 import { useAuthStore } from "@/stores/auth-store";
 import { usePinnedAppsStore } from "@/stores/pinned-apps-store";
 import { savePinnedApps } from "@/utils/app-pin-storage";
@@ -453,10 +454,7 @@ export const OverlayDrawer: Story = {
         </div>
         <aside
           className="absolute inset-0 flex flex-col"
-          style={{
-            background:
-              "linear-gradient(to right, var(--surface-base), color-mix(in srgb, var(--surface-base) 90%, transparent))",
-          }}
+          style={{ background: DRAWER_SURFACE_BACKGROUND }}
         >
           <Story />
         </aside>
