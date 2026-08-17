@@ -31,7 +31,7 @@ import AppIntents
 struct AskVellumIntent: AppIntent {
     static var title: LocalizedStringResource = "Ask a question"
     static var description = IntentDescription(
-        "Open Vellum with your question filled in, ready to send."
+        "Open Vellum and ask your question right away in a new conversation."
     )
 
     /// What the user wants to ask. Non-optional on purpose: an invocation with
