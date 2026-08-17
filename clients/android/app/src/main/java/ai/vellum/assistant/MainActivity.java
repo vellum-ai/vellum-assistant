@@ -126,6 +126,7 @@ public class MainActivity extends BridgeActivity {
         registerPlugin(AndroidPushRegistrationPlugin.class);
         registerPlugin(VoiceAudioSessionPlugin.class);
         registerPlugin(VoiceLiveActivityPlugin.class);
+        registerPlugin(SelfHostedServersPlugin.class);
         registerPlugin(SafePushNotificationsPlugin.class);
         super.load();
     }
@@ -367,12 +368,22 @@ public class MainActivity extends BridgeActivity {
     }
 
     private void useVellumCloud() {
-        VoiceLiveActivityPlugin.clearStatus(this);
         SelfHostedServer.clear(this);
+        effectiveServer = null;
+        recreateForServerChange();
+    }
+
+    /**
+     * Recreate onto whatever server slot {@link SelfHostedServer} now holds.
+     * The caller has already written the slot; onCreate re-reads everything,
+     * so no field needs resetting beyond the pending launch state.
+     */
+    void recreateForServerChange() {
+        // A live voice session does not survive an origin swap.
+        VoiceLiveActivityPlugin.clearStatus(this);
         pendingConnect = null;
         pendingNewChat = false;
         setRecreationConnect(null);
-        effectiveServer = null;
         setIntent(withoutData(getIntent()));
         recreate();
     }
