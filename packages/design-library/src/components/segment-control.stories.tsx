@@ -123,11 +123,16 @@ export const IconOnly: Story = {
 };
 
 /**
- * The same control with `showTooltips={false}`, which is what a call site
- * passes on a coarse pointer. Radix keeps a tooltip open for as long as the
- * tapped segment holds focus, so on touch the label from {@link IconOnly}
- * stays stranded over the UI after the tap. Suppressing it leaves the
- * `aria-label` as the only label, which screen readers still read.
+ * The same control with `showTooltips={false}`. Exactly one call site passes
+ * it, `theme-toggle.tsx`, as `showTooltips={!pointerCoarse}`, so this is the
+ * treatment every touch user gets and {@link IconOnly} is the desktop one.
+ * Suppressing the tooltip leaves the `aria-label` as the only label, which
+ * screen readers still read.
+ *
+ * This story documents the branch as the prop currently defines it. Whether
+ * the prop should exist at all is a separate question: the rationale in its
+ * docstring is about tooltips on touch generally, which would make it a
+ * property of the Tooltip primitive rather than of this one component.
  *
  * A regression that ignored the prop would render identically to
  * {@link IconOnly}, which is precisely what the play function catches: the
