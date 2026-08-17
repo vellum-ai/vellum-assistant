@@ -7,6 +7,8 @@ import {
   isGatewayAuthEnabled,
   isGatewayAuthMode,
   isRepairableGatewayTokenError,
+  refreshGatewayToken,
+  seedGatewayToken,
   setRemoteGatewayToken,
 } from "@/lib/auth/gateway-session";
 import { setSelfHostedConnection } from "@/lib/self-hosted/connection";
@@ -14,6 +16,23 @@ import type { LockfileAssistant } from "@/runtime/local-mode-host";
 import { useLockfileStore } from "@/stores/lockfile-store";
 
 const realFetch = globalThis.fetch;
+
+function selectLocalWithToken(): void {
+  process.env.VITE_PLATFORM_MODE = "";
+  const local = {
+    assistantId: "local-a",
+    cloud: "local",
+    resources: { gatewayPort: 20100 },
+  } as LockfileAssistant;
+  useLockfileStore.setState({
+    lockfile: { assistants: [local], activeAssistant: "local-a" },
+  });
+  seedGatewayToken({
+    token: "current-token",
+    expiresAtEpochSeconds: 9_999_999_999,
+    source: "/assistant/__gateway/20100/auth/token",
+  });
+}
 
 beforeEach(() => {
   // The token cache is module-level; start every test with no cached token so
@@ -151,6 +170,50 @@ describe("ensureGatewayToken mint failure", () => {
       "guardian-token",
     );
     expect(token).toBe("minted");
+  });
+});
+
+describe("refreshGatewayToken", () => {
+  test("keeps the active session available until its replacement is minted", async () => {
+    selectLocalWithToken();
+
+    let finishMint: (() => void) | undefined;
+    globalThis.fetch = mock(
+      () =>
+        new Promise<Response>((resolve) => {
+          finishMint = () =>
+            resolve(
+              Response.json({
+                token: "replacement-token",
+                expiresAt: 9_999_999_999,
+              }),
+            );
+        }),
+    ) as unknown as typeof fetch;
+
+    const refresh = refreshGatewayToken(
+      "/assistant/__gateway/20100/auth/token",
+      "guardian-token",
+    );
+
+    expect(isGatewayAuthMode()).toBe(true);
+    finishMint?.();
+    await expect(refresh).resolves.toBe("replacement-token");
+    expect(isGatewayAuthMode()).toBe(true);
+  });
+
+  test("keeps the active session when replacement minting fails", async () => {
+    selectLocalWithToken();
+    globalThis.fetch = mock(async () => new Response(null, { status: 503 }));
+
+    await expect(
+      refreshGatewayToken(
+        "/assistant/__gateway/20100/auth/token",
+        "guardian-token",
+      ),
+    ).rejects.toBeInstanceOf(GatewayTokenError);
+
+    expect(isGatewayAuthMode()).toBe(true);
   });
 });
 

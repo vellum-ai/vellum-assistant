@@ -38,11 +38,13 @@ mock.module("@/runtime/local-mode-host", () => ({
 const realGatewaySession = await import("@/lib/auth/gateway-session");
 const { GatewayTokenError } = realGatewaySession;
 let ensureGatewayTokenImpl: () => Promise<void> = async () => {};
+let refreshGatewayTokenImpl: () => Promise<void> = async () => {};
 
 mock.module("@/lib/auth/gateway-session", () => ({
   ...realGatewaySession,
   clearGatewayToken: () => clearGatewayTokenMock(),
   ensureGatewayToken: () => ensureGatewayTokenImpl(),
+  refreshGatewayToken: () => refreshGatewayTokenImpl(),
   getGatewayToken: () => "gateway-tok",
   // Mirror the real chain (token URL derives from the assistant's gateway port)
   // so a portless entry yields no URL until wake records one.
@@ -87,6 +89,7 @@ beforeEach(() => {
   LOCAL_GATEWAY_STARTUP_RETRY.attempts = 8;
   primeShouldSucceed = () => true;
   ensureGatewayTokenImpl = async () => {};
+  refreshGatewayTokenImpl = async () => {};
   fetchGuardianTokenHost = mock(async (_id: string) => {
     if (!primeShouldSucceed()) {
       throw new GuardianTokenError(404, "token gone");
@@ -106,9 +109,9 @@ afterEach(() => {
 });
 
 describe("primeLocalGatewayConnectionAfterRestart", () => {
-  test("clears the stale token and rides out transport failures without waking", async () => {
+  test("atomically refreshes the token and rides out transport failures without waking", async () => {
     let mintAttempts = 0;
-    ensureGatewayTokenImpl = async () => {
+    refreshGatewayTokenImpl = async () => {
       if (mintAttempts++ < 2) {
         throw new TypeError("Failed to fetch");
       }
@@ -116,7 +119,7 @@ describe("primeLocalGatewayConnectionAfterRestart", () => {
 
     await primeLocalGatewayConnectionAfterRestart("local-a");
 
-    expect(clearGatewayTokenMock).toHaveBeenCalledTimes(1);
+    expect(clearGatewayTokenMock).not.toHaveBeenCalled();
     expect(mintAttempts).toBe(3);
     expect(wakeLocalAssistantHost).not.toHaveBeenCalled();
   });
@@ -125,13 +128,13 @@ describe("primeLocalGatewayConnectionAfterRestart", () => {
 describe("restartLocalAssistant", () => {
   test("waits for a reconnected gateway before reporting success", async () => {
     let finishReconnect: (() => void) | undefined;
-    const ensureGatewayTokenMock = mock(
+    const refreshGatewayTokenMock = mock(
       () =>
         new Promise<void>((resolve) => {
           finishReconnect = resolve;
         }),
     );
-    ensureGatewayTokenImpl = ensureGatewayTokenMock;
+    refreshGatewayTokenImpl = refreshGatewayTokenMock;
     sleepLocalAssistantHost = mock(async () => {
       expect(isLocalGatewayRestartInProgress()).toBe(true);
       return { ok: true };
@@ -142,9 +145,8 @@ describe("restartLocalAssistant", () => {
 
     expect(sleepLocalAssistantHost).toHaveBeenCalledWith("local-a");
     expect(wakeLocalAssistantHost).toHaveBeenCalledWith("local-a");
-    expect(clearGatewayTokenMock).toHaveBeenCalledTimes(1);
     await new Promise((resolve) => setTimeout(resolve, 0));
-    expect(ensureGatewayTokenMock).toHaveBeenCalledTimes(1);
+    expect(refreshGatewayTokenMock).toHaveBeenCalledTimes(1);
     expect(isLocalGatewayRestartInProgress()).toBe(true);
 
     finishReconnect?.();
@@ -154,7 +156,7 @@ describe("restartLocalAssistant", () => {
   });
 
   test("reports reconnect failure without throwing", async () => {
-    ensureGatewayTokenImpl = async () => {
+    refreshGatewayTokenImpl = async () => {
       throw new TypeError("Failed to fetch");
     };
     LOCAL_GATEWAY_STARTUP_RETRY.attempts = 1;

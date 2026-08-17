@@ -15,6 +15,7 @@ import {
   GatewayTokenError,
   getGatewayToken,
   getLocalTokenUrl,
+  refreshGatewayToken,
 } from "@/lib/auth/gateway-session";
 import { beginLocalGatewayRestart } from "@/lib/auth/local-gateway-restart";
 import { getPlatformRuntimeUrl } from "@/lib/platform-runtime-url";
@@ -826,6 +827,7 @@ export class UnresolvedPairedGatewayError extends Error {
  */
 export async function primeLocalGatewayConnection(
   target?: LockfileAssistant,
+  options?: { refreshToken?: boolean },
 ): Promise<void> {
   const assistant = target ?? getSelectedAssistant();
   if (assistant && expectsPairedGateway(assistant)) {
@@ -873,7 +875,10 @@ export async function primeLocalGatewayConnection(
   const guardianToken = assistant
     ? await fetchGuardianTokenHost(assistant.assistantId)
     : undefined;
-  await ensureGatewayToken(tokenUrl, guardianToken);
+  const acquireToken = options?.refreshToken
+    ? refreshGatewayToken
+    : ensureGatewayToken;
+  await acquireToken(tokenUrl, guardianToken);
   const ingressUrl = getAuthGatewayIngressUrl(assistant);
   if (!ingressUrl) {
     return;
@@ -967,11 +972,12 @@ function isGatewayRestartTransient(error: unknown): boolean {
 async function primeLocalGatewayWithStartupRideout(
   target: LockfileAssistant | undefined,
   shouldRideOut: (error: unknown) => boolean,
+  options?: { refreshToken?: boolean },
 ): Promise<void> {
   const { attempts, intervalMs } = LOCAL_GATEWAY_STARTUP_RETRY;
   for (let attempt = 1; attempt <= attempts; attempt++) {
     try {
-      await primeLocalGatewayConnection(target);
+      await primeLocalGatewayConnection(target, options);
       return;
     } catch (error) {
       if (attempt >= attempts || !shouldRideOut(error)) {
@@ -1005,7 +1011,6 @@ export async function primeLocalGatewayConnectionWithStartupRetry(
 export async function primeLocalGatewayConnectionAfterRestart(
   assistantId: string,
 ): Promise<void> {
-  clearGatewayToken();
   const lockfile = await loadLockfile();
   const assistant = lockfile.assistants.find(
     (entry) => entry.assistantId === assistantId,
@@ -1016,6 +1021,7 @@ export async function primeLocalGatewayConnectionAfterRestart(
   await primeLocalGatewayWithStartupRideout(
     assistant,
     isGatewayRestartTransient,
+    { refreshToken: true },
   );
 }
 

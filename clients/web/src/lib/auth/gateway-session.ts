@@ -209,6 +209,14 @@ export async function ensureGatewayToken(
   return acquireGatewayToken(tokenUrl, guardianToken);
 }
 
+/** Mint and install a replacement without exposing an unauthenticated gap. */
+export async function refreshGatewayToken(
+  tokenUrl?: string,
+  guardianToken?: string,
+): Promise<string> {
+  return acquireGatewayToken(tokenUrl, guardianToken);
+}
+
 export function getLocalTokenUrl(
   assistant?: LockfileAssistant,
 ): string | undefined {
