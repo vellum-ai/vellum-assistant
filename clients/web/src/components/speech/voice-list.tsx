@@ -257,8 +257,8 @@ export function VoiceList({
                   aria-selected={isSelected}
                   onClick={() => choose(voice.model)}
                   data-reveal-row=""
-                  /* A row mid-preview holds the speaker open: it is now the
-                     stop control. */
+                  /* A row mid-preview holds the speaker open: during preview
+                     the speaker is the stop control. */
                   data-reveal-hold={isPreviewing ? "" : undefined}
                   className={cn(
                     "flex cursor-pointer items-center gap-2 rounded-md px-3 py-2.5 transition-colors",
