@@ -31,10 +31,12 @@ import type {
   HookFunction,
   UserPromptSubmitContext,
 } from "@vellumai/plugin-api";
-import { updateMessageMetadata } from "@vellumai/plugin-api";
+import {
+  updateMessageMetadata,
+  VOICE_ESCALATION_CONTINUATION_MESSAGE_KIND,
+} from "@vellumai/plugin-api";
 
 import type { MemoryRecalledEvent } from "../../../../api/events/memory-recalled.js";
-import { ESCALATION_CONTINUATION_CONTENT } from "../../../../calls/voice-triage-escalate.js";
 import { getConfig } from "../../../../config/loader.js";
 import { isMemoryV3Live } from "../../../../config/memory-v3-gate.js";
 import { findConversationOrSubagent } from "../../../../daemon/conversation-registry.js";
@@ -355,7 +357,7 @@ const userPromptSubmitMemoryRetrieval: HookFunction<
           legacyRetrievalRoutingMessages(
             ctx.latestMessages,
             ctx.isHiddenPrompt === true &&
-              ctx.prompt === ESCALATION_CONTINUATION_CONTENT,
+              ctx.messageKind === VOICE_ESCALATION_CONTINUATION_MESSAGE_KIND,
           ),
         ),
     );

@@ -64,7 +64,10 @@ mock.module("../runtime/assistant-event-hub.js", () => ({
   broadcastMessage: broadcastMessageMock,
 }));
 
-import type { UserPromptSubmitContext } from "@vellumai/plugin-api";
+import {
+  type UserPromptSubmitContext,
+  VOICE_ESCALATION_CONTINUATION_MESSAGE_KIND,
+} from "@vellumai/plugin-api";
 
 import type { AssistantEvent } from "../api/index.js";
 import { ESCALATION_CONTINUATION_CONTENT } from "../calls/voice-triage-escalate.js";
@@ -244,6 +247,7 @@ describe("user-prompt-submit hook (memory retrieval)", () => {
       latestMessages,
       isHiddenPrompt: true,
       prompt: ESCALATION_CONTINUATION_CONTENT,
+      messageKind: VOICE_ESCALATION_CONTINUATION_MESSAGE_KIND,
     });
 
     await userPromptSubmitMemoryRetrieval(ctx);

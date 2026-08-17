@@ -24,6 +24,7 @@ import { join } from "node:path";
 import { Database } from "bun:sqlite";
 import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
+import { VOICE_ESCALATION_CONTINUATION_MESSAGE_KIND } from "@vellumai/plugin-api";
 import { drizzle } from "drizzle-orm/bun-sqlite";
 
 import { setConfig } from "../../../../../__tests__/helpers/set-config.js";
@@ -738,7 +739,10 @@ describe("memory-v3 engine", () => {
         content: JSON.stringify([
           { type: "text", text: ESCALATION_CONTINUATION_CONTENT },
         ]),
-        metadata: JSON.stringify({ hidden: true }),
+        metadata: JSON.stringify({
+          hidden: true,
+          messageKind: VOICE_ESCALATION_CONTINUATION_MESSAGE_KIND,
+        }),
       },
     ];
 

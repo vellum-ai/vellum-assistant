@@ -30,9 +30,9 @@ import {
   listInstalledSkills,
   parseMessageMetadata,
   stringifyMessageContent,
+  VOICE_ESCALATION_CONTINUATION_MESSAGE_KIND,
 } from "@vellumai/plugin-api";
 
-import { ESCALATION_CONTINUATION_CONTENT } from "../../../../calls/voice-triage-escalate.js";
 import { getConfig } from "../../../../config/loader.js";
 import { isMemoryEnabled } from "../../../../config/memory-v3-gate.js";
 import type { AssistantConfig } from "../../../../config/schema.js";
@@ -518,9 +518,10 @@ async function buildShadowTurn(
       continue;
     }
     const candidate = stringifyMessageContent(row.content);
+    const metadata = await parseMessageMetadata(row.metadata);
     const isVoiceEscalationContinuation =
-      candidate === ESCALATION_CONTINUATION_CONTENT &&
-      (await parseMessageMetadata(row.metadata))?.hidden === true;
+      metadata?.hidden === true &&
+      metadata.messageKind === VOICE_ESCALATION_CONTINUATION_MESSAGE_KIND;
     if (isVoiceEscalationContinuation) {
       continue;
     }
