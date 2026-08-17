@@ -11,10 +11,7 @@ public sealed record InsertionOutcome(
     [property: JsonPropertyName("reason")] string? Reason = null);
 
 /// <summary>Raw clipboard contents, one entry per preservable format.</summary>
-public sealed record ClipboardSnapshot(IReadOnlyList<ClipboardEntry> Entries)
-{
-    public static readonly ClipboardSnapshot Empty = new([]);
-}
+public sealed record ClipboardSnapshot(IReadOnlyList<ClipboardEntry> Entries);
 
 public sealed record ClipboardEntry(uint Format, byte[] Bytes);
 
@@ -26,7 +23,9 @@ public interface ITextInsertionHost
 {
     /// <summary>Null when the focused field cannot be read at all.</summary>
     bool? IsFocusedFieldProtected();
-    ClipboardSnapshot SnapshotClipboard();
+
+    /// <summary>Null when the clipboard cannot be opened.</summary>
+    ClipboardSnapshot? SnapshotClipboard();
     void RestoreClipboard(ClipboardSnapshot snapshot);
     bool WriteClipboardText(string text);
     string? ReadClipboardText();
@@ -90,9 +89,17 @@ public sealed class TextInsertion(ITextInsertionHost host) : IRpcModule, ITextIn
             return new InsertionOutcome("blocked", "protected-field");
         }
 
+        // Never overwrite a clipboard that could not be snapshotted for restore.
         var snapshot = _host.SnapshotClipboard();
+        if (snapshot is null)
+        {
+            return new InsertionOutcome("blocked", "clipboard-unavailable");
+        }
+
         if (!_host.WriteClipboardText(text))
         {
+            // The write may have emptied the clipboard before failing.
+            _host.RestoreClipboard(snapshot);
             return new InsertionOutcome("blocked", "clipboard-unavailable");
         }
 
@@ -102,10 +109,17 @@ public sealed class TextInsertion(ITextInsertionHost host) : IRpcModule, ITextIn
             return new InsertionOutcome("blocked", "paste-failed");
         }
 
-        await _host.DelayAsync(ClipboardRestoreDelayMs, cancellationToken);
-        if (_host.ReadClipboardText() == text)
+        try
         {
-            _host.RestoreClipboard(snapshot);
+            await _host.DelayAsync(ClipboardRestoreDelayMs, cancellationToken);
+        }
+        finally
+        {
+            // Runs on cancellation too, so assistant text never stays behind.
+            if (_host.ReadClipboardText() == text)
+            {
+                _host.RestoreClipboard(snapshot);
+            }
         }
         return new InsertionOutcome("inserted");
     }
@@ -135,11 +149,11 @@ internal sealed class Win32TextInsertionHost : ITextInsertionHost
         }
     }
 
-    public ClipboardSnapshot SnapshotClipboard()
+    public ClipboardSnapshot? SnapshotClipboard()
     {
         if (!OpenClipboardWithRetry())
         {
-            return ClipboardSnapshot.Empty;
+            return null;
         }
         try
         {
@@ -327,10 +341,8 @@ internal sealed class Win32TextInsertionHost : ITextInsertionHost
         };
     }
 
-    // Interop-only fields are written by object initializers or read by the
-    // marshaller, never both; keep the unused-field warnings quiet. The
-    // explicit layout matches 64-bit INPUT (both published RIDs are 64-bit):
-    // the union starts at offset 8 and MOUSEINPUT sets the 40-byte size.
+    // Explicit layout matches 64-bit INPUT (both published RIDs are 64-bit):
+    // the input union starts at offset 8 and MOUSEINPUT sets the 40-byte size.
 #pragma warning disable CS0169, CS0649
     [StructLayout(LayoutKind.Explicit, Size = 40)]
     private struct Input

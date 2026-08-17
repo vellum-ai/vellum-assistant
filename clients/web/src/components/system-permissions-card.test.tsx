@@ -141,9 +141,6 @@ describe("SystemPermissionsCard", () => {
     render(<SystemPermissionsCard />);
 
     expect(screen.queryByRole("switch", { name: "Accessibility" })).toBeNull();
-    expect(
-      screen.queryByRole("switch", { name: "Screen Recording" }),
-    ).toBeNull();
     expect(screen.getByRole("switch", { name: "Microphone" })).toBeTruthy();
     expect(
       screen.getByText(/show Windows notifications for approvals/),

@@ -48,8 +48,7 @@ export const configureWindowsPermissionsNative = (
 
 const kindSchema = z.enum(SYSTEM_PERMISSION_KINDS);
 
-// Settings deep links for the kinds a Windows user can actually change;
-// absent kinds have no Windows permission concept or remediation surface.
+// Deep links for the kinds Windows can gate; others use the privacy hub.
 const SETTINGS_URIS: Partial<Record<SystemPermissionKind, string>> = {
   microphone: "ms-settings:privacy-microphone",
   speechRecognition: "ms-settings:privacy-speech",
@@ -95,10 +94,7 @@ class WindowsPermissionsService {
   async openSettings(
     kind: SystemPermissionKind,
   ): Promise<SystemPermissionStateItem> {
-    const uri = SETTINGS_URIS[kind];
-    if (uri) {
-      await shell.openExternal(uri);
-    }
+    await shell.openExternal(SETTINGS_URIS[kind] ?? PRIVACY_SETTINGS_URI);
     return (await this.refresh())[kind];
   }
 
@@ -130,7 +126,7 @@ class WindowsPermissionsService {
       kind,
       status,
       canRequest: false,
-      canOpenSettings: kind in SETTINGS_URIS && status !== "granted",
+      canOpenSettings: status !== "granted",
       requiresRestart: false,
     };
   }
@@ -199,7 +195,6 @@ const permissionsFeature: CapabilityModule<DesktopCapabilityRegistry> = {
     handle(TEXT_INSERT, z.tuple([z.string()]), ([text]) =>
       insertIntoFrontApp(text),
     );
-    // Windows has no automation permission pane; land on the privacy hub.
     handle(TEXT_OPEN_SETTINGS, z.tuple([]), () =>
       shell.openExternal(PRIVACY_SETTINGS_URI),
     );
