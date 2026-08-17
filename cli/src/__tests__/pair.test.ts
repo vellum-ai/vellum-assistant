@@ -1168,7 +1168,7 @@ describe("pair command", () => {
 
     const origFetch = globalThis.fetch;
     let minted = false;
-    globalThis.fetch = (async (url: string) => {
+    globalThis.fetch = (async () => {
       minted = true;
       return new Response("{}", { status: 200 });
     }) as unknown as typeof fetch;
@@ -1209,7 +1209,7 @@ describe("pair command", () => {
 
     const origFetch = globalThis.fetch;
     let minted = false;
-    globalThis.fetch = (async (url: string) => {
+    globalThis.fetch = (async () => {
       minted = true;
       return new Response("{}", { status: 200 });
     }) as unknown as typeof fetch;
