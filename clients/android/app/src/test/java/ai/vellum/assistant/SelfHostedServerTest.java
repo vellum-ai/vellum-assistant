@@ -298,6 +298,8 @@ public class SelfHostedServerTest {
         assertNull(SelfHostedServer.appRoute("https://host/assistant", "https://evil.example/route"));
         assertNull(SelfHostedServer.appRoute("https://host/assistant", "pair#fragment"));
         assertNull(SelfHostedServer.appRoute("https://host/assistant", "a/../b"));
+        assertNull(SelfHostedServer.appRoute("https://host/assistant", "a/%2e%2e/b"));
+        assertNull(SelfHostedServer.appRoute("https://host/assistant", "a/.%2E/b"));
         assertNull(SelfHostedServer.appRoute("https://host/assistant", "   "));
     }
 
