@@ -95,7 +95,7 @@ function upsertMemoryItem(opts: {
 
 export async function run(
   input: Record<string, unknown>,
-  _context: ToolContext,
+  context: ToolContext,
 ): Promise<ToolExecutionResult> {
   const platform = input.platform as string | undefined;
   const maxMessages = Math.min(
@@ -121,7 +121,9 @@ export async function run(
       );
     }
 
-    const result = await extractStylePatterns(searchResult.messages);
+    const result = await extractStylePatterns(searchResult.messages, {
+      conversationId: context.conversationId,
+    });
 
     if (result.stylePatterns.length === 0) {
       return err("No style patterns were extracted. Try with more messages.");

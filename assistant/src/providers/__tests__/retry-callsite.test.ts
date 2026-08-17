@@ -36,6 +36,7 @@ import {
   classifyWorkOrigin,
   type UsageOriginSnapshot,
 } from "../../usage/work-origin.js";
+import { ProviderError } from "../../util/errors.js";
 import { RetryProvider } from "../retry.js";
 import type {
   Message,
@@ -1157,6 +1158,63 @@ describe("RetryProvider: billing-origin headers", () => {
     expect(headers["X-Vellum-Turn-Index"]).toBe("4");
   });
 
+  test("a scheduled turn's compaction send bills as user_created_schedule", async () => {
+    // The conversation row stays standard/user for a wake or defer firing, so
+    // the row-derived fallback classifies its compaction as interactive. The
+    // turn snapshot the agent loop threads through carries the cron run id
+    // that makes the same send bill as schedule-driven work.
+    await initializeDb();
+    resetFallbackUsageOriginCacheForTests();
+    getDb().run(
+      `INSERT INTO conversations (id, conversation_type, source, created_at, updated_at)
+       VALUES ('conv-retry-compaction', 'standard', 'user', 1000, 1000)`,
+    );
+    setLlmConfig({
+      callSites: {
+        compactionAgent: { provider: "anthropic", model: "claude-x" },
+      },
+    });
+
+    const send = async (
+      snapshot?: UsageOriginSnapshot,
+    ): Promise<Record<string, string>> => {
+      let seen: SendMessageOptions | undefined;
+      const wrapped = new RetryProvider(
+        makeProvider("anthropic", (options) => {
+          seen = options;
+        }),
+        { forwardUsageAttributionHeaders: true },
+      );
+      await wrapped.sendMessage(DUMMY_MESSAGES, {
+        config: {
+          callSite: "compactionAgent",
+          conversationId: "conv-retry-compaction",
+          ...(snapshot ? { usageOriginSnapshot: snapshot } : {}),
+        },
+      });
+      return (seen?.config as Record<string, unknown>)
+        .usageAttributionHeaders as Record<string, string>;
+    };
+
+    expect((await send())["X-Vellum-Work-Origin"]).toBe("user_interactive");
+
+    const scheduled = await send(
+      buildUsageOriginSnapshot({
+        conversationType: "standard",
+        conversationSource: "user",
+        callSite: "mainAgent",
+        conversationId: "conv-retry-compaction",
+        turnIndex: 2,
+        parentConversationId: null,
+        parentTurnIndex: null,
+        cronRunId: "cron-run-1",
+      }),
+    );
+    expect(scheduled["X-Vellum-Work-Origin"]).toBe("user_created_schedule");
+    expect(scheduled["X-Vellum-Turn-Index"]).toBe("2");
+    expect(scheduled["X-Vellum-LLM-Call-Site"]).toBe("compactionAgent");
+  });
+
   test("direct transports get no row-derived origin headers either", async () => {
     await initializeDb();
     resetFallbackUsageOriginCacheForTests();
@@ -1186,6 +1244,65 @@ describe("RetryProvider: billing-origin headers", () => {
 
     const config = seen?.config as Record<string, unknown>;
     expect(config.usageAttributionHeaders).toBeUndefined();
+  });
+
+  test("a credential-refresh retry carries the same attribution headers", async () => {
+    // Options are normalized once, before the retry loop, and every attempt
+    // sends that one object. A refreshed managed credential swaps the inner
+    // adapter, so the second attempt must reach billing with the headers the
+    // first one carried. The refresher hands back a raw adapter, which is what
+    // keeps the already-normalized options from being normalized a second time
+    // and losing the snapshot the first pass stripped.
+    setLlmConfig({
+      callSites: { mainAgent: { provider: "anthropic", model: "claude-x" } },
+    });
+
+    const seen: Array<SendMessageOptions | undefined> = [];
+    const expired: Provider = {
+      name: "anthropic",
+      async sendMessage(_messages, options) {
+        seen.push(options);
+        throw new ProviderError("assistant key expired", "anthropic", 401, {
+          reason: "invalid_credentials",
+        });
+      },
+    };
+    const refreshed = makeProvider("anthropic", (options) => {
+      seen.push(options);
+    });
+
+    const wrapped = new RetryProvider(expired, {
+      forwardUsageAttributionHeaders: true,
+      credentialSource: "vellum-managed",
+      connectionName: "vellum",
+      refreshCredentialProvider: async () => refreshed,
+    });
+
+    await wrapped.sendMessage(DUMMY_MESSAGES, {
+      config: {
+        callSite: "mainAgent",
+        conversationId: "conv-refresh",
+        usageOriginSnapshot: makeSnapshot({
+          conversationType: "scheduled",
+          conversationSource: "schedule",
+          workOrigin: "user_created_schedule",
+          conversationId: "conv-refresh",
+          turnIndex: 1,
+          cronRunId: "cron-run-1",
+        }),
+      },
+    });
+
+    expect(seen.length).toBe(2);
+    const headersOf = (options: SendMessageOptions | undefined) =>
+      (options?.config as Record<string, unknown>)
+        .usageAttributionHeaders as Record<string, string>;
+    expect(headersOf(seen[1])).toEqual(headersOf(seen[0]));
+    expect(headersOf(seen[1])["X-Vellum-Work-Origin"]).toBe(
+      "user_created_schedule",
+    );
+    expect(headersOf(seen[1])["X-Vellum-Conversation-Id"]).toBe("conv-refresh");
+    expect(headersOf(seen[1])["X-Vellum-LLM-Call-Site"]).toBe("mainAgent");
   });
 
   test("user-key / direct provider transports receive NO billing-origin headers", async () => {

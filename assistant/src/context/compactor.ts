@@ -39,6 +39,7 @@ import type {
 } from "../providers/types.js";
 import { type TrustClass } from "../runtime/actor-trust-resolver.js";
 import { resolveCapabilities } from "../runtime/capabilities.js";
+import type { UsageOriginSnapshot } from "../usage/work-origin.js";
 import { getLogger } from "../util/logger.js";
 import { preModelCallSanitize } from "./outbound-sanitize.js";
 import { stripInjectionsForCompaction } from "./strip-injections.js";
@@ -263,6 +264,16 @@ export interface CompactionRunArgs {
   force?: boolean;
   signal?: AbortSignal;
   overrideProfile?: string | null;
+  /**
+   * Billing-origin attribution for the turn compaction runs inside, forwarded
+   * onto the summary call's provider config. A compaction that fires mid-turn
+   * inherits the turn's own origin, including the schedule firing behind a
+   * wake or defer whose conversation type and source stay standard/user and
+   * would otherwise classify as interactive work. Absent on standalone
+   * compaction (`/compact`, lifecycle paths) that runs outside a turn, where
+   * the conversation id alone drives the row-derived fallback.
+   */
+  usageOriginSnapshot?: UsageOriginSnapshot;
   /**
    * Trust class of the actor whose turn triggered compaction. When the
    * actor is untrusted, the image manifest is filtered to exclude
@@ -1273,10 +1284,15 @@ export async function runAssistantDrivenCompaction(
       signal: args.signal,
       config: {
         callSite: COMPACTION_CALL_SITE,
-        // Billing-origin attribution: the fallback in `RetryProvider` derives
-        // origin headers from this id, matching the conversation the manual
-        // usage recording below attributes the call to.
+        // Billing-origin attribution. The turn's snapshot wins when compaction
+        // runs inside one, carrying its turn indexes and schedule provenance.
+        // Without it the fallback in `RetryProvider` derives origin headers
+        // from this id, matching the conversation the manual usage recording
+        // below attributes the call to.
         conversationId: args.conversationId,
+        ...(args.usageOriginSnapshot
+          ? { usageOriginSnapshot: args.usageOriginSnapshot }
+          : {}),
         usageTracking: "manual",
         tool_choice: { type: "none" },
         ...(args.overrideProfile
@@ -1749,6 +1765,9 @@ export async function runEmergencyCompaction(
         callSite: COMPACTION_CALL_SITE,
         // Billing-origin attribution, matching the assistant-driven path.
         conversationId: args.conversationId,
+        ...(args.usageOriginSnapshot
+          ? { usageOriginSnapshot: args.usageOriginSnapshot }
+          : {}),
         usageTracking: "manual",
         tool_choice: { type: "none" },
         ...(args.overrideProfile

@@ -56,6 +56,7 @@ import type {
   Provider,
   SendMessageOptions,
 } from "../providers/types.js";
+import { buildUsageOriginSnapshot } from "../usage/work-origin.js";
 
 const TAIL_TIMESTAMP =
   "2026-05-21 (Thursday) 10:00:00 -05:00 (America/Chicago)";
@@ -181,6 +182,43 @@ describe("compactor records llm_request_logs with call_site=compactionAgent", ()
     expect(recordRequestLogCalls[0]!.responsePayload).toBe(
       JSON.stringify(RAW_RESPONSE),
     );
+  });
+
+  test("carries the turn's usage-origin snapshot onto the summary call", async () => {
+    // A wake or defer firing inside a standard user conversation shows up
+    // only as a cron run id, so the turn snapshot is what makes a mid-turn
+    // compaction bill as schedule-driven rather than interactive work.
+    const snapshot = buildUsageOriginSnapshot({
+      conversationType: "standard",
+      conversationSource: "user",
+      callSite: "mainAgent",
+      conversationId: "conv-compaction-log-1",
+      turnIndex: 2,
+      parentConversationId: null,
+      parentTurnIndex: null,
+      cronRunId: "cron-run-1",
+    });
+
+    await runAssistantDrivenCompaction({
+      ...args(makeProvider()),
+      usageOriginSnapshot: snapshot,
+    });
+
+    expect(lastSendOptions?.config?.usageOriginSnapshot).toBe(snapshot);
+    expect(lastSendOptions?.config?.usageOriginSnapshot?.workOrigin).toBe(
+      "user_created_schedule",
+    );
+    // The conversation id still rides alongside for the standalone paths that
+    // have no snapshot.
+    expect(lastSendOptions?.config?.conversationId).toBe(
+      "conv-compaction-log-1",
+    );
+  });
+
+  test("omits the snapshot key when the caller supplies none", async () => {
+    await runAssistantDrivenCompaction(args(makeProvider()));
+
+    expect(lastSendOptions?.config?.usageOriginSnapshot).toBeUndefined();
   });
 
   test("skips persistence when provider returns no rawRequest/rawResponse", async () => {

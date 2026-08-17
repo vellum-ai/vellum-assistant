@@ -13,6 +13,7 @@
 import type { Message } from "@vellumai/plugin-api";
 
 import type { TrustClass } from "../../../runtime/actor-trust-resolver.js";
+import type { UsageOriginSnapshot } from "../../../usage/work-origin.js";
 import { PluginExecutionError } from "../../types.js";
 import { getContextWindowManager } from "./manager-store.js";
 import type {
@@ -44,6 +45,12 @@ export interface CompactionContext {
   force?: boolean;
   /** Per-conversation inference-profile override for the summary call. */
   overrideProfile?: string | null;
+  /**
+   * Billing-origin attribution for the turn compaction runs inside, forwarded
+   * to the summary call so a mid-turn pass inherits the turn's own origin
+   * rather than being classified from the conversation row alone.
+   */
+  usageOriginSnapshot?: UsageOriginSnapshot;
   /** Pre-computed token estimate from a prior `shouldCompact()` call. */
   precomputedEstimate?: number;
   /** Legacy keep-boundary hint forwarded to the compactor. */
@@ -108,6 +115,7 @@ export async function defaultCompact(
         actualTokens: overflowSignal.actualTokens,
         isInteractive: overflowSignal.isInteractive,
         overrideProfile: options.overrideProfile,
+        usageOriginSnapshot: options.usageOriginSnapshot,
         actorTrustClass: options.actorTrustClass,
       },
       signal,

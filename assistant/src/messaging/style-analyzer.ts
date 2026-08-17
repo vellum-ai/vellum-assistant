@@ -115,10 +115,15 @@ function buildCorpus(messages: ProviderMessage[]): string[] {
 
 /**
  * Extract writing style patterns from a corpus of messages using an LLM.
- * Platform-agnostic — works with messages from any messaging provider.
+ * Platform-agnostic: works with messages from any messaging provider.
+ *
+ * `options.conversationId` is the assistant conversation the analysis runs
+ * under. It rides the send config so the call carries the same billing-origin
+ * attribution as the rest of that conversation's spend.
  */
 export async function extractStylePatterns(
   messages: ProviderMessage[],
+  options?: { conversationId?: string | null },
 ): Promise<StyleAnalysisResult> {
   const corpusEntries = buildCorpus(messages);
   if (corpusEntries.length === 0) {
@@ -145,11 +150,15 @@ export async function extractStylePatterns(
     },
   ];
 
+  const conversationId = options?.conversationId;
   const response = await provider.sendMessage(promptMessages, {
     tools: [storeStyleAnalysisTool],
     systemPrompt: STYLE_EXTRACTION_SYSTEM_PROMPT,
     signal: AbortSignal.timeout(30_000),
-    config: { callSite: "styleAnalyzer" },
+    config: {
+      callSite: "styleAnalyzer",
+      ...(conversationId ? { conversationId } : {}),
+    },
   });
 
   const toolBlock = response.content.find((b) => b.type === "tool_use");

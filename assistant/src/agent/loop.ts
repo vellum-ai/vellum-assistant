@@ -906,6 +906,7 @@ export class AgentLoop {
     overrideProfile: string | null,
     isNonInteractive: boolean,
     modelProfileKey: string,
+    usageOriginSnapshot: UsageOriginSnapshot | undefined,
     overflowSignal?: { actualTokens: number | null; isInteractive: boolean },
   ): Promise<CompactionAttempt> {
     const compactionId = crypto.randomUUID();
@@ -931,8 +932,11 @@ export class AgentLoop {
     // from the turn's trust snapshot (the actor whose turn triggered
     // compaction) so the compactor's image manifest excludes guardian-only
     // attachments for untrusted actors. `overrideProfile` is the turn's
-    // resolved inference-profile override for the summary call. `overflowSignal`
-    // routes the request through the reduction ladder when present.
+    // resolved inference-profile override for the summary call.
+    // `usageOriginSnapshot` is the turn's billing origin, so a mid-turn
+    // compaction bills against the work that triggered it rather than being
+    // classified from the conversation row alone. `overflowSignal` routes the
+    // request through the reduction ladder when present.
     const compactResult = await defaultCompact({
       conversationId: this.conversationId,
       messages: history,
@@ -940,6 +944,7 @@ export class AgentLoop {
       force: true,
       actorTrustClass: trust.trustClass,
       overrideProfile,
+      usageOriginSnapshot,
       overflowSignal,
     });
     // `force: true` bypasses the auto-threshold gate, but early returns
@@ -1316,6 +1321,7 @@ export class AgentLoop {
                   resolveEffectiveOverrideProfile() ?? null,
                   isNonInteractive,
                   options.modelProfileKey,
+                  usageOriginSnapshot,
                   overflowSignal ?? undefined,
                 );
                 if (attempt.history) {
