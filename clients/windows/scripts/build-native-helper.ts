@@ -6,6 +6,7 @@ import {
   resolveArchitectures,
   runNativeCommand,
 } from "./build-preview-handler";
+import { argValue } from "./cli-args";
 
 const windowsRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const nativeRoot = join(windowsRoot, "native");
@@ -19,15 +20,6 @@ const testProject = join(
   "Vellum.WindowsHelper.Tests",
   "Vellum.WindowsHelper.Tests.csproj",
 );
-
-const argValue = (flag: string): string | undefined => {
-  const index = process.argv.indexOf(flag);
-  const inline = process.argv.find((arg) => arg.startsWith(`${flag}=`));
-  return (
-    inline?.slice(flag.length + 1) ??
-    (index >= 0 ? process.argv[index + 1] : undefined)
-  );
-};
 
 const checkConfiguration = async (): Promise<void> => {
   const globalJson = await Bun.file(join(nativeRoot, "global.json")).json();
@@ -65,10 +57,7 @@ const main = async (): Promise<void> => {
       nativeRoot,
     );
   }
-  for (const architecture of resolveArchitectures(
-    argValue("--arch"),
-    "all",
-  )) {
+  for (const architecture of resolveArchitectures(argValue("--arch"), "all")) {
     await runNativeCommand(
       [
         "dotnet",

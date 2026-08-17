@@ -31,7 +31,7 @@ import {
 } from "@vellumai/local-mode";
 
 import { installAbout, openAboutWindow } from "./about.client";
-import { installAutoUpdate } from "./auto-update";
+import { installAutoUpdate } from "./auto-update.client";
 import {
   BUNDLES_DIR_NAME,
   VELLUMAPP_PROTOCOL,
