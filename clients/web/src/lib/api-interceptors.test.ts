@@ -1204,31 +1204,32 @@ describe("api-interceptors / localGatewayAuthRecoveryInterceptor", () => {
     expect(sessionStorage.getItem(GW_401_ATTEMPTS_KEY)).toBeNull();
   });
 
-  test("does not reload when routing outlives the restart window", async () => {
-    /**
-     * Validates that a request which picked up the pre-restart bearer stays
-     * attributed to that restart even when routing (body buffering, CSRF
-     * priming) only settles after the restart scope has been released.
-     */
-
-    // GIVEN gateway tokens are stored
+  test("preserves restart membership across asynchronous request routing", async () => {
     seedGatewayTokens();
+    const originalBlob = Request.prototype.blob;
+    let releaseBody: (() => void) | undefined;
+    Request.prototype.blob = () =>
+      new Promise<Blob>((resolve) => {
+        releaseBody = () => resolve(new Blob(["request body"]));
+      });
 
-    // AND a restart scope is open when the request enters the interceptor
-    const finish = beginLocalGatewayRestart();
-    const pending = daemonRequestInterceptor(
-      new Request(GATEWAY_URL + "/v1/assistants/123/conversations", {
-        method: "POST",
-        body: JSON.stringify({ message: "hi" }),
-      }),
-    );
+    const finishRestart = beginLocalGatewayRestart();
+    try {
+      const outgoingPromise = daemonRequestInterceptor(
+        new Request("https://platform.example/v1/assistants/123/conversations", {
+          method: "POST",
+          body: "request body",
+        }),
+      );
+      finishRestart();
+      releaseBody?.();
+      const outgoing = await outgoingPromise;
 
-    // WHEN the restart ends before routing resolves and the gateway 401s
-    finish();
-    const request = await pending;
-    localGatewayAuthRecoveryInterceptor(gatewayResponse(401), request);
+      localGatewayAuthRecoveryInterceptor(gatewayResponse(401), outgoing);
+    } finally {
+      Request.prototype.blob = originalBlob;
+    }
 
-    // THEN tokens survive and no reload is scheduled
     for (const key of GW_TOKEN_KEYS) {
       expect(localStorage.getItem(key)).not.toBeNull();
     }

@@ -437,9 +437,9 @@ function createInterceptor({
   };
 
   return async (request: Request): Promise<Request> => {
-    // Routing can suspend (body buffering, CSRF priming) for longer than the
-    // restart window, so membership is captured before the bearer is stamped
-    // and carried to the request that actually goes out.
+    // `route` can await while buffering a local request body. Capture restart
+    // membership before that work so a stale request cannot recover after the
+    // replacement gateway session is ready and trigger a page reload.
     const startedDuringRestart =
       isDaemonClient && isLocalGatewayRestartInProgress();
     const outgoing = await route(request);
@@ -450,13 +450,9 @@ function createInterceptor({
     } catch {
       // Telemetry must never fail a request.
     }
-    if (
-      isDaemonClient &&
-      (startedDuringRestart || isLocalGatewayRestartInProgress())
-    ) {
-      markLocalGatewayRestartRequest(outgoing);
-    }
-    return outgoing;
+    return isDaemonClient
+      ? markLocalGatewayRestartRequest(outgoing, startedDuringRestart)
+      : outgoing;
   };
 }
 
