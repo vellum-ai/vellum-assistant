@@ -474,6 +474,7 @@ import { migrateBackfillScheduleInferenceProfile } from "./migrations/363-backfi
 import { migrateAddScheduleSourceKey } from "./migrations/364-add-schedule-source-key.js";
 import { migrateAddConversationForkStrategy } from "./migrations/365-add-conversation-fork-strategy.js";
 import { migrateChatgptSubscriptionRowIdentity } from "./migrations/366-chatgpt-subscription-row-identity.js";
+import { migrateAddLlmUsageConversationSource } from "./migrations/367-add-llm-usage-conversation-source.js";
 import type { MigrationStep } from "./migrations/run-migrations.js";
 
 export const migrationSteps: MigrationStep[] = [
@@ -1582,4 +1583,5 @@ export const migrationSteps: MigrationStep[] = [
     // permanently checkpoint the no-op.
     dependsOn: ["migrateCreateProviderConnections"],
   },
+  migrateAddLlmUsageConversationSource,
 ];

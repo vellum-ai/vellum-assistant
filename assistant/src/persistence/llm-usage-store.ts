@@ -46,26 +46,35 @@ import {
 // ---------------------------------------------------------------------------
 
 /**
- * Resolve the parent conversation's `conversation_type` at record time.
- * Usage rows outlive conversation rows (retrospective forks are GC'd,
- * users delete conversations), so the type must be captured while the
- * conversation still exists — the telemetry flush can run after the
- * parent row is gone. Best-effort: a lookup failure degrades to null
- * (same as the pre-column behavior) rather than dropping the usage row.
+ * Resolve the parent conversation's `conversation_type` and `source` at
+ * record time, in one lookup. Usage rows outlive conversation rows
+ * (retrospective forks are GC'd, users delete conversations), so both must
+ * be captured while the conversation still exists: the telemetry flush can
+ * run after the parent row is gone. Best-effort: a lookup failure (or a
+ * missing row) degrades to nulls rather than dropping the usage row.
  */
-function lookupConversationType(conversationId: string | null): string | null {
+function lookupConversationAttribution(conversationId: string | null): {
+  conversationType: string | null;
+  conversationSource: string | null;
+} {
   if (conversationId === null) {
-    return null;
+    return { conversationType: null, conversationSource: null };
   }
   try {
     const row = getDb()
-      .select({ conversationType: conversations.conversationType })
+      .select({
+        conversationType: conversations.conversationType,
+        conversationSource: conversations.source,
+      })
       .from(conversations)
       .where(eq(conversations.id, conversationId))
       .get();
-    return row?.conversationType ?? null;
+    return {
+      conversationType: row?.conversationType ?? null,
+      conversationSource: row?.conversationSource ?? null,
+    };
   } catch {
-    return null;
+    return { conversationType: null, conversationSource: null };
   }
 }
 
@@ -87,6 +96,7 @@ export function recordUsageEvent(
     pricingStatus: pricing.pricingStatus,
     assistantVersion: APP_VERSION,
   };
+  const attribution = lookupConversationAttribution(event.conversationId);
   db.insert(llmUsageEvents)
     .values({
       id: event.id,
@@ -115,10 +125,11 @@ export function recordUsageEvent(
       // the assistant happens to be running on at upload time. See
       // migration 267 + `TelemetryEventBase.assistant_version` (wire).
       assistantVersion: event.assistantVersion,
-      // Capture the parent conversation's type at RECORD time for the
-      // same reason: the conversation row may be deleted before the
-      // telemetry flush joins against it. See migration 353.
-      conversationType: lookupConversationType(event.conversationId),
+      // Capture the parent conversation's type and source at RECORD time
+      // for the same reason: the conversation row may be deleted before the
+      // telemetry flush joins against it. See migrations 353 and 367.
+      conversationType: attribution.conversationType,
+      conversationSource: attribution.conversationSource,
     })
     .run();
   return event;
@@ -230,6 +241,15 @@ export interface UnreportedUsageEvent extends UsageEvent {
    * (memory consolidation, background embedding work, etc.).
    */
   conversationType: string | null;
+  /**
+   * `source` of the parent conversation (`"user"` / `"subagent"` /
+   * `"schedule"` / `"memory-retrospective"` / ...). Sourced from the value
+   * captured at record time (survives deletion of the parent conversation
+   * before flush), with a JOIN to `conversations` as the fallback for rows
+   * persisted before migration 367. Null when the LLM call has no
+   * `conversationId`.
+   */
+  conversationSource: string | null;
   /**
    * 1-indexed position of the user turn this LLM call belongs to within
    * the parent conversation, counting only real user turns (tool-result
@@ -356,6 +376,14 @@ export function queryUnreportedUsageEvents(
       >`COALESCE(${llmUsageEvents.conversationType}, ${conversations.conversationType})`.as(
         "resolved_conversation_type",
       ),
+      // `conversationSource` follows the same record-time-stamp-then-JOIN
+      // fallback as `conversationType` (migration 367): the stored value
+      // survives parent deletion; the LEFT JOIN covers pre-367 rows.
+      conversationSource: sql<
+        string | null
+      >`COALESCE(${llmUsageEvents.conversationSource}, ${conversations.source})`.as(
+        "resolved_conversation_source",
+      ),
       // Null when conversationId is null (no parent conversation).
       // Otherwise the count of eligible user turns up to and including
       // this LLM call's createdAt. The COALESCE guard returns null
@@ -417,6 +445,7 @@ export function queryUnreportedUsageEvents(
   return rows.map((row) => ({
     ...rowToUsageEvent(row),
     conversationType: row.conversationType,
+    conversationSource: row.conversationSource,
     // SQLite returns COUNT(*) as 0 when no rows match; the CASE in the
     // subquery already collapses the no-conversation case to NULL.
     // Convert the integer column to `number | null` for the typed
