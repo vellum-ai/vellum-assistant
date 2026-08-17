@@ -486,6 +486,26 @@ describe("vellum wake — tunnel edge restore", () => {
     );
   });
 
+  test("a running webhooks-only edge goes through ensureTunnelEdge to upgrade to the SPA edge", async () => {
+    loadRawConfigMock.mockReturnValue(webhookConfig);
+    isIngressRunningMock.mockReturnValue(true);
+    readIngressStateMock.mockReturnValue({
+      listenPort: 7845,
+      includeWebApp: false,
+      gatewayPort: 7830,
+    });
+
+    await wake();
+
+    expect(ensureTunnelEdgeMock).toHaveBeenCalledWith(
+      expect.objectContaining({ gatewayPort: 7830 }),
+    );
+    expect(maybeStartNgrokTunnelMock).toHaveBeenCalledWith(
+      7840,
+      workspaceDirOf(tempDir),
+    );
+  });
+
   test("a running edge recorded against a different gateway port goes through ensureTunnelEdge", async () => {
     loadRawConfigMock.mockReturnValue(webhookConfig);
     isIngressRunningMock.mockReturnValue(true);
