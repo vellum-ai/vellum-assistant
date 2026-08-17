@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { useLockfileStore } from "@/stores/lockfile-store";
 import type { Lockfile, LockfileAssistant } from "@/runtime/local-mode-host";
 import { isLocalGatewayRestartInProgress } from "@/lib/auth/local-gateway-restart";
+import { writeSelectedAssistantId } from "@/assistant/selected-assistant-storage";
 
 // The wrapper under test orchestrates the real connect primitive, so we drive
 // its external seams rather than the primitive itself: the local guardian-token
@@ -47,12 +48,12 @@ mock.module("@/runtime/local-mode-host", () => ({
 // mutable impl so a test can inject a transient gateway-startup failure.
 const realGatewaySession = await import("@/lib/auth/gateway-session");
 const { GatewayTokenError } = realGatewaySession;
-let ensureGatewayTokenImpl: () => Promise<void> = async () => {};
+let ensureGatewayTokenImpl: (tokenUrl?: string) => Promise<void> = async () => {};
 
 mock.module("@/lib/auth/gateway-session", () => ({
   ...realGatewaySession,
   clearGatewayToken: () => clearGatewayTokenMock(),
-  ensureGatewayToken: () => ensureGatewayTokenImpl(),
+  ensureGatewayToken: (tokenUrl?: string) => ensureGatewayTokenImpl(tokenUrl),
   getGatewayToken: () => "gateway-tok",
   // Mirror the real chain (token URL derives from the assistant's gateway port)
   // so a portless entry yields no URL until wake records one.
@@ -90,10 +91,11 @@ function selectLocalAssistant(): void {
     activeAssistant: "local-a",
   };
   useLockfileStore.setState({ lockfile });
-  localStorage.setItem("vellum:local:selected-assistant", "local-a");
+  writeSelectedAssistantId("local-a");
 }
 
 beforeEach(() => {
+  process.env.VITE_PLATFORM_MODE = "";
   LOCAL_GATEWAY_STARTUP_RETRY.attempts = 8;
   primeShouldSucceed = () => true;
   ensureGatewayTokenImpl = async () => {};
@@ -133,6 +135,42 @@ describe("primeLocalGatewayConnectionAfterRestart", () => {
     expect(clearGatewayTokenMock).not.toHaveBeenCalled();
     expect(mintAttempts).toBe(3);
     expect(wakeLocalAssistantHost).not.toHaveBeenCalled();
+  });
+
+  test("restores a newly selected assistant after restart", async () => {
+    const tokenUrls: (string | undefined)[] = [];
+    let releaseRestartedMint: (() => void) | undefined;
+    ensureGatewayTokenImpl = async (tokenUrl) => {
+      tokenUrls.push(tokenUrl);
+      if (tokenUrls.length === 1) {
+        await new Promise<void>((resolve) => {
+          releaseRestartedMint = resolve;
+        });
+      }
+    };
+
+    const reconnect = primeLocalGatewayConnectionAfterRestart("local-a");
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    const otherAssistant = {
+      ...localAssistant,
+      assistantId: "local-b",
+      resources: { gatewayPort: 7831, daemonPort: 7832 },
+    };
+    useLockfileStore.setState({
+      lockfile: {
+        assistants: [localAssistant, otherAssistant],
+        activeAssistant: "local-b",
+      },
+    });
+    writeSelectedAssistantId("local-b");
+    releaseRestartedMint?.();
+
+    await reconnect;
+
+    expect(tokenUrls).toEqual([
+      "http://127.0.0.1:7830/token",
+      "http://127.0.0.1:7831/token",
+    ]);
   });
 });
 

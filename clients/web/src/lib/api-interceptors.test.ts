@@ -1620,6 +1620,29 @@ describe("api-interceptors / localGatewayAuthRecoveryInterceptor", () => {
     expect(sessionStorage.getItem(GW_401_ATTEMPTS_KEY)).toBeNull();
   });
 
+  test("replays a stale restart request after reconnection", async () => {
+    seedGatewayTokens();
+    let request: Request | undefined;
+
+    await duringLocalGatewayRestart(async () => {
+      request = await daemonRequestInterceptor(
+        new Request(GATEWAY_URL + "/v1/assistants/123/conversations"),
+      );
+    });
+    setSelfHostedConnection({ url: GATEWAY_URL, token: "fresh-tok" });
+
+    const result = await localGatewayAuthRecoveryInterceptor(
+      gatewayResponse(401),
+      request,
+    );
+
+    expect(result.status).toBe(200);
+    expect(replayedRequests[0].headers.get("Authorization")).toBe(
+      "Bearer fresh-tok",
+    );
+    expect(primeGatewayWithRepairMock).not.toHaveBeenCalled();
+  });
+
   test("preserves restart membership across asynchronous request routing", async () => {
     seedGatewayTokens();
     const originalBlob = Request.prototype.blob;

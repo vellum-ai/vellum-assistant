@@ -1042,6 +1042,20 @@ export async function primeLocalGatewayConnectionAfterRestart(
     isGatewayRestartTransient,
     { forceMint: true },
   );
+  // Selection can change while restart waits. Keep the current assistant live.
+  const selected = getSelectedAssistant();
+  if (selected?.assistantId === assistantId) {
+    return;
+  }
+  if (
+    !selected ||
+    (!expectsLocalGateway(selected) && !expectsPairedGateway(selected))
+  ) {
+    clearGatewayToken();
+    setSelfHostedConnection(null);
+    return;
+  }
+  await primeLocalGatewayConnection(selected);
 }
 
 async function reconnectLocalAssistantAfterRestart(

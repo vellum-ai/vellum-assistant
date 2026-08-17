@@ -710,13 +710,7 @@ export async function localGatewayAuthRecoveryInterceptor(
   if (response.status !== 401) {
     return response;
   }
-  if (
-    isLocalGatewayRestartInProgress() ||
-    wasLocalGatewayRestartRequest(request)
-  ) {
-    return response;
-  }
-  if (gw401ReloadFired) {
+  if (isLocalGatewayRestartInProgress()) {
     return response;
   }
 
@@ -730,6 +724,12 @@ export async function localGatewayAuthRecoveryInterceptor(
     return replayable
       ? ((await replayWithRecoveredSession(request)) ?? response)
       : response;
+  }
+  if (wasLocalGatewayRestartRequest(request)) {
+    return response;
+  }
+  if (gw401ReloadFired) {
+    return response;
   }
 
   // A recovery already in flight is ridden rather than charged to the
