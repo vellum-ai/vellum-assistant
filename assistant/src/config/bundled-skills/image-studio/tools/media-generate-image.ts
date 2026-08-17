@@ -1,4 +1,5 @@
-import { join } from "path";
+import { mkdirSync, writeFileSync } from "fs";
+import { dirname, join } from "path";
 
 import {
   resolveImageGenCredentials,
@@ -38,34 +39,63 @@ function imageFileSlug(title: string | undefined, prompt: string): string {
   return base || "image";
 }
 
+/** Upper bound on filename-collision retries per image. */
+const MAX_FILENAME_ATTEMPTS = 1000;
+
 /**
  * Save generated images under `media/generated/` in the workspace so the
  * model can reference them by path (inline embeds, edit-mode iteration).
- * Returns workspace-relative paths for the images written before any
- * failure; a failure stops the loop and is reported, not thrown, so the
- * inline content blocks still reach the model.
+ * Each target path is validated through `sandboxPolicy` so a symlinked
+ * directory cannot redirect the write outside the workspace, and files are
+ * created exclusively (`wx`) so concurrent generations cannot claim the
+ * same filename. Returns workspace-relative paths for the images written
+ * before any failure; a failure stops the loop and is reported, not
+ * thrown, so the inline content blocks still reach the model.
  */
-async function saveGeneratedImages(
+function saveGeneratedImages(
   images: Array<{ mimeType: string; dataBase64: string; title?: string }>,
   prompt: string,
   workingDir: string,
-): Promise<{ savedPaths: string[]; saveError?: string }> {
+): { savedPaths: string[]; saveError?: string } {
   const savedPaths: string[] = [];
   try {
     for (const img of images) {
       const ext = img.mimeType.split("/")[1] ?? "png";
       const slug = imageFileSlug(img.title, prompt);
-      let relPath = `${GENERATED_MEDIA_DIR}/${slug}.${ext}`;
-      let suffix = 2;
-      while (await Bun.file(join(workingDir, relPath)).exists()) {
-        relPath = `${GENERATED_MEDIA_DIR}/${slug}-${suffix}.${ext}`;
-        suffix++;
+      let written = false;
+      for (let attempt = 1; attempt <= MAX_FILENAME_ATTEMPTS; attempt++) {
+        const relPath =
+          attempt === 1
+            ? `${GENERATED_MEDIA_DIR}/${slug}.${ext}`
+            : `${GENERATED_MEDIA_DIR}/${slug}-${attempt}.${ext}`;
+        const pathCheck = sandboxPolicy(join(workingDir, relPath), workingDir, {
+          mustExist: false,
+        });
+        if (!pathCheck.ok) {
+          throw new Error(pathCheck.error);
+        }
+        mkdirSync(dirname(pathCheck.resolved), { recursive: true });
+        try {
+          writeFileSync(
+            pathCheck.resolved,
+            Buffer.from(img.dataBase64, "base64"),
+            { flag: "wx" },
+          );
+        } catch (error) {
+          if ((error as NodeJS.ErrnoException).code === "EEXIST") {
+            continue;
+          }
+          throw error;
+        }
+        savedPaths.push(relPath);
+        written = true;
+        break;
       }
-      await Bun.write(
-        join(workingDir, relPath),
-        Buffer.from(img.dataBase64, "base64"),
-      );
-      savedPaths.push(relPath);
+      if (!written) {
+        throw new Error(
+          `Could not find a free filename for "${slug}.${ext}" after ${MAX_FILENAME_ATTEMPTS} attempts.`,
+        );
+      }
     }
   } catch (error) {
     return { savedPaths, saveError: (error as Error).message };
@@ -181,7 +211,7 @@ export async function run(
     });
 
     const imageCount = result.images.length;
-    const { savedPaths, saveError } = await saveGeneratedImages(
+    const { savedPaths, saveError } = saveGeneratedImages(
       result.images,
       prompt,
       context.workingDir,

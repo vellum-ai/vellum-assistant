@@ -1,6 +1,13 @@
 import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "fs";
+import {
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from "fs";
 import { tmpdir } from "os";
 import { dirname, join } from "path";
 
@@ -527,6 +534,19 @@ describe("image-studio skill script wrapper", () => {
 
     const second = await run({ prompt: "a fox" }, fakeContext);
     expect(second.content).toContain("Saved to media/generated/a-fox-2.png");
+  });
+
+  test("refuses to write through a symlink that escapes the workspace", async () => {
+    const outside = mkdtempSync(join(tmpdir(), "media-gen-outside-"));
+    tempWorkingDirs.push(outside);
+    symlinkSync(outside, join(fakeContext.workingDir, "media"));
+
+    const result = await run({ prompt: "a cat" }, fakeContext);
+
+    expect(result.isError).toBe(false);
+    expect(result.content).toContain("Could not save to the workspace");
+    expect(result.content).not.toContain("vellum://workspace/");
+    expect(readdirSync(outside)).toEqual([]);
   });
 
   test("falls back to inline-only when the workspace write fails", async () => {
