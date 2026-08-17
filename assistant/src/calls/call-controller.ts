@@ -730,8 +730,10 @@ export class CallController {
     let ttsBuffer = "";
     let fullResponseText = "";
     // Reasoning models can inline <think> spans in the content stream when a
-    // profile has not opted into parseThinkTags; the spoken path must never
-    // read them aloud. fullResponseText keeps the raw stream.
+    // profile has not opted into parseThinkTags. Neither the spoken path nor
+    // the post-turn consumers of fullResponseText (transcripts,
+    // assistant_spoke, END_CALL/ASK_GUARDIAN detection) may see them: both
+    // are fed only filtered text.
     const reasoningFilter = createReasoningTagFilter();
 
     // Synthesized path: text is split at speakable boundaries as it streams
@@ -935,11 +937,10 @@ export class CallController {
         if (!this.isCurrentRun(runVersion)) {
           return;
         }
-        // One filter feeds BOTH consumers: the spoken stream and the text
+        // One filter feeds both consumers: the spoken stream and the text
         // used for transcripts, assistant_spoke, and END_CALL/ASK_GUARDIAN
-        // marker detection. A control marker the model writes inside a
-        // reasoning span must not trigger a real action the caller never
-        // heard (review: Codex P1 on #40673).
+        // marker detection. A control marker inside a reasoning span must
+        // never trigger a real action the caller did not hear.
         const speakable = reasoningFilter.push(text);
         fullResponseText += speakable;
         ttsBuffer += speakable;
