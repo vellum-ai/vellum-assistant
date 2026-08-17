@@ -5,6 +5,7 @@ import { ConfirmDialog } from "@vellumai/design-library/components/confirm-dialo
 import { toast } from "@vellumai/design-library/components/toast";
 
 import { restartAssistant } from "@/assistant/api";
+import { t } from "@/i18n";
 import {
   isCliWakeableAssistant,
   restartLocalAssistant,
@@ -41,7 +42,11 @@ export function RestartAssistant({
         if (result.ok) {
           toast.success("Assistant is restarting.");
         } else {
-          toast.error(result.error ?? "Failed to restart assistant.");
+          toast.error(
+            result.reason === "reconnect_failed"
+              ? t("settings:restartAssistant.reconnectFailed")
+              : (result.error ?? "Failed to restart assistant."),
+          );
         }
       } else {
         const result = await restartAssistant(assistantId);

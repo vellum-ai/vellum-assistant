@@ -163,7 +163,7 @@ describe("restartLocalAssistant", () => {
 
     await expect(restartLocalAssistant("local-a")).resolves.toEqual({
       ok: false,
-      error: "Assistant restarted but could not reconnect. Please try again.",
+      reason: "reconnect_failed",
     });
     expect(isLocalGatewayRestartInProgress()).toBe(false);
   });

@@ -390,6 +390,9 @@
     "loadError": "Failed to load providers. Please try again.",
     "title": "Providers"
   },
+  "restartAssistant": {
+    "reconnectFailed": "Assistant restarted but could not reconnect. Please try again."
+  },
   "sharedUi": {
     "checkingDomain": "Checking domain…",
     "domainVerified": "Domain verified",

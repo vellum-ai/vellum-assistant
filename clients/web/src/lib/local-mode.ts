@@ -1031,7 +1031,11 @@ export async function primeLocalGatewayConnectionAfterRestart(
  */
 export async function restartLocalAssistant(
   assistantId: string,
-): Promise<{ ok: boolean; error?: string }> {
+): Promise<{
+  ok: boolean;
+  error?: string;
+  reason?: "reconnect_failed";
+}> {
   const finishRestart = beginLocalGatewayRestart();
   try {
     const sleepResult = await sleepLocalAssistantHost(assistantId);
@@ -1054,8 +1058,7 @@ export async function restartLocalAssistant(
     } catch {
       return {
         ok: false,
-        error:
-          "Assistant restarted but could not reconnect. Please try again.",
+        reason: "reconnect_failed",
       };
     }
   } finally {

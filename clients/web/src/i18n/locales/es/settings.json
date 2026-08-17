@@ -390,6 +390,9 @@
     "loadError": "No se pudieron cargar los proveedores. Inténtalo de nuevo.",
     "title": "Proveedores"
   },
+  "restartAssistant": {
+    "reconnectFailed": "El asistente se reinició, pero no se pudo volver a conectar. Inténtalo de nuevo."
+  },
   "sharedUi": {
     "checkingDomain": "Comprobando dominio…",
     "domainVerified": "Dominio verificado",
