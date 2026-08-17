@@ -183,6 +183,7 @@ describe("classifyWorkOrigin", () => {
         "filingAgent",
         "patternScan",
         "narrativeRefinement",
+        "conversationSummarization",
       ] as const
     ).map((callSite) => ({
       name: `${callSite} call site maps to memory_maintenance`,
