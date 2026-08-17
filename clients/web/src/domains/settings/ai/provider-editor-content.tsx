@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { createPortal } from "react-dom";
 
 import { useQueryClient } from "@tanstack/react-query";
 import { Button } from "@vellumai/design-library/components/button";
@@ -6,6 +7,7 @@ import { Input } from "@vellumai/design-library/components/input";
 import { Modal } from "@vellumai/design-library/components/modal";
 import { Typography } from "@vellumai/design-library/components/typography";
 
+import { Trans, useTranslation } from "@/i18n";
 import {
   credentialPresenceQueryKey,
   useStoredCredentialPresence,
@@ -56,6 +58,14 @@ export interface ProviderEditorContentProps {
    * the settings sidepanel (DetailShell body).
    */
   variant?: "modal" | "panel";
+  /**
+   * Where the Cancel/Save row renders, for `variant="panel"` hosts that pin
+   * their actions outside the scrollable body (see `DetailShell`'s `footer`).
+   * Omit to keep the row inline at the end of the fields; pass the element to
+   * portal into it. `null` means the host's slot has not mounted yet, so the
+   * row is withheld for that one commit rather than rendered in both places.
+   */
+  actionsSlot?: HTMLElement | null;
   onSave: (connection: ProviderConnection) => void;
   onCancel: () => void;
 }
@@ -67,9 +77,11 @@ export function ProviderEditorContent({
   existingNames,
   connections,
   variant = "modal",
+  actionsSlot,
   onSave,
   onCancel,
 }: ProviderEditorContentProps) {
+  const { t } = useTranslation("settings");
   const [label, setLabel] = useState(connection?.label ?? "");
   const name = connection?.name ?? "";
   const provider: ConnectionProvider = connection?.provider ?? "anthropic";
@@ -216,7 +228,7 @@ export function ProviderEditorContent({
               }),
             });
           } catch {
-            setError("Failed to save API key. Please try again.");
+            setError(t("providerEditorContent.failedSaveApiKey"));
             return;
           } finally {
             setIsSavingKey(false);
@@ -229,7 +241,7 @@ export function ProviderEditorContent({
         // is preserved verbatim — the editor only changes display fields.
         auth = connection.auth;
       } else {
-        setError("Nothing to edit. Close and try again.");
+        setError(t("providerEditorContent.nothingToEdit"));
         return;
       }
 
@@ -270,12 +282,12 @@ export function ProviderEditorContent({
         return;
       }
       if (!updated) {
-        setError("Server returned an empty response. Please try again.");
+        setError(t("providerEditorContent.emptyServerResponse"));
         return;
       }
       onSave(updated);
     } catch {
-      setError("Failed to save provider. Please try again.");
+      setError(t("providerEditorContent.failedSaveProvider"));
     } finally {
       setSaving(false);
     }
@@ -299,7 +311,7 @@ export function ProviderEditorContent({
   const shouldShowAdvancedSection =
     providerCredentials.length > 0 || isEditingApiKeyConnection;
   const apiKeyPlaceholder = secretPlaceholder(
-    "Enter your API key",
+    t("providerEditorContent.apiKeyPlaceholder"),
     hasStoredCredential,
   );
 
@@ -311,6 +323,7 @@ export function ProviderEditorContent({
     return (
       <ProviderCreateForm
         variant={variant === "panel" ? "inline" : "modal"}
+        actionsSlot={actionsSlot}
         assistantId={assistantId}
         existingNames={existingNames}
         connections={connections}
@@ -326,13 +339,20 @@ export function ProviderEditorContent({
         {/* Display Name */}
         <div className="space-y-1">
           <label className="block text-body-small-default text-[var(--content-tertiary)]">
-            Display Name{" "}
-            <span className="text-[var(--content-disabled)]">(optional)</span>
+            <Trans
+              i18nKey="providerEditorContent.displayNameLabel"
+              ns="settings"
+              components={{
+                optional: (
+                  <span className="text-[var(--content-disabled)]" />
+                ),
+              }}
+            />
           </label>
           <Input
             value={label}
             onChange={(e) => setLabel(e.target.value)}
-            placeholder="e.g. My Anthropic Key"
+            placeholder={t("providerEditorContent.displayNamePlaceholder")}
             fullWidth
           />
           {nameConflict ? (
@@ -351,23 +371,23 @@ export function ProviderEditorContent({
           <>
             <div className="space-y-1">
               <label className="block text-body-small-default text-[var(--content-tertiary)]">
-                Base URL
+                {t("providerEditorContent.baseUrlLabel")}
               </label>
               <Input
                 value={baseUrl}
                 onChange={(e) => setBaseUrl(e.target.value)}
-                placeholder="https://api.example.com/v1"
+                placeholder={t("providerEditorContent.baseUrlPlaceholder")}
                 fullWidth
               />
             </div>
             <div className="space-y-1">
               <label className="block text-body-small-default text-[var(--content-tertiary)]">
-                Models
+                {t("providerEditorContent.modelsLabel")}
               </label>
               <Input
                 value={connectionModels}
                 onChange={(e) => setConnectionModels(e.target.value)}
-                placeholder="model-1, model-2"
+                placeholder={t("providerEditorContent.modelsPlaceholder")}
                 fullWidth
               />
               <Typography
@@ -375,7 +395,7 @@ export function ProviderEditorContent({
                 as="p"
                 className="text-[var(--content-tertiary)]"
               >
-                Comma-separated model identifiers exposed by your endpoint.
+                {t("providerEditorContent.modelsHint")}
               </Typography>
             </div>
           </>
@@ -416,16 +436,17 @@ export function ProviderEditorContent({
 
   const footer = (
     <>
-      <Button variant="ghost" size="compact" onClick={onCancel}>
-        Cancel
+      <Button variant="ghost" onClick={onCancel}>
+        {t("providerEditorContent.cancel")}
       </Button>
       <Button
         variant="primary"
-        size="compact"
         disabled={!canSave || saving || isSavingKey}
         onClick={() => void handleSave()}
       >
-        {saving ? "Saving…" : "Save Changes"}
+        {saving
+          ? t("providerEditorContent.saving")
+          : t("providerEditorContent.saveChanges")}
       </Button>
     </>
   );
@@ -434,7 +455,11 @@ export function ProviderEditorContent({
     return (
       <div className="space-y-4">
         {body}
-        <div className="flex justify-end gap-2">{footer}</div>
+        {actionsSlot === undefined ? (
+          <div className="flex justify-end gap-2">{footer}</div>
+        ) : (
+          actionsSlot && createPortal(footer, actionsSlot)
+        )}
       </div>
     );
   }
@@ -442,11 +467,13 @@ export function ProviderEditorContent({
   return (
     <Modal.Content size="md">
       <Modal.Header>
-        <Modal.Title>Edit Provider</Modal.Title>
+        <Modal.Title>{t("providerEditorContent.editProviderTitle")}</Modal.Title>
         <Modal.Description>
           {connection
-            ? `Editing ${providerConnectionDisplayName(connection)}.`
-            : "Edit provider settings."}
+            ? t("providerEditorContent.editingConnection", {
+                name: providerConnectionDisplayName(connection),
+              })
+            : t("providerEditorContent.editProviderSettingsFallback")}
         </Modal.Description>
       </Modal.Header>
 

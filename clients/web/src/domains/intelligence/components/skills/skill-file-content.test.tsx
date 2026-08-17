@@ -55,7 +55,7 @@ describe("SkillFileContent", () => {
     );
 
     expect(
-      screen.getByText("Binary file — no preview available."),
+      screen.getByText("Binary file. No preview available."),
     ).toBeTruthy();
   });
 });

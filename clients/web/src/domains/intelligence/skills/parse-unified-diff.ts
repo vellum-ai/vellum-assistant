@@ -12,15 +12,7 @@
  * that already exists, which is why it parses rather than diffs.
  */
 
-/** A single rendered line of a diff. */
-export interface DiffRow {
-  type: "add" | "del" | "ctx" | "meta";
-  text: string;
-  /** Line number in the pre-change file, when the row exists there. */
-  oldNo?: number;
-  /** Line number in the post-change file, when the row exists there. */
-  newNo?: number;
-}
+import type { DiffRow } from "@/components/diff-rows";
 
 /** The rows belonging to one file within a revision's combined diff. */
 export interface DiffFile {

@@ -265,7 +265,7 @@ it too, per [`clients/AGENTS.md`](../../AGENTS.md).
   `BottomSheet` under a thumb and a `Menu` under a mouse, so it reads `useTouchMobile()`. A narrow
   desktop window keeps the dropdown, because a mouse can hit it.
 - **Whether a detail pane docks beside the chat or floats over it** is the size axis. A side-by-side
-  split cannot fit at 767px whatever the pointer is, so `ChatRouteContent` reads `useIsMobile()`.
+  split cannot fit at 767px whatever the pointer is, so `ChatMainPanel` reads `useIsMobile()`.
 - **Safe-area padding under a full-screen sheet** is the platform axis, resolved in CSS off
   `data-native-platform` rather than by a component asking which OS it is on.
 

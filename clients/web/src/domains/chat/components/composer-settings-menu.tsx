@@ -13,6 +13,7 @@ import {
   useMemo,
   useRef,
   useState,
+  type MouseEvent as ReactMouseEvent,
   type ReactNode,
 } from "react";
 
@@ -59,6 +60,25 @@ import {
 } from "@vellumai/design-library";
 import { toast } from "@vellumai/design-library/components/toast";
 
+/**
+ * Keeps a press from moving focus off the composer's textarea. WebKit blurs the
+ * textarea on a press without focusing the pressed button, and the pills row is
+ * focus-gated, so it goes away before the tap's click reaches the trigger.
+ *
+ * `mousedown` is the press to cancel, not `pointerdown`. WebKit drops the whole
+ * compatibility sequence when `pointerdown` is cancelled, `click` included, and
+ * the bottom sheet opens on that click. Cancelling the compatibility `mousedown`
+ * suppresses the focus transfer and nothing else. See
+ * `clients/web/docs/CAPACITOR.md` for the event ordering this relies on.
+ *
+ * Only ever wired on the touch presentation, whose sheet opens on click. The
+ * mouse presentation's menu opens on the pointerdown before it, which this
+ * leaves alone.
+ */
+function preventPressFocusTransfer(event: ReactMouseEvent<HTMLElement>) {
+  event.preventDefault();
+}
+
 interface Props {
   assistantId: string;
   conversationId: string | undefined;
@@ -73,12 +93,19 @@ interface Props {
    * single instance whose hamburger menu carries both sections.
    */
   segments?: "both" | "access" | "profile";
+  /**
+   * Called with whether any of this instance's surfaces is open, the quick-add
+   * modal included. A parent that positions the triggers itself uses it to hold
+   * that surface visible while focus sits inside the drawer's portal.
+   */
+  onOpenChange?: (open: boolean) => void;
 }
 
 export function ComposerSettingsMenu({
   assistantId,
   conversationId,
   segments = "both",
+  onOpenChange,
 }: Props) {
   const isMobile = useIsMobile();
   const isTouchMobile = useTouchMobile();
@@ -94,6 +121,12 @@ export function ComposerSettingsMenu({
   const [accessOpen, setAccessOpen] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
   const [compactOpen, setCompactOpen] = useState(false);
+  // The quick-add modal is rendered by the top-level provider, outside this
+  // component's tree, and opening it closes the surface it was launched from.
+  // This flag stands in for that surface until the modal reports back, so a
+  // parent holding the trigger row visible keeps it up for the whole flow
+  // instead of pulling it away the moment focus moves into the modal.
+  const [quickAddOpen, setQuickAddOpen] = useState(false);
 
   // ---------------------------------------------------------------------------
   // Server-state queries — replace the old useEffect + async IIFE pattern.
@@ -518,8 +551,12 @@ export function ComposerSettingsMenu({
           }
           setProfileOpen(false);
           setCompactOpen(false);
+          // Claimed after the open call, not before: taking the modal over
+          // releases whoever held it, and that release must not land on top of
+          // this claim.
           openProfileQuickAdd({
             existingNames: existingProfileNames,
+            onClosed: () => setQuickAddOpen(false),
             onCreated: (name, _label) => {
               // ProfileQuickAddProvider already wrote the full PATCH response
               // (merged config including the new profile's provider/model/etc.)
@@ -532,6 +569,7 @@ export function ComposerSettingsMenu({
               });
             },
           });
+          setQuickAddOpen(true);
         }}
       />
     </Tooltip>
@@ -543,12 +581,67 @@ export function ComposerSettingsMenu({
 
   // Access-level segment: gate on a settled fetch (or an active override) so the
   // trigger never flashes the `THRESHOLD_PRESETS[1]` fallback before the real
-  // value loads. Only the icon is shown inline — the label lives in a tooltip
-  // and the menu — to keep the composer's bottom bar compact.
+  // value loads.
   const AccessIcon = activePreset.icon;
   const accessSettled = globalThresholdsQuery.isSuccess || serverIsOverride;
   const showAccess = accessSettled && segments !== "profile";
   const showProfile = segments !== "access";
+
+  // Only the branch this render mounts can hold an open surface: the compact
+  // hamburger owns `compactOpen`, the split layout owns whichever of
+  // access/profile it renders. Crossing the compact width (or losing a segment)
+  // unmounts the open branch without React clearing its flag, so the report
+  // below reads the mounted branch only.
+  const anySurfaceOpen = compact
+    ? compactOpen
+    : (showAccess && accessOpen) || (showProfile && profileOpen);
+  const anyDrawerOpen = anySurfaceOpen || quickAddOpen;
+
+  // Clear the flags the mounted branch doesn't own, so crossing back doesn't
+  // reopen a surface the user left behind at the old width.
+  useEffect(() => {
+    if (compact || !showAccess) {
+      setAccessOpen(false);
+    }
+    if (compact || !showProfile) {
+      setProfileOpen(false);
+    }
+    if (!compact) {
+      setCompactOpen(false);
+    }
+  }, [compact, showAccess, showProfile]);
+
+  // The flags are set from several places (trigger, row selection, quick add),
+  // so the notification reads the settled value once instead of being threaded
+  // through every setter. Calling through the ref keeps it a transition
+  // callback like the Radix one it mirrors: the effect runs on an open-state
+  // change alone, so a parent passing an inline closure can't re-run it, and
+  // the drawers start closed.
+  const notifiedOpenRef = useRef(false);
+  const onOpenChangeRef = useRef(onOpenChange);
+  useEffect(() => {
+    onOpenChangeRef.current = onOpenChange;
+  });
+  useEffect(() => {
+    if (notifiedOpenRef.current === anyDrawerOpen) {
+      return;
+    }
+    notifiedOpenRef.current = anyDrawerOpen;
+    onOpenChangeRef.current?.(anyDrawerOpen);
+  }, [anyDrawerOpen]);
+
+  // Unmounting is the last chance to report. Swapping presentation (a phone
+  // rotating into the desktop layout) tears this instance down mid-open, and a
+  // parent left holding `true` would keep a surface up that nothing can close.
+  useEffect(() => {
+    return () => {
+      if (!notifiedOpenRef.current) {
+        return;
+      }
+      notifiedOpenRef.current = false;
+      onOpenChangeRef.current?.(false);
+    };
+  }, []);
 
   // Each trigger is the design library's ghost Button — same chrome and
   // sizing as the row's other icon buttons (attach, mic) — in the action
@@ -558,18 +651,42 @@ export function ComposerSettingsMenu({
     "[--vbtn-fg:var(--content-tertiary)] touch-mobile:[--vbtn-fg:var(--content-tertiary)] data-[state=open]:bg-[color-mix(in_srgb,var(--primary-second-hover)_15%,transparent)]";
   const triggerLabelClass = "gap-1.5 px-1.5 text-body-small-default";
 
-  // Access trigger — icon plus, on desktop, the active preset's name
-  // (Figma 7471-25243). Mobile stays icon-only to keep the bottom bar
-  // compact; there the label lives in the tooltip and the sheet.
+  // Mobile floats both triggers above the composer card as filled pills, so
+  // they carry their own fill: the action row's transparent ghost chrome would
+  // leave them unreadable against the chat background. The fill is the same
+  // token the add-to-chat sheet's icon circles use (Figma 7840-8818).
+  const pillBaseClass =
+    "h-8 rounded-full bg-[var(--border-subtle)] text-body-small-default [--vbtn-fg:var(--content-secondary)] hover:bg-[var(--surface-active)] active:bg-[var(--surface-active)] data-[state=open]:bg-[var(--surface-active)]";
+  const pillClass = `${pillBaseClass} min-w-0 pl-1.5 pr-2`;
+  // Icon-only pills keep the labelled pill's height and shape so the row's
+  // geometry survives a trigger whose label hasn't resolved. `px-1.5` is the
+  // design's 6px inset around the glyph, which fills the 32px box exactly.
+  const pillIconOnlyClass = `${pillBaseClass} w-8 px-1.5`;
+  // The pills carry a 20px glyph (Figma 7840-8818), wider than the Button's
+  // own icon box, so the glyph rides as a child instead. The Button's
+  // `gap-1.5` then supplies the design's 6px between glyph and label.
+  const pillIconClass =
+    "flex size-5 shrink-0 items-center justify-center text-[var(--content-tertiary)] [&_svg]:size-5";
+
+  // Access trigger: the active preset's name beside its icon, as a floating
+  // pill on mobile (Figma 7840-8819) and as an action-row button on desktop
+  // (Figma 7471-25243).
   const accessLabel = `Assistant access: ${activePreset.label}`;
   const accessTrigger = isMobile ? (
     <Button
       variant="ghost"
-      iconOnly={<AccessIcon />}
       aria-label={accessLabel}
       title={accessLabel}
-      className={triggerClass}
-    />
+      className={pillClass}
+      // Touch only: the bottom sheet opens on the click that follows, so the
+      // press has to leave the composer's focus alone until then.
+      onMouseDown={isTouchMobile ? preventPressFocusTransfer : undefined}
+    >
+      <span aria-hidden="true" className={pillIconClass}>
+        <AccessIcon />
+      </span>
+      {activePreset.label}
+    </Button>
   ) : (
     <Button
       variant="ghost"
@@ -582,39 +699,74 @@ export function ComposerSettingsMenu({
     </Button>
   );
 
-  // Profile trigger — Sparkles + label on desktop; icon-only on mobile
-  // (the label lives in the sheet there), matching the access trigger.
-  // Falls back to the sliders icon until the active profile resolves so
-  // there's always an affordance to open it.
+  // Profile trigger: Sparkles plus the active profile's name, matching the
+  // access trigger's shape on each presentation. Until that name resolves it
+  // falls back to the sliders icon alone, so there is always an affordance to
+  // open the picker with.
+  // `profileLabel` is the accessible name on every variant, mirroring
+  // `accessLabel`: an aria-label overrides the visible text, so it has to carry
+  // the selection a labelled trigger shows, or the name says nothing about it
+  // and voice control can't reach the control by what it reads.
   const profileLabel = activeProfileLabel
     ? `Model profile: ${activeProfileLabel}`
     : "Model profile";
-  const profileTrigger =
-    isMobile || !activeProfileLabel ? (
+  // min-w-0 + truncate keeps a long label from pushing the composer's action
+  // buttons off-screen on narrow viewports. leading-snug: text-body-small-default
+  // is line-height:1, so truncate clips descenders (e.g. the "g" in profile
+  // names).
+  const profileLabelText = (
+    <span className="max-w-[10rem] truncate leading-snug">
+      {activeProfileLabel}
+    </span>
+  );
+  const profileTrigger = isMobile ? (
+    activeProfileLabel ? (
       <Button
         variant="ghost"
-        iconOnly={activeProfileLabel ? <Sparkles /> : <SlidersHorizontal />}
-        aria-label="Model profile"
+        aria-label={profileLabel}
         title={profileLabel}
-        className={triggerClass}
-      />
+        className={pillClass}
+        // Match the access pill: hold the composer's focus for the sheet's
+        // click, and only on the touch presentation that opens that way.
+        onMouseDown={isTouchMobile ? preventPressFocusTransfer : undefined}
+      >
+        <span aria-hidden="true" className={pillIconClass}>
+          <Sparkles />
+        </span>
+        {profileLabelText}
+      </Button>
     ) : (
       <Button
         variant="ghost"
-        leftIcon={<Sparkles className="h-3.5 w-3.5 shrink-0" />}
-        aria-label="Model profile"
+        aria-label={profileLabel}
         title={profileLabel}
-        className={`${triggerClass} ${triggerLabelClass} min-w-0`}
+        className={pillIconOnlyClass}
+        onMouseDown={isTouchMobile ? preventPressFocusTransfer : undefined}
       >
-        {/* min-w-0 + truncate keeps a long label from pushing the composer's
-            action buttons off-screen on narrow viewports. leading-snug:
-            text-body-small-default is line-height:1, so truncate clips
-            descenders (e.g. the "g" in profile names). */}
-        <span className="max-w-[10rem] truncate leading-snug">
-          {activeProfileLabel}
+        <span aria-hidden="true" className={pillIconClass}>
+          <SlidersHorizontal />
         </span>
       </Button>
-    );
+    )
+  ) : activeProfileLabel ? (
+    <Button
+      variant="ghost"
+      leftIcon={<Sparkles className="h-3.5 w-3.5 shrink-0" />}
+      aria-label={profileLabel}
+      title={profileLabel}
+      className={`${triggerClass} ${triggerLabelClass} min-w-0`}
+    >
+      {profileLabelText}
+    </Button>
+  ) : (
+    <Button
+      variant="ghost"
+      iconOnly={<SlidersHorizontal />}
+      aria-label={profileLabel}
+      title={profileLabel}
+      className={triggerClass}
+    />
+  );
 
   const accessItems = THRESHOLD_PRESETS.map((preset) => ({
     preset,

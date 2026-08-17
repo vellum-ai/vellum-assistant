@@ -1,7 +1,9 @@
 import { describe, expect, test } from "bun:test";
 
 import {
+  MAX_OPEN_THREAD_MESSAGE_LENGTH,
   MAX_START_VOICE_PROMPT_LENGTH,
+  parseOpenThreadDeepLink,
   parseStartVoiceDeepLink,
 } from "@/runtime/native-deep-link";
 
@@ -209,5 +211,131 @@ describe("parseStartVoiceDeepLink - prompt", () => {
         prompt: expected,
       });
     }
+  });
+});
+
+/**
+ * Build the link exactly the way `ThreadDeepLink.url(message:)` does on the
+ * Swift side, with the same encoding agreement `askLink` documents above.
+ */
+function threadLink(threadId: string, message?: string): string {
+  const base = `vellum-assistant://thread/${threadId}`;
+  return message === undefined
+    ? base
+    : `${base}?message=${encodeURIComponent(message)}`;
+}
+
+describe("parseOpenThreadDeepLink", () => {
+  const THREAD_ID = "0198f2f7-6c4e-7a31-b552-9c4d1a2b3c4d";
+
+  test("accepts every registered build-target scheme", () => {
+    for (const scheme of [
+      "vellum-assistant",
+      "vellum-assistant-staging",
+      "vellum-assistant-dev",
+    ]) {
+      expect(parseOpenThreadDeepLink(`${scheme}://thread/${THREAD_ID}`)).toEqual(
+        { threadId: THREAD_ID, message: null },
+      );
+    }
+  });
+
+  test("rejects look-alike schemes - a prefix match would let a hostile app in", () => {
+    expect(
+      parseOpenThreadDeepLink(`vellum-assistant-evil://thread/${THREAD_ID}`),
+    ).toBeNull();
+    expect(parseOpenThreadDeepLink(`vellum://thread/${THREAD_ID}`)).toBeNull();
+    expect(parseOpenThreadDeepLink(`https://thread/${THREAD_ID}`)).toBeNull();
+  });
+
+  test("rejects other hosts on a valid scheme", () => {
+    expect(
+      parseOpenThreadDeepLink(`vellum-assistant://threads/${THREAD_ID}`),
+    ).toBeNull();
+    expect(
+      parseOpenThreadDeepLink(`vellum-assistant://voice/${THREAD_ID}`),
+    ).toBeNull();
+  });
+
+  test("rejects a missing, multi-segment, or malformed id", () => {
+    expect(parseOpenThreadDeepLink("vellum-assistant://thread")).toBeNull();
+    expect(parseOpenThreadDeepLink("vellum-assistant://thread/")).toBeNull();
+    expect(
+      parseOpenThreadDeepLink(`vellum-assistant://thread/${THREAD_ID}/extra`),
+    ).toBeNull();
+    // Percent-encoding in the id is structure-smuggling, not an id.
+    expect(
+      parseOpenThreadDeepLink("vellum-assistant://thread/abc%2Fdef"),
+    ).toBeNull();
+    expect(
+      parseOpenThreadDeepLink(`vellum-assistant://thread/${"a".repeat(129)}`),
+    ).toBeNull();
+  });
+
+  test("accepts an id exactly at the length cap", () => {
+    const atCap = "a".repeat(128);
+    expect(parseOpenThreadDeepLink(`vellum-assistant://thread/${atCap}`)).toEqual(
+      { threadId: atCap, message: null },
+    );
+  });
+
+  test("round-trips a message with query-breaking characters", () => {
+    for (const message of [
+      "log: gym done & stretching",
+      "what is 2 + 2 = ?",
+      "ship it #now, at 100%",
+    ]) {
+      expect(
+        parseOpenThreadDeepLink(threadLink(THREAD_ID, message))?.message,
+      ).toBe(message);
+    }
+  });
+
+  test("keeps typed line breaks, normalizing CRLF and lone CR to LF", () => {
+    expect(
+      parseOpenThreadDeepLink(threadLink(THREAD_ID, "log:\n- gym\n- stretch"))
+        ?.message,
+    ).toBe("log:\n- gym\n- stretch");
+    expect(
+      parseOpenThreadDeepLink(threadLink(THREAD_ID, "one\r\ntwo\rthree"))
+        ?.message,
+    ).toBe("one\ntwo\nthree");
+  });
+
+  test("still rejects the other control characters a hand-built link could carry", () => {
+    for (const control of ["\u0000", "\u000b", "\u001f", "\u007f", "\u2028"]) {
+      expect(
+        parseOpenThreadDeepLink(threadLink(THREAD_ID, `one${control}two`)),
+      ).toEqual({ threadId: THREAD_ID, message: null });
+    }
+  });
+
+  test("degrades a rejected message to a message-less open rather than dropping the link", () => {
+    const tooLong = "a".repeat(MAX_OPEN_THREAD_MESSAGE_LENGTH + 1);
+    for (const link of [
+      threadLink(THREAD_ID, tooLong),
+      threadLink(THREAD_ID, "   "),
+      threadLink(THREAD_ID, ""),
+    ]) {
+      expect(parseOpenThreadDeepLink(link)).toEqual({
+        threadId: THREAD_ID,
+        message: null,
+      });
+    }
+  });
+
+  test("accepts a message exactly at the cap and rejects one character more", () => {
+    const atCap = "b".repeat(MAX_OPEN_THREAD_MESSAGE_LENGTH);
+    expect(parseOpenThreadDeepLink(threadLink(THREAD_ID, atCap))?.message).toBe(
+      atCap,
+    );
+    expect(
+      parseOpenThreadDeepLink(threadLink(THREAD_ID, `${atCap}b`))?.message,
+    ).toBeNull();
+  });
+
+  test("rejects unparseable URLs", () => {
+    expect(parseOpenThreadDeepLink("::not-a-url")).toBeNull();
+    expect(parseOpenThreadDeepLink("")).toBeNull();
   });
 });

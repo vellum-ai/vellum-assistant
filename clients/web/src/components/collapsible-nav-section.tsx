@@ -371,6 +371,10 @@ function CollapsibleNavSectionSection({
                  Where the device cannot hover the control would be
                  unreachable, so there it simply stays visible.
 
+                 Pointer input lands on it under the same conditions that paint
+                 it, since an unpainted control at the header's right edge
+                 would take the click that belongs to the toggle.
+
                  `hoverRevealClasses` spelled out because the header's group is
                  named: Tailwind's `group-*` matches any ancestor, so an
                  unnamed `group` here would also answer to the title trigger's
@@ -379,10 +383,13 @@ function CollapsibleNavSectionSection({
                  toggle click. */
                   className={cn(
                     "flex items-center shrink-0 empty:hidden",
-                    "opacity-0 transition-opacity",
+                    "pointer-events-none opacity-0 transition-opacity",
+                    "[@media(hover:none)]:pointer-events-auto",
                     "[@media(hover:none)]:opacity-100",
+                    "[@media(hover:hover)]:group-hover/header:pointer-events-auto",
                     "[@media(hover:hover)]:group-hover/header:opacity-100",
-                    "focus-within:opacity-100",
+                    "focus-within:pointer-events-auto focus-within:opacity-100",
+                    "has-[[aria-expanded=true]]:pointer-events-auto",
                     "has-[[aria-expanded=true]]:opacity-100",
                   )}
                   onClick={(event) => event.stopPropagation()}

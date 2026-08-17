@@ -14,6 +14,12 @@
  * sits inside the portalled content, where `group-focus-within` alone would
  * let it fade mid-interaction.
  *
+ * Pointer input reaches the affordance under exactly the conditions that paint
+ * it. An unpainted control that still answers a click is a trap: a tap in the
+ * corner of a thumbnail would download the image rather than open it, with
+ * nothing there to say so. `pointer-events` does not gate keyboard activation,
+ * so the tab path is unaffected.
+ *
  * The row itself must carry Tailwind's unnamed `group` class for the hover and
  * focus conditions to resolve. A row whose group is named cannot simply add the
  * unnamed one alongside it: `group-*` compiles to an ancestor selector, so
@@ -26,10 +32,12 @@
  * @see https://www.w3.org/WAI/WCAG22/Understanding/content-on-hover-or-focus
  */
 export const hoverRevealClasses = [
-  "opacity-0 transition-opacity",
-  "[@media(hover:none)]:opacity-100",
+  "pointer-events-none opacity-0 transition-opacity",
+  "[@media(hover:none)]:pointer-events-auto [@media(hover:none)]:opacity-100",
+  "[@media(hover:hover)]:group-hover:pointer-events-auto",
   "[@media(hover:hover)]:group-hover:opacity-100",
-  "group-focus-within:opacity-100",
+  "group-focus-within:pointer-events-auto group-focus-within:opacity-100",
+  "has-[[aria-expanded=true]]:pointer-events-auto",
   "has-[[aria-expanded=true]]:opacity-100",
 ].join(" ");
 

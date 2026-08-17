@@ -1,5 +1,7 @@
 import { useEffect, useRef, type RefObject } from "react";
 
+import { useBodyScrollLock } from "@/hooks/use-body-scroll-lock";
+
 const FOCUSABLE_SELECTOR = [
   "a[href]",
   "button:not([disabled])",
@@ -24,15 +26,14 @@ export function useChatLayoutDrawer({
 }): RefObject<HTMLDivElement | null> {
   const drawerRef = useRef<HTMLDivElement | null>(null);
 
+  useBodyScrollLock(visible);
+
   useEffect(() => {
     if (!visible) {
       return;
     }
 
     drawerRef.current?.querySelector<HTMLElement>(FOCUSABLE_SELECTOR)?.focus();
-
-    const previousBodyOverflow = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
 
     const onKeyDown = (event: KeyboardEvent) => {
       if (
@@ -74,7 +75,6 @@ export function useChatLayoutDrawer({
     document.addEventListener("keydown", onKeyDown);
     return () => {
       document.removeEventListener("keydown", onKeyDown);
-      document.body.style.overflow = previousBodyOverflow;
     };
   }, [visible, onClose]);
 

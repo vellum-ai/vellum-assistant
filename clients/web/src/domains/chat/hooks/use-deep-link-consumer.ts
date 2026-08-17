@@ -7,14 +7,22 @@ import { usePendingDeepLinkStore } from "@/stores/pending-deep-link-store";
 
 /**
  * Chat-domain half of the deep-link consumer pair. Reads the pending
- * `deeplink.send` message parked in `usePendingDeepLinkStore` by the
- * global consumer (`useGlobalDeepLinkConsumer`, mounted at
- * `RootLayout`) and applies it to the composer.
+ * composer message parked in `usePendingDeepLinkStore` by the global
+ * consumer (`useGlobalDeepLinkConsumer`, mounted at `RootLayout`) for
+ * `deeplink.send`, `deeplink.sendToThread`, and a start-voice `prompt`,
+ * and applies it to the composer.
  *
  * Split exists because the global consumer must be route-stable
  * (deep links arrive whenever, not just on `/assistant`), but only
  * the chat domain knows about `setInput`. The store is the
  * narrow-waist hand-off.
+ *
+ * Registration order in `ActiveChatView` is load-bearing: this hook must
+ * come AFTER `useConversationLoader`, whose `switchToConversation` effect
+ * saves the current input as the *outgoing* conversation's draft. A
+ * `sendToThread` park and its navigation land in one commit, so were this
+ * hook registered first, the switch would read the just-set message and
+ * misfile it under the conversation being left.
  *
  * Semantics:
  *
@@ -31,9 +39,10 @@ import { usePendingDeepLinkStore } from "@/stores/pending-deep-link-store";
  *   It deliberately does NOT subscribe to the composer draft (that would
  *   re-render the host on every keystroke); the checks read `getState()`.
  *
- * The restored-draft carve-out matters because `useDraftPersistence`'s cold-load
- * restore is registered ahead of this hook in `ActiveChatView`, so the draft can
- * already be in the store by the time this effect runs.
+ * The restored-draft carve-out matters because a conversation switch or
+ * `useDraftPersistence`'s cold-load restore can put a saved draft in the store
+ * by the time this effect runs; a deep link is an explicit user action, so it
+ * wins over restored text (never over live typing).
  */
 
 export function useDeepLinkConsumer(): void {

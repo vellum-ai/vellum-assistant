@@ -42,10 +42,10 @@ import { BottomSheet, ContextMenu, Menu } from "@vellumai/design-library";
  * the viewport bottom. See `renderConversationMenuItemsAsPanelItems` for the
  * parallel item builder.
  *
- * The ellipsis button is hidden by default and revealed via `group-hover`
- * on the parent `PanelItem`'s row. When the menu is open the button stays
- * visible so the menu doesn't snap closed as the mouse leaves the row
- * on its way to a menu item.
+ * The ellipsis button sits in the parent `PanelItem`'s row, which tucks it
+ * away only where the device can hover and keeps it present everywhere else.
+ * While the menu is open the button stays visible, so the menu does not snap
+ * closed as the pointer leaves the row on its way to an item.
  */
 
 type MenuSide = "top" | "right" | "bottom" | "left";

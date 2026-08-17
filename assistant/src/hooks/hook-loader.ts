@@ -39,9 +39,9 @@
  * registry, so the next read re-resolves fresh.
  *
  * Plugin *discovery* (which plugin directories exist, in what order) lives in
- * `../plugins/mtime-cache.ts`; the orchestrator there passes the discovered
- * directories into {@link collectUserHookEntries}. Keeping discovery out of
- * this module lets it sit below the plugin cache with no import cycle.
+ * `../plugins/mtime-cache.ts`; hook lookup in `./registry.ts` passes the
+ * discovered names into {@link collectUserHookEntries}. Keeping discovery out
+ * of this module lets it sit below the plugin cache with no import cycle.
  */
 
 import {

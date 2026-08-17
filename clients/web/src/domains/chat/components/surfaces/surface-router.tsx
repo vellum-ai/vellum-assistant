@@ -22,6 +22,7 @@ import { SurfaceContainer } from "@/domains/chat/components/surfaces/surface-con
 import { TableSurface } from "@/domains/chat/components/surfaces/table-surface";
 import { TaskPreferencesSurface } from "@/domains/chat/components/surfaces/task-preferences-surface";
 import { VisualSurface } from "@/domains/chat/components/surfaces/visual-surface";
+import { VoicePickerSurface } from "@/domains/chat/components/surfaces/voice-picker-surface";
 import { WorkResultSurface } from "@/domains/chat/components/surfaces/work-result-surface";
 
 export interface SurfaceRouterProps {
@@ -169,6 +170,20 @@ function SurfaceRouterInner({
 
     case "task_preferences":
       return <TaskPreferencesSurface surface={surface} onAction={onAction} />;
+
+    // Deliberately absent from `INHERENTLY_INTERACTIVE_SURFACE_TYPES` and
+    // `OPTIMISTIC_COMPLETION_SURFACE_TYPES`. A settings card has no terminal
+    // action and so never completes: listing it in the first would block the
+    // composer indefinitely, and in the second would collapse the card into a
+    // "Done" chip on the first pick.
+    case "voice_picker":
+      return (
+        <VoicePickerSurface
+          surface={surface}
+          onAction={onAction}
+          assistantId={assistantId ?? null}
+        />
+      );
 
     case "work_result":
       return <WorkResultSurface surface={surface} onAction={onAction} />;

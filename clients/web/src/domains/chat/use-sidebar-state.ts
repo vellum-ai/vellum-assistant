@@ -67,12 +67,7 @@ import {
   useViewMode,
   type SidebarViewMode,
 } from "@/domains/chat/utils/sidebar-view-mode";
-import { mergeConversationLists } from "@/utils/conversation-cache";
-import {
-  useBackgroundConversationListQuery,
-  useScheduledConversationListQuery,
-  useSidebarSectionsQuery,
-} from "@/hooks/conversation-queries";
+import { useSidebarSectionsQuery } from "@/hooks/conversation-queries";
 import { useAssistantLifecycleStore } from "@/assistant/lifecycle-store";
 import { getChannelLabel } from "@/utils/channel-presentation";
 import { RECENTS_SECTION_LABEL } from "@/domains/chat/utils/sidebar-section-icon";
@@ -232,58 +227,21 @@ export function useSidebarState({
     },
     [assistantId],
   );
-  const backgroundActivated = useSidebarLayoutStore.use.backgroundActivated();
-  const scheduledActivated = useSidebarLayoutStore.use.scheduledActivated();
-  const collapseAssistantId = useSidebarLayoutStore.use.assistantId();
-
-  // Background and scheduled jobs each load through their own lazy query,
-  // co-located here with the sections that toggle them. A query is enabled
-  // only once its section is revealed (`backgroundActivated` /
-  // `scheduledActivated`) and the collapse store has synced to the current
-  // assistant — so neither backlog touches the initial-load critical path,
-  // and revealing one section never pulls in the other. The activation flags
-  // briefly hold the previous assistant's values on a switch; gating on the
-  // sync guard stops a stale flag from fetching the new assistant's backlog
-  // on its first render.
-  const collapseSynced = collapseAssistantId === assistantId;
-  const backgroundReady = backgroundActivated && collapseSynced;
-  const scheduledReady = scheduledActivated && collapseSynced;
-  const { conversations: backgroundConversations } =
-    useBackgroundConversationListQuery(
-      assistantId,
-      isAssistantActive && backgroundReady,
-    );
-  const { conversations: scheduledConversations } =
-    useScheduledConversationListQuery(
-      assistantId,
-      isAssistantActive && scheduledReady,
-    );
-
   /* The daemon's section index: which sections exist and what their badges
      say, with no conversation rows. `null` when the assistant predates the
      endpoint or the read has not resolved, in which case existence keeps
      deriving from the loaded list below. */
   const indexSections = useSidebarSectionsQuery(assistantId, isAssistantActive);
 
-  const allConversations = useMemo(
-    () =>
-      mergeConversationLists(
-        conversations,
-        backgroundConversations,
-        scheduledConversations,
-      ),
-    [conversations, backgroundConversations, scheduledConversations],
-  );
-
   // --- Grouping (memoized per conversations reference) ---
 
   const grouped = useMemo(
     () =>
-      groupConversations(allConversations, {
+      groupConversations(conversations, {
         groups: conversationGroups,
         groupByChannel: viewMode === "grouped",
       }),
-    [allConversations, conversationGroups, viewMode],
+    [conversations, conversationGroups, viewMode],
   );
 
   // --- Section order ---
@@ -496,8 +454,7 @@ export function useSidebarState({
   // --- Open/closed state ---
 
   // The three storage buckets exist because they have different defaults
-  // (Pinned/Chats open, the rest closed) and because `setOpenCategories` owns
-  // the lazy-fetch activation side effects. That split is a *storage* concern:
+  // (Pinned/Chats open, the rest closed). That split is a *storage* concern:
   // every section shares one accordion root, so reads merge the buckets into
   // one value array and writes route each key back to its owner.
   const storedOpenSections = useMemo(

@@ -3,10 +3,8 @@ import { type ReactNode, useEffect, useRef } from "react";
 
 import { Button } from "@vellumai/design-library";
 
+import { useBodyScrollLock } from "@/hooks/use-body-scroll-lock";
 import { useSwipeHorizontal } from "@/hooks/use-swipe-horizontal";
-
-/** Tailwind `sm` breakpoint — matches the `sm:hidden` class on the drawer. */
-const SM_MEDIA_QUERY = "(min-width: 640px)";
 
 const FOCUSABLE_SELECTOR = [
   "a[href]",
@@ -17,7 +15,7 @@ const FOCUSABLE_SELECTOR = [
   '[tabindex]:not([tabindex="-1"])',
 ].join(",");
 
-interface MobileSidebarDrawerProps {
+interface SideListDrawerProps {
   open: boolean;
   onClose: () => void;
   children: ReactNode;
@@ -25,16 +23,23 @@ interface MobileSidebarDrawerProps {
 }
 
 /**
- * Full-screen overlay drawer for Kit section sidebars on small screens
- * (< 640px). Uses body scroll lock, Escape-to-close, and a focus trap.
- * Hidden at the sm breakpoint and above via CSS.
+ * Full-screen overlay drawer holding a list-detail pane's list while the pane
+ * is too narrow to seat it beside the detail. Uses body scroll lock,
+ * Escape-to-close, and a focus trap.
+ *
+ * The drawer never decides for itself whether it applies: `useSideListRoom()`
+ * owns that one boolean for both this and the inline list it substitutes for,
+ * and this is mounted only while the substitution is on. Hiding it in CSS
+ * instead would put the threshold in two places, and the gap between them is a
+ * width where the list has no surface at all. See
+ * `docs/PLATFORM_ADAPTATION.md`.
  */
-export function MobileSidebarDrawer({
+export function SideListDrawer({
   open,
   onClose,
   children,
   title,
-}: MobileSidebarDrawerProps) {
+}: SideListDrawerProps) {
   const drawerRef = useRef<HTMLDivElement | null>(null);
   const closeButtonRef = useRef<HTMLButtonElement | null>(null);
   const onCloseRef = useRef(onClose);
@@ -43,7 +48,7 @@ export function MobileSidebarDrawer({
   });
 
   // Swipe right-to-left on the panel to close. Complements the backdrop tap
-  // and the close button — all three call the same onClose.
+  // and the close button: all three call the same onClose.
   const {
     dragOffset,
     isDragging,
@@ -56,22 +61,13 @@ export function MobileSidebarDrawer({
     onSwipeLeft: onClose,
   });
 
+  useBodyScrollLock(open);
+
   useEffect(() => {
     if (!open) {
       return;
     }
     closeButtonRef.current?.focus();
-
-    const previousBodyOverflow = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-
-    const mql = window.matchMedia(SM_MEDIA_QUERY);
-    const handleMediaChange = (e: MediaQueryListEvent) => {
-      if (e.matches) {
-        onCloseRef.current();
-      }
-    };
-    mql.addEventListener("change", handleMediaChange);
 
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape" && !event.defaultPrevented) {
@@ -106,8 +102,6 @@ export function MobileSidebarDrawer({
     document.addEventListener("keydown", onKeyDown);
     return () => {
       document.removeEventListener("keydown", onKeyDown);
-      mql.removeEventListener("change", handleMediaChange);
-      document.body.style.overflow = previousBodyOverflow;
     };
   }, [open]);
 
@@ -118,7 +112,7 @@ export function MobileSidebarDrawer({
   return (
     <div
       ref={drawerRef}
-      className="fixed inset-0 sm:hidden"
+      className="fixed inset-0"
       style={{ zIndex: 40 }}
       role="dialog"
       aria-modal="true"
@@ -184,10 +178,11 @@ export function MobileSidebarDrawer({
 }
 
 /**
- * Hamburger-menu button that opens the mobile sidebar drawer. Hidden at
- * the sm breakpoint and above.
+ * Hamburger-menu button that opens {@link SideListDrawer}. Rendered by the
+ * same owner, on the same signal, so it exists exactly when the inline list
+ * does not.
  */
-export function MobileSidebarTrigger({ onClick }: { onClick: () => void }) {
+export function SideListTrigger({ onClick }: { onClick: () => void }) {
   return (
     <Button
       type="button"
@@ -196,7 +191,6 @@ export function MobileSidebarTrigger({ onClick }: { onClick: () => void }) {
       onClick={onClick}
       aria-label="Open sidebar"
       tintColor="var(--content-secondary)"
-      className="sm:hidden"
     />
   );
 }

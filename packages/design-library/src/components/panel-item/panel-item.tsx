@@ -366,6 +366,7 @@ const TRAILING_ACTION_CLASSES = [
   hoverRevealClasses,
   // The row a nav item marks as the current page keeps its action visible:
   // it is the row the user is already in.
+  "group-aria-[current=page]:pointer-events-auto",
   "group-aria-[current=page]:opacity-100",
 ].join(" ");
 

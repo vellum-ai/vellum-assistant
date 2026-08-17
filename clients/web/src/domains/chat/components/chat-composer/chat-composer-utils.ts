@@ -110,3 +110,47 @@ export function computeGhostSuffix(policy: GhostSuffixPolicy): string | null {
   }
   return null;
 }
+
+// ---------------------------------------------------------------------------
+// Mobile draft geometry
+// ---------------------------------------------------------------------------
+
+/**
+ * Slack against subpixel rounding: a natural width is measured as a whole
+ * number of pixels while the space it has to fit in is fractional, so a draft
+ * that just fits can read a pixel wider than its own line.
+ */
+const DRAFT_FIT_TOLERANCE_PX = 1;
+
+export interface DraftLineMetrics {
+  /** Width the draft renders at when nothing wraps it. */
+  naturalWidthPx: number;
+  /** Width the draft has while the composer keeps its single inline row. */
+  inlineWidthPx: number;
+  /** Whether the draft carries a line break of its own. */
+  hasHardBreak: boolean;
+}
+
+/**
+ * Whether the draft has outgrown the one line the inline mobile row gives it.
+ *
+ * Both terms are measured against the INLINE width, never against the width
+ * the draft currently has. The stacked layout hands the text the whole card,
+ * so a draft measured there would fit on one line again, flip the row back,
+ * wrap again, and oscillate for as long as the user held that draft. Judged
+ * against a width that does not depend on which layout is up, the answer is
+ * the same in both, and the row settles.
+ */
+export function isDraftPastOneLine(metrics: DraftLineMetrics): boolean {
+  if (metrics.hasHardBreak) {
+    return true;
+  }
+  // An unmeasured row (before first layout, or a test DOM that has none) has
+  // no width for the draft to outgrow.
+  if (metrics.inlineWidthPx <= 0) {
+    return false;
+  }
+  return (
+    metrics.naturalWidthPx > metrics.inlineWidthPx + DRAFT_FIT_TOLERANCE_PX
+  );
+}

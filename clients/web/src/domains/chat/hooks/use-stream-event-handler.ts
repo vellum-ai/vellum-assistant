@@ -73,6 +73,7 @@ import {
   handleAcpSessionUpdate,
   handleAcpSessionUsage,
   handleAcpSessionCompleted,
+  handleAcpAuthRequired,
   handleAcpSessionError,
 } from "@/domains/chat/utils/stream-handlers/acp-handlers";
 import {
@@ -432,6 +433,9 @@ export function useStreamEventHandler(
           break;
         case "acp_session_error":
           handleAcpSessionError(event);
+          break;
+        case "acp_auth_required":
+          handleAcpAuthRequired(event);
           break;
 
         case "background_tool_started":
