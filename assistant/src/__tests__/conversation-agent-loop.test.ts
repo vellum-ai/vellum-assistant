@@ -1345,7 +1345,10 @@ describe("session-agent-loop", () => {
       });
       const cleanupFlagDuringInjection = captureCleanupFlagDuringInjection(ctx);
 
-      await runAgentLoopImpl(ctx, "free up space", "msg-1", () => {});
+      // Presence is declared per turn; the policy input must carry it.
+      await runAgentLoopImpl(ctx, "free up space", "msg-1", () => {}, {
+        isInteractive: true,
+      });
 
       expect(classifyDiskPressureTurnPolicyMock).toHaveBeenCalledWith(
         mockDiskPressureStatus,

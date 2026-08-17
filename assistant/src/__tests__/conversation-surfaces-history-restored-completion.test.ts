@@ -124,13 +124,17 @@ type EnqueueResult = { queued: boolean; requestId: string; rejected?: boolean };
 
 function makeContext(
   enqueueResult: EnqueueResult = { queued: false, requestId: "req-1" },
-  overrides: { trustContext?: TrustContext; queueDepth?: number } = {},
+  overrides: {
+    trustContext?: TrustContext;
+    queueDepth?: number;
+    emit?: (msg: AssistantEvent) => void;
+  } = {},
 ): Conversation & { enqueuedContents: string[] } {
   const enqueuedContents: string[] = [];
   return asConversation({
     conversationId: CONVERSATION_ID,
     trustContext: overrides.trustContext ?? GUARDIAN_TRUST,
-    sendToClient: () => {},
+    emit: overrides.emit ?? (() => {}),
     pendingSurfaceActions: new Map<string, { surfaceType: SurfaceType }>(),
     lastSurfaceAction: new Map<
       string,
@@ -885,11 +889,12 @@ describe("surface completion when the persisted write does not land", () => {
   test("a ui_dismiss completion whose write throws stays retryable", async () => {
     const surfaceId = "surface-dismiss-persist-throws-1";
     seedSurfaceRow(surfaceId, "choice");
-    const ctx = makeContext();
     const sentToClient: AssistantEvent[] = [];
-    ctx.sendToClient = (msg) => {
-      sentToClient.push(msg);
-    };
+    const ctx = makeContext(undefined, {
+      emit: (msg) => {
+        sentToClient.push(msg);
+      },
+    });
     seedAnsweredSurface(ctx, surfaceId);
     persistError = new Error("database is locked");
 
@@ -919,11 +924,12 @@ describe("surface completion when the persisted write does not land", () => {
   test("a ui_dismiss completion that lands clears the live state", async () => {
     const surfaceId = "surface-dismiss-persist-lands-1";
     seedSurfaceRow(surfaceId, "choice");
-    const ctx = makeContext();
     const sentToClient: AssistantEvent[] = [];
-    ctx.sendToClient = (msg) => {
-      sentToClient.push(msg);
-    };
+    const ctx = makeContext(undefined, {
+      emit: (msg) => {
+        sentToClient.push(msg);
+      },
+    });
     seedAnsweredSurface(ctx, surfaceId);
 
     const result = await surfaceProxyResolver(ctx, "ui_dismiss", {
@@ -942,11 +948,12 @@ describe("surface completion when the persisted write does not land", () => {
   test("a ui_dismiss with no recorded action clears the live state even when the write throws", async () => {
     const surfaceId = "surface-dismiss-no-action-1";
     seedSurfaceRow(surfaceId, "card");
-    const ctx = makeContext();
     const sentToClient: AssistantEvent[] = [];
-    ctx.sendToClient = (msg) => {
-      sentToClient.push(msg);
-    };
+    const ctx = makeContext(undefined, {
+      emit: (msg) => {
+        sentToClient.push(msg);
+      },
+    });
     ctx.pendingSurfaceActions.set(surfaceId, { surfaceType: "card" });
     ctx.surfaceState.set(surfaceId, { surfaceType: "card", data: {} });
     persistError = new Error("database is locked");

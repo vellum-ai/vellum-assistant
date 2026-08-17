@@ -44,15 +44,21 @@ export function injectMessageIntoParent(
     );
     return;
   }
+  // Machine-injected with no human asserted present, so the notification
+  // turn runs non-interactive; it still streams to whoever is watching
+  // through the parent's sink.
   const enqueueResult = parentConversation.enqueueMessage({
     content: message,
     metadata,
+    isInteractive: false,
   });
   if (!enqueueResult.queued && !enqueueResult.rejected) {
     parentConversation
       .persistUserMessage({ content: message, metadata })
       .then(({ id: messageId }) =>
-        parentConversation.runAgentLoop(message, messageId),
+        parentConversation.runAgentLoop(message, messageId, {
+          isInteractive: false,
+        }),
       )
       .catch((err) => {
         log.error(

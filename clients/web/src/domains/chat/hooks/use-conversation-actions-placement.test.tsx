@@ -25,8 +25,10 @@ import type { Conversation } from "@/types/conversation-types";
 import {
   conversationsQueryKey,
   sectionConversationsQueryKey,
+  type ConversationListPage,
   type SectionConversationFilter,
 } from "@/utils/conversation-list-fetchers";
+import { listPage } from "@/utils/conversation-list.test-helper";
 
 type ReorderImpl = (opts: unknown) => Promise<{
   data: undefined;
@@ -53,9 +55,8 @@ mock.module("@sentry/react", () => ({
   addBreadcrumb: () => {},
 }));
 
-const { useConversationActions } = await import(
-  "@/domains/chat/hooks/use-conversation-actions"
-);
+const { useConversationActions } =
+  await import("@/domains/chat/hooks/use-conversation-actions");
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -78,13 +79,14 @@ function setup(sections: Array<[SectionConversationFilter, Conversation[]]>) {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
-  client.setQueryData<Conversation[]>(conversationsQueryKey(ASSISTANT_ID), [
-    SLACK_ROW,
-  ]);
+  client.setQueryData<ConversationListPage>(
+    conversationsQueryKey(ASSISTANT_ID),
+    listPage([SLACK_ROW]),
+  );
   for (const [filter, rows] of sections) {
     client.setQueryData(
       sectionConversationsQueryKey(ASSISTANT_ID, filter),
-      rows,
+      listPage(rows),
     );
   }
 
@@ -113,10 +115,10 @@ function idsIn(
 ): string[] {
   return (
     client
-      .getQueryData<
-        Conversation[]
-      >(sectionConversationsQueryKey(ASSISTANT_ID, filter))
-      ?.map((c) => c.conversationId) ?? []
+      .getQueryData<ConversationListPage>(
+        sectionConversationsQueryKey(ASSISTANT_ID, filter),
+      )
+      ?.conversations.map((c) => c.conversationId) ?? []
   );
 }
 

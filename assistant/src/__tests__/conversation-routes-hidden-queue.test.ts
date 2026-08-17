@@ -169,7 +169,7 @@ function makeConversationWithPendingConfirmation(
     setTrustContext(this: { trustContext: unknown }, ctx: unknown) {
       this.trustContext = ctx;
     },
-    updateClient: () => {},
+    replayActivityState: () => {},
     emitConfirmationStateChanged: () => {},
     emitActivityState: () => {},
     setTurnChannelContext: () => {},

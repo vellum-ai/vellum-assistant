@@ -47,6 +47,7 @@ interface MockConversation {
   contextCompactedAt: number | null;
   sentMessages: AssistantEvent[];
   sendToClient: (msg: AssistantEvent) => void;
+  emit: (msg: AssistantEvent) => void;
   getMessages: () => unknown[];
 }
 
@@ -64,6 +65,7 @@ function makeConversation(id = "conv-playground-test"): MockConversation {
     contextCompactedAt: null,
     sentMessages,
     sendToClient: (msg) => sentMessages.push(msg),
+    emit: (msg) => sentMessages.push(msg),
     getMessages: () => [],
   };
 }

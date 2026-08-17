@@ -28,6 +28,7 @@ import {
   conversationsQueryKey,
   unreadConversationCountQueryKey,
 } from "@/utils/conversation-list-fetchers";
+import { listPage } from "@/utils/conversation-list.test-helper";
 
 // ---------------------------------------------------------------------------
 // Module mocks
@@ -65,9 +66,8 @@ mock.module("@sentry/react", () => ({
   addBreadcrumb: () => {},
 }));
 
-const { useConversationActions } = await import(
-  "@/domains/chat/hooks/use-conversation-actions"
-);
+const { useConversationActions } =
+  await import("@/domains/chat/hooks/use-conversation-actions");
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -86,7 +86,10 @@ function setupHook(opts: {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
-  client.setQueryData(conversationsQueryKey(ASSISTANT_ID), opts.conversations);
+  client.setQueryData(
+    conversationsQueryKey(ASSISTANT_ID),
+    listPage(opts.conversations),
+  );
   if (opts.unreadCount !== undefined) {
     client.setQueryData(
       unreadConversationCountQueryKey(ASSISTANT_ID),

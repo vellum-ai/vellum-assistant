@@ -37,8 +37,8 @@ const BottomSheetContext = createContext<{
  *
  * Compound API: `BottomSheet.Root`, `BottomSheet.Trigger`,
  * `BottomSheet.Content`, `BottomSheet.Title`, `BottomSheet.Description`,
- * `BottomSheet.Close`, `BottomSheet.Header`, `BottomSheet.Body`,
- * `BottomSheet.Footer`.
+ * `BottomSheet.Close`, `BottomSheet.Grabber`, `BottomSheet.Header`,
+ * `BottomSheet.Body`, `BottomSheet.Footer`.
  *
  * Adoption is consumer-driven: consumers decide whether to mount
  * `BottomSheet.Root` or an anchored surface such as `Popover.Root`. That
@@ -189,6 +189,30 @@ function Close(props: ComponentProps<typeof Dialog.Close>) {
   return <Dialog.Close data-slot="bottom-sheet-close" {...props} />;
 }
 
+/**
+ * The pill at the top edge that reads as "this panel came up from the bottom".
+ * Opt-in, so sheets that already open under a header or carry their own
+ * chrome are unchanged.
+ *
+ * Decorative only: it is not a drag target, and dismissal stays with the
+ * overlay, Escape, and whatever close control the header carries. Hidden from
+ * assistive technology for that reason, rather than announced as a control
+ * that does nothing.
+ */
+function Grabber({ className, ...props }: ComponentProps<"div">) {
+  return (
+    <div
+      data-slot="bottom-sheet-grabber"
+      aria-hidden="true"
+      className={cn(
+        "mx-auto h-1 w-14 shrink-0 rounded-full bg-[var(--border-element)]",
+        className,
+      )}
+      {...props}
+    />
+  );
+}
+
 function Header({
   className,
   children,
@@ -247,6 +271,7 @@ const BottomSheet = {
   Title,
   Description,
   Close,
+  Grabber,
   Header,
   Body,
   Footer,
