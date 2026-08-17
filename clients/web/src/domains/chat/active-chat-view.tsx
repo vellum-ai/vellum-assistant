@@ -300,7 +300,6 @@ export function ActiveChatView() {
   // existence verdict and `sendMessage`, hence this placement.
   useDeepLinkThreadSend({
     assistantId,
-    isAssistantActive: assistantState.kind === "active",
     activeConversationId,
     conversationExistsOnServer,
     activeConversationArchived: activeConversation?.archivedAt != null,

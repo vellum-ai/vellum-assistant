@@ -19,7 +19,6 @@ export const PENDING_THREAD_SEND_TTL_MS = 60_000;
 
 export interface UseDeepLinkThreadSendOptions {
   assistantId: string | null;
-  isAssistantActive: boolean;
   activeConversationId: string | null;
   /**
    * The active conversation is a confirmed server row (from any list cache
@@ -86,7 +85,6 @@ export interface UseDeepLinkThreadSendOptions {
  */
 export function useDeepLinkThreadSend({
   assistantId,
-  isAssistantActive,
   activeConversationId,
   conversationExistsOnServer,
   activeConversationArchived,
@@ -107,8 +105,7 @@ export function useDeepLinkThreadSend({
     }),
     enabled: false,
   });
-  const targetConfirmedAbsent =
-    isAssistantActive && rowError instanceof ConversationNotFoundError;
+  const targetConfirmedAbsent = rowError instanceof ConversationNotFoundError;
 
   useEffect(() => {
     if (pending === null || activeConversationId === null) {

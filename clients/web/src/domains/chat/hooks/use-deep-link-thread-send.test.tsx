@@ -86,7 +86,6 @@ function renderSend(initial: Props) {
     (p: Props) =>
       useDeepLinkThreadSend({
         assistantId: "assistant-1",
-        isAssistantActive: true,
         activeConversationId: p.activeConversationId,
         conversationExistsOnServer: p.conversationExistsOnServer,
         activeConversationArchived: p.activeConversationArchived ?? false,
