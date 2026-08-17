@@ -41,8 +41,11 @@ Applies to all code under `packages/design-library/`. Subordinate to root [`AGEN
    **and** multiple independently useful subcomponents, or when it carries
    colocated tests or component-specific utilities.
 
-7. **Props interfaces are named `{Component}Props`** and extend the element's
-   own props, e.g. `interface TagProps extends ComponentProps<"span">`.
+7. **Props interfaces are named `{Component}Props`.** Naming only: a component
+   that wraps one element extends that element's props (rule 1 says which
+   type), and one that composes several or takes an abstract API declares its
+   own. `SelectProps`, `FieldProps`, and `SliderProps` forward no element's
+   props and are correct as they are.
 
 8. **Customization via props, not wrappers.** When a component needs
    domain-specific behavior (e.g. custom link rendering), expose a callback
