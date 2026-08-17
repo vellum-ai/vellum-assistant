@@ -1,6 +1,7 @@
 import { Capacitor, registerPlugin } from "@capacitor/core";
 import { useSyncExternalStore } from "react";
 
+import { desktopUpdateRequiredAuthError } from "@/domains/account/native-auth-error";
 import {
   type ProviderRedirectOptions,
   startProviderRedirect,
@@ -370,9 +371,16 @@ export async function startAuthFlow(
   // Desktop (Electron): open the system browser for OAuth so the user can
   // leverage existing Google/Apple sessions. The main process handles the
   // full flow (nonce, browser, deep-link callback, code exchange, cookie
-  // install) and returns the session token. Falls through to the web
-  // form-POST path when the bridge method is absent (older preload).
-  if (isElectron() && window.vellum?.auth?.startOAuth) {
+  // install) and returns the session token. There is no fallback inside the
+  // desktop shell: the loopback flow below hands the platform's web login a
+  // CLI callback (`/accounts/cli/callback?port=...`) that no desktop shell
+  // services, and the form-POST path would POST against the shell's custom
+  // app origin. Both strand the user in the system browser, so a bridge
+  // without `auth.startOAuth` (older preload) fails loudly instead.
+  if (isElectron()) {
+    if (!window.vellum?.auth?.startOAuth) {
+      throw desktopUpdateRequiredAuthError();
+    }
     oauthFlowInFlight = true;
     try {
       const result = await window.vellum.auth.startOAuth({

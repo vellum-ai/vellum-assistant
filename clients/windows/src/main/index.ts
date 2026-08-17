@@ -30,8 +30,7 @@ import { installWebContentsSecurity } from "./windows.client";
  *
  * Not ported from the macOS client yet (see `clients/macos/src/main/` for the
  * reference implementations): gateway/platform request forwarding for
- * packaged builds, native auth, auto-update, CSP,
- * notifications, and hotkeys.
+ * packaged builds, auto-update, CSP, notifications, and hotkeys.
  */
 
 // Dev-only: override the package `name` (`@vellumai/windows`) so
