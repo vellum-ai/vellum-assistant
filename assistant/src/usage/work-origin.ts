@@ -15,9 +15,10 @@ import { MEMORY_V2_CONSOLIDATION_SOURCE } from "../persistence/conversation-type
  *   was deleted before the usage batch flushed (fork GC, user deletion) and
  *   the linkage is unresolvable, by the record-time conversation source
  *   ({@link SPAWNED_CONVERSATION_SOURCES}).
- * - `user_created_schedule`: a user-created schedule fired the work, either
- *   on its cron trigger (a `scheduled` conversation) or through a manual run
- *   (a conversation bootstrapped with source `schedule`).
+ * - `user_created_schedule`: a user-created schedule fired the work: a cron
+ *   trigger (a `scheduled` conversation), a manual run (a conversation
+ *   bootstrapped with source `schedule`), or a wake/defer firing inside an
+ *   ordinary conversation (signaled only by the usage row's cron run id).
  * - `user_created_background`: background work a user explicitly asked for.
  *   An allowlist ({@link USER_CREATED_BACKGROUND_SOURCES}, a `background`
  *   conversation the user created, and conversationless workflow-leaf
@@ -150,8 +151,9 @@ const RECOGNIZED_CALL_SITES: ReadonlySet<string> = new Set(
  * routes through a background conversation turn and never reaches the
  * conversationless path), the trust-rule suggestion an approval surface
  * requests, the approval and guardian copy generators shown to a waiting
- * user, and the live-voice front door and progress narration a caller is
- * listening to.
+ * user, the live-voice front door and progress narration a caller is
+ * listening to, the dictation classifier, the skill-draft category
+ * inference, and the invite instruction generator.
  */
 const USER_INVOKED_CONVERSATIONLESS_CALL_SITES: ReadonlySet<string> = new Set([
   "inference",
@@ -161,6 +163,9 @@ const USER_INVOKED_CONVERSATIONLESS_CALL_SITES: ReadonlySet<string> = new Set([
   "guardianQuestionCopy",
   "voiceFrontDoor",
   "voiceProgressNarration",
+  "interactionClassifier",
+  "skillCategoryInference",
+  "inviteInstructionGenerator",
 ]);
 
 /**
@@ -177,6 +182,13 @@ export interface WorkOriginInput {
   callSite: string | null;
   /** Resolved spawning conversation id (subagent parent, or fork parent); null when the conversation was not spawned by another. */
   parentConversationId: string | null;
+  /**
+   * Id of the schedule firing that triggered the turn, or null when the turn
+   * was not schedule-driven. A wake or defer schedule can fire inside a
+   * conversation whose persisted type and source stay `standard`/`user`, so
+   * this is the only signal that the spend is schedule-driven.
+   */
+  cronRunId?: string | null;
 }
 
 /**
@@ -188,8 +200,8 @@ export interface WorkOriginInput {
  *   1. parent linkage: delegated work is billed to the delegating turn,
  *   2. a spawn source, recovering delegation when the spawning conversation
  *      was deleted before flush,
- *   3. schedule origin, by conversation type or by the `schedule` source a
- *      manual run stamps,
+ *   3. schedule origin, by conversation type, by the `schedule` source a
+ *      manual run stamps, or by the cron run id a wake/defer firing carries,
  *   4. heartbeat, by call site or by source,
  *   5. memory maintenance, by call site or by source, so in-turn recall is
  *      billed as upkeep rather than as the user's chat,
@@ -215,6 +227,7 @@ export function classifyWorkOrigin(input: WorkOriginInput): WorkOrigin {
     callSite,
     parentConversationId,
   } = input;
+  const cronRunId = input.cronRunId ?? null;
 
   if (parentConversationId !== null) {
     return "delegated_child";
@@ -225,7 +238,13 @@ export function classifyWorkOrigin(input: WorkOriginInput): WorkOrigin {
   ) {
     return "delegated_child";
   }
-  if (conversationType === "scheduled" || conversationSource === "schedule") {
+  if (
+    conversationType === "scheduled" ||
+    conversationSource === "schedule" ||
+    cronRunId !== null
+  ) {
+    // A wake or defer schedule can fire inside a standard user conversation;
+    // the cron run id on the usage row is then the only schedule signal.
     return "user_created_schedule";
   }
   if (callSite === "heartbeatAgent" || conversationSource === "heartbeat") {

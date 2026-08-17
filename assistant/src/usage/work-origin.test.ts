@@ -123,6 +123,26 @@ describe("classifyWorkOrigin", () => {
       }),
       expected: "user_created_schedule",
     },
+    {
+      name: "wake schedule firing in a standard user conversation maps to user_created_schedule (cron run id is the only signal)",
+      input: input({
+        conversationType: "standard",
+        conversationSource: "user",
+        callSite: "mainAgent",
+        cronRunId: "cron-run-123",
+      }),
+      expected: "user_created_schedule",
+    },
+    {
+      name: "parent linkage wins over a cron run id",
+      input: input({
+        conversationType: "background",
+        conversationSource: "subagent",
+        parentConversationId: "parent-3",
+        cronRunId: "cron-run-123",
+      }),
+      expected: "delegated_child",
+    },
     // 4. Heartbeat.
     {
       name: "heartbeat call site alone maps to heartbeat",
@@ -304,6 +324,9 @@ describe("classifyWorkOrigin", () => {
         "guardianQuestionCopy",
         "voiceFrontDoor",
         "voiceProgressNarration",
+        "interactionClassifier",
+        "skillCategoryInference",
+        "inviteInstructionGenerator",
       ] as const
     ).map((callSite) => ({
       name: `conversationless ${callSite} call maps to user_interactive`,
