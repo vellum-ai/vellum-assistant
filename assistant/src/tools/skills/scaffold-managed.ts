@@ -28,10 +28,20 @@ function sanitizeFrontmatterValue(value: string): string {
 }
 
 /**
- * Validate + normalize an optional string-array input (sanitize, drop blanks,
- * dedupe). Returns `{ error }` on the first invalid element, or `{ value }`
- * holding the normalized array (undefined when empty). Shared by the
- * includes / activation_hints / avoid_when inputs so they behave identically.
+ * Self-correcting error for a scaffold call with no activation hints. Matches
+ * the shape of the schema validator's required-field error, which is what a
+ * call through the registered tool hits first; this covers direct callers and
+ * an explicit empty list, which the schema's presence check accepts.
+ */
+const MISSING_ACTIVATION_HINTS =
+  'activation_hints is required: pass 1-4 short trigger phrases stating the intent this skill serves (for example "user asks to deploy staging") so it can be found later by intent, not just by name.';
+
+/**
+ * Validate + normalize a string-array input (sanitize, drop blanks, dedupe).
+ * Returns `{ error }` on the first invalid element, or `{ value }` holding
+ * the normalized array (undefined when absent or empty). Shared by the
+ * includes / activation_hints / avoid_when inputs so they behave identically;
+ * whether an absent value is acceptable is the caller's call.
  * Each element goes through sanitizeFrontmatterValue: activation_hints /
  * avoid_when are concatenated verbatim into capability memory text (see
  * buildSkillContent), so an embedded newline could otherwise smuggle an extra
@@ -184,9 +194,9 @@ export async function executeScaffoldManagedSkill(
     };
   }
 
-  // Validate and normalize the optional string-array inputs. `includes` lists
-  // child skill IDs; activation_hints / avoid_when become the skill's
-  // "Use when:" / "Avoid when:" retrieval signal in memory.
+  // Validate and normalize the string-array inputs. `includes` lists child
+  // skill IDs; activation_hints / avoid_when become the skill's "Use when:" /
+  // "Avoid when:" retrieval signal in memory.
   const includesResult = normalizeOptionalStringArray(
     input.includes,
     "includes",
@@ -204,6 +214,14 @@ export async function executeScaffoldManagedSkill(
     return { content: `Error: ${activationHintsResult.error}`, isError: true };
   }
   const activationHints = activationHintsResult.value;
+  // Hints are the skill's "Use when:" retrieval text, and scaffolding rewrites
+  // the whole SKILL.md, so a write without them leaves (or strips) none.
+  if (!activationHints) {
+    return {
+      content: `Error: ${MISSING_ACTIVATION_HINTS}`,
+      isError: true,
+    };
+  }
 
   const avoidWhenResult = normalizeOptionalStringArray(
     input.avoid_when,

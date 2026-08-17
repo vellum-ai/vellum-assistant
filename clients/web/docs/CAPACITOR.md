@@ -59,7 +59,7 @@ Native auth uses [`ASWebAuthenticationSession`](https://developer.apple.com/docu
 - **Protected (app) routes**: route protection middleware (see [`CONVENTIONS.md` § Route protection via middleware](./CONVENTIONS.md#route-protection-via-middleware)) redirects unauthenticated users to `/account/login?returnTo=…`. Individual pages should **not** render inline sign-in gates. Return `null` when `!isLoggedIn` and let the middleware handle the redirect. The branded login page (`/account/login`) renders a native login form (inside [`NativeSplash`](../src/components/native-splash.tsx)) on Capacitor iOS and a web login form on web.
 - **iOS login — single AuthKit button**: the iOS login form must use a single "Sign in" button that hands off to WorkOS AuthKit. Do NOT add individual provider buttons (Google/Apple/etc.) or otherwise pin the flow to a specific provider — see [Apple App Store Review Guideline 4](https://developer.apple.com/app-store/review/guidelines/#design) and [Guideline 4.8 — Sign in with Apple](https://developer.apple.com/app-store/review/guidelines/#login-services). AuthKit hosts the provider selection, so the app never names a provider itself.
 - **Pre-fill identity-derived inputs from the auth claim**: when the platform / IdP returns identity claims on signup (Apple SIWA `given_name`/`family_name`, Google `given_name`/`family_name`, etc.), pre-fill any user-facing input that asks for that identity (e.g. "Your name") from the claim instead of forcing the user to retype it — [Apple Guideline 4](https://developer.apple.com/app-store/review/guidelines/#design) and [Apple HIG: Sign in with Apple](https://developer.apple.com/design/human-interface-guidelines/sign-in-with-apple) treat asking again as a violation. The field stays editable so users can pick a preferred nickname.
-- **Auth failures carry a cause, never just "try again"**: a rejected auth flow reaches JS as a Capacitor error whose `code` is `AUTH_ERROR` and whose `data.authError` names why the platform refused the sign-in (`signup_closed`, `provider_signup`, `login_incomplete`, or allauth's own code on a 400). Both native shells classify the non-200 statuses the headless schema documents for `/_allauth/app/v1/auth/provider/token` — the exchange that runs *after* the auth sheet closes, and therefore the failure users report as "it errored the moment I signed in". Map codes to copy only in [`src/domains/account/native-auth-error.ts`](../src/domains/account/native-auth-error.ts), and route every auth-entry catch through its `nativeAuthErrorMessage()` / `isUserCancelledAuthError()` helpers plus a `captureError()` tagged with `nativeAuthErrorDetail()`. Adding a new refusal means a code in both `WorkOSAuth.sessionExchangeErrorCode` implementations (Swift and Java) and an entry in that map — an unmapped code degrades to the generic message rather than breaking.
+- **Auth failures carry a cause, never just "try again"**: a rejected auth flow reaches JS as a Capacitor error whose `code` is `AUTH_ERROR` and whose `data.authError` names why the platform refused the sign-in (`signup_closed`, `provider_signup`, `login_incomplete`, or allauth's own code on a 400). Both native shells classify the non-200 statuses the headless schema documents for `/_allauth/app/v1/auth/provider/token` (the exchange that runs *after* the auth sheet closes, and therefore the failure users report as "it errored the moment I signed in"). Map codes to catalog keys only in [`src/domains/account/native-auth-error.ts`](../src/domains/account/native-auth-error.ts), and route every auth-entry catch through its `nativeAuthErrorKey()` / `isUserCancelledAuthError()` helpers plus a `captureError()` tagged with `nativeAuthErrorDetail()`. Adding a new refusal means a code in both `WorkOSAuth.sessionExchangeErrorCode` implementations (Swift and Java) and an entry in that map; an unmapped code degrades to the generic message rather than breaking.
 - **Sign-in actions outside the app shell**: wrap sign-in links in a shared component that renders a native `startAuthFlow()` button on Capacitor iOS and a router `<Link>` on web — never a plain `<a href="/account/login">`, which on iOS would navigate the WKWebView away from the running SPA.
 - **Platform detection in JSX**: prefer the hook form (`useIsNativePlatform()`, `useIsNativeIOS()`) over the bare `isNativePlatform()` / `isNativeIOS()` functions. Capacitor injects `native-bridge.js` as a `WKUserScript` at `.atDocumentStart`, so the value is already correct on the first render and constant thereafter; there is no first-paint flicker to settle. The hook exists for render-safety, for consistency across the platform hooks, and so call sites stay correct if an SSR or prerender path is ever added. Inside effects and event handlers the bare function is fine. `useIsNativePlatform()` lives in [`src/runtime/native-auth.ts`](../src/runtime/native-auth.ts); the rest live in [`src/runtime/platform-detection.ts`](../src/runtime/platform-detection.ts), which is where new ones belong.
 
@@ -82,7 +82,9 @@ Apple's [HIG — Requesting permission](https://developer.apple.com/design/human
 
 Which signal to reach for (viewport size vs pointer capability vs native platform) and where the branch belongs is covered in [`PLATFORM_ADAPTATION.md`](./PLATFORM_ADAPTATION.md).
 
-When the *only* way to act on a UI element is a hardware-keyboard gesture (e.g. `Tab` to accept an inline suggestion, `Cmd+Enter` to submit), gate its rendering on `!isPointerCoarse()` from [`@/utils/pointer`](../src/utils/pointer.ts). Touch soft keyboards on iOS and Android do not expose `Tab` or most modifier-key combinations, so the affordance is non-actionable on coarse-pointer devices and may also overflow narrow viewports if its layout depends on a paired keypress. To support touch as well, add a tap-equivalent (button, gesture) instead of suppressing.
+When the *only* way to act on a UI element is a hardware-keyboard gesture (e.g. `Tab` to accept an inline suggestion, `Cmd+Enter` to submit), gate its rendering on the coarse-pointer signal from [`@/utils/pointer`](../src/utils/pointer.ts). Touch soft keyboards on iOS and Android do not expose `Tab` or most modifier-key combinations, so the affordance is non-actionable on coarse-pointer devices and may also overflow narrow viewports if its layout depends on a paired keypress. To support touch as well, add a tap-equivalent (button, gesture) instead of suppressing.
+
+Which of the two forms depends on whether the answer has to survive the pointer changing. **A gate on rendering wants `!usePointerCoarse()`**, the subscribed hook: the affordance is on screen while a convertible's keyboard comes off or a tablet is docked into one, and a one-shot read would leave it advertising a chord the device can no longer press (or hiding one it now can). Reserve the imperative `isPointerCoarse()` for a decision taken at a moment rather than held on screen: inside an event handler, or seeding state that deliberately should not move mid-session.
 
 Reference: [MDN: `(pointer)` media feature](https://developer.mozilla.org/en-US/docs/Web/CSS/@media/pointer).
 
@@ -99,6 +101,25 @@ This matters for any library that defers touch-initiated logic to a `click` even
 References:
 - Apple — [Handling Events in Safari on iOS](https://developer.apple.com/library/archive/documentation/AppleApplications/Reference/SafariWebContent/HandlingEvents/HandlingEvents.html)
 - Radix — [`DismissableLayer` source (`usePointerDownOutside`)](https://github.com/radix-ui/primitives/blob/main/packages/react/dismissable-layer/src/dismissable-layer.tsx)
+
+---
+
+## Cancelling `pointerdown` also cancels the tap's `click` on iOS
+
+A tap on iOS Safari/WKWebView produces `pointerdown`, `touchstart`, `pointerup`, `touchend`, then the compatibility `mousedown`, `mouseup`, and `click`. Calling `preventDefault()` on `pointerdown` suppresses **the entire remainder of that sequence, `click` included**. The Pointer Events spec says `click` should still be dispatched, and Chromium does dispatch it, so this is a WebKit-only divergence that a desktop or Android check will not catch.
+
+The practical case is holding focus on an input while a button is pressed, which needs the focus transfer suppressed without losing the activation. The focus transfer rides on the compatibility `mousedown`, so cancel that one:
+
+```tsx
+// Keeps the textarea focused; the button's click still fires.
+<button onMouseDown={(event) => event.preventDefault()} />
+```
+
+Cancelling `touchstart` has the same fatal effect as cancelling `pointerdown`. Reach for `pointerdown` only when you actually want to swallow the whole gesture, and remember that Radix menus (`DropdownMenu`, `Select`, `ContextMenu`) open **on `pointerdown`**, so cancelling it there makes the trigger inert; Radix `Dialog` and `BottomSheet` triggers open on `click` and are the ones this section is about.
+
+References:
+- W3C: [Pointer Events, compatibility mouse events](https://www.w3.org/TR/pointerevents/#compatibility-mapping-with-mouse-events)
+- MDN: [`preventDefault()` on pointer events](https://developer.mozilla.org/en-US/docs/Web/API/Pointer_events)
 
 ---
 
@@ -148,7 +169,7 @@ References:
 
 Live voice is a web feature with native accessories. The session, including mic capture, the velay socket, TTS playback, and every user-facing string, lives under `src/domains/chat/voice/live-voice/`. iOS adds interruption reporting, a Dynamic Island and Lock Screen presence, and App Intents. Android adds foreground audio focus, a microphone foreground service, and an ongoing status notification. The voice-room camera is the capture exception: native mobile shells use `@capacitor-community/camera-preview`, while browsers and older shells use a web `MediaStream` fallback.
 
-The shell registers **six app-local** Capacitor plugins in [`MyViewController.capacitorDidLoad()`](../../../clients/ios/App/App/MyViewController.swift) (count them there, not from prose). `CameraPreview` is an external SPM/Gradle dependency that Capacitor discovers automatically, so it is not registered in that method.
+The shell registers **seven app-local** Capacitor plugins in [`MyViewController.capacitorDidLoad()`](../../../clients/ios/App/App/MyViewController.swift) (count them there, not from prose). `CameraPreview` is an external SPM/Gradle dependency that Capacitor discovers automatically, so it is not registered in that method.
 
 | Plugin | Web module | What it does |
 | --- | --- | --- |
@@ -158,6 +179,7 @@ The shell registers **six app-local** Capacitor plugins in [`MyViewController.ca
 | `VoiceLiveActivity` | [`src/runtime/native-live-activity.ts`](../src/runtime/native-live-activity.ts) | One ActivityKit activity on iOS or ongoing notification on Android |
 | `ApnsEnvironment` | [`src/runtime/apns-environment.ts`](../src/runtime/apns-environment.ts) | The build's real APNs entitlement environment (`development` / `production` / `unknown`), read from the embedded provisioning profile |
 | `SelfHostedServers` | [`src/runtime/self-hosted-servers.ts`](../src/runtime/self-hosted-servers.ts) | List, add, remove, and switch between self-hosted server origins; `switchTo` swaps the shell's configured origin and reloads in place. See the section below |
+| `RecentChats` | [`src/runtime/recent-chats.ts`](../src/runtime/recent-chats.ts) | Mirrors the sidebar conversation list (ids + titles) into a UserDefaults cache that backs the Shortcuts app's chat picker (`ChatEntityQuery`); synced from `ChatLayout` once the list query has resolved |
 
 The two voice plugins are consumed only through `use-live-voice-session-controller.ts` (audio session) and `use-live-activity-mirror.ts` (Live Activity), both mounted at `ChatLayout` scope so their lifetime is exactly the session's.
 
@@ -333,7 +355,7 @@ References:
 
 `WKWebView` on Capacitor iOS can hold a streaming `fetch` open at the network layer with no bytes flowing and no error surfaced to JavaScript, so the for-await loop blocks indefinitely and any reconnect/reconcile path gated on a fetch error never runs. Server heartbeats alone are not a liveness signal unless the client checks them.
 
-**Pair every long-lived stream (SSE, chunked fetch, WebSocket-equivalents) with a timer that resets on every received byte — including SSE comment frames, which most SDKs expose through `onSseEvent` even when they don't yield through the iterator — and force-reconnects after a bounded window of silence.** See `subscribeChatEvents` in the chat domain for the canonical pattern.
+**Pair every long-lived stream (SSE, chunked fetch, WebSocket-equivalents) with a timer that resets on every received byte (including SSE comment frames, which most SDKs expose through `onSseEvent` even when they don't yield through the iterator) and force-reconnects after a bounded window of silence.** The canonical pattern is [`src/lib/streaming/stream-watchdog.ts`](../src/lib/streaming/stream-watchdog.ts), armed per frame (comment frames included) by [`src/lib/streaming/stream-transport.ts`](../src/lib/streaming/stream-transport.ts).
 
 References:
 - MDN — [Using server-sent events](https://developer.mozilla.org/en-US/docs/Web/API/Server-sent_events/Using_server-sent_events)

@@ -121,7 +121,7 @@ describe("AcpRunChatView", () => {
     );
   });
 
-  test("renders the objective and usage meter in the header", () => {
+  test("renders the objective and the input/output metrics above it in the body", () => {
     const e = entry({ inputTokens: 1000, outputTokens: 200 });
     seed(e, []);
 
@@ -130,7 +130,14 @@ describe("AcpRunChatView", () => {
     expect(screen.getByTestId("acp-chat-objective").textContent).toContain(
       "Refactor the parser",
     );
-    expect(screen.getByTestId("acp-usage-meter")).toBeDefined();
+    const conversation = screen.getByTestId("acp-chat-conversation");
+    const metrics = screen.getByTestId("acp-run-metrics");
+    expect(metrics.textContent).toContain("Input");
+    expect(metrics.textContent).toContain("Output");
+    // Metrics sit above (before) the objective in the body.
+    expect(conversation.innerHTML.indexOf("acp-run-metrics")).toBeLessThan(
+      conversation.innerHTML.indexOf("acp-chat-objective"),
+    );
   });
 
   test("header badge reads 'Cancelled', not 'Completed', for a run cancelled mid-flight", () => {

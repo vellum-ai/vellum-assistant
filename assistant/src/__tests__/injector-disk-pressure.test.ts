@@ -14,6 +14,7 @@ mock.module("../daemon/date-context.js", () => ({
   formatTurnTimestamp: () => FIXED_TURN_TIMESTAMP,
 }));
 
+import type { Conversation } from "../daemon/conversation.js";
 import {
   clearConversations,
   setConversation,
@@ -39,6 +40,7 @@ import {
 } from "../plugins/defaults/workspace/injectors.js";
 import type { Injector, TurnContext } from "../plugins/types.js";
 import type { Message } from "../providers/types.js";
+import { asConversation } from "./helpers/mock-conversation.js";
 
 // `applyRuntimeInjections` self-resolves the Slack active-thread focus block
 // from the persisted message rows, so the schema must exist for Slack-channel
@@ -90,38 +92,23 @@ const diskPressureInjector = findInjector("disk-pressure-warning");
 // turn can exercise both; the seed helpers mutate and re-register the same
 // instance. An empty (non-dirty) workspace cache resolves to no block, so
 // disk-pressure-only tests don't trigger a directory scan.
-let liveConversation: {
-  conversationId: string;
-  workingDir: string;
-  workspaceTopLevelContext: string | null;
-  workspaceTopLevelDirty: boolean;
-  diskPressureCleanupModeActive: boolean;
-  channelCapabilities?: ChannelCapabilities;
-  trustContext?: { trustClass: string };
-  currentTurnTemporalSnapshot?: {
-    clientTimezone: string | null;
-  };
-  currentTurnInterfaceContext?: {
-    userMessageInterface: string;
-    assistantMessageInterface: string;
-  };
-};
+let liveConversation: Conversation;
 
 function resetLiveConversation(): void {
-  liveConversation = {
+  liveConversation = asConversation({
     conversationId: TEST_CONVERSATION_ID,
     workingDir: "/workspace",
     workspaceTopLevelContext: "",
     workspaceTopLevelDirty: false,
     diskPressureCleanupModeActive: false,
-    trustContext: { trustClass: "guardian" },
+    trustContext: { trustClass: "guardian", sourceChannel: "vellum" },
     // The unified-turn-context injector sources the interface label from the
     // live conversation's turn interface context; match the expected blocks.
     currentTurnInterfaceContext: {
       userMessageInterface: "macos",
       assistantMessageInterface: "macos",
     },
-  };
+  });
 }
 
 // `applyRuntimeInjections` gates the `<turn_context>` block on the live
@@ -130,24 +117,25 @@ function resetLiveConversation(): void {
 function seedTemporalSnapshot(): void {
   liveConversation.currentTurnTemporalSnapshot = {
     clientTimezone: null,
+    timeSinceLastMessage: null,
   };
-  setConversation(TEST_CONVERSATION_ID, liveConversation as never);
+  setConversation(TEST_CONVERSATION_ID, liveConversation);
 }
 
 function seedChannelCapabilities(caps: ChannelCapabilities): void {
   liveConversation.channelCapabilities = caps;
-  setConversation(TEST_CONVERSATION_ID, liveConversation as never);
+  setConversation(TEST_CONVERSATION_ID, liveConversation);
 }
 
 function seedDiskPressure(cleanupModeActive: boolean): void {
   liveConversation.diskPressureCleanupModeActive = cleanupModeActive;
-  setConversation(TEST_CONVERSATION_ID, liveConversation as never);
+  setConversation(TEST_CONVERSATION_ID, liveConversation);
 }
 
 function seedWorkspaceContext(text: string): void {
   liveConversation.workspaceTopLevelContext = text;
   liveConversation.workspaceTopLevelDirty = false;
-  setConversation(TEST_CONVERSATION_ID, liveConversation as never);
+  setConversation(TEST_CONVERSATION_ID, liveConversation);
 }
 
 // Persist Slack-channel rows for the turn conversation so

@@ -39,10 +39,19 @@ export function StageHost({
   children,
   insetTop = 0,
   insetBottom = 0,
+  insetLeft = 0,
+  insetRight = 0,
 }: {
   children: ReactNode;
   insetTop?: number;
   insetBottom?: number;
+  /**
+   * Horizontal insets, which the shell applies in landscape on a notched
+   * device. They make the stage narrower than the layout viewport, which is
+   * the case a `vw`-anchored child gets wrong.
+   */
+  insetLeft?: number;
+  insetRight?: number;
 }) {
   return (
     <div
@@ -51,6 +60,8 @@ export function StageHost({
         height: "100dvh",
         paddingTop: insetTop,
         paddingBottom: insetBottom,
+        paddingLeft: insetLeft,
+        paddingRight: insetRight,
       }}
     >
       <div

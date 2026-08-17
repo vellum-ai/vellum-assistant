@@ -6,7 +6,7 @@
  */
 
 import { describe, expect, test } from "bun:test";
-import { createElement } from "react";
+import { createElement, Fragment } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 
 import { PanelItem } from "./panel-item";
@@ -21,33 +21,35 @@ function renderRow(trailingAction = createElement("button", {}, "⋯")): string 
   );
 }
 
+/**
+ * The reveal conditions themselves (hover, focus, `aria-expanded`, and the
+ * hoverless case where the action is simply shown) live in one rule in
+ * `tokens.css`. What a row owes that rule is the pair of markers below: the row
+ * declares itself the hover scope, and the trailing action declares itself the
+ * affordance. A row that ships one without the other reveals nothing, or
+ * reveals it always.
+ */
 describe("PanelItem trailing action", () => {
-  test("is hidden by default and revealed on hover", () => {
+  test("is marked as the row's revealed affordance", () => {
     const html = renderRow();
-    expect(html).toContain("opacity-0");
-    expect(html).toContain("[@media(hover:hover)]:group-hover:opacity-100");
+    expect(html).toContain("data-reveal-row");
+    expect(html).toContain("data-reveal=");
   });
 
-  test("is revealed on focus-within so keyboard users can reach it", () => {
-    const html = renderRow();
-    expect(html).toContain("group-focus-within:opacity-100");
+  test("is held visible on the active row, the row the user is already in", () => {
+    const html = renderToStaticMarkup(
+      createElement(PanelItem, {
+        label: "Row",
+        onSelect: () => {},
+        active: true,
+        trailingAction: createElement("button", {}, "⋯"),
+      }),
+    );
+    expect(html).toContain("data-reveal-hold");
   });
 
-  test("stays visible while its menu is open (aria-expanded trigger)", () => {
-    const html = renderRow();
-    expect(html).toContain("has-[[aria-expanded=true]]:opacity-100");
-  });
-
-  test("stays visible on touch devices (no hover to reveal it)", () => {
-    // Callers that already have their own touch affordance (long-press,
-    // swipe) simply don't pass `trailingAction` on touch, rather than
-    // asking PanelItem to hide one it was given, see conversation-row.tsx.
-    expect(renderRow()).toContain("pointer-coarse:opacity-100");
-  });
-
-  test("stays visible on the active row", () => {
-    const html = renderRow();
-    expect(html).toContain("group-aria-[current=page]:opacity-100");
+  test("an inactive row does not hold it open", () => {
+    expect(renderRow()).not.toContain("data-reveal-hold");
   });
 });
 
@@ -89,6 +91,20 @@ describe("PanelItem badge", () => {
   test("a bare badge next to a trailing action skips the extra inset (gap-2 already separates them)", () => {
     const html = renderWithBadge(true, createElement("button", {}, "⋯"));
     expect(html).not.toContain("mr-2");
+  });
+
+  test("yields the shared slot to the trailing action", () => {
+    // The badge and the trailing action crossfade in one cell, so the badge has
+    // to leave under exactly the conditions that bring the action in. Marking
+    // it as the yielding occupant is what ties the two to one set of
+    // conditions: a badge that only left on hover would sit underneath the
+    // action wherever the device cannot hover and the action is always shown.
+    const html = renderWithBadge(false, createElement("button", {}, "⋯"));
+    expect(html).toContain("data-reveal-yield");
+  });
+
+  test("keeps the slot when there is no trailing action to yield it to", () => {
+    expect(renderWithBadge()).not.toContain("data-reveal-yield");
   });
 });
 
@@ -198,6 +214,50 @@ describe("PanelItem shape", () => {
     expect(html).toContain("text-[color:var(--panel-item-fg,inherit)]");
     expect(html).toContain(
       "[@media(hover:hover)]:hover:bg-[var(--panel-item-hover,var(--surface-active))]",
+    );
+  });
+});
+
+describe("PanelItem asChild", () => {
+  /* The row is a state layer over the caller's element: the geometry and the
+     interactive treatment have to land on that element, since nothing else is
+     rendered to carry them. */
+  test("merges the row's geometry and interactive treatment onto the child", () => {
+    const html = renderToStaticMarkup(
+      createElement(
+        PanelItem,
+        { asChild: true, active: true },
+        createElement("a", { href: "/pinned" }, "Pinned"),
+      ),
+    );
+    expect(html).toContain('<a href="/pinned"');
+    expect(html).toContain("group/panel-item");
+    expect(html).toContain("cursor-pointer");
+    expect(html).toContain('aria-current="page"');
+  });
+
+  /* Radix `Slot` skips both the prop merge and the ref composition for a
+     fragment, so a fragment child renders a row with none of the above and
+     holds no ref. The type cannot express that, so it is reported. */
+  test("reports a fragment child, which the slot cannot merge onto", () => {
+    const errors: unknown[] = [];
+    const original = console.error;
+    console.error = (...args: unknown[]) => {
+      errors.push(args[0]);
+    };
+    try {
+      renderToStaticMarkup(
+        createElement(
+          PanelItem,
+          { asChild: true },
+          createElement(Fragment, null, "Pinned"),
+        ),
+      );
+    } finally {
+      console.error = original;
+    }
+    expect(errors.some((message) => String(message).includes("PanelItem"))).toBe(
+      true,
     );
   });
 });

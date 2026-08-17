@@ -54,7 +54,6 @@ function makeParams(
     isDuplicate: false,
     commandIntent: { type: "start", payload: "gv_token123" },
     rawSenderId: "user-42",
-    canonicalAssistantId: "self",
     sourceChannel: "telegram",
     conversationExternalId: "chat-123",
     eventId: "event-1",

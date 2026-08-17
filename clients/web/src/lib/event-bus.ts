@@ -25,6 +25,7 @@
  */
 
 import type { AssistantEventEnvelope } from "@vellumai/assistant-api";
+import type { CommandUrlProvenance } from "@/runtime/native-deep-link";
 
 /**
  * Source of a synthetic `"app.resume"` event.
@@ -32,10 +33,10 @@ import type { AssistantEventEnvelope } from "@vellumai/assistant-api";
  * `"visibility"`: `document.visibilitychange` fired with
  * `visibilityState === "visible"` on a web client.
  * `"app_state"`: Capacitor `App.appStateChange` fired with `isActive`
- * in the iOS native shell. Web + Capacitor consumers must dedup
- * `"visibility"` and `"app_state"` themselves when both arrive in
- * close succession (the bus does not — its purpose is to deliver
- * every signal it sees).
+ * in the iOS native shell. Both describe the same physical edge on iOS,
+ * where they fire milliseconds apart, so
+ * `runtime/event-sources/lifecycle-edge.ts` publishes the pair once and
+ * consumers see either label depending on which source arrived first.
  * `"online"`: `window.online` fired after `navigator.onLine` flipped
  * back to true; surfaced as a resume so consumers that just want
  * "we're probably stale, refresh" can subscribe to a single channel.
@@ -153,6 +154,27 @@ export interface BusEventMap {
   "deeplink.send": { message: string };
   "deeplink.openThread": { threadId: string };
   /**
+   * Open a conversation with a message staged in its composer:
+   * `<scheme>://thread/<id>?message=…`, produced by the iOS
+   * `SendMessageToChatIntent` (the "Send Message to Chat" Shortcuts
+   * action). Split from `deeplink.openThread` because the consumer does
+   * more than navigate. With `provenance: "intent"` it parks a
+   * send-on-arrival request that the chat domain fulfils once the target
+   * thread is confirmed to exist; otherwise it parks `message` as a
+   * composer pre-fill and requests focus, so the user lands one tap from
+   * sent (a custom-scheme link with no proven origin carries no caller
+   * identity; see `useGlobalDeepLinkConsumer`). `message` is
+   * bounded and sanitized by `parseOpenThreadDeepLink`; a thread link
+   * whose message fails sanitization publishes plain `deeplink.openThread`
+   * instead.
+   */
+  "deeplink.sendToThread": {
+    threadId: string;
+    message: string;
+    /** As on `deeplink.startVoice`: proven intent origin, or `null`. */
+    provenance: CommandUrlProvenance;
+  };
+  /**
    * Stripe Checkout finished for a checkout a native shell started
    * (the Electron shell's system browser or Capacitor iOS's in-app
    * SFSafariViewController). The platform bounces the browser to
@@ -181,10 +203,22 @@ export interface BusEventMap {
    *
    * `prompt` is what the user already said before the app was up (Siri's
    * "Ask …" intent). It is `null` unless the link carried usable text —
-   * `parseStartVoiceDeepLink` bounds and sanitizes it, so subscribers get
-   * either trustworthy text or nothing.
+   * `parseStartVoiceDeepLink` bounds and sanitizes its shape, but the
+   * scheme proves nothing about the sender, so consumers must treat it as
+   * untrusted: it pre-fills the composer and is never auto-sent, and no
+   * voice session starts for it (see `useGlobalDeepLinkConsumer`).
    */
-  "deeplink.startVoice": { mode: "new" | "resume"; prompt: string | null };
+  "deeplink.startVoice": {
+    mode: "new" | "resume";
+    prompt: string | null;
+    /**
+     * `"intent"` when the iOS shell proved an App Intent produced the URL
+     * (`CommandURLProvenance.swift`); `null` for any other origin. A
+     * proven prompt may be sent on the user's behalf; an unproven one is
+     * only staged. See `CommandUrlProvenance` in `native-deep-link.ts`.
+     */
+    provenance: CommandUrlProvenance;
+  };
   /**
    * Electron host only: inbound `<scheme>://connect` URL from the pair
    * page's "Open in the Vellum app" button or a `vellum pair --qr --app`

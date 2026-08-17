@@ -1,9 +1,7 @@
-import { useQuery } from "@tanstack/react-query";
 import { Bell } from "lucide-react";
 import { useCallback, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router";
 
-import { schedulesListQueryOptions } from "@/domains/settings/api/schedules";
 import {
   useBackgroundConversationListQuery,
   useConversationListQuery,
@@ -15,7 +13,6 @@ import { useSupportsBulkFeedStatus } from "@/lib/backwards-compat/bulk-feed-stat
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { mergeConversationLists } from "@/utils/conversation-cache";
 import { navigateToConversation } from "@/utils/conversation-navigation";
-import { routes } from "@/utils/routes";
 import type { FeedItem, FeedItemStatus } from "@vellumai/assistant-api";
 import {
   BottomSheet,
@@ -27,6 +24,7 @@ import {
 import { toast } from "@vellumai/design-library/components/toast";
 
 import { HomeRecapRow } from "../home-recap-row";
+import { useFeedItemEntityLinks } from "../hooks/use-feed-item-entity-links";
 import { useHomeFeedQuery } from "../hooks/use-home-feed-query";
 import {
   clearAllArgs,
@@ -164,18 +162,13 @@ export function NotificationsBell() {
   const areConversationListsPending =
     isForegroundPending || isBackgroundPending || isScheduledPending;
 
-  // A scheduled-run notification links back to the schedule that produced it,
-  // which may since have been deleted, so the link is checked against the same
-  // list the Schedules page renders (shared options, shared cache entry). Same
-  // gate as the conversation lists: the list view has no use for schedule ids.
-  const { data: schedules, isPending: isScheduleListPending } = useQuery({
-    ...schedulesListQueryOptions(assistantId ?? undefined),
-    enabled: isDetailOpen,
-  });
-  const validScheduleIds = useMemo(
-    () => new Set((schedules ?? []).map((schedule) => schedule.id)),
-    [schedules],
-  );
+  // A notification also links back to what it is about: the schedule that
+  // produced a scheduled run, the skill a background pass rewrote. Either may
+  // since have been deleted, so the resolver checks each against the list that
+  // owns it (shared options, shared cache entries). Same gate as the
+  // conversation lists: the list view has no use for those ids.
+  const { links: entityLinks, isPending: areEntityLinksPending } =
+    useFeedItemEntityLinks(selectedItem, assistantId, isDetailOpen);
 
   // The list unmounts while the detail is open, so its scroll offset is parked
   // here and written back when the list mounts again.
@@ -232,9 +225,9 @@ export function NotificationsBell() {
     navigateToConversation(navigate, conversationId);
   };
 
-  const handleViewSchedule = (scheduleId: string) => {
+  const handleNavigate = (to: string) => {
     closePanel();
-    navigate(routes.schedules.detail(scheduleId));
+    navigate(to);
   };
 
   const handleUpdateStatus = (itemId: string, status: FeedItemStatus) => {
@@ -382,12 +375,12 @@ export function NotificationsBell() {
           contentMaxHeight={contentMaxHeight}
           validConversationIds={validConversationIds}
           areConversationListsPending={areConversationListsPending}
-          validScheduleIds={validScheduleIds}
-          isScheduleListPending={isScheduleListPending}
+          entityLinks={entityLinks}
+          areEntityLinksPending={areEntityLinksPending}
           isActionPending={feedQuery.triggerAction.isPending}
           onBack={() => setSelectedItemId(null)}
           onGoToConversation={handleGoToConversation}
-          onViewSchedule={handleViewSchedule}
+          onNavigate={handleNavigate}
           onUpdateStatus={handleUpdateStatus}
           onDismiss={handleDismiss}
           onTriggerAction={handleTriggerAction}

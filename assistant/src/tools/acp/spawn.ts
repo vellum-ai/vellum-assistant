@@ -3,6 +3,12 @@ import { basename } from "node:path";
 import { z } from "zod";
 
 import { markAcpConnectCardRaised } from "../../acp/acp-connect-card-state.js";
+import {
+  ACP_AUTH_RECOVERY_GUIDANCE,
+  ACP_CLAUDE_AUTH_REQUIRED_CODE,
+  CLAUDE_ACP_COMMAND,
+  isAcpAuthRequired,
+} from "../../acp/auth-required.js";
 import { resolveAgentWithAutoInstall } from "../../acp/auto-install.js";
 import { getAcpSessionManager } from "../../acp/index.js";
 import {
@@ -64,10 +70,12 @@ export async function executeAcpSpawn(
     return { content: '"task" is required.', isError: true };
   }
 
-  // Pure precondition: check for a connected client BEFORE any side effects
-  // (auto-install mutates the host via a `bun` global install and can block
-  // for up to the install timeout). Without a client the spawn cannot
-  // succeed anyway.
+  // Pure precondition: the session streams its results through the
+  // conversation's event sink, so a context with no sink at all (a tool run
+  // outside any conversation, e.g. the standalone CLI runner) cannot host a
+  // spawn. Checked BEFORE any side effects (auto-install mutates the host via
+  // a `bun` global install and can block for up to the install timeout).
+  // Inside a conversation the sink always exists and is always live.
   const sendToClient = getSendToClient(context);
   if (!sendToClient) {
     return {
@@ -147,6 +155,32 @@ export async function executeAcpSpawn(
 
     return { content: payload, isError: false };
   } catch (err) {
+    // A pre-spawn rejection of the stored Claude credential (the adapter
+    // raises auth_required during session creation) gets the same recovery
+    // surface as the missing-token preflight: the errorCode raises the inline
+    // Connect card off this failed tool call, the registry mark dedups a
+    // redundant secure prompt, and the guidance keeps the model pointed at
+    // the card. Adapter-gated: the card repairs Claude credentials only.
+    // `isAcpAuthRequired` rather than an instanceof: it also recognizes the
+    // raw JSON-RPC auth_required object, which is how a rejection reaches
+    // this catch from the one protocol call `withAuthRetry` cannot wrap
+    // (`initialize`, whose response is what advertises the auth methods the
+    // retry would need).
+    if (
+      isAcpAuthRequired(err) &&
+      basename(agentConfig.command) === CLAUDE_ACP_COMMAND
+    ) {
+      const message =
+        err instanceof Error
+          ? err.message
+          : String((err as { message?: unknown }).message ?? err);
+      markAcpConnectCardRaised(context.conversationId);
+      return {
+        content: `${message}\n\n${ACP_AUTH_RECOVERY_GUIDANCE}`,
+        isError: true,
+        errorCode: ACP_CLAUDE_AUTH_REQUIRED_CODE,
+      };
+    }
     const msg =
       err instanceof Error
         ? err.message

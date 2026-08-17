@@ -2,6 +2,7 @@ import { ChevronRight } from "lucide-react";
 import type { ReactNode } from "react";
 
 import type { ParsedToolDefinition } from "@/domains/chat/inspector/tool-definitions";
+import { useTranslation } from "@/i18n";
 import { Collapsible, Tag } from "@vellumai/design-library";
 
 interface ToolDefinitionsContentProps {
@@ -18,18 +19,19 @@ interface ToolDefinitionsContentProps {
 export function ToolDefinitionsContent({
   tools,
 }: ToolDefinitionsContentProps): ReactNode {
+  const { t } = useTranslation("chat");
+
   return (
     <div>
       <p
         className="text-body-medium-lighter"
         style={{ color: "var(--content-secondary)" }}
       >
-        {tools.length} tool{tools.length === 1 ? "" : "s"} sent with this
-        request. Expand a tool to see its definition and input schema.
+        {t("toolDefinitionsContent.intro", { count: tools.length })}
       </p>
       <Collapsible.Root
         type="multiple"
-        defaultValue={tools.length === 1 ? tools.map((t) => t.name) : undefined}
+        defaultValue={tools.length === 1 ? tools.map((tool) => tool.name) : undefined}
         className="mt-3"
       >
         {tools.map((tool, i) => (
@@ -41,6 +43,8 @@ export function ToolDefinitionsContent({
 }
 
 function ToolRow({ tool }: { tool: ParsedToolDefinition }): ReactNode {
+  const { t } = useTranslation("chat");
+
   return (
     <Collapsible.Item
       value={tool.name}
@@ -86,7 +90,7 @@ function ToolRow({ tool }: { tool: ParsedToolDefinition }): ReactNode {
                 className="mb-1 text-label-default"
                 style={{ color: "var(--content-tertiary)" }}
               >
-                Input schema
+                {t("toolDefinitionsContent.inputSchema")}
               </p>
               <SchemaNode schema={tool.inputSchema} depth={0} />
             </div>
@@ -95,7 +99,7 @@ function ToolRow({ tool }: { tool: ParsedToolDefinition }): ReactNode {
               className="text-label-default"
               style={{ color: "var(--content-tertiary)" }}
             >
-              No input schema — this tool takes no structured input.
+              {t("toolDefinitionsContent.noInputSchema")}
             </p>
           )}
           {Object.keys(tool.extras).length > 0 && (
@@ -104,7 +108,7 @@ function ToolRow({ tool }: { tool: ParsedToolDefinition }): ReactNode {
                 className="mb-1 text-label-default"
                 style={{ color: "var(--content-tertiary)" }}
               >
-                Settings
+                {t("toolDefinitionsContent.settings")}
               </p>
               <dl className="flex flex-col gap-0.5">
                 {Object.entries(tool.extras).map(([key, value]) => (
@@ -190,6 +194,7 @@ function SchemaProperty({
   isRequired: boolean;
   depth: number;
 }): ReactNode {
+  const { t } = useTranslation("chat");
   const description =
     typeof schema.description === "string" ? schema.description : null;
   const items = isRecord(schema.items) ? schema.items : null;
@@ -219,7 +224,7 @@ function SchemaProperty({
               color: "var(--content-attention, var(--content-secondary))",
             }}
           >
-            required
+            {t("toolDefinitionsContent.required")}
           </span>
         )}
         {schema.default !== undefined && (
@@ -227,7 +232,9 @@ function SchemaProperty({
             className="font-mono text-label-default"
             style={{ color: "var(--content-tertiary)" }}
           >
-            default: {formatScalar(schema.default)}
+            {t("toolDefinitionsContent.defaultValue", {
+              value: formatScalar(schema.default),
+            })}
           </span>
         )}
       </div>

@@ -7,6 +7,33 @@ const meta: Meta<typeof ResizablePanel> = {
   component: ResizablePanel,
   parameters: {
     layout: "fullscreen",
+    docs: {
+      description: {
+        component:
+          "A sized right pane beside a flexible left one. The divider is " +
+          "focusable: Tab to it, then Left/Right to nudge (hold Shift for a " +
+          "coarser step) and Home/End to jump to the narrowest and widest " +
+          "allowed. Implements the APG window splitter pattern: " +
+          "https://www.w3.org/WAI/ARIA/apg/patterns/windowsplitter/",
+      },
+    },
+  },
+  args: {
+    left: (
+      <Pane label="Left pane, takes the remainder" bg="var(--surface-base)" />
+    ),
+    right: <Pane label="Right pane, sized" bg="var(--surface-lift)" />,
+    defaultRightWidth: 320,
+    minRightWidth: 200,
+    minLeftWidth: 200,
+    separatorLabel: "Resize panels",
+    hideDivider: false,
+  },
+  argTypes: {
+    left: { control: false },
+    right: { control: false },
+    onWidthChange: { control: false },
+    storageKey: { control: false },
   },
   decorators: [
     (Story) => (
@@ -23,7 +50,7 @@ type Story = StoryObj<typeof ResizablePanel>;
 function Pane({ label, bg }: { label: string; bg: string }) {
   return (
     <div
-      className="flex h-full items-center justify-center"
+      className="flex h-full items-center justify-center px-4 text-center"
       style={{ backgroundColor: bg }}
     >
       <span className="text-sm font-medium text-[color:var(--content-default)]">
@@ -33,30 +60,28 @@ function Pane({ label, bg }: { label: string; bg: string }) {
   );
 }
 
-export const Default: Story = {
+export const Default: Story = {};
+
+/**
+ * Tighter minimums on both sides, so Home and End have somewhere to travel and
+ * the clamp is visible when you push the divider to either bound.
+ */
+export const NarrowMinimums: Story = {
   args: {
-    left: <Pane label="Left pane" bg="var(--surface-base)" />,
-    right: <Pane label="Right pane" bg="var(--surface-lift)" />,
-    defaultLeftWidth: 300,
+    defaultRightWidth: 240,
+    minRightWidth: 120,
+    minLeftWidth: 120,
   },
 };
 
-export const CustomMinWidths: Story = {
+/**
+ * The divider line hidden while the full drag hit-area and grab handle remain,
+ * for when the right pane carries its own container chrome. This is how both
+ * master-detail pages mount it.
+ */
+export const HiddenDivider: Story = {
   args: {
-    left: <Pane label="Min 200px" bg="var(--surface-base)" />,
-    right: <Pane label="Min 150px" bg="var(--surface-lift)" />,
-    defaultLeftWidth: 400,
-    minLeftWidth: 200,
-    minRightWidth: 150,
-  },
-};
-
-export const NarrowDefault: Story = {
-  args: {
-    left: <Pane label="Narrow left" bg="var(--surface-base)" />,
-    right: <Pane label="Wide right" bg="var(--surface-lift)" />,
-    defaultLeftWidth: 200,
-    minLeftWidth: 150,
-    minRightWidth: 200,
+    hideDivider: true,
+    defaultRightWidth: 400,
   },
 };

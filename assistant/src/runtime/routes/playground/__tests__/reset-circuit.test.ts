@@ -75,6 +75,9 @@ function makeFakeConversation(
     sendToClient: (msg: AssistantEvent) => {
       sent.push(msg);
     },
+    emit: (msg: AssistantEvent) => {
+      sent.push(msg);
+    },
   } as unknown as Conversation;
 
   return { conversation: fake, sent, state };

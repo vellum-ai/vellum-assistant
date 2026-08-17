@@ -139,14 +139,38 @@ const ModelActionSchema = SurfaceActionSchema.extend({
 const MAX_UNDO_DEPTH = 10;
 
 /**
+ * Whether a surface-action turn (a user clicked a button or submitted a form on
+ * a UI surface) runs with a human declared present. The handler does not yet
+ * learn the actor's interface, so it cannot declare presence the way the send
+ * route does; the turn runs non-interactive, which is what the state-derived
+ * fallback resolved to between turns. Deriving it from the actor's interface
+ * is a policy change tracked separately.
+ */
+const SURFACE_ACTION_TURN_IS_INTERACTIVE = false;
+
+/**
  * Pending surface types that do not hold the one-interactive-surface-at-a-time
- * lock. Both render content the user reads rather than a question they must
- * answer, so a live one must not block the next surface.
+ * lock. Each renders content the user reads (or settles on its own) rather
+ * than a question they must answer, so a live one must not block the next
+ * surface.
  */
 const NON_BLOCKING_PENDING_SURFACE_TYPES = new Set<SurfaceType>([
   "dynamic_page",
   "visual",
+  "voice_picker",
 ]);
+
+/**
+ * Surface types that carry no terminal action: the card settles when the user
+ * interacts with it, so no click could ever satisfy an attached `actions`
+ * entry or an explicit `await_action`. Both are generic ui_show params though,
+ * so nothing stops the model attaching them here, and doing so wedges the
+ * turn: the client latches `awaiting_user_input` on the presence of actions
+ * alone and no action ever arrives to clear it, leaving the composer disabled
+ * and Stop hidden while the daemon is still streaming. Stripping them makes
+ * the "never blocks a turn" contract structural rather than advisory.
+ */
+const ACTIONLESS_SURFACE_TYPES = new Set<SurfaceType>(["voice_picker"]);
 
 /**
  * Debounce window for persisting `ui_surface_update` data back to the
@@ -1358,7 +1382,7 @@ export function openChannelSetupPanel(
       data: safeParseSurfaceData("channel_setup", data) ?? {},
     });
 
-    ctx.sendToClient({
+    ctx.emit({
       type: "open_panel",
       panelType: "channel_setup",
       data,
@@ -1496,7 +1520,7 @@ function pushUndoState(
 export function handleSurfaceUndo(ctx: Conversation, surfaceId: string): void {
   const stack = ctx.surfaceUndoStacks.get(surfaceId);
   if (!stack || stack.length === 0) {
-    ctx.sendToClient({
+    ctx.emit({
       type: "ui_surface_undo_result",
       conversationId: ctx.conversationId,
       surfaceId,
@@ -1509,7 +1533,7 @@ export function handleSurfaceUndo(ctx: Conversation, surfaceId: string): void {
   const previousHtml = stack.pop()!;
   const stored = ctx.surfaceState.get(surfaceId);
   if (!stored || stored.surfaceType !== "dynamic_page") {
-    ctx.sendToClient({
+    ctx.emit({
       type: "ui_surface_undo_result",
       conversationId: ctx.conversationId,
       surfaceId,
@@ -1543,7 +1567,7 @@ export function handleSurfaceUndo(ctx: Conversation, surfaceId: string): void {
         html: previousHtml,
       };
       s.data = revertedData;
-      ctx.sendToClient({
+      ctx.emit({
         type: "ui_surface_update",
         conversationId: ctx.conversationId,
         surfaceId: sid,
@@ -1580,7 +1604,7 @@ export function handleSurfaceUndo(ctx: Conversation, surfaceId: string): void {
       html: previousHtml,
     };
     stored.data = revertedData;
-    ctx.sendToClient({
+    ctx.emit({
       type: "ui_surface_update",
       conversationId: ctx.conversationId,
       surfaceId,
@@ -1588,7 +1612,7 @@ export function handleSurfaceUndo(ctx: Conversation, surfaceId: string): void {
     });
   }
 
-  ctx.sendToClient({
+  ctx.emit({
     type: "ui_surface_undo_result",
     conversationId: ctx.conversationId,
     surfaceId,
@@ -2198,6 +2222,7 @@ export async function handleSurfaceAction(
       activeSurfaceId: surfaceId,
       displayContent,
       sourceActorPrincipalId,
+      isInteractive: SURFACE_ACTION_TURN_IS_INTERACTIVE,
       // Rides the metadata bag rather than a typed option: the queue
       // round-trips `metadata` but not `PersistMessageOptions`.
       metadata: { scripted: isSyntheticSurfaceActionContent(content) },
@@ -2260,6 +2285,7 @@ export async function handleSurfaceAction(
         activeSurfaceId: surfaceId,
         displayContent,
         sourceActorPrincipalId,
+        isInteractive: SURFACE_ACTION_TURN_IS_INTERACTIVE,
         scripted: isSyntheticSurfaceActionContent(content),
       })
       .catch((err) => {
@@ -2446,6 +2472,7 @@ export async function handleSurfaceAction(
     activeSurfaceId: surfaceId,
     displayContent,
     sourceActorPrincipalId,
+    isInteractive: SURFACE_ACTION_TURN_IS_INTERACTIVE,
     // Rides the metadata bag rather than a typed option: the queue
     // round-trips `metadata` but not `PersistMessageOptions`.
     metadata: { scripted: isSyntheticSurfaceActionContent(content) },
@@ -2518,6 +2545,7 @@ export async function handleSurfaceAction(
       activeSurfaceId: surfaceId,
       displayContent,
       sourceActorPrincipalId,
+      isInteractive: SURFACE_ACTION_TURN_IS_INTERACTIVE,
       scripted: isSyntheticSurfaceActionContent(content),
     })
     .catch((err) => {
@@ -2582,7 +2610,7 @@ export function refreshSurfacesForApp(
     }
 
     // Push the update to the client
-    ctx.sendToClient({
+    ctx.emit({
       type: "ui_surface_update",
       conversationId: ctx.conversationId,
       surfaceId,
@@ -3279,8 +3307,12 @@ export async function surfaceProxyResolver(
       }
       inputActions = valid.length > 0 ? valid : undefined;
     }
-    const actions =
-      choiceData !== undefined ? buildChoiceActions(choiceData) : inputActions;
+    const isActionless = ACTIONLESS_SURFACE_TYPES.has(surfaceType);
+    const actions = isActionless
+      ? undefined
+      : choiceData !== undefined
+        ? buildChoiceActions(choiceData)
+        : inputActions;
     const hasActions = Array.isArray(actions) && actions.length > 0;
     if (surfaceType === "choice" && !hasActions) {
       return {
@@ -3332,7 +3364,11 @@ export async function surfaceProxyResolver(
           : surfaceType === "table"
             ? hasActions
             : INTERACTIVE_SURFACE_TYPES.includes(surfaceType);
-    const awaitAction = (input.await_action as boolean) ?? isInteractive;
+    // An explicit `await_action: true` is honored for every other type; an
+    // actionless surface has nothing to await, so it is forced false.
+    const awaitAction = isActionless
+      ? false
+      : ((input.await_action as boolean) ?? isInteractive);
 
     // Only one non-persistent interactive surface at a time. If another
     // surface is already awaiting user input, reject this one so the LLM
@@ -3411,7 +3447,7 @@ export async function surfaceProxyResolver(
       "Sending ui_surface_show to client",
     );
 
-    ctx.sendToClient({
+    ctx.emit({
       type: "ui_surface_show",
       conversationId: ctx.conversationId,
       surfaceId,
@@ -3530,7 +3566,7 @@ export async function surfaceProxyResolver(
       mergedData = patch;
     }
 
-    ctx.sendToClient({
+    ctx.emit({
       type: "ui_surface_update",
       conversationId: ctx.conversationId,
       surfaceId,
@@ -3588,7 +3624,7 @@ export async function surfaceProxyResolver(
           isError: true,
         };
       }
-      ctx.sendToClient({
+      ctx.emit({
         type: "ui_surface_complete",
         conversationId: ctx.conversationId,
         surfaceId,
@@ -3596,7 +3632,7 @@ export async function surfaceProxyResolver(
         submittedData: lastAction.data,
       });
     } else {
-      ctx.sendToClient({
+      ctx.emit({
         type: "ui_surface_dismiss",
         conversationId: ctx.conversationId,
         surfaceId,
@@ -3698,7 +3734,7 @@ export async function surfaceProxyResolver(
       // Inline-only preview card emitted during app_create — do not open a
       // workspace panel and do not register surface state. The client renders
       // this as a tappable inline card that opens the app on demand.
-      ctx.sendToClient({
+      ctx.emit({
         type: "ui_surface_show",
         conversationId: ctx.conversationId,
         surfaceId,
@@ -3728,7 +3764,7 @@ export async function surfaceProxyResolver(
       title: app.name,
     });
 
-    ctx.sendToClient({
+    ctx.emit({
       type: "ui_surface_show",
       conversationId: ctx.conversationId,
       surfaceId,

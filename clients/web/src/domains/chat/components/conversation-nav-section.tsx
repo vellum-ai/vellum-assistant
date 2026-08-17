@@ -7,8 +7,9 @@
  *   shell (icon + label + trailing + context menu) wrapping a
  *   `ConversationRowList`. Used by channel sections and custom groups.
  *
- * Nothing paginates: the rows just keep going. What differs is where they
- * scroll. Only the bottom-most section (`isLast`) grows to fill whatever
+ * A windowed section paginates: `onEndReached` fires at the bottom of the
+ * rows and pages more in (LUM-2444). What differs per section is where the
+ * rows scroll. Only the bottom-most section (`isLast`) grows to fill whatever
  * space the sidebar has left above the pinned footer, then scrolls within
  * itself once its rows outgrow that: flex-grow has no notion of "this
  * section needs the room," so letting every open section claim a share
@@ -23,8 +24,7 @@
  *
  * Either way a list past {@link CONVERSATION_LIST_VIRTUALIZE_THRESHOLD} rows
  * windows rather than mounting every one, because an assistant accumulates
- * conversations indefinitely and they all arrive in one query: there is no
- * page to fetch, only rows to render. Shorter lists mount directly and skip
+ * conversations indefinitely. Shorter lists mount directly and skip
  * virtuoso's measuring pass.
  *
  * Row callbacks and state come from {@link useConversationListContext}
@@ -44,6 +44,7 @@ import {
 } from "@/components/collapsible-nav-section";
 import { SIDEBAR_SECTION_MAX_HEIGHT } from "@/components/sidebar-nav-geometry";
 import { ConversationRow } from "@/domains/chat/components/conversation-row";
+import { LoadMoreSentinel } from "@/domains/chat/components/load-more-sentinel";
 import {
   hasAnyGroupMenuAction,
   renderGroupMenuItems,
@@ -82,6 +83,13 @@ export interface ConversationRowListProps {
    * just because the flex column had room to give it.
    */
   isLast?: boolean;
+  /**
+   * Fires when the user scrolls to the bottom of the rows - the load-more
+   * trigger for a windowed list (LUM-2444). Pass only while more rows
+   * exist; the virtualized path wires it to `VirtualList.endReached` and
+   * the direct path renders a {@link LoadMoreSentinel} after the rows.
+   */
+  onEndReached?: () => void;
 }
 
 export function ConversationRowList({
@@ -89,6 +97,7 @@ export function ConversationRowList({
   scrollParent,
   unbounded,
   isLast,
+  onEndReached,
 }: ConversationRowListProps) {
   const renderRow = (conversation: Conversation) => (
     <ConversationRow
@@ -97,7 +106,12 @@ export function ConversationRowList({
     />
   );
 
-  const rows = <SideMenu.SubList>{items.map(renderRow)}</SideMenu.SubList>;
+  const rows = (
+    <SideMenu.SubList>
+      {items.map(renderRow)}
+      {onEndReached ? <LoadMoreSentinel onVisible={onEndReached} /> : null}
+    </SideMenu.SubList>
+  );
 
   const windows =
     !unbounded && items.length > CONVERSATION_LIST_VIRTUALIZE_THRESHOLD;
@@ -129,6 +143,7 @@ export function ConversationRowList({
       customScrollParent={scrollParent}
       computeItemKey={(_, conversation) => conversation.conversationId}
       itemContent={(_, conversation) => renderRow(conversation)}
+      endReached={onEndReached}
       className={scrollParent ? "bg-transparent" : "h-full bg-transparent"}
     />
   );
@@ -141,9 +156,22 @@ export function ConversationRowList({
      virtuoso's scroller sizes to 100%: the last section fills whatever
      height its own flex-fill sizing (see `CollapsibleNavSection.Section`)
      gives it, every other section gets a fixed height so a busy non-last
-     section still can't push its neighbours off screen. */
+     section still can't push its neighbours off screen.
+
+     The last section's fill only resolves while every ancestor between the
+     sidebar body and this box forwards the body's height (flex column with
+     flex-1/min-h-0 at each layer). A windowed list renders only what fits
+     its viewport, so unlike the mounted-rows path a broken chain here does
+     not degrade to a tall list, it degrades to an empty one. The min-height
+     floor caps that failure at "a section-sized scrollable box": rows stay
+     reachable even if a layout change above drops the chain. */
   return isLast ? (
-    <div className="min-h-0 h-full flex-1">{windowed}</div>
+    <div
+      className="h-full flex-1"
+      style={{ minHeight: SIDEBAR_SECTION_MAX_HEIGHT }}
+    >
+      {windowed}
+    </div>
   ) : (
     <div style={{ height: SIDEBAR_SECTION_MAX_HEIGHT }}>{windowed}</div>
   );

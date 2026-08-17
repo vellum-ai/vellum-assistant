@@ -7,6 +7,7 @@ import { Modal } from "@vellumai/design-library/components/modal";
 import { Notice } from "@vellumai/design-library/components/notice";
 
 import { importPairedAssistantBundle } from "@/lib/local-mode";
+import { Trans, useTranslation } from "@/i18n";
 
 interface ConnectAssistantDialogProps {
   open: boolean;
@@ -38,6 +39,7 @@ function ConnectAssistantDialog({
   onClose,
   onImported,
 }: ConnectAssistantDialogProps) {
+  const { t } = useTranslation("onboarding");
   const [bundle, setBundle] = useState("");
   const [name, setName] = useState("");
   const [pending, setPending] = useState(false);
@@ -106,13 +108,13 @@ function ConnectAssistantDialog({
       >
         <Modal.Content size="sm">
           <Modal.Header icon={Link2}>
-            <Modal.Title>Pairing Imported</Modal.Title>
+            <Modal.Title>
+              {t("connectAssistantDialog.importedTitle")}
+            </Modal.Title>
           </Modal.Header>
           <Modal.Body>
             <Notice tone="warning">
-              This pairing is access-only: its access expires and cannot renew
-              itself. Re-run vellum pair on the assistant&rsquo;s machine and
-              import the new bundle when it expires.
+              {t("connectAssistantDialog.importedBody")}
             </Notice>
           </Modal.Body>
           <Modal.Footer>
@@ -120,7 +122,7 @@ function ConnectAssistantDialog({
               variant="primary"
               onClick={() => onImported(accessOnlyAssistantId)}
             >
-              Continue
+              {t("actions.continue")}
             </Button>
           </Modal.Footer>
         </Modal.Content>
@@ -139,11 +141,16 @@ function ConnectAssistantDialog({
     >
       <Modal.Content size="md">
         <Modal.Header icon={Link2}>
-          <Modal.Title>Connect a Remote Assistant</Modal.Title>
+          <Modal.Title>{t("connectAssistantDialog.title")}</Modal.Title>
           <Modal.Description>
-            On the assistant&rsquo;s machine, run{" "}
-            <code>vellum pair --url https://...</code> and paste the bundle
-            here.
+            {/* The command sits mid-sentence, so the whole instruction is
+                one entry and a language that reorders it keeps the code tag
+                with the command. */}
+            <Trans
+              i18nKey="connectAssistantDialog.instruction"
+              ns="onboarding"
+              components={{ code: <code /> }}
+            />
           </Modal.Description>
         </Modal.Header>
 
@@ -156,7 +163,7 @@ function ConnectAssistantDialog({
                 className="text-body-small-default text-[var(--content-secondary)]"
                 htmlFor="connect-assistant-bundle"
               >
-                Pairing bundle
+                {t("connectAssistantDialog.bundleLabel")}
               </label>
               <Textarea
                 id="connect-assistant-bundle"
@@ -174,7 +181,7 @@ function ConnectAssistantDialog({
                 className="text-body-small-default text-[var(--content-secondary)]"
                 htmlFor="connect-assistant-name"
               >
-                Name (optional)
+                {t("connectAssistantDialog.nameLabel")}
               </label>
               <Input
                 id="connect-assistant-name"
@@ -196,14 +203,14 @@ function ConnectAssistantDialog({
 
         <Modal.Footer>
           <Button variant="ghost" onClick={handleClose} disabled={pending}>
-            Cancel
+            {t("actions.cancel")}
           </Button>
           <Button
             variant="primary"
             onClick={() => void handleSubmit()}
             disabled={!bundle.trim() || pending}
           >
-            {pending ? "Connecting…" : "Connect"}
+            {pending ? t("actions.connecting") : t("actions.connect")}
           </Button>
         </Modal.Footer>
       </Modal.Content>

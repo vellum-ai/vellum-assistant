@@ -1,4 +1,5 @@
 import { FileMarkdown, isMarkdown } from "@/components/file-markdown";
+import { useTranslation } from "@/i18n";
 
 /**
  * Standalone file-content viewer used by the mobile skill-detail view.
@@ -19,13 +20,14 @@ export function SkillFileContent({
   isBinary: boolean;
   viewMode?: "preview" | "raw";
 }) {
+  const { t } = useTranslation("intelligence");
   if (isBinary) {
     return (
       <p
         className="flex h-full items-center justify-center text-body-medium-lighter"
         style={{ color: "var(--content-tertiary)" }}
       >
-        Binary file — no preview available.
+        {t("skillFileContent.binaryFile")}
       </p>
     );
   }
@@ -36,7 +38,7 @@ export function SkillFileContent({
         className="flex h-full items-center justify-center text-body-medium-lighter"
         style={{ color: "var(--content-tertiary)" }}
       >
-        No preview available for {fileName}.
+        {t("skillFileContent.noPreviewAvailable", { fileName })}
       </p>
     );
   }

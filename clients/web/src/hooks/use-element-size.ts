@@ -141,6 +141,12 @@ export interface ElementSize {
  * mounts/unmounts — robust to containers that appear after the first render
  * (e.g. a step that's conditionally rendered). Returns the layout viewport
  * size until the element mounts.
+ *
+ * A measurement that leaves both dimensions alone keeps the previous object,
+ * the same caching contract `useLayoutViewportSize` above holds: an observed
+ * box is notified for far more than its own size (a sibling reflow, a scrollbar
+ * appearing), and a consumer reading only the width should not re-render for
+ * every one of those.
  */
 export function useElementSize(): ElementSize {
   const [el, setEl] = useState<HTMLElement | null>(null);
@@ -152,7 +158,11 @@ export function useElementSize(): ElementSize {
     }
     const measure = () => {
       const rect = el.getBoundingClientRect();
-      setSize({ w: rect.width, h: rect.height });
+      setSize((prev) =>
+        prev.w === rect.width && prev.h === rect.height
+          ? prev
+          : { w: rect.width, h: rect.height },
+      );
     };
     measure();
     const observer = new ResizeObserver(measure);

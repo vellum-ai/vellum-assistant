@@ -16,7 +16,7 @@ import {
   readFileSync,
   unlinkSync,
 } from "node:fs";
-import { dirname } from "node:path";
+import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { getCurrentLogFilePath } from "./logger.js";
@@ -122,6 +122,37 @@ export interface SpawnWorkerProcessOptions {
   detached?: boolean;
 }
 
+export type PackagedWorkerEntry =
+  | "monitoring"
+  | "schedule"
+  | "memory"
+  | "routes"
+  | "db-integrity";
+
+interface WorkerCommandRuntime {
+  platform: NodeJS.Platform;
+  execPath: string;
+  executableExists: (path: string) => boolean;
+}
+
+export function resolveWorkerCommand(
+  entry: URL,
+  packagedEntry: PackagedWorkerEntry | undefined,
+  runtime: WorkerCommandRuntime = {
+    platform: process.platform,
+    execPath: process.execPath,
+    executableExists: existsSync,
+  },
+): string[] {
+  if (runtime.platform === "win32" && packagedEntry) {
+    const executable = join(dirname(runtime.execPath), "vellum-worker.exe");
+    if (runtime.executableExists(executable)) {
+      return [executable, packagedEntry];
+    }
+  }
+  return ["bun", "--smol", "run", fileURLToPath(entry)];
+}
+
 type WorkerReadyOutcome = "ready" | "exited" | "timeout";
 
 /**
@@ -178,6 +209,8 @@ export async function spawnWorkerProcess(args: {
   pidPath: string;
   /** Worker entry script, e.g. `new URL("./worker.ts", import.meta.url)`. */
   entry: URL;
+  /** Entry bundled into vellum-worker.exe for packaged Windows runtimes. */
+  packagedEntry?: PackagedWorkerEntry;
   /** Human-readable name used in spawn-failure messages, e.g. "Memory worker". */
   workerLabel: string;
   options?: SpawnWorkerProcessOptions;
@@ -208,15 +241,15 @@ export async function spawnWorkerProcess(args: {
     // output is at least visible to the spawning process.
   }
 
-  // Workers are latency-insensitive, so run them in bun's small-heap mode
-  // with a RAM-size hint sized to the container — see worker-memory.ts.
+  // Source workers use bun's small-heap mode. Packaged Windows workers use the
+  // compiled worker executable. Both receive the RAM hint from worker-memory.
   //
   // `fileURLToPath`, not `.pathname`: a URL's pathname is percent-encoded, so
   // an install path containing a space (every macOS desktop install lives
   // under "Application Support") would reach bun as "Application%20Support"
   // and the entry would not be found.
   const child = Bun.spawn({
-    cmd: ["bun", "--smol", "run", fileURLToPath(args.entry)],
+    cmd: resolveWorkerCommand(args.entry, args.packagedEntry),
     env: workerMemoryEnv(),
     stdio: ["ignore", "ignore", stderrFd],
     detached,

@@ -1,0 +1,141 @@
+/**
+ * The daemon preconditions shared by every query in `conversation-queries.ts`.
+ *
+ * These hooks share their query keys across many call sites, and TanStack
+ * Query fetches when any observer is enabled, so the gate only holds if it
+ * lives inside the hooks rather than at the call sites. That is what these
+ * cover: not whether the pod-health predicate is correct (see
+ * `assistant/operational-status.test.tsx`), but whether the hooks consult it
+ * at all, and whether a call site passing `enabled: true` can defeat it.
+ */
+
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+import { cleanup, renderHook, waitFor } from "@testing-library/react";
+import { createElement, type ReactNode } from "react";
+
+const conversationsGetMock = mock(async () => ({
+  data: { conversations: [], hasMore: false },
+  error: undefined,
+  response: new Response(null, { status: 200 }),
+}));
+
+let podIsServing = true;
+let orgIsReady = true;
+
+/* Spread over the real module rather than replacing it: the generated SDK is a
+   single barrel that unrelated modules in this import graph also pull from, and
+   a bare object drops every export this file does not name. */
+const realDaemonSdk = await import("@/generated/daemon/sdk.gen");
+
+mock.module("@/generated/daemon/sdk.gen", () => ({
+  ...realDaemonSdk,
+  conversationsGet: conversationsGetMock,
+}));
+
+mock.module("@/assistant/operational-status", () => ({
+  useAssistantIsServing: () => podIsServing,
+}));
+
+/* A completed drain posts to the telemetry ingest, which has no listener here
+   and surfaces as an unhandled ECONNREFUSED after the assertions. */
+mock.module("@/lib/telemetry/client-perf", () => ({
+  emitClientPerfEvent: () => {},
+}));
+
+mock.module("@/hooks/use-is-org-ready", () => ({
+  useIsOrgReady: () => orgIsReady,
+}));
+
+const { useConversationListQuery } = await import(
+  "@/hooks/conversation-queries"
+);
+
+const ASSISTANT_ID = "asst-1";
+
+function wrapper({ children }: { children: ReactNode }) {
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  });
+  return createElement(QueryClientProvider, { client: queryClient }, children);
+}
+
+async function settle() {
+  await new Promise((resolve) => setTimeout(resolve, 0));
+}
+
+beforeEach(() => {
+  conversationsGetMock.mockClear();
+  podIsServing = true;
+  orgIsReady = true;
+});
+
+afterEach(() => {
+  cleanup();
+});
+
+describe("conversation queries · daemon gate", () => {
+  test("fetches when the pod is serving", async () => {
+    renderHook(() => useConversationListQuery(ASSISTANT_ID), { wrapper });
+
+    await waitFor(() => {
+      expect(conversationsGetMock).toHaveBeenCalled();
+    });
+  });
+
+  test("does not fetch while the pod is not serving", async () => {
+    // A waking pod 503s every request, and the list query has a bounded retry
+    // budget. Spending it inside the wake window leaves the query in a
+    // terminal error state that nothing clears, which renders as an assistant
+    // with no conversations.
+    podIsServing = false;
+
+    renderHook(() => useConversationListQuery(ASSISTANT_ID), { wrapper });
+    await settle();
+
+    expect(conversationsGetMock).not.toHaveBeenCalled();
+  });
+
+  test("a call site passing enabled cannot open the gate itself", async () => {
+    // Several call sites mount this query with a hardcoded `true`. Since every
+    // observer shares one query key, a gate applied at the call sites would be
+    // defeated by whichever mount passed no gate of its own.
+    podIsServing = false;
+
+    renderHook(() => useConversationListQuery(ASSISTANT_ID, true), { wrapper });
+    await settle();
+
+    expect(conversationsGetMock).not.toHaveBeenCalled();
+  });
+
+  test("fetches once a waking pod comes up", async () => {
+    // The recovery edge: flipping `enabled` back to true is what makes
+    // TanStack Query re-issue a fetch that was never allowed to run.
+    podIsServing = false;
+
+    const { rerender } = renderHook(
+      () => useConversationListQuery(ASSISTANT_ID),
+      { wrapper },
+    );
+    await settle();
+    expect(conversationsGetMock).not.toHaveBeenCalled();
+
+    podIsServing = true;
+    rerender();
+
+    await waitFor(() => {
+      expect(conversationsGetMock).toHaveBeenCalled();
+    });
+  });
+
+  test("still honors org readiness", async () => {
+    // The gate is an AND of both preconditions, so the pod being up must not
+    // let a request through before the org header is available.
+    orgIsReady = false;
+
+    renderHook(() => useConversationListQuery(ASSISTANT_ID), { wrapper });
+    await settle();
+
+    expect(conversationsGetMock).not.toHaveBeenCalled();
+  });
+});

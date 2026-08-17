@@ -15,6 +15,7 @@ import {
   setPendingProviderKey,
 } from "@/domains/onboarding/provider-key";
 import { isElectron } from "@/runtime/is-electron";
+import { useTranslation } from "@/i18n";
 import { routes } from "@/utils/routes";
 import { Button } from "@vellumai/design-library/components/button";
 import { Select } from "@vellumai/design-library/components/select";
@@ -23,6 +24,7 @@ import { Input } from "@vellumai/design-library/components/input";
 import { MOBILE_INPUT_NO_ZOOM } from "@/domains/onboarding/onboarding-step-layout";
 
 export function ApiKeyScreen() {
+  const { t } = useTranslation("onboarding");
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const hosting = searchParams.get("hosting");
@@ -102,13 +104,13 @@ export function ApiKeyScreen() {
           }
           style={{ animation: "fadeInUp 0.5s ease-out 0.1s both" }}
         >
-          Connect a Model Provider
+          {t("apiKeyScreen.title")}
         </h1>
         <p
           className={`text-center text-body-medium-lighter text-[var(--content-tertiary)] ${electron ? "mt-3.5" : "mt-3"}`}
           style={{ animation: "fadeInUp 0.5s ease-out 0.3s both" }}
         >
-          Choose the model provider your assistant should use.
+          {t("apiKeyScreen.body")}
         </p>
 
         <div
@@ -117,10 +119,10 @@ export function ApiKeyScreen() {
         >
           <div className={`flex flex-col ${electron ? "gap-2" : "gap-1"}`}>
             <label className="text-body-small-default text-[var(--content-tertiary)]">
-              Provider
+              {t("apiKeyScreen.providerLabel")}
             </label>
             <Select
-              aria-label="Provider"
+              aria-label={t("apiKeyScreen.providerLabel")}
               value={provider}
               onChange={(v) => {
                 const match = onboardingProvider(v);
@@ -140,10 +142,10 @@ export function ApiKeyScreen() {
           {models.length > 0 && (
             <div className={`flex flex-col ${electron ? "gap-2" : "gap-1"}`}>
               <label className="text-body-small-default text-[var(--content-tertiary)]">
-                Model
+                {t("apiKeyScreen.modelLabel")}
               </label>
               <Select
-                aria-label="Model"
+                aria-label={t("apiKeyScreen.modelLabel")}
                 value={model}
                 onChange={setModel}
                 options={models.map((option) => ({
@@ -158,7 +160,7 @@ export function ApiKeyScreen() {
             <>
               <div className={`flex flex-col ${electron ? "gap-2" : "gap-1"}`}>
                 <label className="text-body-small-default text-[var(--content-tertiary)]">
-                  Base URL
+                  {t("apiKeyScreen.baseUrlLabel")}
                 </label>
                 <Input
                   type="text"
@@ -170,17 +172,17 @@ export function ApiKeyScreen() {
               </div>
               <div className={`flex flex-col ${electron ? "gap-2" : "gap-1"}`}>
                 <label className="text-body-small-default text-[var(--content-tertiary)]">
-                  Models
+                  {t("apiKeyScreen.modelsLabel")}
                 </label>
                 <Input
                   type="text"
-                  placeholder="model-1, model-2"
+                  placeholder={t("apiKeyScreen.modelsPlaceholder")}
                   value={customModels}
                   onChange={(e) => setCustomModels(e.target.value)}
                   fullWidth
                 />
                 <p className="text-body-small-default text-[var(--content-tertiary)]">
-                  Comma-separated model identifiers exposed by your endpoint.
+                  {t("apiKeyScreen.modelsHelp")}
                 </p>
               </div>
             </>
@@ -190,8 +192,12 @@ export function ApiKeyScreen() {
             <div className="flex flex-col gap-3">
               <Input
                 type="password"
-                label={`${entry.displayName} API Key`}
-                placeholder={entry.apiKeyPlaceholder ?? "Enter your API key"}
+                label={t("apiKeyScreen.apiKeyLabel", {
+                  provider: entry.displayName,
+                })}
+                placeholder={
+                  entry.apiKeyPlaceholder ?? t("apiKeyScreen.apiKeyPlaceholder")
+                }
                 value={apiKey}
                 onChange={(e) => setApiKey(e.target.value)}
                 className={MOBILE_INPUT_NO_ZOOM}
@@ -199,14 +205,14 @@ export function ApiKeyScreen() {
               />
               {entry.docsUrl && (
                 <p className="self-start text-body-medium-lighter text-[var(--content-tertiary)]">
-                  Don't have it?{" "}
+                  {t("apiKeyScreen.noKeyPrompt")}{" "}
                   <a
                     href={entry.docsUrl}
                     target="_blank"
                     rel="noreferrer"
                     className="text-[var(--content-default)] underline"
                   >
-                    Get an API key here
+                    {t("apiKeyScreen.getKeyLink")}
                   </a>
                 </p>
               )}
@@ -226,7 +232,7 @@ export function ApiKeyScreen() {
             onClick={onContinue}
             className={electron ? undefined : "h-11 text-base"}
           >
-            Continue
+            {t("actions.continue")}
           </Button>
           <Button
             variant="outlined"
@@ -235,7 +241,7 @@ export function ApiKeyScreen() {
             onClick={onBack}
             className={electron ? undefined : "h-11 text-base"}
           >
-            Back
+            {t("actions.back")}
           </Button>
         </div>
       </div>

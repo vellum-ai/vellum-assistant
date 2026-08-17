@@ -7,6 +7,29 @@
 
 import type { Conversation } from "@/types/conversation-types";
 
+/**
+ * True when a `groupId` refers to a non-system (custom) group.
+ * System groups use a `"system:"` prefix (e.g. `"system:pinned"`).
+ */
+export function isCustomGroupId(
+  groupId: string | undefined,
+): groupId is string {
+  return !!groupId && !groupId.startsWith("system:");
+}
+
+/**
+ * True when a conversation is pinned, via either the modern `isPinned`
+ * boolean or the legacy `groupId === "system:pinned"` marker. Some
+ * conversations (especially older ones) only carry the legacy marker,
+ * so checking `isPinned` alone misses them and shows the wrong
+ * Pin/Unpin label in the actions menu.
+ */
+export function isConversationPinned(conversation: Conversation): boolean {
+  return (
+    conversation.isPinned === true || conversation.groupId === "system:pinned"
+  );
+}
+
 export function isBackgroundConversation(conversation: Conversation): boolean {
   // Surfaced conversations (`surfacedAt != null`) are explicitly promoted
   // into the Recents grouping, so they get full foreground treatment —

@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
 
 import * as eventBus from "@/lib/event-bus";
 import { publishVisibilitySource } from "@/runtime/event-sources/dom-visibility";
+import { __resetLifecycleEdgeForTests } from "@/runtime/event-sources/lifecycle-edge";
 
 const publishSpy = spyOn(eventBus, "publish");
 
@@ -15,6 +16,10 @@ const trackedSubscribe = (): void => {
 };
 
 beforeEach(() => {
+  // The edge window is module state shared with every other source that
+  // publishes through it, so a case in another suite can otherwise swallow
+  // this one's first edge.
+  __resetLifecycleEdgeForTests();
   publishSpy.mockClear();
 });
 

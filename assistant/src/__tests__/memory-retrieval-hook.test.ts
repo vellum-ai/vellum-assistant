@@ -73,6 +73,7 @@ import type { QdrantSparseVector } from "../persistence/embeddings/qdrant-client
 import type { ConversationGraphMemory } from "../plugins/defaults/memory/graph/conversation-graph-memory.js";
 import userPromptSubmitMemoryRetrieval from "../plugins/defaults/memory/hooks/user-prompt-submit.js";
 import type { Message } from "../providers/types.js";
+import { asConversation } from "./helpers/mock-conversation.js";
 
 /** Canonical metrics payload the graph retriever attaches to a real hit. */
 function makeMetrics() {
@@ -172,15 +173,15 @@ function installConversation(
   graphMemory: ConversationGraphMemory,
   opts?: {
     trusted?: boolean;
-    signal?: AbortSignal;
+    abortController?: AbortController;
   },
 ): void {
   currentTrustClass = opts?.trusted === false ? "unknown" : "guardian";
-  currentConversation = {
+  currentConversation = asConversation({
     graphMemory,
     trustContext: undefined,
-    abortController: { signal: opts?.signal ?? new AbortController().signal },
-  } as unknown as Conversation;
+    abortController: opts?.abortController ?? new AbortController(),
+  });
 }
 
 beforeEach(() => {
@@ -492,7 +493,7 @@ describe("user-prompt-submit hook (memory retrieval)", () => {
     const controller = new AbortController();
     installConversation(graphMemory, {
       trusted: true,
-      signal: controller.signal,
+      abortController: controller,
     });
     const ctx = makeHookCtx();
 

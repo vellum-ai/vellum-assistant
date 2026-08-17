@@ -14,6 +14,7 @@
  * story describe the same item.
  */
 import type { Meta, StoryObj } from "@storybook/react-vite";
+import { Brain, Calendar } from "lucide-react";
 
 import {
   feedItem,
@@ -21,6 +22,7 @@ import {
   FIXTURE_VALID_CONVERSATIONS,
 } from "@/domains/home/feed-test-fixtures";
 import { HomeDetailPanel } from "@/domains/home/detail-panel/home-detail-panel";
+import { routes } from "@/utils/routes";
 
 const meta = {
   title: "Home/HomeDetailPanel",
@@ -46,14 +48,23 @@ export default meta;
 type Story = StoryObj<typeof meta>;
 
 /**
- * A background pass updated a skill. The item carries no `detailPanel`, so
- * opening it shows the header plus the summary as markdown: the same sentence
- * the row already displayed, at full width. There is nothing further to drill
- * into, which is why a diff of the change has to live somewhere other than
- * this panel.
+ * A background pass updated a skill. The item carries no `detailPanel`, so the
+ * body is the summary as markdown: the same sentence the row already
+ * displayed, at full width. The panel names a skill it cannot show, so the
+ * footer carries a link to it, resolved from `metadata.skillId` by
+ * `useFeedItemEntityLinks` and offered only while that skill still exists.
  */
 export const SkillUpdated: Story = {
   args: {
+    entityLinks: [
+      {
+        kind: "skill",
+        labelKey: "actions.viewSkill",
+        icon: Brain,
+        to: routes.skills.detail("weekly-report-export"),
+      },
+    ],
+    onNavigate: () => {},
     item: feedItem({
       id: "feed-skill-updated",
       title: "Skill updated: Weekly Report Export",
@@ -61,6 +72,7 @@ export const SkillUpdated: Story = {
         'Updated the skill "Weekly Report Export" from something learned in an earlier conversation.',
       category: "background",
       urgency: "low",
+      metadata: { skillId: "weekly-report-export" },
       conversationId: FIXTURE_CONVERSATION_ID,
     }),
   },
@@ -141,7 +153,15 @@ export const Dismissed: Story = {
  */
 export const FromSchedule: Story = {
   args: {
-    onViewSchedule: () => {},
+    entityLinks: [
+      {
+        kind: "schedule",
+        labelKey: "actions.viewSchedule",
+        icon: Calendar,
+        to: routes.schedules.detail("weekly-report"),
+      },
+    ],
+    onNavigate: () => {},
     item: feedItem({
       id: "feed-schedule",
       title: "Weekly report is due",

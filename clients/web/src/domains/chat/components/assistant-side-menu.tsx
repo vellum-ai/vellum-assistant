@@ -25,6 +25,7 @@ import { SidebarSectionItem } from "@/domains/chat/components/sidebar-section-it
 import { SideMenuBuiltInNav } from "@/domains/chat/components/side-menu-built-in-nav";
 import { SideMenuOverlayBottomColumn } from "@/domains/chat/components/side-menu-overlay-bottom-column";
 import { SidebarBackToTop } from "@/domains/chat/components/sidebar-back-to-top";
+import { SidebarConversationError } from "@/domains/chat/components/sidebar-conversation-error";
 import { SidebarConversationSkeleton } from "@/domains/chat/components/sidebar-conversation-skeleton";
 import { useSectionDragReorder } from "@/domains/chat/hooks/use-section-drag-reorder";
 import { useScrolledPast } from "@/domains/chat/hooks/use-scrolled-past";
@@ -34,9 +35,11 @@ import {
   type UseSidebarStateParams,
 } from "@/domains/chat/use-sidebar-state";
 import { copyIdToClipboard } from "@/domains/chat/utils/copy-id-to-clipboard";
+import { useTranslation } from "@/i18n";
+import { captureError } from "@/lib/sentry/capture-error";
 import { NATIVE_MOBILE_BARE_ICON_BUTTON } from "@/domains/chat/utils/native-mobile-button-constants";
 import type { Conversation } from "@/types/conversation-types";
-import { Button, cn, SideMenu } from "@vellumai/design-library";
+import { Button, cn, SideMenu, toast } from "@vellumai/design-library";
 
 export interface AssistantSideMenuProps extends UseSidebarStateParams {
   assistantName?: string | null;
@@ -48,6 +51,17 @@ export interface AssistantSideMenuProps extends UseSidebarStateParams {
    * populated sidebar never replaces live rows with placeholders.
    */
   isLoadingConversations?: boolean;
+  /**
+   * The conversation list failed before it ever loaded. Draws the failure and
+   * a retry instead of the (empty) section tree, so a load that did not happen
+   * does not read as an assistant with no conversations. Like
+   * {@link AssistantSideMenuProps.isLoadingConversations}, only consulted
+   * while `conversations` is empty: a failed refetch over a populated sidebar
+   * still holds the real rows and keeps drawing them.
+   */
+  conversationsFailed?: boolean;
+  /** Refetch the conversation list. Omit to draw the failure without a retry. */
+  onRetryConversations?: () => void;
   collapsed: boolean;
   variant: "rail" | "overlay";
   width?: number;
@@ -172,6 +186,8 @@ function SearchButton() {
  */
 export function AssistantSideMenu({
   isLoadingConversations,
+  conversationsFailed,
+  onRetryConversations,
   assistantId,
   assistantName,
   collapsed,
@@ -222,11 +238,14 @@ export function AssistantSideMenu({
   /* Mirrors `SideMenu`'s own condition for mounting the resize handle. */
   const isResizable = variant === "rail" && !collapsed && onWidthChange != null;
 
-  /* Gated on an empty list, not on the loading flag alone: a refetch over a
+  /* Both gated on an empty list, not on their flag alone: a refetch over a
      populated sidebar keeps drawing the rows it already has rather than
-     blanking them back to placeholders. */
+     blanking them back to placeholders or to a failure. */
+  const hasNoConversations = conversations.length === 0;
   const showConversationSkeleton =
-    isLoadingConversations === true && conversations.length === 0;
+    isLoadingConversations === true && hasNoConversations;
+  const showConversationError =
+    conversationsFailed === true && hasNoConversations;
 
   // --- Overlay bottom reserve ---
   // The overlay's floating bottom column (tip card + action pills) covers the
@@ -246,6 +265,8 @@ export function AssistantSideMenu({
   // variant is up, so a stale value from a dismissed overlay is inert.
   const [overlayBottomColumnHeight, setOverlayBottomColumnHeight] = useState(0);
 
+  const { t } = useTranslation("chat");
+
   // Whole-section reordering. Rows themselves do not reorder: every section
   // is recency-sorted (LUM-3108).
   const sectionDragFor = useSectionDragReorder({
@@ -257,9 +278,15 @@ export function AssistantSideMenu({
   // Pinned, Chats, each channel section, and each custom group — so the bulk
   // actions are identical everywhere and the only per-section difference is
   // the rename/delete pair that custom groups additionally own.
+  //
+  // The bulk actions act on `getAllRows()`, resolved at click time, never on
+  // the rendered rows: a section's cache is a window (LUM-2444), and both
+  // bulk endpoints take explicit id lists, so acting on the window would
+  // silently exclude every row the user hadn't scrolled to.
   const buildGroupMenu = (
     groupName: string,
     conversations: Conversation[],
+    getAllRows: () => Promise<Conversation[]>,
     options?: {
       onRename?: () => void;
       onDelete?: () => void;
@@ -268,6 +295,13 @@ export function AssistantSideMenu({
       onMoveDown?: () => void;
       onToggleGroupByChannel?: () => void;
       isGroupedByChannel?: boolean;
+      /**
+       * The section's server-counted unread (the sections index). Window
+       * rows can't answer "any unread?" once they window - an unread row
+       * past the window is exactly what they miss - so the count decides
+       * when it exists and the row scan only covers the pre-index fallback.
+       */
+      unreadCount?: number;
     },
   ): GroupMenuItemsProps => ({
     onMoveUp: options?.onMoveUp,
@@ -275,13 +309,32 @@ export function AssistantSideMenu({
     onToggleGroupByChannel: options?.onToggleGroupByChannel,
     isGroupedByChannel: options?.isGroupedByChannel,
     onMarkAllRead: onMarkAllReadInGroup
-      ? () => onMarkAllReadInGroup(conversations)
+      ? () => {
+          getAllRows().then(onMarkAllReadInGroup, (error: unknown) => {
+            /* A user-clicked action, so the failure is reported to the
+               user and, unfiltered, to Sentry: nothing about a click has
+               a natural retry surface. The action performs nothing rather
+               than acting on a partial member list. */
+            toast.error(t("assistantSideMenu.bulkActionMembersFailed"));
+            captureError(error, { context: "markAllReadInGroup:getAllRows" });
+          });
+        }
       : undefined,
     hasUnreadConversations: onMarkAllReadInGroup
-      ? conversations.some((c) => c.hasUnseenLatestAssistantMessage)
+      ? options?.unreadCount !== undefined
+        ? options.unreadCount > 0
+        : conversations.some((c) => c.hasUnseenLatestAssistantMessage)
       : false,
     onArchiveAll: onArchiveAllInGroup
-      ? () => onArchiveAllInGroup(groupName, conversations)
+      ? () => {
+          getAllRows().then(
+            (rows) => onArchiveAllInGroup(groupName, rows),
+            (error: unknown) => {
+              toast.error(t("assistantSideMenu.bulkActionMembersFailed"));
+              captureError(error, { context: "archiveAllInGroup:getAllRows" });
+            },
+          );
+        }
       : undefined,
     hasConversations: conversations.length > 0,
     onRename: options?.onRename,
@@ -303,11 +356,15 @@ export function AssistantSideMenu({
   // Activity dot for a collapsed section header — surfaces processing/unread
   // conversations that live in a collapsed section (attention already
   // force-opens the section via effectiveOpen*). Null when the section is idle.
-  const collapsedActivityDot = (conversations: Conversation[]): ReactNode => {
+  const collapsedActivityDot = (
+    conversations: Conversation[],
+    section: SidebarSection,
+  ): ReactNode => {
     const state = getGroupIndicatorState(
       conversations,
       processingConversationIds,
       attentionConversationIds,
+      section.unread,
     );
     return state ? <GroupIndicatorDot state={state} /> : null;
   };
@@ -340,8 +397,10 @@ export function AssistantSideMenu({
   const sectionMenu = (
     section: SidebarSection,
     conversations: Conversation[],
+    getAllRows: () => Promise<Conversation[]>,
   ): GroupMenuItemsProps => {
-    const moveOptions = {
+    const sharedOptions = {
+      unreadCount: section.unread,
       onMoveUp: sidebar.canMoveSection(section.key, -1)
         ? () => sidebar.onMoveSection(section.key, -1)
         : undefined,
@@ -354,8 +413,8 @@ export function AssistantSideMenu({
        where a group offers rename and delete, these offer the switch. */
     const isGoverned = section.type === "recents" || section.type === "channel";
     if (section.type !== "group") {
-      return buildGroupMenu(section.label, conversations, {
-        ...moveOptions,
+      return buildGroupMenu(section.label, conversations, getAllRows, {
+        ...sharedOptions,
         ...(isGoverned
           ? {
               onToggleGroupByChannel: () =>
@@ -367,8 +426,8 @@ export function AssistantSideMenu({
           : {}),
       });
     }
-    return buildGroupMenu(section.label, conversations, {
-      ...moveOptions,
+    return buildGroupMenu(section.label, conversations, getAllRows, {
+      ...sharedOptions,
       onRename: onRenameGroup
         ? () => onRenameGroup(section.group.id)
         : undefined,
@@ -384,7 +443,9 @@ export function AssistantSideMenu({
       key={section.key}
       section={section}
       assistantId={assistantId ?? null}
-      groupMenu={(conversations) => sectionMenu(section, conversations)}
+      groupMenu={(conversations, getAllRows) =>
+        sectionMenu(section, conversations, getAllRows)
+      }
       drag={sectionDragFor(section)}
       collapsedIndicator={collapsedActivityDot}
       // Only the bottom-most section ever claims the sidebar's leftover
@@ -513,6 +574,8 @@ export function AssistantSideMenu({
               processingConversationIds={processingConversationIds}
               attentionConversationIds={attentionConversationIds}
             />
+          ) : showConversationError ? (
+            <SidebarConversationError onRetry={onRetryConversations} />
           ) : showConversationSkeleton ? (
             <SidebarConversationSkeleton />
           ) : (
@@ -531,7 +594,13 @@ export function AssistantSideMenu({
                   action. */}
                 <CollapsibleNavSection.Root
                   type="multiple"
-                  className={SIDEBAR_STACK_GAP}
+                  /* min-h-0 flex-1: the root must claim the body's height so
+                     the bottom-most open card's flex-fill has leftover space
+                     to take. Without it every layer below sizes to content,
+                     and a windowed row list (which renders only what fits a
+                     bounded viewport) resolves to zero height and draws no
+                     rows at all. */
+                  className={cn(SIDEBAR_STACK_GAP, "min-h-0 flex-1")}
                   value={sidebar.effectiveOpenSections}
                   onValueChange={sidebar.onOpenSectionsChange}
                 >

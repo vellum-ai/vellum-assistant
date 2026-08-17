@@ -16,6 +16,7 @@ import { usePluginIconSrc } from "@/domains/intelligence/plugins/use-plugin-icon
 import { usePluginToggle } from "@/domains/intelligence/plugins/use-plugin-toggle";
 import type { PluginDrift } from "@/domains/intelligence/use-plugin-drift";
 import type { PluginsByNameGetResponse } from "@/generated/daemon/types.gen";
+import { useTranslation } from "@/i18n";
 import { Button, Card } from "@vellumai/design-library";
 
 interface PluginDetailProps {
@@ -71,6 +72,7 @@ export function PluginDetail({
     hasLocalEdits,
   } = usePluginDetail(assistantId, name, { onRemoved: onBack });
 
+  const { t } = useTranslation("intelligence");
   const { toggle, togglingName } = usePluginToggle(assistantId);
 
   const iconSrc = usePluginIconSrc(
@@ -87,7 +89,7 @@ export function PluginDetail({
           type="button"
           variant="ghost"
           iconOnly={<ArrowLeft aria-hidden />}
-          aria-label="Back to plugins"
+          aria-label={t("pluginDetail.backToPluginsAriaLabel")}
           onClick={onBack}
         />
         <Header
@@ -136,7 +138,7 @@ export function PluginDetail({
                   className="text-body-medium-lighter"
                   style={{ color: "var(--content-tertiary)" }}
                 >
-                  This plugin doesn&apos;t ship a README.
+                  {t("pluginDetail.noReadme")}
                 </p>
               )}
             </>
@@ -183,6 +185,7 @@ function Header({
   onToggle,
   isToggling,
 }: HeaderProps) {
+  const { t } = useTranslation("intelligence");
   const isExternal = plugin?.source?.kind === "github";
   // Gate the header icon on the loaded plugin, seeding the known external state
   // from the selected list row, so we never flash a wrong glyph (🧩 → 📦) while
@@ -218,7 +221,7 @@ function Header({
                 className="shrink-0 text-body-small-default"
                 style={{ color: "var(--content-tertiary)" }}
               >
-                v{plugin.version}
+                {t("pluginDetail.version", { version: plugin.version })}
               </span>
             ) : null}
             {plugin ? <PluginOriginBadge external={isExternal} /> : null}

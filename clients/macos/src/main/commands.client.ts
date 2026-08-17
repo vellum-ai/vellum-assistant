@@ -3,7 +3,11 @@ import {
   type HotkeySettingsProvider,
 } from "@vellumai/electron-desktop/commands";
 
-import { onSettingChange, readSetting, writeSetting } from "./settings";
+import {
+  onSettingChange,
+  readSetting,
+  writeSetting,
+} from "@vellumai/electron-desktop/settings";
 
 const provider: HotkeySettingsProvider = {
   read: () => ({ ...(readSetting("hotkeys") ?? {}) }),

@@ -4,6 +4,9 @@
     "src/**/__tests__/**/*.ts",
     "scripts/**/*.ts",
     "src/daemon/main.ts!",
+    "src/daemon/windows-compiled-entry.ts!",
+    "src/windows-compiled-entry.ts!",
+    "src/windows-compiled-worker-entry.ts!",
     "src/plugin-api/index.ts!",
     "src/api/index.ts!",
     "src/config/bundled-skills/**/tools/**/*.ts!"

@@ -1365,7 +1365,9 @@ function resolveConversationTimestamp(conversationId: string): number | null {
   const db = getDb();
   // Use the last message timestamp, not the conversation creation time.
   // A conversation can span hours/days — memories should be timestamped
-  // to when the relevant content was actually discussed.
+  // to when the relevant content was actually discussed. Any-state read,
+  // deliberately: only `createdAt` is consumed, and a streaming last row
+  // still marks when discussion happened.
   const lastMsg = db
     .select({ createdAt: messages.createdAt })
     .from(messages)

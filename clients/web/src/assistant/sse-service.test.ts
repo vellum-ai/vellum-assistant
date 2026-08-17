@@ -1,4 +1,13 @@
-import { beforeEach, describe, expect, mock, spyOn, test } from "bun:test";
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  mock,
+  setSystemTime,
+  spyOn,
+  test,
+} from "bun:test";
 
 import type { AssistantEventEnvelope } from "@vellumai/assistant-api";
 import * as eventBus from "@/lib/event-bus";
@@ -41,6 +50,13 @@ mock.module("@/lib/streaming/stream-transport", () => ({
   subscribeEvents: subscribeEventsMock,
 }));
 
+// The hidden-teardown grace is platform-dependent, so the specs below flip
+// this flag to choose which default the service resolves.
+let nativeMobile = false;
+mock.module("@/runtime/platform-detection", () => ({
+  isNativeMobile: () => nativeMobile,
+}));
+
 const checkAssistantMock = mock(async () => {});
 mock.module("@/assistant/lifecycle-service", () => ({
   lifecycleService: {
@@ -73,6 +89,13 @@ const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 // below the 1s resume dedup window so both can be exercised together.
 const TEST_HIDDEN_GRACE_MS = 20;
 
+// Backgrounds either side of the service's 30s `SUSPECT_SOCKET_AFTER_MS`.
+// Applied with `setSystemTime`, which moves `Date.now()` without touching
+// real `setTimeout` scheduling, so a minutes-long background is simulated
+// while the grace timers still fire in milliseconds.
+const LONG_BACKGROUND_MS = 45_000;
+const SHORT_BACKGROUND_MS = 10_000;
+
 // The real bus has the pub/sub semantics we need to exercise — no
 // reason to maintain a parallel mock. `__resetForTesting` gives
 // each test a clean handler registry; `spyOn` on the module
@@ -87,6 +110,7 @@ beforeEach(() => {
   // the shared `cancelMock` during a later test. Debounce specs opt into a
   // tiny window locally and await it.
   __setHiddenTeardownGraceMsForTesting(10_000);
+  nativeMobile = false;
   activeOnEvent = null;
   activeOnError = null;
   activeOnReconnect = null;
@@ -98,6 +122,10 @@ beforeEach(() => {
   checkAssistantMock.mockClear();
   resetReconnectCursorMock.mockClear();
   publishSpy.mockClear();
+});
+
+afterEach(() => {
+  setSystemTime();
 });
 
 describe("sseService.attach — connection lifecycle", () => {
@@ -490,6 +518,221 @@ describe("sseService.attach — visibility-driven bounce", () => {
       assistantId: "asst-1",
       cause: "resume",
     });
+  });
+});
+
+describe("sseService.attach: background grace policy", () => {
+  // Backgrounds the app and reports the delay its teardown timer was armed
+  // with. The grace resolves at arm time, so that delay is the observable
+  // form of which platform default is in force.
+  const hideAndReadArmedGrace = (): number | undefined => {
+    const setTimeoutSpy = spyOn(globalThis, "setTimeout");
+    try {
+      eventBus.publish("app.hidden", { signal: "visibility" });
+      return setTimeoutSpy.mock.calls.at(-1)?.[1] as number | undefined;
+    } finally {
+      setTimeoutSpy.mockRestore();
+    }
+  };
+
+  test("native mobile arms the hidden teardown with the 60s grace", () => {
+    // GIVEN the native shell, where an app switch is the normal way to use
+    // the device and a 5s teardown made every glance elsewhere pay a cold
+    // reopen plus the whole sse.opened reconcile fan-out
+    nativeMobile = true;
+    __setHiddenTeardownGraceMsForTesting(null);
+    const detach = sseService.attach("asst-1");
+
+    // WHEN the app goes to the background
+    // THEN the socket is held for a full minute before teardown
+    expect(hideAndReadArmedGrace()).toBe(60_000);
+
+    detach();
+  });
+
+  test("desktop keeps the 5s grace (unchanged by the native bump)", () => {
+    nativeMobile = false;
+    __setHiddenTeardownGraceMsForTesting(null);
+    const detach = sseService.attach("asst-1");
+
+    expect(hideAndReadArmedGrace()).toBe(5_000);
+
+    detach();
+  });
+
+  test("a resume after a short background keeps the live socket", () => {
+    // GIVEN a native app switch shorter than the suspect threshold
+    nativeMobile = true;
+    const start = Date.now();
+    sseService.attach("asst-1");
+    eventBus.publish("app.hidden", { signal: "visibility" });
+
+    // WHEN the app foregrounds while the grace teardown is still pending
+    setSystemTime(new Date(start + SHORT_BACKGROUND_MS));
+    eventBus.publish("app.resume", { signal: "app_state" });
+
+    // THEN the same socket keeps streaming: nothing is torn down, nothing
+    // reopens, and no sse.opened reconcile fan-out is triggered
+    expect(cancelMock).toHaveBeenCalledTimes(0);
+    expect(subscribeEventsMock).toHaveBeenCalledTimes(1);
+  });
+
+  test("a resume after a long background replaces the frozen socket exactly once", () => {
+    // GIVEN a background long enough that iOS froze JS before the grace
+    // timer could fire, so `current` still names a socket the OS has very
+    // likely killed underneath us
+    nativeMobile = true;
+    const start = Date.now();
+    sseService.attach("asst-1");
+    activeOnStreamOpen!();
+    eventBus.publish("app.hidden", { signal: "visibility" });
+
+    // WHEN the app foregrounds long after
+    setSystemTime(new Date(start + LONG_BACKGROUND_MS));
+    eventBus.publish("app.resume", { signal: "app_state" });
+
+    // THEN the suspect socket is dropped and a fresh one opened, rather
+    // than left in place until the 45s stream watchdog notices
+    expect(cancelMock).toHaveBeenCalledTimes(1);
+    expect(subscribeEventsMock).toHaveBeenCalledTimes(2);
+
+    // AND a redundant second resume neither bounces the fresh
+    // connection nor re-runs the check: the hidden mark was consumed on
+    // the first resume edge, ahead of the dedup window
+    eventBus.publish("app.resume", { signal: "visibility" });
+    expect(cancelMock).toHaveBeenCalledTimes(1);
+    expect(subscribeEventsMock).toHaveBeenCalledTimes(2);
+  });
+
+  test("a deduped second resume does not bounce the socket the first one just opened", () => {
+    // GIVEN a long background whose socket died as a transport error rather
+    // than a teardown, so nothing along that path cleared the hidden mark
+    nativeMobile = true;
+    const start = Date.now();
+    sseService.attach("asst-1");
+    activeOnStreamOpen!();
+    eventBus.publish("app.hidden", { signal: "visibility" });
+    setSystemTime(new Date(start + LONG_BACKGROUND_MS));
+    activeOnError!(new Error("stream closed"));
+
+    // WHEN the first resume reopens the down connection
+    eventBus.publish("app.resume", { signal: "app_state" });
+    expect(subscribeEventsMock).toHaveBeenCalledTimes(2);
+
+    // THEN a redundant second resume leaves the seconds-old socket
+    // alone: the mark is consumed on the first edge, so an old `hiddenAt`
+    // cannot make a freshly opened connection look suspect
+    eventBus.publish("app.resume", { signal: "visibility" });
+    expect(cancelMock).toHaveBeenCalledTimes(0);
+    expect(subscribeEventsMock).toHaveBeenCalledTimes(2);
+  });
+
+  test("a resume after a teardown-and-reopen does not bounce the reopened socket", async () => {
+    // GIVEN the desktop path, where the grace teardown really does fire and
+    // a long system sleep then follows
+    nativeMobile = false;
+    __setHiddenTeardownGraceMsForTesting(TEST_HIDDEN_GRACE_MS);
+    const start = Date.now();
+    sseService.attach("asst-1");
+    eventBus.publish("app.hidden", { signal: "visibility" });
+    await sleep(TEST_HIDDEN_GRACE_MS + 20);
+    expect(cancelMock).toHaveBeenCalledTimes(1);
+
+    // WHEN wake reopens the connection well past the suspect threshold
+    setSystemTime(new Date(start + LONG_BACKGROUND_MS));
+    eventBus.publish("power.resume", {});
+    expect(subscribeEventsMock).toHaveBeenCalledTimes(2);
+
+    // THEN the app.resume that follows leaves it alone. The teardown
+    // discarded the hidden mark along with the socket it described, so the
+    // long-gone background can't make this new connection look suspect
+    eventBus.publish("app.resume", { signal: "visibility" });
+    expect(cancelMock).toHaveBeenCalledTimes(1);
+    expect(subscribeEventsMock).toHaveBeenCalledTimes(2);
+  });
+
+  test("a thawed grace timer does not cancel the connection a long-away resume just opened", async () => {
+    // GIVEN a grace timer armed before the freeze and thawed after it, with
+    // a background past the suspect threshold
+    nativeMobile = true;
+    __setHiddenTeardownGraceMsForTesting(TEST_HIDDEN_GRACE_MS);
+    const start = Date.now();
+    sseService.attach("asst-1");
+    eventBus.publish("app.hidden", { signal: "visibility" });
+
+    // WHEN the resume lands first and reconnects the suspect socket
+    setSystemTime(new Date(start + LONG_BACKGROUND_MS));
+    eventBus.publish("app.resume", { signal: "app_state" });
+    expect(cancelMock).toHaveBeenCalledTimes(1);
+    expect(subscribeEventsMock).toHaveBeenCalledTimes(2);
+
+    // THEN the pending teardown, cleared by that bounce, can never fire and
+    // strand the fresh connection
+    await sleep(TEST_HIDDEN_GRACE_MS + 20);
+    expect(cancelMock).toHaveBeenCalledTimes(1);
+    expect(subscribeEventsMock).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe("sseService.attach: online resumes vs the hidden mark", () => {
+  test("an online resume mid-background leaves the later foreground resume its teardown-and-reopen", () => {
+    // GIVEN a backgrounded native app whose wifi flaps while it is still in
+    // the background, publishing app.resume(signal:"online") with no
+    // foreground behind it
+    nativeMobile = true;
+    const start = Date.now();
+    sseService.attach("asst-1");
+    activeOnStreamOpen!();
+    eventBus.publish("app.hidden", { signal: "visibility" });
+
+    // WHEN that online resume lands while the app is still hidden
+    setSystemTime(new Date(start + SHORT_BACKGROUND_MS));
+    eventBus.publish("app.resume", { signal: "online" });
+    expect(cancelMock).toHaveBeenCalledTimes(0);
+    expect(subscribeEventsMock).toHaveBeenCalledTimes(1);
+
+    // THEN the real foreground resume, long past the suspect threshold,
+    // still finds the hidden mark and replaces the frozen socket. Had the
+    // online event consumed it, the dead connection would have survived
+    // until the 45s stream watchdog noticed
+    setSystemTime(new Date(start + LONG_BACKGROUND_MS));
+    eventBus.publish("app.resume", { signal: "app_state" });
+    expect(cancelMock).toHaveBeenCalledTimes(1);
+    expect(subscribeEventsMock).toHaveBeenCalledTimes(2);
+  });
+
+  test("an online resume mid-background does not cancel the pending grace teardown", async () => {
+    // GIVEN a backgrounded app with its grace teardown armed
+    nativeMobile = true;
+    __setHiddenTeardownGraceMsForTesting(TEST_HIDDEN_GRACE_MS);
+    sseService.attach("asst-1");
+    eventBus.publish("app.hidden", { signal: "visibility" });
+
+    // WHEN an online event arrives before the grace elapses
+    eventBus.publish("app.resume", { signal: "online" });
+
+    // THEN the teardown still fires: the app never came to the foreground,
+    // so nothing has happened that should keep the socket
+    await sleep(TEST_HIDDEN_GRACE_MS + 20);
+    expect(cancelMock).toHaveBeenCalledTimes(1);
+  });
+
+  test("an online resume still reopens a downed connection while visible", () => {
+    // GIVEN a visible app whose socket died on a network fault, with no
+    // background involved
+    sseService.attach("asst-1");
+    activeOnStreamOpen!();
+    activeOnError!(new Error("network down"));
+    expect(subscribeEventsMock).toHaveBeenCalledTimes(1);
+
+    // WHEN the network comes back
+    eventBus.publish("app.resume", { signal: "online" });
+
+    // THEN the reconnect-on-recovery path is unchanged: a down connection
+    // reopens, and nothing had to be torn down to get there
+    expect(subscribeEventsMock).toHaveBeenCalledTimes(2);
+    expect(cancelMock).toHaveBeenCalledTimes(0);
+    expect(checkAssistantMock).toHaveBeenCalledTimes(1);
   });
 });
 

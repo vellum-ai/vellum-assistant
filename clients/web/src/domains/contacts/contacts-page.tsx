@@ -4,11 +4,11 @@ import { Navigate, useSearchParams } from "react-router";
 
 import { toast } from "@vellumai/design-library/components/toast";
 
-import {
-  MobileSidebarDrawer,
-  MobileSidebarTrigger,
-} from "@/components/mobile-sidebar-drawer";
+import { SideListDrawer, SideListTrigger } from "@/components/side-list-drawer";
+import { useSideListRoom } from "@/hooks/use-side-list-room";
 import { isVerifiedContactChannel } from "@/domains/contacts/channel-linking";
+import { channelTypeLabel } from "@/domains/contacts/channel-type-labels";
+import { DRAFT_CONTACT_NAME } from "@/domains/contacts/draft-contact";
 import { AssistantChannelsDetail } from "@/domains/contacts/components/assistant-channels-detail";
 import { ContactDetailView } from "@/domains/contacts/components/contact-detail-view";
 import { ContactMergeDialog } from "@/domains/contacts/components/contact-merge-dialog";
@@ -39,6 +39,7 @@ import {
 } from "@/generated/daemon/@tanstack/react-query.gen";
 import { channelsAvailableGet } from "@/generated/daemon/sdk.gen";
 import type { ChannelsAvailableGetResponse } from "@/generated/daemon/types.gen";
+import { useTranslation } from "@/i18n";
 import { assistantDisplayName } from "@/utils/assistant-display-name";
 import { useAssistantChannels } from "@/hooks/use-assistant-channels";
 import { useInviteLinkDialog } from "@/hooks/use-invite-link-dialog";
@@ -109,6 +110,7 @@ export function ContactsPage({
   assistantId,
   onStartSetupConversation,
 }: ContactsPageProps) {
+  const { t } = useTranslation("contacts");
   const a2aChannel = useAssistantFeatureFlagStore.use.a2aChannel();
   const identityName = useAssistantIdentityStore.use.name();
   const queryClient = useQueryClient();
@@ -126,7 +128,13 @@ export function ContactsPage({
   });
 
   const inviteDialog = useInviteLinkDialog(assistantId);
-  const [drawerOpen, setDrawerOpen] = useState(false);
+  const { paneRef, hasRoomForList, drawerOpen, openDrawer, closeDrawer } =
+    useSideListRoom();
+  // Above the inline/drawer branch below, which remounts whichever list
+  // surface it swaps to: held inside `ContactsList` the filter would be
+  // dropped whenever the pane crosses the threshold, and dragging the chat
+  // sidebar is enough to cross it.
+  const [contactSearch, setContactSearch] = useState("");
   const [mergeDialogOpen, setMergeDialogOpen] = useState(false);
 
   const assistantName = assistantDisplayName(identityName);
@@ -227,7 +235,7 @@ export function ContactsPage({
 
   const createMutation = useMutation({
     mutationFn: () =>
-      upsertContact(assistantId, { displayName: "New Contact" }),
+      upsertContact(assistantId, { displayName: DRAFT_CONTACT_NAME }),
     onMutate: async () => {
       await queryClient.cancelQueries({ queryKey: contactsQueryKey });
     },
@@ -237,7 +245,7 @@ export function ContactsPage({
       );
       setSelection({ kind: "contact", contactId: contact.id });
     },
-    onError: toastOnError("Failed to create contact"),
+    onError: toastOnError(t("contactsPage.createFailed")),
     onSettled: () => invalidateContacts(),
   });
 
@@ -255,7 +263,7 @@ export function ContactsPage({
       );
       setSelection({ kind: "assistant" });
     },
-    onError: toastOnError("Failed to delete contact"),
+    onError: toastOnError(t("contactsPage.deleteFailed")),
     onSettled: () => invalidateContacts(),
   });
 
@@ -284,7 +292,7 @@ export function ContactsPage({
           : undefined,
       );
     },
-    onError: toastOnError("Failed to save contact"),
+    onError: toastOnError(t("contactsPage.saveFailed")),
     onSettled: () => invalidateContacts(),
   });
 
@@ -309,7 +317,7 @@ export function ContactsPage({
         setSelection({ kind: "contact", contactId: mergedContact.id });
       }
       setMergeDialogOpen(false);
-      toast.success("Contacts merged");
+      toast.success(t("contactsPage.mergeSucceeded"));
     },
     onSettled: () => invalidateContacts(),
   });
@@ -317,11 +325,11 @@ export function ContactsPage({
   const handleSelect = useCallback(
     (sel: ContactSelection) => {
       setSelection(sel);
-      setDrawerOpen(false);
+      closeDrawer();
       setMergeDialogOpen(false);
       mergeMutation.reset();
     },
-    [mergeMutation],
+    [closeDrawer, mergeMutation],
   );
 
   const handleOpenMerge = useCallback(() => {
@@ -392,7 +400,7 @@ export function ContactsPage({
     mutationFn: (args: { channelId: string }) =>
       verifyContactChannel(assistantId, args.channelId),
     onSuccess: () => invalidateContacts(),
-    onError: toastOnError("Failed to verify channel"),
+    onError: toastOnError(t("contactsPage.verifyFailed")),
   });
 
   const handleVerifyChannel = useCallback(
@@ -506,25 +514,36 @@ export function ContactsPage({
     selection,
     onAddContact: handleAddContact,
     addingContact: createMutation.isPending,
+    search: contactSearch,
+    onSearchChange: setContactSearch,
   };
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-hidden sm:flex-row sm:gap-6">
-      <div className="flex items-center sm:hidden">
-        <MobileSidebarTrigger onClick={() => setDrawerOpen(true)} />
-      </div>
+    <div
+      ref={paneRef}
+      className={`flex min-h-0 flex-1 overflow-hidden ${
+        hasRoomForList ? "flex-row gap-6" : "flex-col gap-4"
+      }`}
+    >
+      {hasRoomForList ? (
+        <aside className="min-h-0 w-[320px] shrink-0 overflow-y-auto self-stretch">
+          <ContactsList {...contactsListProps} onSelect={handleSelect} />
+        </aside>
+      ) : (
+        <>
+          <div className="flex items-center">
+            <SideListTrigger onClick={openDrawer} />
+          </div>
 
-      <MobileSidebarDrawer
-        open={drawerOpen}
-        onClose={() => setDrawerOpen(false)}
-        title="Contacts"
-      >
-        <ContactsList {...contactsListProps} onSelect={handleSelect} />
-      </MobileSidebarDrawer>
-
-      <aside className="hidden min-h-0 w-[320px] shrink-0 overflow-y-auto self-stretch sm:block">
-        <ContactsList {...contactsListProps} onSelect={handleSelect} />
-      </aside>
+          <SideListDrawer
+            open={drawerOpen}
+            onClose={closeDrawer}
+            title={t("contactsPage.title")}
+          >
+            <ContactsList {...contactsListProps} onSelect={handleSelect} />
+          </SideListDrawer>
+        </>
+      )}
 
       <section className="min-h-0 min-w-0 flex-1 overflow-y-auto">
         {selection.kind === "assistant" ||
@@ -606,7 +625,7 @@ export function ContactsPage({
             mergeMutation.error instanceof Error
               ? mergeMutation.error.message
               : mergeMutation.error
-                ? "Failed to merge contacts"
+                ? t("contactsPage.mergeFailed")
                 : null
           }
           onMerge={(donorId) =>
@@ -624,13 +643,13 @@ export function ContactsPage({
 
       <LinkAccountDialog
         open={slackLink.dialogOpen}
-        channelLabel="Slack"
+        channelLabel={channelTypeLabel("slack")}
         contactName={selectedContact?.displayName ?? ""}
         accounts={slackRosterQuery.data}
         loading={slackRosterQuery.isLoading}
         errorMessage={
           slackRosterQuery.isError
-            ? "Couldn’t load the workspace roster. Check the Slack connection and try again."
+            ? t("contactsPage.rosterLoadFailed")
             : slackLink.linkErrorMessage
         }
         pendingAccountId={slackLink.pendingAccountId}
@@ -656,26 +675,19 @@ export function ContactsPage({
 }
 
 function ContactsEmptyState() {
+  const { t } = useTranslation("contacts");
+
   return (
     <div className="flex h-full items-center justify-center py-16">
       <p
         className="text-body-medium-lighter"
         style={{ color: "var(--content-tertiary)" }}
       >
-        Select a contact
+        {t("contactsPage.emptyBody")}
       </p>
     </div>
   );
 }
-
-const CHANNEL_TYPE_LABEL: Record<string, string> = {
-  slack: "Slack",
-  telegram: "Telegram",
-  phone: "Phone",
-  email: "Email",
-  whatsapp: "WhatsApp",
-  a2a: "A2A",
-};
 
 /**
  * A contact reads as verified when any non-revoked channel is verified, or is
@@ -707,7 +719,7 @@ function channelTypeLabels(
       continue;
     }
     seen.add(key);
-    labels.push(CHANNEL_TYPE_LABEL[key] ?? ch.type);
+    labels.push(channelTypeLabel(key));
   }
   return labels;
 }

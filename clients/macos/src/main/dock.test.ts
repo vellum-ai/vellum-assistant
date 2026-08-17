@@ -2,12 +2,7 @@ import { beforeAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
 import type { z } from "zod";
 
-// `./main-window` (which `./dock` imports `current` /
-// `onMainWindowVisibilityChange` from) transitively pulls in
-// `./window-state`, which depends on the `electron-store` module —
-// stub both so the pure-function tests below don't need a real
-// store. The mocks are no-ops; the `computePolicy` matrix tests
-// only exercise the pure path.
+// Keep pure policy tests independent of Electron window state.
 mock.module("./main-window", () => ({
   current: () => null,
   onMainWindowVisibilityChange: () => undefined,
@@ -45,14 +40,16 @@ mock.module("./ipc", () => ({
     handleRegistrations.push({ channel, schema, fn });
   },
 }));
-mock.module("./avatar", () => ({ onAvatarChange: () => () => undefined }));
+mock.module("@vellumai/electron-desktop/avatar", () => ({
+  onAvatarChange: () => () => undefined,
+}));
 
 // Mock session-token-store so the dock can derive signed-in state
 // without a real Electron safeStorage / keychain. The mock captures
 // registered listeners so tests can simulate token changes.
 let mockToken: string | null = null;
 const tokenChangeListeners = new Set<() => void>();
-mock.module("./session-token-store", () => ({
+mock.module("./session-token-store.client", () => ({
   getSessionToken: () => mockToken,
   onSessionTokenChange: (listener: () => void) => {
     tokenChangeListeners.add(listener);
@@ -75,7 +72,9 @@ mock.module("@vellumai/local-mode", () => ({
 }));
 
 const avatarBitmapMock = mock((_size: number): Buffer | null => null);
-mock.module("./avatar-image", () => ({ avatarBitmap: avatarBitmapMock }));
+mock.module("@vellumai/electron-desktop/avatar-image", () => ({
+  avatarBitmap: avatarBitmapMock,
+}));
 
 // A resources path so the Dock's bundle-icon restore loads via
 // `createFromPath` (the production path) rather than the empty-image dev
@@ -129,7 +128,8 @@ const {
 // A 418×418 BGRA buffer the size `buildDockIcon` requests, so masking and
 // compositing run over a real-sized canvas.
 const DOCK_ICON_PX = 418;
-const fakeAvatar = (): Buffer => Buffer.alloc(DOCK_ICON_PX * DOCK_ICON_PX * 4, 255);
+const fakeAvatar = (): Buffer =>
+  Buffer.alloc(DOCK_ICON_PX * DOCK_ICON_PX * 4, 255);
 
 beforeEach(() => {
   __resetForTesting();
@@ -168,7 +168,7 @@ describe("formatBadge", () => {
     expect(formatBadge(99)).toBe("99");
   });
 
-  test("truncates anything beyond 99 to \"99+\"", () => {
+  test('truncates anything beyond 99 to "99+"', () => {
     expect(formatBadge(100)).toBe("99+");
     expect(formatBadge(1_000_000)).toBe("99+");
   });
@@ -178,7 +178,7 @@ describe("formatBadge", () => {
     expect(formatBadge(98.7)).toBe("98");
   });
 
-  test("anything strictly greater than 99 truncates to \"99+\" before flooring", () => {
+  test('anything strictly greater than 99 truncates to "99+" before flooring', () => {
     // 99.0001 fails the `count > 99` check and bypasses `Math.floor`,
     // landing on `"99+"`. This is intentional — Swift Vellum caps at 99
     // and matching its cap avoids visual jitter at the boundary.
@@ -267,7 +267,10 @@ describe("applyDockIcon", () => {
   test("leaves the Dock icon in place on clear when the bundle icon can't be resolved (dev)", () => {
     // `bun run dev` runs against Electron's default icon with no bundled
     // `.icns` at the resources path — `createFromPath` returns an empty image.
-    createFromPathMock.mockReturnValue({ __kind: "empty", isEmpty: () => true });
+    createFromPathMock.mockReturnValue({
+      __kind: "empty",
+      isEmpty: () => true,
+    });
 
     avatarBitmapMock.mockReturnValue(fakeAvatar());
     applyDockIcon();
@@ -298,7 +301,9 @@ describe("installDock IPC registration", () => {
     expect(handleRegistrations).toHaveLength(0);
 
     const channels = onRegistrations.map((r) => r.channel);
-    expect(channels.filter((c) => c === "vellum:dock:setBadge")).toHaveLength(1);
+    expect(channels.filter((c) => c === "vellum:dock:setBadge")).toHaveLength(
+      1,
+    );
   });
 
   test("the setBadge schema accepts a single number and rejects anything else", () => {

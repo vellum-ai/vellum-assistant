@@ -16,11 +16,14 @@ import { isSending, useTurnStore } from "@/domains/chat/turn-store";
 
 import { LatestTurnRow } from "@/domains/chat/transcript/latest-turn-row";
 import { PullRefreshSpinner } from "@/domains/chat/transcript/pull-refresh-spinner";
+import { TranscriptColumn } from "@/domains/chat/transcript/transcript-column";
 import { TranscriptRow } from "@/domains/chat/transcript/transcript-row";
 import { PULL_THRESHOLD_PX } from "@/domains/chat/transcript/pull-to-refresh-utils";
 import { usePullToRefresh } from "@/domains/chat/transcript/use-pull-to-refresh";
+import { useContentAboveViewport } from "@/domains/chat/transcript/use-content-above-viewport";
 import { useHideIdleScrollbar } from "@/domains/chat/transcript/use-hide-idle-scrollbar";
 import { useViewportMinHeight } from "@/domains/chat/transcript/use-viewport-min-height";
+import { useIsMobile } from "@/hooks/use-is-mobile";
 import type { ConfirmationDecision } from "@/types/event-types";
 import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
 
@@ -172,6 +175,17 @@ export const Transcript = forwardRef<TranscriptHandle, TranscriptProps>(
       contentRef,
       latestEdgeSpacerRef,
     );
+    // Phone layouts give the transcript the whole screen, with the header
+    // directly over its top edge and no gutter between the two. Whatever the
+    // keyboard and the composer push past that edge would otherwise be cut mid
+    // line, so on mobile the edge fades instead. Desktop frames the panel in
+    // its own padding and needs none of it.
+    const isMobile = useIsMobile();
+    const showTopFade = useContentAboveViewport(
+      scrollRef,
+      isMobile,
+      conversationId,
+    );
 
     useEffect(() => {
       return () => {
@@ -316,6 +330,19 @@ export const Transcript = forwardRef<TranscriptHandle, TranscriptProps>(
          *  streaming growth). Wrapping all rows in a single observed
          *  element is cheaper than observing each row individually. */}
         <div ref={contentRef} className="flex w-full flex-col">
+          {showTopFade && (
+            /* One line's worth of the canvas over the top edge, so the lines
+             * leaving through it fade rather than end. Sticky keeps it on the
+             * edge while the transcript scrolls under it, and the negative
+             * margin keeps it out of the content height the scroll coordinator
+             * measures. Out of the way of anything aimed at the message it
+             * covers, and out of the accessibility tree. */
+            <div
+              aria-hidden
+              data-slot="transcript-top-fade"
+              className="pointer-events-none sticky top-0 z-10 -mb-7 h-7 w-full shrink-0 bg-gradient-to-b from-[var(--surface-base)] to-transparent"
+            />
+          )}
           {/* History items in chronological order — oldest at top. In the
            *  no-anchor mode (assistant-only history, e.g. recovered
            *  conversation) the avatar renders directly below the history
@@ -326,14 +353,14 @@ export const Transcript = forwardRef<TranscriptHandle, TranscriptProps>(
            *  the latest turn owns the flag instead (see `LatestTurnRow`). */}
           {partition.historyItems.map((item, i) => (
             <Fragment key={item.key}>
-              <div className="mx-auto w-full max-w-[var(--chat-max-width)] contain-content px-4 sm:px-6">
+              <TranscriptColumn>
                 <TranscriptRow
                   item={item}
                   {...rowProps}
                   changedDocumentIds={changedDocumentIdsByKey.get(item.key)}
                   isLatestMessage={i === latestHistoryMessageIndex}
                 />
-              </div>
+              </TranscriptColumn>
             </Fragment>
           ))}
           {/* Latest-edge region: contains the latest-turn cluster and the
@@ -367,12 +394,10 @@ export const Transcript = forwardRef<TranscriptHandle, TranscriptProps>(
            *  transition because React's reconciler tracks `fiber.index` (see
            *  the `transcript.test.tsx` regression test). */}
           {(partition.anchorMessage || rest.renderAvatar) && (
-            <div
-              className="mx-auto flex w-full max-w-[var(--chat-max-width)] flex-col contain-content px-4 sm:px-6"
-              style={
-                partition.anchorMessage
-                  ? { minHeight: viewportMinHeight }
-                  : undefined
+            <TranscriptColumn
+              className="flex flex-col"
+              minHeight={
+                partition.anchorMessage ? viewportMinHeight : undefined
               }
             >
               {partition.anchorMessage && (
@@ -399,7 +424,7 @@ export const Transcript = forwardRef<TranscriptHandle, TranscriptProps>(
                 />
               )}
               <div aria-hidden data-latest-edge="true" />
-            </div>
+            </TranscriptColumn>
           )}
           {/* Spinner last = visual bottom in flex-col. Only rendered when
            *  the gesture is feature-flag-enabled so the flag-off path has

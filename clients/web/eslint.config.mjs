@@ -191,8 +191,12 @@ const authBoundaryAllowedPaths = [
  */
 const i18nEnforcedPaths = [
   "src/components/not-found.tsx",
+  "src/domains/chat/components/allow-options-menu.tsx",
+  "src/domains/chat/components/chat-composer/add-to-chat-sheet.tsx",
+  "src/domains/chat/components/conversation-actions-menu.tsx",
   "src/domains/chat/components/conversation-assets-pill.tsx",
   "src/domains/chat/components/pinned-app-color-swatches.tsx",
+  "src/domains/chat/components/sidebar-conversation-error.tsx",
   "src/domains/schedules/**/*.{ts,tsx}",
   "src/domains/settings/billing/checkout-bonus-modal.tsx",
   "src/domains/account/**/*.{ts,tsx}",
@@ -204,6 +208,11 @@ const i18nEnforcedPaths = [
   "src/domains/logs/**/*.{ts,tsx}",
   "src/domains/library/**/*.{ts,tsx}",
   "src/domains/home/**/*.{ts,tsx}",
+  "src/domains/contacts/**/*.{ts,tsx}",
+  "src/domains/onboarding/**/*.{ts,tsx}",
+  "src/domains/intelligence/**/*.{ts,tsx}",
+  "src/domains/settings/ai/**/*.{ts,tsx}",
+  "src/domains/chat/inspector/**/*.{ts,tsx}",
 ];
 
 const eslintConfig = defineConfig([

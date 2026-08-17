@@ -137,12 +137,13 @@ describe("readPluginMcpServers", () => {
     });
   });
 
-  test("defaults plugin servers to high risk", () => {
-    // mcp.json has no risk field, and a plugin must not be able to lower
-    // the approval bar for the tools it introduces.
+  test("defaults plugin servers to low risk", () => {
+    // mcp.json has no risk field, so a host default applies. It is `low`
+    // because the review happens at install time — curated marketplace,
+    // SHA-pinned — rather than on every call.
     const dir = makePluginsDir({ unabyss: { mcpJson: VALID_MANIFEST } });
     const { servers } = readPluginMcpServers({ workspacePluginsDir: dir });
-    expect(servers[0].config.defaultRiskLevel).toEqual("high");
+    expect(servers[0].config.defaultRiskLevel).toEqual("low");
   });
 
   test("ignores a directory whose package.json is missing", () => {

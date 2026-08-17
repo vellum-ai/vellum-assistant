@@ -188,16 +188,70 @@ describe("CallSiteOverrideRow model picker under a ChatGPT subscription", () => 
     expect(labels.some((l) => l.includes("Nano"))).toBe(false);
   });
 
-  test("a migrated subscription row (provider chatgpt) filters the openai picker too", () => {
+  test("a migrated subscription row (provider chatgpt) does not gate the openai picker", () => {
+    // Post-366 semantics: dispatch matches connections by exact provider, so
+    // the subscription cannot serve an openai override. The subscription is
+    // offered as its own ChatGPT provider entry instead.
     renderRow({ provider: "openai", model: "gpt-5.6-luna" }, [
       SUBSCRIPTION_CONNECTION_366,
     ]);
 
     fireEvent.click(modelTrigger());
 
+    expect(optionLabels().some((l) => l.includes("Nano"))).toBe(true);
+  });
+
+  test("the subscription row adds ChatGPT to the provider picker", () => {
+    renderRow({ provider: "openai", model: "gpt-5.6-luna" }, [
+      SUBSCRIPTION_CONNECTION_366,
+    ]);
+
+    fireEvent.click(providerTrigger());
+
+    expect(optionLabels().some((l) => l.includes("ChatGPT Subscription"))).toBe(
+      true,
+    );
+  });
+
+  test("without the subscription row ChatGPT is not offered", () => {
+    renderRow({ provider: "openai", model: "gpt-5.6-luna" }, [
+      API_KEY_CONNECTION,
+    ]);
+
+    fireEvent.click(providerTrigger());
+
+    expect(optionLabels().some((l) => l.includes("ChatGPT Subscription"))).toBe(
+      false,
+    );
+  });
+
+  test("a chatgpt draft renders as itself with the Codex model list", () => {
+    renderRow({ provider: "chatgpt", model: "gpt-5.6-terra" }, [
+      SUBSCRIPTION_CONNECTION_366,
+    ]);
+
+    expect(
+      triggerLabels().some((l) => l.includes("ChatGPT Subscription")),
+    ).toBe(true);
+
+    fireEvent.click(modelTrigger());
     const labels = optionLabels();
-    expect(labels.some((l) => l.includes("GPT-5.6 Luna"))).toBe(true);
+    expect(labels.some((l) => l.includes("GPT-5.6 Terra"))).toBe(true);
     expect(labels.some((l) => l.includes("Nano"))).toBe(false);
+  });
+
+  test("a chatgpt draft without the subscription renders as an unavailable pin", () => {
+    renderRow({ provider: "chatgpt", model: "gpt-5.6-terra" }, [
+      API_KEY_CONNECTION,
+    ]);
+
+    fireEvent.click(providerTrigger());
+
+    expect(
+      optionLabels().some((l) =>
+        l.includes("ChatGPT Subscription (unavailable)"),
+      ),
+    ).toBe(true);
   });
 
   test("a vellum-managed connection lifts the restriction (openai routes through the managed proxy)", () => {

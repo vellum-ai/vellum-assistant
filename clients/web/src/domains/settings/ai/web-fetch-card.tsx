@@ -8,6 +8,7 @@ import {
   WEB_FETCH_PROVIDER_KEY_PLACEHOLDERS,
 } from "@/assistant/generated/web-fetch-provider-catalog.gen";
 import { secretPlaceholder } from "@/domains/settings/ai/secret-placeholder";
+import { useTranslation } from "@/i18n";
 import { captureError } from "@/lib/sentry/capture-error";
 import {
   getLocalSetting,
@@ -46,6 +47,7 @@ const DEFAULT_PROVIDER = "default";
  * same stored credential as Web Search.
  */
 export function WebFetchCard() {
+  const { t } = useTranslation("settings");
   const assistantId = useActiveAssistantId();
   const queryClient = useQueryClient();
 
@@ -102,7 +104,7 @@ export function WebFetchCard() {
     saving || needsKeyBeforeSave || (!configChanged && !hasNewApiKey);
   const apiKeyPlaceholder = secretPlaceholder(
     WEB_FETCH_PROVIDER_KEY_PLACEHOLDERS[webFetchProvider] ??
-      "Enter your API key",
+      t("webFetchCard.apiKeyPlaceholder"),
     webFetchHasStoredKey,
   );
 
@@ -124,9 +126,7 @@ export function WebFetchCard() {
           },
         })
         .catch((error) => {
-          toast.error(
-            "Failed to update assistant configuration. Please try again.",
-          );
+          toast.error(t("webFetchCard.configUpdateFailedToast"));
           captureError(error, { context: "patch_daemon_config" });
           throw error;
         });
@@ -151,10 +151,10 @@ export function WebFetchCard() {
         void queryClient.invalidateQueries({ queryKey: presenceKey });
         setWebFetchApiKey("");
       }
-      toast.success("Web fetch settings saved.");
+      toast.success(t("webFetchCard.savedToast"));
     } catch (err) {
       captureError(err, { context: "settings-ai-web-fetch-persist-local" });
-      toast.error("Saved, but local preferences could not be written.");
+      toast.error(t("webFetchCard.localPreferencesFailedToast"));
     }
   }, [
     requiresProviderCredential,
@@ -164,6 +164,7 @@ export function WebFetchCard() {
     assistantId,
     webFetchApiKey,
     webFetchProvider,
+    t,
   ]);
 
   const handleReset = useCallback(() => {
@@ -179,13 +180,13 @@ export function WebFetchCard() {
   return (
     <ByoServiceCard
       id="web-fetch"
-      title="Web Fetch"
-      subtitle="Configure how your assistant reads individual web pages"
+      title={t("webFetchCard.title")}
+      subtitle={t("webFetchCard.subtitle")}
     >
       <div className="space-y-4">
         <div className="space-y-1">
           <label className="block text-body-small-default text-[var(--content-tertiary)]">
-            Provider
+            {t("webFetchCard.providerLabel")}
           </label>
           <Select
             value={webFetchProvider}
@@ -199,7 +200,7 @@ export function WebFetchCard() {
 
         {requiresProviderCredential && (
           <Input
-            label="API Key"
+            label={t("webFetchCard.apiKeyLabel")}
             type="password"
             value={webFetchApiKey}
             onChange={(e) => setWebFetchApiKey(e.target.value)}

@@ -34,10 +34,12 @@ import { isElectron } from "@/runtime/is-electron";
 import { useIsNativePlatform } from "@/runtime/native-auth";
 import { useAuthStore, useHasPlatformSession } from "@/stores/auth-store";
 import { saveConsent } from "@/lib/consent/consent-persistence";
+import { useTranslation } from "@/i18n";
 import { PACKAGE_PARAM, routes } from "@/utils/routes";
 import { Button } from "@vellumai/design-library/components/button";
 
 export function PrivacyScreen() {
+  const { t } = useTranslation("onboarding");
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const userId = useAuthStore.use.user()?.id ?? null;
@@ -184,14 +186,13 @@ export function PrivacyScreen() {
           }
           style={{ animation: "fadeInUp 0.5s ease-out 0.1s both" }}
         >
-          Before You Start
+          {t("privacyScreen.title")}
         </h1>
         <p
           className={`text-center text-body-medium-lighter text-[var(--content-tertiary)] ${electron ? "mt-3.5" : "mt-4"}`}
           style={{ animation: "fadeInUp 0.5s ease-out 0.3s both" }}
         >
-          Choose your privacy preferences. You can update these anytime in the
-          Settings.
+          {t("privacyScreen.body")}
         </p>
 
         <PrivacyPreferencesCard
@@ -227,7 +228,7 @@ export function PrivacyScreen() {
             onClick={onStart}
             className={electron ? undefined : "h-11 text-base"}
           >
-            Start
+            {t("actions.start")}
           </Button>
           {/*
            * Back's destination is mode-specific, but always stays inside the SPA
@@ -257,7 +258,7 @@ export function PrivacyScreen() {
             }
             className={electron ? undefined : "h-11 text-base"}
           >
-            Back
+            {t("actions.back")}
           </Button>
         </div>
       </div>

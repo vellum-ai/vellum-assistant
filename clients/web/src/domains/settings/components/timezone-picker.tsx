@@ -1,7 +1,8 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useMemo, useState } from "react";
 
 import { SettingsDivider } from "@/domains/settings/components/settings-divider";
-import { Input } from "@vellumai/design-library/components/input";
+import { cn } from "@vellumai/design-library";
+import { Combobox } from "@vellumai/design-library/components/combobox";
 
 interface TimezoneEntry {
   identifier: string;
@@ -153,12 +154,14 @@ export interface TimezonePickerProps {
   onChange: (value: string) => void;
 }
 
+/**
+ * Cap on the rows the list renders at once. The unfiltered catalog runs to a
+ * few hundred zones, and typing narrows it long before the cap matters.
+ */
+const MAX_VISIBLE = 200;
+
 export function TimezonePicker({ value, onChange }: TimezonePickerProps) {
   const [searchText, setSearchText] = useState("");
-  const [debouncedQuery, setDebouncedQuery] = useState("");
-  const [isOpen, setIsOpen] = useState(false);
-  const containerRef = useRef<HTMLDivElement>(null);
-  const inputRef = useRef<HTMLInputElement>(null);
 
   const allEntries = useMemo(() => {
     const ids = buildKnownTimezones();
@@ -167,42 +170,31 @@ export function TimezonePicker({ value, onChange }: TimezonePickerProps) {
       .filter((entry): entry is TimezoneEntry => entry !== null);
   }, []);
 
-  useEffect(() => {
-    const handle = window.setTimeout(() => {
-      setDebouncedQuery(searchText.trim().toLowerCase());
-    }, 200);
-    return () => window.clearTimeout(handle);
-  }, [searchText]);
+  // Filtered straight off the text in the field, with no debounce in between.
+  // A debounce here would let the keyboard walk and commit rows belonging to
+  // a query the field no longer shows: Enter is only safe while the options
+  // are the ones the typing produced. Filtering a few hundred strings is not
+  // the expensive part (see `entriesWithTime`), so there is nothing to defer.
+  const query = searchText.trim().toLowerCase();
+  const visible = useMemo(() => {
+    const matching = !query
+      ? allEntries
+      : allEntries.filter((entry) => {
+          return (
+            entry.city.toLowerCase().includes(query) ||
+            entry.region.toLowerCase().includes(query) ||
+            entry.offsetLabel.toLowerCase().includes(query) ||
+            entry.identifier.toLowerCase().includes(query)
+          );
+        });
+    return matching.slice(0, MAX_VISIBLE);
+  }, [allEntries, query]);
 
-  useEffect(() => {
-    if (!isOpen) {
-      return;
-    }
-    const handleClick = (event: MouseEvent) => {
-      if (
-        containerRef.current &&
-        !containerRef.current.contains(event.target as Node)
-      ) {
-        setIsOpen(false);
-      }
-    };
-    document.addEventListener("mousedown", handleClick);
-    return () => document.removeEventListener("mousedown", handleClick);
-  }, [isOpen]);
-
-  const filtered = useMemo(() => {
-    if (!debouncedQuery) {
-      return allEntries;
-    }
-    return allEntries.filter((entry) => {
-      return (
-        entry.city.toLowerCase().includes(debouncedQuery) ||
-        entry.region.toLowerCase().includes(debouncedQuery) ||
-        entry.offsetLabel.toLowerCase().includes(debouncedQuery) ||
-        entry.identifier.toLowerCase().includes(debouncedQuery)
-      );
-    });
-  }, [allEntries, debouncedQuery]);
+  // What the arrow keys walk: the identifiers of the rows actually rendered.
+  const visibleIds = useMemo(
+    () => visible.map((entry) => entry.identifier),
+    [visible],
+  );
 
   const selectedCity = useMemo(() => {
     if (!value) {
@@ -212,75 +204,72 @@ export function TimezonePicker({ value, onChange }: TimezonePickerProps) {
     return (parts[parts.length - 1] ?? value).replace(/_/g, " ");
   }, [value]);
 
-  const handleSelect = (identifier: string) => {
-    onChange(identifier);
-    setSearchText("");
-    setIsOpen(false);
-    inputRef.current?.blur();
-  };
-
   return (
-    <div ref={containerRef} className="space-y-3">
+    <div className="space-y-3">
       <div className="flex flex-col gap-1.5 md:flex-row md:items-center md:justify-between md:gap-4">
         <span className="text-body-medium-lighter text-[var(--content-tertiary)]">
           Closest city
         </span>
-        <div className="relative w-full md:max-w-[280px]">
-          <Input
-            ref={inputRef}
+        <Combobox.Root
+          className="w-full md:max-w-[280px]"
+          options={visibleIds}
+          value={value}
+          onSelect={onChange}
+          onOpenChange={(open) => {
+            if (!open) {
+              setSearchText("");
+            }
+          }}
+          // A query narrows the list to what the typing meant, so Enter
+          // commits the top match; with no query it must pick nothing.
+          autoActivateFirst={query.length > 0}
+        >
+          <Combobox.Input
             type="text"
+            aria-label="Closest city"
             value={searchText}
             placeholder={selectedCity || "Search city or country..."}
-            onChange={(event) => {
-              setSearchText(event.target.value);
-              setIsOpen(true);
-            }}
-            onFocus={() => setIsOpen(true)}
-            onKeyDown={(event) => {
-              if (event.key === "Escape") {
-                event.preventDefault();
-                setSearchText("");
-                setIsOpen(false);
-                inputRef.current?.blur();
-              }
-            }}
+            onChange={(event) => setSearchText(event.target.value)}
             fullWidth
           />
-          {isOpen && filtered.length > 0 && (
-            <div className="absolute left-0 right-0 top-full z-20 mt-1 max-h-[240px] overflow-y-auto rounded-md border border-[var(--border-base)] bg-[var(--surface-lift)] shadow-lg">
-              {filtered.slice(0, 200).map((entry) => {
-                const isSelected = entry.identifier === value;
-                return (
-                  <button
-                    key={entry.identifier}
-                    type="button"
-                    onClick={() => handleSelect(entry.identifier)}
-                    className={`flex w-full cursor-pointer items-center justify-between gap-3 px-3 py-2 text-left text-body-medium-lighter transition-colors ${
-                      isSelected
-                        ? "bg-[var(--surface-active)] text-[var(--content-default)]"
-                        : "text-[var(--content-default)] hover:bg-[var(--surface-active)]"
-                    }`}
-                  >
-                    <div className="min-w-0 flex-1">
-                      <div className="truncate text-body-medium-default">
-                        {entry.city}
-                      </div>
-                      {entry.region && (
-                        <div className="truncate text-body-small-default text-[var(--content-tertiary)]">
-                          {entry.region}
-                        </div>
-                      )}
+          <Combobox.List
+            aria-label="Cities"
+            className="absolute left-0 right-0 top-full z-20 mt-1 max-h-[240px] rounded-md border border-[var(--border-base)] bg-[var(--surface-lift)] shadow-lg"
+            emptyState={
+              <p className="px-3 py-2 text-body-medium-lighter text-[var(--content-tertiary)]">
+                No matching cities
+              </p>
+            }
+          >
+            {visible.map((entry) => (
+              <Combobox.Option
+                key={entry.identifier}
+                value={entry.identifier}
+                className={cn(
+                  "flex w-full items-center justify-between gap-3 px-3 py-2",
+                  "text-body-medium-lighter text-[var(--content-default)] transition-colors",
+                  "hover:bg-[var(--surface-active)]",
+                  "data-[active]:bg-[var(--surface-active)] aria-selected:bg-[var(--surface-active)]",
+                )}
+              >
+                <div className="min-w-0 flex-1">
+                  <div className="truncate text-body-medium-default">
+                    {entry.city}
+                  </div>
+                  {entry.region && (
+                    <div className="truncate text-body-small-default text-[var(--content-tertiary)]">
+                      {entry.region}
                     </div>
-                    <div className="flex shrink-0 flex-col items-end gap-0.5 text-body-small-default text-[var(--content-tertiary)]">
-                      <span>{formatCurrentTime(entry.identifier)}</span>
-                      <span>{entry.offsetLabel}</span>
-                    </div>
-                  </button>
-                );
-              })}
-            </div>
-          )}
-        </div>
+                  )}
+                </div>
+                <div className="flex shrink-0 flex-col items-end gap-0.5 text-body-small-default text-[var(--content-tertiary)]">
+                  <span>{formatCurrentTime(entry.identifier)}</span>
+                  <span>{entry.offsetLabel}</span>
+                </div>
+              </Combobox.Option>
+            ))}
+          </Combobox.List>
+        </Combobox.Root>
       </div>
 
       <SettingsDivider />

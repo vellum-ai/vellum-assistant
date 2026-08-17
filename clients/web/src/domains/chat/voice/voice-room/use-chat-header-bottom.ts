@@ -26,14 +26,13 @@
 
 import { useEffect, useState } from "react";
 
-/** The header's own `data-slot`, set in `chat-layout-header.tsx`. */
-const HEADER_SELECTOR = '[data-slot="chat-layout-header"]';
+import { CHAT_LAYOUT_HEADER_SELECTOR } from "@/domains/chat/chat-layout-header";
 
 export function useChatHeaderBottom(): number {
   const [bottom, setBottom] = useState(0);
 
   useEffect(() => {
-    const header = document.querySelector(HEADER_SELECTOR);
+    const header = document.querySelector(CHAT_LAYOUT_HEADER_SELECTOR);
     if (!header) {
       setBottom(0);
       return;

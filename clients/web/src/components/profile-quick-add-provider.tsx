@@ -64,6 +64,13 @@ interface OpenProfileQuickAddArgs {
    * config refetch. `label` is null when the user left the Name field empty.
    */
   onCreated?: (newProfileName: string, label: string | null) => void;
+  /**
+   * Invoked once the flow this call opened is over, whether it saved or was
+   * cancelled, and also if a later `openProfileQuickAdd` takes the modal over.
+   * A caller that suppressed its own UI for the duration (the composer holds
+   * its floating pills row up while the modal has focus) uses it to stop.
+   */
+  onClosed?: () => void;
 }
 
 interface ProfileQuickAddContextValue {
@@ -81,15 +88,26 @@ export function ProfileQuickAddProvider({ children }: { children: ReactNode }) {
   const [existingNames, setExistingNames] = useState<string[]>([]);
   // Held in a ref so the modal's onSave closure always sees the latest caller
   // callback without re-creating handlers on every open.
-  const onCreatedRef = useRef<
-    ((newProfileName: string, label: string | null) => void) | undefined
-  >(undefined);
+  const pendingRef = useRef<OpenProfileQuickAddArgs | undefined>(undefined);
 
-  const openProfileQuickAdd = useCallback((args?: OpenProfileQuickAddArgs) => {
-    setExistingNames(args?.existingNames ?? []);
-    onCreatedRef.current = args?.onCreated;
-    setIsOpen(true);
+  // Every exit from the flow runs through here, so a caller that is waiting on
+  // `onClosed` hears exactly one close per open, and a second `open` call
+  // releases the first caller instead of stranding it.
+  const closePending = useCallback(() => {
+    const pending = pendingRef.current;
+    pendingRef.current = undefined;
+    pending?.onClosed?.();
   }, []);
+
+  const openProfileQuickAdd = useCallback(
+    (args?: OpenProfileQuickAddArgs) => {
+      closePending();
+      setExistingNames(args?.existingNames ?? []);
+      pendingRef.current = args;
+      setIsOpen(true);
+    },
+    [closePending],
+  );
 
   // Provider connections feed the modal's Provider picker. Gated on `isOpen`
   // (and a known assistant) so the query doesn't fire until the user actually
@@ -172,11 +190,12 @@ export function ProfileQuickAddProvider({ children }: { children: ReactNode }) {
       // the key from the Name, but they differ (slugified, possibly deduped),
       // so the picker must be given the label explicitly.
       const label = (entry.label ?? "").trim() || null;
-      onCreatedRef.current?.(name, label);
+      pendingRef.current?.onCreated?.(name, label);
+      closePending();
       setIsOpen(false);
       toast.success(`Profile "${label ?? name}" created`);
     },
-    [assistantId, queryClient],
+    [assistantId, queryClient, closePending],
   );
 
   const value = useMemo<ProfileQuickAddContextValue>(
@@ -195,7 +214,10 @@ export function ProfileQuickAddProvider({ children }: { children: ReactNode }) {
           connections={connections}
           assistantId={assistantId}
           onSave={handleSave}
-          onCancel={() => setIsOpen(false)}
+          onCancel={() => {
+            closePending();
+            setIsOpen(false);
+          }}
         />
       ) : null}
     </ProfileQuickAddContext.Provider>

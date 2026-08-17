@@ -121,6 +121,7 @@ function Item({
     >
       {leftIcon ? (
         <span
+          data-slot="menu-item-icon"
           className="flex h-4 w-4 shrink-0 items-center justify-center text-[var(--content-tertiary)]"
           aria-hidden
         >
@@ -304,6 +305,7 @@ function SubTrigger({
     >
       {leftIcon ? (
         <span
+          data-slot="menu-item-icon"
           className="flex h-4 w-4 shrink-0 items-center justify-center text-[var(--content-tertiary)]"
           aria-hidden
         >

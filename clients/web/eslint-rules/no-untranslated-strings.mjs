@@ -52,7 +52,11 @@ const STRUCTURAL_PROPS = new Set([
   "clipPath",
   "d",
   "fill",
+  "fontFamily",
   "points",
+  // SVG fit mode (`xMidYMid meet`) has spaces + capitals, so it reads as
+  // copy to `looksLikeCopy` without this.
+  "preserveAspectRatio",
   "stroke",
   "transform",
   "viewBox",
@@ -78,6 +82,9 @@ const STRUCTURAL_PROPS = new Set([
   "testId",
   "to",
   "type",
+  // Layout-only className wrappers (`w-32 shrink-0`) read as copy to
+  // `looksLikeCopy` because of spaces, but they are never user-facing text.
+  "wrapperClassName",
 ]);
 
 /** True for props that never hold copy: structural names, `data-*`, handlers. */

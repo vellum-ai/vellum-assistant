@@ -1,15 +1,14 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import { Navigate, Route, Routes } from "react-router";
+import { Route, Routes } from "react-router";
 
 import { IntelligenceLayout } from "./intelligence-layout";
 
 /**
  * Renders the real About Assistant drill-down chrome: section pages get a
  * back link to the overview plus the section heading; the overview itself
- * renders bare (it owns its full-bleed stage). The preview's global
- * `MemoryRouter` starts at `/`, so section stories redirect to a
- * representative path via `<Navigate>`; there are no child routes, so the
- * outlet is empty.
+ * renders bare (it owns its full-bleed stage). Section stories start at a
+ * representative path through `parameters.router`; there are no child routes,
+ * so the outlet is empty.
  */
 const meta: Meta<typeof IntelligenceLayout> = {
   title: "Intelligence/IntelligenceLayout",
@@ -28,14 +27,7 @@ export default meta;
 type Story = StoryObj<typeof IntelligenceLayout>;
 
 export const SectionChrome: Story = {
-  decorators: [
-    (Story) => (
-      <>
-        <Navigate to="/assistant/superpowers" replace />
-        <Story />
-      </>
-    ),
-  ],
+  parameters: { router: { initialEntries: ["/assistant/superpowers"] } },
 };
 
 /**

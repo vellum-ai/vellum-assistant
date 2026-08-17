@@ -53,8 +53,10 @@ mock.module("@/generated/daemon/sdk.gen", () => ({
   },
 }));
 
-const { fetchSchedules, fetchScheduleUsageSummary } =
-  await import("./schedules");
+const { fetchScheduleUsageSummary } = await import("./schedules");
+// The list read lives in `@/utils/schedules`; this file's SDK mock is module
+// wide, so it covers that module's `schedulesGet` call the same way.
+const { fetchSchedules } = await import("@/utils/schedules");
 
 afterEach(() => {
   usageSummaryCalls = [];

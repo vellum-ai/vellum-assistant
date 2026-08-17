@@ -52,7 +52,13 @@ function stubCtx(): StreamHandlerContext {
 }
 
 afterEach(() => {
+  // resetAll intentionally preserves the Connect prompt (it must survive
+  // conversation switches), so test isolation clears it explicitly.
   useInteractionStore.getState().resetAll();
+  useInteractionStore.setState({
+    pendingAcpConnect: null,
+    dismissedAcpConnectToolUseIds: new Set<string>(),
+  });
 });
 
 describe("acp connect prompt — store lifecycle", () => {
@@ -63,12 +69,6 @@ describe("acp connect prompt — store lifecycle", () => {
     });
 
     useInteractionStore.getState().dismissAcpConnect();
-    expect(useInteractionStore.getState().pendingAcpConnect).toBeNull();
-  });
-
-  test("resetAll clears the prompt (conversation switch)", () => {
-    useInteractionStore.getState().showAcpConnect({ toolUseId: "tc-9" });
-    useInteractionStore.getState().resetAll();
     expect(useInteractionStore.getState().pendingAcpConnect).toBeNull();
   });
 
@@ -96,6 +96,36 @@ describe("acp connect prompt — store lifecycle", () => {
     });
   });
 
+  test("an auth_required prompt survives resetAll (switch away and back keeps the card)", () => {
+    // The parent-turn guidance pointing at the card is persisted transcript
+    // text, but the post-spawn prompt itself has no history marker to rebuild
+    // from. Ordinary conversation switching calls resetAll; losing the prompt
+    // here would leave the guidance pointing at a card that no longer exists.
+    // Display stays conversation-scoped by the tool-use anchor, so surviving
+    // navigation leaks nothing into other conversations.
+    useInteractionStore.getState().showAcpConnect({
+      toolUseId: "tc-auth-1",
+      reason: "auth_required",
+    });
+    useInteractionStore.getState().resetAll();
+
+    expect(useInteractionStore.getState().pendingAcpConnect).toEqual({
+      toolUseId: "tc-auth-1",
+      reason: "auth_required",
+    });
+  });
+
+  test("a dismissed prompt stays dismissed across resetAll", () => {
+    useInteractionStore.getState().showAcpConnect({
+      toolUseId: "tc-auth-2",
+      reason: "auth_required",
+    });
+    useInteractionStore.getState().dismissAcpConnect();
+    useInteractionStore.getState().resetAll();
+
+    expect(useInteractionStore.getState().pendingAcpConnect).toBeNull();
+  });
+
   test("resetAll clears the dismissed set (a returned-to conversation can show again)", () => {
     useInteractionStore.getState().showAcpConnect({ toolUseId: "tc-1" });
     useInteractionStore.getState().dismissAcpConnect();
@@ -115,6 +145,19 @@ describe("acp connect prompt — raised live, never by reseed", () => {
     handleToolResult(missingTokenToolResult(), stubCtx());
     expect(useInteractionStore.getState().pendingAcpConnect).toEqual({
       toolUseId: "tc-1",
+    });
+  });
+
+  test("a pre-spawn rejected-credential failure raises the prompt marked auth_required", () => {
+    // A stored-but-rejected token cannot self-heal on a token-presence check,
+    // so the reason must survive into the store.
+    handleToolResult(
+      missingTokenToolResult({ errorCode: "acp_claude_auth_required" }),
+      stubCtx(),
+    );
+    expect(useInteractionStore.getState().pendingAcpConnect).toEqual({
+      toolUseId: "tc-1",
+      reason: "auth_required",
     });
   });
 

@@ -30,7 +30,7 @@ import {
 import { type FormEvent, useCallback, useMemo, useRef, useState } from "react";
 
 import { Trans, useTranslation } from "@/i18n";
-import { formatFileSize } from "@/domains/workspace/utils/format-file-size";
+import { formatFileSize } from "@/utils/format-file-size";
 import { isHiddenPath } from "@/domains/workspace/utils/is-hidden-path";
 import {
   sortEntries,
@@ -484,6 +484,8 @@ export function WorkspaceTree({
   onChangeSortMode,
   onPathDeleted,
   onPathRenamed,
+  search,
+  onSearchChange,
 }: {
   assistantId: string;
   expandedPaths: Set<string>;
@@ -497,10 +499,17 @@ export function WorkspaceTree({
   onChangeSortMode: (next: WorkspaceSortMode) => void;
   onPathDeleted: (path: string) => void;
   onPathRenamed: (oldPath: string, newPath: string) => void;
+  /**
+   * The name filter, owned by `WorkspaceBrowser` alongside the expansion and
+   * selection it already keeps there. This tree renders in two surfaces that
+   * substitute for each other, and switching between them remounts it, so
+   * state held here would be dropped when the pane crosses the threshold.
+   */
+  search: string;
+  onSearchChange: (search: string) => void;
 }) {
   const { t } = useTranslation("workspace");
   const queryClient = useQueryClient();
-  const [search, setSearch] = useState("");
   const searchLower = search.trim().toLowerCase();
 
   const [menuOpen, setMenuOpen] = useState(false);
@@ -748,7 +757,7 @@ export function WorkspaceTree({
           <Input
             type="text"
             value={search}
-            onChange={(e) => setSearch(e.target.value)}
+            onChange={(e) => onSearchChange(e.target.value)}
             placeholder={t("workspaceTree.searchPlaceholder")}
             leftIcon={<Search className="h-3.5 w-3.5" aria-hidden />}
             fullWidth
@@ -761,7 +770,7 @@ export function WorkspaceTree({
               variant="ghost"
               size="compact"
               iconOnly={<X aria-hidden />}
-              onClick={() => setSearch("")}
+              onClick={() => onSearchChange("")}
               aria-label={t("workspaceTree.clearSearchAria")}
               className="absolute right-1.5 top-1/2 -translate-y-1/2"
               tintColor="var(--content-tertiary)"

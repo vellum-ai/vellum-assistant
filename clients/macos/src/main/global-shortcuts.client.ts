@@ -1,9 +1,9 @@
 import { installGlobalShortcuts as installSharedGlobalShortcuts } from "@vellumai/electron-desktop/global-shortcuts";
+import { toggleQuickInput } from "@vellumai/electron-desktop/quick-input-window";
 
 import "./commands.client";
 import log from "./logger";
 import { ensureVisible } from "./main-window";
-import { toggleQuickInput } from "./quick-input-window";
 
 export const installGlobalShortcuts = (): void => {
   installSharedGlobalShortcuts({

@@ -21,6 +21,16 @@ export {
   type ResizablePanelProps,
 } from "./components/resizable-panel";
 export {
+  PaneResizeHandle,
+  type PaneResizeHandleProps,
+} from "./components/pane-resize-handle";
+export {
+  useResizablePane,
+  type UseResizablePaneOptions,
+  type UseResizablePaneResult,
+  type ResizablePaneHandleProps,
+} from "./hooks/use-resizable-pane";
+export {
   ScrollShadow,
   type ScrollShadowProps,
   type ScrollShadowOrientation,
@@ -125,6 +135,18 @@ export {
   ConfirmDialog,
   type ConfirmDialogProps,
 } from "./components/confirm-dialog";
+export {
+  ActionMenu,
+  type ActionMenuPresentation,
+  type ActionMenuRootProps,
+  type ActionMenuTriggerProps,
+  type ActionMenuContentProps,
+  type ActionMenuItemProps,
+} from "./components/action-menu";
+export {
+  TOUCH_SURFACE_MEDIA_QUERY,
+  useTouchSurface,
+} from "./utils/touch-surface";
 export {
   Menu,
   type MenuContentProps,
@@ -232,6 +254,13 @@ export {
   type CollapsibleContentProps,
 } from "./components/collapsible";
 export {
+  Combobox,
+  type ComboboxRootProps,
+  type ComboboxListProps,
+  type ComboboxGroupProps,
+  type ComboboxOptionProps,
+} from "./components/combobox";
+export {
   StatSquare,
   type StatSquareProps,
   type StatSquareTone,
@@ -243,6 +272,7 @@ export {
   type ShortcutKeysProps,
 } from "./components/shortcut-keys";
 export { cn } from "./utils/cn";
+export type { CustomPropertyStyle } from "./utils/custom-property-style";
 export { initInputModality } from "./utils/input-modality";
 export {
   PANEL_ITEM_WASH,

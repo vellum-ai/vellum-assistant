@@ -21,6 +21,7 @@ import {
   type ProfileParamVisibility,
 } from "@/domains/settings/ai/profile-param-visibility";
 import { useSupportsCompleteProfileSnapshots } from "@/lib/backwards-compat/complete-profile-snapshots";
+import { useTranslation } from "@/i18n";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -129,6 +130,7 @@ function TokenBudgetField({
   max,
   disabled,
 }: TokenBudgetFieldProps) {
+  const { t } = useTranslation("settings");
   const isDefault = value === null;
   const effectiveValue = value ?? defaultValue;
 
@@ -189,7 +191,9 @@ function TokenBudgetField({
         </label>
         {isDefault ? (
           <span className="text-body-small-default text-[var(--content-tertiary)]">
-            Default · {formatCompactTokens(defaultValue)}
+            {t("profileAdvancedParams.defaultValueLabel", {
+              value: formatCompactTokens(defaultValue),
+            })}
           </span>
         ) : null}
       </div>
@@ -221,7 +225,7 @@ function TokenBudgetField({
           max={max}
           step={TOKEN_SLIDER_STEP_TOKENS}
           disabled={disabled}
-          aria-label={`${label} (tokens)`}
+          aria-label={t("profileAdvancedParams.tokensAriaLabel", { label })}
           wrapperClassName="w-32 shrink-0"
           className="text-right tabular-nums"
         />
@@ -231,7 +235,7 @@ function TokenBudgetField({
           onClick={() => onChange(null)}
           disabled={disabled || isDefault}
         >
-          Reset
+          {t("profileAdvancedParams.reset")}
         </Button>
       </div>
     </div>
@@ -276,6 +280,7 @@ export function ProfileAdvancedParams({
   thinkingLevel,
   onThinkingLevelChange,
 }: ProfileAdvancedParamsProps) {
+  const { t } = useTranslation("settings");
   const supportsSnapshots = useSupportsCompleteProfileSnapshots();
 
   // Each model's hard ceiling doubles as that field's slider/input max. The
@@ -310,13 +315,12 @@ export function ProfileAdvancedParams({
         // to the assistant defaults. Pre-0.10.8 assistants still live-inherit
         // (deep merge), so the line is hidden against them.
         <p className="text-body-small-default text-[var(--content-tertiary)]">
-          Fields left at their default are saved with the values shown and won’t
-          change if the assistant defaults change later.
+          {t("profileAdvancedParams.snapshotsHint")}
         </p>
       )}
       {visibility.maxTokens && (
         <TokenBudgetField
-          label="Max Output Tokens"
+          label={t("profileAdvancedParams.maxOutputTokensLabel")}
           value={maxTokens}
           onChange={onMaxTokensChange}
           defaultValue={resolvedMaxOutputDefault}
@@ -327,7 +331,7 @@ export function ProfileAdvancedParams({
 
       {visibility.contextWindow && (
         <TokenBudgetField
-          label="Context Window"
+          label={t("profileAdvancedParams.contextWindowLabel")}
           value={contextWindowMaxInputTokens}
           onChange={onContextWindowChange}
           defaultValue={resolvedContextWindowDefault}
@@ -340,19 +344,22 @@ export function ProfileAdvancedParams({
       {visibility.effort && (
         <div className="space-y-1">
           <label className="block text-body-small-default text-[var(--content-tertiary)]">
-            Effort
+            {t("profileAdvancedParams.effortLabel")}
           </label>
           <SegmentControl
             items={EFFORT_OPTIONS.map((v) => ({
               value: v,
               // "inherit" is a wire sentinel; post-M6 the saved profile bakes
               // the current default, so the UI says "default", not "inherit".
-              label: v === "inherit" ? "default" : v,
+              label:
+                v === "inherit"
+                  ? t("profileAdvancedParams.effortSegmentDefault")
+                  : v,
               disabled: isReadOnly,
             }))}
             value={effort}
             onChange={(v) => onEffortChange(v)}
-            ariaLabel="Effort"
+            ariaLabel={t("profileAdvancedParams.effortLabel")}
           />
         </div>
       )}
@@ -361,7 +368,7 @@ export function ProfileAdvancedParams({
       {visibility.speed && (
         <div className="space-y-1">
           <label className="block text-body-small-default text-[var(--content-tertiary)]">
-            Speed
+            {t("profileAdvancedParams.speedLabel")}
           </label>
           <SegmentControl
             items={SPEED_OPTIONS.map((v) => ({
@@ -371,7 +378,7 @@ export function ProfileAdvancedParams({
             }))}
             value={speed}
             onChange={(v) => onSpeedChange(v)}
-            ariaLabel="Speed"
+            ariaLabel={t("profileAdvancedParams.speedLabel")}
           />
         </div>
       )}
@@ -380,7 +387,7 @@ export function ProfileAdvancedParams({
       {visibility.verbosity && (
         <div className="space-y-1">
           <label className="block text-body-small-default text-[var(--content-tertiary)]">
-            Verbosity
+            {t("profileAdvancedParams.verbosityLabel")}
           </label>
           <SegmentControl
             items={VERBOSITY_OPTIONS.map((v) => ({
@@ -390,7 +397,7 @@ export function ProfileAdvancedParams({
             }))}
             value={verbosity}
             onChange={(v) => onVerbosityChange(v)}
-            ariaLabel="Verbosity"
+            ariaLabel={t("profileAdvancedParams.verbosityLabel")}
           />
         </div>
       )}
@@ -401,7 +408,7 @@ export function ProfileAdvancedParams({
           <Toggle
             checked={temperatureEnabled}
             onChange={(v) => onTemperatureEnabledChange(v)}
-            label="Temperature"
+            label={t("profileAdvancedParams.temperatureLabel")}
             disabled={isReadOnly}
           />
           {temperatureEnabled && (
@@ -433,7 +440,7 @@ export function ProfileAdvancedParams({
           <Toggle
             checked={topPEnabled}
             onChange={(v) => onTopPEnabledChange(v)}
-            label="Top P"
+            label={t("profileAdvancedParams.topPLabel")}
             disabled={isReadOnly}
           />
           {topPEnabled && (
@@ -470,7 +477,7 @@ export function ProfileAdvancedParams({
                 onThinkingStreamThinkingChange(false);
               }
             }}
-            label="Enable extended thinking"
+            label={t("profileAdvancedParams.enableExtendedThinkingLabel")}
             disabled={isReadOnly}
           />
           {thinkingEnabled && (
@@ -478,7 +485,7 @@ export function ProfileAdvancedParams({
               <Toggle
                 checked={thinkingStreamThinking}
                 onChange={(v) => onThinkingStreamThinkingChange(v)}
-                label="Stream thinking tokens"
+                label={t("profileAdvancedParams.streamThinkingTokensLabel")}
                 disabled={isReadOnly}
               />
             </div>
@@ -490,9 +497,9 @@ export function ProfileAdvancedParams({
       {visibility.thinkingLevel && (
         <div className="space-y-1">
           <label className="block text-body-small-default text-[var(--content-tertiary)]">
-            Thinking level{" "}
+            {t("profileAdvancedParams.thinkingLevelLabel")}{" "}
             <span className="text-[var(--content-disabled)]">
-              (default = inherit)
+              {t("profileAdvancedParams.thinkingLevelInheritHint")}
             </span>
           </label>
           <SegmentControl
@@ -505,7 +512,7 @@ export function ProfileAdvancedParams({
             }))}
             value={thinkingLevel}
             onChange={onThinkingLevelChange}
-            ariaLabel="Thinking level"
+            ariaLabel={t("profileAdvancedParams.thinkingLevelLabel")}
           />
         </div>
       )}

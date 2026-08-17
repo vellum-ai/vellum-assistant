@@ -1,5 +1,10 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
+import type { CommandPaletteWindowDependencies } from "@vellumai/electron-desktop/command-palette-window";
+import type { FloatingWindowDependencies } from "@vellumai/electron-desktop/floating-window";
+
+import { RENDERER_BASE_PROD, getDevRendererBase } from "./app-config";
+
 type Listener = (...args: unknown[]) => void;
 
 type StubWebContents = {
@@ -227,7 +232,8 @@ mock.module("./main-window", () => ({
   dispatchToMain: dispatchToMainMock,
 }));
 
-mock.module("./settings", () => ({
+mock.module("@vellumai/electron-desktop/settings", () => ({
+  readHotkeyOverride: () => null,
   readSetting: () => null,
   writeSetting: () => {},
   onSettingChange: () => () => {},
@@ -245,7 +251,7 @@ mock.module("./devtools", () => ({
   areChromeDevToolsEnabled: () => false,
 }));
 
-mock.module("./window-state", () => ({
+mock.module("@vellumai/electron-desktop/window-state", () => ({
   readOnboardingActive: () => false,
 }));
 
@@ -271,10 +277,28 @@ mock.module("./cli-path-flow", () => ({
 const {
   __resetForTesting,
   commandPaletteDispatchCommandSchema,
+  configureCommandPaletteWindow,
   installCommandPaletteWindow,
   openCommandPaletteWindow,
   selectCommandPaletteCommand,
-} = await import("./command-palette-window");
+} = await import("@vellumai/electron-desktop/command-palette-window");
+const { configureFloatingWindows, createWindowRouteResolver } = await import(
+  "@vellumai/electron-desktop/floating-window"
+);
+
+configureFloatingWindows({
+  createWindow: createWindowMock as unknown as FloatingWindowDependencies["createWindow"],
+  platform: "darwin",
+  resolveRoute: createWindowRouteResolver(() =>
+    appState.isPackaged ? RENDERER_BASE_PROD : getDevRendererBase(),
+  ),
+});
+configureCommandPaletteWindow({
+  currentMainWindow: (() => currentMainWindow) as unknown as CommandPaletteWindowDependencies["currentMainWindow"],
+  dispatchToMain: dispatchToMainMock,
+  ensureMainWindowVisible: ensureVisibleMock,
+  handle: handleMock as unknown as CommandPaletteWindowDependencies["handle"],
+});
 const { dispatchMenuCommand } = await import("./menu");
 
 beforeEach(() => {

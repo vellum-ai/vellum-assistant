@@ -21,6 +21,7 @@ import type { TrustContext } from "../daemon/trust-context-types.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
 import { computeToolApprovalDigest } from "../security/tool-approval-digest.js";
 import { getCatalogProvider } from "../tts/provider-catalog.js";
+import { createReasoningTagFilter } from "../tts/reasoning-tag-filter.js";
 import { extractSpeakableSegments } from "../tts/speakable-segments.js";
 import {
   type AudioStoreSink,
@@ -728,6 +729,12 @@ export class CallController {
     // could be the start of a control marker.
     let ttsBuffer = "";
     let fullResponseText = "";
+    // Reasoning models can inline <think> spans in the content stream when a
+    // profile has not opted into parseThinkTags. Neither the spoken path nor
+    // the post-turn consumers of fullResponseText (transcripts,
+    // assistant_spoke, END_CALL/ASK_GUARDIAN detection) may see them: both
+    // are fed only filtered text.
+    const reasoningFilter = createReasoningTagFilter();
 
     // Synthesized path: text is split at speakable boundaries as it streams
     // and each segment is synthesized while the LLM keeps generating. The
@@ -930,8 +937,13 @@ export class CallController {
         if (!this.isCurrentRun(runVersion)) {
           return;
         }
-        fullResponseText += text;
-        ttsBuffer += text;
+        // One filter feeds both consumers: the spoken stream and the text
+        // used for transcripts, assistant_spoke, and END_CALL/ASK_GUARDIAN
+        // marker detection. A control marker inside a reasoning span must
+        // never trigger a real action the caller did not hear.
+        const speakable = reasoningFilter.push(text);
+        fullResponseText += speakable;
+        ttsBuffer += speakable;
         ttsBuffer = stripInternalSpeechMarkers(ttsBuffer);
         flushSafeText();
       };
@@ -1010,7 +1022,11 @@ export class CallController {
       return fullResponseText;
     }
 
-    // Final sweep: strip any remaining control markers from the buffer
+    // Final sweep: release any held-back partial tag to both consumers,
+    // then strip any remaining control markers from the buffer.
+    const filterTail = reasoningFilter.flush();
+    fullResponseText += filterTail;
+    ttsBuffer += filterTail;
     ttsBuffer = stripInternalSpeechMarkers(ttsBuffer);
     if (ttsBuffer.length > 0) {
       emitSafeChunk(ttsBuffer);

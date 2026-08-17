@@ -36,6 +36,7 @@ const { COMPOSER_RADIUS_CLASS, VoiceComposerBar } =
   await import("@/domains/chat/components/chat-composer/voice-composer-bar");
 import type { LiveVoiceSessionState } from "@/domains/chat/voice/live-voice/live-voice-store";
 import type { VoiceSurfacePaint } from "@/domains/chat/voice/voice-room/voice-surface-paint";
+import { stubViewportAxes } from "@/hooks/viewport-axes.test-helper";
 import { toneForBg } from "@/utils/avatar-tone";
 
 afterEach(() => {
@@ -295,6 +296,22 @@ describe("VoiceComposerBar — structure and accessibility", () => {
     const { className } = screen.getByRole("group", { name: "Voice session" });
     expect(className).toContain(COMPOSER_RADIUS_CLASS);
     expect(className).not.toContain("rounded-full");
+  });
+
+  test("wears the mobile card's pill radius at mobile widths", () => {
+    // The card under it is a 26px pill there, and a 10px bar 8px above a pill
+    // reads as two unrelated widgets rather than one control area.
+    const restore = stubViewportAxes({ narrow: true, coarsePointer: true });
+    try {
+      renderBar("listening");
+      const { className } = screen.getByRole("group", {
+        name: "Voice session",
+      });
+      expect(className).toContain("rounded-[26px]");
+      expect(className).not.toContain(COMPOSER_RADIUS_CLASS);
+    } finally {
+      restore();
+    }
   });
 
   test("paints itself in the room's fill rather than inheriting a card's", () => {

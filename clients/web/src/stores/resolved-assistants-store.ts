@@ -56,9 +56,26 @@ export interface ResolvedAssistant {
   isPaired: boolean;
   /** Remote gateway URL for paired entries; only the lockfile carries it. */
   runtimeUrl?: string;
+  /** Public ingress registered with the platform for self-hosted local
+   *  entries; only the API carries it. Null/undefined means the platform has
+   *  no route to this assistant. */
+  ingressUrl?: string | null;
   /** Owning org for platform entries; only the lockfile carries it, so
    *  API-sourced entries leave this undefined. */
   organizationId?: string;
+}
+
+/**
+ * Whether this device has some transport to the assistant: the platform proxy
+ * (cloud and paired entries), a lockfile entry (`cloud` is only ever set from
+ * the lockfile, so its presence means a local/paired transport exists here),
+ * or a platform-registered public ingress (`ingressUrl`, the phone-to-Mac
+ * self-hosted path). A local API entry with none of these is unreachable from
+ * this client (the platform proxy 404s), so list surfaces should not offer
+ * it.
+ */
+export function isConnectableFromThisDevice(a: ResolvedAssistant): boolean {
+  return !a.isLocal || a.cloud != null || a.ingressUrl != null;
 }
 
 /**
@@ -152,24 +169,32 @@ const useResolvedAssistantsStoreBase = create<ResolvedAssistantsStore>(
     // The platform `Assistant` API carries no org field, so API-sourced
     // entries intentionally leave `organizationId` undefined (unlike
     // `setFromLockfile`). Don't "fix" this by inventing an org here.
+    //
+    // Unreachable local registrations are dropped: `hosting=all` returns
+    // every local assistant ever registered, and one this device cannot
+    // reach must not count toward `hasAssistants` or render as a dead card.
     setFromApi: (assistants) =>
       set({
         assistantsHydrated: true,
-        assistants: assistants.map((a) => {
-          const lockfileFields = getLockfileFields(a.id);
-          return {
-            id: a.id,
-            name: a.name,
-            hatchedAt: a.created,
-            cloud: lockfileFields.cloud,
-            runtimeVersion: lockfileFields.runtimeVersion,
-            runtimeUrl: lockfileFields.runtimeUrl,
-            currentReleaseVersion: a.current_release_version,
-            releaseChannel: a.release_channel,
-            isActiveLockfileAssistant: lockfileFields.isActiveLockfileAssistant,
-            ...classifyApiEntry(a.is_local, lockfileFields.isPaired),
-          };
-        }),
+        assistants: assistants
+          .map((a): ResolvedAssistant => {
+            const lockfileFields = getLockfileFields(a.id);
+            return {
+              id: a.id,
+              name: a.name,
+              hatchedAt: a.created,
+              cloud: lockfileFields.cloud,
+              runtimeVersion: lockfileFields.runtimeVersion,
+              runtimeUrl: lockfileFields.runtimeUrl,
+              ingressUrl: a.ingress_url,
+              currentReleaseVersion: a.current_release_version,
+              releaseChannel: a.release_channel,
+              isActiveLockfileAssistant:
+                lockfileFields.isActiveLockfileAssistant,
+              ...classifyApiEntry(a.is_local, lockfileFields.isPaired),
+            };
+          })
+          .filter(isConnectableFromThisDevice),
       }),
 
     markHydrated: () => set({ assistantsHydrated: true }),
@@ -185,6 +210,7 @@ const useResolvedAssistantsStoreBase = create<ResolvedAssistantsStore>(
           id: assistant.id,
           name: assistant.name,
           hatchedAt: assistant.created,
+          ingressUrl: assistant.ingress_url,
           currentReleaseVersion: assistant.current_release_version,
           releaseChannel: assistant.release_channel,
           ...classifyApiEntry(

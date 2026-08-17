@@ -1,6 +1,7 @@
-import { afterEach, describe, expect, it, mock } from "bun:test";
+import { afterEach, beforeEach, describe, expect, it, mock } from "bun:test";
 
 import { handleAppViewerAction } from "@/domains/chat/app-viewer-actions";
+import { stubViewportAxes } from "@/hooks/viewport-axes.test-helper";
 import { useConversationStore } from "@/stores/conversation-store";
 import { useViewerStore } from "@/stores/viewer-store";
 
@@ -10,7 +11,17 @@ function makeCtx(isMobile = false) {
   return { navigate: mock((_to: string) => {}), isMobile };
 }
 
+let restoreViewport: (() => void) | undefined;
+
+beforeEach(() => {
+  restoreViewport = stubViewportAxes({
+    narrow: false,
+    coarsePointer: false,
+  });
+});
+
 afterEach(() => {
+  restoreViewport?.();
   useViewerStore.getState().reset();
   useConversationStore.setState({
     activeConversationId: null,
@@ -148,6 +159,24 @@ describe("handleAppViewerAction — open_conversation", () => {
     );
     // Must NOT contain a prompt param
     expect(ctx.navigate.mock.calls[0][0]).not.toContain("prompt=");
+  });
+
+  it("enters the side-by-side so the conversation is visible beside the app", () => {
+    useViewerStore.setState({
+      mainView: "app",
+      activeAppId: SAMPLE_APP.appId,
+      openedAppState: SAMPLE_APP,
+    });
+    const ctx = makeCtx();
+
+    handleAppViewerAction(ctx, "open_conversation", {
+      conversationId: "target-conv",
+    });
+
+    expect(useViewerStore.getState().mainView).toBe("app-editing");
+    expect(useConversationStore.getState().editingConversationId).toBe(
+      "target-conv",
+    );
   });
 
   it("is a no-op without a conversationId", () => {

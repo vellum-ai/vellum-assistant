@@ -10,7 +10,7 @@ import {
 import { createRequire } from "module";
 import { Socket } from "net";
 import { homedir, networkInterfaces, platform, tmpdir } from "os";
-import { basename, dirname, join } from "path";
+import { basename, dirname, isAbsolute, join } from "path";
 
 import {
   findAssistantCommand,
@@ -39,6 +39,8 @@ import {
 import { stopIngressNginx } from "./nginx-ingress.js";
 import {
   type ProcessState,
+  executableName,
+  pathListDelimiter,
   resolveProcessState,
   stopProcess,
   stopProcessByPidFile,
@@ -55,6 +57,11 @@ const DARWIN_UNIX_SOCKET_MAX_PATH_BYTES = 103;
 // assistant.sock = 14 chars, plus 1 for the "/" separator = 15 overhead.
 const LONGEST_SOCKET_FILENAME = "assistant.sock";
 const LOCAL_RUNTIME_PACKAGE = "vellum";
+const PATH_DELIMITER = pathListDelimiter(platform());
+const DEFAULT_EXECUTABLE_PATH =
+  platform() === "win32"
+    ? "C:\\Windows\\System32;C:\\Windows"
+    : "/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin";
 
 export interface LocalRuntimeInstall {
   version: string;
@@ -116,10 +123,14 @@ function hasLocalRuntimeComponents(installDir: string): boolean {
  * and point at whatever version happens to be installed globally.
  */
 export function isCompiledCli(): boolean {
-  const execBase = basename(process.execPath);
+  const execBase = basename(process.execPath).replace(/\.exe$/i, "");
   return (
     execBase !== "bun" && execBase !== "bunx" && !execBase.startsWith("bun-")
   );
+}
+
+function compiledSibling(name: string): string {
+  return join(dirname(process.execPath), executableName(name, platform()));
 }
 
 function resolveBunExecutable(): string {
@@ -130,16 +141,22 @@ function resolveBunExecutable(): string {
   const envBun = process.env.VELLUM_BUN;
   if (envBun && existsSync(envBun)) return envBun;
 
-  const siblingBun = join(dirname(process.execPath), "bun");
+  const bunName = executableName("bun", platform());
+  const siblingBun = compiledSibling("bun");
   if (existsSync(siblingBun)) return siblingBun;
 
-  const bundledBun = join(dirname(process.execPath), "..", "Resources", "bun");
+  const bundledBun = join(
+    dirname(process.execPath),
+    "..",
+    "Resources",
+    bunName,
+  );
   if (existsSync(bundledBun)) return bundledBun;
 
-  const homeBun = join(homedir(), ".bun", "bin", "bun");
+  const homeBun = join(homedir(), ".bun", "bin", bunName);
   if (existsSync(homeBun)) return homeBun;
 
-  return "bun";
+  return bunName;
 }
 
 function envWithBunPath(
@@ -147,16 +164,16 @@ function envWithBunPath(
   commandDirs: string[] = [],
 ): Record<string, string | undefined> {
   const bunPath = resolveBunExecutable();
-  const basePath = env.PATH || "/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin";
+  const basePath = env.PATH || DEFAULT_EXECUTABLE_PATH;
   const extraDirs = [
-    bunPath.includes("/") ? dirname(bunPath) : "",
+    isAbsolute(bunPath) ? dirname(bunPath) : "",
     ...commandDirs,
     join(homedir(), ".bun", "bin"),
     join(homedir(), ".local", "bin"),
-  ].filter((dir) => dir && !basePath.split(":").includes(dir));
+  ].filter((dir) => dir && !basePath.split(PATH_DELIMITER).includes(dir));
   return {
     ...env,
-    PATH: [...extraDirs, basePath].filter(Boolean).join(":"),
+    PATH: [...extraDirs, basePath].filter(Boolean).join(PATH_DELIMITER),
   };
 }
 
@@ -649,7 +666,9 @@ function logAssistantAlreadyRunning(
       ? " but its database migrations failed — restart to recover"
       : status === "unready"
         ? " — database migrations still running"
-        : "";
+        : status === "stuck"
+          ? " but is not responding and could not be stopped"
+          : "";
   console.log(`   Assistant already running (pid ${pid})${suffix}\n`);
 }
 
@@ -968,7 +987,7 @@ export async function startCes(
 
   let ces;
   const runtimeCesDir = !watch ? localRuntimeCesDir(resources) : undefined;
-  const cesBinary = join(dirname(process.execPath), "credential-executor");
+  const cesBinary = compiledSibling("credential-executor");
   if (!runtimeCesDir && isCompiledCli() && existsSync(cesBinary) && !watch) {
     // Compiled binary alongside the CLI (desktop app / compiled CLI).
     const cesLogFd = openLogFile("hatch.log");
@@ -1328,7 +1347,10 @@ export function isGatewayWatchModeAvailable(): boolean {
  * The wrapper is idempotent: safe to call on every daemon wake.
  */
 function writeAssistantWrapper(resources: LocalInstanceResources): void {
-  const assistantBinary = join(dirname(process.execPath), "assistant");
+  if (platform() === "win32") {
+    return;
+  }
+  const assistantBinary = compiledSibling("assistant");
   if (!isCompiledCli() || !existsSync(assistantBinary)) return;
 
   const workspaceDir = join(resources.instanceDir, ".vellum", "workspace");
@@ -1391,7 +1413,7 @@ export async function startLocalDaemon(
   // This covers both the desktop app (VELLUM_DESKTOP_APP) and the case where
   // the user runs the compiled CLI directly from the terminal (e.g. via a
   // /usr/local/bin/vellum symlink into the app bundle).
-  const daemonBinary = join(dirname(process.execPath), "vellum-daemon");
+  const daemonBinary = compiledSibling("vellum-daemon");
   if (isCompiledCli() && existsSync(daemonBinary) && !watch) {
     // In watch mode, skip the bundled binary and use source (bun --watch
     // only works with source files, not compiled binaries).
@@ -1443,21 +1465,39 @@ export async function startLocalDaemon(
       const home = homedir();
       const bunBinDir = join(home, ".bun", "bin");
       const localBinDir = join(home, ".local", "bin");
-      const basePath =
-        process.env.PATH || "/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin";
+      const basePath = process.env.PATH || DEFAULT_EXECUTABLE_PATH;
       // The compiled `assistant` ships beside the daemon binary, so its
       // directory is what puts `assistant …` on PATH for agent-run commands.
       const daemonBinaryDir = dirname(daemonBinary);
-      const assistantBinaryDir = existsSync(join(daemonBinaryDir, "assistant"))
+      const assistantBinaryDir = existsSync(
+        join(daemonBinaryDir, executableName("assistant", platform())),
+      )
         ? [daemonBinaryDir]
         : [];
       const extraDirs = [...assistantBinaryDir, bunBinDir, localBinDir].filter(
-        (d) => !basePath.split(":").includes(d),
+        (d) => !basePath.split(PATH_DELIMITER).includes(d),
       );
       const daemonEnv: Record<string, string> = {
         HOME: process.env.HOME || home,
-        PATH: [...extraDirs, basePath].filter(Boolean).join(":"),
+        PATH: [...extraDirs, basePath].filter(Boolean).join(PATH_DELIMITER),
       };
+      if (platform() === "win32") {
+        for (const key of [
+          "APPDATA",
+          "COMSPEC",
+          "LOCALAPPDATA",
+          "PATHEXT",
+          "SystemDrive",
+          "SystemRoot",
+          "TEMP",
+          "TMP",
+          "USERPROFILE",
+        ]) {
+          if (process.env[key]) {
+            daemonEnv[key] = process.env[key];
+          }
+        }
+      }
       // Forward optional config env vars the daemon may need.
       // `VELLUM_ENVIRONMENT` must be forwarded so the daemon resolves
       // env-scoped paths (device ID, platform/guardian tokens, XDG
@@ -1692,7 +1732,7 @@ export async function startGateway(
   const runtimeGatewayDir = !watch
     ? localRuntimeGatewayDir(resources)
     : undefined;
-  const gatewayBinary = join(dirname(process.execPath), "vellum-gateway");
+  const gatewayBinary = compiledSibling("vellum-gateway");
   if (
     !runtimeGatewayDir &&
     isCompiledCli() &&

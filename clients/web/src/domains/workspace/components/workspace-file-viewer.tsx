@@ -31,7 +31,7 @@ import {
 import { useTranslation } from "@/i18n";
 import { FileMarkdown, isMarkdown } from "@/components/file-markdown";
 import { isJson, prettifyJson } from "@/domains/workspace/utils/file-json";
-import { formatFileSize } from "@/domains/workspace/utils/format-file-size";
+import { formatFileSize } from "@/utils/format-file-size";
 import { isHiddenPath } from "@/domains/workspace/utils/is-hidden-path";
 import {
   workspaceFileContentGet,
@@ -466,6 +466,11 @@ export function WorkspaceFileViewer({
   showHidden?: boolean;
   viewMode: WorkspaceViewMode;
   onChangeViewMode: (mode: WorkspaceViewMode) => void;
+  /**
+   * Opens the file tree's drawer from the empty state. Passed only while the
+   * tree is behind that drawer, so the button exists exactly when the tree is
+   * not already on screen beside this.
+   */
   onBrowse?: () => void;
   /** Last successful workspace rename, so edit state can follow the file. */
   pathRename?: { from: string; to: string } | null;
@@ -589,7 +594,6 @@ export function WorkspaceFileViewer({
             type="button"
             onClick={onBrowse}
             leftIcon={<FolderOpen aria-hidden />}
-            className="sm:hidden"
           >
             {t("workspaceFileViewer.browseFiles")}
           </Button>

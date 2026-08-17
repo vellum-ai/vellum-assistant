@@ -3,6 +3,7 @@ import {
   isDraftActive,
 } from "@/domains/settings/ai/call-site-helpers";
 import { CallSiteOverrideRow } from "@/domains/settings/ai/call-site-overrides-row";
+import { useTranslation } from "@/i18n";
 import type { CallSiteDraftMap } from "@/domains/settings/ai/use-override-drafts";
 import type {
   CallSiteOverrideDraft,
@@ -61,6 +62,8 @@ export function OverridesCallSiteList({
   onDraftChange,
   onToggle,
 }: OverridesCallSiteListProps) {
+  const { t } = useTranslation("settings");
+
   return (
     <div className="space-y-4">
       {groups.length === 0 ? (
@@ -68,7 +71,7 @@ export function OverridesCallSiteList({
         // search: "no matches" next to a visible match reads as a bug.
         advisorMatchesSearch ? null : (
           <p className="py-8 text-center text-body-medium-lighter text-[var(--content-tertiary)]">
-            No actions match your search.
+            {t("overridesCallSiteList.emptySearch")}
           </p>
         )
       ) : (

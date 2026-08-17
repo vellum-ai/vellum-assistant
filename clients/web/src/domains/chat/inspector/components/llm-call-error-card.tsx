@@ -2,6 +2,7 @@ import { TriangleAlert } from "lucide-react";
 import { type ReactNode } from "react";
 
 import { displayProvider } from "@/domains/chat/inspector/inspector-formatters";
+import { t, useTranslation } from "@/i18n";
 import type { LLMCallError } from "@vellumai/assistant-api";
 import { Card } from "@vellumai/design-library";
 
@@ -17,6 +18,7 @@ export function LlmCallErrorCard({
 }: {
   error: LLMCallError;
 }): ReactNode {
+  const { t: tChat } = useTranslation("chat");
   const message = error.message?.trim();
   const chips = buildErrorChips(error);
 
@@ -32,7 +34,7 @@ export function LlmCallErrorCard({
           className="text-body-medium-default"
           style={{ color: "var(--system-negative-strong)" }}
         >
-          Call failed
+          {tChat("llmCallErrorCard.title")}
         </span>
       </div>
       <p
@@ -41,7 +43,7 @@ export function LlmCallErrorCard({
       >
         {message && message.length > 0
           ? message
-          : "The provider rejected this call and returned no response."}
+          : tChat("llmCallErrorCard.noResponse")}
       </p>
       {chips.length > 0 && (
         <div className="mt-3 flex flex-wrap gap-2">
@@ -63,37 +65,55 @@ function buildErrorChips(error: LLMCallError): ErrorChipModel[] {
   const chips: ErrorChipModel[] = [];
   const name = error.name?.trim();
   if (name) {
-    chips.push({ label: "Type", value: name });
+    chips.push({ label: t("chat:llmCallErrorCard.chipType"), value: name });
   }
   const provider = error.provider?.trim();
   if (provider) {
-    chips.push({ label: "Provider", value: displayProvider(provider) });
+    chips.push({
+      label: t("chat:llmCallErrorCard.chipProvider"),
+      value: displayProvider(provider),
+    });
   }
   if (
     typeof error.statusCode === "number" &&
     Number.isFinite(error.statusCode)
   ) {
-    chips.push({ label: "Status", value: String(error.statusCode) });
+    chips.push({
+      label: t("chat:llmCallErrorCard.chipStatus"),
+      value: String(error.statusCode),
+    });
   }
   const code = error.code?.trim();
   if (code) {
-    chips.push({ label: "Code", value: code });
+    chips.push({ label: t("chat:llmCallErrorCard.chipCode"), value: code });
   }
   const apiErrorCode = error.apiErrorCode?.trim();
   if (apiErrorCode) {
-    chips.push({ label: "Upstream code", value: apiErrorCode });
+    chips.push({
+      label: t("chat:llmCallErrorCard.chipUpstreamCode"),
+      value: apiErrorCode,
+    });
   }
   const apiErrorType = error.apiErrorType?.trim();
   if (apiErrorType) {
-    chips.push({ label: "Upstream type", value: apiErrorType });
+    chips.push({
+      label: t("chat:llmCallErrorCard.chipUpstreamType"),
+      value: apiErrorType,
+    });
   }
   const apiErrorParam = error.apiErrorParam?.trim();
   if (apiErrorParam) {
-    chips.push({ label: "Upstream param", value: apiErrorParam });
+    chips.push({
+      label: t("chat:llmCallErrorCard.chipUpstreamParam"),
+      value: apiErrorParam,
+    });
   }
   const requestId = error.requestId?.trim();
   if (requestId) {
-    chips.push({ label: "Request ID", value: requestId });
+    chips.push({
+      label: t("chat:llmCallErrorCard.chipRequestId"),
+      value: requestId,
+    });
   }
   return chips;
 }

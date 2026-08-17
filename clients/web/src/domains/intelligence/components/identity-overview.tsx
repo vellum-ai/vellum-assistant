@@ -35,6 +35,7 @@ import { ChatAvatar } from "@/components/avatar/chat-avatar";
 import { PageShell } from "@/components/page-shell";
 import { useAssistantAvatar } from "@/hooks/use-assistant-avatar";
 import { useElementSize } from "@/hooks/use-element-size";
+import { useTranslation } from "@/i18n";
 import { useSupportsPluginsSurface } from "@/lib/backwards-compat/plugins-surface";
 import { useIsNativeMobile } from "@/runtime/platform-detection";
 import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
@@ -112,15 +113,26 @@ const MINI_SECTION_KEYS = [
  * In-character center-text lines while the avatar is off hugging a card —
  * the greeting becomes his commentary on whatever you're pointing at.
  */
-const CARD_HOVER_LINES: Record<string, string> = {
-  personality: "Go ahead, tweak my soul",
-  superpowers: "Everything I know how to do",
-  memory: "Everything I remember",
-  library: "The apps and docs I've made for you",
-  schedules: "What I do on repeat",
-  workspace: "All the files that power me",
-  contacts: "The people I know and trust",
-  channels: "All the places you can reach me",
+const CARD_HOVER_LINE_KEY: Record<
+  string,
+  `identityOverview.cardHoverLine.${
+    | "personality"
+    | "superpowers"
+    | "memory"
+    | "library"
+    | "schedules"
+    | "workspace"
+    | "contacts"
+    | "channels"}`
+> = {
+  personality: "identityOverview.cardHoverLine.personality",
+  superpowers: "identityOverview.cardHoverLine.superpowers",
+  memory: "identityOverview.cardHoverLine.memory",
+  library: "identityOverview.cardHoverLine.library",
+  schedules: "identityOverview.cardHoverLine.schedules",
+  workspace: "identityOverview.cardHoverLine.workspace",
+  contacts: "identityOverview.cardHoverLine.contacts",
+  channels: "identityOverview.cardHoverLine.channels",
 };
 
 /** "14 Jul, 9:00 am" — compact next-fire time for the schedules preview. */
@@ -194,6 +206,7 @@ interface IdentityOverviewProps {
 }
 
 export function IdentityOverview({ assistantId }: IdentityOverviewProps) {
+  const { t } = useTranslation("intelligence");
   const queryClient = useQueryClient();
   const {
     components,
@@ -232,7 +245,13 @@ export function IdentityOverview({ assistantId }: IdentityOverviewProps) {
     memory:
       memories === undefined
         ? undefined
-        : { value: memories, label: memories === 1 ? "memory" : "memories" },
+        : {
+            value: memories,
+            label: t("identityOverview.memoryCountLabel", {
+              count: memories,
+            }),
+            text: t("identityOverview.memoryCount", { count: memories }),
+          },
   };
 
   const [modalOpen, setModalOpen] = useState(false);
@@ -255,13 +274,13 @@ export function IdentityOverview({ assistantId }: IdentityOverviewProps) {
           // Preserve the owner tag: a rename changes the name, not which
           // assistant the hydrated identity belongs to.
           setIdentity(newName, version, hydratedAssistantId);
-          toast.success(`Say hi to ${newName}!`);
+          toast.success(t("identityOverview.renameSuccessToast", { newName }));
         } else {
-          toast.error("The rename didn't go through. Please try again.");
+          toast.error(t("identityOverview.renameErrorToast"));
         }
       });
     },
-    [assistantId, queryClient],
+    [assistantId, queryClient, t],
   );
 
   const handleAvatarChange = useCallback(() => {
@@ -321,7 +340,10 @@ export function IdentityOverview({ assistantId }: IdentityOverviewProps) {
           components={components}
           traits={traits}
           customImageUrl={customImageUrl}
-          name={identityQuery.data?.identity?.name || "Assistant"}
+          name={
+            identityQuery.data?.identity?.name ||
+            t("identityOverview.defaultAssistantName")
+          }
           sections={sections}
           stats={sectionStats}
           avatarHex={avatarHex}
@@ -340,7 +362,10 @@ export function IdentityOverview({ assistantId }: IdentityOverviewProps) {
         customImageUrl={customImageUrl}
         onSaveCharacter={handleAvatarChange}
         onUploadImage={handleAvatarChange}
-        assistantName={identityQuery.data?.identity?.name || "Assistant"}
+        assistantName={
+          identityQuery.data?.identity?.name ||
+          t("identityOverview.defaultAssistantName")
+        }
         onRenameSubmit={handleRename}
         isRenaming={isRenaming}
       />
@@ -355,6 +380,7 @@ function SectionCard({
   cardStyle,
   hoverFill,
   mini,
+  compact = false,
   flooded = false,
   floodOrigin,
   photoBackdrop = false,
@@ -372,6 +398,13 @@ function SectionCard({
   /** Compact one-row variant for the bottom-strip and stacked-grid
    *  sections. */
   mini?: boolean;
+  /**
+   * The stacked layout's tighter tile metrics (Figma 7907-9239). The bento's
+   * bottom strip keeps its own (6944-89405), which is why this is a variant
+   * rather than a change to {@link mini}: the two surfaces are specced
+   * separately and a shared edit would quietly restyle the desktop strip.
+   */
+  compact?: boolean;
   /** The avatar has poured itself over this card — fill it with the
    *  avatar color and flip the content to the contrast tone. */
   flooded?: boolean;
@@ -383,6 +416,7 @@ function SectionCard({
   linkRef?: (el: HTMLAnchorElement | null) => void;
   onHoverChange?: (hovering: boolean) => void;
 }) {
+  const { t } = useTranslation("intelligence");
   const Icon = SECTION_ICONS[section.key] ?? Sparkles;
 
   // Keep the last origin while draining so the water recedes back to
@@ -424,8 +458,6 @@ function SectionCard({
   );
 
   if (mini) {
-    const miniStat =
-      stat?.value !== undefined ? `${stat.value} ${stat.label}` : stat?.text;
     // Bottom-strip tile per Figma (New-App 6944-89405): left-aligned,
     // 12px radius, 40px icon slot in the secondary tone, 16px title over
     // an 11px tertiary stat.
@@ -442,9 +474,9 @@ function SectionCard({
           ref={linkRef}
           onMouseEnter={() => onHoverChange?.(true)}
           onMouseLeave={() => onHoverChange?.(false)}
-          className={`relative flex h-full flex-1 cursor-pointer items-center gap-2 px-4 py-2.5 transition-all duration-150 active:scale-[0.98] ${
-            hoverFill ? "hover:bg-[var(--card-hover)]" : ""
-          }`}
+          className={`relative flex h-full flex-1 cursor-pointer items-center transition-all duration-150 active:scale-[0.98] ${
+            compact ? "gap-1 py-3 pr-3 pl-2" : "gap-2 px-4 py-2.5"
+          } ${hoverFill ? "hover:bg-[var(--card-hover)]" : ""}`}
         >
           {floodOverlay}
           <span className="relative flex h-10 w-10 shrink-0 items-center justify-center">
@@ -459,7 +491,7 @@ function SectionCard({
             >
               {section.label}
             </span>
-            {miniStat && (
+            {stat?.text && (
               <span
                 className={`truncate text-[11px] leading-normal font-medium transition-colors duration-300 ${
                   flooded
@@ -467,7 +499,7 @@ function SectionCard({
                     : "text-[var(--content-tertiary)]"
                 }`}
               >
-                {miniStat}
+                {stat.text}
               </span>
             )}
           </span>
@@ -617,7 +649,10 @@ function SectionCard({
                 <span
                   className={`truncate text-[12px] transition-colors duration-300 ${fgMuted}`}
                 >
-                  {schedule.cadence} · next {formatNextRun(schedule.nextRunAt)}
+                  {t("identityOverview.scheduleCadence", {
+                    cadence: schedule.cadence,
+                    nextRun: formatNextRun(schedule.nextRunAt),
+                  })}
                 </span>
               </span>
             ))}
@@ -625,7 +660,9 @@ function SectionCard({
               <span
                 className={`text-[12px] font-medium transition-colors duration-300 ${fgMuted}`}
               >
-                View {stat.schedules.more} more…
+                {t("identityOverview.viewMoreSchedules", {
+                  count: stat.schedules.more,
+                })}
               </span>
             )}
           </span>
@@ -674,13 +711,14 @@ function CenterCell({
   isRenaming: boolean;
   onEdit: () => void;
 }) {
+  const { t } = useTranslation("intelligence");
   return (
     <div className="relative z-[1] flex flex-col items-center justify-center gap-5">
       <AssistantNameEditor name={name} isRenaming={isRenaming} />
       <button
         type="button"
-        aria-label="Update avatar and name"
-        title="Update avatar and name"
+        aria-label={t("identityOverview.updateAvatarAndName")}
+        title={t("identityOverview.updateAvatarAndName")}
         onClick={onEdit}
         className="avatar-edit-cursor outline-none keyboard-focus:ring-2 keyboard-focus:ring-[var(--ring)]"
       >
@@ -743,6 +781,7 @@ function OverviewBento({
   isRenaming: boolean;
   onOpenAvatarModal: () => void;
 }) {
+  const { t } = useTranslation("intelligence");
   const { ref, size } = useElementSize();
   const reduce = useReducedMotion();
   const useBento = size.w >= BENTO_MIN_W && size.h >= BENTO_MIN_H;
@@ -836,9 +875,10 @@ function OverviewBento({
 
   // While the avatar is off hugging a card, the center text becomes his
   // commentary on it.
-  const greetingOverride = activeHug
-    ? (CARD_HOVER_LINES[activeHug.key] ?? null)
-    : null;
+  const activeHoverLineKey = activeHug
+    ? CARD_HOVER_LINE_KEY[activeHug.key]
+    : undefined;
+  const greetingOverride = activeHoverLineKey ? t(activeHoverLineKey) : null;
 
   // Without a character color (custom image / not loaded) every surface
   // falls back to the regular theme tokens — no forced white/black card
@@ -902,13 +942,11 @@ function OverviewBento({
       ? schedulesStat.items.length + schedulesStat.more
       : undefined;
     const signature = stats["personality"]?.signature;
-    // Same feature-card chrome as the bento's Personality/Schedules
-    // cards: translucent glass on the photo backdrop, themed otherwise.
-    const featureCardClass = `w-full rounded-[12px] border bg-[var(--card-feature-bg,var(--card-bg))] ${
-      photoBackdrop
-        ? "border-transparent backdrop-blur-[32px]"
-        : "border-[var(--border-base)]"
-    }`;
+    // A translucent face needs the blur to read as a card rather than a dimmed
+    // patch of whatever sits behind it, and needs no drawn edge, which would
+    // compete with the one the blur implies.
+    const featureCardClass =
+      "w-full rounded-[12px] border border-transparent bg-[var(--card-feature-bg,var(--card-bg))] backdrop-blur-[32px]";
 
     return (
       <div
@@ -916,10 +954,29 @@ function OverviewBento({
         className="identity-bento relative flex min-h-0 flex-1 flex-col items-center gap-6 overflow-y-auto px-2 py-4"
         style={
           photoBackdrop
-            ? // The mobile grid tiles sit on the deeper dark base (Figma
-              // 7259-169066) rather than the desktop strip's lift color.
-              ({ ...tintStyle, "--card-bg": "#17191c" } as CSSProperties)
-            : tintStyle
+            ? // The photo backdrop's palette is fixed light-on-dark in every
+              // theme, so these stay literals: `var(--surface-base)` would
+              // resolve to the light theme's near-white and put white text on
+              // a white tile.
+              ({
+                ...tintStyle,
+                "--card-feature-bg": "rgba(23, 25, 28, 0.3)",
+                "--card-bg": "#17191c",
+                "--card-hover": "#24292e",
+              } as CSSProperties)
+            : // Figma 7907-9239: the stacked layout steps its cards off the
+              // avatar tint and onto the surface ramp. The two feature cards
+              // take a 30% wash of the base that lets the tinted page through;
+              // the tiles below take the base itself. `--card-hover` follows
+              // them onto that ramp, so a hover reads as a lift rather than a
+              // colour flash from the avatar.
+              ({
+                ...tintStyle,
+                "--card-feature-bg":
+                  "color-mix(in srgb, var(--surface-base) 30%, transparent)",
+                "--card-bg": "var(--surface-base)",
+                "--card-hover": "var(--surface-lift)",
+              } as CSSProperties)
         }
       >
         {centerCell}
@@ -937,11 +994,11 @@ function OverviewBento({
                 className="flex w-full cursor-pointer items-center gap-2 p-4 transition-all duration-150 hover:bg-[var(--card-hover)] active:scale-[0.98]"
               >
                 <CalendarClock
-                  className="h-5 w-5 shrink-0 text-[var(--content-default)]"
+                  className="h-6 w-6 shrink-0 text-[var(--content-default)]"
                   aria-hidden
                 />
                 <span className="flex min-w-0 flex-1 items-center gap-2">
-                  <span className="truncate text-body-medium-default text-[var(--content-default)]">
+                  <span className="truncate text-title-small leading-normal text-[var(--content-default)]">
                     {schedulesSection.label}
                   </span>
                   {scheduleCount !== undefined && (
@@ -950,14 +1007,14 @@ function OverviewBento({
                         className="h-[3px] w-[3px] shrink-0 rounded-full bg-[var(--content-tertiary)]"
                         aria-hidden
                       />
-                      <span className="text-body-medium-default text-[var(--content-tertiary)]">
+                      <span className="text-title-small leading-normal text-[var(--content-tertiary)]">
                         {scheduleCount}
                       </span>
                     </>
                   )}
                 </span>
                 <ChevronRight
-                  className="h-4 w-4 shrink-0 text-[var(--content-default)]"
+                  className="h-6 w-6 shrink-0 text-[var(--content-default)]"
                   aria-hidden
                 />
               </Link>
@@ -975,12 +1032,12 @@ function OverviewBento({
                 to={personalitySection.to}
                 className="flex w-full cursor-pointer flex-col gap-4 px-4 pt-4 pb-6 transition-all duration-150 hover:bg-[var(--card-hover)] active:scale-[0.98]"
               >
-                <span className="flex items-center gap-2">
+                <span className="flex w-full items-center gap-2">
                   <Sparkles
-                    className="h-5 w-5 text-[var(--content-default)]"
+                    className="h-6 w-6 shrink-0 text-[var(--content-default)]"
                     aria-hidden
                   />
-                  <span className="text-body-medium-default text-[var(--content-default)]">
+                  <span className="text-title-small leading-normal text-[var(--content-default)]">
                     {personalitySection.label}
                   </span>
                 </span>
@@ -1009,6 +1066,7 @@ function OverviewBento({
                 stat={stats[section.key]}
                 hoverFill
                 mini
+                compact
               />
             ))}
           </div>
@@ -1109,8 +1167,8 @@ function OverviewBento({
           <div
             role="button"
             tabIndex={0}
-            aria-label="Update avatar and name"
-            title="Update avatar and name"
+            aria-label={t("identityOverview.updateAvatarAndName")}
+            title={t("identityOverview.updateAvatarAndName")}
             onClick={onOpenAvatarModal}
             onKeyDown={(e) => {
               if (e.key === "Enter" || e.key === " ") {
@@ -1147,8 +1205,8 @@ function OverviewBento({
         >
           <button
             type="button"
-            aria-label="Update avatar and name"
-            title="Update avatar and name"
+            aria-label={t("identityOverview.updateAvatarAndName")}
+            title={t("identityOverview.updateAvatarAndName")}
             onClick={onOpenAvatarModal}
             className="avatar-edit-cursor rounded-full outline-none keyboard-focus:ring-2 keyboard-focus:ring-[var(--ring)]"
           >

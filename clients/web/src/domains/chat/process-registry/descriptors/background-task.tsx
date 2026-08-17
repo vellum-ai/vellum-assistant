@@ -25,8 +25,8 @@ import { useViewerStore } from "@/stores/viewer-store";
  * The descriptor contract's `useActiveIds` is zero-arg, but
  * `useActiveBackgroundTaskIds` is conversation-scoped (the store is global
  * across conversations). Bind it to the active conversation id here so the
- * registry sees only the tasks for the conversation on screen — exactly what
- * `ChatRouteContent` does today.
+ * registry sees only the tasks for the conversation on screen, matching
+ * `ChatMainPanel`.
  */
 function useActiveIds(): string[] {
   const conversationId = useConversationStore((s) => s.activeConversationId);

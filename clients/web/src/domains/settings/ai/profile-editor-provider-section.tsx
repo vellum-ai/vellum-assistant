@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 
+import { useTranslation } from "@/i18n";
+
 import { Button } from "@vellumai/design-library/components/button";
 import { Select } from "@vellumai/design-library/components/select";
 import { Input } from "@vellumai/design-library/components/input";
@@ -14,11 +16,15 @@ import {
   codexServableModels,
   restrictsToSubscriptionModels,
 } from "@/domains/settings/ai/codex-subscription-models";
-import { OPENAI_COMPATIBLE_PROVIDER } from "@/domains/settings/ai/constants";
 import {
-  endpointPickerValue,
+  CHATGPT_CONNECTION_PROVIDER,
+  OPENAI_COMPATIBLE_PROVIDER,
+  VELLUM_CONNECTION_PROVIDER,
+} from "@/domains/settings/ai/constants";
+import {
+  entryPickerValue,
   expandEndpointEntries,
-  parseEndpointPickerValue,
+  parseEntryPickerValue,
   providersServedByConnections,
   useSelectableCatalogProviders,
 } from "@/domains/settings/ai/provider-availability";
@@ -37,29 +43,6 @@ function connectionModelsToCatalog(
     displayName: m.displayName ?? m.id,
   }));
 }
-
-/**
- * Copy for the Model field's empty states, keyed by the `modelEmptyState`
- * discriminator. The "no-provider" hint is `null` because the hint only
- * renders once a provider is selected.
- */
-const NO_PROVIDER_CONNECTIONS_HINT =
-  "No provider connections. Open Providers to add one.";
-
-const MODEL_EMPTY_STATE_COPY = {
-  "no-provider": {
-    placeholder: "Select a provider first",
-    hint: null,
-  },
-  "configure-connection": {
-    placeholder: "Configure models on connection",
-    hint: "No models available. Configure models on the provider connection first.",
-  },
-  "unknown-to-catalog": {
-    placeholder: "No models available",
-    hint: "No models are available for this provider in this app version. Update the app, or enter a custom model ID.",
-  },
-} as const;
 
 /**
  * Sentinel value for the Model dropdown option that switches the field into
@@ -145,6 +128,7 @@ export function ProfileEditorProviderSection({
   // for a text input whose value is sent to the connection verbatim. It's
   // withheld from subscription-restricted connections, which only accept a
   // fixed model set.
+  const { t } = useTranslation("settings");
   const [isEnteringCustomModel, setIsEnteringCustomModel] = useState(false);
 
   const subscriptionRestricted = restrictsToSubscriptionModels(
@@ -152,7 +136,12 @@ export function ProfileEditorProviderSection({
     providerConnection,
     availableConnectionsForProvider,
   );
-  const allowsCustomModel = provider !== "" && !subscriptionRestricted;
+  // The chatgpt identity validates models against the Codex set at the
+  // schema, so a typed id outside the list could never save.
+  const allowsCustomModel =
+    provider !== "" &&
+    provider !== CHATGPT_CONNECTION_PROVIDER &&
+    !subscriptionRestricted;
 
   // Switching providers reopens the field on the new provider's model list;
   // a connection that bars custom ids also closes the free-text input.
@@ -202,6 +191,23 @@ export function ProfileEditorProviderSection({
   // so they are not told to.
   const noProviderConnections =
     providerOptionsSource.length === 0 && !isReadOnly;
+
+  // A stale openai profile in a workspace whose only OpenAI access is the
+  // subscription: nothing can serve it, but the fix is one picker entry
+  // away. Covers both row shapes (provider "chatgpt", and the pre-366 rows
+  // older daemons still return, where the subscription row stores provider
+  // "openai" with oauth_subscription auth).
+  const subscriptionSteeringHint =
+    provider === "openai" &&
+    !isReadOnly &&
+    availableConnectionsForProvider.length === 0 &&
+    (connections ?? []).some(
+      (c) =>
+        c.provider === CHATGPT_CONNECTION_PROVIDER ||
+        c.auth.type === "oauth_subscription",
+    )
+      ? t("profileEditor.subscriptionSteeringHint")
+      : undefined;
 
   // For openai-compatible providers the static catalog is empty — use models
   // from the selected connection instead. When no specific connection is
@@ -277,9 +283,31 @@ export function ProfileEditorProviderSection({
         ? "configure-connection"
         : "unknown-to-catalog"
       : null;
-  const modelEmptyStateCopy = modelEmptyState
-    ? MODEL_EMPTY_STATE_COPY[modelEmptyState]
-    : null;
+  const modelEmptyStateCopy = useMemo(() => {
+    switch (modelEmptyState) {
+      case "no-provider":
+        return {
+          placeholder: t("profileEditorProviderSection.modelEmptyNoProviderPlaceholder"),
+          hint: null,
+        };
+      case "configure-connection":
+        return {
+          placeholder: t(
+            "profileEditorProviderSection.modelEmptyConfigureConnectionPlaceholder",
+          ),
+          hint: t(
+            "profileEditorProviderSection.modelEmptyConfigureConnectionHint",
+          ),
+        };
+      case "unknown-to-catalog":
+        return {
+          placeholder: t("profileEditorProviderSection.modelEmptyUnknownPlaceholder"),
+          hint: t("profileEditorProviderSection.modelEmptyUnknownHint"),
+        };
+      default:
+        return null;
+    }
+  }, [modelEmptyState, t]);
 
   // Clear the bound model when it isn't selectable for the current connection.
   // Per-connection providers (openai-compatible) derive their model list from
@@ -316,6 +344,89 @@ export function ProfileEditorProviderSection({
     }
   }, [model, availableModels, onModelChange, provider, isEnteringCustomModel]);
 
+  const defaultEntryMetaLabel = t("aiProviderPicker.defaultEntryMeta");
+
+  // Options are computed ahead of the JSX so the trigger value can be
+  // membership-checked below: a value with no matching option makes the
+  // Select render its placeholder, which reads as an empty picker on a
+  // working profile (stale binding among surviving siblings, or a
+  // cross-kind binding such as a chatgpt row serving openai).
+  const providerOptions = useMemo(() => {
+    const base = expandEndpointEntries(
+      providerOptionsSource,
+      connections ?? [],
+      (p) => PROVIDER_DISPLAY_NAMES[p] ?? p,
+      defaultEntryMetaLabel,
+    ).map(({ value, label, meta }) => ({
+      value,
+      label,
+      suffix: meta ? <PickerMeta text={meta} /> : undefined,
+    }));
+    // A bound endpoint whose row was deleted still renders on the
+    // trigger; the warning below explains the state.
+    if (
+      connectionNotFound &&
+      provider === OPENAI_COMPATIBLE_PROVIDER &&
+      providerConnection
+    ) {
+      base.push({
+        value: entryPickerValue(OPENAI_COMPATIBLE_PROVIDER, providerConnection),
+        label: `${providerConnection} ${t("profileEditorProviderSection.providerNotFoundSuffix")}`,
+        suffix: undefined,
+      });
+    }
+    // An unbound openai-compatible profile has no endpoint entry to
+    // select; the bare protocol value keeps the trigger labeled.
+    // Picking an endpoint entry from this same list binds it.
+    if (provider === OPENAI_COMPATIBLE_PROVIDER && !providerConnection) {
+      base.push({
+        value: OPENAI_COMPATIBLE_PROVIDER,
+        label:
+          PROVIDER_DISPLAY_NAMES[OPENAI_COMPATIBLE_PROVIDER] ??
+          OPENAI_COMPATIBLE_PROVIDER,
+        suffix: undefined,
+      });
+    }
+    return base;
+  }, [
+    providerOptionsSource,
+    connections,
+    connectionNotFound,
+    provider,
+    providerConnection,
+    defaultEntryMetaLabel,
+    t,
+  ]);
+
+  const entryValue =
+    provider && providerConnection
+      ? entryPickerValue(provider, providerConnection)
+      : null;
+  // A binding to an identity row (a chatgpt row serving openai, a vellum
+  // row serving a managed-routable vendor) has no entry option of its own:
+  // identity rows never expand. The identity's bare option names the route
+  // the profile actually dispatches through, so the trigger shows it
+  // rather than the vendor.
+  const boundIdentityKind = (() => {
+    if (!providerConnection) {
+      return null;
+    }
+    const row = connections?.find((c) => c.name === providerConnection);
+    return row &&
+      (row.provider === VELLUM_CONNECTION_PROVIDER ||
+        row.provider === CHATGPT_CONNECTION_PROVIDER)
+      ? row.provider
+      : null;
+  })();
+  const optionExists = (value: string) =>
+    providerOptions.some((option) => option.value === value);
+  const selectValue =
+    entryValue !== null && optionExists(entryValue)
+      ? entryValue
+      : boundIdentityKind !== null && optionExists(boundIdentityKind)
+        ? boundIdentityKind
+        : provider;
+
   return (
     <>
       {/* Provider — required. Filtered to providers with at least one
@@ -324,75 +435,43 @@ export function ProfileEditorProviderSection({
       {!hideProviderField && (
         <Select
           id="profile-editor-provider"
-          label="Provider"
+          label={t("profileEditorProviderSection.providerLabel")}
           errorText={
             // With nothing to select, "add a connection" is both the reason
             // Save is blocked and the way out, so it becomes the error.
             // Passing it as helper text would hide it: the field shows one
             // message, and the error wins.
             providerError && noProviderConnections
-              ? NO_PROVIDER_CONNECTIONS_HINT
+              ? t("profileEditorProviderSection.noProviderConnectionsHint")
               : providerError
           }
           helperText={
             noProviderConnections && !providerError
-              ? NO_PROVIDER_CONNECTIONS_HINT
-              : undefined
+              ? t("profileEditorProviderSection.noProviderConnectionsHint")
+              : subscriptionSteeringHint
           }
-          value={
-            provider === OPENAI_COMPATIBLE_PROVIDER && providerConnection
-              ? endpointPickerValue(providerConnection)
-              : provider
-          }
+          value={selectValue}
           onChange={(next) => {
-            const endpoint = parseEndpointPickerValue(next);
-            if (endpoint) {
-              // Each endpoint entry implies the openai-compatible
-              // provider plus its binding.
-              onProviderChange(OPENAI_COMPATIBLE_PROVIDER);
-              onConnectionChange(endpoint);
+            const entry = parseEntryPickerValue(next);
+            if (entry) {
+              // An entry row implies its kind plus the binding; a same-kind
+              // entry switch keeps the model (onProviderChange no-ops).
+              onProviderChange(entry.provider);
+              onConnectionChange(entry.connectionName);
               return;
             }
             onProviderChange(next as ConnectionProvider);
+            // Re-picking the current kind's bare row means "the default
+            // entry": the explicit binding must clear, and the provider
+            // change above no-ops so it won't do it. A different provider
+            // resolves its own binding there instead.
+            if (next === provider) {
+              onConnectionChange("");
+            }
           }}
           disabled={isReadOnly}
-          placeholder="Select a provider…"
-          options={[
-            ...expandEndpointEntries(
-              providerOptionsSource,
-              connections ?? [],
-              (p) => PROVIDER_DISPLAY_NAMES[p] ?? p,
-            ).map(({ value, label, meta }) => ({
-              value,
-              label,
-              suffix: meta ? <PickerMeta text={meta} /> : undefined,
-            })),
-            // A bound endpoint whose row was deleted still renders on the
-            // trigger; the warning below explains the state.
-            ...(connectionNotFound &&
-            provider === OPENAI_COMPATIBLE_PROVIDER &&
-            providerConnection
-              ? [
-                  {
-                    value: endpointPickerValue(providerConnection),
-                    label: `${providerConnection} (not found)`,
-                  },
-                ]
-              : []),
-            // An unbound openai-compatible profile has no endpoint entry to
-            // select; the bare protocol value keeps the trigger labeled.
-            // Picking an endpoint entry from this same list binds it.
-            ...(provider === OPENAI_COMPATIBLE_PROVIDER && !providerConnection
-              ? [
-                  {
-                    value: OPENAI_COMPATIBLE_PROVIDER,
-                    label:
-                      PROVIDER_DISPLAY_NAMES[OPENAI_COMPATIBLE_PROVIDER] ??
-                      OPENAI_COMPATIBLE_PROVIDER,
-                  },
-                ]
-              : []),
-          ]}
+          placeholder={t("profileEditorProviderSection.selectProviderPlaceholder")}
+          options={providerOptions}
         />
       )}
 
@@ -407,8 +486,7 @@ export function ProfileEditorProviderSection({
           as="p"
           className="text-(--system-negative-strong)"
         >
-          This profile referenced a credential that no longer exists. Saving
-          resets it to use the provider&rsquo;s available key.
+          {t("profileEditorProviderSection.connectionNotFound")}
         </Typography>
       )}
 
@@ -417,7 +495,7 @@ export function ProfileEditorProviderSection({
           build doesn't list (e.g. a new OpenRouter model). */}
       <div className="space-y-1">
         <label className="block text-body-small-default text-[var(--content-tertiary)]">
-          Model
+          {t("profileEditorProviderSection.modelLabel")}
         </label>
         {isEnteringCustomModel ? (
           <>
@@ -425,8 +503,8 @@ export function ProfileEditorProviderSection({
               value={model}
               onChange={(e) => onModelChange(e.target.value)}
               disabled={isReadOnly}
-              placeholder="provider/model-id"
-              aria-label="Custom model ID"
+              placeholder={t("profileEditorProviderSection.customModelPlaceholder")}
+              aria-label={t("profileEditorProviderSection.customModelAriaLabel")}
               fullWidth
               autoFocus
             />
@@ -436,7 +514,7 @@ export function ProfileEditorProviderSection({
               disabled={isReadOnly}
               onClick={() => setIsEnteringCustomModel(false)}
             >
-              Choose from list
+              {t("profileEditorProviderSection.chooseFromList")}
             </Button>
           </>
         ) : (
@@ -444,11 +522,14 @@ export function ProfileEditorProviderSection({
             value={model}
             onChange={handleModelSelection}
             disabled={isReadOnly || !provider}
-            aria-label="Model"
+            aria-label={t("profileEditorProviderSection.modelAriaLabel")}
             // Radix reserves the empty string, and the leading row this used
             // to fake is what `placeholder` is for: an unset field, not a
             // choosable option.
-            placeholder={modelEmptyStateCopy?.placeholder ?? "Select a model"}
+            placeholder={
+              modelEmptyStateCopy?.placeholder ??
+              t("profileEditorProviderSection.selectModelPlaceholder")
+            }
             options={[
               ...modelOptions.map((m) => ({
                 value: m.id,
@@ -458,7 +539,7 @@ export function ProfileEditorProviderSection({
                 ? [
                     {
                       value: CUSTOM_MODEL_OPTION_VALUE,
-                      label: "Enter a custom model ID…",
+                      label: t("profileEditorProviderSection.enterCustomModelIdOption"),
                     },
                   ]
                 : []),
@@ -471,8 +552,7 @@ export function ProfileEditorProviderSection({
             as="p"
             className="text-[var(--content-tertiary)]"
           >
-            Enter the exact model identifier your provider expects. It's sent to
-            the connection as-is.
+            {t("profileEditorProviderSection.enterCustomModelIdHint")}
           </Typography>
         ) : providerWithoutModel && !isReadOnly ? (
           <Typography
@@ -480,7 +560,8 @@ export function ProfileEditorProviderSection({
             as="p"
             className="text-(--system-negative-strong)"
           >
-            {modelEmptyStateCopy?.hint ?? "Select a model."}
+            {modelEmptyStateCopy?.hint ??
+              t("profileEditorProviderSection.selectModelError")}
           </Typography>
         ) : null}
       </div>

@@ -1,6 +1,6 @@
 import { type ReactNode } from "react";
 
-import { cn } from "@/utils/misc";
+import { Tabs } from "@vellumai/design-library/components/tabs";
 
 export type InspectorTab =
   | "overview"
@@ -11,7 +11,7 @@ export type InspectorTab =
   | "skills"
   | "memory";
 
-const TABS: { id: InspectorTab; label: string }[] = [
+export const TABS: { id: InspectorTab; label: string }[] = [
   { id: "overview", label: "Overview" },
   { id: "prompt", label: "Prompt" },
   { id: "response", label: "Response" },
@@ -21,38 +21,30 @@ const TABS: { id: InspectorTab; label: string }[] = [
   { id: "memory", label: "Memory" },
 ];
 
-interface TabBarProps {
-  selected: InspectorTab;
-  onSelect: (tab: InspectorTab) => void;
+/**
+ * `Tabs.Root` reports the selected value as a plain string, so hosts narrow it
+ * back to the union before storing it.
+ */
+export function isInspectorTab(value: string): value is InspectorTab {
+  return TABS.some((tab) => tab.id === value);
 }
 
-export function TabBar({ selected, onSelect }: TabBarProps): ReactNode {
+/**
+ * The inspector's tab row. Renders the triggers only: the selected value and
+ * the panels belong to the `Tabs.Root` the host mounts around this and its
+ * content, which is what wires each trigger to the panel it controls.
+ */
+export function TabBar(): ReactNode {
   return (
     // Seven tabs overflow most phone viewports, so the row scrolls
     // horizontally instead of getting clipped at the right edge. Each
-    // button keeps its label on one line via `whitespace-nowrap`.
-    <div
-      className="flex shrink-0 overflow-x-auto px-4"
-      style={{ borderBottom: "1px solid var(--border-base)" }}
-      role="tablist"
-    >
+    // trigger keeps its full width via `shrink-0`.
+    <Tabs.List className="shrink-0 overflow-x-auto px-4">
       {TABS.map((tab) => (
-        <button
-          key={tab.id}
-          type="button"
-          role="tab"
-          aria-selected={selected === tab.id}
-          onClick={() => onSelect(tab.id)}
-          className={cn(
-            "-mb-px shrink-0 whitespace-nowrap border-b-2 px-3 py-2 text-label-medium-default transition-colors",
-            selected === tab.id
-              ? "border-[var(--primary-base)] text-[var(--content-default)]"
-              : "border-transparent text-[var(--content-secondary)] hover:text-[var(--content-default)]",
-          )}
-        >
+        <Tabs.Trigger key={tab.id} value={tab.id} className="shrink-0">
           {tab.label}
-        </button>
+        </Tabs.Trigger>
       ))}
-    </div>
+    </Tabs.List>
   );
 }

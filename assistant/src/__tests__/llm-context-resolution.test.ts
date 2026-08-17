@@ -1,4 +1,21 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, mock, test } from "bun:test";
+
+// Entry-name providers resolve context limits through their row's kind, so
+// the tests control the row store directly. A dangling label (no row) falls
+// back to the model's catalog owner.
+const connectionRows = new Map<string, { name: string; provider: string }>([
+  ["openai-work", { name: "openai-work", provider: "openai" }],
+  ["my-endpoint", { name: "my-endpoint", provider: "openai-compatible" }],
+]);
+mock.module("../persistence/db-connection.js", () => ({
+  getDb: () => ({}),
+}));
+mock.module("../providers/inference/connections.js", () => ({
+  getConnection: (_db: unknown, name: string) =>
+    connectionRows.get(name) ?? null,
+  listConnections: () => [],
+  canonicalVellumConnection: () => null,
+}));
 
 import { resolveEffectiveContextWindow } from "../config/llm-context-resolution.js";
 import { LLMSchema } from "../config/schemas/llm.js";
@@ -128,6 +145,61 @@ describe("resolveEffectiveContextWindow", () => {
 
     // The catalog owner (openai) carries gpt-5.5's limits; a raw "vellum"
     // lookup would miss and misreport the model max as the 200k default.
+    expect(resolved.modelMaxInputTokens).toBe(1050000);
+  });
+
+  test("an entry of a catalog kind resolves the model's own context limits", () => {
+    // The entries collapse stores connection names in the provider field;
+    // the row's kind carries the model's limits, so an entry label must not
+    // fall back to the 200k default when its kind serves the model.
+    const llm = LLMSchema.parse({
+      profiles: {
+        work: { provider: "openai-work", model: "gpt-5.5" },
+      },
+      activeProfile: "work",
+    });
+
+    const resolved = resolveEffectiveContextWindow({
+      llm,
+      callSite: "mainAgent",
+    });
+
+    expect(resolved.modelMaxInputTokens).toBe(1050000);
+    expect(resolved.maxOutputTokens).toBeDefined();
+  });
+
+  test("a custom-endpoint entry keeps the conservative default for a catalog-colliding model id", () => {
+    // An openai-compatible endpoint's "gpt-5.5" is not OpenAI's; inheriting
+    // the built-in 1.05M limit would let oversized requests through.
+    const llm = LLMSchema.parse({
+      profiles: {
+        custom: { provider: "my-endpoint", model: "gpt-5.5" },
+      },
+      activeProfile: "custom",
+    });
+
+    const resolved = resolveEffectiveContextWindow({
+      llm,
+      callSite: "mainAgent",
+    });
+
+    expect(resolved.modelMaxInputTokens).toBe(200000);
+    expect(resolved.maxOutputTokens).toBeUndefined();
+  });
+
+  test("a label with no row falls back to the model's catalog owner", () => {
+    const llm = LLMSchema.parse({
+      profiles: {
+        gone: { provider: "deleted-entry", model: "gpt-5.5" },
+      },
+      activeProfile: "gone",
+    });
+
+    const resolved = resolveEffectiveContextWindow({
+      llm,
+      callSite: "mainAgent",
+    });
+
     expect(resolved.modelMaxInputTokens).toBe(1050000);
   });
 

@@ -20,7 +20,7 @@
   "libraryAppCard": {
     "exported": "Aplicación exportada",
     "shareFailed": "No se pudo compartir la aplicación",
-    "actionsAria": "Acciones de la aplicación",
+    "actionsTitle": "Opciones de {appName}",
     "unpin": "Dejar de fijar",
     "pin": "Fijar",
     "share": "Compartir",

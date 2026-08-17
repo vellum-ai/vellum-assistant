@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Custom SF Symbol template for the Vellum "V" brand glyph, used by the
+  Control Center control (OpenVellumControl). The path is the same letterform
+  as App/AppIcon*.icon/Assets/white-V.svg (a 92x92 viewBox), uniformly scaled
+  so its 92pt height fills the 400pt capline-to-baseline band of each size
+  and centered at x=1650. Regenerate by re-deriving the six path points from
+  white-V.svg if the brand mark ever changes: x' = 1650 + (x - 46) * s,
+  y' = capline + y * s, with s = 400 / 92.
+-->
+<svg width="3300" height="2200" viewBox="0 0 3300 2200" version="1.1" xmlns="http://www.w3.org/2000/svg">
+  <g id="Notes">
+    <text style="stroke:none;fill:black;font-family:sans-serif;font-size:13;" x="263" y="80">template-version: 1.0</text>
+    <text style="stroke:none;fill:black;font-family:sans-serif;font-size:13;" x="263" y="100">generator: hand-authored</text>
+  </g>
+  <g id="Guides">
+    <line id="Capline-S" style="fill:none;stroke:#27AAE1;stroke-width:0.5;" x1="263" y1="250" x2="3036" y2="250"/>
+    <line id="Baseline-S" style="fill:none;stroke:#27AAE1;stroke-width:0.5;" x1="263" y1="650" x2="3036" y2="650"/>
+    <line id="Capline-M" style="fill:none;stroke:#27AAE1;stroke-width:0.5;" x1="263" y1="850" x2="3036" y2="850"/>
+    <line id="Baseline-M" style="fill:none;stroke:#27AAE1;stroke-width:0.5;" x1="263" y1="1250" x2="3036" y2="1250"/>
+    <line id="Capline-L" style="fill:none;stroke:#27AAE1;stroke-width:0.5;" x1="263" y1="1450" x2="3036" y2="1450"/>
+    <line id="Baseline-L" style="fill:none;stroke:#27AAE1;stroke-width:0.5;" x1="263" y1="1850" x2="3036" y2="1850"/>
+  </g>
+  <g id="Symbols">
+    <g id="Regular-S">
+      <path d="M 1552.174 250 L 1650 460.182 L 1747.438 250 L 1845.652 250 L 1649.223 650 L 1454.348 250 Z"/>
+    </g>
+    <g id="Regular-M">
+      <path d="M 1552.174 850 L 1650 1060.182 L 1747.438 850 L 1845.652 850 L 1649.223 1250 L 1454.348 850 Z"/>
+    </g>
+    <g id="Regular-L">
+      <path d="M 1552.174 1450 L 1650 1660.182 L 1747.438 1450 L 1845.652 1450 L 1649.223 1850 L 1454.348 1450 Z"/>
+    </g>
+  </g>
+</svg>

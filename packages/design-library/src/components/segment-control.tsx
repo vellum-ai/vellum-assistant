@@ -22,41 +22,12 @@ export interface SegmentControlProps<T extends string> {
   onChange: (next: T) => void;
   ariaLabel?: string;
   /**
-   * Segment height, measured on the inner buttons; the group's own 2px
-   * padding sits outside it. `default` is 28px (32px overall). `sm` is 24px
-   * (28px overall), for dense surfaces like a sidebar rail where a
-   * full-height control would outweigh the rows around it; it grows to 36px
-   * below `md`, where a 24px target is too small to tap. Ignored when any
-   * segment carries a `sublabel`, since that needs height to follow content.
-   */
-  size?: "default" | "sm";
-  /**
    * When true, each segment renders only its `icon` and uses `label` as the
    * button's `aria-label`.
    */
   iconOnly?: boolean;
-  /**
-   * When `iconOnly`, each segment shows a hover/focus tooltip of its `label`.
-   * On touch devices Radix keeps that tooltip open while the tapped segment
-   * holds focus, leaving a phantom label floating over the UI. Set this to
-   * `false` when the icons are self-explanatory (and the `aria-label` still
-   * covers screen readers) to suppress the tooltip. Defaults to `true`.
-   */
-  showTooltips?: boolean;
   className?: string;
 }
-
-/**
- * Inner segment height per size. The group's own 2px padding sits outside.
- *
- * `sm` grows back on coarse pointers: 24px is a fine density on a desktop
- * rail but well under a comfortable touch target, and the surrounding rows on
- * those breakpoints are taller too. `iconOnly` already does the same.
- */
-const SEGMENT_HEIGHTS = {
-  default: "h-7",
-  sm: "h-6 max-md:h-9",
-} as const;
 
 /**
  * Pure selection helper verifiable in tests without a DOM environment.
@@ -98,9 +69,7 @@ export function SegmentControl<T extends string>({
   value,
   onChange,
   ariaLabel,
-  size = "default",
   iconOnly = false,
-  showTooltips = true,
   className,
 }: SegmentControlProps<T>) {
   const groupRef = useRef<HTMLDivElement>(null);
@@ -161,9 +130,10 @@ export function SegmentControl<T extends string>({
       ? items.findIndex((item) => !item.disabled)
       : activeIndex;
 
-  // Sublabels add a second line, so the fixed 32px (2px pad + 28px segment)
-  // sizing that fits single-line content would clip them — let height follow
-  // content instead. iconOnly never renders sublabels (see the render below).
+  // Segments stand 28px tall (h-7), 32px overall once the group's own 2px
+  // padding is counted. Sublabels add a second line that fixed sizing would
+  // clip, so they let height follow content instead. iconOnly never renders
+  // sublabels (see the render below).
   const hasSublabels = !iconOnly && items.some((item) => item.sublabel != null);
 
   return (
@@ -189,7 +159,7 @@ export function SegmentControl<T extends string>({
             role="radio"
             aria-checked={isActive}
             aria-label={iconOnly ? item.label : undefined}
-            tooltip={iconOnly && showTooltips ? item.label : undefined}
+            tooltip={iconOnly ? item.label : undefined}
             disabled={isDisabled}
             tabIndex={index === tabStopIndex ? 0 : -1}
             onClick={() => {
@@ -200,7 +170,7 @@ export function SegmentControl<T extends string>({
             }}
             className={cn(
               "min-w-[30px] cursor-pointer justify-center gap-1.5 rounded-[6px] border-0 text-body-medium-default",
-              hasSublabels ? "h-auto py-1.5" : SEGMENT_HEIGHTS[size],
+              hasSublabels ? "h-auto py-1.5" : "h-7",
               iconOnly
                 ? "px-2 max-md:h-9 max-md:min-w-9 max-md:px-2"
                 : "flex-1 px-3",

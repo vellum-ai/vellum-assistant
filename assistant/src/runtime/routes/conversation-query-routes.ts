@@ -41,7 +41,10 @@ import {
   withSuppressedConfigDiskWrites,
   withSuppressedConfigDiskWritesSync,
 } from "../../config/loader.js";
-import { completeCustomProfile } from "../../config/profile-materialization.js";
+import {
+  completeCustomProfile,
+  mergePreservingUnknownKeys,
+} from "../../config/profile-materialization.js";
 import { AssistantConfigSchema } from "../../config/schema.js";
 import { getSchemaAtPath } from "../../config/schema-utils.js";
 import {
@@ -50,6 +53,7 @@ import {
   LLMConfigFragment,
   ProfileEntry,
   routingIdentityModelIssue,
+  unknownLlmProviderIssue,
 } from "../../config/schemas/llm.js";
 import { VALID_MEMORY_EMBEDDING_PROVIDERS } from "../../config/schemas/memory-storage.js";
 import { ServiceModeSchema } from "../../config/schemas/services.js";
@@ -96,6 +100,7 @@ import { type LogRow } from "../../persistence/llm-request-log-store.js";
 import { getMemoryRecallLogByMessageIds } from "../../plugins/defaults/memory/memory-recall-log-store.js";
 import { getMemoryV2ActivationLogByMessageIds } from "../../plugins/defaults/memory/v2/activation-log-store.js";
 import { getMemoryV3SelectionForInspectorByMessageIds } from "../../plugins/defaults/memory/v3/selection-log-store.js";
+import { writableProfileProviderIssue } from "../../providers/connection-resolution.js";
 import { ROUTING_IDENTITY_PROVIDERS } from "../../providers/inference/auth.js";
 import { PROVIDERS_REQUIRING_BASE_URL_AND_MODELS } from "../../providers/inference/auth.js";
 import {
@@ -1253,30 +1258,6 @@ function assertInvariantProfilesPreserved(
 }
 
 /**
- * `{...raw, ...completed}` recursively: completed (schema-known) values win,
- * raw keys the schema stripped survive at every depth.
- */
-function mergePreservingUnknownKeys(
-  raw: Record<string, unknown>,
-  completed: Record<string, unknown>,
-): Record<string, unknown> {
-  const out: Record<string, unknown> = { ...raw, ...completed };
-  for (const [key, value] of Object.entries(completed)) {
-    const rawValue = raw[key];
-    if (
-      readPlainObject(value) !== undefined &&
-      readPlainObject(rawValue) !== undefined
-    ) {
-      out[key] = mergePreservingUnknownKeys(
-        rawValue as Record<string, unknown>,
-        value as Record<string, unknown>,
-      );
-    }
-  }
-  return out;
-}
-
-/**
  * Custom profiles persist as complete overrides: any user-source, non-mix
  * profile entry this write creates or changes is completed against the
  * workspace default base (`completeCustomProfile`) before it lands on disk, so no
@@ -1343,7 +1324,9 @@ function completeChangedCustomProfiles(
  * would let the pair reach disk and be stripped on the next read — a silent
  * no-op where the user expects a saved override.
  */
-function assertRoutableIdentityEntries(raw: Record<string, unknown>): void {
+function collectProviderEntries(
+  raw: Record<string, unknown>,
+): [string, { provider?: unknown; model?: unknown }][] {
   const llm = raw.llm as
     | {
         default?: { provider?: unknown; model?: unknown } | null;
@@ -1371,9 +1354,39 @@ function assertRoutableIdentityEntries(raw: Record<string, unknown>): void {
       }
     }
   }
+  return entries;
+}
+
+function assertRoutableIdentityEntries(
+  preWrite: Record<string, unknown>,
+  raw: Record<string, unknown>,
+): void {
+  const entries = collectProviderEntries(raw);
+  const priorProviders = new Map(
+    collectProviderEntries(preWrite).flatMap(([label, entry]) =>
+      typeof entry.provider === "string" ? [[label, entry.provider]] : [],
+    ),
+  );
   for (const [label, entry] of entries) {
     if (typeof entry.provider !== "string") {
       continue;
+    }
+    // The provider schema is an open string (a stored value outside the
+    // known set parses instead of stripping its profile), so write-time
+    // membership is enforced here and at the profiles route. Scoped to
+    // providers this write introduces or changes: a stored value outside
+    // the known set is readable and dispatchable by design, and
+    // re-validating it on every write would make all later settings saves
+    // fail with no in-product repair path. Profiles accept entry names;
+    // call-site fragments and the legacy default blob stay vendor-only
+    // (overrides become model-only with the entries demolition).
+    if (entry.provider !== priorProviders.get(label)) {
+      const providerIssue = label.startsWith("llm.profiles.")
+        ? writableProfileProviderIssue(entry.provider)
+        : unknownLlmProviderIssue(entry.provider);
+      if (providerIssue) {
+        throw new BadRequestError(`${providerIssue} (${label})`);
+      }
     }
     const issue = routingIdentityModelIssue(
       entry.provider,
@@ -1396,7 +1409,7 @@ export async function commitConfigWrite(
   const preWrite = loadRawConfig();
   completeChangedCustomProfiles(preWrite, raw);
   assertInvariantProfilesPreserved(preWrite, raw);
-  assertRoutableIdentityEntries(raw);
+  assertRoutableIdentityEntries(preWrite, raw);
 
   // Suppress the file-watcher callback for the duration of the debounce
   // window. Without this, the ConfigWatcher detects the config.json write

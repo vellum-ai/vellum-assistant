@@ -351,7 +351,7 @@ export const MODELS_BY_PROVIDER = {
       supportsThinking: true,
     },
     {
-      id: "accounts/fireworks/models/deepseek-v4-flash",
+      id: "accounts/fireworks/models/deepseek-v4-flash-0731",
       displayName: "DeepSeek V4 Flash",
       contextWindowTokens: 1_040_000,
       defaultContextWindowTokens: 200_000,
@@ -923,7 +923,7 @@ export const DEFAULT_MODEL_BY_PROVIDER: Record<LlmProviderId, string> = {
   openai: "gpt-5.5",
   gemini: "gemini-2.5-flash",
   ollama: "llama3.2",
-  fireworks: "accounts/fireworks/models/deepseek-v4-flash",
+  fireworks: "accounts/fireworks/models/deepseek-v4-flash-0731",
   together: "MiniMaxAI/MiniMax-M3",
   openrouter: "x-ai/grok-4.20",
   "vercel-ai-gateway": "anthropic/claude-sonnet-4.6",
@@ -1066,11 +1066,34 @@ export function getManagedUpstreamForModel(
   );
 }
 
+// Keep in sync with CODEX_SUBSCRIPTION_MODEL_IDS in
+// assistant/src/providers/openai/codex-models.ts. Lives in the catalog so
+// the "chatgpt" identity's model list resolves here like every provider's;
+// the settings domain re-exports it from codex-subscription-models.
+export const CODEX_SUBSCRIPTION_MODEL_IDS: ReadonlySet<string> = new Set([
+  "gpt-5.6-sol",
+  "gpt-5.6-terra",
+  "gpt-5.6-luna",
+  "gpt-5.5",
+  // OpenAI retires these two from ChatGPT sign-in on 2026-08-31; API-key
+  // auth is unaffected.
+  "gpt-5.4",
+  "gpt-5.4-mini",
+]);
+
 export function getModelsForProvider(
   provider: string,
 ): readonly LlmCatalogModel[] {
   if (provider === "vellum") {
     return VELLUM_MODELS;
+  }
+  // The "chatgpt" routing identity has no catalog of its own: it serves the
+  // OpenAI catalog restricted to what the Codex subscription endpoint
+  // accepts.
+  if (provider === "chatgpt") {
+    return MODELS_BY_PROVIDER.openai.filter((m) =>
+      CODEX_SUBSCRIPTION_MODEL_IDS.has(m.id),
+    );
   }
   return MODELS_BY_PROVIDER[provider as LlmProviderId] ?? [];
 }
@@ -1078,6 +1101,11 @@ export function getModelsForProvider(
 export function getDefaultModelForProvider(
   provider: string,
 ): string | undefined {
+  // Matches the Balanced default profile's model on the chatgpt column so
+  // users see one consistent "default" for the subscription.
+  if (provider === "chatgpt") {
+    return "gpt-5.6-luna";
+  }
   return DEFAULT_MODEL_BY_PROVIDER[provider as LlmProviderId];
 }
 

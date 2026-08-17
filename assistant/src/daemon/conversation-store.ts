@@ -27,6 +27,7 @@ import {
 } from "../providers/connection-resolution.js";
 import { RateLimitProvider } from "../providers/ratelimit.js";
 import { listProviders } from "../providers/registry.js";
+import { broadcastMessage } from "../runtime/assistant-event-hub.js";
 import { getSubagentManager } from "../subagent/index.js";
 import { getSandboxWorkingDir } from "../util/platform.js";
 import { Conversation } from "./conversation.js";
@@ -156,7 +157,6 @@ export async function getOrCreateConversation(
   options?: ConversationCreateOptions,
 ): Promise<Conversation> {
   let conversation = findConversation(conversationId);
-  const sendToClient = () => {};
 
   // `taskRunId` and `ephemeral` are per-call scopes, not durable conversation
   // metadata, so they are stripped before the remaining options are merged
@@ -232,7 +232,9 @@ export async function getOrCreateConversation(
         conversationId,
         provider,
         systemPrompt,
-        sendToClient,
+        // Top-level conversations deliver to the SSE hub for their whole life,
+        // so every subscribed client sees every event with no per-turn wiring.
+        broadcastMessage,
         workingDir,
         {
           maxTokens,
@@ -240,8 +242,6 @@ export async function getOrCreateConversation(
           modelOverride: storedOptions?.modelOverride,
         },
       );
-      newConversation.updateClient(sendToClient, true);
-
       // Ensure the conversations row exists before hydrating from DB.
       // `getOrCreateConversation` builds the in-memory Conversation, but
       // the persisted row is what `loadFromDb` reads for conversationType,

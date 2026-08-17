@@ -16,6 +16,7 @@ import {
 } from "../../ipc/cli-client.js";
 import { guessMimeType } from "../../util/mime-type.js";
 import { readStdinSync } from "../../util/read-stdin.js";
+import { resolveBundledCliModule } from "../bundled-modules.js";
 import { applyCommandHelp, subcommand } from "../lib/cli-command-help.js";
 import { registerCommand } from "../lib/register-command.js";
 import { getCliLogger } from "../logger.js";
@@ -60,9 +61,11 @@ function handleEmailIpcError(
  * synchronously, so there is no place to await a module load.
  */
 function assistantDomain(): string {
-  const { getAssistantDomain } = loadModule(
-    "../../config/env.js",
-  ) as typeof import("../../config/env.js");
+  const { getAssistantDomain } = resolveBundledCliModule(
+    "configEnv",
+    () =>
+      loadModule("../../config/env.js") as typeof import("../../config/env.js"),
+  );
   return getAssistantDomain();
 }
 

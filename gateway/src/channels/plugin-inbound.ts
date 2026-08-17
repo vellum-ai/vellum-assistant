@@ -113,8 +113,9 @@ export interface ReadPluginInboundOptions {
 /**
  * Read a plugin's reply into an inbound event, or say why there isn't one.
  *
- * A reply is a message when it carries a conversation, a sender, and a message
- * id: the three the pipeline cannot proceed without. Conversation and sender
+ * A delivery is a message when it carries a sender, and with them a
+ * conversation and a message id: the three the pipeline cannot proceed
+ * without. Conversation and sender
  * are what the message is routed and admitted on, and the message id is the
  * dedup key that keeps a vendor's retry from starting a second turn. Content
  * is not among them — an attachment-only message is a real message with no
@@ -136,11 +137,23 @@ export function readPluginInbound(
   const actor = read("actorExternalId")?.trim();
   const messageId = read("externalMessageId")?.trim();
 
-  const present = [conversation, actor, messageId].filter(Boolean).length;
-  if (present === 0) {
+  // Naming neither a sender nor a chat is what a delivery that is not a
+  // message looks like: a vendor's probe, a delivery receipt, an echo of
+  // something we sent whose sender field the vendor leaves off. A message id
+  // alone does not make one, and treating these as malformed would answer a
+  // vendor's ordinary traffic with a 4xx, which is how a webhook gets
+  // disabled at the far end. There is nobody to admit, so there is nothing to
+  // gate, and only the plugin can say what the delivery meant.
+  if (!conversation && !actor) {
     return { status: "none" };
   }
-  if (present < 3) {
+
+  // Naming one of them and not the rest is the opposite: a delivery shaped
+  // like a message whose sender or address the declaration failed to find.
+  // Dropping it quietly would present a manifest that no longer matches the
+  // payload as a vendor that stopped delivering, and forwarding it would hand
+  // the plugin a sender the gateway never checked.
+  if (!conversation || !actor || !messageId) {
     const missing = [
       conversation ? null : "conversationExternalId",
       actor ? null : "actorExternalId",
@@ -148,7 +161,7 @@ export function readPluginInbound(
     ].filter((name): name is string => name !== null);
     return {
       status: "invalid",
-      reason: `reply is missing ${missing.join(", ")}`,
+      reason: `delivery is missing ${missing.join(", ")}`,
     };
   }
 

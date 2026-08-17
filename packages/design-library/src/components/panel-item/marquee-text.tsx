@@ -1,6 +1,7 @@
-import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 
 import { cn } from "../../utils/cn";
+import type { CustomPropertyStyle } from "../../utils/custom-property-style";
 
 /**
  * Single-line text wrapper that scrolls (marquee-style) when the parent
@@ -68,6 +69,12 @@ function MarqueeText({ children, className }: MarqueeTextProps) {
     Math.round(((overflowPx * 2) / SCROLL_PX_PER_SECOND) * 1000),
   );
   const totalMs = Math.round(scrollMs / SCROLL_FRACTION_OF_ITERATION);
+  const scrollStyle: CustomPropertyStyle | undefined = canScroll
+    ? {
+        "--panelitem-marquee-distance": `${overflowPx}px`,
+        "--panelitem-marquee-duration": `${totalMs}ms`,
+      }
+    : undefined;
 
   return (
     <span
@@ -86,14 +93,7 @@ function MarqueeText({ children, className }: MarqueeTextProps) {
           "motion-safe:group-hover:visible",
           canScroll && "motion-safe:group-hover:animate-panelitem-marquee",
         )}
-        style={
-          canScroll
-            ? ({
-                "--panelitem-marquee-distance": `${overflowPx}px`,
-                "--panelitem-marquee-duration": `${totalMs}ms`,
-              } as CSSProperties)
-            : undefined
-        }
+        style={scrollStyle}
       >
         {children}
       </span>

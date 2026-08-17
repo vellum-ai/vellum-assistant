@@ -97,6 +97,46 @@ function makeConversation(
 // ---------------------------------------------------------------------------
 
 describe("getGroupIndicatorState", () => {
+  test("an index count shows unread when no loaded row is unread", () => {
+    // The index counts the whole section; the loaded rows are a window.
+    const conversations = [makeConversation({ conversationId: "c1" })];
+
+    expect(getGroupIndicatorState(conversations, undefined, undefined, 2)).toBe(
+      "unread",
+    );
+  });
+
+  test("an index count of zero suppresses the row scan", () => {
+    // The index also wins in the quiet direction: a loaded row the server
+    // has already settled as seen must not keep the dot lit.
+    const conversations = [
+      makeConversation({
+        conversationId: "c1",
+        hasUnseenLatestAssistantMessage: true,
+      }),
+    ];
+
+    expect(
+      getGroupIndicatorState(conversations, undefined, undefined, 0),
+    ).toBeNull();
+  });
+
+  test("attention outranks an index unread count", () => {
+    const conversations = [makeConversation({ conversationId: "c1" })];
+
+    expect(
+      getGroupIndicatorState(conversations, undefined, new Set(["c1"]), 5),
+    ).toBe("attention");
+  });
+
+  test("processing outranks an index unread count", () => {
+    const conversations = [makeConversation({ conversationId: "c1" })];
+
+    expect(
+      getGroupIndicatorState(conversations, new Set(["c1"]), undefined, 5),
+    ).toBe("processing");
+  });
+
   test("returns null for empty conversations", () => {
     expect(getGroupIndicatorState([], undefined, undefined)).toBe(null);
   });

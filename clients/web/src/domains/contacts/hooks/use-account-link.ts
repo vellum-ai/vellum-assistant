@@ -15,6 +15,7 @@ import { toast } from "@vellumai/design-library/components/toast";
 
 import type { RosterAccount } from "@/domains/contacts/channel-linking";
 import { linkContactChannelAccount } from "@/domains/contacts/contacts-gateway";
+import { t } from "@/i18n";
 
 export interface AccountLinkController {
   channelType: string;
@@ -52,7 +53,12 @@ export function useAccountLink({
       }),
     onSuccess: (_result, args) => {
       setDialogOpen(false);
-      toast.success(`Linked as @${args.account.username}`);
+      toast.success(
+        t("accountLink.linked", {
+          ns: "contacts",
+          username: args.account.username,
+        }),
+      );
       onLinked();
     },
   });
@@ -84,7 +90,7 @@ export function useAccountLink({
     linkMutation.error instanceof Error
       ? linkMutation.error.message
       : linkMutation.error
-        ? "Failed to link account"
+        ? t("accountLink.linkFailed", { ns: "contacts" })
         : null;
 
   return {

@@ -120,11 +120,11 @@ describe("up", () => {
     logSpy.mockRestore();
   });
 
-  test("starts the webhooks-only edge when the flag is off and states the mode", async () => {
+  test("starts the edge and states the remote web mode", async () => {
     ensureTunnelEdgeMock.mockResolvedValue({
-      port: 7845,
+      port: 7840,
       started: true,
-      includesWebApp: false,
+      includesWebApp: true,
     });
 
     await up({
@@ -140,27 +140,8 @@ describe("up", () => {
       gatewayPort: 7830,
     });
     const output = logs.join("\n");
-    expect(output).toContain("http://127.0.0.1:7845 (webhooks only)");
-    expect(output).toContain("web-remote-ingress");
-    expect(output).toContain("vellum tunnel --provider ngrok");
-  });
-
-  test("states the remote web mode when the flag is on", async () => {
-    ensureTunnelEdgeMock.mockResolvedValue({
-      port: 7840,
-      started: true,
-      includesWebApp: true,
-    });
-
-    await up({
-      assistantId: "assistant-1",
-      workspaceDir,
-      gatewayPort: 7830,
-    });
-
-    const output = logs.join("\n");
     expect(output).toContain("http://127.0.0.1:7840 (remote web + webhooks)");
-    expect(output).not.toContain("Enable the web-remote-ingress feature flag");
+    expect(output).toContain("vellum tunnel --provider ngrok");
   });
 });
 

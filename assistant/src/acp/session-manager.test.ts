@@ -5,6 +5,7 @@ import {
   deleteConversation,
   setConversation,
 } from "../daemon/conversation-registry.js";
+import { hasAcpConnectCardRaised } from "./acp-connect-card-state.js";
 import { VellumAcpClientHandler } from "./client-handler.js";
 import { AcpSessionManager } from "./session-manager.js";
 
@@ -308,5 +309,123 @@ describe("AcpSessionManager parent notification", () => {
     expect(enqueueMessage).not.toHaveBeenCalled();
     // The stale catch left the session in place (no teardown).
     expect((manager.getStatus() as unknown[]).length).toBe(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Auth-required recovery surface
+// ---------------------------------------------------------------------------
+
+describe("AcpSessionManager auth-required recovery surface", () => {
+  /** The live-captured shape of a rejected-credential failure. */
+  const authFailure = () =>
+    Promise.reject(
+      new Error(
+        "Internal error: Failed to authenticate. API Error: 401 OAuth access token has been revoked.",
+      ),
+    );
+
+  /** Drives an auth-shaped prompt failure through firePromptInBackground. */
+  async function driveAuthFailure(opts: {
+    id: string;
+    command: string;
+    parentToolUseId?: string;
+    cancelled?: boolean;
+  }) {
+    const manager = new AcpSessionManager(1);
+    const parentId = `parent-${opts.id}`;
+    const { conversation, persistUserMessage, loopRan } = mockConversation();
+    setConversation(parentId, conversation);
+    registered.push(parentId);
+
+    const entry = injectSession(
+      manager,
+      opts.id,
+      parentId,
+      fakeProcess(authFailure),
+    );
+    entry.command = opts.command;
+    (entry as { parentToolUseId?: string }).parentToolUseId =
+      opts.parentToolUseId;
+    if (opts.cancelled) {
+      entry.state.status = "cancelled";
+    }
+
+    await fire(manager, opts.id, entry).catch(() => {});
+    if (!opts.cancelled) {
+      await loopRan;
+    }
+
+    const events = (
+      entry.sendToVellum as ReturnType<typeof mock>
+    ).mock.calls.map((c) => c[0] as { type: string } & Record<string, unknown>);
+    const firstPersist = persistUserMessage.mock.calls[0] as unknown as
+      | [{ content: string }]
+      | undefined;
+    return {
+      parentId,
+      authEvent: events.find((e) => e.type === "acp_auth_required"),
+      persistedContent: firstPersist?.[0].content,
+    };
+  }
+
+  test("claude failure with an anchor raises the full surface: event, registry mark, guidance", async () => {
+    const r = await driveAuthFailure({
+      id: "sess-auth-anchor",
+      command: "claude-agent-acp",
+      parentToolUseId: "tool-anchor-1",
+    });
+
+    expect(r.authEvent).toMatchObject({
+      acpSessionId: "sess-auth-anchor",
+      authCode: "acp_claude_auth_required",
+      agent: "claude",
+      parentToolUseId: "tool-anchor-1",
+    });
+    // The credential-prompt route consults this registry to redirect a
+    // redundant secure prompt at the card instead of stacking a second one.
+    expect(hasAcpConnectCardRaised(r.parentId)).toBe(true);
+    expect(r.persistedContent).toContain("Connect Claude Code");
+  });
+
+  test("claude failure without an anchor keeps the plain failure: no event, no mark, no guidance", async () => {
+    // No spawning tool call means no transcript row to render the card under;
+    // guidance would point the model at a card that cannot appear.
+    const r = await driveAuthFailure({
+      id: "sess-auth-noanchor",
+      command: "claude-agent-acp",
+    });
+
+    expect(r.authEvent).toBeUndefined();
+    expect(hasAcpConnectCardRaised(r.parentId)).toBe(false);
+    expect(r.persistedContent).not.toContain("Connect Claude Code");
+  });
+
+  test("a run the user already stopped raises nothing: no event, no registry mark, no parent turn", async () => {
+    // The client never renders a card for a cancelled run, and the
+    // prompt-dedup registry is never cleared, so marking it here would
+    // suppress the secure token prompt for the daemon's lifetime against a
+    // card that does not exist.
+    const r = await driveAuthFailure({
+      id: "sess-auth-cancelled",
+      command: "claude-agent-acp",
+      parentToolUseId: "tool-anchor-3",
+      cancelled: true,
+    });
+
+    expect(r.authEvent).toBeUndefined();
+    expect(hasAcpConnectCardRaised(r.parentId)).toBe(false);
+    expect(r.persistedContent).toBeUndefined();
+  });
+
+  test("a non-claude adapter never raises the surface, even on an auth-shaped failure", async () => {
+    const r = await driveAuthFailure({
+      id: "sess-auth-codex",
+      command: "codex-acp",
+      parentToolUseId: "tool-anchor-2",
+    });
+
+    expect(r.authEvent).toBeUndefined();
+    expect(hasAcpConnectCardRaised(r.parentId)).toBe(false);
   });
 });

@@ -24,6 +24,7 @@ import {
   renderConversationMenuItems,
   type ConversationMenuItemsProps,
 } from "@/domains/chat/components/conversation-actions-menu";
+import { useTranslation } from "@/i18n";
 import { useLongPressSheet } from "@/hooks/use-long-press-sheet";
 import {
   hasThreadStatus,
@@ -33,11 +34,14 @@ import { isChannelConversation } from "@/domains/chat/utils/conversation-channel
 import { copyIdToClipboard } from "@/domains/chat/utils/copy-id-to-clipboard";
 import {
   buildMoveToGroupTargets,
-  isConversationPinned,
   isInCustomGroup,
 } from "@/domains/chat/utils/group-conversations";
 import type { Conversation } from "@/types/conversation-types";
-import { canMarkRead, canMarkUnread } from "@/utils/conversation-predicates";
+import {
+  canMarkRead,
+  canMarkUnread,
+  isConversationPinned,
+} from "@/utils/conversation-predicates";
 import { isPointerCoarse } from "@/utils/pointer";
 import type { SwipeAction } from "@/hooks/use-swipe-to-reveal";
 
@@ -184,6 +188,7 @@ export function ConversationRow({
 }: ConversationRowProps) {
   const ctx = useConversationListContext();
   const { conversationId } = conversation;
+  const { t } = useTranslation("chat");
 
   const isProcessing =
     conversationId === ctx.activeConversationId
@@ -287,7 +292,11 @@ export function ConversationRow({
     <ContextMenu.Root>
       <ContextMenu.Trigger>{panelItem}</ContextMenu.Trigger>
       <ContextMenu.Content onClick={(event) => event.stopPropagation()}>
-        {renderConversationMenuItems({ Primitive: ContextMenu, ...menuProps })}
+        {renderConversationMenuItems({
+          Primitive: ContextMenu,
+          t,
+          ...menuProps,
+        })}
       </ContextMenu.Content>
     </ContextMenu.Root>
   );

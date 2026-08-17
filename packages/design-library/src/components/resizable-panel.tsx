@@ -1,199 +1,97 @@
-import {
-  useCallback,
-  useEffect,
-  useLayoutEffect,
-  useRef,
-  useState,
-  type ComponentProps,
-  type ReactNode,
-} from "react";
+import { useRef, type ComponentProps, type ReactNode } from "react";
 
 import { cn } from "../utils/cn";
+import { useResizablePane } from "../hooks/use-resizable-pane";
+import { PaneResizeHandle } from "./pane-resize-handle";
 
 /**
  * Width of the drag-handle column between the two panes. Must match the
- * Tailwind `w-2` class on the separator element below (0.5rem = 8px under
- * the default rem). Subtracted from container width when resolving a
- * `defaultRightWidth` so the right pane ends up at exactly that size.
+ * Tailwind `w-2` class on the handle below (0.5rem = 8px under the default
+ * rem), because it is reserved out of the container when resolving how wide
+ * the right pane may be.
  */
-const SEPARATOR_WIDTH_PX = 8;
+const HANDLE_WIDTH_PX = 8;
 
 /**
- * Read a persisted pixel width from localStorage, validating both shape
- * and finiteness. Returns `null` for unset/malformed entries or when
- * storage access throws (strict-privacy contexts, quota errors, SSR).
+ * Suffix for the persisted width. The stored number is the right pane's width;
+ * a bare `storageKey` holds the left pane's, so the two are kept in separate
+ * entries and the bare one is converted on first read. Callers pass the bare
+ * key and never see this.
  */
-function readStoredWidth(
-  storageKey: string | undefined,
-  minLeftWidth: number,
-): number | null {
-  if (!storageKey || typeof window === "undefined") return null;
-  try {
-    const stored = localStorage.getItem(storageKey);
-    if (stored == null) return null;
-    const parsed = Number(stored);
-    if (!Number.isFinite(parsed)) return null;
-    return Math.max(minLeftWidth, parsed);
-  } catch {
-    return null;
-  }
-}
+const STORAGE_FORMAT_SUFFIX = ".v2";
 
-export interface ResizablePanelProps extends Omit<ComponentProps<"div">, "children"> {
-  /** Content for the left pane. */
+export interface ResizablePanelProps
+  extends Omit<ComponentProps<"div">, "children"> {
+  /** Content for the left pane, which fills whatever the right pane does not. */
   left: ReactNode;
-  /** Content for the right pane. */
+  /** Content for the right pane, the one that owns a width. */
   right: ReactNode;
-  /** Initial width of the left pane in px (default 400). */
-  defaultLeftWidth?: number;
-  /** Initial width of the left pane as a percentage of the container (0–100). Resolved via useLayoutEffect on mount. */
-  defaultLeftPercent?: number;
-  /**
-   * Initial width of the *right* pane in px. When set, the left pane is sized
-   * to fill the rest of the container on first open, so the right pane stays
-   * at a bounded size regardless of window width. Resolved via useLayoutEffect
-   * on mount. Ignored when `defaultLeftPercent` is also set (percent wins).
-   */
+  /** Initial width of the right pane in px (default 400). */
   defaultRightWidth?: number;
-  /** Minimum left pane width in px (default 300). */
-  minLeftWidth?: number;
   /** Minimum right pane width in px (default 300). */
   minRightWidth?: number;
-  /** Callback fired when the left pane width changes during drag. */
-  onWidthChange?: (leftWidth: number) => void;
-  /** Optional localStorage key for persisting the left pane width across reloads. */
+  /** Minimum left pane width in px (default 300), reserved out of the container. */
+  minLeftWidth?: number;
+  /** Called with the right pane's width after a drag or a key press. */
+  onWidthChange?: (rightWidth: number) => void;
+  /**
+   * Accessible name for the drag separator (default "Resize panels"). Set it
+   * when a page has more than one split so the two are told apart.
+   */
+  separatorLabel?: string;
+  /** Optional `localStorage` key for persisting the width across reloads. */
   storageKey?: string;
   /**
-   * Hide the always-visible 1px divider line between the panes while keeping
-   * the full drag hit-area and the hover grab handle. Useful when the right
-   * pane already has its own container chrome (e.g. a rounded detail drawer)
-   * and the separator line reads as a redundant extra border.
+   * Hide the always-visible 1px divider line while keeping the full drag
+   * hit-area and the grab handle. For when the right pane already has its own
+   * container chrome and the divider reads as a redundant extra border.
    */
   hideDivider?: boolean;
 }
 
 /**
- * Horizontal split-view with a draggable divider.
+ * A sized right pane beside a flexible left one, with a draggable and
+ * keyboard-operable edge between them.
  *
- * Uses pointer events with `setPointerCapture` for reliable cross-browser
- * drag tracking. No external resizable library is used.
+ * Panes are sized in pixels: the right pane owns a width and the left pane
+ * takes the remainder. Sizing, clamping, persistence, and the separator's ARIA
+ * come from `useResizablePane`, shared with the sidebar rail and the
+ * tool-detail drawer.
  */
 export function ResizablePanel({
   left,
   right,
-  defaultLeftWidth = 400,
-  defaultLeftPercent,
-  defaultRightWidth,
-  minLeftWidth = 300,
+  defaultRightWidth = 400,
   minRightWidth = 300,
+  minLeftWidth = 300,
   onWidthChange,
+  separatorLabel = "Resize panels",
   storageKey,
   hideDivider = false,
   className,
   ...rest
 }: ResizablePanelProps) {
-  const containerRef = useRef<HTMLDivElement>(null);
-
-  const [leftWidth, setLeftWidth] = useState<number>(
-    () => readStoredWidth(storageKey, minLeftWidth) ?? defaultLeftWidth,
-  );
-
-  const dragRef = useRef<{ startX: number; startWidth: number } | null>(null);
-  const [isDragging, setIsDragging] = useState(false);
-
-  const clamp = useCallback(
-    (width: number) => {
-      const container = containerRef.current;
-      // Unmeasured container (offsetWidth 0): keep the requested width instead
-      // of collapsing to the minimum on a negative max.
-      if (!container || container.offsetWidth <= 0) return width;
-      const maxLeft = container.offsetWidth - minRightWidth;
-      return Math.max(minLeftWidth, Math.min(width, maxLeft));
-    },
-    [minLeftWidth, minRightWidth],
-  );
-
-  const handlePointerDown = useCallback(
-    (e: React.PointerEvent<HTMLDivElement>) => {
-      e.preventDefault();
-      (e.target as HTMLElement).setPointerCapture(e.pointerId);
-      dragRef.current = { startX: e.clientX, startWidth: leftWidth };
-      setIsDragging(true);
-    },
-    [leftWidth],
-  );
-
-  const handlePointerMove = useCallback(
-    (e: React.PointerEvent<HTMLDivElement>) => {
-      if (!dragRef.current) return;
-      const delta = e.clientX - dragRef.current.startX;
-      const next = clamp(dragRef.current.startWidth + delta);
-      setLeftWidth(next);
-      onWidthChange?.(next);
-    },
-    [clamp, onWidthChange],
-  );
-
-  const handlePointerUp = useCallback(
-    (e: React.PointerEvent<HTMLDivElement>) => {
-      if (!dragRef.current) return;
-      (e.target as HTMLElement).releasePointerCapture(e.pointerId);
-      const finalWidth = clamp(
-        dragRef.current.startWidth + (e.clientX - dragRef.current.startX),
-      );
-      dragRef.current = null;
-      setIsDragging(false);
-
-      if (storageKey) {
-        try {
-          localStorage.setItem(storageKey, String(finalWidth));
-        } catch {
-          // Storage quota or security error — ignore.
-        }
-      }
-    },
-    [clamp, storageKey],
-  );
-
-  useEffect(() => {
-    setLeftWidth((prev) => clamp(prev));
-
-    function onResize() {
-      setLeftWidth((prev) => clamp(prev));
-    }
-    window.addEventListener("resize", onResize);
-    return () => window.removeEventListener("resize", onResize);
-  }, [clamp]);
-
-  // Resolve the on-mount width before paint when no valid persisted
-  // preference exists. Runs in useLayoutEffect so the resolved width is
-  // committed before the browser paints, preventing a single-frame flash
-  // of the `defaultLeftWidth` pixel fallback.
-  //
-  // Precedence: `defaultLeftPercent` > `defaultRightWidth` > `defaultLeftWidth`
-  // (whose value already seeds the initial useState above, so the no-prop
-  // branch is a no-op here).
-  useLayoutEffect(() => {
-    if (readStoredWidth(storageKey, minLeftWidth) !== null) return;
-    const container = containerRef.current;
-    if (!container) return;
-    const containerWidth = container.offsetWidth;
-    if (containerWidth <= 0) return;
-    let target: number | null = null;
-    if (defaultLeftPercent != null) {
-      target = (containerWidth * defaultLeftPercent) / 100;
-    } else if (defaultRightWidth != null) {
-      target = containerWidth - defaultRightWidth - SEPARATOR_WIDTH_PX;
-    }
-    if (target == null) return;
-    setLeftWidth(clamp(target));
-  }, [
-    defaultLeftPercent,
-    defaultRightWidth,
-    storageKey,
-    minLeftWidth,
-    clamp,
-  ]);
+  const paneRef = useRef<HTMLDivElement>(null);
+  const { size, containerRef, paneId, handleProps, isResizing } =
+    useResizablePane({
+      side: "end",
+      defaultSize: defaultRightWidth,
+      minSize: minRightWidth,
+      reserveForRest: minLeftWidth + HANDLE_WIDTH_PX,
+      storageKey: storageKey
+        ? `${storageKey}${STORAGE_FORMAT_SUFFIX}`
+        : undefined,
+      legacySize: storageKey
+        ? {
+            key: storageKey,
+            convert: (leftWidth: number, containerWidth: number) =>
+              containerWidth - leftWidth - HANDLE_WIDTH_PX,
+          }
+        : undefined,
+      label: separatorLabel,
+      paneRef,
+      onSizeCommit: onWidthChange,
+    });
 
   return (
     <div
@@ -202,24 +100,16 @@ export function ResizablePanel({
       data-slot="resizable-panel"
       className={cn("flex h-full w-full overflow-hidden", className)}
     >
-      <div
-        className="flex h-full shrink-0 flex-col overflow-hidden"
-        style={{ width: leftWidth }}
-      >
+      <div className="flex h-full min-w-0 flex-1 flex-col overflow-hidden">
         {left}
       </div>
 
-      <div
-        role="separator"
-        aria-orientation="vertical"
+      <PaneResizeHandle
+        {...handleProps}
         className={cn(
-          "group relative z-10 flex h-full w-2 shrink-0 cursor-col-resize items-center justify-center",
-          isDragging && "select-none",
+          "group relative z-10 flex h-full w-2 shrink-0 items-center justify-center",
+          isResizing && "select-none",
         )}
-        onPointerDown={handlePointerDown}
-        onPointerMove={handlePointerMove}
-        onPointerUp={handlePointerUp}
-        onPointerCancel={handlePointerUp}
       >
         <div
           className={cn(
@@ -230,13 +120,23 @@ export function ResizablePanel({
         <div
           className={cn(
             "absolute h-8 w-1 rounded-full bg-[var(--content-tertiary)] opacity-0 transition-opacity",
-            "group-hover:opacity-100",
-            isDragging && "opacity-100",
+            "group-hover:opacity-100 group-focus-visible:opacity-100",
+            isResizing && "opacity-100",
           )}
         />
-      </div>
+      </PaneResizeHandle>
 
-      <div className="h-full min-w-0 flex-1 overflow-auto">{right}</div>
+      {/* `size` is the committed width. During a drag the hook writes this
+          element's width directly and skips the commit, so tracking the cursor
+          costs no React render; the two agree again on release. */}
+      <div
+        id={paneId}
+        ref={paneRef}
+        className="h-full shrink-0 overflow-auto"
+        style={{ width: size }}
+      >
+        {right}
+      </div>
     </div>
   );
 }

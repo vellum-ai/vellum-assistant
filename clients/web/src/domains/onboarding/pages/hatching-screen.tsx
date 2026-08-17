@@ -63,6 +63,7 @@ import { composeSvg } from "@/utils/avatar-svg-compositor";
 import { routes } from "@/utils/routes";
 import { Button } from "@vellumai/design-library/components/button";
 import { ProgressBar } from "@vellumai/design-library/components/progress-bar";
+import { useTranslation } from "@/i18n";
 
 const COMPLETION_NAVIGATE_DELAY_MS = 800;
 
@@ -110,12 +111,15 @@ const PHASE_TARGET: Record<HatchPhase, number> = {
 
 const SEGMENT_DURATION_MS = 1500;
 
-const PHASE_LABEL: Record<HatchPhase, string> = {
-  initializing: "Getting things ready…",
-  provisioning: "Setting up your assistant…",
-  connecting: "Connecting to your assistant…",
-  resizing: "Setting up your machine…",
-  ready: "Ready",
+// Written out per phase rather than composed from the phase name, so a phase
+// added without its copy fails to compile and the key stays greppable for the
+// orphan check in `catalogs.test.ts`.
+const PHASE_KEY: Record<HatchPhase, `hatchingScreen.phase.${HatchPhase}`> = {
+  initializing: "hatchingScreen.phase.initializing",
+  provisioning: "hatchingScreen.phase.provisioning",
+  connecting: "hatchingScreen.phase.connecting",
+  resizing: "hatchingScreen.phase.resizing",
+  ready: "hatchingScreen.phase.ready",
 };
 
 export function interpolateSegmentProgress(
@@ -148,6 +152,7 @@ export function decideHatchGate(): HatchGateDecision {
 }
 
 export function HatchingScreen() {
+  const { t } = useTranslation("onboarding");
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [searchParams] = useSearchParams();
@@ -772,7 +777,9 @@ export function HatchingScreen() {
                 : "text-3xl font-semibold tracking-tight"
             }
           >
-            {apiKeyRejected ? "Your API key didn't work" : "Something went wrong"}
+            {apiKeyRejected
+              ? t("hatchingScreen.apiKeyFailed")
+              : t("hatchingScreen.genericFailure")}
           </h1>
           <p
             className={`text-body-medium-lighter text-[var(--content-tertiary)] ${electron ? "mt-3.5" : "mt-4"}`}
@@ -782,7 +789,7 @@ export function HatchingScreen() {
           {platformHostedDisabled && (
             <div className="mt-6 flex w-full max-w-sm flex-col items-center gap-3">
               <p className="text-body-medium-default text-[var(--content-default)]">
-                Get started today with a local assistant
+                {t("hatchingScreen.localFallbackPitch")}
               </p>
               <Button
                 asChild
@@ -792,7 +799,7 @@ export function HatchingScreen() {
                 className={electron ? undefined : "h-11 text-base"}
               >
                 <a href={`${window.location.origin}/download`}>
-                  Download the macOS app
+                  {t("actions.downloadMacApp")}
                 </a>
               </Button>
             </div>
@@ -822,7 +829,7 @@ export function HatchingScreen() {
                   )
                 }
               >
-                Update API key
+                {t("hatchingScreen.updateApiKey")}
               </Button>
             ) : (
               <Button
@@ -843,7 +850,7 @@ export function HatchingScreen() {
                   setAttempt((n) => n + 1);
                 }}
               >
-                Try again
+                {t("actions.tryAgain")}
               </Button>
             )}
             <Button
@@ -860,7 +867,7 @@ export function HatchingScreen() {
                 )
               }
             >
-              Back
+              {t("actions.back")}
             </Button>
           </div>
         </div>
@@ -886,14 +893,15 @@ export function HatchingScreen() {
               : "text-3xl font-semibold tracking-tight"
           }
         >
-          {phase === "ready" ? "Your assistant is ready!" : "Waking up…"}
+          {phase === "ready"
+            ? t("hatchingScreen.ready")
+            : t("hatchingScreen.waking")}
         </h1>
         {phase !== "ready" && (
           <p
             className={`text-body-medium-lighter text-[var(--content-tertiary)] ${electron ? "mt-3.5" : "mt-4"}`}
           >
-            Hang tight — your assistant will have a few questions for you once
-            it&apos;s up.
+            {t("hatchingScreen.wakingBody")}
           </p>
         )}
         <img
@@ -907,12 +915,12 @@ export function HatchingScreen() {
           value={displayProgress}
           height={6}
           className={`w-full ${electron ? "max-w-[200px]" : "max-w-sm"}`}
-          aria-label="Assistant startup progress"
+          aria-label={t("hatchingScreen.progressAriaLabel")}
         />
         <p
           className={`text-[var(--content-tertiary)] ${electron ? "mt-4 text-label-small-default" : "mt-3 text-body-small-default"}`}
         >
-          {PHASE_LABEL[phase]}
+          {t(PHASE_KEY[phase])}
         </p>
       </div>
     </OnboardingLayout>

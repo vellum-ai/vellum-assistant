@@ -1,13 +1,20 @@
 import AppIntents
 
 /// "Ask a question" — Siri collects the *content* of the request before the app
-/// is up, then hands it over with the voice session.
+/// is up, then hands it over with the app launch.
 ///
 /// The difference from `StartVoiceModeIntent` / `StartNewVoiceConversationIntent`
 /// is where the first turn comes from. Those two open the app into voice mode
 /// and leave the user to speak once they are there. This one takes the question
 /// as a parameter, so "ask Vellum what's on my calendar" carries the question
-/// with it and the app opens with it already in hand.
+/// with it and the app opens with it already in hand. Because the shell proves
+/// the link came from this intent (`CommandURLProvenance`, LUM-3281), the web
+/// layer asks the question for the user as a text turn in a fresh
+/// conversation. It deliberately starts no voice session for it: a live-voice
+/// session cannot accept a text turn (JARVIS-1522 tracks the seed-turn seam),
+/// so the answer arrives in text until then. The identical URL opened from
+/// Safari or another app carries no proof and only pre-fills the composer
+/// (`useGlobalDeepLinkConsumer` documents the contract).
 ///
 /// The question rides the existing `<scheme>://voice` contract as a `prompt`
 /// query parameter (see `VoiceModeDeepLink`), not a second command channel:
@@ -24,7 +31,7 @@ import AppIntents
 struct AskVellumIntent: AppIntent {
     static var title: LocalizedStringResource = "Ask a question"
     static var description = IntentDescription(
-        "Open Vellum and start a voice conversation with your question already asked."
+        "Open Vellum and ask your question right away in a new conversation."
     )
 
     /// What the user wants to ask. Non-optional on purpose: an invocation with

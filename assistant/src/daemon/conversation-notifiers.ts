@@ -3,8 +3,10 @@
  * the Conversation constructor and dispose/abort methods.
  *
  * Notifier callbacks read from the provided context object at invocation
- * time (not registration time), so they always see the latest sendToClient
- * and messages references even after updateClient().
+ * time (not registration time), so they always see the latest messages
+ * reference. They emit through the conversation, whose sink is fixed for its
+ * life, so an out-of-turn notification reaches every subscribed client
+ * without any per-turn wiring.
  */
 
 import { createAssistantMessage } from "../agent/message-types.js";
@@ -25,13 +27,14 @@ import {
 } from "../persistence/conversation-crud.js";
 import type { Message } from "../providers/types.js";
 import type { TrustContext } from "./trust-context-types.js";
+import { restingTrust } from "./trust-context-types.js";
 
 /**
  * Subset of Conversation state that notifier callbacks need to read at
  * invocation time. Properties are read lazily from this reference.
  */
 export interface NotifierConversationContext {
-  sendToClient: (msg: AssistantEvent) => void;
+  emit: (msg: AssistantEvent) => void;
   messages: Message[];
   trustContext?: TrustContext;
 }
@@ -58,7 +61,14 @@ export function registerConversationNotifiers(
         JSON.stringify([{ type: "text", text: questionText }]),
         {
           metadata: {
-            ...provenanceFromTrustContext(ctx.trustContext),
+            ...provenanceFromTrustContext(
+              // This callback fires after the voice turn has settled: the
+              // per-turn field may still hold that turn's actor (nothing
+              // clears it at release), while voice cleanup has restored the
+              // conversation's resting trust. The owner is the right actor
+              // for a row persisted outside any turn.
+              restingTrust(ctx),
+            ),
             userMessageChannel: "phone",
             assistantMessageChannel: "phone",
             userMessageInterface: "phone",
@@ -69,12 +79,12 @@ export function registerConversationNotifiers(
 
       ctx.messages.push(createAssistantMessage(questionText));
 
-      ctx.sendToClient({
+      ctx.emit({
         type: "assistant_text_delta",
         text: questionText,
         conversationId: conversationId,
       });
-      ctx.sendToClient({
+      ctx.emit({
         type: "message_complete",
         conversationId: conversationId,
         messageId: msg.id,
@@ -89,12 +99,12 @@ export function registerConversationNotifiers(
       const speakerLabel = speaker === "caller" ? "Caller" : "Assistant";
       const transcriptText = `**Live call transcript**\n${speakerLabel}: ${text}`;
 
-      ctx.sendToClient({
+      ctx.emit({
         type: "assistant_text_delta",
         text: transcriptText,
         conversationId: conversationId,
       });
-      ctx.sendToClient({
+      ctx.emit({
         type: "message_complete",
         conversationId: conversationId,
         source: "aux",
@@ -105,12 +115,12 @@ export function registerConversationNotifiers(
   registerCallCompletionNotifier(conversationId, (callSessionId: string) => {
     const summaryText = buildCallCompletionMessage(callSessionId);
 
-    ctx.sendToClient({
+    ctx.emit({
       type: "assistant_text_delta",
       text: summaryText,
       conversationId: conversationId,
     });
-    ctx.sendToClient({
+    ctx.emit({
       type: "message_complete",
       conversationId: conversationId,
       source: "aux",

@@ -4,33 +4,21 @@ import path from "node:path";
 
 import { defineConfig, externalizeDepsPlugin } from "electron-vite";
 
+import { SHARED_DESKTOP_INLINE_DEPS } from "../../packages/electron-desktop/src/inline-deps";
+
 // Reference: https://electron-vite.org/config/
 //
 // No renderer config: the renderer is the clients/web/ Vite project, served in
 // dev via http://localhost:5173 and in prod via a custom `app://` protocol.
 //
 // Dependencies that must be bundled inline rather than externalized as
-// runtime `require(...)` calls.
-//
-// `electron-store` (and its `conf` parent) are ESM-only. electron-vite's
-// default externalize plugin would emit `require("electron-store")` in the
-// CJS main bundle, which returns the module namespace rather than the
-// default export and breaks `new Store(...)`. Bundling their ESM source
-// inline lets Rollup handle the CJS interop correctly at bundle time.
-//
-// Workspace dependencies such as `@vellumai/local-mode` and
-// `@vellumai/electron-utils` export TypeScript source with no build step.
-// Inlining lets Rollup compile their source into the bundle.
+// runtime `require(...)` calls. The cross-client rules (and the sandboxed
+// preload rationale) live in the shared list; only macOS-specific deps are
+// added here. Guarded by scripts/preload-externals.test.ts.
 const DEPS_TO_INLINE = [
-  "electron-log",
-  "electron-store",
+  ...SHARED_DESKTOP_INLINE_DEPS,
   "electron-updater",
-  "conf",
-  "@vellumai/electron-utils",
-  "@vellumai/electron-desktop",
-  "@vellumai/ipc-contract",
-  "@vellumai/local-mode",
-  "@vellumai/environments",
+  "@vellumai/native-sidecar",
 ];
 
 // Resolved at config-evaluation time and inlined into the main bundle via
@@ -104,7 +92,7 @@ export default defineConfig({
     },
   },
   preload: {
-    plugins: [externalizeDepsPlugin()],
+    plugins: [externalizeDepsPlugin({ exclude: DEPS_TO_INLINE })],
     build: {
       outDir: "out/preload",
       lib: {

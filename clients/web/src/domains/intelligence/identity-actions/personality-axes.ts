@@ -10,16 +10,46 @@ import { PERSONALITY_SLIDER_DEFAULT } from "@/assistant/personality-sliders";
 
 export interface PersonalityAxisDefinition {
   id: string;
-  left: string;
-  right: string;
+  leftKey:
+    | "personalityAxes.companionCoworker.left"
+    | "personalityAxes.genzBoomer.left"
+    | "personalityAxes.executeCollaborate.left"
+    | "personalityAxes.playfulSerious.left"
+    | "personalityAxes.politeUnfiltered.left";
+  rightKey:
+    | "personalityAxes.companionCoworker.right"
+    | "personalityAxes.genzBoomer.right"
+    | "personalityAxes.executeCollaborate.right"
+    | "personalityAxes.playfulSerious.right"
+    | "personalityAxes.politeUnfiltered.right";
 }
 
 export const PERSONALITY_AXES: PersonalityAxisDefinition[] = [
-  { id: "companion-coworker", left: "Companion", right: "Coworker" },
-  { id: "genz-boomer", left: "Gen Z", right: "Baby Boomer" },
-  { id: "execute-collaborate", left: "Independent", right: "Collaborative" },
-  { id: "playful-serious", left: "Playful", right: "Serious" },
-  { id: "polite-unfiltered", left: "Polite", right: "Unfiltered" },
+  {
+    id: "companion-coworker",
+    leftKey: "personalityAxes.companionCoworker.left",
+    rightKey: "personalityAxes.companionCoworker.right",
+  },
+  {
+    id: "genz-boomer",
+    leftKey: "personalityAxes.genzBoomer.left",
+    rightKey: "personalityAxes.genzBoomer.right",
+  },
+  {
+    id: "execute-collaborate",
+    leftKey: "personalityAxes.executeCollaborate.left",
+    rightKey: "personalityAxes.executeCollaborate.right",
+  },
+  {
+    id: "playful-serious",
+    leftKey: "personalityAxes.playfulSerious.left",
+    rightKey: "personalityAxes.playfulSerious.right",
+  },
+  {
+    id: "polite-unfiltered",
+    leftKey: "personalityAxes.politeUnfiltered.left",
+    rightKey: "personalityAxes.politeUnfiltered.right",
+  },
 ];
 
 /** Sliders start centered — no axis is nudged either way until the user acts. */

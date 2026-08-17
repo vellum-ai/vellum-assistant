@@ -5,7 +5,7 @@ import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js"
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import type { ToolAnnotations } from "@modelcontextprotocol/sdk/types.js";
 
-import type { McpTransport } from "../config/schemas/mcp.js";
+import type { McpServerSource, McpTransport } from "../config/schemas/mcp.js";
 import { getSecureKeyAsync } from "../security/secure-keys.js";
 import { getLogger } from "../util/logger.js";
 import { getMcpHeaders } from "./mcp-header-store.js";
@@ -54,6 +54,12 @@ export interface McpCallResult {
 
 export class McpClient {
   readonly serverId: string;
+  /**
+   * Where this server was declared. Only a `workspace` server resolves
+   * `mcp:<serverId>:tokens` / `mcp:<serverId>:headers` from the credential
+   * store — see {@link McpServerSource} for why a plugin server must not.
+   */
+  readonly source: McpServerSource;
   private client: Client;
   private transport:
     | StdioClientTransport
@@ -73,8 +79,9 @@ export class McpClient {
     return this.connected;
   }
 
-  constructor(serverId: string) {
+  constructor(serverId: string, source: McpServerSource = "workspace") {
     this.serverId = serverId;
+    this.source = source;
     this.client = new Client({
       name: "vellum-assistant",
       version: "1.0.0",
@@ -99,12 +106,13 @@ export class McpClient {
     const isHttpTransport =
       transportConfig.type === "sse" ||
       transportConfig.type === "streamable-http";
+    const usesStoredCredentials = this.source === "workspace";
 
     // For HTTP transports, only attach an OAuth provider if cached tokens
     // exist. This avoids triggering client registration during daemon
     // startup. If no tokens, try without auth: if the server requires it,
     // skip silently.
-    if (isHttpTransport) {
+    if (isHttpTransport && usesStoredCredentials) {
       const cachedTokens = await getSecureKeyAsync(
         `mcp:${this.serverId}:tokens`,
       );
@@ -120,7 +128,7 @@ export class McpClient {
     // Resolve static auth headers from credential store, falling back to
     // any legacy headers in the transport config for backward compatibility.
     let effectiveConfig = transportConfig;
-    if (isHttpTransport) {
+    if (isHttpTransport && usesStoredCredentials) {
       const storedHeaders = await getMcpHeaders(this.serverId);
       if (storedHeaders) {
         effectiveConfig = {

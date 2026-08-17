@@ -1,9 +1,7 @@
 import { definePreview } from "@storybook/react-vite";
 import docsAddon from "@storybook/addon-docs";
 import a11yAddon from "@storybook/addon-a11y";
-import themesAddonImport, {
-  withThemeByDataAttribute,
-} from "@storybook/addon-themes";
+import themesAddon, { withThemeByDataAttribute } from "@storybook/addon-themes";
 import {
   DocsContainer,
   type DocsContainerProps,
@@ -11,7 +9,7 @@ import {
 import { create, themes } from "storybook/theming";
 import { addons } from "storybook/preview-api";
 import { GLOBALS_UPDATED } from "storybook/internal/core-events";
-import { MemoryRouter } from "react-router";
+import { MemoryRouter, Route, Routes } from "react-router";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import i18next from "i18next";
 import ICU from "i18next-icu";
@@ -23,14 +21,11 @@ import type { ReactRenderer } from "@storybook/react-vite";
 import { i18nextInitOptions } from "../src/i18n/config";
 import { FALLBACK_CATALOGS } from "../src/i18n/catalogs";
 
-// @storybook/addon-themes@10.4.0 ships ESM code but its package.json omits
-// `"type": "module"`, so TypeScript NodeNext resolution misreads the default
-// export. The cast preserves the runtime call signature.
-const themesAddon = themesAddonImport as unknown as () => ReturnType<
-  typeof docsAddon
->;
-
 import "./preview.css";
+import {
+  themeFromGlobalsPayload,
+  themeFromLastGlobalsEvent,
+} from "./theme-globals";
 import { SB_DESKTOP_VIEWPORT, SB_VIEWPORTS } from "./viewports";
 
 // Some surfaces (e.g. OAuthConnectSurface) call `useQueryClient()`, which throws
@@ -84,11 +79,8 @@ const storybookThemeMap: Record<string, typeof themes.light> = {
 };
 
 function readInitialTheme(): string {
-  const channel = addons.getChannel();
-  const last = channel.last(GLOBALS_UPDATED) as
-    | [{ globals?: Record<string, unknown> }]
-    | undefined;
-  return (last?.[0]?.globals?.["theme"] as string) || "light";
+  const last: unknown = addons.getChannel().last(GLOBALS_UPDATED);
+  return themeFromLastGlobalsEvent(last);
 }
 
 function ThemedDocsContainer({
@@ -99,12 +91,8 @@ function ThemedDocsContainer({
 
   useEffect(() => {
     const channel = addons.getChannel();
-    const onGlobalsUpdated = ({
-      globals,
-    }: {
-      globals?: Record<string, unknown>;
-    }) => {
-      setTheme((globals?.["theme"] as string) || "light");
+    const onGlobalsUpdated = (payload: unknown) => {
+      setTheme(themeFromGlobalsPayload(payload));
     };
     channel.on(GLOBALS_UPDATED, onGlobalsUpdated);
     return () => channel.off(GLOBALS_UPDATED, onGlobalsUpdated);
@@ -130,13 +118,24 @@ export default definePreview({
       defaultTheme: "light",
       attributeName: "data-theme",
     }),
-    (Story) => (
-      <QueryClientProvider client={storybookQueryClient}>
-        <MemoryRouter>
-          <Story />
-        </MemoryRouter>
-      </QueryClientProvider>
-    ),
+    (Story, context) => {
+      const { initialEntries = ["/"], paths } = context.parameters.router ?? {};
+      return (
+        <QueryClientProvider client={storybookQueryClient}>
+          <MemoryRouter initialEntries={initialEntries}>
+            {paths == null ? (
+              <Story />
+            ) : (
+              <Routes>
+                {paths.map((path) => (
+                  <Route key={path} path={path} element={<Story />} />
+                ))}
+              </Routes>
+            )}
+          </MemoryRouter>
+        </QueryClientProvider>
+      );
+    },
   ],
   /**
    * Start every story at a desktop width.

@@ -9,6 +9,7 @@ import { applyRuntimeInjections } from "../daemon/conversation-runtime-assembly.
 import type { SurfaceData, SurfaceType } from "../daemon/message-protocol.js";
 import { registerDefaultPluginInjectors } from "../plugins/defaults/index.js";
 import type { Message } from "../providers/types.js";
+import { asConversation } from "./helpers/mock-conversation.js";
 
 // Populate the injector registry with the default plugins' injectors the way
 // bootstrap does in production, so `applyRuntimeInjections` walks a non-empty
@@ -33,16 +34,19 @@ const FALLBACK_CONVERSATION_ID = "runtime-assembly-fallback";
 // injectors resolve their blocks from it (the orchestrator no longer threads
 // workspace or active-surface content as options).
 function registerFallbackConversation(fields: Record<string, unknown>): void {
-  setConversation(FALLBACK_CONVERSATION_ID, {
-    conversationId: FALLBACK_CONVERSATION_ID,
-    workingDir: "/sandbox",
-    // Non-dirty empty workspace by default so the workspace-context injector
-    // skips both the filesystem rescan and the DB refresh unless a test
-    // explicitly seeds a block via `workspaceTopLevelContext`.
-    workspaceTopLevelContext: "",
-    workspaceTopLevelDirty: false,
-    ...fields,
-  } as never);
+  setConversation(
+    FALLBACK_CONVERSATION_ID,
+    asConversation({
+      conversationId: FALLBACK_CONVERSATION_ID,
+      workingDir: "/sandbox",
+      // Non-dirty empty workspace by default so the workspace-context injector
+      // skips both the filesystem rescan and the DB refresh unless a test
+      // explicitly seeds a block via `workspaceTopLevelContext`.
+      workspaceTopLevelContext: "",
+      workspaceTopLevelDirty: false,
+      ...fields,
+    }),
+  );
 }
 
 // Seed the live conversation registry with a pre-rendered top-level block. The

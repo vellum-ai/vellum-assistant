@@ -12,6 +12,7 @@ import {
 } from "@/generated/daemon/sdk.gen";
 
 import type { ProviderConnection } from "@/generated/daemon/types.gen";
+import { t, useTranslation } from "@/i18n";
 
 // ---------------------------------------------------------------------------
 // ChatGPT Subscription OAuth Section
@@ -37,6 +38,7 @@ export function ChatgptOAuthSection({
   assistantId,
   onConnected,
 }: ChatgptOAuthSectionProps) {
+  const { t: translate } = useTranslation("settings");
   const [oauthState, setOauthState] = useState<ChatgptOAuthState>("idle");
   const [pastedUrl, setPastedUrl] = useState("");
   const [oauthError, setOauthError] = useState<string | null>(null);
@@ -62,7 +64,7 @@ export function ChatgptOAuthSection({
     } catch {
       popup?.close();
       setOauthState("failed");
-      setOauthError("Failed to start ChatGPT sign-in. Please try again.");
+      setOauthError(t("settings:chatgptOauthSection.startFailed"));
     }
   }
 
@@ -70,30 +72,24 @@ export function ChatgptOAuthSection({
     setOauthError(null);
     const trimmed = pastedUrl.trim();
     if (!trimmed) {
-      setOauthError("Please paste the URL from the error page.");
+      setOauthError(t("settings:chatgptOauthSection.pasteUrlError"));
       return;
     }
     let parsedUrl: URL;
     try {
       parsedUrl = new URL(trimmed);
     } catch {
-      setOauthError(
-        "Invalid URL. Please paste the full URL from the address bar.",
-      );
+      setOauthError(t("settings:chatgptOauthSection.invalidUrl"));
       return;
     }
     const code = parsedUrl.searchParams.get("code");
     const state = parsedUrl.searchParams.get("state");
     if (!code) {
-      setOauthError(
-        "The URL is missing the authorization code. Make sure you copied the full URL.",
-      );
+      setOauthError(t("settings:chatgptOauthSection.missingCode"));
       return;
     }
     if (!state) {
-      setOauthError(
-        "The URL is missing the state parameter. Make sure you copied the full URL.",
-      );
+      setOauthError(t("settings:chatgptOauthSection.missingState"));
       return;
     }
     setOauthState("exchanging");
@@ -135,7 +131,7 @@ export function ChatgptOAuthSection({
       }
     } catch {
       setOauthState("failed");
-      setOauthError("Failed to complete sign-in. Please try again.");
+      setOauthError(t("settings:chatgptOauthSection.completeFailed"));
     }
   }
 
@@ -152,8 +148,7 @@ export function ChatgptOAuthSection({
         as="p"
         className="text-[var(--content-tertiary)]"
       >
-        Connect your ChatGPT subscription to use OpenAI models without an API
-        key.
+        {translate("chatgptOauthSection.intro")}
       </Typography>
 
       {oauthState === "idle" || oauthState === "paste_url" ? (
@@ -168,24 +163,23 @@ export function ChatgptOAuthSection({
                   : "text-[var(--content-secondary)]"
               }
             >
-              1. Click &ldquo;Sign in with ChatGPT&rdquo;
-              {oauthState === "idle" ? " below" : null} to open a popup
+              {oauthState === "idle"
+                ? translate("chatgptOauthSection.step1Idle")
+                : translate("chatgptOauthSection.step1PasteUrl")}
             </Typography>
             <Typography
               variant="body-small-default"
               as="p"
               className="text-[var(--content-secondary)]"
             >
-              2. Sign in, then you&apos;ll land on an error page &mdash;
-              that&apos;s expected
+              {translate("chatgptOauthSection.step2")}
             </Typography>
             <Typography
               variant="body-small-default"
               as="p"
               className="text-[var(--content-secondary)]"
             >
-              3. Copy the full URL from that page&apos;s address bar and paste
-              it below
+              {translate("chatgptOauthSection.step3")}
             </Typography>
           </div>
 
@@ -195,7 +189,7 @@ export function ChatgptOAuthSection({
               size="compact"
               onClick={() => void handleSignIn()}
             >
-              Sign in with ChatGPT
+              {translate("chatgptOauthSection.signInButton")}
             </Button>
           ) : (
             <>
@@ -205,7 +199,7 @@ export function ChatgptOAuthSection({
                   setPastedUrl(e.target.value);
                   setOauthError(null);
                 }}
-                placeholder="Paste callback URL here..."
+                placeholder={translate("chatgptOauthSection.urlPlaceholder")}
                 fullWidth
               />
               <div className="flex justify-end">
@@ -215,7 +209,7 @@ export function ChatgptOAuthSection({
                   disabled={!pastedUrl.trim()}
                   onClick={() => void handleUrlSubmit()}
                 >
-                  Complete Sign In
+                  {translate("chatgptOauthSection.completeSignIn")}
                 </Button>
               </div>
             </>
@@ -230,7 +224,7 @@ export function ChatgptOAuthSection({
             variant="body-small-default"
             className="text-[var(--content-tertiary)]"
           >
-            Starting sign-in...
+            {translate("chatgptOauthSection.startingSignIn")}
           </Typography>
         </div>
       ) : null}
@@ -242,7 +236,7 @@ export function ChatgptOAuthSection({
             variant="body-small-default"
             className="text-[var(--content-tertiary)]"
           >
-            Completing sign-in...
+            {translate("chatgptOauthSection.completingSignIn")}
           </Typography>
         </div>
       ) : null}
@@ -253,7 +247,7 @@ export function ChatgptOAuthSection({
           as="p"
           className="text-[var(--system-positive-strong)]"
         >
-          ChatGPT subscription connected successfully.
+          {translate("chatgptOauthSection.connected")}
         </Typography>
       ) : null}
 
@@ -269,7 +263,7 @@ export function ChatgptOAuthSection({
 
       {oauthState === "failed" ? (
         <Button variant="outlined" size="compact" onClick={handleReset}>
-          Try Again
+          {translate("chatgptOauthSection.tryAgain")}
         </Button>
       ) : null}
     </div>

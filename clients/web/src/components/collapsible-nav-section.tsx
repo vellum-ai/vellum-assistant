@@ -162,8 +162,10 @@ export interface CollapsibleNavSectionDrag {
   dropEdge: "before" | "after" | null;
 }
 
-export interface CollapsibleNavSectionSectionProps
-  extends Omit<CollapsibleItemProps, "children"> {
+export interface CollapsibleNavSectionSectionProps extends Omit<
+  CollapsibleItemProps,
+  "children"
+> {
   value: string;
   icon?: LucideIcon;
   label: string;
@@ -271,12 +273,13 @@ function CollapsibleNavSectionSection({
   const headerEl = (
     <div
       data-slot="collapsible-nav-section-header"
+      /* The hover scope for the trailing "…": hovering anywhere on the header
+         reveals it. Attribute-keyed rather than a Tailwind group, so the
+         trigger's own unnamed `group` (the icon/chevron swap) cannot answer to
+         it and this cannot answer to the trigger's. */
+      data-reveal-row=""
       className={cn(
-        // Named group so the trailing "…" can react to hovering anywhere on
-        // the header. The trigger carries its own unnamed `group` for the
-        // icon/chevron swap, and it is a *sibling* of the trailing slot, so
-        // that one can't reach it.
-        "group/header flex shrink-0 items-center justify-between",
+        "flex shrink-0 items-center justify-between",
         // The title trigger's Accordion.Header wrapper must grow to fill
         // the row, so the whole header (minus the trailing cluster) is
         // the click target and long labels still truncate. The primitive
@@ -331,11 +334,14 @@ function CollapsibleNavSectionSection({
                    with. */
                 <span
                   data-slot="collapsible-nav-section-indicator"
+                  /* Yields the cell on exactly the conditions that bring the
+                     trailing control in, or the two paint over each other. With
+                     no trailing control there is nothing to yield to, and a
+                     section whose only header signal is this dot keeps it
+                     wherever the device cannot hover. */
+                  data-reveal-yield={trailing ? "" : undefined}
                   className={cn(
                     "pointer-events-none flex items-center",
-                    "transition-opacity",
-                    "group-hover/header:opacity-0",
-                    "max-md:opacity-0",
                     "group-data-[state=open]/section:hidden",
                   )}
                 >
@@ -346,21 +352,9 @@ function CollapsibleNavSectionSection({
                 <span
                   data-slot="collapsible-nav-section-trailing"
                   /* `empty:hidden` so a trailing component that renders nothing
-                 doesn't leave a padded box behind.
-
-                 Revealed on hover so a column of resting headers stays quiet.
-                 It stays up while its own menu is open (`aria-expanded`), or
-                 the control would vanish the moment it was clicked, and while
-                 anything inside holds focus, so it is keyboard reachable.
-                 Touch has no hover and the header's long-press sheet is the
-                 equivalent there, so below `md` it simply stays visible. */
-                  className={cn(
-                    "flex items-center shrink-0 empty:hidden",
-                    "opacity-0 transition-opacity",
-                    "group-hover/header:opacity-100 focus-within:opacity-100",
-                    "has-[[aria-expanded=true]]:opacity-100",
-                    "max-md:opacity-100",
-                  )}
+                     doesn't leave a padded box behind. */
+                  data-reveal=""
+                  className="flex items-center shrink-0 empty:hidden"
                   onClick={(event) => event.stopPropagation()}
                 >
                   {trailing}

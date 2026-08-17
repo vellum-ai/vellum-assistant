@@ -5,6 +5,7 @@ import { useGoogleCalendarConnect } from "@/domains/onboarding/hooks/use-google-
 import { isElectron } from "@/runtime/is-electron";
 import { publicAsset } from "@/utils/public-asset";
 import { Button } from "@vellumai/design-library/components/button";
+import { useTranslation } from "@/i18n";
 
 interface CheckinConnectScreenProps {
   assistantId: string;
@@ -31,13 +32,15 @@ export function CheckinConnectScreen({
   onSkip,
   onBack,
 }: CheckinConnectScreenProps) {
+  const { t } = useTranslation("onboarding");
   const electron = isElectron();
   const { handleConnect, oauthInProgress } = useGoogleCalendarConnect({
     assistantId,
     onConnect,
   });
 
-  const assistantInlineName = assistantName || "your assistant";
+  const assistantInlineName =
+    assistantName.trim() || t("checkinConnectScreen.unnamedAssistant");
 
   return (
     <OnboardingLayout showCreatureFooter={false}>
@@ -52,7 +55,7 @@ export function CheckinConnectScreen({
             <button
               type="button"
               onClick={onBack}
-              aria-label="Back"
+              aria-label={t("actions.back")}
               className="flex h-8 w-8 cursor-pointer items-center justify-center rounded-md text-[var(--content-secondary)] transition-colors hover:bg-[var(--surface-base)]"
             >
               <ChevronLeft className="h-4 w-4" />
@@ -63,7 +66,7 @@ export function CheckinConnectScreen({
           <h1
             className={`text-center ${electron ? "text-title-large" : "text-3xl font-semibold tracking-tight"}`}
           >
-            Let&rsquo;s chat tomorrow
+            {t("checkinConnectScreen.title")}
           </h1>
           <div aria-hidden="true" className="h-8 w-8" />
         </div>
@@ -72,7 +75,7 @@ export function CheckinConnectScreen({
           className="mt-4 text-center text-body-medium-lighter text-[var(--content-secondary)]"
           style={{ animation: "fadeInUp 0.3s ease-out 0.15s both" }}
         >
-          Add a meeting in your calendar so we can pick up where we left off.
+          {t("checkinConnectScreen.body")}
         </p>
 
         <div
@@ -89,7 +92,10 @@ export function CheckinConnectScreen({
               loading="eager"
             />
             <span className="text-center text-xs leading-tight text-[var(--content-tertiary)]">
-              Google Calendar
+              {
+                // eslint-disable-next-line local/no-untranslated-strings -- brand name
+                "Google Calendar"
+              }
             </span>
           </div>
         </div>
@@ -98,7 +104,7 @@ export function CheckinConnectScreen({
           className="mt-8 text-center text-body-medium-lighter text-[var(--content-secondary)]"
           style={{ animation: "fadeInUp 0.3s ease-out 0.25s both" }}
         >
-          {`${assistantInlineName} will add a single Day 2 Check-in event. It gets permission to manage your calendar events and see your email address — not your inbox or files — and you can disconnect at any time.`}
+          {t("checkinConnectScreen.permissionBody", { name: assistantInlineName })}
         </p>
 
         <div
@@ -116,10 +122,10 @@ export function CheckinConnectScreen({
             {oauthInProgress ? (
               <span className="flex items-center justify-center gap-2">
                 <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
-                Waiting for authorization...
+                {t("checkinConnectScreen.waitingAuthorization")}
               </span>
             ) : (
-              "Connect Google Calendar"
+              t("checkinConnectScreen.connectGoogleCalendar")
             )}
           </Button>
           <Button
@@ -130,7 +136,7 @@ export function CheckinConnectScreen({
             disabled={oauthInProgress}
             className={`${electron ? "h-9" : "h-11 text-base"}`}
           >
-            Skip for now
+            {t("actions.skipForNow")}
           </Button>
         </div>
       </div>

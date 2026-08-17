@@ -171,12 +171,22 @@ Two things to get right on this rung:
   this to the rare case of a desktop window crossing the breakpoint mid-session, but do not put
   unsaved form state in a surface that can flip.
 
-**This rung is not yet built here, and the codebase is in open violation of it.** Roughly a dozen
-overlay call sites still write `isTouchMobile ? Sheet : Popover` themselves, because no primitive
-accepts the intent. Reaching for the signal at a call site is therefore the *status quo*, not the
-pattern: the fix is the menu/sheet pair moving into the design library, tracked as
-[LUM-3177](https://linear.app/vellum/issue/LUM-3177). Do not add a new copy of the branch; extend the
-count in the ticket instead.
+**Built for command menus, not yet for arbitrary content.** `ActionMenu`
+([`packages/design-library/src/components/action-menu.tsx`](../../../packages/design-library/src/components/action-menu.tsx))
+is this rung: items are declared once, and it renders an anchored dropdown under a pointer or a bottom
+sheet under a thumb, resolving `useTouchSurface()` itself. A menu is the case that pays most, because
+the two presentations there disagree on the *items* as well as the container, so the second copy is a
+whole item list rather than a wrapper.
+
+Reach for `ActionMenu` for any list of commands. Two gaps remain, and both are reasons to keep using
+`Menu` and `BottomSheet` directly rather than to write a new fork:
+
+- **Submenus.** A nested branch has no settled sheet equivalent, so a menu with `Menu.Sub` stays as is.
+- **Arbitrary content.** A disclosure holding a filter panel or a form is not a command list, and its
+  primitive can only own the shell (portal, focus, dismissal, height band, safe area) rather than the
+  content. The pills and filter surfaces still fork on the signal for that reason.
+
+Either way, do not add a new copy of `isTouchMobile ? Sheet : Popover` for a command menu.
 
 **4. Separate implementations behind one import (last resort).** React Native's
 [platform-specific code](https://reactnative.dev/docs/platform-specific-code) guidance is the right
@@ -233,6 +243,52 @@ otherwise a narrow mouse-driven window falls between the two.
 
 ---
 
+## Hiding a control behind hover
+
+A control revealed on hover is unreachable on a device that cannot hover, and hover is its own axis:
+[`hover`](https://developer.mozilla.org/en-US/docs/Web/CSS/@media/hover) does not follow from
+[`pointer`](https://developer.mozilla.org/en-US/docs/Web/CSS/@media/pointer) or from window size. An
+iPad in landscape reports `hover: none` at 1024px. So a hidden control needs an answer to "what
+reaches this without a hover", and the answer is a product decision, not a media query. Decide it in
+this order:
+
+1. **Decoration over something already interactive** (a scrim, a "click to open" hint on a card that
+   is itself a button): nothing more is needed. The row does the work; the hint only previews it.
+2. **One action**: don't hide it. A row with a single affordance has nothing to gain from hiding it and
+   a reachability bug to lose.
+3. **Several actions**: one always-visible trigger opening an [`ActionMenu`](../../../packages/design-library/src/components/action-menu.tsx),
+   which is a dropdown under a mouse and a sheet under a thumb.
+4. **A long list of like rows** (conversations, library apps): swipe or long-press, and the caller
+   drops the hover control on touch rather than asking the primitive to hide it. See
+   `conversation-row.tsx`.
+5. **Anything else**: keep it visible where hover is unavailable.
+
+The mechanism is one rule in the design library's stylesheet, not a class list each caller pastes.
+Callers declare parts, the rule owns the conditions:
+
+```html
+<div data-reveal-row data-reveal-hold>
+  <button data-reveal>…</button>
+  <span data-reveal-yield>…</span>
+</div>
+```
+
+- `data-reveal-row` scopes the reveal: the affordance appears while this element is hovered, while
+  keyboard focus is anywhere inside it (`:focus-visible`, so a click on the row does not count), and
+  while a menu the affordance owns reports `aria-expanded`.
+- `data-reveal` is the affordance. Its opacity and its `pointer-events` are set by the same
+  declaration, since an unpainted control that still answers a click is a trap.
+- `data-reveal-yield` is an element sharing the affordance's slot and giving it up, so the two
+  crossfade in one cell instead of stacking. It leaves the hit path while faded, since the cell it
+  shares would otherwise put it over the affordance painted under it.
+- `data-reveal-hold` keeps the affordance up regardless of hover, for a row whose state makes it the
+  live control (the nav's current page, a voice mid-preview, a fact already removed).
+
+Where the device cannot hover, none of it applies and the affordance is simply present, which is why
+options 1 through 5 have to be settled first.
+
+---
+
 ## Should iOS and Android differ?
 
 Sometimes, and the split is clean:
@@ -255,7 +311,7 @@ it too, per [`clients/AGENTS.md`](../../AGENTS.md).
   `BottomSheet` under a thumb and a `Menu` under a mouse, so it reads `useTouchMobile()`. A narrow
   desktop window keeps the dropdown, because a mouse can hit it.
 - **Whether a detail pane docks beside the chat or floats over it** is the size axis. A side-by-side
-  split cannot fit at 767px whatever the pointer is, so `ChatRouteContent` reads `useIsMobile()`.
+  split cannot fit at 767px whatever the pointer is, so `ChatMainPanel` reads `useIsMobile()`.
 - **Safe-area padding under a full-screen sheet** is the platform axis, resolved in CSS off
   `data-native-platform` rather than by a component asking which OS it is on.
 

@@ -7,8 +7,33 @@ import { Typography } from "@vellumai/design-library";
 import { useChatLayoutSlotsStore } from "@/components/layout/chat-layout-slots-store";
 import { PageShell } from "@/components/page-shell";
 import { useIsMobile } from "@/hooks/use-is-mobile";
+import { useTranslation } from "@/i18n";
 import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
-import { aboutAssistantSectionForPath, routes } from "@/utils/routes";
+import {
+  type AboutAssistantSectionKey,
+  aboutAssistantSectionForPath,
+  routes,
+} from "@/utils/routes";
+
+/**
+ * Greppable overview section titles shown in the layout's header (and
+ * mobile top bar). `plugins`/`skills` share the "My Superpowers" section
+ * with `superpowers` (see `ABOUT_ASSISTANT_SECTIONS` in `utils/routes.ts`).
+ */
+const SECTION_LABEL_KEY: Record<
+  AboutAssistantSectionKey,
+  `sections.${"schedules" | "superpowers" | "memory" | "library" | "workspace" | "contacts" | "channels"}`
+> = {
+  schedules: "sections.schedules",
+  superpowers: "sections.superpowers",
+  plugins: "sections.superpowers",
+  skills: "sections.superpowers",
+  memory: "sections.memory",
+  library: "sections.library",
+  workspace: "sections.workspace",
+  contacts: "sections.contacts",
+  channels: "sections.channels",
+};
 
 /**
  * Shared layout for the "About Assistant" pages. The overview
@@ -27,13 +52,16 @@ import { aboutAssistantSectionForPath, routes } from "@/utils/routes";
  * @see https://reactrouter.com/start/framework/routing#layout-routes
  */
 export function IntelligenceLayout() {
+  const { t } = useTranslation("intelligence");
   const assistantName = useAssistantIdentityStore.use.name();
   const { pathname } = useLocation();
   const isMobile = useIsMobile();
   const setTopBarCenter = useChatLayoutSlotsStore.use.setTopBarCenter();
 
   const section = aboutAssistantSectionForPath(pathname);
-  const mobileTitle = section?.label ?? null;
+  const sectionTitle = section
+    ? t(SECTION_LABEL_KEY[section.key as AboutAssistantSectionKey])
+    : null;
 
   // On mobile the section title moves out of the page body and into the
   // shared top bar — centered between the hamburger menu and the search
@@ -41,13 +69,13 @@ export function IntelligenceLayout() {
   // greeting on the stage already names the assistant. Desktop keeps the
   // in-body <h1> (section pages only) and leaves the top-bar center empty.
   useEffect(() => {
-    if (isMobile && mobileTitle) {
+    if (isMobile && sectionTitle) {
       setTopBarCenter(
         <Typography
           variant="body-medium-default"
           className="truncate text-[var(--content-secondary)]"
         >
-          {mobileTitle}
+          {sectionTitle}
         </Typography>,
       );
     } else {
@@ -56,7 +84,7 @@ export function IntelligenceLayout() {
     return () => {
       setTopBarCenter(null);
     };
-  }, [isMobile, mobileTitle, setTopBarCenter]);
+  }, [isMobile, sectionTitle, setTopBarCenter]);
 
   // The overview and personality pages paint their own full-bleed stage —
   // no shell, heading, or back chrome.
@@ -74,13 +102,17 @@ export function IntelligenceLayout() {
         <Link
           to={routes.identity}
           className="-ml-2 flex h-8 w-8 shrink-0 cursor-pointer items-center justify-center rounded-md text-[var(--content-secondary)] transition-colors outline-none hover:bg-[var(--surface-hover)] hover:text-[var(--content-default)] focus-visible:ring-2 focus-visible:ring-[var(--ring)]"
-          aria-label={`Back to ${assistantName || "Assistant"}`}
-          title={`Back to ${assistantName || "Assistant"}`}
+          aria-label={t("intelligenceLayout.backToAriaLabel", {
+            name: assistantName || t("identityOverview.defaultAssistantName"),
+          })}
+          title={t("intelligenceLayout.backToTitle", {
+            name: assistantName || t("identityOverview.defaultAssistantName"),
+          })}
         >
           <ChevronLeft className="h-5 w-5" aria-hidden />
         </Link>
         <h1 className="text-title-large text-[var(--content-default)] max-md:hidden">
-          {section.label}
+          {sectionTitle}
         </h1>
       </div>
 

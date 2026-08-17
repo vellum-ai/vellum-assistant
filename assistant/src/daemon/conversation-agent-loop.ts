@@ -61,7 +61,11 @@ import { HOOKS } from "../plugin-api/constants.js";
 import type { ConversationGraphMemory } from "../plugins/defaults/memory/graph/conversation-graph-memory.js";
 import { enqueueMemoryRetrospectiveOnCompaction } from "../plugins/defaults/memory/memory-retrospective-enqueue.js";
 import { runHook } from "../plugins/pipeline.js";
-import { isManagedConnectionRoute } from "../providers/connection-resolution.js";
+import {
+  dispatchProviderResolvable,
+  isManagedConnectionRoute,
+  resolveEntryConnectionName,
+} from "../providers/connection-resolution.js";
 import {
   ConnectionResolutionError,
   resolveRoutingIdentity,
@@ -130,6 +134,7 @@ import {
 } from "./inflight-turn-registry.js";
 import type { UsageStats } from "./message-protocol.js";
 import type { TrustContext } from "./trust-context-types.js";
+import { turnOrRestingTrust } from "./trust-context-types.js";
 import { resolveTurnCallSite } from "./turn-call-site.js";
 import { runWithLatencySubSpans } from "./turn-latency-sub-spans.js";
 import {
@@ -399,6 +404,17 @@ export async function runAgentLoopImpl(
   // LUM-3148 removes the ambiguity by making trust ride the turn.
   ctx.currentTurnTrustContext = options?.turnTrustContext ?? ctx.trustContext;
   ctx.currentTurnChannelCapabilities = ctx.channelCapabilities;
+  // Presence is the third per-turn snapshot: whether a human is present to see
+  // UI and answer prompts. Callers declare it via `isInteractive`; a caller
+  // that omits it gets a non-interactive turn. Set before the prompt build
+  // below, which reads it (through `hasNoClient`).
+  const isInteractiveResolved = options?.isInteractive ?? false;
+  // Resolved once and threaded into every re-injection (including the
+  // post-compaction hook) rather than re-read per assembly call, and exposed
+  // to tool execution so tools (e.g. ask_question) see whether a human is
+  // present rather than re-deriving it from live state.
+  const isNonInteractive = !isInteractiveResolved;
+  ctx.currentTurnIsNonInteractive = isNonInteractive;
 
   // Re-resolve the system prompt under the snapshots just set and push it into
   // the loop when the persona changed. The loop reuses the prompt frozen at
@@ -491,10 +507,13 @@ export async function runAgentLoopImpl(
   const turnErrorAttribution = (): ConversationErrorAttribution => {
     try {
       const overrideProfile = readCurrentOverrideProfile();
+      // Mirrors dispatch's selection (including the resolvable-provider
+      // healing) so attribution names the profile that actually ran.
       const resolveOpts = {
         overrideProfile,
         forceOverrideProfile,
         selectionSeed: ctx.conversationId,
+        isResolvableProvider: dispatchProviderResolvable,
       };
       const { config: resolved, profileName } =
         resolveCallSiteConfigWithProfile(turnCallSite, config.llm, resolveOpts);
@@ -509,6 +528,10 @@ export async function runAgentLoopImpl(
         }
         connectionName = error.connectionName;
       }
+      // An entry-name provider IS the connection name, matching the
+      // dispatch-side translation.
+      connectionName ??=
+        resolveEntryConnectionName(resolved.provider) ?? undefined;
       // Managed-ness comes from the connection row, matching what dispatch
       // decides. The profile's own provider can't stand in: a concrete
       // provider tweak over a managed winner keeps the managed connection
@@ -666,19 +689,6 @@ export async function runAgentLoopImpl(
     };
   })();
 
-  const isInteractiveResolved =
-    options?.isInteractive ?? (!ctx.hasNoClient && !ctx.headlessLock);
-  // Whether the in-flight turn has no human present to answer clarification
-  // questions. Derived from the loop's `isInteractive` option (which can fall
-  // back to mutable client/headless state that flips mid-turn), so it is
-  // resolved once here and threaded into every re-injection — including the
-  // post-compaction hook — rather than re-read per assembly call.
-  const isNonInteractive = !isInteractiveResolved;
-  // Expose the resolved turn-level interactivity to tool execution so tools
-  // (e.g. ask_question) see whether a human is present to answer, rather than
-  // re-deriving it from live client state that misclassifies a scheduled turn
-  // running on a client-attached conversation.
-  ctx.currentTurnIsNonInteractive = isNonInteractive;
   const diskPressureDecision = classifyDiskPressureTurnPolicy(
     getDiskPressureStatus(),
     {
@@ -1283,8 +1293,7 @@ export async function runAgentLoopImpl(
     // context, then the fallback — matching the trust the runtime injection
     // assembly resolves for the same turn. The loop's other turn-identity
     // fields self-resolve from its own conversation id.
-    const loopTrust =
-      ctx.currentTurnTrustContext ?? ctx.trustContext ?? FALLBACK_TURN_TRUST;
+    const loopTrust = ctx.getTurnOrRestingTrust() ?? FALLBACK_TURN_TRUST;
 
     /**
      * Shared closure: runs the agent loop with the wrapper's turn context and
@@ -1404,7 +1413,7 @@ export async function runAgentLoopImpl(
     // row here rather than writing a duplicate.
     if (state.pendingToolResults.size > 0) {
       const toolResultMetadata = {
-        ...provenanceFromTrustContext(ctx.trustContext),
+        ...provenanceFromTrustContext(turnOrRestingTrust(ctx)),
         userMessageChannel: capturedTurnChannelContext.userMessageChannel,
         assistantMessageChannel:
           capturedTurnChannelContext.assistantMessageChannel,
@@ -1431,7 +1440,7 @@ export async function runAgentLoopImpl(
         budgetYieldClassification.userMessage,
       );
       const yieldNoticeMetadata = {
-        ...provenanceFromTrustContext(ctx.trustContext),
+        ...provenanceFromTrustContext(turnOrRestingTrust(ctx)),
         userMessageChannel: capturedTurnChannelContext.userMessageChannel,
         assistantMessageChannel:
           capturedTurnChannelContext.assistantMessageChannel,
@@ -1565,7 +1574,7 @@ export async function runAgentLoopImpl(
         state.lastAssistantMessageId = undefined;
       } else {
         const errChannelMeta = {
-          ...provenanceFromTrustContext(ctx.trustContext),
+          ...provenanceFromTrustContext(turnOrRestingTrust(ctx)),
           userMessageChannel: capturedTurnChannelContext.userMessageChannel,
           assistantMessageChannel:
             capturedTurnChannelContext.assistantMessageChannel,

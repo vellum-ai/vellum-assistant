@@ -5,6 +5,7 @@ import { act, cleanup, renderHook } from "@testing-library/react";
 
 import { useActiveConversationIsProcessing } from "@/lib/backwards-compat/conversation-processing-state";
 import { conversationsQueryKey } from "@/utils/conversation-list-fetchers";
+import { listPage } from "@/utils/conversation-list.test-helper";
 import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
 import { useConversationStore } from "@/stores/conversation-store";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
@@ -46,14 +47,14 @@ async function isProcessing(inputs: {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
-  queryClient.setQueryData<Conversation[]>(
+  queryClient.setQueryData(
     conversationsQueryKey(ASSISTANT_ID),
-    [
+    listPage([
       {
         conversationId: CONVERSATION_ID,
         isProcessing: inputs.serverIsProcessing,
       } as Conversation,
-    ],
+    ]),
   );
 
   useResolvedAssistantsStore.getState().setActiveAssistantId(ASSISTANT_ID);

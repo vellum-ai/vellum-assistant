@@ -1,6 +1,7 @@
 import { Globe, HardDrive } from "lucide-react";
 import { createElement } from "react";
 
+import { useTranslation } from "@/i18n";
 import { Tag } from "@vellumai/design-library";
 
 /**
@@ -15,9 +16,10 @@ export function PluginOriginBadge({
   external: boolean;
   className?: string;
 }) {
+  const { t } = useTranslation("intelligence");
   const meta = external
-    ? { label: "External", icon: Globe }
-    : { label: "Local", icon: HardDrive };
+    ? { label: t("pluginOriginBadge.external"), icon: Globe }
+    : { label: t("pluginOriginBadge.local"), icon: HardDrive };
 
   return (
     <Tag

@@ -10,6 +10,7 @@ import {
 import { type ReactNode, useEffect, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router";
 
+import { refreshPlatformAssistantsIfStale } from "@/assistant/platform-assistants-sync";
 import { resolveSelectedAssistantId } from "@/assistant/selection";
 import { retireAssistant } from "@/assistant/retire-service";
 import { isCurrentOrigin, switchToOrigin } from "@/assistant/switch-origin";
@@ -54,6 +55,7 @@ import {
   type RememberedOrigin,
 } from "@/stores/remembered-origins-store";
 import {
+  isConnectableFromThisDevice,
   useResolvedAssistantsStore,
   type ResolvedAssistant,
 } from "@/stores/resolved-assistants-store";
@@ -61,6 +63,8 @@ import { routes } from "@/utils/routes";
 import { pairedHostLabel } from "@vellumai/local-mode/contract";
 import { Button } from "@vellumai/design-library/components/button";
 import { Menu } from "@vellumai/design-library/components/menu";
+import { useTranslation } from "@/i18n";
+import type { TFunction } from "i18next";
 
 function assistantLabel(a: ResolvedAssistant): string {
   if (a.name) {
@@ -72,11 +76,33 @@ function assistantLabel(a: ResolvedAssistant): string {
   return a.isLocal ? "Local Assistant" : "Cloud Assistant";
 }
 
-function assistantSubtitle(a: ResolvedAssistant): string {
+/** A hub-listed self-hosted entry lives on another machine; name its host. */
+function selfHostedHostLabel(
+  ingressUrl: string | null | undefined,
+  t: TFunction<"onboarding">,
+): string {
+  if (ingressUrl) {
+    try {
+      return t("selectAssistantScreen.selfHostedWithHost", {
+        host: new URL(ingressUrl).hostname,
+      });
+    } catch {
+      // Unparseable ingress url: plain label.
+    }
+  }
+  return t("selectAssistantScreen.selfHosted");
+}
+
+function assistantSubtitle(
+  a: ResolvedAssistant,
+  t: TFunction<"onboarding">,
+): string {
   const hosting = a.isPaired
     ? pairedHostLabel(a.runtimeUrl)
     : a.isLocal
-      ? "On this computer"
+      ? isLocalClient()
+        ? "On this computer"
+        : selfHostedHostLabel(a.ingressUrl, t)
       : "Cloud-hosted";
   if (!a.hatchedAt) {
     return hosting;
@@ -126,6 +152,7 @@ function withoutRegisterParams(params: URLSearchParams): URLSearchParams {
 }
 
 export function SelectAssistantScreen() {
+  const { t } = useTranslation("onboarding");
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const fromLogin = searchParams.get("fromLogin") === "1";
@@ -137,6 +164,7 @@ export function SelectAssistantScreen() {
   const currentOrganizationId =
     useOrganizationStore.use.currentOrganizationId();
   const assistantSwitcher = useClientFeatureFlagStore.use.assistantSwitcher();
+  const webRemoteIngress = useClientFeatureFlagStore.use.webRemoteIngress();
   const flagsHydrated = useClientFeatureFlagStore.use.hydrated();
   const origins = useRememberedOriginsStore.use.origins();
   const originsHydrated = useRememberedOriginsStore.use.hydrated();
@@ -164,10 +192,17 @@ export function SelectAssistantScreen() {
   // render.
   const cloudOriginOffered = cloudOrigin !== null;
 
+  // A local entry is session-free only where a local transport exists; on
+  // the hub it connects through the platform path, so like a managed entry
+  // it needs the platform session.
   const isAccessible = (a: ResolvedAssistant): boolean =>
-    a.isLocal || a.isPaired || hasPlatformSession;
+    a.isPaired || (a.isLocal && localClient) || hasPlatformSession;
 
-  const accessibleAssistants = assistants.filter(isAccessible);
+  // `setFromApi` already drops unreachable local registrations, but a
+  // lifecycle upsert of a stale persisted selection can still land one in the
+  // store; keep dead entries off the chooser regardless of how they arrived.
+  const visibleAssistants = assistants.filter(isConnectableFromThisDevice);
+  const accessibleAssistants = visibleAssistants.filter(isAccessible);
   // Origin cards are always selectable, so any kind of entry gives Continue
   // something to act on.
   const hasSelectableEntries =
@@ -225,6 +260,13 @@ export function SelectAssistantScreen() {
   // sudden auto-connect to the sole remaining assistant would be jarring, so
   // the auto-skip stands down for the rest of the visit.
   const removedThisVisitRef = useRef(false);
+
+  // Post-hatch ingress provisioning can land after the last list fetch;
+  // refresh on mount so the new assistant shows up. Session and mode guards
+  // live in the sync module, so this is a no-op off a logged-in hub.
+  useEffect(() => {
+    void refreshPlatformAssistantsIfStale();
+  }, []);
 
   // Platform-mode access gate: the hub chooser exists only behind the
   // assistant-switcher flag, whose real value lands asynchronously, so a
@@ -363,9 +405,11 @@ export function SelectAssistantScreen() {
     try {
       if (assistant.isPaired) {
         await useAuthStore.getState().connectPairedAssistant(assistant.id);
-      } else if (assistant.isLocal) {
+      } else if (assistant.isLocal && localClient) {
         await useAuthStore.getState().connectLocalAssistant(assistant.id);
       } else {
+        // A hub-listed local entry has no lockfile behind it; the platform
+        // path reaches it (lifecycle projects self-hosted via `ingress_url`).
         await useAuthStore.getState().connectPlatformAssistant(assistant.id);
       }
       void navigate(routes.assistant, { replace: true });
@@ -602,16 +646,16 @@ export function SelectAssistantScreen() {
     if (connecting || autoSkipping || connectDialogOpen) {
       return;
     }
-    if (assistants.length === 0) {
+    if (visibleAssistants.length === 0) {
       return;
     }
-    if (assistants.length === 1 && accessibleAssistants.length === 1) {
+    if (visibleAssistants.length === 1 && accessibleAssistants.length === 1) {
       setAutoSkipping(true);
       void handleConnect(accessibleAssistants[0]);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
-    assistants.length,
+    visibleAssistants.length,
     accessibleAssistants.length,
     deepLinkDrainSettled,
     localClient,
@@ -645,7 +689,7 @@ export function SelectAssistantScreen() {
       }
       return;
     }
-    const assistant = assistants.find((a) => a.id === selected);
+    const assistant = visibleAssistants.find((a) => a.id === selected);
     if (assistant) {
       void handleConnect(assistant);
     }
@@ -688,7 +732,7 @@ export function SelectAssistantScreen() {
             animation: "fadeInUp 0.5s ease-out 0.1s both",
           }}
         >
-          Choose an Assistant
+          {t("selectAssistantScreen.title")}
         </h1>
 
         {displayError && (
@@ -699,12 +743,12 @@ export function SelectAssistantScreen() {
 
         <div
           role="radiogroup"
-          aria-label="Assistants"
+          aria-label={t("selectAssistantScreen.listAriaLabel")}
           onKeyDown={handleRadioCardArrowNav}
           className={`flex w-full flex-col ${electron ? "mt-8 gap-2" : "mt-10 gap-3"}`}
           style={{ animation: "fadeInUp 0.5s ease-out 0.3s both" }}
         >
-          {assistants.map((assistant) => {
+          {visibleAssistants.map((assistant) => {
             const accessible = isAccessible(assistant);
             return (
               <AssistantCard
@@ -722,10 +766,14 @@ export function SelectAssistantScreen() {
                     setSelected(assistant.id);
                   }
                 }}
-                loginLabel={loginLoading ? "Cancel" : "Log in to use"}
+                loginLabel={
+                  loginLoading ? t("actions.cancel") : t("actions.loginToUse")
+                }
                 loginDisabled={connecting}
                 onLogin={
-                  !accessible && assistant.isPlatformHosted
+                  // Locked platform-hosted and hub-local cards both unlock
+                  // with a platform login (both connect via the platform).
+                  !accessible && (assistant.isPlatformHosted || assistant.isLocal)
                     ? loginLoading
                       ? cancelLogin
                       : () => void login()
@@ -787,7 +835,7 @@ export function SelectAssistantScreen() {
           {localClient && (
             <DashedActionButton
               icon={<Plus className="h-4 w-4" />}
-              label="Create a new assistant"
+              label={t("selectAssistantScreen.createNew")}
               disabled={connecting || loginLoading}
               onClick={() =>
                 void navigate(
@@ -799,7 +847,7 @@ export function SelectAssistantScreen() {
           {localModeHostAvailable && (
             <DashedActionButton
               icon={<Link2 className="h-4 w-4" />}
-              label="Connect a remote assistant"
+              label={t("selectAssistantScreen.connectRemote")}
               disabled={connecting || loginLoading}
               onClick={() =>
                 useConnectDialogStore.getState().openConnectDialog()
@@ -808,11 +856,12 @@ export function SelectAssistantScreen() {
           )}
           {/* Hostless surfaces (hub browser, remote-gateway mode, native
               mobile) add origins by URL; local desktop clients keep the
-              bundle-paste connect flow above instead. */}
-          {assistantSwitcher && !localModeHostAvailable && (
+              bundle-paste connect flow above instead. The web-remote-ingress
+              client flag decides whether the affordance shows at all. */}
+          {assistantSwitcher && webRemoteIngress && !localModeHostAvailable && (
             <DashedActionButton
               icon={<Globe className="h-4 w-4" />}
-              label="Add a remote assistant"
+              label={t("selectAssistantScreen.addRemote")}
               disabled={connecting || loginLoading}
               onClick={() => setAddOriginOpen(true)}
             />
@@ -832,7 +881,7 @@ export function SelectAssistantScreen() {
               onClick={onContinue}
               disabled={!selected || connecting}
             >
-              {connecting ? "Connecting…" : "Continue"}
+              {connecting ? t("actions.connecting") : t("actions.continue")}
             </Button>
           </div>
         )}
@@ -847,7 +896,7 @@ export function SelectAssistantScreen() {
             onClick={onBack}
             disabled={connecting || loginLoading}
           >
-            Back
+            {t("actions.back")}
           </Button>
         </div>
         </div>
@@ -879,7 +928,9 @@ export function SelectAssistantScreen() {
         open={removeTarget != null}
         kind={removeTarget?.isPaired ? "paired" : "platform"}
         assistantName={
-          removeTarget ? assistantLabel(removeTarget) : "the assistant"
+          removeTarget
+            ? assistantLabel(removeTarget)
+            : t("selectAssistantScreen.unnamedAssistant")
         }
         errorMessage={removeError ?? undefined}
         isPending={removePending}
@@ -890,7 +941,9 @@ export function SelectAssistantScreen() {
         open={removeOriginTarget != null}
         kind="origin"
         assistantName={
-          removeOriginTarget ? originLabel(removeOriginTarget) : "the assistant"
+          removeOriginTarget
+            ? originLabel(removeOriginTarget)
+            : t("selectAssistantScreen.unnamedAssistant")
         }
         errorMessage={removeOriginError ?? undefined}
         isPending={removeOriginPending}
@@ -903,11 +956,12 @@ export function SelectAssistantScreen() {
 
 /** Full-screen "Connecting…" hold shown while a decision or connect lands. */
 function ConnectingHold() {
+  const { t } = useTranslation("onboarding");
   return (
     <OnboardingLayout showAvatarWave>
       <div className="mx-auto flex min-h-screen w-full max-w-xl flex-col items-center justify-center px-6 text-[var(--content-default)]">
         <p className="text-body-medium-lighter text-[var(--content-tertiary)]">
-          Connecting to your assistant…
+          {t("selectAssistantScreen.connectingToAssistant")}
         </p>
       </div>
     </OnboardingLayout>
@@ -960,6 +1014,7 @@ function RemoveCardMenu({
   label: string;
   onRemove: () => void;
 }) {
+  const { t } = useTranslation("onboarding");
   return (
     <Menu.Root>
       <Menu.Trigger asChild>
@@ -968,7 +1023,9 @@ function RemoveCardMenu({
           size="regular"
           className="text-[var(--content-tertiary)]"
           iconOnly={<EllipsisVertical />}
-          aria-label={`Actions for ${label}`}
+          aria-label={t("selectAssistantScreen.rowActionsAriaLabel", {
+            name: label,
+          })}
         />
       </Menu.Trigger>
       <Menu.Content align="end" sideOffset={4}>
@@ -976,7 +1033,7 @@ function RemoveCardMenu({
           onSelect={onRemove}
           className="text-[var(--system-negative-strong)] data-[highlighted]:text-[var(--system-negative-strong)]"
         >
-          Remove from this device…
+          {t("selectAssistantScreen.removeFromDevice")}
         </Menu.Item>
       </Menu.Content>
     </Menu.Root>
@@ -1132,11 +1189,12 @@ function AssistantCard({
   onSelect: () => void;
   loginLabel: string;
   loginDisabled: boolean;
-  /** Present only on locked platform cards: log in to unlock this assistant. */
+  /** Present only on locked platform-routed cards: log in to unlock. */
   onLogin?: () => void;
   /** Present when the entry can be forgotten on this device: opens the confirm. */
   onRemove?: () => void;
 }) {
+  const { t } = useTranslation("onboarding");
   const label = assistantLabel(assistant);
   return (
     <ChooserCard
@@ -1150,7 +1208,7 @@ function AssistantCard({
         )
       }
       title={label}
-      subtitle={assistantSubtitle(assistant)}
+      subtitle={assistantSubtitle(assistant, t)}
       selected={selected}
       locked={locked}
       tabStop={tabStop}

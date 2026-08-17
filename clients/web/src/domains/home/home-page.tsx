@@ -1,9 +1,7 @@
-import { useQuery } from "@tanstack/react-query";
 import { useCallback, useEffect, useState } from "react";
 
 import { DetailDrawer, MobileDetailOverlay } from "@/components/detail-drawer";
 import { PageShell } from "@/components/page-shell";
-import { schedulesListQueryOptions } from "@/domains/settings/api/schedules";
 import { useIsMobile } from "@/hooks/use-is-mobile";
 import { useTranslation } from "@/i18n";
 import { useSupportsBulkFeedStatus } from "@/lib/backwards-compat/bulk-feed-status";
@@ -12,12 +10,8 @@ import { Button, Skeleton } from "@vellumai/design-library";
 import { HomeDetailPanel } from "./detail-panel/home-detail-panel";
 import { HomeFeedList } from "./home-feed-list";
 import { HomeTopHeader } from "./home-top-header";
-import {
-  clearAllArgs,
-  getFeedItemScheduleId,
-  getVisibleFeedItems,
-  markAllReadArgs,
-} from "./utils";
+import { clearAllArgs, getVisibleFeedItems, markAllReadArgs } from "./utils";
+import { useFeedItemEntityLinks } from "./hooks/use-feed-item-entity-links";
 import { useHomeFeedQuery } from "./hooks/use-home-feed-query";
 import { useHomeStateQuery } from "./hooks/use-home-state-query";
 
@@ -39,9 +33,9 @@ export interface HomePageProps {
   assistantId: string;
   validConversationIds: Set<string>;
   onOpenConversation: (conversationId: string) => void;
-  /** Navigate to a schedule's detail on the Schedules page
-   *  (`/assistant/schedules/:scheduleId`). */
-  onViewSchedule: (scheduleId: string) => void;
+  /** Navigate to an app path. Used by the detail panel's entity links, which
+   *  build their own targets (a schedule's detail, a skill's detail). */
+  onNavigate: (to: string) => void;
   /** Feed item to open on arrival (routed here from the notifications
    *  bell); its detail drawer opens once the feed has loaded. */
   initialFeedItemId?: string | null;
@@ -59,7 +53,7 @@ export function HomePage({
   assistantId,
   validConversationIds,
   onOpenConversation,
-  onViewSchedule,
+  onNavigate,
   initialFeedItemId,
   navigationKey,
   onInitialFeedItemConsumed,
@@ -68,13 +62,6 @@ export function HomePage({
   const isMobile = useIsMobile();
   const feedQuery = useHomeFeedQuery(assistantId);
   useHomeStateQuery(assistantId);
-
-  // Schedules moved to their own page (`/assistant/schedules`), but the feed
-  // still links scheduled-run notifications to their schedule. This query
-  // shares its options (key, and therefore cache) with the Schedules page and
-  // only gates whether the "View schedule" link is offered — the schedule may
-  // have been deleted.
-  const { data: schedules } = useQuery(schedulesListQueryOptions(assistantId));
 
   const [selectedItem, setSelectedItem] = useState<FeedItem | null>(null);
   // Accordion open-states are lifted here so they survive the section remount
@@ -186,12 +173,13 @@ export function HomePage({
     setSelectedItem(null);
   }, [feedQuery.markAll, visibleFeedItems]);
 
-  // Link a scheduled-run notification to its schedule, but only when that
-  // schedule still exists in the loaded list (it may have since been deleted).
-  const selectedItemScheduleId = getFeedItemScheduleId(selectedItem);
-  const canViewSelectedItemSchedule =
-    selectedItemScheduleId != null &&
-    (schedules ?? []).some((s) => s.id === selectedItemScheduleId);
+  // Links from the open notification to what it is about: the schedule that
+  // produced a scheduled run, the skill a background pass rewrote. The lists
+  // these are validated against load with the page rather than with the
+  // detail, so by the time a row is clicked they are warm; a link still
+  // waiting on one is held back rather than rendered and then withdrawn.
+  const { links: entityLinks, isPending: areEntityLinksPending } =
+    useFeedItemEntityLinks(selectedItem, assistantId, true);
 
   const itemDetail = selectedItem ? (
     <HomeDetailPanel
@@ -202,11 +190,8 @@ export function HomePage({
       onGoToThread={handleGoToThread}
       onUpdateStatus={handleUpdateStatus}
       onDismiss={handleDismissItem}
-      onViewSchedule={
-        canViewSelectedItemSchedule
-          ? () => onViewSchedule(selectedItemScheduleId)
-          : undefined
-      }
+      entityLinks={areEntityLinksPending ? [] : entityLinks}
+      onNavigate={onNavigate}
     />
   ) : null;
 

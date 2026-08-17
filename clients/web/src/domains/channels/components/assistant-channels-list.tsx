@@ -4,10 +4,8 @@ import { ConfirmDialog } from "@vellumai/design-library/components/confirm-dialo
 
 import { useTranslation } from "@/i18n";
 import { DetailCard } from "@/components/detail-card";
-import {
-  MobileSidebarDrawer,
-  MobileSidebarTrigger,
-} from "@/components/mobile-sidebar-drawer";
+import { SideListDrawer, SideListTrigger } from "@/components/side-list-drawer";
+import { useSideListRoom } from "@/hooks/use-side-list-room";
 import type { MutationStatus } from "@/components/channel-setup-wizard";
 import { useChannelRouteSelection } from "@/domains/channels/hooks/use-channel-route-selection";
 import { CHANNEL_META } from "@/domains/channels/channel-meta";
@@ -160,7 +158,8 @@ export function AssistantChannelsList({
     channelKey: ChannelKey;
     policy: AdmissionPolicy;
   } | null>(null);
-  const [drawerOpen, setDrawerOpen] = useState(false);
+  const { paneRef, hasRoomForList, drawerOpen, openDrawer, closeDrawer } =
+    useSideListRoom();
   // Capture the `?setup=<channel>` deep link once at mount. `useSetupChannelParam`
   // consumes (clears) the param right after the first render, so reading the
   // prop later races against this component's own store update; the frozen
@@ -198,7 +197,7 @@ export function AssistantChannelsList({
 
   const handleSelect = (channelKey: string) => {
     selectAdapter(channelKey);
-    setDrawerOpen(false);
+    closeDrawer();
   };
 
   // A plugin channel can be selected, and can also vanish under the selection
@@ -269,32 +268,41 @@ export function AssistantChannelsList({
 
   return (
     <>
-      <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-hidden sm:flex-row sm:gap-6">
-        <div className="flex items-center sm:hidden">
-          <MobileSidebarTrigger onClick={() => setDrawerOpen(true)} />
-        </div>
+      <div
+        ref={paneRef}
+        className={`flex min-h-0 flex-1 overflow-hidden ${
+          hasRoomForList ? "flex-row gap-6" : "flex-col gap-4"
+        }`}
+      >
+        {hasRoomForList ? (
+          <aside className="min-h-0 w-[320px] shrink-0 overflow-y-auto self-stretch">
+            <ChannelAdapterList
+              channels={channels}
+              pluginChannels={pluginChannels}
+              selectedKey={selectedKey}
+              onSelect={handleSelect}
+            />
+          </aside>
+        ) : (
+          <>
+            <div className="flex items-center">
+              <SideListTrigger onClick={openDrawer} />
+            </div>
 
-        <MobileSidebarDrawer
-          open={drawerOpen}
-          onClose={() => setDrawerOpen(false)}
-          title={t("assistantChannelsList.drawerTitle")}
-        >
-          <ChannelAdapterList
-            channels={channels}
-            pluginChannels={pluginChannels}
-            selectedKey={selectedKey}
-            onSelect={handleSelect}
-          />
-        </MobileSidebarDrawer>
-
-        <aside className="hidden min-h-0 w-[320px] shrink-0 overflow-y-auto self-stretch sm:block">
-          <ChannelAdapterList
-            channels={channels}
-            pluginChannels={pluginChannels}
-            selectedKey={selectedKey}
-            onSelect={handleSelect}
-          />
-        </aside>
+            <SideListDrawer
+              open={drawerOpen}
+              onClose={closeDrawer}
+              title={t("assistantChannelsList.drawerTitle")}
+            >
+              <ChannelAdapterList
+                channels={channels}
+                pluginChannels={pluginChannels}
+                selectedKey={selectedKey}
+                onSelect={handleSelect}
+              />
+            </SideListDrawer>
+          </>
+        )}
 
         {/* Slack brings its own cards (connection, default access, per-channel
             overrides) so it renders bare; the other adapters get a DetailCard

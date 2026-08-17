@@ -39,14 +39,22 @@ export interface SidebarSectionItemProps {
   /**
    * Header actions, given the section's own rows. A function rather than a
    * built menu because the rows are resolved here: the sidebar decides what
-   * the bulk actions *are*, this decides what they act on, so "mark all read"
-   * covers every member rather than the ones that reached the foreground page.
+   * the bulk actions *are*, this decides what they act on. `getAllRows` is
+   * how the bulk actions cover every member when the rendered rows are a
+   * window (LUM-2444): it drains the section at click time, so "mark all
+   * read" reaches rows the user never scrolled to.
    */
-  groupMenu: (conversations: Conversation[]) => GroupMenuItemsProps;
+  groupMenu: (
+    conversations: Conversation[],
+    getAllRows: () => Promise<Conversation[]>,
+  ) => GroupMenuItemsProps;
   /** Section drag-reorder wiring; omit to pin the section in place. */
   drag?: CollapsibleNavSectionDrag;
   /** Activity dot shown in the header only while the section is collapsed. */
-  collapsedIndicator?: (conversations: Conversation[]) => ReactNode;
+  collapsedIndicator?: (
+    conversations: Conversation[],
+    section: SidebarSection,
+  ) => ReactNode;
   /**
    * Whether this is the bottom-most section in the list. Only it claims the
    * sidebar's leftover space when open; every section above it always sizes
@@ -66,7 +74,8 @@ export function SidebarSectionItem({
   collapsedIndicator,
   isLast,
 }: SidebarSectionItemProps) {
-  const conversations = useSectionConversations(assistantId, section);
+  const { conversations, hasMore, loadMore, getAllRows } =
+    useSectionConversations(assistantId, section);
 
   /* Every section handed to this component renders. Whether a section exists
      at all is `use-sidebar-state`'s answer, and it has to stay the only one:
@@ -76,7 +85,7 @@ export function SidebarSectionItem({
 
      One predicate for membership and visibility, or the two drift and this
      recurs at the next section type. */
-  const groupMenu = buildGroupMenu(conversations);
+  const groupMenu = buildGroupMenu(conversations, getAllRows);
   return (
     <SidebarSectionCard
       value={section.key}
@@ -88,7 +97,7 @@ export function SidebarSectionItem({
          (the channel-grouping toggle) on top of the bulk ones. */
       trailing={<GroupActionsMenu label={section.label} {...groupMenu} />}
       groupMenu={groupMenu}
-      collapsedIndicator={collapsedIndicator?.(conversations)}
+      collapsedIndicator={collapsedIndicator?.(conversations, section)}
       drag={drag}
       // Pinned collapses like every other section (one component, one
       // behavior; its open state defaults open and persists like the
@@ -97,6 +106,7 @@ export function SidebarSectionItem({
       unbounded={section.type === "pinned"}
       isLast={isLast}
       items={conversations}
+      onEndReached={hasMore ? loadMore : undefined}
     />
   );
 }

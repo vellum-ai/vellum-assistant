@@ -240,6 +240,8 @@ function isArtifactMetadata(
 function readMessageMetadata(
   messageId: string,
 ): MessageMetadataState | "not_found" | "invalid_metadata" {
+  // Any-state read, deliberately: metadata exists from row insert and the id
+  // names a row this archive flow already owns; completeness is irrelevant.
   const row = rawGet<{ metadata: string | null }>(
     "liveVoice:readMessageMetadata",
     `SELECT metadata FROM messages WHERE id = ?`,

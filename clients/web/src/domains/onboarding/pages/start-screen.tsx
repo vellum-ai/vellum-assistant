@@ -2,6 +2,7 @@ import { useNavigate } from "react-router";
 
 import { OnboardingLayout } from "@/domains/onboarding/components/onboarding-layout";
 import { SETUP_NAVIGATE } from "@/domains/onboarding/onboarding-navigation";
+import { useTranslation } from "@/i18n";
 import { routes } from "@/utils/routes";
 import { Button } from "@vellumai/design-library/components/button";
 
@@ -21,6 +22,7 @@ import { Button } from "@vellumai/design-library/components/button";
  * entrypoint — reached only via Back — so the happy path is unchanged.
  */
 export function StartScreen() {
+  const { t } = useTranslation("onboarding");
   const navigate = useNavigate();
 
   return (
@@ -31,13 +33,13 @@ export function StartScreen() {
             className="text-3xl font-semibold tracking-tight"
             style={{ animation: "fadeInUp 0.5s ease-out 0.1s both" }}
           >
-            Welcome to Vellum
+            {t("welcome.title")}
           </h1>
           <p
             className="mt-3 text-center text-body-medium-lighter text-[var(--content-tertiary)]"
             style={{ animation: "fadeInUp 0.5s ease-out 0.3s both" }}
           >
-            Your own personal intelligence is just a step away.
+            {t("welcome.body")}
           </p>
 
           <div
@@ -53,7 +55,7 @@ export function StartScreen() {
                 void navigate(routes.onboarding.privacy, SETUP_NAVIGATE)
               }
             >
-              Create your assistant
+              {t("startScreen.createAssistant")}
             </Button>
           </div>
         </div>

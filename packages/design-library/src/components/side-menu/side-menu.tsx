@@ -7,9 +7,8 @@ import {
   useRef,
   useState,
   type ComponentProps,
-  type CSSProperties,
   type MouseEvent,
-  type PointerEvent,
+  type ReactElement,
   type ReactNode,
   type Ref,
 } from "react";
@@ -18,7 +17,11 @@ import { Slot } from "@radix-ui/react-slot";
 
 import { Typography } from "../typography";
 import { Tooltip } from "../tooltip";
+import { PaneResizeHandle } from "../pane-resize-handle";
+import { useResizablePane } from "../../hooks/use-resizable-pane";
 import { cn } from "../../utils/cn";
+import { reportUnmergeableSlotChild } from "../../utils/slot-child";
+import type { CustomPropertyStyle } from "../../utils/custom-property-style";
 
 /**
  * SideMenu primitive — a docked application navigation rail.
@@ -174,10 +177,10 @@ export const SIDE_MENU_COLLAPSED_WIDTH =
  * time, which cannot be checked against the constants and is what lets the
  * rail and its tiles disagree.
  */
-const RAIL_GEOMETRY_VARS = {
+const RAIL_GEOMETRY_VARS: CustomPropertyStyle = {
   "--side-menu-tile-size": `${SIDE_MENU_TILE_SIZE}px`,
   "--side-menu-collapsed-inset": `${SIDE_MENU_COLLAPSED_INSET}px`,
-} as CSSProperties;
+};
 
 export interface SideMenuProps extends ComponentProps<"nav"> {
   /** Ignored when `variant="overlay"`. */
@@ -278,7 +281,7 @@ function SideMenuRoot({
 }: SideMenuProps) {
   const effectiveCollapsed = variant === "overlay" ? false : collapsed;
   const resizable = variant === "rail" && onWidthChange != null;
-  const showResizeHandle = resizable && !effectiveCollapsed;
+  const showResizeHandle = resizable && !effectiveCollapsed && width != null;
 
   const [contentCollapsed, setContentCollapsed] = useState(effectiveCollapsed);
   if (!effectiveCollapsed && contentCollapsed) {
@@ -290,75 +293,21 @@ function SideMenuRoot({
     return () => clearTimeout(id);
   }, [effectiveCollapsed]);
 
-  const dragRef = useRef<{
-    nav: HTMLElement;
-    startX: number;
-    startWidth: number;
-  } | null>(null);
-
-  const handleResizePointerDown = useCallback(
-    (e: PointerEvent<HTMLDivElement>) => {
-      if (!onWidthChange) return;
-      e.preventDefault();
-      e.currentTarget.setPointerCapture(e.pointerId);
-      const nav = e.currentTarget.closest(
-        '[data-slot="side-menu"]',
-      ) as HTMLElement | null;
-      if (!nav) return;
-      dragRef.current = {
-        nav,
-        startX: e.clientX,
-        startWidth: nav.getBoundingClientRect().width,
-      };
-      nav.style.transition = "none";
-      document.body.style.cursor = "col-resize";
-      document.body.style.userSelect = "none";
-    },
-    [onWidthChange],
-  );
-
-  const handleResizePointerMove = useCallback(
-    (e: PointerEvent<HTMLDivElement>) => {
-      const drag = dragRef.current;
-      if (!drag) return;
-      const delta = e.clientX - drag.startX;
-      const next = Math.min(
-        maxWidth,
-        Math.max(minWidth, drag.startWidth + delta),
-      );
-      drag.nav.style.width = `${next}px`;
-    },
-    [minWidth, maxWidth],
-  );
-
-  const handleResizeEnd = useCallback(
-    (e: PointerEvent<HTMLDivElement>) => {
-      const drag = dragRef.current;
-      if (!drag) return;
-      e.currentTarget.releasePointerCapture(e.pointerId);
-      dragRef.current = null;
-      drag.nav.style.transition = "";
-      document.body.style.cursor = "";
-      document.body.style.userSelect = "";
-      const delta = e.clientX - drag.startX;
-      const finalWidth = Math.min(
-        maxWidth,
-        Math.max(minWidth, drag.startWidth + delta),
-      );
-      onWidthChange?.(finalWidth);
-    },
-    [onWidthChange, minWidth, maxWidth],
-  );
-
-  useEffect(() => {
-    return () => {
-      if (dragRef.current) {
-        dragRef.current = null;
-        document.body.style.cursor = "";
-        document.body.style.userSelect = "";
-      }
-    };
-  }, []);
+  // `width` is required for the handle, not just for the inline style: the
+  // separator publishes it as `aria-valuenow`, and a handle that cannot say
+  // where it sits is the kind of half-kept ARIA promise the pattern exists to
+  // avoid. A rail sized purely by CSS gets no drag handle.
+  const navRef = useRef<HTMLElement>(null);
+  const { handleProps, isResizing, paneId } = useResizablePane({
+    side: "start",
+    defaultSize: width ?? minWidth,
+    minSize: minWidth,
+    maxSize: maxWidth,
+    label: "Resize sidebar",
+    paneId: rest.id,
+    paneRef: navRef,
+    onSizeCommit: onWidthChange,
+  });
 
   const widthStyle =
     resizable && !effectiveCollapsed && width != null
@@ -370,7 +319,11 @@ function SideMenuRoot({
       value={{ collapsed: effectiveCollapsed, contentCollapsed, variant }}
     >
       <nav
-        ref={ref}
+        ref={(node) => {
+          navRef.current = node;
+          if (typeof ref === "function") ref(node);
+          else if (ref) ref.current = node;
+        }}
         data-slot="side-menu"
         role="navigation"
         aria-label={ariaLabel}
@@ -378,24 +331,26 @@ function SideMenuRoot({
           ROOT_BASE_CLASSES,
           showResizeHandle && "relative",
           rootChromeClasses(variant, effectiveCollapsed, resizable),
+          // The rail animates its width when collapsing. During a drag that
+          // easing would make the edge lag the cursor, so it is suspended for
+          // the drag's duration. It must come after `rootChromeClasses`, whose
+          // `transition-[width,padding]` is in the same tailwind-merge group
+          // and wins when it is last.
+          isResizing && "transition-none",
           className,
         )}
         style={widthStyle}
         {...rest}
+        id={paneId}
       >
         {children}
         {showResizeHandle ? (
-          <div
-            role="separator"
-            aria-orientation="vertical"
-            className="absolute right-0 top-0 bottom-0 z-10 w-[6px] cursor-col-resize group/resize"
-            onPointerDown={handleResizePointerDown}
-            onPointerMove={handleResizePointerMove}
-            onPointerUp={handleResizeEnd}
-            onPointerCancel={handleResizeEnd}
+          <PaneResizeHandle
+            {...handleProps}
+            className="absolute right-0 top-0 bottom-0 z-10 w-[6px] group/resize"
           >
-            <div className="pointer-events-none absolute right-0 top-2 bottom-2 w-[2px] rounded-full bg-[var(--content-tertiary)] opacity-0 transition-opacity group-hover/resize:opacity-100" />
-          </div>
+            <div className="pointer-events-none absolute right-0 top-2 bottom-2 w-[2px] rounded-full bg-[var(--content-tertiary)] opacity-0 transition-opacity group-hover/resize:opacity-100 group-focus-visible/resize:opacity-100" />
+          </PaneResizeHandle>
         ) : null}
       </nav>
     </SideMenuContext>
@@ -478,14 +433,27 @@ function SideMenuSeparator({
 // SectionHeader: the title row of a group of rows
 // ---------------------------------------------------------------------------
 
-export interface SideMenuSectionHeaderProps extends ComponentProps<"div"> {
-  /**
-   * Render the caller's own element instead, typically a disclosure trigger,
-   * with this row's geometry merged onto it.
-   */
-  asChild?: boolean;
+interface SideMenuSectionHeaderOwnProps extends ComponentProps<"div"> {
+  asChild?: false;
   ref?: Ref<HTMLDivElement>;
 }
+
+/**
+ * Render the caller's own element instead, typically a disclosure trigger,
+ * with this row's geometry merged onto it. The child is the rendered element,
+ * so a ref lands on whatever the caller chose rather than on a `div`.
+ */
+interface SideMenuSectionHeaderSlotProps extends Omit<
+  ComponentProps<"div">,
+  "children" | "ref"
+> {
+  asChild: true;
+  children: ReactElement;
+  ref?: Ref<HTMLElement>;
+}
+
+export type SideMenuSectionHeaderProps =
+  SideMenuSectionHeaderOwnProps | SideMenuSectionHeaderSlotProps;
 
 /**
  * The title row of a group in the rail. It is a top-level row like a pill or a
@@ -499,22 +467,38 @@ export interface SideMenuSectionHeaderProps extends ComponentProps<"div"> {
  * it. Typography, horizontal insets, and whatever sits on the trailing edge
  * stay with the caller, whose sidebar decides those.
  */
-function SideMenuSectionHeader({
-  asChild = false,
-  className,
-  ref,
-  ...rest
-}: SideMenuSectionHeaderProps) {
-  const Component = asChild ? Slot : "div";
+function SideMenuSectionHeader(props: SideMenuSectionHeaderProps) {
+  const className = cn(
+    "flex shrink-0 items-center rounded-[6px]",
+    "h-[var(--side-menu-tile-size)] max-md:h-auto",
+    props.className,
+  );
+  if (props.asChild === true) {
+    const {
+      asChild: _asChild,
+      className: _className,
+      children,
+      ref,
+      ...rest
+    } = props;
+    reportUnmergeableSlotChild("SideMenu.SectionHeader", children);
+    return (
+      <Slot
+        ref={ref}
+        data-slot="side-menu-section-header"
+        className={className}
+        {...rest}
+      >
+        {children}
+      </Slot>
+    );
+  }
+  const { asChild: _asChild, className: _className, ref, ...rest } = props;
   return (
-    <Component
+    <div
       ref={ref}
       data-slot="side-menu-section-header"
-      className={cn(
-        "flex shrink-0 items-center rounded-[6px]",
-        "h-[var(--side-menu-tile-size)] max-md:h-auto",
-        className,
-      )}
+      className={className}
       {...rest}
     />
   );

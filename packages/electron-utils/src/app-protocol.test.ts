@@ -3,6 +3,7 @@ import path from "node:path";
 import { describe, expect, test } from "bun:test";
 
 import {
+  planAppProtocolAssetRequest,
   resolveAppProtocolPath,
   resolveRelativePath,
 } from "./app-protocol";
@@ -11,6 +12,8 @@ import {
 // platform-stable; `app-protocol.ts` uses `node:path` which respects
 // `path.sep` at runtime. On Linux CI / dev macOS that's `/`.
 const ROOT = "/app/renderer";
+const INDEX_HTML = path.join(ROOT, "index.html");
+const APP_ORIGIN = { protocol: "app:", host: "vellum.ai" };
 
 describe("resolveAppProtocolPath - allowed paths", () => {
   test("resolves the empty pathname to the root itself", () => {
@@ -78,6 +81,21 @@ describe("resolveAppProtocolPath - malformed input handling", () => {
     expect(resolveAppProtocolPath(ROOT, "app://vellum.ai/%ZZ")).toEqual({
       kind: "forbidden",
     });
+  });
+
+  test("rejects invalid URLs and disallowed packaged origins", () => {
+    expect(resolveAppProtocolPath(ROOT, "not a URL", undefined, APP_ORIGIN)).toEqual({
+      kind: "forbidden",
+    });
+    for (const requestUrl of [
+      "file:///etc/passwd",
+      "javascript:alert(1)",
+      "app://example.com/assistant",
+    ]) {
+      expect(
+        resolveAppProtocolPath(ROOT, requestUrl, "/assistant", APP_ORIGIN),
+      ).toEqual({ kind: "forbidden" });
+    }
   });
 });
 
@@ -198,5 +216,52 @@ describe("resolveAppProtocolPath - mount-prefix stripping", () => {
         "/assistant",
       ),
     ).toEqual({ kind: "ok", resolved: path.join(ROOT, "etc/passwd") });
+  });
+});
+
+describe("planAppProtocolAssetRequest - packaged routes", () => {
+  const plan = (
+    requestUrl: string,
+    files: string[] = [],
+  ) =>
+    planAppProtocolAssetRequest({
+      rendererRoot: ROOT,
+      indexHtml: INDEX_HTML,
+      requestUrl,
+      mountPrefix: "/assistant",
+      allowedOrigin: APP_ORIGIN,
+      isFile: async (candidate) => files.includes(candidate),
+    });
+
+  test("classifies packaged assets, routes, and missing files", async () => {
+    const asset = path.join(ROOT, "assets/index.js");
+    expect(
+      await plan("app://vellum.ai/assistant/assets/index.js", [asset]),
+    ).toEqual({ kind: "fetch", path: asset });
+    expect(await plan("app://vellum.ai/assistant/settings/general")).toEqual({
+      kind: "fetch",
+      path: INDEX_HTML,
+    });
+    expect(await plan("app://vellum.ai/assistant/assets/missing.js")).toEqual({
+      kind: "not-found",
+    });
+  });
+
+  test("denies disallowed schemes before file access", async () => {
+    let checkedFile = false;
+    await expect(
+      planAppProtocolAssetRequest({
+        rendererRoot: ROOT,
+        indexHtml: INDEX_HTML,
+        requestUrl: "file:///assistant/assets/index.js",
+        mountPrefix: "/assistant",
+        allowedOrigin: APP_ORIGIN,
+        isFile: async () => {
+          checkedFile = true;
+          return true;
+        },
+      }),
+    ).resolves.toEqual({ kind: "forbidden" });
+    expect(checkedFile).toBe(false);
   });
 });

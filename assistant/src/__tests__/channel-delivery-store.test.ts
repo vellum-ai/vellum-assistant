@@ -504,23 +504,23 @@ describe("channel-delivery-store", () => {
     expect(r1.conversationId).not.toBe(r2.conversationId);
   });
 
-  test("same chat/channel but different assistantId uses different conversations", () => {
-    const r1 = recordInbound("telegram", "chat-1", "msg-1", {
-      assistantId: "asst-A",
-    });
-    const r2 = recordInbound("telegram", "chat-1", "msg-2", {
-      assistantId: "asst-B",
-    });
+  test("the same chat keeps the same conversation", () => {
+    const r1 = recordInbound("telegram", "chat-1", "msg-1");
+    const r2 = recordInbound("telegram", "chat-1", "msg-2");
 
-    expect(r1.conversationId).not.toBe(r2.conversationId);
+    expect(r1.conversationId).toBe(r2.conversationId);
   });
 
-  test("no assistantId defaults to self-scoped key", () => {
-    const r1 = recordInbound("telegram", "chat-1", "msg-1");
-    const r2 = recordInbound("telegram", "chat-1", "msg-2", {
-      assistantId: "self",
-    });
-    expect(r1.conversationId).toBe(r2.conversationId);
+  test("binds under the self-scoped key", () => {
+    // The prefix is a stored format, not an internal detail. It reads like a
+    // leftover of the assistant id that used to be interpolated into it, so
+    // pin it: rows already written under `asst:self:` stop resolving if a
+    // later tidy-up drops it.
+    const { conversationId } = recordInbound("telegram", "chat-1", "msg-1");
+
+    expect(
+      getConversationByKey("asst:self:telegram:chat-1")?.conversationId,
+    ).toBe(conversationId);
   });
 
   test("external bindings allow multiple Slack thread anchors per channel", () => {

@@ -274,7 +274,9 @@ describe("removePlatformAssistantFromLockfile", () => {
     // Other orgs' entries stay out of the payload so the host preserves
     // their on-disk records raw instead of replacing them with the
     // renderer's parsed copies.
-    expect(entries).toEqual([expect.objectContaining({ assistantId: "platform-b" })]);
+    expect(entries).toEqual([
+      expect.objectContaining({ assistantId: "platform-b" }),
+    ]);
     expect(useLockfileStore.getState().lockfile).toEqual(resulting);
     expect(useLockfileStore.getState().committed).toBe(true);
   });
@@ -291,11 +293,16 @@ describe("removePlatformAssistantFromLockfile", () => {
     expect(result.ok).toBe(true);
     const [entries, org] = replacePlatformAssistantsHost.mock.calls[0]!;
     expect(org).toBeUndefined();
-    expect(entries).toEqual([expect.objectContaining({ assistantId: "platform-b" })]);
+    expect(entries).toEqual([
+      expect.objectContaining({ assistantId: "platform-b" }),
+    ]);
   });
 
   test("refuses a local assistant without touching the host", async () => {
-    setLockfile({ assistants: [localA, platformA], activeAssistant: "local-a" });
+    setLockfile({
+      assistants: [localA, platformA],
+      activeAssistant: "local-a",
+    });
 
     const result = await removePlatformAssistantFromLockfile("local-a");
 
@@ -327,7 +334,10 @@ describe("removePlatformAssistantFromLockfile", () => {
   });
 
   test("clears a selection that pointed at the removed entry", async () => {
-    setLockfile({ assistants: [localA, platformA], activeAssistant: "local-a" });
+    setLockfile({
+      assistants: [localA, platformA],
+      activeAssistant: "local-a",
+    });
     setSelected("platform-a");
     replacePlatformAssistantsHost.mockResolvedValueOnce({
       ok: true as const,
@@ -475,9 +485,9 @@ describe("importPairedAssistantBundle", () => {
     });
     expect(loadLockfileHost).toHaveBeenCalledTimes(1);
     expect(
-      useLockfileStore.getState().lockfile?.assistants.map(
-        (a) => a.assistantId,
-      ),
+      useLockfileStore
+        .getState()
+        .lockfile?.assistants.map((a) => a.assistantId),
     ).toEqual(["paired-a"]);
     expect(useLockfileStore.getState().committed).toBe(true);
   });
@@ -952,11 +962,35 @@ describe("primeLocalGatewayConnection", () => {
     expect(localStorage.getItem("vellum:gw:tokenSource")).toBeNull();
   });
 
+  test("paired re-prime keeps the connection live while the readiness probe is in flight", async () => {
+    // A re-prime of the assistant the slot already points at must not open a
+    // window in which the slot is empty: requests issued then would fall
+    // through to the platform and gateway-auth predicates would read false.
+    enableLocalMode();
+    setLockfile({ assistants: [pairedEntry], activeAssistant: "paired-a" });
+    const ingressUrl = `${window.location.origin}/assistant/__gateway-paired/paired-a`;
+    setSelfHostedConnection({ url: ingressUrl, token: null });
+
+    let ingressDuringProbe: string | null | undefined;
+    let authModeDuringProbe: boolean | undefined;
+    globalThis.fetch = mock(async () => {
+      ingressDuringProbe = getSelfHostedIngressUrl();
+      authModeDuringProbe = isGatewayAuthMode();
+      return Response.json({ status: "ok", ready: true });
+    }) as unknown as typeof fetch;
+
+    await primeLocalGatewayConnection(pairedEntry);
+
+    expect(ingressDuringProbe).toBe(ingressUrl);
+    expect(authModeDuringProbe).toBe(true);
+    expect(getSelfHostedIngressUrl()).toBe(ingressUrl);
+  });
+
   test("paired prime surfaces a host credential failure without reading it directly", async () => {
     enableLocalMode();
     setLockfile({ assistants: [pairedEntry], activeAssistant: "paired-a" });
-    globalThis.fetch = mock(
-      async () => Response.json({ status: "ok", ready: true }),
+    globalThis.fetch = mock(async () =>
+      Response.json({ status: "ok", ready: true }),
     ) as unknown as typeof fetch;
     await primeLocalGatewayConnection(pairedEntry);
     expect(isGatewayAuthMode()).toBe(true);
@@ -991,8 +1025,8 @@ describe("primeLocalGatewayConnection", () => {
       url: `${window.location.origin}/assistant/__gateway/7830`,
       token: "local-actor-token",
     });
-    globalThis.fetch = mock(
-      async () => Response.json({ status: "migrating", ready: false }),
+    globalThis.fetch = mock(async () =>
+      Response.json({ status: "migrating", ready: false }),
     ) as unknown as typeof fetch;
 
     await expect(primeLocalGatewayConnection(pairedEntry)).rejects.toThrow(
