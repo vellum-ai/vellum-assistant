@@ -26,21 +26,6 @@ enum VoiceModeDeepLink: String {
     /// Host segment shared with `START_VOICE_DEEP_LINK_HOST` on the web side.
     private static let host = "voice"
 
-    /// Characters left unescaped in a query *value*.
-    ///
-    /// `URLComponents.queryItems` encodes with `urlQueryAllowed`, which permits
-    /// the sub-delimiters `&`, `=`, `+`, and `?`. That is correct for a whole
-    /// query string and wrong for a single value inside one: a spoken
-    /// "Ben & Jerry's" would arrive at the parser as a `prompt` of "Ben " plus a
-    /// stray `Jerry's` parameter. Removing those four and assigning through
-    /// `percentEncodedQueryItems` is the standard fix — the value is escaped
-    /// once, by us, with delimiters included.
-    private static let queryValueAllowed: CharacterSet = {
-        var allowed = CharacterSet.urlQueryAllowed
-        allowed.remove(charactersIn: "&=+?#")
-        return allowed
-    }()
-
     /// The command URL for the *running build*, or `nil` when the bundle
     /// declares no usable scheme. Unlike sign-in, there is no safe fallback
     /// here: defaulting to the production scheme would make a Dev build launch
@@ -60,7 +45,7 @@ enum VoiceModeDeepLink: String {
         let trimmed = prompt?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         if !trimmed.isEmpty,
            let encoded = trimmed.addingPercentEncoding(
-               withAllowedCharacters: Self.queryValueAllowed
+               withAllowedCharacters: .deepLinkQueryValueAllowed
            ) {
             items.append(URLQueryItem(name: "prompt", value: encoded))
         }
@@ -89,7 +74,7 @@ enum VoiceModeDeepLink: String {
             NSLog("[voice] No bundle URL scheme; dropping voice command")
             return
         }
-        (UIApplication.shared.delegate as? AppDelegate)?.deliverVoiceCommand(url)
+        (UIApplication.shared.delegate as? AppDelegate)?.deliverCommandURL(url)
         #endif
     }
 }
