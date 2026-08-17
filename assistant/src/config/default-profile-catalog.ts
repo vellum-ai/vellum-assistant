@@ -98,7 +98,7 @@ const VELLUM_PROFILE_IMPLS: ProfileImpls = {
     },
   },
   "cost-optimized": {
-    model: "accounts/fireworks/models/deepseek-v4-pro",
+    model: "MiniMaxAI/MiniMax-M3",
     provider: "vellum",
     source: "managed",
     label: "Cost",

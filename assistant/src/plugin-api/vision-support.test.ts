@@ -161,19 +161,21 @@ describe("doesSupportVision", () => {
 
 describe("doesSupportVision with a BYO default provider", () => {
   test("judges a default profile against the default provider's column model", () => {
-    // Managed/vellum column: cost-optimized → deepseek-v4-pro (text-only,
-    // supportsVision: false). Anthropic column: cost-optimized carries
-    // intent "latency-optimized" → claude-haiku-4-5 (supportsVision: true).
-    // The judged model must be the one the BYO install actually runs.
-    setMockConfig({}, { provider: "anthropic" });
-    expect(doesSupportVision(profile("cost-optimized"))).toBe(true);
+    // Managed/vellum column: cost-optimized → MiniMax M3 (supportsVision:
+    // true). Fireworks column: cost-optimized → deepseek-v4-flash
+    // (text-only, supportsVision: false). The judged model must be the one
+    // the BYO install actually runs, so only the fireworks column's verdict
+    // is false here.
+    setMockConfig({}, { provider: "fireworks" });
+    expect(doesSupportVision(profile("cost-optimized"))).toBe(false);
   });
 
   test("without a default provider, a default profile judges the managed column", () => {
     // Null-reduction: no defaultProvider resolves cost-optimized through the
-    // vellum column (deepseek-v4-pro, text-only).
+    // vellum column (MiniMax M3, vision-capable). Vision resolution fails
+    // safe to false, so a true verdict proves the column resolved.
     setMockConfig({});
-    expect(doesSupportVision(profile("cost-optimized"))).toBe(false);
+    expect(doesSupportVision(profile("cost-optimized"))).toBe(true);
   });
 
   test("mix arms naming a default profile resolve through the same column", () => {

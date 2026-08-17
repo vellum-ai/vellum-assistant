@@ -252,7 +252,7 @@ describe("inference_send profile usability", () => {
     const err = await rejection({ ...hermes, status: "disabled" });
     expect(err).toBeInstanceOf(BadRequestError);
     expect(err.message).toContain("disabled");
-    expect(err.message).toContain("deepseek-v4-pro");
+    expect(err.message).toContain("MiniMaxAI/MiniMax-M3");
   });
 
   test("rejects a profile that lost its provider", async () => {
