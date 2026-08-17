@@ -24,8 +24,8 @@ chat-body.tsx               # component
 stream-event-types.ts       # types
 ```
 
-The only exceptions are `App.tsx` (conventional React entry-point name)
-and generated files that follow their generator's convention.
+The only exception is generated files, which follow their generator's
+convention.
 
 Reference: [TypeScript Deep Dive — File naming](https://basarat.gitbook.io/typescript/styleguide#filename)
 
@@ -61,7 +61,7 @@ Colocated test files append `.test` before the extension:
 
 ```
 src/
-  App.tsx                    # root layout component
+  root-layout.tsx            # shared shell mounted by the root route
   main.tsx                   # entry point (createRoot, RouterProvider)
   routes.tsx                 # route tree (createBrowserRouter)
   stores/                    # app-level Zustand stores (cross-domain)
