@@ -666,7 +666,9 @@ function logAssistantAlreadyRunning(
       ? " but its database migrations failed — restart to recover"
       : status === "unready"
         ? " — database migrations still running"
-        : "";
+        : status === "stuck"
+          ? " but is not responding and could not be stopped"
+          : "";
   console.log(`   Assistant already running (pid ${pid})${suffix}\n`);
 }
 
@@ -1479,6 +1481,23 @@ export async function startLocalDaemon(
         HOME: process.env.HOME || home,
         PATH: [...extraDirs, basePath].filter(Boolean).join(PATH_DELIMITER),
       };
+      if (platform() === "win32") {
+        for (const key of [
+          "APPDATA",
+          "COMSPEC",
+          "LOCALAPPDATA",
+          "PATHEXT",
+          "SystemDrive",
+          "SystemRoot",
+          "TEMP",
+          "TMP",
+          "USERPROFILE",
+        ]) {
+          if (process.env[key]) {
+            daemonEnv[key] = process.env[key];
+          }
+        }
+      }
       // Forward optional config env vars the daemon may need.
       // `VELLUM_ENVIRONMENT` must be forwarded so the daemon resolves
       // env-scoped paths (device ID, platform/guardian tokens, XDG

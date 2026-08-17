@@ -7,8 +7,11 @@ import {
   executableName,
   isProcessAlive,
   isVellumCommandLine,
+  isVellumWindowsProcess,
   pathListDelimiter,
   parseTasklistCsv,
+  stopProcess,
+  stopProcessByPidFile,
   windowsCommandLineLookupArgs,
 } from "../lib/process";
 import {
@@ -81,4 +84,74 @@ test("recognizes only Vellum Bun-hosted process command lines", () => {
   expect(
     isVellumCommandLine("bun.exe C:\\work\\unrelated\\server.ts"),
   ).toBeFalse();
+});
+
+test("verifies Windows Qdrant ownership from its command line", () => {
+  expect(
+    isVellumWindowsProcess(
+      "qdrant.exe",
+      "C:\\Users\\Example User\\.vellum\\workspace\\data\\qdrant\\bin\\qdrant.exe",
+    ),
+  ).toBeTrue();
+  expect(
+    isVellumWindowsProcess("qdrant.exe", "C:\\Databases\\qdrant.exe"),
+  ).toBeFalse();
+});
+
+test("reports a failed forced Windows process-tree termination", async () => {
+  const calls: string[][] = [];
+  const stopped = await stopProcess(
+    process.pid,
+    "test process",
+    0,
+    "win32",
+    (args) => {
+      calls.push(args);
+      throw new Error("access denied");
+    },
+  );
+
+  expect(stopped).toBeFalse();
+  expect(calls).toEqual([
+    ["/PID", String(process.pid), "/T"],
+    ["/PID", String(process.pid), "/T", "/F"],
+  ]);
+});
+
+test("treats a Unix exit before SIGKILL as a successful stop", async () => {
+  const signals: Array<NodeJS.Signals | number | undefined> = [];
+  const originalKill = process.kill.bind(process);
+  process.kill = ((_pid: number, signal?: NodeJS.Signals | number) => {
+    signals.push(signal);
+    if (signal === "SIGKILL") {
+      throw Object.assign(new Error("no such process"), { code: "ESRCH" });
+    }
+    return true;
+  }) as typeof process.kill;
+
+  try {
+    expect(await stopProcess(4812, "test process", 0, "darwin")).toBeTrue();
+    expect(signals).toEqual([0, "SIGTERM", 0, "SIGKILL"]);
+  } finally {
+    process.kill = originalKill;
+  }
+});
+
+test("preserves PID tracking when process termination fails", async () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "vellum live pid "));
+  const pidFile = path.join(dir, "assistant.pid");
+  writeFileSync(pidFile, `${process.pid}\n`, "utf8");
+
+  expect(
+    await stopProcessByPidFile(
+      pidFile,
+      "test process",
+      undefined,
+      0,
+      async () => false,
+      () => true,
+    ),
+  ).toBeFalse();
+  expect(isProcessAlive(pidFile)).toEqual({ alive: true, pid: process.pid });
+  rmSync(dir, { recursive: true, force: true });
 });

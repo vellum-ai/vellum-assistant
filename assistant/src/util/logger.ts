@@ -19,6 +19,16 @@ import { logSerializers } from "./log-redact.js";
 import { getLogsDir } from "./platform.js";
 
 const loadModule = createRequire(import.meta.url);
+let bundledPino: typeof import("pino") | undefined;
+let bundledPinoPretty: typeof import("pino-pretty") | undefined;
+
+export function setBundledLoggerModules(
+  pino: typeof import("pino"),
+  pinoPretty: typeof import("pino-pretty"),
+): void {
+  bundledPino = pino;
+  bundledPinoPretty = pinoPretty;
+}
 
 /**
  * pino loads on first logger construction, not import, so CLI processes that
@@ -26,11 +36,17 @@ const loadModule = createRequire(import.meta.url);
  * the real dual-export and ESM-shaped test mocks.
  */
 function loadPino(): typeof import("pino") {
+  if (bundledPino) {
+    return bundledPino;
+  }
   const mod = loadModule("pino") as { default?: unknown };
   return (mod.default ?? mod) as typeof import("pino");
 }
 
 function loadPinoPretty(): typeof import("pino-pretty") {
+  if (bundledPinoPretty) {
+    return bundledPinoPretty;
+  }
   const mod = loadModule("pino-pretty") as { default?: unknown };
   return (mod.default ?? mod) as typeof import("pino-pretty");
 }

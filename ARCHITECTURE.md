@@ -37,8 +37,10 @@ This file is the cross-system architecture index. Detailed designs live in domai
 - The macOS and Windows Electron shells share platform-neutral window security, IPC validation, origin checks, and preload capability registration through `@vellumai/electron-desktop`, plus native helper process and JSON-RPC lifecycle through `@vellumai/native-sidecar`. Each client keeps platform lifecycle and native features in its own adapter modules under `clients/<platform>/src/`.
 - Packaged Windows startup provisions a user-scoped CLI runtime from
   `resources/cli-runtime`. Versioned installs and one fallback live under
-  Electron `userData`; owned launchers live under `%LOCALAPPDATA%\Vellum\bin`,
-  and the user PATH registry change is broadcast to the Windows shell. See
+  Electron `userData`; a small channel-scoped launcher under
+  `%LOCALAPPDATA%\Vellum*\bin` delegates to the selected runtime. Long-lived
+  service executables stay in the versioned runtime, and the user PATH
+  registry change is broadcast to the Windows shell. See
   [`clients/windows/README.md`](clients/windows/README.md#packaged-cli-provisioning).
 - Notification producers emit through `emitNotificationSignal()` to preserve decisioning and audit invariants. Reminder routing metadata (`routingIntent`, `routingHints`) flows through the signal and is enforced post-decision to control multi-channel fanout. The decision engine produces per-channel conversation actions (`start_new` / `reuse_existing`) validated against a candidate set; `notification_conversation_created` is emitted only on actual creation, not on reuse.
 - Memory extraction/recall must enforce actor-role provenance gates for untrusted actors.

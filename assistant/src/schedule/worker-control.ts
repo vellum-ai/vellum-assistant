@@ -96,6 +96,7 @@ async function spawnScheduleWorkerProcessUncoalesced(
     return await spawnWorkerProcess({
       pidPath: getScheduleWorkerPidPath(),
       entry: new URL("./worker.ts", import.meta.url),
+      packagedEntry: "schedule",
       workerLabel: "Schedule worker",
       options: opts,
     });

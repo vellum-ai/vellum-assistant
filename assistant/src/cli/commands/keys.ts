@@ -2,6 +2,7 @@ import { createRequire } from "node:module";
 
 import type { Command } from "commander";
 
+import { resolveBundledCliModule } from "../bundled-modules.js";
 import { applyCommandHelp, subcommand } from "../lib/cli-command-help.js";
 import { registerCommand } from "../lib/register-command.js";
 import { log } from "../logger.js";
@@ -16,9 +17,13 @@ const loadModule = createRequire(import.meta.url);
  * callbacks synchronously, so there is no place to await a module load.
  */
 function apiKeyProviders(): readonly string[] {
-  const { API_KEY_PROVIDERS } = loadModule(
-    "../../providers/provider-secret-catalog.js",
-  ) as typeof import("../../providers/provider-secret-catalog.js");
+  const { API_KEY_PROVIDERS } = resolveBundledCliModule(
+    "providerSecretCatalog",
+    () =>
+      loadModule(
+        "../../providers/provider-secret-catalog.js",
+      ) as typeof import("../../providers/provider-secret-catalog.js"),
+  );
   return API_KEY_PROVIDERS;
 }
 

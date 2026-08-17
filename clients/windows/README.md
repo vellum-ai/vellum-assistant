@@ -39,8 +39,15 @@ Packaged Windows startup installs the bundled CLI runtime for the current user:
 - `<Electron userData>/cli/install-state.json` records the current runtime and
   one valid fallback. Reusing an older installed version preserves the prior
   current version as the fallback.
-- Owned launchers are installed under `%LOCALAPPDATA%\Vellum\bin`. A launcher
-  without the Vellum ownership marker is left untouched.
+- A small owned launcher is installed under `%LOCALAPPDATA%\Vellum\bin` and
+  delegates to the selected versioned runtime. Non-production channels use
+  separate launcher directories. A launcher without the Vellum ownership
+  marker is left untouched.
+- Long-lived assistant, gateway, and worker executables remain in the
+  versioned runtime. Provisioning and uninstall never replace or remove those
+  executables while they may be running.
+- The versioned runtime includes the web SPA used by the web client and remote
+  web ingress.
 - The launcher directory is added to `HKCU\Environment\Path`. The app broadcasts
   the environment change to the Windows shell after a successful write.
 - Machine PATH entries are evaluated before user entries. If another
