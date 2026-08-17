@@ -96,7 +96,7 @@
       "workspace": "All the files that power me"
     },
     "defaultAssistantName": "Assistant",
-    "memoryCountLabel": "{count, plural, one {# memory} other {# memories}}",
+    "memoryCountLabel": "{count, plural, one {memory} other {memories}}",
     "renameErrorToast": "The rename didn't go through. Please try again.",
     "renameSuccessToast": "Say hi to {newName}!",
     "scheduleCadence": "{cadence} · next {nextRun}",

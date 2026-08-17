@@ -96,7 +96,7 @@
       "workspace": "Todos los archivos que me hacen funcionar"
     },
     "defaultAssistantName": "Asistente",
-    "memoryCountLabel": "{count, plural, one {# recuerdo} other {# recuerdos}}",
+    "memoryCountLabel": "{count, plural, one {recuerdo} other {recuerdos}}",
     "renameErrorToast": "El cambio de nombre no se completó. Vuelve a intentarlo.",
     "renameSuccessToast": "¡Saluda a {newName}!",
     "scheduleCadence": "{cadence} · próxima {nextRun}",
