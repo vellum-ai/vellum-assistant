@@ -19,11 +19,9 @@ export function isLocalGatewayRestartInProgress(): boolean {
   return restartOperationsInFlight > 0;
 }
 
-/** Associates a request with the restart scope active when it was sent. */
+/** Associates a request with an explicit restart scope. */
 export function markLocalGatewayRestartRequest(request: Request): Request {
-  if (isLocalGatewayRestartInProgress()) {
-    requestsStartedDuringRestart.add(request);
-  }
+  requestsStartedDuringRestart.add(request);
   return request;
 }
 

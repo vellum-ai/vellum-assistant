@@ -437,6 +437,11 @@ function createInterceptor({
   };
 
   return async (request: Request): Promise<Request> => {
+    // Routing can suspend (body buffering, CSRF priming) for longer than the
+    // restart window, so membership is captured before the bearer is stamped
+    // and carried to the request that actually goes out.
+    const startedDuringRestart =
+      isDaemonClient && isLocalGatewayRestartInProgress();
     const outgoing = await route(request);
     try {
       if (shouldCount(request.url, outgoing)) {
@@ -445,9 +450,13 @@ function createInterceptor({
     } catch {
       // Telemetry must never fail a request.
     }
-    return isDaemonClient
-      ? markLocalGatewayRestartRequest(outgoing)
-      : outgoing;
+    if (
+      isDaemonClient &&
+      (startedDuringRestart || isLocalGatewayRestartInProgress())
+    ) {
+      markLocalGatewayRestartRequest(outgoing);
+    }
+    return outgoing;
   };
 }
 
