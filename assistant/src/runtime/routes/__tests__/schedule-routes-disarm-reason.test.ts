@@ -11,6 +11,7 @@ import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { beforeEach, describe, expect, test } from "bun:test";
 
+import { setOverridesForTesting } from "../../../__tests__/feature-flag-test-helpers.js";
 import { getDb } from "../../../persistence/db-connection.js";
 import { initializeDb } from "../../../persistence/db-init.js";
 import {
@@ -104,10 +105,20 @@ async function declaredRow(
   return job.id;
 }
 
+/** Stamp the engine's exhaust latch onto a row: off, spent, and last run. */
+function latchAsCompleted(id: string): void {
+  getDb().run(
+    `UPDATE cron_jobs SET enabled = 0, next_run_at = 0, last_run_at = ${Date.now()} WHERE id = '${id}'`,
+  );
+}
+
 beforeEach(() => {
   getDb().run("DELETE FROM cron_runs");
   getDb().run("DELETE FROM cron_jobs");
   rmSync(pluginsDir, { recursive: true, force: true });
+  // The feature ships off, so every case states the flag it runs under rather
+  // than inheriting the registry default.
+  setOverridesForTesting({ "plugin-schedules": true });
 });
 
 describe("schedule serialization: disarmReason", () => {
@@ -157,6 +168,28 @@ describe("schedule serialization: disarmReason", () => {
 
     const row = await listed(id);
     expect(row.enabled).toBe(true);
+    expect(row.disarmReason).toBeNull();
+    expect((await fetched(id)).disarmReason).toBeNull();
+  });
+
+  test("a run-to-completion row reads as finished, not paused", async () => {
+    writePlugin("news", { declaration: "digest" });
+    const id = await declaredRow("news", true);
+    latchAsCompleted(id);
+
+    const row = await listed(id);
+    expect(row.enabled).toBe(false);
+    expect(row.disarmReason).toBeNull();
+    expect((await fetched(id)).disarmReason).toBeNull();
+  });
+
+  test("the kill switch being off is not a per-row cause", async () => {
+    writePlugin("news", { declaration: "digest" });
+    const id = await declaredRow("news", false);
+    setOverridesForTesting({ "plugin-schedules": false });
+
+    const row = await listed(id);
+    expect(row.enabled).toBe(false);
     expect(row.disarmReason).toBeNull();
     expect((await fetched(id)).disarmReason).toBeNull();
   });

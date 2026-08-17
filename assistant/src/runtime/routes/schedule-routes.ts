@@ -42,6 +42,7 @@ import {
   getLastScheduleConversationId,
   getSchedule,
   getScheduleRuns,
+  isEngineLatched,
   listSchedules,
   resolveScheduleConversationGroupId,
   type ScheduleJob,
@@ -135,15 +136,34 @@ type DisarmReason = (typeof DISARM_REASONS)[number];
  * `declaration_disabled` is the fallback the plugin's own files account for:
  * a declared `enabled: false`, a declaration too broken to arm, or a manifest
  * that no longer parses.
+ *
+ * Two off states never get a reason, because in neither did the plugin's files
+ * turn the schedule off. A row the engine latched (a fired or cancelled
+ * one-shot, a bounded recurrence the claim path exhausted) is a schedule that
+ * finished, not one that is paused. And when the `plugin-schedules` kill switch
+ * is off the reconciler disarms every sourced row regardless of what its
+ * declaration says, so no per-row cause is the true one. Both return null, and
+ * clients show the row like any other schedule that is off.
  */
 function deriveDisarmReason(
-  job: Pick<ScheduleJob, "sourceKey" | "enabled" | "userEnabled">,
+  job: Pick<
+    ScheduleJob,
+    | "sourceKey"
+    | "enabled"
+    | "userEnabled"
+    | "status"
+    | "nextRunAt"
+    | "lastRunAt"
+  >,
 ): DisarmReason | null {
   if (job.sourceKey === null || job.enabled) {
     return null;
   }
   if (job.userEnabled === false) {
     return "user_disabled";
+  }
+  if (isEngineLatched(job) || !isPluginSchedulesEnabled()) {
+    return null;
   }
   const match = /^plugin:([^/]+)\/(.+)$/.exec(job.sourceKey);
   if (!match) {

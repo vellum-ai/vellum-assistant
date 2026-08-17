@@ -840,7 +840,7 @@ export function listDeclaredSchedules(): ScheduleJob[] {
  * a null `lastRunAt` is a declared schedule inserted disabled, not an engine
  * latch, and stays re-armable.
  */
-function isEngineLatched(row: {
+export function isEngineLatched(row: {
   status: string;
   nextRunAt: number;
   lastRunAt: number | null;
