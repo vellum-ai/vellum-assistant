@@ -297,11 +297,11 @@ final class SelfHostedServer {
         if (containsEncodedDotSegment(parsed.getRawPath())) {
             return null;
         }
-        URI normalized = parsed.normalize();
-        if (containsDotSegment(normalized.getRawPath())) {
+        String resolved = resolveDotSegments(parsed.getRawPath());
+        if (resolved == null) {
             return null;
         }
-        String path = normalizePath(normalized.getRawPath());
+        String path = normalizePath(resolved);
         try {
             return new URI(scheme + "://" + formatAuthority(host, parsed.getPort()) + path);
         } catch (URISyntaxException exception) {
@@ -450,16 +450,37 @@ final class SelfHostedServer {
         return false;
     }
 
-    private static boolean containsDotSegment(String rawPath) {
-        if (rawPath == null) {
-            return false;
+    /**
+     * RFC 3986 §5.2.4 dot-segment removal that preserves empty segments, which
+     * {@code URI.normalize()} collapses; iOS and the web canonicalizer keep
+     * interior duplicate separators as distinct route characters. Returns null
+     * when a {@code ..} would climb above the root.
+     */
+    private static String resolveDotSegments(String rawPath) {
+        if (rawPath == null || rawPath.isEmpty()) {
+            return "";
         }
-        for (String segment : rawPath.split("/", -1)) {
-            if (".".equals(segment) || "..".equals(segment)) {
-                return true;
+        String[] parts = rawPath.split("/", -1);
+        List<String> segments = new ArrayList<>();
+        for (int index = 1; index < parts.length; index++) {
+            String segment = parts[index];
+            if (".".equals(segment)) {
+                continue;
+            }
+            if ("..".equals(segment)) {
+                if (segments.isEmpty()) {
+                    return null;
+                }
+                segments.remove(segments.size() - 1);
+            } else {
+                segments.add(segment);
             }
         }
-        return false;
+        StringBuilder resolved = new StringBuilder();
+        for (String segment : segments) {
+            resolved.append('/').append(segment);
+        }
+        return resolved.toString();
     }
 
     private static String formatAuthority(String host, int port) {
