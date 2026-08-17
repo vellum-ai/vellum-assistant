@@ -20,6 +20,18 @@ import Foundation
 /// shared delivery seam (`ApplicationDelegateProxy` → Capacitor `appUrlOpen`),
 /// the marker is present exactly when an intent produced it (LUM-3281).
 ///
+/// Two paths look like a third way in and are not. A `vellum-assistant://`
+/// navigation started by *web content inside the WebView* reaches Capacitor's
+/// `WebViewDelegationHandler.webView(_:decidePolicyFor:)` (our
+/// `NavigationDelegateProxy` forwards anything off the self-hosted origin to
+/// it), which cancels the load and calls `UIApplication.shared.open(_:)`; iOS
+/// routes an open of our own scheme back through `application(_:open:)`, so
+/// it is stripped like any external open. And an intent that launches a
+/// terminated app runs its `perform()` in-process after launch, so its URL is
+/// built after `launchOptions` and can never appear there. Nothing in this
+/// app or in Capacitor posts `.capacitorOpenURL` except via the proxy path
+/// the delegate feeds.
+///
 /// The marker rides the existing URL rather than a second command channel so
 /// the "one URL, one parser" contract in `NATIVE_VOICE.md` holds, and it is
 /// added by the delegate rather than by the producers so the whole trust
