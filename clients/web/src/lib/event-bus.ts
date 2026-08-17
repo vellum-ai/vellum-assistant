@@ -32,10 +32,10 @@ import type { AssistantEventEnvelope } from "@vellumai/assistant-api";
  * `"visibility"`: `document.visibilitychange` fired with
  * `visibilityState === "visible"` on a web client.
  * `"app_state"`: Capacitor `App.appStateChange` fired with `isActive`
- * in the iOS native shell. Web + Capacitor consumers must dedup
- * `"visibility"` and `"app_state"` themselves when both arrive in
- * close succession (the bus does not — its purpose is to deliver
- * every signal it sees).
+ * in the iOS native shell. Both describe the same physical edge on iOS,
+ * where they fire milliseconds apart, so
+ * `runtime/event-sources/lifecycle-edge.ts` publishes the pair once and
+ * consumers see either label depending on which source arrived first.
  * `"online"`: `window.online` fired after `navigator.onLine` flipped
  * back to true; surfaced as a resume so consumers that just want
  * "we're probably stale, refresh" can subscribe to a single channel.

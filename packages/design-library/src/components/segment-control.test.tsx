@@ -120,15 +120,15 @@ describe("SegmentControl geometry (normalized radii)", () => {
       expect(cls).toContain("flex-1");
       expect(cls).toContain("px-3");
       expect(cls).toContain("rounded-[6px]");
-      // Single-line segments are height-sized (see the size describe below);
+      // Single-line segments are height-sized (see the height describe below);
       // py-1.5 appears only when a sublabel switches the segment to h-auto.
       expect(cls).not.toContain("py-1.5");
     }
   });
 });
 
-describe("SegmentControl size", () => {
-  test("defaults to the 28px segment height", () => {
+describe("SegmentControl height", () => {
+  test("single-line segments stand 28px tall", () => {
     const html = renderToStaticMarkup(
       <SegmentControl
         items={textItems}
@@ -139,31 +139,13 @@ describe("SegmentControl size", () => {
     );
     for (const cls of radioClassNames(html)) {
       expect(cls).toContain("h-7");
-      expect(cls).not.toContain("h-6");
+      expect(cls).not.toContain("h-auto");
     }
   });
 
-  test("sm shrinks the segments to 24px, and grows them back for touch", () => {
-    const html = renderToStaticMarkup(
-      <SegmentControl
-        items={textItems}
-        value="light"
-        onChange={() => {}}
-        ariaLabel="Theme"
-        size="sm"
-      />,
-    );
-    for (const cls of radioClassNames(html)) {
-      expect(cls).toContain("h-6");
-      expect(cls).not.toContain("h-7");
-      // 24px is under a comfortable touch target, so it grows below `md`.
-      expect(cls).toContain("max-md:h-9");
-    }
-  });
-
-  // Sublabels need height to follow content, so they win over the size map
-  // rather than being clipped by a fixed height.
-  test("sublabels override the size in either mode", () => {
+  // Sublabels need height to follow content, so they win over the fixed
+  // height rather than being clipped by it.
+  test("sublabels drop the fixed height so the second line fits", () => {
     const items: SegmentControlItem<ThemeValue>[] = [
       { value: "light", label: "Light", sublabel: "Always" },
       { value: "dark", label: "Dark", sublabel: "Always" },
@@ -174,12 +156,11 @@ describe("SegmentControl size", () => {
         value="light"
         onChange={() => {}}
         ariaLabel="Theme"
-        size="sm"
       />,
     );
     for (const cls of radioClassNames(html)) {
       expect(cls).toContain("h-auto");
-      expect(cls).not.toContain("h-6");
+      expect(cls).not.toContain("h-7");
     }
   });
 });

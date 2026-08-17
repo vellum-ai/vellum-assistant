@@ -60,4 +60,19 @@ describe("ReasoningTagFilter", () => {
   test("holds back nothing across an empty stream", () => {
     expect(run([""])).toBe("");
   });
+
+  test("does not shift indexes for characters whose lowercase form is longer", () => {
+    // U+0130 (dotted capital I) lowers to two code units; positional
+    // scanning must never lowercase the haystack wholesale.
+    expect(run(["\u0130stanbul rocks. <think>hidden</think> Done."])).toBe(
+      "\u0130stanbul rocks.  Done.",
+    );
+    expect(run(["\u0130\u0130\u0130<THINK>x</THINK>ok"])).toBe(
+      "\u0130\u0130\u0130ok",
+    );
+  });
+
+  test("prefers the longer tag when both match at one index", () => {
+    expect(run(["a<thinking>x</thinking>b"])).toBe("ab");
+  });
 });

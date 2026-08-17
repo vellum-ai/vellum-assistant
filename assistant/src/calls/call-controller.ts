@@ -730,8 +730,10 @@ export class CallController {
     let ttsBuffer = "";
     let fullResponseText = "";
     // Reasoning models can inline <think> spans in the content stream when a
-    // profile has not opted into parseThinkTags; the spoken path must never
-    // read them aloud. fullResponseText keeps the raw stream.
+    // profile has not opted into parseThinkTags. Neither the spoken path nor
+    // the post-turn consumers of fullResponseText (transcripts,
+    // assistant_spoke, END_CALL/ASK_GUARDIAN detection) may see them: both
+    // are fed only filtered text.
     const reasoningFilter = createReasoningTagFilter();
 
     // Synthesized path: text is split at speakable boundaries as it streams
@@ -935,8 +937,13 @@ export class CallController {
         if (!this.isCurrentRun(runVersion)) {
           return;
         }
-        fullResponseText += text;
-        ttsBuffer += reasoningFilter.push(text);
+        // One filter feeds both consumers: the spoken stream and the text
+        // used for transcripts, assistant_spoke, and END_CALL/ASK_GUARDIAN
+        // marker detection. A control marker inside a reasoning span must
+        // never trigger a real action the caller did not hear.
+        const speakable = reasoningFilter.push(text);
+        fullResponseText += speakable;
+        ttsBuffer += speakable;
         ttsBuffer = stripInternalSpeechMarkers(ttsBuffer);
         flushSafeText();
       };
@@ -1015,9 +1022,11 @@ export class CallController {
       return fullResponseText;
     }
 
-    // Final sweep: release any held-back partial tag, then strip any
-    // remaining control markers from the buffer.
-    ttsBuffer += reasoningFilter.flush();
+    // Final sweep: release any held-back partial tag to both consumers,
+    // then strip any remaining control markers from the buffer.
+    const filterTail = reasoningFilter.flush();
+    fullResponseText += filterTail;
+    ttsBuffer += filterTail;
     ttsBuffer = stripInternalSpeechMarkers(ttsBuffer);
     if (ttsBuffer.length > 0) {
       emitSafeChunk(ttsBuffer);

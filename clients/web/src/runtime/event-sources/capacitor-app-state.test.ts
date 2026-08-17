@@ -31,6 +31,7 @@ mock.module("@/lib/sentry/capture-error", () => ({
 }));
 
 import * as eventBus from "@/lib/event-bus";
+import { __resetLifecycleEdgeForTests } from "@/runtime/event-sources/lifecycle-edge";
 
 const publishSpy = spyOn(eventBus, "publish");
 
@@ -47,6 +48,10 @@ const flushMicrotasks = async (rounds = 4) => {
 };
 
 beforeEach(() => {
+  // The edge window is module state shared with every other source that
+  // publishes through it, so a case in another suite can otherwise swallow
+  // this one's first edge.
+  __resetLifecycleEdgeForTests();
   activeHandler = null;
   addListenerMock.mockClear();
   captureErrorMock.mockClear();

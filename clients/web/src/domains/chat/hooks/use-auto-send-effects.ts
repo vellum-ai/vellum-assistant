@@ -5,10 +5,7 @@
  *    active conversation exists (used by "Submit Feedback" and similar
  *    deep-link flows). One-shot callers have the `prompt` stripped from the URL
  *    after dispatch so a refresh can't re-send it; relay callers keep theirs to
- *    re-fire on a new token. The send is gated on the target resolving against
- *    live conversation data (see {@link UrlPromptTargetResolution}): a missing
- *    target is refused with a visible error instead of letting the send path
- *    server-mint a new conversation for it.
+ *    re-fire on a new token.
  *
  * 2. **Pre-chat reachability probe** — when a pending onboarding message
  *    exists in sessionStorage, kicks off a background reachability probe
@@ -21,38 +18,17 @@
  */
 
 import { useEffect, useLayoutEffect, useRef } from "react";
-import * as Sentry from "@sentry/react";
 
 import type { SetURLSearchParams } from "react-router";
-
-import { toast } from "@vellumai/design-library/components/toast";
 
 import type {
   ReachabilityProbeOptions,
   ReachabilityState,
 } from "@/assistant/use-assistant-reachability";
 
-/**
- * Where the active conversation stands against live conversation data, for
- * gating the URL `?prompt=` auto-send:
- *
- * - `"unresolved"`: the conversation list has not loaded yet; hold the send
- *   until it has (the effect re-runs when this settles).
- * - `"exists"`: the id is a known conversation row or a registered
- *   client-side draft; safe to send.
- * - `"missing"`: the target definitively does not exist (a settled 404 on
- *   its row) and it is no registered draft. The send must be dropped: the
- *   send path treats an unknown id as a draft and server-mints a NEW
- *   conversation, so relaying would silently send the message outside the
- *   chat the caller targeted (a conversation deleted since the relay URL
- *   was built, or an id from another assistant).
- */
-export type UrlPromptTargetResolution = "unresolved" | "exists" | "missing";
-
 export interface UseAutoSendEffectsOptions {
   assistantId: string | null;
   activeConversationId: string | null;
-  urlPromptTargetResolution: UrlPromptTargetResolution;
   searchParams: URLSearchParams;
   setSearchParams: SetURLSearchParams;
   sendMessage: (
@@ -75,7 +51,6 @@ export interface UseAutoSendEffectsOptions {
 export function useAutoSendEffects({
   assistantId,
   activeConversationId,
-  urlPromptTargetResolution,
   searchParams,
   setSearchParams,
   sendMessage,
@@ -103,32 +78,6 @@ export function useAutoSendEffects({
     if (!prompt || !activeConversationId) {
       return;
     }
-    // Hold until the target is resolvable, and refuse a missing target: see
-    // {@link UrlPromptTargetResolution} for why sending anyway would create
-    // a new conversation instead of failing.
-    if (urlPromptTargetResolution === "unresolved") {
-      return;
-    }
-    if (urlPromptTargetResolution === "missing") {
-      Sentry.addBreadcrumb({
-        category: "deeplink",
-        level: "warning",
-        message:
-          "?prompt= target conversation not found; dropping the auto-send",
-      });
-      toast.error("Couldn't find that chat, so the message wasn't sent.");
-      // Strip the whole relay payload so a reload or back-navigation cannot
-      // retry a send that was just refused.
-      setSearchParams(
-        (prev) => {
-          prev.delete("prompt");
-          prev.delete("relay");
-          return prev;
-        },
-        { replace: true },
-      );
-      return;
-    }
     // A relay token makes each dispatch unique so repeated identical prompts
     // re-fire; one-shot callers (deep links, doc feedback) omit it and dedupe
     // on the prompt text.
@@ -153,13 +102,7 @@ export function useAutoSendEffects({
         { replace: true },
       );
     }
-  }, [
-    searchParams,
-    setSearchParams,
-    activeConversationId,
-    urlPromptTargetResolution,
-    sendMessage,
-  ]);
+  }, [searchParams, setSearchParams, activeConversationId, sendMessage]);
 
   // 2. Pre-chat reachability probe — eagerly start the probe cycle.
   useEffect(() => {

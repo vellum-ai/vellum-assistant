@@ -27,7 +27,7 @@
 import * as Sentry from "@sentry/react";
 
 import { lifecycleService } from "@/assistant/lifecycle-service";
-import { publish, subscribe } from "@/lib/event-bus";
+import { publish, subscribe, type AppResumeSignal } from "@/lib/event-bus";
 import { resetReconnectCursor } from "@/lib/streaming/reconnect-cursor";
 import {
   clearSseReconnectHandler,
@@ -37,6 +37,7 @@ import {
   subscribeEvents,
   type EventStream,
 } from "@/lib/streaming/stream-transport";
+import { isNativeMobile } from "@/runtime/platform-detection";
 import { useSSEConnectedStore } from "@/stores/sse-connected-store";
 
 const RESUME_DEDUP_WINDOW_MS = 1000;
@@ -51,16 +52,47 @@ const RESUME_DEDUP_WINDOW_MS = 1000;
 // keeps the socket. `power.suspend` (system sleep) is deliberately NOT
 // debounced — it still tears down immediately so the daemon sees a clean
 // disconnect.
-let hiddenTeardownGraceMs = 5_000;
+const DESKTOP_HIDDEN_TEARDOWN_GRACE_MS = 5_000;
+
+// Native mobile gets a far longer grace. Switching apps is the normal way
+// to use a phone, so at the desktop window every glance at another app
+// paid a teardown, a cold reopen, and the whole `sse.opened` reconcile
+// fan-out on return. A minute covers the quick switch and keeps the live
+// socket through it.
+const NATIVE_MOBILE_HIDDEN_TEARDOWN_GRACE_MS = 60_000;
+
+// How long a background has to run before a socket we still hold a handle
+// to is treated as dead on resume. iOS freezes JS shortly after
+// backgrounding, so under the native grace the teardown timer usually
+// never fires: the OS kills the connection while `current` still points
+// at it, and the resume path would otherwise keep that corpse until the
+// 45s stream watchdog notices. Past this threshold we reconnect
+// deliberately; below it the socket is assumed healthy and kept as is.
+const SUSPECT_SOCKET_AFTER_MS = 30_000;
+
+// Test-only override of the resolved grace window; `null` means use the
+// platform default.
+let hiddenTeardownGraceOverrideMs: number | null = null;
+
+// Resolved when the grace timer is armed rather than at module load, so
+// the platform probe cannot run before the Capacitor bridge is ready.
+const resolveHiddenTeardownGraceMs = (): number => {
+  if (hiddenTeardownGraceOverrideMs !== null) {
+    return hiddenTeardownGraceOverrideMs;
+  }
+  return isNativeMobile()
+    ? NATIVE_MOBILE_HIDDEN_TEARDOWN_GRACE_MS
+    : DESKTOP_HIDDEN_TEARDOWN_GRACE_MS;
+};
 
 /**
  * Override the hidden-teardown grace window. Test-only seam so specs can
- * exercise the debounce without real-time waits; never call from
- * production code.
+ * exercise the debounce without real-time waits; pass `null` to restore
+ * the platform default. Never call from production code.
  * @internal
  */
-export function __setHiddenTeardownGraceMsForTesting(ms: number): void {
-  hiddenTeardownGraceMs = ms;
+export function __setHiddenTeardownGraceMsForTesting(ms: number | null): void {
+  hiddenTeardownGraceOverrideMs = ms;
 }
 
 export interface SseService {
@@ -127,6 +159,10 @@ export const sseService: SseService = {
     // Pending grace timer for a hidden-tab teardown, so a resume within
     // the grace window (or a detach / other teardown) can cancel it.
     let hiddenTeardownTimer: ReturnType<typeof setTimeout> | null = null;
+    // When the pending grace teardown was armed, so a resume can tell a
+    // quick app switch from a background long enough that the socket we
+    // still hold is probably dead. Null whenever no background is pending.
+    let hiddenAt: number | null = null;
     const clearHiddenTeardownTimer = () => {
       if (hiddenTeardownTimer !== null) {
         clearTimeout(hiddenTeardownTimer);
@@ -213,8 +249,11 @@ export const sseService: SseService = {
     const teardown = () => {
       // A teardown by any path (grace timer, power, reachability, debug,
       // detach) makes a still-pending grace teardown moot — clear it so a
-      // late fire can't cancel a connection opened after it.
+      // late fire can't cancel a connection opened after it. The hidden
+      // mark goes with it: it describes the socket being dropped here, and
+      // whatever opens next is fresh rather than suspect.
       clearHiddenTeardownTimer();
+      hiddenAt = null;
       current?.cancel();
       setCurrent(null);
       setConnected(false);
@@ -222,28 +261,62 @@ export const sseService: SseService = {
 
     // App lifecycle (renderer-visibility): a hidden tab does NOT tear the
     // connection down immediately — see `handleAppHidden`, which debounces
-    // it behind `hiddenTeardownGraceMs`. On resume we cancel any pending
-    // grace teardown (so a brief tab-out keeps its live socket) and reopen
-    // only if the connection was actually torn down. The self-dedup window
-    // collapses double-fires from visibilitychange + Capacitor
-    // appStateChange (both arrive in close succession on foregrounding the
-    // iOS native shell).
-    const handleAppResume = () => {
-      // Resumed within the grace window → the socket was never torn down;
-      // cancel the pending teardown and keep it. Resumed after it fired →
-      // no-op here, and the reopen below handles the down connection.
-      clearHiddenTeardownTimer();
+    // it behind the platform's grace window. On a foreground resume we
+    // cancel any pending grace teardown (so a brief tab-out keeps its live
+    // socket) and reopen only if the connection was torn down, or if the
+    // background ran long enough that the socket we still hold is suspect.
+    // `runtime/event-sources/lifecycle-edge.ts` is the primary collapse: the
+    // visibilitychange + Capacitor appStateChange pair for one physical edge
+    // reaches the bus as a single `app.resume`. The self-dedup window below
+    // covers the redundant resumes that still arrive: an
+    // `app.resume{signal:"online"}` landing next to a foreground resume, and a
+    // visibility/app_state pair spread further apart than the edge window.
+    const handleAppResume = ({ signal }: { signal: AppResumeSignal }) => {
+      // Only a real foreground consumes the hidden state. `online` is a
+      // network transition that can arrive while the app is still
+      // backgrounded, so letting it clear the hidden mark and the pending
+      // grace teardown would defeat the suspect-socket reconnect: the
+      // visibility/app_state resume that eventually lands would find no
+      // background to measure and would keep a socket the OS killed during
+      // the freeze. `online` still reopens a connection that is already
+      // down, which is all it ever did here.
+      const isForegroundResume = signal !== "online";
+      let hiddenSince: number | null = null;
+      if (isForegroundResume) {
+        // Resumed within the grace window → the socket was never torn down;
+        // cancel the pending teardown and keep it. Resumed after it fired →
+        // no-op here, and the reopen below handles the down connection.
+        clearHiddenTeardownTimer();
+        // Consume the hidden mark on this first resume edge, ahead of the
+        // dedup window below, so the suspect check runs once per background
+        // and cannot be skipped: a redundant second resume finds it null and
+        // so can neither bypass nor re-run the bounce.
+        hiddenSince = hiddenAt;
+        hiddenAt = null;
+      }
       const now = Date.now();
+      if (
+        current !== null &&
+        hiddenSince !== null &&
+        now - hiddenSince > SUSPECT_SOCKET_AFTER_MS
+      ) {
+        // Long background: JS was frozen, so the grace teardown never got
+        // to run and the socket `current` names was almost certainly
+        // killed by the OS behind our back. Drop it so the reopen paths
+        // below treat this as a down connection rather than trusting a
+        // handle that will never deliver another frame.
+        teardown();
+      }
       if (now - lastAppResumeAt < RESUME_DEDUP_WINDOW_MS) {
-        // Inside the dedup window. This collapses the iOS double-fire
-        // (visibilitychange + Capacitor appStateChange deliver two
-        // resumes ms apart for a single foreground) so the health check
-        // below runs once. But the window must NOT suppress a genuine
-        // reopen: an `app.hidden` can land *between* two resumes and (once
-        // its grace elapses) tear the socket down (`current === null`),
-        // and a blanket early-return would then strand the connection
-        // torn-down until the next foreground — the user sees a frozen
-        // transcript and has to refresh to get streaming back. Reopen
+        // Inside the dedup window. This collapses a redundant second resume
+        // (an `online` edge landing next to a foreground one, or a
+        // visibility/app_state pair spread further apart than the
+        // lifecycle-edge window) so the health check below runs once. But the
+        // window must NOT suppress a genuine reopen: an `app.hidden` can land
+        // *between* two resumes and (once its grace elapses) tear the socket
+        // down (`current === null`), and a blanket early-return would then
+        // strand the connection torn-down until the next foreground, leaving
+        // the user a frozen transcript that only a refresh recovers. Reopen
         // whenever the connection is down; only the redundant health check
         // is skipped here.
         if (!current) {
@@ -279,10 +352,11 @@ export const sseService: SseService = {
       if (hiddenTeardownTimer !== null) {
         return;
       }
+      hiddenAt = Date.now();
       hiddenTeardownTimer = setTimeout(() => {
         hiddenTeardownTimer = null;
         teardownIfOpen();
-      }, hiddenTeardownGraceMs);
+      }, resolveHiddenTeardownGraceMs());
     };
 
     // System-level resume (Electron host): bounce the connection

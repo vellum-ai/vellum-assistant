@@ -10,10 +10,7 @@ import { afterEach, describe, expect, it, mock } from "bun:test";
 
 import { cleanup, renderHook } from "@testing-library/react";
 
-import {
-  useAutoSendEffects,
-  type UrlPromptTargetResolution,
-} from "@/domains/chat/hooks/use-auto-send-effects";
+import { useAutoSendEffects } from "@/domains/chat/hooks/use-auto-send-effects";
 
 afterEach(() => cleanup());
 
@@ -26,7 +23,6 @@ function baseProps(
   return {
     assistantId: "assistant-1",
     activeConversationId: "conv-1",
-    urlPromptTargetResolution: "exists" as UrlPromptTargetResolution,
     searchParams: new URLSearchParams(search),
     setSearchParams: mock((..._args: SetSearchParamsArgs) => {}),
     sendMessage,
@@ -91,62 +87,5 @@ describe("useAutoSendEffects — URL prompt dedupe", () => {
 
     expect(sendMessage).toHaveBeenCalledTimes(1);
     expect(props.setSearchParams).not.toHaveBeenCalled();
-  });
-});
-
-describe("useAutoSendEffects — URL prompt target gating", () => {
-  it("holds the send while the target is unresolved, then fires once it exists", () => {
-    const sendMessage = mock(async (_content: string) => {});
-    const props = {
-      ...baseProps("prompt=hello", sendMessage),
-      urlPromptTargetResolution: "unresolved" as UrlPromptTargetResolution,
-    };
-    const { rerender } = renderHook(
-      (p: ReturnType<typeof baseProps>) => useAutoSendEffects(p),
-      { initialProps: props },
-    );
-    expect(sendMessage).not.toHaveBeenCalled();
-
-    rerender({ ...props, urlPromptTargetResolution: "exists" });
-    expect(sendMessage).toHaveBeenCalledTimes(1);
-    expect(sendMessage).toHaveBeenLastCalledWith("hello");
-  });
-
-  it("drops the send for a missing target and strips prompt + relay so it cannot retry", () => {
-    const sendMessage = mock(async (_content: string) => {});
-    const props = {
-      ...baseProps("prompt=hello&relay=a&vref=keep", sendMessage),
-      urlPromptTargetResolution: "missing" as UrlPromptTargetResolution,
-    };
-    renderHook((p: ReturnType<typeof baseProps>) => useAutoSendEffects(p), {
-      initialProps: props,
-    });
-
-    // The send path would server-mint a NEW conversation for an unknown id,
-    // so a missing target must never reach sendMessage.
-    expect(sendMessage).not.toHaveBeenCalled();
-    expect(props.setSearchParams).toHaveBeenCalledTimes(1);
-    const updater = props.setSearchParams.mock.calls[0][0] as (
-      prev: URLSearchParams,
-    ) => URLSearchParams;
-    const next = updater(new URLSearchParams("prompt=hello&relay=a&vref=keep"));
-    expect(next.has("prompt")).toBe(false);
-    expect(next.has("relay")).toBe(false);
-    expect(next.get("vref")).toBe("keep");
-  });
-
-  it("a target that resolves to missing after being unresolved never sends", () => {
-    const sendMessage = mock(async (_content: string) => {});
-    const props = {
-      ...baseProps("prompt=hello", sendMessage),
-      urlPromptTargetResolution: "unresolved" as UrlPromptTargetResolution,
-    };
-    const { rerender } = renderHook(
-      (p: ReturnType<typeof baseProps>) => useAutoSendEffects(p),
-      { initialProps: props },
-    );
-
-    rerender({ ...props, urlPromptTargetResolution: "missing" });
-    expect(sendMessage).not.toHaveBeenCalled();
   });
 });
