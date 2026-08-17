@@ -1,4 +1,6 @@
 import { LLMCallSiteEnum } from "../config/schemas/llm.js";
+import { AUTO_ANALYSIS_SOURCE } from "../persistence/auto-analysis-constants.js";
+import { MEMORY_V2_CONSOLIDATION_SOURCE } from "../persistence/conversation-types.js";
 
 /**
  * Coarse attribution of *why* an LLM call happened, derived from the durable
@@ -25,8 +27,8 @@ import { LLMCallSiteEnum } from "../config/schemas/llm.js";
  *   filing / recall upkeep, whether it runs inside a user conversation
  *   (in-turn recall) or detached from any conversation.
  * - `user_interactive`: a standard conversation the user is present in,
- *   opened from any surface (the app, a Home feed item, imported history, or
- *   a messaging channel).
+ *   opened from any surface (the app, a Home feed item, imported history, a
+ *   messaging channel, or a notification thread they reply in).
  * - `other_system`: system work with no user-facing conversation behind it,
  *   either an explicitly system-owned conversation source
  *   ({@link OTHER_SYSTEM_SOURCES}) or a recognized call site running with no
@@ -46,11 +48,12 @@ export type WorkOrigin =
   | "unknown";
 
 /**
- * Every set below holds persisted `conversations.source` values as string
- * literals rather than imports. Historical usage rows carry these exact
- * strings whatever the stamping code does later, and some of the stamping
- * code lives inside plugins (`plugins/defaults/memory/`) that host code must
- * not import across the plugin boundary. The classifier tests pin them.
+ * The sets below hold persisted `conversations.source` values. Values whose
+ * stamping code lives inside plugins (`plugins/defaults/memory/`) are string
+ * literals, because host code must not import across the plugin boundary and
+ * historical usage rows carry these exact strings whatever the stamping code
+ * does later. Values with host-side exported constants are imported. The
+ * classifier tests pin every value either way.
  */
 
 /**
@@ -72,8 +75,8 @@ const SPAWNED_CONVERSATION_SOURCES: ReadonlySet<string> = new Set([
 /**
  * Call sites whose work is memory maintenance regardless of the conversation
  * (or absence of one) they run in. `recall` fires inside ordinary user turns;
- * the consolidation / extraction / migration / sweep sites run detached from
- * any conversation.
+ * `filingAgent` is the memory v1 filing job; the consolidation / extraction /
+ * migration / sweep sites run detached from any conversation.
  */
 const MEMORY_MAINTENANCE_CALL_SITES: ReadonlySet<string> = new Set([
   "memoryExtraction",
@@ -86,6 +89,7 @@ const MEMORY_MAINTENANCE_CALL_SITES: ReadonlySet<string> = new Set([
   "memoryV2Consolidation",
   "memoryRetrospective",
   "recall",
+  "filingAgent",
 ]);
 
 /**
@@ -94,7 +98,7 @@ const MEMORY_MAINTENANCE_CALL_SITES: ReadonlySet<string> = new Set([
  * is the v2 background consolidation run.
  */
 const MEMORY_MAINTENANCE_SOURCES: ReadonlySet<string> = new Set([
-  "memory_v2_consolidation",
+  MEMORY_V2_CONSOLIDATION_SOURCE,
   "filing",
   "memory",
 ]);
@@ -110,12 +114,14 @@ const USER_CREATED_BACKGROUND_SOURCES: ReadonlySet<string> = new Set([
 
 /**
  * Sources of system-owned conversations with no user request behind them:
- * `notification` marks the delivery conversations paired with a notification,
+ * `notification` marks the delivery conversations paired with a notification
+ * (only its non-standard rows land here; a standard notification thread is a
+ * visible conversation the user replies in, so it classifies as interactive),
  * `auto-analysis` marks retired ambient analysis rows.
  */
 const OTHER_SYSTEM_SOURCES: ReadonlySet<string> = new Set([
   "notification",
-  "auto-analysis",
+  AUTO_ANALYSIS_SOURCE,
 ]);
 
 /**
@@ -204,8 +210,12 @@ export function classifyWorkOrigin(input: WorkOriginInput): WorkOrigin {
     conversationSource !== null &&
     (conversationSource === "user" ||
       conversationSource === "home-feed" ||
+      conversationSource === "notification" ||
       conversationSource.startsWith(IMPORTED_CONVERSATION_SOURCE_PREFIX))
   ) {
+    // A standard notification thread is user-visible in the sidebar and keeps
+    // its `notification` source when the user replies in it, so its turns are
+    // interactive spend; only non-standard notification rows are system work.
     return "user_interactive";
   }
   if (

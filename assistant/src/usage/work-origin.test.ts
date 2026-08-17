@@ -160,6 +160,7 @@ describe("classifyWorkOrigin", () => {
         "memoryV2Consolidation",
         "memoryRetrospective",
         "recall",
+        "filingAgent",
       ] as const
     ).map((callSite) => ({
       name: `${callSite} call site maps to memory_maintenance`,
@@ -250,13 +251,22 @@ describe("classifyWorkOrigin", () => {
     },
     // 8. System-owned conversation sources.
     {
-      name: "notification source maps to other_system",
+      name: "background notification conversation maps to other_system",
       input: input({
         conversationType: "background",
         conversationSource: "notification",
         callSite: "mainAgent",
       }),
       expected: "other_system",
+    },
+    {
+      name: "standard notification thread the user replies in maps to user_interactive",
+      input: input({
+        conversationType: "standard",
+        conversationSource: "notification",
+        callSite: "mainAgent",
+      }),
+      expected: "user_interactive",
     },
     {
       name: "auto-analysis source maps to other_system",
@@ -299,10 +309,9 @@ describe("classifyWorkOrigin", () => {
 });
 
 /**
- * Guard against reintroducing a residual bucket. An earlier design ended with
- * `if (conversationType !== null) return "user_created_background"`, so every
- * unrecognized conversation kind was reported as work the user asked for.
- * Buckets are allowlists: anything unrecognized belongs in `unknown`.
+ * Guard against a residual bucket. Every named bucket is an allowlist, so an
+ * unrecognized type/source combination must land in `unknown`, where it stays
+ * visible, and never in a bucket whose name asserts a cause nobody verified.
  */
 describe("classifyWorkOrigin residual-bucket guard: unrecognized combinations stay unknown", () => {
   const residualCases: Array<{ name: string; input: WorkOriginInput }> = [
