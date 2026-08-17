@@ -25,6 +25,7 @@ import {
 import { handle } from "../ipc.client";
 import log from "../logger";
 import { current } from "../main-window";
+import { getWindowsHelperClient } from "../windows-helper";
 
 /**
  * Provider backed by the Vellum.WindowsHelper sidecar (`permissions.state`
@@ -45,6 +46,30 @@ export const configureWindowsPermissionsNative = (
 ): void => {
   nativeProvider = provider;
 };
+
+const nativeStatusSchema = z.object({
+  microphone: z.enum(SYSTEM_PERMISSION_STATUSES).optional(),
+  speechRecognition: z.enum(SYSTEM_PERMISSION_STATUSES).optional(),
+  notifications: z.enum(SYSTEM_PERMISSION_STATUSES).optional(),
+});
+
+const nativeInsertionSchema = z.object({
+  status: z.string(),
+  reason: z.string().optional(),
+});
+
+const createNativeProvider = (): WindowsPermissionsNativeProvider => ({
+  async queryPermissions() {
+    return nativeStatusSchema.parse(
+      await getWindowsHelperClient().call("permissions.state"),
+    );
+  },
+  async insertText(text) {
+    return nativeInsertionSchema.parse(
+      await getWindowsHelperClient().call("text.insert", { text }),
+    );
+  },
+});
 
 const kindSchema = z.enum(SYSTEM_PERMISSION_KINDS);
 
@@ -183,6 +208,7 @@ const insertIntoFrontApp = async (
 const permissionsFeature: CapabilityModule<DesktopCapabilityRegistry> = {
   id: "permissions",
   install: () => {
+    configureWindowsPermissionsNative(createNativeProvider());
     const service = new WindowsPermissionsService();
 
     handle(PERMISSIONS_GET_STATE, z.tuple([]), () => service.refresh());

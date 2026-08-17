@@ -21,6 +21,7 @@ const DEPS_TO_INLINE = [
   "@vellumai/electron-desktop",
   "@vellumai/ipc-contract",
   "@vellumai/local-mode",
+  "@vellumai/native-sidecar",
   "@vellumai/environments",
 ];
 
