@@ -1204,6 +1204,39 @@ describe("api-interceptors / localGatewayAuthRecoveryInterceptor", () => {
     expect(sessionStorage.getItem(GW_401_ATTEMPTS_KEY)).toBeNull();
   });
 
+  test("preserves restart membership across asynchronous request routing", async () => {
+    seedGatewayTokens();
+    const originalBlob = Request.prototype.blob;
+    let releaseBody: (() => void) | undefined;
+    Request.prototype.blob = () =>
+      new Promise<Blob>((resolve) => {
+        releaseBody = () => resolve(new Blob(["request body"]));
+      });
+
+    const finishRestart = beginLocalGatewayRestart();
+    try {
+      const outgoingPromise = daemonRequestInterceptor(
+        new Request("https://platform.example/v1/assistants/123/conversations", {
+          method: "POST",
+          body: "request body",
+        }),
+      );
+      finishRestart();
+      releaseBody?.();
+      const outgoing = await outgoingPromise;
+
+      localGatewayAuthRecoveryInterceptor(gatewayResponse(401), outgoing);
+    } finally {
+      Request.prototype.blob = originalBlob;
+    }
+
+    for (const key of GW_TOKEN_KEYS) {
+      expect(localStorage.getItem(key)).not.toBeNull();
+    }
+    expect(reloadCalls).toBe(0);
+    expect(sessionStorage.getItem(GW_401_ATTEMPTS_KEY)).toBeNull();
+  });
+
   test("does not reload on non-401 status codes", () => {
     /**
      * Validates that only 401 triggers recovery — other error codes

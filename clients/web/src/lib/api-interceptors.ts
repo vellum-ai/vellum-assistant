@@ -437,6 +437,11 @@ function createInterceptor({
   };
 
   return async (request: Request): Promise<Request> => {
+    // `route` can await while buffering a local request body. Capture restart
+    // membership before that work so a stale request cannot recover after the
+    // replacement gateway session is ready and trigger a page reload.
+    const startedDuringRestart =
+      isDaemonClient && isLocalGatewayRestartInProgress();
     const outgoing = await route(request);
     try {
       if (shouldCount(request.url, outgoing)) {
@@ -446,7 +451,7 @@ function createInterceptor({
       // Telemetry must never fail a request.
     }
     return isDaemonClient
-      ? markLocalGatewayRestartRequest(outgoing)
+      ? markLocalGatewayRestartRequest(outgoing, startedDuringRestart)
       : outgoing;
   };
 }

@@ -1027,7 +1027,6 @@ export async function restartLocalAssistant(
   assistantId: string,
 ): Promise<{ ok: boolean; error?: string }> {
   const finishRestart = beginLocalGatewayRestart();
-  let reconnecting = false;
   try {
     const sleepResult = await sleepLocalAssistantHost(assistantId);
     if (!sleepResult.ok) {
@@ -1043,16 +1042,18 @@ export async function restartLocalAssistant(
         error: wakeResult.error ?? "Failed to start assistant.",
       };
     }
-    reconnecting = true;
-    // Wake completed; renderer reconnection stays inside the restart scope.
-    void primeLocalGatewayConnectionAfterRestart(assistantId)
-      .catch(() => {})
-      .finally(finishRestart);
-    return { ok: true };
-  } finally {
-    if (!reconnecting) {
-      finishRestart();
+    try {
+      await primeLocalGatewayConnectionAfterRestart(assistantId);
+      return { ok: true };
+    } catch {
+      return {
+        ok: false,
+        error:
+          "Assistant restarted but could not reconnect. Please try again.",
+      };
     }
+  } finally {
+    finishRestart();
   }
 }
 
