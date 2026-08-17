@@ -554,7 +554,7 @@ export function ChatComposer({
   // entry flow, so register the same handler the button uses. Cleanup is
   // identity-safe so an unmounting composer cannot clear a newer handler.
   useEffect(() => {
-    if (!showVoiceInput) {
+    if (!showVoiceInput || !assistantId || !supportsLiveVoice) {
       return;
     }
     useLiveVoiceStore.getState().setEntryHandler(handleLiveVoiceStart);
@@ -564,7 +564,7 @@ export function ChatComposer({
         store.setEntryHandler(null);
       }
     };
-  }, [handleLiveVoiceStart, showVoiceInput]);
+  }, [assistantId, handleLiveVoiceStart, showVoiceInput, supportsLiveVoice]);
 
   const pointerCoarse = useMemo(() => isPointerCoarse(), []);
   // `shouldSubmitOnEnter` ignores Enter under a coarse primary pointer, since a
