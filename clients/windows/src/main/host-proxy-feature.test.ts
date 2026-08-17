@@ -51,8 +51,13 @@ afterEach(() => {
   quitListeners.length = 0;
 });
 
-test("installs the bridge with the portable executors and tears down on quit", () => {
+test("installs the bridge with the portable executors and tears down on quit", async () => {
   hostProxyFeature.install(new DesktopCapabilityRegistry());
+
+  // The bridge install is deferred a microtask so the lockfile watcher's
+  // initial read (a later-sorted feature) lands first.
+  expect(__testing.executors.size).toBe(0);
+  await new Promise((resolve) => setTimeout(resolve, 0));
 
   expect([...__testing.executors.keys()].sort()).toEqual([
     "host_bash",

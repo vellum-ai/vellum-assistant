@@ -29,50 +29,61 @@ import log from "../logger";
 const hostProxy: CapabilityModule<DesktopCapabilityRegistry> = {
   id: "host-proxy",
   install: (capabilities) => {
-    const teardown = installHostProxyBridge(
-      createWindowsHostProxyRuntime({
-        acquireGuardianToken: async (assistantId) => {
-          // Resolved lazily so this module works regardless of when (or
-          // whether) the CLI provider registers. Without it, local
-          // assistants stay explicitly unreachable; cloud assistants use
-          // the session token instead.
-          const cli = capabilities.get(LOCAL_MODE_CLI);
-          if (!cli) {
-            log.warn(
-              "[host-proxy] no CLI provider registered, skipping local assistant",
-              { assistantId },
-            );
-            return null;
-          }
-          const result = await getGuardianAccessToken(
-            assistantId,
-            resolveConfigDir(process.env),
-            await cli.resolveInvocation(),
-            true,
-            { VELLUM_ENVIRONMENT: resolveEnvironmentName(process.env) },
-          );
-          if (!result.ok) {
-            log.warn("[host-proxy] failed to obtain guardian token", {
-              assistantId,
-              error: result.error,
-            });
-            return null;
-          }
-          return result.accessToken;
-        },
-        getSessionToken,
-        getLockfile: getWatchedLockfile,
-        onLockfileChange,
-        // Windows has no user-attention monitor yet. Reporting nothing is
-        // the fail-open direction: with no presence record on file the
-        // daemon lets mobile pushes through.
-        installPresenceMonitor: () => () => undefined,
-        getClientId: getDeviceId,
-        logger: log,
-      }),
-    );
-    app.once("before-quit", teardown);
+    // Deferred one microtask: capability modules install synchronously in
+    // path order, and the bridge seeds its connections from the lockfile
+    // watcher's cache, which the presence module (sorted later) fills with
+    // its initial synchronous read. Deferring lets the bridge observe
+    // assistants already present at startup.
+    queueMicrotask(() => {
+      installBridge(capabilities);
+    });
   },
+};
+
+const installBridge = (capabilities: DesktopCapabilityRegistry): void => {
+  const teardown = installHostProxyBridge(
+    createWindowsHostProxyRuntime({
+      acquireGuardianToken: async (assistantId) => {
+        // Resolved lazily so this module works regardless of when (or
+        // whether) the CLI provider registers. Without it, local
+        // assistants stay explicitly unreachable; cloud assistants use
+        // the session token instead.
+        const cli = capabilities.get(LOCAL_MODE_CLI);
+        if (!cli) {
+          log.warn(
+            "[host-proxy] no CLI provider registered, skipping local assistant",
+            { assistantId },
+          );
+          return null;
+        }
+        const result = await getGuardianAccessToken(
+          assistantId,
+          resolveConfigDir(process.env),
+          await cli.resolveInvocation(),
+          true,
+          { VELLUM_ENVIRONMENT: resolveEnvironmentName(process.env) },
+        );
+        if (!result.ok) {
+          log.warn("[host-proxy] failed to obtain guardian token", {
+            assistantId,
+            error: result.error,
+          });
+          return null;
+        }
+        return result.accessToken;
+      },
+      getSessionToken,
+      getLockfile: getWatchedLockfile,
+      onLockfileChange,
+      // Windows has no user-attention monitor yet. Reporting nothing is
+      // the fail-open direction: with no presence record on file the
+      // daemon lets mobile pushes through.
+      installPresenceMonitor: () => () => undefined,
+      getClientId: getDeviceId,
+      logger: log,
+    }),
+  );
+  app.once("before-quit", teardown);
 };
 
 export default hostProxy;
