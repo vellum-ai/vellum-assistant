@@ -31,6 +31,10 @@ const isRemoteGatewayModeMock = mock(
 );
 let primeGatewayWithRepairImpl: () => Promise<void> = async () => {};
 const primeGatewayWithRepairMock = mock(() => primeGatewayWithRepairImpl());
+// The lockfile selection the recovery snapshots; a test moves it to model an
+// assistant switch or logout landing while the re-prime is in flight.
+let selectedAssistantImpl: () => { assistantId: string } | undefined = () =>
+  undefined;
 mock.module("@/lib/local-mode", () => ({
   getActiveAssistant: () => undefined,
   getLocalAssistants: () => [],
@@ -38,7 +42,7 @@ mock.module("@/lib/local-mode", () => ({
   getLockfile: () => ({ assistants: [], activeAssistant: null }),
   getPlatformAssistants: () => [],
   getPlatformRuntimeUrl: () => window.location.origin,
-  getSelectedAssistant: () => undefined,
+  getSelectedAssistant: () => selectedAssistantImpl(),
   hasAssistants: () => false,
   isLocalAssistant: () => false,
   isLocalClient: isLocalClientMock,
@@ -1196,6 +1200,7 @@ describe("api-interceptors / localGatewayAuthRecoveryInterceptor", () => {
     clearGatewayTokenStorage();
     resetGw401RecoveryState();
     primeGatewayWithRepairImpl = async () => {};
+    selectedAssistantImpl = () => undefined;
   });
 
   test("recovers the session in place on 401, never reloading the page", async () => {
@@ -1348,6 +1353,34 @@ describe("api-interceptors / localGatewayAuthRecoveryInterceptor", () => {
     // THEN the pre-recovery connection is back in the slot
     expect(getSelfHostedIngressUrl()).toBe(GATEWAY_URL);
     expect(getSelfHostedActorToken()).toBe("tok");
+  });
+
+  test("a failed recovery leaves the slot alone once the selection has moved", async () => {
+    /**
+     * A switch to a platform assistant, or a logout, clears the slot
+     * legitimately while the re-prime is in flight. Restoring the old
+     * ingress then would route the new selection's requests to the old
+     * local gateway, so the restore is gated on the selection the
+     * recovery started for.
+     */
+
+    // GIVEN the recovery started for assistant A
+    selectedAssistantImpl = () => ({ assistantId: "asst-a" });
+
+    // AND, mid-prime, the selection moves to a platform assistant and the
+    // lifecycle clears the slot, then the prime fails
+    primeGatewayWithRepairImpl = async () => {
+      selectedAssistantImpl = () => ({ assistantId: "asst-platform" });
+      setSelfHostedConnection(null);
+      throw new Error("readyz failed");
+    };
+
+    // WHEN a 401 reaches the interceptor and recovery fails
+    await localGatewayAuthRecoveryInterceptor(gatewayResponse(401));
+
+    // THEN the old assistant's ingress is NOT put back
+    expect(getSelfHostedIngressUrl()).toBeNull();
+    expect(getSelfHostedActorToken()).toBeNull();
   });
 
   test("remote-gateway mode keeps the budgeted reload", async () => {

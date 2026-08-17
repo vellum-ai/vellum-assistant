@@ -39,6 +39,7 @@ import { ensureCsrfCookie, getCsrfToken } from "@/lib/auth/csrf";
 import { clearGatewayToken } from "@/lib/auth/gateway-session";
 import { ApiError, toApiError } from "@/utils/api-errors";
 import {
+  getSelectedAssistant,
   isLocalClient,
   isPlatformDisabled,
   isRemoteGatewayMode,
@@ -545,20 +546,28 @@ function recoverLocalGatewaySessionInPlace(): Promise<boolean> {
     // connection slot before its readyz probe, so a failed recovery would
     // otherwise leave the renderer with no ingress route and this
     // interceptor with no ingress to match, disabling every future
-    // attempt. Snapshot the slot and put it back if the prime dies having
-    // nulled it; the guard on null avoids clobbering a concurrent
-    // legitimate re-prime (an assistant switch mid-recovery).
+    // attempt. Snapshot the slot and put it back only if the prime dies
+    // having nulled it for the assistant it was recovering: a switch or a
+    // logout mid-recovery clears the slot legitimately (and moves the
+    // selection), and restoring then would route the new selection's
+    // requests to the old local gateway. A concurrent re-prime to another
+    // local assistant leaves the slot non-null and is likewise left alone.
     const previous = {
       url: getSelfHostedIngressUrl(),
       token: getSelfHostedActorToken(),
     };
+    const recoveringFor = getSelectedAssistant()?.assistantId ?? null;
     try {
       clearGatewayToken();
       await primeLocalGatewayConnectionWithRepair();
       recordLifecycleDiagnostic("gw_401_recovery", { outcome: "recovered" });
       return true;
     } catch (err) {
-      if (getSelfHostedIngressUrl() === null && previous.url !== null) {
+      if (
+        getSelfHostedIngressUrl() === null &&
+        previous.url !== null &&
+        (getSelectedAssistant()?.assistantId ?? null) === recoveringFor
+      ) {
         setSelfHostedConnection(previous);
       }
       recordLifecycleDiagnostic("gw_401_recovery", { outcome: "failed" });
