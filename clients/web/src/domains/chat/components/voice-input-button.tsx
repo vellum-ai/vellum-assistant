@@ -1066,10 +1066,10 @@ export const VoiceInputButton = forwardRef<
         processing ? (
           <Loader2 className="animate-spin" strokeWidth={2} />
         ) : recording ? (
-          // Filled rounded-square "stop" glyph (matches the detail-panel stop
-          // button + the design in Figma 6764:6744). Sized to 20px via
+          // Rounded-square "stop" glyph, stroked to match the detail-panel
+          // stop button and the rest of the icon set. Sized to 20px via
           // `iconOnlyGlyphClassName` below.
-          <Square fill="currentColor" strokeWidth={2} />
+          <Square strokeWidth={2} />
         ) : (
           <Mic strokeWidth={2} />
         )

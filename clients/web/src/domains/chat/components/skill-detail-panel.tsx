@@ -114,9 +114,13 @@ export function SkillDetailPanel({ skillId, onClose }: SkillDetailPanelProps) {
             <Menu.Root>
               <Menu.Trigger asChild>
                 <Button
-                  variant="ghost"
+                  // Matches the header's Close button: same `outlined`
+                  // variant, same bare `iconOnly` glyph (the Button sizes it),
+                  // and a short tooltip beside the descriptive aria-label.
+                  variant="outlined"
                   iconOnly={<MoreHorizontal />}
                   aria-label="Skill actions"
+                  tooltip="More"
                   className="shrink-0"
                 />
               </Menu.Trigger>

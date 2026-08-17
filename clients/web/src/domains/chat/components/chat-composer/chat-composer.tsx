@@ -955,7 +955,7 @@ export function ChatComposer({
   ) : (
     <Button
       variant="primary"
-      iconOnly={<Square className="h-3 w-3" fill="currentColor" />}
+      iconOnly={<Square className="h-3 w-3" />}
       iconOnlyGlyphClassName={isMobile ? MOBILE_GLYPH_CLASS : undefined}
       expandOnMobile={!isMobile}
       onClick={onStopGenerating}

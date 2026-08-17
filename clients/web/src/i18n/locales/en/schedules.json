@@ -64,6 +64,7 @@
     "turnOnMemory": "Turn on Memory",
     "memorySettings": "Memory settings",
     "fallbackModelProfile": "Default (system task model)",
+    "repeats": "Repeats",
     "nameHeartbeat": "Heartbeat",
     "nameConsolidation": "Consolidation",
     "nameRetrospective": "Memory retrospective",

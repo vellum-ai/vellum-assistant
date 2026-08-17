@@ -117,27 +117,31 @@ export function ActivityStepsPanel({
 
   return (
     <DetailShell
+      // Drilled into a step, the back control takes the leading slot the glyph
+      // would occupy: same placement, variant, and spacing as the subagent,
+      // workflow, and ACP run panels' Back buttons.
+      icon={
+        stepDetail ? (
+          <Button
+            variant="outlined"
+            iconOnly={<ChevronLeft />}
+            aria-label="Back to all steps"
+            tooltip="All steps"
+            onClick={() => setStepDetail(null)}
+            className="shrink-0"
+          />
+        ) : undefined
+      }
       titleNode={
         stepDetail ? (
-          // Drilled into a step: back chevron + the step's title replace the
-          // run summary, so the header always names what the body shows.
-          <span className="flex min-w-0 items-center gap-1 py-0.5">
-            {/* Full-size ghost icon button, mirroring the shell's close X. */}
-            <Button
-              variant="ghost"
-              iconOnly={<ChevronLeft />}
-              aria-label="Back to all steps"
-              tooltip="All steps"
-              onClick={() => setStepDetail(null)}
-              className="-ml-2.5 shrink-0"
-            />
-            <Typography
-              variant="title-medium"
-              className="min-w-0 shrink truncate leading-snug text-[var(--content-default)]"
-            >
-              {stepDetailTitle}
-            </Typography>
-          </span>
+          // Drilled into a step: the step's title replaces the run summary, so
+          // the header always names what the body shows.
+          <Typography
+            variant="title-medium"
+            className="min-w-0 shrink truncate py-0.5 leading-snug text-[var(--content-default)]"
+          >
+            {stepDetailTitle}
+          </Typography>
         ) : (
           // Timeline level, per Figma: title · N steps — inline at the same
           // size, separated by a 3px midline dot, count in the secondary tone.

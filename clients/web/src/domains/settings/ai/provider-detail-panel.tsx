@@ -1,4 +1,4 @@
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 
@@ -35,6 +35,10 @@ export function ProviderDetailPanel({
 }: ProviderDetailPanelProps) {
   const { t } = useTranslation("settings");
   const queryClient = useQueryClient();
+  // Set by the footer row's callback ref, then handed to the editor as its
+  // portal target. Null on the first render, so the actions land one commit
+  // after the body.
+  const [actionsSlot, setActionsSlot] = useState<HTMLDivElement | null>(null);
   const { data } = useQuery(
     inferenceProviderconnectionsGetOptions({
       path: { assistant_id: assistantId },
@@ -86,6 +90,10 @@ export function ProviderDetailPanel({
       }
       closeVariant="outlined"
       onClose={onClose}
+      // The editor owns the save state, so rather than lifting it we hand it
+      // this row to portal its Cancel/Save into. That puts the actions in the
+      // shell's pinned footer, matching `ProfileDetailPanel`.
+      footer={<div ref={setActionsSlot} className="flex justify-end gap-2" />}
     >
       {/* Wait for the list before mounting an edit session so the editor
           never snapshots an absent connection. The add flow has no
@@ -95,6 +103,7 @@ export function ProviderDetailPanel({
           mode={connection ? "edit" : "create"}
           connection={connection}
           variant="panel"
+          actionsSlot={actionsSlot}
           assistantId={assistantId}
           existingNames={connections.map((c) => c.name)}
           connections={connections}

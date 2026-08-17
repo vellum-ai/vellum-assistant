@@ -88,7 +88,15 @@ export function DetailShellHeader({
             {title}
           </Typography>
         )}
-        {headerTrailing}
+        {/* `-ml-1.5` trims the cluster's `gap-3` (12px) down to 6px between the
+            title and the tag or status badge that sits next to it. Every other
+            header gap stays at 12px, since the negative margin only pulls in
+            this one edge. */}
+        {headerTrailing && (
+          <span className="-ml-1.5 flex shrink-0 items-center">
+            {headerTrailing}
+          </span>
+        )}
       </div>
       {headerActions}
       <Button

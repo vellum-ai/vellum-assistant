@@ -13,6 +13,7 @@ import { useState } from "react";
 import { useNavigate } from "react-router";
 
 import { DetailShellHeader } from "@/components/detail-shell";
+import { InsetDetailCard } from "@/components/inset-detail-card";
 import { useTranslation } from "@/i18n";
 import { SCHEDULE_USAGE_WINDOW_DAYS } from "@/utils/usage-window";
 import { pluginNameFromSourceKey } from "@/domains/schedules/plugin-source";
@@ -41,28 +42,22 @@ import {
 } from "@/generated/daemon/@tanstack/react-query.gen";
 import { navigateToConversation } from "@/utils/conversation-navigation";
 import { routes } from "@/utils/routes";
-import { Button, Skeleton, Typography, cn } from "@vellumai/design-library";
+import { Button, Skeleton, cn } from "@vellumai/design-library";
 import { ConfirmDialog } from "@vellumai/design-library/components/confirm-dialog";
 import { toast } from "@vellumai/design-library/components/toast";
 
 import type { Schedule, ScheduleRun } from "@/domains/settings/types/schedules";
 
-function SectionLabel({ children }: { children: string }) {
-  return (
-    <Typography
-      variant="label-small-default"
-      as="div"
-      className="mb-2 uppercase tracking-wider text-[var(--content-tertiary)]"
-    >
-      {children}
-    </Typography>
-  );
-}
-
+/**
+ * One label/value line in the Details card. `min-h-6` pins the row to 24px
+ * whatever the value slot holds, matching `SystemTaskDetailPanel` so the two
+ * schedules panels share one row rhythm; the enclosing stack owns the gap
+ * between rows.
+ */
 function InfoRow({ label, value }: { label: string; value: ReactNode }) {
   return (
-    <div className="flex items-center justify-between gap-4 py-1">
-      <span className="text-body-medium-lighter text-[var(--content-secondary)]">
+    <div className="flex min-h-6 items-center justify-between gap-4">
+      <span className="shrink-0 text-body-medium-lighter text-[var(--content-secondary)]">
         {label}
       </span>
       <span className="min-w-0 text-right text-body-medium-lighter text-[var(--content-default)]">
@@ -141,7 +136,7 @@ function ScheduleModelProfileField({
           label={t("scheduleDetail.modelProfile")}
           value={t("scheduleDetail.notUsedForWorkflow")}
         />
-        <p className="pb-1 text-body-small-default text-[var(--content-tertiary)]">
+        <p className="text-body-small-default text-[var(--content-tertiary)]">
           {t("scheduleDetail.modelProfileWorkflowNote")}
         </p>
       </>
@@ -150,7 +145,7 @@ function ScheduleModelProfileField({
 
   if (isPast) {
     return (
-      <div className="py-1 text-body-medium-lighter text-[var(--content-default)]">
+      <div className="text-body-medium-lighter text-[var(--content-default)]">
         <ModelProfileRow
           assistantId={assistantId}
           pinnedProfile={schedule.inferenceProfile}
@@ -465,7 +460,10 @@ function RecentRuns({
     );
   }
   return (
-    <div className="divide-y divide-[var(--border-base)]">
+    // `-mx-2` cancels the rows' own `px-2` against the enclosing
+    // `InsetDetailCard` padding, so row text lines up with the card's edge
+    // while each row's hover fill still bleeds the full width.
+    <div className="-mx-2 divide-y divide-[var(--border-base)]">
       {runs.map((run, index) => (
         <RunRow
           key={run.id}
@@ -568,11 +566,11 @@ export function ScheduleDetailPanel({
             pluginName ? undefined : (
               <Button
                 variant="dangerOutline"
-                leftIcon={<Trash2 className="h-3.5 w-3.5" />}
+                iconOnly={<Trash2 />}
+                aria-label={t("scheduleDetail.delete")}
+                tooltip={t("scheduleDetail.delete")}
                 onClick={() => setConfirmingDelete(true)}
-              >
-                {t("scheduleDetail.delete")}
-              </Button>
+              />
             )
           }
           closeLabel={t("scheduleDetail.closeAria")}
@@ -588,9 +586,8 @@ export function ScheduleDetailPanel({
             </p>
           ) : null}
 
-          <section>
-            <SectionLabel>{t("scheduleDetail.details")}</SectionLabel>
-            <div className="rounded-lg border border-[var(--border-base)] bg-[var(--surface-lift)] px-4 py-2">
+          <InsetDetailCard title={t("scheduleDetail.details")}>
+            <div className="space-y-2">
               {schedule.cadenceDescription ? (
                 <InfoRow
                   label={t("scheduleDetail.cadence")}
@@ -627,12 +624,11 @@ export function ScheduleDetailPanel({
                 />
               ) : null}
             </div>
-          </section>
+          </InsetDetailCard>
 
           <StatCards usage={usage} />
 
-          <section>
-            <SectionLabel>{t("scheduleDetail.recentRuns")}</SectionLabel>
+          <InsetDetailCard title={t("scheduleDetail.recentRuns")}>
             <RecentRuns
               runs={runs?.runs}
               isLoading={isLoading}
@@ -641,7 +637,7 @@ export function ScheduleDetailPanel({
                 navigateToConversation(navigate, conversationId)
               }
             />
-          </section>
+          </InsetDetailCard>
         </div>
 
         {/* Footer actions */}
