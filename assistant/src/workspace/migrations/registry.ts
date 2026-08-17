@@ -143,6 +143,7 @@ import { consolidateVoiceFrontDoorMigration } from "./142-consolidate-voice-fron
 import { repairDeprecatedCodexModelIdMigration } from "./143-repair-deprecated-codex-model-id.js";
 import { convertStrandedSubscriptionOpenaiProfilesMigration } from "./144-convert-stranded-subscription-openai-profiles.js";
 import { collapseProfileBindingsToEntriesMigration } from "./145-collapse-profile-bindings-to-entries.js";
+import { repairRetiredFireworksDeepseekFlashModelIdMigration } from "./146-repair-retired-fireworks-deepseek-flash-model-id.js";
 import { migrateToWorkspaceVolumeMigration } from "./migrate-to-workspace-volume.js";
 import type { WorkspaceMigration } from "./types.js";
 
@@ -301,4 +302,5 @@ export const WORKSPACE_MIGRATIONS: WorkspaceMigration[] = [
   repairDeprecatedCodexModelIdMigration,
   convertStrandedSubscriptionOpenaiProfilesMigration,
   collapseProfileBindingsToEntriesMigration,
+  repairRetiredFireworksDeepseekFlashModelIdMigration,
 ];
