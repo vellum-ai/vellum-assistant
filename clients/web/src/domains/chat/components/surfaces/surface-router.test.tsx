@@ -41,6 +41,15 @@ mock.module(CARD_SURFACE_MODULE, () => ({
   },
 }));
 
+// Stands in for the real picker, which would pull the daemon config, TTS
+// provider, and managed-voice queries into a routing test. What matters here is
+// which component the router picks.
+mock.module("@/domains/chat/components/surfaces/voice-picker-surface", () => ({
+  VoicePickerSurface: ({ assistantId }: { assistantId: string | null }) => (
+    <div data-testid="voice-picker-surface">{assistantId ?? "no-assistant"}</div>
+  ),
+}));
+
 import { SurfaceRouter } from "@/domains/chat/components/surfaces/surface-router";
 import type { Surface } from "@/domains/chat/types/types";
 
@@ -101,6 +110,27 @@ describe("SurfaceRouter error boundary", () => {
     expect(getByRole("alert").textContent).toContain("My App");
     // …while the sibling copy_block surface renders normally.
     expect(getByText("still here")).toBeTruthy();
+  });
+});
+
+describe("SurfaceRouter: voice picker", () => {
+  test("routes surfaceType \"voice_picker\" to the inline picker", () => {
+    const { getByTestId, container } = render(
+      <SurfaceRouter
+        surface={makeSurface({
+          surfaceId: "surface-voice",
+          surfaceType: "voice_picker",
+          title: "Pick a voice",
+        })}
+        onAction={() => {}}
+        assistantId="asst_1"
+      />,
+    );
+
+    // The acceptance criterion for registering the type: not the fallback card.
+    expect(container.textContent).not.toContain("Unsupported surface type");
+    // The owning assistant is threaded through, not read from global state.
+    expect(getByTestId("voice-picker-surface").textContent).toBe("asst_1");
   });
 });
 

@@ -611,9 +611,9 @@ export interface ViewerActions {
 
   /**
    * Drop the payloads of the panels whose content is scoped to one
-   * conversation's transcript. Called on conversation switch: the panels are
-   * already dismissed by the `setMainView("chat")` that accompanies it, and
-   * holding their payloads keeps the previous conversation's data alive -
+   * conversation's transcript. Called on conversation switch: overlay
+   * panels are dismissed when the viewer returns to chat, and holding
+   * their payloads keeps the previous conversation's data alive -
    * `activeMessageFiles` in particular retains decoded attachment blob/data
    * URLs. Leaves `mainView` alone; this is a memory concern, not navigation.
    */

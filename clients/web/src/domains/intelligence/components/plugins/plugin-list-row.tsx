@@ -6,6 +6,7 @@ import { UpdateAvailableBadge } from "@/domains/intelligence/components/plugins/
 import type { PluginListItem } from "@/domains/intelligence/plugins/types";
 import { usePluginIconSrc } from "@/domains/intelligence/plugins/use-plugin-icon-src";
 import type { PluginDrift } from "@/domains/intelligence/use-plugin-drift";
+import { useTranslation } from "@/i18n";
 import { Button, Card, Tag } from "@vellumai/design-library";
 
 interface PluginListRowProps {
@@ -41,6 +42,7 @@ export function PluginListRow({
   isRemoving = false,
   isUpgrading = false,
 }: PluginListRowProps) {
+  const { t } = useTranslation("intelligence");
   const available = item.status === "available";
   const updateAvailable = drift?.status === "update-available";
   // Read-only auto-include state. Rendered when the daemon reports it; changing
@@ -100,7 +102,7 @@ export function PluginListRow({
                 className="shrink-0 text-body-small-default"
                 style={{ color: "var(--content-tertiary)" }}
               >
-                v{item.version}
+                {t("pluginListRow.version", { version: item.version })}
               </span>
             ) : null}
             {/* The rows share the My Superpowers list with skills — the badge
@@ -109,7 +111,7 @@ export function PluginListRow({
                 tell Local from External. The detail view derives origin from
                 the plugin's own `source` instead.) */}
             <Tag tone="neutral" leftIcon={<Puzzle aria-hidden />}>
-              Plugin
+              {t("pluginListRow.pluginTag")}
             </Tag>
             {/* The chip is the Upgrade control; it shows on any drift,
                 regardless of the auto-include state. */}
@@ -124,7 +126,7 @@ export function PluginListRow({
             className="mt-1 truncate text-body-medium-lighter"
             style={{ color: "var(--content-tertiary)" }}
           >
-            {item.description ?? "No description provided."}
+            {item.description ?? t("pluginListRow.noDescription")}
           </p>
           {item.issues && item.issues.length > 0 ? (
             <p
@@ -136,8 +138,10 @@ export function PluginListRow({
             >
               {item.issues[0]}
               {item.issues.length > 1
-                ? ` (+${item.issues.length - 1} more)`
-                : ""}
+                ? t("pluginListRow.moreIssues", {
+                    count: item.issues.length - 1,
+                  })
+                : null}
             </p>
           ) : null}
         </div>
@@ -148,7 +152,7 @@ export function PluginListRow({
               type="button"
               iconOnly={<Loader2 className="animate-spin" aria-hidden />}
               disabled
-              aria-label="Installing"
+              aria-label={t("pluginListRow.installingAriaLabel")}
               expandOnMobile={false}
             />
           ) : (
@@ -160,7 +164,7 @@ export function PluginListRow({
                 onInstall?.();
               }}
               disabled={!onInstall}
-              aria-label="Install plugin"
+              aria-label={t("pluginListRow.installPluginAriaLabel")}
               expandOnMobile={false}
             />
           )
@@ -172,7 +176,9 @@ export function PluginListRow({
           <div className="flex shrink-0 items-center gap-2">
             {showEnablement ? (
               <Tag tone={item.enabled ? "positive" : "neutral"}>
-                {item.enabled ? "Enabled" : "Disabled"}
+                {item.enabled
+                  ? t("pluginListRow.enabled")
+                  : t("pluginListRow.disabled")}
               </Tag>
             ) : null}
             <Button
@@ -190,7 +196,7 @@ export function PluginListRow({
                 onRemove?.();
               }}
               disabled={isRemoving || isUpgrading || !onRemove}
-              aria-label="Remove plugin"
+              aria-label={t("pluginListRow.removePluginAriaLabel")}
               expandOnMobile={false}
             />
           </div>

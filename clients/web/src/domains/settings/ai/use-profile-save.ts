@@ -5,6 +5,7 @@ import { useQuery } from "@tanstack/react-query";
 import { toast } from "@vellumai/design-library/components/toast";
 
 import { useLlmConfigPatch } from "@/domains/settings/ai/use-llm-config-patch";
+import { t } from "@/i18n";
 import { captureError } from "@/lib/sentry/capture-error";
 import { configGetOptions } from "@/generated/daemon/@tanstack/react-query.gen";
 import type { ProfilePatchEntry } from "@/generated/daemon/types.gen";
@@ -109,7 +110,11 @@ export function useProfileSave(
     }
 
     if (isNew) {
-      toast.success(`Profile "${entry.label ?? name}" created`);
+      toast.success(
+        t("settings:useProfileSave.createdToast", {
+          name: entry.label ?? name,
+        }),
+      );
     }
     onSaved?.();
   }

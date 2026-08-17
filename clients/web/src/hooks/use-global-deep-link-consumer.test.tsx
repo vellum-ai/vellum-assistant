@@ -32,6 +32,7 @@ import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { useViewerStore } from "@/stores/viewer-store";
 import { routes } from "@/utils/routes";
 import * as toastModule from "@vellumai/design-library/components/toast";
+import { stubViewportAxes } from "@/hooks/viewport-axes.test-helper";
 
 /**
  * Location the app is "on", advanced by the consumer's own `navigate` calls.
@@ -109,7 +110,7 @@ const asStarter = (start: (a: string, c: string | null) => void) => ({
 });
 
 const resetStores = () => {
-  useViewerStore.setState({ mainView: "chat" });
+  useViewerStore.getState().reset();
   useSubagentStore.getState().reset();
   useWorkflowStore.getState().reset();
   useConversationStore.getState().reset();
@@ -184,6 +185,35 @@ describe("deeplink.openThread", () => {
     expect(ensureMainWindowVisibleMock).toHaveBeenCalledTimes(1);
   });
 
+  test("keeps a loaded app in the side-by-side layout so the thread is visible beside it", () => {
+    const restoreViewport = stubViewportAxes({
+      narrow: false,
+      coarsePointer: false,
+    });
+    useViewerStore.setState({
+      mainView: "app",
+      activeAppId: "app-1",
+      openedAppState: { appId: "app-1", name: "My App", html: "<h1>hi</h1>" },
+    });
+    renderConsumer();
+
+    try {
+      act(() => {
+        publish("deeplink.openThread", { threadId: "abc-123" });
+      });
+
+      expect(useViewerStore.getState().mainView).toBe("app-editing");
+      expect(useConversationStore.getState().editingConversationId).toBe(
+        "abc-123",
+      );
+      expect(navigateMock).toHaveBeenCalledWith(
+        "/assistant/conversations/abc-123",
+      );
+    } finally {
+      restoreViewport();
+    }
+  });
+
   test("resets the main view to chat so the thread isn't hidden behind the app viewer", () => {
     useViewerStore.setState({ mainView: "app" });
     renderConsumer();
@@ -234,6 +264,68 @@ describe("deeplink.openThread", () => {
       "/assistant/conversations/abc-123",
     );
     expect(ensureMainWindowVisibleMock).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("deeplink.sendToThread", () => {
+  test("navigates to the target thread, parks the message, and requests composer focus", () => {
+    renderConsumer();
+
+    act(() => {
+      publish("deeplink.sendToThread", {
+        threadId: "abc-123",
+        message: "gym done",
+      });
+    });
+
+    expect(navigateMock).toHaveBeenCalledWith(
+      "/assistant/conversations/abc-123",
+    );
+    // Parked, never auto-sent: a custom-scheme link carries no caller
+    // identity, so the send stays with the user (one tap, message staged).
+    expect(
+      usePendingDeepLinkStore.getState().pendingComposerMessage,
+    ).toBe("gym done");
+    expect(ensureMainWindowVisibleMock).toHaveBeenCalledTimes(1);
+  });
+
+  test("runs the conversation-switch path when targeting another thread", () => {
+    useSubagentStore.setState({ orderedIds: ["sub-1"] });
+    useConversationStore.setState({ activeConversationId: "old-conversation" });
+    renderConsumer();
+
+    act(() => {
+      publish("deeplink.sendToThread", {
+        threadId: "abc-123",
+        message: "gym done",
+      });
+    });
+
+    expect(useSubagentStore.getState().orderedIds).toEqual([]);
+    expect(useConversationStore.getState().activeConversationId).toBe(
+      "abc-123",
+    );
+  });
+
+  test("same-thread delivery keeps live state and still parks the message", () => {
+    useSubagentStore.setState({ orderedIds: ["sub-1"] });
+    useConversationStore.setState({ activeConversationId: "abc-123" });
+    renderConsumer();
+
+    act(() => {
+      publish("deeplink.sendToThread", {
+        threadId: "abc-123",
+        message: "gym done",
+      });
+    });
+
+    expect(useSubagentStore.getState().orderedIds).toEqual(["sub-1"]);
+    expect(navigateMock).toHaveBeenCalledWith(
+      "/assistant/conversations/abc-123",
+    );
+    expect(
+      usePendingDeepLinkStore.getState().pendingComposerMessage,
+    ).toBe("gym done");
   });
 });
 

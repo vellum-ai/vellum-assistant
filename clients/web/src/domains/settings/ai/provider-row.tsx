@@ -11,6 +11,7 @@ import {
   providerRowMeta,
 } from "@/domains/settings/ai/provider-row-meta";
 import type { ProviderConnection } from "@/generated/daemon/types.gen";
+import { useTranslation } from "@/i18n";
 
 interface ProviderRowProps {
   connection: ProviderConnection;
@@ -45,6 +46,7 @@ export function ProviderRow({
   onSetDefault,
   onDelete,
 }: ProviderRowProps) {
+  const { t } = useTranslation("settings");
   const isManaged = connection.isManaged ?? false;
   const displayName = providerConnectionDisplayName(connection);
   const eligibleForDefault = isDefaultProviderId(connection.provider);
@@ -65,34 +67,35 @@ export function ProviderRow({
       onClick={onOpen}
       showChevron={false}
       selected={selected}
-      contentAriaLabel={onOpen ? `Open provider ${displayName}` : undefined}
+      contentAriaLabel={
+        onOpen
+          ? t("providerRow.openProviderAriaLabel", { displayName })
+          : undefined
+      }
       trailingInteractive
       trailing={
         <>
           {isManaged ? (
-            <Tag tone="neutral" title="Runs on Vellum's managed credentials.">
-              Managed
+            <Tag
+              tone="neutral"
+              title={t("providerRow.managedTagTitle")}
+            >
+              {t("providerRow.managedTag")}
             </Tag>
           ) : null}
           {isDefault ? (
-            <Tag
-              tone="info"
-              title="Built-in profiles (Balanced, Quality, Cost, Speed) use this provider."
-            >
-              Default
+            <Tag tone="info" title={t("providerRow.defaultTagTitle")}>
+              {t("providerRow.defaultTag")}
             </Tag>
           ) : null}
           {connection.provider === "ollama" ? (
-            <Tag tone="neutral" title="Runs models on this machine.">
-              Local
+            <Tag tone="neutral" title={t("providerRow.localTagTitle")}>
+              {t("providerRow.localTag")}
             </Tag>
           ) : null}
           {connection.provider === "openai-compatible" ? (
-            <Tag
-              tone="neutral"
-              title="A provider you created, served by an OpenAI-compatible endpoint."
-            >
-              Custom
+            <Tag tone="neutral" title={t("providerRow.customTagTitle")}>
+              {t("providerRow.customTag")}
             </Tag>
           ) : null}
           {hasMenu ? (
@@ -102,16 +105,20 @@ export function ProviderRow({
                   variant="ghost"
                   size="compact"
                   iconOnly={<EllipsisVertical />}
-                  aria-label={`Actions for ${displayName}`}
+                  aria-label={t("providerRow.actionsAriaLabel", {
+                    displayName,
+                  })}
                 />
               </Menu.Trigger>
               <Menu.Content align="end" sideOffset={4}>
                 {showEdit ? (
-                  <Menu.Item onSelect={onOpen}>Edit</Menu.Item>
+                  <Menu.Item onSelect={onOpen}>
+                    {t("providerRow.edit")}
+                  </Menu.Item>
                 ) : null}
                 {showSetDefault ? (
                   <Menu.Item disabled={isSettingDefault} onSelect={onSetDefault}>
-                    Set as default
+                    {t("providerRow.setAsDefault")}
                   </Menu.Item>
                 ) : null}
                 {showDelete ? (
@@ -119,7 +126,7 @@ export function ProviderRow({
                     onSelect={onDelete}
                     className="text-[var(--system-negative-strong)] data-[highlighted]:text-[var(--system-negative-strong)]"
                   >
-                    Delete
+                    {t("providerRow.delete")}
                   </Menu.Item>
                 ) : null}
               </Menu.Content>

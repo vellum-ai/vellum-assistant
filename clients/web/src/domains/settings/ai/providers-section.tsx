@@ -16,6 +16,7 @@ import {
   inferenceProviderconnectionsGetOptions,
 } from "@/generated/daemon/@tanstack/react-query.gen";
 import { useSupportsDefaultProviderSettings } from "@/lib/backwards-compat/default-provider-settings";
+import { useTranslation } from "@/i18n";
 
 interface ProvidersSectionProps {
   assistantId: string;
@@ -43,6 +44,7 @@ export function ProvidersSection({
   onAddProvider,
   onConnectionDeleted,
 }: ProvidersSectionProps) {
+  const { t } = useTranslation("settings");
   const {
     data,
     isLoading,
@@ -81,14 +83,14 @@ export function ProvidersSection({
 
   return (
     <LanguageModelSection
-      title="Providers"
+      title={t("providersSection.title")}
       action={
         <Button
           variant="outlined"
           onClick={onAddProvider}
           leftIcon={<Plus />}
         >
-          Add Provider
+          {t("providersSection.addProvider")}
         </Button>
       }
     >
@@ -104,7 +106,7 @@ export function ProvidersSection({
           as="p"
           className="py-4 text-center text-(--system-negative-strong)"
         >
-          Failed to load providers. Please try again.
+          {t("providersSection.loadError")}
         </Typography>
       ) : connections.length === 0 ? (
         <Typography
@@ -112,7 +114,7 @@ export function ProvidersSection({
           as="p"
           className="py-4 text-center text-(--content-tertiary)"
         >
-          No providers yet. Add one to get started.
+          {t("providersSection.empty")}
         </Typography>
       ) : (
         connections.map((conn) => (

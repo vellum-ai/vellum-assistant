@@ -33,7 +33,6 @@ const runningEntry: SubagentEntry = {
   isFork: false,
   inputTokens: 1200,
   outputTokens: 340,
-  totalCost: 0.68,
   spawnedAt: now,
   events: [
     {
@@ -54,7 +53,6 @@ const completedEntry: SubagentEntry = {
   status: "completed",
   inputTokens: 2400,
   outputTokens: 680,
-  totalCost: 1.12,
   events: [
     ...runningEntry.events,
     {

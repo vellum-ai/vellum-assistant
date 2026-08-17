@@ -12,6 +12,7 @@
 import { queryOptions } from "@tanstack/react-query";
 
 import { memorygraphGet } from "@/generated/daemon/sdk.gen";
+import { t } from "@/i18n";
 import {
   ApiError,
   assertHasResponse,
@@ -19,7 +20,9 @@ import {
 } from "@/utils/api-errors";
 import type { MemoryGraphResult } from "./types";
 
-const FAILURE_MESSAGE = "Failed to load the memory graph.";
+function failureMessage(): string {
+  return t("getMemoryGraph.failureMessage", { ns: "intelligence" });
+}
 
 export function memoryGraphOptions(assistantId: string) {
   return queryOptions<MemoryGraphResult>({
@@ -34,7 +37,7 @@ export function memoryGraphOptions(assistantId: string) {
         throwOnError: false,
       });
 
-      assertHasResponse(response, error, FAILURE_MESSAGE);
+      assertHasResponse(response, error, failureMessage());
 
       // An assistant/daemon predating the `/memory-graph` route answers 404;
       // treat that as "not supported here" so an older assistant shows the
@@ -46,7 +49,7 @@ export function memoryGraphOptions(assistantId: string) {
       if (!response.ok) {
         throw new ApiError(
           response.status,
-          extractErrorMessage(error, response, FAILURE_MESSAGE),
+          extractErrorMessage(error, response, failureMessage()),
         );
       }
 

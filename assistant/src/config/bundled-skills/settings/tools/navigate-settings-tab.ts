@@ -2,6 +2,7 @@ import type {
   ToolContext,
   ToolExecutionResult,
 } from "../../../../tools/types.js";
+import { voicePickerHint } from "./shared.js";
 
 const SETTINGS_TABS = [
   "General",
@@ -22,6 +23,10 @@ type SettingsTab = (typeof SETTINGS_TABS)[number];
 const LEGACY_TAB_ALIASES: Record<string, SettingsTab> = {
   "Archived Conversations": "Archive",
 };
+
+const VOICE_TAB_PICKER_HINT = voicePickerHint(
+  "which puts the picker in the conversation without navigating away. Navigating here is right only when the user explicitly asked to open Settings.",
+);
 
 export async function run(
   input: Record<string, unknown>,
@@ -45,8 +50,9 @@ export async function run(
     });
   }
 
+  const opened = `Opened settings to the ${tab} tab.`;
   return {
-    content: `Opened settings to the ${tab} tab.`,
+    content: tab === "Voice" ? `${opened} ${VOICE_TAB_PICKER_HINT}` : opened,
     isError: false,
   };
 }

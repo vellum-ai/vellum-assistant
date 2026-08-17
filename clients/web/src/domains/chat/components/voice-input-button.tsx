@@ -24,6 +24,11 @@ import {
   type SttFailureReason,
 } from "@/domains/chat/voice/stt-api";
 import { useVoiceRecordingStore } from "@/domains/chat/voice/voice-recording-store";
+import {
+  MOBILE_CONTROL_CLASS,
+  MOBILE_GHOST_WASH_CLASS,
+  MOBILE_GLYPH_CLASS,
+} from "@/domains/chat/components/chat-composer/composer-mobile-chrome";
 import { useIsNativePlatform } from "@/runtime/native-auth";
 import { useVellumCommands } from "@/runtime/vellum-commands";
 import { getVoiceInputMediaStream } from "@/utils/voice-input-device";
@@ -246,6 +251,14 @@ interface VoiceInputButtonProps {
   disabled?: boolean;
   onBeforeStart?: () => boolean | Promise<boolean>;
   renderButton?: boolean;
+  /**
+   * Render as the mobile composer row's mic: a 40x40 circular control holding
+   * a 20px glyph. The composer drives this from the same window-width signal
+   * that produces that row, so a phone and a window dragged narrow get the
+   * same mic. Off by default, which leaves the `Button` primitive's own sizing
+   * in charge.
+   */
+  mobileRow?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -265,6 +278,7 @@ export const VoiceInputButton = forwardRef<
     disabled = false,
     onBeforeStart,
     renderButton = true,
+    mobileRow = false,
   },
   ref,
 ) {
@@ -1052,19 +1066,26 @@ export const VoiceInputButton = forwardRef<
         processing ? (
           <Loader2 className="animate-spin" strokeWidth={2} />
         ) : recording ? (
-          // Filled rounded-square "stop" glyph (matches the detail-panel stop
-          // button + the design in Figma 6764:6744). Sized to 20px via
+          // Rounded-square "stop" glyph, stroked to match the detail-panel
+          // stop button and the rest of the icon set. Sized to 20px via
           // `iconOnlyGlyphClassName` below.
-          <Square fill="currentColor" strokeWidth={2} />
+          <Square strokeWidth={2} />
         ) : (
           <Mic strokeWidth={2} />
         )
       }
-      // The recording "stop" glyph reads at 20px per the design; the mic /
+      // Every glyph in the mobile composer row reads at 20px, and the recording
+      // "stop" glyph does everywhere per the design. Outside those the mic and
       // loader keep the Button's default icon-only sizing.
       iconOnlyGlyphClassName={
-        recording ? "[&_svg]:size-5 touch-mobile:[&_svg]:size-5" : undefined
+        mobileRow
+          ? MOBILE_GLYPH_CLASS
+          : recording
+            ? "[&_svg]:size-5 touch-mobile:[&_svg]:size-5"
+            : undefined
       }
+      // The row sizes its own controls when it owns this one.
+      expandOnMobile={!mobileRow}
       onClick={() => {
         if (processing) {
           return;
@@ -1086,6 +1107,10 @@ export const VoiceInputButton = forwardRef<
         // ghost icon-only variant's default-tone mobile chrome so mobile
         // matches desktop.
         "[--vbtn-fg:var(--content-tertiary)] touch-mobile:[--vbtn-fg:var(--content-tertiary)]",
+        // The press wash comes with the sizing: the primitive paints one for
+        // ghost icon-only buttons under `touch-mobile:` alone, which a narrow
+        // mouse-driven window never matches.
+        mobileRow && cn(MOBILE_CONTROL_CLASS, MOBILE_GHOST_WASH_CLASS),
         isNative && recording && "h-12 w-12 max-md:h-12 max-md:w-12",
       )}
     />

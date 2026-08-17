@@ -9,6 +9,7 @@
  */
 
 import { buildPersonalityMessage } from "@/assistant/personality-rewrite";
+import { t } from "@/i18n";
 
 import { runIdentityRewrite } from "./run-identity-rewrite";
 
@@ -35,7 +36,9 @@ export async function applyPersonalityUpdate({
   return runIdentityRewrite({
     assistantId,
     content: buildPersonalityMessage(values, undefined, assistantName),
-    title: "Updating personality",
+    title: t("applyPersonalityUpdate.conversationTitle", {
+      ns: "intelligence",
+    }),
     context: "identity_personality_update",
   });
 }

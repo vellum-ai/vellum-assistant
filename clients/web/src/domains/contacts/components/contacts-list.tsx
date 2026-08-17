@@ -6,7 +6,6 @@ import {
   Search,
   UserPlus,
 } from "lucide-react";
-import { useState } from "react";
 
 import { Button } from "@vellumai/design-library/components/button";
 import { Card } from "@vellumai/design-library/components/card";
@@ -31,6 +30,13 @@ interface ContactsListProps {
   onSelect: (selection: ContactSelection) => void;
   onAddContact: () => void;
   addingContact?: boolean;
+  /**
+   * The name filter, owned by the page. This list renders in two surfaces
+   * that substitute for each other, and switching between them remounts it,
+   * so state held here would be dropped when the pane crosses the threshold.
+   */
+  search: string;
+  onSearchChange: (search: string) => void;
 }
 
 export function ContactsList({
@@ -42,9 +48,10 @@ export function ContactsList({
   onSelect,
   onAddContact,
   addingContact = false,
+  search,
+  onSearchChange,
 }: ContactsListProps) {
   const { t } = useTranslation("contacts");
-  const [search, setSearch] = useState("");
   const filtered = search.trim()
     ? regularContacts.filter((c) =>
         c.displayName.toLowerCase().includes(search.trim().toLowerCase()),
@@ -116,7 +123,7 @@ export function ContactsList({
           <Input
             type="text"
             value={search}
-            onChange={(e) => setSearch(e.target.value)}
+            onChange={(e) => onSearchChange(e.target.value)}
             placeholder={t("contactsList.searchPlaceholder")}
             leftIcon={<Search className="h-3.5 w-3.5" aria-hidden />}
             fullWidth

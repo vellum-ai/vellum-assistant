@@ -1,5 +1,7 @@
 import { Select } from "@vellumai/design-library/components/select";
 
+import { useTranslation } from "@/i18n";
+
 interface ProfileOption {
   value: string;
   label: string;
@@ -36,24 +38,25 @@ export function AdvisorProfileRow({
   disabled,
   onChange,
 }: AdvisorProfileRowProps) {
+  const { t } = useTranslation("settings");
+
   return (
     <div className="rounded-lg border border-[var(--border-base)] bg-[var(--surface-overlay)] p-3">
       <div className="flex flex-col gap-3">
         <div className="min-w-0">
           {/* typography: off-scale. Matches the call-site row's name treatment */}
           <p className="text-body-medium-default font-medium text-[var(--content-default)]">
-            Advisor
+            {t("advisorProfileRow.title")}
           </p>
           <p className="mt-0.5 text-body-small-default text-[var(--content-tertiary)]">
-            The profile your assistant consults for a second opinion when it
-            wants to check a plan or review its own work.
+            {t("advisorProfileRow.description")}
           </p>
         </div>
         <Select
           value={value}
           onChange={onChange}
           options={profileOptions}
-          placeholder="Choose profile…"
+          placeholder={t("advisorProfileRow.chooseProfilePlaceholder")}
           className="w-44"
           menuMinWidth={280}
           menuAlign="start"

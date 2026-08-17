@@ -18,6 +18,7 @@ import {
 } from "@/generated/daemon/@tanstack/react-query.gen";
 import { useEdgeSwipeBack } from "@/hooks/use-edge-swipe-back";
 import { useIsMobile } from "@/hooks/use-is-mobile";
+import { useTranslation } from "@/i18n";
 import { routes } from "@/utils/routes";
 import { Button } from "@vellumai/design-library";
 
@@ -30,6 +31,7 @@ import { Button } from "@vellumai/design-library";
  * navigates back to the list.
  */
 export function SkillDetailPage() {
+  const { t } = useTranslation("intelligence");
   const assistantId = useActiveAssistantId();
   const { skillId } = useParams<{ skillId: string }>();
   const navigate = useNavigate();
@@ -145,8 +147,8 @@ export function SkillDetailPage() {
     return (
       <SkillsStateCard
         icon={SearchX}
-        title="Skill not found"
-        subtitle="This skill may have been removed, or the link is out of date."
+        title={t("skillDetailPage.notFoundTitle")}
+        subtitle={t("skillDetailPage.notFoundSubtitle")}
       >
         <Button
           type="button"
@@ -155,7 +157,7 @@ export function SkillDetailPage() {
           leftIcon={<ArrowLeft aria-hidden />}
           onClick={handleBack}
         >
-          Back to My Superpowers
+          {t("skillDetailPage.backToSuperpowers")}
         </Button>
       </SkillsStateCard>
     );
