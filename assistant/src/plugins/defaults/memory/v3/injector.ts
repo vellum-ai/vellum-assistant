@@ -286,6 +286,11 @@ export const memoryV3Injector: Injector = {
     if (!isPersonalMemoryAllowed(ctx.trust)) {
       return null;
     }
+    // The front door keeps carried cards from history but defers current-turn
+    // retrieval to the escalated leg so memory cannot delay its first token.
+    if (ctx.callSite === "voiceFrontDoor") {
+      return null;
+    }
 
     let observed: OrchestrateResult | null;
     try {
@@ -410,6 +415,9 @@ export const memoryV3SpotlightInjector: Injector = {
       return null;
     }
     if (!isPersonalMemoryAllowed(ctx.trust)) {
+      return null;
+    }
+    if (ctx.callSite === "voiceFrontDoor") {
       return null;
     }
 

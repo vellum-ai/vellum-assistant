@@ -38,6 +38,7 @@ let assistantsValue: ResolvedAssistant[] = [];
 let localModeHostAvailableValue = false;
 let isLocalClientValue = true;
 let assistantSwitcherValue = false;
+let webRemoteIngressValue = true;
 let flagsHydratedValue = true;
 let originsValue: RememberedOrigin[] = [];
 let originsHydratedValue = true;
@@ -109,6 +110,15 @@ mock.module("react-router", () => ({
   useSearchParams: () => [searchParams, setSearchParamsMock],
 }));
 
+// The screen refreshes the platform assistants list on mount; the real module
+// drags in @/assistant/api and the event bus, so it is fully mocked here.
+const refreshPlatformAssistantsIfStaleMock = mock(async () => {});
+mock.module("@/assistant/platform-assistants-sync", () => ({
+  refreshPlatformAssistantsIfStale: refreshPlatformAssistantsIfStaleMock,
+  reloadPlatformAssistants: async () => {},
+  setupPlatformAssistantsSync: () => () => {},
+}));
+
 mock.module("@/assistant/selection", () => ({
   resolveSelectedAssistantId: () => null,
   // Imported by switch-service (pulled in for the paired-removal branch);
@@ -145,6 +155,7 @@ mock.module("@/stores/client-feature-flag-store", () => ({
   useClientFeatureFlagStore: {
     use: {
       assistantSwitcher: () => assistantSwitcherValue,
+      webRemoteIngress: () => webRemoteIngressValue,
       hydrated: () => flagsHydratedValue,
     },
   },
@@ -458,6 +469,7 @@ beforeEach(() => {
   isElectronValue = false;
   isLocalClientValue = true;
   assistantSwitcherValue = false;
+  webRemoteIngressValue = true;
   flagsHydratedValue = true;
   originsValue = [];
   originsHydratedValue = true;
@@ -489,6 +501,7 @@ beforeEach(() => {
   removePlatformAssistantFromLockfileMock.mockClear();
   activeAssistantIdValue = null;
   setActiveAssistantIdMock.mockClear();
+  refreshPlatformAssistantsIfStaleMock.mockClear();
   __resetConnectDialogForTesting();
 });
 
@@ -1349,6 +1362,16 @@ describe("SelectAssistantScreen add-remote-assistant affordance", () => {
     expect(screen.queryByText("Add a remote assistant")).toBeNull();
   });
 
+  test("is hidden when web-remote-ingress is off", () => {
+    assistantSwitcherValue = true;
+    webRemoteIngressValue = false;
+    assistantsValue = [makePairedAssistant(), makePlatformAssistant()];
+
+    render(<SelectAssistantScreen />);
+
+    expect(screen.queryByText("Add a remote assistant")).toBeNull();
+  });
+
   test("an added origin closes the dialog and switches to it", async () => {
     assistantSwitcherValue = true;
     assistantsValue = [makePairedAssistant(), makePlatformAssistant()];
@@ -1661,5 +1684,15 @@ describe("SelectAssistantScreen local registrations on the platform hub", () => 
       expect(connectLocalAssistantMock).toHaveBeenCalledWith("asst-local"),
     );
     expect(connectPlatformAssistantMock).not.toHaveBeenCalled();
+  });
+
+  test("refreshes the platform assistants list on mount", async () => {
+    assistantsValue = [makePlatformAssistant()];
+
+    render(<SelectAssistantScreen />);
+
+    await waitFor(() =>
+      expect(refreshPlatformAssistantsIfStaleMock).toHaveBeenCalledTimes(1),
+    );
   });
 });

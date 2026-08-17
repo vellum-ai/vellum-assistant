@@ -512,6 +512,10 @@ export class ConversationGraphMemory {
    * - Turn 1 (or after compaction): full context load
    * - Every other turn: per-turn injection
    *
+   * `routingMessages` may end before an internal continuation message. The
+   * retrievers derive their query from that view, while memory is still
+   * injected into `messages`, which is the history sent to the model.
+   *
    * Returns augmented messages with memory context prepended to the last
    * user message, following the same injection pattern as the old system.
    */
@@ -520,6 +524,7 @@ export class ConversationGraphMemory {
     config: AssistantConfig,
     abortSignal: AbortSignal,
     onEvent: (msg: AssistantEvent) => void,
+    routingMessages: Message[] = messages,
   ): Promise<{
     runMessages: Message[];
     injectedTokens: number;
@@ -579,7 +584,7 @@ export class ConversationGraphMemory {
 
     // Gate: skip for empty/tool-result-only messages — unless we need to
     // reload after compaction (needsReload) or haven't initialized yet.
-    const lastMessage = messages[messages.length - 1];
+    const lastMessage = routingMessages[routingMessages.length - 1];
     if (!lastMessage || lastMessage.role !== "user") {
       return noopResult;
     }
@@ -598,6 +603,7 @@ export class ConversationGraphMemory {
 
         return await this.runContextLoad(
           messages,
+          routingMessages,
           config,
           recentSummaries,
           firstUserText ?? undefined,
@@ -606,7 +612,12 @@ export class ConversationGraphMemory {
         );
       }
 
-      return await this.runPerTurn(messages, config, abortSignal);
+      return await this.runPerTurn(
+        messages,
+        routingMessages,
+        config,
+        abortSignal,
+      );
     } catch (err) {
       const errCode =
         err instanceof z.ZodError ? err.issues[0]?.code : undefined;
@@ -629,6 +640,7 @@ export class ConversationGraphMemory {
 
   private async runContextLoad(
     messages: Message[],
+    routingMessages: Message[],
     config: AssistantConfig,
     recentSummaries: string[],
     userQuery: string | undefined,
@@ -640,9 +652,12 @@ export class ConversationGraphMemory {
     // The activation pipeline is robust to weak ANN signal — it falls back
     // to spreading + nowText to surface candidates.
     const startedAt = Date.now();
-    const rawUserText = readRawUserText(messages[messages.length - 1]);
+    const rawUserText = readRawUserText(
+      routingMessages[routingMessages.length - 1],
+    );
     const v2 = await this.maybeRouteV2Injection(
       messages,
+      routingMessages,
       config,
       "context-load",
       // Context-load runs before the messages array necessarily contains
@@ -780,6 +795,7 @@ export class ConversationGraphMemory {
 
   private async runPerTurn(
     messages: Message[],
+    routingMessages: Message[],
     config: AssistantConfig,
     signal: AbortSignal,
   ) {
@@ -788,8 +804,8 @@ export class ConversationGraphMemory {
     let userLast = "";
     let userLastBlocks: ContentBlock[] = [];
 
-    for (let i = messages.length - 1; i >= 0; i--) {
-      const msg = messages[i];
+    for (let i = routingMessages.length - 1; i >= 0; i--) {
+      const msg = routingMessages[i];
       const text = msg.content
         .filter(
           (b): b is Extract<typeof b, { type: "text" }> => b.type === "text",
@@ -815,6 +831,7 @@ export class ConversationGraphMemory {
     const startedAt = Date.now();
     const v2 = await this.maybeRouteV2Injection(
       messages,
+      routingMessages,
       config,
       "per-turn",
       null,
@@ -978,6 +995,7 @@ export class ConversationGraphMemory {
    */
   private async maybeRouteV2Injection(
     messages: Message[],
+    routingMessages: Message[],
     config: AssistantConfig,
     mode: InjectMemoryV2Mode,
     /**
@@ -1004,7 +1022,7 @@ export class ConversationGraphMemory {
     const recentTurnPairs =
       userMessageOverride !== null
         ? [{ assistantMessage: "", userMessage: userMessageOverride }]
-        : extractRecentTurnPairs(messages, historicalPairs);
+        : extractRecentTurnPairs(routingMessages, historicalPairs);
 
     const result = await injectMemoryV2Block({
       conversationId: this.conversationId,

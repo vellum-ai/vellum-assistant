@@ -85,7 +85,17 @@ export function detectOpenAICompatibleContextOverflow(
     /context.?length.?exceeded|context.?window.?exceeded|prompt.?is.?too.?long|prompt_too_long|input.?too.?long|too.?many.?(?:input.?)?tokens|maximum.?context/i.test(
       message,
     );
-  if (!codeMatches && !messageMatches) {
+  // string_above_max_length is OpenAI's generic oversized-string validation
+  // code, so only treat it as overflow when the error points at a message
+  // content part (e.g. "Invalid 'input[191].content[1].text': string too
+  // long" — OpenAI's per-part 10 MiB cap). The overflow ladder can shrink
+  // message content (media stubbing collapses a file's extracted_text to a
+  // preview) but cannot fix other oversized fields like tool definitions.
+  const oversizedContentPart =
+    /string.?too.?long|string_above_max_length/i.test(
+      `${code ?? ""} ${message}`,
+    ) && /\b(?:input|messages)\[\d+\]\.content/i.test(message);
+  if (!codeMatches && !messageMatches && !oversizedContentPart) {
     return null;
   }
   // OpenAI-compatible providers rarely report usable token counts; best-effort extract.
