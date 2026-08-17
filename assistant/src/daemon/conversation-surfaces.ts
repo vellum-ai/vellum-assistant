@@ -139,6 +139,16 @@ const ModelActionSchema = SurfaceActionSchema.extend({
 const MAX_UNDO_DEPTH = 10;
 
 /**
+ * Whether a surface-action turn (a user clicked a button or submitted a form on
+ * a UI surface) runs with a human declared present. The handler does not yet
+ * learn the actor's interface, so it cannot declare presence the way the send
+ * route does; the turn runs non-interactive, which is what the state-derived
+ * fallback resolved to between turns. Deriving it from the actor's interface
+ * is a policy change tracked separately.
+ */
+const SURFACE_ACTION_TURN_IS_INTERACTIVE = false;
+
+/**
  * Pending surface types that do not hold the one-interactive-surface-at-a-time
  * lock. Each renders content the user reads (or settles on its own) rather
  * than a question they must answer, so a live one must not block the next
@@ -2212,12 +2222,7 @@ export async function handleSurfaceAction(
       activeSurfaceId: surfaceId,
       displayContent,
       sourceActorPrincipalId,
-      // A surface-action turn does not yet learn the actor's interface, so it
-      // cannot declare a human present the way the send route does; it runs
-      // non-interactive, which is what the state-derived fallback resolved to
-      // between turns. Deriving it from the actor's interface is a policy
-      // change tracked separately.
-      isInteractive: false,
+      isInteractive: SURFACE_ACTION_TURN_IS_INTERACTIVE,
       // Rides the metadata bag rather than a typed option: the queue
       // round-trips `metadata` but not `PersistMessageOptions`.
       metadata: { scripted: isSyntheticSurfaceActionContent(content) },
@@ -2280,8 +2285,7 @@ export async function handleSurfaceAction(
         activeSurfaceId: surfaceId,
         displayContent,
         sourceActorPrincipalId,
-        // Same interactivity rule as the queued branch above.
-        isInteractive: false,
+        isInteractive: SURFACE_ACTION_TURN_IS_INTERACTIVE,
         scripted: isSyntheticSurfaceActionContent(content),
       })
       .catch((err) => {
@@ -2468,8 +2472,7 @@ export async function handleSurfaceAction(
     activeSurfaceId: surfaceId,
     displayContent,
     sourceActorPrincipalId,
-    // Same interactivity rule as the queued branch above.
-    isInteractive: false,
+    isInteractive: SURFACE_ACTION_TURN_IS_INTERACTIVE,
     // Rides the metadata bag rather than a typed option: the queue
     // round-trips `metadata` but not `PersistMessageOptions`.
     metadata: { scripted: isSyntheticSurfaceActionContent(content) },
@@ -2542,8 +2545,7 @@ export async function handleSurfaceAction(
       activeSurfaceId: surfaceId,
       displayContent,
       sourceActorPrincipalId,
-      // Same interactivity rule as the queued branch above.
-      isInteractive: false,
+      isInteractive: SURFACE_ACTION_TURN_IS_INTERACTIVE,
       scripted: isSyntheticSurfaceActionContent(content),
     })
     .catch((err) => {
