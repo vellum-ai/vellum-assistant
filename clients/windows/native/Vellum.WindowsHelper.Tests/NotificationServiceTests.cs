@@ -36,7 +36,7 @@ public static class NotificationServiceTests
         var service = new NotificationService(_ =>
         {
             delivered++;
-            return new NotificationService.ShowResponse(true, null);
+            return ValueTask.FromResult(new NotificationService.ShowResponse(true, null));
         });
         using var missingFields = JsonDocument.Parse("{\"token\":\"x\"}");
         var invalidResult = await service.InvokeAsync(

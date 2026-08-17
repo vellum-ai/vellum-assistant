@@ -33,18 +33,24 @@ public sealed class NotificationService : IRpcModule, INotificationAdapter
     private readonly Dictionary<string, ToastNotification> _liveToasts =
         new(StringComparer.Ordinal);
 
-    private readonly Func<ShowRequest, ShowResponse> _deliver;
+    // Windows reports a rejected post asynchronously via ToastNotification
+    // .Failed; the ack waits this long for it so a rejection is not
+    // acknowledged as delivered.
+    private const int FailedEventGraceMs = 250;
+
+    private readonly Func<ShowRequest, ValueTask<ShowResponse>> _deliver;
 
     public NotificationService() => _deliver = Deliver;
 
     /// <summary>Test seam: replaces the OS delivery path.</summary>
-    public NotificationService(Func<ShowRequest, ShowResponse> deliver) => _deliver = deliver;
+    public NotificationService(Func<ShowRequest, ValueTask<ShowResponse>> deliver) =>
+        _deliver = deliver;
 
     public string CapabilityId => "notifications";
 
     public IReadOnlyCollection<string> Methods { get; } = [ShowMethod];
 
-    public ValueTask<object?> InvokeAsync(
+    public async ValueTask<object?> InvokeAsync(
         string method,
         JsonElement? parameters,
         CancellationToken cancellationToken)
@@ -53,10 +59,9 @@ public sealed class NotificationService : IRpcModule, INotificationAdapter
         {
             throw new RpcMethodNotFoundException(method);
         }
-        return ValueTask.FromResult<object?>(
-            TryParseShowRequest(parameters, out var request, out var error)
-                ? _deliver(request)
-                : new ShowResponse(false, error));
+        return TryParseShowRequest(parameters, out var request, out var error)
+            ? await _deliver(request)
+            : new ShowResponse(false, error);
     }
 
     public sealed record ShowRequest(
@@ -165,7 +170,7 @@ public sealed class NotificationService : IRpcModule, INotificationAdapter
                 : new { token, kind },
         });
 
-    private ShowResponse Deliver(ShowRequest request)
+    private async ValueTask<ShowResponse> Deliver(ShowRequest request)
     {
         try
         {
@@ -178,22 +183,32 @@ public sealed class NotificationService : IRpcModule, INotificationAdapter
             var xml = new XmlDocument();
             xml.LoadXml(BuildToastXml(request));
             var toast = new ToastNotification(xml);
+            var failure = new TaskCompletionSource<string>(
+                TaskCreationOptions.RunContinuationsAsynchronously);
             toast.Activated += (_, args) => OnActivated(request.Token, args);
             toast.Dismissed += (_, _) => Untrack(request.Token);
-            toast.Failed += (_, _) => Untrack(request.Token);
+            toast.Failed += (_, args) =>
+            {
+                Untrack(request.Token);
+                _ = failure.TrySetResult(args.ErrorCode?.Message ?? "Toast delivery failed");
+            };
             Track(request.Token, toast);
             notifier.Show(toast);
-            return new ShowResponse(true, null);
+            var completed = await Task.WhenAny(failure.Task, Task.Delay(FailedEventGraceMs));
+            return completed == failure.Task
+                ? new ShowResponse(false, await failure.Task)
+                : new ShowResponse(true, null);
         }
         catch (Exception exception)
         {
+            Untrack(request.Token);
             return new ShowResponse(false, exception.Message);
         }
     }
 
     /// <summary>An unpackaged app can only post toasts under a registered
     /// AppUserModelId; the per-user classes key is the documented no-installer
-    /// registration. The installer (plan PR 25) owns the packaged app's.</summary>
+    /// registration. Installed builds can replace it with a shortcut-based one.</summary>
     private static void EnsureAppIdRegistered()
     {
         if (_appIdRegistered)

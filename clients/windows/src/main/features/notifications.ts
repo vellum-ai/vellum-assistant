@@ -48,8 +48,8 @@ const SHOW_RESULT_SCHEMA = z.object({
 
 export const resolveHelperPath = (): string | null => {
   const override = process.env["VELLUM_WINDOWS_HELPER_PATH"];
-  // `resourcesPath` (the packaged location, wired by plan PR 25) is only set
-  // under an Electron runtime; the app-path candidate is the dev publish dir.
+  // `resourcesPath` (the packaged install's resources dir) is only set under
+  // an Electron runtime; the app-path candidate is the dev publish dir.
   const resourcesPath: string | undefined = process.resourcesPath;
   const tail = ["native-helper", process.arch, HELPER_EXECUTABLE];
   const candidates = [
