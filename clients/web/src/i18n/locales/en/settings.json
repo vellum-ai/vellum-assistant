@@ -141,6 +141,12 @@
     "title": "Image Generation",
     "vellumNote": "Image generation runs through your Vellum account."
   },
+  "integrationsPage": {
+    "filterAriaLabel": "Filter integrations",
+    "filterAll": "All",
+    "filterEnabled": "Enabled",
+    "filterNotEnabled": "Not Enabled"
+  },
   "languageModelCard": {
     "defaultProviderUnavailable": "Your default provider is not available.",
     "manage": "Manage",
