@@ -60,7 +60,9 @@
     "unnamedAssistant": "the assistant",
     "connectingToAssistant": "Connecting to your assistant…",
     "rowActionsAriaLabel": "Actions for {name}",
-    "removeFromDevice": "Remove from this device…"
+    "removeFromDevice": "Remove from this device…",
+    "selfHosted": "Self-hosted",
+    "selfHostedWithHost": "Self-hosted · {host}"
   },
   "hatchingScreen": {
     "apiKeyFailed": "Your API key didn't work",

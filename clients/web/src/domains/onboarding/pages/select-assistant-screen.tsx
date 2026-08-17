@@ -63,6 +63,7 @@ import { pairedHostLabel } from "@vellumai/local-mode/contract";
 import { Button } from "@vellumai/design-library/components/button";
 import { Menu } from "@vellumai/design-library/components/menu";
 import { useTranslation } from "@/i18n";
+import type { TFunction } from "i18next";
 
 function assistantLabel(a: ResolvedAssistant): string {
   if (a.name) {
@@ -75,24 +76,32 @@ function assistantLabel(a: ResolvedAssistant): string {
 }
 
 /** A hub-listed self-hosted entry lives on another machine; name its host. */
-function selfHostedHostLabel(ingressUrl: string | null | undefined): string {
+function selfHostedHostLabel(
+  ingressUrl: string | null | undefined,
+  t: TFunction<"onboarding">,
+): string {
   if (ingressUrl) {
     try {
-      return `Self-hosted · ${new URL(ingressUrl).hostname}`;
+      return t("selectAssistantScreen.selfHostedWithHost", {
+        host: new URL(ingressUrl).hostname,
+      });
     } catch {
       // Unparseable ingress url: plain label.
     }
   }
-  return "Self-hosted";
+  return t("selectAssistantScreen.selfHosted");
 }
 
-function assistantSubtitle(a: ResolvedAssistant): string {
+function assistantSubtitle(
+  a: ResolvedAssistant,
+  t: TFunction<"onboarding">,
+): string {
   const hosting = a.isPaired
     ? pairedHostLabel(a.runtimeUrl)
     : a.isLocal
       ? isLocalClient()
         ? "On this computer"
-        : selfHostedHostLabel(a.ingressUrl)
+        : selfHostedHostLabel(a.ingressUrl, t)
       : "Cloud-hosted";
   if (!a.hatchedAt) {
     return hosting;
@@ -1175,6 +1184,7 @@ function AssistantCard({
   /** Present when the entry can be forgotten on this device: opens the confirm. */
   onRemove?: () => void;
 }) {
+  const { t } = useTranslation("onboarding");
   const label = assistantLabel(assistant);
   return (
     <ChooserCard
@@ -1188,7 +1198,7 @@ function AssistantCard({
         )
       }
       title={label}
-      subtitle={assistantSubtitle(assistant)}
+      subtitle={assistantSubtitle(assistant, t)}
       selected={selected}
       locked={locked}
       tabStop={tabStop}
