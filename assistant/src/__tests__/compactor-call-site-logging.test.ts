@@ -51,7 +51,11 @@ mock.module("../persistence/llm-request-log-store.js", () => ({
 }));
 
 import { runAssistantDrivenCompaction } from "../context/compactor.js";
-import type { Message, Provider } from "../providers/types.js";
+import type {
+  Message,
+  Provider,
+  SendMessageOptions,
+} from "../providers/types.js";
 
 const TAIL_TIMESTAMP =
   "2026-05-21 (Thursday) 10:00:00 -05:00 (America/Chicago)";
@@ -73,18 +77,24 @@ Earlier turns summarized here.
 const RAW_REQUEST = { model: "mock-model", messages: [] };
 const RAW_RESPONSE = { id: "resp-1", content: compactionResponse };
 
+/** Options the most recent makeProvider sendMessage call received. */
+let lastSendOptions: SendMessageOptions | undefined;
+
 function makeProvider(): Provider {
   return {
     name: "mock-provider",
-    sendMessage: async () => ({
-      content: [{ type: "text", text: compactionResponse }],
-      model: "mock-model",
-      actualProvider: "actual-mock-provider",
-      usage: { inputTokens: 100, outputTokens: 50 },
-      stopReason: "end_turn",
-      rawRequest: RAW_REQUEST,
-      rawResponse: RAW_RESPONSE,
-    }),
+    sendMessage: async (_messages, options) => {
+      lastSendOptions = options;
+      return {
+        content: [{ type: "text", text: compactionResponse }],
+        model: "mock-model",
+        actualProvider: "actual-mock-provider",
+        usage: { inputTokens: 100, outputTokens: 50 },
+        stopReason: "end_turn",
+        rawRequest: RAW_REQUEST,
+        rawResponse: RAW_RESPONSE,
+      };
+    },
   };
 }
 
@@ -151,6 +161,12 @@ describe("compactor records llm_request_logs with call_site=compactionAgent", ()
   test("successful compaction call stamps call_site = compactionAgent", async () => {
     await runAssistantDrivenCompaction(args(makeProvider()));
 
+    // The send config carries the conversation id so the billing-origin
+    // fallback attributes the call to the same conversation the manual
+    // usage recording does.
+    expect(lastSendOptions?.config?.conversationId).toBe(
+      "conv-compaction-log-1",
+    );
     expect(recordRequestLogCalls.length).toBe(1);
     expect(recordRequestLogCalls[0]!.callSite).toBe("compactionAgent");
     expect(recordRequestLogCalls[0]!.conversationId).toBe(

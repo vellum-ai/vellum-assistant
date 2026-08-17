@@ -1273,6 +1273,10 @@ export async function runAssistantDrivenCompaction(
       signal: args.signal,
       config: {
         callSite: COMPACTION_CALL_SITE,
+        // Billing-origin attribution: the fallback in `RetryProvider` derives
+        // origin headers from this id, matching the conversation the manual
+        // usage recording below attributes the call to.
+        conversationId: args.conversationId,
         usageTracking: "manual",
         tool_choice: { type: "none" },
         ...(args.overrideProfile
@@ -1743,6 +1747,8 @@ export async function runEmergencyCompaction(
       signal: args.signal,
       config: {
         callSite: COMPACTION_CALL_SITE,
+        // Billing-origin attribution, matching the assistant-driven path.
+        conversationId: args.conversationId,
         usageTracking: "manual",
         tool_choice: { type: "none" },
         ...(args.overrideProfile
