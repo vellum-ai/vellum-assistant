@@ -9,11 +9,9 @@
  * both have to be told where that edge is. One owner for the answer, so a
  * second surface cannot disagree with the first about where the header ends.
  *
- * Being portalled out is the reason this measurement exists at all, and the
- * eventual fix is upstream: `chat-layout.tsx` publishing the edge as a CSS
- * custom property that a `fixed` surface reads with `top: var(…)` and no JS.
- * That is not reachable today, because the header's viewport offset moves with
- * the iOS keyboard through `visualViewport` scroll, which CSS cannot observe.
+ * The edge is measured in JavaScript rather than expressed in CSS because it
+ * moves with the iOS keyboard through `visualViewport` scroll, which no CSS
+ * unit or media query can observe.
  *
  * The value is the header's `bottom` in viewport coordinates, NOT its height.
  * The two are equal only when the header starts at y=0, and it usually does
@@ -49,17 +47,41 @@ export function useChatHeaderBottom(): number {
     const measure = () => {
       setBottom(header.getBoundingClientRect().bottom);
     };
-    measure();
     const observer = new ResizeObserver(measure);
+    // Anything laid out above the header in the same flow moves this edge
+    // without changing the header's own box: on a phone an off-conversation
+    // voice session rides above it as a full-width row and pushes it down. So
+    // the whole row of siblings is observed, not just the header. `observe` is
+    // idempotent, so re-observing on later mutations is safe.
+    const row = header.parentElement;
+    const observeRow = () => {
+      for (const sibling of Array.from(row?.children ?? [])) {
+        observer.observe(sibling);
+      }
+    };
+    measure();
     observer.observe(header);
-    // The observer covers the header's own box changing. Its viewport offset
-    // moves for reasons the observer never sees: a rotation changing the notch
+    observeRow();
+    // A sibling mounting or unmounting (that session starting or ending)
+    // displaces the header without resizing anything already observed, so
+    // watch the row for child add/remove and pick up any late arrival.
+    let rowObserver: MutationObserver | undefined;
+    if (row && typeof MutationObserver !== "undefined") {
+      rowObserver = new MutationObserver(() => {
+        observeRow();
+        measure();
+      });
+      rowObserver.observe(row, { childList: true });
+    }
+    // The observers cover boxes changing. The header's viewport offset also
+    // moves for reasons no box change reports: a rotation changing the notch
     // inset, or the iOS keyboard opening and shifting the whole shell down.
     window.addEventListener("resize", measure);
     window.visualViewport?.addEventListener("resize", measure);
     window.visualViewport?.addEventListener("scroll", measure);
     return () => {
       observer.disconnect();
+      rowObserver?.disconnect();
       window.removeEventListener("resize", measure);
       window.visualViewport?.removeEventListener("resize", measure);
       window.visualViewport?.removeEventListener("scroll", measure);
