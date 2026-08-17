@@ -1,8 +1,11 @@
 /**
  * `useActiveConversation` resolves the open conversation's metadata row from
- * either list cache, and fetches the single row on demand when an open
- * background/scheduled thread is in neither — without loading the whole
- * background backlog.
+ * whichever list cache holds it, and fetches the single row on demand when
+ * no cache does, without loading any list onto the render path.
+ *
+ * The list caches are real here (a seeded QueryClient), not stubbed: the
+ * property under test is that the row is found wherever it lives, which a
+ * stub of the lookup could only assert about itself.
  */
 
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
@@ -12,23 +15,20 @@ import type { ReactNode } from "react";
 import { createElement } from "react";
 
 import type { Conversation } from "@/types/conversation-types";
+import {
+  archivedConversationsQueryKey,
+  backgroundConversationsQueryKey,
+  conversationsQueryKey,
+  scheduledConversationsQueryKey,
+  sectionConversationsQueryKey,
+} from "@/utils/conversation-list-fetchers";
+import { listPage } from "@/utils/conversation-list.test-helper";
 
-let foregroundImpl: Conversation[] = [];
-let backgroundImpl: Conversation[] = [];
-let scheduledImpl: Conversation[] = [];
-let archivedImpl: Conversation[] = [];
 let isOrgReadyImpl = true;
 const refreshConversationRowCalls: Array<{
   assistantId: string | null;
   conversationId: string;
 }> = [];
-
-mock.module("@/hooks/conversation-queries", () => ({
-  useConversationListQuery: () => ({ conversations: foregroundImpl }),
-  useBackgroundConversationListQuery: () => ({ conversations: backgroundImpl }),
-  useScheduledConversationListQuery: () => ({ conversations: scheduledImpl }),
-  useArchivedConversationListQuery: () => ({ conversations: archivedImpl }),
-}));
 
 mock.module("@/hooks/use-is-org-ready", () => ({
   useIsOrgReady: () => isOrgReadyImpl,
@@ -55,17 +55,21 @@ function makeConversation(conversationId: string): Conversation {
   return { conversationId } as Conversation;
 }
 
+const ASSISTANT_ID = "asst-1";
+let client: QueryClient;
+
+function seed(queryKey: readonly unknown[], rows: Conversation[]): void {
+  client.setQueryData(queryKey, listPage(rows));
+}
+
 function wrapper({ children }: { children: ReactNode }) {
-  const client = new QueryClient({
-    defaultOptions: { queries: { retry: false, gcTime: 0 } },
-  });
   return createElement(QueryClientProvider, { client }, children);
 }
 
 beforeEach(() => {
-  foregroundImpl = [];
-  backgroundImpl = [];
-  scheduledImpl = [];
+  client = new QueryClient({
+    defaultOptions: { queries: { retry: false, gcTime: 0 } },
+  });
   isOrgReadyImpl = true;
   refreshConversationRowCalls.length = 0;
 });
@@ -77,11 +81,11 @@ afterEach(() => {
 describe("useActiveConversation", () => {
   test("returns the foreground row without fetching", () => {
     // GIVEN the active conversation is already in the foreground list
-    foregroundImpl = [makeConversation("fg-1")];
+    seed(conversationsQueryKey(ASSISTANT_ID), [makeConversation("fg-1")]);
 
     // WHEN the hook resolves the active conversation
     const { result } = renderHook(
-      () => useActiveConversation("asst-1", "fg-1", true),
+      () => useActiveConversation(ASSISTANT_ID, "fg-1", true),
       { wrapper },
     );
 
@@ -92,11 +96,13 @@ describe("useActiveConversation", () => {
 
   test("returns a background-cache row without fetching", () => {
     // GIVEN the active conversation is only in the background cache
-    backgroundImpl = [makeConversation("bg-1")];
+    seed(backgroundConversationsQueryKey(ASSISTANT_ID), [
+      makeConversation("bg-1"),
+    ]);
 
     // WHEN the hook resolves the active conversation
     const { result } = renderHook(
-      () => useActiveConversation("asst-1", "bg-1", true),
+      () => useActiveConversation(ASSISTANT_ID, "bg-1", true),
       { wrapper },
     );
 
@@ -107,11 +113,13 @@ describe("useActiveConversation", () => {
 
   test("returns a scheduled-cache row without fetching", () => {
     // GIVEN the active conversation is only in the scheduled cache
-    scheduledImpl = [makeConversation("sch-1")];
+    seed(scheduledConversationsQueryKey(ASSISTANT_ID), [
+      makeConversation("sch-1"),
+    ]);
 
     // WHEN the hook resolves the active conversation
     const { result } = renderHook(
-      () => useActiveConversation("asst-1", "sch-1", true),
+      () => useActiveConversation(ASSISTANT_ID, "sch-1", true),
       { wrapper },
     );
 
@@ -122,11 +130,13 @@ describe("useActiveConversation", () => {
 
   test("returns an archived-cache row without fetching", () => {
     // GIVEN the active conversation is only in the archived cache
-    archivedImpl = [makeConversation("arc-1")];
+    seed(archivedConversationsQueryKey(ASSISTANT_ID), [
+      makeConversation("arc-1"),
+    ]);
 
     // WHEN the hook resolves the active conversation
     const { result } = renderHook(
-      () => useActiveConversation("asst-1", "arc-1", true),
+      () => useActiveConversation(ASSISTANT_ID, "arc-1", true),
       { wrapper },
     );
 
@@ -135,14 +145,31 @@ describe("useActiveConversation", () => {
     expect(refreshConversationRowCalls).toHaveLength(0);
   });
 
-  test("fetches the single row when the active thread is in neither list", async () => {
-    // GIVEN neither list holds the open background/scheduled thread
-    foregroundImpl = [makeConversation("fg-1")];
-    backgroundImpl = [];
+  test("returns a row that lives only in a section cache without fetching", () => {
+    // GIVEN the row is in a pinned-section window and no drained list. The
+    // four-list scan this hook replaced could not see it and would have
+    // fetched a row it already had.
+    seed(
+      sectionConversationsQueryKey(ASSISTANT_ID, { groupId: "system:pinned" }),
+      [makeConversation("pin-1")],
+    );
+
+    const { result } = renderHook(
+      () => useActiveConversation(ASSISTANT_ID, "pin-1", true),
+      { wrapper },
+    );
+
+    expect(result.current?.conversationId).toBe("pin-1");
+    expect(refreshConversationRowCalls).toHaveLength(0);
+  });
+
+  test("fetches the single row when the active thread is in no list", async () => {
+    // GIVEN no list holds the open background/scheduled thread
+    seed(conversationsQueryKey(ASSISTANT_ID), [makeConversation("fg-1")]);
 
     // WHEN the hook resolves an active conversation absent from both lists
     const { result } = renderHook(
-      () => useActiveConversation("asst-1", "bg-unloaded", true),
+      () => useActiveConversation(ASSISTANT_ID, "bg-unloaded", true),
       { wrapper },
     );
 
@@ -156,14 +183,15 @@ describe("useActiveConversation", () => {
   });
 
   test("does not fetch when disabled", async () => {
-    // GIVEN the active thread is in neither list AND the hook is disabled
-    foregroundImpl = [];
-    backgroundImpl = [];
+    // GIVEN the active thread is in no list AND the hook is disabled
 
     // WHEN the hook runs with `enabled: false`
-    renderHook(() => useActiveConversation("asst-1", "bg-unloaded", false), {
-      wrapper,
-    });
+    renderHook(
+      () => useActiveConversation(ASSISTANT_ID, "bg-unloaded", false),
+      {
+        wrapper,
+      },
+    );
 
     // THEN no single-row fetch is issued
     await Promise.resolve();
@@ -173,11 +201,9 @@ describe("useActiveConversation", () => {
   test("does not fetch when org is not ready", async () => {
     // GIVEN the org store has not hydrated yet
     isOrgReadyImpl = false;
-    foregroundImpl = [];
-    backgroundImpl = [];
 
     // WHEN the hook runs with org not ready
-    renderHook(() => useActiveConversation("asst-1", "bg-unloaded", true), {
+    renderHook(() => useActiveConversation(ASSISTANT_ID, "bg-unloaded", true), {
       wrapper,
     });
 

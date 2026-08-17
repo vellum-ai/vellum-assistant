@@ -13,12 +13,14 @@ import { createElement } from "react";
 import * as sdkGen from "@/generated/daemon/sdk.gen";
 import * as conversationCache from "@/utils/conversation-cache";
 import * as cacheMutations from "@/utils/conversation-cache-mutations";
+import * as conversationQueries from "@/hooks/conversation-queries";
 import { useConversationStore } from "@/stores/conversation-store";
 import { __resetForTesting, publish } from "@/lib/event-bus";
 
 // The hook fetches the conversation list and runs an initial sweep; stub
 // both so renderHook does not try to hit a real backend.
 mock.module("@/hooks/conversation-queries", () => ({
+  ...conversationQueries,
   useConversationListQuery: () => ({ conversations: [] }),
   useBackgroundConversationListQuery: () => ({ conversations: [] }),
   useScheduledConversationListQuery: () => ({ conversations: [] }),
@@ -56,9 +58,8 @@ mock.module("@/domains/chat/api/interactions", () => ({
   listConversationIdsWithPendingInteractions: async () => new Set<string>(),
 }));
 
-const { useAttentionTracking } = await import(
-  "@/domains/chat/hooks/use-attention-tracking"
-);
+const { useAttentionTracking } =
+  await import("@/domains/chat/hooks/use-attention-tracking");
 
 function wrapper({ children }: { children: ReactNode }) {
   const client = new QueryClient({
