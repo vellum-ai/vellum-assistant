@@ -46,6 +46,8 @@ catch (InvalidOperationException)
 
 Console.WriteLine("Native helper registry tests passed");
 
+DictationServiceTests.Run();
+
 static void Assert(bool condition)
 {
     if (!condition)

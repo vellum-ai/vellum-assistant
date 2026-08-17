@@ -55,6 +55,7 @@ import {
   getPreferredInputDeviceId,
 } from "@/utils/voice-input-device";
 import { canConfigureFnPushToTalk } from "@/runtime/hotkey";
+import { detectElectronHostOS } from "@/runtime/platform-detection";
 import { routes } from "@/utils/routes";
 import { VOICE_TRANSCRIPT_RECOMMENDATION } from "@/utils/voice-transcript-prefs";
 
@@ -368,7 +369,10 @@ function MicrophoneCard() {
 }
 
 function PushToTalkCard() {
-  const fnPushToTalkConfigurable = canConfigureFnPushToTalk();
+  // The Fn preset is a macOS helper contract; the Windows shell has no Fn
+  // key to claim, so its chord presets behave as focused-tab push-to-talk.
+  const fnPushToTalkConfigurable =
+    canConfigureFnPushToTalk() && detectElectronHostOS() !== "windows";
   const [activator, setActivator] = useState<PTTActivator>(() => {
     const raw = getLocalSetting(LS_PTT_ACTIVATION_KEY, "");
     return raw
