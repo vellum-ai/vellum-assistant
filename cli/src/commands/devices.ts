@@ -13,6 +13,8 @@
  * that runs the assistant (server side).
  */
 
+import type { DeviceRecord } from "@vellumai/local-mode";
+
 import {
   type AssistantEntry,
   formatAssistantReference,
@@ -30,14 +32,6 @@ import {
 } from "../lib/confirm-action.js";
 import { loopbackSafeFetch } from "../lib/loopback-fetch.js";
 
-interface DeviceRecord {
-  hashedDeviceId: string;
-  platform: string;
-  issuedAt: number | null;
-  expiresAt: number | null;
-  lastUsedAt: number | null;
-}
-
 function printUsage(): void {
   console.log(`vellum devices [beta] - List and revoke devices paired to a local assistant
 
@@ -51,6 +45,7 @@ ARGUMENTS:
 
 OPTIONS:
     --yes              Skip the interactive confirmation prompt when revoking (for automation)
+    --json             Print machine-readable JSON on stdout
 
 Lists the devices paired to a local (host-side) assistant, or revokes one by its
 hashed id. Runs on the machine that hosts the assistant — paired connections
@@ -104,7 +99,11 @@ function formatTimestamp(ms: number | null, absent: string): string {
   return new Date(ms).toISOString();
 }
 
-async function listDevices(entry: AssistantEntry, base: string): Promise<void> {
+async function listDevices(
+  entry: AssistantEntry,
+  base: string,
+  jsonOutput: boolean,
+): Promise<void> {
   const displayName = getAssistantDisplayName(entry);
 
   let response: Response;
@@ -131,6 +130,11 @@ async function listDevices(entry: AssistantEntry, base: string): Promise<void> {
 
   const body = (await response.json()) as { devices?: DeviceRecord[] };
   const devices = body.devices ?? [];
+
+  if (jsonOutput) {
+    console.log(JSON.stringify({ devices }));
+    return;
+  }
 
   if (devices.length === 0) {
     console.log(`No devices are paired to ${displayName}.`);
@@ -159,14 +163,17 @@ async function revokeDevice(
   base: string,
   hashedDeviceId: string,
   yes: boolean,
+  jsonOutput: boolean,
 ): Promise<void> {
   const displayName = getAssistantDisplayName(entry);
 
-  // Print the resolved identity before acting (cli/AGENTS.md).
-  console.log("Device to revoke:");
-  console.log(`  Assistant: ${formatAssistantReference(entry)}`);
-  console.log(`  Device:    ${hashedDeviceId}`);
-  console.log("");
+  if (!jsonOutput) {
+    // Print the resolved identity before acting (cli/AGENTS.md).
+    console.log("Device to revoke:");
+    console.log(`  Assistant: ${formatAssistantReference(entry)}`);
+    console.log(`  Device:    ${hashedDeviceId}`);
+    console.log("");
+  }
 
   if (!yes) {
     if (!canPromptForConfirmation()) {
@@ -211,18 +218,26 @@ async function revokeDevice(
     process.exit(1);
   }
 
+  if (jsonOutput) {
+    console.log(JSON.stringify({ ok: true, hashedDeviceId }));
+    return;
+  }
+
   console.log(
     `Revoked device ${hashedDeviceId} from ${displayName}. Its tokens are invalidated; that machine must re-pair to reconnect.`,
   );
 }
 
 export async function devices(): Promise<void> {
-  const args = process.argv.slice(3);
+  const rawArgs = process.argv.slice(3);
 
-  if (args.includes("--help") || args.includes("-h")) {
+  if (rawArgs.includes("--help") || rawArgs.includes("-h")) {
     printUsage();
     return;
   }
+
+  const jsonOutput = rawArgs.includes("--json");
+  const args = rawArgs.filter((a) => a !== "--json");
 
   if (args[0] === "revoke") {
     const rest = args.slice(1);
@@ -237,12 +252,12 @@ export async function devices(): Promise<void> {
     const nameArg = positionals.slice(1).join(" ") || undefined;
     const entry = resolveTargetAssistant(nameArg);
     const base = resolveLoopbackBase(entry);
-    await revokeDevice(entry, base, hashedDeviceId, yes);
+    await revokeDevice(entry, base, hashedDeviceId, yes, jsonOutput);
     return;
   }
 
   const nameArg = parseAssistantTargetArg(args, []);
   const entry = resolveTargetAssistant(nameArg);
   const base = resolveLoopbackBase(entry);
-  await listDevices(entry, base);
+  await listDevices(entry, base, jsonOutput);
 }
