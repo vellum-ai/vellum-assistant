@@ -167,7 +167,7 @@ import type { InitContext } from "@vellumai/plugin-api";
 export default async function init(ctx: InitContext): Promise<void> {
   // ctx.config            — your validated config (typed `unknown` for now)
   // ctx.logger            — pino child, bound to { plugin: <name> }
-  // ctx.pluginStorageDir  — writable dir at <workspace>/plugins-data/<name>/
+  // ctx.pluginStorageDir  — writable dir at <plugin dir>/data/
   // ctx.assistantVersion  — host semver string
 
   ctx.logger.info({ version: ctx.assistantVersion }, "init");
@@ -867,8 +867,10 @@ inside the stub, run under a stripped environment and a timeout.
 - **One contribution per file.** `hooks/init.ts` is one init hook.
   `tools/recall.ts` is one tool. No multi-export tricks.
 - **Persistence goes to `ctx.pluginStorageDir`.** The assistant allocates
-  `<workspace>/plugins-data/<plugin>/` per plugin and ensures it
-  exists before `init` runs.
+  `data/` inside each plugin's directory and ensures it exists before
+  `init` runs, migrating contents from the legacy
+  `<workspace>/plugins-data/<plugin>/` location when present. Standalone
+  workspace hooks still use `<workspace>/plugins-data/<name>/`.
 - **Logging through `ctx.logger`.** Don't roll your own pino instance
   — the runtime's child logger is bound to your plugin name.
 - **Cooperative cancellation.** Long-running tools should check
